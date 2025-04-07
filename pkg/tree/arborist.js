@@ -4,8 +4,8 @@ const fs = require("fs");
 async function getDependencyTree(packageName) {
   const arb = new Arborist({
     registry: "https://registry.npmjs.org",
-    token: "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",
-    authToken: "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",
+    token: "",
+    authToken: "",
   });
   try {
     const idealTree = await arb.buildIdealTree({
