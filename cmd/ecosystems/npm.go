@@ -2,11 +2,11 @@ package ecosystems
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
@@ -14,7 +14,8 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	drygrpc "github.com/safedep/dry/adapters/grpc"
-	"github.com/safedep/dry/crypto"
+	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/common"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 )
@@ -23,6 +24,9 @@ var (
 	packageName string
 	action      string
 )
+
+//go:embed tree/arborist.js
+var arboristJs string
 
 func NewNpmCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -40,30 +44,20 @@ func NewNpmCommand() *cobra.Command {
 	return cmd
 }
 
-func wrapNpm() {
-	// Create a file with random name which will contain the dependency tree
-	randomFileName, err := crypto.RandomString(12, "abcdefghijklmnopqrstuvwxyz0123456789")
+func wrapNpm() error {
+	data, err := common.RunPkgExtractor(common.ExtractorOptions{
+		ScriptType:    "js",
+		Interpreter:   "node",
+		PackageName:   packageName,
+		ScriptContent: arboristJs,
+		Args:          []string{},
+	})
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to generate random string: %v\n", err)
-		os.Exit(1)
-	}
-	outputFile := filepath.Join(os.TempDir(), randomFileName+".txt")
-
-	// Fetch the dependency tree using arborist
-	cmd := exec.Command("node", "pkg/tree/arborist.js", packageName, outputFile).Run()
-	if cmd != nil {
-		fmt.Println("Error while getting dependency tree: ", cmd.Error())
-		return
+		return err
 	}
 
-	// Get the extracted packages
-	data, err := os.ReadFile(outputFile)
-	if err != nil {
-		fmt.Println("Error while reading dependency tree: ", err)
-		return
-	}
-
-	lines := strings.SplitSeq(string(data), "\n")
+	lines := strings.SplitSeq(data, "\n")
 	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.Contains(line, "@") {
@@ -72,7 +66,7 @@ func wrapNpm() {
 
 		parts := strings.SplitN(line, "@", 2)
 		if len(parts) != 2 {
-			fmt.Println("Invalid package line:", line)
+			log.Debugf("Invalid package line:", line)
 			continue
 		}
 
@@ -83,7 +77,7 @@ func wrapNpm() {
 		tenantId := os.Getenv("SAFEDEP_TENANT_ID")
 
 		if tok == "" || tenantId == "" {
-			panic("SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set")
+			return fmt.Errorf("SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set")
 		}
 
 		headers := http.Header{}
@@ -106,21 +100,24 @@ func wrapNpm() {
 
 		resp, err := client.AnalyzePackage(context.Background(), req)
 		if err != nil {
-			fmt.Printf("Failed to analyze %s@%s: %v\n", name, version, err)
+			log.Debugf("Failed to analyze %s@%s: %v\n", name, version, err)
 			continue
 		}
-		fmt.Printf("Submitted %s@%s | Analysis ID: %s\n", name, version, resp.GetAnalysisId())
+		log.Debugf("Submitted %s@%s | Analysis ID: %s\n", name, version, resp.GetAnalysisId())
 
 		analysisReportReq := &malysisv1.GetAnalysisReportRequest{
 			AnalysisId: resp.GetAnalysisId(),
 		}
 
 		reportResp, err := client.GetAnalysisReport(context.Background(), analysisReportReq)
-		_ = reportResp.GetReport()
+		report := reportResp.GetReport()
+
+		log.Debugf("Report: ", report.GetWarnings())
 
 	}
 
 	// Get the npm PATH (using exec.LookPath)
+	_, err = exec.LookPath("npm")
 
 	// Check if any vulnerable package exists?
 	// If yes - Confirm with user to continue or not

@@ -2,13 +2,20 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/safedep/pmg/cmd/ecosystems"
 	"github.com/spf13/cobra"
 )
 
 func main() {
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Println("No .env file found or failed to load")
+	}
+
 	cmd := &cobra.Command{
 		Use:              "pmg",
 		TraverseChildren: true,
