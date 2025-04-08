@@ -1,22 +1,16 @@
 package ecosystems
 
 import (
-	"context"
 	_ "embed"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
-	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
-	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
-	drygrpc "github.com/safedep/dry/adapters/grpc"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/pkg/analyser"
 	"github.com/safedep/pmg/pkg/common"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 )
 
 var (
@@ -80,47 +74,25 @@ func wrapNpm() error {
 		name := parts[0]
 		version := parts[1]
 
-		tok := os.Getenv("SAFEDEP_API_KEY")
-		tenantId := os.Getenv("SAFEDEP_TENANT_ID")
-
-		if tok == "" || tenantId == "" {
-			return fmt.Errorf("SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set")
+		client, err := analyser.GetMalwareAnalysisClient()
+		if err != nil {
+			return fmt.Errorf("Error while creating a malware analysis client: %s", err.Error())
 		}
 
-		headers := http.Header{}
-		headers.Set("x-tenant-id", tenantId)
-		cc, err := drygrpc.GrpcClient("pmg-pkg-scan", "api.safedep.io", "443",
-			tok, headers, []grpc.DialOption{})
-		client := malysisv1grpc.NewMalwareAnalysisServiceClient(cc)
-
-		req := &malysisv1.AnalyzePackageRequest{
-			Target: &malysisv1pb.PackageAnalysisTarget{
-				PackageVersion: &packagev1.PackageVersion{
-					Package: &packagev1.Package{
-						Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-						Name:      name,
-					},
-					Version: version,
-				},
-			},
-		}
-
-		resp, err := client.AnalyzePackage(context.Background(), req)
+		resp, err := analyser.SubmitPackageForAnalysis(client, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version)
 		if err != nil {
 			log.Debugf("Failed to analyze %s@%s: %v\n", name, version, err)
 			continue
 		}
 		log.Debugf("Submitted %s@%s | Analysis ID: %s\n", name, version, resp.GetAnalysisId())
 
-		analysisReportReq := &malysisv1.GetAnalysisReportRequest{
-			AnalysisId: resp.GetAnalysisId(),
+		reportResp, err := analyser.GetAnalysisReport(client, resp.GetAnalysisId())
+		if err != nil {
+			log.Debugf("Failed to get analysis report for %s:%s %v\n", name, resp.GetAnalysisId(), err)
+			continue
 		}
 
-		reportResp, err := client.GetAnalysisReport(context.Background(), analysisReportReq)
-		report := reportResp.GetReport()
-
-		log.Debugf("Report: ", report.GetWarnings())
-
+		_ = reportResp.GetReport()
 	}
 
 	// TODO:

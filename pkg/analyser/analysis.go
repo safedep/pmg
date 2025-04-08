@@ -12,7 +12,7 @@ import (
 
 func SubmitPackageForAnalysis(client malysisv1grpc.MalwareAnalysisServiceClient,
 	ecosystem packagev1.Ecosystem, name string,
-	version string) (string, error) {
+	version string) (*malysisv1.AnalyzePackageResponse, error) {
 	req := &malysisv1.AnalyzePackageRequest{
 		Target: &malysisv1pb.PackageAnalysisTarget{
 			PackageVersion: &packagev1.PackageVersion{
@@ -26,12 +26,13 @@ func SubmitPackageForAnalysis(client malysisv1grpc.MalwareAnalysisServiceClient,
 	}
 	resp, err := client.AnalyzePackage(context.Background(), req)
 	if err != nil {
-		return "", fmt.Errorf("failed to analyze %s@%s: %v", name, version, err)
+		return nil, fmt.Errorf("failed to analyze %s@%s: %v", name, version, err)
 	}
-	return resp.GetAnalysisId(), nil
+	return resp, nil
 }
+
 func GetAnalysisReport(client malysisv1grpc.MalwareAnalysisServiceClient,
-	analysisId string) (*malysisv1pb.Report, error) {
+	analysisId string) (*malysisv1.GetAnalysisReportResponse, error) {
 	analysisReportReq := &malysisv1.GetAnalysisReportRequest{
 		AnalysisId: analysisId,
 	}
@@ -39,5 +40,5 @@ func GetAnalysisReport(client malysisv1grpc.MalwareAnalysisServiceClient,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get analysis report: %v", err)
 	}
-	return reportResp.GetReport(), nil
+	return reportResp, nil
 }
