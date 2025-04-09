@@ -9,3 +9,7 @@ func ApiKey() string {
 func TenantDomain() string {
 	return os.Getenv("SAFEDEP_TENANT_ID")
 }
+
+func NpmAuthToken() string {
+	return os.Getenv("NPM_AUTH_TOKEN")
+}

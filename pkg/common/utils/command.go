@@ -3,11 +3,13 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 )
 
-func ExecCmd(name string, args []string) error {
+func ExecCmd(name string, args, env []string) error {
 	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), env...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

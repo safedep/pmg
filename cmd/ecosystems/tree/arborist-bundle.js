@@ -69306,11 +69306,11 @@ var require_lib43 = __commonJS({
 // arborist.js
 var Arborist = require_lib43();
 var fs = require("fs");
-async function getDependencyTree(packageName) {
+async function getDependencyTree(packageName, authToken2) {
   const arb = new Arborist({
     registry: "https://registry.npmjs.org",
-    token: "",
-    authToken: ""
+    token: authToken2,
+    authToken: authToken2
   });
   try {
     const idealTree = await arb.buildIdealTree({
@@ -69337,6 +69337,7 @@ function writeToFile(packages, filename) {
 }
 var packageArg = process.argv[2];
 var outputFile = process.argv[3];
+var authToken = process.env.NPM_AUTH_TOKEN;
 if (!packageArg) {
   console.error("Please provide a package name as an argument");
   process.exit(1);
@@ -69345,7 +69346,12 @@ if (!outputFile) {
   console.error("Please provide an output filename as the second argument");
   process.exit(1);
 }
-getDependencyTree(packageArg).then((packages) => {
+if (!authToken) {
+  console.warn(
+    "NPM token not found. Some private or scoped dependencies may not be included in the scan."
+  );
+}
+getDependencyTree(packageArg, authToken).then((packages) => {
   writeToFile(packages, outputFile);
 }).catch((err) => {
   console.error("Error:", err);

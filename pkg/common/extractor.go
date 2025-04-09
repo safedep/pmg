@@ -11,11 +11,12 @@ import (
 
 // ExtractorOptions holds configuration for running an extractor script
 type ExtractorOptions struct {
-	ScriptContent string   // The script content
-	ScriptType    string   // File extension like "js", "py", etc.
-	Interpreter   string   // What interpreter to use (e.g., "node", "python")
-	PackageName   string   // Name of the package to analyze
-	Args          []string // Additional arguments to pass to the script
+	ScriptContent string            // The script content
+	ScriptType    string            // File extension like "js", "py", etc.
+	Interpreter   string            // What interpreter to use (e.g., "node", "python")
+	PackageName   string            // Name of the package to analyze
+	Args          []string          // Additional arguments to pass to the script
+	Env           map[string]string // Environment variables to pass to the script
 }
 
 // RunExtractor extracts an embedded script to a temp file and executes it
@@ -50,7 +51,11 @@ func RunPkgExtractor(opts ExtractorOptions) (string, error) {
 
 	// Build the command with all arguments
 	cmdArgs := append([]string{scriptFile.Name(), opts.PackageName, outputFile}, opts.Args...)
-	if err = utils.ExecCmd(interpreterPath, cmdArgs); err != nil {
+	var env []string
+	for key, value := range opts.Env {
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
+	}
+	if err = utils.ExecCmd(interpreterPath, cmdArgs, env); err != nil {
 		return "", err
 	}
 

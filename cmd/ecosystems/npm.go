@@ -49,7 +49,7 @@ func NewNpmCommand() *cobra.Command {
 				return fmt.Errorf("npm not found: %w", err)
 			}
 
-			return utils.ExecCmd(npmPath, args)
+			return utils.ExecCmd(npmPath, args, []string{})
 		},
 	}
 	return cmd
@@ -71,7 +71,11 @@ func wrapNpm() error {
 		Interpreter:   "node",
 		ScriptType:    "js",
 		Args:          []string{},
+		Env: map[string]string{
+			"NPM_AUTH_TOKEN": utils.NpmAuthToken(),
+		},
 	})
+
 	if err != nil {
 		return fmt.Errorf("failed to extract package info: %w", err)
 	}
@@ -154,7 +158,7 @@ func wrapNpm() error {
 
 	// Install the package and return
 	cmdArgs := []string{action, packageName}
-	if err = utils.ExecCmd(npmPath, cmdArgs); err != nil {
+	if err = utils.ExecCmd(npmPath, cmdArgs, []string{}); err != nil {
 		return fmt.Errorf("failed to execute npm command: %w", err)
 	}
 
