@@ -3,15 +3,15 @@ package common
 import (
 	"fmt"
 	"net/http"
-	"os"
 
 	drygrpc "github.com/safedep/dry/adapters/grpc"
+	"github.com/safedep/pmg/pkg/common/utils"
 	"google.golang.org/grpc"
 )
 
 func NewCloudClientConnection() (*grpc.ClientConn, error) {
-	tok := os.Getenv("SAFEDEP_API_KEY")
-	tenantId := os.Getenv("SAFEDEP_TENANT_ID")
+	tok := utils.ApiKey()
+	tenantId := utils.TenantDomain()
 	if tok == "" || tenantId == "" {
 		return nil, fmt.Errorf("SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set")
 	}

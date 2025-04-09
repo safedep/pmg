@@ -10,7 +10,7 @@ import (
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 )
 
-func SubmitPackageForAnalysis(client malysisv1grpc.MalwareAnalysisServiceClient,
+func SubmitPackageForAnalysis(ctx context.Context, client malysisv1grpc.MalwareAnalysisServiceClient,
 	ecosystem packagev1.Ecosystem, name string,
 	version string) (*malysisv1.AnalyzePackageResponse, error) {
 	req := &malysisv1.AnalyzePackageRequest{
@@ -24,21 +24,21 @@ func SubmitPackageForAnalysis(client malysisv1grpc.MalwareAnalysisServiceClient,
 			},
 		},
 	}
-	resp, err := client.AnalyzePackage(context.Background(), req)
+	resp, err := client.AnalyzePackage(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to analyze %s@%s: %v", name, version, err)
+		return nil, fmt.Errorf("failed to analyze %s@%s: %w", name, version, err)
 	}
 	return resp, nil
 }
 
-func GetAnalysisReport(client malysisv1grpc.MalwareAnalysisServiceClient,
+func GetAnalysisReport(ctx context.Context, client malysisv1grpc.MalwareAnalysisServiceClient,
 	analysisId string) (*malysisv1.GetAnalysisReportResponse, error) {
 	analysisReportReq := &malysisv1.GetAnalysisReportRequest{
 		AnalysisId: analysisId,
 	}
-	reportResp, err := client.GetAnalysisReport(context.Background(), analysisReportReq)
+	reportResp, err := client.GetAnalysisReport(ctx, analysisReportReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get analysis report: %v", err)
+		return nil, fmt.Errorf("failed to get analysis report: %w", err)
 	}
 	return reportResp, nil
 }

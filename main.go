@@ -2,20 +2,18 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
-	"github.com/joho/godotenv"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/ecosystems"
 	"github.com/spf13/cobra"
 )
 
-func main() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Println("No .env file found or failed to load")
-	}
+func init() {
+	log.Init("pmg-logger", "debug")
+}
 
+func main() {
 	cmd := &cobra.Command{
 		Use:              "pmg",
 		TraverseChildren: true,

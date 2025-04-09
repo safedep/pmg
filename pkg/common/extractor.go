@@ -1,13 +1,12 @@
 package common
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/safedep/dry/crypto"
+	"github.com/safedep/pmg/pkg/common/utils"
 )
 
 // ExtractorOptions holds configuration for running an extractor script
@@ -21,10 +20,9 @@ type ExtractorOptions struct {
 
 // RunExtractor extracts an embedded script to a temp file and executes it
 func RunPkgExtractor(opts ExtractorOptions) (string, error) {
-	interpreterPath, err := exec.LookPath(opts.Interpreter)
+	interpreterPath, err := utils.GetInterpreterPath(opts.Interpreter)
 	if err != nil {
-		return "", fmt.Errorf("interpreter '%s' not found in PATH: %s",
-			opts.Interpreter, err.Error())
+		return "", err
 	}
 
 	// Create a temporary file for the embedded script
@@ -52,16 +50,8 @@ func RunPkgExtractor(opts ExtractorOptions) (string, error) {
 
 	// Build the command with all arguments
 	cmdArgs := append([]string{scriptFile.Name(), opts.PackageName, outputFile}, opts.Args...)
-	cmd := exec.Command(interpreterPath, cmdArgs...)
-
-	// Capture both stdout and stderr
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("error running extractor: %s\nStderr: %s",
-			err.Error(), stderr.String())
+	if err = utils.ExecCmd(interpreterPath, cmdArgs); err != nil {
+		return "", err
 	}
 
 	return outputFile, nil
