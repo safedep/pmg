@@ -20,7 +20,7 @@
 # Go workspace file
 go.work
 go.work.sum
-pmg
+bin/
 
 # env file
 .env
