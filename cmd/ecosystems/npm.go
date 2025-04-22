@@ -44,7 +44,7 @@ func NewNpmCommand() *cobra.Command {
 			}
 
 			// For non-install actions, just pass through to npm
-			npmPath, err := utils.GetInterpreterPath("npm")
+			npmPath, err := utils.GetExecutablePath("npm")
 			if err != nil {
 				return fmt.Errorf("npm not found: %w", err)
 			}
@@ -142,7 +142,7 @@ func wrapNpm() error {
 	}
 
 	// Get the npm PATH
-	npmPath, err := utils.GetInterpreterPath("npm")
+	npmPath, err := utils.GetExecutablePath("npm")
 	if err != nil {
 		return fmt.Errorf("npm not found: %w", err)
 	}

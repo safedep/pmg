@@ -21,7 +21,7 @@ type ExtractorOptions struct {
 
 // RunExtractor extracts an embedded script to a temp file and executes it
 func RunPkgExtractor(opts ExtractorOptions) (string, error) {
-	interpreterPath, err := utils.GetInterpreterPath(opts.Interpreter)
+	interpreterPath, err := utils.GetExecutablePath(opts.Interpreter)
 	if err != nil {
 		return "", err
 	}
