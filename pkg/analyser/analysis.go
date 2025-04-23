@@ -10,9 +10,26 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/pkg/common"
+	"github.com/safedep/pmg/pkg/common/utils"
 	"github.com/safedep/pmg/pkg/models"
 	vetUtils "github.com/safedep/vet/pkg/common/utils"
 )
+
+func FetchDependencies(packageName string) ([]string, error) {
+	fetcher := models.NewFlatteningFetcher()
+	name, version, err := utils.ParsePackageInfo(packageName)
+	if err != nil {
+		return nil, err
+	}
+
+	deps, err := fetcher.GetPackageDependencies(name, version)
+	flatDeps := common.FlattenDependencyTree(deps)
+	if err != nil {
+		return nil, fmt.Errorf("error while fetching package dependencies: %v\n", err)
+	}
+	return flatDeps, nil
+}
 
 func AnalysePackage(maliciousPkgs map[string]string, client malysisv1grpc.MalwareAnalysisServiceClient, ctx context.Context) vetUtils.WorkQueueFn[models.PackageAnalysisItem] {
 	return func(q *vetUtils.WorkQueue[models.PackageAnalysisItem], item models.PackageAnalysisItem) error {

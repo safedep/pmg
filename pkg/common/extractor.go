@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/dry/crypto"
 	"github.com/safedep/pmg/pkg/common/utils"
+	"github.com/safedep/pmg/pkg/models"
 )
 
 // ExtractorOptions holds configuration for running an extractor script
@@ -17,6 +18,29 @@ type ExtractorOptions struct {
 	PackageName   string            // Name of the package to analyze
 	Args          []string          // Additional arguments to pass to the script
 	Env           map[string]string // Environment variables to pass to the script
+}
+
+func FlattenDependencyTree(node *models.DependencyNode) []string {
+	result := make([]string, 0)
+	seen := make(map[string]bool)
+
+	var flatten func(*models.DependencyNode)
+	flatten = func(n *models.DependencyNode) {
+		key := fmt.Sprintf("%s@%s", n.Name, n.Version)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+
+		result = append(result, fmt.Sprintf("%s@%s", n.Name, n.Version))
+
+		for _, dep := range n.Dependencies {
+			flatten(dep)
+		}
+	}
+
+	flatten(node)
+	return result
 }
 
 // RunExtractor extracts an embedded script to a temp file and executes it

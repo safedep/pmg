@@ -4,13 +4,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/pkg/analyser"
-	"github.com/safedep/pmg/pkg/common"
 	"github.com/safedep/pmg/pkg/common/utils"
 	"github.com/safedep/pmg/pkg/models"
 	vetUtils "github.com/safedep/vet/pkg/common/utils"
@@ -21,9 +18,6 @@ var (
 	packageName string
 	action      string
 )
-
-//go:embed tree/arborist-bundle.js
-var arboristJs string
 
 func NewNpmCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -65,29 +59,10 @@ func wrapNpm() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	// Extract package information
-	outputFile, err := common.RunPkgExtractor(common.ExtractorOptions{
-		PackageName:   packageName,
-		ScriptContent: arboristJs,
-		Interpreter:   "node",
-		ScriptType:    "js",
-		Args:          []string{},
-		Env: map[string]string{
-			"NPM_AUTH_TOKEN": utils.NpmAuthToken(),
-		},
-	})
-
+	deps, err := analyser.FetchDependencies(packageName)
 	if err != nil {
-		return fmt.Errorf("failed to extract package info: %w", err)
+		return err
 	}
-	// Clean up the temporary file when done
-	defer os.Remove(outputFile)
-
-	data, err := os.ReadFile(outputFile)
-	if err != nil {
-		return fmt.Errorf("error while reading package output file: %w", err)
-	}
-
 	maliciousPkgs := make(map[string]string)
 
 	client, err := analyser.GetMalwareAnalysisClient()
@@ -103,22 +78,12 @@ func wrapNpm() error {
 	defer queue.Stop()
 
 	// Add packages to the queue
-	lines := strings.SplitSeq(string(data), "\n")
-	for line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.Contains(line, "@") {
+	for _, dep := range deps {
+		name, version, err := utils.ParsePackageInfo(dep)
+		if err != nil {
+			log.Errorf("Error while parsing info of package %s", name)
 			continue
 		}
-
-		idx := strings.LastIndex(line, "@")
-		if idx <= 0 {
-			log.Debugf("Invalid package line: %s", line)
-			continue
-		}
-
-		name := line[:idx]
-		version := line[idx+1:]
-
 		queue.Add(models.PackageAnalysisItem{
 			Name:    name,
 			Version: version,
