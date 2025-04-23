@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/pkg/analyser"
 	"github.com/safedep/pmg/pkg/common"
 	"github.com/safedep/pmg/pkg/common/utils"
+	"github.com/safedep/pmg/pkg/models"
+	vetUtils "github.com/safedep/vet/pkg/common/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -94,8 +95,16 @@ func wrapNpm() error {
 		return fmt.Errorf("error while creating a malware analysis client: %w", err)
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	handler := analyser.AnalysePackage(maliciousPkgs, client, ctx)
+
+	// Create work queue with appropriate buffer size and concurrency
+	queue := vetUtils.NewWorkQueue[models.PackageAnalysisItem](100, 10, handler)
+	queue.Start()
+	defer queue.Stop()
+
+	// Add packages to the queue
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.Contains(line, "@") {
 			continue
@@ -110,44 +119,21 @@ func wrapNpm() error {
 		name := line[:idx]
 		version := line[idx+1:]
 
-		resp, err := analyser.SubmitPackageForAnalysis(ctx, client, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version)
-		if err != nil {
-			log.Debugf("Failed to analyze %s@%s: %v", name, version, err)
-			continue
-		}
-
-		reportResp, err := analyser.GetAnalysisReport(ctx, client, resp.GetAnalysisId())
-		if err != nil {
-			log.Debugf("Failed to get analysis report for %s:%s %v", name, resp.GetAnalysisId(), err)
-			continue
-		}
-
-		report := reportResp.GetReport()
-		if report == nil {
-			log.Debugf("Empty report received for %s", name)
-			continue
-		}
-
-		inference := report.GetInference()
-		if inference == nil {
-			log.Debugf("No inference data for %s", name)
-			continue
-		}
-
-		log.Infof("Inference for %s: isMalware=%v", name, inference.GetIsMalware())
-
-		if inference.GetIsMalware() {
-			maliciousPkgs[line] = inference.GetSummary()
-		}
+		queue.Add(models.PackageAnalysisItem{
+			Name:    name,
+			Version: version,
+		})
 	}
 
-	// Get the npm PATH
+	// Wait for all analysis to complete
+	queue.Wait()
+
+	// Get the npm PATH and continue with installation
 	npmPath, err := utils.GetExecutablePath("npm")
 	if err != nil {
 		return fmt.Errorf("npm not found: %w", err)
 	}
 
-	// Check if any malicious package exists
 	if len(maliciousPkgs) > 0 {
 		if !utils.ConfirmInstallation(maliciousPkgs) {
 			log.Infof("Installation canceled due to security concerns")
@@ -156,7 +142,6 @@ func wrapNpm() error {
 		log.Warnf("Continuing installation despite security warnings...")
 	}
 
-	// Install the package and return
 	cmdArgs := []string{action, packageName}
 	if err = utils.ExecCmd(npmPath, cmdArgs, []string{}); err != nil {
 		return fmt.Errorf("failed to execute npm command: %w", err)
