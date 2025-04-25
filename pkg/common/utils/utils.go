@@ -20,19 +20,16 @@ func ParsePackageInfo(input string) (packageName, version string, err error) {
 	}
 
 	pkg := strings.Split(input, "@")
-	if len(pkg) != 2 {
-		return "", "", fmt.Errorf("invalid format: expected 'package@version', got '%s'", input)
+	if len(pkg) == 2 {
+		packageName = strings.TrimSpace(pkg[0])
+		version = strings.TrimSpace(pkg[1])
+		return packageName, version, nil
 	}
 
-	packageName = strings.TrimSpace(pkg[0])
-	version = strings.TrimSpace(pkg[1])
-
-	if packageName == "" {
-		return "", "", fmt.Errorf("package name cannot be empty")
-	}
-	if version == "" {
-		return "", "", fmt.Errorf("version cannot be empty")
+	if len(pkg) == 1 {
+		packageName = strings.TrimSpace(pkg[0])
+		return packageName, "", nil
 	}
 
-	return packageName, version, nil
+	return "", "", fmt.Errorf("invalid format: expected 'package' OR 'package@version' , got '%s'", input)
 }

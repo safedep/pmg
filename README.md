@@ -39,7 +39,8 @@ go install github.com/safedep/pmg
 
 - `SAFEDEP_API_KEY`: Your SafeDep API key
 - `SAFEDEP_TENANT_ID`: Your SafeDep tenant ID
-- `NPM_AUTH_TOKEN`: (Optional) NPM authentication token for private packages
+
+Visit https://docs.safedep.io/cloud/quickstart for instructions on obtaining your API Key and Tenant ID.
 
 ## Usage
 

@@ -4,12 +4,14 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/pkg/analyser"
 	"github.com/safedep/pmg/pkg/common/utils"
 	"github.com/safedep/pmg/pkg/models"
+	"github.com/safedep/pmg/pkg/registry"
 	vetUtils "github.com/safedep/vet/pkg/common/utils"
 	"github.com/spf13/cobra"
 )
@@ -33,7 +35,7 @@ func NewNpmCommand() *cobra.Command {
 				err := wrapNpm()
 				if err != nil {
 					log.Errorf("Failed to wrap npm: %v", err)
-					return err
+					os.Exit(1)
 				}
 				return nil
 			}
@@ -59,10 +61,31 @@ func wrapNpm() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	deps, err := analyser.FetchDependencies(packageName)
+	factory := registry.NewFetcherFactory(10 * time.Second)
+
+	// Get an NPM fetcher
+	npmFetcher, err := factory.CreateFetcher(registry.RegistryNPM)
 	if err != nil {
 		return err
 	}
+	name, version, err := utils.ParsePackageInfo(packageName)
+
+	// If version is empty, get the latest version
+	if version == "" {
+		log.Infof("No version specified for %s, fetching latest version...", name)
+		version, err = npmFetcher.(*registry.NpmFetcher).ResolveVersion(ctx, name, version)
+		if err != nil {
+			return err
+		}
+		log.Infof("Latest version of %s is %s", name, version)
+		// Update packageName with resolved version for npm installation
+		packageName = fmt.Sprintf("%s@%s", name, version)
+	}
+	deps, err := npmFetcher.GetFlattenedDependencies(ctx, name, version)
+	if err != nil {
+		return err
+	}
+
 	maliciousPkgs := make(map[string]string)
 
 	client, err := analyser.GetMalwareAnalysisClient()
@@ -73,7 +96,7 @@ func wrapNpm() error {
 	handler := analyser.AnalysePackage(maliciousPkgs, client, ctx)
 
 	// Create work queue with appropriate buffer size and concurrency
-	queue := vetUtils.NewWorkQueue[models.PackageAnalysisItem](100, 10, handler)
+	queue := vetUtils.NewWorkQueue[models.Package](100, 10, handler)
 	queue.Start()
 	defer queue.Stop()
 
@@ -84,7 +107,7 @@ func wrapNpm() error {
 			log.Errorf("Error while parsing info of package %s", name)
 			continue
 		}
-		queue.Add(models.PackageAnalysisItem{
+		queue.Add(models.Package{
 			Name:    name,
 			Version: version,
 		})
