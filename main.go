@@ -9,14 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	log.Init("pmg-logger", "debug")
-}
-
 func main() {
+	var debug bool
+
 	cmd := &cobra.Command{
 		Use:              "pmg",
 		TraverseChildren: true,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if debug {
+				log.Init("pmg-logger", "debug")
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return nil
@@ -24,6 +27,8 @@ func main() {
 			return fmt.Errorf("pmg: %s is not a valid command", args[0])
 		},
 	}
+
+	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging")
 
 	cmd.AddCommand(ecosystems.NewNpmCommand())
 

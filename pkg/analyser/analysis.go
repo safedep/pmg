@@ -10,6 +10,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/pkg/models"
 	vetUtils "github.com/safedep/vet/pkg/common/utils"
 )
@@ -19,6 +20,7 @@ type PackageAnalyser struct {
 	Client             malysisv1grpc.MalwareAnalysisServiceClient
 	Ctx                context.Context
 	MaliciousPkgsMutex sync.Mutex
+	ProgressTracker    ui.ProgressTracker
 }
 
 func New(client malysisv1grpc.MalwareAnalysisServiceClient, ctx context.Context) *PackageAnalyser {
@@ -66,6 +68,7 @@ func (ap *PackageAnalyser) Handler() vetUtils.WorkQueueFn[models.Package] {
 			ap.MaliciousPkgsMutex.Unlock()
 		}
 
+		ui.IncrementProgress(ap.ProgressTracker, 1)
 		return nil
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/pkg/analyser"
 	"github.com/safedep/pmg/pkg/common/utils"
 	"github.com/safedep/pmg/pkg/models"
@@ -19,6 +20,7 @@ import (
 var (
 	packageName string
 	action      string
+	silentScan  bool
 )
 
 func NewNpmCommand() *cobra.Command {
@@ -49,10 +51,18 @@ func NewNpmCommand() *cobra.Command {
 			return utils.ExecCmd(npmPath, args, []string{})
 		},
 	}
+	cmd.Flags().BoolVarP(&silentScan, "silent", "s", false,
+		"Silent scan to prevent rendering UI")
 	return cmd
 }
 
 func wrapNpm() error {
+	if !silentScan {
+		ui.StartProgressWriter()
+	}
+	var progressTracker ui.ProgressTracker
+
+	progressTracker = ui.TrackProgress(fmt.Sprintf("Scanning %s ", packageName), 1)
 	if packageName == "" {
 		return fmt.Errorf("package name cannot be empty")
 	}
@@ -81,17 +91,21 @@ func wrapNpm() error {
 		// Update packageName with resolved version for npm installation
 		packageName = fmt.Sprintf("%s@%s", name, version)
 	}
+	ui.IncrementProgress(progressTracker, 1)
+
 	deps, err := npmFetcher.GetFlattenedDependencies(ctx, name, version)
+	ui.IncrementProgress(progressTracker, 1)
 	if err != nil {
 		return err
 	}
-
+	ui.IncrementTrackerTotal(progressTracker, int64(len(deps)))
 	client, err := analyser.GetMalwareAnalysisClient()
 	if err != nil {
 		return fmt.Errorf("error while creating a malware analysis client: %w", err)
 	}
 	pkgAnalyser := analyser.New(client, ctx)
 
+	pkgAnalyser.ProgressTracker = progressTracker
 	handler := pkgAnalyser.Handler()
 
 	// Create work queue with appropriate buffer size and concurrency
@@ -114,6 +128,8 @@ func wrapNpm() error {
 
 	// Wait for all analysis to complete
 	queue.Wait()
+	ui.MarkTrackerAsDone(progressTracker)
+	ui.StopProgressWriter()
 
 	// Get the npm PATH and continue with installation
 	npmPath, err := utils.GetExecutablePath("npm")
