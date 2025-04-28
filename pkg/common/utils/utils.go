@@ -31,5 +31,5 @@ func ParsePackageInfo(input string) (packageName, version string, err error) {
 		return packageName, "", nil
 	}
 
-	return "", "", fmt.Errorf("invalid format: expected 'package' OR 'package@version' , got '%s'", input)
+	return "", "", fmt.Errorf("invalid format: expected 'package' OR 'package@version', got '%s'", input)
 }
