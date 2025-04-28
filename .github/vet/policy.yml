@@ -1,10 +1,9 @@
-name: General Purpose OSS Best Practices
+name: SafeDep vet OSS suite
 description: |
-  This filter suite contains rules for implementing general purpose OSS
-  consumption best practices for an organization.
+  Customized filter suite for vet vetting dry.
 tags:
   - general
-  - safedep-managed
+  - safedep-vet
 filters:
   - name: critical-or-high-vulns
     check_type: CheckTypeVulnerability
