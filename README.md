@@ -28,7 +28,7 @@ Currently, PMG supports the following package ecosystems:
 > Ensure $(go env GOPATH)/bin is in your $PATH
 
 ```bash
-go install github.com/safedep/pmg
+go install github.com/safedep/pmg@latest
 ```
 
 ## Prerequisites
