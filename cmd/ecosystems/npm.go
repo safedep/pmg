@@ -86,14 +86,13 @@ func wrapNpm() error {
 		return err
 	}
 
-	maliciousPkgs := make(map[string]string)
-
 	client, err := analyser.GetMalwareAnalysisClient()
 	if err != nil {
 		return fmt.Errorf("error while creating a malware analysis client: %w", err)
 	}
+	pkgAnalyser := analyser.New(client, ctx)
 
-	handler := analyser.AnalysePackage(maliciousPkgs, client, ctx)
+	handler := pkgAnalyser.Handler()
 
 	// Create work queue with appropriate buffer size and concurrency
 	queue := vetUtils.NewWorkQueue[models.Package](100, 10, handler)
@@ -122,8 +121,8 @@ func wrapNpm() error {
 		return fmt.Errorf("npm not found: %w", err)
 	}
 
-	if len(maliciousPkgs) > 0 {
-		if !utils.ConfirmInstallation(maliciousPkgs) {
+	if len(pkgAnalyser.MaliciousPkgs) > 0 {
+		if !utils.ConfirmInstallation(pkgAnalyser.MaliciousPkgs) {
 			log.Infof("Installation canceled due to security concerns")
 			return nil
 		}

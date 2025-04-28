@@ -14,17 +14,32 @@ import (
 	vetUtils "github.com/safedep/vet/pkg/common/utils"
 )
 
-func AnalysePackage(maliciousPkgs map[string]string, client malysisv1grpc.MalwareAnalysisServiceClient, ctx context.Context) vetUtils.WorkQueueFn[models.Package] {
+type PackageAnalyser struct {
+	MaliciousPkgs      map[string]string
+	Client             malysisv1grpc.MalwareAnalysisServiceClient
+	Ctx                context.Context
+	MaliciousPkgsMutex sync.Mutex
+}
+
+func New(client malysisv1grpc.MalwareAnalysisServiceClient, ctx context.Context) *PackageAnalyser {
+	return &PackageAnalyser{
+		MaliciousPkgs:      make(map[string]string),
+		Client:             client,
+		Ctx:                ctx,
+		MaliciousPkgsMutex: sync.Mutex{},
+	}
+}
+
+func (ap *PackageAnalyser) Handler() vetUtils.WorkQueueFn[models.Package] {
 	return func(q *vetUtils.WorkQueue[models.Package], item models.Package) error {
-		var maliciousPkgsMutex sync.Mutex
-		resp, err := SubmitPackageForAnalysis(ctx, client,
+		resp, err := SubmitPackageForAnalysis(ap.Ctx, ap.Client,
 			packagev1.Ecosystem_ECOSYSTEM_NPM, item.Name, item.Version)
 		if err != nil {
 			log.Debugf("Failed to analyze %s@%s: %v", item.Name, item.Version, err)
 			return err
 		}
 
-		reportResp, err := GetAnalysisReport(ctx, client, resp.GetAnalysisId())
+		reportResp, err := GetAnalysisReport(ap.Ctx, ap.Client, resp.GetAnalysisId())
 		if err != nil {
 			log.Debugf("Failed to get analysis report for %s:%s %v",
 				item.Name, resp.GetAnalysisId(), err)
@@ -46,9 +61,9 @@ func AnalysePackage(maliciousPkgs map[string]string, client malysisv1grpc.Malwar
 		log.Infof("Inference for %s: isMalware=%v", item.Name, inference.GetIsMalware())
 
 		if inference.GetIsMalware() {
-			maliciousPkgsMutex.Lock()
-			maliciousPkgs[fmt.Sprintf("%s@%s", item.Name, item.Version)] = inference.GetSummary()
-			maliciousPkgsMutex.Unlock()
+			ap.MaliciousPkgsMutex.Lock()
+			ap.MaliciousPkgs[fmt.Sprintf("%s@%s", item.Name, item.Version)] = inference.GetSummary()
+			ap.MaliciousPkgsMutex.Unlock()
 		}
 
 		return nil
