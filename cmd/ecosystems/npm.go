@@ -20,46 +20,49 @@ import (
 var (
 	packageName string
 	action      string
-	silentScan  bool
 )
 
 func NewNpmCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "npm [action] [package]",
-		Short: "Scan packages from npm registry",
-		Args:  cobra.MinimumNArgs(2),
+		Use:                "npm [action] [package]",
+		Short:              "Scan packages from npm registry",
+		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			action = args[0]
-			packageName = args[1]
+			npmPath, err := utils.GetExecutablePath("npm")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "npm not found: %v\n", err)
+				return err
+			}
 
-			validActions := map[string]bool{"install": true, "i": true, "add": true}
-			if validActions[action] {
-				err := wrapNpm()
-				if err != nil {
-					log.Errorf("Failed to wrap npm: %v", err)
+			// Check if it's an install command that needs scanning
+			if len(args) >= 2 && utils.IsInstallCommand("npm", args[0]) {
+				// Verify required environment variables before proceeding
+				if err := utils.ValidateEnvVars(); err != nil {
+					return err
+				}
+
+				action = args[0]
+				packageName = args[1]
+
+				if err := wrapNpm(); err != nil {
 					os.Exit(1)
 				}
 				return nil
 			}
 
-			// For non-install actions, just pass through to npm
-			npmPath, err := utils.GetExecutablePath("npm")
-			if err != nil {
-				return fmt.Errorf("npm not found: %w", err)
+			// For non-install commands, pass through to npm
+			if err := utils.ExecCmd(npmPath, args, []string{}); err != nil {
+				os.Exit(1)
 			}
-
-			return utils.ExecCmd(npmPath, args, []string{})
+			os.Exit(0)
+			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&silentScan, "silent", "s", false,
-		"Silent scan to prevent rendering UI")
 	return cmd
 }
 
 func wrapNpm() error {
-	if !silentScan {
-		ui.StartProgressWriter()
-	}
+	ui.StartProgressWriter()
 	var progressTracker ui.ProgressTracker
 
 	progressTracker = ui.TrackProgress(fmt.Sprintf("Scanning %s ", packageName), 1)
