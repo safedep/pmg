@@ -10,6 +10,7 @@ type RegistryType string
 
 const (
 	RegistryNPM  RegistryType = "npm"
+	RegistryPNPM RegistryType = "pnpm"
 	RegistryPyPI RegistryType = "pypi"
 	RegistryGo   RegistryType = "go"
 )
@@ -29,7 +30,7 @@ func NewFetcherFactory(timeout time.Duration) *FetcherFactory {
 // CreateFetcher returns a fetcher for the specified registry type
 func (ff *FetcherFactory) CreateFetcher(registryType RegistryType) (Fetcher, error) {
 	switch registryType {
-	case RegistryNPM:
+	case RegistryNPM, RegistryPNPM:
 		return NewNpmFetcher(ff.timeout), nil
 	default:
 		return nil, fmt.Errorf("unsupported registry type: %s", registryType)

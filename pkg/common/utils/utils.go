@@ -42,6 +42,7 @@ func IsInstallCommand(pkgManager, cmd string) bool {
 			"add":     true,
 		},
 		"pnpm": {
+			"add":     true,
 			"install": true,
 			"i":       true,
 		},

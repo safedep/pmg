@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/cmd/ecosystems"
+	"github.com/safedep/pmg/cmd/npm"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +30,8 @@ func main() {
 
 	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging")
 
-	cmd.AddCommand(ecosystems.NewNpmCommand())
+	cmd.AddCommand(npm.NewNpmCommand())
+	cmd.AddCommand(npm.NewPnpmCommand())
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
