@@ -33,3 +33,23 @@ func ParsePackageInfo(input string) (packageName, version string, err error) {
 
 	return "", "", fmt.Errorf("invalid format: expected 'package' OR 'package@version', got '%s'", input)
 }
+
+func IsInstallCommand(pkgManager, cmd string) bool {
+	validActions := map[string]map[string]bool{
+		"npm": {
+			"install": true,
+			"i":       true,
+			"add":     true,
+		},
+		"pnpm": {
+			"add":     true,
+			"install": true,
+			"i":       true,
+		},
+	}
+
+	if actions, exists := validActions[pkgManager]; exists {
+		return actions[cmd]
+	}
+	return false
+}
