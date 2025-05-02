@@ -24,3 +24,5 @@ bin/
 
 # env file
 .env
+
+dist/
