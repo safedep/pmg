@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/pkg/analyser"
@@ -133,7 +134,8 @@ func (pmw *PackageManagerWrapper) analyzeDependencies(ctx context.Context, deps 
 			log.Infof("Installation canceled due to security concerns")
 			return fmt.Errorf("installation canceled")
 		}
-		log.Warnf("Continuing installation despite security warnings...")
+		yellow := color.New(color.FgYellow, color.Bold).SprintfFunc()
+		log.Warnf(yellow("Continuing installation despite security warnings..."))
 	}
 
 	return nil

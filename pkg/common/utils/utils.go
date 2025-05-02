@@ -76,3 +76,13 @@ func IsInstallCommand(pkgManager, cmd string) bool {
 	}
 	return false
 }
+
+func removeMarkdown(text string) string {
+	// Remove bold asterisks
+	text = strings.ReplaceAll(text, "**", "")
+	// Remove italic asterisks
+	text = strings.ReplaceAll(text, "*", "")
+	// Remove backticks
+	text = strings.ReplaceAll(text, "`", "")
+	return text
+}
