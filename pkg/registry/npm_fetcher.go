@@ -18,7 +18,6 @@ import (
 type NpmFetcher struct {
 	*BaseFetcher
 	progressTracker ui.ProgressTracker
-	mu              sync.Mutex
 	fetchedDeps     int32
 }
 

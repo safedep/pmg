@@ -66,7 +66,10 @@ func (pmw *PackageManagerWrapper) scanAndInstall(ctx context.Context, progressTr
 	}
 
 	// Get dependencies with progress tracking
-	npmFetcher := fetcher.(*registry.NpmFetcher)
+	npmFetcher, ok := fetcher.(*registry.NpmFetcher)
+	if !ok {
+		return fmt.Errorf("fetcher is not of type *registry.NpmFetcher")
+	}
 	ui.IncrementTrackerTotal(progressTracker, 0)
 	npmFetcher.SetProgressTracker(progressTracker)
 
