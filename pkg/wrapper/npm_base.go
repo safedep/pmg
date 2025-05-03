@@ -70,7 +70,6 @@ func (pmw *PackageManagerWrapper) scanAndInstall(ctx context.Context, progressTr
 	if !ok {
 		return fmt.Errorf("fetcher is not of type *registry.NpmFetcher")
 	}
-	ui.IncrementTrackerTotal(progressTracker, 0)
 	npmFetcher.SetProgressTracker(progressTracker)
 
 	deps, err := npmFetcher.GetFlattenedDependencies(ctx, name, version)
