@@ -65,11 +65,18 @@ func (pmw *PackageManagerWrapper) scanAndInstall(ctx context.Context, progressTr
 		pmw.PackageName = fmt.Sprintf("%s@%s", name, version)
 	}
 
-	deps, err := pmw.getDependencies(ctx, fetcher, name, version, progressTracker)
+	// Get dependencies with progress tracking
+	npmFetcher := fetcher.(*registry.NpmFetcher)
+	ui.IncrementTrackerTotal(progressTracker, 0)
+	npmFetcher.SetProgressTracker(progressTracker)
+
+	deps, err := npmFetcher.GetFlattenedDependencies(ctx, name, version)
 	if err != nil {
 		return err
 	}
 
+	// We know the total deps, set progress for analysis phase
+	ui.IncrementTrackerTotal(progressTracker, int64(len(deps)))
 	if err := pmw.analyzeDependencies(ctx, deps, progressTracker); err != nil {
 		return err
 	}
@@ -88,9 +95,9 @@ func (pmw *PackageManagerWrapper) resolveLatestVersion(ctx context.Context, fetc
 }
 
 func (pmw *PackageManagerWrapper) getDependencies(ctx context.Context, fetcher registry.Fetcher, name, version string, progressTracker ui.ProgressTracker) ([]string, error) {
-	ui.IncrementProgress(progressTracker, 1)
-	deps, err := fetcher.GetFlattenedDependencies(ctx, name, version)
-	ui.IncrementProgress(progressTracker, 1)
+	npmFetcher := fetcher.(*registry.NpmFetcher)
+	npmFetcher.SetProgressTracker(progressTracker)
+	deps, err := npmFetcher.GetFlattenedDependencies(ctx, name, version)
 	if err != nil {
 		return nil, err
 	}
