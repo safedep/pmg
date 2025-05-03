@@ -94,17 +94,6 @@ func (pmw *PackageManagerWrapper) resolveLatestVersion(ctx context.Context, fetc
 	return version, nil
 }
 
-func (pmw *PackageManagerWrapper) getDependencies(ctx context.Context, fetcher registry.Fetcher, name, version string, progressTracker ui.ProgressTracker) ([]string, error) {
-	npmFetcher := fetcher.(*registry.NpmFetcher)
-	npmFetcher.SetProgressTracker(progressTracker)
-	deps, err := npmFetcher.GetFlattenedDependencies(ctx, name, version)
-	if err != nil {
-		return nil, err
-	}
-	ui.SetTrackerTotal(progressTracker, int64(len(deps)))
-	return deps, nil
-}
-
 func (pmw *PackageManagerWrapper) analyzeDependencies(ctx context.Context, deps []string, progressTracker ui.ProgressTracker) error {
 	client, err := analyser.GetMalwareAnalysisClient()
 	if err != nil {
