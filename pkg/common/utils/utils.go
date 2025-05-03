@@ -18,6 +18,7 @@ func ParsePackageInfo(input string) (packageName, version string, err error) {
 	if input == "" {
 		return "", "", fmt.Errorf("package info cannot be empty")
 	}
+	input = strings.TrimSpace(input)
 
 	if strings.HasPrefix(input, "@") {
 		lastAtIndex := strings.LastIndex(input, "@")
