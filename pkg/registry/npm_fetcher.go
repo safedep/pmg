@@ -17,13 +17,6 @@ import (
 // NpmFetcher fetches dependencies from NPM registry
 type NpmFetcher struct {
 	*BaseFetcher
-	progressTracker ui.ProgressTracker
-	fetchedDeps     int32
-}
-
-func (nf *NpmFetcher) SetProgressTracker(tracker ui.ProgressTracker) {
-	nf.progressTracker = tracker
-	atomic.StoreInt32(&nf.fetchedDeps, 0)
 }
 
 func (nf *NpmFetcher) incrementProgress() {
