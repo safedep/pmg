@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -78,11 +79,23 @@ func IsInstallCommand(pkgManager, cmd string) bool {
 }
 
 func removeMarkdown(text string) string {
-	// Remove bold asterisks
-	text = strings.ReplaceAll(text, "**", "")
-	// Remove italic asterisks
-	text = strings.ReplaceAll(text, "*", "")
-	// Remove backticks
-	text = strings.ReplaceAll(text, "`", "")
-	return text
+	// Remove bold (**bold** or __bold__)
+	text = regexp.MustCompile(`\*\*(.*?)\*\*`).ReplaceAllString(text, "$1")
+	text = regexp.MustCompile(`__(.*?)__`).ReplaceAllString(text, "$1")
+
+	// Remove italic (*italic* or _italic_)
+	text = regexp.MustCompile(`\*(.*?)\*`).ReplaceAllString(text, "$1")
+	text = regexp.MustCompile(`_(.*?)_`).ReplaceAllString(text, "$1")
+
+	// Remove inline code (`code`)
+	text = regexp.MustCompile("`([^`]*)`").ReplaceAllString(text, "$1")
+
+	// Remove links [text](url)
+	text = regexp.MustCompile(`\[(.*?)\]\(.*?\)`).ReplaceAllString(text, "$1")
+
+	// Remove headings (e.g., ### Heading)
+	text = regexp.MustCompile(`(?m)^#{1,6}\s*`).ReplaceAllString(text, "")
+
+	// Trim leading/trailing whitespace
+	return strings.TrimSpace(text)
 }
