@@ -29,7 +29,7 @@ func NewPackageManagerWrapper(registryType registry.RegistryType) *PackageManage
 func (pmw *PackageManagerWrapper) Wrap() error {
 	ui.StartProgressWriter()
 
-	progressTracker := ui.TrackProgress(fmt.Sprintf("Scanning %s ", pmw.PackageName), 1)
+	progressTracker := ui.TrackProgress(fmt.Sprintf("Scanning %s ", pmw.PackageName), 5)
 	if pmw.PackageName == "" {
 		return fmt.Errorf("package name cannot be empty")
 	}
@@ -94,7 +94,7 @@ func (pmw *PackageManagerWrapper) getDependencies(ctx context.Context, fetcher r
 	if err != nil {
 		return nil, err
 	}
-	ui.IncrementTrackerTotal(progressTracker, int64(len(deps)))
+	ui.SetTrackerTotal(progressTracker, int64(len(deps)))
 	return deps, nil
 }
 

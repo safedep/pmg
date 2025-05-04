@@ -18,6 +18,18 @@ func ParsePackageInfo(input string) (packageName, version string, err error) {
 	if input == "" {
 		return "", "", fmt.Errorf("package info cannot be empty")
 	}
+	input = strings.TrimSpace(input)
+
+	if strings.HasPrefix(input, "@") {
+		lastAtIndex := strings.LastIndex(input, "@")
+		if lastAtIndex > 0 {
+			packageName = strings.TrimSpace(input[:lastAtIndex])
+			version = strings.TrimSpace(input[lastAtIndex+1:])
+			return packageName, version, nil
+		}
+		// If no version specifier, return the whole input as package name
+		return strings.TrimSpace(input), "", nil
+	}
 
 	pkg := strings.Split(input, "@")
 	if len(pkg) == 2 {

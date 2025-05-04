@@ -119,6 +119,12 @@ func IncrementTrackerTotal(i any, count int64) {
 	}
 }
 
+func SetTrackerTotal(i any, count int64) {
+	if tracker, ok := i.(ProgressTracker); ok {
+		tracker.UpdateTotal(count)
+	}
+}
+
 func IncrementProgress(i any, count int64) {
 	if tracker, ok := i.(ProgressTracker); ok && (progressTrackerDelta(tracker) > count) {
 		tracker.Increment(count)
