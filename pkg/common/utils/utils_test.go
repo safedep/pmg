@@ -168,3 +168,45 @@ func TestParsePackageInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveMarkdown(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Bold
+		{"This is **bold** text", "This is bold text"},
+		{"This is __bold__ text", "This is bold text"},
+
+		// Italic
+		{"This is *italic* text", "This is italic text"},
+		{"This is _italic_ text", "This is italic text"},
+
+		// Code
+		{"This is `code` inline", "This is code inline"},
+
+		// Link
+		{"Click [here](https://example.com)", "Click here"},
+
+		// Headings
+		{"# Heading 1", "Heading 1"},
+		{"### Subheading", "Subheading"},
+
+		// Combined formatting
+		{"__*bold and italic*__", "bold and italic"},
+		{"This is **bold** and `code`", "This is bold and code"},
+
+		// No markdown
+		{"Just plain text", "Just plain text"},
+
+		// Complex mixed
+		{"### Title\nSome **bold** text and a [link](http://url.com).", "Title\nSome bold text and a link."},
+	}
+
+	for _, tt := range tests {
+		result := removeMarkdown(tt.input)
+		if result != tt.expected {
+			t.Errorf("removeMarkdown(%q) = %q; want %q", tt.input, result, tt.expected)
+		}
+	}
+}

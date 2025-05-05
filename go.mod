@@ -5,6 +5,7 @@ go 1.24.1
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.5.1-20250418165058-162f6b0cc319.2
 	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.6-20250418165058-162f6b0cc319.1
+	github.com/fatih/color v1.18.0
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/safedep/dry v0.0.0-20250410092643-c7079e2f9442
 	github.com/safedep/vet v1.10.1
