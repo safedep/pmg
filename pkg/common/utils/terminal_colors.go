@@ -9,12 +9,9 @@ type TerminalColors struct {
 	Green  func(format string, a ...interface{}) string
 }
 
-// NewTerminalColors initializes and returns TerminalColors
-func NewTerminalColors() *TerminalColors {
-	return &TerminalColors{
-		Red:    color.New(color.FgRed, color.Bold).SprintfFunc(),
-		Yellow: color.New(color.FgYellow).SprintfFunc(),
-		Cyan:   color.New(color.FgCyan).SprintfFunc(),
-		Green:  color.New(color.FgGreen).SprintfFunc(),
-	}
+var colors = TerminalColors{
+	Red:    color.New(color.FgRed, color.Bold).SprintfFunc(),
+	Yellow: color.New(color.FgYellow).SprintfFunc(),
+	Cyan:   color.New(color.FgCyan).SprintfFunc(),
+	Green:  color.New(color.FgGreen).SprintfFunc(),
 }

@@ -10,7 +10,6 @@ import (
 )
 
 func ConfirmInstallation(maliciousPkgs map[string]string) bool {
-	colors := NewTerminalColors()
 
 	fmt.Printf("\n%s\n", colors.Red("⚠️  WARNING: %d potentially malicious packages detected!", len(maliciousPkgs)))
 	fmt.Println(colors.Yellow("The following packages have been flagged:"))
