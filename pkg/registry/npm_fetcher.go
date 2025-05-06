@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/pkg/common/utils"
 	"github.com/safedep/pmg/pkg/models"
 )
@@ -15,6 +17,14 @@ import (
 // NpmFetcher fetches dependencies from NPM registry
 type NpmFetcher struct {
 	*BaseFetcher
+}
+
+func (nf *NpmFetcher) incrementProgress() {
+	if nf.progressTracker != nil {
+		atomic.AddInt32(&nf.fetchedDeps, 1)
+		// Update progress message to show number of packages fetched
+		ui.SetPinnedMessageOnProgressWriter(fmt.Sprintf("Fetched %d packages", atomic.LoadInt32(&nf.fetchedDeps)))
+	}
 }
 
 // NewNpmFetcher creates a new NPM registry fetcher
@@ -91,6 +101,8 @@ func (nf *NpmFetcher) fetchDependenciesConcurrent(ctx context.Context, pkg model
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch package info for %s: %w", pkg.Name, err)
 	}
+
+	nf.incrementProgress()
 
 	dependencies := packageInfo.Dependencies
 	node := &models.DependencyNode{

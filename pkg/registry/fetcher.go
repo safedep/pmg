@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/pkg/models"
 )
 
@@ -21,9 +23,11 @@ type Fetcher interface {
 
 // BaseFetcher implements common functionality for all registry fetchers
 type BaseFetcher struct {
-	visitedMu sync.RWMutex
-	visited   map[string]bool
-	client    RegistryClient
+	visitedMu       sync.RWMutex
+	visited         map[string]bool
+	client          RegistryClient
+	progressTracker ui.ProgressTracker
+	fetchedDeps     int32
 }
 
 // NewBaseFetcher creates a new BaseFetcher with the specified registry client
@@ -32,6 +36,11 @@ func NewBaseFetcher(client RegistryClient) *BaseFetcher {
 		visited: make(map[string]bool),
 		client:  client,
 	}
+}
+
+func (bf *BaseFetcher) SetProgressTracker(tracker ui.ProgressTracker) {
+	bf.progressTracker = tracker
+	atomic.StoreInt32(&bf.fetchedDeps, 0)
 }
 
 // isVisited checks if a package has already been visited
