@@ -24,10 +24,6 @@ func NewNpmCommand() *cobra.Command {
 			}
 
 			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryNPM), args[0]) {
-				if err := utils.ValidateEnvVars(); err != nil {
-					return err
-				}
-
 				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryNPM)
 				pmw.Action = args[0]
 				pmw.PackageName = args[1]
