@@ -62,6 +62,10 @@ func (pmw *PackageManagerWrapper) Wrap() error {
 		ui.StopProgressWriter()
 	}
 
+	if len(pmw.PackagesToInstall) == 0 {
+		log.Infof("No packages were installed due to security concerns")
+		return nil
+	}
 	// Execute installation after all scans complete
 	if err := pmw.executeInstallation(); err != nil {
 		return err
