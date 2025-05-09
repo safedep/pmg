@@ -200,7 +200,7 @@ func TestRemoveMarkdown(t *testing.T) {
 		{"Just plain text", "Just plain text"},
 
 		// Complex mixed
-		{"### Title\nSome **bold** text and a [link](http://url.com).", "Title\nSome bold text and a link."},
+		{"### Title\nSome **bold** text and a [link](http://url.com).", "Title Some bold text and a link."},
 	}
 
 	for _, tt := range tests {

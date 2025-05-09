@@ -92,4 +92,4 @@ pmg pnpm add -D <package-name>               # Install as dev dependency
 ```
 
 ## Contributing
-Please feel free to submit a Pull Request.
+Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
