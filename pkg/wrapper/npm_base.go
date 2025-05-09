@@ -52,6 +52,7 @@ func (pmw *PackageManagerWrapper) Wrap() error {
 
 		if err := pmw.scanAndInstall(ctx, progressTracker); err != nil {
 			if errors.Is(err, ErrPackageInstall) {
+				log.Warnf("Skipping package %s due to ErrPackageInstall: %v", pkg, err)
 				continue
 			}
 			return err
