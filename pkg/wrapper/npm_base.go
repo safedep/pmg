@@ -2,6 +2,7 @@ package wrapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,11 +18,12 @@ import (
 )
 
 type PackageManagerWrapper struct {
-	RegistryType   registry.RegistryType
-	Flags          []string
-	Action         string
-	PackageNames   []string
-	currentPackage string
+	RegistryType      registry.RegistryType
+	Flags             []string
+	Action            string
+	PackageNames      []string
+	currentPackage    string
+	PackagesToInstall []string
 }
 
 func NewPackageManagerWrapper(registryType registry.RegistryType, flags []string, packageNames []string, action string) *PackageManagerWrapper {
@@ -49,8 +51,12 @@ func (pmw *PackageManagerWrapper) Wrap() error {
 		progressTracker := ui.TrackProgress(fmt.Sprintf("Scanning %s", pkg), DefaultProgressTotal)
 
 		if err := pmw.scanAndInstall(ctx, progressTracker); err != nil {
+			if errors.Is(err, ErrPackageInstall) {
+				continue
+			}
 			return err
 		}
+		pmw.PackagesToInstall = append(pmw.PackagesToInstall, pkg)
 
 		ui.StopProgressWriter()
 	}
@@ -145,7 +151,7 @@ func (pmw *PackageManagerWrapper) analyzeDependencies(ctx context.Context, deps 
 	if len(pkgAnalyser.MaliciousPkgs) > 0 {
 		if !utils.ConfirmInstallation(pkgAnalyser.MaliciousPkgs) {
 			log.Infof("Installation canceled due to security concerns")
-			return fmt.Errorf("installation canceled")
+			return ErrPackageInstall
 		}
 		yellow := color.New(color.FgYellow, color.Bold).SprintfFunc()
 		log.Warnf(yellow("Continuing installation despite security warnings..."))
@@ -162,7 +168,7 @@ func (pmw *PackageManagerWrapper) executeInstallation() error {
 
 	cmdArgs := []string{pmw.Action}
 	cmdArgs = append(cmdArgs, pmw.Flags...)
-	cmdArgs = append(cmdArgs, pmw.PackageNames...)
+	cmdArgs = append(cmdArgs, pmw.PackagesToInstall...)
 	if err = utils.ExecCmd(execPath, cmdArgs, []string{}); err != nil {
 		return fmt.Errorf("failed to execute %s command: %w", pmw.RegistryType, err)
 	}
