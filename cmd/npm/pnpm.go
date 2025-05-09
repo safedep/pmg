@@ -17,20 +17,38 @@ func NewPnpmCommand() *cobra.Command {
 		Short:              "Scan packages from npm registry",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			execPath, err := utils.GetExecutablePath(string(registry.RegistryPNPM))
+			execPath, err := utils.GetExecutablePath(string(registry.RegistryNPM))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "pnpm not found: %v\n", err)
+				fmt.Fprintf(os.Stderr, "npm not found: %v\n", err)
 				return err
 			}
 
+<<<<<<< HEAD
 			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryPNPM), args[0]) {
 				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryPNPM)
 				pmw.Action = args[0]
 				pmw.PackageName = args[1]
-
-				if err := pmw.Wrap(); err != nil {
-					os.Exit(1)
+=======
+			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryNPM), args[0]) {
+				if err := utils.ValidateEnvVars(); err != nil {
+					return err
 				}
+
+				// Parse arguments to separate flags and packages
+				flags, packages := utils.ParseNpmInstallArgs(args[1:])
+>>>>>>> 5d0d78d (fix(npm): handle multiple packages and flag parsing correctly)
+
+				// If no packages specified, just pass through to npm
+				if len(packages) == 0 {
+					return utils.ExecCmd(execPath, args, []string{})
+				}
+
+				// Create single wrapper instance for all packages
+				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryNPM, flags, packages, args[0])
+				if err := pmw.Wrap(); err != nil {
+					return err
+				}
+
 				return nil
 			}
 

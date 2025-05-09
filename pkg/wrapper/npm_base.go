@@ -17,33 +17,50 @@ import (
 )
 
 type PackageManagerWrapper struct {
-	RegistryType registry.RegistryType
-	Action       string
-	PackageName  string
+	RegistryType   registry.RegistryType
+	Flags          []string
+	Action         string
+	PackageNames   []string
+	currentPackage string
 }
 
-func NewPackageManagerWrapper(registryType registry.RegistryType) *PackageManagerWrapper {
+func NewPackageManagerWrapper(registryType registry.RegistryType, flags []string, packageNames []string, action string) *PackageManagerWrapper {
 	return &PackageManagerWrapper{
 		RegistryType: registryType,
+		PackageNames: packageNames,
+		Flags:        flags,
+		Action:       action,
 	}
 }
 
 func (pmw *PackageManagerWrapper) Wrap() error {
-	ui.StartProgressWriter()
-	var DefaultProgressTotal = 5
-	progressTracker := ui.TrackProgress(fmt.Sprintf("Scanning %s ", pmw.PackageName), DefaultProgressTotal)
-	if pmw.PackageName == "" {
-		return fmt.Errorf("package name cannot be empty")
+	if len(pmw.PackageNames) == 0 {
+		return fmt.Errorf("no packages specified")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	if err := pmw.scanAndInstall(ctx, progressTracker); err != nil {
+	// Scan all packages first
+	for _, pkg := range pmw.PackageNames {
+		ui.StartProgressWriter()
+		var DefaultProgressTotal = 1
+		pmw.currentPackage = pkg
+		progressTracker := ui.TrackProgress(fmt.Sprintf("Scanning %s", pkg), DefaultProgressTotal)
+
+		if err := pmw.scanAndInstall(ctx, progressTracker); err != nil {
+			return err
+		}
+
+		ui.StopProgressWriter()
+	}
+
+	// Execute installation after all scans complete
+	if err := pmw.executeInstallation(); err != nil {
 		return err
 	}
 
-	log.Infof("Successfully installed %s", pmw.PackageName)
+	log.Infof("Successfully installed all packages")
 	return nil
 }
 
@@ -54,7 +71,7 @@ func (pmw *PackageManagerWrapper) scanAndInstall(ctx context.Context, progressTr
 		return err
 	}
 
-	name, version, err := utils.ParsePackageInfo(pmw.PackageName)
+	name, version, err := utils.ParsePackageInfo(pmw.currentPackage)
 	if err != nil {
 		return err
 	}
@@ -64,7 +81,7 @@ func (pmw *PackageManagerWrapper) scanAndInstall(ctx context.Context, progressTr
 		if err != nil {
 			return err
 		}
-		pmw.PackageName = fmt.Sprintf("%s@%s", name, version)
+		pmw.currentPackage = fmt.Sprintf("%s@%s", name, version)
 	}
 
 	// Get dependencies with progress tracking
@@ -76,13 +93,13 @@ func (pmw *PackageManagerWrapper) scanAndInstall(ctx context.Context, progressTr
 		return err
 	}
 
-	// We know the total deps, set progress for analysis phase
+	// Set progress for analysis phase
 	ui.IncrementTrackerTotal(progressTracker, int64(len(deps)))
 	if err := pmw.analyzeDependencies(ctx, deps, progressTracker); err != nil {
 		return err
 	}
 
-	return pmw.executeInstallation()
+	return nil
 }
 
 func (pmw *PackageManagerWrapper) resolveLatestVersion(ctx context.Context, fetcher registry.Fetcher, name string) (string, error) {
@@ -143,7 +160,9 @@ func (pmw *PackageManagerWrapper) executeInstallation() error {
 		return fmt.Errorf("%s not found: %w", pmw.RegistryType, err)
 	}
 
-	cmdArgs := []string{pmw.Action, pmw.PackageName}
+	cmdArgs := []string{pmw.Action}
+	cmdArgs = append(cmdArgs, pmw.Flags...)
+	cmdArgs = append(cmdArgs, pmw.PackageNames...)
 	if err = utils.ExecCmd(execPath, cmdArgs, []string{}); err != nil {
 		return fmt.Errorf("failed to execute %s command: %w", pmw.RegistryType, err)
 	}
