@@ -17,12 +17,13 @@ func NewPnpmCommand() *cobra.Command {
 		Short:              "Scan packages from npm registry",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			execPath, err := utils.GetExecutablePath(string(registry.RegistryNPM))
+			execPath, err := utils.GetExecutablePath(string(registry.RegistryPNPM))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "npm not found: %v\n", err)
+				fmt.Fprintf(os.Stderr, "pnpm not found: %v\n", err)
 				return err
 			}
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryPNPM), args[0]) {
 				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryPNPM)
@@ -30,6 +31,9 @@ func NewPnpmCommand() *cobra.Command {
 				pmw.PackageName = args[1]
 =======
 			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryNPM), args[0]) {
+=======
+			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryPNPM), args[0]) {
+>>>>>>> 5946d57 (refactor: fixed the registry type)
 				if err := utils.ValidateEnvVars(); err != nil {
 					return err
 				}
@@ -44,7 +48,7 @@ func NewPnpmCommand() *cobra.Command {
 				}
 
 				// Create single wrapper instance for all packages
-				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryNPM, flags, packages, args[0])
+				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryPNPM, flags, packages, args[0])
 				if err := pmw.Wrap(); err != nil {
 					return err
 				}
