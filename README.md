@@ -5,13 +5,22 @@ PMG is a security-focused wrapper for package managers that helps detect and pre
 
 
 ## 📑 Table of Contents
+- [Features](#features)
 - [Supported Ecosystems](#supported-ecosystems)
 - [Installation](#installation)
 - [Prerequisites](#prerequisites)
-- [Environment Variables](#environment-variables)
+- [Configuration](#configuration)
 - [Usage](#usage)
+  - [NPM Packages](#npm-packages)
+  - [PNPM Packages](#pnpm-packages)
+  - [Common Flags](#common-flags)
 - [Contributing](#contributing)
 
+## Features
+- 🚫 Malware detection and prevention
+- 🌲 Deep dependency analysis
+- ⚡ Fast and efficient package verification
+- 🔄 Seamless integration with existing package managers
 
 ## Supported Ecosystems
 Currently, PMG supports the following package ecosystems:
@@ -19,6 +28,7 @@ Currently, PMG supports the following package ecosystems:
 | Ecosystem | Status | Command |
 |-----------|--------|---------|
 | NPM       | ✅ Active | `pmg npm install <package>` |
+| PNPM      | ✅ Active | `pmg pnpm add <package>` |
 | PyPI      | 🚧 Planned | Coming soon |
 | Go        | 🚧 Planned | Coming soon |
 
@@ -35,29 +45,51 @@ go install github.com/safedep/pmg@latest
 - Go 1.24
 - SafeDep API credentials (SAFEDEP_API_KEY and SAFEDEP_TENANT_ID)
 
-## Environment Variables
+## Configuration
 
-- `SAFEDEP_API_KEY`: Your SafeDep API key
-- `SAFEDEP_TENANT_ID`: Your SafeDep tenant ID
+### Environment Variables
 
-Visit https://docs.safedep.io/cloud/quickstart for instructions on obtaining your API Key and Tenant ID.
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `SAFEDEP_API_KEY` | Your SafeDep API key | Yes |
+| `SAFEDEP_TENANT_ID` | Your SafeDep tenant ID | Yes |
+
+Get your API credentials by visiting [SafeDep Quickstart Guide](https://docs.safedep.io/cloud/quickstart).
 
 ## Usage
 
-### Scanning NPM packages
+### Security in Action
+
+#### Malicious Package Detection
+![pmg scan malicious package](./docs/assets/pmg-malicious-pkg.png)
+
+#### Bulk Package Analysis
+![pmg scan & install multiple package](./docs/assets/pmg-scan-multiple-pkgs.png)
+
+### NPM Packages
+Install a package:
 ```bash
 pmg npm install <package-name>
 ```
 
-OR
+Alternative commands:
 ```bash
-pmg npm i <package-name>
+pmg npm i <package-name>     # Short form
+pmg npm add <package-name>   # Alternative syntax
 ```
-OR
+
+### PNPM Packages
+Install a package:
 ```bash
-pmg npm add <package-name>
+pmg pnpm add <package-name>
+```
+
+### Common Flags
+All standard package manager flags are supported:
+```bash
+pmg npm install --save-dev <package-name>    # Install as dev dependency
+pmg pnpm add -D <package-name>               # Install as dev dependency
 ```
 
 ## Contributing
-
-Please feel free to submit a Pull Request.
+Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
