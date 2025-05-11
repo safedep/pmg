@@ -23,24 +23,9 @@ func NewPnpmCommand() *cobra.Command {
 				return err
 			}
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryPNPM), args[0]) {
-				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryPNPM)
-				pmw.Action = args[0]
-				pmw.PackageName = args[1]
-=======
-			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryNPM), args[0]) {
-=======
-			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryPNPM), args[0]) {
->>>>>>> 5946d57 (refactor: fixed the registry type)
-				if err := utils.ValidateEnvVars(); err != nil {
-					return err
-				}
-
 				// Parse arguments to separate flags and packages
 				flags, packages := utils.ParseNpmInstallArgs(args[1:])
->>>>>>> 5d0d78d (fix(npm): handle multiple packages and flag parsing correctly)
 
 				// If no packages specified, just pass through to npm
 				if len(packages) == 0 {
