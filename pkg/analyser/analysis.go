@@ -21,31 +21,26 @@ type PackageAnalyser struct {
 	Ctx                context.Context
 	MaliciousPkgsMutex sync.Mutex
 	ProgressTracker    ui.ProgressTracker
+	Ecosystem          packagev1.Ecosystem
 }
 
-func New(client malysisv1grpc.MalwareAnalysisServiceClient, ctx context.Context) *PackageAnalyser {
+func New(client malysisv1grpc.MalwareAnalysisServiceClient, ctx context.Context, ecosystem packagev1.Ecosystem) *PackageAnalyser {
 	return &PackageAnalyser{
 		MaliciousPkgs:      make(map[string]string),
 		Client:             client,
 		Ctx:                ctx,
 		MaliciousPkgsMutex: sync.Mutex{},
+		Ecosystem:          ecosystem,
 	}
 }
 
 func (ap *PackageAnalyser) Handler() vetUtils.WorkQueueFn[models.Package] {
 	return func(q *vetUtils.WorkQueue[models.Package], item models.Package) error {
-		resp, err := SubmitPackageForAnalysis(ap.Ctx, ap.Client,
-			packagev1.Ecosystem_ECOSYSTEM_NPM, item.Name, item.Version)
+		reportResp, err := QueryPackageAnalysis(ap.Ctx, ap.Client,
+			ap.Ecosystem, item.Name, item.Version)
 		if err != nil {
 			log.Debugf("Failed to analyze %s@%s: %v", item.Name, item.Version, err)
-			return err
-		}
-
-		reportResp, err := GetAnalysisReport(ap.Ctx, ap.Client, resp.GetAnalysisId())
-		if err != nil {
-			log.Debugf("Failed to get analysis report for %s:%s %v",
-				item.Name, resp.GetAnalysisId(), err)
-			return err
+			return nil
 		}
 
 		report := reportResp.GetReport()
@@ -73,10 +68,9 @@ func (ap *PackageAnalyser) Handler() vetUtils.WorkQueueFn[models.Package] {
 	}
 }
 
-func SubmitPackageForAnalysis(ctx context.Context, client malysisv1grpc.MalwareAnalysisServiceClient,
-	ecosystem packagev1.Ecosystem, name string,
-	version string) (*malysisv1.AnalyzePackageResponse, error) {
-	req := &malysisv1.AnalyzePackageRequest{
+func QueryPackageAnalysis(ctx context.Context, client malysisv1grpc.MalwareAnalysisServiceClient, ecosystem packagev1.Ecosystem, name string,
+	version string) (*malysisv1.QueryPackageAnalysisResponse, error) {
+	resp, err := client.QueryPackageAnalysis(ctx, &malysisv1.QueryPackageAnalysisRequest{
 		Target: &malysisv1pb.PackageAnalysisTarget{
 			PackageVersion: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
@@ -86,22 +80,11 @@ func SubmitPackageForAnalysis(ctx context.Context, client malysisv1grpc.MalwareA
 				Version: version,
 			},
 		},
-	}
-	resp, err := client.AnalyzePackage(ctx, req)
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze %s@%s: %w", name, version, err)
 	}
-	return resp, nil
-}
 
-func GetAnalysisReport(ctx context.Context, client malysisv1grpc.MalwareAnalysisServiceClient,
-	analysisId string) (*malysisv1.GetAnalysisReportResponse, error) {
-	analysisReportReq := &malysisv1.GetAnalysisReportRequest{
-		AnalysisId: analysisId,
-	}
-	reportResp, err := client.GetAnalysisReport(ctx, analysisReportReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get analysis report: %w", err)
-	}
-	return reportResp, nil
+	return resp, nil
 }

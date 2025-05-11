@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/fatih/color"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/ui"
@@ -100,7 +101,7 @@ func (pmw *PackageManagerWrapper) analyzeDependencies(ctx context.Context, deps 
 		return fmt.Errorf("error while creating a malware analysis client: %w", err)
 	}
 
-	pkgAnalyser := analyser.New(client, ctx)
+	pkgAnalyser := analyser.New(client, ctx, packagev1.Ecosystem_ECOSYSTEM_NPM)
 	pkgAnalyser.ProgressTracker = progressTracker
 	handler := pkgAnalyser.Handler()
 

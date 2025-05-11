@@ -5,20 +5,11 @@ import (
 	"net/http"
 
 	drygrpc "github.com/safedep/dry/adapters/grpc"
-	"github.com/safedep/pmg/pkg/common/utils"
 	"google.golang.org/grpc"
 )
 
 func NewCloudClientConnection() (*grpc.ClientConn, error) {
-	tok := utils.ApiKey()
-	tenantId := utils.TenantDomain()
-	if tok == "" || tenantId == "" {
-		return nil, fmt.Errorf("SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set")
-	}
-	headers := http.Header{}
-	headers.Set("x-tenant-id", tenantId)
-
-	cc, err := newGrpcClient(headers, tok, "pmg-pkg-scan", "api.safedep.io", "443")
+	cc, err := newGrpcClient(http.Header{}, "", "pmg-pkg-scan", "community-api.safedep.io", "443")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %v", err)
 	}
