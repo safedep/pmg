@@ -24,13 +24,20 @@ func NewNpmCommand() *cobra.Command {
 			}
 
 			if len(args) >= 2 && utils.IsInstallCommand(string(registry.RegistryNPM), args[0]) {
-				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryNPM)
-				pmw.Action = args[0]
-				pmw.PackageName = args[1]
+				// Parse arguments to separate flags and packages
+				flags, packages := utils.ParseNpmInstallArgs(args[1:])
 
-				if err := pmw.Wrap(); err != nil {
-					os.Exit(1)
+				// If no packages specified, just pass through to npm
+				if len(packages) == 0 {
+					return utils.ExecCmd(execPath, args, []string{})
 				}
+
+				// Create single wrapper instance for all packages
+				pmw := wrapper.NewPackageManagerWrapper(registry.RegistryNPM, flags, packages, args[0])
+				if err := pmw.Wrap(); err != nil {
+					return err
+				}
+
 				return nil
 			}
 
