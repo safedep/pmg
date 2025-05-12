@@ -242,6 +242,8 @@ github.com/russross/blackfriday/v2 v2.1.0 h1:JIOH55/0cWyOuilr9/qlrm0BSXldqnqwMsf
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/safedep/dry v0.0.0-20250410092643-c7079e2f9442 h1:+wee7FBBGm/SD46Y+cHh6GOihYI2PZ4ql2la62in7Pk=
 github.com/safedep/dry v0.0.0-20250410092643-c7079e2f9442/go.mod h1:EBAaPIWWi5sPFShU5wsTGynZekSo1Mxf+l/zzs1KTls=
+github.com/safedep/dry v0.0.0-20250512123505-23dcce9fe1af h1:3Pomh9zoEIwvzWLBAc5ikJ8kPT53O2APD06HmrlE6A4=
+github.com/safedep/dry v0.0.0-20250512123505-23dcce9fe1af/go.mod h1:Mdqx/Q2DhAcN38XiUNTGCC5MktofYDQW9Az7YWGEF0s=
 github.com/safedep/vet v1.10.1 h1:L8yG3X/t3I9fDVICc0DZ+zGweoLhDeyFIK6ubcNiXUc=
 github.com/safedep/vet v1.10.1/go.mod h1:DN+59m5kB1QSOpdstCk9rfLTMCPtT/ZLMP5rwuix/j8=
 github.com/sanity-io/litter v1.5.8 h1:uM/2lKrWdGbRXDrIq08Lh9XtVYoeGtcQxk9rtQ7+rYg=
