@@ -29,6 +29,7 @@ pnpm add <package-name>
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
   - [Usage](#usage)
+    - [Debugging](#debugging)
     - [PMG in Action](#pmg-in-action)
       - [Malicious Package Detection](#malicious-package-detection)
       - [Bulk Package Analysis](#bulk-package-analysis)
@@ -49,10 +50,10 @@ PMG supports the following package ecosystems:
 | --------- | --------- | --------------------------- |
 | NPM       | ✅ Active  | `pmg npm install <package>` |
 | PNPM      | ✅ Active  | `pmg pnpm add <package>`    |
-| PyPI      | 🚧 Planned | Coming soon                 |
-| Go        | 🚧 Planned | Coming soon                 |
+| PyPI      | 🚧 Planned |                             |
+| Go        | 🚧 Planned |                             |
 
-Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
+> Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
 ## Installation
 
@@ -83,6 +84,26 @@ Set shell alias for convenience:
 alias npm="pmg npm"
 alias pnpm="pmg pnpm"
 ```
+
+Continue using your favorite package manager as usual:
+
+```bash
+npm install <package-name>
+```
+
+```bash
+pnpm add <package-name>
+```
+
+### Debugging
+
+Use the `--debug` flag to enable debug mode:
+
+```bash
+pmg --debug npm install <package-name>
+```
+
+
 
 ### PMG in Action
 

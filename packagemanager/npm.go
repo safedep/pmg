@@ -59,23 +59,24 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}, nil
 	}
 
-	// Check if this is an install command
-	if !npm.isInstallCommand(args[0]) {
-		return &ParsedCommand{
-			Command: command,
-		}, nil
-	}
-
 	// Extract packages from args
 	var packages []string
-	for i := 1; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "-") {
-			packages = append(packages, arg)
+	for idx, arg := range args {
+		if slices.Contains(npm.Config.InstallCommands, arg) {
+			// All subsequent args are packages except for flags
+			for i := idx + 1; i < len(args); i++ {
+				if strings.HasPrefix(args[i], "-") {
+					continue
+				}
+
+				packages = append(packages, args[i])
+			}
+
+			break
 		}
 	}
 
-	// No packages specified
+	// No packages found
 	if len(packages) == 0 {
 		return &ParsedCommand{
 			Command: command,
@@ -110,10 +111,6 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		Command:        command,
 		InstallTargets: installTargets,
 	}, nil
-}
-
-func (npm *npmPackageManager) isInstallCommand(cmd string) bool {
-	return slices.Contains(npm.Config.InstallCommands, cmd)
 }
 
 func npmParsePackageInfo(input string) (packageName, version string, err error) {
