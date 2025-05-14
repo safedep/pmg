@@ -36,6 +36,26 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  goreleaser-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+        with:
+          go-version: 1.24
+          check-latest: true
+
+      - name: Run Goreleaser
+        uses: goreleaser/goreleaser-action@286f3b13b1b49da4ac219696163fb8c1c93e1200 # v6.0.0
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: build --clean --snapshot
+
   build-container-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -51,7 +71,7 @@ jobs:
 
     - name: Build Container Image
       run: |
-        docker buildx build --platform linux/amd64,linux/arm64 --load \
+        docker buildx build --platform linux/amd64 --load \
         -t build-container-test:latest .
 
 
