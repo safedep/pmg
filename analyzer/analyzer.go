@@ -3,7 +3,6 @@ package analyzer
 import (
 	"context"
 
-	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
@@ -12,21 +11,34 @@ type Analyzer interface {
 	Name() string
 }
 
-type MalysisResult struct {
+type Action int
+
+const (
+	ActionUnknown Action = iota
+	ActionAllow
+	ActionConfirm
+	ActionBlock
+)
+
+type PackageVersionAnalysisResult struct {
+	PackageVersion *packagev1.PackageVersion
+
+	// Analyser specific analysis ID
 	AnalysisID string
-	Report     *malysisv1.Report
+
+	// The action to take as recommended by the analyzer
+	Action Action
+
+	// Summary of the analysis
+	Summary string
+
+	// Analyzer specific data
+	Data any
 }
 
-func (m *MalysisResult) IsMalware() bool {
-	return m.Report.GetInference().GetIsMalware()
-}
-
-func (m *MalysisResult) Summary() string {
-	return m.Report.GetInference().GetSummary()
-}
-
-type MalysisAnalyzer interface {
+// Contract for implementing package version specific analyzers
+type PackageVersionAnalyzer interface {
 	Analyzer
 
-	Analyze(ctx context.Context, packageVersion *packagev1.PackageVersion) (*MalysisResult, error)
+	Analyze(ctx context.Context, packageVersion *packagev1.PackageVersion) (*PackageVersionAnalysisResult, error)
 }

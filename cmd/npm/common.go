@@ -34,7 +34,7 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 	}
 
 	proxy, err := guard.NewPackageManagerGuard(guard.DefaultPackageManagerGuardConfig(),
-		pm, packageResolver, []analyzer.MalysisAnalyzer{malysisQueryAnalyzer}, interaction)
+		pm, packageResolver, []analyzer.PackageVersionAnalyzer{malysisQueryAnalyzer}, interaction)
 	if err != nil {
 		return fmt.Errorf("failed to create package manager guard: %w", err)
 	}

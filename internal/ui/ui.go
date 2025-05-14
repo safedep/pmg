@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/analyzer"
 )
 
 // The UI is internal to PMG and opinionated for the CLI.
@@ -40,7 +40,9 @@ func ClearStatus() {
 func Block() error {
 	StopSpinner()
 
-	fmt.Println(Colors.Red("❌ Malicious packages detected, installation blocked!"))
+	fmt.Println()
+	fmt.Println(Colors.Red("❌ Malicious package blocked!"))
+
 	os.Exit(1)
 
 	return nil
@@ -52,17 +54,19 @@ func SetStatus(status string) {
 	}
 
 	StopSpinner()
-
-	fmt.Print("\r", Colors.Green(status), " ")
-	StartSpinner(status)
+	StartSpinnerWithColor(fmt.Sprintf("ℹ️ %s", status), Colors.Green)
 }
 
-func GetConfirmationOnMalware(malwarePackages []*packagev1.PackageVersion) (bool, error) {
+func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 	StopSpinner()
-	fmt.Println(Colors.Red("🚨 Malicious packages detected:"))
+	fmt.Println(Colors.Red(fmt.Sprintf("🚨 Malicious packages detected: %d", len(malwarePackages))))
+	fmt.Println()
 
-	for _, pkg := range malwarePackages {
-		fmt.Println("  ⚠️ ", Colors.Red(fmt.Sprintf("%s@%s", pkg.Package.Name, pkg.Version)))
+	for _, mp := range malwarePackages {
+		fmt.Println("⚠️ ", Colors.Red(fmt.Sprintf("%s@%s", mp.PackageVersion.GetPackage().GetName(),
+			mp.PackageVersion.GetVersion())))
+		fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 60)))
+		fmt.Println()
 	}
 
 	fmt.Println()
@@ -84,4 +88,22 @@ func GetConfirmationOnMalware(malwarePackages []*packagev1.PackageVersion) (bool
 	}
 
 	return false, nil
+}
+
+// Format the string to be maximum maxWidth. Use newlines to wrap the text.
+func termWidthFormatText(text string, maxWidth int) string {
+	words := strings.Split(text, " ")
+	lines := []string{}
+	currentLine := ""
+
+	for _, word := range words {
+		if len(currentLine)+len(word) > maxWidth {
+			lines = append(lines, currentLine)
+			currentLine = word
+		} else {
+			currentLine += " " + word
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }

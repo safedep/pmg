@@ -21,7 +21,7 @@ type malysisQueryAnalyzer struct {
 }
 
 var _ Analyzer = &malysisQueryAnalyzer{}
-var _ MalysisAnalyzer = &malysisQueryAnalyzer{}
+var _ PackageVersionAnalyzer = &malysisQueryAnalyzer{}
 
 func NewMalysisQueryAnalyzer(config MalysisQueryAnalyzerConfig) (*malysisQueryAnalyzer, error) {
 	client, err := drygrpc.GrpcClient("pmg-malysis-query",
@@ -41,7 +41,7 @@ func (a *malysisQueryAnalyzer) Name() string {
 }
 
 func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
-	packageVersion *packagev1.PackageVersion) (*MalysisResult, error) {
+	packageVersion *packagev1.PackageVersion) (*PackageVersionAnalysisResult, error) {
 
 	res, err := a.client.QueryPackageAnalysis(ctx, &malysisv1.QueryPackageAnalysisRequest{
 		Target: &malysisv1pb.PackageAnalysisTarget{
@@ -52,7 +52,24 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 		return nil, fmt.Errorf("failed to query package analysis: %w", err)
 	}
 
-	return &MalysisResult{
-		Report: res.GetReport(),
-	}, nil
+	// By default, the analyzer allows the package version
+	analysisResult := &PackageVersionAnalysisResult{
+		PackageVersion: packageVersion,
+		Action:         ActionAllow,
+		AnalysisID:     res.GetAnalysisId(),
+		Summary:        res.GetReport().GetInference().GetSummary(),
+		Data:           res.GetReport(),
+	}
+
+	// Mark the package version to be confirmed if it is malicious (not confirmed)
+	if res.GetReport().GetInference().GetIsMalware() {
+		analysisResult.Action = ActionConfirm
+	}
+
+	// This is a confirmed malicious package, we must always block it
+	if res.GetVerificationRecord().GetIsMalware() {
+		analysisResult.Action = ActionBlock
+	}
+
+	return analysisResult, nil
 }

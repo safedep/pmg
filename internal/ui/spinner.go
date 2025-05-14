@@ -8,6 +8,14 @@ import (
 var spinnerChan chan bool
 
 func StartSpinner(msg string) {
+	StartSpinnerWithColor(msg, Colors.Normal)
+}
+
+func StartSpinnerWithColor(msg string, c ColorFn) {
+	if c == nil {
+		c = Colors.Normal
+	}
+
 	style := `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`
 	frames := []rune(style)
 	length := len(frames)
@@ -24,7 +32,7 @@ func StartSpinner(msg string) {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				fmt.Printf("\r%s ... %s", msg, string(frames[pos%length]))
+				fmt.Printf("\r%s ... %s", c(msg), string(frames[pos%length]))
 				pos += 1
 			}
 		}

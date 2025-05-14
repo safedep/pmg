@@ -17,7 +17,7 @@ import (
 type PackageManagerGuardInteraction struct {
 	SetStatus                func(status string)
 	ClearStatus              func()
-	GetConfirmationOnMalware func(malwarePackages []*packagev1.PackageVersion) (bool, error)
+	GetConfirmationOnMalware func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error)
 	Block                    func() error
 }
 
@@ -38,7 +38,7 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 type packageManagerGuard struct {
 	config          PackageManagerGuardConfig
 	interaction     PackageManagerGuardInteraction
-	analyzers       []analyzer.MalysisAnalyzer
+	analyzers       []analyzer.PackageVersionAnalyzer
 	packageManager  packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
 }
@@ -46,7 +46,7 @@ type packageManagerGuard struct {
 func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	packageManager packagemanager.PackageManager,
 	packageResolver packagemanager.PackageResolver,
-	analyzers []analyzer.MalysisAnalyzer,
+	analyzers []analyzer.PackageVersionAnalyzer,
 	interaction PackageManagerGuardInteraction,
 ) (*packageManagerGuard, error) {
 	return &packageManagerGuard{
@@ -118,15 +118,20 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
 
-	maliciousPackages := []*packagev1.PackageVersion{}
+	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
-		if result.result.IsMalware() {
-			maliciousPackages = append(maliciousPackages, result.pkg)
+		if result.Action == analyzer.ActionBlock {
+			_ = g.blockInstallation()
+			return fmt.Errorf("malicious packages detected, installation aborted")
+		}
+
+		if result.Action == analyzer.ActionConfirm {
+			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
 		}
 	}
 
-	if len(maliciousPackages) > 0 {
-		confirmed, err := g.getConfirmationOnMalware(ctx, maliciousPackages)
+	if len(confirmableMalwarePackages) > 0 {
+		confirmed, err := g.getConfirmationOnMalware(ctx, confirmableMalwarePackages)
 		if err != nil {
 			return fmt.Errorf("failed to get confirmation on malware: %w", err)
 		}
@@ -156,20 +161,15 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	return cmd.Run()
 }
 
-type analyzePackageResult struct {
-	pkg    *packagev1.PackageVersion
-	result *analyzer.MalysisResult
-}
-
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
-	packages []*packagev1.PackageVersion) ([]*analyzePackageResult, error) {
+	packages []*packagev1.PackageVersion) ([]*analyzer.PackageVersionAnalysisResult, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, g.config.AnalysisTimeout)
 	defer cancel()
 
 	wg := sync.WaitGroup{}
 	jobs := make(chan *packagev1.PackageVersion, len(packages))
-	results := make(chan *analyzePackageResult, len(packages))
+	results := make(chan *analyzer.PackageVersionAnalysisResult, len(packages))
 
 	for i := 0; i < g.config.MaxConcurrentAnalyzes; i++ {
 		wg.Add(1)
@@ -184,7 +184,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 						continue
 					}
 
-					results <- &analyzePackageResult{pkg: pkg, result: analysisResult}
+					results <- analysisResult
 				}
 			}
 		}()
@@ -195,7 +195,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	}
 	close(jobs)
 
-	analysisResults := []*analyzePackageResult{}
+	analysisResults := []*analyzer.PackageVersionAnalysisResult{}
 	go func() {
 		for result := range results {
 			analysisResults = append(analysisResults, result)
@@ -218,7 +218,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	return analysisResults, nil
 }
 
-func (g *packageManagerGuard) getConfirmationOnMalware(ctx context.Context, malwarePackages []*packagev1.PackageVersion) (bool, error) {
+func (g *packageManagerGuard) getConfirmationOnMalware(ctx context.Context, malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 	if g.interaction.GetConfirmationOnMalware == nil {
 		return false, nil
 	}
