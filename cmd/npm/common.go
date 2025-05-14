@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
 
@@ -20,8 +21,15 @@ func executeCommonFlow(pm packagemanager.PackageManager, args []string) error {
 		return fmt.Errorf("failed to create malysis query analyzer: %w", err)
 	}
 
+	interaction := guard.PackageManagerGuardInteraction{
+		SetStatus:                ui.SetStatus,
+		ClearStatus:              ui.ClearStatus,
+		GetConfirmationOnMalware: ui.GetConfirmationOnMalware,
+		Block:                    ui.Block,
+	}
+
 	proxy, err := guard.NewPackageManagerGuard(guard.DefaultPackageManagerGuardConfig(),
-		pm, packageResolver, []analyzer.MalysisAnalyzer{malysisQueryAnalyzer})
+		pm, packageResolver, []analyzer.MalysisAnalyzer{malysisQueryAnalyzer}, interaction)
 	if err != nil {
 		return fmt.Errorf("failed to create package manager guard: %w", err)
 	}

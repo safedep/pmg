@@ -511,6 +511,8 @@ github.com/ryanrolds/sqlclosecheck v0.5.1 h1:dibWW826u0P8jNLsLN+En7+RqWWTYrjCB9f
 github.com/ryanrolds/sqlclosecheck v0.5.1/go.mod h1:2g3dUjoS6AL4huFdv6wn55WpLIDjY7ZgUR4J8HOO/XQ=
 github.com/safedep/dry v0.0.0-20250512123505-23dcce9fe1af h1:3Pomh9zoEIwvzWLBAc5ikJ8kPT53O2APD06HmrlE6A4=
 github.com/safedep/dry v0.0.0-20250512123505-23dcce9fe1af/go.mod h1:Mdqx/Q2DhAcN38XiUNTGCC5MktofYDQW9Az7YWGEF0s=
+github.com/safedep/dry v0.0.0-20250514080944-bb77f30c7175 h1:TxAI6m/v01CL+kwIYE3RZsuxu01pbuGy3wOi3WyBT1E=
+github.com/safedep/dry v0.0.0-20250514080944-bb77f30c7175/go.mod h1:Mdqx/Q2DhAcN38XiUNTGCC5MktofYDQW9Az7YWGEF0s=
 github.com/safedep/vet v1.10.1 h1:L8yG3X/t3I9fDVICc0DZ+zGweoLhDeyFIK6ubcNiXUc=
 github.com/safedep/vet v1.10.1/go.mod h1:DN+59m5kB1QSOpdstCk9rfLTMCPtT/ZLMP5rwuix/j8=
 github.com/sagikazarmark/locafero v0.9.0 h1:GbgQGNtTrEmddYDSAH9QLRyfAHY12md+8YFTqyMTC9k=

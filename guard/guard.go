@@ -16,7 +16,9 @@ import (
 
 type PackageManagerGuardInteraction struct {
 	SetStatus                func(status string)
+	ClearStatus              func()
 	GetConfirmationOnMalware func(malwarePackages []*packagev1.PackageVersion) (bool, error)
+	Block                    func() error
 }
 
 type PackageManagerGuardConfig struct {
@@ -44,8 +46,11 @@ type packageManagerGuard struct {
 func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	packageManager packagemanager.PackageManager,
 	packageResolver packagemanager.PackageResolver,
-	analyzers []analyzer.MalysisAnalyzer) (*packageManagerGuard, error) {
+	analyzers []analyzer.MalysisAnalyzer,
+	interaction PackageManagerGuardInteraction,
+) (*packageManagerGuard, error) {
 	return &packageManagerGuard{
+		interaction:     interaction,
 		analyzers:       analyzers,
 		packageManager:  packageManager,
 		packageResolver: packageResolver,
@@ -127,12 +132,14 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 		}
 
 		if !confirmed {
+			_ = g.blockInstallation()
 			return fmt.Errorf("malicious packages detected, installation aborted")
 		}
 	}
 
 	log.Debugf("No malicious packages found, continuing execution")
 
+	g.clearStatus()
 	return g.continueExecution(ctx, parsedCommand)
 }
 
@@ -172,7 +179,8 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 				for _, analyzer := range g.analyzers {
 					analysisResult, err := analyzer.Analyze(ctx, pkg)
 					if err != nil {
-						log.Errorf("failed to analyze package: %w", err)
+						// This is not an error because we may not have results for all packages
+						log.Debugf("failed to analyze package: %v", err)
 						continue
 					}
 
@@ -223,4 +231,20 @@ func (g *packageManagerGuard) setStatus(status string) {
 	}
 
 	g.interaction.SetStatus(status)
+}
+
+func (g *packageManagerGuard) blockInstallation() error {
+	if g.interaction.Block == nil {
+		return nil
+	}
+
+	return g.interaction.Block()
+}
+
+func (g *packageManagerGuard) clearStatus() {
+	if g.interaction.ClearStatus == nil {
+		return
+	}
+
+	g.interaction.ClearStatus()
 }
