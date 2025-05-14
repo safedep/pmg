@@ -34,6 +34,24 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "install a development package",
+			command: "npm install --save-dev @types/node",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "install a development package with short flag",
+			command: "npm i -D @types/node",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
 			name:    "no install target",
 			command: "npm install",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {

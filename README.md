@@ -1,39 +1,66 @@
 
 # PMG (Package Manager Guard)
+PMG is a wrapper for package managers to protect developers from installing malicious packages.
 
-PMG is a security-focused wrapper for package managers that helps detect and prevent the installation of potentially malicious packages.
+## TL;DR
 
+Set up `pmg` to protect you development environment:
+
+```
+echo "alias npm='pmg npm'" >> ~/.zshrc
+echo "alias pnpm='pmg pnpm'" >> ~/.zshrc
+source ~/.zshrc
+```
+
+Continue using your favorite package manager as usual:
+
+```
+npm install <package-name>
+pnpm add <package-name>
+```
 
 ## 📑 Table of Contents
-- [Features](#features)
-- [Supported Ecosystems](#supported-ecosystems)
-- [Installation](#installation)
-- [Prerequisites](#prerequisites)
-- [Configuration](#configuration)
-- [Usage](#usage)
-  - [NPM Packages](#npm-packages)
-  - [PNPM Packages](#pnpm-packages)
-  - [Common Flags](#common-flags)
-- [Contributing](#contributing)
+- [PMG (Package Manager Guard)](#pmg-package-manager-guard)
+  - [TL;DR](#tldr)
+  - [📑 Table of Contents](#-table-of-contents)
+  - [Features](#features)
+  - [Supported Ecosystems](#supported-ecosystems)
+  - [Installation](#installation)
+    - [Binaries](#binaries)
+    - [Build from Source](#build-from-source)
+  - [Usage](#usage)
+    - [PMG in Action](#pmg-in-action)
+      - [Malicious Package Detection](#malicious-package-detection)
+      - [Bulk Package Analysis](#bulk-package-analysis)
+  - [Contributing](#contributing)
 
 ## Features
-- 🚫 Malware detection and prevention
-- 🌲 Deep dependency analysis
+
+- 🚫 Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis)
+- 🌲 Deep dependency analysis and transitive dependency resolution
 - ⚡ Fast and efficient package verification
 - 🔄 Seamless integration with existing package managers
 
 ## Supported Ecosystems
-Currently, PMG supports the following package ecosystems:
 
-| Ecosystem | Status | Command |
-|-----------|--------|---------|
-| NPM       | ✅ Active | `pmg npm install <package>` |
-| PNPM      | ✅ Active | `pmg pnpm add <package>` |
-| PyPI      | 🚧 Planned | Coming soon |
-| Go        | 🚧 Planned | Coming soon |
+PMG supports the following package ecosystems:
+
+| Ecosystem | Status    | Command                     |
+| --------- | --------- | --------------------------- |
+| NPM       | ✅ Active  | `pmg npm install <package>` |
+| PNPM      | ✅ Active  | `pmg pnpm add <package>`    |
+| PyPI      | 🚧 Planned | Coming soon                 |
+| Go        | 🚧 Planned | Coming soon                 |
+
+Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
 ## Installation
-- Build from source
+
+### Binaries
+
+Download the latest binary from the [releases page](https://github.com/safedep/pmg/releases).
+
+### Build from Source
 
 > Ensure $(go env GOPATH)/bin is in your $PATH
 
@@ -41,24 +68,23 @@ Currently, PMG supports the following package ecosystems:
 go install github.com/safedep/pmg@latest
 ```
 
-## Prerequisites
-- Go 1.24
-- SafeDep API credentials (SAFEDEP_API_KEY and SAFEDEP_TENANT_ID)
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `SAFEDEP_API_KEY` | Your SafeDep API key | Yes |
-| `SAFEDEP_TENANT_ID` | Your SafeDep tenant ID | Yes |
-
-Get your API credentials by visiting [SafeDep Quickstart Guide](https://docs.safedep.io/cloud/quickstart).
-
 ## Usage
 
-### Security in Action
+Install a package with `npm` or `pnpm`:
+
+```bash
+pmg npm install <package-name>
+pmg pnpm add <package-name>
+```
+
+Set shell alias for convenience:
+
+```bash
+alias npm="pmg npm"
+alias pnpm="pmg pnpm"
+```
+
+### PMG in Action
 
 #### Malicious Package Detection
 ![pmg scan malicious package](./docs/assets/pmg-malicious-pkg.png)
@@ -66,30 +92,6 @@ Get your API credentials by visiting [SafeDep Quickstart Guide](https://docs.saf
 #### Bulk Package Analysis
 ![pmg scan & install multiple package](./docs/assets/pmg-scan-multiple-pkgs.png)
 
-### NPM Packages
-Install a package:
-```bash
-pmg npm install <package-name>
-```
-
-Alternative commands:
-```bash
-pmg npm i <package-name>     # Short form
-pmg npm add <package-name>   # Alternative syntax
-```
-
-### PNPM Packages
-Install a package:
-```bash
-pmg pnpm add <package-name>
-```
-
-### Common Flags
-All standard package manager flags are supported:
-```bash
-pmg npm install --save-dev <package-name>    # Install as dev dependency
-pmg pnpm add -D <package-name>               # Install as dev dependency
-```
-
 ## Contributing
+
 Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
