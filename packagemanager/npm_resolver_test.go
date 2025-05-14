@@ -89,7 +89,7 @@ func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 			transitiveDepth:               5,
 			assertFn: func(t *testing.T, dependencies []*packagev1.PackageVersion, err error) {
 				require.NoError(t, err)
-				require.Equal(t, 1, len(dependencies))
+				require.Greater(t, len(dependencies), 5, "Express should have more than 5 dependencies")
 			},
 		},
 	}

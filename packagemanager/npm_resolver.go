@@ -66,104 +66,14 @@ func (r *npmDependencyResolver) ResolveLatestVersion(ctx context.Context,
 	}, nil
 }
 
-// TODO: Refactor this into a generic dependency resolver that depends on
-// package registry client
 func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 	packageVersion *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
-	pd, err := r.registry.PackageDiscovery()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get package discovery: %w", err)
-	}
+	resolver := newDependencyResolver(r.registry, dependencyResolverConfig{
+		IncludeDevDependencies:        r.config.IncludeDevDependencies,
+		IncludeTransitiveDependencies: r.config.IncludeTransitiveDependencies,
+		TransitiveDepth:               r.config.TransitiveDepth,
+		FailFast:                      r.config.FailFast,
+	})
 
-	// Track visited packages to avoid cycles
-	visitedPackages := make(map[string]bool)
-
-	// Result collection
-	dependencies := make([]*packagev1.PackageVersion, 0)
-
-	// Start recursive resolution
-	err = r.resolvePackageDependenciesRecursive(ctx, pd, packageVersion, 0, visitedPackages, &dependencies)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
-	}
-
-	return dependencies, nil
-}
-
-// resolvePackageDependenciesRecursive resolves dependencies for a package version recursively
-func (r *npmDependencyResolver) resolvePackageDependenciesRecursive(
-	ctx context.Context,
-	pd packageregistry.PackageDiscovery,
-	packageVersion *packagev1.PackageVersion,
-	depth int,
-	visitedPackages map[string]bool,
-	result *[]*packagev1.PackageVersion) error {
-
-	ff := func(err error) error {
-		if r.config.FailFast {
-			return err
-		}
-
-		log.Warnf("error resolving package dependencies: %w", err)
-		return nil
-	}
-
-	// Check depth limit
-	if depth > r.config.TransitiveDepth {
-		return ff(fmt.Errorf("exceeded maximum transitive depth of %d", r.config.TransitiveDepth))
-	}
-
-	// Skip if already visited
-	packageKey := r.packageKey(packageVersion)
-	if visitedPackages[packageKey] {
-		return nil
-	}
-
-	// Mark as visited
-	visitedPackages[packageKey] = true
-
-	log.Debugf("resolving dependencies for %s@%s", packageVersion.Package.Name, packageVersion.Version)
-
-	// Get dependencies for the current package
-	dependencyList, err := pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
-	if err != nil {
-		return ff(fmt.Errorf("failed to get package dependencies: %w", err))
-	}
-
-	// Collect all dependencies (and optionally dev dependencies)
-	dependencies := dependencyList.Dependencies
-	if r.config.IncludeDevDependencies {
-		dependencies = append(dependencies, dependencyList.DevDependencies...)
-	}
-
-	// Create package version objects for all dependencies
-	resolvedDependencies := make([]*packagev1.PackageVersion, 0, len(dependencies))
-	for _, dependency := range dependencies {
-		resolvedDependencies = append(resolvedDependencies, &packagev1.PackageVersion{
-			Package: &packagev1.Package{
-				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-				Name:      dependency.Name,
-			},
-			Version: npmCleanVersion(dependency.VersionSpec),
-		})
-	}
-
-	// Add all resolved dependencies to the result
-	*result = append(*result, resolvedDependencies...)
-
-	// Process transitive dependencies if enabled
-	if r.config.IncludeTransitiveDependencies {
-		for _, dependency := range resolvedDependencies {
-			err := r.resolvePackageDependenciesRecursive(ctx, pd, dependency, depth+1, visitedPackages, result)
-			if err != nil {
-				return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
-			}
-		}
-	}
-
-	return nil
-}
-
-func (r *npmDependencyResolver) packageKey(pkg *packagev1.PackageVersion) string {
-	return fmt.Sprintf("%s@%s", pkg.Package.Name, pkg.Version)
+	return resolver.resolveDependencies(ctx, packageVersion)
 }
