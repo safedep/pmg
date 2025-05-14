@@ -56,6 +56,7 @@ func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 		pkg                           *packagev1.PackageVersion
 		includeTransitiveDependencies bool
 		transitiveDepth               int
+		failFast                      bool
 		assertFn                      func(t *testing.T, dependencies []*packagev1.PackageVersion, err error)
 	}{
 		{
@@ -92,6 +93,35 @@ func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 				require.Greater(t, len(dependencies), 5, "Express should have more than 5 dependencies")
 			},
 		},
+		{
+			name: "should not fail when package is not found without fail fast",
+			pkg: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Name:      "nonexistent",
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+				},
+				Version: "1.0.0",
+			},
+			assertFn: func(t *testing.T, dependencies []*packagev1.PackageVersion, err error) {
+				require.NoError(t, err)
+				require.Empty(t, dependencies)
+			},
+		},
+		{
+			name: "should fail when package is not found with fail fast",
+			pkg: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Name:      "nonexistent",
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+				},
+				Version: "1.0.0",
+			},
+			failFast: true,
+			assertFn: func(t *testing.T, dependencies []*packagev1.PackageVersion, err error) {
+				require.Error(t, err)
+				require.Nil(t, dependencies)
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -99,6 +129,7 @@ func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 			config := NewDefaultNpmDependencyResolverConfig()
 			config.IncludeTransitiveDependencies = tc.includeTransitiveDependencies
 			config.TransitiveDepth = tc.transitiveDepth
+			config.FailFast = tc.failFast
 
 			resolver, err := NewNpmDependencyResolver(config)
 			require.NoError(t, err)
