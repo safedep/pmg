@@ -20,6 +20,17 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Empty(t, parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "install a single package with specific version",
+			command: "npm install @types/node@1.2.3",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[0].PackageVersion.Version)
 			},
 		},
 		{

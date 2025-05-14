@@ -14,6 +14,11 @@ import (
 	"github.com/safedep/pmg/packagemanager"
 )
 
+type PackageManagerGuardInteraction struct {
+	SetStatus                func(status string)
+	GetConfirmationOnMalware func(malwarePackages []*packagev1.PackageVersion) (bool, error)
+}
+
 type PackageManagerGuardConfig struct {
 	ResolveDependencies   bool
 	MaxConcurrentAnalyzes int
@@ -30,6 +35,7 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 
 type packageManagerGuard struct {
 	config          PackageManagerGuardConfig
+	interaction     PackageManagerGuardInteraction
 	analyzers       []analyzer.MalysisAnalyzer
 	packageManager  packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
@@ -70,6 +76,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 
 	log.Debugf("Found %d install targets", len(parsedCommand.InstallTargets))
 
+	g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(parsedCommand.InstallTargets)))
+
 	if g.config.ResolveDependencies {
 		for _, pkg := range parsedCommand.InstallTargets {
 			if pkg.PackageVersion.GetVersion() == "" {
@@ -97,6 +105,9 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 	}
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
+
+	g.setStatus(fmt.Sprintf("Analyzing %d packages for malware", len(packagesToAnalyze)))
+
 	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
@@ -110,8 +121,14 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 	}
 
 	if len(maliciousPackages) > 0 {
-		log.Errorf("Found %d malicious packages", len(maliciousPackages))
-		return fmt.Errorf("found malicious packages")
+		confirmed, err := g.getConfirmationOnMalware(ctx, maliciousPackages)
+		if err != nil {
+			return fmt.Errorf("failed to get confirmation on malware: %w", err)
+		}
+
+		if !confirmed {
+			return fmt.Errorf("malicious packages detected, installation aborted")
+		}
 	}
 
 	log.Debugf("No malicious packages found, continuing execution")
@@ -190,4 +207,20 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	}
 
 	return analysisResults, nil
+}
+
+func (g *packageManagerGuard) getConfirmationOnMalware(ctx context.Context, malwarePackages []*packagev1.PackageVersion) (bool, error) {
+	if g.interaction.GetConfirmationOnMalware == nil {
+		return false, nil
+	}
+
+	return g.interaction.GetConfirmationOnMalware(malwarePackages)
+}
+
+func (g *packageManagerGuard) setStatus(status string) {
+	if g.interaction.SetStatus == nil {
+		return
+	}
+
+	g.interaction.SetStatus(status)
 }

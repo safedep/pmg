@@ -42,6 +42,14 @@ func (npm *npmPackageManager) Name() string {
 }
 
 func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("no command specified")
+	}
+
+	if args[0] == "npm" || args[0] == "pnpm" {
+		args = args[1:]
+	}
+
 	command := Command{Exe: npm.Config.CommandName, Args: args}
 
 	// No command specified
