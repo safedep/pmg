@@ -26,6 +26,9 @@ type PackageVersionAnalysisResult struct {
 	// Analyser specific analysis ID
 	AnalysisID string
 
+	// Reference URL for the analysis
+	ReferenceURL string
+
 	// The action to take as recommended by the analyzer
 	Action Action
 

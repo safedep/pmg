@@ -59,14 +59,25 @@ func SetStatus(status string) {
 
 func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 	StopSpinner()
-	fmt.Println(Colors.Red(fmt.Sprintf("🚨 Malicious packages detected: %d", len(malwarePackages))))
+
 	fmt.Println()
+	fmt.Println(Colors.Red(fmt.Sprintf("🚨 Suspicious package(s) detected: %d", len(malwarePackages))))
 
 	for _, mp := range malwarePackages {
+		fmt.Println()
 		fmt.Println("⚠️ ", Colors.Red(fmt.Sprintf("%s@%s", mp.PackageVersion.GetPackage().GetName(),
 			mp.PackageVersion.GetVersion())))
-		fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 60)))
-		fmt.Println()
+
+		if verbosityLevel == VerbosityLevelVerbose {
+			fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 60)))
+
+			if mp.ReferenceURL != "" {
+				fmt.Println()
+				fmt.Println(Colors.Yellow(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
+			}
+
+			fmt.Println()
+		}
 	}
 
 	fmt.Println()

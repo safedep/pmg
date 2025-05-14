@@ -55,6 +55,7 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	// By default, the analyzer allows the package version
 	analysisResult := &PackageVersionAnalysisResult{
 		PackageVersion: packageVersion,
+		ReferenceURL:   malysisReportUrl(res.GetAnalysisId()),
 		Action:         ActionAllow,
 		AnalysisID:     res.GetAnalysisId(),
 		Summary:        res.GetReport().GetInference().GetSummary(),
@@ -72,4 +73,8 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	}
 
 	return analysisResult, nil
+}
+
+func malysisReportUrl(analysisId string) string {
+	return fmt.Sprintf("https://platform.safedep.io/community/malysis/%s", analysisId)
 }

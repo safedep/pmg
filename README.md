@@ -29,6 +29,8 @@ pnpm add <package-name>
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
   - [Usage](#usage)
+    - [Silent Mode](#silent-mode)
+    - [Verbose Mode](#verbose-mode)
     - [Debugging](#debugging)
     - [PMG in Action](#pmg-in-action)
       - [Malicious Package Detection](#malicious-package-detection)
@@ -93,6 +95,22 @@ npm install <package-name>
 
 ```bash
 pnpm add <package-name>
+```
+
+### Silent Mode
+
+Use the `--silent` flag to run PMG in silent mode:
+
+```bash
+pmg --silent npm install <package-name>
+```
+
+### Verbose Mode
+
+Use the `--verbose` flag to run PMG in verbose mode:
+
+```bash
+pmg --verbose npm install <package-name>
 ```
 
 ### Debugging
