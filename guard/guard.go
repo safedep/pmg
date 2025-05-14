@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -13,12 +15,16 @@ import (
 )
 
 type PackageManagerGuardConfig struct {
-	ResolveDependencies bool
+	ResolveDependencies   bool
+	MaxConcurrentAnalyzes int
+	AnalysisTimeout       time.Duration
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 	return PackageManagerGuardConfig{
-		ResolveDependencies: true,
+		ResolveDependencies:   true,
+		MaxConcurrentAnalyzes: 10,
+		AnalysisTimeout:       5 * time.Minute,
 	}
 }
 
@@ -91,20 +97,15 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 	}
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
+	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
+	if err != nil {
+		return fmt.Errorf("failed to analyze packages: %w", err)
+	}
 
 	maliciousPackages := []*packagev1.PackageVersion{}
-	for _, pkg := range packagesToAnalyze {
-		log.Debugf("Analyzing package: %s@%s", pkg.Package.Name, pkg.Version)
-
-		for _, analyzer := range g.analyzers {
-			analysisResult, err := analyzer.Analyze(ctx, pkg)
-			if err != nil {
-				return fmt.Errorf("failed to analyze package: %w", err)
-			}
-
-			if analysisResult.IsMalware() {
-				maliciousPackages = append(maliciousPackages, pkg)
-			}
+	for _, result := range analysisResults {
+		if result.result.IsMalware() {
+			maliciousPackages = append(maliciousPackages, result.pkg)
 		}
 	}
 
@@ -129,4 +130,64 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
+}
+
+type analyzePackageResult struct {
+	pkg    *packagev1.PackageVersion
+	result *analyzer.MalysisResult
+}
+
+func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
+	packages []*packagev1.PackageVersion) ([]*analyzePackageResult, error) {
+
+	ctx, cancel := context.WithTimeout(ctx, g.config.AnalysisTimeout)
+	defer cancel()
+
+	wg := sync.WaitGroup{}
+	jobs := make(chan *packagev1.PackageVersion, len(packages))
+	results := make(chan *analyzePackageResult, len(packages))
+
+	for i := 0; i < g.config.MaxConcurrentAnalyzes; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for pkg := range jobs {
+				for _, analyzer := range g.analyzers {
+					analysisResult, err := analyzer.Analyze(ctx, pkg)
+					if err != nil {
+						log.Errorf("failed to analyze package: %w", err)
+						continue
+					}
+
+					results <- &analyzePackageResult{pkg: pkg, result: analysisResult}
+				}
+			}
+		}()
+	}
+
+	for _, pkg := range packages {
+		jobs <- pkg
+	}
+	close(jobs)
+
+	analysisResults := []*analyzePackageResult{}
+	go func() {
+		for result := range results {
+			analysisResults = append(analysisResults, result)
+		}
+	}()
+
+	waiter := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waiter)
+	}()
+
+	select {
+	case <-waiter:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("analysis timed out")
+	}
+
+	return analysisResults, nil
 }
