@@ -21,7 +21,7 @@ type NpmDependencyResolverConfig struct {
 func NewDefaultNpmDependencyResolverConfig() NpmDependencyResolverConfig {
 	return NpmDependencyResolverConfig{
 		IncludeDevDependencies:        true,
-		IncludeTransitiveDependencies: true,
+		IncludeTransitiveDependencies: false,
 		TransitiveDepth:               5,
 		FailFast:                      false,
 	}

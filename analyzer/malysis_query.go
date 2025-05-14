@@ -20,6 +20,9 @@ type malysisQueryAnalyzer struct {
 	Config MalysisQueryAnalyzerConfig
 }
 
+var _ Analyzer = &malysisQueryAnalyzer{}
+var _ MalysisAnalyzer = &malysisQueryAnalyzer{}
+
 func NewMalysisQueryAnalyzer(config MalysisQueryAnalyzerConfig) (*malysisQueryAnalyzer, error) {
 	client, err := drygrpc.GrpcClient("pmg-malysis-query",
 		"community-api.safedep.io", "443", "", http.Header{}, []grpc.DialOption{})
@@ -31,6 +34,10 @@ func NewMalysisQueryAnalyzer(config MalysisQueryAnalyzerConfig) (*malysisQueryAn
 		client: malysisv1grpc.NewMalwareAnalysisServiceClient(client),
 		Config: config,
 	}, nil
+}
+
+func (a *malysisQueryAnalyzer) Name() string {
+	return "malysis-query"
 }
 
 func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,

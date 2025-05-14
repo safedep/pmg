@@ -52,7 +52,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	// Check if this is an install command
-	if !npm.isInstallCommand(args[1]) {
+	if !npm.isInstallCommand(args[0]) {
 		return &ParsedCommand{
 			Command: command,
 		}, nil
@@ -60,7 +60,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	// Extract packages from args
 	var packages []string
-	for i := 2; i < len(args); i++ {
+	for i := 1; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "-") {
 			packages = append(packages, arg)

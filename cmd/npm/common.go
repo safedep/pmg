@@ -15,8 +15,13 @@ func executeCommonFlow(pm packagemanager.PackageManager, args []string) error {
 		return fmt.Errorf("failed to create npm dependency resolver: %w", err)
 	}
 
-	proxy, err := guard.NewPackageManagerGuard(guard.PackageManagerGuardConfig{},
-		pm, packageResolver, []analyzer.Analyzer{})
+	malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	if err != nil {
+		return fmt.Errorf("failed to create malysis query analyzer: %w", err)
+	}
+
+	proxy, err := guard.NewPackageManagerGuard(guard.DefaultPackageManagerGuardConfig(),
+		pm, packageResolver, []analyzer.MalysisAnalyzer{malysisQueryAnalyzer})
 	if err != nil {
 		return fmt.Errorf("failed to create package manager guard: %w", err)
 	}

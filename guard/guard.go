@@ -6,16 +6,25 @@ import (
 	"os"
 	"os/exec"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/packagemanager"
 )
 
-type PackageManagerGuardConfig struct{}
+type PackageManagerGuardConfig struct {
+	ResolveDependencies bool
+}
+
+func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
+	return PackageManagerGuardConfig{
+		ResolveDependencies: true,
+	}
+}
 
 type packageManagerGuard struct {
 	config          PackageManagerGuardConfig
-	analyzers       []analyzer.Analyzer
+	analyzers       []analyzer.MalysisAnalyzer
 	packageManager  packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
 }
@@ -23,7 +32,7 @@ type packageManagerGuard struct {
 func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	packageManager packagemanager.PackageManager,
 	packageResolver packagemanager.PackageResolver,
-	analyzers []analyzer.Analyzer) (*packageManagerGuard, error) {
+	analyzers []analyzer.MalysisAnalyzer) (*packageManagerGuard, error) {
 	return &packageManagerGuard{
 		analyzers:       analyzers,
 		packageManager:  packageManager,
@@ -45,9 +54,68 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 		return g.continueExecution(ctx, parsedCommand)
 	}
 
-	log.Debugf("Install targets: %v", parsedCommand.InstallTargets)
+	// TODO: We should track the dependency tree here so that we can trace a
+	// dependency to one of the parent packages from install targets
 
-	return nil
+	packagesToAnalyze := []*packagev1.PackageVersion{}
+	for _, installTarget := range parsedCommand.InstallTargets {
+		packagesToAnalyze = append(packagesToAnalyze, installTarget.PackageVersion)
+	}
+
+	log.Debugf("Found %d install targets", len(parsedCommand.InstallTargets))
+
+	if g.config.ResolveDependencies {
+		for _, pkg := range parsedCommand.InstallTargets {
+			if pkg.PackageVersion.GetVersion() == "" {
+				log.Debugf("Resolving latest version for package: %s", pkg.PackageVersion.Package.Name)
+				latestVersion, err := g.packageResolver.ResolveLatestVersion(ctx, pkg.PackageVersion.GetPackage())
+				if err != nil {
+					return fmt.Errorf("failed to resolve latest version: %w", err)
+				}
+
+				pkg.PackageVersion.Version = latestVersion.GetVersion()
+			}
+
+			log.Debugf("Resolving dependencies for package: %s@%s", pkg.PackageVersion.Package.Name, pkg.PackageVersion.Version)
+
+			dependencies, err := g.packageResolver.ResolveDependencies(ctx, pkg.PackageVersion)
+			if err != nil {
+				return fmt.Errorf("failed to resolve dependencies: %w", err)
+			}
+
+			log.Debugf("Resolved %d dependencies for package: %s@%s", len(dependencies),
+				pkg.PackageVersion.Package.Name, pkg.PackageVersion.Version)
+
+			packagesToAnalyze = append(packagesToAnalyze, dependencies...)
+		}
+	}
+
+	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
+
+	maliciousPackages := []*packagev1.PackageVersion{}
+	for _, pkg := range packagesToAnalyze {
+		log.Debugf("Analyzing package: %s@%s", pkg.Package.Name, pkg.Version)
+
+		for _, analyzer := range g.analyzers {
+			analysisResult, err := analyzer.Analyze(ctx, pkg)
+			if err != nil {
+				return fmt.Errorf("failed to analyze package: %w", err)
+			}
+
+			if analysisResult.IsMalware() {
+				maliciousPackages = append(maliciousPackages, pkg)
+			}
+		}
+	}
+
+	if len(maliciousPackages) > 0 {
+		log.Errorf("Found %d malicious packages", len(maliciousPackages))
+		return fmt.Errorf("found malicious packages")
+	}
+
+	log.Debugf("No malicious packages found, continuing execution")
+
+	return g.continueExecution(ctx, parsedCommand)
 }
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
