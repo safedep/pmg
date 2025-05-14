@@ -6,11 +6,13 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/npm"
+	"github.com/safedep/pmg/config"
 	"github.com/spf13/cobra"
 )
 
 var (
-	debug bool
+	debug        bool
+	globalConfig config.Config
 )
 
 func main() {
@@ -23,6 +25,8 @@ func main() {
 			}
 
 			log.InitZapLogger("pmg", "")
+
+			cmd.SetContext(globalConfig.Inject(cmd.Context()))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -35,6 +39,9 @@ func main() {
 	}
 
 	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Transitive, "transitive", true, "Resolve transitive dependencies")
+	cmd.PersistentFlags().IntVar(&globalConfig.TransitiveDepth, "transitive-depth", 20,
+		"Maximum depth of transitive dependencies to resolve")
 
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())
