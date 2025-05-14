@@ -5,8 +5,50 @@ import (
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/semver"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNpmDependencyResolver_ResolveLatestVersion(t *testing.T) {
+	cases := []struct {
+		name     string
+		pkg      *packagev1.Package
+		assertFn func(t *testing.T, pv *packagev1.PackageVersion, err error)
+	}{
+		{
+			name: "should resolve latest version for a package",
+			pkg: &packagev1.Package{
+				Name:      "react",
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+			},
+			assertFn: func(t *testing.T, pv *packagev1.PackageVersion, err error) {
+				require.NoError(t, err)
+				require.True(t, semver.IsAhead("19.0.0", pv.Version))
+			},
+		},
+		{
+			name: "should return an error if the package is not found",
+			pkg: &packagev1.Package{
+				Name:      "nonexistent",
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+			},
+			assertFn: func(t *testing.T, pv *packagev1.PackageVersion, err error) {
+				require.Error(t, err)
+				require.Nil(t, pv)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver, err := NewNpmDependencyResolver(NewDefaultNpmDependencyResolverConfig())
+			require.NoError(t, err)
+
+			pv, err := resolver.ResolveLatestVersion(context.Background(), tc.pkg)
+			tc.assertFn(t, pv, err)
+		})
+	}
+}
 
 func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 	cases := []struct {
@@ -38,13 +80,13 @@ func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 			name: "should resolve all dependencies for a package when transitive dependencies are included",
 			pkg: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
-					Name:      "react",
+					Name:      "express",
 					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 				},
-				Version: "18.2.0",
+				Version: "4.18.2",
 			},
 			includeTransitiveDependencies: true,
-			transitiveDepth:               250,
+			transitiveDepth:               5,
 			assertFn: func(t *testing.T, dependencies []*packagev1.PackageVersion, err error) {
 				require.NoError(t, err)
 				require.Equal(t, 1, len(dependencies))

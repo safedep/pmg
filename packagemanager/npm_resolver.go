@@ -22,7 +22,7 @@ func NewDefaultNpmDependencyResolverConfig() NpmDependencyResolverConfig {
 	return NpmDependencyResolverConfig{
 		IncludeDevDependencies:        true,
 		IncludeTransitiveDependencies: true,
-		TransitiveDepth:               100,
+		TransitiveDepth:               5,
 		FailFast:                      false,
 	}
 }
@@ -66,6 +66,8 @@ func (r *npmDependencyResolver) ResolveLatestVersion(ctx context.Context,
 	}, nil
 }
 
+// TODO: Refactor this into a generic dependency resolver that depends on
+// package registry client
 func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 	packageVersion *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
 	pd, err := r.registry.PackageDiscovery()
@@ -73,76 +75,95 @@ func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 		return nil, fmt.Errorf("failed to get package discovery: %w", err)
 	}
 
-	// inputQueue is the queue of package versions to resolve
-	inputQueue := make([]*packagev1.PackageVersion, 0)
-
-	// outputQueue is the queue of resolved package versions
-	outputQueue := make([]*packagev1.PackageVersion, 0)
-
-	// Start with the initial package version to resolve
-	inputQueue = append(inputQueue, packageVersion)
-
-	resolutionDepth := 0
+	// Track visited packages to avoid cycles
 	visitedPackages := make(map[string]bool)
 
-	for {
-		if len(inputQueue) == 0 {
-			break
-		}
+	// Result collection
+	dependencies := make([]*packagev1.PackageVersion, 0)
 
-		if resolutionDepth > r.config.TransitiveDepth {
-			return nil, fmt.Errorf("exceeded maximum transitive depth of %d", r.config.TransitiveDepth)
-		}
-
-		packageVersion = inputQueue[0]
-		inputQueue = inputQueue[1:]
-
-		// Skip if we've already visited this package version
-		// Like npm, we will reuse an existing version instead of considering
-		// every single version of a dependency. This is a heuristic. We are not
-		// actually checking for compatibility here like npm does
-		packageKey := fmt.Sprintf("%s@*", packageVersion.Package.Name)
-		if visitedPackages[packageKey] {
-			continue
-		}
-
-		// Mark the package version as visited
-		visitedPackages[packageKey] = true
-
-		dependencyList, err := pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
-		if err != nil {
-			if r.config.FailFast {
-				return nil, fmt.Errorf("failed to get package dependencies: %w", err)
-			}
-
-			log.Warnf("failed to get package dependencies: %s", err)
-			continue
-		}
-
-		dependencies := dependencyList.Dependencies
-		if r.config.IncludeDevDependencies {
-			dependencies = append(dependencies, dependencyList.DevDependencies...)
-		}
-
-		resolvedPackageVersionDependencies := make([]*packagev1.PackageVersion, 0)
-		for _, dependency := range dependencies {
-			resolvedPackageVersionDependencies = append(resolvedPackageVersionDependencies, &packagev1.PackageVersion{
-				Package: &packagev1.Package{
-					Name:      dependency.Name,
-					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-				},
-				Version: npmCleanVersion(dependency.VersionSpec),
-			})
-		}
-
-		outputQueue = append(outputQueue, resolvedPackageVersionDependencies...)
-
-		if r.config.IncludeTransitiveDependencies {
-			inputQueue = append(inputQueue, resolvedPackageVersionDependencies...)
-		}
-
-		resolutionDepth++
+	// Start recursive resolution
+	err = r.resolvePackageDependenciesRecursive(ctx, pd, packageVersion, 0, visitedPackages, &dependencies)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
 	}
 
-	return outputQueue, nil
+	return dependencies, nil
+}
+
+// resolvePackageDependenciesRecursive resolves dependencies for a package version recursively
+func (r *npmDependencyResolver) resolvePackageDependenciesRecursive(
+	ctx context.Context,
+	pd packageregistry.PackageDiscovery,
+	packageVersion *packagev1.PackageVersion,
+	depth int,
+	visitedPackages map[string]bool,
+	result *[]*packagev1.PackageVersion) error {
+
+	ff := func(err error) error {
+		if r.config.FailFast {
+			return err
+		}
+
+		log.Warnf("error resolving package dependencies: %w", err)
+		return nil
+	}
+
+	// Check depth limit
+	if depth > r.config.TransitiveDepth {
+		return ff(fmt.Errorf("exceeded maximum transitive depth of %d", r.config.TransitiveDepth))
+	}
+
+	// Skip if already visited
+	packageKey := r.packageKey(packageVersion)
+	if visitedPackages[packageKey] {
+		return nil
+	}
+
+	// Mark as visited
+	visitedPackages[packageKey] = true
+
+	log.Debugf("resolving dependencies for %s@%s", packageVersion.Package.Name, packageVersion.Version)
+
+	// Get dependencies for the current package
+	dependencyList, err := pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
+	if err != nil {
+		return ff(fmt.Errorf("failed to get package dependencies: %w", err))
+	}
+
+	// Collect all dependencies (and optionally dev dependencies)
+	dependencies := dependencyList.Dependencies
+	if r.config.IncludeDevDependencies {
+		dependencies = append(dependencies, dependencyList.DevDependencies...)
+	}
+
+	// Create package version objects for all dependencies
+	resolvedDependencies := make([]*packagev1.PackageVersion, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		resolvedDependencies = append(resolvedDependencies, &packagev1.PackageVersion{
+			Package: &packagev1.Package{
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+				Name:      dependency.Name,
+			},
+			Version: npmCleanVersion(dependency.VersionSpec),
+		})
+	}
+
+	// Add all resolved dependencies to the result
+	*result = append(*result, resolvedDependencies...)
+
+	// Process transitive dependencies if enabled
+	if r.config.IncludeTransitiveDependencies {
+		for _, dependency := range resolvedDependencies {
+			err := r.resolvePackageDependenciesRecursive(ctx, pd, dependency, depth+1, visitedPackages, result)
+			if err != nil {
+				return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
+			}
+		}
+	}
+
+	return nil
+}
+
+func (r *npmDependencyResolver) packageKey(pkg *packagev1.PackageVersion) string {
+	return fmt.Sprintf("%s@%s", pkg.Package.Name, pkg.Version)
 }

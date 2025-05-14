@@ -2,15 +2,20 @@ package packagemanager
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
-type NpmPackageManagerConfig struct{}
+type NpmPackageManagerConfig struct {
+	InstallCommands []string
+}
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
-	return NpmPackageManagerConfig{}
+	return NpmPackageManagerConfig{
+		InstallCommands: []string{"install", "i", "add"},
+	}
 }
 
 type npmPackageManager struct {
@@ -89,7 +94,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 }
 
 func (npm *npmPackageManager) isInstallCommand(cmd string) bool {
-	return cmd == "install" || cmd == "i" || cmd == "add"
+	return slices.Contains(npm.Config.InstallCommands, cmd)
 }
 
 func npmParsePackageInfo(input string) (packageName, version string, err error) {
@@ -130,7 +135,8 @@ func npmParsePackageInfo(input string) (packageName, version string, err error) 
 func npmCleanVersion(version string) string {
 	version = strings.TrimPrefix(version, "^")
 	version = strings.TrimPrefix(version, "~")
-	if version == "*" {
+
+	if version == "*" || version == "" {
 		return "latest"
 	}
 
