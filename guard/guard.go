@@ -206,6 +206,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	go func() {
 		wg.Wait()
 		close(waiter)
+		close(results)
 	}()
 
 	select {
