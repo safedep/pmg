@@ -7,6 +7,7 @@ import (
 )
 
 type Command struct {
+	Exe  string
 	Args []string
 }
 

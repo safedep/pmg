@@ -10,11 +10,20 @@ import (
 
 type NpmPackageManagerConfig struct {
 	InstallCommands []string
+	CommandName     string
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
+		CommandName:     "npm",
+	}
+}
+
+func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
+	return NpmPackageManagerConfig{
+		InstallCommands: []string{"install", "i", "add"},
+		CommandName:     "pnpm",
 	}
 }
 
@@ -33,17 +42,19 @@ func (npm *npmPackageManager) Name() string {
 }
 
 func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+	command := Command{Exe: npm.Config.CommandName, Args: args}
+
 	// No command specified
 	if len(args) < 2 {
 		return &ParsedCommand{
-			Command: Command{Args: args},
+			Command: command,
 		}, nil
 	}
 
 	// Check if this is an install command
 	if !npm.isInstallCommand(args[1]) {
 		return &ParsedCommand{
-			Command: Command{Args: args},
+			Command: command,
 		}, nil
 	}
 
@@ -59,7 +70,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// No packages specified
 	if len(packages) == 0 {
 		return &ParsedCommand{
-			Command: Command{Args: args},
+			Command: command,
 		}, nil
 	}
 
@@ -88,7 +99,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	return &ParsedCommand{
-		Command:        Command{Args: args},
+		Command:        command,
 		InstallTargets: installTargets,
 	}, nil
 }
