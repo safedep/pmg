@@ -1,0 +1,29 @@
+FROM --platform=$BUILDPLATFORM golang:1.24-bullseye@sha256:3c669c8fed069d80d199073b806243c4bf79ad117b797b96f18177ad9c521cff AS build
+# Original: golang:1.24-bullseye
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+
+RUN go mod download
+
+COPY . .
+
+RUN make
+
+FROM debian:11-slim@sha256:e4b93db6aad977a95aa103917f3de8a2b16ead91cf255c3ccdb300c5d20f3015
+# Original: debian:11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+ARG TARGETPLATFORM
+
+LABEL org.opencontainers.image.source=https://github.com/safedep/pmg
+LABEL org.opencontainers.image.description="Package Manager Guard to protect against malicious open source packages"
+LABEL org.opencontainers.image.licenses=Apache-2.0
+
+COPY --from=build /build/bin/pmg /usr/local/bin/pmg
+
+ENTRYPOINT ["pmg"]
