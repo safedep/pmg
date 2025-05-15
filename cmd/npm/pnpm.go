@@ -3,6 +3,7 @@ package npm
 import (
 	_ "embed"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
@@ -21,7 +22,7 @@ func NewPnpmCommand() *cobra.Command {
 
 			err = executePnpmFlow(cmd.Context(), config, args)
 			if err != nil {
-				ui.Fatalf("Failed to execute pnpm flow: %s", err)
+				log.Errorf("Failed to execute pnpm flow: %s", err)
 			}
 
 			return nil
