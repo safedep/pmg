@@ -97,6 +97,18 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/react", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
 			},
 		},
+		{
+			name:    "second package has a version",
+			command: "npm i express @types/node@1.2.3",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
+				assert.Equal(t, "express", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Empty(t, parsedCommand.InstallTargets[0].PackageVersion.Version)
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
+				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[1].PackageVersion.Version)
+			},
+		},
 	}
 
 	for _, tc := range cases {

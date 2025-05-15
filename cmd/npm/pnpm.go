@@ -2,9 +2,9 @@ package npm
 
 import (
 	_ "embed"
-	"fmt"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -16,10 +16,15 @@ func NewPnpmCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			config, err := config.FromContext(cmd.Context())
 			if err != nil {
-				return fmt.Errorf("failed to get config: %w", err)
+				ui.Fatalf("Failed to get config: %s", err)
 			}
 
-			return executePnpmFlow(cmd.Context(), config, args)
+			err = executePnpmFlow(cmd.Context(), config, args)
+			if err != nil {
+				ui.Fatalf("Failed to execute pnpm flow: %s", err)
+			}
+
+			return nil
 		},
 	}
 }

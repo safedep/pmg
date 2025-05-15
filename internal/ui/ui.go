@@ -101,6 +101,13 @@ func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysis
 	return false, nil
 }
 
+func Fatalf(msg string, args ...interface{}) {
+	ClearStatus()
+
+	fmt.Println(Colors.Red(fmt.Sprintf(msg, args...)))
+	os.Exit(1)
+}
+
 // Format the string to be maximum maxWidth. Use newlines to wrap the text.
 func termWidthFormatText(text string, maxWidth int) string {
 	words := strings.Split(text, " ")
