@@ -12,8 +12,9 @@ type contextValue struct {
 
 // Global configuration
 type Config struct {
-	Transitive      bool
-	TransitiveDepth int
+	Transitive             bool
+	TransitiveDepth        int
+	IncludeDevDependencies bool
 }
 
 // Inject config into context while protecting against context poisoning

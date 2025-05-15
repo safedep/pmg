@@ -3,6 +3,7 @@ package packagemanager
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -71,7 +72,7 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 			return err
 		}
 
-		log.Warnf("error resolving package dependencies: %w", err)
+		log.Warnf("error resolving package dependencies: %s", err)
 		return nil
 	}
 
@@ -103,33 +104,32 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 		dependencies = append(dependencies, dependencyList.DevDependencies...)
 	}
 
-	// Create package version objects for all dependencies
+	// Create package version objects for all dependencies and clean versions
 	resolvedDependencies := make([]*packagev1.PackageVersion, 0, len(dependencies))
 	for _, dependency := range dependencies {
-		depPackageVersion := &packagev1.PackageVersion{
+		resolvedDependencies = append(resolvedDependencies, &packagev1.PackageVersion{
 			Package: &packagev1.Package{
 				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 				Name:      dependency.Name,
 			},
 			Version: npmCleanVersion(dependency.VersionSpec),
-		}
-
-		// Check if this dependency is already in the result to avoid duplicates
-		depKey := r.packageKey(depPackageVersion)
-		if !visitedPackages[depKey] {
-			resolvedDependencies = append(resolvedDependencies, depPackageVersion)
-			*result = append(*result, depPackageVersion)
-			visitedPackages[depKey] = true
-		}
+		})
 	}
 
 	// Process transitive dependencies if enabled
-	if r.config.IncludeTransitiveDependencies {
+	if r.config.IncludeTransitiveDependencies && depth < r.config.TransitiveDepth {
 		for _, dependency := range resolvedDependencies {
 			err := r.resolvePackageDependenciesRecursive(ctx, pd, dependency, depth+1, visitedPackages, result)
 			if err != nil {
 				return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
 			}
+		}
+	}
+
+	// Finally add resolved dependencies to the result
+	for _, dependency := range resolvedDependencies {
+		if !slices.Contains(*result, dependency) {
+			*result = append(*result, dependency)
 		}
 	}
 

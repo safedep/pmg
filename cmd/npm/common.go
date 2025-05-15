@@ -15,6 +15,7 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
+	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
 
 	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
 	if err != nil {

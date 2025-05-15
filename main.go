@@ -56,8 +56,10 @@ func main() {
 	cmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Verbose mode for more information")
 	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging (defaults to stdout)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Transitive, "transitive", true, "Resolve transitive dependencies")
-	cmd.PersistentFlags().IntVar(&globalConfig.TransitiveDepth, "transitive-depth", 20,
+	cmd.PersistentFlags().IntVar(&globalConfig.TransitiveDepth, "transitive-depth", 5,
 		"Maximum depth of transitive dependencies to resolve")
+	cmd.PersistentFlags().BoolVar(&globalConfig.IncludeDevDependencies, "include-dev-dependencies", false,
+		"Include dev dependencies in the dependency graph (slows down resolution)")
 
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())
