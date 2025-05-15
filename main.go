@@ -57,8 +57,7 @@ func main() {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				cmd.Help()
-				return nil
+				return cmd.Help()
 			}
 
 			return fmt.Errorf("pmg: %s is not a valid command", args[0])
