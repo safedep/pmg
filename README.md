@@ -1,5 +1,16 @@
 
 # Package Manager Guard (PMG)
+
+<p>
+    Created and maintained by <b><a href="https://safedep.io/">https://safedep.io</a></b> with contributions from the community 🚀
+</p>
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
+![License](https://img.shields.io/github/license/safedep/pmg)
+![Release](https://img.shields.io/github/v/release/safedep/pmg)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/safedep/pmg/badge)](https://api.securityscorecards.dev/projects/github.com/safedep/pmg)
+[![CodeQL](https://github.com/safedep/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/safedep/pmg/actions/workflows/codeql.yml)
+
 🤖 PMG protects developers from getting compromised by malicious packages.
 See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 
@@ -154,6 +165,7 @@ Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
 
 <details>
 <summary>Approximate dependency version resolution</summary>
+
 `pmg` resolves the transitive dependencies of a package to be installed. It does it by querying
 package registry APIs such as `npmjs` and `pypi`. However, almost always, dependency versions are
 specified as ranges instead of specific version. Different package managers have different ways of
@@ -162,4 +174,5 @@ resolving these ranges. It also depends on peer or host dependencies already ava
 `pmg` is required to block a malicious package *before* it is installed. Hence it applies its own heuristic
 to choose a version from a version range for evaluation. This is fine when all versions of a given package
 is malicious. However, there is a possibility of inconsistency when a specific version of a package is malicious.
+
 </details>
