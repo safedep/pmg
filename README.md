@@ -1,5 +1,16 @@
 
 # Package Manager Guard (PMG)
+
+<p>
+    Created and maintained by <b><a href="https://safedep.io/">https://safedep.io</a></b> with contributions from the community 🚀
+</p>
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
+![License](https://img.shields.io/github/license/safedep/pmg)
+![Release](https://img.shields.io/github/v/release/safedep/pmg)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/safedep/pmg/badge)](https://api.securityscorecards.dev/projects/github.com/safedep/pmg)
+[![CodeQL](https://github.com/safedep/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/safedep/pmg/actions/workflows/codeql.yml)
+
 🤖 PMG protects developers from getting compromised by malicious packages.
 See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 
