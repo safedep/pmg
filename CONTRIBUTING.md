@@ -16,11 +16,11 @@ features, we particularly value contributions in the form of:
 
 ## How to report a bug
 
-Create a new issue and add the label "bug".
+Create a new issue and add the label `bug`.
 
 ## How to suggest a new feature
 
-Create a new issue and add the label "enhancement".
+Create a new issue and add the label `enhancement`.
 
 ## Development workflow
 
@@ -41,38 +41,46 @@ When contributing changes to repository, follow these steps:
 ### Getting Started
 
 1. Clone your fork:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/pmg.git
-   cd pmg
-   ```
+
+```shell
+git clone https://github.com/YOUR_USERNAME/pmg.git
+cd pmg
+```
 
 2. Install dependencies:
-   ```bash
-   go mod tidy
-   ```
+
+```shell
+go mod tidy
+```
 
 3. Build the project:
-   ```bash
-   make all
-   ```
+
+```shell
+make all
+```
 
 ### Development Workflow
 
 1. Create a branch:
-   ```bash
-   git checkout -b feature/your-feature
-   ```
+
+```shell
+git checkout -b feature/your-feature
+```
 
 2. Make your changes and test:
-   ```bash
-   make test
-   ```
+
+```shell
+make test
+```
 
 3. Commit with sign-off:
-   ```bash
-   git commit -s -m "feat: add new feature"
-   ```
+
+```shell
+git commit -s -m "feat: add new feature"
+```
 
 4. Push and create PR:
-   ```bash
-   git push origin feature/your-feature
+
+```shell
+git push origin feature/your-feature
+```

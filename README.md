@@ -7,7 +7,17 @@ See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 - Blocks malicious packages at install time
 - No configuration required, just install and use
 
-## TL;DR
+## 🔥 PMG in Action
+
+<img src="./docs/assets/pmg-intro.png" width="600" alt="pmg in action">
+
+## 📦 TL;DR
+
+Install `pmg`
+
+```shell
+brew install safedep/tap/pmg
+```
 
 Set up `pmg` to protect you development environment from malicious packages:
 
@@ -19,16 +29,20 @@ source ~/.zshrc
 
 Continue using your favorite package manager as usual:
 
-```
+```shell
 npm install <package-name>
+```
+
+```shell
 pnpm add <package-name>
 ```
 
 ## 📑 Table of Contents
 - [Package Manager Guard (PMG)](#package-manager-guard-pmg)
-  - [TL;DR](#tldr)
+  - [🔥 PMG in Action](#-pmg-in-action)
+  - [📦 TL;DR](#-tldr)
   - [📑 Table of Contents](#-table-of-contents)
-  - [Features](#features)
+  - [🔥 Features](#-features)
   - [Supported Package Managers](#supported-package-managers)
   - [Installation](#installation)
     - [Binaries](#binaries)
@@ -37,13 +51,10 @@ pnpm add <package-name>
     - [Silent Mode](#silent-mode)
     - [Verbose Mode](#verbose-mode)
     - [Debugging](#debugging)
-    - [PMG in Action](#pmg-in-action)
-      - [Malicious Package Detection](#malicious-package-detection)
-      - [Bulk Package Analysis](#bulk-package-analysis)
-  - [Contributing](#contributing)
-  - [Limitations](#limitations)
+  - [🤝 Contributing](#-contributing)
+  - [🚫 Limitations](#-limitations)
 
-## Features
+## 🔥 Features
 
 - 🚫 Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis)
 - 🌲 Deep dependency analysis and transitive dependency resolution
@@ -135,19 +146,11 @@ Store the debug logs in a file:
 pmg --debug --log /tmp/debug.json npm install <package-name>
 ```
 
-### PMG in Action
-
-#### Malicious Package Detection
-![pmg scan malicious package](./docs/assets/pmg-malicious-pkg.png)
-
-#### Bulk Package Analysis
-![pmg scan & install multiple package](./docs/assets/pmg-scan-multiple-pkgs.png)
-
-## Contributing
+## 🤝 Contributing
 
 Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## Limitations
+## 🚫 Limitations
 
 <details>
 <summary>Approximate dependency version resolution</summary>

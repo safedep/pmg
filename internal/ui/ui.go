@@ -104,11 +104,11 @@ func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalys
 
 		if verbosityLevel == VerbosityLevelVerbose {
 			fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 80)))
+		}
 
-			if mp.ReferenceURL != "" {
-				fmt.Println()
-				fmt.Println(Colors.Yellow(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
-			}
+		if mp.ReferenceURL != "" {
+			fmt.Println()
+			fmt.Println(Colors.Yellow(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
 		}
 	}
 }
