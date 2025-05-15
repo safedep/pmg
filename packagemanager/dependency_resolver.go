@@ -82,7 +82,7 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 
 	// Skip if already visited
 	packageKey := r.packageKey(packageVersion)
-	if visitedPackages[packageKey] {
+	if _, ok := visitedPackages[packageKey]; ok {
 		return nil
 	}
 

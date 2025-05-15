@@ -78,6 +78,24 @@ func TestNpmDependencyResolver_ResolveDependencies(t *testing.T) {
 			},
 		},
 		{
+			name: "should resolve dependencies for a package up to a given depth",
+			pkg: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Name:      "react",
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+				},
+				Version: "18.2.0",
+			},
+			includeTransitiveDependencies: true,
+			transitiveDepth:               2,
+			assertFn: func(t *testing.T, dependencies []*packagev1.PackageVersion, err error) {
+				require.NoError(t, err)
+				require.Equal(t, 2, len(dependencies))
+				require.Equal(t, "loose-envify", dependencies[0].Package.Name)
+				require.Equal(t, "react-dom", dependencies[1].Package.Name)
+			},
+		},
+		{
 			name: "should resolve all dependencies for a package when transitive dependencies are included",
 			pkg: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
