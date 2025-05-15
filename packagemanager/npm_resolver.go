@@ -16,6 +16,9 @@ type NpmDependencyResolverConfig struct {
 
 	// FailFast will stop resolving dependencies after the first error
 	FailFast bool
+
+	// MaxConcurrency limits the number of concurrent goroutines used for dependency resolution
+	MaxConcurrency int
 }
 
 func NewDefaultNpmDependencyResolverConfig() NpmDependencyResolverConfig {
@@ -24,6 +27,7 @@ func NewDefaultNpmDependencyResolverConfig() NpmDependencyResolverConfig {
 		IncludeTransitiveDependencies: true,
 		TransitiveDepth:               5,
 		FailFast:                      false,
+		MaxConcurrency:                10,
 	}
 }
 
@@ -73,6 +77,7 @@ func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 		IncludeTransitiveDependencies: r.config.IncludeTransitiveDependencies,
 		TransitiveDepth:               r.config.TransitiveDepth,
 		FailFast:                      r.config.FailFast,
+		MaxConcurrency:                r.config.MaxConcurrency,
 	})
 
 	return resolver.resolveDependencies(ctx, packageVersion)

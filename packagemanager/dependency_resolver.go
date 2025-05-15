@@ -16,6 +16,7 @@ type dependencyResolverConfig struct {
 	IncludeTransitiveDependencies bool
 	TransitiveDepth               int
 	FailFast                      bool
+	MaxConcurrency                int
 }
 
 type dependencyResolver struct {
@@ -25,6 +26,10 @@ type dependencyResolver struct {
 }
 
 func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig) *dependencyResolver {
+	if config.MaxConcurrency <= 0 {
+		config.MaxConcurrency = 10
+	}
+
 	return &dependencyResolver{
 		client: client,
 		config: config,
@@ -44,8 +49,8 @@ func (r *dependencyResolver) resolveDependencies(ctx context.Context,
 	// Result collection
 	dependencies := make([]*packagev1.PackageVersion, 0)
 
-	// Start recursive resolution
-	err = r.resolvePackageDependenciesRecursive(ctx, pd, packageVersion, 0, visitedPackages, &dependencies)
+	// Start concurrent resolution
+	err = r.resolvePackageDependenciesConcurrent(ctx, pd, packageVersion, 0, visitedPackages, &dependencies)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
 	}
@@ -53,8 +58,8 @@ func (r *dependencyResolver) resolveDependencies(ctx context.Context,
 	return dependencies, nil
 }
 
-// resolvePackageDependenciesRecursive resolves dependencies for a package version recursively
-func (r *dependencyResolver) resolvePackageDependenciesRecursive(
+// resolvePackageDependenciesConcurrent resolves dependencies for a package version concurrently
+func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 	ctx context.Context,
 	pd packageregistry.PackageDiscovery,
 	packageVersion *packagev1.PackageVersion,
@@ -85,7 +90,13 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 
 	// Skip if already visited
 	packageKey := r.packageKey(packageVersion)
-	if _, ok := visitedPackages[packageKey]; ok {
+
+	alreadyVisited := false
+	r.synchronize(func() {
+		alreadyVisited = visitedPackages[packageKey]
+	})
+
+	if alreadyVisited {
 		return nil
 	}
 
@@ -120,22 +131,45 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 		})
 	}
 
-	// Process transitive dependencies if enabled
-	if r.config.IncludeTransitiveDependencies && depth < r.config.TransitiveDepth {
+	// Add resolved dependencies to the result
+	r.synchronize(func() {
 		for _, dependency := range resolvedDependencies {
-			err := r.resolvePackageDependenciesRecursive(ctx, pd, dependency, depth+1, visitedPackages, result)
-			if err != nil {
-				return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
+			if !slices.Contains(*result, dependency) {
+				*result = append(*result, dependency)
 			}
 		}
-	}
+	})
 
-	// Finally add resolved dependencies to the result
-	for _, dependency := range resolvedDependencies {
-		if !slices.Contains(*result, dependency) {
-			r.synchronize(func() {
-				*result = append(*result, dependency)
-			})
+	// Process transitive dependencies if enabled and depth limit not reached
+	if r.config.IncludeTransitiveDependencies && depth < r.config.TransitiveDepth && len(resolvedDependencies) > 0 {
+		// Create worker pool using semaphore pattern
+		semaphore := make(chan struct{}, r.config.MaxConcurrency)
+		errCh := make(chan error, len(resolvedDependencies))
+		var wg sync.WaitGroup
+
+		for _, dependency := range resolvedDependencies {
+			wg.Add(1)
+
+			go func(dep *packagev1.PackageVersion) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				err := r.resolvePackageDependenciesConcurrent(ctx, pd, dep, depth+1, visitedPackages, result)
+				if err != nil {
+					errCh <- err
+				}
+			}(dependency)
+		}
+
+		// Wait for all goroutines to finish
+		wg.Wait()
+		close(errCh)
+
+		// Check for errors
+		for err := range errCh {
+			return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
 		}
 	}
 
