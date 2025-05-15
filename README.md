@@ -56,6 +56,7 @@ pnpm add <package-name>
   - [🔥 Features](#-features)
   - [Supported Package Managers](#supported-package-managers)
   - [Installation](#installation)
+    - [Homebrew](#homebrew)     
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
   - [Usage](#usage)
@@ -91,7 +92,7 @@ PMG supports the following package managers:
 
 ### Homebrew
 
-You can also install vet using homebrew in MacOS and Linux
+You can also install `pmg` using `homebrew` in MacOS and Linux
 
 ```bash
 brew tap safedep/tap
