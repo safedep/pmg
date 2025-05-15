@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -20,6 +21,7 @@ type dependencyResolverConfig struct {
 type dependencyResolver struct {
 	client packageregistry.Client
 	config dependencyResolverConfig
+	mutex  sync.Mutex
 }
 
 func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig) *dependencyResolver {
@@ -88,7 +90,9 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 	}
 
 	// Mark the current package as visited
-	visitedPackages[packageKey] = true
+	r.synchronize(func() {
+		visitedPackages[packageKey] = true
+	})
 
 	log.Debugf("resolving dependencies for %s@%s", packageVersion.Package.Name, packageVersion.Version)
 
@@ -129,7 +133,9 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 	// Finally add resolved dependencies to the result
 	for _, dependency := range resolvedDependencies {
 		if !slices.Contains(*result, dependency) {
-			*result = append(*result, dependency)
+			r.synchronize(func() {
+				*result = append(*result, dependency)
+			})
 		}
 	}
 
@@ -138,4 +144,10 @@ func (r *dependencyResolver) resolvePackageDependenciesRecursive(
 
 func (r *dependencyResolver) packageKey(pkg *packagev1.PackageVersion) string {
 	return fmt.Sprintf("%s@%s", pkg.Package.Name, pkg.Version)
+}
+
+func (r *dependencyResolver) synchronize(fn func()) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	fn()
 }
