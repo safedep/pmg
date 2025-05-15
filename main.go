@@ -15,6 +15,7 @@ var (
 	debug        bool
 	silent       bool
 	verbose      bool
+	logFile      string
 	globalConfig config.Config
 )
 
@@ -23,11 +24,23 @@ func main() {
 		Use:              "pmg",
 		TraverseChildren: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			// Always set this first because we will override the log
+			// level if debug or verbose is set
+			if logFile != "" {
+				os.Setenv("APP_LOG_FILE", logFile)
+				os.Setenv("APP_LOG_LEVEL", "info")
+			}
+
+			// Set the log level when debug is enabled
 			if debug {
 				os.Setenv("APP_LOG_LEVEL", "debug")
 			}
 
-			log.InitZapLogger("pmg", "")
+			// Skip stdout logging when debugging and verbose is not enabled
+			// This is default behavior for the CLI unless explicitly set
+			if !debug && !verbose {
+				os.Setenv("APP_LOG_SKIP_STDOUT_LOGGER", "true")
+			}
 
 			if silent && verbose {
 				fmt.Println("pmg: --silent and --verbose cannot be used together")
@@ -40,6 +53,7 @@ func main() {
 				ui.SetVerbosityLevel(ui.VerbosityLevelVerbose)
 			}
 
+			log.InitZapLogger("pmg", "cli")
 			cmd.SetContext(globalConfig.Inject(cmd.Context()))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,6 +66,7 @@ func main() {
 		},
 	}
 
+	cmd.PersistentFlags().StringVar(&logFile, "log", "", "Log file to write to")
 	cmd.PersistentFlags().BoolVar(&silent, "silent", false, "Silent mode for invisible experience")
 	cmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Verbose mode for more information")
 	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging (defaults to stdout)")
