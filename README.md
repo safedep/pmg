@@ -56,6 +56,7 @@ pnpm add <package-name>
   - [🔥 Features](#-features)
   - [Supported Package Managers](#supported-package-managers)
   - [Installation](#installation)
+    - [Homebrew](#homebrew)     
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
   - [Usage](#usage)
@@ -88,6 +89,15 @@ PMG supports the following package managers:
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
 ## Installation
+
+### Homebrew
+
+You can install `pmg` using `homebrew` in MacOS and Linux
+
+```bash
+brew tap safedep/tap
+brew install safedep/tap/pmg
+```
 
 ### Binaries
 
