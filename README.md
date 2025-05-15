@@ -89,6 +89,15 @@ PMG supports the following package managers:
 
 ## Installation
 
+### Homebrew
+
+You can also install vet using homebrew in MacOS and Linux
+
+```bash
+brew tap safedep/tap
+brew install safedep/tap/pmg
+```
+
 ### Binaries
 
 Download the latest binary from the [releases page](https://github.com/safedep/pmg/releases).
