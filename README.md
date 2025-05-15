@@ -1,10 +1,15 @@
 
-# PMG (Package Manager Guard)
-PMG is a wrapper for package managers to protect developers from installing malicious packages.
+# Package Manager Guard (PMG)
+🤖 PMG protects developers from getting compromised by malicious packages.
+See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
+
+- Wraps your favorite package manager (eg. `npm`)
+- Blocks malicious packages at install time
+- No configuration required, just install and use
 
 ## TL;DR
 
-Set up `pmg` to protect you development environment:
+Set up `pmg` to protect you development environment from malicious packages:
 
 ```
 echo "alias npm='pmg npm'" >> ~/.zshrc
@@ -20,11 +25,11 @@ pnpm add <package-name>
 ```
 
 ## 📑 Table of Contents
-- [PMG (Package Manager Guard)](#pmg-package-manager-guard)
+- [Package Manager Guard (PMG)](#package-manager-guard-pmg)
   - [TL;DR](#tldr)
   - [📑 Table of Contents](#-table-of-contents)
   - [Features](#features)
-  - [Supported Ecosystems](#supported-ecosystems)
+  - [Supported Package Managers](#supported-package-managers)
   - [Installation](#installation)
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
@@ -45,16 +50,18 @@ pnpm add <package-name>
 - ⚡ Fast and efficient package verification
 - 🔄 Seamless integration with existing package managers
 
-## Supported Ecosystems
+## Supported Package Managers
 
-PMG supports the following package ecosystems:
+PMG supports the following package managers:
 
-| Ecosystem | Status    | Command                     |
-| --------- | --------- | --------------------------- |
-| NPM       | ✅ Active  | `pmg npm install <package>` |
-| PNPM      | ✅ Active  | `pmg pnpm add <package>`    |
-| PyPI      | 🚧 Planned |                             |
-| Go        | 🚧 Planned |                             |
+| Package Manager | Status    | Command                     |
+| --------------- | --------- | --------------------------- |
+| `npm`           | ✅ Active  | `pmg npm install <package>` |
+| `pnpm`          | ✅ Active  | `pmg pnpm add <package>`    |
+| `yarn`          | 🚧 Planned |                             |
+| `pip`           | 🚧 Planned |                             |
+| `poetry`        | 🚧 Planned |                             |
+| `uv`            | 🚧 Planned |                             |
 
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
@@ -122,7 +129,11 @@ Use the `--debug` flag to enable debug mode:
 pmg --debug npm install <package-name>
 ```
 
+Store the debug logs in a file:
 
+```bash
+pmg --debug --log /tmp/debug.json npm install <package-name>
+```
 
 ### PMG in Action
 
