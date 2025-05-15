@@ -92,7 +92,7 @@ PMG supports the following package managers:
 
 ### Homebrew
 
-You can also install `pmg` using `homebrew` in MacOS and Linux
+You can install `pmg` using `homebrew` in MacOS and Linux
 
 ```bash
 brew tap safedep/tap
