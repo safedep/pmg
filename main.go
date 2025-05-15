@@ -36,9 +36,8 @@ func main() {
 				os.Setenv("APP_LOG_LEVEL", "debug")
 			}
 
-			// Skip stdout logging when debugging and verbose is not enabled
-			// This is default behavior for the CLI unless explicitly set
-			if !debug && !verbose {
+			// Skip stdout logging when debugging is not enabled
+			if !debug {
 				os.Setenv("APP_LOG_SKIP_STDOUT_LOGGER", "true")
 			}
 

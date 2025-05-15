@@ -37,12 +37,15 @@ func ClearStatus() {
 	fmt.Print("\r")
 }
 
-func Block() error {
+func Block(malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
 	StopSpinner()
 
 	fmt.Println()
 	fmt.Println(Colors.Red("❌ Malicious package blocked!"))
 
+	printMaliciousPackagesList(malwarePackages)
+
+	fmt.Println()
 	os.Exit(1)
 
 	return nil
@@ -63,22 +66,7 @@ func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysis
 	fmt.Println()
 	fmt.Println(Colors.Red(fmt.Sprintf("🚨 Suspicious package(s) detected: %d", len(malwarePackages))))
 
-	for _, mp := range malwarePackages {
-		fmt.Println()
-		fmt.Println("⚠️ ", Colors.Red(fmt.Sprintf("%s@%s", mp.PackageVersion.GetPackage().GetName(),
-			mp.PackageVersion.GetVersion())))
-
-		if verbosityLevel == VerbosityLevelVerbose {
-			fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 60)))
-
-			if mp.ReferenceURL != "" {
-				fmt.Println()
-				fmt.Println(Colors.Yellow(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
-			}
-
-			fmt.Println()
-		}
-	}
+	printMaliciousPackagesList(malwarePackages)
 
 	fmt.Println()
 	fmt.Print(Colors.Yellow("Do you want to continue with the installation? (y/N) "))
@@ -108,19 +96,54 @@ func Fatalf(msg string, args ...interface{}) {
 	os.Exit(1)
 }
 
+func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalysisResult) {
+	for _, mp := range malwarePackages {
+		fmt.Println()
+		fmt.Println("⚠️ ", Colors.Red(fmt.Sprintf("%s@%s", mp.PackageVersion.GetPackage().GetName(),
+			mp.PackageVersion.GetVersion())))
+
+		if verbosityLevel == VerbosityLevelVerbose {
+			fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 80)))
+
+			if mp.ReferenceURL != "" {
+				fmt.Println()
+				fmt.Println(Colors.Yellow(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
+			}
+		}
+	}
+}
+
 // Format the string to be maximum maxWidth. Use newlines to wrap the text.
 func termWidthFormatText(text string, maxWidth int) string {
+	// Replace all newlines with spaces so that we can split the text into words
+	// This is to ensure that we don't split the text at the newlines
+	text = strings.ReplaceAll(text, "\n", " ")
+
 	words := strings.Split(text, " ")
 	lines := []string{}
 	currentLine := ""
 
-	for _, word := range words {
-		if len(currentLine)+len(word) > maxWidth {
+	for i, word := range words {
+		// Skip empty words that might result from multiple spaces
+		if word == "" {
+			continue
+		}
+
+		if i == 0 {
+			// First word doesn't need a leading space
+			currentLine = word
+		} else if len(currentLine)+len(word)+1 > maxWidth {
+			// +1 for the space we would add
 			lines = append(lines, currentLine)
 			currentLine = word
 		} else {
 			currentLine += " " + word
 		}
+	}
+
+	// Don't forget to add the last line
+	if currentLine != "" {
+		lines = append(lines, currentLine)
 	}
 
 	return strings.Join(lines, "\n")

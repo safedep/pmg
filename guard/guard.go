@@ -15,10 +15,19 @@ import (
 )
 
 type PackageManagerGuardInteraction struct {
-	SetStatus                func(status string)
-	ClearStatus              func()
+	// SetStatus is called to set the status of the guard in the UI
+	SetStatus func(status string)
+
+	// ClearStatus is called to clear the status of the guard in the UI
+	ClearStatus func()
+
+	// GetConfirmationOnMalware is called to get the confirmation of the user on the malware packages
 	GetConfirmationOnMalware func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error)
-	Block                    func() error
+
+	// Block is called to block the installation of the malware packages. One or more malicious
+	// packages are passed as arguments. These are the packages that were detected as malicious.
+	// Client code must perform the necessary error handling and termination of the process.
+	Block func(...*analyzer.PackageVersionAnalysisResult) error
 }
 
 type PackageManagerGuardConfig struct {
@@ -121,8 +130,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			_ = g.blockInstallation()
-			return fmt.Errorf("malicious packages detected, installation aborted")
+			return g.blockInstallation(result)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -137,8 +145,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 		}
 
 		if !confirmed {
-			_ = g.blockInstallation()
-			return fmt.Errorf("malicious packages detected, installation aborted")
+			return g.blockInstallation(confirmableMalwarePackages...)
 		}
 	}
 
@@ -234,12 +241,12 @@ func (g *packageManagerGuard) setStatus(status string) {
 	g.interaction.SetStatus(status)
 }
 
-func (g *packageManagerGuard) blockInstallation() error {
+func (g *packageManagerGuard) blockInstallation(malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
 	if g.interaction.Block == nil {
 		return nil
 	}
 
-	return g.interaction.Block()
+	return g.interaction.Block(malwarePackages...)
 }
 
 func (g *packageManagerGuard) clearStatus() {
