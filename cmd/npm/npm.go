@@ -1,8 +1,6 @@
 package npm
 
 import (
-	_ "embed"
-
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/ui"
