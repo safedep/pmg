@@ -2,7 +2,6 @@ package npm
 
 import (
 	"context"
-	_ "embed"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/flows"
