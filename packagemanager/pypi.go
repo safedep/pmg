@@ -1,18 +1,12 @@
 package packagemanager
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	"github.com/Masterminds/semver"
 )
 
 type PipPackageManagerConfig struct {
@@ -152,71 +146,7 @@ func pipParsePackageInfo(input string) (packageName, version string, err error) 
 	return packageName, version, nil
 }
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
-
-func pipGetLatestMatchingVersion(packageName, versionConstraint string) (string, error) {
-	type PyPIResponse struct {
-		Releases map[string]any `json:"releases"`
-	}
-
-	if strings.HasPrefix(versionConstraint, "~=") {
-		versionConstraint = pipConvertCompatibleRelease(versionConstraint)
-	}
-
-	url := fmt.Sprintf("https://pypi.org/pypi/%s/json", packageName)
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch package info: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("package not found or HTTP error: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var pypiResp PyPIResponse
-	if err := json.Unmarshal(body, &pypiResp); err != nil {
-		return "", fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	// Parse version constraint
-	constraint, err := semver.NewConstraint(versionConstraint)
-	if err != nil {
-		return "", fmt.Errorf("invalid version constraint: %w", err)
-	}
-
-	// Collect all valid semver versions
-	var versions []*semver.Version
-	for v := range pypiResp.Releases {
-		ver, err := semver.NewVersion(v)
-		if err == nil { // ignore invalid semver versions
-			versions = append(versions, ver)
-		}
-	}
-
-	if len(versions) == 0 {
-		return "", fmt.Errorf("no valid versions found")
-	}
-
-	// Sort versions in ascending order
-	sort.Sort(semver.Collection(versions))
-
-	// Iterate from highest to lowest to find best match
-	for i := len(versions) - 1; i >= 0; i-- {
-		if constraint.Check(versions[i]) {
-			return versions[i].Original(), nil
-		}
-	}
-
-	return "", fmt.Errorf("no version matches constraint %q", versionConstraint)
-}
-
-// Convert "~=3.1.0" → ">=3.1.0,<3.2.0"
+// convert "~=3.1.0" → ">=3.1.0,<3.2.0"
 func pipConvertCompatibleRelease(version string) string {
 	version = strings.TrimPrefix(version, "~=")
 	parts := strings.Split(version, ".")
