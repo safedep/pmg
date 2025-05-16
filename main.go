@@ -74,6 +74,8 @@ func main() {
 		"Maximum depth of transitive dependencies to resolve")
 	cmd.PersistentFlags().BoolVar(&globalConfig.IncludeDevDependencies, "include-dev-dependencies", false,
 		"Include dev dependencies in the dependency graph (slows down resolution)")
+	cmd.PersistentFlags().BoolVar(&globalConfig.DryRun, "dry-run", false, "Dry run skips execution of package manager")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Paranoid, "paranoid", false, "Perform active scanning of unknown packages (slow)")
 
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())

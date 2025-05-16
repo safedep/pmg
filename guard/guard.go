@@ -34,6 +34,7 @@ type PackageManagerGuardConfig struct {
 	ResolveDependencies   bool
 	MaxConcurrentAnalyzes int
 	AnalysisTimeout       time.Duration
+	DryRun                bool
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -41,6 +42,7 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		ResolveDependencies:   true,
 		MaxConcurrentAnalyzes: 10,
 		AnalysisTimeout:       5 * time.Minute,
+		DryRun:                false,
 	}
 }
 
@@ -158,6 +160,11 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
 	if len(pc.Command.Exe) == 0 {
 		return fmt.Errorf("no command to execute")
+	}
+
+	if g.config.DryRun {
+		log.Debugf("Dry run, skipping command execution")
+		return nil
 	}
 
 	cmd := exec.CommandContext(ctx, pc.Command.Exe, pc.Command.Args...)

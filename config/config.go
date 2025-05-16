@@ -15,6 +15,11 @@ type Config struct {
 	Transitive             bool
 	TransitiveDepth        int
 	IncludeDevDependencies bool
+	Paranoid               bool
+
+	// DryRun to check for packages for risks.
+	// Do not actually execute any commands.
+	DryRun bool
 }
 
 // Inject config into context while protecting against context poisoning
