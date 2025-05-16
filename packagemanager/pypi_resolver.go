@@ -92,7 +92,12 @@ type PyPIPackage struct {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func pipGetLatestMatchingVersion(packageName, versionConstraint string) (string, error) {
+func pipGetMatchingVersion(packageName, versionConstraint string) (string, error) {
+	// Already a exact version
+	if strings.HasPrefix(versionConstraint, "==") {
+		return versionConstraint, nil
+	}
+
 	// Handle compatible release operator
 	if strings.HasPrefix(versionConstraint, "~=") {
 		versionConstraint = pipConvertCompatibleRelease(versionConstraint)
