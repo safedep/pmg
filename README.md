@@ -148,7 +148,8 @@ pmg --silent npm install <package-name>
 
 ### Dry Run
 
-Use the `--dry-run` flag to run skip actual package installation:
+Use the `--dry-run` flag to skip actual package installation. When enabled `pmg` will not execute
+package manager commands. Useful for checking packages and their transitive dependencies for malware.
 
 ```bash
 pmg --dry-run npm install <package-name>
