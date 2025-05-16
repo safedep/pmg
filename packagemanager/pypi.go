@@ -76,7 +76,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 				version = strings.TrimPrefix(version, "==")
 			} else {
 				// Version range, resolve from PyPI
-				version, err = pipGetLatestMatchingVersion(packageName, version)
+				version, err = pipGetMatchingVersion(packageName, version)
 				if err != nil {
 					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
 				}
@@ -146,16 +146,43 @@ func pipParsePackageInfo(input string) (packageName, version string, err error) 
 	return packageName, version, nil
 }
 
-// convert "~=3.1.0" → ">=3.1.0,<3.2.0"
 func pipConvertCompatibleRelease(version string) string {
+	if !strings.HasPrefix(version, "~=") {
+		return version
+	}
+
 	version = strings.TrimPrefix(version, "~=")
 	parts := strings.Split(version, ".")
 	if len(parts) < 2 {
 		return "" // invalid
 	}
-	major := parts[0]
-	minor := parts[1]
-	nextMinor, _ := strconv.Atoi(minor)
-	nextMinor += 1
-	return fmt.Sprintf(">=%s,<%s.%d.0", version, major, nextMinor)
+
+	if len(parts) == 2 {
+		// ~=X.Y case, increment major version: ~=2.1 -> >=2.1,<3.0
+		major := parts[0]
+		nextMajor, _ := strconv.Atoi(major)
+		nextMajor += 1
+		return fmt.Sprintf(">=%s,<%d.0", version, nextMajor)
+	} else if len(parts) == 3 {
+		// ~=X.Y.Z case, increment minor version: ~=2.1.5 -> >=2.1.5,<2.2.0
+		major := parts[0]
+		minor := parts[1]
+		nextMinor, _ := strconv.Atoi(minor)
+		nextMinor += 1
+		return fmt.Sprintf(">=%s,<%s.%d.0", version, major, nextMinor)
+	} else {
+		// ~=X.Y.Z.W[.more] case, increment second-to-last component
+		// ~=2.1.5.2 -> >=2.1.5.2,<2.1.6
+		incIndex := len(parts) - 2
+		upperBoundParts := make([]string, incIndex+1)
+		copy(upperBoundParts, parts[:incIndex+1])
+
+		increment, _ := strconv.Atoi(upperBoundParts[incIndex])
+		increment++
+		upperBoundParts[incIndex] = strconv.Itoa(increment)
+
+		upperBound := strings.Join(upperBoundParts, ".")
+
+		return fmt.Sprintf(">=%s,<%s", version, upperBound)
+	}
 }
