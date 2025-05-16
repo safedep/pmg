@@ -56,11 +56,12 @@ pnpm add <package-name>
   - [🔥 Features](#-features)
   - [Supported Package Managers](#supported-package-managers)
   - [Installation](#installation)
-    - [Homebrew](#homebrew)     
+    - [Homebrew](#homebrew)
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
   - [Usage](#usage)
     - [Silent Mode](#silent-mode)
+    - [Dry Run](#dry-run)
     - [Verbose Mode](#verbose-mode)
     - [Debugging](#debugging)
   - [🤝 Contributing](#-contributing)
@@ -143,6 +144,15 @@ Use the `--silent` flag to run PMG in silent mode:
 
 ```bash
 pmg --silent npm install <package-name>
+```
+
+### Dry Run
+
+Use the `--dry-run` flag to skip actual package installation. When enabled `pmg` will not execute
+package manager commands. Useful for checking packages and their transitive dependencies for malware.
+
+```bash
+pmg --dry-run npm install <package-name>
 ```
 
 ### Verbose Mode

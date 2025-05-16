@@ -22,9 +22,22 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 		return fmt.Errorf("failed to create npm dependency resolver: %w", err)
 	}
 
-	malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
-	if err != nil {
-		return fmt.Errorf("failed to create malysis query analyzer: %w", err)
+	var analyzers []analyzer.PackageVersionAnalyzer
+
+	if config.Paranoid {
+		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
+		if err != nil {
+			return fmt.Errorf("failed to create malysis active scan analyzer: %w", err)
+		}
+
+		analyzers = append(analyzers, malysisActiveScanAnalyzer)
+	} else {
+		malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+		if err != nil {
+			return fmt.Errorf("failed to create malysis query analyzer: %w", err)
+		}
+
+		analyzers = append(analyzers, malysisQueryAnalyzer)
 	}
 
 	interaction := guard.PackageManagerGuardInteraction{
@@ -34,8 +47,10 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 		Block:                    ui.Block,
 	}
 
-	proxy, err := guard.NewPackageManagerGuard(guard.DefaultPackageManagerGuardConfig(),
-		pm, packageResolver, []analyzer.PackageVersionAnalyzer{malysisQueryAnalyzer}, interaction)
+	guardConfig := guard.DefaultPackageManagerGuardConfig()
+	guardConfig.DryRun = config.DryRun
+
+	proxy, err := guard.NewPackageManagerGuard(guardConfig, pm, packageResolver, analyzers, interaction)
 	if err != nil {
 		return fmt.Errorf("failed to create package manager guard: %w", err)
 	}
