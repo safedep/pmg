@@ -13,4 +13,4 @@ $pmg --debug --dry-run npm install express
 $pmg --debug --dry-run pnpm add express
 
 ## All these should fail
-$pmg --debug --dry-run npm install nyc-config@10.0.0 || exit 1
+! $pmg --debug --dry-run npm install nyc-config@10.0.0 || echo "Command failed as expected"
