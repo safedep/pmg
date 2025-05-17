@@ -39,7 +39,7 @@ var _ Analyzer = &malysisActiveScanAnalyzer{}
 
 func NewMalysisActiveScanAnalyzer(config MalysisActiveScanAnalyzerConfig) (*malysisActiveScanAnalyzer, error) {
 	if config.TenantId == "" || config.ApiKey == "" {
-		return nil, fmt.Errorf("active scanning requires SafeDep Cloud credentials (https://docs.safedep.io/cloud/malware-analysis)")
+		return nil, fmt.Errorf("active scanning requires SafeDep Cloud credentials. See: https://docs.safedep.io/cloud/malware-analysis")
 	}
 
 	headers := http.Header{}
