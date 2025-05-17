@@ -2,7 +2,7 @@
 
 set -e
 
-scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+scriptDir=$(dirname "$0")
 pmg=$scriptDir/../bin/pmg
 
 echo "Running e2e tests..."
