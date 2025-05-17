@@ -72,5 +72,10 @@ func (f *commonFlow) Run(ctx context.Context, args []string) error {
 		ui.Fatalf("Failed to create package manager guard: %s", err)
 	}
 
-	return proxy.Run(ctx, args)
+	err = proxy.Run(ctx, args)
+	if err != nil {
+		ui.Fatalf("pmg: failed to execute command: %s", err)
+	}
+
+	return err
 }
