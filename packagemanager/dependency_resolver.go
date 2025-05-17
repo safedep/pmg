@@ -11,6 +11,10 @@ import (
 	"github.com/safedep/dry/packageregistry"
 )
 
+// Contract for a function that implements ecosystem specific version
+// resolver from a version range specification.
+type versionSpecResolver func(version string) string
+
 type dependencyResolverConfig struct {
 	IncludeDevDependencies        bool
 	IncludeTransitiveDependencies bool
@@ -20,19 +24,29 @@ type dependencyResolverConfig struct {
 }
 
 type dependencyResolver struct {
-	client packageregistry.Client
-	config dependencyResolverConfig
-	mutex  sync.Mutex
+	client              packageregistry.Client
+	config              dependencyResolverConfig
+	mutex               sync.Mutex
+	versionSpecResolver versionSpecResolver
 }
 
-func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig) *dependencyResolver {
+func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig,
+	versionSpecResolver versionSpecResolver) *dependencyResolver {
 	if config.MaxConcurrency <= 0 {
 		config.MaxConcurrency = 10
 	}
 
+	if versionSpecResolver == nil {
+		// Default version spec resolver
+		versionSpecResolver = func(version string) string {
+			return version
+		}
+	}
+
 	return &dependencyResolver{
-		client: client,
-		config: config,
+		client:              client,
+		config:              config,
+		versionSpecResolver: versionSpecResolver,
 	}
 }
 
@@ -124,10 +138,10 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 	for _, dependency := range dependencies {
 		resolvedDependencies = append(resolvedDependencies, &packagev1.PackageVersion{
 			Package: &packagev1.Package{
-				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+				Ecosystem: packageVersion.GetPackage().GetEcosystem(),
 				Name:      dependency.Name,
 			},
-			Version: npmCleanVersion(dependency.VersionSpec),
+			Version: r.versionSpecResolver(dependency.VersionSpec),
 		})
 	}
 

@@ -172,6 +172,8 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	// We will fail based on executed command's exit code. This is important
+	// because other tools (scripts, CI etc.) may depend on this exit code.
 	return cmd.Run()
 }
 
@@ -204,13 +206,19 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 		}()
 	}
 
+	// Queue all packages for analysis
 	for _, pkg := range packages {
 		jobs <- pkg
 	}
 	close(jobs)
 
 	analysisResults := []*analyzer.PackageVersionAnalysisResult{}
+
+	// We must wait for the results go routine to collect all results
+	rwg := sync.WaitGroup{}
+	rwg.Add(1)
 	go func() {
+		defer rwg.Done()
 		for result := range results {
 			analysisResults = append(analysisResults, result)
 		}
@@ -219,8 +227,10 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	waiter := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(waiter)
 		close(results)
+
+		rwg.Wait()
+		close(waiter)
 	}()
 
 	select {
