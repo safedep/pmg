@@ -172,6 +172,8 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	// We will fail based on executed command's exit code. This is important
+	// because other tools (scripts, CI etc.) may depend on this exit code.
 	return cmd.Run()
 }
 

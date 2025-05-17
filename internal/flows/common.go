@@ -1,8 +1,7 @@
-package npm
+package flows
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -11,7 +10,25 @@ import (
 	"github.com/safedep/pmg/packagemanager"
 )
 
-func executeCommonFlow(ctx context.Context, config config.Config, pm packagemanager.PackageManager, args []string) error {
+type commonFlow struct {
+	pm packagemanager.PackageManager
+}
+
+// Creates a common flow of execution for all package managers. This should work for most
+// of the cases unless a package manager has its own unique requirements. Configuration
+// should be passed through the context (Global Config)
+func Common(pm packagemanager.PackageManager) *commonFlow {
+	return &commonFlow{
+		pm: pm,
+	}
+}
+
+func (f *commonFlow) Run(ctx context.Context, args []string) error {
+	config, err := config.FromContext(ctx)
+	if err != nil {
+		ui.Fatalf("Failed to get config: %s", err)
+	}
+
 	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
@@ -19,7 +36,7 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 
 	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create npm dependency resolver: %w", err)
+		ui.Fatalf("Failed to create dependency resolver: %s", err)
 	}
 
 	var analyzers []analyzer.PackageVersionAnalyzer
@@ -27,14 +44,14 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 	if config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 		if err != nil {
-			return fmt.Errorf("failed to create malysis active scan analyzer: %w", err)
+			ui.Fatalf("Failed to create malware analyzer: %s", err)
 		}
 
 		analyzers = append(analyzers, malysisActiveScanAnalyzer)
 	} else {
 		malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
 		if err != nil {
-			return fmt.Errorf("failed to create malysis query analyzer: %w", err)
+			ui.Fatalf("Failed to create malware analyzer: %s", err)
 		}
 
 		analyzers = append(analyzers, malysisQueryAnalyzer)
@@ -50,28 +67,10 @@ func executeCommonFlow(ctx context.Context, config config.Config, pm packagemana
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
 	guardConfig.DryRun = config.DryRun
 
-	proxy, err := guard.NewPackageManagerGuard(guardConfig, pm, packageResolver, analyzers, interaction)
+	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, packageResolver, analyzers, interaction)
 	if err != nil {
-		return fmt.Errorf("failed to create package manager guard: %w", err)
+		ui.Fatalf("Failed to create package manager guard: %s", err)
 	}
 
 	return proxy.Run(ctx, args)
-}
-
-func executeNpmFlow(ctx context.Context, config config.Config, args []string) error {
-	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultNpmPackageManagerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create npm package manager: %w", err)
-	}
-
-	return executeCommonFlow(ctx, config, packageManager, args)
-}
-
-func executePnpmFlow(ctx context.Context, config config.Config, args []string) error {
-	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultPnpmPackageManagerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create pnpm package manager: %w", err)
-	}
-
-	return executeCommonFlow(ctx, config, packageManager, args)
 }
