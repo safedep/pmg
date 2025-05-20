@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/spf13/cobra"
@@ -17,12 +18,7 @@ func NewPipCommand() *cobra.Command {
 		Short:              "Guard pip package manager",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			config, err := config.FromContext(cmd.Context())
-			if err != nil {
-				ui.Fatalf("Failed to get config: %s", err)
-			}
-
-			err = executePipFlow(cmd.Context(), config, args)
+			err := executePipFlow(cmd.Context(), args)
 			if err != nil {
 				log.Errorf("Failed to execute pip flow: %s", err)
 			}
@@ -32,12 +28,24 @@ func NewPipCommand() *cobra.Command {
 	}
 }
 
-func executePipFlow(context context.Context, config config.Config, args []string) error {
+func executePipFlow(ctx context.Context, args []string) error {
 	packageManager, err := packagemanager.NewPipPackageManager(packagemanager.DefaultPipPackageManagerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create pip package manager: %w", err)
 	}
-	cmd, _ := packageManager.ParseCommand(args)
-	fmt.Println("Cmd: ", cmd.InstallTargets[0])
-	return nil
+	config, err := config.FromContext(ctx)
+	if err != nil {
+		ui.Fatalf("Failed to get config: %s", err)
+	}
+	packageResolverConfig := packagemanager.NewDefaultPypiDependencyResolverConfig()
+	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
+	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
+	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
+
+	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
+	if err != nil {
+		ui.Fatalf("Failed to create dependency resolver: %s", err)
+	}
+
+	return flows.Common(packageManager, packageResolver, config).Run(ctx, args)
 }

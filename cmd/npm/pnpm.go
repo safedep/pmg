@@ -5,6 +5,7 @@ import (
 	_ "embed"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -32,6 +33,17 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 	if err != nil {
 		ui.Fatalf("Failed to create pnpm package manager proxy: %s", err)
 	}
+	config, err := config.FromContext(ctx)
+	if err != nil {
+		ui.Fatalf("Failed to get config: %s", err)
+	}
 
-	return flows.Common(packageManager).Run(ctx, args)
+	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
+	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
+	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
+	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
+
+	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
+
+	return flows.Common(packageManager, packageResolver, config).Run(ctx, args)
 }

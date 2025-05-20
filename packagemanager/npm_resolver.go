@@ -78,7 +78,9 @@ func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 		TransitiveDepth:               r.config.TransitiveDepth,
 		FailFast:                      r.config.FailFast,
 		MaxConcurrency:                r.config.MaxConcurrency,
-	}, npmCleanVersion)
+	}, func(packageName, version string) string {
+		return npmCleanVersion(version)
+	})
 
 	return resolver.resolveDependencies(ctx, packageVersion)
 }

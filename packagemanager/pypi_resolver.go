@@ -2,11 +2,8 @@ package packagemanager
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/Masterminds/semver"
@@ -62,6 +59,13 @@ func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *p
 		TransitiveDepth:               p.config.TransitiveDepth,
 		FailFast:                      p.config.FailFast,
 		MaxConcurrency:                p.config.MaxConcurrency,
+	}, func(packageName, version string) string {
+		ver, err := pipGetMatchingVersion(packageName, version)
+		if err != nil {
+			log.Debugf("error getting matching version for %s@%s", packageName, version)
+			return ""
+		}
+		return ver
 	})
 
 	return resolver.resolveDependencies(ctx, pkg)
@@ -74,6 +78,7 @@ func (p *pypiDependencyResolver) ResolveLatestVersion(ctx context.Context, pkg *
 	}
 
 	pkgInfo, err := pd.GetPackage(pkg.Name)
+	fmt.Println("Package Info version: ", pkgInfo.LatestVersion, " Error: ", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package: %w", err)
 	}
@@ -84,13 +89,6 @@ func (p *pypiDependencyResolver) ResolveLatestVersion(ctx context.Context, pkg *
 		Version: pkgInfo.LatestVersion,
 	}, nil
 }
-
-// PyPIPackage represents the package information from PyPI
-type PyPIPackage struct {
-	Releases map[string]any `json:"releases"`
-}
-
-var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 func pipGetMatchingVersion(packageName, versionConstraint string) (string, error) {
 	// Already a exact version
@@ -103,8 +101,18 @@ func pipGetMatchingVersion(packageName, versionConstraint string) (string, error
 		versionConstraint = pipConvertCompatibleRelease(versionConstraint)
 	}
 
+	registry, err := packageregistry.NewPypiAdapter()
+	if err != nil {
+		return "", fmt.Errorf("failed to create pypi adapter: %w", err)
+	}
+
+	pd, err := registry.PackageDiscovery()
+	if err != nil {
+		return "", fmt.Errorf("failed to get package discovery: %w", err)
+	}
+
 	// Get package info from PyPI
-	pkg, err := pipFetchPackageVersionsInfo(packageName)
+	pkg, err := pd.GetPackage(packageName)
 	if err != nil {
 		return "", err
 	}
@@ -116,7 +124,7 @@ func pipGetMatchingVersion(packageName, versionConstraint string) (string, error
 	}
 
 	// Get valid versions and find best match
-	bestMatch, err := findBestMatchingVersion(pkg.Releases, constraint)
+	bestMatch, err := findBestMatchingVersion(pkg.Versions, constraint)
 	if err != nil {
 		return "", fmt.Errorf("no version matches constraint %q: %w", versionConstraint, err)
 	}
@@ -124,36 +132,15 @@ func pipGetMatchingVersion(packageName, versionConstraint string) (string, error
 	return bestMatch.Original(), nil
 }
 
-// pipFetchPackageVersionsInfo retrieves package information from PyPI
-func pipFetchPackageVersionsInfo(packageName string) (*PyPIPackage, error) {
-	url := fmt.Sprintf("https://pypi.org/pypi/%s/json", packageName)
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch package info: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("package not found or HTTP error: %d", resp.StatusCode)
-	}
-
-	var pypiPkg PyPIPackage
-	if err := json.NewDecoder(resp.Body).Decode(&pypiPkg); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	return &pypiPkg, nil
-}
-
-func findBestMatchingVersion(releases map[string]any, constraint *semver.Constraints) (*semver.Version, error) {
+func findBestMatchingVersion(releases []packageregistry.PackageVersionInfo, constraint *semver.Constraints) (*semver.Version, error) {
 	if len(releases) == 0 {
 		return nil, fmt.Errorf("no versions available")
 	}
 
 	var bestMatch *semver.Version
 	// We'll iterate once through all versions
-	for v := range releases {
-		ver, err := semver.NewVersion(v)
+	for _, v := range releases {
+		ver, err := semver.NewVersion(v.Version)
 		if err != nil {
 			continue // Skip invalid versions
 		}

@@ -83,8 +83,6 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			}
 		}
 
-		fmt.Printf("Package Name: %s Version: %s\n", packageName, version)
-
 		installTargets = append(installTargets, &PackageInstallTarget{
 			PackageVersion: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
