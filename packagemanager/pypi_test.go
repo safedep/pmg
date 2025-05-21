@@ -12,6 +12,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 		input   string
 		pkgName string
 		version string
+		extras  []string
 		wantErr bool
 	}{
 		{
@@ -19,13 +20,15 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "fastapi",
 			pkgName: "fastapi",
 			version: "",
+			extras:  nil,
 			wantErr: false,
 		},
 		{
-			name:    "package with exact version",
-			input:   "fastapi==0.115.7",
+			name:    "package with exact version & extra",
+			input:   "fastapi[all]==0.115.7",
 			pkgName: "fastapi",
 			version: "==0.115.7",
+			extras:  []string{"all"},
 			wantErr: false,
 		},
 		{
@@ -33,6 +36,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "requests>=2.0,<3.0",
 			pkgName: "requests",
 			version: ">=2.0,<3.0",
+			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -47,13 +51,15 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "django~=3.1.0",
 			pkgName: "django",
 			version: "~=3.1.0",
+			extras:  nil,
 			wantErr: false,
 		},
 		{
-			name:    "package with greater than",
-			input:   "numpy>1.20.0",
+			name:    "package with greater than with empty extra",
+			input:   "numpy[]>1.20.0",
 			pkgName: "numpy",
 			version: ">1.20.0",
+			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -61,6 +67,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "pandas<2.0.0",
 			pkgName: "pandas",
 			version: "<2.0.0",
+			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -68,6 +75,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "",
 			pkgName: "",
 			version: "",
+			extras:  nil,
 			wantErr: true,
 		},
 		{
@@ -75,6 +83,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "==1.0.0",
 			pkgName: "",
 			version: "",
+			extras:  nil,
 			wantErr: true,
 		},
 		{
@@ -82,19 +91,21 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "  requests  ==  2.0.0  ",
 			pkgName: "requests",
 			version: "==  2.0.0",
+			extras:  nil,
 			wantErr: false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pkgName, version, err := pipParsePackageInfo(tc.input)
+			pkgName, version, extras, err := pipParsePackageInfo(tc.input)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.pkgName, pkgName)
 				assert.Equal(t, tc.version, version)
+				assert.Equal(t, tc.extras, extras)
 			}
 		})
 	}

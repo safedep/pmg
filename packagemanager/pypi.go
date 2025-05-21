@@ -64,13 +64,13 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	var installTargets []*PackageInstallTarget
 
 	for _, pkg := range packages {
-		packageName, version, err := pipParsePackageInfo(pkg)
+		packageName, version, extras, err := pipParsePackageInfo(pkg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse package info: %w", err)
 		}
-		// If exact version provided just trim it. If not get a version that satisfies a given version specifier
 
 		if version != "" {
+			// If exact version provided just trim it. If not get a version that satisfies a given version specifier
 			if strings.HasPrefix(version, "==") {
 				// Exact version, just trim
 				version = strings.TrimPrefix(version, "==")
@@ -91,6 +91,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 				},
 				Version: version,
 			},
+			Extras: extras,
 		})
 	}
 
@@ -100,20 +101,38 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}, nil
 }
 
-// pipParsePackageInfo parses python package strings like:
-// "fastapi", "fastapi==0.115.7", "requests>=2.0,<3.0", "pydantic!=1.8,!=1.8.1"
-// Returns packageName and version (empty if none specified).
-func pipParsePackageInfo(input string) (packageName, version string, err error) {
+// pipParsePackageInfo parses a pip install package specification, separating the package name,
+// version constraints, and any extras (additional features) to be installed.
+// Example: "django[mysql,redis]>=3.0" returns ("django", ">=3.0", ["mysql", "redis"], nil)
+func pipParsePackageInfo(input string) (packageName, version string, extras []string, err error) {
 	if input == "" {
-		return "", "", fmt.Errorf("package info cannot be empty")
+		return "", "", nil, fmt.Errorf("package info cannot be empty")
 	}
 
 	input = strings.TrimSpace(input)
 
+	// First extract any extras if present
+	openBracket := strings.Index(input, "[")
+	closeBracket := strings.Index(input, "]")
+
+	if openBracket != -1 && closeBracket != -1 && openBracket < closeBracket {
+		extrasStr := strings.TrimSpace(input[openBracket+1 : closeBracket])
+		if extrasStr != "" {
+			// Split extras by comma and trim each extra
+			for _, extra := range strings.Split(extrasStr, ",") {
+				if trimmedExtra := strings.TrimSpace(extra); trimmedExtra != "" {
+					extras = append(extras, trimmedExtra)
+				}
+			}
+		}
+		// Remove the extra part from input for further processing
+		input = input[:openBracket] + input[closeBracket+1:]
+	} else if (openBracket != -1 && closeBracket == -1) || (openBracket == -1 && closeBracket != -1) {
+		return "", "", nil, fmt.Errorf("mismatched brackets in input '%s'", input)
+	}
+
 	// Python package version specifiers are typically separated by one of:
 	// '==', '>=', '<=', '!=', '>', '<', '~=', or direct comma separated list
-	// We'll find the first occurrence of these operators for splitting.
-
 	operators := []string{"==", ">=", "<=", "!=", ">", "<", "~="}
 	index := -1
 
@@ -127,21 +146,17 @@ func pipParsePackageInfo(input string) (packageName, version string, err error) 
 
 	if index == -1 {
 		// No operator found, whole input is package name, no version
-		return input, "", nil
+		return strings.TrimSpace(input), "", extras, nil
 	}
 
 	packageName = strings.TrimSpace(input[:index])
 	version = strings.TrimSpace(input[index:])
 
-	// Some version specs can have multiple constraints separated by commas
-	// Example: "requests>=2.0,<3.0"
-	// So keep version as is
-
 	if packageName == "" {
-		return "", "", fmt.Errorf("invalid package name in input '%s'", input)
+		return "", "", nil, fmt.Errorf("invalid package name in input '%s'", input)
 	}
 
-	return packageName, version, nil
+	return packageName, version, extras, nil
 }
 
 func pipConvertCompatibleRelease(version string) string {

@@ -2,7 +2,10 @@ package packagemanager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"regexp"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -88,6 +91,114 @@ func (p *pypiDependencyResolver) ResolveLatestVersion(ctx context.Context, pkg *
 		Package: pkg,
 		Version: pkgInfo.LatestVersion,
 	}, nil
+}
+
+type pypiPackage struct {
+	Info     pypiPackageInfo `json:"info"`
+	Releases map[string]any  `json:"releases"`
+}
+
+type PyPIDependencySpec struct {
+	// PackageNameExtra is the package name including any direct extras in brackets
+	// Example: "uvicorn[standard]"
+	PackageNameExtra string
+
+	// VersionSpec is the version constraint for the package
+	// Example: ">=0.12.0", "==1.0.0", ">=2.0,<3.0"
+	VersionSpec string
+
+	// Extra is the conditional extra marker that defines when this dependency applies
+	// Example: "all" from "; extra == \"all\""
+	Extra string
+}
+
+type pypiPackageInfo struct {
+	Name            string   `json:"name"`
+	Description     string   `json:"summary"`
+	LatestVersion   string   `json:"version"`
+	PackageURL      string   `json:"package_url"`
+	Author          string   `json:"author"`
+	AuthorEmail     string   `json:"author_email"`
+	Maintainer      string   `json:"maintainer"`
+	MaintainerEmail string   `json:"maintainer_email"`
+	RequiresDist    []string `json:"requires_dist"`
+}
+
+func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec, error) {
+	url := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", packageName, version)
+
+	res, err := http.Get(url)
+	if err != nil {
+		return nil, ErrFailedToFetchPackage
+	}
+
+	if res.StatusCode == 404 {
+		return nil, ErrPackageNotFound
+	}
+
+	if res.StatusCode != 200 {
+		return nil, ErrFailedToFetchPackage
+	}
+	defer res.Body.Close()
+
+	var pypipkg pypiPackage
+	err = json.NewDecoder(res.Body).Decode(&pypipkg)
+	if err != nil {
+		return nil, ErrFailedToParsePackage
+	}
+
+	pkgDeps := make([]PyPIDependencySpec, len(pypipkg.Info.RequiresDist))
+	for _, dep := range pypipkg.Info.RequiresDist {
+		name, version, extra := pypiParseDependency(dep)
+		pkgDeps = append(pkgDeps, PyPIDependencySpec{
+			PackageNameExtra: name,
+			VersionSpec:      version,
+			Extra:            extra,
+		})
+	}
+
+	return pkgDeps, nil
+}
+
+// pypiParseDependency parses a PyPI dependency specification, handling both package extras
+// and conditional dependencies. Keeps extras as part of the package name.
+// Example: "uvicorn[standard]>=0.12.0; extra == \"all\"" returns ("uvicorn[standard]", ">=0.12.0", "all")
+func pypiParseDependency(input string) (string, string, string) {
+	var name string
+	var version string
+
+	// Split line by ';' to separate version and markers
+	parts := strings.SplitN(input, ";", 2)
+	mainPart := strings.TrimSpace(parts[0])
+
+	// Find last occurrence of version operators
+	operators := []string{"==", ">=", "<=", "!=", ">", "<", "~="}
+	versionIndex := -1
+
+	for _, op := range operators {
+		if idx := strings.LastIndex(mainPart, op); idx != -1 {
+			if idx > versionIndex {
+				versionIndex = idx
+			}
+		}
+	}
+
+	if versionIndex != -1 {
+		name = strings.TrimSpace(mainPart[:versionIndex])
+		version = strings.TrimSpace(mainPart[versionIndex:])
+	} else {
+		name = mainPart
+	}
+
+	var extra string
+	if len(parts) == 2 {
+		extraRe := regexp.MustCompile(`extra\s*==\s*["']([^"']+)["']`)
+		if match := extraRe.FindStringSubmatch(parts[1]); len(match) == 2 {
+			extra = match[1]
+		}
+	}
+
+	return name, version, extra
 }
 
 func pipGetMatchingVersion(packageName, versionConstraint string) (string, error) {

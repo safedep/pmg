@@ -13,6 +13,11 @@ type Command struct {
 
 type PackageInstallTarget struct {
 	PackageVersion *packagev1.PackageVersion
+
+	// Extras specifies additional features to be installed with a Python package
+	// Example: "django[mysql,redis]" has Extras as ["mysql", "redis"]
+	// Currently only specific to Python packages
+	Extras []string
 }
 
 func (pit *PackageInstallTarget) HasVersion() bool {
