@@ -1,7 +1,8 @@
-package npm
+package pypi
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
@@ -11,15 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewNpmCommand() *cobra.Command {
+func NewPipCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:                "npm [action] [package]",
-		Short:              "Guard npm package manager",
+		Use:                "pip [action] [package]",
+		Short:              "Guard pip package manager",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := executeNpmFlow(cmd.Context(), args)
+			err := executePipFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute npm flow: %s", err)
+				log.Errorf("Failed to execute pip flow: %s", err)
 			}
 
 			return nil
@@ -27,22 +28,21 @@ func NewNpmCommand() *cobra.Command {
 	}
 }
 
-func executeNpmFlow(ctx context.Context, args []string) error {
-	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultNpmPackageManagerConfig())
+func executePipFlow(ctx context.Context, args []string) error {
+	packageManager, err := packagemanager.NewPipPackageManager(packagemanager.DefaultPipPackageManagerConfig())
 	if err != nil {
-		ui.Fatalf("Failed to create npm package manager proxy: %s", err)
+		return fmt.Errorf("failed to create pip package manager: %w", err)
 	}
 	config, err := config.FromContext(ctx)
 	if err != nil {
 		ui.Fatalf("Failed to get config: %s", err)
 	}
-
-	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
+	packageResolverConfig := packagemanager.NewDefaultPypiDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
 	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
 
-	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
+	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
 	if err != nil {
 		ui.Fatalf("Failed to create dependency resolver: %s", err)
 	}

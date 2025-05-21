@@ -37,6 +37,8 @@ func NewNpmPackageManager(config NpmPackageManagerConfig) (*npmPackageManager, e
 	}, nil
 }
 
+var _ PackageManager = &npmPackageManager{}
+
 func (npm *npmPackageManager) Name() string {
 	return "npm"
 }

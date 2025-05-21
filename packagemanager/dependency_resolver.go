@@ -13,7 +13,7 @@ import (
 
 // Contract for a function that implements ecosystem specific version
 // resolver from a version range specification.
-type versionSpecResolver func(version string) string
+type versionSpecResolver func(packageName, version string) string
 
 type dependencyResolverConfig struct {
 	IncludeDevDependencies        bool
@@ -38,7 +38,7 @@ func newDependencyResolver(client packageregistry.Client, config dependencyResol
 
 	if versionSpecResolver == nil {
 		// Default version spec resolver
-		versionSpecResolver = func(version string) string {
+		versionSpecResolver = func(packageName, version string) string {
 			return version
 		}
 	}
@@ -141,7 +141,7 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 				Ecosystem: packageVersion.GetPackage().GetEcosystem(),
 				Name:      dependency.Name,
 			},
-			Version: r.versionSpecResolver(dependency.VersionSpec),
+			Version: r.versionSpecResolver(dependency.Name, dependency.VersionSpec),
 		})
 	}
 
