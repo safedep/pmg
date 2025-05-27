@@ -56,20 +56,41 @@ func NewPypiDependencyResolver(config PyPiDependencyResolverConfig) (*pypiDepend
 }
 
 func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
+	pypiVersionSpecResolverFn := func(packageName, version string) string {
+		ver, err := pipGetMatchingVersion(packageName, version)
+		fmt.Printf("Resolved %s for %s to %s\n", version, packageName, ver)
+		if err != nil {
+			log.Debugf("error getting matching version for %s@%s", packageName, version)
+			return ""
+		}
+		return ver
+	}
+
+	pypiDependencyResolverFn := func(packageName, version string) (*packageregistry.PackageDependencyList, error) {
+		resolvedDependencies, err := getPypiPackageDependencies(packageName, version)
+		if err != nil {
+			return nil, err
+		}
+		dependencies := make([]packageregistry.PackageDependencyInfo, 0)
+		for _, dep := range resolvedDependencies {
+			dependencies = append(dependencies, packageregistry.PackageDependencyInfo{
+				Name:        dep.PackageNameExtra,
+				VersionSpec: dep.VersionSpec,
+			})
+		}
+
+		return &packageregistry.PackageDependencyList{
+			Dependencies: dependencies,
+		}, nil
+	}
+
 	resolver := newDependencyResolver(p.registry, dependencyResolverConfig{
 		IncludeDevDependencies:        p.config.IncludeDevDependencies,
 		IncludeTransitiveDependencies: p.config.IncludeTransitiveDependencies,
 		TransitiveDepth:               p.config.TransitiveDepth,
 		FailFast:                      p.config.FailFast,
 		MaxConcurrency:                p.config.MaxConcurrency,
-	}, func(packageName, version string) string {
-		ver, err := pipGetMatchingVersion(packageName, version)
-		if err != nil {
-			log.Debugf("error getting matching version for %s@%s", packageName, version)
-			return ""
-		}
-		return ver
-	})
+	}, pypiVersionSpecResolverFn, pypiDependencyResolverFn)
 
 	return resolver.resolveDependencies(ctx, pkg)
 }
@@ -124,7 +145,7 @@ type pypiPackageInfo struct {
 	RequiresDist    []string `json:"requires_dist"`
 }
 
-func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec, error) {
+func getPypiPackageDependencies(packageName, version string) ([]PyPIDependencySpec, error) {
 	url := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", packageName, version)
 
 	res, err := http.Get(url)
@@ -147,14 +168,19 @@ func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec, 
 		return nil, ErrFailedToParsePackage
 	}
 
-	pkgDeps := make([]PyPIDependencySpec, len(pypipkg.Info.RequiresDist))
+	pkgDeps := make([]PyPIDependencySpec, 0, len(pypipkg.Info.RequiresDist))
+
 	for _, dep := range pypipkg.Info.RequiresDist {
 		name, version, extra := pypiParseDependency(dep)
-		pkgDeps = append(pkgDeps, PyPIDependencySpec{
-			PackageNameExtra: name,
-			VersionSpec:      version,
-			Extra:            extra,
-		})
+
+		// Skip dependencies with extras/conditions to avoid resolution issues
+		if extra == "" {
+			pkgDeps = append(pkgDeps, PyPIDependencySpec{
+				PackageNameExtra: name,
+				VersionSpec:      version,
+				Extra:            extra,
+			})
+		}
 	}
 
 	return pkgDeps, nil
@@ -164,32 +190,33 @@ func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec, 
 // and conditional dependencies. Keeps extras as part of the package name.
 // Example: "uvicorn[standard]>=0.12.0; extra == \"all\"" returns ("uvicorn[standard]", ">=0.12.0", "all")
 func pypiParseDependency(input string) (string, string, string) {
-	var name string
-	var version string
-
 	// Split line by ';' to separate version and markers
 	parts := strings.SplitN(input, ";", 2)
 	mainPart := strings.TrimSpace(parts[0])
 
-	// Find last occurrence of version operators
-	operators := []string{"==", ">=", "<=", "!=", ">", "<", "~="}
-	versionIndex := -1
+	// Regex to match the first occurrence of version operators
+	// Using lookahead to ensure we match standalone operators
+	operatorRegex := regexp.MustCompile(`(==|>=|<=|!=|>|<|~=)(?:\d|$)`)
+	match := operatorRegex.FindStringIndex(mainPart)
 
-	for _, op := range operators {
-		if idx := strings.LastIndex(mainPart, op); idx != -1 {
-			if idx > versionIndex {
-				versionIndex = idx
-			}
-		}
-	}
+	var name, version string
+	if match != nil {
+		// Everything before the operator is the name
+		name = strings.TrimSpace(mainPart[:match[0]])
+		// Remove trailing parentheses from name if present
+		name = strings.TrimRight(name, " (")
 
-	if versionIndex != -1 {
-		name = strings.TrimSpace(mainPart[:versionIndex])
-		version = strings.TrimSpace(mainPart[versionIndex:])
+		// Everything from the operator onwards is the version spec
+		version = strings.TrimSpace(mainPart[match[0]:])
+		// Remove parentheses from version spec if present
+		version = strings.Trim(version, "()")
 	} else {
+		// No version operator found
 		name = mainPart
+		version = ""
 	}
 
+	// Extract extra marker if present
 	var extra string
 	if len(parts) == 2 {
 		extraRe := regexp.MustCompile(`extra\s*==\s*["']([^"']+)["']`)
@@ -210,6 +237,26 @@ func pipGetMatchingVersion(packageName, versionConstraint string) (string, error
 	// Handle compatible release operator
 	if strings.HasPrefix(versionConstraint, "~=") {
 		versionConstraint = pipConvertCompatibleRelease(versionConstraint)
+	}
+	// Handle empty version constraint
+	if versionConstraint == "" {
+		// Get latest version
+		registry, err := packageregistry.NewPypiAdapter()
+		if err != nil {
+			return "", fmt.Errorf("failed to create pypi adapter: %w", err)
+		}
+
+		pd, err := registry.PackageDiscovery()
+		if err != nil {
+			return "", fmt.Errorf("failed to get package discovery: %w", err)
+		}
+
+		pkg, err := pd.GetPackage(packageName)
+		if err != nil {
+			return "", err
+		}
+
+		return pkg.LatestVersion, nil
 	}
 
 	registry, err := packageregistry.NewPypiAdapter()

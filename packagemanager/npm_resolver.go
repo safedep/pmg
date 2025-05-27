@@ -80,7 +80,7 @@ func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 		MaxConcurrency:                r.config.MaxConcurrency,
 	}, func(packageName, version string) string {
 		return npmCleanVersion(version)
-	})
+	}, nil)
 
 	return resolver.resolveDependencies(ctx, packageVersion)
 }

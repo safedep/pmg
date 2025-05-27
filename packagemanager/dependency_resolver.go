@@ -13,7 +13,9 @@ import (
 
 // Contract for a function that implements ecosystem specific version
 // resolver from a version range specification.
-type versionSpecResolver func(packageName, version string) string
+type versionSpecResolverFn func(packageName, version string) string
+
+type dependencyResolverFn func(packageName, version string) (*packageregistry.PackageDependencyList, error)
 
 type dependencyResolverConfig struct {
 	IncludeDevDependencies        bool
@@ -24,14 +26,15 @@ type dependencyResolverConfig struct {
 }
 
 type dependencyResolver struct {
-	client              packageregistry.Client
-	config              dependencyResolverConfig
-	mutex               sync.Mutex
-	versionSpecResolver versionSpecResolver
+	client                    packageregistry.Client
+	config                    dependencyResolverConfig
+	mutex                     sync.Mutex
+	versionSpecResolver       versionSpecResolverFn
+	packageDependencyResolver dependencyResolverFn
 }
 
 func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig,
-	versionSpecResolver versionSpecResolver) *dependencyResolver {
+	versionSpecResolver versionSpecResolverFn, packageDependencyResolver dependencyResolverFn) *dependencyResolver {
 	if config.MaxConcurrency <= 0 {
 		config.MaxConcurrency = 10
 	}
@@ -44,9 +47,10 @@ func newDependencyResolver(client packageregistry.Client, config dependencyResol
 	}
 
 	return &dependencyResolver{
-		client:              client,
-		config:              config,
-		versionSpecResolver: versionSpecResolver,
+		client:                    client,
+		config:                    config,
+		versionSpecResolver:       versionSpecResolver,
+		packageDependencyResolver: packageDependencyResolver,
 	}
 }
 
@@ -122,7 +126,14 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 	log.Debugf("resolving dependencies for %s@%s", packageVersion.Package.Name, packageVersion.Version)
 
 	// Get dependencies for the current package
-	dependencyList, err := pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
+	var dependencyList *packageregistry.PackageDependencyList
+	var err error
+	if r.packageDependencyResolver != nil {
+		dependencyList, err = r.packageDependencyResolver(packageVersion.Package.Name, packageVersion.Version)
+	} else {
+		dependencyList, err = pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
+	}
+
 	if err != nil {
 		return ff(fmt.Errorf("failed to get package dependencies: %w", err))
 	}
@@ -186,7 +197,6 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 			return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
 		}
 	}
-
 	return nil
 }
 

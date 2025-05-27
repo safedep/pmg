@@ -1,0 +1,255 @@
+diff --git a/packagemanager/dependency_resolver.go b/packagemanager/dependency_resolver.go
+index 2d48a8f..58e0330 100644
+--- a/packagemanager/dependency_resolver.go
++++ b/packagemanager/dependency_resolver.go
+@@ -13,7 +13,9 @@ import (
+ 
+ // Contract for a function that implements ecosystem specific version
+ // resolver from a version range specification.
+-type versionSpecResolver func(packageName, version string) string
++type versionSpecResolverFn func(packageName, version string) string
++
++type dependencyResolverFn func(packageName, version string) (*packageregistry.PackageDependencyList, error)
+ 
+ type dependencyResolverConfig struct {
+ 	IncludeDevDependencies        bool
+@@ -24,14 +26,15 @@ type dependencyResolverConfig struct {
+ }
+ 
+ type dependencyResolver struct {
+-	client              packageregistry.Client
+-	config              dependencyResolverConfig
+-	mutex               sync.Mutex
+-	versionSpecResolver versionSpecResolver
++	client                    packageregistry.Client
++	config                    dependencyResolverConfig
++	mutex                     sync.Mutex
++	versionSpecResolver       versionSpecResolverFn
++	packageDependencyResolver dependencyResolverFn
+ }
+ 
+ func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig,
+-	versionSpecResolver versionSpecResolver) *dependencyResolver {
++	versionSpecResolver versionSpecResolverFn, packageDependencyResolver dependencyResolverFn) *dependencyResolver {
+ 	if config.MaxConcurrency <= 0 {
+ 		config.MaxConcurrency = 10
+ 	}
+@@ -44,9 +47,10 @@ func newDependencyResolver(client packageregistry.Client, config dependencyResol
+ 	}
+ 
+ 	return &dependencyResolver{
+-		client:              client,
+-		config:              config,
+-		versionSpecResolver: versionSpecResolver,
++		client:                    client,
++		config:                    config,
++		versionSpecResolver:       versionSpecResolver,
++		packageDependencyResolver: packageDependencyResolver,
+ 	}
+ }
+ 
+@@ -122,7 +126,14 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
+ 	log.Debugf("resolving dependencies for %s@%s", packageVersion.Package.Name, packageVersion.Version)
+ 
+ 	// Get dependencies for the current package
+-	dependencyList, err := pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
++	var dependencyList *packageregistry.PackageDependencyList
++	var err error
++	if r.packageDependencyResolver != nil {
++		dependencyList, err = r.packageDependencyResolver(packageVersion.Package.Name, packageVersion.Version)
++	} else {
++		dependencyList, err = pd.GetPackageDependencies(packageVersion.Package.Name, packageVersion.Version)
++	}
++
+ 	if err != nil {
+ 		return ff(fmt.Errorf("failed to get package dependencies: %w", err))
+ 	}
+@@ -186,7 +197,6 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
+ 			return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
+ 		}
+ 	}
+-
+ 	return nil
+ }
+ 
+diff --git a/packagemanager/npm_resolver.go b/packagemanager/npm_resolver.go
+index dd46c2c..1d244dc 100644
+--- a/packagemanager/npm_resolver.go
++++ b/packagemanager/npm_resolver.go
+@@ -80,7 +80,7 @@ func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
+ 		MaxConcurrency:                r.config.MaxConcurrency,
+ 	}, func(packageName, version string) string {
+ 		return npmCleanVersion(version)
+-	})
++	}, nil)
+ 
+ 	return resolver.resolveDependencies(ctx, packageVersion)
+ }
+diff --git a/packagemanager/pypi_resolver.go b/packagemanager/pypi_resolver.go
+index eded678..84873a9 100644
+--- a/packagemanager/pypi_resolver.go
++++ b/packagemanager/pypi_resolver.go
+@@ -56,20 +56,41 @@ func NewPypiDependencyResolver(config PyPiDependencyResolverConfig) (*pypiDepend
+ }
+ 
+ func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
+-	resolver := newDependencyResolver(p.registry, dependencyResolverConfig{
+-		IncludeDevDependencies:        p.config.IncludeDevDependencies,
+-		IncludeTransitiveDependencies: p.config.IncludeTransitiveDependencies,
+-		TransitiveDepth:               p.config.TransitiveDepth,
+-		FailFast:                      p.config.FailFast,
+-		MaxConcurrency:                p.config.MaxConcurrency,
+-	}, func(packageName, version string) string {
++	pypiVersionSpecResolverFn := func(packageName, version string) string {
+ 		ver, err := pipGetMatchingVersion(packageName, version)
++		fmt.Printf("Resolved %s for %s to %s\n", version, packageName, ver)
+ 		if err != nil {
+ 			log.Debugf("error getting matching version for %s@%s", packageName, version)
+ 			return ""
+ 		}
+ 		return ver
+-	})
++	}
++
++	pypiDependencyResolverFn := func(packageName, version string) (*packageregistry.PackageDependencyList, error) {
++		resolvedDependencies, err := getPypiPackageDependencies(packageName, version)
++		if err != nil {
++			return nil, err
++		}
++		dependencies := make([]packageregistry.PackageDependencyInfo, 0)
++		for _, dep := range resolvedDependencies {
++			dependencies = append(dependencies, packageregistry.PackageDependencyInfo{
++				Name:        dep.PackageNameExtra,
++				VersionSpec: dep.VersionSpec,
++			})
++		}
++
++		return &packageregistry.PackageDependencyList{
++			Dependencies: dependencies,
++		}, nil
++	}
++
++	resolver := newDependencyResolver(p.registry, dependencyResolverConfig{
++		IncludeDevDependencies:        p.config.IncludeDevDependencies,
++		IncludeTransitiveDependencies: p.config.IncludeTransitiveDependencies,
++		TransitiveDepth:               p.config.TransitiveDepth,
++		FailFast:                      p.config.FailFast,
++		MaxConcurrency:                p.config.MaxConcurrency,
++	}, pypiVersionSpecResolverFn, pypiDependencyResolverFn)
+ 
+ 	return resolver.resolveDependencies(ctx, pkg)
+ }
+@@ -124,7 +145,7 @@ type pypiPackageInfo struct {
+ 	RequiresDist    []string `json:"requires_dist"`
+ }
+ 
+-func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec, error) {
++func getPypiPackageDependencies(packageName, version string) ([]PyPIDependencySpec, error) {
+ 	url := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", packageName, version)
+ 
+ 	res, err := http.Get(url)
+@@ -147,14 +168,19 @@ func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec,
+ 		return nil, ErrFailedToParsePackage
+ 	}
+ 
+-	pkgDeps := make([]PyPIDependencySpec, len(pypipkg.Info.RequiresDist))
++	pkgDeps := make([]PyPIDependencySpec, 0, len(pypipkg.Info.RequiresDist))
++
+ 	for _, dep := range pypipkg.Info.RequiresDist {
+ 		name, version, extra := pypiParseDependency(dep)
+-		pkgDeps = append(pkgDeps, PyPIDependencySpec{
+-			PackageNameExtra: name,
+-			VersionSpec:      version,
+-			Extra:            extra,
+-		})
++
++		// Skip dependencies with extras/conditions to avoid resolution issues
++		if extra == "" {
++			pkgDeps = append(pkgDeps, PyPIDependencySpec{
++				PackageNameExtra: name,
++				VersionSpec:      version,
++				Extra:            extra,
++			})
++		}
+ 	}
+ 
+ 	return pkgDeps, nil
+@@ -164,32 +190,33 @@ func GetPackageDependencies(packageName, version string) ([]PyPIDependencySpec,
+ // and conditional dependencies. Keeps extras as part of the package name.
+ // Example: "uvicorn[standard]>=0.12.0; extra == \"all\"" returns ("uvicorn[standard]", ">=0.12.0", "all")
+ func pypiParseDependency(input string) (string, string, string) {
+-	var name string
+-	var version string
+-
+ 	// Split line by ';' to separate version and markers
+ 	parts := strings.SplitN(input, ";", 2)
+ 	mainPart := strings.TrimSpace(parts[0])
+ 
+-	// Find last occurrence of version operators
+-	operators := []string{"==", ">=", "<=", "!=", ">", "<", "~="}
+-	versionIndex := -1
+-
+-	for _, op := range operators {
+-		if idx := strings.LastIndex(mainPart, op); idx != -1 {
+-			if idx > versionIndex {
+-				versionIndex = idx
+-			}
+-		}
+-	}
+-
+-	if versionIndex != -1 {
+-		name = strings.TrimSpace(mainPart[:versionIndex])
+-		version = strings.TrimSpace(mainPart[versionIndex:])
++	// Regex to match the first occurrence of version operators
++	// Using lookahead to ensure we match standalone operators
++	operatorRegex := regexp.MustCompile(`(==|>=|<=|!=|>|<|~=)(?:\d|$)`)
++	match := operatorRegex.FindStringIndex(mainPart)
++
++	var name, version string
++	if match != nil {
++		// Everything before the operator is the name
++		name = strings.TrimSpace(mainPart[:match[0]])
++		// Remove trailing parentheses from name if present
++		name = strings.TrimRight(name, " (")
++
++		// Everything from the operator onwards is the version spec
++		version = strings.TrimSpace(mainPart[match[0]:])
++		// Remove parentheses from version spec if present
++		version = strings.Trim(version, "()")
+ 	} else {
++		// No version operator found
+ 		name = mainPart
++		version = ""
+ 	}
+ 
++	// Extract extra marker if present
+ 	var extra string
+ 	if len(parts) == 2 {
+ 		extraRe := regexp.MustCompile(`extra\s*==\s*["']([^"']+)["']`)
+@@ -211,6 +238,26 @@ func pipGetMatchingVersion(packageName, versionConstraint string) (string, error
+ 	if strings.HasPrefix(versionConstraint, "~=") {
+ 		versionConstraint = pipConvertCompatibleRelease(versionConstraint)
+ 	}
++	// Handle empty version constraint
++	if versionConstraint == "" {
++		// Get latest version
++		registry, err := packageregistry.NewPypiAdapter()
++		if err != nil {
++			return "", fmt.Errorf("failed to create pypi adapter: %w", err)
++		}
++
++		pd, err := registry.PackageDiscovery()
++		if err != nil {
++			return "", fmt.Errorf("failed to get package discovery: %w", err)
++		}
++
++		pkg, err := pd.GetPackage(packageName)
++		if err != nil {
++			return "", err
++		}
++
++		return pkg.LatestVersion, nil
++	}
+ 
+ 	registry, err := packageregistry.NewPypiAdapter()
+ 	if err != nil {
