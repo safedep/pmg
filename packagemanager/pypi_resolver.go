@@ -108,7 +108,6 @@ func (p *pypiDependencyResolver) ResolveLatestVersion(ctx context.Context, pkg *
 	}
 
 	pkgInfo, err := pd.GetPackage(pkg.Name)
-	fmt.Println("Package Info version: ", pkgInfo.LatestVersion, " Error: ", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package: %w", err)
 	}
