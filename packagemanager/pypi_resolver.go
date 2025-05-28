@@ -58,7 +58,7 @@ func NewPypiDependencyResolver(config PyPiDependencyResolverConfig) (*pypiDepend
 func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
 	pypiVersionSpecResolverFn := func(packageName, version string) string {
 		ver, err := pipGetMatchingVersion(packageName, version)
-		fmt.Printf("Resolved %s for %s to %s\n", version, packageName, ver)
+		// fmt.Printf("Resolved %s for %s to %s\n", version, packageName, ver)
 		if err != nil {
 			log.Debugf("error getting matching version for %s@%s", packageName, version)
 			return ""
@@ -84,13 +84,19 @@ func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *p
 		}, nil
 	}
 
+	// Python treats package names with '-' and '_' as equivalent (e.g., 'my-package' and 'my_package' refer to the same package)
+	packageKeyFn := func(pkg *packagev1.PackageVersion) string {
+		normalizedName := normalizePackageName(pkg.Package.Name)
+		return fmt.Sprintf("%s@%s", normalizedName, pkg.Version)
+	}
+
 	resolver := newDependencyResolver(p.registry, dependencyResolverConfig{
 		IncludeDevDependencies:        p.config.IncludeDevDependencies,
 		IncludeTransitiveDependencies: p.config.IncludeTransitiveDependencies,
 		TransitiveDepth:               p.config.TransitiveDepth,
 		FailFast:                      p.config.FailFast,
 		MaxConcurrency:                p.config.MaxConcurrency,
-	}, pypiVersionSpecResolverFn, pypiDependencyResolverFn)
+	}, pypiVersionSpecResolverFn, pypiDependencyResolverFn, packageKeyFn)
 
 	return resolver.resolveDependencies(ctx, pkg)
 }
@@ -313,4 +319,15 @@ func findBestMatchingVersion(releases []packageregistry.PackageVersionInfo, cons
 		return nil, fmt.Errorf("no version matches constraint")
 	}
 	return bestMatch, nil
+}
+
+func normalizePackageName(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace any sequence of [-_.] with a single hyphen
+	re := regexp.MustCompile(`[-_.]+`)
+	name = re.ReplaceAllString(name, "-")
+
+	return name
 }

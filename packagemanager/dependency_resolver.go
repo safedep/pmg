@@ -3,7 +3,6 @@ package packagemanager
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -16,6 +15,8 @@ import (
 type versionSpecResolverFn func(packageName, version string) string
 
 type dependencyResolverFn func(packageName, version string) (*packageregistry.PackageDependencyList, error)
+
+type packageIndentifierFn func(pkg *packagev1.PackageVersion) string
 
 type dependencyResolverConfig struct {
 	IncludeDevDependencies        bool
@@ -31,10 +32,12 @@ type dependencyResolver struct {
 	mutex                     sync.Mutex
 	versionSpecResolver       versionSpecResolverFn
 	packageDependencyResolver dependencyResolverFn
+	packageIdentifierFn       packageIndentifierFn
+	resultSet                 map[string]bool
 }
 
 func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig,
-	versionSpecResolver versionSpecResolverFn, packageDependencyResolver dependencyResolverFn) *dependencyResolver {
+	versionSpecResolver versionSpecResolverFn, packageDependencyResolver dependencyResolverFn, packageKeyFn packageIndentifierFn) *dependencyResolver {
 	if config.MaxConcurrency <= 0 {
 		config.MaxConcurrency = 10
 	}
@@ -51,6 +54,8 @@ func newDependencyResolver(client packageregistry.Client, config dependencyResol
 		config:                    config,
 		versionSpecResolver:       versionSpecResolver,
 		packageDependencyResolver: packageDependencyResolver,
+		packageIdentifierFn:       packageKeyFn,
+		resultSet:                 make(map[string]bool),
 	}
 }
 
@@ -67,6 +72,7 @@ func (r *dependencyResolver) resolveDependencies(ctx context.Context,
 	// Result collection
 	dependencies := make([]*packagev1.PackageVersion, 0)
 
+	r.resultSet = make(map[string]bool) // Reset
 	// Start concurrent resolution
 	err = r.resolvePackageDependenciesConcurrent(ctx, pd, packageVersion, 0, visitedPackages, &dependencies)
 	if err != nil {
@@ -106,22 +112,30 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 		return ff(fmt.Errorf("exceeded maximum transitive depth of %d", r.config.TransitiveDepth))
 	}
 
-	// Skip if already visited
-	packageKey := r.packageKey(packageVersion)
+	var packageKey string
+	var packageKeyFn packageIndentifierFn
 
-	alreadyVisited := false
+	// Skip if already visited
+	if r.packageIdentifierFn != nil {
+		packageKeyFn = r.packageIdentifierFn
+	} else {
+		packageKeyFn = createPackageKey
+	}
+	packageKey = packageKeyFn(packageVersion)
+
+	shouldProcess := false
+
 	r.synchronize(func() {
-		alreadyVisited = visitedPackages[packageKey]
+		if !visitedPackages[packageKey] {
+			visitedPackages[packageKey] = true
+			shouldProcess = true
+		}
 	})
 
-	if alreadyVisited {
+	// If another goroutine is already processing this package, skip
+	if !shouldProcess {
 		return nil
 	}
-
-	// Mark the current package as visited
-	r.synchronize(func() {
-		visitedPackages[packageKey] = true
-	})
 
 	log.Debugf("resolving dependencies for %s@%s", packageVersion.Package.Name, packageVersion.Version)
 
@@ -159,7 +173,10 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 	// Add resolved dependencies to the result
 	r.synchronize(func() {
 		for _, dependency := range resolvedDependencies {
-			if !slices.Contains(*result, dependency) {
+			dependencyKey := packageKeyFn(dependency)
+
+			if !r.resultSet[dependencyKey] {
+				r.resultSet[dependencyKey] = true
 				*result = append(*result, dependency)
 			}
 		}
@@ -197,10 +214,11 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 			return ff(fmt.Errorf("failed to resolve transitive dependency: %w", err))
 		}
 	}
+
 	return nil
 }
 
-func (r *dependencyResolver) packageKey(pkg *packagev1.PackageVersion) string {
+func createPackageKey(pkg *packagev1.PackageVersion) string {
 	return fmt.Sprintf("%s@%s", pkg.Package.Name, pkg.Version)
 }
 
