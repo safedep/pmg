@@ -120,7 +120,6 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	fmt.Println("Packages to analyse: ", packagesToAnalyze)
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
 
 	g.setStatus(fmt.Sprintf("Analyzing %d packages for malware", len(packagesToAnalyze)))
