@@ -16,7 +16,7 @@ type versionSpecResolverFn func(packageName, version string) string
 
 type dependencyResolverFn func(packageName, version string) (*packageregistry.PackageDependencyList, error)
 
-type packageIndentifierFn func(pkg *packagev1.PackageVersion) string
+type packageIdentifierFn func(pkg *packagev1.PackageVersion) string
 
 type dependencyResolverConfig struct {
 	IncludeDevDependencies        bool
@@ -32,12 +32,12 @@ type dependencyResolver struct {
 	mutex                     sync.Mutex
 	versionSpecResolver       versionSpecResolverFn
 	packageDependencyResolver dependencyResolverFn
-	packageIdentifierFn       packageIndentifierFn
+	packageIdentifierFn       packageIdentifierFn
 	resultSet                 map[string]bool
 }
 
 func newDependencyResolver(client packageregistry.Client, config dependencyResolverConfig,
-	versionSpecResolver versionSpecResolverFn, packageDependencyResolver dependencyResolverFn, packageKeyFn packageIndentifierFn) *dependencyResolver {
+	versionSpecResolver versionSpecResolverFn, packageDependencyResolver dependencyResolverFn, packageKeyFn packageIdentifierFn) *dependencyResolver {
 	if config.MaxConcurrency <= 0 {
 		config.MaxConcurrency = 10
 	}
@@ -113,7 +113,7 @@ func (r *dependencyResolver) resolvePackageDependenciesConcurrent(
 	}
 
 	var packageKey string
-	var packageKeyFn packageIndentifierFn
+	var packageKeyFn packageIdentifierFn
 
 	// Skip if already visited
 	if r.packageIdentifierFn != nil {
