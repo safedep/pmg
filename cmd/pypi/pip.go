@@ -37,15 +37,23 @@ func executePipFlow(ctx context.Context, args []string) error {
 	if err != nil {
 		ui.Fatalf("Failed to get config: %s", err)
 	}
+
+	parsedCommand, err := packageManager.ParseCommand(args)
+	if err != nil {
+		return fmt.Errorf("failed to parse command: %w", err)
+	}
+
+	// Parse the args right here
 	packageResolverConfig := packagemanager.NewDefaultPypiDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
 	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
+	packageResolverConfig.PackageInstallTargets = parsedCommand.InstallTargets
 
 	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
 	if err != nil {
 		ui.Fatalf("Failed to create dependency resolver: %s", err)
 	}
 
-	return flows.Common(packageManager, packageResolver, config).Run(ctx, args)
+	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)
 }
