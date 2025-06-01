@@ -69,7 +69,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	}, nil
 }
 
-func (g *packageManagerGuard) Run(ctx context.Context, args []string) error {
+func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
 
 	parsedCommand, err := g.packageManager.ParseCommand(args)

@@ -3,6 +3,7 @@ package npm
 import (
 	"context"
 	_ "embed"
+	"fmt"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
@@ -38,6 +39,11 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 		ui.Fatalf("Failed to get config: %s", err)
 	}
 
+	parsedCommand, err := packageManager.ParseCommand(args)
+	if err != nil {
+		return fmt.Errorf("failed to parse command: %w", err)
+	}
+
 	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
@@ -45,5 +51,5 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 
 	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
 
-	return flows.Common(packageManager, packageResolver, config).Run(ctx, args)
+	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)
 }

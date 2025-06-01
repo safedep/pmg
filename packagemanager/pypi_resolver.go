@@ -12,6 +12,7 @@ import (
 	"github.com/Masterminds/semver"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/packageregistry"
+	"github.com/safedep/pmg/pkg/utils"
 )
 
 type PyPiDependencyResolverConfig struct {
@@ -24,6 +25,8 @@ type PyPiDependencyResolverConfig struct {
 
 	// MaxConcurrency limits the number of concurrent goroutines used for dependency resolution
 	MaxConcurrency int
+
+	PackageInstallTargets []*PackageInstallTarget
 }
 
 func NewDefaultPypiDependencyResolverConfig() PyPiDependencyResolverConfig {
@@ -33,6 +36,7 @@ func NewDefaultPypiDependencyResolverConfig() PyPiDependencyResolverConfig {
 		TransitiveDepth:               5,
 		FailFast:                      false,
 		MaxConcurrency:                10,
+		PackageInstallTargets:         []*PackageInstallTarget{},
 	}
 }
 
@@ -58,7 +62,6 @@ func NewPypiDependencyResolver(config PyPiDependencyResolverConfig) (*pypiDepend
 func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
 	pypiVersionSpecResolverFn := func(packageName, version string) string {
 		ver, err := pipGetMatchingVersion(packageName, version)
-		// fmt.Printf("Resolved %s for %s to %s\n", version, packageName, ver)
 		if err != nil {
 			log.Debugf("error getting matching version for %s@%s", packageName, version)
 			return ""
@@ -67,7 +70,7 @@ func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *p
 	}
 
 	pypiDependencyResolverFn := func(packageName, version string) (*packageregistry.PackageDependencyList, error) {
-		resolvedDependencies, err := getPypiPackageDependencies(packageName, version)
+		resolvedDependencies, err := getPypiPackageDependencies(packageName, version, p.config.PackageInstallTargets)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +153,7 @@ type pypiPackageInfo struct {
 	RequiresDist    []string `json:"requires_dist"`
 }
 
-func getPypiPackageDependencies(packageName, version string) ([]PyPIDependencySpec, error) {
+func getPypiPackageDependencies(packageName, version string, packageTargets []*PackageInstallTarget) ([]PyPIDependencySpec, error) {
 	url := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", packageName, version)
 
 	res, err := http.Get(url)
@@ -173,13 +176,24 @@ func getPypiPackageDependencies(packageName, version string) ([]PyPIDependencySp
 		return nil, ErrFailedToParsePackage
 	}
 
+	// Find if this package has any specified extras in the install targets
+	var requestedExtras []string
+	for _, target := range packageTargets {
+		if target.PackageVersion.Package.Name == packageName {
+			requestedExtras = target.Extras
+			break
+		}
+	}
+
 	pkgDeps := make([]PyPIDependencySpec, 0, len(pypipkg.Info.RequiresDist))
 
 	for _, dep := range pypipkg.Info.RequiresDist {
 		name, version, extra := pypiParseDependency(dep)
 
-		// Skip dependencies with extras/conditions to avoid resolution issues
-		if extra == "" {
+		// Include dependencies if they either:
+		// 1. Have no extras (base dependencies)
+		// 2. Have an extra that matches one of our requested extras
+		if extra == "" || (len(requestedExtras) > 0 && utils.Contains(requestedExtras, extra)) {
 			pkgDeps = append(pkgDeps, PyPIDependencySpec{
 				PackageNameExtra: name,
 				VersionSpec:      version,

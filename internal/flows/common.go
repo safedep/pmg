@@ -27,7 +27,7 @@ func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.Package
 	}
 }
 
-func (f *commonFlow) Run(ctx context.Context, args []string) error {
+func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
 	var analyzers []analyzer.PackageVersionAnalyzer
 
 	if f.config.Paranoid {
@@ -61,7 +61,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string) error {
 		ui.Fatalf("Failed to create package manager guard: %s", err)
 	}
 
-	err = proxy.Run(ctx, args)
+	err = proxy.Run(ctx, args, parsedCmd)
 	if err != nil {
 		ui.Fatalf("pmg: failed to execute command: %s", err)
 	}
