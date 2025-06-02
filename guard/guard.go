@@ -72,11 +72,6 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
 
-	parsedCommand, err := g.packageManager.ParseCommand(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-
 	if !parsedCommand.HasInstallTarget() {
 		log.Debugf("No install target found, continuing execution")
 		return g.continueExecution(ctx, parsedCommand)
