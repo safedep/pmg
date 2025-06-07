@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/Masterminds/semver"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/packageregistry"
-	"github.com/safedep/pmg/pkg/utils"
 )
 
 type PyPiDependencyResolverConfig struct {
@@ -193,7 +193,7 @@ func getPypiPackageDependencies(packageName, version string, packageTargets []*P
 		// Include dependencies if they either:
 		// 1. Have no extras (base dependencies)
 		// 2. Have an extra that matches one of our requested extras
-		if extra == "" || (len(requestedExtras) > 0 && utils.Contains(requestedExtras, extra)) {
+		if extra == "" || (len(requestedExtras) > 0 && slices.Contains(requestedExtras, extra)) {
 			pkgDeps = append(pkgDeps, PyPIDependencySpec{
 				PackageNameExtra: name,
 				VersionSpec:      version,

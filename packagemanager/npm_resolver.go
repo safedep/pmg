@@ -72,15 +72,18 @@ func (r *npmDependencyResolver) ResolveLatestVersion(ctx context.Context,
 
 func (r *npmDependencyResolver) ResolveDependencies(ctx context.Context,
 	packageVersion *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
+
+	npmVersionSpecResolverFn := func(packageName, version string) string {
+		return npmCleanVersion(version)
+	}
+
 	resolver := newDependencyResolver(r.registry, dependencyResolverConfig{
 		IncludeDevDependencies:        r.config.IncludeDevDependencies,
 		IncludeTransitiveDependencies: r.config.IncludeTransitiveDependencies,
 		TransitiveDepth:               r.config.TransitiveDepth,
 		FailFast:                      r.config.FailFast,
 		MaxConcurrency:                r.config.MaxConcurrency,
-	}, func(packageName, version string) string {
-		return npmCleanVersion(version)
-	}, nil, nil)
+	}, npmVersionSpecResolverFn, nil, nil)
 
 	return resolver.resolveDependencies(ctx, packageVersion)
 }

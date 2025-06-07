@@ -170,20 +170,23 @@ func pipConvertCompatibleRelease(version string) string {
 		return "" // invalid
 	}
 
-	if len(parts) == 2 {
+	switch len(parts) {
+	case 2:
 		// ~=X.Y case, increment major version: ~=2.1 -> >=2.1,<3.0
 		major := parts[0]
 		nextMajor, _ := strconv.Atoi(major)
 		nextMajor += 1
 		return fmt.Sprintf(">=%s,<%d.0", version, nextMajor)
-	} else if len(parts) == 3 {
+
+	case 3:
 		// ~=X.Y.Z case, increment minor version: ~=2.1.5 -> >=2.1.5,<2.2.0
 		major := parts[0]
 		minor := parts[1]
 		nextMinor, _ := strconv.Atoi(minor)
 		nextMinor += 1
 		return fmt.Sprintf(">=%s,<%s.%d.0", version, major, nextMinor)
-	} else {
+
+	default:
 		// ~=X.Y.Z.W[.more] case, increment second-to-last component
 		// ~=2.1.5.2 -> >=2.1.5.2,<2.1.6
 		incIndex := len(parts) - 2
