@@ -33,6 +33,7 @@ func executePipFlow(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create pip package manager: %w", err)
 	}
+
 	config, err := config.FromContext(ctx)
 	if err != nil {
 		ui.Fatalf("Failed to get config: %s", err)
