@@ -33,6 +33,7 @@ func executeNpmFlow(ctx context.Context, args []string) error {
 	if err != nil {
 		ui.Fatalf("Failed to create npm package manager proxy: %s", err)
 	}
+
 	config, err := config.FromContext(ctx)
 	if err != nil {
 		ui.Fatalf("Failed to get config: %s", err)
