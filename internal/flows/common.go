@@ -11,37 +11,26 @@ import (
 )
 
 type commonFlow struct {
-	pm packagemanager.PackageManager
+	pm              packagemanager.PackageManager
+	packageResolver packagemanager.PackageResolver
+	config          config.Config
 }
 
 // Creates a common flow of execution for all package managers. This should work for most
 // of the cases unless a package manager has its own unique requirements. Configuration
 // should be passed through the context (Global Config)
-func Common(pm packagemanager.PackageManager) *commonFlow {
+func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.PackageResolver, config config.Config) *commonFlow {
 	return &commonFlow{
-		pm: pm,
+		pm:              pm,
+		packageResolver: pkgResolver,
+		config:          config,
 	}
 }
 
-func (f *commonFlow) Run(ctx context.Context, args []string) error {
-	config, err := config.FromContext(ctx)
-	if err != nil {
-		ui.Fatalf("Failed to get config: %s", err)
-	}
-
-	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
-	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
-	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
-	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
-
-	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
-	if err != nil {
-		ui.Fatalf("Failed to create dependency resolver: %s", err)
-	}
-
+func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
 	var analyzers []analyzer.PackageVersionAnalyzer
 
-	if config.Paranoid {
+	if f.config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 		if err != nil {
 			ui.Fatalf("Failed to create malware analyzer: %s", err)
@@ -65,14 +54,14 @@ func (f *commonFlow) Run(ctx context.Context, args []string) error {
 	}
 
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
-	guardConfig.DryRun = config.DryRun
+	guardConfig.DryRun = f.config.DryRun
 
-	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, packageResolver, analyzers, interaction)
+	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {
 		ui.Fatalf("Failed to create package manager guard: %s", err)
 	}
 
-	err = proxy.Run(ctx, args)
+	err = proxy.Run(ctx, args, parsedCmd)
 	if err != nil {
 		ui.Fatalf("pmg: failed to execute command: %s", err)
 	}

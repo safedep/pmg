@@ -1,8 +1,7 @@
-package npm
+package pypi
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 
 	"github.com/safedep/dry/log"
@@ -13,15 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewPnpmCommand() *cobra.Command {
+func NewPipCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:                "pnpm [action] [package]",
-		Short:              "Guard pnpm package manager",
+		Use:                "pip [action] [package]",
+		Short:              "Guard pip package manager",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := executePnpmFlow(cmd.Context(), args)
+			err := executePipFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute pnpm flow: %s", err)
+				log.Errorf("Failed to execute pip flow: %s", err)
 			}
 
 			return nil
@@ -29,10 +28,10 @@ func NewPnpmCommand() *cobra.Command {
 	}
 }
 
-func executePnpmFlow(ctx context.Context, args []string) error {
-	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultPnpmPackageManagerConfig())
+func executePipFlow(ctx context.Context, args []string) error {
+	packageManager, err := packagemanager.NewPipPackageManager(packagemanager.DefaultPipPackageManagerConfig())
 	if err != nil {
-		ui.Fatalf("Failed to create pnpm package manager proxy: %s", err)
+		return fmt.Errorf("failed to create pip package manager: %w", err)
 	}
 
 	config, err := config.FromContext(ctx)
@@ -45,12 +44,17 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
+	// Parse the args right here
+	packageResolverConfig := packagemanager.NewDefaultPypiDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
 	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
+	packageResolverConfig.PackageInstallTargets = parsedCommand.InstallTargets
 
-	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
+	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
+	if err != nil {
+		ui.Fatalf("Failed to create dependency resolver: %s", err)
+	}
 
 	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)
 }
