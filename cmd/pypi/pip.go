@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/flows"
@@ -51,12 +50,6 @@ func executePipFlow(ctx context.Context, args []string) error {
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
 	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
 	packageResolverConfig.PackageInstallTargets = parsedCommand.InstallTargets
-
-	extractorConfig := packagemanager.NewDefaultExtractorConfig()
-	extractorConfig.ExtractorEcosystem = packagev1.Ecosystem_ECOSYSTEM_PYPI
-	extractorConfig.ExtractorsName = packagemanager.PyPiExtractors
-
-	// extractor := packagemanager.NewExtractor(*extractorConfig)
 
 	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
 	if err != nil {

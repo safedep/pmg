@@ -43,24 +43,70 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 	command := Command{Exe: pip.Config.CommandName, Args: args}
 
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return &ParsedCommand{
 			Command: command,
 		}, nil
 	}
 
 	var packages []string
+	var manifestFiles []string
+	var isManifestInstall bool
+	var foundInstallCmd bool
+
 	for idx, arg := range args {
 		if slices.Contains(pip.Config.InstallCommands, arg) {
+			foundInstallCmd = true
+			// Check for manifest-based installation flags
 			for i := idx + 1; i < len(args); i++ {
-				if strings.HasPrefix(args[i], "-") {
+				currentArg := args[i]
+				
+				// Handle -r/--requirement flags
+				if currentArg == "-r" || currentArg == "--requirement" {
+					isManifestInstall = true
+					if i+1 < len(args) {
+						manifestFiles = append(manifestFiles, args[i+1])
+						i++ // skip the filename
+					}
 					continue
 				}
-				packages = append(packages, args[i])
+				
+				// Handle combined -r flag (e.g., -rrequirements.txt)
+				if strings.HasPrefix(currentArg, "-r") && len(currentArg) > 2 {
+					isManifestInstall = true
+					manifestFiles = append(manifestFiles, currentArg[2:])
+					continue
+				}
+				
+				// Handle other flags that indicate manifest installation
+				if currentArg == "-e" || currentArg == "--editable" ||
+				   currentArg == "-c" || currentArg == "--constraint" {
+					if i+1 < len(args) {
+						i++ // skip the next argument
+					}
+					continue
+				}
+				
+				// If it's a flag, skip it
+				if strings.HasPrefix(currentArg, "-") {
+					continue
+				}
+				
+				// Otherwise, it's a package name
+				packages = append(packages, currentArg)
 			}
 			break
 		}
 	}
+
+	// If install command was found but no explicit packages and no manifest flags,
+	// check if it's a bare "pip install" (which should look for default manifest files)
+	if foundInstallCmd && len(packages) == 0 && len(manifestFiles) == 0 {
+		isManifestInstall = true
+		// pip install without args typically looks for requirements.txt
+		manifestFiles = append(manifestFiles, "requirements.txt")
+	}
+
 	var installTargets []*PackageInstallTarget
 
 	for _, pkg := range packages {
@@ -96,8 +142,10 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	return &ParsedCommand{
-		Command:        command,
-		InstallTargets: installTargets,
+		Command:           command,
+		InstallTargets:    installTargets,
+		IsManifestInstall: isManifestInstall,
+		ManifestFiles:     manifestFiles,
 	}, nil
 }
 
