@@ -11,6 +11,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/packagemanager"
 )
 
@@ -78,7 +79,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			log.Debugf("Detected manifest-based installation, extracting packages from manifest files")
 			return g.handleManifestInstallation(ctx, parsedCommand)
 		}
-		
+
 		log.Debugf("No install target found, continuing execution")
 		return g.continueExecution(ctx, parsedCommand)
 	}
@@ -277,7 +278,7 @@ func (g *packageManagerGuard) clearStatus() {
 
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {
 	g.setStatus("Extracting packages from manifest files")
-	
+
 	// Create extractor with appropriate ecosystem
 	var ecosystem packagev1.Ecosystem
 	switch g.packageManager.Name() {
@@ -288,63 +289,56 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	default:
 		return fmt.Errorf("unsupported package manager for manifest extraction: %s", g.packageManager.Name())
 	}
-	
-	extractorConfig := packagemanager.NewDefaultExtractorConfig()
+
+	extractorConfig := extractor.NewDefaultExtractorConfig()
 	extractorConfig.ExtractorEcosystem = ecosystem
-	
-	switch ecosystem {
-	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
-		extractorConfig.ExtractorsName = packagemanager.PyPiExtractors
-	case packagev1.Ecosystem_ECOSYSTEM_NPM:
-		extractorConfig.ExtractorsName = packagemanager.NpmExtractors
-	}
-	
-	extractor := packagemanager.NewExtractor(*extractorConfig)
-	
-	packages, err := extractor.ExtractManifestFiles()
+
+	packageExtractor := extractor.New(*extractorConfig)
+
+	packages, err := packageExtractor.ExtractManifest()
 	if err != nil {
 		return fmt.Errorf("failed to extract packages from manifest files: %w", err)
 	}
-	
+
 	if len(packages) == 0 {
 		log.Debugf("No packages found in manifest files, continuing execution")
 		return g.continueExecution(ctx, parsedCommand)
 	}
-	
+
 	log.Debugf("Extracted %d packages from manifest files", len(packages))
-	
+
 	// Analyze the extracted packages
 	g.setStatus(fmt.Sprintf("Analyzing %d packages from manifest files", len(packages)))
-	
+
 	analysisResults, err := g.concurrentAnalyzePackages(ctx, packages)
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
-	
+
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
 			return g.blockInstallation(result)
 		}
-		
+
 		if result.Action == analyzer.ActionConfirm {
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
 		}
 	}
-	
+
 	if len(confirmableMalwarePackages) > 0 {
 		confirmed, err := g.getConfirmationOnMalware(ctx, confirmableMalwarePackages)
 		if err != nil {
 			return fmt.Errorf("failed to get confirmation on malware: %w", err)
 		}
-		
+
 		if !confirmed {
 			return g.blockInstallation(confirmableMalwarePackages...)
 		}
 	}
-	
+
 	log.Debugf("No malicious packages found in manifest files, continuing execution")
-	
+
 	g.clearStatus()
 	return g.continueExecution(ctx, parsedCommand)
 }
