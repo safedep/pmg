@@ -43,6 +43,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 	command := Command{Exe: pip.Config.CommandName, Args: args}
 
+	// Since manifest-based installs like 'npm i' are now valid commands
 	if len(args) < 1 {
 		return &ParsedCommand{
 			Command: command,
@@ -60,7 +61,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			// Check for manifest-based installation flags
 			for i := idx + 1; i < len(args); i++ {
 				currentArg := args[i]
-				
+
 				// Handle -r/--requirement flags
 				if currentArg == "-r" || currentArg == "--requirement" {
 					isManifestInstall = true
@@ -70,28 +71,28 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 					}
 					continue
 				}
-				
+
 				// Handle combined -r flag (e.g., -rrequirements.txt)
 				if strings.HasPrefix(currentArg, "-r") && len(currentArg) > 2 {
 					isManifestInstall = true
 					manifestFiles = append(manifestFiles, currentArg[2:])
 					continue
 				}
-				
+
 				// Handle other flags that indicate manifest installation
 				if currentArg == "-e" || currentArg == "--editable" ||
-				   currentArg == "-c" || currentArg == "--constraint" {
+					currentArg == "-c" || currentArg == "--constraint" {
 					if i+1 < len(args) {
 						i++ // skip the next argument
 					}
 					continue
 				}
-				
+
 				// If it's a flag, skip it
 				if strings.HasPrefix(currentArg, "-") {
 					continue
 				}
-				
+
 				// Otherwise, it's a package name
 				packages = append(packages, currentArg)
 			}

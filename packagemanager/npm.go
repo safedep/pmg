@@ -50,7 +50,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	command := Command{Exe: npm.Config.CommandName, Args: args}
 
-	// No command specified
+	// Since manifest-based installs like 'npm i' are now valid commands
 	if len(args) < 1 {
 		return &ParsedCommand{
 			Command: command,
@@ -61,7 +61,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	var packages []string
 	var isManifestInstall bool
 	var foundInstallCmd bool
-	
+
 	for idx, arg := range args {
 		if slices.Contains(npm.Config.InstallCommands, arg) {
 			foundInstallCmd = true

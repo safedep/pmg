@@ -8,6 +8,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/google/osv-scanner/pkg/lockfile"
+	"github.com/safedep/dry/log"
 )
 
 type ExtractorConfig struct {
@@ -52,7 +53,7 @@ func (e *extractor) ExtractManifest() ([]*packagev1.PackageVersion, error) {
 		// Extract packages from this lockfile
 		packages, err := e.extractFromLockfile(filePath)
 		if err != nil {
-			fmt.Printf("Warning: failed to extract from %s: %v\n", filePath, err)
+			log.Warnf("failed to extract from %s: %v\n", filePath, err)
 			continue
 		}
 
