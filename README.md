@@ -82,8 +82,8 @@ PMG supports the following package managers:
 | --------------- | --------- | --------------------------- |
 | `npm`           | ✅ Active  | `pmg npm install <package>` |
 | `pnpm`          | ✅ Active  | `pmg pnpm add <package>`    |
+| `pip`           | ✅ Active  | `pmg pip install <package>` |
 | `yarn`          | 🚧 Planned |                             |
-| `pip`           | 🚧 Planned |                             |
 | `poetry`        | 🚧 Planned |                             |
 | `uv`            | 🚧 Planned |                             |
 
@@ -114,11 +114,12 @@ go install github.com/safedep/pmg@latest
 
 ## Usage
 
-Install a package with `npm` or `pnpm`:
+Install a package with `npm` or `pnpm` or `pip`:
 
 ```bash
 pmg npm install <package-name>
 pmg pnpm add <package-name>
+pmg pip install <package-name>
 ```
 
 Set shell alias for convenience:
@@ -126,6 +127,7 @@ Set shell alias for convenience:
 ```bash
 alias npm="pmg npm"
 alias pnpm="pmg pnpm"
+alias pip="pmg pip"
 ```
 
 Continue using your favorite package manager as usual:
@@ -136,6 +138,10 @@ npm install <package-name>
 
 ```bash
 pnpm add <package-name>
+```
+
+```bash
+pip install <package-name>
 ```
 
 ### Silent Mode
