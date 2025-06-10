@@ -114,7 +114,7 @@ go install github.com/safedep/pmg@latest
 
 ## Usage
 
-Install a package with `npm` or `pnpm` or `pip`:
+Install a package with `npm`, `pnpm`, or `pip`:
 
 ```bash
 pmg npm install <package-name>
