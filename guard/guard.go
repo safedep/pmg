@@ -279,19 +279,8 @@ func (g *packageManagerGuard) clearStatus() {
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {
 	g.setStatus("Extracting packages from manifest files")
 
-	// Create extractor with appropriate ecosystem
-	var ecosystem packagev1.Ecosystem
-	switch g.packageManager.Name() {
-	case "pip":
-		ecosystem = packagev1.Ecosystem_ECOSYSTEM_PYPI
-	case "npm", "pnpm":
-		ecosystem = packagev1.Ecosystem_ECOSYSTEM_NPM
-	default:
-		return fmt.Errorf("unsupported package manager for manifest extraction: %s", g.packageManager.Name())
-	}
-
 	extractorConfig := extractor.NewDefaultExtractorConfig()
-	extractorConfig.ExtractorEcosystem = ecosystem
+	extractorConfig.ExtractorEcosystem = g.packageManager.Ecosystem()
 
 	packageExtractor := extractor.New(*extractorConfig)
 

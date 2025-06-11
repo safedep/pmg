@@ -43,6 +43,10 @@ func (npm *npmPackageManager) Name() string {
 	return "npm"
 }
 
+func (npm *npmPackageManager) Ecosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_NPM
+}
+
 func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	if len(args) > 0 && (args[0] == "npm" || args[0] == "pnpm") {
 		args = args[1:]

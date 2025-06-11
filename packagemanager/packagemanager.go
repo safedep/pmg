@@ -60,6 +60,9 @@ type PackageManager interface {
 	// ParseCommand parses the command and returns a parsed command
 	// specific to the package manager implementation
 	ParseCommand(args []string) (*ParsedCommand, error)
+
+	// Ecosystem of the package manager
+	Ecosystem() packagev1.Ecosystem
 }
 
 // PackageResolver is the contract for resolving package info

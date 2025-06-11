@@ -37,6 +37,10 @@ func (pip *pipPackageManager) Name() string {
 	return "pip"
 }
 
+func (pip *pipPackageManager) Ecosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_PYPI
+}
+
 func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	if len(args) > 0 && args[0] == "pip" {
 		args = args[1:]
