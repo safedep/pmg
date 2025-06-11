@@ -72,7 +72,7 @@ func (e *extractor) getFilesToCheck() []string {
 func (e *extractor) getExtractorForFile() (PackageManagerExtractor, error) {
 	extractor := e.extractorManager.GetExtractorForPackageManager(e.Config.ExtractorPackageManager)
 	if extractor == nil {
-		return nil, fmt.Errorf("no extractor found for package manager: %s", e.Config.ExtractorPackageManager)
+		return nil, fmt.Errorf("no extractor found for the specified package manager: %s", e.Config.ExtractorPackageManager)
 	}
 	return extractor, nil
 }
