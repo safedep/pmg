@@ -2,7 +2,6 @@ package npm
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 
 	"github.com/safedep/dry/log"

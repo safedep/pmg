@@ -40,7 +40,7 @@ func NewNpmPackageManager(config NpmPackageManagerConfig) (*npmPackageManager, e
 var _ PackageManager = &npmPackageManager{}
 
 func (npm *npmPackageManager) Name() string {
-	return "npm"
+	return npm.Config.CommandName
 }
 
 func (npm *npmPackageManager) Ecosystem() packagev1.Ecosystem {

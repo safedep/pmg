@@ -280,7 +280,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	g.setStatus("Extracting packages from manifest files")
 
 	extractorConfig := extractor.NewDefaultExtractorConfig()
-	extractorConfig.ExtractorEcosystem = g.packageManager.Ecosystem()
+	extractorConfig.ExtractorPackageManager = extractor.PackageManagerName(g.packageManager.Name())
 
 	packageExtractor := extractor.New(*extractorConfig)
 
