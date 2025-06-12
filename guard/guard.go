@@ -189,7 +189,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	jobs := make(chan *packagev1.PackageVersion, len(packages))
 	results := make(chan *analyzer.PackageVersionAnalysisResult, len(packages))
 
-	for i := 0; i < g.config.MaxConcurrentAnalyzes; i++ {
+	for range g.config.MaxConcurrentAnalyzes {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -277,8 +277,6 @@ func (g *packageManagerGuard) clearStatus() {
 }
 
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {
-	g.setStatus("Extracting packages from manifest files")
-
 	extractorConfig := extractor.NewDefaultExtractorConfig()
 	extractorConfig.ExtractorPackageManager = extractor.PackageManagerName(g.packageManager.Name())
 
@@ -296,10 +294,41 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	log.Debugf("Extracted %d packages from manifest files", len(packages))
 
-	// Analyze the extracted packages
-	g.setStatus(fmt.Sprintf("Analyzing %d packages from manifest files", len(packages)))
+	g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(packages)))
 
-	analysisResults, err := g.concurrentAnalyzePackages(ctx, packages)
+	packagesToAnalyze := []*packagev1.PackageVersion{}
+
+	if g.config.ResolveDependencies {
+		for _, pkg := range packages {
+			if pkg.GetVersion() == "" {
+				log.Debugf("Resolving latest version for package: %s", pkg.Package.Name)
+				latestVersion, err := g.packageResolver.ResolveLatestVersion(ctx, pkg.GetPackage())
+				if err != nil {
+					return fmt.Errorf("failed to resolve latest version: %w", err)
+				}
+
+				pkg.Version = latestVersion.GetVersion()
+			}
+
+			log.Debugf("Resolving dependencies for package: %s@%s", pkg.Package.Name, pkg.Version)
+
+			dependencies, err := g.packageResolver.ResolveDependencies(ctx, pkg)
+			if err != nil {
+				return fmt.Errorf("failed to resolve dependencies: %w", err)
+			}
+
+			log.Debugf("Resolved %d dependencies for package: %s@%s", len(dependencies),
+				pkg.Package.Name, pkg.Version)
+
+			packagesToAnalyze = append(packagesToAnalyze, dependencies...)
+		}
+	}
+
+	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
+
+	g.setStatus(fmt.Sprintf("Analyzing %d packages from manifest files", len(packagesToAnalyze)))
+
+	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
 		return fmt.Errorf("failed to analyze packages: %w", err)
 	}
