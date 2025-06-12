@@ -189,7 +189,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	jobs := make(chan *packagev1.PackageVersion, len(packages))
 	results := make(chan *analyzer.PackageVersionAnalysisResult, len(packages))
 
-	for range g.config.MaxConcurrentAnalyzes {
+	for i := 0; i < g.config.MaxConcurrentAnalyzes; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
