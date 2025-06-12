@@ -40,7 +40,11 @@ func NewNpmPackageManager(config NpmPackageManagerConfig) (*npmPackageManager, e
 var _ PackageManager = &npmPackageManager{}
 
 func (npm *npmPackageManager) Name() string {
-	return "npm"
+	return npm.Config.CommandName
+}
+
+func (npm *npmPackageManager) Ecosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_NPM
 }
 
 func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
@@ -50,8 +54,8 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	command := Command{Exe: npm.Config.CommandName, Args: args}
 
-	// No command specified
-	if len(args) < 2 {
+	// Since manifest-based installs like 'npm i' are now valid commands
+	if len(args) < 1 {
 		return &ParsedCommand{
 			Command: command,
 		}, nil
@@ -59,8 +63,12 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	// Extract packages from args
 	var packages []string
+	var isManifestInstall bool
+	var foundInstallCmd bool
+
 	for idx, arg := range args {
 		if slices.Contains(npm.Config.InstallCommands, arg) {
+			foundInstallCmd = true
 			// All subsequent args are packages except for flags
 			for i := idx + 1; i < len(args); i++ {
 				if strings.HasPrefix(args[i], "-") {
@@ -74,8 +82,14 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}
 	}
 
-	// No packages found
-	if len(packages) == 0 {
+	// If install command was found but no explicit packages,
+	// this is a manifest-based installation (install from package.json)
+	if foundInstallCmd && len(packages) == 0 {
+		isManifestInstall = true
+	}
+
+	// No packages found and not a manifest install
+	if len(packages) == 0 && !isManifestInstall {
 		return &ParsedCommand{
 			Command: command,
 		}, nil
@@ -105,9 +119,17 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		})
 	}
 
+	var manifestFiles []string
+	if isManifestInstall {
+		// npm/pnpm installs from package.json by default
+		manifestFiles = append(manifestFiles, "package.json")
+	}
+
 	return &ParsedCommand{
-		Command:        command,
-		InstallTargets: installTargets,
+		Command:           command,
+		InstallTargets:    installTargets,
+		IsManifestInstall: isManifestInstall,
+		ManifestFiles:     manifestFiles,
 	}, nil
 }
 

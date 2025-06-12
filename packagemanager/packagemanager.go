@@ -30,10 +30,26 @@ type ParsedCommand struct {
 
 	// Parsed install target if this is an install command
 	InstallTargets []*PackageInstallTarget
+
+	// IsManifestInstall indicates if this is a manifest-based installation
+	// (e.g., npm install, pip install -r requirements.txt)
+	IsManifestInstall bool
+
+	// ManifestFiles contains the list of manifest files to install from
+	// (e.g., ["requirements.txt"] for pip install -r requirements.txt)
+	ManifestFiles []string
 }
 
 func (pc *ParsedCommand) HasInstallTarget() bool {
 	return len(pc.InstallTargets) > 0
+}
+
+func (pc *ParsedCommand) HasManifestInstall() bool {
+	return pc.IsManifestInstall
+}
+
+func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
+	return pc.IsManifestInstall && !pc.HasInstallTarget()
 }
 
 // PackageManager is the contract for implementing a package manager
@@ -44,6 +60,9 @@ type PackageManager interface {
 	// ParseCommand parses the command and returns a parsed command
 	// specific to the package manager implementation
 	ParseCommand(args []string) (*ParsedCommand, error)
+
+	// Ecosystem of the package manager
+	Ecosystem() packagev1.Ecosystem
 }
 
 // PackageResolver is the contract for resolving package info
