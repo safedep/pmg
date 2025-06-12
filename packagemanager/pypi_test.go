@@ -111,6 +111,93 @@ func TestPipParsePackageInfo(t *testing.T) {
 	}
 }
 
+func TestPipParseCommand_ManifestInstallation(t *testing.T) {
+	pm, err := NewPipPackageManager(DefaultPipPackageManagerConfig())
+	assert.NoError(t, err)
+
+	cases := []struct {
+		name              string
+		args              []string
+		expectedManifest  bool
+		expectedFiles     []string
+		expectedTargets   int
+	}{
+		{
+			name:              "pip install with -r flag",
+			args:              []string{"install", "-r", "requirements.txt"},
+			expectedManifest:  true,
+			expectedFiles:     []string{"requirements.txt"},
+			expectedTargets:   0,
+		},
+		{
+			name:              "pip install with --requirement flag",
+			args:              []string{"install", "--requirement", "requirements.txt"},
+			expectedManifest:  true,
+			expectedFiles:     []string{"requirements.txt"},
+			expectedTargets:   0,
+		},
+		{
+			name:              "pip install with combined -r flag",
+			args:              []string{"install", "-rrequirements.txt"},
+			expectedManifest:  true,
+			expectedFiles:     []string{"requirements.txt"},
+			expectedTargets:   0,
+		},
+		{
+			name:              "pip install without args (bare install)",
+			args:              []string{"install"},
+			expectedManifest:  true,
+			expectedFiles:     []string{"requirements.txt"},
+			expectedTargets:   0,
+		},
+		{
+			name:              "pip install with explicit package",
+			args:              []string{"install", "django"},
+			expectedManifest:  false,
+			expectedFiles:     nil,
+			expectedTargets:   1,
+		},
+		{
+			name:              "pip install with mixed args",
+			args:              []string{"install", "django", "-r", "requirements.txt"},
+			expectedManifest:  true,
+			expectedFiles:     []string{"requirements.txt"},
+			expectedTargets:   1,
+		},
+		{
+			name:              "pip install with multiple -r flags",
+			args:              []string{"install", "-r", "requirements.txt", "-r", "dev-requirements.txt"},
+			expectedManifest:  true,
+			expectedFiles:     []string{"requirements.txt", "dev-requirements.txt"},
+			expectedTargets:   0,
+		},
+		{
+			name:              "non-install command",
+			args:              []string{"list"},
+			expectedManifest:  false,
+			expectedFiles:     nil,
+			expectedTargets:   0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := pm.ParseCommand(tc.args)
+			assert.NoError(t, err)
+			
+			assert.Equal(t, tc.expectedManifest, parsed.IsManifestInstall, "IsManifestInstall mismatch")
+			assert.Equal(t, tc.expectedFiles, parsed.ManifestFiles, "ManifestFiles mismatch")
+			assert.Equal(t, tc.expectedTargets, len(parsed.InstallTargets), "InstallTargets count mismatch")
+			
+			// Test helper methods
+			assert.Equal(t, tc.expectedManifest, parsed.HasManifestInstall(), "HasManifestInstall mismatch")
+			
+			expectedShouldExtract := tc.expectedManifest && tc.expectedTargets == 0
+			assert.Equal(t, expectedShouldExtract, parsed.ShouldExtractFromManifest(), "ShouldExtractFromManifest mismatch")
+		})
+	}
+}
+
 func TestPipConvertCompatibleRelease(t *testing.T) {
 	cases := []struct {
 		name     string
