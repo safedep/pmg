@@ -202,3 +202,13 @@ to choose a version from a version range for evaluation. This is fine when all v
 is malicious. However, there is a possibility of inconsistency when a specific version of a package is malicious.
 
 </details>
+
+<details>
+<summary>PyPI registry scanning only</summary>
+
+`pmg` only scans packages available in the PyPI registry when using `pip`. Packages installed from
+alternative sources such as Git URLs, local file paths, or private registries are not analyzed for
+malware detection. This limitation applies to direct installations and transitive dependencies sourced
+from non-PyPI locations.
+
+</details>
