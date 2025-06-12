@@ -297,6 +297,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(packages)))
 
 	packagesToAnalyze := []*packagev1.PackageVersion{}
+	for _, pkg := range packages {
+		packagesToAnalyze = append(packagesToAnalyze, pkg)
+	}
 
 	if g.config.ResolveDependencies {
 		for _, pkg := range packages {
