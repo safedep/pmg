@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"time"
 
@@ -294,14 +295,16 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	log.Debugf("Extracted %d packages from manifest files", len(packages))
 
-	g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(packages)))
-
 	packagesToAnalyze := []*packagev1.PackageVersion{}
 	for _, pkg := range packages {
 		packagesToAnalyze = append(packagesToAnalyze, pkg)
 	}
 
-	if g.config.ResolveDependencies {
+	// Only resolve dependencies for requirements.txt because other lockfiles dependencies are already resolved
+	if g.config.ResolveDependencies && slices.Contains(parsedCommand.ManifestFiles, "requirements.txt") {
+
+		g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(packages)))
+
 		for _, pkg := range packages {
 			if pkg.GetVersion() == "" {
 				log.Debugf("Resolving latest version for package: %s", pkg.Package.Name)
