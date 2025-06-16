@@ -280,6 +280,7 @@ func (g *packageManagerGuard) clearStatus() {
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {
 	extractorConfig := extractor.NewDefaultExtractorConfig()
 	extractorConfig.ExtractorPackageManager = extractor.PackageManagerName(g.packageManager.Name())
+	extractorConfig.ManifestFiles = parsedCommand.ManifestFiles
 
 	packageExtractor := extractor.New(*extractorConfig)
 

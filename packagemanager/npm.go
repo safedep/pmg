@@ -83,7 +83,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	// If install command was found but no explicit packages,
-	// this is a manifest-based installation (install from package.json)
+	// this is a manifest-based installation
 	if foundInstallCmd && len(packages) == 0 {
 		isManifestInstall = true
 	}
@@ -119,17 +119,11 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		})
 	}
 
-	var manifestFiles []string
-	if isManifestInstall {
-		// npm/pnpm installs from package.json by default
-		manifestFiles = append(manifestFiles, "package.json")
-	}
-
 	return &ParsedCommand{
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     manifestFiles,
+		ManifestFiles:     []string{},
 	}, nil
 }
 
