@@ -7,6 +7,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
+	"github.com/safedep/pmg/cmd/setup"
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/ui"
@@ -82,6 +83,8 @@ func main() {
 	cmd.AddCommand(npm.NewPnpmCommand())
 	cmd.AddCommand(pypi.NewPipCommand())
 	cmd.AddCommand(version.NewVersionCommand())
+	cmd.AddCommand(setup.NewSetupCommand())
+	cmd.AddCommand(setup.NewRemoveCommand())
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
