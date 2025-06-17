@@ -37,13 +37,15 @@ func ClearStatus() {
 	fmt.Print("\r")
 }
 
-func Block(malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
+func Block(showRef bool, malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
 	StopSpinner()
 
 	fmt.Println()
 	fmt.Println(Colors.Red("❌ Malicious package blocked!"))
 
-	printMaliciousPackagesList(malwarePackages)
+	if showRef {
+		printMaliciousPackagesList(malwarePackages)
+	}
 
 	fmt.Println()
 	os.Exit(1)

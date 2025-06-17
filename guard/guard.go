@@ -29,7 +29,7 @@ type PackageManagerGuardInteraction struct {
 	// Block is called to block the installation of the malware packages. One or more malicious
 	// packages are passed as arguments. These are the packages that were detected as malicious.
 	// Client code must perform the necessary error handling and termination of the process.
-	Block func(...*analyzer.PackageVersionAnalysisResult) error
+	Block func(bool, ...*analyzer.PackageVersionAnalysisResult) error
 }
 
 type PackageManagerGuardConfig struct {
@@ -135,7 +135,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			return g.blockInstallation(result)
+			return g.blockInstallation(true, result)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -150,7 +150,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if !confirmed {
-			return g.blockInstallation(confirmableMalwarePackages...)
+			return g.blockInstallation(false, confirmableMalwarePackages...)
 		}
 	}
 
@@ -261,12 +261,12 @@ func (g *packageManagerGuard) setStatus(status string) {
 	g.interaction.SetStatus(status)
 }
 
-func (g *packageManagerGuard) blockInstallation(malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
+func (g *packageManagerGuard) blockInstallation(showRef bool, malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
 	if g.interaction.Block == nil {
 		return nil
 	}
 
-	return g.interaction.Block(malwarePackages...)
+	return g.interaction.Block(showRef, malwarePackages...)
 }
 
 func (g *packageManagerGuard) clearStatus() {
@@ -343,7 +343,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			return g.blockInstallation(result)
+			return g.blockInstallation(true, result)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -358,7 +358,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if !confirmed {
-			return g.blockInstallation(confirmableMalwarePackages...)
+			return g.blockInstallation(false, confirmableMalwarePackages...)
 		}
 	}
 
