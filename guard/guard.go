@@ -95,7 +95,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	log.Debugf("Found %d install targets", len(parsedCommand.InstallTargets))
 
-	g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(parsedCommand.InstallTargets)))
+	g.setStatus(fmt.Sprintf("Resolving dependencies for %d package(s)", len(parsedCommand.InstallTargets)))
 
 	if g.config.ResolveDependencies {
 		for _, pkg := range parsedCommand.InstallTargets {
@@ -125,7 +125,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
 
-	g.setStatus(fmt.Sprintf("Analyzing %d packages for malware", len(packagesToAnalyze)))
+	g.setStatus(fmt.Sprintf("Analyzing %d dependencies for malware", len(packagesToAnalyze)))
 
 	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
@@ -304,7 +304,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	// Only resolve dependencies for requirements.txt because other lockfiles dependencies are already resolved
 	if g.config.ResolveDependencies && slices.Contains(parsedCommand.ManifestFiles, "requirements.txt") {
 
-		g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(packages)))
+		g.setStatus(fmt.Sprintf("Resolving dependencies for %d package(s)", len(packages)))
 
 		for _, pkg := range packages {
 			if pkg.GetVersion() == "" {
@@ -333,7 +333,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
 
-	g.setStatus(fmt.Sprintf("Analyzing %d packages from manifest files", len(packagesToAnalyze)))
+	g.setStatus(fmt.Sprintf("Analyzing %d dependencies from manifest files", len(packagesToAnalyze)))
 
 	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
