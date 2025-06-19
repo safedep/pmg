@@ -110,8 +110,26 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "manifest installation",
+			name:    "manifest installation (bare install)",
+			command: "npm install",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "manifest installation (short form)",
 			command: "npm i",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "npm install with flags but no packages",
+			command: "npm install --save-dev",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
