@@ -109,6 +109,15 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[1].PackageVersion.Version)
 			},
 		},
+		{
+			name:    "manifest installation",
+			command: "npm i",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
 	}
 
 	for _, tc := range cases {
