@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/extractor"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
 
@@ -29,7 +30,7 @@ type PackageManagerGuardInteraction struct {
 	// Block is called to block the installation of the malware packages. One or more malicious
 	// packages are passed as arguments. These are the packages that were detected as malicious.
 	// Client code must perform the necessary error handling and termination of the process.
-	Block func(bool, ...*analyzer.PackageVersionAnalysisResult) error
+	Block func(config *ui.BlockConfig) error
 }
 
 type PackageManagerGuardConfig struct {
@@ -85,6 +86,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		return g.continueExecution(ctx, parsedCommand)
 	}
 
+	blockConfig := ui.NewDefaultBlockConfig()
+
 	// TODO: We should track the dependency tree here so that we can trace a
 	// dependency to one of the parent packages from install targets
 
@@ -135,7 +138,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			return g.blockInstallation(true, result)
+			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
+			return g.blockInstallation(blockConfig)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -150,7 +154,9 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if !confirmed {
-			return g.blockInstallation(false, confirmableMalwarePackages...)
+			blockConfig.ShowReference = false
+			blockConfig.MalwarePackages = confirmableMalwarePackages
+			return g.blockInstallation(blockConfig)
 		}
 	}
 
@@ -261,12 +267,12 @@ func (g *packageManagerGuard) setStatus(status string) {
 	g.interaction.SetStatus(status)
 }
 
-func (g *packageManagerGuard) blockInstallation(showRef bool, malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
+func (g *packageManagerGuard) blockInstallation(config *ui.BlockConfig) error {
 	if g.interaction.Block == nil {
 		return nil
 	}
 
-	return g.interaction.Block(showRef, malwarePackages...)
+	return g.interaction.Block(config)
 }
 
 func (g *packageManagerGuard) clearStatus() {
@@ -288,6 +294,8 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	if err != nil {
 		return fmt.Errorf("failed to extract packages from manifest files: %w", err)
 	}
+
+	blockConfig := ui.NewDefaultBlockConfig()
 
 	if len(packages) == 0 {
 		log.Debugf("No packages found in manifest files, continuing execution")
@@ -343,7 +351,8 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			return g.blockInstallation(true, result)
+			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
+			return g.blockInstallation(blockConfig)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -358,7 +367,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if !confirmed {
-			return g.blockInstallation(false, confirmableMalwarePackages...)
+			blockConfig.ShowReference = false
+			blockConfig.MalwarePackages = confirmableMalwarePackages
+			return g.blockInstallation(blockConfig)
 		}
 	}
 
