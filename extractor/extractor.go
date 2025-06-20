@@ -12,6 +12,7 @@ import (
 type ExtractorConfig struct {
 	ExtractorPackageManager PackageManagerName
 	ScanDir                 string
+	ManifestFiles           []string
 }
 
 type extractor struct {
@@ -21,7 +22,8 @@ type extractor struct {
 
 func NewDefaultExtractorConfig() *ExtractorConfig {
 	return &ExtractorConfig{
-		ScanDir: ".",
+		ScanDir:       ".",
+		ManifestFiles: []string{},
 	}
 }
 
@@ -36,7 +38,11 @@ func (e *extractor) ExtractManifest() ([]*packagev1.PackageVersion, error) {
 	packagesToAnalyze := []*packagev1.PackageVersion{}
 
 	// Get the list of lockfiles to check based on ecosystem
-	filesToCheck := e.getFilesToCheck()
+	filesToCheck := e.Config.ManifestFiles
+
+	if len(filesToCheck) == 0 {
+		filesToCheck = e.getFilesToCheck()
+	}
 
 	for _, filename := range filesToCheck {
 		filePath := filepath.Join(e.Config.ScanDir, filename)
