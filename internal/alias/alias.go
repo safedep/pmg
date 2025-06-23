@@ -1,6 +1,8 @@
 package alias
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -182,17 +184,42 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 			continue
 		}
 
-		// Remove lines that source .pmg.rc
-		lines := strings.Split(string(data), "\n")
-		var cleaned []string
-		for _, line := range lines {
-			if !strings.Contains(line, a.config.RcFileName) {
-				cleaned = append(cleaned, line)
-			}
+		// Get original file permissions
+		info, err := os.Stat(configPath)
+		if err != nil {
+			continue
 		}
 
-		err = os.WriteFile(configPath, []byte(strings.Join(cleaned, "\n")), 0644)
+		// Create temp file
+		tempFile, err := os.CreateTemp(filepath.Dir(configPath), ".tmp-"+filepath.Base(configPath))
 		if err != nil {
+			continue
+		}
+		tempPath := tempFile.Name()
+
+		// Write filtered content
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		writer := bufio.NewWriter(tempFile)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// Skip source lines and comment
+			if strings.Contains(line, a.config.RcFileName) ||
+				strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource) {
+				continue
+			}
+
+			writer.WriteString(line + "\n")
+		}
+
+		writer.Flush()
+		tempFile.Close()
+
+		// Replace original file
+		os.Chmod(tempPath, info.Mode())
+		if err := os.Rename(tempPath, configPath); err != nil {
+			os.Remove(tempPath) // cleanup on failure
 			log.Warnf("Warning: failed to update %s: %s", configPath, err)
 		}
 	}
