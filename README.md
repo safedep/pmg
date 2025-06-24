@@ -61,6 +61,8 @@ pnpm add <package-name>
     - [Install Aliases](#install-aliases)
     - [Remove Aliases](#remove-aliases)
   - [Usage](#usage)
+    - [Recommended: Automated Setup](#recommended)
+    - [Alternative: Manual Commands](#alternative)
     - [Silent Mode](#silent-mode)
     - [Dry Run](#dry-run)
     - [Verbose Mode](#verbose-mode)
@@ -156,7 +158,7 @@ For the best experience, use the automated setup:
 pmg setup install
 ```
 
-After setup, use your package managers normally - PMG will automatically protect you:
+After setup, use your package managers normally:
 
 ```bash
 npm install <package-name>
