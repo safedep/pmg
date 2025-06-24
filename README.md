@@ -169,11 +169,11 @@ npm install <package-name>
 ```
 
 ```bash
-pnpm install <package-name>
+pnpm add <package-name>
 ```
 
 ```bash
-pip add <package-name>
+pip install <package-name>
 ```
 
 ### Silent Mode
