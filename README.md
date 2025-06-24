@@ -148,15 +148,9 @@ This will:
 
 ## Usage
 
-Install a package with `npm`, `pnpm`, or `pip`:
+### Recommended: Automated Setup
 
-```bash
-pmg npm install <package-name>
-pmg pnpm add <package-name>
-pmg pip install <package-name>
-```
-
-### Recommended Setup
+For the best experience, use the automated setup:
 
 ```bash
 pmg setup install
@@ -166,14 +160,17 @@ After setup, use your package managers normally - PMG will automatically protect
 
 ```bash
 npm install <package-name>
-```
-
-```bash
 pnpm add <package-name>
+pip install <package-name>
 ```
 
+### Alternative: Manual Commands
+You can also run PMG manually without aliases:
+
 ```bash
-pip install <package-name>
+pmg npm install <package-name>
+pmg pnpm add <package-name>
+pmg pip install <package-name>
 ```
 
 ### Silent Mode
