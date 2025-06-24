@@ -33,9 +33,7 @@ brew install safedep/tap/pmg
 Set up `pmg` to protect you development environment from malicious packages:
 
 ```
-echo "alias npm='pmg npm'" >> ~/.zshrc
-echo "alias pnpm='pmg pnpm'" >> ~/.zshrc
-source ~/.zshrc
+pmg setup install
 ```
 
 Continue using your favorite package manager as usual:
@@ -59,7 +57,12 @@ pnpm add <package-name>
     - [Homebrew](#homebrew)
     - [Binaries](#binaries)
     - [Build from Source](#build-from-source)
+  - [Setup](#setup)
+    - [Install Aliases](#install-aliases)
+    - [Remove Aliases](#remove-aliases)
   - [Usage](#usage)
+    - [Recommended: Automated Setup](#recommended)
+    - [Alternative: Manual Commands](#alternative)
     - [Silent Mode](#silent-mode)
     - [Dry Run](#dry-run)
     - [Verbose Mode](#verbose-mode)
@@ -73,6 +76,7 @@ pnpm add <package-name>
 - 🌲 Deep dependency analysis and transitive dependency resolution
 - ⚡ Fast and efficient package verification
 - 🔄 Seamless integration with existing package managers
+- 🔧 Automated shell integration with cross-shell support
 
 ## Supported Package Managers
 
@@ -112,36 +116,63 @@ Download the latest binary from the [releases page](https://github.com/safedep/p
 go install github.com/safedep/pmg@latest
 ```
 
+## Setup
+
+PMG provides built-in commands to automatically configure shell aliases for seamless integration:
+
+### Install Aliases
+
+Set up PMG to intercept package manager commands:
+
+```bash
+pmg setup install
+```
+
+This command will:
+
+- Create a \~/.pmg.rc file containing package manager aliases
+- Automatically add a source line to your shell configuration files
+- Supports bash, zsh and fish shell
+
+> **Note**: After running `pmg setup install`, restart your terminal or run `source ~/.zshrc` (or your shell's config file) to activate the aliases.
+
+### Remove Aliases
+To remove PMG aliases and restore original package manager behavior:
+
+```bash
+pmg setup remove
+```
+
+This will:
+
+- Remove the source line from your shell configuration files
+- Delete the ~/.pmg.rc file
+
 ## Usage
 
-Install a package with `npm`, `pnpm`, or `pip`:
+### Recommended: Automated Setup
+
+For the best experience, use the automated setup:
+
+```bash
+pmg setup install
+```
+
+After setup, use your package managers normally:
+
+```bash
+npm install <package-name>
+pnpm add <package-name>
+pip install <package-name>
+```
+
+### Alternative: Manual Commands
+You can also run PMG manually without aliases:
 
 ```bash
 pmg npm install <package-name>
 pmg pnpm add <package-name>
 pmg pip install <package-name>
-```
-
-Set shell alias for convenience:
-
-```bash
-alias npm="pmg npm"
-alias pnpm="pmg pnpm"
-alias pip="pmg pip"
-```
-
-Continue using your favorite package manager as usual:
-
-```bash
-npm install <package-name>
-```
-
-```bash
-pnpm add <package-name>
-```
-
-```bash
-pip install <package-name>
 ```
 
 ### Silent Mode
