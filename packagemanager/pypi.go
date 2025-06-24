@@ -2,9 +2,12 @@ package packagemanager
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/spf13/pflag"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
@@ -42,78 +45,61 @@ func (pip *pipPackageManager) Ecosystem() packagev1.Ecosystem {
 }
 
 func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+	// Remove 'pip' if it's the first argument
 	if len(args) > 0 && args[0] == "pip" {
 		args = args[1:]
 	}
+
 	command := Command{Exe: pip.Config.CommandName, Args: args}
 
-	// Since manifest-based installs like 'npm i' are now valid commands
 	if len(args) < 1 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Find the install command
+	var installCmdIndex = -1
+	for idx, arg := range args {
+		if slices.Contains(pip.Config.InstallCommands, arg) {
+			installCmdIndex = idx
+			break
+		}
+	}
+
+	if installCmdIndex == -1 {
+		// No install command found, return as-is
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Extract arguments after the install command
+	installArgs := args[installCmdIndex+1:]
+
+	fs := pflag.NewFlagSet("pip", pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	// Define flags
+	var requirementFiles []string
+	fs.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
+
+	// Parse arguments (supports interleaved flags + positional args)
+	err := fs.Parse(installArgs)
+	if err != nil {
 		return &ParsedCommand{
 			Command: command,
 		}, nil
 	}
 
-	var packages []string
-	var manifestFiles []string
-	var isManifestInstall bool
-	var foundInstallCmd bool
+	// Get remaining arguments (package names)
+	packages := fs.Args()
 
-	for idx, arg := range args {
-		if slices.Contains(pip.Config.InstallCommands, arg) {
-			foundInstallCmd = true
-			// Check for manifest-based installation flags
-			for i := idx + 1; i < len(args); i++ {
-				currentArg := args[i]
+	// Determine if this is a manifest install
+	isManifestInstall := len(requirementFiles) > 0
 
-				// Handle -r/--requirement flags
-				if currentArg == "-r" || currentArg == "--requirement" {
-					isManifestInstall = true
-					if i+1 < len(args) {
-						manifestFiles = append(manifestFiles, args[i+1])
-						i++ // skip the filename
-					}
-					continue
-				}
+	// Combine all manifest files
+	var allManifestFiles []string
+	allManifestFiles = append(allManifestFiles, requirementFiles...)
 
-				// Handle combined -r flag (e.g., -rrequirements.txt)
-				if strings.HasPrefix(currentArg, "-r") && len(currentArg) > 2 {
-					isManifestInstall = true
-					manifestFiles = append(manifestFiles, currentArg[2:])
-					continue
-				}
-
-				// Handle other flags that indicate manifest installation
-				if currentArg == "-e" || currentArg == "--editable" ||
-					currentArg == "-c" || currentArg == "--constraint" {
-					if i+1 < len(args) {
-						i++ // skip the next argument
-					}
-					continue
-				}
-
-				// If it's a flag, skip it
-				if strings.HasPrefix(currentArg, "-") {
-					continue
-				}
-
-				// Otherwise, it's a package name
-				packages = append(packages, currentArg)
-			}
-			break
-		}
-	}
-
-	// If install command was found but no explicit packages and no manifest flags,
-	// check if it's a bare "pip install" (which should look for default manifest files)
-	if foundInstallCmd && len(packages) == 0 && len(manifestFiles) == 0 {
-		isManifestInstall = true
-		// pip install without args typically looks for requirements.txt
-		manifestFiles = append(manifestFiles, "requirements.txt")
-	}
-
+	// Process packages
 	var installTargets []*PackageInstallTarget
-
 	for _, pkg := range packages {
 		packageName, version, extras, err := pipParsePackageInfo(pkg)
 		if err != nil {
@@ -121,12 +107,9 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}
 
 		if version != "" {
-			// If exact version provided just trim it. If not get a version that satisfies a given version specifier
 			if strings.HasPrefix(version, "==") {
-				// Exact version, just trim
 				version = strings.TrimPrefix(version, "==")
 			} else {
-				// Version range, resolve from PyPI
 				version, err = pipGetMatchingVersion(packageName, version)
 				if err != nil {
 					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
@@ -150,7 +133,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     manifestFiles,
+		ManifestFiles:     allManifestFiles,
 	}, nil
 }
 

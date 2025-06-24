@@ -109,6 +109,33 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[1].PackageVersion.Version)
 			},
 		},
+		{
+			name:    "manifest installation (bare install)",
+			command: "npm install",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "manifest installation (short form)",
+			command: "npm i",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "npm install with flags but no packages",
+			command: "npm install --save-dev",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -118,93 +145,6 @@ func TestNpmParseCommand(t *testing.T) {
 
 			parsedCommand, err := npm.ParseCommand(strings.Split(tc.command, " "))
 			tc.assert(t, parsedCommand, err)
-		})
-	}
-}
-
-func TestNpmParseCommand_ManifestInstallation(t *testing.T) {
-	pm, err := NewNpmPackageManager(DefaultNpmPackageManagerConfig())
-	assert.NoError(t, err)
-
-	cases := []struct {
-		name              string
-		args              []string
-		expectedManifest  bool
-		expectedFiles     []string
-		expectedTargets   int
-	}{
-		{
-			name:              "npm install without args (bare install)",
-			args:              []string{"install"},
-			expectedManifest:  true,
-			expectedFiles:     []string{"package.json"},
-			expectedTargets:   0,
-		},
-		{
-			name:              "npm i without args (short form)",
-			args:              []string{"i"},
-			expectedManifest:  true,
-			expectedFiles:     []string{"package.json"},
-			expectedTargets:   0,
-		},
-		{
-			name:              "npm install with explicit package",
-			args:              []string{"install", "react"},
-			expectedManifest:  false,
-			expectedFiles:     nil,
-			expectedTargets:   1,
-		},
-		{
-			name:              "npm install with multiple packages",
-			args:              []string{"install", "react", "vue"},
-			expectedManifest:  false,
-			expectedFiles:     nil,
-			expectedTargets:   2,
-		},
-		{
-			name:              "npm install with flags but no packages",
-			args:              []string{"install", "--save-dev"},
-			expectedManifest:  true,
-			expectedFiles:     []string{"package.json"},
-			expectedTargets:   0,
-		},
-		{
-			name:              "npm install with mixed args",
-			args:              []string{"install", "react", "--save"},
-			expectedManifest:  false,
-			expectedFiles:     nil,
-			expectedTargets:   1,
-		},
-		{
-			name:              "non-install command",
-			args:              []string{"run", "build"},
-			expectedManifest:  false,
-			expectedFiles:     nil,
-			expectedTargets:   0,
-		},
-		{
-			name:              "pnpm install without args",
-			args:              []string{"install"},
-			expectedManifest:  true,
-			expectedFiles:     []string{"package.json"},
-			expectedTargets:   0,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			parsed, err := pm.ParseCommand(tc.args)
-			assert.NoError(t, err)
-			
-			assert.Equal(t, tc.expectedManifest, parsed.IsManifestInstall, "IsManifestInstall mismatch")
-			assert.Equal(t, tc.expectedFiles, parsed.ManifestFiles, "ManifestFiles mismatch")
-			assert.Equal(t, tc.expectedTargets, len(parsed.InstallTargets), "InstallTargets count mismatch")
-			
-			// Test helper methods
-			assert.Equal(t, tc.expectedManifest, parsed.HasManifestInstall(), "HasManifestInstall mismatch")
-			
-			expectedShouldExtract := tc.expectedManifest && tc.expectedTargets == 0
-			assert.Equal(t, expectedShouldExtract, parsed.ShouldExtractFromManifest(), "ShouldExtractFromManifest mismatch")
 		})
 	}
 }

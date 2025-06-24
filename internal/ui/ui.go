@@ -26,6 +26,20 @@ const (
 	VerbosityLevelVerbose
 )
 
+type BlockConfig struct {
+	// ShowReference determines whether to show detailed information for suspicious packages.
+	// If false, the details are omitted to avoid repeating information already shown to the user.
+	ShowReference bool
+
+	MalwarePackages []*analyzer.PackageVersionAnalysisResult
+}
+
+func NewDefaultBlockConfig() *BlockConfig {
+	return &BlockConfig{
+		ShowReference: true,
+	}
+}
+
 var verbosityLevel VerbosityLevel = VerbosityLevelNormal
 
 func SetVerbosityLevel(level VerbosityLevel) {
@@ -37,13 +51,15 @@ func ClearStatus() {
 	fmt.Print("\r")
 }
 
-func Block(malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
+func Block(config *BlockConfig) error {
 	StopSpinner()
 
 	fmt.Println()
 	fmt.Println(Colors.Red("❌ Malicious package blocked!"))
 
-	printMaliciousPackagesList(malwarePackages)
+	if config.ShowReference {
+		printMaliciousPackagesList(config.MalwarePackages)
+	}
 
 	fmt.Println()
 	os.Exit(1)

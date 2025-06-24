@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/extractor"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
 
@@ -29,7 +30,7 @@ type PackageManagerGuardInteraction struct {
 	// Block is called to block the installation of the malware packages. One or more malicious
 	// packages are passed as arguments. These are the packages that were detected as malicious.
 	// Client code must perform the necessary error handling and termination of the process.
-	Block func(...*analyzer.PackageVersionAnalysisResult) error
+	Block func(config *ui.BlockConfig) error
 }
 
 type PackageManagerGuardConfig struct {
@@ -85,6 +86,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		return g.continueExecution(ctx, parsedCommand)
 	}
 
+	blockConfig := ui.NewDefaultBlockConfig()
+
 	// TODO: We should track the dependency tree here so that we can trace a
 	// dependency to one of the parent packages from install targets
 
@@ -95,7 +98,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	log.Debugf("Found %d install targets", len(parsedCommand.InstallTargets))
 
-	g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(parsedCommand.InstallTargets)))
+	g.setStatus(fmt.Sprintf("Resolving dependencies for %d package(s)", len(parsedCommand.InstallTargets)))
 
 	if g.config.ResolveDependencies {
 		for _, pkg := range parsedCommand.InstallTargets {
@@ -125,7 +128,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
 
-	g.setStatus(fmt.Sprintf("Analyzing %d packages for malware", len(packagesToAnalyze)))
+	g.setStatus(fmt.Sprintf("Analyzing %d dependencies for malware", len(packagesToAnalyze)))
 
 	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
@@ -135,7 +138,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			return g.blockInstallation(result)
+			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
+			return g.blockInstallation(blockConfig)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -150,7 +154,9 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if !confirmed {
-			return g.blockInstallation(confirmableMalwarePackages...)
+			blockConfig.ShowReference = false
+			blockConfig.MalwarePackages = confirmableMalwarePackages
+			return g.blockInstallation(blockConfig)
 		}
 	}
 
@@ -261,12 +267,12 @@ func (g *packageManagerGuard) setStatus(status string) {
 	g.interaction.SetStatus(status)
 }
 
-func (g *packageManagerGuard) blockInstallation(malwarePackages ...*analyzer.PackageVersionAnalysisResult) error {
+func (g *packageManagerGuard) blockInstallation(config *ui.BlockConfig) error {
 	if g.interaction.Block == nil {
 		return nil
 	}
 
-	return g.interaction.Block(malwarePackages...)
+	return g.interaction.Block(config)
 }
 
 func (g *packageManagerGuard) clearStatus() {
@@ -280,6 +286,7 @@ func (g *packageManagerGuard) clearStatus() {
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {
 	extractorConfig := extractor.NewDefaultExtractorConfig()
 	extractorConfig.ExtractorPackageManager = extractor.PackageManagerName(g.packageManager.Name())
+	extractorConfig.ManifestFiles = parsedCommand.ManifestFiles
 
 	packageExtractor := extractor.New(*extractorConfig)
 
@@ -287,6 +294,8 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	if err != nil {
 		return fmt.Errorf("failed to extract packages from manifest files: %w", err)
 	}
+
+	blockConfig := ui.NewDefaultBlockConfig()
 
 	if len(packages) == 0 {
 		log.Debugf("No packages found in manifest files, continuing execution")
@@ -303,7 +312,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	// Only resolve dependencies for requirements.txt because other lockfiles dependencies are already resolved
 	if g.config.ResolveDependencies && slices.Contains(parsedCommand.ManifestFiles, "requirements.txt") {
 
-		g.setStatus(fmt.Sprintf("Resolving dependencies for %d packages", len(packages)))
+		g.setStatus(fmt.Sprintf("Resolving dependencies for %d package(s)", len(packages)))
 
 		for _, pkg := range packages {
 			if pkg.GetVersion() == "" {
@@ -332,7 +341,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
 
-	g.setStatus(fmt.Sprintf("Analyzing %d packages from manifest files", len(packagesToAnalyze)))
+	g.setStatus(fmt.Sprintf("Analyzing %d dependencies from manifest files", len(packagesToAnalyze)))
 
 	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
@@ -342,7 +351,8 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			return g.blockInstallation(result)
+			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
+			return g.blockInstallation(blockConfig)
 		}
 
 		if result.Action == analyzer.ActionConfirm {
@@ -357,7 +367,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if !confirmed {
-			return g.blockInstallation(confirmableMalwarePackages...)
+			blockConfig.ShowReference = false
+			blockConfig.MalwarePackages = confirmableMalwarePackages
+			return g.blockInstallation(blockConfig)
 		}
 	}
 
