@@ -1,0 +1,66 @@
+name: Publish NPM Package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Prepare package
+        run: |
+          cd publish/npm
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+
+      - name: Wait for release to be ready
+        run: sleep 30
+
+      - name: Publish to npm
+        run: |
+          cd publish/npm
+          npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  test-installation:
+    needs: publish-npm
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ["16", "18", "20"]
+
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - run: sleep 90
+
+      - name: Install and test CLI
+        run: |
+          npm install -g @safedep/pmg@${{ steps.version.outputs.version }}
+          pmg --version
+          pmg --help || true
