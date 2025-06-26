@@ -369,8 +369,10 @@ async function install() {
     makeExecutable(finalBinaryPath);
 
     // Validate binary works
-    validateBinary(finalBinaryPath);
-
+    const isValid = validateBinary(finalBinaryPath);
+    if (!isValid) {
+      throw new Error(`Validation failed for binary at: ${finalBinaryPath}`);
+    }
     // Clean up
     fs.rmSync(tempDir, { recursive: true, force: true });
 
