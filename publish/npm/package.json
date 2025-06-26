@@ -1,0 +1,60 @@
+{
+  "name": "@safedep/pmg",
+  "version": "0.0.5",
+  "description": "PMG protects developers from getting compromised by malicious packages",
+  "main": "bin/pmg.js",
+  "bin": {
+    "pmg": "bin/pmg.js"
+  },
+  "scripts": {
+    "preinstall": "echo \"Installing PMG binary for your platform...\"",
+    "postinstall": "node install.js",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "security",
+    "package-manager",
+    "malicious-packages",
+    "npm",
+    "cli",
+    "vulnerability",
+    "dependency-security",
+    "safedep"
+  ],
+  "author": "SafeDep <info@safedep.io>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/safedep/pmg#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/safedep/pmg.git"
+  },
+  "bugs": {
+    "url": "https://github.com/safedep/pmg/issues"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64",
+    "ia32"
+  ],
+  "files": [
+    "bin/pmg.js",
+    "install.js",
+    "test.js",
+    "README.md",
+    ".npmignore"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "tar": "^6.1.11"
+  }
+}
