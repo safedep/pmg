@@ -28,7 +28,8 @@ jobs:
       - name: Wait for GitHub release
         run: |
           echo "Waiting for GitHub release v${{ steps.version.outputs.version }}..."
-          for i in {1..30}; do
+          i=1
+          while [ $i -le 30 ]; do
             if curl -s -f "https://api.github.com/repos/safedep/pmg/releases/tags/v${{ steps.version.outputs.version }}" > /dev/null; then
               echo "Release found!"
               break
@@ -39,6 +40,7 @@ jobs:
             fi
             echo "Waiting... ($i/30)"
             sleep 20
+            i=$((i + 1))
           done
 
       - name: Prepare package
@@ -73,7 +75,8 @@ jobs:
       - name: Wait for npm package
         run: |
           echo "Waiting for npm package..."
-          for i in {1..20}; do
+          i=1
+          while [ $i -le 20 ]; do
             if npm view @safedep/pmg@${{ steps.version.outputs.version }} > /dev/null 2>&1; then
               echo "Package available!"
               break
@@ -84,6 +87,7 @@ jobs:
             fi
             echo "Waiting... ($i/20)"
             sleep 30
+            i=$((i + 1))
           done
 
       - name: Test installation
