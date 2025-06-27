@@ -66,18 +66,18 @@ function validateConfig() {
 
   // Validate required config constants
   const requiredConstants = [
-    "ORG_NAME",
-    "PACKAGE_NAME",
-    "BINARY_NAME",
-    "REPO_OWNER",
-    "REPO_NAME",
-    "GITHUB_RELEASES_BASE",
-    "BINARY_PATTERNS",
+    { name: "ORG_NAME", value: ORG_NAME },
+    { name: "PACKAGE_NAME", value: PACKAGE_NAME },
+    { name: "BINARY_NAME", value: BINARY_NAME },
+    { name: "REPO_OWNER", value: REPO_OWNER },
+    { name: "REPO_NAME", value: REPO_NAME },
+    { name: "GITHUB_RELEASES_BASE", value: GITHUB_RELEASES_BASE },
+    { name: "BINARY_PATTERNS", value: BINARY_PATTERNS },
   ];
 
-  for (const constant of requiredConstants) {
-    if (!constant) {
-      throw new Error(`Missing config constant: ${constant}`);
+  for (const { name, value } of requiredConstants) {
+    if (!value) {
+      throw new Error(`Missing config constant: ${name}`);
     }
   }
 
