@@ -3,7 +3,7 @@ name: Publish NPM Package
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
   publish-npm:
@@ -25,13 +25,26 @@ jobs:
         run: |
           echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Wait for GitHub release
+        run: |
+          echo "Waiting for GitHub release v${{ steps.version.outputs.version }}..."
+          for i in {1..30}; do
+            if curl -s -f "https://api.github.com/repos/safedep/pmg/releases/tags/v${{ steps.version.outputs.version }}" > /dev/null; then
+              echo "Release found!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Release not found after 10 minutes"
+              exit 1
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 20
+          done
+
       - name: Prepare package
         run: |
           cd publish/npm
           npm version ${{ steps.version.outputs.version }} --no-git-tag-version
-
-      - name: Wait for release to be ready
-        run: sleep 30
 
       - name: Publish to npm
         run: |
@@ -57,9 +70,23 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - run: sleep 90
+      - name: Wait for npm package
+        run: |
+          echo "Waiting for npm package..."
+          for i in {1..20}; do
+            if npm view @safedep/pmg@${{ steps.version.outputs.version }} > /dev/null 2>&1; then
+              echo "Package available!"
+              break
+            fi
+            if [ $i -eq 20 ]; then
+              echo "Package not available after 10 minutes"
+              exit 1
+            fi
+            echo "Waiting... ($i/20)"
+            sleep 30
+          done
 
-      - name: Install and test CLI
+      - name: Test installation
         run: |
           npm install -g @safedep/pmg@${{ steps.version.outputs.version }}
           pmg --version
