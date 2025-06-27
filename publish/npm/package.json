@@ -47,6 +47,7 @@
   "files": [
     "bin/pmg.js",
     "install.js",
+    "config.js",
     "test.js",
     "README.md",
     ".npmignore"
@@ -54,7 +55,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "tar": "^6.1.11"
-  }
+  "dependencies": {}
 }

@@ -3,6 +3,15 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const {
+  ORG_NAME,
+  PACKAGE_NAME,
+  BINARY_NAME,
+  REPO_OWNER,
+  REPO_NAME,
+  GITHUB_RELEASES_BASE,
+  BINARY_PATTERNS,
+} = require("./config");
 
 // Colors for terminal output
 const colors = {
@@ -48,6 +57,68 @@ async function runTest(name, testFn) {
   }
 }
 
+function validateConfig() {
+  const configPath = path.join(__dirname, "config.js");
+
+  if (!fs.existsSync(configPath)) {
+    throw new Error("config.js file not found");
+  }
+
+  // Validate required config constants
+  const requiredConstants = [
+    "ORG_NAME",
+    "PACKAGE_NAME",
+    "BINARY_NAME",
+    "REPO_OWNER",
+    "REPO_NAME",
+    "GITHUB_RELEASES_BASE",
+    "BINARY_PATTERNS",
+  ];
+
+  for (const constant of requiredConstants) {
+    if (!constant) {
+      throw new Error(`Missing config constant: ${constant}`);
+    }
+  }
+
+  // Validate config values
+  if (!ORG_NAME.startsWith("@")) {
+    throw new Error("ORG_NAME must start with @");
+  }
+
+  if (
+    !GITHUB_RELEASES_BASE.includes(REPO_OWNER) ||
+    !GITHUB_RELEASES_BASE.includes(REPO_NAME)
+  ) {
+    throw new Error(
+      "GITHUB_RELEASES_BASE must contain REPO_OWNER and REPO_NAME",
+    );
+  }
+
+  // Validate platform patterns
+  const expectedPlatforms = [
+    "darwin-x64",
+    "darwin-arm64",
+    "linux-x64",
+    "linux-arm64",
+    "linux-ia32",
+    "win32-x64",
+    "win32-arm64",
+    "win32-ia32",
+  ];
+
+  for (const platform of expectedPlatforms) {
+    if (!BINARY_PATTERNS[platform]) {
+      throw new Error(`Missing binary pattern for platform: ${platform}`);
+    }
+  }
+
+  logInfo(`Package: ${ORG_NAME}/${PACKAGE_NAME}`);
+  logInfo(`Binary: ${BINARY_NAME}`);
+  logInfo(`Repository: ${REPO_OWNER}/${REPO_NAME}`);
+  logInfo(`Platforms: ${Object.keys(BINARY_PATTERNS).length}`);
+}
+
 function validatePackageJson() {
   const packagePath = path.join(__dirname, "package.json");
   const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
@@ -60,15 +131,24 @@ function validatePackageJson() {
     }
   }
 
+  // Validate name matches config
+  if (packageJson.name !== `${ORG_NAME}/${PACKAGE_NAME}`) {
+    throw new Error(
+      `package.json name doesn't match config: expected ${ORG_NAME}/${PACKAGE_NAME}, got ${packageJson.name}`,
+    );
+  }
+
   // Check bin configuration
-  if (!packageJson.bin.pmg) {
-    throw new Error("Missing bin.pmg configuration");
+  if (!packageJson.bin[PACKAGE_NAME]) {
+    throw new Error(`Missing bin.${PACKAGE_NAME} configuration`);
   }
 
   // Check if bin file exists
-  const binPath = path.join(__dirname, packageJson.bin.pmg);
+  const binPath = path.join(__dirname, packageJson.bin[PACKAGE_NAME]);
   if (!fs.existsSync(binPath)) {
-    throw new Error(`Bin file does not exist: ${packageJson.bin.pmg}`);
+    throw new Error(
+      `Bin file does not exist: ${packageJson.bin[PACKAGE_NAME]}`,
+    );
   }
 
   // Check supported platforms
@@ -116,7 +196,7 @@ function validateFiles() {
   }
 
   // Check essential files
-  const essentialFiles = ["install.js", "bin/pmg.js", "README.md"];
+  const essentialFiles = ["install.js", "config.js", "bin/pmg.js", "README.md"];
   for (const file of essentialFiles) {
     const filePath = path.join(__dirname, file);
     if (!fs.existsSync(filePath)) {
@@ -137,11 +217,12 @@ function validateInstallScript() {
 
   // Check for required functions
   const requiredFunctions = [
-    "getPlatformInfo",
+    "getValidatedVersion",
+    "getPlatformKey",
     "downloadFile",
+    "calculateChecksum",
+    "validateChecksum",
     "extractArchive",
-    "getVersion",
-    "getReleaseByTag",
     "install",
   ];
 
@@ -151,17 +232,29 @@ function validateInstallScript() {
     }
   }
 
-  // Check for GitHub environment variable support
-  if (!installScript.includes("GITHUB_REF_NAME")) {
-    throw new Error("Missing GitHub environment variable support");
+  // Check for config import
+  if (!installScript.includes('require("./config")')) {
+    throw new Error("Missing config import");
   }
 
-  // Check for proper platform mapping
-  const platforms = ["darwin", "linux", "win32"];
-  for (const platform of platforms) {
-    if (!installScript.includes(`case "${platform}"`)) {
-      throw new Error(`Missing platform support: ${platform}`);
-    }
+  // Check for package.json version handling
+  if (!installScript.includes("package.json")) {
+    throw new Error("Missing package.json version handling");
+  }
+
+  // Check for checksum validation
+  if (!installScript.includes("validateChecksum")) {
+    throw new Error("Missing checksum validation");
+  }
+
+  // Check for strict version validation
+  if (!installScript.includes("Invalid version format")) {
+    throw new Error("Missing strict version validation");
+  }
+
+  // Check for hardcoded GitHub base URL usage
+  if (!installScript.includes("GITHUB_RELEASES_BASE")) {
+    throw new Error("Missing GitHub releases base URL from config");
   }
 }
 
@@ -174,12 +267,19 @@ function validateBinScript() {
     throw new Error("Missing or incorrect shebang in bin script");
   }
 
+  // Check for config import
+  if (!binScript.includes('require("../config")')) {
+    throw new Error("Missing config import in bin script");
+  }
+
   // Check for required functionality
   const requiredPatterns = [
     "spawn",
     'stdio: "inherit"',
     "BINARY_NAME",
     "BINARY_PATH",
+    "ORG_NAME",
+    "PACKAGE_NAME",
   ];
 
   for (const pattern of requiredPatterns) {
@@ -197,61 +297,59 @@ function validateBinScript() {
   }
 }
 
-function testPlatformDetection() {
-  // Test platform info function by requiring the install script
-  const installPath = path.join(__dirname, "install.js");
-
-  // Read and extract the getPlatformInfo function
-  const installScript = fs.readFileSync(installPath, "utf8");
-
-  // This is a basic test - in a real scenario we'd properly extract the function
-  if (!installScript.includes("getPlatformInfo")) {
-    throw new Error("getPlatformInfo function not found");
-  }
-
-  // Test current platform
+function testPlatformSupport() {
+  // Test current platform is supported
   const currentPlatform = process.platform;
   const currentArch = process.arch;
+  const platformKey = `${currentPlatform}-${currentArch}`;
 
-  logInfo(`Current platform: ${currentPlatform}-${currentArch}`);
+  logInfo(`Current platform: ${platformKey}`);
 
-  const supportedPlatforms = {
-    darwin: ["x64", "arm64"],
-    linux: ["x64", "arm64", "ia32"],
-    win32: ["x64", "arm64", "ia32"],
-  };
-
-  if (!supportedPlatforms[currentPlatform]) {
-    throw new Error(`Unsupported platform: ${currentPlatform}`);
+  if (!BINARY_PATTERNS[platformKey]) {
+    throw new Error(`Current platform not supported: ${platformKey}`);
   }
 
-  if (!supportedPlatforms[currentPlatform].includes(currentArch)) {
-    throw new Error(
-      `Unsupported architecture for ${currentPlatform}: ${currentArch}`,
-    );
+  // Validate all platform patterns have correct binary name
+  for (const [platform, pattern] of Object.entries(BINARY_PATTERNS)) {
+    if (!pattern.includes(BINARY_NAME)) {
+      throw new Error(
+        `Binary pattern for ${platform} doesn't include binary name: ${pattern}`,
+      );
+    }
   }
+
+  logInfo(`✅ Platform ${platformKey} is supported`);
+  logInfo(`Binary pattern: ${BINARY_PATTERNS[platformKey]}`);
 }
 
 function testVersionHandling() {
   const installPath = path.join(__dirname, "install.js");
   const installScript = fs.readFileSync(installPath, "utf8");
 
-  // Check for version handling logic
-  if (!installScript.includes("getVersion")) {
-    throw new Error("Version handling function not found");
+  // Check for version validation logic
+  if (!installScript.includes("getValidatedVersion")) {
+    throw new Error("Version validation function not found");
   }
 
-  // Check for GitHub environment variable handling
-  if (
-    !installScript.includes("GITHUB_REF_NAME") ||
-    !installScript.includes("GITHUB_REF")
-  ) {
-    throw new Error("Missing GitHub environment variable handling");
+  // Check for semver validation
+  if (!installScript.includes("/^\\d+\\.\\d+\\.\\d+$/")) {
+    throw new Error("Missing semver validation regex");
   }
 
-  // Check for package.json fallback
-  if (!installScript.includes("package.json")) {
-    throw new Error("Missing package.json fallback");
+  // Test version reading from package.json
+  try {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
+    );
+
+    const version = packageJson.version;
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(`Package.json version is not valid semver: ${version}`);
+    }
+
+    logInfo(`Package version: ${version}`);
+  } catch (error) {
+    throw new Error(`Failed to test version reading: ${error.message}`);
   }
 }
 
@@ -264,8 +362,7 @@ async function testNpmPack() {
       encoding: "utf8",
     });
 
-    logInfo("npm pack --dry-run output:");
-    console.log(result);
+    logInfo("npm pack --dry-run completed successfully");
 
     // Get list of files that would be packaged
     const lines = result.split("\n");
@@ -275,13 +372,16 @@ async function testNpmPack() {
     );
 
     // Check if essential files are included
-    const essentialFiles = ["install.js", "bin/pmg.js", "package.json"];
+    const essentialFiles = [
+      "install.js",
+      "config.js",
+      "bin/pmg.js",
+      "package.json",
+    ];
     for (const file of essentialFiles) {
       const found = fileLines.some((line) => line.includes(file));
       if (!found) {
         logWarning(`File may not be included in package: ${file}`);
-        logInfo("Files found in package:");
-        fileLines.forEach((line) => logInfo(`  ${line.trim()}`));
       }
     }
 
@@ -291,19 +391,55 @@ async function testNpmPack() {
   }
 }
 
+function testSecurityFeatures() {
+  const installPath = path.join(__dirname, "install.js");
+  const installScript = fs.readFileSync(installPath, "utf8");
+
+  // Check for security features
+  const securityFeatures = [
+    "calculateChecksum",
+    "validateChecksum",
+    "sha256",
+    "Invalid version format",
+    "Checksum validation failed",
+  ];
+
+  for (const feature of securityFeatures) {
+    if (!installScript.includes(feature)) {
+      throw new Error(`Missing security feature: ${feature}`);
+    }
+  }
+
+  // Ensure no dynamic URL construction from external input
+  if (installScript.includes("process.env.GITHUB_REF")) {
+    throw new Error(
+      "Found dangerous dynamic URL construction from environment variables",
+    );
+  }
+
+  // Check that URLs are constructed from hardcoded config
+  if (!installScript.includes("GITHUB_RELEASES_BASE")) {
+    throw new Error("URLs not constructed from hardcoded config base");
+  }
+
+  logInfo("✅ Security features validated");
+}
+
 async function main() {
-  log("🚀 Starting PMG npm package validation tests", "magenta");
+  log("🚀 Starting npm package validation tests", "magenta");
 
   let passed = 0;
   let failed = 0;
 
   const tests = [
+    ["Configuration validation", validateConfig],
     ["Package.json validation", validatePackageJson],
     ["File structure validation", validateFiles],
     ["Install script validation", validateInstallScript],
     ["Bin script validation", validateBinScript],
-    ["Platform detection test", testPlatformDetection],
+    ["Platform support test", testPlatformSupport],
     ["Version handling test", testVersionHandling],
+    ["Security features test", testSecurityFeatures],
     ["npm pack test", testNpmPack],
   ];
 

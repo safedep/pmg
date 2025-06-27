@@ -3,69 +3,53 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 const { execSync } = require("child_process");
+const {
+  BINARY_NAME,
+  REPO_OWNER,
+  REPO_NAME,
+  GITHUB_RELEASES_BASE,
+  BINARY_PATTERNS,
+} = require("./config");
 
-// Platform and architecture mapping
-function getPlatformInfo() {
-  const platform = process.platform;
-  const arch = process.arch;
+// Read version from package.json with strict validation
+function getValidatedVersion() {
+  try {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
+    );
 
-  let platformName,
-    archName,
-    extension,
-    isZip = false;
+    const version = packageJson.version;
 
-  // Map Node.js platform to release naming (matching GoReleaser output)
-  switch (platform) {
-    case "darwin":
-      platformName = "Darwin_all";
-      extension = ".tar.gz";
-      break;
-    case "linux":
-      platformName = "Linux";
-      extension = ".tar.gz";
-      break;
-    case "win32":
-      platformName = "Windows";
-      extension = ".zip";
-      isZip = true;
-      break;
-    default:
-      throw new Error(`Unsupported platform: ${platform}`);
+    // Strict validation: must be valid semver (x.y.z)
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(`Invalid version format: ${version}`);
+    }
+
+    return `v${version}`;
+  } catch (error) {
+    throw new Error(`Failed to read valid version: ${error.message}`);
   }
-
-  // Map Node.js arch to release naming
-  switch (arch) {
-    case "x64":
-      archName = "x86_64";
-      break;
-    case "arm64":
-      archName = "arm64";
-      break;
-    case "ia32":
-      archName = "i386";
-      break;
-    default:
-      throw new Error(`Unsupported architecture: ${arch}`);
-  }
-
-  // Special case for Darwin - it's all architectures in one
-  if (platform === "darwin") {
-    return {
-      filename: `${PACKAGE_NAME}_${platformName}${extension}`,
-      isZip,
-      extension,
-    };
-  }
-
-  return {
-    filename: `${PACKAGE_NAME}_${platformName}_${archName}${extension}`,
-    isZip,
-    extension,
-  };
 }
 
-// Download file from URL
+const RELEASE_VERSION = getValidatedVersion();
+const BASE_URL = `${GITHUB_RELEASES_BASE}/${RELEASE_VERSION}`;
+
+// Platform-specific binary URLs (constructed from config)
+const BINARY_URLS = {};
+Object.keys(BINARY_PATTERNS).forEach((platform) => {
+  BINARY_URLS[platform] = `${BASE_URL}/${BINARY_PATTERNS[platform]}`;
+});
+
+const CHECKSUMS_URL = `${BASE_URL}/checksums.txt`;
+
+function getPlatformKey() {
+  const platform = process.platform;
+  const arch = process.arch;
+  return `${platform}-${arch}`;
+}
+
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
@@ -73,14 +57,13 @@ function downloadFile(url, dest) {
     https
       .get(url, (response) => {
         if (response.statusCode === 302 || response.statusCode === 301) {
-          // Handle redirect
           return downloadFile(response.headers.location, dest)
             .then(resolve)
             .catch(reject);
         }
 
         if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download: ${response.statusCode}`));
+          reject(new Error(`Download failed: ${response.statusCode}`));
           return;
         }
 
@@ -92,7 +75,7 @@ function downloadFile(url, dest) {
         });
 
         file.on("error", (err) => {
-          fs.unlink(dest, () => {}); // Delete the file on error
+          fs.unlink(dest, () => {});
           reject(err);
         });
       })
@@ -100,293 +83,127 @@ function downloadFile(url, dest) {
   });
 }
 
-// Extract archive using system commands
-function extractArchive(archivePath, extractDir, isZip) {
-  try {
-    if (isZip) {
-      // Use system unzip command
-      execSync(`unzip -o "${archivePath}" -d "${extractDir}"`, {
-        stdio: "pipe",
-      });
-    } else {
-      // Use system tar command
-      execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, {
-        stdio: "pipe",
-      });
-    }
-    console.log("✅ Extraction completed using system commands");
-  } catch (error) {
-    console.log("❌ System extraction failed, trying Node.js tar library...");
-
-    // Fallback to tar library
-    try {
-      const tar = require("tar");
-      return tar.x({
-        file: archivePath,
-        cwd: extractDir,
-        strip: 0,
-      });
-    } catch (tarError) {
-      throw new Error(
-        `Both system extraction and tar library failed. System: ${error.message}, Tar: ${tarError.message}. You may need to install the 'tar' package or ensure system tar/unzip commands are available.`,
-      );
-    }
-  }
+function calculateChecksum(filePath) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const hashSum = crypto.createHash("sha256");
+  hashSum.update(fileBuffer);
+  return hashSum.digest("hex");
 }
 
-// Make file executable (Unix systems)
-function makeExecutable(filePath) {
-  if (process.platform !== "win32") {
-    fs.chmodSync(filePath, "755");
-  }
+function validateChecksum(filePath, expectedChecksum) {
+  const actualChecksum = calculateChecksum(filePath);
+  return actualChecksum === expectedChecksum;
 }
 
-// Validate binary after installation
-function validateBinary(binaryPath) {
-  try {
-    // Try to run the binary with version command to verify it works
-    const result = execSync(`"${binaryPath}" version`, {
-      stdio: "pipe",
-      timeout: 5000, // 5 second timeout
-    });
-    console.log(`✅ Binary validation successful: ${result.toString().trim()}`);
-    return true;
-  } catch (error) {
-    console.warn(`⚠️  Binary validation failed: ${error.message}`);
-    console.warn("The binary was installed but may not work correctly.");
-    return false;
+function extractArchive(archivePath, extractDir) {
+  const isZip = archivePath.endsWith(".zip");
+
+  if (isZip) {
+    execSync(`unzip -o "${archivePath}" -d "${extractDir}"`, { stdio: "pipe" });
+  } else {
+    execSync(`tar -xzf "${archivePath}" -C "${extractDir}"`, { stdio: "pipe" });
   }
-}
-
-// Get version from GitHub environment variable or fallback to package.json
-function getVersion() {
-  // Try to get version from GitHub environment variables
-  // GITHUB_REF_NAME contains just the tag name (e.g., "v1.0.0")
-  // GITHUB_REF contains the full ref (e.g., "refs/tags/v1.0.0")
-  let version = process.env.GITHUB_REF_NAME || process.env.GITHUB_REF;
-
-  if (version) {
-    // If GITHUB_REF, extract tag name from "refs/tags/v1.0.0"
-    if (version.startsWith("refs/tags/")) {
-      version = version.replace("refs/tags/", "");
-    }
-
-    // Ensure version starts with 'v'
-    if (!version.startsWith("v")) {
-      version = `v${version}`;
-    }
-
-    console.log(`📌 Using version from GitHub environment: ${version}`);
-    return version;
-  }
-
-  // Fallback to package.json
-  try {
-    const packageJson = JSON.parse(
-      fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
-    );
-    const fallbackVersion = `v${packageJson.version}`;
-    console.log(
-      `📌 Using fallback version from package.json: ${fallbackVersion}`,
-    );
-    return fallbackVersion;
-  } catch (error) {
-    throw new Error(
-      `Failed to read version from environment or package.json: ${error.message}`,
-    );
-  }
-}
-
-// Get release info for specific version from GitHub API
-function getReleaseByTag(tag) {
-  const releaseUrl = `https://api.github.com/repos/safedep/pmg/releases/tags/${tag}`;
-
-  return new Promise((resolve, reject) => {
-    https
-      .get(
-        releaseUrl,
-        {
-          headers: {
-            "User-Agent": "pmg-npm-installer",
-          },
-        },
-        (response) => {
-          let data = "";
-
-          response.on("data", (chunk) => {
-            data += chunk;
-          });
-
-          response.on("end", () => {
-            try {
-              if (response.statusCode === 404) {
-                reject(new Error(`Release ${tag} not found`));
-                return;
-              }
-              if (response.statusCode !== 200) {
-                reject(
-                  new Error(
-                    `Failed to fetch release info: ${response.statusCode}`,
-                  ),
-                );
-                return;
-              }
-              const release = JSON.parse(data);
-              resolve(release);
-            } catch (err) {
-              reject(new Error(`Failed to parse release info: ${err.message}`));
-            }
-          });
-        },
-      )
-      .on("error", reject);
-  });
 }
 
 async function install() {
   try {
     console.log("📦 Installing PMG binary...");
 
-    // Get platform info
-    const platformInfo = getPlatformInfo();
-    console.log(`🔍 Detected platform: ${process.platform}-${process.arch}`);
-    console.log(`📋 Looking for: ${platformInfo.filename}`);
+    // Get platform-specific URL
+    const platformKey = getPlatformKey();
+    const binaryUrl = BINARY_URLS[platformKey];
 
-    // Get version from GitHub environment variable or fallback to package.json
-    const version = getVersion();
-    console.log(`📡 Installing version: ${version}`);
-
-    // Get release info for the specific version
-    const release = await getReleaseByTag(version);
-    console.log(`📡 Found release: ${release.tag_name}`);
-
-    // Find the asset for our platform
-    const asset = release.assets.find(
-      (asset) => asset.name === platformInfo.filename,
-    );
-    if (!asset) {
-      console.log("🔍 Available assets:");
-      release.assets.forEach((asset) => {
-        console.log(`  - ${asset.name}`);
-      });
-      throw new Error(`No binary found for platform ${platformInfo.filename}`);
+    if (!binaryUrl) {
+      throw new Error(`Unsupported platform: ${platformKey}`);
     }
+
+    console.log(`🔍 Platform: ${platformKey}`);
+    console.log(`📡 Version: ${RELEASE_VERSION}`);
 
     // Create directories
-    const binDir = path.join(__dirname, "..", "bin");
-    const tempDir = path.join(__dirname, "..", "temp");
+    const binDir = path.join(__dirname, "bin");
+    const tempDir = path.join(__dirname, "temp");
 
-    if (!fs.existsSync(binDir)) {
-      fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    // Download binary archive
+    const archiveFilename = path.basename(binaryUrl);
+    const archivePath = path.join(tempDir, archiveFilename);
+
+    console.log(`⬇️  Downloading binary...`);
+    await downloadFile(binaryUrl, archivePath);
+
+    // Download checksums
+    const checksumsPath = path.join(tempDir, "checksums.txt");
+    console.log(`⬇️  Downloading checksums...`);
+    await downloadFile(CHECKSUMS_URL, checksumsPath);
+
+    // Parse checksums file
+    const checksumsContent = fs.readFileSync(checksumsPath, "utf8");
+    const checksumLines = checksumsContent.split("\n");
+
+    let expectedChecksum = null;
+    for (const line of checksumLines) {
+      if (line.includes(archiveFilename)) {
+        expectedChecksum = line.split(/\s+/)[0];
+        break;
+      }
     }
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+
+    if (!expectedChecksum) {
+      throw new Error(`Checksum not found for ${archiveFilename}`);
     }
 
-    // Download the binary
-    const archivePath = path.join(tempDir, platformInfo.filename);
-    console.log(`⬇️  Downloading ${asset.browser_download_url}`);
-    console.log(`📁 Saving to: ${archivePath}`);
-    await downloadFile(asset.browser_download_url, archivePath);
-
-    // Verify download
-    const stats = fs.statSync(archivePath);
-    console.log(`📊 Downloaded ${stats.size} bytes (expected: ${asset.size})`);
-
-    if (stats.size !== asset.size) {
+    // Validate checksum
+    console.log(`🔐 Validating checksum...`);
+    if (!validateChecksum(archivePath, expectedChecksum)) {
       throw new Error(
-        `Download size mismatch. Expected ${asset.size}, got ${stats.size}`,
+        "Checksum validation failed - binary may be corrupted or tampered",
       );
     }
 
-    // Extract the archive
-    console.log("📂 Extracting binary...");
-    try {
-      await extractArchive(archivePath, tempDir, platformInfo.isZip);
-    } catch (error) {
-      throw new Error(`Failed to extract archive: ${error.message}`);
-    }
+    console.log(`✅ Checksum validated`);
 
-    // Find the binary in extracted files - search for it recursively
-    const binaryExtension = process.platform === "win32" ? ".exe" : "";
-    const expectedBinaryName = BINARY_NAME + binaryExtension;
+    // Extract archive
+    console.log(`📂 Extracting binary...`);
+    extractArchive(archivePath, tempDir);
 
-    let extractedBinaryPath = null;
+    // Find and move binary
+    const binaryName =
+      process.platform === "win32" ? `${BINARY_NAME}.exe` : BINARY_NAME;
+    const extractedBinaryPath = path.join(tempDir, binaryName);
+    const finalBinaryPath = path.join(binDir, binaryName);
 
-    // Look for the binary in the temp directory and subdirectories
-    function findBinary(dir) {
-      const files = fs.readdirSync(dir);
-      for (const file of files) {
-        const fullPath = path.join(dir, file);
-        const stat = fs.statSync(fullPath);
-
-        if (stat.isDirectory()) {
-          const found = findBinary(fullPath);
-          if (found) return found;
-        } else if (file === expectedBinaryName) {
-          return fullPath;
-        }
-      }
-      return null;
-    }
-
-    extractedBinaryPath = findBinary(tempDir);
-
-    if (!extractedBinaryPath) {
-      // List all files in temp directory for debugging
-      console.log("🔍 Files in extracted archive:");
-      function listFiles(dir, prefix = "") {
-        const files = fs.readdirSync(dir);
-        files.forEach((file) => {
-          const fullPath = path.join(dir, file);
-          const stat = fs.statSync(fullPath);
-          if (stat.isDirectory()) {
-            console.log(`${prefix}📁 ${file}/`);
-            listFiles(fullPath, prefix + "  ");
-          } else {
-            console.log(`${prefix}📄 ${file}`);
-          }
-        });
-      }
-      listFiles(tempDir);
-
+    if (!fs.existsSync(extractedBinaryPath)) {
       throw new Error(
-        `Binary '${expectedBinaryName}' not found in extracted archive`,
+        `Binary not found at expected location: ${extractedBinaryPath}`,
       );
     }
 
-    console.log(`✅ Found binary at: ${extractedBinaryPath}`);
-
-    const finalBinaryPath = path.join(binDir, expectedBinaryName);
-
-    // Move binary to bin directory
+    // Move binary to final location
     fs.renameSync(extractedBinaryPath, finalBinaryPath);
 
-    // Make executable
-    makeExecutable(finalBinaryPath);
-
-    // Validate binary works
-    validateBinary(finalBinaryPath);
+    // Make executable on Unix systems
+    if (process.platform !== "win32") {
+      fs.chmodSync(finalBinaryPath, "755");
+    }
 
     // Clean up
     fs.rmSync(tempDir, { recursive: true, force: true });
 
     console.log("✅ PMG binary installed successfully!");
-    console.log("🚀 You can now use: pmg --help");
   } catch (error) {
     console.error("❌ Installation failed:", error.message);
 
     // Clean up on failure
     try {
-      const tempDir = path.join(__dirname, "..", "temp");
+      const tempDir = path.join(__dirname, "temp");
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     } catch (cleanupError) {
-      console.warn(
-        "⚠️  Failed to clean up temporary files:",
-        cleanupError.message,
-      );
+      console.warn("⚠️  Failed to clean up:", cleanupError.message);
     }
 
     process.exit(1);

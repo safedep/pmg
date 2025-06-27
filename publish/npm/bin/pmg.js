@@ -3,31 +3,19 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { ORG_NAME, PACKAGE_NAME, BINARY_NAME } = require("../config");
 
-const BINARY_NAME = process.platform === "win32" ? "pmg.exe" : "pmg";
-const BINARY_PATH = path.join(__dirname, BINARY_NAME);
+const BINARY_NAME_WITH_EXT =
+  process.platform === "win32" ? `${BINARY_NAME}.exe` : BINARY_NAME;
+const BINARY_PATH = path.join(__dirname, BINARY_NAME_WITH_EXT);
 
 function main() {
   // Check if binary exists
   if (!fs.existsSync(BINARY_PATH)) {
+    console.error(`❌ ${BINARY_NAME_WITH_EXT} binary not found`);
     console.error(
-      `❌ Error: ${BINARY_NAME} binary not found at ${BINARY_PATH}`,
+      `Try reinstalling: npm install -g ${ORG_NAME}/${PACKAGE_NAME}`,
     );
-    console.error("");
-    console.error("This usually means:");
-    console.error("  1. The installation failed or was incomplete");
-    console.error("  2. Your platform is not supported");
-    console.error(
-      `  3. Expected binary for: ${process.platform}-${process.arch}`,
-    );
-    console.error("");
-    console.error("Try reinstalling the package:");
-    console.error(`  npm uninstall -g ${ORG_NAME}/${PACKAGE_NAME}`);
-    console.error("  npm cache clean --force");
-    console.error(`  npm install -g ${ORG_NAME}/${PACKAGE_NAME}`);
-    console.error("");
-    console.error("If the problem persists, please report an issue at:");
-    console.error("  https://github.com/safedep/pmg/issues");
     process.exit(1);
   }
 
@@ -35,18 +23,10 @@ function main() {
   try {
     fs.accessSync(BINARY_PATH, fs.constants.F_OK | fs.constants.X_OK);
   } catch (error) {
+    console.error(`❌ ${BINARY_NAME_WITH_EXT} is not executable`);
     console.error(
-      `❌ Error: ${BINARY_NAME} binary is not executable: ${error.message}`,
+      `Try reinstalling: npm install -g ${ORG_NAME}/${PACKAGE_NAME}`,
     );
-    console.error("");
-    console.error("This could be due to:");
-    console.error("  1. File permissions issue");
-    console.error("  2. Corrupted binary during installation");
-    console.error("  3. Antivirus software blocking the binary");
-    console.error("");
-    console.error("Try reinstalling the package:");
-    console.error(`  npm uninstall -g ${ORG_NAME}/${PACKAGE_NAME}`);
-    console.error(`  npm install -g ${ORG_NAME}/${PACKAGE_NAME}`);
     process.exit(1);
   }
 
@@ -61,21 +41,11 @@ function main() {
 
   // Handle process termination
   child.on("error", (error) => {
-    if (error.code === "ENOENT") {
-      console.error(`❌ Error: Could not execute ${BINARY_NAME}`);
-      console.error(
-        "The binary may be corrupted or missing. Try reinstalling the package.",
-      );
-    } else if (error.code === "EACCES") {
-      console.error(`❌ Error: Permission denied executing ${BINARY_NAME}`);
-      console.error("The binary may not have execute permissions.");
-    } else {
-      console.error(`❌ Error executing ${BINARY_NAME}: ${error.message}`);
-    }
-    console.error("");
-    console.error("Try reinstalling:");
     console.error(
-      `  npm uninstall -g ${ORG_NAME}/${PACKAGE_NAME} && npm install -g ${ORG_NAME}/${PACKAGE_NAME}`,
+      `❌ Failed to execute ${BINARY_NAME_WITH_EXT}: ${error.message}`,
+    );
+    console.error(
+      `Try reinstalling: npm install -g ${ORG_NAME}/${PACKAGE_NAME}`,
     );
     process.exit(1);
   });
