@@ -22,9 +22,9 @@ function main() {
     );
     console.error("");
     console.error("Try reinstalling the package:");
-    console.error("  npm uninstall -g @safedep/pmg");
+    console.error(`  npm uninstall -g ${ORG_NAME}/${PACKAGE_NAME}`);
     console.error("  npm cache clean --force");
-    console.error("  npm install -g @safedep/pmg");
+    console.error(`  npm install -g ${ORG_NAME}/${PACKAGE_NAME}`);
     console.error("");
     console.error("If the problem persists, please report an issue at:");
     console.error("  https://github.com/safedep/pmg/issues");
@@ -45,8 +45,8 @@ function main() {
     console.error("  3. Antivirus software blocking the binary");
     console.error("");
     console.error("Try reinstalling the package:");
-    console.error("  npm uninstall -g @safedep/pmg");
-    console.error("  npm install -g @safedep/pmg");
+    console.error(`  npm uninstall -g ${ORG_NAME}/${PACKAGE_NAME}`);
+    console.error(`  npm install -g ${ORG_NAME}/${PACKAGE_NAME}`);
     process.exit(1);
   }
 
@@ -75,7 +75,7 @@ function main() {
     console.error("");
     console.error("Try reinstalling:");
     console.error(
-      "  npm uninstall -g @safedep/pmg && npm install -g @safedep/pmg",
+      `  npm uninstall -g ${ORG_NAME}/${PACKAGE_NAME} && npm install -g ${ORG_NAME}/${PACKAGE_NAME}`,
     );
     process.exit(1);
   });

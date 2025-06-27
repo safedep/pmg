@@ -5,9 +5,6 @@ const path = require("path");
 const https = require("https");
 const { execSync } = require("child_process");
 
-// GitHub release info
-const BINARY_NAME = "pmg";
-
 // Platform and architecture mapping
 function getPlatformInfo() {
   const platform = process.platform;
@@ -55,14 +52,14 @@ function getPlatformInfo() {
   // Special case for Darwin - it's all architectures in one
   if (platform === "darwin") {
     return {
-      filename: `pmg_${platformName}${extension}`,
+      filename: `${PACKAGE_NAME}_${platformName}${extension}`,
       isZip,
       extension,
     };
   }
 
   return {
-    filename: `pmg_${platformName}_${archName}${extension}`,
+    filename: `${PACKAGE_NAME}_${platformName}_${archName}${extension}`,
     isZip,
     extension,
   };
