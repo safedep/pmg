@@ -60,7 +60,6 @@ func IsDisabled() bool {
 }
 
 // We want to ensure that we do not collect any telemetry if the user has disabled them.
-// This is a helper function to ensure that we do not collect any telemetry if the user has disabled them.
 func Track(distinctId string, event string, properties posthog.Properties) {
 	if isTelemetryDisabled() {
 		return
