@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -29,6 +30,7 @@ func NewPipCommand() *cobra.Command {
 }
 
 func executePipFlow(ctx context.Context, args []string) error {
+	analytics.TrackCommandPip()
 	packageManager, err := packagemanager.NewPipPackageManager(packagemanager.DefaultPipPackageManagerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create pip package manager: %w", err)
