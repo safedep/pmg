@@ -20,6 +20,9 @@ type Config struct {
 	// DryRun to check for packages for risks.
 	// Do not actually execute any commands.
 	DryRun bool
+
+	// InsecureInstallation allows bypassing install blocking on malicious packages
+	InsecureInstallation bool
 }
 
 // Inject config into context while protecting against context poisoning
