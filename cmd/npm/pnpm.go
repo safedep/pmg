@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -29,6 +30,7 @@ func NewPnpmCommand() *cobra.Command {
 }
 
 func executePnpmFlow(ctx context.Context, args []string) error {
+	analytics.TrackCommandPnpm()
 	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultPnpmPackageManagerConfig())
 	if err != nil {
 		ui.Fatalf("Failed to create pnpm package manager proxy: %s", err)

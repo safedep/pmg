@@ -10,7 +10,9 @@ require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/fatih/color v1.18.0
 	github.com/google/osv-scalibr v0.2.1
+	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.6.7
+	github.com/posthog/posthog-go v1.5.12
 	github.com/safedep/dry v0.0.0-20250514080944-bb77f30c7175
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6

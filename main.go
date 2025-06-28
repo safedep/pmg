@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/cmd/setup"
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -85,6 +86,11 @@ func main() {
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
+
+	defer analytics.Close()
+
+	analytics.TrackCommandRun()
+	analytics.TrackCI()
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
