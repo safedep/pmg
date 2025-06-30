@@ -77,6 +77,11 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
 
+	if g.config.InsecureInstallation {
+		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
+		return g.continueExecution(ctx, parsedCommand)
+	}
+
 	if !parsedCommand.HasInstallTarget() {
 		// Check if this is a manifest-based installation
 		if parsedCommand.ShouldExtractFromManifest() {
@@ -140,11 +145,6 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			if g.config.InsecureInstallation {
-				log.Debugf("Bypassing block for malicious package %s@%s due to PMG_INSECURE_INSTALLATION",
-					result.PackageVersion.Package.Name, result.PackageVersion.Version)
-				continue
-			}
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
 			return g.blockInstallation(blockConfig)
 		}
@@ -161,13 +161,9 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if !confirmed {
-			if g.config.InsecureInstallation {
-				log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
-			} else {
-				blockConfig.ShowReference = false
-				blockConfig.MalwarePackages = confirmableMalwarePackages
-				return g.blockInstallation(blockConfig)
-			}
+			blockConfig.ShowReference = false
+			blockConfig.MalwarePackages = confirmableMalwarePackages
+			return g.blockInstallation(blockConfig)
 		}
 	}
 
@@ -362,11 +358,6 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
-			if g.config.InsecureInstallation {
-				log.Debugf("Bypassing block for malicious package %s@%s due to PMG_INSECURE_INSTALLATION",
-					result.PackageVersion.Package.Name, result.PackageVersion.Version)
-				continue
-			}
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
 			return g.blockInstallation(blockConfig)
 		}
@@ -383,13 +374,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if !confirmed {
-			if g.config.InsecureInstallation {
-				log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
-			} else {
-				blockConfig.ShowReference = false
-				blockConfig.MalwarePackages = confirmableMalwarePackages
-				return g.blockInstallation(blockConfig)
-			}
+			blockConfig.ShowReference = false
+			blockConfig.MalwarePackages = confirmableMalwarePackages
+			return g.blockInstallation(blockConfig)
 		}
 	}
 
