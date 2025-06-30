@@ -243,3 +243,13 @@ malware detection. This limitation applies to direct installations and transitiv
 from non-PyPI locations.
 
 </details>
+
+## Telemetry
+
+`pmg` collects anonymous telemetry to help us understand how it is used and
+improve the product. To disable telemetry, set `PMG_DISABLE_TELEMETRY` environment
+variable to `true`.
+
+```bash
+export PMG_DISABLE_TELEMETRY=true
+```

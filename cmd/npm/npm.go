@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -29,6 +30,7 @@ func NewNpmCommand() *cobra.Command {
 }
 
 func executeNpmFlow(ctx context.Context, args []string) error {
+	analytics.TrackCommandNpm()
 	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultNpmPackageManagerConfig())
 	if err != nil {
 		ui.Fatalf("Failed to create npm package manager proxy: %s", err)
