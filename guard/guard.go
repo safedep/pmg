@@ -24,6 +24,9 @@ type PackageManagerGuardInteraction struct {
 	// ClearStatus is called to clear the status of the guard in the UI
 	ClearStatus func()
 
+	// ShowWarning is called to show a warning message to the user
+	ShowWarning func(message string)
+
 	// GetConfirmationOnMalware is called to get the confirmation of the user on the malware packages
 	GetConfirmationOnMalware func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error)
 
@@ -79,6 +82,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	if g.config.InsecureInstallation {
 		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
+		g.showWarning("⚠️  WARNING: INSECURE INSTALLATION MODE - Malware protection bypassed!")
 		return g.continueExecution(ctx, parsedCommand)
 	}
 
@@ -288,6 +292,14 @@ func (g *packageManagerGuard) clearStatus() {
 	}
 
 	g.interaction.ClearStatus()
+}
+
+func (g *packageManagerGuard) showWarning(message string) {
+	if g.interaction.ShowWarning == nil {
+		return
+	}
+
+	g.interaction.ShowWarning(message)
 }
 
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {

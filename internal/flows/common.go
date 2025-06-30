@@ -49,6 +49,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	interaction := guard.PackageManagerGuardInteraction{
 		SetStatus:                ui.SetStatus,
 		ClearStatus:              ui.ClearStatus,
+		ShowWarning:              ui.ShowWarning,
 		GetConfirmationOnMalware: ui.GetConfirmationOnMalware,
 		Block:                    ui.Block,
 	}

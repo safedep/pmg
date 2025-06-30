@@ -18,7 +18,9 @@ func TestGuardConcurrentlyAnalyzePackagesMalwareQueryService(t *testing.T) {
 	}
 
 	pg, err := NewPackageManagerGuard(DefaultPackageManagerGuardConfig(), nil, nil,
-		[]analyzer.PackageVersionAnalyzer{mq}, PackageManagerGuardInteraction{})
+		[]analyzer.PackageVersionAnalyzer{mq}, PackageManagerGuardInteraction{
+			ShowWarning: func(message string) {},
+		})
 	if err != nil {
 		t.Fatalf("failed to create pg: %v", err)
 	}
@@ -65,6 +67,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		continueExecutionCalled := false
 
 		interaction := PackageManagerGuardInteraction{
+			ShowWarning: func(message string) {},
 			Block: func(config *ui.BlockConfig) error {
 				blockCalled = true
 				return nil
@@ -120,9 +123,10 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		var blockedPackages []*analyzer.PackageVersionAnalysisResult
 
 		interaction := PackageManagerGuardInteraction{
-			Block: func(blockConfig *ui.BlockConfig) error {
+			ShowWarning: func(message string) {},
+			Block: func(config *ui.BlockConfig) error {
 				blockCalled = true
-				blockedPackages = blockConfig.MalwarePackages
+				blockedPackages = config.MalwarePackages
 				return nil
 			},
 		}
@@ -179,6 +183,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		blockCalled := false
 
 		interaction := PackageManagerGuardInteraction{
+			ShowWarning: func(message string) {},
 			Block: func(config *ui.BlockConfig) error {
 				blockCalled = true
 				return nil
@@ -219,6 +224,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		blockCalled := false
 
 		interaction := PackageManagerGuardInteraction{
+			ShowWarning: func(message string) {},
 			Block: func(config *ui.BlockConfig) error {
 				blockCalled = true
 				return nil

@@ -105,6 +105,11 @@ func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysis
 	return false, nil
 }
 
+func ShowWarning(message string) {
+	// Print colored warning to stderr immediately - it won't be cleared by other output
+	fmt.Fprintf(os.Stderr, "%s\n", Colors.Red(message))
+}
+
 func Fatalf(msg string, args ...interface{}) {
 	ClearStatus()
 
