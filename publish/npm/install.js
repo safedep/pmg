@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const https = require("https");
 const crypto = require("crypto");
 const { execSync } = require("child_process");
@@ -106,6 +107,8 @@ function extractArchive(archivePath, extractDir) {
 }
 
 async function install() {
+  let tempWorkspace;
+
   try {
     console.log("📦 Installing PMG binary...");
 
@@ -122,20 +125,19 @@ async function install() {
 
     // Create directories
     const binDir = path.join(__dirname, "bin");
-    const tempDir = path.join(__dirname, "temp");
+    tempWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "pmg-install-"));
 
     fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(tempDir, { recursive: true });
 
     // Download binary archive
     const archiveFilename = path.basename(binaryUrl);
-    const archivePath = path.join(tempDir, archiveFilename);
+    const archivePath = path.join(tempWorkspace, archiveFilename);
 
     console.log(`⬇️  Downloading binary...`);
     await downloadFile(binaryUrl, archivePath);
 
     // Download checksums
-    const checksumsPath = path.join(tempDir, "checksums.txt");
+    const checksumsPath = path.join(tempWorkspace, "checksums.txt");
     console.log(`⬇️  Downloading checksums...`);
     await downloadFile(CHECKSUMS_URL, checksumsPath);
 
@@ -167,12 +169,12 @@ async function install() {
 
     // Extract archive
     console.log(`📂 Extracting binary...`);
-    extractArchive(archivePath, tempDir);
+    extractArchive(archivePath, tempWorkspace);
 
     // Find and move binary
     const binaryName =
       process.platform === "win32" ? `${BINARY_NAME}.exe` : BINARY_NAME;
-    const extractedBinaryPath = path.join(tempDir, binaryName);
+    const extractedBinaryPath = path.join(tempWorkspace, binaryName);
     const finalBinaryPath = path.join(binDir, binaryName);
 
     if (!fs.existsSync(extractedBinaryPath)) {
@@ -190,7 +192,7 @@ async function install() {
     }
 
     // Clean up
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempWorkspace, { recursive: true, force: true });
 
     console.log("✅ PMG binary installed successfully!");
   } catch (error) {
@@ -198,9 +200,8 @@ async function install() {
 
     // Clean up on failure
     try {
-      const tempDir = path.join(__dirname, "temp");
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+      if (tempWorkspace && fs.existsSync(tempWorkspace)) {
+        fs.rmSync(tempWorkspace, { recursive: true, force: true });
       }
     } catch (cleanupError) {
       console.warn("⚠️  Failed to clean up:", cleanupError.message);

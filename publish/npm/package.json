@@ -20,7 +20,7 @@
     "dependency-security",
     "safedep"
   ],
-  "author": "SafeDep <info@safedep.io>",
+  "author": "SafeDep <devops@safedep.io>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/safedep/pmg#readme",
   "repository": {
