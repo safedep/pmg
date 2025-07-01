@@ -64,10 +64,14 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		config.ResolveDependencies = false // Disable dependency resolution to avoid nil pointer issues
 
 		blockCalled := false
-		continueExecutionCalled := false
+		warningCalled := false
+		var warningMessage string
 
 		interaction := PackageManagerGuardInteraction{
-			ShowWarning: func(message string) {},
+			ShowWarning: func(message string) {
+				warningCalled = true
+				warningMessage = message
+			},
 			Block: func(config *ui.BlockConfig) error {
 				blockCalled = true
 				return nil
@@ -107,9 +111,9 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		// Block should not be called because InsecureInstallation bypasses the analysis
 		assert.False(t, blockCalled, "Block should not be called when InsecureInstallation is enabled")
 
-		// The guard should proceed to continue execution (which is dry run in this case)
-		continueExecutionCalled = true
-		assert.True(t, continueExecutionCalled, "Continue execution should be called")
+		// Warning should be called to inform user about insecure installation
+		assert.True(t, warningCalled, "Warning should be called when InsecureInstallation is enabled")
+		assert.Contains(t, warningMessage, "INSECURE INSTALLATION MODE", "Warning message should mention insecure installation")
 	})
 
 	t.Run("should block malware when InsecureInstallation is disabled", func(t *testing.T) {
