@@ -24,6 +24,9 @@ type PackageManagerGuardInteraction struct {
 	// ClearStatus is called to clear the status of the guard in the UI
 	ClearStatus func()
 
+	// ShowWarning is called to show a warning message to the user
+	ShowWarning func(message string)
+
 	// GetConfirmationOnMalware is called to get the confirmation of the user on the malware packages
 	GetConfirmationOnMalware func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error)
 
@@ -38,6 +41,7 @@ type PackageManagerGuardConfig struct {
 	MaxConcurrentAnalyzes int
 	AnalysisTimeout       time.Duration
 	DryRun                bool
+	InsecureInstallation  bool
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -46,6 +50,7 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		MaxConcurrentAnalyzes: 10,
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
+		InsecureInstallation:  false,
 	}
 }
 
@@ -74,6 +79,12 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
+
+	if g.config.InsecureInstallation {
+		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
+		g.showWarning("⚠️  WARNING: INSECURE INSTALLATION MODE - Malware protection bypassed!")
+		return g.continueExecution(ctx, parsedCommand)
+	}
 
 	if !parsedCommand.HasInstallTarget() {
 		// Check if this is a manifest-based installation
@@ -281,6 +292,14 @@ func (g *packageManagerGuard) clearStatus() {
 	}
 
 	g.interaction.ClearStatus()
+}
+
+func (g *packageManagerGuard) showWarning(message string) {
+	if g.interaction.ShowWarning == nil {
+		return
+	}
+
+	g.interaction.ShowWarning(message)
 }
 
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {

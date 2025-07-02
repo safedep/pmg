@@ -67,6 +67,7 @@ pnpm add <package-name>
     - [Dry Run](#dry-run)
     - [Verbose Mode](#verbose-mode)
     - [Debugging](#debugging)
+  - [Environment Variables](#environment-variables)
   - [🤝 Contributing](#-contributing)
   - [🚫 Limitations](#-limitations)
 
@@ -212,6 +213,19 @@ Store the debug logs in a file:
 
 ```bash
 pmg --debug --log /tmp/debug.json npm install <package-name>
+```
+
+## Environment Variables
+
+### PMG_INSECURE_INSTALLATION
+
+Allows bypassing the blocking behavior when malicious packages are detected during installation.
+
+> ⚠️ **Warning**: This is a security feature bypass. Use with extreme caution and only when you understand the risks.
+
+```bash
+export PMG_INSECURE_INSTALLATION=true
+pmg npm install <package-name>
 ```
 
 ## 🤝 Contributing

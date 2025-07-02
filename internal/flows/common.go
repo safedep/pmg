@@ -49,12 +49,14 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	interaction := guard.PackageManagerGuardInteraction{
 		SetStatus:                ui.SetStatus,
 		ClearStatus:              ui.ClearStatus,
+		ShowWarning:              ui.ShowWarning,
 		GetConfirmationOnMalware: ui.GetConfirmationOnMalware,
 		Block:                    ui.Block,
 	}
 
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
 	guardConfig.DryRun = f.config.DryRun
+	guardConfig.InsecureInstallation = f.config.InsecureInstallation
 
 	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {
