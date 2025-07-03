@@ -7,8 +7,7 @@
   },
   "scripts": {
     "preinstall": "echo \"Installing PMG binary for your platform...\"",
-    "postinstall": "node install.js",
-    "test": "node test.js"
+    "postinstall": "node install.js"
   },
   "keywords": [
     "security",
