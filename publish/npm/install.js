@@ -192,8 +192,18 @@ async function install() {
       );
     }
 
-    // Move binary to final location
-    fs.renameSync(extractedBinaryPath, finalBinaryPath);
+    // Move binary to final location (handle cross-device links)
+    try {
+      fs.renameSync(extractedBinaryPath, finalBinaryPath);
+    } catch (error) {
+      if (error.code === "EXDEV") {
+        // Cross-device link not permitted, copy and delete instead
+        fs.copyFileSync(extractedBinaryPath, finalBinaryPath);
+        fs.unlinkSync(extractedBinaryPath);
+      } else {
+        throw error;
+      }
+    }
 
     // Make executable on Unix systems
     if (process.platform !== "win32") {

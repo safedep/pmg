@@ -93,5 +93,5 @@ jobs:
       - name: Test installation
         run: |
           npm install -g @safedep/pmg@${{ steps.version.outputs.version }}
-          pmg --version
+          pmg version
           pmg --help || true
