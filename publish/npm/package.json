@@ -1,6 +1,5 @@
 {
   "name": "@safedep/pmg",
-  "version": "0.0.7",
   "description": "PMG protects developers from getting compromised by malicious packages",
   "main": "bin/pmg.js",
   "bin": {
