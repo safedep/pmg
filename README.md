@@ -63,6 +63,7 @@ pnpm add <package-name>
   - [Usage](#usage)
     - [Recommended: Automated Setup](#recommended)
     - [Alternative: Manual Commands](#alternative)
+    - [Lockfile Installation](#lockfile)
     - [Silent Mode](#silent-mode)
     - [Dry Run](#dry-run)
     - [Verbose Mode](#verbose-mode)
@@ -87,10 +88,11 @@ PMG supports the following package managers:
 | --------------- | --------- | --------------------------- |
 | `npm`           | ✅ Active  | `pmg npm install <package>` |
 | `pnpm`          | ✅ Active  | `pmg pnpm add <package>`    |
+| `bun`           | ✅ Active  | `pmg bun add <package>` |
 | `pip`           | ✅ Active  | `pmg pip install <package>` |
+| `uv`            | 🚧 Planned |                             |
 | `yarn`          | 🚧 Planned |                             |
 | `poetry`        | 🚧 Planned |                             |
-| `uv`            | 🚧 Planned |                             |
 
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
@@ -164,6 +166,7 @@ After setup, use your package managers normally:
 ```bash
 npm install <package-name>
 pnpm add <package-name>
+bun add <package-name>
 pip install <package-name>
 ```
 
@@ -173,8 +176,22 @@ You can also run PMG manually without aliases:
 ```bash
 pmg npm install <package-name>
 pmg pnpm add <package-name>
+pmg bun add <package-name>
 pmg pip install <package-name>
 ```
+
+### Lockfile Installation
+PMG seamlessly protects lockfile-based installations:
+
+```bash
+npm install          # Uses package-lock.json
+pnpm install         # Uses pnpm-lock.yaml
+bun install          # Uses bun.lock
+
+pip install -r requirements.txt   # Uses requirements file
+```
+
+PMG scans the exact package versions specified in lockfiles and blocks installation if malicious packages are detected.
 
 ### Silent Mode
 
