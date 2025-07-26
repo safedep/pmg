@@ -25,6 +25,7 @@ const (
 	Npm  PackageManagerName = "npm"
 	Pnpm PackageManagerName = "pnpm"
 	Pip  PackageManagerName = "pip"
+	Bun  PackageManagerName = "bun"
 )
 
 type ExtractorManager struct {
@@ -37,6 +38,7 @@ func NewExtractorManager() *ExtractorManager {
 			Npm:  &NpmExtractor{},
 			Pnpm: &PnpmExtractor{},
 			Pip:  &PipExtractor{},
+			Bun:  &BunExtractor{},
 		},
 	}
 }

@@ -90,6 +90,7 @@ func main() {
 
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())
+	cmd.AddCommand(npm.NewBunCommand())
 	cmd.AddCommand(pypi.NewPipCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
