@@ -37,7 +37,7 @@ func parseNpmPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.Package
 
 	file, err := os.Open(lockfilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %s", err)
+		return nil, fmt.Errorf("failed to open lockfile: %w", err)
 	}
 	defer file.Close()
 
@@ -49,7 +49,7 @@ func parseNpmPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.Package
 
 	inventory, err := packagelockExtractor.Extract(context.Background(), inputConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %s", err)
+		return nil, fmt.Errorf("failed to extract packages: %w", err)
 	}
 
 	var packages []*packagev1.PackageVersion
@@ -93,7 +93,7 @@ func parsePnpmLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersio
 
 	file, err := os.Open(lockfilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %s", err)
+		return nil, fmt.Errorf("failed to open lockfile: %w", err)
 	}
 	defer file.Close()
 
@@ -105,7 +105,7 @@ func parsePnpmLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersio
 
 	inventory, err := pnpmLockExtractor.Extract(context.Background(), inputConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %s", err)
+		return nil, fmt.Errorf("failed to extract packages: %w", err)
 	}
 
 	var packages []*packagev1.PackageVersion
@@ -148,7 +148,7 @@ func parseBunPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.Package
 
 	file, err := os.Open(lockfilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %s", err)
+		return nil, fmt.Errorf("failed to open lockfile: %w", err)
 	}
 	defer file.Close()
 
@@ -160,7 +160,7 @@ func parseBunPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.Package
 
 	inventory, err := bunlockExtractor.Extract(context.Background(), inputConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %s", err)
+		return nil, fmt.Errorf("failed to extract packages: %w", err)
 	}
 
 	var packages []*packagev1.PackageVersion

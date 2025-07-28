@@ -35,7 +35,7 @@ func parseRequirementsTxtFile(lockfilePath, scanDir string) ([]*packagev1.Packag
 
 	file, err := os.Open(lockfilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %s", err)
+		return nil, fmt.Errorf("failed to open lockfile: %w", err)
 	}
 	defer file.Close()
 
@@ -47,7 +47,7 @@ func parseRequirementsTxtFile(lockfilePath, scanDir string) ([]*packagev1.Packag
 
 	inventory, err := requirementsExtractor.Extract(context.Background(), inputConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %s", err)
+		return nil, fmt.Errorf("failed to extract packages: %w", err)
 	}
 
 	var packages []*packagev1.PackageVersion
