@@ -27,6 +27,13 @@ func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 	}
 }
 
+func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
+	return NpmPackageManagerConfig{
+		InstallCommands: []string{"install", "i", "add"},
+		CommandName:     "bun",
+	}
+}
+
 type npmPackageManager struct {
 	Config NpmPackageManagerConfig
 }
@@ -48,7 +55,7 @@ func (npm *npmPackageManager) Ecosystem() packagev1.Ecosystem {
 }
 
 func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && (args[0] == "npm" || args[0] == "pnpm") {
+	if len(args) > 0 && (args[0] == "npm" || args[0] == "pnpm" || args[0] == "bun") {
 		args = args[1:]
 	}
 

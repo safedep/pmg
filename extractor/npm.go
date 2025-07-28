@@ -7,6 +7,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/google/osv-scalibr/extractor/filesystem"
+	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/bunlock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/packagelockjson"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/pnpmlock"
 	"github.com/google/osv-scalibr/fs"
@@ -103,6 +104,61 @@ func parsePnpmLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersio
 	}
 
 	inventory, err := pnpmLockExtractor.Extract(context.Background(), inputConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract packages: %s", err)
+	}
+
+	var packages []*packagev1.PackageVersion
+
+	for _, invPkg := range inventory.Packages {
+		pkg := &packagev1.PackageVersion{
+			Package: &packagev1.Package{
+				Name:      invPkg.Name,
+				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+			},
+			Version: invPkg.Version,
+		}
+
+		packages = append(packages, pkg)
+	}
+
+	return packages, nil
+}
+
+type BunExtractor struct{}
+
+func (n *BunExtractor) GetSupportedFiles() []string {
+	return []string{"bun.lock"}
+}
+
+func (n *BunExtractor) GetEcosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_NPM
+}
+
+func (n *BunExtractor) GetPackageManager() PackageManagerName {
+	return Bun
+}
+
+func (n *BunExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseBunPackageLockFile(lockfilePath, scanDir)
+}
+
+func parseBunPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	bunlockExtractor := bunlock.New()
+
+	file, err := os.Open(lockfilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open lockfile: %s", err)
+	}
+	defer file.Close()
+
+	inputConfig := &filesystem.ScanInput{
+		FS:     fs.DirFS(scanDir),
+		Path:   lockfilePath,
+		Reader: file,
+	}
+
+	inventory, err := bunlockExtractor.Extract(context.Background(), inputConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract packages: %s", err)
 	}

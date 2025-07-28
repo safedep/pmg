@@ -3,6 +3,7 @@ package analytics
 const (
 	eventRun         = "pmg_command_run"
 	eventCommandNpm  = "pmg_command_npm"
+	eventCommandBun  = "pmg_command_bun"
 	eventCommandPnpm = "pmg_command_pnpm"
 	eventCommandPip  = "pmg_command_pip"
 
@@ -17,6 +18,10 @@ func TrackCommandRun() {
 
 func TrackCommandNpm() {
 	TrackEvent(eventCommandNpm)
+}
+
+func TrackCommandBun() {
+	TrackEvent(eventCommandBun)
 }
 
 func TrackCommandPnpm() {
