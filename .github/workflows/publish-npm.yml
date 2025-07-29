@@ -73,6 +73,7 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Wait for npm package
+        shell: bash
         run: |
           echo "Waiting for npm package..."
           i=1
