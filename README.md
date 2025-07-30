@@ -151,6 +151,8 @@ This will:
 - Remove the source line from your shell configuration files
 - Delete the ~/.pmg.rc file
 
+> ⚠️ Note: Aliases might still be active in your **current terminal session**. Restart your terminal or use `unalias <cmd>` to remove them instantly.
+
 ## Usage
 
 ### Recommended: Automated Setup
