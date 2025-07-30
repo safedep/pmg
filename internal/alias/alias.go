@@ -135,7 +135,7 @@ func (a *AliasManager) Remove() error {
 		return fmt.Errorf("failed to clean shell configs: %w", err)
 	}
 
-	fmt.Println("✅ PMG aliases and shell config changes removed.")
+	fmt.Println("✅ PMG config removed. Existing aliases need a shell restart.")
 	return nil
 }
 

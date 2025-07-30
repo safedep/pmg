@@ -61,9 +61,9 @@ pnpm add <package-name>
     - [Install Aliases](#install-aliases)
     - [Remove Aliases](#remove-aliases)
   - [Usage](#usage)
-    - [Recommended: Automated Setup](#recommended)
-    - [Alternative: Manual Commands](#alternative)
-    - [Lockfile Installation](#lockfile)
+    - [Recommended: Automated Setup](#recommended-automated-setup)
+    - [Alternative: Manual Commands](#alternative-manual-commands)
+    - [Lockfile Installation](#lockfile-installation)
     - [Silent Mode](#silent-mode)
     - [Dry Run](#dry-run)
     - [Verbose Mode](#verbose-mode)
@@ -150,6 +150,8 @@ This will:
 
 - Remove the source line from your shell configuration files
 - Delete the ~/.pmg.rc file
+
+> ⚠️ Note: Aliases might still be active in your **current terminal session**. Restart your terminal or use `unalias <cmd>` to remove them instantly.
 
 ## Usage
 
