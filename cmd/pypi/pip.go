@@ -31,7 +31,7 @@ func NewPipCommand() *cobra.Command {
 
 func executePipFlow(ctx context.Context, args []string) error {
 	analytics.TrackCommandPip()
-	packageManager, err := packagemanager.NewPipPackageManager(packagemanager.DefaultPipPackageManagerConfig())
+	packageManager, err := packagemanager.NewPypiPackageManager(packagemanager.DefaultPipPackageManagerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create pip package manager: %w", err)
 	}

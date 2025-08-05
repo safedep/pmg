@@ -112,7 +112,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 }
 
 func TestPipParseCommand(t *testing.T) {
-	pm, err := NewPipPackageManager(DefaultPipPackageManagerConfig())
+	pm, err := NewPypiPackageManager(DefaultPipPackageManagerConfig())
 	assert.NoError(t, err)
 
 	cases := []struct {

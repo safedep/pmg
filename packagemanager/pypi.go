@@ -12,39 +12,39 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
-type PipPackageManagerConfig struct {
+type PypiPackageManagerConfig struct {
 	InstallCommands []string
 	CommandName     string
 }
 
-func DefaultPipPackageManagerConfig() PipPackageManagerConfig {
-	return PipPackageManagerConfig{
+func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
+	return PypiPackageManagerConfig{
 		InstallCommands: []string{"install"},
 		CommandName:     "pip",
 	}
 }
 
-type pipPackageManager struct {
-	Config PipPackageManagerConfig
+type pypiPackageManager struct {
+	Config PypiPackageManagerConfig
 }
 
-func NewPipPackageManager(config PipPackageManagerConfig) (*pipPackageManager, error) {
-	return &pipPackageManager{
+func NewPypiPackageManager(config PypiPackageManagerConfig) (*pypiPackageManager, error) {
+	return &pypiPackageManager{
 		Config: config,
 	}, nil
 }
 
-var _ PackageManager = &pipPackageManager{}
+var _ PackageManager = &pypiPackageManager{}
 
-func (pip *pipPackageManager) Name() string {
-	return "pip"
+func (pip *pypiPackageManager) Name() string {
+	return pip.Config.CommandName
 }
 
-func (pip *pipPackageManager) Ecosystem() packagev1.Ecosystem {
+func (pip *pypiPackageManager) Ecosystem() packagev1.Ecosystem {
 	return packagev1.Ecosystem_ECOSYSTEM_PYPI
 }
 
-func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+func (pip *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Remove 'pip' if it's the first argument
 	if len(args) > 0 && args[0] == "pip" {
 		args = args[1:]
