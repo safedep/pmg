@@ -98,7 +98,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pkgName, version, extras, err := pipParsePackageInfo(tc.input)
+			pkgName, version, extras, err := pypiParsePackageInfo(tc.input)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -245,7 +245,7 @@ func TestPipConvertCompatibleRelease(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := pipConvertCompatibleRelease(tc.input)
+			result := pypiConvertCompatibleRelease(tc.input)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

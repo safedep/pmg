@@ -91,7 +91,7 @@ func TestPipGetLatestMatchingVersion(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			version, err := pipGetMatchingVersion(tc.packageName, tc.versionConstraint)
+			version, err := pypiGetMatchingVersion(tc.packageName, tc.versionConstraint)
 			tc.assertFn(t, version, err)
 		})
 	}

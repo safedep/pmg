@@ -36,21 +36,21 @@ func NewPypiPackageManager(config PypiPackageManagerConfig) (*pypiPackageManager
 
 var _ PackageManager = &pypiPackageManager{}
 
-func (pip *pypiPackageManager) Name() string {
-	return pip.Config.CommandName
+func (pypi *pypiPackageManager) Name() string {
+	return pypi.Config.CommandName
 }
 
-func (pip *pypiPackageManager) Ecosystem() packagev1.Ecosystem {
+func (pypi *pypiPackageManager) Ecosystem() packagev1.Ecosystem {
 	return packagev1.Ecosystem_ECOSYSTEM_PYPI
 }
 
-func (pip *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+func (pypi *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Remove 'pip' if it's the first argument
 	if len(args) > 0 && args[0] == "pip" {
 		args = args[1:]
 	}
 
-	command := Command{Exe: pip.Config.CommandName, Args: args}
+	command := Command{Exe: pypi.Config.CommandName, Args: args}
 
 	if len(args) < 1 {
 		return &ParsedCommand{Command: command}, nil
@@ -59,7 +59,7 @@ func (pip *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, erro
 	// Find the install command
 	var installCmdIndex = -1
 	for idx, arg := range args {
-		if slices.Contains(pip.Config.InstallCommands, arg) {
+		if slices.Contains(pypi.Config.InstallCommands, arg) {
 			installCmdIndex = idx
 			break
 		}
@@ -101,7 +101,7 @@ func (pip *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, erro
 	// Process packages
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pipParsePackageInfo(pkg)
+		packageName, version, extras, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse package info: %w", err)
 		}
@@ -110,7 +110,7 @@ func (pip *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, erro
 			if strings.HasPrefix(version, "==") {
 				version = strings.TrimPrefix(version, "==")
 			} else {
-				version, err = pipGetMatchingVersion(packageName, version)
+				version, err = pypiGetMatchingVersion(packageName, version)
 				if err != nil {
 					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
 				}
@@ -137,10 +137,10 @@ func (pip *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, erro
 	}, nil
 }
 
-// pipParsePackageInfo parses a pip install package specification, separating the package name,
+// pypiParsePackageInfo parses a python package installation specification, separating the package name,
 // version constraints, and any extras (additional features) to be installed.
 // Example: "django[mysql,redis]>=3.0" returns ("django", ">=3.0", ["mysql", "redis"], nil)
-func pipParsePackageInfo(input string) (packageName, version string, extras []string, err error) {
+func pypiParsePackageInfo(input string) (packageName, version string, extras []string, err error) {
 	if input == "" {
 		return "", "", nil, fmt.Errorf("package info cannot be empty")
 	}
@@ -195,7 +195,7 @@ func pipParsePackageInfo(input string) (packageName, version string, extras []st
 	return packageName, version, extras, nil
 }
 
-func pipConvertCompatibleRelease(version string) string {
+func pypiConvertCompatibleRelease(version string) string {
 	if !strings.HasPrefix(version, "~=") {
 		return version
 	}
