@@ -6,6 +6,7 @@ const (
 	eventCommandBun  = "pmg_command_bun"
 	eventCommandPnpm = "pmg_command_pnpm"
 	eventCommandPip  = "pmg_command_pip"
+	eventCommandUv   = "pmg_command_uv"
 
 	eventPmgGenerateEnvDocker        = "pmg_command_generate_env_docker"
 	eventPmgGenerateEnvGitHubActions = "pmg_command_generate_env_github_actions"
@@ -30,6 +31,10 @@ func TrackCommandPnpm() {
 
 func TrackCommandPip() {
 	TrackEvent(eventCommandPip)
+}
+
+func TrackCommandUv() {
+	TrackEvent(eventCommandUv)
 }
 
 func TrackCommandGenerateEnvDocker() {

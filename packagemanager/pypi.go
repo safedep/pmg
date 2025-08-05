@@ -30,7 +30,7 @@ func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
 
 func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands: []string{"add"},
+		InstallCommands: []string{"add", "install"},
 		CommandName:     "uv",
 	}
 }
@@ -185,52 +185,62 @@ func NewUVCommandParser(config PypiPackageManagerConfig) pypiCommandParser {
 	}
 }
 
-func (p *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
-	command := Command{Exe: p.config.CommandName, Args: args}
+func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
+	// Remove 'uv' if it's the first argument
+	if len(args) > 0 && args[0] == "uv" {
+		args = args[1:]
+	}
 
+	command := Command{Exe: u.config.CommandName, Args: args}
 	if len(args) < 1 {
 		return &ParsedCommand{Command: command}, nil
 	}
 
-	// Handle both `uv pip install` and `uv install` forms
-	var installArgs []string
-	var foundInstall bool
-
-	// Check for different UV command patterns
-	if len(args) >= 2 && args[0] == "pip" && slices.Contains(p.config.InstallCommands, args[1]) {
-		// uv pip install ...
-		installArgs = args[2:]
-		foundInstall = true
-	} else if len(args) >= 1 && slices.Contains(p.config.InstallCommands, args[0]) {
-		// uv install ...
-		installArgs = args[1:]
-		foundInstall = true
+	// Handle uv sync command (installs from uv.lock)
+	if args[0] == "sync" {
+		return &ParsedCommand{
+			Command:           command,
+			InstallTargets:    nil,
+			IsManifestInstall: true,
+			ManifestFiles:     []string{"uv.lock"},
+		}, nil
 	}
 
-	if !foundInstall {
+	// Find the install command position
+	var installCmdIndex = -1
+	for idx, arg := range args {
+		if slices.Contains(u.config.InstallCommands, arg) {
+			installCmdIndex = idx
+			break
+		}
+	}
+
+	if installCmdIndex == -1 {
+		// No install command found, return as-is
 		return &ParsedCommand{Command: command}, nil
 	}
 
+	// Extract arguments after the install command
+	installArgs := args[installCmdIndex+1:]
+
+	// Set up flag parsing
 	fs := pflag.NewFlagSet("uv", pflag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	// Define UV-specific flags
-	var requirementFiles []string
-	fs.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
+	var manifestFiles []string
 
-	// Add any UV-specific flags here
-	// var useSystem bool
-	// fs.BoolVar(&useSystem, "system", false, "Use system packages")
+	fs.StringArrayVarP(&manifestFiles, "requirement", "r", nil, "Install from requirement file")
 
 	err := fs.Parse(installArgs)
 	if err != nil {
 		return &ParsedCommand{Command: command}, nil
 	}
 
-	// Get remaining arguments (package names)
 	packages := fs.Args()
 
-	// Process packages using the shared package info parser
+	// Determine if this is a manifest install
+	isManifestInstall := len(manifestFiles) > 0
+
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
 		packageName, version, extras, err := pypiParsePackageInfo(pkg)
@@ -264,8 +274,8 @@ func (p *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	return &ParsedCommand{
 		Command:           command,
 		InstallTargets:    installTargets,
-		IsManifestInstall: len(requirementFiles) > 0,
-		ManifestFiles:     requirementFiles,
+		IsManifestInstall: isManifestInstall,
+		ManifestFiles:     manifestFiles,
 	}, nil
 }
 
