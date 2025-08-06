@@ -1,14 +1,7 @@
 package extractor
 
 import (
-	"context"
-	"fmt"
-	"os"
-
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	"github.com/google/osv-scalibr/extractor/filesystem"
-	"github.com/google/osv-scalibr/extractor/filesystem/language/python/requirements"
-	"github.com/google/osv-scalibr/fs"
 )
 
 // PipExtractor handles requirements.txt files
@@ -27,42 +20,24 @@ func (p *PipExtractor) GetPackageManager() PackageManagerName {
 }
 
 func (n *PipExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parseRequirementsTxtFile(lockfilePath, scanDir)
+	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
 }
 
-func parseRequirementsTxtFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	requirementsExtractor := requirements.NewDefault()
+// UvExtractor handles uv.lock files
+type UvExtractor struct{}
 
-	file, err := os.Open(lockfilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %w", err)
-	}
-	defer file.Close()
+func (u *UvExtractor) GetSupportedFiles() []string {
+	return []string{"uv.lock"}
+}
 
-	inputConfig := &filesystem.ScanInput{
-		FS:     fs.DirFS(scanDir),
-		Path:   lockfilePath,
-		Reader: file,
-	}
+func (u *UvExtractor) GetEcosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_PYPI
+}
 
-	inventory, err := requirementsExtractor.Extract(context.Background(), inputConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %w", err)
-	}
+func (u *UvExtractor) GetPackageManager() PackageManagerName {
+	return Uv
+}
 
-	var packages []*packagev1.PackageVersion
-
-	for _, invPkg := range inventory.Packages {
-		pkg := &packagev1.PackageVersion{
-			Package: &packagev1.Package{
-				Name:      invPkg.Name,
-				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI,
-			},
-			Version: invPkg.Version,
-		}
-
-		packages = append(packages, pkg)
-	}
-
-	return packages, nil
+func (u *UvExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, u.GetEcosystem())
 }

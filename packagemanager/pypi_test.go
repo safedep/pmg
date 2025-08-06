@@ -98,7 +98,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pkgName, version, extras, err := pipParsePackageInfo(tc.input)
+			pkgName, version, extras, err := pypiParsePackageInfo(tc.input)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -112,7 +112,7 @@ func TestPipParsePackageInfo(t *testing.T) {
 }
 
 func TestPipParseCommand(t *testing.T) {
-	pm, err := NewPipPackageManager(DefaultPipPackageManagerConfig())
+	pm, err := NewPypiPackageManager(DefaultPipPackageManagerConfig())
 	assert.NoError(t, err)
 
 	cases := []struct {
@@ -245,8 +245,118 @@ func TestPipConvertCompatibleRelease(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := pipConvertCompatibleRelease(tc.input)
+			result := pypiConvertCompatibleRelease(tc.input)
 			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestUvParseCommand(t *testing.T) {
+	pm, err := NewPypiPackageManager(DefaultUvPackageManagerConfig())
+	assert.NoError(t, err)
+
+	cases := []struct {
+		name             string
+		args             []string
+		expectedManifest bool
+		expectedFiles    []string
+		expectedTargets  int
+		expectedPackages []string
+		wantErr          bool
+	}{
+		{
+			name:             "uv add simple package",
+			args:             []string{"add", "flask"},
+			expectedManifest: false,
+			expectedFiles:    []string{""},
+			expectedTargets:  1,
+			expectedPackages: []string{"flask"},
+			wantErr:          false,
+		},
+		{
+			name:             "uv add multiple packages",
+			args:             []string{"add", "flask", "requests"},
+			expectedManifest: false,
+			expectedFiles:    []string{""},
+			expectedTargets:  2,
+			expectedPackages: []string{
+				"flask",
+				"requests",
+			},
+			wantErr: false,
+		},
+		{
+			name:             "uv pip install simple package",
+			args:             []string{"pip", "install", "fastapi"},
+			expectedManifest: false,
+			expectedFiles:    []string{""},
+			expectedTargets:  2,
+			expectedPackages: []string{"fastapi"},
+			wantErr:          false,
+		},
+		{
+			name:             "uv pip install multiple packages",
+			args:             []string{"pip", "install", "flask", "requests"},
+			expectedManifest: false,
+			expectedFiles:    []string{""},
+			expectedTargets:  2,
+			expectedPackages: []string{
+				"flask",
+				"requests",
+			},
+			wantErr: false,
+		},
+		{
+			name:             "uv pip install from manifest file",
+			args:             []string{"pip", "install", "-r", "requirements.txt"},
+			expectedManifest: true,
+			expectedFiles:    []string{"requirements.txt"},
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv pip install from multiple manifest files",
+			args:             []string{"pip", "install", "-r", "requirements.txt", "-r", "dev-requirements.txt"},
+			expectedManifest: true,
+			expectedFiles:    []string{"requirements.txt", "dev-requirements.txt"},
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "uv sync",
+			args:             []string{"sync"},
+			expectedManifest: true,
+			expectedFiles:    []string{"uv.lock"},
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := pm.ParseCommand(tc.args)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+
+			assert.Equal(t, tc.expectedManifest, result.HasManifestInstall(), "HasManifestInstall mismatch")
+
+			expectedShouldExtract := tc.expectedManifest && tc.expectedTargets == 0
+			assert.Equal(t, expectedShouldExtract, result.ShouldExtractFromManifest(), "ShouldExtractFromManifest mismatch")
+
+			assert.Equal(t, len(tc.expectedPackages), len(result.InstallTargets), "Number of install targets mismatch")
+
+			for i, expectedPkg := range tc.expectedPackages {
+				if i < len(result.InstallTargets) {
+					target := result.InstallTargets[i]
+					assert.Equal(t, expectedPkg, target.PackageVersion.Package.Name, "Package name mismatch for package %d", i)
+				}
+			}
 		})
 	}
 }

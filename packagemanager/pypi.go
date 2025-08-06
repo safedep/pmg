@@ -12,45 +12,83 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
-type PipPackageManagerConfig struct {
+type pypiCommandParser interface {
+	ParseCommand(args []string) (*ParsedCommand, error)
+}
+
+type PypiPackageManagerConfig struct {
 	InstallCommands []string
 	CommandName     string
 }
 
-func DefaultPipPackageManagerConfig() PipPackageManagerConfig {
-	return PipPackageManagerConfig{
+func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
+	return PypiPackageManagerConfig{
 		InstallCommands: []string{"install"},
 		CommandName:     "pip",
 	}
 }
 
-type pipPackageManager struct {
-	Config PipPackageManagerConfig
+func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
+	return PypiPackageManagerConfig{
+		InstallCommands: []string{"add", "install"},
+		CommandName:     "uv",
+	}
 }
 
-func NewPipPackageManager(config PipPackageManagerConfig) (*pipPackageManager, error) {
-	return &pipPackageManager{
+type pypiPackageManager struct {
+	Config PypiPackageManagerConfig
+	parser pypiCommandParser
+}
+
+func NewPypiPackageManager(config PypiPackageManagerConfig) (*pypiPackageManager, error) {
+	var parser pypiCommandParser
+
+	switch config.CommandName {
+	case "pip":
+		parser = NewPipCommandParser(config)
+	case "uv":
+		parser = NewUVCommandParser(config)
+	default:
+		return nil, fmt.Errorf("unsupported package manager: %s", config.CommandName)
+	}
+
+	return &pypiPackageManager{
 		Config: config,
+		parser: parser,
 	}, nil
 }
 
-var _ PackageManager = &pipPackageManager{}
+var _ PackageManager = &pypiPackageManager{}
 
-func (pip *pipPackageManager) Name() string {
-	return "pip"
+func (pypi *pypiPackageManager) Name() string {
+	return pypi.Config.CommandName
 }
 
-func (pip *pipPackageManager) Ecosystem() packagev1.Ecosystem {
+func (pypi *pypiPackageManager) Ecosystem() packagev1.Ecosystem {
 	return packagev1.Ecosystem_ECOSYSTEM_PYPI
 }
 
-func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+func (pypi *pypiPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
+	return pypi.parser.ParseCommand(args)
+}
+
+type pipCommandParser struct {
+	config PypiPackageManagerConfig
+}
+
+func NewPipCommandParser(config PypiPackageManagerConfig) pypiCommandParser {
+	return &pipCommandParser{
+		config: config,
+	}
+}
+
+func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Remove 'pip' if it's the first argument
 	if len(args) > 0 && args[0] == "pip" {
 		args = args[1:]
 	}
 
-	command := Command{Exe: pip.Config.CommandName, Args: args}
+	command := Command{Exe: p.config.CommandName, Args: args}
 
 	if len(args) < 1 {
 		return &ParsedCommand{Command: command}, nil
@@ -59,7 +97,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// Find the install command
 	var installCmdIndex = -1
 	for idx, arg := range args {
-		if slices.Contains(pip.Config.InstallCommands, arg) {
+		if slices.Contains(p.config.InstallCommands, arg) {
 			installCmdIndex = idx
 			break
 		}
@@ -73,15 +111,15 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// Extract arguments after the install command
 	installArgs := args[installCmdIndex+1:]
 
-	fs := pflag.NewFlagSet("pip", pflag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	flagSet := pflag.NewFlagSet("pip", pflag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
 
 	// Define flags
 	var requirementFiles []string
-	fs.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
+	flagSet.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
 
 	// Parse arguments (supports interleaved flags + positional args)
-	err := fs.Parse(installArgs)
+	err := flagSet.Parse(installArgs)
 	if err != nil {
 		return &ParsedCommand{
 			Command: command,
@@ -89,7 +127,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	// Get remaining arguments (package names)
-	packages := fs.Args()
+	packages := flagSet.Args()
 
 	// Determine if this is a manifest install
 	isManifestInstall := len(requirementFiles) > 0
@@ -101,7 +139,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// Process packages
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pipParsePackageInfo(pkg)
+		packageName, version, extras, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse package info: %w", err)
 		}
@@ -110,7 +148,7 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			if strings.HasPrefix(version, "==") {
 				version = strings.TrimPrefix(version, "==")
 			} else {
-				version, err = pipGetMatchingVersion(packageName, version)
+				version, err = pypiGetMatchingVersion(packageName, version)
 				if err != nil {
 					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
 				}
@@ -137,10 +175,126 @@ func (pip *pipPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}, nil
 }
 
-// pipParsePackageInfo parses a pip install package specification, separating the package name,
+type uvCommandParser struct {
+	config PypiPackageManagerConfig
+}
+
+func NewUVCommandParser(config PypiPackageManagerConfig) pypiCommandParser {
+	return &uvCommandParser{
+		config: config,
+	}
+}
+
+func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
+	// Remove 'uv' if it's the first argument
+	if len(args) > 0 && args[0] == "uv" {
+		args = args[1:]
+	}
+
+	command := Command{Exe: u.config.CommandName, Args: args}
+	if len(args) < 1 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Handle uv sync command (installs from uv.lock)
+	if args[0] == "sync" {
+		return &ParsedCommand{
+			Command:           command,
+			InstallTargets:    nil,
+			IsManifestInstall: true,
+			ManifestFiles:     []string{"uv.lock"},
+		}, nil
+	}
+
+	// Handles pip sync command (installs from requirements.txt style files)
+	if len(args) >= 3 && args[0] == "pip" && args[1] == "sync" {
+		manifestFile := args[2]
+
+		return &ParsedCommand{
+			Command:           command,
+			InstallTargets:    nil,
+			IsManifestInstall: true,
+			ManifestFiles:     []string{manifestFile},
+		}, nil
+	}
+
+	// Find the install command position
+	var installCmdIndex = -1
+	for idx, arg := range args {
+		if slices.Contains(u.config.InstallCommands, arg) {
+			installCmdIndex = idx
+			break
+		}
+	}
+
+	if installCmdIndex == -1 {
+		// No install command found, return as-is
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Extract arguments after the install command
+	installArgs := args[installCmdIndex+1:]
+
+	// Set up flag parsing
+	flagSet := pflag.NewFlagSet("uv", pflag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
+
+	var manifestFiles []string
+
+	flagSet.StringArrayVarP(&manifestFiles, "requirement", "r", nil, "Install from requirement file")
+
+	err := flagSet.Parse(installArgs)
+	if err != nil {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	packages := flagSet.Args()
+
+	// Determine if this is a manifest install
+	isManifestInstall := len(manifestFiles) > 0
+
+	var installTargets []*PackageInstallTarget
+	for _, pkg := range packages {
+		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse package info: %w", err)
+		}
+
+		if version != "" {
+			if strings.HasPrefix(version, "==") {
+				version = strings.TrimPrefix(version, "==")
+			} else {
+				version, err = pypiGetMatchingVersion(packageName, version)
+				if err != nil {
+					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
+				}
+			}
+		}
+
+		installTargets = append(installTargets, &PackageInstallTarget{
+			PackageVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI,
+					Name:      packageName,
+				},
+				Version: version,
+			},
+			Extras: extras,
+		})
+	}
+
+	return &ParsedCommand{
+		Command:           command,
+		InstallTargets:    installTargets,
+		IsManifestInstall: isManifestInstall,
+		ManifestFiles:     manifestFiles,
+	}, nil
+}
+
+// pypiParsePackageInfo parses a python package installation specification, separating the package name,
 // version constraints, and any extras (additional features) to be installed.
 // Example: "django[mysql,redis]>=3.0" returns ("django", ">=3.0", ["mysql", "redis"], nil)
-func pipParsePackageInfo(input string) (packageName, version string, extras []string, err error) {
+func pypiParsePackageInfo(input string) (packageName, version string, extras []string, err error) {
 	if input == "" {
 		return "", "", nil, fmt.Errorf("package info cannot be empty")
 	}
@@ -195,7 +349,7 @@ func pipParsePackageInfo(input string) (packageName, version string, extras []st
 	return packageName, version, extras, nil
 }
 
-func pipConvertCompatibleRelease(version string) string {
+func pypiConvertCompatibleRelease(version string) string {
 	if !strings.HasPrefix(version, "~=") {
 		return version
 	}

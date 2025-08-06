@@ -13,15 +13,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewPipCommand() *cobra.Command {
+func NewUvCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:                "pip [action] [package]",
-		Short:              "Guard pip package manager",
+		Use:                "uv [action] [package]",
+		Short:              "Guard uv package manager",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := executePipFlow(cmd.Context(), args)
+			err := executeUvFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute pip flow: %s", err)
+				log.Errorf("Failed to execute uv flow: %s", err)
 			}
 
 			return nil
@@ -29,11 +29,11 @@ func NewPipCommand() *cobra.Command {
 	}
 }
 
-func executePipFlow(ctx context.Context, args []string) error {
-	analytics.TrackCommandPip()
-	packageManager, err := packagemanager.NewPypiPackageManager(packagemanager.DefaultPipPackageManagerConfig())
+func executeUvFlow(ctx context.Context, args []string) error {
+	analytics.TrackCommandUv()
+	packageManager, err := packagemanager.NewPypiPackageManager(packagemanager.DefaultUvPackageManagerConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create pip package manager: %w", err)
+		return fmt.Errorf("failed to create uv package manager: %w", err)
 	}
 
 	config, err := config.FromContext(ctx)

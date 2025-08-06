@@ -61,7 +61,7 @@ func NewPypiDependencyResolver(config PyPiDependencyResolverConfig) (*pypiDepend
 
 func (p *pypiDependencyResolver) ResolveDependencies(ctx context.Context, pkg *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
 	pypiVersionSpecResolverFn := func(packageName, version string) string {
-		ver, err := pipGetMatchingVersion(packageName, version)
+		ver, err := pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			log.Debugf("error getting matching version for %s@%s", packageName, version)
 			return ""
@@ -247,7 +247,7 @@ func pypiParseDependency(input string) (string, string, string) {
 	return name, version, extra
 }
 
-func pipGetMatchingVersion(packageName, versionConstraint string) (string, error) {
+func pypiGetMatchingVersion(packageName, versionConstraint string) (string, error) {
 	// Already a exact version
 	if strings.HasPrefix(versionConstraint, "==") {
 		return versionConstraint, nil
@@ -255,7 +255,7 @@ func pipGetMatchingVersion(packageName, versionConstraint string) (string, error
 
 	// Handle compatible release operator
 	if strings.HasPrefix(versionConstraint, "~=") {
-		versionConstraint = pipConvertCompatibleRelease(versionConstraint)
+		versionConstraint = pypiConvertCompatibleRelease(versionConstraint)
 	}
 	// Handle empty version constraint
 	if versionConstraint == "" {

@@ -1,16 +1,7 @@
 package extractor
 
 import (
-	"context"
-	"fmt"
-	"os"
-
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	"github.com/google/osv-scalibr/extractor/filesystem"
-	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/bunlock"
-	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/packagelockjson"
-	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/pnpmlock"
-	"github.com/google/osv-scalibr/fs"
 )
 
 // NpmExtractor handles package-lock.json files
@@ -29,44 +20,7 @@ func (n *NpmExtractor) GetPackageManager() PackageManagerName {
 }
 
 func (n *NpmExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parseNpmPackageLockFile(lockfilePath, scanDir)
-}
-
-func parseNpmPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	packagelockExtractor := packagelockjson.NewDefault()
-
-	file, err := os.Open(lockfilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %w", err)
-	}
-	defer file.Close()
-
-	inputConfig := &filesystem.ScanInput{
-		FS:     fs.DirFS(scanDir),
-		Path:   lockfilePath,
-		Reader: file,
-	}
-
-	inventory, err := packagelockExtractor.Extract(context.Background(), inputConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %w", err)
-	}
-
-	var packages []*packagev1.PackageVersion
-
-	for _, invPkg := range inventory.Packages {
-		pkg := &packagev1.PackageVersion{
-			Package: &packagev1.Package{
-				Name:      invPkg.Name,
-				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-			},
-			Version: invPkg.Version,
-		}
-
-		packages = append(packages, pkg)
-	}
-
-	return packages, nil
+	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
 }
 
 // PnpmExtractor handles pnpm-lock.yaml files
@@ -85,44 +39,7 @@ func (p *PnpmExtractor) GetPackageManager() PackageManagerName {
 }
 
 func (p *PnpmExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parsePnpmLockFile(lockfilePath, scanDir)
-}
-
-func parsePnpmLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	pnpmLockExtractor := pnpmlock.New()
-
-	file, err := os.Open(lockfilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %w", err)
-	}
-	defer file.Close()
-
-	inputConfig := &filesystem.ScanInput{
-		FS:     fs.DirFS(scanDir),
-		Path:   lockfilePath,
-		Reader: file,
-	}
-
-	inventory, err := pnpmLockExtractor.Extract(context.Background(), inputConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %w", err)
-	}
-
-	var packages []*packagev1.PackageVersion
-
-	for _, invPkg := range inventory.Packages {
-		pkg := &packagev1.PackageVersion{
-			Package: &packagev1.Package{
-				Name:      invPkg.Name,
-				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-			},
-			Version: invPkg.Version,
-		}
-
-		packages = append(packages, pkg)
-	}
-
-	return packages, nil
+	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
 }
 
 type BunExtractor struct{}
@@ -140,42 +57,5 @@ func (n *BunExtractor) GetPackageManager() PackageManagerName {
 }
 
 func (n *BunExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parseBunPackageLockFile(lockfilePath, scanDir)
-}
-
-func parseBunPackageLockFile(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	bunlockExtractor := bunlock.New()
-
-	file, err := os.Open(lockfilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open lockfile: %w", err)
-	}
-	defer file.Close()
-
-	inputConfig := &filesystem.ScanInput{
-		FS:     fs.DirFS(scanDir),
-		Path:   lockfilePath,
-		Reader: file,
-	}
-
-	inventory, err := bunlockExtractor.Extract(context.Background(), inputConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract packages: %w", err)
-	}
-
-	var packages []*packagev1.PackageVersion
-
-	for _, invPkg := range inventory.Packages {
-		pkg := &packagev1.PackageVersion{
-			Package: &packagev1.Package{
-				Name:      invPkg.Name,
-				Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-			},
-			Version: invPkg.Version,
-		}
-
-		packages = append(packages, pkg)
-	}
-
-	return packages, nil
+	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
 }
