@@ -16,26 +16,29 @@ import (
 	"github.com/google/osv-scalibr/fs"
 )
 
-func getExtractorForFile(filename string) filesystem.Extractor {
+func getExtractorForFile(filename string) (filesystem.Extractor, error) {
 	filename = filepath.Base(filename)
 	switch filename {
 	case "package-lock.json":
-		return packagelockjson.NewDefault()
+		return packagelockjson.NewDefault(), nil
 	case "pnpm-lock.yaml":
-		return pnpmlock.New()
+		return pnpmlock.New(), nil
 	case "bun.lock":
-		return bunlock.New()
+		return bunlock.New(), nil
 	case "requirements.txt":
-		return requirements.NewDefault()
+		return requirements.NewDefault(), nil
 	case "uv.lock":
-		return uvlock.New()
+		return uvlock.New(), nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unsupported lockfile type: %s", filename)
 	}
 }
 
 func parseLockfile(lockfilePath, scanDir string, ecosystem packagev1.Ecosystem) ([]*packagev1.PackageVersion, error) {
-	extractor := getExtractorForFile(lockfilePath)
+	extractor, err := getExtractorForFile(lockfilePath)
+	if err != nil {
+		return nil, err
+	}
 
 	file, err := os.Open(lockfilePath)
 	if err != nil {

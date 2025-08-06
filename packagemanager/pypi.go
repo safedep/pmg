@@ -111,15 +111,15 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Extract arguments after the install command
 	installArgs := args[installCmdIndex+1:]
 
-	fs := pflag.NewFlagSet("pip", pflag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	flagSet := pflag.NewFlagSet("pip", pflag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
 
 	// Define flags
 	var requirementFiles []string
-	fs.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
+	flagSet.StringArrayVarP(&requirementFiles, "requirement", "r", nil, "Install from requirement file")
 
 	// Parse arguments (supports interleaved flags + positional args)
-	err := fs.Parse(installArgs)
+	err := flagSet.Parse(installArgs)
 	if err != nil {
 		return &ParsedCommand{
 			Command: command,
@@ -127,7 +127,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	// Get remaining arguments (package names)
-	packages := fs.Args()
+	packages := flagSet.Args()
 
 	// Determine if this is a manifest install
 	isManifestInstall := len(requirementFiles) > 0
@@ -224,19 +224,19 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	installArgs := args[installCmdIndex+1:]
 
 	// Set up flag parsing
-	fs := pflag.NewFlagSet("uv", pflag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	flagSet := pflag.NewFlagSet("uv", pflag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
 
 	var manifestFiles []string
 
-	fs.StringArrayVarP(&manifestFiles, "requirement", "r", nil, "Install from requirement file")
+	flagSet.StringArrayVarP(&manifestFiles, "requirement", "r", nil, "Install from requirement file")
 
-	err := fs.Parse(installArgs)
+	err := flagSet.Parse(installArgs)
 	if err != nil {
 		return &ParsedCommand{Command: command}, nil
 	}
 
-	packages := fs.Args()
+	packages := flagSet.Args()
 
 	// Determine if this is a manifest install
 	isManifestInstall := len(manifestFiles) > 0
