@@ -43,7 +43,7 @@ npm install <package-name>
 ```
 
 ```shell
-pnpm add <package-name>
+uv pip install <package-name>
 ```
 
 ## 📑 Table of Contents
@@ -90,7 +90,7 @@ PMG supports the following package managers:
 | `pnpm`          | ✅ Active  | `pmg pnpm add <package>`    |
 | `bun`           | ✅ Active  | `pmg bun add <package>` |
 | `pip`           | ✅ Active  | `pmg pip install <package>` |
-| `uv`            | 🚧 Planned |                             |
+| `uv`            | ✅ Active  | `pmg uv add <package>` or `pmg uv pip install <package>`|
 | `yarn`          | 🚧 Planned |                             |
 | `poetry`        | 🚧 Planned |                             |
 
@@ -169,7 +169,11 @@ After setup, use your package managers normally:
 npm install <package-name>
 pnpm add <package-name>
 bun add <package-name>
+
 pip install <package-name>
+
+uv add <package-name>
+uv pip install <package-name>
 ```
 
 ### Alternative: Manual Commands
@@ -179,7 +183,11 @@ You can also run PMG manually without aliases:
 pmg npm install <package-name>
 pmg pnpm add <package-name>
 pmg bun add <package-name>
+
 pmg pip install <package-name>
+
+pmg uv add <package-name>
+pmg uv pip install <package-name>
 ```
 
 ### Lockfile Installation
@@ -191,6 +199,10 @@ pnpm install         # Uses pnpm-lock.yaml
 bun install          # Uses bun.lock
 
 pip install -r requirements.txt   # Uses requirements file
+
+uv sync                           # Installs packages from uv.lock
+uv pip sync requirements.txt      # Sync from requirements file
+uv pip install -r requirements.txt
 ```
 
 PMG scans the exact package versions specified in lockfiles and blocks installation if malicious packages are detected.

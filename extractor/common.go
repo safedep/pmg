@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/google/osv-scalibr/extractor/filesystem"
@@ -18,16 +19,20 @@ import (
 
 func getExtractorForFile(filename string) (filesystem.Extractor, error) {
 	filename = filepath.Base(filename)
-	switch filename {
-	case "package-lock.json":
+
+	// Regex for requirements files (match requirements.txt and requirements-{word}.txt)
+	reqPattern := regexp.MustCompile(`^requirements(?:-\w+)?\.txt$`)
+
+	switch {
+	case filename == "package-lock.json":
 		return packagelockjson.NewDefault(), nil
-	case "pnpm-lock.yaml":
+	case filename == "pnpm-lock.yaml":
 		return pnpmlock.New(), nil
-	case "bun.lock":
+	case filename == "bun.lock":
 		return bunlock.New(), nil
-	case "requirements.txt":
+	case reqPattern.MatchString(filename):
 		return requirements.NewDefault(), nil
-	case "uv.lock":
+	case filename == "uv.lock":
 		return uvlock.New(), nil
 	default:
 		return nil, fmt.Errorf("unsupported lockfile type: %s", filename)

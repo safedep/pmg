@@ -206,6 +206,18 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		}, nil
 	}
 
+	// Handles pip sync command (installs from requirements.txt style files)
+	if len(args) >= 3 && args[0] == "pip" && args[1] == "sync" {
+		manifestFile := args[2]
+
+		return &ParsedCommand{
+			Command:           command,
+			InstallTargets:    nil,
+			IsManifestInstall: true,
+			ManifestFiles:     []string{manifestFile},
+		}, nil
+	}
+
 	// Find the install command position
 	var installCmdIndex = -1
 	for idx, arg := range args {
