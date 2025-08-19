@@ -80,7 +80,8 @@ func (b *usefulErrorBuilder) WithAdditionalHelp(additionalHelp string) *usefulEr
 	return b
 }
 
-// Error implements the standard error interface, returning a string that is
+// Error implements the standard error interface. It returns the original error's message if present;
+// otherwise, it returns a constructed message based on the code and msg fields, or "unknown error" if none are set.
 func (b *usefulErrorBuilder) Error() string {
 	if b.originalError != nil {
 		return b.originalError.Error()
