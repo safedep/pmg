@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/usefulerror"
 )
 
 // ErrorExit prints the error message and exits the program with a non-zero status code.
 func ErrorExit(err error) {
+	log.Errorf("Exiting due to error: %s", err)
+
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	if !ok {
 		Fatalf("Error: %s", err)

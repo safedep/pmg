@@ -3,7 +3,6 @@ package npm
 import (
 	"context"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
@@ -20,7 +19,7 @@ func NewBunCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executeBunFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute bun flow: %s", err)
+				ui.ErrorExit(err)
 			}
 
 			return nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
@@ -21,7 +20,7 @@ func NewUvCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executeUvFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute uv flow: %s", err)
+				ui.ErrorExit(err)
 			}
 
 			return nil
