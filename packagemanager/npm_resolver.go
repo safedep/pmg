@@ -59,7 +59,7 @@ func (r *npmDependencyResolver) ResolveLatestVersion(ctx context.Context,
 
 	pkgInfo, err := pd.GetPackage(pkg.Name)
 	if err != nil {
-		return nil, ErrFailedToFetchPackage
+		return nil, ErrFailedToFetchPackage.Wrap(err)
 	}
 
 	log.Debugf("Resolved npm/%s to latest version %s", pkg.Name, pkgInfo.LatestVersion)
