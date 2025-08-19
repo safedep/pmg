@@ -32,25 +32,28 @@ type RcFileManager interface {
 }
 
 // DefaultRcFileManager implements RcFileManager for managing the RC file.
-type DefaultRcFileManager struct {
+type defaultRcFileManager struct {
 	HomeDir    string
 	RcFileName string
 }
 
+var _ RcFileManager = &defaultRcFileManager{}
+
 // NewDefaultRcFileManager creates a new DefaultRcFileManager.
-func NewDefaultRcFileManager(rcFileName string) (*DefaultRcFileManager, error) {
+func NewDefaultRcFileManager(rcFileName string) (*defaultRcFileManager, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return &DefaultRcFileManager{
+
+	return &defaultRcFileManager{
 		HomeDir:    homeDir,
 		RcFileName: rcFileName,
 	}, nil
 }
 
 // Create creates the RC file with the given aliases.
-func (m *DefaultRcFileManager) Create(aliases []string) (string, error) {
+func (m *defaultRcFileManager) Create(aliases []string) (string, error) {
 	rcPath := m.GetRcPath()
 	f, err := os.Create(rcPath)
 	if err != nil {
@@ -67,7 +70,7 @@ func (m *DefaultRcFileManager) Create(aliases []string) (string, error) {
 }
 
 // Remove deletes the RC file.
-func (m *DefaultRcFileManager) Remove() error {
+func (m *defaultRcFileManager) Remove() error {
 	rcPath := m.GetRcPath()
 	if err := os.Remove(rcPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("could not delete %s: %w", rcPath, err)
@@ -76,12 +79,12 @@ func (m *DefaultRcFileManager) Remove() error {
 }
 
 // GetRcPath returns the full path to the RC file.
-func (m *DefaultRcFileManager) GetRcPath() string {
+func (m *defaultRcFileManager) GetRcPath() string {
 	return filepath.Join(m.HomeDir, m.RcFileName)
 }
 
 // DefaultConfig returns the default configuration for alias management.
-func DefaultConfig() *AliasConfig {
+func DefaultConfig() AliasConfig {
 	var shells []Shell
 
 	fishShell, _ := NewFishShell()
@@ -90,7 +93,7 @@ func DefaultConfig() *AliasConfig {
 
 	shells = append(shells, fishShell, zshShell, bashShell)
 
-	return &AliasConfig{
+	return AliasConfig{
 		RcFileName:      ".pmg.rc",
 		PackageManagers: []string{"npm", "pip", "pnpm", "bun", "uv"},
 		Shells:          shells,
@@ -243,8 +246,9 @@ func (a *AliasManager) addSourceLine(configPath, sourceLine string) error {
 	if err != nil {
 		return err
 	}
+
 	defer f.Close()
 
-	_, err = f.WriteString(fmt.Sprintf("\n%s", sourceLine))
+	_, err = fmt.Fprintf(f, "\n%s", sourceLine)
 	return err
 }

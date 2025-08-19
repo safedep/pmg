@@ -2,9 +2,7 @@ package npm
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
@@ -21,7 +19,7 @@ func NewNpmCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executeNpmFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute npm flow: %s", err)
+				ui.ErrorExit(err)
 			}
 
 			return nil
@@ -43,7 +41,7 @@ func executeNpmFlow(ctx context.Context, args []string) error {
 
 	parsedCommand, err := packageManager.ParseCommand(args)
 	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
+		ui.Fatalf("Failed to parse command: %s", err)
 	}
 
 	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()

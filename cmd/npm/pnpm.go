@@ -2,7 +2,6 @@ package npm
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
@@ -43,7 +42,7 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 
 	parsedCommand, err := packageManager.ParseCommand(args)
 	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
+		ui.Fatalf("Failed to parse command: %s", err)
 	}
 
 	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()

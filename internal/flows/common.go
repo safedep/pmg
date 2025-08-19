@@ -2,6 +2,7 @@ package flows
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -33,14 +34,14 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	if f.config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 		if err != nil {
-			ui.Fatalf("Failed to create malware analyzer: %s", err)
+			return fmt.Errorf("failed to create malware analyzer: %s", err)
 		}
 
 		analyzers = append(analyzers, malysisActiveScanAnalyzer)
 	} else {
 		malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
 		if err != nil {
-			ui.Fatalf("Failed to create malware analyzer: %s", err)
+			return fmt.Errorf("failed to create malware analyzer: %s", err)
 		}
 
 		analyzers = append(analyzers, malysisQueryAnalyzer)
@@ -60,12 +61,12 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 
 	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {
-		ui.Fatalf("Failed to create package manager guard: %s", err)
+		return fmt.Errorf("failed to create package manager guard: %s", err)
 	}
 
 	err = proxy.Run(ctx, args, parsedCmd)
 	if err != nil {
-		ui.Fatalf("pmg: failed to execute command: %s", err)
+		return fmt.Errorf("failed to run package manager guard: %w", err)
 	}
 
 	return err
