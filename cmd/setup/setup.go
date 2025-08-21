@@ -32,7 +32,8 @@ func NewInstallCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			aliasManager := alias.New(*config, rcFileManager)
+
+			aliasManager := alias.New(config, rcFileManager)
 			return aliasManager.Install()
 		},
 	}
@@ -48,7 +49,8 @@ func NewRemoveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			aliasManager := alias.New(*config, rcFileManager)
+
+			aliasManager := alias.New(config, rcFileManager)
 			return aliasManager.Remove()
 		},
 	}

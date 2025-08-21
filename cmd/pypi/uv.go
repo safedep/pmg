@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
@@ -21,7 +20,7 @@ func NewUvCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executeUvFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute uv flow: %s", err)
+				ui.ErrorExit(err)
 			}
 
 			return nil
@@ -38,7 +37,7 @@ func executeUvFlow(ctx context.Context, args []string) error {
 
 	config, err := config.FromContext(ctx)
 	if err != nil {
-		ui.Fatalf("Failed to get config: %s", err)
+		return fmt.Errorf("failed to get config: %w", err)
 	}
 
 	parsedCommand, err := packageManager.ParseCommand(args)
@@ -46,7 +45,6 @@ func executeUvFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	// Parse the args right here
 	packageResolverConfig := packagemanager.NewDefaultPypiDependencyResolverConfig()
 	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
 	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
@@ -55,7 +53,7 @@ func executeUvFlow(ctx context.Context, args []string) error {
 
 	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
 	if err != nil {
-		ui.Fatalf("Failed to create dependency resolver: %s", err)
+		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
 	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)

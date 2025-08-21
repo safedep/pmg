@@ -107,7 +107,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	for _, pkg := range packages {
 		packageName, version, err := npmParsePackageInfo(pkg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse package info: %w", err)
+			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
 		// Clean version if specified

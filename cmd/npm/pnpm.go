@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/flows"
@@ -21,7 +20,7 @@ func NewPnpmCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executePnpmFlow(cmd.Context(), args)
 			if err != nil {
-				log.Errorf("Failed to execute pnpm flow: %s", err)
+				ui.ErrorExit(err)
 			}
 
 			return nil
@@ -33,12 +32,12 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 	analytics.TrackCommandPnpm()
 	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultPnpmPackageManagerConfig())
 	if err != nil {
-		ui.Fatalf("Failed to create pnpm package manager proxy: %s", err)
+		return fmt.Errorf("failed to create pnpm package manager proxy: %w", err)
 	}
 
 	config, err := config.FromContext(ctx)
 	if err != nil {
-		ui.Fatalf("Failed to get config: %s", err)
+		return fmt.Errorf("failed to get config: %w", err)
 	}
 
 	parsedCommand, err := packageManager.ParseCommand(args)
@@ -52,6 +51,9 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
 
 	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dependency resolver: %w", err)
+	}
 
 	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)
 }

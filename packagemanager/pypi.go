@@ -141,7 +141,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	for _, pkg := range packages {
 		packageName, version, extras, err := pypiParsePackageInfo(pkg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse package info: %w", err)
+			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
 		if version != "" {
@@ -150,7 +150,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			} else {
 				version, err = pypiGetMatchingVersion(packageName, version)
 				if err != nil {
-					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
+					return nil, ErrFailedToResolveVersion.Wrap(err)
 				}
 			}
 		}
@@ -257,7 +257,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	for _, pkg := range packages {
 		packageName, version, extras, err := pypiParsePackageInfo(pkg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse package info: %w", err)
+			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
 		if version != "" {
@@ -266,7 +266,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			} else {
 				version, err = pypiGetMatchingVersion(packageName, version)
 				if err != nil {
-					return nil, fmt.Errorf("error resolving version for %s: %s", packageName, err.Error())
+					return nil, ErrFailedToResolveVersion.Wrap(err)
 				}
 			}
 		}

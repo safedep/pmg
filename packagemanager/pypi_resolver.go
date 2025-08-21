@@ -158,22 +158,22 @@ func getPypiPackageDependencies(packageName, version string, packageTargets []*P
 
 	res, err := http.Get(url)
 	if err != nil {
-		return nil, ErrFailedToFetchPackage
+		return nil, ErrFailedToFetchPackage.Wrap(err)
 	}
 
 	if res.StatusCode == 404 {
-		return nil, ErrPackageNotFound
+		return nil, ErrPackageNotFound.Wrap(err)
 	}
 
 	if res.StatusCode != 200 {
-		return nil, ErrFailedToFetchPackage
+		return nil, ErrFailedToFetchPackage.Wrap(err)
 	}
 	defer res.Body.Close()
 
 	var pypipkg pypiPackage
 	err = json.NewDecoder(res.Body).Decode(&pypipkg)
 	if err != nil {
-		return nil, ErrFailedToParsePackage
+		return nil, ErrFailedToParsePackage.Wrap(err)
 	}
 
 	// Find if this package has any specified extras in the install targets
