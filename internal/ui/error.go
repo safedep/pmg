@@ -18,7 +18,7 @@ func ErrorExit(err error) {
 	}
 
 	additionalHelp := usefulErr.AdditionalHelp()
-	if additionalHelp != "" {
+	if additionalHelp == "" {
 		additionalHelp = fmt.Sprintf("If you believe this is a bug, please report it at: %s",
 			"https://github.com/safedep/pmg/issues/new?assignees=&labels=bug")
 	}

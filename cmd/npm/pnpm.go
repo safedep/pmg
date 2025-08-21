@@ -2,6 +2,7 @@ package npm
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
@@ -31,17 +32,17 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 	analytics.TrackCommandPnpm()
 	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultPnpmPackageManagerConfig())
 	if err != nil {
-		ui.Fatalf("Failed to create pnpm package manager proxy: %s", err)
+		return fmt.Errorf("failed to create pnpm package manager proxy: %w", err)
 	}
 
 	config, err := config.FromContext(ctx)
 	if err != nil {
-		ui.Fatalf("Failed to get config: %s", err)
+		return fmt.Errorf("failed to get config: %w", err)
 	}
 
 	parsedCommand, err := packageManager.ParseCommand(args)
 	if err != nil {
-		ui.Fatalf("Failed to parse command: %s", err)
+		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
 	packageResolverConfig := packagemanager.NewDefaultNpmDependencyResolverConfig()
@@ -50,6 +51,9 @@ func executePnpmFlow(ctx context.Context, args []string) error {
 	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
 
 	packageResolver, err := packagemanager.NewNpmDependencyResolver(packageResolverConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dependency resolver: %w", err)
+	}
 
 	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)
 }
