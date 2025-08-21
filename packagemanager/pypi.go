@@ -35,6 +35,13 @@ func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	}
 }
 
+func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
+	return PypiPackageManagerConfig{
+		InstallCommands: []string{"add", "install"},
+		CommandName:     "poetry",
+	}
+}
+
 type pypiPackageManager struct {
 	Config PypiPackageManagerConfig
 	parser pypiCommandParser
