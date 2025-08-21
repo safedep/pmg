@@ -17,8 +17,12 @@ func GeneratePMGBanner(version, commit string) string {
 █▀█ █▀▄▀█ █▀▀	From SafeDep
 █▀▀ █░▀░█ █▄█` // It should end here no \n
 
+	if len(commit) >= 6 {
+		commit = commit[:6]
+	}
+
 	return fmt.Sprintf("%s \t%s: %s %s: %s\n\n", brandPinkRed(pmgASCIIText),
 		whiteDim("version"), whiteBold(version),
-		whiteDim("commit"), whiteBold(commit[:6]),
+		whiteDim("commit"), whiteBold(commit),
 	)
 }
