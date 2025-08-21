@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/ui"
+	appVersion "github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -96,6 +97,12 @@ func main() {
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
+
+	// Print Banner on --help / -h
+	cmd.SetHelpFunc(func(command *cobra.Command, args []string) {
+		fmt.Print(ui.GeneratePMGBanner(appVersion.Version, appVersion.Commit))
+		fmt.Println(command.UsageString())
+	})
 
 	defer analytics.Close()
 

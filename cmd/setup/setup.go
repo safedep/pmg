@@ -1,7 +1,11 @@
 package setup
 
 import (
+	"fmt"
+
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/ui"
+	"github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +31,8 @@ func NewInstallCommand() *cobra.Command {
 		Short: "Install PMG aliases for package managers (npm, pnpm, pip)",
 		Long:  "Creates ~/.pmg.rc with package manager aliases and sources it in your shell config files (.bashrc, .zshrc, config.fish)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
+
 			config := alias.DefaultConfig()
 			rcFileManager, err := alias.NewDefaultRcFileManager(config.RcFileName)
 			if err != nil {
@@ -44,6 +50,8 @@ func NewRemoveCommand() *cobra.Command {
 		Use:   "remove",
 		Short: "Removes pmg aliases from the user's shell config file.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
+
 			config := alias.DefaultConfig()
 			rcFileManager, err := alias.NewDefaultRcFileManager(config.RcFileName)
 			if err != nil {

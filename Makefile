@@ -5,7 +5,7 @@ SHELL := /bin/bash
 GITCOMMIT := $(shell git rev-parse HEAD)
 VERSION := "$(shell git describe --tags --abbrev=0)-$(shell git rev-parse --short HEAD)"
 
-GO_CFLAGS=-X 'github.com/safedep/pmg/cmd/version.commit=$(GITCOMMIT)' -X 'github.com/safedep/pmg/cmd/version.version=$(VERSION)'
+GO_CFLAGS=-X 'github.com/safedep/pmg/internal/version.Commit=$(GITCOMMIT)' -X 'github.com/safedep/pmg/internal/version.Version=$(VERSION)'
 GO_LDFLAGS=-ldflags "-w $(GO_CFLAGS)"
 
 .PHONY: all
