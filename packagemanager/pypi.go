@@ -37,7 +37,7 @@ func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 
 func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands: []string{"add", "install"},
+		InstallCommands: []string{"add"},
 		CommandName:     "poetry",
 	}
 }
@@ -55,6 +55,8 @@ func NewPypiPackageManager(config PypiPackageManagerConfig) (*pypiPackageManager
 		parser = NewPipCommandParser(config)
 	case "uv":
 		parser = NewUVCommandParser(config)
+	case "poetry":
+		parser = NewPoetryCommandParser(config)
 	default:
 		return nil, fmt.Errorf("unsupported package manager: %s", config.CommandName)
 	}
@@ -289,12 +291,111 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			Extras: extras,
 		})
 	}
+	fmt.Println("Pakcages:", installTargets)
 
 	return &ParsedCommand{
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
 		ManifestFiles:     manifestFiles,
+	}, nil
+}
+
+type poetryCommandParser struct {
+	config PypiPackageManagerConfig
+}
+
+func NewPoetryCommandParser(config PypiPackageManagerConfig) pypiCommandParser {
+	return &poetryCommandParser{
+		config: config,
+	}
+}
+
+func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
+	// Remove 'poetry' if it's the first argument
+	if len(args) > 0 && args[0] == "poetry" {
+		args = args[1:]
+	}
+
+	command := Command{Exe: p.config.CommandName, Args: args}
+	if len(args) < 1 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	if len(args) > 0 && args[0] == "install" {
+		return &ParsedCommand{
+			Command:           command,
+			IsManifestInstall: true,
+			InstallTargets:    nil,
+			ManifestFiles:     []string{"poetry.lock"},
+		}, nil
+	}
+
+	// Find the install command position
+	var installCmdIndex = -1
+	for idx, arg := range args {
+		if slices.Contains(p.config.InstallCommands, arg) {
+			installCmdIndex = idx
+			break
+		}
+	}
+
+	if installCmdIndex == -1 {
+		// No install command found, return as-is
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Extract arguments after the install command
+	installArgs := args[installCmdIndex+1:]
+	fmt.Println("InstallArgs:", installArgs)
+
+	// Set up flag parsing
+	flagSet := pflag.NewFlagSet("poetry", pflag.ContinueOnError)
+	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+	flagSet.SetOutput(io.Discard)
+
+	err := flagSet.Parse(installArgs)
+	if err != nil {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	packages := flagSet.Args()
+
+	var installTargets []*PackageInstallTarget
+	for _, pkg := range packages {
+		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		if err != nil {
+			return nil, ErrFailedToParsePackage.Wrap(err)
+		}
+
+		if version != "" {
+			if strings.HasPrefix(version, "==") {
+				version = strings.TrimPrefix(version, "==")
+			} else {
+				version, err = pypiGetMatchingVersion(packageName, version)
+				if err != nil {
+					return nil, ErrFailedToResolveVersion.Wrap(err)
+				}
+			}
+		}
+
+		installTargets = append(installTargets, &PackageInstallTarget{
+			PackageVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI,
+					Name:      packageName,
+				},
+				Version: version,
+			},
+			Extras: extras,
+		})
+	}
+
+	return &ParsedCommand{
+		Command:           command,
+		InstallTargets:    installTargets,
+		IsManifestInstall: false,
+		ManifestFiles:     nil,
 	}, nil
 }
 

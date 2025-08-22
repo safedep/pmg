@@ -94,6 +94,7 @@ func main() {
 	cmd.AddCommand(npm.NewBunCommand())
 	cmd.AddCommand(pypi.NewPipCommand())
 	cmd.AddCommand(pypi.NewUvCommand())
+	cmd.AddCommand(pypi.NewPoetryCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
