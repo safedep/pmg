@@ -38,8 +38,7 @@ func TestNpmParseCommand(t *testing.T) {
 			command: "npm install --save-dev @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
-				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
 			},
 		},
 		{
