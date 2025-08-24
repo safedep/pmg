@@ -153,15 +153,9 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		if version != "" {
-			if strings.HasPrefix(version, "==") {
-				version = strings.TrimPrefix(version, "==")
-			} else {
-				version, err = pypiGetMatchingVersion(packageName, version)
-				if err != nil {
-					return nil, ErrFailedToResolveVersion.Wrap(err)
-				}
-			}
+		version, err = pypiGetMatchingVersion(packageName, version)
+		if err != nil {
+			return nil, ErrFailedToResolveVersion.Wrap(err)
 		}
 
 		installTargets = append(installTargets, &PackageInstallTarget{
@@ -269,15 +263,9 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		if version != "" {
-			if strings.HasPrefix(version, "==") {
-				version = strings.TrimPrefix(version, "==")
-			} else {
-				version, err = pypiGetMatchingVersion(packageName, version)
-				if err != nil {
-					return nil, ErrFailedToResolveVersion.Wrap(err)
-				}
-			}
+		version, err = pypiGetMatchingVersion(packageName, version)
+		if err != nil {
+			return nil, ErrFailedToResolveVersion.Wrap(err)
 		}
 
 		installTargets = append(installTargets, &PackageInstallTarget{
@@ -347,7 +335,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 
 	// Extract arguments after the install command
 	installArgs := args[installCmdIndex+1:]
-	fmt.Println("InstallArgs:", installArgs)
 
 	// Set up flag parsing
 	flagSet := pflag.NewFlagSet("poetry", pflag.ContinueOnError)
@@ -368,16 +355,11 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		if version != "" {
-			if strings.HasPrefix(version, "==") {
-				version = strings.TrimPrefix(version, "==")
-			} else {
-				version, err = pypiGetMatchingVersion(packageName, version)
-				if err != nil {
-					return nil, ErrFailedToResolveVersion.Wrap(err)
-				}
-			}
+		version, err = pypiGetMatchingVersion(packageName, version)
+		if err != nil {
+			return nil, ErrFailedToResolveVersion.Wrap(err)
 		}
+		fmt.Println("Package:", packageName, "Version:", version)
 
 		installTargets = append(installTargets, &PackageInstallTarget{
 			PackageVersion: &packagev1.PackageVersion{
@@ -455,6 +437,151 @@ func pypiParsePackageInfo(input string) (packageName, version string, extras []s
 	}
 
 	return packageName, version, extras, nil
+}
+
+// pypiConvertPoetryVersionConstraints converts Poetry's caret (^) and tilde (~) version constraints
+// to equivalent version ranges. It handles package strings in the format "packagename@^version" or "packagename@~version".
+// If the package string uses standard Python version constraints (==, >=, etc.) or has no version constraint,
+// it returns the string as-is.
+//
+// Examples:
+//   - "pendulum@^2.0.5" -> "pendulum>=2.0.5,<3.0.0"
+//   - "pendulum@~2.0.5" -> "pendulum>=2.0.5,<2.1.0"
+//   - "pendulum@^0.2.3" -> "pendulum>=0.2.3,<0.3.0"
+//   - "pendulum>=2.0.0" -> "pendulum>=2.0.0" (unchanged)
+//   - "pendulum" -> "pendulum" (unchanged)
+func pypiConvertPoetryVersionConstraints(packageStr string) (string, error) {
+	if packageStr == "" {
+		return "", fmt.Errorf("package string cannot be empty")
+	}
+
+	packageStr = strings.TrimSpace(packageStr)
+
+	// Check if the package string contains Poetry's @ separator
+	atIndex := strings.Index(packageStr, "@")
+	if atIndex == -1 {
+		// No @ separator, return as-is (could be standard format or package name only)
+		return packageStr, nil
+	}
+
+	packageName := strings.TrimSpace(packageStr[:atIndex])
+	versionConstraint := strings.TrimSpace(packageStr[atIndex+1:])
+
+	if packageName == "" {
+		return "", fmt.Errorf("package name cannot be empty")
+	}
+
+	if versionConstraint == "" || versionConstraint == "latest" {
+		// No version constraint after @, return package name only (defaults to latest version)
+		return packageName, nil
+	}
+
+	// Check for caret constraint (^)
+	if strings.HasPrefix(versionConstraint, "^") {
+		version := strings.TrimPrefix(versionConstraint, "^")
+		convertedRange := pypiConvertCaretConstraint(version)
+		if convertedRange == "" {
+			return "", fmt.Errorf("invalid caret version constraint: %s", versionConstraint)
+		}
+		return packageName + convertedRange, nil
+	}
+
+	// Check for tilde constraint (~)
+	if strings.HasPrefix(versionConstraint, "~") {
+		version := strings.TrimPrefix(versionConstraint, "~")
+		convertedRange := pypiConvertTildeConstraint(version)
+		if convertedRange == "" {
+			return "", fmt.Errorf("invalid tilde version constraint: %s", versionConstraint)
+		}
+		return packageName + convertedRange, nil
+	}
+
+	// Standard version constraint (==, >=, etc.), convert back to standard format
+	return packageName + versionConstraint, nil
+}
+
+// pypiConvertCaretConstraint converts caret (^) version constraints to equivalent ranges
+// Examples:
+//   - "1.2.3" -> ">=1.2.3,<2.0.0"
+//   - "0.2.3" -> ">=0.2.3,<0.3.0" (special case for major version 0)
+//   - "0.0.3" -> ">=0.0.3,<0.0.4" (special case for major and minor version 0)
+func pypiConvertCaretConstraint(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) < 1 {
+		return "" // invalid
+	}
+
+	// Pad with zeros if needed (e.g., "1.2" -> "1.2.0")
+	for len(parts) < 3 {
+		parts = append(parts, "0")
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return "" // invalid major version
+	}
+
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "" // invalid minor version
+	}
+
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return "" // invalid patch version
+	}
+
+	// Special cases for version 0.x.x
+	if major == 0 {
+		if minor == 0 {
+			// ^0.0.x -> >=0.0.x,<0.0.(x+1)
+			return fmt.Sprintf(">=0.0.%d,<0.0.%d", patch, patch+1)
+		}
+		// ^0.x.y -> >=0.x.y,<0.(x+1).0
+		return fmt.Sprintf(">=0.%d.%d,<0.%d.0", minor, patch, minor+1)
+	}
+
+	// ^x.y.z -> >=x.y.z,<(x+1).0.0
+	// Reconstruct the original version with proper formatting
+	originalVersion := strings.Join(parts, ".")
+	return fmt.Sprintf(">=%s,<%d.0.0", originalVersion, major+1)
+}
+
+// pypiConvertTildeConstraint converts tilde (~) version constraints to equivalent ranges
+// Examples:
+//   - "1.2.3" -> ">=1.2.3,<1.3.0"
+//   - "1.2" -> ">=1.2.0,<1.3.0"
+//   - "1" -> ">=1.0.0,<2.0.0"
+func pypiConvertTildeConstraint(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) < 1 {
+		return "" // invalid
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return "" // invalid major version
+	}
+
+	switch len(parts) {
+	case 1:
+		// ~1 -> >=1.0.0,<2.0.0
+		return fmt.Sprintf(">=%s.0.0,<%d.0.0", version, major+1)
+	case 2:
+		// ~1.2 -> >=1.2.0,<1.3.0
+		minor, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return "" // invalid minor version
+		}
+		return fmt.Sprintf(">=%s.0,<%d.%d.0", version, major, minor+1)
+	default:
+		// ~1.2.3 -> >=1.2.3,<1.3.0
+		minor, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return "" // invalid minor version
+		}
+		return fmt.Sprintf(">=%s,<%d.%d.0", version, major, minor+1)
+	}
 }
 
 func pypiConvertCompatibleRelease(version string) string {

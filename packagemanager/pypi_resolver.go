@@ -250,13 +250,14 @@ func pypiParseDependency(input string) (string, string, string) {
 func pypiGetMatchingVersion(packageName, versionConstraint string) (string, error) {
 	// Already a exact version
 	if strings.HasPrefix(versionConstraint, "==") {
-		return versionConstraint, nil
+		return strings.TrimPrefix(versionConstraint, "=="), nil
 	}
 
 	// Handle compatible release operator
 	if strings.HasPrefix(versionConstraint, "~=") {
 		versionConstraint = pypiConvertCompatibleRelease(versionConstraint)
 	}
+	fmt.Println("Package:", packageName, "Version:", versionConstraint)
 	// Handle empty version constraint
 	if versionConstraint == "" {
 		// Get latest version
