@@ -89,10 +89,18 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// Extract packages from args
 	var packages []string
 	var isManifestInstall bool
+	var devPackages []string
 
 	flagSet := pflag.NewFlagSet(npm.Config.CommandName, pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
 	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+
+	switch npm.Config.CommandName {
+	case "npm", "pnpm":
+		flagSet.StringArrayVarP(&devPackages, "save-dev", "D", nil, "Install dev packages")
+	case "bun":
+		flagSet.StringArrayVarP(&devPackages, "dev", "d", nil, "Install dev packages")
+	}
 
 	err := flagSet.Parse(installArgs)
 	if err != nil {
@@ -113,6 +121,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			Command: command,
 		}, nil
 	}
+	packages = append(packages, devPackages...)
 
 	// Process all package arguments
 	var installTargets []*PackageInstallTarget

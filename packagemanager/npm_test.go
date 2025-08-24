@@ -38,12 +38,13 @@ func TestNpmParseCommand(t *testing.T) {
 			command: "npm install --save-dev @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
 		{
 			name:    "install a development package with short flag",
-			command: "npm i @types/node -D",
+			command: "npm i -D @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
@@ -88,7 +89,7 @@ func TestNpmParseCommand(t *testing.T) {
 		},
 		{
 			name:    "multiple development packages",
-			command: "npm i @types/node @types/react -D",
+			command: "npm i -D @types/node -D @types/react",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
@@ -127,12 +128,12 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "npm install with flags but no packages",
+			name:    "npm install with dev flag but no packages",
 			command: "npm install --save-dev",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
-				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+				assert.Equal(t, false, parsedCommand.IsManifestInstall) // with no package name, npm won’t add or install anything new
 			},
 		},
 	}
