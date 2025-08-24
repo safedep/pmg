@@ -113,6 +113,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	flagSet := pflag.NewFlagSet("pip", pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
+	flagSet.ParseErrorsWhitelist.UnknownFlags = true
 
 	// Define flags
 	var requirementFiles []string
@@ -238,6 +239,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Set up flag parsing
 	flagSet := pflag.NewFlagSet("uv", pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
+	flagSet.ParseErrorsWhitelist.UnknownFlags = true
 
 	var manifestFiles []string
 
