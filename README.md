@@ -91,8 +91,8 @@ PMG supports the following package managers:
 | `bun`           | ✅ Active  | `pmg bun add <package>` |
 | `pip`           | ✅ Active  | `pmg pip install <package>` |
 | `uv`            | ✅ Active  | `pmg uv add <package>` or `pmg uv pip install <package>`|
+| `poetry`        | ✅ Active | `pmg poetry add <package>` |
 | `yarn`          | 🚧 Planned |                             |
-| `poetry`        | 🚧 Planned |                             |
 
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
@@ -174,6 +174,8 @@ pip install <package-name>
 
 uv add <package-name>
 uv pip install <package-name>
+
+poetry add <package-name>
 ```
 
 ### Alternative: Manual Commands
@@ -188,6 +190,8 @@ pmg pip install <package-name>
 
 pmg uv add <package-name>
 pmg uv pip install <package-name>
+
+pmg poetry add <package-name>
 ```
 
 ### Lockfile Installation
@@ -203,6 +207,8 @@ pip install -r requirements.txt   # Uses requirements file
 uv sync                           # Installs packages from uv.lock
 uv pip sync requirements.txt      # Sync from requirements file
 uv pip install -r requirements.txt
+
+poetry install # Installs from poetry.lock
 ```
 
 PMG scans the exact package versions specified in lockfiles and blocks installation if malicious packages are detected.
@@ -282,7 +288,7 @@ is malicious. However, there is a possibility of inconsistency when a specific v
 <details>
 <summary>PyPI registry scanning only</summary>
 
-`pmg` only scans packages available in the PyPI registry when using `pip`. Packages installed from
+`pmg` only scans packages available in the PyPI registry when using any python package manager. Packages installed from
 alternative sources such as Git URLs, local file paths, or private registries are not analyzed for
 malware detection. This limitation applies to direct installations and transitive dependencies sourced
 from non-PyPI locations.
