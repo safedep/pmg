@@ -12,6 +12,7 @@ import (
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/bunlock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/packagelockjson"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/pnpmlock"
+	"github.com/google/osv-scalibr/extractor/filesystem/language/python/poetrylock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/requirements"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/uvlock"
 	"github.com/google/osv-scalibr/fs"
@@ -34,6 +35,8 @@ func getExtractorForFile(filename string) (filesystem.Extractor, error) {
 		return requirements.NewDefault(), nil
 	case filename == "uv.lock":
 		return uvlock.New(), nil
+	case filename == "poetry.lock":
+		return poetrylock.New(), nil
 	default:
 		return nil, fmt.Errorf("unsupported lockfile type: %s", filename)
 	}

@@ -64,7 +64,7 @@ func TestPipGetLatestMatchingVersion(t *testing.T) {
 			versionConstraint: "==2.28.0",
 			assertFn: func(t *testing.T, version string, err error) {
 				require.NoError(t, err)
-				require.Equal(t, "==2.28.0", version)
+				require.Equal(t, "2.28.0", version)
 			},
 		},
 		{

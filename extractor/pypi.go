@@ -41,3 +41,22 @@ func (u *UvExtractor) GetPackageManager() PackageManagerName {
 func (u *UvExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
 	return parseLockfile(lockfilePath, scanDir, u.GetEcosystem())
 }
+
+// PoetryExtractor handles poetry.lock files
+type PoetryExtractor struct{}
+
+func (p *PoetryExtractor) GetSupportedFiles() []string {
+	return []string{"poetry.lock"}
+}
+
+func (p *PoetryExtractor) GetEcosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_PYPI
+}
+
+func (p *PoetryExtractor) GetPackageManager() PackageManagerName {
+	return Poetry
+}
+
+func (p *PoetryExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
+}

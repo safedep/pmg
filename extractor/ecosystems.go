@@ -22,11 +22,12 @@ type PackageManagerExtractor interface {
 type PackageManagerName string
 
 const (
-	Npm  PackageManagerName = "npm"
-	Pnpm PackageManagerName = "pnpm"
-	Pip  PackageManagerName = "pip"
-	Bun  PackageManagerName = "bun"
-	Uv   PackageManagerName = "uv"
+	Npm    PackageManagerName = "npm"
+	Pnpm   PackageManagerName = "pnpm"
+	Pip    PackageManagerName = "pip"
+	Bun    PackageManagerName = "bun"
+	Uv     PackageManagerName = "uv"
+	Poetry PackageManagerName = "poetry"
 )
 
 type ExtractorManager struct {
@@ -36,11 +37,12 @@ type ExtractorManager struct {
 func NewExtractorManager() *ExtractorManager {
 	return &ExtractorManager{
 		extractors: map[PackageManagerName]PackageManagerExtractor{
-			Npm:  &NpmExtractor{},
-			Pnpm: &PnpmExtractor{},
-			Pip:  &PipExtractor{},
-			Bun:  &BunExtractor{},
-			Uv:   &UvExtractor{},
+			Npm:    &NpmExtractor{},
+			Pnpm:   &PnpmExtractor{},
+			Pip:    &PipExtractor{},
+			Bun:    &BunExtractor{},
+			Uv:     &UvExtractor{},
+			Poetry: &PoetryExtractor{},
 		},
 	}
 }
