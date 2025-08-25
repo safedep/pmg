@@ -3,6 +3,7 @@ package packagemanager
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -279,7 +280,6 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			Extras: extras,
 		})
 	}
-	fmt.Println("Pakcages:", installTargets)
 
 	return &ParsedCommand{
 		Command:           command,
@@ -350,7 +350,13 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		// Convert Poetry version constraints (^, ~) to standard format
+		convertedPkg, err := pypiConvertPoetryVersionConstraints(pkg)
+		if err != nil {
+			return nil, ErrFailedToParsePackage.Wrap(err)
+		}
+
+		packageName, version, extras, err := pypiParsePackageInfo(convertedPkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -440,14 +446,13 @@ func pypiParsePackageInfo(input string) (packageName, version string, extras []s
 }
 
 // pypiConvertPoetryVersionConstraints converts Poetry's caret (^) and tilde (~) version constraints
-// to equivalent version ranges. It handles package strings in the format "packagename@^version" or "packagename@~version".
-// If the package string uses standard Python version constraints (==, >=, etc.) or has no version constraint,
-// it returns the string as-is.
-//
+// to equivalent version ranges. It preserves extras and package names exactly.
 // Examples:
-//   - "pendulum@^2.0.5" -> "pendulum>=2.0.5,<3.0.0"
-//   - "pendulum@~2.0.5" -> "pendulum>=2.0.5,<2.1.0"
-//   - "pendulum@^0.2.3" -> "pendulum>=0.2.3,<0.3.0"
+//   - "fastapi[all]@^0.68.0" -> "fastapi[all]>=0.68.0,<0.69.0"
+//   - "django[mysql]^3.0" -> "django[mysql]>=3.0,<4.0.0"
+//   - "requests@*" -> "requests>=0.0.0"
+//   - "numpy@1.*" -> "numpy>=1.0.0,<2.0.0"
+//   - "flask@1.2.*" -> "flask>=1.2.0,<1.3.0"
 //   - "pendulum>=2.0.0" -> "pendulum>=2.0.0" (unchanged)
 //   - "pendulum" -> "pendulum" (unchanged)
 func pypiConvertPoetryVersionConstraints(packageStr string) (string, error) {
@@ -457,47 +462,36 @@ func pypiConvertPoetryVersionConstraints(packageStr string) (string, error) {
 
 	packageStr = strings.TrimSpace(packageStr)
 
-	// Check if the package string contains Poetry's @ separator
-	atIndex := strings.Index(packageStr, "@")
-	if atIndex == -1 {
-		// No @ separator, return as-is (could be standard format or package name only)
+	// Regex to match package with optional extras and Poetry constraints
+	// Matches: packagename[extras]@^version, packagename[extras]^version, or packagename[extras]@*
+	poetryConstraintRegex := regexp.MustCompile(`^([a-zA-Z0-9._-]+(?:\[[^\]]*\])?)(?:@)?([~^]|\*|[\d.]+\*)(.*)$`)
+
+	matches := poetryConstraintRegex.FindStringSubmatch(packageStr)
+	if len(matches) != 4 {
+		// No Poetry constraints found, return as-is
 		return packageStr, nil
 	}
 
-	packageName := strings.TrimSpace(packageStr[:atIndex])
-	versionConstraint := strings.TrimSpace(packageStr[atIndex+1:])
+	packageName := matches[1]
+	operator := matches[2]
+	version := matches[3]
 
-	if packageName == "" {
-		return "", fmt.Errorf("package name cannot be empty")
+	// Convert based on operator type
+	var convertedRange string
+	if operator == "^" {
+		convertedRange = pypiConvertCaretConstraint(version)
+	} else if operator == "~" {
+		convertedRange = pypiConvertTildeConstraint(version)
+	} else if operator == "*" || strings.HasSuffix(operator, "*") {
+		// For wildcards, the operator contains the full wildcard pattern
+		convertedRange = pypiConvertWildcardConstraint(operator)
 	}
 
-	if versionConstraint == "" || versionConstraint == "latest" {
-		// No version constraint after @, return package name only (defaults to latest version)
-		return packageName, nil
+	if convertedRange == "" {
+		return "", fmt.Errorf("invalid version constraint: %s%s", operator, version)
 	}
 
-	// Check for caret constraint (^)
-	if strings.HasPrefix(versionConstraint, "^") {
-		version := strings.TrimPrefix(versionConstraint, "^")
-		convertedRange := pypiConvertCaretConstraint(version)
-		if convertedRange == "" {
-			return "", fmt.Errorf("invalid caret version constraint: %s", versionConstraint)
-		}
-		return packageName + convertedRange, nil
-	}
-
-	// Check for tilde constraint (~)
-	if strings.HasPrefix(versionConstraint, "~") {
-		version := strings.TrimPrefix(versionConstraint, "~")
-		convertedRange := pypiConvertTildeConstraint(version)
-		if convertedRange == "" {
-			return "", fmt.Errorf("invalid tilde version constraint: %s", versionConstraint)
-		}
-		return packageName + convertedRange, nil
-	}
-
-	// Standard version constraint (==, >=, etc.), convert back to standard format
-	return packageName + versionConstraint, nil
+	return packageName + convertedRange, nil
 }
 
 // pypiConvertCaretConstraint converts caret (^) version constraints to equivalent ranges
@@ -623,7 +617,47 @@ func pypiConvertCompatibleRelease(version string) string {
 		upperBoundParts[incIndex] = strconv.Itoa(increment)
 
 		upperBound := strings.Join(upperBoundParts, ".")
-
 		return fmt.Sprintf(">=%s,<%s", version, upperBound)
+	}
+}
+
+// pypiConvertWildcardConstraint converts wildcard (*) version constraints to equivalent ranges
+// Examples:
+//   - "*" -> ">=0.0.0"
+//   - "1.*" -> ">=1.0.0,<2.0.0"
+//   - "1.2.*" -> ">=1.2.0,<1.3.0"
+func pypiConvertWildcardConstraint(wildcard string) string {
+	if wildcard == "*" {
+		return ">=0.0.0"
+	}
+
+	// Remove trailing .* to get the base version
+	if !strings.HasSuffix(wildcard, ".*") {
+		return "" // invalid wildcard format
+	}
+
+	baseVersion := strings.TrimSuffix(wildcard, ".*")
+	parts := strings.Split(baseVersion, ".")
+
+	// Validate that all parts are numeric
+	for _, part := range parts {
+		if _, err := strconv.Atoi(part); err != nil {
+			return "" // invalid version part
+		}
+	}
+
+	// Normalize to 3 parts and create range
+	switch len(parts) {
+	case 1:
+		// 1.* -> >=1.0.0,<2.0.0
+		major, _ := strconv.Atoi(parts[0])
+		return fmt.Sprintf(">=%d.0.0,<%d.0.0", major, major+1)
+	case 2:
+		// 1.2.* -> >=1.2.0,<1.3.0
+		major, _ := strconv.Atoi(parts[0])
+		minor, _ := strconv.Atoi(parts[1])
+		return fmt.Sprintf(">=%d.%d.0,<%d.%d.0", major, minor, major, minor+1)
+	default:
+		return "" // unsupported wildcard format
 	}
 }

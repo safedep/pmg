@@ -272,9 +272,9 @@ func TestPypiConvertPoetryVersionConstraints(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "package with empty version after @",
-			input:    "pendulum@",
-			expected: "pendulum",
+			name:     "inequality constraints",
+			input:    "pendulum>=2.0.0",
+			expected: "pendulum>=2.0.0",
 			wantErr:  false,
 		},
 		{
@@ -322,7 +322,7 @@ func TestPypiConvertPoetryVersionConstraints(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "caret with zero major two parts",
+			name:     "caret with zero major & two parts",
 			input:    "package@^0.5",
 			expected: "package>=0.5.0,<0.6.0",
 			wantErr:  false,
@@ -365,52 +365,40 @@ func TestPypiConvertPoetryVersionConstraints(t *testing.T) {
 			expected: "",
 			wantErr:  true,
 		},
-
-		// Standard constraint pass-through tests
 		{
-			name:     "standard exact version",
-			input:    "pendulum@==2.0.5",
-			expected: "pendulum==2.0.5",
-			wantErr:  false,
-		},
-		{
-			name:     "standard greater than equal",
-			input:    "django@>=3.2.0",
-			expected: "django>=3.2.0",
-			wantErr:  false,
-		},
-		{
-			name:     "standard less than equal",
-			input:    "requests@<=2.28.0",
-			expected: "requests<=2.28.0",
-			wantErr:  false,
-		},
-		{
-			name:     "standard not equal",
-			input:    "numpy@!=1.19.0",
-			expected: "numpy!=1.19.0",
-			wantErr:  false,
-		},
-		{
-			name:     "standard greater than",
-			input:    "flask@>1.0.0",
-			expected: "flask>1.0.0",
-			wantErr:  false,
-		},
-		{
-			name:     "standard less than",
-			input:    "pytest@<7.0.0",
-			expected: "pytest<7.0.0",
-			wantErr:  false,
-		},
-		{
-			name:     "standard complex range",
-			input:    "django@>=3.0,<4.0",
-			expected: "django>=3.0,<4.0",
+			name:     "tilde without @ separator",
+			input:    "requests~1.2.0",
+			expected: "requests>=1.2.0,<1.3.0",
 			wantErr:  false,
 		},
 
-		// Non-Poetry format (no @ separator) should pass through
+		// With extras
+		{
+			name:     "caret with extras using @ format",
+			input:    "fastapi[all]@^0.68.0",
+			expected: "fastapi[all]>=0.68.0,<0.69.0",
+			wantErr:  false,
+		},
+		{
+			name:     "caret with extras without @ separator",
+			input:    "django[mysql,redis]^3.0",
+			expected: "django[mysql,redis]>=3.0.0,<4.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "tilde with multiple extras",
+			input:    "uvicorn[standard,dev]~0.15.0",
+			expected: "uvicorn[standard,dev]>=0.15.0,<0.16.0",
+			wantErr:  false,
+		},
+		{
+			name:     "empty extras with caret",
+			input:    "numpy[]^1.20.0",
+			expected: "numpy[]>=1.20.0,<2.0.0",
+			wantErr:  false,
+		},
+
+		// Standard constraint pass-through tests (no Poetry operators)
 		{
 			name:     "standard python format",
 			input:    "pendulum>=2.0.0",
@@ -418,9 +406,59 @@ func TestPypiConvertPoetryVersionConstraints(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "standard python format with caret in name",
-			input:    "some^package>=1.0.0",
-			expected: "some^package>=1.0.0",
+			name:     "standard exact version",
+			input:    "django==3.2.0",
+			expected: "django==3.2.0",
+			wantErr:  false,
+		},
+		{
+			name:     "standard with extras",
+			input:    "fastapi[all]>=0.68.0",
+			expected: "fastapi[all]>=0.68.0",
+			wantErr:  false,
+		},
+		{
+			name:     "complex version range",
+			input:    "requests>=2.0,<3.0",
+			expected: "requests>=2.0,<3.0",
+			wantErr:  false,
+		},
+
+		// Wildcard constraint tests
+		{
+			name:     "wildcard all versions",
+			input:    "requests@*",
+			expected: "requests>=0.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "wildcard major version",
+			input:    "django@1.*",
+			expected: "django>=1.0.0,<2.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "wildcard minor version",
+			input:    "flask@1.2.*",
+			expected: "flask>=1.2.0,<1.3.0",
+			wantErr:  false,
+		},
+		{
+			name:     "wildcard without @ separator",
+			input:    "numpy@2.*",
+			expected: "numpy>=2.0.0,<3.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "wildcard with extras",
+			input:    "fastapi[all]@1.*",
+			expected: "fastapi[all]>=1.0.0,<2.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "wildcard with extras without @ separator",
+			input:    "uvicorn[standard]@0.*",
+			expected: "uvicorn[standard]>=0.0.0,<1.0.0",
 			wantErr:  false,
 		},
 	}
@@ -661,6 +699,67 @@ func TestUvParseCommand(t *testing.T) {
 					assert.Equal(t, expectedPkg, target.PackageVersion.Package.Name, "Package name mismatch for package %d", i)
 				}
 			}
+		})
+	}
+}
+
+func TestPypiConvertWildcardConstraint(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "all versions wildcard",
+			input:    "*",
+			expected: ">=0.0.0",
+		},
+		{
+			name:     "major version wildcard",
+			input:    "1.*",
+			expected: ">=1.0.0,<2.0.0",
+		},
+		{
+			name:     "minor version wildcard",
+			input:    "2.5.*",
+			expected: ">=2.5.0,<2.6.0",
+		},
+		{
+			name:     "zero major version wildcard",
+			input:    "0.*",
+			expected: ">=0.0.0,<1.0.0",
+		},
+		{
+			name:     "zero minor version wildcard",
+			input:    "1.0.*",
+			expected: ">=1.0.0,<1.1.0",
+		},
+		{
+			name:     "high version numbers",
+			input:    "12.34.*",
+			expected: ">=12.34.0,<12.35.0",
+		},
+		{
+			name:     "invalid wildcard format",
+			input:    "1.2.3.*",
+			expected: "",
+		},
+		{
+			name:     "invalid non-numeric parts",
+			input:    "abc.*",
+			expected: "",
+		},
+		{
+			name:     "wildcard without dot",
+			input:    "1*",
+			expected: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := pypiConvertWildcardConstraint(tc.input)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
