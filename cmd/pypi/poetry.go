@@ -32,7 +32,7 @@ func executePoetryFlow(ctx context.Context, args []string) error {
 	analytics.TrackCommandPoetry()
 	packageManager, err := packagemanager.NewPypiPackageManager(packagemanager.DefaultPoetryPackageManagerConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create uv package manager: %w", err)
+		return fmt.Errorf("failed to create poetry package manager: %w", err)
 	}
 
 	config, err := config.FromContext(ctx)

@@ -208,7 +208,7 @@ uv sync                           # Installs packages from uv.lock
 uv pip sync requirements.txt      # Sync from requirements file
 uv pip install -r requirements.txt
 
-poetry install # Installs from poetry.lock
+poetry install      # Installs from poetry.lock
 ```
 
 PMG scans the exact package versions specified in lockfiles and blocks installation if malicious packages are detected.

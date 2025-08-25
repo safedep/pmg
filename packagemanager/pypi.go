@@ -350,7 +350,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		// Convert Poetry version constraints (^, ~) to standard format
+		// Convert Poetry version constraints (^, ~, *) to standard format
 		convertedPkg, err := pypiConvertPoetryVersionConstraints(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
@@ -365,7 +365,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
 		}
-		fmt.Println("Package:", packageName, "Version:", version)
 
 		installTargets = append(installTargets, &PackageInstallTarget{
 			PackageVersion: &packagev1.PackageVersion{
@@ -448,13 +447,10 @@ func pypiParsePackageInfo(input string) (packageName, version string, extras []s
 // pypiConvertPoetryVersionConstraints converts Poetry's caret (^) and tilde (~) version constraints
 // to equivalent version ranges. It preserves extras and package names exactly.
 // Examples:
-//   - "fastapi[all]@^0.68.0" -> "fastapi[all]>=0.68.0,<0.69.0"
 //   - "django[mysql]^3.0" -> "django[mysql]>=3.0,<4.0.0"
 //   - "requests@*" -> "requests>=0.0.0"
-//   - "numpy@1.*" -> "numpy>=1.0.0,<2.0.0"
 //   - "flask@1.2.*" -> "flask>=1.2.0,<1.3.0"
 //   - "pendulum>=2.0.0" -> "pendulum>=2.0.0" (unchanged)
-//   - "pendulum" -> "pendulum" (unchanged)
 func pypiConvertPoetryVersionConstraints(packageStr string) (string, error) {
 	if packageStr == "" {
 		return "", fmt.Errorf("package string cannot be empty")
@@ -462,13 +458,18 @@ func pypiConvertPoetryVersionConstraints(packageStr string) (string, error) {
 
 	packageStr = strings.TrimSpace(packageStr)
 
+	// Return early is the package name is not valid
+	if strings.HasPrefix(packageStr, "@") || strings.HasPrefix(packageStr, "^") ||
+		strings.HasPrefix(packageStr, "~") || regexp.MustCompile(`^[\d.*]`).MatchString(packageStr) {
+		return "", fmt.Errorf("invalid package specification: '%s' appears to be a version constraint without a package name", packageStr)
+	}
+
 	// Regex to match package with optional extras and Poetry constraints
 	// Matches: packagename[extras]@^version, packagename[extras]^version, or packagename[extras]@*
 	poetryConstraintRegex := regexp.MustCompile(`^([a-zA-Z0-9._-]+(?:\[[^\]]*\])?)(?:@)?([~^]|\*|[\d.]+\*)(.*)$`)
 
 	matches := poetryConstraintRegex.FindStringSubmatch(packageStr)
 	if len(matches) != 4 {
-		// No Poetry constraints found, return as-is
 		return packageStr, nil
 	}
 
