@@ -1,12 +1,13 @@
 package analytics
 
 const (
-	eventRun         = "pmg_command_run"
-	eventCommandNpm  = "pmg_command_npm"
-	eventCommandBun  = "pmg_command_bun"
-	eventCommandPnpm = "pmg_command_pnpm"
-	eventCommandPip  = "pmg_command_pip"
-	eventCommandUv   = "pmg_command_uv"
+	eventRun           = "pmg_command_run"
+	eventCommandNpm    = "pmg_command_npm"
+	eventCommandBun    = "pmg_command_bun"
+	eventCommandPnpm   = "pmg_command_pnpm"
+	eventCommandPip    = "pmg_command_pip"
+	eventCommandUv     = "pmg_command_uv"
+	eventCommandPoetry = "pmg_command_poetry"
 
 	eventPmgGenerateEnvDocker        = "pmg_command_generate_env_docker"
 	eventPmgGenerateEnvGitHubActions = "pmg_command_generate_env_github_actions"
@@ -35,6 +36,10 @@ func TrackCommandPip() {
 
 func TrackCommandUv() {
 	TrackEvent(eventCommandUv)
+}
+
+func TrackCommandPoetry() {
+	TrackEvent(eventCommandPoetry)
 }
 
 func TrackCommandGenerateEnvDocker() {

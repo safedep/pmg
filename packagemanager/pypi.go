@@ -3,6 +3,7 @@ package packagemanager
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,13 @@ func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	}
 }
 
+func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
+	return PypiPackageManagerConfig{
+		InstallCommands: []string{"add"},
+		CommandName:     "poetry",
+	}
+}
+
 type pypiPackageManager struct {
 	Config PypiPackageManagerConfig
 	parser pypiCommandParser
@@ -48,6 +56,8 @@ func NewPypiPackageManager(config PypiPackageManagerConfig) (*pypiPackageManager
 		parser = NewPipCommandParser(config)
 	case "uv":
 		parser = NewUVCommandParser(config)
+	case "poetry":
+		parser = NewPoetryCommandParser(config)
 	default:
 		return nil, fmt.Errorf("unsupported package manager: %s", config.CommandName)
 	}
@@ -145,15 +155,9 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		if version != "" {
-			if strings.HasPrefix(version, "==") {
-				version = strings.TrimPrefix(version, "==")
-			} else {
-				version, err = pypiGetMatchingVersion(packageName, version)
-				if err != nil {
-					return nil, ErrFailedToResolveVersion.Wrap(err)
-				}
-			}
+		version, err = pypiGetMatchingVersion(packageName, version)
+		if err != nil {
+			return nil, ErrFailedToResolveVersion.Wrap(err)
 		}
 
 		installTargets = append(installTargets, &PackageInstallTarget{
@@ -262,15 +266,9 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		if version != "" {
-			if strings.HasPrefix(version, "==") {
-				version = strings.TrimPrefix(version, "==")
-			} else {
-				version, err = pypiGetMatchingVersion(packageName, version)
-				if err != nil {
-					return nil, ErrFailedToResolveVersion.Wrap(err)
-				}
-			}
+		version, err = pypiGetMatchingVersion(packageName, version)
+		if err != nil {
+			return nil, ErrFailedToResolveVersion.Wrap(err)
 		}
 
 		installTargets = append(installTargets, &PackageInstallTarget{
@@ -290,6 +288,103 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
 		ManifestFiles:     manifestFiles,
+	}, nil
+}
+
+type poetryCommandParser struct {
+	config PypiPackageManagerConfig
+}
+
+func NewPoetryCommandParser(config PypiPackageManagerConfig) pypiCommandParser {
+	return &poetryCommandParser{
+		config: config,
+	}
+}
+
+func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
+	// Remove 'poetry' if it's the first argument
+	if len(args) > 0 && args[0] == "poetry" {
+		args = args[1:]
+	}
+
+	command := Command{Exe: p.config.CommandName, Args: args}
+	if len(args) < 1 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	if len(args) > 0 && args[0] == "install" {
+		return &ParsedCommand{
+			Command:           command,
+			IsManifestInstall: true,
+			InstallTargets:    nil,
+			ManifestFiles:     []string{"poetry.lock"},
+		}, nil
+	}
+
+	// Find the install command position
+	var installCmdIndex = -1
+	for idx, arg := range args {
+		if slices.Contains(p.config.InstallCommands, arg) {
+			installCmdIndex = idx
+			break
+		}
+	}
+
+	if installCmdIndex == -1 {
+		// No install command found, return as-is
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Extract arguments after the install command
+	installArgs := args[installCmdIndex+1:]
+
+	// Set up flag parsing
+	flagSet := pflag.NewFlagSet("poetry", pflag.ContinueOnError)
+	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+	flagSet.SetOutput(io.Discard)
+
+	err := flagSet.Parse(installArgs)
+	if err != nil {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	packages := flagSet.Args()
+
+	var installTargets []*PackageInstallTarget
+	for _, pkg := range packages {
+		// Convert Poetry version constraints (^, ~, *) to standard format
+		convertedPkg, err := pypiConvertPoetryVersionConstraints(pkg)
+		if err != nil {
+			return nil, ErrFailedToParsePackage.Wrap(err)
+		}
+
+		packageName, version, extras, err := pypiParsePackageInfo(convertedPkg)
+		if err != nil {
+			return nil, ErrFailedToParsePackage.Wrap(err)
+		}
+
+		version, err = pypiGetMatchingVersion(packageName, version)
+		if err != nil {
+			return nil, ErrFailedToResolveVersion.Wrap(err)
+		}
+
+		installTargets = append(installTargets, &PackageInstallTarget{
+			PackageVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI,
+					Name:      packageName,
+				},
+				Version: version,
+			},
+			Extras: extras,
+		})
+	}
+
+	return &ParsedCommand{
+		Command:           command,
+		InstallTargets:    installTargets,
+		IsManifestInstall: false,
+		ManifestFiles:     nil,
 	}, nil
 }
 
@@ -351,6 +446,141 @@ func pypiParsePackageInfo(input string) (packageName, version string, extras []s
 	return packageName, version, extras, nil
 }
 
+// pypiConvertPoetryVersionConstraints converts Poetry's caret (^) and tilde (~) version constraints
+// to equivalent version ranges. It preserves extras and package names exactly.
+// Examples:
+//   - "django[mysql]^3.0" -> "django[mysql]>=3.0,<4.0.0"
+//   - "requests@*" -> "requests>=0.0.0"
+//   - "flask@1.2.*" -> "flask>=1.2.0,<1.3.0"
+//   - "pendulum>=2.0.0" -> "pendulum>=2.0.0" (unchanged)
+func pypiConvertPoetryVersionConstraints(packageStr string) (string, error) {
+	if packageStr == "" {
+		return "", fmt.Errorf("package string cannot be empty")
+	}
+
+	packageStr = strings.TrimSpace(packageStr)
+
+	// Return early is the package name is not valid
+	if strings.HasPrefix(packageStr, "@") || strings.HasPrefix(packageStr, "^") ||
+		strings.HasPrefix(packageStr, "~") || regexp.MustCompile(`^[\d.*]`).MatchString(packageStr) {
+		return "", fmt.Errorf("invalid package specification: '%s' appears to be a version constraint without a package name", packageStr)
+	}
+
+	// Regex to match package with optional extras and Poetry constraints
+	// Matches: packagename[extras]@^version, packagename[extras]^version, or packagename[extras]@*
+	poetryConstraintRegex := regexp.MustCompile(`^([a-zA-Z0-9._-]+(?:\[[^\]]*\])?)(?:@)?([~^]|\*|[\d.]+\*)(.*)$`)
+
+	matches := poetryConstraintRegex.FindStringSubmatch(packageStr)
+	if len(matches) != 4 {
+		return packageStr, nil
+	}
+
+	packageName := matches[1]
+	operator := matches[2]
+	version := matches[3]
+
+	// Convert based on operator type
+	var convertedRange string
+	if operator == "^" {
+		convertedRange = pypiConvertCaretConstraint(version)
+	} else if operator == "~" {
+		convertedRange = pypiConvertTildeConstraint(version)
+	} else if operator == "*" || strings.HasSuffix(operator, "*") {
+		// For wildcards, the operator contains the full wildcard pattern
+		convertedRange = pypiConvertWildcardConstraint(operator)
+	}
+
+	if convertedRange == "" {
+		return "", fmt.Errorf("invalid version constraint: %s%s", operator, version)
+	}
+
+	return packageName + convertedRange, nil
+}
+
+// pypiConvertCaretConstraint converts caret (^) version constraints to equivalent ranges
+// Examples:
+//   - "1.2.3" -> ">=1.2.3,<2.0.0"
+//   - "0.2.3" -> ">=0.2.3,<0.3.0" (special case for major version 0)
+//   - "0.0.3" -> ">=0.0.3,<0.0.4" (special case for major and minor version 0)
+func pypiConvertCaretConstraint(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) < 1 {
+		return "" // invalid
+	}
+
+	// Pad with zeros if needed (e.g., "1.2" -> "1.2.0")
+	for len(parts) < 3 {
+		parts = append(parts, "0")
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return "" // invalid major version
+	}
+
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "" // invalid minor version
+	}
+
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return "" // invalid patch version
+	}
+
+	// Special cases for version 0.x.x
+	if major == 0 {
+		if minor == 0 {
+			// ^0.0.x -> >=0.0.x,<0.0.(x+1)
+			return fmt.Sprintf(">=0.0.%d,<0.0.%d", patch, patch+1)
+		}
+		// ^0.x.y -> >=0.x.y,<0.(x+1).0
+		return fmt.Sprintf(">=0.%d.%d,<0.%d.0", minor, patch, minor+1)
+	}
+
+	// ^x.y.z -> >=x.y.z,<(x+1).0.0
+	// Reconstruct the original version with proper formatting
+	originalVersion := strings.Join(parts, ".")
+	return fmt.Sprintf(">=%s,<%d.0.0", originalVersion, major+1)
+}
+
+// pypiConvertTildeConstraint converts tilde (~) version constraints to equivalent ranges
+// Examples:
+//   - "1.2.3" -> ">=1.2.3,<1.3.0"
+//   - "1.2" -> ">=1.2.0,<1.3.0"
+//   - "1" -> ">=1.0.0,<2.0.0"
+func pypiConvertTildeConstraint(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) < 1 {
+		return "" // invalid
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return "" // invalid major version
+	}
+
+	switch len(parts) {
+	case 1:
+		// ~1 -> >=1.0.0,<2.0.0
+		return fmt.Sprintf(">=%s.0.0,<%d.0.0", version, major+1)
+	case 2:
+		// ~1.2 -> >=1.2.0,<1.3.0
+		minor, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return "" // invalid minor version
+		}
+		return fmt.Sprintf(">=%s.0,<%d.%d.0", version, major, minor+1)
+	default:
+		// ~1.2.3 -> >=1.2.3,<1.3.0
+		minor, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return "" // invalid minor version
+		}
+		return fmt.Sprintf(">=%s,<%d.%d.0", version, major, minor+1)
+	}
+}
+
 func pypiConvertCompatibleRelease(version string) string {
 	if !strings.HasPrefix(version, "~=") {
 		return version
@@ -390,7 +620,47 @@ func pypiConvertCompatibleRelease(version string) string {
 		upperBoundParts[incIndex] = strconv.Itoa(increment)
 
 		upperBound := strings.Join(upperBoundParts, ".")
-
 		return fmt.Sprintf(">=%s,<%s", version, upperBound)
+	}
+}
+
+// pypiConvertWildcardConstraint converts wildcard (*) version constraints to equivalent ranges
+// Examples:
+//   - "*" -> ">=0.0.0"
+//   - "1.*" -> ">=1.0.0,<2.0.0"
+//   - "1.2.*" -> ">=1.2.0,<1.3.0"
+func pypiConvertWildcardConstraint(wildcard string) string {
+	if wildcard == "*" {
+		return ">=0.0.0"
+	}
+
+	// Remove trailing .* to get the base version
+	if !strings.HasSuffix(wildcard, ".*") {
+		return "" // invalid wildcard format
+	}
+
+	baseVersion := strings.TrimSuffix(wildcard, ".*")
+	parts := strings.Split(baseVersion, ".")
+
+	// Validate that all parts are numeric
+	for _, part := range parts {
+		if _, err := strconv.Atoi(part); err != nil {
+			return "" // invalid version part
+		}
+	}
+
+	// Normalize to 3 parts and create range
+	switch len(parts) {
+	case 1:
+		// 1.* -> >=1.0.0,<2.0.0
+		major, _ := strconv.Atoi(parts[0])
+		return fmt.Sprintf(">=%d.0.0,<%d.0.0", major, major+1)
+	case 2:
+		// 1.2.* -> >=1.2.0,<1.3.0
+		major, _ := strconv.Atoi(parts[0])
+		minor, _ := strconv.Atoi(parts[1])
+		return fmt.Sprintf(">=%d.%d.0,<%d.%d.0", major, minor, major, minor+1)
+	default:
+		return "" // unsupported wildcard format
 	}
 }
