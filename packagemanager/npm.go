@@ -2,10 +2,12 @@ package packagemanager
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/spf13/pflag"
 )
 
 type NpmPackageManagerConfig struct {
@@ -67,31 +69,49 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			Command: command,
 		}, nil
 	}
-
-	// Extract packages from args
-	var packages []string
-	var isManifestInstall bool
-	var foundInstallCmd bool
-
+	// Find the install command position
+	var installCmdIndex = -1
 	for idx, arg := range args {
 		if slices.Contains(npm.Config.InstallCommands, arg) {
-			foundInstallCmd = true
-			// All subsequent args are packages except for flags
-			for i := idx + 1; i < len(args); i++ {
-				if strings.HasPrefix(args[i], "-") {
-					continue
-				}
-
-				packages = append(packages, args[i])
-			}
-
+			installCmdIndex = idx
 			break
 		}
 	}
 
+	if installCmdIndex == -1 {
+		// No install command found, return as-is
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Extract arguments after the install command
+	installArgs := args[installCmdIndex+1:]
+
+	// Extract packages from args
+	var packages []string
+	var isManifestInstall bool
+	var devPackages []string
+
+	flagSet := pflag.NewFlagSet(npm.Config.CommandName, pflag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
+	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+
+	switch npm.Config.CommandName {
+	case "npm", "pnpm":
+		flagSet.StringArrayVarP(&devPackages, "save-dev", "D", nil, "Install dev packages")
+	case "bun":
+		flagSet.StringArrayVarP(&devPackages, "dev", "d", nil, "Install dev packages")
+	}
+
+	err := flagSet.Parse(installArgs)
+	if err != nil {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	packages = flagSet.Args()
+
 	// If install command was found but no explicit packages,
 	// this is a manifest-based installation
-	if foundInstallCmd && len(packages) == 0 {
+	if installCmdIndex != -1 && len(packages) == 0 {
 		isManifestInstall = true
 	}
 
@@ -101,6 +121,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			Command: command,
 		}, nil
 	}
+	packages = append(packages, devPackages...)
 
 	// Process all package arguments
 	var installTargets []*PackageInstallTarget
