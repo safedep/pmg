@@ -207,6 +207,14 @@ uv pip install -r requirements.txt
 
 PMG scans the exact package versions specified in lockfiles and blocks installation if malicious packages are detected.
 
+### Active Scanning
+
+Use the `--paranoid` flag to perform active malware scanning on unknown packages (requires [SafeDep Cloud credentials](https://docs.safedep.io/cloud/authentication#api-key-authentication)):
+
+```bash
+pmg --paranoid npm install <package-name>
+```
+
 ### Silent Mode
 
 Use the `--silent` flag to run PMG in silent mode:
