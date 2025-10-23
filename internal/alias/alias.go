@@ -95,7 +95,7 @@ func DefaultConfig() AliasConfig {
 
 	return AliasConfig{
 		RcFileName:      ".pmg.rc",
-		PackageManagers: []string{"npm", "pip", "pnpm", "bun", "uv"},
+		PackageManagers: []string{"npm", "pip", "pnpm", "bun", "uv", "yarn"},
 		Shells:          shells,
 	}
 }
