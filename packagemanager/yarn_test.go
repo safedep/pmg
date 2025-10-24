@@ -52,8 +52,17 @@ func TestYarnParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "manifest installation (yarn install)",
+			name:    "manifest installation with install command",
 			command: "yarn install",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "bare yarn command (manifest install)",
+			command: "yarn",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.Equal(t, 0, len(parsedCommand.InstallTargets))

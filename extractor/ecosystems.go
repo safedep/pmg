@@ -26,6 +26,7 @@ const (
 	Pnpm   PackageManagerName = "pnpm"
 	Pip    PackageManagerName = "pip"
 	Bun    PackageManagerName = "bun"
+	Yarn   PackageManagerName = "yarn"
 	Uv     PackageManagerName = "uv"
 	Poetry PackageManagerName = "poetry"
 )
@@ -41,6 +42,7 @@ func NewExtractorManager() *ExtractorManager {
 			Pnpm:   &PnpmExtractor{},
 			Pip:    &PipExtractor{},
 			Bun:    &BunExtractor{},
+			Yarn:   &YarnExtractor{},
 			Uv:     &UvExtractor{},
 			Poetry: &PoetryExtractor{},
 		},

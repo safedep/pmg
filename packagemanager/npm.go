@@ -38,7 +38,7 @@ func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 
 func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
-		InstallCommands: []string{"install", "add"},
+		InstallCommands: []string{"install", "add", ""},
 		CommandName:     "yarn",
 	}
 }
@@ -72,6 +72,14 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	// Since manifest-based installs like 'npm i' are now valid commands
 	if len(args) < 1 {
+		if npm.Config.CommandName == "yarn" {
+			return &ParsedCommand{
+				Command:           command,
+				InstallTargets:    []*PackageInstallTarget{},
+				IsManifestInstall: true,
+				ManifestFiles:     []string{},
+			}, nil
+		}
 		return &ParsedCommand{
 			Command: command,
 		}, nil
@@ -122,6 +130,13 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// this is a manifest-based installation
 	if installCmdIndex != -1 && len(packages) == 0 {
 		isManifestInstall = true
+	}
+
+	// Yarn-specific validation: yarn install does not accept package names
+	if npm.Config.CommandName == "yarn" && args[installCmdIndex] == "install" && len(packages) > 0 {
+		return &ParsedCommand{
+			Command: command,
+		}, nil
 	}
 
 	// No packages found and not a manifest install
