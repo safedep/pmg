@@ -70,6 +70,16 @@ func TestYarnParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "yarn install with package name (invalid syntax)",
+			command: "yarn install express",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.NotNil(t, parsedCommand)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Equal(t, false, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
 			name:    "multiple package installations",
 			command: "yarn add @types/node @types/react",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
