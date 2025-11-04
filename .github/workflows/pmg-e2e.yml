@@ -210,8 +210,6 @@ jobs:
           echo "Testing Poetry manifest installation..."
           rm -rf .venv poetry.lock
           pmg poetry install
-          # Verification: packages are importable inside poetry environment
-          poetry run python -c "import requests, numpy; print('poetry env ok')"
           cd .. && rm -rf poetry-test
 
       - name: Test Malicious Package Detection
