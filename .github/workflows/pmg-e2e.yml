@@ -46,7 +46,7 @@ jobs:
           version: 10
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@5dd21aa1c72de0e5d66a7f8a2dcddadc7f54ceff # v2
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2
         with:
           bun-version: latest
 
@@ -56,9 +56,10 @@ jobs:
           python-version: "3.11"
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39
+
       - name: Install Poetry
-        uses: snok/install-poetry@v1
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a
 
       - name: Build PMG
         run: make
