@@ -95,7 +95,7 @@ jobs:
         run: |
           echo "Testing PNPM single package installation..."
           mkdir pnpm-test && cd pnpm-test
-          pmg pnpm init -y
+          pmg pnpm init --yes
           pmg pnpm add express
           pmg pnpm add lodash@4.17.21
 
