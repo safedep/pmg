@@ -67,9 +67,6 @@ jobs:
       - name: Add pmg to PATH
         run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
-      - name: Create pmg alias
-        run: echo "alias pmg=\"$GITHUB_WORKSPACE/bin/pmg\"" >> $BASH_ENV
-
       - name: Test NPM - Single Package & Manifest
         run: |
           echo "Testing NPM single package installation..."
