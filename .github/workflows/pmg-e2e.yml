@@ -201,11 +201,11 @@ jobs:
           pmg poetry add requests
           pmg poetry add numpy
 
-          # # Verification: pyproject.toml dependencies updated
-          # test -f pyproject.toml
-          # grep -q "\[tool.poetry.dependencies\]" pyproject.toml
-          # grep -q 'requests' pyproject.toml
-          # grep -q 'numpy' pyproject.toml
+           # Verification: pyproject.toml dependencies updated
+           test -f pyproject.toml
+           grep -q "\[tool.poetry.dependencies\]" pyproject.toml
+           grep -q 'requests' pyproject.toml
+           grep -q 'numpy' pyproject.toml
 
           echo "Testing Poetry manifest installation..."
           rm -rf .venv poetry.lock
