@@ -209,7 +209,7 @@ jobs:
 
           echo "Testing Poetry manifest installation..."
           rm -rf .venv poetry.lock
-          pmg poetry install
+          pmg poetry install --no-root
           cd .. && rm -rf poetry-test
 
       - name: Test Malicious Package Detection
