@@ -92,6 +92,7 @@ func main() {
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())
 	cmd.AddCommand(npm.NewBunCommand())
+	cmd.AddCommand(npm.NewYarnCommand())
 	cmd.AddCommand(pypi.NewPipCommand())
 	cmd.AddCommand(pypi.NewUvCommand())
 	cmd.AddCommand(pypi.NewPoetryCommand())

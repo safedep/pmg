@@ -59,3 +59,21 @@ func (n *BunExtractor) GetPackageManager() PackageManagerName {
 func (n *BunExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
 	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
 }
+
+type YarnExtractor struct{}
+
+func (y *YarnExtractor) GetSupportedFiles() []string {
+	return []string{"yarn.lock"}
+}
+
+func (y *YarnExtractor) GetEcosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_NPM
+}
+
+func (y *YarnExtractor) GetPackageManager() PackageManagerName {
+	return Yarn
+}
+
+func (y *YarnExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, y.GetEcosystem())
+}

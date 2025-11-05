@@ -12,6 +12,7 @@ import (
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/bunlock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/packagelockjson"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/pnpmlock"
+	"github.com/google/osv-scalibr/extractor/filesystem/language/javascript/yarnlock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/poetrylock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/requirements"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/uvlock"
@@ -31,6 +32,8 @@ func getExtractorForFile(filename string) (filesystem.Extractor, error) {
 		return pnpmlock.New(), nil
 	case filename == "bun.lock":
 		return bunlock.New(), nil
+	case filename == "yarn.lock":
+    	return yarnlock.New(), nil 
 	case reqPattern.MatchString(filename):
 		return requirements.NewDefault(), nil
 	case filename == "uv.lock":
