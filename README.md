@@ -1,4 +1,3 @@
-
 # Package Manager Guard (PMG)
 
 <p>
@@ -14,9 +13,9 @@
 🤖 PMG protects developers from getting compromised by malicious packages.
 See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 
-- Wraps your favorite package manager (eg. `npm`)
-- Blocks malicious packages at install time
-- No configuration required, just install and use
+-   Wraps your favorite package manager (eg. `npm`)
+-   Blocks malicious packages at install time
+-   No configuration required, just install and use
 
 ## 🔥 PMG in Action
 
@@ -47,52 +46,53 @@ uv pip install <package-name>
 ```
 
 ## 📑 Table of Contents
-- [Package Manager Guard (PMG)](#package-manager-guard-pmg)
-  - [🔥 PMG in Action](#-pmg-in-action)
-  - [📦 TL;DR](#-tldr)
-  - [📑 Table of Contents](#-table-of-contents)
-  - [🔥 Features](#-features)
-  - [Supported Package Managers](#supported-package-managers)
-  - [Installation](#installation)
-    - [Homebrew](#homebrew)
-    - [Binaries](#binaries)
-    - [Build from Source](#build-from-source)
-  - [Setup](#setup)
-    - [Install Aliases](#install-aliases)
-    - [Remove Aliases](#remove-aliases)
-  - [Usage](#usage)
-    - [Recommended: Automated Setup](#recommended-automated-setup)
-    - [Alternative: Manual Commands](#alternative-manual-commands)
-    - [Lockfile Installation](#lockfile-installation)
-    - [Silent Mode](#silent-mode)
-    - [Dry Run](#dry-run)
-    - [Verbose Mode](#verbose-mode)
-    - [Debugging](#debugging)
-  - [Environment Variables](#environment-variables)
-  - [🤝 Contributing](#-contributing)
-  - [🚫 Limitations](#-limitations)
+
+-   [Package Manager Guard (PMG)](#package-manager-guard-pmg)
+    -   [🔥 PMG in Action](#-pmg-in-action)
+    -   [📦 TL;DR](#-tldr)
+    -   [📑 Table of Contents](#-table-of-contents)
+    -   [🔥 Features](#-features)
+    -   [Supported Package Managers](#supported-package-managers)
+    -   [Installation](#installation)
+        -   [Homebrew](#homebrew)
+        -   [Binaries](#binaries)
+        -   [Build from Source](#build-from-source)
+    -   [Setup](#setup)
+        -   [Install Aliases](#install-aliases)
+        -   [Remove Aliases](#remove-aliases)
+    -   [Usage](#usage)
+        -   [Recommended: Automated Setup](#recommended-automated-setup)
+        -   [Alternative: Manual Commands](#alternative-manual-commands)
+        -   [Lockfile Installation](#lockfile-installation)
+        -   [Silent Mode](#silent-mode)
+        -   [Dry Run](#dry-run)
+        -   [Verbose Mode](#verbose-mode)
+        -   [Debugging](#debugging)
+    -   [Environment Variables](#environment-variables)
+    -   [🤝 Contributing](#-contributing)
+    -   [🚫 Limitations](#-limitations)
 
 ## 🔥 Features
 
-- 🚫 Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis)
-- 🌲 Deep dependency analysis and transitive dependency resolution
-- ⚡ Fast and efficient package verification
-- 🔄 Seamless integration with existing package managers
-- 🔧 Automated shell integration with cross-shell support
+-   🚫 Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis)
+-   🌲 Deep dependency analysis and transitive dependency resolution
+-   ⚡ Fast and efficient package verification
+-   🔄 Seamless integration with existing package managers
+-   🔧 Automated shell integration with cross-shell support
 
 ## Supported Package Managers
 
 PMG supports the following package managers:
 
-| Package Manager | Status    | Command                     |
-| --------------- | --------- | --------------------------- |
-| `npm`           | ✅ Active  | `pmg npm install <package>` |
-| `pnpm`          | ✅ Active  | `pmg pnpm add <package>`    |
-| `bun`           | ✅ Active  | `pmg bun add <package>` |
-| `pip`           | ✅ Active  | `pmg pip install <package>` |
-| `uv`            | ✅ Active  | `pmg uv add <package>` or `pmg uv pip install <package>`|
-| `poetry`        | ✅ Active | `pmg poetry add <package>` |
-| `yarn`          | 🚧 Planned |                             |
+| Package Manager | Status    | Command                                                  |
+| --------------- | --------- | -------------------------------------------------------- |
+| `npm`           | ✅ Active | `pmg npm install <package>`                              |
+| `pnpm`          | ✅ Active | `pmg pnpm add <package>`                                 |
+| `bun`           | ✅ Active | `pmg bun add <package>`                                  |
+| `yarn`          | ✅ Active | `pmg yarn add <package>`                                 |
+| `pip`           | ✅ Active | `pmg pip install <package>`                              |
+| `uv`            | ✅ Active | `pmg uv add <package>` or `pmg uv pip install <package>` |
+| `poetry`        | ✅ Active | `pmg poetry add <package>`                               |
 
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
@@ -133,13 +133,14 @@ pmg setup install
 
 This command will:
 
-- Create a \~/.pmg.rc file containing package manager aliases
-- Automatically add a source line to your shell configuration files
-- Supports bash, zsh and fish shell
+-   Create a \~/.pmg.rc file containing package manager aliases
+-   Automatically add a source line to your shell configuration files
+-   Supports bash, zsh and fish shell
 
 > **Note**: After running `pmg setup install`, restart your terminal or run `source ~/.zshrc` (or your shell's config file) to activate the aliases.
 
 ### Remove Aliases
+
 To remove PMG aliases and restore original package manager behavior:
 
 ```bash
@@ -148,8 +149,8 @@ pmg setup remove
 
 This will:
 
-- Remove the source line from your shell configuration files
-- Delete the ~/.pmg.rc file
+-   Remove the source line from your shell configuration files
+-   Delete the ~/.pmg.rc file
 
 > ⚠️ Note: Aliases might still be active in your **current terminal session**. Restart your terminal or use `unalias <cmd>` to remove them instantly.
 
@@ -169,6 +170,7 @@ After setup, use your package managers normally:
 npm install <package-name>
 pnpm add <package-name>
 bun add <package-name>
+yarn add <package-name>
 
 pip install <package-name>
 
@@ -179,12 +181,14 @@ poetry add <package-name>
 ```
 
 ### Alternative: Manual Commands
+
 You can also run PMG manually without aliases:
 
 ```bash
 pmg npm install <package-name>
 pmg pnpm add <package-name>
 pmg bun add <package-name>
+pmg yarn add <package-name>
 
 pmg pip install <package-name>
 
@@ -195,12 +199,14 @@ pmg poetry add <package-name>
 ```
 
 ### Lockfile Installation
+
 PMG seamlessly protects lockfile-based installations:
 
 ```bash
 npm install          # Uses package-lock.json
 pnpm install         # Uses pnpm-lock.yaml
 bun install          # Uses bun.lock
+yarn install         # Uses yarn.lock
 
 pip install -r requirements.txt   # Uses requirements file
 
@@ -287,7 +293,7 @@ package registry APIs such as `npmjs` and `pypi`. However, almost always, depend
 specified as ranges instead of specific version. Different package managers have different ways of
 resolving these ranges. It also depends on peer or host dependencies already available in the application.
 
-`pmg` is required to block a malicious package *before* it is installed. Hence it applies its own heuristic
+`pmg` is required to block a malicious package _before_ it is installed. Hence it applies its own heuristic
 to choose a version from a version range for evaluation. This is fine when all versions of a given package
 is malicious. However, there is a possibility of inconsistency when a specific version of a package is malicious.
 
