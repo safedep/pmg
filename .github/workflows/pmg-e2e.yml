@@ -140,9 +140,9 @@ jobs:
       - name: Test Yarn - Single Package & Manifest
         run: |
           echo "Testing Yarn single package installation..."
-          # Ensure Corepack is enabled
-          corepack enable
-          corepack prepare yarn@1.22.22 --activate
+          export YARN_ENABLE_HARDENED_MODE=0
+          npm install -g yarn@1.22.22
+          yarn --version
 
           mkdir yarn-test && cd yarn-test
           pmg yarn init -y
