@@ -137,6 +137,33 @@ jobs:
           test -d node_modules/lodash
           cd .. && rm -rf bun-test
 
+      - name: Test Yarn - Single Package & Manifest
+        run: |
+          echo "Testing Yarn single package installation..."
+          # Ensure Corepack is enabled
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+
+          mkdir yarn-test && cd yarn-test
+          pmg yarn init -y
+          pmg yarn add express
+          pmg yarn add lodash@4.17.21
+
+          # Verification: yarn packages installed and lockfile created
+          test -d node_modules/express
+          test -d node_modules/lodash
+          test -f yarn.lock
+
+          echo "Testing Yarn manifest installation..."
+          rm -rf node_modules yarn.lock
+          pmg yarn install
+
+          # Verification: yarn lockfile and modules exist after manifest install
+          test -f yarn.lock
+          test -d node_modules/express
+          test -d node_modules/lodash
+          cd .. && rm -rf yarn-test
+
       - name: Test Pip - Single Package & Manifest
         run: |
           echo "Testing Pip single package installation..."
