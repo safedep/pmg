@@ -76,5 +76,5 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 }
 
 func malysisReportUrl(analysisId string) string {
-	return fmt.Sprintf("https://platform.safedep.io/community/malysis/%s", analysisId)
+	return fmt.Sprintf("https://app.safedep.io/community/malysis/%s", analysisId)
 }
