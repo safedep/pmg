@@ -19,8 +19,8 @@ func (p *PipExtractor) GetPackageManager() PackageManagerName {
 	return Pip
 }
 
-func (n *PipExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
+func (p *PipExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
 }
 
 // UvExtractor handles uv.lock files
@@ -58,5 +58,24 @@ func (p *PoetryExtractor) GetPackageManager() PackageManagerName {
 }
 
 func (p *PoetryExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
+}
+
+// Pip3Extractor handles requirements.txt files
+type Pip3Extractor struct{}
+
+func (p *Pip3Extractor) GetSupportedFiles() []string {
+	return []string{"requirements.txt"}
+}
+
+func (p *Pip3Extractor) GetEcosystem() packagev1.Ecosystem {
+	return packagev1.Ecosystem_ECOSYSTEM_PYPI
+}
+
+func (p *Pip3Extractor) GetPackageManager() PackageManagerName {
+	return Pip3
+}
+
+func (p *Pip3Extractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
 	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
 }

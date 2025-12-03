@@ -7,6 +7,7 @@ const (
 	eventCommandPnpm   = "pmg_command_pnpm"
 	eventCommandYarn   = "pmg_command_yarn"
 	eventCommandPip    = "pmg_command_pip"
+	eventCommandPip3   = "pmg_command_pip3"
 	eventCommandUv     = "pmg_command_uv"
 	eventCommandPoetry = "pmg_command_poetry"
 
@@ -37,6 +38,10 @@ func TrackCommandYarn() {
 
 func TrackCommandPip() {
 	TrackEvent(eventCommandPip)
+}
+
+func TrackCommandPip3() {
+	TrackEvent(eventCommandPip3)
 }
 
 func TrackCommandUv() {
