@@ -29,6 +29,13 @@ func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
 	}
 }
 
+func DefaultPip3PackageManagerConfig() PypiPackageManagerConfig {
+	return PypiPackageManagerConfig{
+		InstallCommands: []string{"install"},
+		CommandName:     "pip3",
+	}
+}
+
 func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
 		InstallCommands: []string{"add", "install"},
@@ -58,6 +65,8 @@ func NewPypiPackageManager(config PypiPackageManagerConfig) (*pypiPackageManager
 		parser = NewUVCommandParser(config)
 	case "poetry":
 		parser = NewPoetryCommandParser(config)
+	case "pip3":
+		parser = NewPipCommandParser(config)
 	default:
 		return nil, fmt.Errorf("unsupported package manager: %s", config.CommandName)
 	}
