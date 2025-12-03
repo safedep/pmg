@@ -19,8 +19,8 @@ func (p *PipExtractor) GetPackageManager() PackageManagerName {
 	return Pip
 }
 
-func (n *PipExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
+func (p *PipExtractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
 }
 
 // UvExtractor handles uv.lock files
@@ -76,6 +76,6 @@ func (p *Pip3Extractor) GetPackageManager() PackageManagerName {
 	return Pip3
 }
 
-func (n *Pip3Extractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
-	return parseLockfile(lockfilePath, scanDir, n.GetEcosystem())
+func (p *Pip3Extractor) Extract(lockfilePath, scanDir string) ([]*packagev1.PackageVersion, error) {
+	return parseLockfile(lockfilePath, scanDir, p.GetEcosystem())
 }
