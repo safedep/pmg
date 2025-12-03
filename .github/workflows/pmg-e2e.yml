@@ -187,6 +187,29 @@ jobs:
           deactivate
           cd .. && rm -rf pip-test
 
+      - name: Test Pip3 - Single Package & Manifest
+        run: |
+          echo "Testing Pip3 single package installation..."
+          mkdir pip3-test && cd pip3-test
+          python -m venv venv && source venv/bin/activate
+          pmg pip3 install requests
+          pmg pip3 install numpy==1.24.0
+          pmg pip3 freeze > requirements.txt
+
+          # Verification: requirements.txt contains expected packages
+          test -s requirements.txt
+          grep -E '^requests==' requirements.txt
+          grep -E '^numpy==' requirements.txt
+
+          echo "Testing Pip3 manifest installation..."
+          pmg pip3 uninstall -y requests numpy
+          pmg pip3 install -r requirements.txt
+
+          # Verification: imported packages are available in the environment
+          python -c "import requests, numpy; print(requests.__version__); print(numpy.__version__)"
+          deactivate
+          cd .. && rm -rf pip3-test
+
       - name: Test UV - Single Package & Manifest
         run: |
           echo "Testing UV single package installation..."
