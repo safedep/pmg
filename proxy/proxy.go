@@ -47,9 +47,6 @@ type ProxyConfig struct {
 	EnableMITM     bool
 	ConnectTimeout time.Duration
 	RequestTimeout time.Duration
-
-	// Verbose controls the verbosity of the underlying proxy implementation library
-	Verbose bool
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -59,7 +56,6 @@ func DefaultProxyConfig() *ProxyConfig {
 		EnableMITM:     true,
 		ConnectTimeout: 30 * time.Second,
 		RequestTimeout: 5 * time.Minute,
-		Verbose:        false,
 		Interceptors:   []Interceptor{},
 	}
 }
@@ -72,6 +68,13 @@ type proxyServer struct {
 	listener     net.Listener
 	interceptors map[string]Interceptor
 	mu           sync.RWMutex
+}
+
+// goproxyLoggerWrapper implements the goproxy.Logger interface and bridges to the dry/log package
+type goproxyLoggerWrapper struct{}
+
+func (l *goproxyLoggerWrapper) Printf(format string, v ...interface{}) {
+	log.Debugf("[GOPROXY] "+format, v...)
 }
 
 // NewProxyServer creates a new proxy server with the given configuration
@@ -90,7 +93,11 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	}
 
 	proxy := goproxy.NewProxyHttpServer()
-	proxy.Verbose = config.Verbose
+	proxy.Logger = &goproxyLoggerWrapper{}
+
+	// Set verbose to true for verbose logging.
+	// Logging is handled by our own logger which has log level controls.
+	proxy.Verbose = true
 
 	ps := &proxyServer{
 		config:       config,

@@ -55,7 +55,6 @@ func main() {
 		CertManager:    certMgr,
 		EnableMITM:     true,
 		Interceptors:   []proxy.Interceptor{newLoggingInterceptor()},
-		Verbose:        false,
 		ConnectTimeout: connectTimeout,
 		RequestTimeout: requestTimeout,
 	}
