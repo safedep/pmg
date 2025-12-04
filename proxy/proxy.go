@@ -1,0 +1,304 @@
+package proxy
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/elazarl/goproxy"
+	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/proxy/certmanager"
+)
+
+// ProxyServer manages the proxy lifecycle
+type ProxyServer interface {
+	// Start begins listening on the configured address
+	Start() error
+
+	// Stop gracefully shuts down the proxy
+	Stop(ctx context.Context) error
+
+	// Address returns the listening address (useful when using port 0)
+	Address() string
+
+	// AddInterceptor registers an interceptor
+	AddInterceptor(interceptor Interceptor) error
+
+	// RemoveInterceptor removes an interceptor by name
+	RemoveInterceptor(name string)
+}
+
+// ProxyConfig holds configuration for the proxy server
+type ProxyConfig struct {
+	// Network configuration
+	ListenAddr string
+
+	// TLS configuration
+	CertManager certmanager.CertificateManager
+
+	// Interceptors
+	Interceptors []Interceptor
+
+	// Other configuration
+	EnableMITM     bool
+	ConnectTimeout time.Duration
+	RequestTimeout time.Duration
+
+	// Verbose controls the verbosity of the underlying proxy implementation library
+	Verbose bool
+}
+
+// DefaultProxyConfig returns a configuration with sensible defaults
+func DefaultProxyConfig() *ProxyConfig {
+	return &ProxyConfig{
+		ListenAddr:     "127.0.0.1:0",
+		EnableMITM:     true,
+		ConnectTimeout: 30 * time.Second,
+		RequestTimeout: 5 * time.Minute,
+		Verbose:        false,
+		Interceptors:   []Interceptor{},
+	}
+}
+
+type proxyServer struct {
+	config *ProxyConfig
+	proxy  *goproxy.ProxyHttpServer
+	server *http.Server
+
+	listener     net.Listener
+	interceptors map[string]Interceptor
+	mu           sync.RWMutex
+}
+
+// NewProxyServer creates a new proxy server with the given configuration
+// using the goproxy library as the underlying proxy implementation
+func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
+	if config == nil {
+		config = DefaultProxyConfig()
+	}
+
+	if config.EnableMITM && config.CertManager == nil {
+		return nil, fmt.Errorf("cert manager is required when MITM is enabled")
+	}
+
+	if config.ListenAddr == "" {
+		config.ListenAddr = "127.0.0.1:0"
+	}
+
+	proxy := goproxy.NewProxyHttpServer()
+	proxy.Verbose = config.Verbose
+
+	ps := &proxyServer{
+		config:       config,
+		proxy:        proxy,
+		interceptors: make(map[string]Interceptor),
+	}
+
+	for _, interceptor := range config.Interceptors {
+		if err := ps.AddInterceptor(interceptor); err != nil {
+			return nil, fmt.Errorf("failed to add interceptor %s: %w", interceptor.Name(), err)
+		}
+	}
+
+	if config.EnableMITM {
+		ps.configureMITM()
+	}
+
+	ps.registerHandlers()
+
+	return ps, nil
+}
+
+func (ps *proxyServer) Start() error {
+	listener, err := net.Listen("tcp", ps.config.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("failed to start listener: %w", err)
+	}
+
+	ps.listener = listener
+
+	ps.server = &http.Server{
+		Handler:      ps.proxy,
+		ReadTimeout:  ps.config.RequestTimeout,
+		WriteTimeout: ps.config.RequestTimeout,
+	}
+
+	log.Debugf("Proxy server listening on %s", ps.Address())
+
+	go func() {
+		if err := ps.server.Serve(ps.listener); err != nil && err != http.ErrServerClosed {
+			log.Errorf("Proxy server error: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+func (ps *proxyServer) Stop(ctx context.Context) error {
+	if ps.server == nil {
+		return nil
+	}
+
+	log.Debugf("Shutting down proxy server...")
+
+	if err := ps.server.Shutdown(ctx); err != nil {
+		return fmt.Errorf("failed to shutdown proxy server: %w", err)
+	}
+
+	return nil
+}
+
+func (ps *proxyServer) Address() string {
+	if ps.listener == nil {
+		return ""
+	}
+
+	return ps.listener.Addr().String()
+}
+
+func (ps *proxyServer) AddInterceptor(interceptor Interceptor) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	if _, ok := ps.interceptors[interceptor.Name()]; ok {
+		return fmt.Errorf("interceptor %s already registered", interceptor.Name())
+	}
+
+	ps.interceptors[interceptor.Name()] = interceptor
+	log.Debugf("Registered interceptor: %s", interceptor.Name())
+
+	return nil
+}
+
+func (ps *proxyServer) RemoveInterceptor(name string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	delete(ps.interceptors, name)
+	log.Debugf("Removed interceptor: %s", name)
+}
+
+func (ps *proxyServer) configureMITM() {
+	// Configure selective MITM based on interceptors
+	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+		reqCtx, err := newRequestContextFromURL(host, "CONNECT")
+		if err != nil {
+			log.Errorf("Failed to parse CONNECT request for %s: %v", host, err)
+			return goproxy.OkConnect, host
+		}
+
+		ps.mu.RLock()
+		shouldMITM := false
+		for _, interceptor := range ps.interceptors {
+			if interceptor.ShouldIntercept(reqCtx) {
+				shouldMITM = true
+				log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
+				break
+			}
+		}
+		ps.mu.RUnlock()
+
+		if shouldMITM {
+			mitmAction := &goproxy.ConnectAction{
+				Action: goproxy.ConnectMitm,
+				TLSConfig: func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
+					hostname, _, err := net.SplitHostPort(host)
+					if err != nil {
+						hostname = host
+					}
+
+					return ps.config.CertManager.GetTLSConfig(hostname)
+				},
+			}
+
+			return mitmAction, host
+		}
+
+		// Tunnel without interception
+		log.Debugf("[%s] Tunneling %s (no interceptor)", reqCtx.RequestID, host)
+		return goproxy.OkConnect, host
+	}))
+}
+
+func (ps *proxyServer) registerHandlers() {
+	ps.proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		reqCtx := newRequestContext(req)
+
+		log.Debugf("[%s] %s %s", reqCtx.RequestID, req.Method, req.URL.String())
+
+		ps.mu.RLock()
+		defer ps.mu.RUnlock()
+
+		for _, interceptor := range ps.interceptors {
+			if !interceptor.ShouldIntercept(reqCtx) {
+				continue
+			}
+
+			resp, err := interceptor.HandleRequest(reqCtx)
+			if err != nil {
+				log.Errorf("[%s] Interceptor %s error: %v", reqCtx.RequestID, interceptor.Name(), err)
+				continue
+			}
+
+			if resp == nil {
+				continue
+			}
+
+			switch resp.Action {
+			case ActionBlock:
+				statusCode := resp.BlockCode
+				if statusCode == 0 {
+					statusCode = http.StatusForbidden
+				}
+
+				message := resp.BlockMessage
+				if message == "" {
+					message = "Blocked by proxy interceptor"
+				}
+
+				log.Debugf("[%s] Blocked by %s: %s", reqCtx.RequestID, interceptor.Name(), req.URL.String())
+
+				return req, goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
+
+			case ActionModifyRequest:
+				if resp.ModifiedHeaders != nil {
+					req.Header = resp.ModifiedHeaders
+				}
+
+				log.Debugf("[%s] Request modified by %s", reqCtx.RequestID, interceptor.Name())
+
+			case ActionModifyResponse:
+				ctx.UserData = resp.ResponseModifier
+				log.Debugf("[%s] Response modifier registered by %s", reqCtx.RequestID, interceptor.Name())
+			}
+		}
+
+		return req, nil
+	})
+
+	ps.proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		reqCtx := newRequestContext(ctx.Req)
+		log.Debugf("[%s] Response received for %s", reqCtx.RequestID, ctx.Req.URL.String())
+
+		if resp == nil {
+			return resp
+		}
+
+		modifier, ok := ctx.UserData.(ResponseModifierFunc)
+		if !ok || modifier == nil {
+			return resp
+		}
+
+		log.Debugf("[%s] Response modifier skipped", reqCtx.RequestID)
+
+		// TODO: Implement response body modification
+		// This requires buffering the response body, modifying it, and creating a new response
+		// For now, lets skip it
+
+		return resp
+	})
+}
