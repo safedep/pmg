@@ -8,6 +8,7 @@ require (
 	buf.build/gen/go/safedep/api/grpc/go v1.5.1-20250418165058-162f6b0cc319.2
 	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.6-20250418165058-162f6b0cc319.1
 	github.com/Masterminds/semver v1.5.0
+	github.com/elazarl/goproxy v1.7.2
 	github.com/fatih/color v1.18.0
 	github.com/google/osv-scalibr v0.2.1
 	github.com/google/uuid v1.6.0
