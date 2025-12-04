@@ -95,7 +95,7 @@ func DefaultConfig() AliasConfig {
 
 	return AliasConfig{
 		RcFileName:      ".pmg.rc",
-		PackageManagers: []string{"npm", "pip", "pnpm", "bun", "uv", "yarn", "poetry"},
+		PackageManagers: []string{"npm", "pip", "pip3", "pnpm", "bun", "uv", "yarn", "poetry"},
 		Shells:          shells,
 	}
 }
@@ -242,7 +242,7 @@ func (a *AliasManager) addSourceLine(configPath, sourceLine string) error {
 		return nil // already sourced, skip
 	}
 
-	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
