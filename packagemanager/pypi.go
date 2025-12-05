@@ -103,7 +103,7 @@ func NewPipCommandParser(config PypiPackageManagerConfig) pypiCommandParser {
 
 func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Remove 'pip' if it's the first argument
-	if len(args) > 0 && args[0] == "pip" {
+	if len(args) > 0 && (args[0] == "pip" || args[0] == "pip3") {
 		args = args[1:]
 	}
 
@@ -130,7 +130,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Extract arguments after the install command
 	installArgs := args[installCmdIndex+1:]
 
-	flagSet := pflag.NewFlagSet("pip", pflag.ContinueOnError)
+	flagSet := pflag.NewFlagSet(p.config.CommandName, pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
 	flagSet.ParseErrorsWhitelist.UnknownFlags = true
 
