@@ -1,5 +1,5 @@
-FROM --platform=$BUILDPLATFORM golang:1.24-bullseye@sha256:3c669c8fed069d80d199073b806243c4bf79ad117b797b96f18177ad9c521cff AS build
-# Original: golang:1.24-bullseye
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm@sha256:5117d68695f57faa6c2b3a49a6f3187ec1f66c75d5b080e4360bfe4c1ada398c AS build
+# Original: golang:1.25-bookworm
 
 WORKDIR /build
 
@@ -15,8 +15,8 @@ FROM debian:11-slim@sha256:e4b93db6aad977a95aa103917f3de8a2b16ead91cf255c3ccdb30
 # Original: debian:11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-	ca-certificates \
-	&& rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETPLATFORM
 

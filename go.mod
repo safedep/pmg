@@ -1,6 +1,6 @@
 module github.com/safedep/pmg
 
-go 1.24.1
+go 1.25.1
 
 tool github.com/golangci/golangci-lint/cmd/golangci-lint
 

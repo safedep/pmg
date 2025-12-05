@@ -34,7 +34,7 @@ When contributing changes to repository, follow these steps:
 
 ### Requirements
 
-- Go 1.24+
+- Go 1.25+
 - Git
 - Make
 
