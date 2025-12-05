@@ -205,7 +205,6 @@ func TestYarnParseCommand(t *testing.T) {
 				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[1].PackageVersion.Version)
 			},
 		},
-<<<<<<< HEAD
 		{
 			name:    "skip intermediate flags",
 			command: "yarn --x -y add @types/node",
@@ -215,8 +214,6 @@ func TestYarnParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
-=======
->>>>>>> 4d29d22c934f9770b37b27d172ca94f1839a1427
 	}
 
 	for _, tc := range cases {
@@ -274,7 +271,6 @@ func TestPnpmParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/react", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
 			},
 		},
-<<<<<<< HEAD
 		{
 			name:    "skip intermediate flags",
 			command: "pnpm --x -y add @types/node",
@@ -284,8 +280,6 @@ func TestPnpmParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
-=======
->>>>>>> 4d29d22c934f9770b37b27d172ca94f1839a1427
 	}
 
 	for _, tc := range cases {
@@ -343,7 +337,6 @@ func TestBunParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/react", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
 			},
 		},
-<<<<<<< HEAD
 		{
 			name:    "skip intermediate flags",
 			command: "bun --x -y add @types/node",
@@ -353,8 +346,6 @@ func TestBunParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
-=======
->>>>>>> 4d29d22c934f9770b37b27d172ca94f1839a1427
 	}
 
 	for _, tc := range cases {
