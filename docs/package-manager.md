@@ -25,7 +25,7 @@ Use this checklist to add a new package manager ecosystem (e.g., npm or PyPI). K
 5. Create an extractor
    - In `extractor/`, add an extractor for the new ecosystem under `extractor/npm` or `extractor/pypi`.
    - Update the `NewExtractorManager` to include the newly introduced `PackageManagerExtractor`.
-   - Update `getExtractorForFile` to recognize and support the ecosystem’s manifest/lockfile(s).
+   - Update `getExtractorForFile` to recognize and support the ecosystem’s manifests/lockfiles.
 
 6. Register alias
    - In `internal/alias/alias.go`, add the new package manager’s alias to `DefaultConfig.packageManagers`.
