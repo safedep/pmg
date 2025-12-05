@@ -14,7 +14,7 @@ Use this checklist to add a new package manager ecosystem (e.g., npm or PyPI). K
 3. Implement or update the parser
    - For npm: update the existing parser to support the new manager specifics.
    - For PyPI: define a new parser as needed.
-   - Ensure it extracts all the required info & matches other parser's structure.
+   - Ensure it extracts all the required information & matches other parser's structure.
 
 4. Add parser tests
    - Create unit tests for the new parser covering:
