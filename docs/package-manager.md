@@ -50,7 +50,7 @@ Use this checklist to add a new package manager ecosystem (e.g., npm or PyPI). K
       - Multiple package installation
       - Suspicious package handling
       - Malicious package blocking
-      - Manifest/lockfile installation flow
+      - Manifests/lockfiles installation flow
       - `pmg setup install` to verify alias is set and works
 
 11. Consistency pass
