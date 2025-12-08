@@ -21,6 +21,7 @@ export NODE_EXTRA_CA_CERTS=./ca-cert.pem
 export SSL_CERT_FILE=./ca-cert.pem
 export PIP_CERT=./ca-cert.pem
 export REQUESTS_CA_BUNDLE=./ca-cert.pem
+export PIP_PROXY=http://127.0.0.1:8888
 ```
 
 ### Test with Package Managers
@@ -34,5 +35,9 @@ npm --no-cache --prefer-online install express
 Test with `pip`:
 
 ```bash
-pip3 index versions requests
+pip3 --proxy http://127.0.0.1:8888 index versions requests
+```
+
+```bash
+pip3 install --proxy http://127.0.0.1:8888 --no-cache-dir requests
 ```

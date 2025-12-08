@@ -29,7 +29,9 @@ type RequestContext struct {
 	URL     *url.URL
 	Method  string
 	Headers http.Header
-	Body    []byte
+
+	// Body is not currently used by the interceptors, but it is here for future use
+	Body []byte
 
 	Hostname  string
 	RequestID string
@@ -50,7 +52,9 @@ type InterceptorResponse struct {
 
 	// For Action = ModifyRequest: modified headers/body
 	ModifiedHeaders http.Header
-	ModifiedBody    []byte
+
+	// ModifiedBody is not currently used by the interceptors, but it is here for future use
+	ModifiedBody []byte
 
 	// For Action = ModifyResponse: response modification function
 	ResponseModifier ResponseModifierFunc

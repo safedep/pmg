@@ -76,15 +76,30 @@ func DefaultCertManagerConfig() CertManagerConfig {
 	}
 }
 
-// Validate checks if the configuration is valid. For zero values in config,
-// it sets reasonable defaults.
-func (c *CertManagerConfig) ValidateSetDefaults() error {
+// SetDefaults sets reasonable defaults for zero values in the configuration
+func (c *CertManagerConfig) SetDefaults() {
 	if c.CAValidityDays <= 0 {
 		c.CAValidityDays = 365
 	}
 
 	if c.HostCertValidityDays <= 0 {
 		c.HostCertValidityDays = 1
+	}
+
+	// Default to 2048 bits if key size is not set
+	if c.KeySize == 0 {
+		c.KeySize = 2048
+	}
+}
+
+// Validate checks if the configuration is valid after defaults have been set
+func (c *CertManagerConfig) Validate() error {
+	if c.CAValidityDays <= 0 {
+		return fmt.Errorf("CA validity days must be greater than 0: %d", c.CAValidityDays)
+	}
+
+	if c.HostCertValidityDays <= 0 {
+		return fmt.Errorf("host certificate validity days must be greater than 0: %d", c.HostCertValidityDays)
 	}
 
 	if c.KeySize < 2048 {

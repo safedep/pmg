@@ -70,6 +70,8 @@ type proxyServer struct {
 	mu           sync.RWMutex
 }
 
+var _ ProxyServer = &proxyServer{}
+
 // goproxyLoggerWrapper implements the goproxy.Logger interface and bridges to the dry/log package
 type goproxyLoggerWrapper struct{}
 
@@ -233,7 +235,11 @@ func (ps *proxyServer) configureMITM() {
 
 func (ps *proxyServer) registerHandlers() {
 	ps.proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-		reqCtx := newRequestContext(req)
+		reqCtx, err := newRequestContext(req)
+		if err != nil {
+			log.Errorf("Failed to create request context: %v", err)
+			return req, nil
+		}
 
 		log.Debugf("[%s] %s %s", reqCtx.RequestID, req.Method, req.URL.String())
 
@@ -288,7 +294,12 @@ func (ps *proxyServer) registerHandlers() {
 	})
 
 	ps.proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		reqCtx := newRequestContext(ctx.Req)
+		reqCtx, err := newRequestContext(ctx.Req)
+		if err != nil {
+			log.Errorf("Failed to create request context: %v", err)
+			return resp
+		}
+
 		log.Debugf("[%s] Response received for %s", reqCtx.RequestID, ctx.Req.URL.String())
 
 		if resp == nil {
@@ -299,8 +310,6 @@ func (ps *proxyServer) registerHandlers() {
 		if !ok || modifier == nil {
 			return resp
 		}
-
-		log.Debugf("[%s] Response modifier skipped", reqCtx.RequestID)
 
 		// TODO: Implement response body modification
 		// This requires buffering the response body, modifying it, and creating a new response

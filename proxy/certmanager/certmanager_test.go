@@ -177,7 +177,8 @@ func TestCertManagerConfigValidation(t *testing.T) {
 		KeySize:              2048,
 	}
 
-	err := config.ValidateSetDefaults()
+	config.SetDefaults()
+	err := config.Validate()
 	assert.NoError(t, err, "Validate should not return error")
 
 	assert.Equal(t, 365, config.CAValidityDays, "CAValidityDays should default to 365")
@@ -185,7 +186,7 @@ func TestCertManagerConfigValidation(t *testing.T) {
 	assert.Equal(t, 2048, config.KeySize, "KeySize should default to 2048")
 
 	config.KeySize = 1024
-	err = config.ValidateSetDefaults()
+	err = config.Validate()
 	assert.Error(t, err, "Validate should return error for key size less than 2048")
 }
 

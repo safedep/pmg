@@ -25,7 +25,8 @@ func NewCertificateManagerWithCA(ca *Certificate, config CertManagerConfig) (Cer
 		return nil, fmt.Errorf("CA certificate cannot be nil")
 	}
 
-	if err := config.ValidateSetDefaults(); err != nil {
+	config.SetDefaults()
+	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
@@ -150,7 +151,8 @@ func (cm *certManager) generateHostCert(hostname string) (*Certificate, error) {
 
 // GenerateCA generates a new self-signed CA certificate using the given configuration
 func GenerateCA(config CertManagerConfig) (*Certificate, error) {
-	if err := config.ValidateSetDefaults(); err != nil {
+	config.SetDefaults()
+	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 

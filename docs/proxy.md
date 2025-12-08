@@ -25,6 +25,9 @@ flowchart TD
     B --> inside_proxy
 ```
 
+## Example
+
+See [examples/proxy](../examples/proxy/README.md) for a complete example.
 
 ## Quick Start
 

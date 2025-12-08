@@ -3,6 +3,7 @@ package proxy
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,7 +11,7 @@ import (
 	"time"
 )
 
-func newRequestContext(req *http.Request) *RequestContext {
+func newRequestContext(req *http.Request) (*RequestContext, error) {
 	var hostname string
 	// Extract hostname - for MITM'd requests, URL might be relative
 	// so we need to check the Host header
@@ -26,15 +27,20 @@ func newRequestContext(req *http.Request) *RequestContext {
 		}
 	}
 
+	requestID, err := generateRequestID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate request ID: %w", err)
+	}
+
 	return &RequestContext{
 		URL:       req.URL,
 		Method:    req.Method,
 		Headers:   req.Header,
 		Hostname:  hostname,
-		RequestID: generateRequestID(),
+		RequestID: requestID,
 		StartTime: time.Now(),
 		Data:      make(map[string]interface{}),
-	}
+	}, nil
 }
 
 func newRequestContextFromURL(urlStr string, method string) (*RequestContext, error) {
@@ -46,7 +52,7 @@ func newRequestContextFromURL(urlStr string, method string) (*RequestContext, er
 
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
 	// If URL doesn't have a scheme, add https (typical for CONNECT)
@@ -54,19 +60,27 @@ func newRequestContextFromURL(urlStr string, method string) (*RequestContext, er
 		parsedURL.Scheme = "https"
 	}
 
+	requestID, err := generateRequestID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate request ID: %w", err)
+	}
+
 	return &RequestContext{
 		URL:       parsedURL,
 		Method:    method,
 		Headers:   make(http.Header),
 		Hostname:  parsedURL.Hostname(),
-		RequestID: generateRequestID(),
+		RequestID: requestID,
 		StartTime: time.Now(),
 		Data:      make(map[string]interface{}),
 	}, nil
 }
 
-func generateRequestID() string {
+func generateRequestID() (string, error) {
 	bytes := make([]byte, 8)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(bytes), nil
 }
