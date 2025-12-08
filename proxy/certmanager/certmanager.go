@@ -114,6 +114,7 @@ func (c *Certificate) IsExpired(threshold time.Duration) bool {
 	if c.X509Cert == nil {
 		return true
 	}
+
 	expiryTime := c.X509Cert.NotAfter
 	return time.Until(expiryTime) < threshold
 }

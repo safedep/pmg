@@ -39,6 +39,10 @@ func NewCertificateManagerWithCA(ca *Certificate, config CertManagerConfig) (Cer
 		ca = parsedCA
 	}
 
+	if ca.IsExpired(1 * time.Hour) {
+		return nil, fmt.Errorf("CA certificate is expired")
+	}
+
 	return &certManager{
 		ca:     ca,
 		cache:  NewInMemoryCache(),
