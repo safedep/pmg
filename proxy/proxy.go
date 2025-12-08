@@ -45,8 +45,8 @@ type ProxyConfig struct {
 
 	// Other configuration
 	EnableMITM     bool
-	ConnectTimeout time.Duration
 	RequestTimeout time.Duration
+	ConnectTimeout time.Duration
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -100,6 +100,15 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	// Set verbose to true for verbose logging.
 	// Logging is handled by our own logger which has log level controls.
 	proxy.Verbose = true
+
+	// Configure connection timeout for upstream connections during CONNECT requests
+	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
+		dialer := &net.Dialer{
+			Timeout: config.ConnectTimeout,
+		}
+
+		return dialer.Dial(network, addr)
+	}
 
 	ps := &proxyServer{
 		config:       config,
