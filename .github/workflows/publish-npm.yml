@@ -52,8 +52,6 @@ jobs:
         run: |
           cd publish/npm
           npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   test-installation:
     needs: publish-npm
