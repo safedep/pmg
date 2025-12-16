@@ -14,7 +14,7 @@ func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Manage PMG shell aliases and integration",
-		Long:  "Setup and manage PMG shell aliases that allow you to use 'npm', 'pnpm', 'pip' commands through PMG's security wrapper.",
+		Long:  "Setup and manage PMG config and shell aliases that allow you to use 'npm', 'pnpm', 'pip' commands through PMG's security wrapper.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -29,18 +29,14 @@ func NewSetupCommand() *cobra.Command {
 func NewInstallCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
-		Short: "Install PMG aliases for package managers (npm, pnpm, pip)",
-		Long:  "Creates ~/.pmg.rc with package manager aliases and sources it in your shell config files (.bashrc, .zshrc, config.fish)",
+		Short: "Setup PMG config and aliases for package managers (npm, pnpm, pip)",
+		Long:  "",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
 			_, err := config.CreatePmgConfigDir()
 			if err != nil {
 				return fmt.Errorf("failed to create config dir: %s", err.Error())
-			}
-
-			if err := config.CreateConfig(); err != nil {
-				return err
 			}
 
 			cfg := alias.DefaultConfig()
