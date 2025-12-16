@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/extractor"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
@@ -79,6 +80,9 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
+	
+	// Log the installation start
+	eventlog.LogInstallStarted(g.packageManager.Name(), args)
 
 	if g.config.InsecureInstallation {
 		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
@@ -150,6 +154,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	for _, result := range analysisResults {
 		if result.Action == analyzer.ActionBlock {
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
+			g.logMalwareDetection(result, true)
 			return g.blockInstallation(blockConfig)
 		}
 
@@ -167,11 +172,31 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		if !confirmed {
 			blockConfig.ShowReference = false
 			blockConfig.MalwarePackages = confirmableMalwarePackages
+			for _, pkg := range confirmableMalwarePackages {
+				g.logMalwareDetection(pkg, true)
+			}
 			return g.blockInstallation(blockConfig)
+		}
+		
+		// User confirmed installation despite warning
+		for _, pkg := range confirmableMalwarePackages {
+			g.logMalwareDetection(pkg, false)
 		}
 	}
 
 	log.Debugf("No malicious packages found, continuing execution")
+
+	// Log successful installation allowance
+	if len(parsedCommand.InstallTargets) > 0 {
+		for _, target := range parsedCommand.InstallTargets {
+			eventlog.LogInstallAllowed(
+				target.PackageVersion.GetPackage().GetName(),
+				target.PackageVersion.GetVersion(),
+				target.PackageVersion.GetPackage().GetEcosystem().String(),
+				len(packagesToAnalyze),
+			)
+		}
+	}
 
 	g.clearStatus()
 	return g.continueExecution(ctx, parsedCommand)
@@ -388,12 +413,65 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		if !confirmed {
 			blockConfig.ShowReference = false
 			blockConfig.MalwarePackages = confirmableMalwarePackages
+			for _, pkg := range confirmableMalwarePackages {
+				g.logMalwareDetection(pkg, true)
+			}
 			return g.blockInstallation(blockConfig)
+		}
+		
+		// User confirmed installation despite warning
+		for _, pkg := range confirmableMalwarePackages {
+			g.logMalwareDetection(pkg, false)
 		}
 	}
 
 	log.Debugf("No malicious packages found in manifest files, continuing execution")
 
+	// Log successful installation allowance for manifest-based installations
+	if len(packages) > 0 {
+		firstPkg := packages[0]
+		eventlog.LogInstallAllowed(
+			firstPkg.GetPackage().GetName(),
+			firstPkg.GetVersion(),
+			firstPkg.GetPackage().GetEcosystem().String(),
+			len(packagesToAnalyze),
+		)
+	}
+
 	g.clearStatus()
 	return g.continueExecution(ctx, parsedCommand)
+}
+
+// logMalwareDetection logs malware detection events
+func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersionAnalysisResult, blocked bool) {
+	if result == nil || result.PackageVersion == nil {
+		return
+	}
+
+	pkg := result.PackageVersion.GetPackage()
+	if pkg == nil {
+		return
+	}
+
+	details := map[string]interface{}{
+		"analysis_id":   result.AnalysisID,
+		"reference_url": result.ReferenceURL,
+		"summary":       result.Summary,
+	}
+
+	if blocked {
+		eventlog.LogMalwareBlocked(
+			pkg.GetName(),
+			result.PackageVersion.GetVersion(),
+			pkg.GetEcosystem().String(),
+			result.Summary,
+			details,
+		)
+	} else {
+		eventlog.LogMalwareConfirmed(
+			pkg.GetName(),
+			result.PackageVersion.GetVersion(),
+			pkg.GetEcosystem().String(),
+		)
+	}
 }

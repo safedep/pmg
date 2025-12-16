@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	appVersion "github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
@@ -65,8 +66,18 @@ func main() {
 				}
 			}
 
-			log.InitZapLogger("pmg", "cli")
-			cmd.SetContext(globalConfig.Inject(cmd.Context()))
+		log.InitZapLogger("pmg", "cli")
+		
+		// Initialize event logging (silently fail if it can't be initialized)
+		if logFile != "" {
+			// If a custom log file is specified, use it for event logging too
+			_ = eventlog.InitializeWithFile(logFile)
+		} else {
+			// Otherwise use the default log directory
+			_ = eventlog.Initialize()
+		}
+		
+		cmd.SetContext(globalConfig.Inject(cmd.Context()))
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -108,6 +119,7 @@ func main() {
 	})
 
 	defer analytics.Close()
+	defer eventlog.Close()
 
 	analytics.TrackCommandRun()
 	analytics.TrackCI()
