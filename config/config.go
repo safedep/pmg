@@ -3,6 +3,9 @@ package config
 import (
 	"context"
 	"fmt"
+
+	"github.com/safedep/pmg/internal/ui"
+	"github.com/spf13/viper"
 )
 
 type configKey struct{}
@@ -23,6 +26,42 @@ type Config struct {
 
 	// InsecureInstallation allows bypassing install blocking on malicious packages
 	InsecureInstallation bool
+
+	// TrustedPackages allows for trusting an suspicious package and ignoring the suspicious behaviour for the package in future installations
+	TrustedPackages []string
+}
+
+func CreateConfig() error {
+	dir, err := PmgConfigDir()
+	if err != nil {
+		return err
+	}
+
+	viper.SetConfigName(pmgConfigName)
+	viper.SetConfigType(pmgConfigType)
+	viper.AddConfigPath(dir)
+
+	cfgFile, err := ConfigFilePath()
+	if err != nil {
+		return err
+	}
+
+	viper.Set("transitive", true)
+	viper.Set("transitive_depth", 5)
+	viper.Set("include_dev_dependencies", false)
+	viper.Set("dry_run", false)
+	viper.Set("paranoid", false)
+	viper.Set("trusted_packages", []string{})
+
+	if err := viper.SafeWriteConfigAs(cfgFile); err != nil {
+		if _, ok := err.(viper.ConfigFileAlreadyExistsError); ok {
+			fmt.Println("Config file already exists, skipping safe write.")
+		} else {
+			ui.Fatalf("Error writing config file: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // Inject config into context while protecting against context poisoning

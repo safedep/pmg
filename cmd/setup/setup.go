@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -33,13 +34,22 @@ func NewInstallCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
-			config := alias.DefaultConfig()
-			rcFileManager, err := alias.NewDefaultRcFileManager(config.RcFileName)
+			_, err := config.CreatePmgConfigDir()
+			if err != nil {
+				return fmt.Errorf("failed to create config dir: %s", err.Error())
+			}
+
+			if err := config.CreateConfig(); err != nil {
+				return err
+			}
+
+			cfg := alias.DefaultConfig()
+			rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 			if err != nil {
 				return err
 			}
 
-			aliasManager := alias.New(config, rcFileManager)
+			aliasManager := alias.New(cfg, rcFileManager)
 			return aliasManager.Install()
 		},
 	}
