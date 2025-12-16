@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/npm"
@@ -59,12 +58,11 @@ func main() {
 				ui.SetVerbosityLevel(ui.VerbosityLevelVerbose)
 			}
 
-			// Check for PMG_INSECURE_INSTALLATION environment variable
-			if val := os.Getenv("PMG_INSECURE_INSTALLATION"); val != "" {
-				if boolVal, err := strconv.ParseBool(val); err == nil {
-					globalConfig.InsecureInstallation = boolVal
-				}
+			cfg, err := config.Load(cmd.Flags())
+			if err != nil {
+				ui.Fatalf("failed to load config: %v", err)
 			}
+			globalConfig = cfg
 
 		log.InitZapLogger("pmg", "cli")
 		
