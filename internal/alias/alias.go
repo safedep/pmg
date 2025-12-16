@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 )
 
 // AliasManager manages shell aliases for package managers.
@@ -80,6 +81,12 @@ func (m *defaultRcFileManager) Remove() error {
 
 // GetRcPath returns the full path to the RC file.
 func (m *defaultRcFileManager) GetRcPath() string {
+	// Prefer centralized config path
+	if p, err := config.RcFilePath(); err == nil {
+		return p
+	}
+
+	// Fallback to home directory
 	return filepath.Join(m.HomeDir, m.RcFileName)
 }
 
@@ -94,7 +101,7 @@ func DefaultConfig() AliasConfig {
 	shells = append(shells, fishShell, zshShell, bashShell)
 
 	return AliasConfig{
-		RcFileName:      ".pmg.rc",
+		RcFileName:      config.RcFileName(),
 		PackageManagers: []string{"npm", "pip", "pip3", "pnpm", "bun", "uv", "yarn", "poetry"},
 		Shells:          shells,
 	}
