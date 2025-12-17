@@ -156,12 +156,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if result.Action == analyzer.ActionConfirm {
-			ecosystem := result.PackageVersion.Package.Ecosystem
-			for k, v := range g.config.TrustedPackages {
-				if k == ecosystem.String() {
-					// Check for packages
-					_ = v
-				}
+			if g.isTrustedConfirmable(result) {
+				continue
 			}
 
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
@@ -270,6 +266,26 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	}
 
 	return analysisResults, nil
+}
+
+func (g *packageManagerGuard) isTrustedConfirmable(result *analyzer.PackageVersionAnalysisResult) bool {
+	if result == nil || result.PackageVersion == nil || result.PackageVersion.Package == nil {
+		return false
+	}
+
+	ecosystem := result.PackageVersion.Package.Ecosystem.String()
+	trusted, ok := g.config.TrustedPackages[ecosystem]
+	if !ok || len(trusted) == 0 {
+		return false
+	}
+
+	pkgKey := fmt.Sprintf("%s@%s", result.PackageVersion.Package.Name, result.PackageVersion.Version)
+	if slices.Contains(trusted, pkgKey) {
+		log.Debugf("Skipping suspicious package %s because it is explicitly trusted in ecosystem %s", pkgKey, ecosystem)
+		return true
+	}
+
+	return false
 }
 
 func (g *packageManagerGuard) getConfirmationOnMalware(ctx context.Context, malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
@@ -385,6 +401,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if result.Action == analyzer.ActionConfirm {
+			if g.isTrustedConfirmable(result) {
+				continue
+			}
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
 		}
 	}
