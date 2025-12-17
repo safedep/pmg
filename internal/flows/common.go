@@ -58,6 +58,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
 	guardConfig.DryRun = f.config.DryRun
 	guardConfig.InsecureInstallation = f.config.InsecureInstallation
+	guardConfig.TrustedPackages = f.config.TrustedPackages
 
 	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {

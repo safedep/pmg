@@ -43,6 +43,7 @@ type PackageManagerGuardConfig struct {
 	AnalysisTimeout       time.Duration
 	DryRun                bool
 	InsecureInstallation  bool
+	TrustedPackages       map[string][]string
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -52,6 +53,7 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
 		InsecureInstallation:  false,
+		TrustedPackages:       map[string][]string{},
 	}
 }
 
@@ -161,6 +163,14 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if result.Action == analyzer.ActionConfirm {
+			ecosystem := result.PackageVersion.Package.Ecosystem
+			for k, v := range g.config.TrustedPackages {
+				if k == ecosystem.String() {
+					// Check for packages
+					_ = v
+				}
+			}
+
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
 		}
 	}

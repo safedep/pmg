@@ -46,6 +46,19 @@ func CreatePmgConfigDir() (string, error) {
 	return dir, nil
 }
 
+// RemovePmgConfigDir removes the PMG configuration directory and its contents.
+func RemovePmgConfigDir() error {
+	dir, err := PmgConfigDir()
+	if err != nil {
+		return err
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("failed to remove config directory %s: %w", dir, err)
+	}
+	return nil
+}
+
 // ConfigFilePath returns the absolute path to the main PMG config file (e.g., config.yml),
 // without creating any directories.
 func ConfigFilePath() (string, error) {
