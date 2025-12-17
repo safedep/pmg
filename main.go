@@ -63,6 +63,7 @@ func main() {
 			}
 			globalConfig = cfg
 
+			fmt.Printf("Config: %+v", globalConfig)
 			log.InitZapLogger("pmg", "cli")
 			cmd.SetContext(globalConfig.Inject(cmd.Context()))
 		},

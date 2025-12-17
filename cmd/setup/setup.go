@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/safedep/pmg/config"
@@ -34,9 +35,15 @@ func NewInstallCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
-			_, err := config.CreatePmgConfigDir()
+			cfgPath, err := config.CreateConfig()
 			if err != nil {
-				return fmt.Errorf("failed to create config dir: %s", err.Error())
+				if errors.Is(err, config.ErrConfigAlreadyExists) {
+					fmt.Printf("PMG config already exists at %s\n", cfgPath)
+				} else {
+					return fmt.Errorf("failed to create config file: %w", err)
+				}
+			} else {
+				fmt.Printf("📄 PMG config created at %s\n", cfgPath)
 			}
 
 			cfg := alias.DefaultConfig()
@@ -57,6 +64,11 @@ func NewRemoveCommand() *cobra.Command {
 		Short: "Removes pmg aliases from the user's shell config file.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
+
+			err := config.RemovePmgConfigDir()
+			if err != nil {
+				return err
+			}
 
 			config := alias.DefaultConfig()
 			rcFileManager, err := alias.NewDefaultRcFileManager(config.RcFileName)

@@ -2,8 +2,10 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -29,37 +31,77 @@ type Config struct {
 	InsecureInstallation bool `mapstructure:"insecure_installation"`
 
 	// TrustedPackages allows for trusting an suspicious package and ignoring the suspicious behaviour for the package in future installations
-	TrustedPackages []string `mapstructure:"trusted_packages"`
+	TrustedPackages map[string][]string `mapstructure:"trusted_packages"`
+}
+
+var (
+	setupOnce sync.Once
+	setupErr  error
+)
+
+// ErrConfigAlreadyExists is returned when creating the config without force and it already exists.
+var ErrConfigAlreadyExists = errors.New("pmg config already exists")
+
+// DefaultConfig returns the canonical default configuration used by PMG.
+func DefaultConfig() Config {
+	return Config{
+		Transitive:             true,
+		TransitiveDepth:        5,
+		IncludeDevDependencies: false,
+		Paranoid:               false,
+		DryRun:                 false,
+		InsecureInstallation:   false,
+		TrustedPackages:        map[string][]string{},
+	}
+}
+
+func configAsMap(cfg Config) map[string]any {
+	return map[string]any{
+		"transitive":               cfg.Transitive,
+		"transitive_depth":         cfg.TransitiveDepth,
+		"include_dev_dependencies": cfg.IncludeDevDependencies,
+		"dry_run":                  cfg.DryRun,
+		"paranoid":                 cfg.Paranoid,
+		"insecure_installation":    cfg.InsecureInstallation,
+		"trusted_packages":         cfg.TrustedPackages,
+	}
 }
 
 func SetupViper() (string, error) {
-	dir, err := PmgConfigDir()
-	if err != nil {
+	if err := ensureViperConfigured(); err != nil {
 		return "", err
 	}
-
-	viper.SetConfigName(pmgConfigName)
-	viper.SetConfigType(pmgConfigType)
-	viper.AddConfigPath(dir)
-
-	viper.SetEnvPrefix("PMG")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
-
-	// Defaults
-	viper.SetDefault("transitive", true)
-	viper.SetDefault("transitive_depth", 5)
-	viper.SetDefault("include_dev_dependencies", false)
-	viper.SetDefault("dry_run", false)
-	viper.SetDefault("paranoid", false)
-	viper.SetDefault("insecure_installation", false)
-	viper.SetDefault("trusted_packages", []string{})
 
 	cfgPath, err := ConfigFilePath()
 	if err != nil {
 		return "", err
 	}
 	return cfgPath, nil
+}
+
+func ensureViperConfigured() error {
+	setupOnce.Do(func() {
+		dir, err := PmgConfigDir()
+		if err != nil {
+			setupErr = err
+			return
+		}
+
+		v := viper.GetViper()
+		v.SetConfigName(pmgConfigName)
+		v.SetConfigType(pmgConfigType)
+		v.AddConfigPath(dir)
+
+		v.SetEnvPrefix("PMG")
+		v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+		v.AutomaticEnv()
+
+		for key, value := range configAsMap(DefaultConfig()) {
+			v.SetDefault(key, value)
+		}
+	})
+
+	return setupErr
 }
 
 func BindFlags(fs *pflag.FlagSet) {
@@ -102,6 +144,44 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// CreateConfig writes the PMG config file and returns its absolute path.
+func CreateConfig() (string, error) {
+	if _, err := CreatePmgConfigDir(); err != nil {
+		return "", err
+	}
+
+	cfgFile, err := ConfigFilePath()
+	if err != nil {
+		return "", err
+	}
+
+	writer := viper.New()
+	writer.SetConfigType(pmgConfigType)
+
+	defaults := DefaultConfig()
+	if err := writer.MergeConfigMap(configAsMap(defaults)); err != nil {
+		return "", fmt.Errorf("failed to prepare default config: %w", err)
+	}
+
+	writeErr := writer.WriteConfigAs(cfgFile)
+
+	if writeErr != nil {
+		var alreadyExistsErr viper.ConfigFileAlreadyExistsError
+		if errors.As(writeErr, &alreadyExistsErr) {
+			return cfgFile, ErrConfigAlreadyExists
+		}
+		return "", fmt.Errorf("error writing config file: %w", writeErr)
+	}
+
+	if err := ensureViperConfigured(); err == nil {
+		for key, value := range configAsMap(defaults) {
+			viper.Set(key, value)
+		}
+	}
+
+	return cfgFile, nil
 }
 
 // Inject config into context while protecting against context poisoning
