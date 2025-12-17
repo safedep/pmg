@@ -10,6 +10,24 @@ import (
 	"github.com/safedep/pmg/config"
 )
 
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "pmg-config-test-")
+	if err != nil {
+		panic(err)
+	}
+
+	if err := os.Setenv(config.PMG_CONFIG_DIR_ENV, dir); err != nil {
+		panic(err)
+	}
+
+	code := m.Run()
+
+	_ = os.Unsetenv(config.PMG_CONFIG_DIR_ENV)
+	_ = os.RemoveAll(dir)
+
+	os.Exit(code)
+}
+
 func TestLoad_DefaultsOnly(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
