@@ -15,7 +15,7 @@ func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Manage PMG shell aliases and integration",
-		Long:  "Setup and manage PMG config and shell aliases that allow you to use 'npm', 'pnpm', 'pip' commands through PMG's security wrapper.",
+		Long:  "Setup and manage PMG config, shell aliases that allow you to use package manager commands through PMG's security wrapper.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -30,7 +30,7 @@ func NewSetupCommand() *cobra.Command {
 func NewInstallCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
-		Short: "Setup PMG config and aliases for package managers (npm, pnpm, pip)",
+		Short: "Setup PMG config and aliases for package managers (npm, pnpm, pip, and more)",
 		Long:  "",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
@@ -65,7 +65,7 @@ func NewRemoveCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
-			err := config.RemovePmgConfigDir()
+			err := config.RemoveConfig()
 			if err != nil {
 				return err
 			}
