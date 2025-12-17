@@ -10,12 +10,15 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
+	"google.golang.org/protobuf/proto"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -43,7 +46,7 @@ type PackageManagerGuardConfig struct {
 	AnalysisTimeout       time.Duration
 	DryRun                bool
 	InsecureInstallation  bool
-	TrustedPackages       map[string][]string
+	TrustedPackages       config.TrustedPackage
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -53,7 +56,7 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
 		InsecureInstallation:  false,
-		TrustedPackages:       map[string][]string{},
+		TrustedPackages:       config.TrustedPackage{},
 	}
 }
 
@@ -300,16 +303,20 @@ func (g *packageManagerGuard) isTrustedConfirmable(result *analyzer.PackageVersi
 		return false
 	}
 
-	ecosystem := result.PackageVersion.Package.Ecosystem.String()
-	trusted, ok := g.config.TrustedPackages[ecosystem]
-	if !ok || len(trusted) == 0 {
+	trustedPkgs := g.config.TrustedPackages.Purl
+	if len(trustedPkgs) == 0 {
 		return false
 	}
 
-	pkgKey := fmt.Sprintf("%s@%s", result.PackageVersion.Package.Name, result.PackageVersion.Version)
-	if slices.Contains(trusted, pkgKey) {
-		log.Debugf("Skipping suspicious package %s because it is explicitly trusted in ecosystem %s", pkgKey, ecosystem)
-		return true
+	for _, v := range trustedPkgs {
+		purlPkgVersion, err := pb.NewPurlPackageVersion(v)
+		if err != nil {
+			continue
+		}
+
+		if proto.Equal(result.PackageVersion, purlPkgVersion.PackageVersion()) {
+			return true
+		}
 	}
 
 	return false

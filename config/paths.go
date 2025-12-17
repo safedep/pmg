@@ -14,17 +14,27 @@ const (
 	pmgConfigName = "config"
 	pmgConfigType = "yml"
 	pmgConfigPath = "safedep/pmg"
+
+	PMG_CONFIG_DIR_ENV = "PMG_CONFIG_DIR"
 )
 
 // defaultRcFileName is the default name for the shell RC file that contains PMG aliases.
-const defaultRcFileName = ".pmg.rc"
+const (
+	defaultRcFileName = "pmg.rc"
+)
 
-// PmgConfigDir returns the base application config directory.
-// By default, this is:
+// ConfigDir returns the base application config directory.
+// If the PMG_CONFIG_DIR environment variable is set, its value is used as the base before appending safedep/pmg.
+// Otherwise, the defaults are:
 // - macOS:   ~/Library/Application Support/safedep/pmg
 // - Linux:   ~/.config/safedep/pmg
 // - Windows: %AppData%\safedep\pmg
-func PmgConfigDir() (string, error) {
+func ConfigDir() (string, error) {
+	dir := os.Getenv(PMG_CONFIG_DIR_ENV)
+	if dir != "" {
+		return filepath.Join(dir, pmgConfigPath), nil
+	}
+
 	userConfigDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to retrieve user config directory: %w", err)
@@ -33,9 +43,9 @@ func PmgConfigDir() (string, error) {
 	return filepath.Join(userConfigDir, pmgConfigPath), nil
 }
 
-// CreatePmgConfigDir ensures the application config directory exists and returns its path.
-func CreatePmgConfigDir() (string, error) {
-	dir, err := PmgConfigDir()
+// createConfigDir ensures the application config directory exists and returns its path.
+func createConfigDir() (string, error) {
+	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
 	}
@@ -46,23 +56,10 @@ func CreatePmgConfigDir() (string, error) {
 	return dir, nil
 }
 
-// RemovePmgConfigDir removes the PMG configuration directory and its contents.
-func RemovePmgConfigDir() error {
-	dir, err := PmgConfigDir()
-	if err != nil {
-		return err
-	}
-
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("failed to remove config directory %s: %w", dir, err)
-	}
-	return nil
-}
-
 // ConfigFilePath returns the absolute path to the main PMG config file (e.g., config.yml),
 // without creating any directories.
 func ConfigFilePath() (string, error) {
-	dir, err := PmgConfigDir()
+	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
 	}
@@ -77,7 +74,7 @@ func RcFileName() string {
 // RcFilePath returns the absolute path to the PMG RC file under the app config directory,
 // without creating any directories.
 func RcFilePath() (string, error) {
-	dir, err := PmgConfigDir()
+	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
 	}

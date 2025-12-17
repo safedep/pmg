@@ -59,7 +59,7 @@ func TestLoad_FlagsOverrideDefaults(t *testing.T) {
 func TestLoad_ConfigFileOverridesDefaults(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	dir, err := config.PmgConfigDir()
+	dir, err := config.ConfigDir()
 	assert.NoError(t, err)
 	assert.NoError(t, os.MkdirAll(dir, 0o755))
 	cfgFile, _ := config.ConfigFilePath()
