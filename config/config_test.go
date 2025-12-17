@@ -62,6 +62,8 @@ func TestLoad_ConfigFileOverridesDefaults(t *testing.T) {
 	dir, err := config.ConfigDir()
 	assert.NoError(t, err)
 	assert.NoError(t, os.MkdirAll(dir, 0o755))
+	assert.DirExists(t, dir, "the config dir must exist")
+
 	cfgFile, _ := config.ConfigFilePath()
 	assert.NoError(t, os.WriteFile(cfgFile, []byte(`
 transitive: false
