@@ -31,7 +31,7 @@ type Config struct {
 	// InsecureInstallation allows bypassing install blocking on malicious packages
 	InsecureInstallation bool `mapstructure:"insecure_installation"`
 
-	// TrustedPackages allows for trusting an suspicious package and ignoring the suspicious behaviour for the package in future installations
+	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages TrustedPackage `mapstructure:"trusted_packages"`
 }
 
