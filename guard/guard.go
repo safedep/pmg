@@ -276,7 +276,7 @@ func (g *packageManagerGuard) isTrustedConfirmable(result *analyzer.PackageVersi
 		return false
 	}
 
-	trustedPkgs := g.config.TrustedPackages.Purl
+	trustedPkgs := g.config.TrustedPackages.Purls
 	if len(trustedPkgs) == 0 {
 		return false
 	}
