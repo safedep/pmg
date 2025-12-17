@@ -69,7 +69,7 @@ transitive_depth: 7
 include_dev_dependencies: true
 dry_run: true
 paranoid: true
-trusted_packages: ["a","b"]
+trusted_packages: {'purls': ["a", "b"]}
 `), 0o644))
 
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -87,5 +87,5 @@ trusted_packages: ["a","b"]
 	assert.True(t, cfg.IncludeDevDependencies, "include_dev_dependencies should be overridden by file to true")
 	assert.True(t, cfg.DryRun, "dry_run should be overridden by file to true")
 	assert.True(t, cfg.Paranoid, "paranoid should be overridden by file to true")
-	assert.ElementsMatch(t, []string{"a", "b"}, cfg.TrustedPackages, "trusted_packages should match file values")
+	assert.ElementsMatch(t, []string{"a", "b"}, cfg.TrustedPackages.Purl, "trusted_packages should match file values")
 }

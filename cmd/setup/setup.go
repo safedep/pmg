@@ -70,13 +70,13 @@ func NewRemoveCommand() *cobra.Command {
 				return err
 			}
 
-			config := alias.DefaultConfig()
-			rcFileManager, err := alias.NewDefaultRcFileManager(config.RcFileName)
+			cfg := alias.DefaultConfig()
+			rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 			if err != nil {
 				return err
 			}
 
-			aliasManager := alias.New(config, rcFileManager)
+			aliasManager := alias.New(cfg, rcFileManager)
 			return aliasManager.Remove()
 		},
 	}
