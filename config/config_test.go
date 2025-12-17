@@ -107,5 +107,5 @@ trusted_packages: {'purls': ["a", "b"]}
 	assert.True(t, cfg.IncludeDevDependencies, "include_dev_dependencies should be overridden by file to true")
 	assert.True(t, cfg.DryRun, "dry_run should be overridden by file to true")
 	assert.True(t, cfg.Paranoid, "paranoid should be overridden by file to true")
-	assert.ElementsMatch(t, []string{"a", "b"}, cfg.TrustedPackages.Purl, "trusted_packages should match file values")
+	assert.ElementsMatch(t, []string{"a", "b"}, cfg.TrustedPackages.Purls, "trusted_packages should match file values")
 }

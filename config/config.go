@@ -36,8 +36,8 @@ type Config struct {
 }
 
 type TrustedPackage struct {
-	// Purl of the trusted package. Eg. pkg:npm/express@5.2.1
-	Purl []string `mapstructure:"purls"`
+	// Purls of the trusted package. Eg. pkg:npm/express@5.2.1
+	Purls []string `mapstructure:"purls"`
 }
 
 var (
@@ -57,7 +57,7 @@ func DefaultConfig() Config {
 		Paranoid:               false,
 		DryRun:                 false,
 		InsecureInstallation:   false,
-		TrustedPackages:        TrustedPackage{Purl: []string{}},
+		TrustedPackages:        TrustedPackage{Purls: []string{}},
 	}
 }
 
