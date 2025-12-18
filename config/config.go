@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -89,24 +88,6 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 		return Config{}, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	if fs != nil {
-		overrides := map[string]any{}
-		fs.VisitAll(func(flag *pflag.Flag) {
-			if !flag.Changed {
-				return
-			}
-
-			key := strings.ReplaceAll(flag.Name, "-", "_")
-			overrides[key] = viper.Get(key)
-		})
-
-		if len(overrides) > 0 {
-			if err := mapstructure.Decode(overrides, &cfg); err != nil {
-				return Config{}, fmt.Errorf("failed to apply flag overrides: %w", err)
-			}
-		}
-	}
-
 	return cfg, nil
 }
 
@@ -141,7 +122,7 @@ func createConfig() (string, error) {
 
 	if err := ensureViperConfigured(); err == nil {
 		for key, value := range configAsMap(defaults) {
-			viper.Set(key, value)
+			viper.SetDefault(key, value)
 		}
 	}
 
