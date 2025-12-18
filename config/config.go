@@ -103,7 +103,7 @@ func CreateConfig() (string, error) {
 		return "", fmt.Errorf("failed to prepare default config: %w", err)
 	}
 
-	writeErr := writer.WriteConfigAs(cfgFile)
+	writeErr := writer.SafeWriteConfigAs(cfgFile)
 
 	if writeErr != nil {
 		var alreadyExistsErr viper.ConfigFileAlreadyExistsError
@@ -180,18 +180,10 @@ func bindFlags(fs *pflag.FlagSet) {
 		return
 	}
 
-	// Helper binds a flag if it exists
-	bind := func(key, flag string) {
-		if f := fs.Lookup(flag); f != nil {
-			_ = viper.BindPFlag(key, f)
-		}
-	}
-
-	bind("transitive", "transitive")
-	bind("transitive_depth", "transitive-depth")
-	bind("include_dev_dependencies", "include-dev-dependencies")
-	bind("dry_run", "dry-run")
-	bind("paranoid", "paranoid")
+	fs.VisitAll(func(flag *pflag.Flag) {
+		key := strings.ReplaceAll(flag.Name, "-", "_")
+		_ = viper.BindPFlag(key, flag)
+	})
 }
 
 // Helper function to map the provided config for setting key/values in viper

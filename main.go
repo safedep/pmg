@@ -64,6 +64,7 @@ func main() {
 			}
 			globalConfig = cfg
 
+			fmt.Printf("%+v: ", globalConfig)
 			log.InitZapLogger("pmg", "cli")
 
 			// Initialize event logging (silently fail if it can't be initialized)
