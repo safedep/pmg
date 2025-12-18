@@ -128,8 +128,7 @@ func (a *AliasManager) Install() error {
 		return fmt.Errorf("failed to update shell configs: %w", err)
 	}
 
-	fmt.Println("✅ PMG aliases installed successfully!")
-	fmt.Printf("📁 Created: %s\n", rcPath)
+	fmt.Println("✅ PMG aliases installed successfully at", rcPath)
 	fmt.Println("💡 Restart your terminal or source your shell to use the new aliases")
 
 	return nil
