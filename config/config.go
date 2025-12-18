@@ -120,12 +120,6 @@ func createConfig() (string, error) {
 		return "", fmt.Errorf("error writing config file: %w", writeErr)
 	}
 
-	if err := ensureViperConfigured(); err == nil {
-		for key, value := range configAsMap(defaults) {
-			viper.SetDefault(key, value)
-		}
-	}
-
 	return cfgFile, nil
 }
 
