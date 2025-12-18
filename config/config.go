@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -66,12 +67,19 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 		return Config{}, err
 	}
 
-	// Bind CLI flags so they override config/env
 	bindFlags(fs)
 
 	// Read the config file if it exists
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) {
+			if _, err := createConfig(); err != nil && !errors.Is(err, ErrConfigAlreadyExists) {
+				return Config{}, fmt.Errorf("failed to create config file: %w", err)
+			}
+			if err := viper.ReadInConfig(); err != nil {
+				return Config{}, fmt.Errorf("failed to read config file: %w", err)
+			}
+		} else {
 			return Config{}, fmt.Errorf("failed to read config file: %w", err)
 		}
 	}
@@ -81,11 +89,29 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 		return Config{}, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	if fs != nil {
+		overrides := map[string]any{}
+		fs.VisitAll(func(flag *pflag.Flag) {
+			if !flag.Changed {
+				return
+			}
+
+			key := strings.ReplaceAll(flag.Name, "-", "_")
+			overrides[key] = viper.Get(key)
+		})
+
+		if len(overrides) > 0 {
+			if err := mapstructure.Decode(overrides, &cfg); err != nil {
+				return Config{}, fmt.Errorf("failed to apply flag overrides: %w", err)
+			}
+		}
+	}
+
 	return cfg, nil
 }
 
-// CreateConfig writes the PMG config file and returns its absolute path.
-func CreateConfig() (string, error) {
+// createConfig writes the PMG config file and returns its absolute path.
+func createConfig() (string, error) {
 	if _, err := createConfigDir(); err != nil {
 		return "", err
 	}

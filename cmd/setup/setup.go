@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/safedep/pmg/config"
@@ -33,20 +32,6 @@ func NewInstallCommand() *cobra.Command {
 		Short: "Setup PMG config and aliases for package managers (npm, pnpm, pip, and more)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-
-			cfgPath, err := config.CreateConfig()
-			if err != nil {
-				if errors.Is(err, config.ErrConfigAlreadyExists) {
-					msg := fmt.Sprintf("⚠️ PMG config already exists at %s\n", cfgPath)
-					ui.ShowWarning(msg)
-				} else {
-					er := fmt.Errorf("failed to create config file: %w", err)
-					ui.ErrorExit(er)
-					return er
-				}
-			} else {
-				fmt.Printf("📄 PMG config created at %s\n", cfgPath)
-			}
 
 			cfg := alias.DefaultConfig()
 			rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
