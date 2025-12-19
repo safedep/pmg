@@ -32,12 +32,12 @@ type Config struct {
 	InsecureInstallation bool `mapstructure:"insecure_installation"`
 
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
-	TrustedPackages TrustedPackage `mapstructure:"trusted_packages"`
+	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 }
 
 type TrustedPackage struct {
 	// Purls of the trusted package. Eg. pkg:npm/express@5.2.1
-	Purls []string `mapstructure:"purls"`
+	Purl string `mapstructure:"purl"`
 }
 
 var (
@@ -57,7 +57,7 @@ func DefaultConfig() Config {
 		Paranoid:               false,
 		DryRun:                 false,
 		InsecureInstallation:   false,
-		TrustedPackages:        TrustedPackage{Purls: []string{}},
+		TrustedPackages:        []TrustedPackage{},
 	}
 }
 
