@@ -46,7 +46,7 @@ type PackageManagerGuardConfig struct {
 	AnalysisTimeout       time.Duration
 	DryRun                bool
 	InsecureInstallation  bool
-	TrustedPackages       config.TrustedPackage
+	TrustedPackages       []config.TrustedPackage
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -56,8 +56,32 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
 		InsecureInstallation:  false,
-		TrustedPackages:       config.TrustedPackage{},
+		TrustedPackages:       []config.TrustedPackage{},
 	}
+}
+
+func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(result *packagev1.PackageVersion) bool {
+	if result == nil {
+		return false
+	}
+
+	trustedPkgs := c.TrustedPackages
+	if len(trustedPkgs) == 0 {
+		return false
+	}
+
+	for _, v := range trustedPkgs {
+		purlPkgVersion, err := pb.NewPurlPackageVersion(v.Purl)
+		if err != nil {
+			continue
+		}
+
+		if proto.Equal(result, purlPkgVersion.PackageVersion()) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type packageManagerGuard struct {
@@ -166,7 +190,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if result.Action == analyzer.ActionConfirm {
-			if g.isTrustedConfirmable(result) {
+			if g.config.IsTrustedPackageVersion(result.PackageVersion) {
 				continue
 			}
 
@@ -298,30 +322,6 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	return analysisResults, nil
 }
 
-func (g *packageManagerGuard) isTrustedConfirmable(result *analyzer.PackageVersionAnalysisResult) bool {
-	if result == nil || result.PackageVersion == nil || result.PackageVersion.Package == nil {
-		return false
-	}
-
-	trustedPkgs := g.config.TrustedPackages.Purls
-	if len(trustedPkgs) == 0 {
-		return false
-	}
-
-	for _, v := range trustedPkgs {
-		purlPkgVersion, err := pb.NewPurlPackageVersion(v)
-		if err != nil {
-			continue
-		}
-
-		if proto.Equal(result.PackageVersion, purlPkgVersion.PackageVersion()) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (g *packageManagerGuard) getConfirmationOnMalware(ctx context.Context, malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 	if g.interaction.GetConfirmationOnMalware == nil {
 		return false, nil
@@ -435,7 +435,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if result.Action == analyzer.ActionConfirm {
-			if g.isTrustedConfirmable(result) {
+			if g.config.IsTrustedPackageVersion(result.PackageVersion) {
 				continue
 			}
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
