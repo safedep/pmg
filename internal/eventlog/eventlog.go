@@ -257,8 +257,8 @@ func (l *Logger) Close() error {
 
 // LogEvent logs an event using the global logger
 func LogEvent(event Event) error {
-	if globalLogger == nil {
-		// If logger is not initialized, silently fail
+	if globalLogger == nil || !globalLogger.active {
+		// If logger is not initialized or not active, silently fail
 		return nil
 	}
 	return globalLogger.Log(event)

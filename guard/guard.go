@@ -82,7 +82,9 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	log.Debugf("Running package manager guard with args: %v", args)
 	
 	// Log the installation start
-	eventlog.LogInstallStarted(g.packageManager.Name(), args)
+	if g.packageManager != nil {
+		eventlog.LogInstallStarted(g.packageManager.Name(), args)
+	}
 
 	if g.config.InsecureInstallation {
 		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
