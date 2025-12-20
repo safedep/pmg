@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/safedep/dry/log"
 )
 
 // EventType represents the type of event being logged
@@ -175,7 +177,7 @@ func (l *Logger) cleanupOldLogs(logDir string) {
 
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
-		// Silently fail if we can't read the directory
+		log.Warnf("Failed to read log directory for cleanup: %v", err)
 		return
 	}
 
