@@ -18,7 +18,6 @@ import (
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
-	"google.golang.org/protobuf/proto"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -76,7 +75,7 @@ func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(result *packagev1.Pa
 			continue
 		}
 
-		if proto.Equal(result, purlPkgVersion.PackageVersion()) {
+		if isPackageVersionEqual(result, purlPkgVersion.PackageVersion()) {
 			return true
 		}
 	}
@@ -109,7 +108,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
-	
+
 	// Log the installation start
 	if g.packageManager != nil {
 		eventlog.LogInstallStarted(g.packageManager.Name(), args)
@@ -212,7 +211,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			}
 			return g.blockInstallation(blockConfig)
 		}
-		
+
 		// User confirmed installation despite warning
 		for _, pkg := range confirmableMalwarePackages {
 			g.logMalwareDetection(pkg, false)
@@ -456,7 +455,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			}
 			return g.blockInstallation(blockConfig)
 		}
-		
+
 		// User confirmed installation despite warning
 		for _, pkg := range confirmableMalwarePackages {
 			g.logMalwareDetection(pkg, false)
@@ -512,4 +511,27 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 			pkg.GetEcosystem().String(),
 		)
 	}
+}
+
+func isPackageVersionEqual(result, purlPkgVersion *packagev1.PackageVersion) bool {
+	if result == nil || purlPkgVersion == nil {
+		return false
+	}
+
+	if result.GetVersion() != purlPkgVersion.GetVersion() {
+		return false
+	}
+
+	if result.GetPackage() == nil || purlPkgVersion.GetPackage() == nil {
+		return false
+	}
+
+	if result.GetPackage().GetName() != purlPkgVersion.GetPackage().GetName() {
+		return false
+	}
+
+	if result.GetPackage().GetEcosystem() != purlPkgVersion.GetPackage().GetEcosystem() {
+		return false
+	}
+	return true
 }

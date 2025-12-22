@@ -123,15 +123,22 @@ func createConfig() (string, error) {
 	return cfgFile, nil
 }
 
-// RemoveConfig removes the PMG configuration directory and its contents.
+// RemoveConfig removes the PMG config and RC file.
 func RemoveConfig() error {
-	dir, err := ConfigDir()
+	configFilePath, err := ConfigFilePath()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+	if err := os.Remove(configFilePath); err != nil {
+		return fmt.Errorf("failed to remove config file %s: %w", configFilePath, err)
 	}
 
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("failed to remove config directory %s: %w", dir, err)
+	rcFilePath, err := RcFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get rc file path: %w", err)
+	}
+	if err := os.Remove(rcFilePath); err != nil {
+		return fmt.Errorf("failed to remove rc file %s: %w", rcFilePath, err)
 	}
 	return nil
 }
