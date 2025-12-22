@@ -17,7 +17,6 @@ import (
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
-	"google.golang.org/protobuf/proto"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -75,7 +74,7 @@ func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(result *packagev1.Pa
 			continue
 		}
 
-		if proto.Equal(result, purlPkgVersion.PackageVersion()) {
+		if isPackageVersionEqual(result, purlPkgVersion.PackageVersion()) {
 			return true
 		}
 	}
@@ -432,4 +431,27 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	g.clearStatus()
 	return g.continueExecution(ctx, parsedCommand)
+}
+
+func isPackageVersionEqual(result, purlPkgVersion *packagev1.PackageVersion) bool {
+	if result == nil || purlPkgVersion == nil {
+		return false
+	}
+
+	if result.GetVersion() != purlPkgVersion.GetVersion() {
+		return false
+	}
+
+	if result.GetPackage() == nil || purlPkgVersion.GetPackage() == nil {
+		return false
+	}
+
+	if result.GetPackage().GetName() != purlPkgVersion.GetPackage().GetName() {
+		return false
+	}
+
+	if result.GetPackage().GetEcosystem() != purlPkgVersion.GetPackage().GetEcosystem() {
+		return false
+	}
+	return true
 }
