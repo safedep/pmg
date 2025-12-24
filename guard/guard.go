@@ -533,5 +533,6 @@ func isPackageVersionEqual(result, purlPkgVersion *packagev1.PackageVersion) boo
 	if result.GetPackage().GetEcosystem() != purlPkgVersion.GetPackage().GetEcosystem() {
 		return false
 	}
+
 	return true
 }
