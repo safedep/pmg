@@ -17,28 +17,28 @@ type NpmPackageManagerConfig struct {
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
-		InstallCommands: []string{"install", "i", "add", "update", "upgrade", "ci"},
+		InstallCommands: []string{"install", "i", "add"},
 		CommandName:     "npm",
 	}
 }
 
 func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
-		InstallCommands: []string{"install", "i", "add", "update", "upgrade"},
+		InstallCommands: []string{"install", "i", "add"},
 		CommandName:     "pnpm",
 	}
 }
 
 func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
-		InstallCommands: []string{"install", "i", "add", "update", "upgrade"},
+		InstallCommands: []string{"install", "i", "add"},
 		CommandName:     "bun",
 	}
 }
 
 func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
-		InstallCommands: []string{"install", "add", "upgrade", "up", ""},
+		InstallCommands: []string{"install", "add", ""},
 		CommandName:     "yarn",
 	}
 }
@@ -126,24 +126,9 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	packages = flagSet.Args()
 
-	// Get the install command that was matched
-	installCmd := args[installCmdIndex]
-
 	// If install command was found but no explicit packages,
 	// this is a manifest-based installation
 	if installCmdIndex != -1 && len(packages) == 0 {
-		isManifestInstall = true
-	}
-
-	// Special handling for `npm ci` - always manifest-based
-	if installCmd == "ci" {
-		isManifestInstall = true
-		// npm ci doesn't accept package names, ignore any provided
-		packages = []string{}
-	}
-
-	// For update/upgrade without arguments, treat as manifest-based
-	if (installCmd == "update" || installCmd == "upgrade" || installCmd == "up") && len(packages) == 0 {
 		isManifestInstall = true
 	}
 

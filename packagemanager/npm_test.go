@@ -70,43 +70,12 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "npm update with package name",
+			name:    "not an installation command",
 			command: "npm update @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.NotNil(t, parsedCommand)
-				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
-				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
-			},
-		},
-		{
-			name:    "npm update without package (manifest-based)",
-			command: "npm update",
-			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
-				assert.NoError(t, err)
-				assert.NotNil(t, parsedCommand)
-				assert.True(t, parsedCommand.IsManifestInstall)
 				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
-			},
-		},
-		{
-			name:    "npm ci (manifest-based)",
-			command: "npm ci",
-			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
-				assert.NoError(t, err)
-				assert.NotNil(t, parsedCommand)
-				assert.True(t, parsedCommand.IsManifestInstall)
-				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
-			},
-		},
-		{
-			name:    "npm upgrade with package",
-			command: "npm upgrade lodash",
-			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
-				assert.NoError(t, err)
-				assert.NotNil(t, parsedCommand)
-				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
-				assert.Equal(t, "lodash", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
 		{
