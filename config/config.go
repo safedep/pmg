@@ -183,6 +183,11 @@ func WriteTemplateConfig() error {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}
 
+	// Do not overwrite the config file if it already exists
+	if _, err := os.Stat(configFilePath); err == nil {
+		return nil
+	}
+
 	if err := os.WriteFile(configFilePath, []byte(templateConfig), 0o644); err != nil {
 		return fmt.Errorf("failed to write template config: %w", err)
 	}
