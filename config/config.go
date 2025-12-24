@@ -128,6 +128,14 @@ func initConfig() {
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = configFilePath
 
+	loadConfig()
+}
+
+// loadConfig loads the configuration from the config file.
+// This is where we determine the source of config and use the appropriate loader.
+// Right now we only support loading from a config file using Viper. All loader
+// functions should be safe with reasonable defaults and panic only in case of system errors.
+func loadConfig() {
 	loadViperConfig()
 }
 
