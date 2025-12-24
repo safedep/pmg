@@ -14,24 +14,23 @@ import (
 type commonFlow struct {
 	pm              packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
-	config          config.Config
 }
 
 // Creates a common flow of execution for all package managers. This should work for most
 // of the cases unless a package manager has its own unique requirements. Configuration
 // should be passed through the context (Global Config)
-func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.PackageResolver, config config.Config) *commonFlow {
+func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.PackageResolver) *commonFlow {
 	return &commonFlow{
 		pm:              pm,
 		packageResolver: pkgResolver,
-		config:          config,
 	}
 }
 
 func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
 	var analyzers []analyzer.PackageVersionAnalyzer
+	config := config.Get()
 
-	if f.config.Paranoid {
+	if config.Config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 		if err != nil {
 			return fmt.Errorf("failed to create malware analyzer: %s", err)
@@ -56,9 +55,9 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	}
 
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
-	guardConfig.DryRun = f.config.DryRun
-	guardConfig.InsecureInstallation = f.config.InsecureInstallation
-	guardConfig.TrustedPackages = f.config.TrustedPackages
+	guardConfig.DryRun = config.DryRun
+	guardConfig.InsecureInstallation = config.InsecureInstallation
+	guardConfig.TrustedPackages = config.Config.TrustedPackages
 
 	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {

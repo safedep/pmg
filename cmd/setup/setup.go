@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -10,11 +11,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	setupRemoveConfigFile = false
+)
+
 func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Manage PMG shell aliases and integration",
-		Long:  "Setup and manage PMG config, shell aliases that allow you to use package manager commands through PMG's security wrapper.",
+		Long:  "Setup and manage PMG config, shell aliases that allow you to use package manager commands with security guardrails.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -36,25 +41,37 @@ func NewInstallCommand() *cobra.Command {
 			cfg := alias.DefaultConfig()
 			rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to create alias manager: %w", err)
 			}
 
 			aliasManager := alias.New(cfg, rcFileManager)
-			return aliasManager.Install()
+			err = aliasManager.Install()
+			if err != nil {
+				return fmt.Errorf("failed to install aliases: %w", err)
+			}
+
+			if err := config.WriteTemplateConfig(); err != nil {
+				return fmt.Errorf("failed to write template config: %w", err)
+			}
+
+			return nil
 		},
 	}
 }
 
 func NewRemoveCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Removes pmg aliases from the user's shell config file.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
-			err := config.RemoveConfig()
-			if err != nil {
-				return err
+			// We remove the config file only if explicitly asked to do so.
+			if setupRemoveConfigFile {
+				config := config.Get()
+				if err := os.Remove(config.ConfigFilePath()); err != nil {
+					return err
+				}
 			}
 
 			cfg := alias.DefaultConfig()
@@ -67,4 +84,7 @@ func NewRemoveCommand() *cobra.Command {
 			return aliasManager.Remove()
 		},
 	}
+
+	cmd.Flags().BoolVar(&setupRemoveConfigFile, "remove-config-file", false, "Remove the config file")
+	return cmd
 }

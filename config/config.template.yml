@@ -1,0 +1,27 @@
+# PMG configuration template. Customize this file as needed.
+# https://github.com/safedep/pmg
+
+# Enable transitive dependency resolution. Default is true.
+transitive: true
+
+# Maximum depth of transitive dependencies to resolve. Default is 5.
+transitive_depth: 5
+
+# Include dev dependencies in the dependency graph. Default is false.
+include_dev_dependencies: false
+
+# Enable paranoid mode. In paranoid mode, PMG will use SafeDep Cloud credentials
+# to scan unknown packages for malware. This is slow and should be used with caution.
+paranoid: false
+
+# Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
+# This is useful for packages that are known to be safe and are used in the application.
+# Example:
+#   - purl: pkg:npm/@safedep/pmg
+#     reason: "PMG is a trusted package for PMG"
+#
+# The purl is the package identifier and the reason is the reason for trusting the package.
+# PURL specification: https://github.com/package-url/purl-spec
+trusted_packages:
+  - purl: pkg:npm/@safedep/pmg
+    reason: "PMG is a trusted package for PMG"

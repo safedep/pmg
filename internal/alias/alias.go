@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/config"
 )
 
 // AliasManager manages shell aliases for package managers.
@@ -81,12 +80,6 @@ func (m *defaultRcFileManager) Remove() error {
 
 // GetRcPath returns the full path to the RC file.
 func (m *defaultRcFileManager) GetRcPath() string {
-	// Prefer centralized config path
-	if p, err := config.RcFilePath(); err == nil {
-		return p
-	}
-
-	// Fallback to home directory
 	return filepath.Join(m.HomeDir, m.RcFileName)
 }
 
@@ -101,7 +94,7 @@ func DefaultConfig() AliasConfig {
 	shells = append(shells, fishShell, zshShell, bashShell)
 
 	return AliasConfig{
-		RcFileName:      config.RcFileName(),
+		RcFileName:      ".pmg.rc",
 		PackageManagers: []string{"npm", "pip", "pip3", "pnpm", "bun", "uv", "yarn", "poetry"},
 		Shells:          shells,
 	}
@@ -128,7 +121,8 @@ func (a *AliasManager) Install() error {
 		return fmt.Errorf("failed to update shell configs: %w", err)
 	}
 
-	fmt.Println("✅ PMG aliases installed successfully at", rcPath)
+	fmt.Println("✅ PMG aliases installed successfully!")
+	fmt.Printf("📁 Created: %s\n", rcPath)
 	fmt.Println("💡 Restart your terminal or source your shell to use the new aliases")
 
 	return nil
@@ -204,6 +198,7 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		if err != nil {
 			continue
 		}
+
 		tempPath := tempFile.Name()
 
 		// Write filtered content
@@ -228,7 +223,7 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		// Replace original file
 		os.Chmod(tempPath, info.Mode())
 		if err := os.Rename(tempPath, configPath); err != nil {
-			os.Remove(tempPath) // cleanup on failure
+			os.Remove(tempPath)
 			log.Warnf("Warning: failed to update %s: %s", configPath, err)
 		}
 	}

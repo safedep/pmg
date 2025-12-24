@@ -18,11 +18,10 @@ import (
 )
 
 var (
-	debug        bool
-	silent       bool
-	verbose      bool
-	logFile      string
-	globalConfig config.Config
+	debug   bool
+	silent  bool
+	verbose bool
+	logFile string
 )
 
 func main() {
@@ -58,12 +57,6 @@ func main() {
 				ui.SetVerbosityLevel(ui.VerbosityLevelVerbose)
 			}
 
-			cfg, err := config.Load(cmd.Flags())
-			if err != nil {
-				ui.Fatalf("failed to load config: %v", err)
-			}
-			globalConfig = cfg
-
 			log.InitZapLogger("pmg", "cli")
 
 			// Initialize event logging (silently fail if it can't be initialized)
@@ -90,13 +83,10 @@ func main() {
 	cmd.PersistentFlags().BoolVar(&silent, "silent", false, "Silent mode for invisible experience")
 	cmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Verbose mode for more information")
 	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging (defaults to stdout)")
-	cmd.PersistentFlags().BoolVar(&globalConfig.Transitive, "transitive", true, "Resolve transitive dependencies")
-	cmd.PersistentFlags().IntVar(&globalConfig.TransitiveDepth, "transitive-depth", 5,
-		"Maximum depth of transitive dependencies to resolve")
-	cmd.PersistentFlags().BoolVar(&globalConfig.IncludeDevDependencies, "include-dev-dependencies", false,
-		"Include dev dependencies in the dependency graph (slows down resolution)")
-	cmd.PersistentFlags().BoolVar(&globalConfig.DryRun, "dry-run", false, "Dry run skips execution of package manager")
-	cmd.PersistentFlags().BoolVar(&globalConfig.Paranoid, "paranoid", false, "Perform active scanning of unknown packages (slow)")
+
+	// Apply config flags to the command. This allows for overriding the configuration at runtime
+	// using the command line.
+	config.ApplyCobraFlags(cmd)
 
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())
