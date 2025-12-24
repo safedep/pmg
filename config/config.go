@@ -20,7 +20,9 @@ const (
 	// when not overridden by the environment variable
 	CONFIG_DEFAULT_HOME_RELATIVE_PATH = ".safedep/pmg"
 
-	// Config file name
+	// Config file name.
+	// Important: The config file path and the schema should be backward compatible. In case of breaking config
+	// changes, we must introduce a new file name and a migration path.
 	CONFIG_FILE_NAME = "config.yml"
 
 	// Alias file name for storing shell aliases
