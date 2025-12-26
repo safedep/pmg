@@ -30,3 +30,4 @@ paranoid: false
 trusted_packages:
   - purl: pkg:npm/@safedep/pmg
     reason: "PMG is a trusted package for PMG"
+

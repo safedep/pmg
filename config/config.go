@@ -18,7 +18,7 @@ const (
 
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
-	CONFIG_DEFAULT_HOME_RELATIVE_PATH = ".safedep/pmg"
+	CONFIG_DEFAULT_HOME_RELATIVE_PATH = "safedep/pmg"
 
 	// Config file name.
 	// Important: The config file path and the schema should be backward compatible. In case of breaking config
@@ -180,6 +180,15 @@ func (r *RuntimeConfig) ConfigFilePath() string {
 
 // Save saves the configuration to the config file.
 func WriteTemplateConfig() error {
+	configDir, err := configDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
 	configFilePath, err := configFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)

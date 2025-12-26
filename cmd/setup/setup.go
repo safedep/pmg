@@ -85,6 +85,6 @@ func NewRemoveCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&setupRemoveConfigFile, "remove-config-file", false, "Remove the config file")
+	cmd.Flags().BoolVar(&setupRemoveConfigFile, "config-file", false, "Remove the config file")
 	return cmd
 }
