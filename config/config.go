@@ -69,6 +69,11 @@ type RuntimeConfig struct {
 	configFilePath string
 }
 
+// ConfigFilePath returns the path to the config file.
+func (r *RuntimeConfig) ConfigFilePath() string {
+	return r.configFilePath
+}
+
 // DefaultConfig is a fail safe contract for the runtime configuration.
 // The config package return an appropriate RuntimeConfig based on the environment and the configuration.
 func DefaultConfig() RuntimeConfig {
@@ -91,16 +96,6 @@ func DefaultConfig() RuntimeConfig {
 		DryRun:               false,
 		InsecureInstallation: insecureInstallation,
 	}
-}
-
-// ConfigRepository is a contract for a repository that can load and save the configuration.
-type ConfigRepository interface {
-	// Load loads the configuration from the repository.
-	// The path is the path to the config file or a namespace for remote repositories when supported.
-	Load(path string) (Config, error)
-
-	// Save saves the configuration to the repository.
-	Save(path string) error
 }
 
 // globalConfig is the global configuration for PMG.
@@ -171,11 +166,6 @@ func configFilePath() (string, error) {
 // that this function will never return nil.
 func Get() *RuntimeConfig {
 	return globalConfig
-}
-
-// ConfigFilePath returns the path to the config file.
-func (r *RuntimeConfig) ConfigFilePath() string {
-	return r.configFilePath
 }
 
 // Save saves the configuration to the config file.
