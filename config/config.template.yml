@@ -20,6 +20,11 @@ paranoid: false
 #   - purl: pkg:npm/@safedep/pmg
 #     reason: "PMG is a trusted package for PMG"
 #
+# When a package is specified without an explicit version, all versions of the package will be trusted.
+# This feature should be used with caution and should be used for minimal set of packages.
+#
+# When a package is specified with an explicit version, only that version will be trusted.
+#
 # The purl is the package identifier and the reason is the reason for trusting the package.
 # PURL specification: https://github.com/package-url/purl-spec
 trusted_packages:
