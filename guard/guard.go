@@ -59,8 +59,8 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 	}
 }
 
-func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(result *packagev1.PackageVersion) bool {
-	if result == nil {
+func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(pkgVersion *packagev1.PackageVersion) bool {
+	if pkgVersion == nil {
 		return false
 	}
 
@@ -70,14 +70,25 @@ func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(result *packagev1.Pa
 	}
 
 	for _, v := range trustedPkgs {
-		purlPkgVersion, err := pb.NewPurlPackageVersion(v.Purl)
+		purlTrustedPackageVersion, err := pb.NewPurlPackageVersion(v.Purl)
 		if err != nil {
+			log.Warnf("failed to parse trusted package version: %s: %v", v.Purl, err)
 			continue
 		}
 
-		if isPackageVersionEqual(result, purlPkgVersion.PackageVersion()) {
-			return true
+		if purlTrustedPackageVersion.Version() != "" && purlTrustedPackageVersion.Version() != pkgVersion.GetVersion() {
+			continue
 		}
+
+		if purlTrustedPackageVersion.Name() != pkgVersion.GetPackage().GetName() {
+			continue
+		}
+
+		if purlTrustedPackageVersion.Ecosystem() != pkgVersion.GetPackage().GetEcosystem() {
+			continue
+		}
+
+		return true
 	}
 
 	return false
@@ -189,10 +200,6 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		if result.Action == analyzer.ActionConfirm {
-			if g.config.IsTrustedPackageVersion(result.PackageVersion) {
-				continue
-			}
-
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
 		}
 	}
@@ -258,7 +265,6 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	packages []*packagev1.PackageVersion) ([]*analyzer.PackageVersionAnalysisResult, error) {
-
 	ctx, cancel := context.WithTimeout(ctx, g.config.AnalysisTimeout)
 	defer cancel()
 
@@ -287,8 +293,16 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 
 	// Queue all packages for analysis
 	for _, pkg := range packages {
+		if g.config.IsTrustedPackageVersion(pkg) {
+			log.Debugf("Skipping trusted package: %s/%s@%s",
+				pkg.GetPackage().GetEcosystem(), pkg.GetPackage().GetName(), pkg.GetVersion())
+
+			continue
+		}
+
 		jobs <- pkg
 	}
+
 	close(jobs)
 
 	analysisResults := []*analyzer.PackageVersionAnalysisResult{}
@@ -383,13 +397,12 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	log.Debugf("Extracted %d packages from manifest files", len(packages))
 
 	packagesToAnalyze := []*packagev1.PackageVersion{}
-	for _, pkg := range packages {
-		packagesToAnalyze = append(packagesToAnalyze, pkg)
-	}
+
+	// Add all packages to analyze that are extracted from manifest files
+	packagesToAnalyze = append(packagesToAnalyze, packages...)
 
 	// Only resolve dependencies for requirements.txt because other lockfiles dependencies are already resolved
 	if g.config.ResolveDependencies && slices.Contains(parsedCommand.ManifestFiles, "requirements.txt") {
-
 		g.setStatus(fmt.Sprintf("Resolving dependencies for %d package(s)", len(packages)))
 
 		for _, pkg := range packages {
