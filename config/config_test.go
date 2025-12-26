@@ -39,7 +39,7 @@ func TestConfigHasDefaultValues(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		assert.Equal(t, filepath.Join(userConfigDir, ".safedep/pmg"), config.configDir)
-		assert.Equal(t, filepath.Join(userConfigDir, ".safedep/pmg/config.yml"), config.configFilePath)
+		assert.Equal(t, filepath.Join(userConfigDir, "safedep/pmg"), config.configDir)
+		assert.Equal(t, filepath.Join(userConfigDir, "safedep/pmg/config.yml"), config.configFilePath)
 	})
 }
