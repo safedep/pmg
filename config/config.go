@@ -168,7 +168,7 @@ func Get() *RuntimeConfig {
 	return globalConfig
 }
 
-// Save saves the configuration to the config file.
+// WriteTemplateConfig writes the template configuration file to disk if it doesn't already exist.
 func WriteTemplateConfig() error {
 	configDir, err := configDir()
 	if err != nil {
