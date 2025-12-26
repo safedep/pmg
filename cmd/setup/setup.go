@@ -69,7 +69,7 @@ func NewRemoveCommand() *cobra.Command {
 			// We remove the config file only if explicitly asked to do so.
 			if setupRemoveConfigFile {
 				config := config.Get()
-				if err := os.Remove(config.ConfigFilePath()); err != nil {
+				if err := os.Remove(config.ConfigFilePath()); err != nil && !os.IsNotExist(err) {
 					return err
 				}
 			}
