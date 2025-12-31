@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 )
@@ -49,12 +50,18 @@ func main() {
 		log.Fatalf("Failed to create cert manager: %v", err)
 	}
 
+	malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	if err != nil {
+		fmt.Println("failed to initialise malysis query analyser: ", err)
+		os.Exit(0)
+	}
+
 	// Create proxy with certificate manager and logging interceptor
 	proxyConfig := &proxy.ProxyConfig{
 		ListenAddr:     listenAddr,
 		CertManager:    certMgr,
 		EnableMITM:     true,
-		Interceptors:   []proxy.Interceptor{newLoggingInterceptor()},
+		Interceptors:   []proxy.Interceptor{newMalysisInterceptor(malysisQueryAnalyzer)},
 		ConnectTimeout: connectTimeout,
 		RequestTimeout: requestTimeout,
 	}
