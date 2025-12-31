@@ -73,6 +73,10 @@ jobs:
         run: |
           test -f $HOME/.config/safedep/pmg/config.yml
 
+      - name: Test pmg.rc File is Created
+        run: |
+          test -f $HOME/.pmg.rc
+
       - name: Test NPM - Single Package & Manifest
         run: |
           echo "Testing NPM single package installation..."

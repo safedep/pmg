@@ -193,13 +193,11 @@ func eventLogDir() (string, error) {
 		if baseDir == "" {
 			baseDir = os.Getenv("USERPROFILE")
 			if baseDir == "" {
-				return "", fmt.Errorf("could not determine Windows user directory")
+				return "", fmt.Errorf("could not determine Windows user directory for event log storage")
 			}
-
-			return filepath.Join(baseDir, CONFIG_DEFAULT_HOME_RELATIVE_PATH, CONFIG_DEFAULT_LOG_DIR), nil
 		}
 
-		return filepath.Join(baseDir, "pmg", "logs"), nil
+		return filepath.Join(baseDir, CONFIG_DEFAULT_HOME_RELATIVE_PATH, CONFIG_DEFAULT_LOG_DIR), nil
 	case "darwin", "linux":
 		configDir, err := configDir()
 		if err != nil {

@@ -447,9 +447,6 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		}
 
 		if result.Action == analyzer.ActionConfirm {
-			if g.config.IsTrustedPackageVersion(result.PackageVersion) {
-				continue
-			}
 			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
 		}
 	}
@@ -506,7 +503,6 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 	details := map[string]interface{}{
 		"analysis_id":   result.AnalysisID,
 		"reference_url": result.ReferenceURL,
-		"summary":       result.Summary,
 	}
 
 	if blocked {

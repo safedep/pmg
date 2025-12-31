@@ -103,6 +103,10 @@ func InitializeWithFile(filePath string) error {
 
 // InitializeWithDir sets up the global event logger with a custom log directory
 func InitializeWithDir(logDir string) error {
+	if config.Get().Config.SkipEventLogging {
+		return nil
+	}
+
 	var initErr error
 	once.Do(func() {
 		fwrl := &fileWithRotationLogger{}
@@ -292,9 +296,11 @@ func LogMalwareBlocked(packageName, version, ecosystem, reason string, details m
 		Ecosystem:   ecosystem,
 		Details:     details,
 	}
+
 	if details == nil {
 		event.Details = make(map[string]interface{})
 	}
+
 	event.Details["reason"] = reason
 	LogEvent(event)
 }
@@ -308,6 +314,7 @@ func LogMalwareConfirmed(packageName, version, ecosystem string) {
 		Version:     version,
 		Ecosystem:   ecosystem,
 	}
+
 	LogEvent(event)
 }
 
@@ -323,6 +330,7 @@ func LogInstallAllowed(packageName, version, ecosystem string, packageCount int)
 			"packages_analyzed": packageCount,
 		},
 	}
+
 	LogEvent(event)
 }
 
@@ -336,6 +344,7 @@ func LogInstallStarted(packageManager string, args []string) {
 			"arguments":       args,
 		},
 	}
+
 	LogEvent(event)
 }
 
@@ -348,6 +357,7 @@ func LogError(message string, err error) {
 			"error": err.Error(),
 		},
 	}
+
 	LogEvent(event)
 }
 

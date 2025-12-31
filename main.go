@@ -47,8 +47,7 @@ func main() {
 			}
 
 			if silent && verbose {
-				fmt.Println("pmg: --silent and --verbose cannot be used together")
-				os.Exit(1)
+				ui.Fatalf("pmg: --silent and --verbose cannot be used together")
 			}
 
 			if silent {
@@ -71,7 +70,6 @@ func main() {
 
 			if eventlogErr != nil {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
-				os.Exit(1)
 			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
