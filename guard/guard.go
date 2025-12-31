@@ -525,27 +525,3 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 		)
 	}
 }
-
-func isPackageVersionEqual(result, purlPkgVersion *packagev1.PackageVersion) bool {
-	if result == nil || purlPkgVersion == nil {
-		return false
-	}
-
-	if result.GetVersion() != purlPkgVersion.GetVersion() {
-		return false
-	}
-
-	if result.GetPackage() == nil || purlPkgVersion.GetPackage() == nil {
-		return false
-	}
-
-	if result.GetPackage().GetName() != purlPkgVersion.GetPackage().GetName() {
-		return false
-	}
-
-	if result.GetPackage().GetEcosystem() != purlPkgVersion.GetPackage().GetEcosystem() {
-		return false
-	}
-
-	return true
-}

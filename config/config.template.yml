@@ -14,6 +14,15 @@ include_dev_dependencies: false
 # to scan unknown packages for malware. This is slow and should be used with caution.
 paranoid: false
 
+# Skip event logging. Default is false.
+# When enabled, all events will be logged to file. These events are useful for audit
+# trail and incident response on systems using PMG.
+skip_event_logging: false
+
+# Event log retention days. Default is 7.
+# This is the number of days to retain event logs.
+event_log_retention_days: 7
+
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
 # Example:

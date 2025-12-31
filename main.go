@@ -60,15 +60,19 @@ func main() {
 			log.InitZapLogger("pmg", "cli")
 
 			// Initialize event logging (silently fail if it can't be initialized)
+			var eventlogErr error
 			if logFile != "" {
 				// If a custom log file is specified, use it for event logging too
-				_ = eventlog.InitializeWithFile(logFile)
+				eventlogErr = eventlog.InitializeWithFile(logFile)
 			} else {
 				// Otherwise use the default log directory
-				_ = eventlog.Initialize()
+				eventlogErr = eventlog.Initialize()
 			}
 
-			cmd.SetContext(globalConfig.Inject(cmd.Context()))
+			if eventlogErr != nil {
+				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
+				os.Exit(1)
+			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {

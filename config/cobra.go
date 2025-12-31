@@ -17,4 +17,6 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.DryRun, "Dry run skips execution of package manager")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Paranoid, "paranoid",
 		globalConfig.Config.Paranoid, "Perform active scanning of unknown packages (slow)")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Config.SkipEventLogging, "skip-event-log",
+		globalConfig.Config.SkipEventLogging, "Skip event logging")
 }

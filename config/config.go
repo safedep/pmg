@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 
 	_ "embed"
@@ -19,6 +20,9 @@ const (
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
 	CONFIG_DEFAULT_HOME_RELATIVE_PATH = "safedep/pmg"
+
+	// Default log directory is relative to the config directory.
+	CONFIG_DEFAULT_LOG_DIR = "logs"
 
 	// Config file name.
 	// Important: The config file path and the schema should be backward compatible. In case of breaking config
@@ -42,6 +46,12 @@ type Config struct {
 
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
+
+	// SkipEventLogging allows for skipping event logging.
+	SkipEventLogging bool `mapstructure:"skip_event_logging"`
+
+	// EventLogRetentionDays is the number of days to retain event logs.
+	EventLogRetentionDays int `mapstructure:"event_log_retention_days"`
 }
 
 // TrustedPackage is a package that is trusted by the user and will be ignored by the security guardrails.
@@ -64,11 +74,17 @@ type RuntimeConfig struct {
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir      string
 	configFilePath string
+	eventLogDir    string
 }
 
 // ConfigFilePath returns the path to the config file.
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
+}
+
+// EventLogDir returns the path to the event log directory.
+func (r *RuntimeConfig) EventLogDir() string {
+	return r.eventLogDir
 }
 
 // DefaultConfig is a fail safe contract for the runtime configuration.
@@ -88,6 +104,8 @@ func DefaultConfig() RuntimeConfig {
 			TransitiveDepth:        5,
 			IncludeDevDependencies: false,
 			Paranoid:               false,
+			EventLogRetentionDays:  7,
+			SkipEventLogging:       false,
 			TrustedPackages:        []TrustedPackage{},
 		},
 		DryRun:               false,
@@ -119,8 +137,14 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get config file path: %w", err))
 	}
 
+	eventLogDir, err := eventLogDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get event log directory: %w", err))
+	}
+
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = configFilePath
+	globalConfig.eventLogDir = eventLogDir
 
 	loadConfig()
 }
@@ -156,6 +180,36 @@ func configFilePath() (string, error) {
 	}
 
 	return filepath.Join(configDir, CONFIG_FILE_NAME), nil
+}
+
+// eventLogDir computes the path to the event log directory.
+func eventLogDir() (string, error) {
+	// For rationale on why different directory for Windows, see:
+	// https://github.com/safedep/pmg/pull/82#discussion_r2636746036
+	switch runtime.GOOS {
+	case "windows":
+		// Windows: %LOCALAPPDATA%\safedep\pmg\logs or %USERPROFILE%\safedep\pmg\logs
+		baseDir := os.Getenv("LOCALAPPDATA")
+		if baseDir == "" {
+			baseDir = os.Getenv("USERPROFILE")
+			if baseDir == "" {
+				return "", fmt.Errorf("could not determine Windows user directory")
+			}
+
+			return filepath.Join(baseDir, CONFIG_DEFAULT_HOME_RELATIVE_PATH, CONFIG_DEFAULT_LOG_DIR), nil
+		}
+
+		return filepath.Join(baseDir, "pmg", "logs"), nil
+	case "darwin", "linux":
+		configDir, err := configDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get config directory: %w", err)
+		}
+
+		return filepath.Join(configDir, CONFIG_DEFAULT_LOG_DIR), nil
+	default:
+		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
 }
 
 // Get returns the global configuration.
