@@ -36,6 +36,7 @@ type Event struct {
 	Details     map[string]interface{} `json:"details,omitempty"`
 }
 
+// Logger defines the contract for implementing event loggers.
 type Logger interface {
 	// Log writes an event to the log file
 	Log(event Event) error
