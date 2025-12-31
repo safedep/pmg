@@ -24,9 +24,6 @@ const (
 	// Important: The config file path and the schema should be backward compatible. In case of breaking config
 	// changes, we must introduce a new file name and a migration path.
 	CONFIG_FILE_NAME = "config.yml"
-
-	// Alias file name for storing shell aliases
-	CONFIG_ALIAS_FILE_NAME = "aliases.rc"
 )
 
 //go:embed config.template.yml
