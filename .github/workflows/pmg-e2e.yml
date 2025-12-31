@@ -66,6 +66,13 @@ jobs:
       - name: Add pmg to PATH
         run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
+      - name: Setup PMG
+        run: pmg setup install
+
+      - name: Test PMG - Config File is Created
+        run: |
+          test -f $HOME/.config/safedep/pmg/config.yml
+
       - name: Test NPM - Single Package & Manifest
         run: |
           echo "Testing NPM single package installation..."
