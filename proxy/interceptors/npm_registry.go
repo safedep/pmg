@@ -235,9 +235,11 @@ func (i *NpmRegistryInterceptor) requestUserConfirmation(
 	// Block waiting for user response
 	select {
 	case confirmed := <-req.ResponseChan:
+		close(req.ResponseChan)
 		return confirmed, nil
 	case <-time.After(5 * time.Minute):
 		// Timeout waiting for user response - block the package to be safe
+		close(req.ResponseChan)
 		return false, fmt.Errorf("timeout waiting for user confirmation")
 	}
 }

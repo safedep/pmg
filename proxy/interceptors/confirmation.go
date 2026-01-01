@@ -11,7 +11,10 @@ import (
 type ConfirmationRequest struct {
 	PackageVersion *packagev1.PackageVersion
 	AnalysisResult *analyzer.PackageVersionAnalysisResult
-	ResponseChan   chan bool // Channel to send the user's response back
+	// ResponseChan is used to send the user's response back.
+	// The caller receiving the response is responsible for closing this channel
+	// after reading the response to prevent goroutine leaks.
+	ResponseChan chan bool
 }
 
 // HandleConfirmationRequests processes confirmation requests sequentially
