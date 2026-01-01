@@ -34,6 +34,17 @@ func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
+	cfg := config.Get()
+
+	// Check if dry-run mode is enabled
+	if cfg.DryRun {
+		ui.SetStatus("Running in dry-run mode (proxy mode)")
+		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
+		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
+		ui.ClearStatus()
+		return nil
+	}
+
 	ui.SetStatus("Initializing experimental proxy mode...")
 
 	// Setup CA certificate for MITM
