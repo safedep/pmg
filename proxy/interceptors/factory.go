@@ -12,7 +12,7 @@ import (
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy
 type InterceptorFactory struct {
 	analyzer         analyzer.PackageVersionAnalyzer
-	cache            *AnalysisCache
+	cache            AnalysisCache
 	confirmationChan chan *ConfirmationRequest
 	interaction      guard.PackageManagerGuardInteraction
 }
@@ -20,7 +20,7 @@ type InterceptorFactory struct {
 // NewInterceptorFactory creates a new interceptor factory with shared dependencies
 func NewInterceptorFactory(
 	analyzer analyzer.PackageVersionAnalyzer,
-	cache *AnalysisCache,
+	cache AnalysisCache,
 	confirmationChan chan *ConfirmationRequest,
 	interaction guard.PackageManagerGuardInteraction,
 ) *InterceptorFactory {

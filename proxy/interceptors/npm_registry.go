@@ -28,7 +28,7 @@ var (
 // NpmRegistryInterceptor intercepts NPM registry requests and analyzes packages for malware
 type NpmRegistryInterceptor struct {
 	analyzer         analyzer.PackageVersionAnalyzer
-	cache            *AnalysisCache
+	cache            AnalysisCache
 	confirmationChan chan *ConfirmationRequest
 	interaction      guard.PackageManagerGuardInteraction
 }
@@ -38,7 +38,7 @@ var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
 // NewNpmRegistryInterceptor creates a new NPM registry interceptor
 func NewNpmRegistryInterceptor(
 	analyzer analyzer.PackageVersionAnalyzer,
-	cache *AnalysisCache,
+	cache AnalysisCache,
 	confirmationChan chan *ConfirmationRequest,
 	interaction guard.PackageManagerGuardInteraction,
 ) *NpmRegistryInterceptor {

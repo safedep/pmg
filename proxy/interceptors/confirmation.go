@@ -48,6 +48,6 @@ func NewConfirmationRequest(pkgVersion *packagev1.PackageVersion, result *analyz
 	return &ConfirmationRequest{
 		PackageVersion: pkgVersion,
 		AnalysisResult: result,
-		ResponseChan:   make(chan bool, 1), // Buffered channel to avoid blocking
+		ResponseChan:   make(chan bool, 1),
 	}
 }

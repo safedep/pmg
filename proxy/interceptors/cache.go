@@ -7,27 +7,36 @@ import (
 	"github.com/safedep/pmg/analyzer"
 )
 
-// AnalysisCache provides thread-safe caching of package analysis results
-type AnalysisCache struct {
+type AnalysisCache interface {
+	// Get retrieves a cached analysis result
+	Get(ecosystem, name, version string) (*analyzer.PackageVersionAnalysisResult, bool)
+
+	// Set stores an analysis result in the cache
+	Set(ecosystem, name, version string, result *analyzer.PackageVersionAnalysisResult)
+}
+
+type inMemoryAnalysisCache struct {
 	mu    sync.RWMutex
 	cache map[string]*analyzer.PackageVersionAnalysisResult
 }
 
-// NewAnalysisCache creates a new analysis cache
-func NewAnalysisCache() *AnalysisCache {
-	return &AnalysisCache{
+var _ AnalysisCache = (*inMemoryAnalysisCache)(nil)
+
+// NewInMemoryAnalysisCache creates a new in-memory analysis cache
+func NewInMemoryAnalysisCache() *inMemoryAnalysisCache {
+	return &inMemoryAnalysisCache{
 		cache: make(map[string]*analyzer.PackageVersionAnalysisResult),
 	}
 }
 
 // cacheKey generates a cache key from ecosystem, name, and version
-func (c *AnalysisCache) cacheKey(ecosystem, name, version string) string {
+func (c *inMemoryAnalysisCache) cacheKey(ecosystem, name, version string) string {
 	return fmt.Sprintf("%s:%s:%s", ecosystem, name, version)
 }
 
 // Get retrieves a cached analysis result
 // Returns the result and true if found, nil and false if not found
-func (c *AnalysisCache) Get(ecosystem, name, version string) (*analyzer.PackageVersionAnalysisResult, bool) {
+func (c *inMemoryAnalysisCache) Get(ecosystem, name, version string) (*analyzer.PackageVersionAnalysisResult, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -37,7 +46,7 @@ func (c *AnalysisCache) Get(ecosystem, name, version string) (*analyzer.PackageV
 }
 
 // Set stores an analysis result in the cache
-func (c *AnalysisCache) Set(ecosystem, name, version string, result *analyzer.PackageVersionAnalysisResult) {
+func (c *inMemoryAnalysisCache) Set(ecosystem, name, version string, result *analyzer.PackageVersionAnalysisResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -46,7 +55,7 @@ func (c *AnalysisCache) Set(ecosystem, name, version string, result *analyzer.Pa
 }
 
 // Clear removes all entries from the cache
-func (c *AnalysisCache) Clear() {
+func (c *inMemoryAnalysisCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -54,7 +63,7 @@ func (c *AnalysisCache) Clear() {
 }
 
 // Size returns the number of entries in the cache
-func (c *AnalysisCache) Size() int {
+func (c *inMemoryAnalysisCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -62,7 +71,7 @@ func (c *AnalysisCache) Size() int {
 }
 
 // Has checks if a cache entry exists for the given package
-func (c *AnalysisCache) Has(ecosystem, name, version string) bool {
+func (c *inMemoryAnalysisCache) Has(ecosystem, name, version string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -72,7 +81,7 @@ func (c *AnalysisCache) Has(ecosystem, name, version string) bool {
 }
 
 // Delete removes a specific entry from the cache
-func (c *AnalysisCache) Delete(ecosystem, name, version string) {
+func (c *inMemoryAnalysisCache) Delete(ecosystem, name, version string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

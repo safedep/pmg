@@ -64,7 +64,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Create analysis cache
-	cache := interceptors.NewAnalysisCache()
+	cache := interceptors.NewInMemoryAnalysisCache()
 
 	// Create confirmation channel and start confirmation handler
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 10)
