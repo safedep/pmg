@@ -176,7 +176,7 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	// Use paranoid mode (active scan) if enabled, otherwise use query mode
 	if cfg.Config.Paranoid {
 		log.Debugf("Creating malysis active scan analyzer (paranoid mode)")
-		return analyzer.NewMalysisActiveScanAnalyzer(analyzer.MalysisActiveScanAnalyzerConfig{})
+		return analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 	}
 
 	log.Debugf("Creating malysis query analyzer")
@@ -232,7 +232,6 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 		fmt.Sprintf("https_proxy=%s", proxyURL),
 	)
 
-	// Passthrough stdin/stdout/stderr for interactive experience
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
