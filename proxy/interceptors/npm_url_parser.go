@@ -165,28 +165,41 @@ func extractVersionFromTarball(packageName, tarballName string) (string, error) 
 }
 
 // extractVersionFromScopedTarball extracts version from a scoped package tarball filename
-// Expected format: @scope-package-name-1.0.0.tgz
+// NPM registry uses two different formats for scoped package tarballs:
+// Format 1: {scope}-{package}-{version}.tgz (e.g., types-node-18.0.0.tgz for @types/node)
+// Format 2: {package}-{version}.tgz (e.g., studio-core-licensed-0.0.0.tgz for @prisma/studio-core-licensed)
 func extractVersionFromScopedTarball(scope, packageName, tarballName string) (string, error) {
-	// Expected format: {scope}-{packageName}-{version}.tgz
-	// Example: @types-node-18.0.0.tgz
-	scopeWithoutAt := strings.TrimPrefix(scope, "@")
-	expectedPrefix := scopeWithoutAt + "-" + packageName + "-"
-
-	if !strings.HasPrefix(tarballName, expectedPrefix) {
-		return "", fmt.Errorf("tarball name %s does not match scoped package %s/%s", tarballName, scope, packageName)
-	}
-
 	if !strings.HasSuffix(tarballName, ".tgz") {
 		return "", fmt.Errorf("tarball name %s does not end with .tgz", tarballName)
 	}
 
-	// Extract version by removing prefix and suffix
-	version := strings.TrimPrefix(tarballName, expectedPrefix)
-	version = strings.TrimSuffix(version, ".tgz")
+	scopeWithoutAt := strings.TrimPrefix(scope, "@")
 
-	if version == "" {
-		return "", fmt.Errorf("could not extract version from tarball %s", tarballName)
+	// Try Format 1: {scope}-{packageName}-{version}.tgz
+	expectedPrefixWithScope := scopeWithoutAt + "-" + packageName + "-"
+	if strings.HasPrefix(tarballName, expectedPrefixWithScope) {
+		version := strings.TrimPrefix(tarballName, expectedPrefixWithScope)
+		version = strings.TrimSuffix(version, ".tgz")
+
+		if version == "" {
+			return "", fmt.Errorf("could not extract version from tarball %s", tarballName)
+		}
+
+		return version, nil
 	}
 
-	return version, nil
+	// Try Format 2: {packageName}-{version}.tgz
+	expectedPrefixWithoutScope := packageName + "-"
+	if strings.HasPrefix(tarballName, expectedPrefixWithoutScope) {
+		version := strings.TrimPrefix(tarballName, expectedPrefixWithoutScope)
+		version = strings.TrimSuffix(version, ".tgz")
+
+		if version == "" {
+			return "", fmt.Errorf("could not extract version from tarball %s", tarballName)
+		}
+
+		return version, nil
+	}
+
+	return "", fmt.Errorf("tarball name %s does not match expected formats for scoped package %s/%s", tarballName, scope, packageName)
 }

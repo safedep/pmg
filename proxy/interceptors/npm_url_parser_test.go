@@ -140,6 +140,24 @@ func TestParseNpmRegistryURL(t *testing.T) {
 			wantIsScoped:  true,
 			wantErr:       false,
 		},
+		{
+			name:          "scoped package tarball without scope prefix (Format 2)",
+			urlPath:       "/@prisma/studio-core-licensed/-/studio-core-licensed-0.0.0-dev.202601011229.tgz",
+			wantName:      "@prisma/studio-core-licensed",
+			wantVersion:   "0.0.0-dev.202601011229",
+			wantIsTarball: true,
+			wantIsScoped:  true,
+			wantErr:       false,
+		},
+		{
+			name:          "scoped package tarball with scope prefix (Format 1)",
+			urlPath:       "/@types/node/-/types-node-20.0.0.tgz",
+			wantName:      "@types/node",
+			wantVersion:   "20.0.0",
+			wantIsTarball: true,
+			wantIsScoped:  true,
+			wantErr:       false,
+		},
 
 		// Error cases
 		{
