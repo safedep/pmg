@@ -19,4 +19,6 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.Paranoid, "Perform active scanning of unknown packages (slow)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.SkipEventLogging, "skip-event-log",
 		globalConfig.Config.SkipEventLogging, "Skip event logging")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ExperimentalProxyMode, "experimental-proxy-mode",
+		globalConfig.Config.ExperimentalProxyMode, "Use experimental proxy-based interception (EXPERIMENTAL)")
 }
