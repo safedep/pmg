@@ -23,6 +23,13 @@ skip_event_logging: false
 # This is the number of days to retain event logs.
 event_log_retention_days: 7
 
+# Experimental proxy mode. Default is false.
+# When enabled, PMG uses an experimental proxy-based interception approach instead of the
+# default guard-based analysis. The proxy intercepts package manager requests in real-time
+# and analyzes packages as they are downloaded. This is an experimental feature and may not
+# work in all environments.
+experimental_proxy_mode: false
+
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
 # Example:

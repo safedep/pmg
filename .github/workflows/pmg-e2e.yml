@@ -101,6 +101,49 @@ jobs:
           test -d node_modules/lodash
           cd .. && rm -rf npm-test
 
+      - name: Test NPM - Experimental Proxy Mode
+        run: |
+          echo "Testing NPM with experimental proxy-based interception..."
+          mkdir npm-proxy-test && cd npm-proxy-test
+          pmg npm init -y
+
+          echo "Testing proxy mode single package installation..."
+          pmg --experimental-proxy-mode npm install express@5.2.1
+          pmg --experimental-proxy-mode npm install lodash@4.17.21
+
+          # Verification: packages installed via proxy mode
+          test -d node_modules/express
+          test -d node_modules/lodash
+          grep -q '"express"' package.json
+          grep -q '"lodash"' package.json
+
+          echo "Testing proxy mode manifest installation..."
+          rm -rf node_modules package-lock.json
+          pmg --experimental-proxy-mode npm install
+
+          # Verification: manifest install via proxy mode works
+          test -f package-lock.json
+          test -d node_modules/express
+          test -d node_modules/lodash
+
+          echo "Testing proxy mode with scoped package..."
+          pmg --experimental-proxy-mode npm install @types/node@18.0.0
+
+          # Verification: scoped package installed via proxy
+          test -d node_modules/@types
+          test -d node_modules/@types/node
+          grep -q '"@types/node"' package.json
+
+          echo "Testing proxy mode dry-run (should not create files)..."
+          rm -rf node_modules package-lock.json
+          pmg --experimental-proxy-mode --dry-run npm install
+
+          # Verification: dry-run doesn't create files even in proxy mode
+          test ! -d node_modules
+          test ! -f package-lock.json
+
+          cd .. && rm -rf npm-proxy-test
+
       - name: Test PNPM - Single Package & Manifest
         run: |
           echo "Testing PNPM single package installation..."

@@ -80,10 +80,12 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 				ManifestFiles:     []string{},
 			}, nil
 		}
+
 		return &ParsedCommand{
 			Command: command,
 		}, nil
 	}
+
 	// Find the install command position
 	var installCmdIndex = -1
 	for idx, arg := range args {
