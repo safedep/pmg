@@ -35,20 +35,16 @@ func executeUvFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create uv package manager: %w", err)
 	}
 
-	config, err := config.FromContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
+	config := config.Get()
 	parsedCommand, err := packageManager.ParseCommand(args)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
 	packageResolverConfig := packagemanager.NewDefaultPypiDependencyResolverConfig()
-	packageResolverConfig.IncludeTransitiveDependencies = config.Transitive
-	packageResolverConfig.TransitiveDepth = config.TransitiveDepth
-	packageResolverConfig.IncludeDevDependencies = config.IncludeDevDependencies
+	packageResolverConfig.IncludeTransitiveDependencies = config.Config.Transitive
+	packageResolverConfig.TransitiveDepth = config.Config.TransitiveDepth
+	packageResolverConfig.IncludeDevDependencies = config.Config.IncludeDevDependencies
 	packageResolverConfig.PackageInstallTargets = parsedCommand.InstallTargets
 
 	packageResolver, err := packagemanager.NewPypiDependencyResolver(packageResolverConfig)
@@ -56,5 +52,5 @@ func executeUvFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	return flows.Common(packageManager, packageResolver, config).Run(ctx, args, parsedCommand)
+	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
 }

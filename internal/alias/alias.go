@@ -198,6 +198,7 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		if err != nil {
 			continue
 		}
+
 		tempPath := tempFile.Name()
 
 		// Write filtered content
@@ -222,7 +223,7 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		// Replace original file
 		os.Chmod(tempPath, info.Mode())
 		if err := os.Rename(tempPath, configPath); err != nil {
-			os.Remove(tempPath) // cleanup on failure
+			os.Remove(tempPath)
 			log.Warnf("Warning: failed to update %s: %s", configPath, err)
 		}
 	}

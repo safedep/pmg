@@ -6,23 +6,23 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 )
 
 // EventType represents the type of event being logged
 type EventType string
 
 const (
-	EventTypeMalwareBlocked    EventType = "malware_blocked"
-	EventTypeMalwareConfirmed  EventType = "malware_confirmed"
-	EventTypeInstallAllowed    EventType = "install_allowed"
-	EventTypeInstallStarted    EventType = "install_started"
+	EventTypeMalwareBlocked     EventType = "malware_blocked"
+	EventTypeMalwareConfirmed   EventType = "malware_confirmed"
+	EventTypeInstallAllowed     EventType = "install_allowed"
+	EventTypeInstallStarted     EventType = "install_started"
 	EventTypeDependencyResolved EventType = "dependency_resolved"
-	EventTypeError             EventType = "error"
+	EventTypeError              EventType = "error"
 )
 
 // Event represents a security event
@@ -36,73 +36,84 @@ type Event struct {
 	Details     map[string]interface{} `json:"details,omitempty"`
 }
 
-// Logger represents an event logger
-type Logger struct {
+// Logger defines the contract for implementing event loggers.
+type Logger interface {
+	// Log writes an event to the log file
+	Log(event Event) error
+
+	// Close closes the logger
+	Close() error
+
+	// IsActive returns whether the logger is active
+	IsActive() bool
+}
+
+// fileWithRotationLogger represents an event logger that writes to a file and rotates the
+// file when it reaches a certain age
+type fileWithRotationLogger struct {
 	file   *os.File
 	writer io.Writer
 	mu     sync.Mutex
 	active bool
 }
 
+// fileWithRotationLogger implements the Logger interface. This is the default logger
+// that will be used. Future enhancements will introduce additional and optional loggers.
+var _ Logger = &fileWithRotationLogger{}
+
 var (
-	globalLogger *Logger
+	globalLogger Logger
 	once         sync.Once
 )
 
 // GetDefaultLogDir returns the default log directory based on the OS
 func GetDefaultLogDir() (string, error) {
-	var baseDir string
-
-	switch runtime.GOOS {
-	case "windows":
-		// Windows: %LOCALAPPDATA%\pmg\logs or %USERPROFILE%\.pmg\logs
-		baseDir = os.Getenv("LOCALAPPDATA")
-		if baseDir == "" {
-			baseDir = os.Getenv("USERPROFILE")
-			if baseDir == "" {
-				return "", fmt.Errorf("could not determine Windows user directory")
-			}
-			return filepath.Join(baseDir, ".pmg", "logs"), nil
-		}
-		return filepath.Join(baseDir, "pmg", "logs"), nil
-	case "darwin", "linux":
-		// macOS and Linux: ~/.pmg/logs
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("could not determine home directory: %w", err)
-		}
-		return filepath.Join(homeDir, ".pmg", "logs"), nil
-	default:
-		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
+	return config.Get().EventLogDir(), nil
 }
 
 // Initialize sets up the global event logger with the default log directory
 func Initialize() error {
+	if config.Get().Config.SkipEventLogging {
+		return nil
+	}
+
 	logDir, err := GetDefaultLogDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get default log directory: %w", err)
 	}
+
 	return InitializeWithDir(logDir)
 }
 
 // InitializeWithFile sets up the global event logger with a specific file path
 func InitializeWithFile(filePath string) error {
+	if config.Get().Config.SkipEventLogging {
+		return nil
+	}
+
 	var initErr error
 	once.Do(func() {
-		globalLogger = &Logger{}
-		initErr = globalLogger.initWithFile(filePath)
+		fwrl := &fileWithRotationLogger{}
+		initErr = fwrl.initWithFile(filePath)
+		globalLogger = fwrl
 	})
+
 	return initErr
 }
 
 // InitializeWithDir sets up the global event logger with a custom log directory
 func InitializeWithDir(logDir string) error {
+	if config.Get().Config.SkipEventLogging {
+		return nil
+	}
+
 	var initErr error
 	once.Do(func() {
-		globalLogger = &Logger{}
-		initErr = globalLogger.init(logDir)
+		fwrl := &fileWithRotationLogger{}
+		initErr = fwrl.init(logDir)
+		globalLogger = fwrl
 	})
+
 	return initErr
 }
 
@@ -113,16 +124,16 @@ func reinitializeForTest(logDir string) error {
 	if globalLogger != nil {
 		globalLogger.Close()
 	}
-	
+
 	// Reset once
 	once = sync.Once{}
-	
+
 	// Initialize new logger
 	return InitializeWithDir(logDir)
 }
 
 // init initializes the logger with the specified directory
-func (l *Logger) init(logDir string) error {
+func (l *fileWithRotationLogger) init(logDir string) error {
 	// Create log directory if it doesn't exist
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
@@ -148,7 +159,7 @@ func (l *Logger) init(logDir string) error {
 }
 
 // initWithFile initializes the logger with a specific file path
-func (l *Logger) initWithFile(filePath string) error {
+func (l *fileWithRotationLogger) initWithFile(filePath string) error {
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(filePath)
 	if dir != "" && dir != "." {
@@ -172,8 +183,8 @@ func (l *Logger) initWithFile(filePath string) error {
 }
 
 // cleanupOldLogs removes log files older than 7 days
-func (l *Logger) cleanupOldLogs(logDir string) {
-	cutoff := time.Now().AddDate(0, 0, -7)
+func (l *fileWithRotationLogger) cleanupOldLogs(logDir string) {
+	cutoff := time.Now().AddDate(0, 0, -1*config.Get().Config.EventLogRetentionDays)
 
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
@@ -196,17 +207,20 @@ func (l *Logger) cleanupOldLogs(logDir string) {
 		filePath := filepath.Join(logDir, name)
 		info, err := entry.Info()
 		if err != nil {
+			log.Warnf("Failed to get info for log file: %v", err)
 			continue
 		}
 
 		if info.ModTime().Before(cutoff) {
-			os.Remove(filePath)
+			if err := os.Remove(filePath); err != nil {
+				log.Warnf("Failed to remove old log file: %v", err)
+			}
 		}
 	}
 }
 
 // Log writes an event to the log file
-func (l *Logger) Log(event Event) error {
+func (l *fileWithRotationLogger) Log(event Event) error {
 	if !l.active {
 		return nil
 	}
@@ -240,7 +254,7 @@ func (l *Logger) Log(event Event) error {
 }
 
 // Close closes the logger
-func (l *Logger) Close() error {
+func (l *fileWithRotationLogger) Close() error {
 	if !l.active {
 		return nil
 	}
@@ -255,14 +269,20 @@ func (l *Logger) Close() error {
 	return nil
 }
 
+// IsActive returns whether the logger is active
+func (l *fileWithRotationLogger) IsActive() bool {
+	return l.active
+}
+
 // Global logging functions
 
 // LogEvent logs an event using the global logger
 func LogEvent(event Event) error {
-	if globalLogger == nil || !globalLogger.active {
-		// If logger is not initialized or not active, silently fail
+	// If logger is not initialized or not active, silently fail
+	if globalLogger == nil || !globalLogger.IsActive() {
 		return nil
 	}
+
 	return globalLogger.Log(event)
 }
 
@@ -276,9 +296,11 @@ func LogMalwareBlocked(packageName, version, ecosystem, reason string, details m
 		Ecosystem:   ecosystem,
 		Details:     details,
 	}
+
 	if details == nil {
 		event.Details = make(map[string]interface{})
 	}
+
 	event.Details["reason"] = reason
 	LogEvent(event)
 }
@@ -292,6 +314,7 @@ func LogMalwareConfirmed(packageName, version, ecosystem string) {
 		Version:     version,
 		Ecosystem:   ecosystem,
 	}
+
 	LogEvent(event)
 }
 
@@ -307,6 +330,7 @@ func LogInstallAllowed(packageName, version, ecosystem string, packageCount int)
 			"packages_analyzed": packageCount,
 		},
 	}
+
 	LogEvent(event)
 }
 
@@ -320,6 +344,7 @@ func LogInstallStarted(packageManager string, args []string) {
 			"arguments":       args,
 		},
 	}
+
 	LogEvent(event)
 }
 
@@ -332,6 +357,7 @@ func LogError(message string, err error) {
 			"error": err.Error(),
 		},
 	}
+
 	LogEvent(event)
 }
 
@@ -340,11 +366,6 @@ func Close() error {
 	if globalLogger != nil {
 		return globalLogger.Close()
 	}
+
 	return nil
 }
-
-// IsInitialized returns whether the global logger is initialized
-func IsInitialized() bool {
-	return globalLogger != nil && globalLogger.active
-}
-

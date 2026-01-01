@@ -7,29 +7,22 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetDefaultLogDir(t *testing.T) {
 	logDir, err := GetDefaultLogDir()
-	if err != nil {
-		t.Fatalf("GetDefaultLogDir() failed: %v", err)
-	}
+	assert.NoError(t, err, "failed to get default log directory")
 
-	if logDir == "" {
-		t.Error("Expected non-empty log directory")
-	}
-
-	// Check that it contains expected path components
-	expectedDir := ".pmg"
-	if filepath.Base(filepath.Dir(logDir)) != expectedDir && filepath.Base(filepath.Dir(filepath.Dir(logDir))) != expectedDir {
-		t.Errorf("Expected log directory to contain %s, got: %s", expectedDir, logDir)
-	}
+	assert.NotEmpty(t, logDir, "log directory should not be empty")
+	assert.Contains(t, logDir, "safedep/pmg/logs")
 }
 
 func TestLoggerInitialization(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir := t.TempDir()
-	logDir := filepath.Join(tmpDir, ".pmg", "logs")
+	logDir := filepath.Join(tmpDir, "pmg", "logs")
 
 	// Initialize logger
 	err := InitializeWithDir(logDir)
@@ -151,7 +144,7 @@ func TestInitializeWithFile(t *testing.T) {
 	if err == nil {
 		Close()
 	}
-	
+
 	// Reset for custom file
 	once = sync.Once{}
 	err = InitializeWithFile(logFile)
@@ -231,11 +224,12 @@ func TestCleanupOldLogs(t *testing.T) {
 	}
 
 	// Initialize logger (which triggers cleanup)
-	logger := &Logger{}
+	logger := &fileWithRotationLogger{}
 	err = logger.init(logDir)
 	if err != nil {
 		t.Fatalf("Failed to initialize logger: %v", err)
 	}
+
 	defer logger.Close()
 
 	// Give cleanup goroutine time to run
@@ -251,4 +245,3 @@ func TestCleanupOldLogs(t *testing.T) {
 		t.Error("Recent log file should still exist")
 	}
 }
-

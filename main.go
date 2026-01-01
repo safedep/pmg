@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/npm"
@@ -19,11 +18,10 @@ import (
 )
 
 var (
-	debug        bool
-	silent       bool
-	verbose      bool
-	logFile      string
-	globalConfig config.Config
+	debug   bool
+	silent  bool
+	verbose bool
+	logFile string
 )
 
 func main() {
@@ -49,8 +47,7 @@ func main() {
 			}
 
 			if silent && verbose {
-				fmt.Println("pmg: --silent and --verbose cannot be used together")
-				os.Exit(1)
+				ui.Fatalf("pmg: --silent and --verbose cannot be used together")
 			}
 
 			if silent {
@@ -59,25 +56,21 @@ func main() {
 				ui.SetVerbosityLevel(ui.VerbosityLevelVerbose)
 			}
 
-			// Check for PMG_INSECURE_INSTALLATION environment variable
-			if val := os.Getenv("PMG_INSECURE_INSTALLATION"); val != "" {
-				if boolVal, err := strconv.ParseBool(val); err == nil {
-					globalConfig.InsecureInstallation = boolVal
-				}
+			log.InitZapLogger("pmg", "cli")
+
+			// Initialize event logging (silently fail if it can't be initialized)
+			var eventlogErr error
+			if logFile != "" {
+				// If a custom log file is specified, use it for event logging too
+				eventlogErr = eventlog.InitializeWithFile(logFile)
+			} else {
+				// Otherwise use the default log directory
+				eventlogErr = eventlog.Initialize()
 			}
 
-		log.InitZapLogger("pmg", "cli")
-		
-		// Initialize event logging (silently fail if it can't be initialized)
-		if logFile != "" {
-			// If a custom log file is specified, use it for event logging too
-			_ = eventlog.InitializeWithFile(logFile)
-		} else {
-			// Otherwise use the default log directory
-			_ = eventlog.Initialize()
-		}
-		
-		cmd.SetContext(globalConfig.Inject(cmd.Context()))
+			if eventlogErr != nil {
+				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
+			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -92,13 +85,10 @@ func main() {
 	cmd.PersistentFlags().BoolVar(&silent, "silent", false, "Silent mode for invisible experience")
 	cmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Verbose mode for more information")
 	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging (defaults to stdout)")
-	cmd.PersistentFlags().BoolVar(&globalConfig.Transitive, "transitive", true, "Resolve transitive dependencies")
-	cmd.PersistentFlags().IntVar(&globalConfig.TransitiveDepth, "transitive-depth", 5,
-		"Maximum depth of transitive dependencies to resolve")
-	cmd.PersistentFlags().BoolVar(&globalConfig.IncludeDevDependencies, "include-dev-dependencies", false,
-		"Include dev dependencies in the dependency graph (slows down resolution)")
-	cmd.PersistentFlags().BoolVar(&globalConfig.DryRun, "dry-run", false, "Dry run skips execution of package manager")
-	cmd.PersistentFlags().BoolVar(&globalConfig.Paranoid, "paranoid", false, "Perform active scanning of unknown packages (slow)")
+
+	// Apply config flags to the command. This allows for overriding the configuration at runtime
+	// using the command line.
+	config.ApplyCobraFlags(cmd)
 
 	cmd.AddCommand(npm.NewNpmCommand())
 	cmd.AddCommand(npm.NewPnpmCommand())

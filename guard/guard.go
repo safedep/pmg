@@ -10,8 +10,10 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
@@ -43,6 +45,7 @@ type PackageManagerGuardConfig struct {
 	AnalysisTimeout       time.Duration
 	DryRun                bool
 	InsecureInstallation  bool
+	TrustedPackages       []config.TrustedPackage
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -52,7 +55,43 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
 		InsecureInstallation:  false,
+		TrustedPackages:       []config.TrustedPackage{},
 	}
+}
+
+func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(pkgVersion *packagev1.PackageVersion) bool {
+	if pkgVersion == nil {
+		return false
+	}
+
+	trustedPkgs := c.TrustedPackages
+	if len(trustedPkgs) == 0 {
+		return false
+	}
+
+	for _, v := range trustedPkgs {
+		purlTrustedPackageVersion, err := pb.NewPurlPackageVersion(v.Purl)
+		if err != nil {
+			log.Warnf("failed to parse trusted package version: %s: %v", v.Purl, err)
+			continue
+		}
+
+		if purlTrustedPackageVersion.Version() != "" && purlTrustedPackageVersion.Version() != pkgVersion.GetVersion() {
+			continue
+		}
+
+		if purlTrustedPackageVersion.Name() != pkgVersion.GetPackage().GetName() {
+			continue
+		}
+
+		if purlTrustedPackageVersion.Ecosystem() != pkgVersion.GetPackage().GetEcosystem() {
+			continue
+		}
+
+		return true
+	}
+
+	return false
 }
 
 type packageManagerGuard struct {
@@ -80,7 +119,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
 	log.Debugf("Running package manager guard with args: %v", args)
-	
+
 	// Log the installation start
 	if g.packageManager != nil {
 		eventlog.LogInstallStarted(g.packageManager.Name(), args)
@@ -179,7 +218,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			}
 			return g.blockInstallation(blockConfig)
 		}
-		
+
 		// User confirmed installation despite warning
 		for _, pkg := range confirmableMalwarePackages {
 			g.logMalwareDetection(pkg, false)
@@ -226,7 +265,6 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	packages []*packagev1.PackageVersion) ([]*analyzer.PackageVersionAnalysisResult, error) {
-
 	ctx, cancel := context.WithTimeout(ctx, g.config.AnalysisTimeout)
 	defer cancel()
 
@@ -255,8 +293,16 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 
 	// Queue all packages for analysis
 	for _, pkg := range packages {
+		if g.config.IsTrustedPackageVersion(pkg) {
+			log.Debugf("Skipping trusted package: %s/%s@%s",
+				pkg.GetPackage().GetEcosystem(), pkg.GetPackage().GetName(), pkg.GetVersion())
+
+			continue
+		}
+
 		jobs <- pkg
 	}
+
 	close(jobs)
 
 	analysisResults := []*analyzer.PackageVersionAnalysisResult{}
@@ -351,13 +397,12 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	log.Debugf("Extracted %d packages from manifest files", len(packages))
 
 	packagesToAnalyze := []*packagev1.PackageVersion{}
-	for _, pkg := range packages {
-		packagesToAnalyze = append(packagesToAnalyze, pkg)
-	}
+
+	// Add all packages to analyze that are extracted from manifest files
+	packagesToAnalyze = append(packagesToAnalyze, packages...)
 
 	// Only resolve dependencies for requirements.txt because other lockfiles dependencies are already resolved
 	if g.config.ResolveDependencies && slices.Contains(parsedCommand.ManifestFiles, "requirements.txt") {
-
 		g.setStatus(fmt.Sprintf("Resolving dependencies for %d package(s)", len(packages)))
 
 		for _, pkg := range packages {
@@ -420,7 +465,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			}
 			return g.blockInstallation(blockConfig)
 		}
-		
+
 		// User confirmed installation despite warning
 		for _, pkg := range confirmableMalwarePackages {
 			g.logMalwareDetection(pkg, false)
@@ -458,7 +503,6 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 	details := map[string]interface{}{
 		"analysis_id":   result.AnalysisID,
 		"reference_url": result.ReferenceURL,
-		"summary":       result.Summary,
 	}
 
 	if blocked {
