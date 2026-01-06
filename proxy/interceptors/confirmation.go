@@ -42,7 +42,8 @@ func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, inte
 
 			// Pause the process to prompt user for confirmation
 			if err := cmd.Process.Signal(syscall.SIGSTOP); err != nil {
-				log.Errorf("Error pausing process for package %s: %v\n", err, req.PackageVersion.GetPackage().GetName())
+				log.Errorf("Error pausing process for package %s: %v\n", req.PackageVersion.GetPackage().GetName(), err)
+				req.ResponseChan <- false
 				return
 			}
 
@@ -66,7 +67,8 @@ func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, inte
 
 			// Resume the process
 			if err := cmd.Process.Signal(syscall.SIGCONT); err != nil {
-				log.Errorf("Error resuming process for package %s: %v\n", err, req.PackageVersion.GetPackage().GetName())
+				log.Errorf("Error resuming process for package %s: %v\n", req.PackageVersion.GetPackage().GetName(), err)
+				req.ResponseChan <- false
 				return
 			}
 		}()
