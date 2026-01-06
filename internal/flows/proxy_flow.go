@@ -230,6 +230,7 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
 		fmt.Sprintf("http_proxy=%s", proxyURL),
 		fmt.Sprintf("https_proxy=%s", proxyURL),
+		fmt.Sprintf("NPM_CONFIG_PROGRESS=%t", false),
 	)
 
 	cmd.Stdin = os.Stdin
