@@ -90,9 +90,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Block:                    ui.Block,
 	}
 
-	// Start confirmation handler in goroutine
-	go interceptors.HandleConfirmationRequests(confirmationChan, interaction)
-
 	// Get the ecosystem from the package manager
 	ecosystem := f.pm.Ecosystem()
 
@@ -131,7 +128,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	log.Infof("Running %s with proxy protection enabled", f.pm.Name())
 
 	// Execute the package manager command with proxy environment variables
-	return f.executeWithProxy(ctx, parsedCmd, proxyAddr, caCertPath)
+	return f.executeWithProxy(ctx, parsedCmd, proxyAddr, caCertPath, confirmationChan, interaction)
 }
 
 // setupCACertificate generates or loads a CA certificate for MITM
@@ -215,7 +212,10 @@ func (f *proxyFlow) createAndStartProxyServer(
 }
 
 // executeWithProxy executes the package manager command with proxy environment variables
-func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemanager.ParsedCommand, proxyAddr, caCertPath string) error {
+func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemanager.ParsedCommand,
+	proxyAddr, caCertPath string, confirmationChan chan *interceptors.ConfirmationRequest,
+	interaction guard.PackageManagerGuardInteraction,
+) error {
 	// Build proxy URL
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
@@ -238,6 +238,9 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 
 	log.Debugf("Executing command: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 	log.Debugf("Proxy environment: HTTP_PROXY=%s, HTTPS_PROXY=%s, NODE_EXTRA_CA_CERTS=%s", proxyURL, proxyURL, caCertPath)
+
+	// Start confirmation handler in goroutine
+	go interceptors.HandleConfirmationRequests(confirmationChan, interaction, cmd)
 
 	// Execute the command
 	err := cmd.Run()

@@ -1,6 +1,9 @@
 package interceptors
 
 import (
+	"os/exec"
+	"syscall"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -22,13 +25,26 @@ type ConfirmationRequest struct {
 // from the confirmation channel one at a time, blocking on user input.
 //
 // The function will exit when the confirmation channel is closed.
-func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, interaction guard.PackageManagerGuardInteraction) {
+func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, interaction guard.PackageManagerGuardInteraction, cmd *exec.Cmd) {
 	for req := range confirmationChan {
 		func() {
+			if cmd == nil || cmd.Process == nil {
+				log.Errorf("Process not available to pause/resume for package %s", req.PackageVersion.GetPackage().GetName())
+				// Default to blocking the package on missing process
+				req.ResponseChan <- false
+				return
+			}
+
 			// We must make sure to close the response channel to prevent goroutine leaks.
 			defer func() {
 				close(req.ResponseChan)
 			}()
+
+			// Pause the process to prompt user for confirmation
+			if err := cmd.Process.Signal(syscall.SIGSTOP); err != nil {
+				log.Errorf("Error pausing process for package %s: %v\n", err, req.PackageVersion.GetPackage().GetName())
+				return
+			}
 
 			packageName := req.PackageVersion.GetPackage().GetName()
 			log.Debugf("Processing confirmation request for package %s", packageName)
@@ -47,6 +63,12 @@ func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, inte
 
 			// Send the user's response back to the interceptor
 			req.ResponseChan <- confirmed
+
+			// Resume the process
+			if err := cmd.Process.Signal(syscall.SIGCONT); err != nil {
+				log.Errorf("Error resuming process for package %s: %v\n", err, req.PackageVersion.GetPackage().GetName())
+				return
+			}
 		}()
 	}
 
