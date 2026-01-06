@@ -6,14 +6,21 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestTemplateParsesAsYAML(t *testing.T) {
 	var cfg Config
 
+	// Defensive check: Ensure template is valid YAML (not used for mapstructure mapping)
+	var raw map[string]any
+	err := yaml.Unmarshal([]byte(templateConfig), &raw)
+	assert.NoError(t, err, "templateConfig must be valid YAML")
+
+	// Ensure Viper (mapstructure) maps to Config as expected
 	v := viper.New()
 	v.SetConfigType("yaml")
-	err := v.ReadConfig(strings.NewReader(templateConfig))
+	err = v.ReadConfig(strings.NewReader(templateConfig))
 	assert.NoError(t, err, "expected no error while reading config")
 
 	err = v.Unmarshal(&cfg)
