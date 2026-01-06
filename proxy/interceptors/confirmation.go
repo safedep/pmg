@@ -1,9 +1,6 @@
 package interceptors
 
 import (
-	"os/exec"
-	"syscall"
-
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -14,10 +11,18 @@ import (
 type ConfirmationRequest struct {
 	PackageVersion *packagev1.PackageVersion
 	AnalysisResult *analyzer.PackageVersionAnalysisResult
+
 	// ResponseChan is used to send the user's response back.
-	// The caller receiving the response is responsible for closing this channel
-	// after reading the response to prevent goroutine leaks.
 	ResponseChan chan bool
+}
+
+// ConfirmationHook is a set of hooks that can be used to customize the confirmation process.
+type ConfirmationHook struct {
+	// BeforeInteraction is called before the user interaction is started.
+	BeforeInteraction func([]*analyzer.PackageVersionAnalysisResult) error
+
+	// AfterInteraction is called after the user interaction is finished.
+	AfterInteraction func([]*analyzer.PackageVersionAnalysisResult, bool) error
 }
 
 // HandleConfirmationRequests processes confirmation requests sequentially
@@ -25,52 +30,50 @@ type ConfirmationRequest struct {
 // from the confirmation channel one at a time, blocking on user input.
 //
 // The function will exit when the confirmation channel is closed.
-func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, interaction guard.PackageManagerGuardInteraction, cmd *exec.Cmd) {
+func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest,
+	interaction guard.PackageManagerGuardInteraction, hooks *ConfirmationHook) {
+	if hooks == nil {
+		hooks = &ConfirmationHook{}
+	}
+
 	for req := range confirmationChan {
 		func() {
-			if cmd == nil || cmd.Process == nil {
-				log.Errorf("Process not available to pause/resume for package %s", req.PackageVersion.GetPackage().GetName())
-				// Default to blocking the package on missing process
-				req.ResponseChan <- false
-				return
-			}
-
 			// We must make sure to close the response channel to prevent goroutine leaks.
+			// Idiomatic go suggests that the writer should close the channel.
 			defer func() {
 				close(req.ResponseChan)
 			}()
 
-			// Pause the process to prompt user for confirmation
-			if err := cmd.Process.Signal(syscall.SIGSTOP); err != nil {
-				log.Errorf("Error pausing process for package %s: %v\n", req.PackageVersion.GetPackage().GetName(), err)
-				req.ResponseChan <- false
-				return
-			}
-
 			packageName := req.PackageVersion.GetPackage().GetName()
 			log.Debugf("Processing confirmation request for package %s", packageName)
 
+			if hooks.BeforeInteraction != nil {
+				if err := hooks.BeforeInteraction([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult}); err != nil {
+					log.Errorf("Error before interaction for package %s: %v", packageName, err)
+					req.ResponseChan <- false
+					return
+				}
+			}
+
 			// Call the user interaction handler to get confirmation
 			// This blocks waiting for stdin input
-			confirmed, err := interaction.GetConfirmationOnMalware([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult})
-			if err != nil {
-				log.Errorf("Error getting confirmation for package %s: %v", packageName, err)
-				// On error, default to blocking the package
+			confirmed, confirmationErr := interaction.GetConfirmationOnMalware([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult})
+
+			// Must guarantee to call the after interaction hook regardless of the confirmation error.
+			if hooks.AfterInteraction != nil {
+				if err := hooks.AfterInteraction([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult}, confirmed); err != nil {
+					log.Errorf("Error after interaction for package %s: %v", packageName, err)
+				}
+			}
+
+			if confirmationErr != nil {
+				log.Errorf("Error getting confirmation for package %s: %v", packageName, confirmationErr)
 				req.ResponseChan <- false
 				return
 			}
-
-			log.Debugf("User response for package %s: confirmed=%v", packageName, confirmed)
 
 			// Send the user's response back to the interceptor
 			req.ResponseChan <- confirmed
-
-			// Resume the process
-			if err := cmd.Process.Signal(syscall.SIGCONT); err != nil {
-				log.Errorf("Error resuming process for package %s: %v\n", req.PackageVersion.GetPackage().GetName(), err)
-				req.ResponseChan <- false
-				return
-			}
 		}()
 	}
 

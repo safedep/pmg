@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -240,8 +241,24 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 	log.Debugf("Executing command: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 	log.Debugf("Proxy environment: HTTP_PROXY=%s, HTTPS_PROXY=%s, NODE_EXTRA_CA_CERTS=%s", proxyURL, proxyURL, caCertPath)
 
-	// Start confirmation handler in goroutine
-	go interceptors.HandleConfirmationRequests(confirmationChan, interaction, cmd)
+	// Start confirmation handler in goroutine. Use confirmation hooks to pause and resume the executed
+	// process to prevent stdout and stderr from being mixed up.
+	go interceptors.HandleConfirmationRequests(confirmationChan, interaction, &interceptors.ConfirmationHook{
+		BeforeInteraction: func([]*analyzer.PackageVersionAnalysisResult) error {
+			if err := cmd.Process.Signal(syscall.SIGSTOP); err != nil {
+				return fmt.Errorf("failed to pause process: %w", err)
+			}
+
+			return nil
+		},
+		AfterInteraction: func([]*analyzer.PackageVersionAnalysisResult, bool) error {
+			if err := cmd.Process.Signal(syscall.SIGCONT); err != nil {
+				return fmt.Errorf("failed to resume process: %w", err)
+			}
+
+			return nil
+		},
+	})
 
 	// Execute the command
 	err := cmd.Run()
