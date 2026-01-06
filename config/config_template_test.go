@@ -26,11 +26,11 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	err = v.Unmarshal(&cfg)
 	assert.NoError(t, err, "expected no error while unmarshalling config")
 
-	assert.Equal(t, true, cfg.Transitive, "expected Transitive true")
+	assert.True(t, true, cfg.Transitive, "expected Transitive true")
 	assert.Equal(t, 5, cfg.TransitiveDepth, "expected TransitiveDepth 5")
-	assert.Equal(t, false, cfg.IncludeDevDependencies, "expected IncludeDevDependencies false")
-	assert.Equal(t, false, cfg.Paranoid, "expected Paranoid false")
-	assert.Equal(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
+	assert.False(t, false, cfg.IncludeDevDependencies, "expected IncludeDevDependencies false")
+	assert.False(t, false, cfg.Paranoid, "expected Paranoid false")
+	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
 	assert.Equal(t, 7, cfg.EventLogRetentionDays, "expected EventLogRetentionDays 7")
 	assert.Len(t, cfg.TrustedPackages, 1)
 }
