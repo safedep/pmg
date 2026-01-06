@@ -110,7 +110,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	flagSet := pflag.NewFlagSet(npm.Config.CommandName, pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
-	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
 	switch npm.Config.CommandName {
 	case "npm", "pnpm":
