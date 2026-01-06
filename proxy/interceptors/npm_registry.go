@@ -132,6 +132,7 @@ func (i *NpmRegistryInterceptor) analyzePackage(ctx *proxy.RequestContext, pkgIn
 		if i.interaction.ClearStatus != nil {
 			i.interaction.ClearStatus()
 		}
+
 		return nil, fmt.Errorf("analyzer failed: %w", err)
 	}
 

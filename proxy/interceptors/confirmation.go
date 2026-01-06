@@ -24,23 +24,30 @@ type ConfirmationRequest struct {
 // The function will exit when the confirmation channel is closed.
 func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest, interaction guard.PackageManagerGuardInteraction) {
 	for req := range confirmationChan {
-		packageName := req.PackageVersion.GetPackage().GetName()
-		log.Debugf("Processing confirmation request for package %s", packageName)
+		func() {
+			// We must make sure to close the response channel to prevent goroutine leaks.
+			defer func() {
+				close(req.ResponseChan)
+			}()
 
-		// Call the user interaction handler to get confirmation
-		// This blocks waiting for stdin input
-		confirmed, err := interaction.GetConfirmationOnMalware([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult})
-		if err != nil {
-			log.Errorf("Error getting confirmation for package %s: %v", packageName, err)
-			// On error, default to blocking the package
-			req.ResponseChan <- false
-			continue
-		}
+			packageName := req.PackageVersion.GetPackage().GetName()
+			log.Debugf("Processing confirmation request for package %s", packageName)
 
-		log.Debugf("User response for package %s: confirmed=%v", packageName, confirmed)
+			// Call the user interaction handler to get confirmation
+			// This blocks waiting for stdin input
+			confirmed, err := interaction.GetConfirmationOnMalware([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult})
+			if err != nil {
+				log.Errorf("Error getting confirmation for package %s: %v", packageName, err)
+				// On error, default to blocking the package
+				req.ResponseChan <- false
+				return
+			}
 
-		// Send the user's response back to the interceptor
-		req.ResponseChan <- confirmed
+			log.Debugf("User response for package %s: confirmed=%v", packageName, confirmed)
+
+			// Send the user's response back to the interceptor
+			req.ResponseChan <- confirmed
+		}()
 	}
 
 	log.Debugf("Confirmation handler exiting (channel closed)")
