@@ -222,7 +222,8 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 	// Create command
 	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
 
-	// Set proxy environment variables
+	// Set proxy environment variables. This is what tells the executed command to use the proxy for communication.
+	// However, every package manager has its nuances and may require additional environment variables to be set.
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
@@ -230,7 +231,11 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
 		fmt.Sprintf("http_proxy=%s", proxyURL),
 		fmt.Sprintf("https_proxy=%s", proxyURL),
-		fmt.Sprintf("NPM_CONFIG_PROGRESS=%t", false),
+		fmt.Sprintf("SSL_CERT_FILE=%s", caCertPath),
+		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
+		fmt.Sprintf("PIP_CERT=%s", caCertPath),
+		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
+		"NPM_CONFIG_PROGRESS=false",
 	)
 
 	cmd.Stdin = os.Stdin
@@ -241,25 +246,25 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 	log.Debugf("Proxy environment: HTTP_PROXY=%s, HTTPS_PROXY=%s, NODE_EXTRA_CA_CERTS=%s", proxyURL, proxyURL, caCertPath)
 
 	// Start confirmation handler in goroutine. Use confirmation hooks to pause and resume the executed
-	// process to prevent stdout and stderr from being mixed up.
+	// process to prevent stdout and stderr from being mixed up. Pause / resume is on a best effort basis.
+	// We do not consider it a critical error if pause / resume fails.
 	go interceptors.HandleConfirmationRequests(confirmationChan, interaction, &interceptors.ConfirmationHook{
 		BeforeInteraction: func([]*analyzer.PackageVersionAnalysisResult) error {
-			// Delegate to platform-specific implementation
-			if err := pauseProcess(cmd); err != nil {
-				return err
+			if err := platformPauseProcess(cmd); err != nil {
+				log.Warnf("Failed to pause process for user interaction: %v", err)
 			}
+
 			return nil
 		},
 		AfterInteraction: func([]*analyzer.PackageVersionAnalysisResult, bool) error {
-			// Delegate to platform-specific implementation
-			if err := resumeProcess(cmd); err != nil {
-				return err
+			if err := platformResumeProcess(cmd); err != nil {
+				log.Warnf("Failed to resume process after user interaction: %v", err)
 			}
+
 			return nil
 		},
 	})
 
-	// Execute the command
 	err := cmd.Run()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
