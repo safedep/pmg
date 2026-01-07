@@ -13,10 +13,10 @@
 🤖 PMG protects developers from getting compromised by malicious packages.
 See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 
--   Wraps your favorite package manager (eg. `npm`, `pnpm`, `pip` and more)
--   Blocks malicious packages at install time
--   No configuration required, just install and use
--   Maintains event log for transparency and audit trail
+- Wraps your favorite package manager (eg. `npm`, `pnpm`, `pip` and more)
+- Blocks malicious packages at install time
+- No configuration required, just install and use
+- Maintains package installation event log for transparency and audit trail
 
 ## PMG in Action
 
@@ -50,11 +50,12 @@ uv pip install <package-name>
 
 ## Features
 
--  Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis) with realtime threat detection
--  Deep dependency analysis and transitive dependency resolution
--  Fast and efficient package verification
--  Seamless integration with existing package managers
--  Automated shell integration with cross-shell support
+- Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis) with realtime threat detection
+- Deep dependency analysis and transitive dependency resolution
+- Fast and efficient package verification
+- Seamless integration with existing package managers
+- Automated shell integration with cross-shell support
+- Package installation tracking and event logging
 
 ## Supported Package Managers
 
@@ -109,9 +110,9 @@ pmg setup install
 
 This command will:
 
--   Create a `~/.pmg.rc` file containing package manager aliases
--   Automatically add a source line to your shell configuration files
--   Supports bash, zsh and fish shell
+- Create a `~/.pmg.rc` file containing package manager aliases
+- Automatically add a source line to your shell configuration files
+- Supports bash, zsh and fish shell
 
 > **Note**: After running `pmg setup install`, restart your terminal or run `source ~/.zshrc` (or your shell's config file) to activate the aliases.
 
@@ -125,8 +126,8 @@ pmg setup remove
 
 This will:
 
--   Remove the source line from your shell configuration files
--   Delete the ~/.pmg.rc file
+- Remove the source line from your shell configuration files
+- Delete the `~/.pmg.rc` file
 
 > ⚠️ Note: Aliases might still be active in your **current terminal session**. Restart your terminal or use `unalias <cmd>` to remove them instantly.
 
