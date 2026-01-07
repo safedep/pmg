@@ -50,7 +50,7 @@ uv pip install <package-name>
 
 ## Features
 
--  Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis)
+-  Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis) realtime threat detection
 -  Deep dependency analysis and transitive dependency resolution
 -  Fast and efficient package verification
 -  Seamless integration with existing package managers
