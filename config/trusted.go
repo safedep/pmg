@@ -13,8 +13,30 @@ func IsTrustedPackage(pkgVersion *packagev1.PackageVersion) bool {
 	return isTrustedPackageVersion(Get().Config.TrustedPackages, pkgVersion)
 }
 
+// preprocessTrustedPackages pre-parses all PURL strings in trusted packages.
+// This is called once during config load to avoid repeated parsing during
+// trusted package checks. Invalid PURLs are logged but not fatal.
+func preprocessTrustedPackages(cfg *Config) error {
+	for i := range cfg.TrustedPackages {
+		tp := &cfg.TrustedPackages[i]
+
+		parsedPurl, err := pb.NewPurlPackageVersion(tp.Purl)
+		if err != nil {
+			log.Warnf("Failed to parse trusted package PURL: %s: %v", tp.Purl, err)
+			tp.parsed = false
+			continue
+		}
+
+		tp.parsed = true
+		tp.ecosystem = parsedPurl.Ecosystem()
+		tp.name = parsedPurl.Name()
+		tp.version = parsedPurl.Version()
+	}
+
+	return nil
+}
+
 // isTrustedPackageVersion checks if a package version is in the trusted packages list.
-// This is an internal helper that allows testing without global config.
 //
 // It matches based on ecosystem, package name, and optionally version.
 // If the trusted package PURL doesn't specify a version, all versions of that package are trusted.
@@ -29,24 +51,19 @@ func isTrustedPackageVersion(trustedPackages []TrustedPackage, pkgVersion *packa
 	}
 
 	for _, v := range trustedPackages {
-		purlTrustedPackageVersion, err := pb.NewPurlPackageVersion(v.Purl)
-		if err != nil {
-			log.Warnf("failed to parse trusted package version: %s: %v", v.Purl, err)
+		if !v.parsed {
 			continue
 		}
 
-		// Check version match: if trusted package has a version, it must match exactly
-		if purlTrustedPackageVersion.Version() != "" && purlTrustedPackageVersion.Version() != pkgVersion.GetVersion() {
+		if v.ecosystem != pkgVersion.GetPackage().GetEcosystem() {
 			continue
 		}
 
-		// Check name match
-		if purlTrustedPackageVersion.Name() != pkgVersion.GetPackage().GetName() {
+		if v.name != pkgVersion.GetPackage().GetName() {
 			continue
 		}
 
-		// Check ecosystem match
-		if purlTrustedPackageVersion.Ecosystem() != pkgVersion.GetPackage().GetEcosystem() {
+		if v.version != "" && v.version != pkgVersion.GetVersion() {
 			continue
 		}
 

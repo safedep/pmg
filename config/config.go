@@ -8,6 +8,9 @@ import (
 	"strconv"
 
 	_ "embed"
+
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/log"
 )
 
 const (
@@ -62,6 +65,13 @@ type Config struct {
 type TrustedPackage struct {
 	Purl   string `mapstructure:"purl"`
 	Reason string `mapstructure:"reason"`
+
+	// Pre-parsed PURL components (not serialized, computed at load time)
+	// These fields avoid repeated PURL parsing on every IsTrustedPackage() call
+	parsed    bool
+	ecosystem packagev1.Ecosystem
+	name      string
+	version   string
 }
 
 // RuntimeConfig is the configuration that is used at runtime. It contains static configuration
@@ -150,6 +160,10 @@ func initConfig() {
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = configFilePath
 	globalConfig.eventLogDir = eventLogDir
+
+	if err := preprocessTrustedPackages(&globalConfig.Config); err != nil {
+		log.Warnf("Failed to preprocess trusted packages: %v", err)
+	}
 
 	loadConfig()
 }

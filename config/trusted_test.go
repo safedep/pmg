@@ -256,7 +256,11 @@ func TestIsTrustedPackageVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isTrustedPackageVersion(tt.trustedPackages, tt.pkgVersion)
+			// Pre-process trusted packages to populate pre-parsed fields
+			cfg := &Config{TrustedPackages: tt.trustedPackages}
+			_ = preprocessTrustedPackages(cfg)
+
+			got := isTrustedPackageVersion(cfg.TrustedPackages, tt.pkgVersion)
 			assert.Equal(t, tt.want, got)
 		})
 	}
