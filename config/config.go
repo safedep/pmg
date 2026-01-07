@@ -52,6 +52,10 @@ type Config struct {
 
 	// EventLogRetentionDays is the number of days to retain event logs.
 	EventLogRetentionDays int `mapstructure:"event_log_retention_days"`
+
+	// ExperimentalProxyMode enables experimental proxy-based package interception.
+	// When enabled, PMG starts a proxy server and intercepts package manager requests in real-time.
+	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
 }
 
 // TrustedPackage is a package that is trusted by the user and will be ignored by the security guardrails.
@@ -106,6 +110,7 @@ func DefaultConfig() RuntimeConfig {
 			Paranoid:               false,
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
+			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
 		},
 		DryRun:               false,

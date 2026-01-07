@@ -26,21 +26,17 @@ func TestLoggerInitialization(t *testing.T) {
 
 	// Initialize logger
 	err := InitializeWithDir(logDir)
-	if err != nil {
-		t.Fatalf("Failed to initialize logger: %v", err)
-	}
+	assert.NoError(t, err, "Failed to initialize logger")
 	defer Close()
 
 	// Check that directory was created
-	if _, err := os.Stat(logDir); os.IsNotExist(err) {
-		t.Errorf("Log directory was not created: %s", logDir)
-	}
+	_, err = os.Stat(logDir)
+	assert.False(t, os.IsNotExist(err), "Log directory was not created: %s", logDir)
 
 	// Check that log file was created
 	expectedLogFile := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
-	if _, err := os.Stat(expectedLogFile); os.IsNotExist(err) {
-		t.Errorf("Log file was not created: %s", expectedLogFile)
-	}
+	_, err = os.Stat(expectedLogFile)
+	assert.False(t, os.IsNotExist(err), "Log file was not created: %s", expectedLogFile)
 }
 
 func TestLogEvent(t *testing.T) {
@@ -50,9 +46,7 @@ func TestLogEvent(t *testing.T) {
 
 	// Initialize logger
 	err := reinitializeForTest(logDir)
-	if err != nil {
-		t.Fatalf("Failed to initialize logger: %v", err)
-	}
+	assert.NoError(t, err, "Failed to initialize logger")
 	defer Close()
 
 	// Log an event
@@ -68,31 +62,21 @@ func TestLogEvent(t *testing.T) {
 	}
 
 	err = LogEvent(event)
-	if err != nil {
-		t.Fatalf("Failed to log event: %v", err)
-	}
+	assert.NoError(t, err, "Failed to log event")
 
 	// Read the log file and verify the event was written
 	logFilePath := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
 	data, err := os.ReadFile(logFilePath)
-	if err != nil {
-		t.Fatalf("Failed to read log file: %v", err)
-	}
+	assert.NoError(t, err, "Failed to read log file")
 
 	// Parse the JSON
 	var loggedEvent Event
 	err = json.Unmarshal(data, &loggedEvent)
-	if err != nil {
-		t.Fatalf("Failed to parse logged event: %v", err)
-	}
+	assert.NoError(t, err, "Failed to parse logged event")
 
 	// Verify the event
-	if loggedEvent.EventType != EventTypeMalwareBlocked {
-		t.Errorf("Expected event type %s, got %s", EventTypeMalwareBlocked, loggedEvent.EventType)
-	}
-	if loggedEvent.PackageName != "evil-package" {
-		t.Errorf("Expected package name 'evil-package', got '%s'", loggedEvent.PackageName)
-	}
+	assert.Equal(t, EventTypeMalwareBlocked, loggedEvent.EventType)
+	assert.Equal(t, "evil-package", loggedEvent.PackageName)
 }
 
 func TestLogMalwareBlocked(t *testing.T) {
@@ -102,9 +86,7 @@ func TestLogMalwareBlocked(t *testing.T) {
 
 	// Initialize logger
 	err := reinitializeForTest(logDir)
-	if err != nil {
-		t.Fatalf("Failed to initialize logger: %v", err)
-	}
+	assert.NoError(t, err, "Failed to initialize logger")
 	defer Close()
 
 	// Log malware blocked event
@@ -113,25 +95,15 @@ func TestLogMalwareBlocked(t *testing.T) {
 	// Read and verify
 	logFilePath := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
 	data, err := os.ReadFile(logFilePath)
-	if err != nil {
-		t.Fatalf("Failed to read log file: %v", err)
-	}
+	assert.NoError(t, err, "Failed to read log file")
 
 	var event Event
 	err = json.Unmarshal(data, &event)
-	if err != nil {
-		t.Fatalf("Failed to parse event: %v", err)
-	}
+	assert.NoError(t, err, "Failed to parse event")
 
-	if event.EventType != EventTypeMalwareBlocked {
-		t.Errorf("Expected event type %s, got %s", EventTypeMalwareBlocked, event.EventType)
-	}
-	if event.PackageName != "malicious-pkg" {
-		t.Errorf("Expected package 'malicious-pkg', got '%s'", event.PackageName)
-	}
-	if event.Ecosystem != "pypi" {
-		t.Errorf("Expected ecosystem 'pypi', got '%s'", event.Ecosystem)
-	}
+	assert.Equal(t, EventTypeMalwareBlocked, event.EventType)
+	assert.Equal(t, "malicious-pkg", event.PackageName)
+	assert.Equal(t, "pypi", event.Ecosystem)
 }
 
 func TestInitializeWithFile(t *testing.T) {
@@ -148,9 +120,7 @@ func TestInitializeWithFile(t *testing.T) {
 	// Reset for custom file
 	once = sync.Once{}
 	err = InitializeWithFile(logFile)
-	if err != nil {
-		t.Fatalf("Failed to initialize logger with file: %v", err)
-	}
+	assert.NoError(t, err, "Failed to initialize logger with file")
 	defer Close()
 
 	// Log an event
@@ -163,33 +133,20 @@ func TestInitializeWithFile(t *testing.T) {
 	}
 
 	err = LogEvent(event)
-	if err != nil {
-		t.Fatalf("Failed to log event: %v", err)
-	}
+	assert.NoError(t, err, "Failed to log event")
 
 	// Verify the custom log file was created and contains the event
-	if _, err := os.Stat(logFile); os.IsNotExist(err) {
-		t.Errorf("Custom log file was not created: %s", logFile)
-	}
+	_, err = os.Stat(logFile)
+	assert.False(t, os.IsNotExist(err), "Custom log file was not created: %s", logFile)
 
 	data, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("Failed to read custom log file: %v", err)
-	}
-
-	if len(data) == 0 {
-		t.Error("Custom log file is empty")
-	}
+	assert.NoError(t, err, "Failed to read custom log file")
+	assert.NotEmpty(t, data, "Custom log file is empty")
 
 	var loggedEvent Event
 	err = json.Unmarshal(data, &loggedEvent)
-	if err != nil {
-		t.Fatalf("Failed to parse logged event: %v", err)
-	}
-
-	if loggedEvent.PackageName != "test-package" {
-		t.Errorf("Expected package 'test-package', got '%s'", loggedEvent.PackageName)
-	}
+	assert.NoError(t, err, "Failed to parse logged event")
+	assert.Equal(t, "test-package", loggedEvent.PackageName)
 }
 
 func TestCleanupOldLogs(t *testing.T) {
@@ -197,38 +154,28 @@ func TestCleanupOldLogs(t *testing.T) {
 	tmpDir := t.TempDir()
 	logDir := filepath.Join(tmpDir, ".pmg", "logs")
 	err := os.MkdirAll(logDir, 0755)
-	if err != nil {
-		t.Fatalf("Failed to create log directory: %v", err)
-	}
+	assert.NoError(t, err, "Failed to create log directory")
 
 	// Create old log files
 	oldDate := time.Now().AddDate(0, 0, -10)
 	oldLogFile := filepath.Join(logDir, oldDate.Format("20060102")+"-pmg.log")
 	err = os.WriteFile(oldLogFile, []byte("old log"), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create old log file: %v", err)
-	}
+	assert.NoError(t, err, "Failed to create old log file")
 
 	// Change the modification time to make it appear old
 	oldTime := time.Now().AddDate(0, 0, -10)
 	err = os.Chtimes(oldLogFile, oldTime, oldTime)
-	if err != nil {
-		t.Fatalf("Failed to change file time: %v", err)
-	}
+	assert.NoError(t, err, "Failed to change file time")
 
 	// Create a recent log file
 	recentLogFile := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
 	err = os.WriteFile(recentLogFile, []byte("recent log"), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create recent log file: %v", err)
-	}
+	assert.NoError(t, err, "Failed to create recent log file")
 
 	// Initialize logger (which triggers cleanup)
 	logger := &fileWithRotationLogger{}
 	err = logger.init(logDir)
-	if err != nil {
-		t.Fatalf("Failed to initialize logger: %v", err)
-	}
+	assert.NoError(t, err, "Failed to initialize logger")
 
 	defer logger.Close()
 
@@ -236,12 +183,10 @@ func TestCleanupOldLogs(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that old file was deleted
-	if _, err := os.Stat(oldLogFile); !os.IsNotExist(err) {
-		t.Error("Old log file should have been deleted")
-	}
+	_, err = os.Stat(oldLogFile)
+	assert.True(t, os.IsNotExist(err), "Old log file should have been deleted")
 
 	// Check that recent file still exists
-	if _, err := os.Stat(recentLogFile); os.IsNotExist(err) {
-		t.Error("Recent log file should still exist")
-	}
+	_, err = os.Stat(recentLogFile)
+	assert.False(t, os.IsNotExist(err), "Recent log file should still exist")
 }

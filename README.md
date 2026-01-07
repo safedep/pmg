@@ -47,30 +47,33 @@ uv pip install <package-name>
 
 ## 📑 Table of Contents
 
--   [Package Manager Guard (PMG)](#package-manager-guard-pmg)
-    -   [🔥 PMG in Action](#-pmg-in-action)
-    -   [📦 TL;DR](#-tldr)
-    -   [📑 Table of Contents](#-table-of-contents)
-    -   [🔥 Features](#-features)
-    -   [Supported Package Managers](#supported-package-managers)
-    -   [Installation](#installation)
-        -   [Homebrew](#homebrew)
-        -   [Binaries](#binaries)
-        -   [Build from Source](#build-from-source)
-    -   [Setup](#setup)
-        -   [Install Aliases](#install-aliases)
-        -   [Remove Aliases](#remove-aliases)
-    -   [Usage](#usage)
-        -   [Recommended: Automated Setup](#recommended-automated-setup)
-        -   [Alternative: Manual Commands](#alternative-manual-commands)
-        -   [Lockfile Installation](#lockfile-installation)
-        -   [Silent Mode](#silent-mode)
-        -   [Dry Run](#dry-run)
-        -   [Verbose Mode](#verbose-mode)
-        -   [Debugging](#debugging)
-    -   [Environment Variables](#environment-variables)
-    -   [🤝 Contributing](#-contributing)
-    -   [🚫 Limitations](#-limitations)
+- [Package Manager Guard (PMG)](#package-manager-guard-pmg)
+  - [🔥 PMG in Action](#-pmg-in-action)
+  - [📦 TL;DR](#-tldr)
+  - [📑 Table of Contents](#-table-of-contents)
+  - [🔥 Features](#-features)
+  - [Supported Package Managers](#supported-package-managers)
+  - [Installation](#installation)
+    - [Homebrew](#homebrew)
+    - [Binaries](#binaries)
+    - [Build from Source](#build-from-source)
+  - [Setup](#setup)
+    - [Install Aliases](#install-aliases)
+    - [Remove Aliases](#remove-aliases)
+  - [Usage](#usage)
+    - [Recommended: Automated Setup](#recommended-automated-setup)
+    - [Alternative: Manual Commands](#alternative-manual-commands)
+    - [Lockfile Installation](#lockfile-installation)
+    - [Active Scanning](#active-scanning)
+    - [Silent Mode](#silent-mode)
+    - [Dry Run](#dry-run)
+    - [Verbose Mode](#verbose-mode)
+    - [Debugging](#debugging)
+  - [Environment Variables](#environment-variables)
+    - [PMG\_INSECURE\_INSTALLATION](#pmg_insecure_installation)
+  - [🤝 Contributing](#-contributing)
+  - [🚫 Limitations](#-limitations)
+  - [Telemetry](#telemetry)
 
 ## 🔥 Features
 
@@ -84,8 +87,8 @@ uv pip install <package-name>
 
 PMG supports the following package managers:
 
-| Package Manager | Status    | Command                                                  |
-| --------------- | --------- | -------------------------------------------------------- |
+| Package Manager | Status   | Command                                                  |
+| --------------- | -------- | -------------------------------------------------------- |
 | `npm`           | ✅ Active | `pmg npm install <package>`                              |
 | `pnpm`          | ✅ Active | `pmg pnpm add <package>`                                 |
 | `bun`           | ✅ Active | `pmg bun add <package>`                                  |
@@ -306,6 +309,28 @@ is malicious. However, there is a possibility of inconsistency when a specific v
 alternative sources such as Git URLs, local file paths, or private registries are not analyzed for
 malware detection. This limitation applies to direct installations and transitive dependencies sourced
 from non-PyPI locations.
+
+</details>
+
+<details>
+<summary>Windows support for experimental proxy mode</summary>
+
+PMG's experimental proxy mode (enabled with `--experimental-proxy-mode` flag) is supported on Windows
+with the following considerations:
+
+**Process Suspension**: PMG uses the Windows NT API (NtSuspendProcess/NtResumeProcess) to pause the
+package manager during security prompts. This prevents console output from being mixed with interactive
+prompts. While this API is widely used by tools like Process Explorer and is stable, it has some known
+limitations:
+
+- **Race condition**: Threads created during suspension are not suspended (very unlikely for brief suspensions)
+- **Permission requirements**: Requires Windows Vista or later (all currently supported Windows versions)
+- **Antivirus detection**: Some antivirus software may flag the use of NtSuspendProcess as suspicious behavior,
+  which is a false positive (PMG only uses it to pause its own child processes during user interaction)
+
+**Fallback Behavior**: If process suspension fails (e.g., due to insufficient permissions), PMG continues
+with the security prompt but console output from the package manager may be mixed with the prompt text.
+This doesn't affect security functionality.
 
 </details>
 
