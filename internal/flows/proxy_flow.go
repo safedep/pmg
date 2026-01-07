@@ -235,7 +235,6 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
 		fmt.Sprintf("PIP_CERT=%s", caCertPath),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
-		"NPM_CONFIG_PROGRESS=false",
 	)
 
 	cmd.Stdin = os.Stdin
