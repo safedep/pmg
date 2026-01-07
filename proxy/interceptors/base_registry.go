@@ -9,6 +9,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/proxy"
 )
@@ -47,17 +48,28 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	packageName string,
 	packageVersion string,
 ) (*analyzer.PackageVersionAnalysisResult, error) {
-	if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {
-		log.Debugf("[%s] Using cached analysis result for %s@%s", ctx.RequestID, packageName, packageVersion)
-		return cached, nil
-	}
-
+	// Check if package is trusted before analyzing
 	pkgVersion := &packagev1.PackageVersion{
 		Package: &packagev1.Package{
 			Ecosystem: ecosystem,
 			Name:      packageName,
 		},
 		Version: packageVersion,
+	}
+
+	if config.IsTrustedPackage(pkgVersion) {
+		log.Debugf("[%s] Skipping trusted package: %s/%s@%s",
+			ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+
+		return &analyzer.PackageVersionAnalysisResult{
+			PackageVersion: pkgVersion,
+			Action:         analyzer.ActionAllow,
+		}, nil
+	}
+
+	if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {
+		log.Debugf("[%s] Using cached analysis result for %s@%s", ctx.RequestID, packageName, packageVersion)
+		return cached, nil
 	}
 
 	log.Debugf("[%s] Analyzing package %s@%s", ctx.RequestID, packageName, packageVersion)
