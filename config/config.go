@@ -161,11 +161,11 @@ func initConfig() {
 	globalConfig.configFilePath = configFilePath
 	globalConfig.eventLogDir = eventLogDir
 
+	loadConfig()
+
 	if err := preprocessTrustedPackages(&globalConfig.Config); err != nil {
 		log.Warnf("Failed to preprocess trusted packages: %v", err)
 	}
-
-	loadConfig()
 }
 
 // loadConfig loads the configuration from the config file.
