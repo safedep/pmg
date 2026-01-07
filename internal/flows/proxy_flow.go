@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -245,25 +244,17 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 	// process to prevent stdout and stderr from being mixed up.
 	go interceptors.HandleConfirmationRequests(confirmationChan, interaction, &interceptors.ConfirmationHook{
 		BeforeInteraction: func([]*analyzer.PackageVersionAnalysisResult) error {
-			if cmd.Process == nil {
-				return nil
+			// Delegate to platform-specific implementation
+			if err := pauseProcess(cmd); err != nil {
+				return err
 			}
-
-			if err := cmd.Process.Signal(syscall.SIGSTOP); err != nil {
-				return fmt.Errorf("failed to pause process: %w", err)
-			}
-
 			return nil
 		},
 		AfterInteraction: func([]*analyzer.PackageVersionAnalysisResult, bool) error {
-			if cmd.Process == nil {
-				return nil
+			// Delegate to platform-specific implementation
+			if err := resumeProcess(cmd); err != nil {
+				return err
 			}
-
-			if err := cmd.Process.Signal(syscall.SIGCONT); err != nil {
-				return fmt.Errorf("failed to resume process: %w", err)
-			}
-
 			return nil
 		},
 	})
