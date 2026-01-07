@@ -47,13 +47,11 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	packageName string,
 	packageVersion string,
 ) (*analyzer.PackageVersionAnalysisResult, error) {
-	// Check cache first
 	if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {
 		log.Debugf("[%s] Using cached analysis result for %s@%s", ctx.RequestID, packageName, packageVersion)
 		return cached, nil
 	}
 
-	// Create package version object for analysis
 	pkgVersion := &packagev1.PackageVersion{
 		Package: &packagev1.Package{
 			Ecosystem: ecosystem,
@@ -64,29 +62,14 @@ func (b *baseRegistryInterceptor) analyzePackage(
 
 	log.Debugf("[%s] Analyzing package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-	// Set status to indicate analysis is in progress
-	if b.interaction.SetStatus != nil {
-		b.interaction.SetStatus(fmt.Sprintf("Analyzing %s@%s...", packageName, packageVersion))
-	}
-
-	// Analyze the package with timeout
 	analysisCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	result, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
 	if err != nil {
-		if b.interaction.ClearStatus != nil {
-			b.interaction.ClearStatus()
-		}
-
 		return nil, fmt.Errorf("analyzer failed: %w", err)
 	}
 
-	if b.interaction.ClearStatus != nil {
-		b.interaction.ClearStatus()
-	}
-
-	// Cache the result
 	b.cache.Set(ecosystem.String(), packageName, packageVersion, result)
 
 	log.Debugf("[%s] Analysis complete for %s@%s: action=%d", ctx.RequestID, packageName, packageVersion, result.Action)
@@ -105,7 +88,6 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 ) (*proxy.InterceptorResponse, error) {
 	switch result.Action {
 	case analyzer.ActionBlock:
-		// Confirmed malicious package - block immediately
 		log.Warnf("[%s] Blocking malicious package %s@%s", ctx.RequestID, packageName, packageVersion)
 
 		message := fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
@@ -121,13 +103,11 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		}, nil
 
 	case analyzer.ActionConfirm:
-		// Suspicious package - prompt user for confirmation
 		log.Warnf("[%s] Package %s/%s@%s is suspicious, requesting user confirmation", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
 		confirmed, err := b.requestUserConfirmation(ctx, result)
 		if err != nil {
 			log.Errorf("[%s] Failed to get user confirmation: %v", ctx.RequestID, err)
-			// On error, block the package to be safe
 			return &proxy.InterceptorResponse{
 				Action:       proxy.ActionBlock,
 				BlockCode:    http.StatusForbidden,
@@ -136,7 +116,6 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		}
 
 		if !confirmed {
-			// User declined installation
 			log.Infof("[%s] User declined installation of suspicious package %s/%s@%s", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
 			message := fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
@@ -152,17 +131,14 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			}, nil
 		}
 
-		// User confirmed installation
 		log.Infof("[%s] User confirmed installation of suspicious package %s/%s@%s", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	case analyzer.ActionAllow:
-		// Package is safe - allow the request
 		log.Debugf("[%s] Package %s/%s@%s is safe, allowing request", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:
-		// Unknown action - allow by default (fail-open)
 		log.Warnf("[%s] Unknown analysis action %d for package %s/%s@%s, allowing by default", ctx.RequestID, result.Action, ecosystem.String(), packageName, packageVersion)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
@@ -173,13 +149,10 @@ func (b *baseRegistryInterceptor) requestUserConfirmation(
 	ctx *proxy.RequestContext,
 	result *analyzer.PackageVersionAnalysisResult,
 ) (bool, error) {
-	// Create confirmation request with response channel
 	req := NewConfirmationRequest(result.PackageVersion, result)
 
-	// Send request to confirmation handler
 	select {
 	case b.confirmationChan <- req:
-		// Request sent successfully
 	case <-time.After(5 * time.Second):
 		return false, fmt.Errorf("timeout sending confirmation request")
 	}

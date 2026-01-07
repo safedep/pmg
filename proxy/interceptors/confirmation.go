@@ -38,20 +38,26 @@ func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest,
 
 	for req := range confirmationChan {
 		func() {
+			// The default response is false ie. user did not confirm the installation.
+			// The code here falls through and eventually sets this flag to true if user
+			// confirms the installation.
+			responseVal := false
+
 			// We must make sure to close the response channel to prevent goroutine leaks.
 			// Idiomatic go suggests that the writer should close the channel.
 			defer func() {
+				req.ResponseChan <- responseVal
 				close(req.ResponseChan)
 			}()
 
 			packageName := req.PackageVersion.GetPackage().GetName()
 			log.Debugf("Processing confirmation request for package %s", packageName)
 
+			// Hook to allow the caller to customize the confirmation process.
+			// Hook failures are non-fatal and will not break the confirmation process.
 			if hooks.BeforeInteraction != nil {
 				if err := hooks.BeforeInteraction([]*analyzer.PackageVersionAnalysisResult{req.AnalysisResult}); err != nil {
 					log.Errorf("Error before interaction for package %s: %v", packageName, err)
-					req.ResponseChan <- false
-					return
 				}
 			}
 
@@ -68,12 +74,11 @@ func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest,
 
 			if confirmationErr != nil {
 				log.Errorf("Error getting confirmation for package %s: %v", packageName, confirmationErr)
-				req.ResponseChan <- false
 				return
 			}
 
-			// Send the user's response back to the interceptor
-			req.ResponseChan <- confirmed
+			// Set the response value to the user's confirmation
+			responseVal = confirmed
 		}()
 	}
 

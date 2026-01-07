@@ -1,7 +1,6 @@
 package interceptors
 
 import (
-	"fmt"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -19,7 +18,7 @@ var (
 )
 
 // NpmRegistryInterceptor intercepts NPM registry requests and analyzes packages for malware
-// It embeds baseRegistryInterceptor to reuse ecosystem-agnostic functionality
+// It embeds baseRegistryInterceptor to reuse ecosystem agnostic functionality
 type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
 }
@@ -77,7 +76,6 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	// Use base registry interceptor's analyzePackage method
 	result, err := i.baseRegistryInterceptor.analyzePackage(
 		ctx,
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
@@ -86,14 +84,8 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	)
 	if err != nil {
 		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, pkgInfo.Name, pkgInfo.Version, err)
-		// On analysis error, allow the package (fail-open for usability)
-		if i.interaction.ShowWarning != nil {
-			i.interaction.ShowWarning(fmt.Sprintf("Warning: Failed to analyze package %s@%s: %v", pkgInfo.Name, pkgInfo.Version, err))
-		}
-
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	// Use base registry interceptor's handleAnalysisResult method
 	return i.baseRegistryInterceptor.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.Name, pkgInfo.Version, result)
 }
