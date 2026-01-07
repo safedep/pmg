@@ -17,12 +17,13 @@ import (
 type EventType string
 
 const (
-	EventTypeMalwareBlocked     EventType = "malware_blocked"
-	EventTypeMalwareConfirmed   EventType = "malware_confirmed"
-	EventTypeInstallAllowed     EventType = "install_allowed"
-	EventTypeInstallStarted     EventType = "install_started"
-	EventTypeDependencyResolved EventType = "dependency_resolved"
-	EventTypeError              EventType = "error"
+	EventTypeMalwareBlocked        EventType = "malware_blocked"
+	EventTypeMalwareConfirmed      EventType = "malware_confirmed"
+	EventTypeInstallAllowed        EventType = "install_allowed"
+	EventTypeInstallTrustedAllowed EventType = "install_trusted_allowed"
+	EventTypeInstallStarted        EventType = "install_started"
+	EventTypeDependencyResolved    EventType = "dependency_resolved"
+	EventTypeError                 EventType = "error"
 )
 
 // Event represents a security event
@@ -329,6 +330,19 @@ func LogInstallAllowed(packageName, version, ecosystem string, packageCount int)
 		Details: map[string]interface{}{
 			"packages_analyzed": packageCount,
 		},
+	}
+
+	LogEvent(event)
+}
+
+// LogInstallTrustedAllowed logs when an installation is allowed for a trusted package
+func LogInstallTrustedAllowed(packageName, version, ecosystem string) {
+	event := Event{
+		EventType:   EventTypeInstallTrustedAllowed,
+		Message:     fmt.Sprintf("Installation allowed for trusted package: %s@%s", packageName, version),
+		PackageName: packageName,
+		Version:     version,
+		Ecosystem:   ecosystem,
 	}
 
 	LogEvent(event)
