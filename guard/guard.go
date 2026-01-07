@@ -44,7 +44,6 @@ type PackageManagerGuardConfig struct {
 	AnalysisTimeout       time.Duration
 	DryRun                bool
 	InsecureInstallation  bool
-	TrustedPackages       []config.TrustedPackage
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -54,7 +53,6 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
 		InsecureInstallation:  false,
-		TrustedPackages:       []config.TrustedPackage{},
 	}
 }
 
