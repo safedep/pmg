@@ -32,7 +32,7 @@ brew install safedep/tap/pmg
 
 **Note**: More [installation options](#installation) are available.
 
-Set up `pmg` to protect you development environment from malicious packages:
+Set up `pmg` to protect your development environment from malicious packages:
 
 ```
 pmg setup install
