@@ -10,7 +10,6 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -57,41 +56,6 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		InsecureInstallation:  false,
 		TrustedPackages:       []config.TrustedPackage{},
 	}
-}
-
-func (c *PackageManagerGuardConfig) IsTrustedPackageVersion(pkgVersion *packagev1.PackageVersion) bool {
-	if pkgVersion == nil {
-		return false
-	}
-
-	trustedPkgs := c.TrustedPackages
-	if len(trustedPkgs) == 0 {
-		return false
-	}
-
-	for _, v := range trustedPkgs {
-		purlTrustedPackageVersion, err := pb.NewPurlPackageVersion(v.Purl)
-		if err != nil {
-			log.Warnf("failed to parse trusted package version: %s: %v", v.Purl, err)
-			continue
-		}
-
-		if purlTrustedPackageVersion.Version() != "" && purlTrustedPackageVersion.Version() != pkgVersion.GetVersion() {
-			continue
-		}
-
-		if purlTrustedPackageVersion.Name() != pkgVersion.GetPackage().GetName() {
-			continue
-		}
-
-		if purlTrustedPackageVersion.Ecosystem() != pkgVersion.GetPackage().GetEcosystem() {
-			continue
-		}
-
-		return true
-	}
-
-	return false
 }
 
 type packageManagerGuard struct {
@@ -293,7 +257,7 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 
 	// Queue all packages for analysis
 	for _, pkg := range packages {
-		if g.config.IsTrustedPackageVersion(pkg) {
+		if config.IsTrustedPackage(pkg) {
 			log.Debugf("Skipping trusted package: %s/%s@%s",
 				pkg.GetPackage().GetEcosystem(), pkg.GetPackage().GetName(), pkg.GetVersion())
 
