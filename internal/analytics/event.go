@@ -11,6 +11,9 @@ const (
 	eventCommandUv     = "pmg_command_uv"
 	eventCommandPoetry = "pmg_command_poetry"
 
+	eventCommandNpx  = "pmg_command_npx"
+	eventCommandPnpx = "pmg_command_ppx"
+
 	eventPmgGenerateEnvDocker        = "pmg_command_generate_env_docker"
 	eventPmgGenerateEnvGitHubActions = "pmg_command_generate_env_github_actions"
 	eventPmgGenerateEnvGitLabCI      = "pmg_command_generate_env_gitlab_ci"
@@ -22,6 +25,14 @@ func TrackCommandRun() {
 
 func TrackCommandNpm() {
 	TrackEvent(eventCommandNpm)
+}
+
+func TrackCommandNpx() {
+	TrackEvent(eventCommandNpx)
+}
+
+func TrackCommandPnpx() {
+	TrackEvent(eventCommandPnpx)
 }
 
 func TrackCommandBun() {

@@ -2,6 +2,7 @@ package packagemanager
 
 import (
 	"io"
+	"slices"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -18,8 +19,20 @@ func DefaultNpxPackageExecutorConfig() NpmPackageExecutorConfig {
 	}
 }
 
+func DefaultPnpxPackageExecutorConfig() NpmPackageExecutorConfig {
+	return NpmPackageExecutorConfig{
+		CommandName: "pnpx",
+	}
+}
+
 type npmPackageExecutor struct {
 	Config NpmPackageExecutorConfig
+}
+
+func NewNpmPackageExecutor(config NpmPackageExecutorConfig) (*npmPackageExecutor, error) {
+	return &npmPackageExecutor{
+		Config: config,
+	}, nil
 }
 
 var _ PackageExecutor = &npmPackageExecutor{}
@@ -32,8 +45,8 @@ func (n *npmPackageExecutor) Ecosystem() packagev1.Ecosystem {
 	return packagev1.Ecosystem_ECOSYSTEM_NPM
 }
 
-func (n *npmPackageExecutor) ParsedCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && args[0] == "npx" {
+func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error) {
+	if len(args) > 0 && (args[0] == "npx" || args[0] == "pnpx") {
 		args = args[1:]
 	}
 
@@ -50,7 +63,12 @@ func (n *npmPackageExecutor) ParsedCommand(args []string) (*ParsedCommand, error
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
 	var packages []string
-	flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
+	switch n.Config.CommandName {
+	case "npx":
+		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
+	case "pnpx":
+		flagSet.StringArrayVar(&packages, "package", []string{}, "Package List")
+	}
 
 	err := flagSet.Parse(args)
 	if err != nil {
@@ -59,8 +77,17 @@ func (n *npmPackageExecutor) ParsedCommand(args []string) (*ParsedCommand, error
 
 	for _, arg := range flagSet.Args() {
 		// Append the scoped package
-		if strings.HasPrefix(arg, "@") {
+		if strings.HasPrefix(arg, "@") && !slices.Contains(packages, arg) {
 			packages = append(packages, arg)
+		}
+	}
+
+	// Unlike npx, pnpx does not separate package and binary;
+	// the first arg is always an install target.
+	if n.Config.CommandName == "pnpx" && len(flagSet.Args()) > 0 {
+		pkg := flagSet.Args()[0]
+		if !slices.Contains(packages, pkg) {
+			packages = append(packages, pkg)
 		}
 	}
 

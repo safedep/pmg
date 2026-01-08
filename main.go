@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/cmd/executors"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
 	"github.com/safedep/pmg/cmd/setup"
@@ -94,6 +95,7 @@ func main() {
 	cmd.AddCommand(npm.NewPnpmCommand())
 	cmd.AddCommand(npm.NewBunCommand())
 	cmd.AddCommand(npm.NewYarnCommand())
+	cmd.AddCommand(executors.NewNpxCommand())
 	cmd.AddCommand(pypi.NewPipCommand())
 	cmd.AddCommand(pypi.NewPip3Command())
 	cmd.AddCommand(pypi.NewUvCommand())
