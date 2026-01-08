@@ -138,5 +138,6 @@ func (p *SandboxPolicy) AppliesToPackageManager(pm string) bool {
 			return true
 		}
 	}
+
 	return false
 }

@@ -149,6 +149,9 @@ func DefaultConfig() RuntimeConfig {
 			SkipEventLogging:       false,
 			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
+			Sandbox: SandboxConfig{
+				Enabled: false,
+			},
 		},
 		DryRun:               false,
 		InsecureInstallation: insecureInstallation,
