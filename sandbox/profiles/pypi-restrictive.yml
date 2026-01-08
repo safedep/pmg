@@ -14,7 +14,10 @@ filesystem:
     - ${HOME}/.config/pip/**
     - ${HOME}/.pip/**
     - ${HOME}/.poetry/**
-    - ${PM_CACHE}/**
+    - ${HOME}/.cache/pip/**
+    - ${HOME}/.cache/pypoetry/**
+    - ${HOME}/.cache/poetry/**
+    - ${HOME}/.cache/uv/**
     - /usr/local/**
     - /Library/**
     - /System/Library/**
@@ -22,7 +25,10 @@ filesystem:
   allow_write:
     - ${CWD}/.venv/**
     - ${CWD}/venv/**
-    - ${PM_CACHE}/**
+    - ${HOME}/.cache/pip/**
+    - ${HOME}/.cache/pypoetry/**
+    - ${HOME}/.cache/poetry/**
+    - ${HOME}/.cache/uv/**
     - ${HOME}/.local/lib/python*/**
     - ${TMPDIR}/**
 

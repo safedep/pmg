@@ -15,7 +15,7 @@ import (
 // Parameters:
 //   - ctx: Context for the sandbox execution
 //   - cmd: The exec.Cmd to be sandboxed (will be modified in place)
-//   - pmName: Package manager name (e.g., "npm", "pip")
+//   - pmName: Package manager name (e.g., "npm", "pip") used to determine the sandbox policy to apply
 //   - mode: Optional mode description for logging (e.g., "proxy mode", empty for default)
 //
 // Returns an error if sandbox setup fails, or nil if sandbox is not enabled/available.

@@ -15,7 +15,12 @@ filesystem:
     - ${HOME}/.yarnrc
     - ${HOME}/.yarnrc.yml
     - ${HOME}/.bundle
-    - ${PM_CACHE}/**
+    - ${HOME}/.npm/**
+    - ${HOME}/.pnpm-store/**
+    - ${HOME}/.cache/pnpm/**
+    - ${HOME}/.cache/yarn/**
+    - ${HOME}/.yarn/cache/**
+    - ${HOME}/.bun/install/cache/**
     - /usr/local/**
     - /Library/**
     - /System/Library/**
@@ -23,7 +28,12 @@ filesystem:
 
   allow_write:
     - ${CWD}/node_modules/**
-    - ${PM_CACHE}/**
+    - ${HOME}/.npm/**
+    - ${HOME}/.pnpm-store/**
+    - ${HOME}/.cache/pnpm/**
+    - ${HOME}/.cache/yarn/**
+    - ${HOME}/.yarn/cache/**
+    - ${HOME}/.bun/install/cache/**
     - ${CWD}/package-lock.json
     - ${CWD}/yarn.lock
     - ${CWD}/pnpm-lock.yaml
@@ -61,7 +71,12 @@ process:
   allow_exec:
     - /usr/bin/node
     - /usr/local/bin/node
-    - ${PM_CACHE}/**
+    - ${HOME}/.npm/**
+    - ${HOME}/.pnpm-store/**
+    - ${HOME}/.cache/pnpm/**
+    - ${HOME}/.cache/yarn/**
+    - ${HOME}/.yarn/cache/**
+    - ${HOME}/.bun/install/cache/**
     - /usr/bin/git
     - /usr/local/bin/git
 
