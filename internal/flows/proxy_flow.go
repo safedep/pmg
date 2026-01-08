@@ -244,7 +244,7 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 
 	// Apply sandbox if enabled (sandbox preserves proxy environment variables already set on cmd.Env)
 	pmName := f.pm.Name()
-	result, err := executor.ApplySandbox(ctx, cmd, pmName, "proxy mode")
+	result, err := executor.ApplySandbox(ctx, cmd, pmName)
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}

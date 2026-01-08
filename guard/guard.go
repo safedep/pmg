@@ -223,7 +223,7 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 
 	// Apply sandbox if enabled
 	pmName := g.packageManager.Name()
-	result, err := executor.ApplySandbox(ctx, cmd, pmName, "")
+	result, err := executor.ApplySandbox(ctx, cmd, pmName)
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}

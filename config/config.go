@@ -112,6 +112,11 @@ type RuntimeConfig struct {
 	// InsecureInstallation allows bypassing install blocking on malicious packages
 	InsecureInstallation bool
 
+	// SandboxProfileOverride is a runtime override for the sandbox policy profile.
+	// When set, this profile path is used instead of the configured policy for all package managers.
+	// This is a CLI-only flag (--sandbox-profile) and is not persisted to config.yml.
+	SandboxProfileOverride string
+
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir      string
 	configFilePath string

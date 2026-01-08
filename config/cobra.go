@@ -25,4 +25,6 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.Sandbox.Enabled, "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)")
 	cmd.PersistentFlags().StringVar(&globalConfig.Config.Sandbox.ViolationMode, "sandbox-violation-mode",
 		globalConfig.Config.Sandbox.ViolationMode, "How to handle sandbox policy violations: block, warn, or allow")
+	cmd.PersistentFlags().StringVar(&globalConfig.SandboxProfileOverride, "sandbox-profile",
+		globalConfig.SandboxProfileOverride, "Override sandbox policy profile (built-in name or path to custom YAML)")
 }
