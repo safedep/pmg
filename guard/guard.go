@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
+	"github.com/safedep/pmg/sandbox"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -219,6 +220,12 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Apply sandbox if enabled
+	pmName := g.packageManager.Name()
+	if err := sandbox.ApplySandbox(ctx, cmd, pmName, ""); err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
 
 	// We will fail based on executed command's exit code. This is important
 	// because other tools (scripts, CI etc.) may depend on this exit code.

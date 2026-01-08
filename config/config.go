@@ -59,6 +59,33 @@ type Config struct {
 	// ExperimentalProxyMode enables experimental proxy-based package interception.
 	// When enabled, PMG starts a proxy server and intercepts package manager requests in real-time.
 	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
+
+	// Sandbox enables sandboxing of package manager processes with controlled filesystem,
+	// network, and process execution access. Provides defense-in-depth against supply chain attacks.
+	Sandbox SandboxConfig `mapstructure:"sandbox"`
+}
+
+// SandboxConfig configures the sandbox system for isolating package manager processes.
+type SandboxConfig struct {
+	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
+	Enabled bool `mapstructure:"enabled"`
+
+	// ViolationMode defines how policy violations are handled (block, warn, or allow).
+	ViolationMode string `mapstructure:"violation_mode"`
+
+	// Policies maps package manager names to their sandbox policy references.
+	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
+	Policies map[string]SandboxPolicyRef `mapstructure:"policies"`
+}
+
+// SandboxPolicyRef references a sandbox policy for a specific package manager.
+type SandboxPolicyRef struct {
+	// Enabled enables sandboxing for this specific package manager.
+	Enabled bool `mapstructure:"enabled"`
+
+	// Profile is the name of a built-in profile (e.g., "npm-restrictive")
+	// or an absolute path to a custom YAML policy file.
+	Profile string `mapstructure:"profile"`
 }
 
 // TrustedPackage is a package that is trusted by the user and will be ignored by the security guardrails.

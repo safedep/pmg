@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/sandbox"
 )
 
 type proxyFlow struct {
@@ -240,6 +241,12 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Apply sandbox if enabled (sandbox preserves proxy environment variables already set on cmd.Env)
+	pmName := f.pm.Name()
+	if err := sandbox.ApplySandbox(ctx, cmd, pmName, "proxy mode"); err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
 
 	log.Debugf("Executing command: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 	log.Debugf("Proxy environment: HTTP_PROXY=%s, HTTPS_PROXY=%s, NODE_EXTRA_CA_CERTS=%s", proxyURL, proxyURL, caCertPath)

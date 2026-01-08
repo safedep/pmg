@@ -46,3 +46,70 @@ experimental_proxy_mode: false
 trusted_packages:
   - purl: pkg:npm/@safedep/pmg
     reason: "PMG is a trusted package for PMG"
+
+# Sandbox configuration (EXPERIMENTAL)
+# When enabled, package managers run in sandboxed environments with restricted
+# filesystem, network, and process execution access. This provides defense-in-depth
+# protection against malicious install scripts and supply chain attacks.
+#
+# Currently supported platforms:
+# - macOS (using Seatbelt sandbox-exec)
+# - Linux (coming soon: Bubblewrap or seccomp-bpf)
+# - Windows (coming soon)
+sandbox:
+  # Enable sandbox mode (opt-in, default: false for backward compatibility)
+  enabled: false
+
+  # How to handle policy violations: block | warn | allow
+  # - block: Prevent execution on policy violation (recommended)
+  # - warn: Log warning but allow execution
+  # - allow: Allow all operations (disables sandbox)
+  violation_mode: block
+
+  # Per-package-manager sandbox policies
+  # Each package manager can have its own policy to account for unique security characteristics
+  policies:
+    # npm ecosystem
+    npm:
+      enabled: true
+      profile: npm-restrictive  # Built-in profile or path to custom YAML
+
+    pnpm:
+      enabled: true
+      profile: npm-restrictive
+
+    yarn:
+      enabled: true
+      profile: npm-restrictive
+
+    bun:
+      enabled: true
+      profile: npm-restrictive
+
+    # PyPI ecosystem
+    pip:
+      enabled: true
+      profile: pypi-restrictive
+
+    pip3:
+      enabled: true
+      profile: pypi-restrictive
+
+    poetry:
+      enabled: true
+      profile: pypi-restrictive
+
+    uv:
+      enabled: true
+      profile: pypi-restrictive
+
+# Usage:
+# 1. Enable sandbox globally: set sandbox.enabled to true
+# 2. Enable via CLI flag: pmg --sandbox npm install lodash
+# 3. Use custom profile: pmg --sandbox-profile=/path/to/policy.yml npm install
+#
+# Built-in profiles:
+# - npm-restrictive: Balanced security for npm/pnpm/yarn/bun
+# - pypi-restrictive: Balanced security for pip/poetry/uv
+#
+# See sandbox/profiles/ directory for profile definitions

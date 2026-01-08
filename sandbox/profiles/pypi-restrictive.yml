@@ -1,0 +1,60 @@
+name: pypi-restrictive
+description: Restrictive sandbox policy for PyPI ecosystem (pip, poetry, uv)
+package_managers:
+  - pip
+  - pip3
+  - poetry
+  - uv
+
+violation_mode: block
+
+filesystem:
+  allow_read:
+    - ${CWD}/**
+    - ${HOME}/.config/pip/**
+    - ${HOME}/.pip/**
+    - ${HOME}/.poetry/**
+    - ${PM_CACHE}/**
+    - /usr/local/**
+    - /Library/**
+    - /System/Library/**
+
+  allow_write:
+    - ${CWD}/.venv/**
+    - ${CWD}/venv/**
+    - ${PM_CACHE}/**
+    - ${HOME}/.local/lib/python*/**
+    - ${TMPDIR}/**
+
+  deny_read:
+    - ${HOME}/.ssh/**
+    - ${HOME}/.aws/**
+    - ${HOME}/.gcloud/**
+    - "**/.env"
+
+  deny_write:
+    - ${HOME}/.ssh/**
+    - /etc/**
+    - /usr/**
+
+network:
+  allow_outbound:
+    - pypi.org:443
+    - files.pythonhosted.org:443
+    - github.com:443
+
+  deny_outbound:
+    - "*:*"
+
+process:
+  allow_exec:
+    - /usr/bin/python*
+    - /usr/local/bin/python*
+    - /usr/bin/gcc
+    - /usr/bin/clang
+    - /usr/bin/git
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget
+    - /bin/bash

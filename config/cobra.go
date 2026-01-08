@@ -21,4 +21,8 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.SkipEventLogging, "Skip event logging")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ExperimentalProxyMode, "experimental-proxy-mode",
 		globalConfig.Config.ExperimentalProxyMode, "Use experimental proxy-based interception (EXPERIMENTAL)")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.Enabled, "sandbox",
+		globalConfig.Config.Sandbox.Enabled, "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)")
+	cmd.PersistentFlags().StringVar(&globalConfig.Config.Sandbox.ViolationMode, "sandbox-violation-mode",
+		globalConfig.Config.Sandbox.ViolationMode, "How to handle sandbox policy violations: block, warn, or allow")
 }

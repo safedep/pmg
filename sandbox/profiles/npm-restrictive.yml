@@ -1,0 +1,73 @@
+name: npm-restrictive
+description: Restrictive sandbox policy for npm ecosystem (npm, pnpm, yarn, bun)
+package_managers:
+  - npm
+  - pnpm
+  - yarn
+  - bun
+
+violation_mode: block
+
+filesystem:
+  allow_read:
+    - ${CWD}/**
+    - ${HOME}/.npmrc
+    - ${HOME}/.yarnrc
+    - ${HOME}/.yarnrc.yml
+    - ${HOME}/.bundle
+    - ${PM_CACHE}/**
+    - /usr/local/**
+    - /Library/**
+    - /System/Library/**
+    - /private/var/**
+
+  allow_write:
+    - ${CWD}/node_modules/**
+    - ${PM_CACHE}/**
+    - ${CWD}/package-lock.json
+    - ${CWD}/yarn.lock
+    - ${CWD}/pnpm-lock.yaml
+    - ${CWD}/bun.lockb
+    - ${TMPDIR}/**
+
+  deny_read:
+    - ${HOME}/.ssh/**
+    - ${HOME}/.aws/**
+    - ${HOME}/.gcloud/**
+    - ${HOME}/.kube/**
+    - "**/.env"
+    - "**/.env.*"
+    - ${HOME}/.docker/config.json
+
+  deny_write:
+    - ${HOME}/.ssh/**
+    - ${HOME}/.aws/**
+    - /etc/**
+    - /usr/**
+    - /bin/**
+    - /sbin/**
+
+network:
+  allow_outbound:
+    - registry.npmjs.org:443
+    - registry.yarnpkg.com:443
+    - npm.pkg.github.com:443
+    - github.com:443
+
+  deny_outbound:
+    - "*:*"
+
+process:
+  allow_exec:
+    - /usr/bin/node
+    - /usr/local/bin/node
+    - ${PM_CACHE}/**
+    - /usr/bin/git
+    - /usr/local/bin/git
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget
+    - /bin/bash
+    - /bin/sh
+    - /usr/bin/python*
