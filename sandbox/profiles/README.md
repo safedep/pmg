@@ -39,8 +39,6 @@ See the [Policy Schema Documentation](../policy.go) for details on the YAML stru
 - `${CWD}`: Current working directory
 - `${TMPDIR}`: Temporary directory
 
-### Violation Modes
+## Policy Enforcement
 
-- `block`: Block execution on policy violation (recommended)
-- `warn`: Log warning but allow execution
-- `allow`: Allow all operations (disables sandbox)
+All policy violations will block execution. This provides defense-in-depth protection against malicious install scripts and supply chain attacks.

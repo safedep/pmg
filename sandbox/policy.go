@@ -7,11 +7,11 @@ import (
 
 // SandboxPolicy represents a parsed and validated sandbox policy that defines
 // filesystem, network, and process execution restrictions for package managers.
+// Policy violations will block execution.
 type SandboxPolicy struct {
 	Name            string           `yaml:"name" json:"name"`
 	Description     string           `yaml:"description" json:"description"`
 	PackageManagers []string         `yaml:"package_managers" json:"package_managers"`
-	ViolationMode   string           `yaml:"violation_mode" json:"violation_mode"`
 	Filesystem      FilesystemPolicy `yaml:"filesystem" json:"filesystem"`
 	Network         NetworkPolicy    `yaml:"network" json:"network"`
 	Process         ProcessPolicy    `yaml:"process" json:"process"`
@@ -40,46 +40,6 @@ type ProcessPolicy struct {
 	DenyExec  []string `yaml:"deny_exec" json:"deny_exec"`
 }
 
-// ViolationMode represents how sandbox policy violations are handled.
-type ViolationMode int
-
-const (
-	// ViolationModeBlock blocks execution when a policy violation is detected (default).
-	ViolationModeBlock ViolationMode = iota
-	// ViolationModeWarn logs a warning but allows execution to continue.
-	ViolationModeWarn
-	// ViolationModeAllow allows all operations (effectively disables the sandbox).
-	ViolationModeAllow
-)
-
-// String returns the string representation of the violation mode.
-func (v ViolationMode) String() string {
-	switch v {
-	case ViolationModeBlock:
-		return "block"
-	case ViolationModeWarn:
-		return "warn"
-	case ViolationModeAllow:
-		return "allow"
-	default:
-		return "unknown"
-	}
-}
-
-// ParseViolationMode parses a violation mode string into a ViolationMode value.
-func ParseViolationMode(s string) (ViolationMode, error) {
-	switch strings.ToLower(s) {
-	case "block":
-		return ViolationModeBlock, nil
-	case "warn":
-		return ViolationModeWarn, nil
-	case "allow":
-		return ViolationModeAllow, nil
-	default:
-		return ViolationModeBlock, fmt.Errorf("invalid violation mode: %s (must be block, warn, or allow)", s)
-	}
-}
-
 // Validate validates the sandbox policy for correctness.
 // Returns an error if the policy is invalid.
 func (p *SandboxPolicy) Validate() error {
@@ -89,12 +49,6 @@ func (p *SandboxPolicy) Validate() error {
 
 	if len(p.PackageManagers) == 0 {
 		return fmt.Errorf("policy must specify at least one package manager")
-	}
-
-	if p.ViolationMode != "" {
-		if _, err := ParseViolationMode(p.ViolationMode); err != nil {
-			return fmt.Errorf("invalid violation mode: %w", err)
-		}
 	}
 
 	hasRules := len(p.Filesystem.AllowRead) > 0 ||
@@ -111,20 +65,6 @@ func (p *SandboxPolicy) Validate() error {
 	}
 
 	return nil
-}
-
-// GetViolationMode returns the parsed violation mode for the policy.
-func (p *SandboxPolicy) GetViolationMode() ViolationMode {
-	if p.ViolationMode == "" {
-		return ViolationModeBlock
-	}
-
-	mode, err := ParseViolationMode(p.ViolationMode)
-	if err != nil {
-		return ViolationModeBlock
-	}
-
-	return mode
 }
 
 // AppliesToPackageManager returns true if this policy applies to the given package manager.

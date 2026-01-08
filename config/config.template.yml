@@ -52,6 +52,8 @@ trusted_packages:
 # filesystem, network, and process execution access. This provides defense-in-depth
 # protection against malicious install scripts and supply chain attacks.
 #
+# Policy violations will block execution (this is the only supported behavior).
+#
 # Currently supported platforms:
 # - macOS (using Seatbelt sandbox-exec)
 # - Linux (coming soon: Bubblewrap or seccomp-bpf)
@@ -59,12 +61,6 @@ trusted_packages:
 sandbox:
   # Enable sandbox mode (opt-in, default: false for backward compatibility)
   enabled: false
-
-  # How to handle policy violations: block | warn | allow
-  # - block: Prevent execution on policy violation (recommended)
-  # - warn: Log warning but allow execution
-  # - allow: Allow all operations (disables sandbox)
-  violation_mode: block
 
   # Per-package-manager sandbox policies
   # Each package manager can have its own policy to account for unique security characteristics

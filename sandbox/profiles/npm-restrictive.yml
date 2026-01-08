@@ -6,8 +6,6 @@ package_managers:
   - yarn
   - bun
 
-violation_mode: block
-
 filesystem:
   allow_read:
     - ${CWD}/**

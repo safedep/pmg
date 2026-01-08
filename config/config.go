@@ -70,9 +70,6 @@ type SandboxConfig struct {
 	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
 	Enabled bool `mapstructure:"enabled"`
 
-	// ViolationMode defines how policy violations are handled (block, warn, or allow).
-	ViolationMode string `mapstructure:"violation_mode"`
-
 	// Policies maps package manager names to their sandbox policy references.
 	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
 	Policies map[string]SandboxPolicyRef `mapstructure:"policies"`
