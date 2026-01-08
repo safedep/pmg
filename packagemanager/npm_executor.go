@@ -35,7 +35,7 @@ func NewNpmPackageExecutor(config NpmPackageExecutorConfig) (*npmPackageExecutor
 	}, nil
 }
 
-var _ PackageExecutor = &npmPackageExecutor{}
+var _ PackageManager = &npmPackageExecutor{}
 
 func (n *npmPackageExecutor) Name() string {
 	return n.Config.CommandName
