@@ -12,16 +12,13 @@ import (
 	"github.com/safedep/pmg/sandbox/util"
 )
 
-// policyTranslator translates PMG sandbox policies to Seatbelt Profile Language (.sb).
-type policyTranslator struct{}
+type seatbeltPolicyTranslator struct{}
 
-// newPolicyTranslator creates a new policy translator.
-func newPolicyTranslator() *policyTranslator {
-	return &policyTranslator{}
+func newSeatbeltPolicyTranslator() *seatbeltPolicyTranslator {
+	return &seatbeltPolicyTranslator{}
 }
 
-// translate converts a PMG SandboxPolicy to Seatbelt Profile Language.
-func (t *policyTranslator) translate(policy *sandbox.SandboxPolicy) (string, error) {
+func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (string, error) {
 	var sb strings.Builder
 
 	// Header
@@ -62,7 +59,7 @@ func (t *policyTranslator) translate(policy *sandbox.SandboxPolicy) (string, err
 }
 
 // translateFilesystem translates filesystem access rules.
-func (t *policyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
+func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Filesystem access\n")
 
 	// Expand and add allow read rules
@@ -137,7 +134,7 @@ func (t *policyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy, sb
 }
 
 // translateNetwork translates network access rules.
-func (t *policyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
+func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Network access\n")
 
 	// If there are allow outbound rules, allow network-outbound generally
@@ -165,7 +162,7 @@ func (t *policyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, sb *s
 }
 
 // translateProcess translates process execution rules.
-func (t *policyTranslator) translateProcess(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
+func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Process execution\n")
 
 	// Add allow exec rules

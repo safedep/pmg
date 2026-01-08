@@ -13,17 +13,15 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
-// seatbeltSandbox implements the Sandbox interface using macOS Seatbelt (sandbox-exec).
 type seatbeltSandbox struct {
-	translator       *policyTranslator
-	tempProfilePath  string // Path to temporary .sb file, cleaned up in Close()
-	cleanupCompleted bool   // Track if cleanup already happened (idempotent Close)
+	translator       *seatbeltPolicyTranslator
+	tempProfilePath  string
+	cleanupCompleted bool
 }
 
-// newSeatbeltSandbox creates a new Seatbelt sandbox instance.
 func newSeatbeltSandbox() (*seatbeltSandbox, error) {
 	return &seatbeltSandbox{
-		translator: newPolicyTranslator(),
+		translator: newSeatbeltPolicyTranslator(),
 	}, nil
 }
 
@@ -34,30 +32,33 @@ func newSeatbeltSandbox() (*seatbeltSandbox, error) {
 // This implementation modifies the cmd in place and does NOT execute it.
 // Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
 func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
-	// Translate PMG policy to Seatbelt profile
 	sbProfile, err := s.translator.translate(policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate sandbox policy: %w", err)
 	}
 
-	// Write Seatbelt profile to temporary file
-	// The file will be cleaned up when Close() is called
 	tmpFile, err := os.CreateTemp("", "pmg-sandbox-*.sb")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary sandbox profile: %w", err)
 	}
 
-	// Store the path for cleanup in Close()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			log.Warnf("failed to close temporary sandbox profile: %v", err)
+		}
+	}()
+
+	// Storing the path is required for cleanup in Close()
 	s.tempProfilePath = tmpFile.Name()
 
 	if _, err := tmpFile.WriteString(sbProfile); err != nil {
-		tmpFile.Close()
-		// Clean up on error
-		os.Remove(s.tempProfilePath)
+		if err := os.Remove(s.tempProfilePath); err != nil {
+			log.Warnf("failed to remove temporary sandbox profile: %v", err)
+		}
+
 		s.tempProfilePath = ""
 		return nil, fmt.Errorf("failed to write sandbox profile: %w", err)
 	}
-	tmpFile.Close()
 
 	log.Debugf("Seatbelt profile written to %s", s.tempProfilePath)
 	log.Debugf("Seatbelt profile content:\n%s", sbProfile)
