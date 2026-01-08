@@ -14,26 +14,21 @@ import (
 //go:embed profiles/*.yml
 var profilesFS embed.FS
 
-// defaultProfileRegistry implements ProfileRegistry with support for
-// built-in embedded profiles and custom user-provided profiles.
 type defaultProfileRegistry struct {
 	mu       sync.RWMutex
 	profiles map[string]*SandboxPolicy
 }
 
-// newDefaultProfileRegistry creates a new profile registry and loads built-in profiles.
-func newDefaultProfileRegistry() *defaultProfileRegistry {
+func newDefaultProfileRegistry() (*defaultProfileRegistry, error) {
 	registry := &defaultProfileRegistry{
 		profiles: make(map[string]*SandboxPolicy),
 	}
 
-	// Load built-in profiles from embedded filesystem
 	if err := registry.loadBuiltinProfiles(); err != nil {
-		// Log error but don't fail - graceful degradation
-		fmt.Fprintf(os.Stderr, "Warning: failed to load built-in sandbox profiles: %v\n", err)
+		return nil, fmt.Errorf("failed to load built-in sandbox profiles: %w", err)
 	}
 
-	return registry
+	return registry, nil
 }
 
 // loadBuiltinProfiles loads all built-in YAML profiles from the embedded filesystem.
@@ -72,9 +67,7 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 }
 
 // GetProfile retrieves a policy by name.
-// First checks built-in profiles, then attempts to load as a custom file path.
 func (r *defaultProfileRegistry) GetProfile(name string) (*SandboxPolicy, error) {
-	// Check if it's a built-in profile
 	r.mu.RLock()
 	if policy, exists := r.profiles[name]; exists {
 		r.mu.RUnlock()
@@ -82,7 +75,6 @@ func (r *defaultProfileRegistry) GetProfile(name string) (*SandboxPolicy, error)
 	}
 	r.mu.RUnlock()
 
-	// Not a built-in profile - try to load as custom file
 	if fileExists(name) {
 		return r.LoadCustomProfile(name)
 	}
@@ -106,7 +98,6 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 		return nil, fmt.Errorf("invalid custom profile %s: %w", path, err)
 	}
 
-	// Cache the custom profile for future use
 	r.mu.Lock()
 	r.profiles[policy.Name] = policy
 	r.mu.Unlock()
@@ -127,22 +118,21 @@ func (r *defaultProfileRegistry) ListProfiles() []string {
 	return profiles
 }
 
-// parsePolicy parses a YAML policy file into a SandboxPolicy struct.
 func parsePolicy(data []byte) (*SandboxPolicy, error) {
 	var policy SandboxPolicy
 
 	if err := yaml.Unmarshal(data, &policy); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+		return nil, fmt.Errorf("failed to parse policy from YAML: %w", err)
 	}
 
 	return &policy, nil
 }
 
-// fileExists checks if a file exists and is not a directory.
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
+
 	return !info.IsDir()
 }

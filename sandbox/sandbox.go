@@ -99,6 +99,6 @@ type ProfileRegistry interface {
 }
 
 // NewProfileRegistry creates a new profile registry with built-in policies.
-func NewProfileRegistry() ProfileRegistry {
+func NewProfileRegistry() (ProfileRegistry, error) {
 	return newDefaultProfileRegistry()
 }

@@ -23,9 +23,12 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.E
 		return sandbox.NewExecutionResult(), nil
 	}
 
-	registry := sandbox.NewProfileRegistry()
+	registry, err := sandbox.NewProfileRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create profile registry: %w", err)
+	}
+
 	var policy *sandbox.SandboxPolicy
-	var err error
 
 	if cfg.SandboxProfileOverride != "" {
 		log.Debugf("Using sandbox profile override: %s", cfg.SandboxProfileOverride)
