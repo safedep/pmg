@@ -17,7 +17,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
-	"github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/executor"
 )
 
 type proxyFlow struct {
@@ -244,7 +244,8 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 
 	// Apply sandbox if enabled (sandbox preserves proxy environment variables already set on cmd.Env)
 	pmName := f.pm.Name()
-	if err := sandbox.ApplySandbox(ctx, cmd, pmName, "proxy mode"); err != nil {
+	result, err := executor.ApplySandbox(ctx, cmd, pmName, "proxy mode")
+	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
 
@@ -271,13 +272,16 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 		},
 	})
 
-	err := cmd.Run()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
+	// Only run the command if the sandbox didn't already execute it
+	if result.ShouldRun() {
+		err = cmd.Run()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitErr.ExitCode())
+			}
 
-		return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+			return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+		}
 	}
 
 	log.Debugf("Command completed successfully")

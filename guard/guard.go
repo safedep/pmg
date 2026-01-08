@@ -17,7 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
-	"github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/executor"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -223,13 +223,19 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 
 	// Apply sandbox if enabled
 	pmName := g.packageManager.Name()
-	if err := sandbox.ApplySandbox(ctx, cmd, pmName, ""); err != nil {
+	result, err := executor.ApplySandbox(ctx, cmd, pmName, "")
+	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
 
-	// We will fail based on executed command's exit code. This is important
-	// because other tools (scripts, CI etc.) may depend on this exit code.
-	return cmd.Run()
+	// Only run the command if the sandbox didn't already execute it
+	if result.ShouldRun() {
+		// We will fail based on executed command's exit code. This is important
+		// because other tools (scripts, CI etc.) may depend on this exit code.
+		return cmd.Run()
+	}
+
+	return nil
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,

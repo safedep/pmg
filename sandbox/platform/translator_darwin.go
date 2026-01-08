@@ -1,54 +1,27 @@
 //go:build darwin
 // +build darwin
 
-package seatbelt
+package platform
 
 import (
 	"fmt"
 	"path/filepath"
 	"strings"
 
+	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/util"
 )
 
-// PolicyTranslator translates PMG sandbox policies to Seatbelt Profile Language (.sb).
-type PolicyTranslator struct{}
+// policyTranslator translates PMG sandbox policies to Seatbelt Profile Language (.sb).
+type policyTranslator struct{}
 
-// NewPolicyTranslator creates a new policy translator.
-func NewPolicyTranslator() *PolicyTranslator {
-	return &PolicyTranslator{}
+// newPolicyTranslator creates a new policy translator.
+func newPolicyTranslator() *policyTranslator {
+	return &policyTranslator{}
 }
 
-// SandboxPolicy represents a parsed sandbox policy (defined here to avoid import cycle).
-type SandboxPolicy struct {
-	Name            string
-	Description     string
-	PackageManagers []string
-	ViolationMode   string
-	Filesystem      FilesystemPolicy
-	Network         NetworkPolicy
-	Process         ProcessPolicy
-}
-
-type FilesystemPolicy struct {
-	AllowRead  []string
-	AllowWrite []string
-	DenyRead   []string
-	DenyWrite  []string
-}
-
-type NetworkPolicy struct {
-	AllowOutbound []string
-	DenyOutbound  []string
-}
-
-type ProcessPolicy struct {
-	AllowExec []string
-	DenyExec  []string
-}
-
-// Translate converts a PMG SandboxPolicy to Seatbelt Profile Language.
-func (t *PolicyTranslator) Translate(policy *SandboxPolicy) (string, error) {
+// translate converts a PMG SandboxPolicy to Seatbelt Profile Language.
+func (t *policyTranslator) translate(policy *sandbox.SandboxPolicy) (string, error) {
 	var sb strings.Builder
 
 	// Header
@@ -89,7 +62,7 @@ func (t *PolicyTranslator) Translate(policy *SandboxPolicy) (string, error) {
 }
 
 // translateFilesystem translates filesystem access rules.
-func (t *PolicyTranslator) translateFilesystem(policy *SandboxPolicy, sb *strings.Builder) error {
+func (t *policyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Filesystem access\n")
 
 	// Expand and add allow read rules
@@ -164,7 +137,7 @@ func (t *PolicyTranslator) translateFilesystem(policy *SandboxPolicy, sb *string
 }
 
 // translateNetwork translates network access rules.
-func (t *PolicyTranslator) translateNetwork(policy *SandboxPolicy, sb *strings.Builder) error {
+func (t *policyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Network access\n")
 
 	// If there are allow outbound rules, allow network-outbound generally
@@ -192,7 +165,7 @@ func (t *PolicyTranslator) translateNetwork(policy *SandboxPolicy, sb *strings.B
 }
 
 // translateProcess translates process execution rules.
-func (t *PolicyTranslator) translateProcess(policy *SandboxPolicy, sb *strings.Builder) error {
+func (t *policyTranslator) translateProcess(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Process execution\n")
 
 	// Add allow exec rules

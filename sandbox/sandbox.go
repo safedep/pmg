@@ -5,14 +5,56 @@ import (
 	"os/exec"
 )
 
+// ExecutionResult represents the result of applying a sandbox to a command.
+// It encapsulates the execution state and allows for future extension with
+// additional metadata (e.g., exit codes, resource usage, violation events).
+type ExecutionResult struct {
+	executed bool
+	// Future fields can be added here without breaking the API:
+	// - exitCode int
+	// - resourceUsage ResourceStats
+	// - violations []ViolationEvent
+}
+
+// NewExecutionResult creates a new ExecutionResult.
+// If executed is true, it indicates the sandbox executed the command directly.
+// If executed is false, the sandbox only modified the command and the caller must execute it.
+func NewExecutionResult(executed bool) *ExecutionResult {
+	return &ExecutionResult{
+		executed: executed,
+	}
+}
+
+// WasExecuted returns true if the sandbox executed the command directly.
+// If false, the caller must execute the command using cmd.Run().
+func (r *ExecutionResult) WasExecuted() bool {
+	return r.executed
+}
+
+// ShouldRun returns true if the caller should execute cmd.Run().
+// This is the inverse of WasExecuted() and may be more intuitive at call sites.
+func (r *ExecutionResult) ShouldRun() bool {
+	return !r.executed
+}
+
 // Sandbox represents a platform-specific sandbox executor that isolates
 // package manager processes with controlled access to filesystem, network,
 // and process execution resources.
 type Sandbox interface {
-	// Execute runs a command in the sandbox with the given policy.
-	// The command may be modified in place (e.g., wrapped with sandbox-exec).
-	// Returns an error if the sandbox setup fails.
-	Execute(ctx context.Context, cmd *exec.Cmd, policy *SandboxPolicy) error
+	// Execute prepares or runs a command in the sandbox with the given policy.
+	//
+	// Behavior varies by implementation:
+	// - CLI-based sandboxes (Seatbelt, Bubblewrap): Modify cmd in place by wrapping it
+	//   with sandbox CLI (e.g., sandbox-exec). Returns ExecutionResult with executed=false.
+	// - Library-based sandboxes: Execute the command directly within the sandbox.
+	//   Returns ExecutionResult with executed=true.
+	//
+	// Returns:
+	//   - ExecutionResult: Contains execution state and metadata
+	//   - error: Non-nil if sandbox setup or execution failed
+	//
+	// Callers must check result.ShouldRun() and only call cmd.Run() if true.
+	Execute(ctx context.Context, cmd *exec.Cmd, policy *SandboxPolicy) (*ExecutionResult, error)
 
 	// Name returns the sandbox implementation name (e.g., "seatbelt", "bubblewrap").
 	Name() string
@@ -21,12 +63,6 @@ type Sandbox interface {
 	IsAvailable() bool
 }
 
-// NewSandbox creates a new platform-specific sandbox instance.
-// The implementation is selected at compile time using build tags.
-// Returns an error if the sandbox is not available on the current platform.
-func NewSandbox() (Sandbox, error) {
-	return newPlatformSandbox()
-}
 
 // ProfileRegistry manages built-in and custom sandbox policies.
 type ProfileRegistry interface {

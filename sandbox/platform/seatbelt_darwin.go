@@ -1,7 +1,7 @@
 //go:build darwin
 // +build darwin
 
-package seatbelt
+package platform
 
 import (
 	"context"
@@ -10,40 +10,45 @@ import (
 	"os/exec"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/sandbox"
 )
 
-// SeatbeltSandbox implements the Sandbox interface using macOS Seatbelt (sandbox-exec).
-type SeatbeltSandbox struct {
-	translator *PolicyTranslator
+// seatbeltSandbox implements the Sandbox interface using macOS Seatbelt (sandbox-exec).
+type seatbeltSandbox struct {
+	translator *policyTranslator
 }
 
-// NewSeatbeltSandbox creates a new Seatbelt sandbox instance.
-func NewSeatbeltSandbox() (*SeatbeltSandbox, error) {
-	return &SeatbeltSandbox{
-		translator: NewPolicyTranslator(),
+// newSeatbeltSandbox creates a new Seatbelt sandbox instance.
+func newSeatbeltSandbox() (*seatbeltSandbox, error) {
+	return &seatbeltSandbox{
+		translator: newPolicyTranslator(),
 	}, nil
 }
 
 // Execute runs a command in the Seatbelt sandbox with the given policy.
 // It translates the PMG policy to Seatbelt Profile Language (.sb) and wraps
 // the command execution with sandbox-exec.
-func (s *SeatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *SandboxPolicy) error {
+//
+// This implementation modifies the cmd in place and does NOT execute it.
+// Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
+func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
 	// Translate PMG policy to Seatbelt profile
-	sbProfile, err := s.translator.Translate(policy)
+	sbProfile, err := s.translator.translate(policy)
 	if err != nil {
-		return fmt.Errorf("failed to translate sandbox policy: %w", err)
+		return nil, fmt.Errorf("failed to translate sandbox policy: %w", err)
 	}
 
 	// Write Seatbelt profile to temporary file
 	tmpFile, err := os.CreateTemp("", "pmg-sandbox-*.sb")
 	if err != nil {
-		return fmt.Errorf("failed to create temporary sandbox profile: %w", err)
+		return nil, fmt.Errorf("failed to create temporary sandbox profile: %w", err)
 	}
+
 	defer os.Remove(tmpFile.Name())
 
 	if _, err := tmpFile.WriteString(sbProfile); err != nil {
 		tmpFile.Close()
-		return fmt.Errorf("failed to write sandbox profile: %w", err)
+		return nil, fmt.Errorf("failed to write sandbox profile: %w", err)
 	}
 	tmpFile.Close()
 
@@ -69,16 +74,17 @@ func (s *SeatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *Sa
 
 	log.Debugf("Sandboxed command: %s %v", cmd.Path, cmd.Args)
 
-	return nil
+	// Return ExecutionResult indicating we only modified cmd, didn't execute it
+	return sandbox.NewExecutionResult(false), nil
 }
 
 // Name returns the name of this sandbox implementation.
-func (s *SeatbeltSandbox) Name() string {
+func (s *seatbeltSandbox) Name() string {
 	return "seatbelt"
 }
 
 // IsAvailable returns true if sandbox-exec is available on this system.
-func (s *SeatbeltSandbox) IsAvailable() bool {
+func (s *seatbeltSandbox) IsAvailable() bool {
 	_, err := exec.LookPath("sandbox-exec")
 	return err == nil
 }
