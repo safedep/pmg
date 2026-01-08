@@ -41,8 +41,14 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.E
 		log.Debugf("Looking up sandbox policy for %s", pmName)
 
 		policyRef, exists := cfg.Config.Sandbox.Policies[pmName]
-		if !exists || !policyRef.Enabled {
-			return nil, fmt.Errorf("no sandbox policy enabled for %s", pmName)
+		if !exists {
+			return nil, fmt.Errorf("no sandbox policy configured for %s", pmName)
+		}
+
+		// The policy is explicitly disabled for this package manager, so we skip sandbox
+		if !policyRef.Enabled {
+			log.Warnf("sandbox policy %s is explicitly disabled for %s, skipping sandbox", policyRef.Profile, pmName)
+			return sandbox.NewExecutionResult(), nil
 		}
 
 		log.Debugf("Loading sandbox policy %s", policyRef.Profile)
