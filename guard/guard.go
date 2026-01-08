@@ -221,18 +221,15 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// Apply sandbox if enabled
 	pmName := g.packageManager.Name()
 	result, err := executor.ApplySandbox(ctx, cmd, pmName)
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
-	defer result.Close() // Clean up sandbox resources
 
-	// Only run the command if the sandbox didn't already execute it
+	defer result.Close()
+
 	if result.ShouldRun() {
-		// We will fail based on executed command's exit code. This is important
-		// because other tools (scripts, CI etc.) may depend on this exit code.
 		return cmd.Run()
 	}
 
