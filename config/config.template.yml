@@ -48,7 +48,7 @@ trusted_packages:
     reason: "PMG is a trusted package for PMG"
 
 # Sandbox configuration (EXPERIMENTAL)
-# When enabled, package managers run in sandboxed environments with restricted
+# When enabled, package managers run in sandbox environments with restricted
 # filesystem, network, and process execution access. This provides defense-in-depth
 # protection against malicious install scripts and supply chain attacks.
 #
@@ -56,8 +56,8 @@ trusted_packages:
 #
 # Currently supported platforms:
 # - macOS (using Seatbelt sandbox-exec)
-# - Linux (coming soon: Bubblewrap or seccomp-bpf)
-# - Windows (coming soon)
+# - Linux (planned: Bubblewrap or seccomp-bpf)
+# - Windows (planned)
 sandbox:
   # Enable sandbox mode (opt-in, default: false for backward compatibility)
   enabled: false
@@ -99,13 +99,3 @@ sandbox:
       enabled: true
       profile: pypi-restrictive
 
-# Usage:
-# 1. Enable sandbox globally: set sandbox.enabled to true
-# 2. Enable via CLI flag: pmg --sandbox npm install lodash
-# 3. Use custom profile: pmg --sandbox-profile=/path/to/policy.yml npm install
-#
-# Built-in profiles:
-# - npm-restrictive: Balanced security for npm/pnpm/yarn/bun
-# - pypi-restrictive: Balanced security for pip/poetry/uv
-#
-# See sandbox/profiles/ directory for profile definitions
