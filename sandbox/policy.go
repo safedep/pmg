@@ -91,14 +91,12 @@ func (p *SandboxPolicy) Validate() error {
 		return fmt.Errorf("policy must specify at least one package manager")
 	}
 
-	// Validate violation mode
 	if p.ViolationMode != "" {
 		if _, err := ParseViolationMode(p.ViolationMode); err != nil {
 			return fmt.Errorf("invalid violation mode: %w", err)
 		}
 	}
 
-	// Validate that at least some rules are defined
 	hasRules := len(p.Filesystem.AllowRead) > 0 ||
 		len(p.Filesystem.AllowWrite) > 0 ||
 		len(p.Filesystem.DenyRead) > 0 ||
@@ -116,7 +114,6 @@ func (p *SandboxPolicy) Validate() error {
 }
 
 // GetViolationMode returns the parsed violation mode for the policy.
-// Returns ViolationModeBlock if not specified or invalid.
 func (p *SandboxPolicy) GetViolationMode() ViolationMode {
 	if p.ViolationMode == "" {
 		return ViolationModeBlock
