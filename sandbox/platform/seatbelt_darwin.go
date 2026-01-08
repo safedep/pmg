@@ -81,8 +81,7 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 
 	log.Debugf("Sandboxed command: %s %v", cmd.Path, cmd.Args)
 
-	// Return ExecutionResult indicating we only modified cmd, didn't execute it
-	return sandbox.NewExecutionResult(false), nil
+	return sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(s)), nil
 }
 
 // Name returns the name of this sandbox implementation.
@@ -97,9 +96,7 @@ func (s *seatbeltSandbox) IsAvailable() bool {
 }
 
 // Close cleans up the temporary seatbelt profile file.
-// Safe to call multiple times (idempotent).
 func (s *seatbeltSandbox) Close() error {
-	// Idempotent - return early if already cleaned up or no file to clean
 	if s.cleanupCompleted || s.tempProfilePath == "" {
 		return nil
 	}
@@ -110,7 +107,6 @@ func (s *seatbeltSandbox) Close() error {
 	s.cleanupCompleted = true
 
 	if err != nil && !os.IsNotExist(err) {
-		// Only return error if it's not "file doesn't exist"
 		return fmt.Errorf("failed to remove seatbelt profile %s: %w", s.tempProfilePath, err)
 	}
 

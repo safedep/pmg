@@ -5,54 +5,49 @@ import (
 	"os/exec"
 )
 
-// ExecutionResult represents the result of applying a sandbox to a command.
-// It encapsulates the execution state and allows for future extension with
+// ExecutionResult represents the result of executing a command in a sandbox.
+// It contains sandbox internal state and allows for future extension with
 // additional metadata (e.g., exit codes, resource usage, violation events).
 // Callers must call Close() after cmd.Run() completes to clean up resources.
 type ExecutionResult struct {
 	executed bool
-	sandbox  Sandbox // Reference to sandbox for cleanup
-	// Future fields can be added here without breaking the API:
-	// - exitCode int
-	// - resourceUsage ResourceStats
-	// - violations []ViolationEvent
+	sandbox  Sandbox
+}
+
+// ExecutionResultOpt is a function that can be used to configure an ExecutionResult.
+type ExecutionResultOpt func(*ExecutionResult)
+
+// WithSandbox sets the sandbox for the ExecutionResult.
+func WithExecutionResultSandbox(sb Sandbox) ExecutionResultOpt {
+	return func(r *ExecutionResult) {
+		r.sandbox = sb
+	}
+}
+
+// WithExecuted sets the executed flag for the ExecutionResult.
+func WithExecutionResultExecuted(executed bool) ExecutionResultOpt {
+	return func(r *ExecutionResult) {
+		r.executed = executed
+	}
 }
 
 // NewExecutionResult creates a new ExecutionResult.
-// If executed is true, it indicates the sandbox executed the command directly.
-// If executed is false, the sandbox only modified the command and the caller must execute it.
-// The sandbox parameter can be nil if no sandbox was applied.
-func NewExecutionResult(executed bool) *ExecutionResult {
-	return &ExecutionResult{
-		executed: executed,
-		sandbox:  nil,
+func NewExecutionResult(opts ...ExecutionResultOpt) *ExecutionResult {
+	r := &ExecutionResult{}
+	for _, opt := range opts {
+		opt(r)
 	}
-}
 
-// NewExecutionResultWithSandbox creates a new ExecutionResult with a sandbox reference.
-// The sandbox's Close() method will be called when result.Close() is called.
-func NewExecutionResultWithSandbox(executed bool, sb Sandbox) *ExecutionResult {
-	return &ExecutionResult{
-		executed: executed,
-		sandbox:  sb,
-	}
-}
-
-// WasExecuted returns true if the sandbox executed the command directly.
-// If false, the caller must execute the command using cmd.Run().
-func (r *ExecutionResult) WasExecuted() bool {
-	return r.executed
+	return r
 }
 
 // ShouldRun returns true if the caller should execute cmd.Run().
-// This is the inverse of WasExecuted() and may be more intuitive at call sites.
 func (r *ExecutionResult) ShouldRun() bool {
 	return !r.executed
 }
 
 // Close cleans up any resources allocated by the sandbox.
-// Must be called after cmd.Run() completes. Safe to call multiple times (idempotent).
-// Safe to call even if no sandbox was applied (sandbox is nil).
+// Must be called after cmd.Run() completes.
 func (r *ExecutionResult) Close() error {
 	if r.sandbox != nil {
 		return r.sandbox.Close()
@@ -89,7 +84,6 @@ type Sandbox interface {
 	// Must be called after cmd.Run() completes. Idempotent - safe to call multiple times.
 	Close() error
 }
-
 
 // ProfileRegistry manages built-in and custom sandbox policies.
 type ProfileRegistry interface {
