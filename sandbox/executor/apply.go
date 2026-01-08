@@ -84,5 +84,6 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.E
 		return nil, fmt.Errorf("failed to setup sandbox: %w", err)
 	}
 
-	return result, nil
+	// Return result with sandbox reference so caller can defer result.Close()
+	return sandbox.NewExecutionResultWithSandbox(result.WasExecuted(), sb), nil
 }

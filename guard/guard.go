@@ -227,6 +227,7 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
+	defer result.Close() // Clean up sandbox resources
 
 	// Only run the command if the sandbox didn't already execute it
 	if result.ShouldRun() {

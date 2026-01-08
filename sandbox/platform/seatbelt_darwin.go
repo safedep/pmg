@@ -15,7 +15,9 @@ import (
 
 // seatbeltSandbox implements the Sandbox interface using macOS Seatbelt (sandbox-exec).
 type seatbeltSandbox struct {
-	translator *policyTranslator
+	translator       *policyTranslator
+	tempProfilePath  string // Path to temporary .sb file, cleaned up in Close()
+	cleanupCompleted bool   // Track if cleanup already happened (idempotent Close)
 }
 
 // newSeatbeltSandbox creates a new Seatbelt sandbox instance.
@@ -39,20 +41,25 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	}
 
 	// Write Seatbelt profile to temporary file
+	// The file will be cleaned up when Close() is called
 	tmpFile, err := os.CreateTemp("", "pmg-sandbox-*.sb")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary sandbox profile: %w", err)
 	}
 
-	defer os.Remove(tmpFile.Name())
+	// Store the path for cleanup in Close()
+	s.tempProfilePath = tmpFile.Name()
 
 	if _, err := tmpFile.WriteString(sbProfile); err != nil {
 		tmpFile.Close()
+		// Clean up on error
+		os.Remove(s.tempProfilePath)
+		s.tempProfilePath = ""
 		return nil, fmt.Errorf("failed to write sandbox profile: %w", err)
 	}
 	tmpFile.Close()
 
-	log.Debugf("Seatbelt profile written to %s", tmpFile.Name())
+	log.Debugf("Seatbelt profile written to %s", s.tempProfilePath)
 	log.Debugf("Seatbelt profile content:\n%s", sbProfile)
 
 	// Modify command to run via sandbox-exec
@@ -63,7 +70,7 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	cmd.Path = "/usr/bin/sandbox-exec"
 	cmd.Args = []string{
 		"sandbox-exec",
-		"-f", tmpFile.Name(),
+		"-f", s.tempProfilePath,
 		originalPath,
 	}
 
@@ -87,4 +94,25 @@ func (s *seatbeltSandbox) Name() string {
 func (s *seatbeltSandbox) IsAvailable() bool {
 	_, err := exec.LookPath("sandbox-exec")
 	return err == nil
+}
+
+// Close cleans up the temporary seatbelt profile file.
+// Safe to call multiple times (idempotent).
+func (s *seatbeltSandbox) Close() error {
+	// Idempotent - return early if already cleaned up or no file to clean
+	if s.cleanupCompleted || s.tempProfilePath == "" {
+		return nil
+	}
+
+	log.Debugf("Cleaning up seatbelt profile: %s", s.tempProfilePath)
+
+	err := os.Remove(s.tempProfilePath)
+	s.cleanupCompleted = true
+
+	if err != nil && !os.IsNotExist(err) {
+		// Only return error if it's not "file doesn't exist"
+		return fmt.Errorf("failed to remove seatbelt profile %s: %w", s.tempProfilePath, err)
+	}
+
+	return nil
 }

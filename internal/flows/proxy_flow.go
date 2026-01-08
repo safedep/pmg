@@ -248,6 +248,7 @@ func (f *proxyFlow) executeWithProxy(ctx context.Context, parsedCmd *packagemana
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
+	defer result.Close() // Clean up sandbox resources
 
 	log.Debugf("Executing command: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 	log.Debugf("Proxy environment: HTTP_PROXY=%s, HTTPS_PROXY=%s, NODE_EXTRA_CA_CERTS=%s", proxyURL, proxyURL, caCertPath)

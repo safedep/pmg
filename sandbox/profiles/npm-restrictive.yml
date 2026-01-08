@@ -79,10 +79,11 @@ process:
     - ${HOME}/.bun/install/cache/**
     - /usr/bin/git
     - /usr/local/bin/git
+    - /bin/bash
+    - /bin/sh
+    - /usr/bin/env
 
   deny_exec:
     - /usr/bin/curl
     - /usr/bin/wget
-    - /bin/bash
-    - /bin/sh
     - /usr/bin/python*
