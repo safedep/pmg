@@ -50,18 +50,3 @@ func ContainsGlob(pattern string) bool {
 		strings.Contains(pattern, "?") ||
 		strings.Contains(pattern, "[")
 }
-
-// ExpandPathList expands variables in a list of paths/patterns.
-func ExpandPathList(patterns []string) ([]string, error) {
-	result := make([]string, 0, len(patterns))
-
-	for _, pattern := range patterns {
-		expanded, err := ExpandVariables(pattern)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, expanded)
-	}
-
-	return result, nil
-}
