@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
@@ -11,13 +12,32 @@ import (
 	"github.com/safedep/pmg/sandbox/platform"
 )
 
+type applySandboxConfig struct {
+	sb sandbox.Sandbox
+}
+
+type applySandboxOpt func(*applySandboxConfig)
+
+// WithSandbox sets the sandbox to use for the command.
+// When not set, the sandbox will be determined by the platform.
+func WithSandbox(sb sandbox.Sandbox) applySandboxOpt {
+	return func(c *applySandboxConfig) {
+		c.sb = sb
+	}
+}
+
 // ApplySandbox applies sandbox isolation to the command if sandbox mode is enabled.
 // This is a helper function used by both guard and proxy flows to avoid code duplication.
 //
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.
-func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.ExecutionResult, error) {
+func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...applySandboxOpt) (*sandbox.ExecutionResult, error) {
 	cfg := config.Get()
+
+	applyConfig := &applySandboxConfig{}
+	for _, opt := range opts {
+		opt(applyConfig)
+	}
 
 	if !cfg.Config.Sandbox.Enabled {
 		return sandbox.NewExecutionResult(), nil
@@ -57,9 +77,27 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.E
 
 		log.Debugf("Loading sandbox policy %s", policyRef.Profile)
 
-		policy, err = registry.GetProfile(policyRef.Profile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyRef.Profile, err)
+		// Check if there is a template for the policy and use it if it exists
+		// This is a way to override a built-in profile or create a custom profile.
+		if template, exists := cfg.Config.Sandbox.PolicyTemplates[policyRef.Profile]; exists {
+			if filepath.IsAbs(template.Path) {
+				policy, err = registry.GetProfile(template.Path)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load sandbox policy %s: %w", template.Path, err)
+				}
+			} else {
+				policyPath := filepath.Join(cfg.ConfigDir(), template.Path)
+				policy, err = registry.GetProfile(policyPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyPath, err)
+				}
+			}
+		} else {
+			// Load the policy from the registry by name
+			policy, err = registry.GetProfile(policyRef.Profile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyRef.Profile, err)
+			}
 		}
 	}
 
@@ -69,9 +107,14 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.E
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
 	}
 
-	sb, err := platform.NewSandbox()
-	if err != nil {
-		return nil, fmt.Errorf("sandbox not available on this platform: %v", err)
+	var sb sandbox.Sandbox
+	if applyConfig.sb != nil {
+		sb = applyConfig.sb
+	} else {
+		sb, err = platform.NewSandbox()
+		if err != nil {
+			return nil, fmt.Errorf("sandbox not available on this platform: %v", err)
+		}
 	}
 
 	if !sb.IsAvailable() {

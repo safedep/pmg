@@ -38,7 +38,12 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 	sb.WriteString("(allow mach-lookup)\n")
 	sb.WriteString("(allow mach-register)\n")
 	sb.WriteString("(allow ipc-posix-shm)\n")
-	sb.WriteString("(allow signal)\n\n")
+	sb.WriteString("(allow signal)\n")
+	sb.WriteString(";; Allow reading file metadata for getcwd() and similar operations\n")
+	sb.WriteString("(allow file-read-metadata)\n")
+	sb.WriteString(";; Allow reading system configuration and libraries needed for process execution\n")
+	sb.WriteString("(allow file-read* (subpath \"/dev\"))\n")
+	sb.WriteString("(allow file-read* (subpath \"/etc\"))\n\n")
 
 	// Filesystem rules
 	if err := t.translateFilesystem(policy, &sb); err != nil {

@@ -73,6 +73,17 @@ type SandboxConfig struct {
 	// Policies maps package manager names to their sandbox policy references.
 	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
 	Policies map[string]SandboxPolicyRef `mapstructure:"policies"`
+
+	// PolicyTemplates maps template names to their paths.
+	PolicyTemplates map[string]SandboxPolicyTemplate `mapstructure:"policy_templates"`
+}
+
+// SandboxPolicyTemplate defines a template for a sandbox policy, used to map
+// a profile name to a path.
+type SandboxPolicyTemplate struct {
+	// Path is the path to the template file.
+	// Relative path can be used to reference a template file in the config directory (example: ./npm-restrictive.yml)
+	Path string `mapstructure:"path"`
 }
 
 // SandboxPolicyRef references a sandbox policy for a specific package manager.
@@ -128,6 +139,11 @@ func (r *RuntimeConfig) ConfigFilePath() string {
 // EventLogDir returns the path to the event log directory.
 func (r *RuntimeConfig) EventLogDir() string {
 	return r.eventLogDir
+}
+
+// ConfigDir returns the path to the config directory.
+func (r *RuntimeConfig) ConfigDir() string {
+	return r.configDir
 }
 
 // DefaultConfig is a fail safe contract for the runtime configuration.

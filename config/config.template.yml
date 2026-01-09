@@ -63,13 +63,22 @@ sandbox:
   # Enable sandbox mode (opt-in, default: false for backward compatibility)
   enabled: false
 
+  # Policy templates define policy profiles by name and path.
+  # They can be used to override a built-in profile or create a custom profile.
+  policy_templates:
+    # Name for the template. Can be used to override a built-in profile or create a custom profile.
+    # Path is the path to the template file.
+    # Relative path can be used to reference a template file in the config directory (example: ./npm-restrictive.yml)
+    npm-restrictive-override:
+      path: ./profiles/npm-restrictive.yml
+
   # Per-package-manager sandbox policies
   # Each package manager can have its own policy to account for unique security characteristics
   policies:
-    # npm ecosystem
+    # npm ecosystem. npm-restrictive is a built-in profile.
     npm:
       enabled: true
-      profile: npm-restrictive  # Built-in profile or path to custom YAML
+      profile: npm-restrictive  # Built-in profile, template name, or path to custom YAML
 
     pnpm:
       enabled: true
@@ -83,7 +92,7 @@ sandbox:
       enabled: true
       profile: npm-restrictive
 
-    # PyPI ecosystem
+    # PyPI ecosystem. pypi-restrictive is a built-in profile.
     pip:
       enabled: true
       profile: pypi-restrictive
