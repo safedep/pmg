@@ -242,7 +242,7 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 	return env
 }
 
-// executeWithProxySimple runs the command without PTY (for CI/non-interactive environments)
+// executeWithProxyForNonInteractiveTTY runs the command without PTY (for CI/non-interactive environments)
 func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 	ctx context.Context,
 	parsedCmd *packagemanager.ParsedCommand,
