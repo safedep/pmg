@@ -254,7 +254,7 @@ jobs:
           grep -q "Hello from pmg pnpx" pnpx-output.txt
 
           echo "Testing pnpx with --package flag..."
-          pmg pnpx --package cowsay@1.6.0 cowsay "Hello with package flag" | tee pnpx-pkg-output.txt
+          pmg pnpx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee pnpx-pkg-output.txt
 
           # Verification: package flag execution produces expected output
           grep -q "Hello with package flag" pnpx-pkg-output.txt
