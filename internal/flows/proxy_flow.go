@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -93,10 +94,17 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Block:       ui.Block,
 	}
 
-	// Set the confirmation handler to use the interaction's reader
-	// This allows PTY input routing during proxy mode
-	interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
-		return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
+	if pty.IsInteractiveTerminal() {
+		// Set the confirmation handler to use the interaction's reader
+		// This allows PTY input routing during proxy mode
+		interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+			return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
+		}
+	} else {
+		// For non-interactive terminals, we enforce suspicious packages as malicious
+		interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+			return false, nil
+		}
 	}
 
 	// Get the ecosystem from the package manager
@@ -136,8 +144,15 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	log.Infof("Proxy server started on %s", proxyAddr)
 	log.Infof("Running %s with proxy protection enabled", f.pm.Name())
 
-	// Execute the package manager command with proxy environment variables
-	return f.executeWithProxy(ctx, parsedCmd, proxyAddr, caCertPath, confirmationChan, interaction)
+	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
+
+	if !pty.IsInteractiveTerminal() {
+		// Execute the package manager / executor command with proxy environment variables for non PTY or non-interactive TTY
+		return f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+	}
+
+	// Execute the package manager / executor command with proxy environment variables
+	return f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 }
 
 // setupCACertificate generates or loads a CA certificate for MITM
@@ -220,30 +235,71 @@ func (f *proxyFlow) createAndStartProxyServer(
 	return proxyServer, proxyAddr, nil
 }
 
+func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
+	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
+
+	env := os.Environ()
+	env = append(env,
+		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
+		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
+		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
+		fmt.Sprintf("http_proxy=%s", proxyURL),
+		fmt.Sprintf("https_proxy=%s", proxyURL),
+		fmt.Sprintf("SSL_CERT_FILE=%s", caCertPath),
+		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
+		fmt.Sprintf("PIP_CERT=%s", caCertPath),
+		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
+	)
+
+	return env
+}
+
+// executeWithProxySimple runs the command without PTY (for CI/non-interactive environments)
+func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
+	ctx context.Context,
+	parsedCmd *packagemanager.ParsedCommand,
+	env []string,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	interaction *guard.PackageManagerGuardInteraction,
+) error {
+	log.Debugf("Executing proxy for non interactive TTY")
+
+	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
+	cmd.Env = append(env, "CI=true")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	go interceptors.HandleConfirmationRequests(
+		confirmationChan,
+		interaction,
+		nil,
+	)
+
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+
+		return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+	}
+
+	log.Debugf("Command completed successfully")
+	return nil
+}
+
 // executeWithProxy executes the package manager command with proxy environment variables.
 func (f *proxyFlow) executeWithProxy(
 	ctx context.Context,
 	parsedCmd *packagemanager.ParsedCommand,
-	proxyAddr, caCertPath string,
+	env []string,
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	interaction *guard.PackageManagerGuardInteraction,
 ) error {
-	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
+	log.Debugf("Executing proxy for interactive TTY")
 
-	sessionConfig := pty.NewSessionConfig(
-		parsedCmd.Command.Exe, parsedCmd.Command.Args,
-		append(os.Environ(),
-			fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
-			fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
-			fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
-			fmt.Sprintf("http_proxy=%s", proxyURL),
-			fmt.Sprintf("https_proxy=%s", proxyURL),
-			fmt.Sprintf("SSL_CERT_FILE=%s", caCertPath),
-			fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
-			fmt.Sprintf("PIP_CERT=%s", caCertPath),
-			fmt.Sprintf("PIP_PROXY=%s", proxyURL),
-		),
-	)
+	sessionConfig := pty.NewSessionConfig(parsedCmd.Command.Exe, parsedCmd.Command.Args, env)
 
 	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {

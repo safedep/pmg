@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/KennethanCeyer/ptyx"
+	"golang.org/x/term"
 )
 
 // InteractiveSession manages a PTY-based command execution with
@@ -29,6 +31,12 @@ type InteractiveSession interface {
 
 	// Close cleans up resources (PTY, terminal state)
 	Close() error
+}
+
+// IsInteractiveTerminal returns true if stdin is a real terminal (TTY).
+// Returns false in CI environments, when input is piped, or in non-interactive shells.
+func IsInteractiveTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 var _ InteractiveSession = &session{}
