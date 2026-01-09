@@ -11,9 +11,8 @@ If you don't have a `config.yml` file, you can create one by running `pmg setup 
 
 ```yaml
 trusted_packages:
-  - purl: pkg:npm/safedep/pmg
+  - purl: pkg:npm/@safedep/pmg
     reason: "All versions of PMG are trusted"
   - purl: pkg:npm/express@4.18.0
     reason: "Version 4.18.0 of Express is a trusted package"
 ```
-
