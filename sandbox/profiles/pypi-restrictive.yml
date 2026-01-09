@@ -1,0 +1,64 @@
+name: pypi-restrictive
+description: Restrictive sandbox policy for PyPI ecosystem (pip, poetry, uv)
+package_managers:
+  - pip
+  - pip3
+  - poetry
+  - uv
+
+filesystem:
+  allow_read:
+    - ${CWD}/**
+    - ${HOME}/.config/pip/**
+    - ${HOME}/.pip/**
+    - ${HOME}/.poetry/**
+    - ${HOME}/.cache/pip/**
+    - ${HOME}/.cache/pypoetry/**
+    - ${HOME}/.cache/poetry/**
+    - ${HOME}/.cache/uv/**
+    - /usr/local/**
+    - /Library/**
+    - /System/Library/**
+
+  allow_write:
+    - ${CWD}/.venv/**
+    - ${CWD}/venv/**
+    - ${HOME}/.cache/pip/**
+    - ${HOME}/.cache/pypoetry/**
+    - ${HOME}/.cache/poetry/**
+    - ${HOME}/.cache/uv/**
+    - ${HOME}/.local/lib/python*/**
+    - ${TMPDIR}/**
+
+  deny_read:
+    - ${HOME}/.ssh/**
+    - ${HOME}/.aws/**
+    - ${HOME}/.gcloud/**
+    - "**/.env"
+
+  deny_write:
+    - ${HOME}/.ssh/**
+    - /etc/**
+    - /usr/**
+
+network:
+  allow_outbound:
+    - pypi.org:443
+    - files.pythonhosted.org:443
+    - github.com:443
+
+  deny_outbound:
+    - "*:*"
+
+process:
+  allow_exec:
+    - /usr/bin/python*
+    - /usr/local/bin/python*
+    - /usr/bin/gcc
+    - /usr/bin/clang
+    - /usr/bin/git
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget
+    - /bin/bash
