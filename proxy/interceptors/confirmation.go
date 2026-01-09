@@ -31,7 +31,7 @@ type ConfirmationHook struct {
 //
 // The function will exit when the confirmation channel is closed.
 func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest,
-	interaction guard.PackageManagerGuardInteraction, hooks *ConfirmationHook) {
+	interaction *guard.PackageManagerGuardInteraction, hooks *ConfirmationHook) {
 	if hooks == nil {
 		hooks = &ConfirmationHook{}
 	}

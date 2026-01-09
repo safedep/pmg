@@ -107,7 +107,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, confirmationChan, *interaction)
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, confirmationChan)
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
@@ -271,7 +271,7 @@ func (f *proxyFlow) executeWithProxy(
 
 	go interceptors.HandleConfirmationRequests(
 		confirmationChan,
-		*interaction,
+		interaction,
 		&interceptors.ConfirmationHook{
 			BeforeInteraction: func(_ []*analyzer.PackageVersionAnalysisResult) error {
 				// Pause printing the child output
