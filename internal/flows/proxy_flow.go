@@ -91,6 +91,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		ShowWarning: ui.ShowWarning,
 		Block:       ui.Block,
 	}
+
 	// Set the confirmation handler to use the interaction's reader
 	// This allows PTY input routing during proxy mode
 	interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
@@ -317,6 +318,7 @@ func (f *proxyFlow) executeWithProxy(
 		var exitErr *pty.ExitError
 		if errors.As(err, &exitErr) {
 			promptWriter.Close()
+			promptReader.Close()
 			sess.Close()
 			os.Exit(exitErr.Code)
 		}

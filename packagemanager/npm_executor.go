@@ -99,6 +99,10 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		if version != "" {
+			version = npmCleanVersion(version)
+		}
+
 		installTarget := &PackageInstallTarget{
 			PackageVersion: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
