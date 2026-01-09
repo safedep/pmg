@@ -3,6 +3,7 @@ package guard
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -36,6 +37,24 @@ type PackageManagerGuardInteraction struct {
 	// packages are passed as arguments. These are the packages that were detected as malicious.
 	// Client code must perform the necessary error handling and termination of the process.
 	Block func(config *ui.BlockConfig) error
+
+	// inputReader is the reader to use for user input during confirmations.
+	// If nil, os.Stdin is used. This is set via SetInput to allow PTY input routing.
+	inputReader io.Reader
+}
+
+// SetInput sets the input reader for user confirmations.
+// This allows the PTY switchboard to route input to the prompt during confirmations.
+func (i *PackageManagerGuardInteraction) SetInput(r io.Reader) {
+	i.inputReader = r
+}
+
+// Reader returns the configured input reader, or os.Stdin if none is set.
+func (i *PackageManagerGuardInteraction) Reader() io.Reader {
+	if i.inputReader != nil {
+		return i.inputReader
+	}
+	return os.Stdin
 }
 
 type PackageManagerGuardConfig struct {

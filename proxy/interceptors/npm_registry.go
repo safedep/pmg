@@ -6,7 +6,6 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -30,14 +29,12 @@ func NewNpmRegistryInterceptor(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
 	confirmationChan chan *ConfirmationRequest,
-	interaction guard.PackageManagerGuardInteraction,
 ) *NpmRegistryInterceptor {
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
 			cache:            cache,
 			confirmationChan: confirmationChan,
-			interaction:      interaction,
 		},
 	}
 }
