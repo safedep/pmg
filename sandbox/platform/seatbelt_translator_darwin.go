@@ -5,7 +5,6 @@ package platform
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/safedep/pmg/sandbox"
@@ -77,7 +76,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Handle glob patterns vs literal paths
 		if util.ContainsGlob(expanded) {
 			// For glob patterns, use subpath with the base directory
-			baseDir := filepath.Dir(strings.TrimSuffix(expanded, "/**"))
+			baseDir := strings.TrimSuffix(expanded, "/**")
 			sb.WriteString(fmt.Sprintf("(allow file-read* (subpath \"%s\"))\n", baseDir))
 		} else {
 			sb.WriteString(fmt.Sprintf("(allow file-read* (subpath \"%s\"))\n", expanded))
@@ -94,7 +93,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		}
 
 		if util.ContainsGlob(expanded) {
-			baseDir := filepath.Dir(strings.TrimSuffix(expanded, "/**"))
+			baseDir := strings.TrimSuffix(expanded, "/**")
 			sb.WriteString(fmt.Sprintf("(allow file-write* (subpath \"%s\"))\n", baseDir))
 		} else {
 			sb.WriteString(fmt.Sprintf("(allow file-write* (subpath \"%s\"))\n", expanded))
@@ -112,7 +111,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		}
 
 		if util.ContainsGlob(expanded) {
-			baseDir := filepath.Dir(strings.TrimSuffix(expanded, "/**"))
+			baseDir := strings.TrimSuffix(expanded, "/**")
 			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\"))\n", baseDir))
 		} else {
 			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\"))\n", expanded))
@@ -126,7 +125,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		}
 
 		if util.ContainsGlob(expanded) {
-			baseDir := filepath.Dir(strings.TrimSuffix(expanded, "/**"))
+			baseDir := strings.TrimSuffix(expanded, "/**")
 			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\"))\n", baseDir))
 		} else {
 			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\"))\n", expanded))
@@ -179,7 +178,7 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 
 		if util.ContainsGlob(expanded) {
 			// For glob patterns, use subpath to allow anything under that directory
-			baseDir := filepath.Dir(strings.TrimSuffix(expanded, "/**"))
+			baseDir := strings.TrimSuffix(expanded, "/**")
 			sb.WriteString(fmt.Sprintf("(allow process-exec* (subpath \"%s\"))\n", baseDir))
 		} else {
 			sb.WriteString(fmt.Sprintf("(allow process-exec* (literal \"%s\"))\n", expanded))
@@ -196,7 +195,7 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 		}
 
 		if util.ContainsGlob(expanded) {
-			baseDir := filepath.Dir(strings.TrimSuffix(expanded, "/**"))
+			baseDir := strings.TrimSuffix(expanded, "/**")
 			sb.WriteString(fmt.Sprintf("(deny process-exec* (subpath \"%s\"))\n", baseDir))
 		} else {
 			sb.WriteString(fmt.Sprintf("(deny process-exec* (literal \"%s\"))\n", expanded))
