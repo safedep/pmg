@@ -76,8 +76,15 @@ func NewInputRouter(ptyWriter io.Writer) (*InputRouter, error) {
 	}, nil
 }
 
-// ReadLoop continuously reads from src and routes to current destination.
-// Call this in a goroutine. Exits when src returns error (EOF).
+// ReadLoop continuously reads from src and routes data to the current destination.
+//
+// IMPORTANT: Only ONE goroutine should call ReadLoop() because:
+//  1. Multiple readers on the same source (e.g., stdin) cause data splitting -
+//     one goroutine might read "hel" while another reads "lo\n"
+//  2. Concurrent routing decisions create race conditions on the destination
+//  3. User input becomes unpredictably interleaved between readers
+//
+// This function blocks until src returns an error (e.g., EOF).
 func (r *InputRouter) ReadLoop(src io.Reader) {
 	buf := make([]byte, 1024)
 	for {

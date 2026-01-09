@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -255,9 +256,10 @@ func (f *proxyFlow) executeWithProxy(
 		return fmt.Errorf("failed to create output router: %w", err)
 	}
 
-	go func() {
-		_, _ = io.Copy(outputRouter, sess.PtyReader())
-	}()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		io.Copy(outputRouter, sess.PtyReader())
+	})
 
 	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
 	if err != nil {
@@ -265,8 +267,16 @@ func (f *proxyFlow) executeWithProxy(
 	}
 
 	promptReader, promptWriter := io.Pipe()
-	defer promptWriter.Close()
+	defer func() {
+		promptWriter.Close()
+		promptReader.Close()
+	}()
 
+	// Note: This goroutine cannot be cleanly cancelled because os.Stdin.Read() is
+	// a blocking syscall that doesn't support timeouts or cancellation. This is a
+	// known limitation. The goroutine will exit when the process terminates, which
+	// is acceptable for a CLI tool. For long-running servers, stdin reading should
+	// be handled differently.
 	go inputRouter.ReadLoop(os.Stdin)
 
 	go interceptors.HandleConfirmationRequests(
@@ -314,12 +324,20 @@ func (f *proxyFlow) executeWithProxy(
 	)
 
 	err = sess.Wait()
+
+	// Wait for the routers to copy all the remaining data
+	wg.Wait()
+
 	if err != nil {
 		var exitErr *pty.ExitError
 		if errors.As(err, &exitErr) {
+			// Close writer and reader
 			promptWriter.Close()
 			promptReader.Close()
+
+			// Close the session
 			sess.Close()
+
 			os.Exit(exitErr.Code)
 		}
 		return err
