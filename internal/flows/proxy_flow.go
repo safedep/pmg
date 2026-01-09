@@ -1,21 +1,19 @@
 package flows
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/KennethanCeyer/ptyx"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
@@ -221,10 +219,6 @@ func (f *proxyFlow) createAndStartProxyServer(
 }
 
 // executeWithProxy executes the package manager command with proxy environment variables.
-// This uses the "PTY Switchboard" architecture:
-// - Input: Single loop reads os.Stdin and routes to either PTY or Prompt Pipe
-// - Output: Thread-safe router switches between Live Pass-through and Buffered modes
-// - State: Explicitly toggles between "Cooked" mode (for prompts) and "Raw" mode (for PTY)
 func (f *proxyFlow) executeWithProxy(
 	ctx context.Context,
 	parsedCmd *packagemanager.ParsedCommand,
@@ -234,35 +228,9 @@ func (f *proxyFlow) executeWithProxy(
 ) error {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
-	// --- 1. Setup Console/TTY ---
-	c, err := ptyx.NewConsole()
-	if err != nil {
-		log.Fatalf("failed to create console: %v", err)
-	}
-	defer c.Close()
-
-	// Enable virtual terminal processing for color support (especially on Windows)
-	c.EnableVT()
-
-	// --- 2. Set Terminal to Raw Mode ---
-	// We MUST put the real terminal into Raw mode so we can forward ctrl+c, arrows, etc.
-	// We save 'oldState' so we can restore it for prompts and on exit.
-	oldState, err := c.MakeRaw()
-	if err != nil {
-		return fmt.Errorf("failed to set raw mode: %w", err)
-	}
-	// Safety net: Restore terminal if we crash or exit
-	defer func() { _ = c.Restore(oldState) }()
-
-	// --- 3. Get Terminal Size & Spawn PTY ---
-	w, h := c.Size()
-
-	s, err := ptyx.Spawn(context.Background(), ptyx.SpawnOpts{
-		Prog: parsedCmd.Command.Exe,
-		Args: parsedCmd.Command.Args,
-		Cols: w,
-		Rows: h,
-		Env: append(os.Environ(),
+	sessionConfig := pty.NewSessionConfig(
+		parsedCmd.Command.Exe, parsedCmd.Command.Args,
+		append(os.Environ(),
 			fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
 			fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
 			fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
@@ -273,188 +241,87 @@ func (f *proxyFlow) executeWithProxy(
 			fmt.Sprintf("PIP_CERT=%s", caCertPath),
 			fmt.Sprintf("PIP_PROXY=%s", proxyURL),
 		),
-	})
+	)
+
+	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {
-		log.Fatalf("failed to spawn: %v", err)
+		return fmt.Errorf("failed to create pty session: %w", err)
 	}
-	defer s.Close()
+	defer sess.Close()
 
-	// --- 4. Setup The "Switchboards" ---
+	outputRouter, err := pty.NewOutputRouter(os.Stdout)
+	if err != nil {
+		return fmt.Errorf("failed to create output router: %w", err)
+	}
 
-	// OUTPUT ROUTER: Handles Live vs Buffered output
-	router := NewOutputRouter(os.Stdout)
 	go func() {
-		_, _ = io.Copy(router, s.PtyReader())
+		_, _ = io.Copy(outputRouter, sess.PtyReader())
 	}()
 
-	// INPUT ROUTER: Uses io.Pipe to route input to either PTY or Prompt
-	// promptReader -> acts as 'stdin' for the confirmation prompt
-	// promptWriter -> where we send keystrokes during a prompt
+	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
+	if err != nil {
+		return fmt.Errorf("failed to create input router: %w", err)
+	}
+
 	promptReader, promptWriter := io.Pipe()
 	defer promptWriter.Close()
 
-	// inputDest holds the current destination for keystrokes.
-	// If nil -> Send to PTY (normal operation)
-	// If set -> Send to that Writer (the prompt pipe)
-	// Note: We use atomic.Pointer[writerDest] because atomic.Value panics on nil stores.
-	var inputDest atomic.Pointer[writerDest]
+	go inputRouter.ReadLoop(os.Stdin)
 
-	// MAIN INPUT LOOP (The only goroutine reading os.Stdin)
-	// This solves the "Input Race" bug - we never stop reading stdin,
-	// we just switch where the data goes.
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			nr, err := os.Stdin.Read(buf)
-			if err != nil {
-				return // Exit on EOF or error
-			}
-
-			// Check where to route the data
-			if dest := inputDest.Load(); dest != nil {
-				// We are prompting! Send keys to the pipe.
-				_, _ = dest.w.Write(buf[:nr])
-			} else {
-				// Normal operation! Send keys to the child PTY.
-				_, _ = s.PtyWriter().Write(buf[:nr])
-			}
-		}
-	}()
-
-	// --- 5. Wire up the Confirmation Hooks ---
 	go interceptors.HandleConfirmationRequests(
 		confirmationChan,
 		*interaction,
 		&interceptors.ConfirmationHook{
 			BeforeInteraction: func(_ []*analyzer.PackageVersionAnalysisResult) error {
-				// A. Stop printing child output (Buffer it)
-				router.Pause()
+				// Pause printing the child output
+				outputRouter.Pause()
 
-				// B. Restore "Cooked" mode so user can type normally with echo
-				_ = c.Restore(oldState)
+				// Restore "Cooked" mode so user can type normally with echo
+				if err := sess.SetCookedMode(); err != nil {
+					return fmt.Errorf("failed to set cooked mode: %w", err)
+				}
 
-				// C. Force cursor visible (ANSI escape sequence)
+				// Force cursor visible (ANSI escape sequence)
 				fmt.Fprint(os.Stdout, "\033[?25h")
 
-				// D. Switch Input: Route keystrokes to the Prompt Pipe
-				inputDest.Store(&writerDest{w: promptWriter})
+				// Switch Input: Route keystrokes to the Prompt Pipe
+				inputRouter.RouteToPrompt(promptWriter)
 
-				// E. Inject the Reader into the Interaction for the confirmation prompt
+				// Inject the Reader into the Interaction for the confirmation prompt
 				interaction.SetInput(promptReader)
 
 				return nil
 			},
 			AfterInteraction: func(_ []*analyzer.PackageVersionAnalysisResult, _ bool) error {
-				// A. Switch Input: Route keystrokes back to PTY (nil means PTY)
-				inputDest.Store(nil)
+				// Switch input back to PTY
+				inputRouter.RouteToPTY()
 
-				// B. Restore "Raw" mode for the child PTY
-				_, _ = c.MakeRaw()
+				// Restore "Raw" mode for the PTY
+				if err := sess.SetRawMode(); err != nil {
+					return fmt.Errorf("failed to set raw mode: %w", err)
+				}
 
-				// C. Clear the interaction input (back to default)
+				// Clear the interaction input (back to default)
 				interaction.SetInput(nil)
 
-				// D. Flush buffered output and resume live output
-				router.Resume()
+				// Flush buffered output and resume live output
+				outputRouter.Resume()
 
 				return nil
 			},
 		},
 	)
 
-	// --- 6. Wait for Child Process ---
-	err = s.Wait()
+	err = sess.Wait()
 	if err != nil {
-		if exitErr, ok := err.(*ptyx.ExitError); ok {
-			// IMPORTANT: Restore terminal BEFORE os.Exit() because
-			// os.Exit() does NOT run deferred functions!
-			// If we don't restore, the terminal is left in raw mode
-			// and subsequent runs will be corrupted.
-			_ = c.Restore(oldState)
+		var exitErr *pty.ExitError
+		if errors.As(err, &exitErr) {
 			promptWriter.Close()
-			os.Exit(exitErr.ExitCode)
+			sess.Close()
+			os.Exit(exitErr.Code)
 		}
 		return err
 	}
 
 	return nil
-}
-
-// writerDest wraps an io.Writer for use with atomic.Pointer.
-// This is needed because atomic.Value panics when storing nil interface values,
-// but atomic.Pointer allows nil pointer stores.
-type writerDest struct {
-	w io.Writer
-}
-
-// OutputRouter manages the stdout stream. It can pause "Live" output
-// and buffer it in memory, then flush it later. This prevents the child
-// process's spinner/progress output from corrupting the confirmation prompt.
-type OutputRouter struct {
-	mu        sync.Mutex
-	out       io.Writer    // The real destination (os.Stdout)
-	buffer    bytes.Buffer // Temporary storage during prompts
-	buffering bool         // The mode flag
-}
-
-func NewOutputRouter(out io.Writer) *OutputRouter {
-	return &OutputRouter{
-		out: out,
-	}
-}
-
-// Write implements io.Writer. It is thread-safe.
-func (r *OutputRouter) Write(p []byte) (n int, err error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.buffering {
-		// We are in "Prompt Mode", so save this output for later.
-		// If we printed it now, it would mess up the "Allow [y/N]?" prompt.
-		return r.buffer.Write(p)
-	}
-
-	// Normal mode: just print it to stdout.
-	return r.out.Write(p)
-}
-
-// Pause starts buffering output. Call this before showing a confirmation prompt.
-func (r *OutputRouter) Pause() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buffering = true
-}
-
-// Resume stops buffering, flushes any buffered output, and resumes live output.
-// Call this after the confirmation prompt is complete.
-func (r *OutputRouter) Resume() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Flush any buffered output
-	if r.buffer.Len() > 0 {
-		_, _ = io.Copy(r.out, &r.buffer)
-		r.buffer.Reset()
-	}
-
-	r.buffering = false
-}
-
-// SetBuffering sets the buffering state directly.
-func (r *OutputRouter) SetBuffering(enable bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buffering = enable
-}
-
-// Flush prints everything that was hidden while buffering was on.
-func (r *OutputRouter) Flush() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.buffer.Len() > 0 {
-		// Write the stored logs to the real output
-		_, _ = io.Copy(r.out, &r.buffer)
-		r.buffer.Reset()
-	}
 }
