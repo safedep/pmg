@@ -27,10 +27,10 @@ experimental_proxy_mode: true
 | --------------- | --------- |
 | `npm`           | ✅ Active  |
 | `npx`           | 🕒 Planned |
-| `yarn`          | 🕒 Planned |
-| `pnpm`          | 🕒 Planned |
+| `yarn`          | ✅ Active |
+| `pnpm`          | ✅ Active |
 | `pnpx`          | 🕒 Planned |
-| `bun`           | 🕒 Planned |
+| `bun`           | ✅ Active |
 | `pip`           | 🕒 Planned |
 | `uv`            | 🕒 Planned |
 | `poetry`        | 🕒 Planned |
