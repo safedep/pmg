@@ -99,7 +99,7 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 	}
 
 	r.mu.Lock()
-	r.profiles[policy.Name] = policy
+	r.profiles[path] = policy
 	r.mu.Unlock()
 
 	return policy, nil
