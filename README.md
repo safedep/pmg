@@ -84,6 +84,8 @@ PMG supports the following package managers:
 | `pip`           | ✅ Active | `pmg pip install <package>`                              |
 | `uv`            | ✅ Active | `pmg uv add <package>` or `pmg uv pip install <package>` |
 | `poetry`        | ✅ Active | `pmg poetry add <package>`                               |
+| `npx`           | ✅ Active | `pmg npx <package> <action>`                             |
+| `pnpx`          | ✅ Active | `pmg pnpx <package> <action>`                            |
 
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 

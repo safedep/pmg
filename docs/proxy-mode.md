@@ -26,10 +26,10 @@ experimental_proxy_mode: true
 | Package Manager | Status    |
 | --------------- | --------- |
 | `npm`           | ✅ Active  |
-| `npx`           | 🕒 Planned |
-| `yarn`          | 🕒 Planned |
+| `npx`           | ✅ Active |
+| `pnpx`          | ✅ Active |
 | `pnpm`          | 🕒 Planned |
-| `pnpx`          | 🕒 Planned |
+| `yarn`          | 🕒 Planned |
 | `bun`           | 🕒 Planned |
 | `pip`           | 🕒 Planned |
 | `uv`            | 🕒 Planned |
