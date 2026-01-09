@@ -31,7 +31,8 @@ type InteractiveSession interface {
 	Close() error
 }
 
-// session implements InteractiveSession using ptyx
+var _ InteractiveSession = &session{}
+
 type session struct {
 	console  ptyx.Console
 	spawn    ptyx.Session
