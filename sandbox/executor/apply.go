@@ -75,7 +75,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string) (*sandbox.E
 	}
 
 	if !sb.IsAvailable() {
-		return nil, fmt.Errorf("sandbox %s not available, running without sandbox", sb.Name())
+		return nil, fmt.Errorf("sandbox %s is required but not available", sb.Name())
 	}
 
 	log.Debugf("Running %s in %s sandbox with policy %s", pmName, sb.Name(), policy.Name)

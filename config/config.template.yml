@@ -52,7 +52,8 @@ trusted_packages:
 # filesystem, network, and process execution access. This provides defense-in-depth
 # protection against malicious install scripts and supply chain attacks.
 #
-# Policy violations will block execution (this is the only supported behavior).
+# When sandboxing is enabled for a package manager, policy violations will block execution
+# (no "warn-only" mode). Sandboxing itself can be disabled globally or per package manager.
 #
 # Currently supported platforms:
 # - macOS (using Seatbelt sandbox-exec)
