@@ -5,7 +5,6 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -14,7 +13,6 @@ type InterceptorFactory struct {
 	analyzer         analyzer.PackageVersionAnalyzer
 	cache            AnalysisCache
 	confirmationChan chan *ConfirmationRequest
-	interaction      guard.PackageManagerGuardInteraction
 }
 
 // NewInterceptorFactory creates a new interceptor factory with shared dependencies
@@ -22,13 +20,11 @@ func NewInterceptorFactory(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
 	confirmationChan chan *ConfirmationRequest,
-	interaction guard.PackageManagerGuardInteraction,
 ) *InterceptorFactory {
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
 		confirmationChan: confirmationChan,
-		interaction:      interaction,
 	}
 }
 
@@ -41,7 +37,6 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.analyzer,
 			f.cache,
 			f.confirmationChan,
-			f.interaction,
 		), nil
 
 	default:

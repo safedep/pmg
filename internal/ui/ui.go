@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -76,7 +78,15 @@ func SetStatus(status string) {
 	StartSpinnerWithColor(fmt.Sprintf("ℹ️ %s", status), Colors.Green)
 }
 
+// GetConfirmationOnMalware prompts the user to confirm installation of suspicious packages.
+// It reads from os.Stdin. Use GetConfirmationOnMalwareWithReader for custom input sources.
 func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+	return GetConfirmationOnMalwareWithReader(malwarePackages, os.Stdin)
+}
+
+// GetConfirmationOnMalwareWithReader prompts the user to confirm installation of suspicious packages.
+// It reads from the provided reader, allowing for PTY input routing during proxy mode.
+func GetConfirmationOnMalwareWithReader(malwarePackages []*analyzer.PackageVersionAnalysisResult, reader io.Reader) (bool, error) {
 	StopSpinner()
 
 	fmt.Println()
@@ -87,19 +97,19 @@ func GetConfirmationOnMalware(malwarePackages []*analyzer.PackageVersionAnalysis
 	fmt.Println()
 	fmt.Print(Colors.Yellow("Do you want to continue with the installation? (y/N) "))
 
-	var response string
-
-	// We don't care about the error here because we will return false
-	// if the user doesn't provide a valid response
-	_, _ = fmt.Scanln(&response)
-
-	if len(response) == 0 {
-		return false, nil
+	// Use Scanner on the provided reader to support PTY input routing
+	scanner := bufio.NewScanner(reader)
+	if scanner.Scan() {
+		response := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if response == "y" || response == "yes" || (len(response) > 0 && response[0] == 'y') {
+			return true, nil
+		}
 	}
 
-	response = strings.ToLower(response)
-	if response == "y" || response == "yes" || response[0] == 'y' {
-		return true, nil
+	// Check for scanner errors, but don't treat them as fatal
+	if err := scanner.Err(); err != nil {
+		// On EOF or interrupted read, just return false (deny)
+		return false, nil
 	}
 
 	return false, nil

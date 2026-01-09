@@ -3,9 +3,9 @@
 PMG supports an experimental proxy based interception as an alternative to the current optimistic dependency resolution. When enabled via `--experimental-proxy-mode` flag:
 
 - PMG starts a micro-proxy server on a random localhost port
-- Run `npm` and other supported package managers configured to use the proxy
-- Intercept package registry requests and analyze packages as they are downloaded
-- Block malicious packages and allow trusted packages to be installed
+- Runs `npm` and other supported package managers configured to use the proxy
+- Intercepts package registry requests and analyzes packages as they are downloaded
+- Blocks malicious packages and allows trusted packages to be installed
 
 ## Usage
 
@@ -26,11 +26,11 @@ experimental_proxy_mode: true
 | Package Manager | Status    |
 | --------------- | --------- |
 | `npm`           | ✅ Active  |
-| `npx`           | 🕒 Planned |
-| `yarn`          | ✅ Active |
+| `npx`           | ✅ Active |
 | `pnpm`          | ✅ Active |
-| `pnpx`          | 🕒 Planned |
+| `pnpx`          | ✅ Active |
 | `bun`           | ✅ Active |
+| `yarn`          | ✅ Active |
 | `pip`           | 🕒 Planned |
 | `uv`            | 🕒 Planned |
 | `poetry`        | 🕒 Planned |

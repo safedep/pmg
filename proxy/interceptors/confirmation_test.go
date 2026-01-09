@@ -118,7 +118,7 @@ func TestHandleConfirmationRequests(t *testing.T) {
 			}
 
 			confirmationChan := make(chan *ConfirmationRequest, 1)
-			go HandleConfirmationRequests(confirmationChan, interaction, hooks)
+			go HandleConfirmationRequests(confirmationChan, &interaction, hooks)
 
 			pkgVersion := mockPackageVersion("test-package", "1.0.0")
 			analysisResult := mockAnalysisResult()
@@ -159,7 +159,7 @@ func TestHandleConfirmationRequests_MultipleSequential(t *testing.T) {
 	}
 
 	confirmationChan := make(chan *ConfirmationRequest, 3)
-	go HandleConfirmationRequests(confirmationChan, interaction, nil)
+	go HandleConfirmationRequests(confirmationChan, &interaction, nil)
 
 	pkgVersion1 := mockPackageVersion("package-1", "1.0.0")
 	analysisResult1 := mockAnalysisResult()
