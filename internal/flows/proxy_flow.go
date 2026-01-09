@@ -38,6 +38,15 @@ func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
+
+	// Get the ecosystem from the package manager
+	ecosystem := f.pm.Ecosystem()
+
+	// Check if proxy mode is supported for this ecosystem
+	if !interceptors.IsSupported(ecosystem) {
+		return fmt.Errorf("proxy mode is not supported for %s", ecosystem.String())
+	}
+
 	cfg := config.Get()
 
 	// Check if dry-run mode is enabled
@@ -94,27 +103,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Block:       ui.Block,
 	}
 
-	if pty.IsInteractiveTerminal() {
-		// Set the confirmation handler to use the interaction's reader
-		// This allows PTY input routing during proxy mode
-		interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
-			return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
-		}
-	} else {
-		// For non-interactive terminals, we enforce suspicious packages as malicious
-		interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
-			return false, nil
-		}
-	}
-
-	// Get the ecosystem from the package manager
-	ecosystem := f.pm.Ecosystem()
-
-	// Check if proxy mode is supported for this ecosystem
-	if !interceptors.IsSupported(ecosystem) {
-		return fmt.Errorf("proxy mode is not supported for %s", ecosystem.String())
-	}
-
 	// Create ecosystem-specific interceptor using factory
 	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, confirmationChan)
 	interceptor, err := factory.CreateInterceptor(ecosystem)
@@ -147,11 +135,11 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
 
 	if !pty.IsInteractiveTerminal() {
-		// Execute the package manager / executor command with proxy environment variables for non PTY or non-interactive TTY
+		// Execute the package manager command with proxy environment variables for non PTY or non-interactive TTY
 		return f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
 
-	// Execute the package manager / executor command with proxy environment variables
+	// Execute the package manager command with proxy environment variables
 	return f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 }
 
@@ -264,6 +252,11 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 ) error {
 	log.Debugf("Executing proxy for non interactive TTY")
 
+	// For non-interactive terminals, we enforce suspicious packages as malicious
+	interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+		return false, nil
+	}
+
 	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
 	cmd.Env = append(env, "CI=true")
 	cmd.Stdin = os.Stdin
@@ -298,6 +291,12 @@ func (f *proxyFlow) executeWithProxy(
 	interaction *guard.PackageManagerGuardInteraction,
 ) error {
 	log.Debugf("Executing proxy for interactive TTY")
+
+	// Set the confirmation handler to use the interaction's reader
+	// This allows PTY input routing during proxy mode
+	interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+		return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
+	}
 
 	sessionConfig := pty.NewSessionConfig(parsedCmd.Command.Exe, parsedCmd.Command.Args, env)
 

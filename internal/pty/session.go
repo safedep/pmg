@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/KennethanCeyer/ptyx"
 	"golang.org/x/term"
@@ -34,8 +35,13 @@ type InteractiveSession interface {
 }
 
 // IsInteractiveTerminal returns true if stdin is a real terminal (TTY).
-// Returns false in CI environments, when input is piped, or in non-interactive shells.
+// Returns false in CI environments (when the "CI" env var set to "true"),
+// when input is piped, or in non-interactive shells.
 func IsInteractiveTerminal() bool {
+	if ci := os.Getenv("CI"); ci != "" && strings.ToLower(ci) == "true" {
+		return false
+	}
+
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
