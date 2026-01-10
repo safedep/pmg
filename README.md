@@ -260,28 +260,6 @@ from non-PyPI locations.
 
 </details>
 
-<details>
-<summary>Windows support for experimental proxy mode</summary>
-
-PMG's experimental proxy mode (enabled with `--experimental-proxy-mode` flag) is supported on Windows
-with the following considerations:
-
-**Process Suspension**: PMG uses the Windows NT API (NtSuspendProcess/NtResumeProcess) to pause the
-package manager during security prompts. This prevents console output from being mixed with interactive
-prompts. While this API is widely used by tools like Process Explorer and is stable, it has some known
-limitations:
-
-- **Race condition**: Threads created during suspension are not suspended (very unlikely for brief suspensions)
-- **Permission requirements**: Requires Windows Vista or later (all currently supported Windows versions)
-- **Antivirus detection**: Some antivirus software may flag the use of NtSuspendProcess as suspicious behavior,
-  which is a false positive (PMG only uses it to pause its own child processes during user interaction)
-
-**Fallback Behavior**: If process suspension fails (e.g., due to insufficient permissions), PMG continues
-with the security prompt but console output from the package manager may be mixed with the prompt text.
-This doesn't affect security functionality.
-
-</details>
-
 ## Telemetry
 
 `pmg` collects anonymous telemetry to help us understand how it is used and
