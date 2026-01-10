@@ -82,9 +82,11 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		}
 	}
 
-	// Unlike npx, pnpx does not separate package and binary;
-	// the first arg is always an install target.
-	if n.Config.CommandName == "pnpx" && len(flagSet.Args()) > 0 {
+	// For both npx and pnpx, the first positional argument is typically
+	// the package to execute (e.g., `npx cowsay@1.6.0` or `pnpx cowsay@1.6.0`).
+	// However, if -p/--package flags are provided, the first positional arg
+	// is the binary to run, not the package (e.g., `npx -p typescript tsc`).
+	if len(flagSet.Args()) > 0 && len(packages) == 0 {
 		pkg := flagSet.Args()[0]
 		if !slices.Contains(packages, pkg) {
 			packages = append(packages, pkg)
