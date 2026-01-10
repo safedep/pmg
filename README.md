@@ -38,19 +38,7 @@ Set up `pmg` to protect your development environment from malicious packages:
 pmg setup install
 ```
 
-<details>
-<summary>Custom config directory</summary>
-
-```bash
-PMG_CONFIG_DIR=/path/to/config pmg setup install
-```
-</details>
-
-The setup command will:
-
-- Create a `~/.pmg.rc` file containing package manager aliases
-- Automatically add a source line to your shell configuration files
-- Create a default config file. See [config template](config/config.template.yml)
+> **Note:** Make sure to restart your terminal or source your shell's config file.
 
 Continue using your favorite package manager as usual:
 
@@ -124,11 +112,19 @@ Set up PMG to intercept package manager commands:
 pmg setup install
 ```
 
-This command will:
+<details>
+<summary>Custom config directory</summary>
+
+```bash
+PMG_CONFIG_DIR=/path/to/config pmg setup install
+```
+</details>
+
+The setup command will:
 
 - Create a `~/.pmg.rc` file containing package manager aliases
 - Automatically add a source line to your shell configuration files
-- Supports bash, zsh and fish shell
+- Create a default config file. See [config template](config/config.template.yml)
 
 > **Note**: After running `pmg setup install`, restart your terminal or run `source ~/.zshrc` (or your shell's config file) to activate the aliases.
 
