@@ -217,6 +217,56 @@ jobs:
           test -d node_modules/lodash
           cd .. && rm -rf yarn-test
 
+      - name: Test NPX - Package Execution
+        run: |
+          echo "Testing NPX package execution..."
+          mkdir npx-test && cd npx-test
+
+          echo "Testing npx with a simple package..."
+          pmg npx cowsay@1.6.0 "Hello from pmg npx" | tee npx-output.txt
+
+          # Verification: cowsay output contains our message
+          grep -q "Hello from pmg npx" npx-output.txt
+
+          echo "Testing npx with --package flag..."
+          pmg npx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee npx-pkg-output.txt
+
+          # Verification: package flag execution produces expected output
+          grep -q "Hello with package flag" npx-pkg-output.txt
+
+          echo "Testing npx dry-run mode..."
+          pmg --dry-run npx cowsay@1.6.0 "This should not execute" | tee npx-dry-output.txt
+
+          # Verification: dry-run should NOT produce cowsay ASCII art (cow face ^__^ should not appear)
+          ! grep -q '\^__\^' npx-dry-output.txt
+
+          cd .. && rm -rf npx-test
+
+      - name: Test PNPX - Package Execution
+        run: |
+          echo "Testing PNPX package execution..."
+          mkdir pnpx-test && cd pnpx-test
+
+          echo "Testing pnpx with a simple package..."
+          pmg pnpx cowsay@1.6.0 "Hello from pmg pnpx" | tee pnpx-output.txt
+
+          # Verification: cowsay output contains our message
+          grep -q "Hello from pmg pnpx" pnpx-output.txt
+
+          echo "Testing pnpx with --package flag..."
+          pmg pnpx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee pnpx-pkg-output.txt
+
+          # Verification: package flag execution produces expected output
+          grep -q "Hello with package flag" pnpx-pkg-output.txt
+
+          echo "Testing pnpx dry-run mode..."
+          pmg --dry-run pnpx cowsay@1.6.0 "This should not execute" | tee pnpx-dry-output.txt
+
+          # Verification: dry-run should NOT produce cowsay ASCII art (cow face ^__^ should not appear)
+          ! grep -q '\^__\^' pnpx-dry-output.txt
+
+          cd .. && rm -rf pnpx-test
+
       - name: Test Pip - Single Package & Manifest
         run: |
           echo "Testing Pip single package installation..."

@@ -43,12 +43,35 @@ func TestNpxExecutorParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "non-package npx command",
+			name:    "package as first positional arg",
 			command: "npx create-react-app my-app",
 			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.Equal(t, 0, len(parsed.InstallTargets))
+				assert.Equal(t, 1, len(parsed.InstallTargets))
+				assert.Equal(t, "create-react-app", parsed.InstallTargets[0].PackageVersion.Package.Name)
 				assert.Equal(t, []string{"create-react-app", "my-app"}, parsed.Command.Args)
+			},
+		},
+		{
+			name:    "package with version as first positional arg",
+			command: "npx cowsay@1.6.0 hello",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsed.InstallTargets))
+				assert.Equal(t, "cowsay", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.6.0", parsed.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "package via -p flag with different binary",
+			command: "npx -p typescript tsc --version",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsed.InstallTargets))
+				assert.Equal(t, "typescript", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Empty(t, parsed.InstallTargets[0].PackageVersion.Version)
+				// tsc is the binary, not a package
+				assert.Equal(t, []string{"-p", "typescript", "tsc", "--version"}, parsed.Command.Args)
 			},
 		},
 		{
