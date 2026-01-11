@@ -85,6 +85,9 @@ func executeSetupInfo() error {
 		securityEntries["Trusted Packages"] = "None"
 	}
 
+	securityEntries["Event Logging"] = strconv.FormatBool(!cfg.Config.SkipEventLogging)
+	securityEntries["Event Log Directory"] = cfg.EventLogDir()
+
 	ui.PrintInfoSection("Security", securityEntries)
 
 	return nil
