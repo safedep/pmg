@@ -38,19 +38,7 @@ Set up `pmg` to protect your development environment from malicious packages:
 pmg setup install
 ```
 
-<details>
-<summary>Custom config directory</summary>
-
-```bash
-PMG_CONFIG_DIR=/path/to/config pmg setup install
-```
-</details>
-
-The setup command will:
-
-- Create a `~/.pmg.rc` file containing package manager aliases
-- Automatically add a source line to your shell configuration files
-- Create a default config file. See [config template](config/config.template.yml)
+> **Note:** Make sure to restart your terminal or source your shell's config file.
 
 Continue using your favorite package manager as usual:
 
@@ -124,11 +112,19 @@ Set up PMG to intercept package manager commands:
 pmg setup install
 ```
 
-This command will:
+<details>
+<summary>Custom config directory</summary>
+
+```bash
+PMG_CONFIG_DIR=/path/to/config pmg setup install
+```
+</details>
+
+The setup command will:
 
 - Create a `~/.pmg.rc` file containing package manager aliases
 - Automatically add a source line to your shell configuration files
-- Supports bash, zsh and fish shell
+- Create a default config file. See [config template](config/config.template.yml)
 
 > **Note**: After running `pmg setup install`, restart your terminal or run `source ~/.zshrc` (or your shell's config file) to activate the aliases.
 
@@ -257,28 +253,6 @@ is malicious. However, there is a possibility of inconsistency when a specific v
 alternative sources such as Git URLs, local file paths, or private registries are not analyzed for
 malware detection. This limitation applies to direct installations and transitive dependencies sourced
 from non-PyPI locations.
-
-</details>
-
-<details>
-<summary>Windows support for experimental proxy mode</summary>
-
-PMG's experimental proxy mode (enabled with `--experimental-proxy-mode` flag) is supported on Windows
-with the following considerations:
-
-**Process Suspension**: PMG uses the Windows NT API (NtSuspendProcess/NtResumeProcess) to pause the
-package manager during security prompts. This prevents console output from being mixed with interactive
-prompts. While this API is widely used by tools like Process Explorer and is stable, it has some known
-limitations:
-
-- **Race condition**: Threads created during suspension are not suspended (very unlikely for brief suspensions)
-- **Permission requirements**: Requires Windows Vista or later (all currently supported Windows versions)
-- **Antivirus detection**: Some antivirus software may flag the use of NtSuspendProcess as suspicious behavior,
-  which is a false positive (PMG only uses it to pause its own child processes during user interaction)
-
-**Fallback Behavior**: If process suspension fails (e.g., due to insufficient permissions), PMG continues
-with the security prompt but console output from the package manager may be mixed with the prompt text.
-This doesn't affect security functionality.
 
 </details>
 
