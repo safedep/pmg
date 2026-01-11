@@ -1,6 +1,7 @@
 package alias
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,12 @@ func TestDetectShell(t *testing.T) {
 			shellEnvValue: "bash",
 			want:          "bash",
 			wantErr:       nil,
+		},
+		{
+			name:          "when shell env is not set",
+			shellEnvValue: "",
+			want:          "",
+			wantErr:       fmt.Errorf("SHELL environment variable not set"),
 		},
 	}
 

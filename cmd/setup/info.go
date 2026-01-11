@@ -16,7 +16,7 @@ func NewInfoCommand() *cobra.Command {
 		Use:   "info",
 		Short: "Show information about PMG setup and configuration.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := execueSetupInfo()
+			err := executeSetupInfo()
 			if err != nil {
 				ui.ErrorExit(fmt.Errorf("failed to execute setup info: %w", err))
 			}
@@ -28,7 +28,7 @@ func NewInfoCommand() *cobra.Command {
 	return cmd
 }
 
-func execueSetupInfo() error {
+func executeSetupInfo() error {
 	fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
 	// Configuration section
