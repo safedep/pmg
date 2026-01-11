@@ -142,6 +142,34 @@ func (a *AliasManager) Remove() error {
 	return nil
 }
 
+// IsInstalled checks if the PMG aliases are sourced in any of the shell config files.
+func (a *AliasManager) IsInstalled() (bool, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+
+	for _, shell := range a.config.Shells {
+		configPath := filepath.Join(homeDir, shell.Path())
+
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+
+			log.Warnf("Warning: could not read %s (%s)", shell.Name(), err)
+			continue
+		}
+
+		if strings.Contains(string(data), a.config.RcFileName) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // buildAliases creates the alias strings for all configured package managers.
 func (a *AliasManager) buildAliases() []string {
 	aliases := make([]string, 0, len(a.config.PackageManagers))

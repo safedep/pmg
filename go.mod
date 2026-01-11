@@ -23,7 +23,6 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/sys v0.35.0
 	golang.org/x/term v0.34.0
 	google.golang.org/grpc v1.72.0
 )
@@ -216,6 +215,7 @@ require (
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
