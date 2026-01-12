@@ -270,8 +270,17 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 		nil,
 	)
 
+	result, err := executor.ApplySandbox(ctx, cmd, f.pm.Name())
+	if err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
+
+	defer result.Close()
+
 	// Only run the command if the sandbox didn't already execute it
 	if result.ShouldRun() {
+		log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
+
 		err = cmd.Run()
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
@@ -302,7 +311,27 @@ func (f *proxyFlow) executeWithProxy(
 		return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
 	}
 
-	sessionConfig := pty.NewSessionConfig(parsedCmd.Command.Exe, parsedCmd.Command.Args, env)
+	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
+	result, err := executor.ApplySandbox(ctx, cmd, f.pm.Name())
+	if err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
+
+	if !result.ShouldRun() {
+		return fmt.Errorf("sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
+	}
+
+	// Extract the command executable and arguments from the sandboxed command
+	// for use to create the PTY session.
+	cmdExe := cmd.Path
+	cmdArgs := cmd.Args[1:]
+
+	log.Debugf("Running command with args: %s: %v", cmdExe, cmdArgs)
+
+	// Create the PTY session with the sandbox command
+	// This is not compatible with sandbox that executes the command directly within the sandbox
+	// because internally we use ptyx.Spawn() to create the process with PTY support.
+	sessionConfig := pty.NewSessionConfig(cmdExe, cmdArgs, env)
 
 	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {
@@ -399,6 +428,7 @@ func (f *proxyFlow) executeWithProxy(
 
 			os.Exit(exitErr.Code)
 		}
+
 		return err
 	}
 

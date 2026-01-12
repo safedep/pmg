@@ -34,13 +34,13 @@ func WithSandbox(sb sandbox.Sandbox) applySandboxOpt {
 func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...applySandboxOpt) (*sandbox.ExecutionResult, error) {
 	cfg := config.Get()
 
+	if !cfg.Config.Sandbox.Enabled {
+		return sandbox.NewExecutionResult(), nil
+	}
+
 	applyConfig := &applySandboxConfig{}
 	for _, opt := range opts {
 		opt(applyConfig)
-	}
-
-	if !cfg.Config.Sandbox.Enabled {
-		return sandbox.NewExecutionResult(), nil
 	}
 
 	registry, err := sandbox.NewProfileRegistry()
