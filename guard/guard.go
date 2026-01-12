@@ -256,7 +256,8 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
-	packages []*packagev1.PackageVersion) ([]*analyzer.PackageVersionAnalysisResult, error) {
+	packages []*packagev1.PackageVersion,
+) ([]*analyzer.PackageVersionAnalysisResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, g.config.AnalysisTimeout)
 	defer cancel()
 

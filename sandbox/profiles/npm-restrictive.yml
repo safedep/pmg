@@ -33,18 +33,19 @@ filesystem:
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.node-gyp/**
+    - ${HOME}/.nvm/**
+    - /usr/local/**
+    - ${TMPDIR}/**
+    - /opt/homebrew/**
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
     # Temporary directories for shell scripts and package managers
     - /tmp/**
     - /var/tmp/**
-    # Project directories
-    - ${CWD}/node_modules/**
-    - ${CWD}/package-lock.json
-    - ${CWD}/yarn.lock
-    - ${CWD}/pnpm-lock.yaml
-    - ${CWD}/bun.lockb
+    # Project directories - allow writes within the current working directory
+    - ${CWD}/**
     # Package manager caches and stores
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
@@ -52,6 +53,8 @@ filesystem:
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/cache/**
+    - ${TMPDIR}/**
+    - /private/var/folders/**
 
   # Additional deny rules (optional - credentials are automatically blocked)
   # Automatically blocked for security:
@@ -98,6 +101,7 @@ process:
     - /bin/bash
     - /bin/sh
     - /usr/bin/env
+    - /opt/homebrew/bin/**
 
   deny_exec:
     - /usr/bin/curl

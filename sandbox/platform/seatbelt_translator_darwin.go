@@ -346,6 +346,11 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 }
 
 // translateFilesystem translates filesystem access rules.
+// Note: File reads are allowed globally by default (security enforced via deny rules).
+// This function focuses on:
+// 1. Allow write rules (writes are denied by default)
+// 2. Deny read rules (to protect sensitive files like ~/.ssh, ~/.aws)
+// 3. Deny write rules (additional write restrictions)
 func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Filesystem access\n")
 
@@ -418,11 +423,32 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		expandedDenyRead = append(expandedDenyRead, expanded)
 	}
 
-	// Add file movement protection for deny read paths
+	// Add file movement protection for user-specified deny read paths only
+	// (not mandatory patterns, as those would block CWD/HOME operations)
 	if len(expandedDenyRead) > 0 {
-		sb.WriteString("\n;; Prevent bypassing read restrictions via file movement\n")
+		sb.WriteString(";; Prevent bypassing read restrictions via file movement\n")
 		for _, rule := range generateMoveBlockingRules(expandedDenyRead, t.logTag) {
 			sb.WriteString(rule + "\n")
+		}
+	}
+
+	sb.WriteString("\n")
+
+	// Add mandatory deny read patterns for security (credentials, sensitive dirs)
+	// Note: Move-blocking is NOT applied to these to avoid blocking CWD/HOME operations
+	sb.WriteString(";; Mandatory security deny reads (credentials, sensitive directories)\n")
+	mandatoryDenyReads := util.GetMandatoryDenyPatterns(policy.AllowGitConfig)
+	for _, pattern := range mandatoryDenyReads {
+		expanded, err := util.ExpandVariables(pattern)
+		if err != nil {
+			return fmt.Errorf("failed to expand mandatory deny read pattern %s: %w", pattern, err)
+		}
+
+		if util.ContainsGlob(expanded) {
+			regexPattern := util.GlobToRegex(expanded)
+			sb.WriteString(fmt.Sprintf("(deny file-read* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+		} else {
+			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
 		}
 	}
 
@@ -447,7 +473,19 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 	sb.WriteString("\n")
 
+	// Add file movement protection for user-specified deny write paths only
+	// (not mandatory patterns, as those would block CWD/HOME operations)
+	if len(expandedDenyWrite) > 0 {
+		sb.WriteString(";; Prevent bypassing write restrictions via file movement\n")
+		for _, rule := range generateMoveBlockingRules(expandedDenyWrite, t.logTag) {
+			sb.WriteString(rule + "\n")
+		}
+	}
+
+	sb.WriteString("\n")
+
 	// Add mandatory deny patterns for security (credentials, git hooks, etc.)
+	// Note: Move-blocking is NOT applied to these to avoid blocking CWD/HOME operations
 	sb.WriteString(";; Mandatory security denies (credentials, git hooks, etc.)\n")
 	mandatoryDenies := util.GetMandatoryDenyPatterns(policy.AllowGitConfig)
 	for _, pattern := range mandatoryDenies {
@@ -464,17 +502,6 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		} else {
 			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
 		}
-		expandedDenyWrite = append(expandedDenyWrite, expanded)
-	}
-
-	sb.WriteString("\n")
-
-	// Add file movement protection for all deny write paths (user + mandatory)
-	if len(expandedDenyWrite) > 0 {
-		sb.WriteString(";; Prevent bypassing write restrictions via file movement\n")
-		for _, rule := range generateMoveBlockingRules(expandedDenyWrite, t.logTag) {
-			sb.WriteString(rule + "\n")
-		}
 	}
 
 	sb.WriteString("\n")
@@ -482,11 +509,55 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	return nil
 }
 
+// formatFileRule formats a file access rule based on the path pattern.
+// - Patterns ending with /** use subpath (recursive directory)
+// - Patterns ending with /* use subpath (immediate children only, but seatbelt doesn't distinguish)
+// - Patterns with globs like *.ext use regex
+// - Plain paths use literal for files or subpath for directories (treated as subpath for simplicity)
+func (t *seatbeltPolicyTranslator) formatFileRule(action, operation, path string) string {
+	// Handle recursive glob patterns like /path/**
+	if strings.HasSuffix(path, "/**") {
+		baseDir := strings.TrimSuffix(path, "/**")
+		return fmt.Sprintf("(%s %s (subpath \"%s\"))\n", action, operation, baseDir)
+	}
+
+	// Handle single-level glob patterns like /path/*
+	if strings.HasSuffix(path, "/*") {
+		baseDir := strings.TrimSuffix(path, "/*")
+		return fmt.Sprintf("(%s %s (subpath \"%s\"))\n", action, operation, baseDir)
+	}
+
+	// Handle patterns like **/.env or **/.env.* (glob patterns that should match anywhere)
+	if strings.HasPrefix(path, "**/") {
+		// Convert to regex pattern
+		pattern := strings.TrimPrefix(path, "**/")
+		// Escape special regex characters and convert glob to regex
+		pattern = strings.ReplaceAll(pattern, ".", "\\.")
+		pattern = strings.ReplaceAll(pattern, "*", ".*")
+		return fmt.Sprintf("(%s %s (regex #\".*/%s$\"))\n", action, operation, pattern)
+	}
+
+	// Handle file extension globs like /path/*.json
+	if util.ContainsGlob(path) {
+		// For other glob patterns, use the base directory as subpath
+		// This is a simplification - ideally we'd convert to proper regex
+		lastSlash := strings.LastIndex(path, "/")
+		if lastSlash > 0 {
+			baseDir := path[:lastSlash]
+			return fmt.Sprintf("(%s %s (subpath \"%s\"))\n", action, operation, baseDir)
+		}
+	}
+
+	// For plain paths, use subpath (works for both files and directories)
+	// Using subpath for files is more permissive but simpler
+	return fmt.Sprintf("(%s %s (subpath \"%s\"))\n", action, operation, path)
+}
+
 // translateNetwork translates network access rules.
 func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
 	sb.WriteString(";; Network access\n")
 
-	// Check if deny all is present
+	// Check if network is completely blocked
 	denyAll := false
 	for _, pattern := range policy.Network.DenyOutbound {
 		if pattern == "*:*" {
@@ -495,25 +566,28 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		}
 	}
 
-	// If there are allow outbound rules, allow network-outbound generally
-	// (Seatbelt doesn't support fine-grained host:port filtering in all cases)
-	// Note: This is a limitation of Seatbelt - for more fine-grained control,
-	// consider using a network filtering solution or firewall rules
-	if len(policy.Network.AllowOutbound) > 0 {
-		sb.WriteString(";; Network outbound allowed to specific hosts\n")
-		sb.WriteString(";; Note: Seatbelt has limited host-based filtering, consider using firewall rules for strict control\n")
-		sb.WriteString("(allow network-outbound)\n")
-	} else if denyAll {
-		// If there are no allow rules but deny all is set, explicitly deny network
-		// This handles the case where user wants to completely block network access
-		sb.WriteString(";; Network outbound denied (no allowed hosts specified)\n")
-		sb.WriteString("(deny network-outbound)\n")
-	}
+	if denyAll && len(policy.Network.AllowOutbound) == 0 {
+		// Complete network block - deny all network operations
+		sb.WriteString(";; Network completely blocked\n")
+		sb.WriteString("(deny network*)\n")
+	} else if len(policy.Network.AllowOutbound) > 0 {
+		// Allow network outbound - Seatbelt doesn't support fine-grained host:port filtering
+		// The allowlist is informational; actual enforcement should use firewall rules if needed
+		sb.WriteString(";; Network outbound allowed\n")
+		sb.WriteString(";; Note: Seatbelt has limited host-based filtering\n")
+		sb.WriteString(";; Allowlist (informational): ")
+		for i, host := range policy.Network.AllowOutbound {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(host)
+		}
+		sb.WriteString("\n")
 
-	// Note: We don't add an explicit deny rule when both allow and deny_all are present
-	// because the default (deny default) at the top of the profile handles blocking
-	// everything that isn't explicitly allowed. Adding an explicit deny here would
-	// override the allow rule above, breaking network access entirely.
+		// Allow network operations needed for HTTP/HTTPS
+		sb.WriteString("(allow network-outbound)\n")
+		sb.WriteString("(allow system-socket)\n")
+	}
 
 	sb.WriteString("\n")
 
