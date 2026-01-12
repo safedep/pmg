@@ -151,27 +151,32 @@ test('ALLOW: Read current directory', () => {
   }
 });
 
-// Test 9: Write to current directory
-test('ALLOW: Write to current directory', () => {
+// Test 9: Write to TMPDIR (allowed by policy)
+test('ALLOW: Write to TMPDIR', () => {
   try {
-    fs.writeFileSync('test-sandbox-write.txt', 'test');
-    fs.unlinkSync('test-sandbox-write.txt');
-    console.log('  ✅ PASS: Can write to current directory');
+    const tmpFile = path.join(os.tmpdir(), 'test-pmg-sandbox-write.txt');
+    fs.writeFileSync(tmpFile, 'test');
+    fs.unlinkSync(tmpFile);
+    console.log('  ✅ PASS: Can write to TMPDIR');
     return true;
   } catch (e) {
-    console.log('  ❌ FAIL: Cannot write to current directory');
+    console.log(`  ❌ FAIL: Cannot write to TMPDIR - ${e.code}`);
     return false;
   }
 });
 
-// Test 10: Read node_modules
+// Test 10: Read node_modules (if exists)
 test('ALLOW: Read node_modules', () => {
   try {
     fs.readdirSync('node_modules');
     console.log('  ✅ PASS: Can read node_modules');
     return true;
   } catch (e) {
-    console.log('  ❌ FAIL: Cannot read node_modules');
+    if (e.code === 'ENOENT') {
+      console.log('  ⚠️  SKIP: node_modules does not exist');
+      return true; // Not a sandbox issue, directory just doesn't exist
+    }
+    console.log(`  ❌ FAIL: Cannot read node_modules - ${e.code}`);
     return false;
   }
 });
@@ -191,7 +196,7 @@ test('ALLOW: Read /usr/lib', () => {
 // Test 12: Network access (DNS + HTTP)
 test('ALLOW: Network DNS resolution', () => {
   try {
-    require('dns').lookup('registry.npmjs.org', (err) => {});
+    require('dns').lookup('registry.npmjs.org', (err) => { });
     console.log('  ✅ PASS: DNS resolution works');
     return true;
   } catch (e) {
