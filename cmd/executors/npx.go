@@ -1,4 +1,4 @@
-package npm
+package executors
 
 import (
 	"context"
@@ -12,13 +12,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewBunCommand() *cobra.Command {
+func NewNpxCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:                "bun [action] [package]",
-		Short:              "Guard bun package manager",
+		Use:                "npx [package] [action]",
+		Short:              "Guard npx package executor",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := executeBunFlow(cmd.Context(), args)
+			err := executeNpxFlow(cmd.Context(), args)
 			if err != nil {
 				ui.ErrorExit(err)
 			}
@@ -28,15 +28,15 @@ func NewBunCommand() *cobra.Command {
 	}
 }
 
-func executeBunFlow(ctx context.Context, args []string) error {
-	analytics.TrackCommandBun()
-	packageManager, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultBunPackageManagerConfig())
+func executeNpxFlow(ctx context.Context, args []string) error {
+	analytics.TrackCommandNpx()
+	packageExecutor, err := packagemanager.NewNpmPackageExecutor(packagemanager.DefaultNpxPackageExecutorConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create bun package manager proxy: %w", err)
+		return fmt.Errorf("failed to create npx package executor proxy: %w", err)
 	}
 
 	config := config.Get()
-	parsedCommand, err := packageManager.ParseCommand(args)
+	parsedCommand, err := packageExecutor.ParseCommand(args)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
@@ -52,8 +52,8 @@ func executeBunFlow(ctx context.Context, args []string) error {
 	}
 
 	if config.Config.ExperimentalProxyMode {
-		return flows.ProxyFlow(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+		return flows.ProxyFlow(packageExecutor, packageResolver).Run(ctx, args, parsedCommand)
 	}
 
-	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	return flows.Common(packageExecutor, packageResolver).Run(ctx, args, parsedCommand)
 }

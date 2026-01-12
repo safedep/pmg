@@ -132,7 +132,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	flagSet := pflag.NewFlagSet(p.config.CommandName, pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
-	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
 	// Define flags
 	var requirementFiles []string
@@ -252,7 +252,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Set up flag parsing
 	flagSet := pflag.NewFlagSet("uv", pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
-	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
 	var manifestFiles []string
 
@@ -349,7 +349,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 
 	// Set up flag parsing
 	flagSet := pflag.NewFlagSet("poetry", pflag.ContinueOnError)
-	flagSet.ParseErrorsWhitelist.UnknownFlags = true
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
 
 	err := flagSet.Parse(installArgs)

@@ -95,7 +95,7 @@ func DefaultConfig() AliasConfig {
 
 	return AliasConfig{
 		RcFileName:      ".pmg.rc",
-		PackageManagers: []string{"npm", "pip", "pip3", "pnpm", "bun", "uv", "yarn", "poetry"},
+		PackageManagers: []string{"npm", "pip", "pip3", "pnpm", "bun", "uv", "yarn", "poetry", "npx", "pnpx"},
 		Shells:          shells,
 	}
 }
@@ -140,6 +140,34 @@ func (a *AliasManager) Remove() error {
 
 	fmt.Println("✅ PMG config removed. Existing aliases need a shell restart.")
 	return nil
+}
+
+// IsInstalled checks if the PMG aliases are sourced in any of the shell config files.
+func (a *AliasManager) IsInstalled() (bool, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+
+	for _, shell := range a.config.Shells {
+		configPath := filepath.Join(homeDir, shell.Path())
+
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+
+			log.Warnf("Warning: could not read %s (%s)", shell.Name(), err)
+			continue
+		}
+
+		if strings.Contains(string(data), a.config.RcFileName) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // buildAliases creates the alias strings for all configured package managers.

@@ -10,6 +10,7 @@ type TerminalColors struct {
 	Yellow ColorFn
 	Cyan   ColorFn
 	Green  ColorFn
+	Bold   ColorFn
 }
 
 var Colors = TerminalColors{
@@ -18,4 +19,5 @@ var Colors = TerminalColors{
 	Yellow: color.New(color.FgYellow).SprintfFunc(),
 	Cyan:   color.New(color.FgCyan).SprintfFunc(),
 	Green:  color.New(color.FgGreen).SprintfFunc(),
+	Bold:   color.New(color.Bold).SprintfFunc(),
 }
