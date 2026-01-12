@@ -227,6 +227,26 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				assert.Contains(t, actual, `(allow file-write* (regex "^/.*$"))`)
 			},
 		},
+		{
+			name: "dangerous file paths are blocked by default",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					DenyRead:  []string{"/tmp/does-not-exist"},
+					DenyWrite: []string{"/tmp/does-not-exist"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+
+				homeDir, err := os.UserHomeDir()
+				assert.NoError(t, err)
+
+				assert.Contains(t, actual, fmt.Sprintf("(deny file-read* (subpath \"%s/.ssh\") (with message", homeDir))
+				assert.Contains(t, actual, fmt.Sprintf("(deny file-write* (subpath \"%s/.ssh\") (with message", homeDir))
+				assert.Contains(t, actual, fmt.Sprintf("(deny file-read* (subpath \"%s/.kube\") (with message", homeDir))
+				assert.Contains(t, actual, fmt.Sprintf("(deny file-write* (subpath \"%s/.kube\") (with message", homeDir))
+			},
+		},
 	}
 
 	for _, tt := range cases {

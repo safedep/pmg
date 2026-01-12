@@ -485,8 +485,10 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		if util.ContainsGlob(expanded) {
 			regexPattern := util.GlobToRegex(expanded)
 			sb.WriteString(fmt.Sprintf("(deny file-write* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny file-read* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
 		} else {
 			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
 		}
 		expandedDenyWrite = append(expandedDenyWrite, expanded)
 	}
