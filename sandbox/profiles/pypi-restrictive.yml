@@ -6,6 +6,12 @@ package_managers:
   - poetry
   - uv
 
+# Optional security settings (uncomment to enable)
+# allow_git_config: false  # Allow package managers to modify .git/config (default: false, blocks for security)
+
+# Allow interactive terminal (PTY) operations (default: false)
+allow_pty: true
+
 filesystem:
   allow_read:
     - ${CWD}/**
@@ -21,6 +27,7 @@ filesystem:
     - /System/Library/**
 
   allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
     - ${CWD}/.venv/**
     - ${CWD}/venv/**
     - ${HOME}/.cache/pip/**
@@ -28,16 +35,16 @@ filesystem:
     - ${HOME}/.cache/poetry/**
     - ${HOME}/.cache/uv/**
     - ${HOME}/.local/lib/python*/**
-    - ${TMPDIR}/**
 
-  deny_read:
-    - ${HOME}/.ssh/**
-    - ${HOME}/.aws/**
-    - ${HOME}/.gcloud/**
-    - "**/.env"
+  # Additional deny rules (optional - credentials are automatically blocked)
+  # Automatically blocked for security:
+  #   - .env, .env.*, .ssh/, .aws/, .gcloud/, .kube/, .gnupg/, .docker/config.json
+  #   - .git/hooks/ (always blocked)
+  #   - .git/config (blocked unless allow_git_config: true)
+  deny_read: []
 
   deny_write:
-    - ${HOME}/.ssh/**
+    # Additional system directories to protect
     - /etc/**
     - /usr/**
 

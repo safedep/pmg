@@ -1,6 +1,6 @@
 # Sandbox
 
-Design goal for sandbox in PMG context is to protect against unknown supply chain attacks using principles of least privilege.
+Design goal for sandbox in PMG context is to protect against unknown supply chain attacks using principle of least privilege.
 We do not want to re-invent sandbox and likely rely on OS native sandbox primitives. This is at the cost of developer experience,
 where we have to work within the limitations of the sandbox implementations that we use.
 
