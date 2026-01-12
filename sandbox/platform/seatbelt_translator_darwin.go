@@ -16,6 +16,7 @@ import (
 type seatbeltPolicyTranslator struct {
 	logTag                       string
 	enableMoveBlockingMitigation bool
+	enableDangerousFileBlocking  bool
 }
 
 // generateLogTag generates a unique log tag for tracking sandbox violations
@@ -26,7 +27,8 @@ func generateLogTag() string {
 
 func newSeatbeltPolicyTranslator() *seatbeltPolicyTranslator {
 	return &seatbeltPolicyTranslator{
-		logTag: generateLogTag(),
+		logTag:                      generateLogTag(),
+		enableDangerousFileBlocking: true,
 
 		// We will keep this disabled for now. There are some issues with npm
 		// that needs investigation.
@@ -471,29 +473,31 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 	sb.WriteString("\n")
 
-	// Add mandatory deny patterns for security (credentials, git hooks, etc.)
-	sb.WriteString(";; Mandatory security denies (credentials, git hooks, etc.)\n")
-	mandatoryDenies := util.GetMandatoryDenyPatterns(policy.AllowGitConfig)
-	for _, pattern := range mandatoryDenies {
-		// Expand variables if needed
-		expanded, err := util.ExpandVariables(pattern)
-		if err != nil {
-			return fmt.Errorf("failed to expand mandatory deny pattern %s: %w", pattern, err)
+	if t.enableDangerousFileBlocking {
+		// Add mandatory deny patterns for security (credentials, git hooks, etc.)
+		sb.WriteString(";; Mandatory security denies (credentials, git hooks, etc.)\n")
+		mandatoryDenies := util.GetMandatoryDenyPatterns(policy.AllowGitConfig)
+		for _, pattern := range mandatoryDenies {
+			// Expand variables if needed
+			expanded, err := util.ExpandVariables(pattern)
+			if err != nil {
+				return fmt.Errorf("failed to expand mandatory deny pattern %s: %w", pattern, err)
+			}
+
+			// Use regex matching for glob patterns, subpath for literals
+			if util.ContainsGlob(expanded) {
+				regexPattern := util.GlobToRegex(expanded)
+				sb.WriteString(fmt.Sprintf("(deny file-write* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+				sb.WriteString(fmt.Sprintf("(deny file-read* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+			} else {
+				sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+				sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+			}
+			expandedDenyWrite = append(expandedDenyWrite, expanded)
 		}
 
-		// Use regex matching for glob patterns, subpath for literals
-		if util.ContainsGlob(expanded) {
-			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny file-write* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
-			sb.WriteString(fmt.Sprintf("(deny file-read* (regex \"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
-		} else {
-			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
-			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
-		}
-		expandedDenyWrite = append(expandedDenyWrite, expanded)
+		sb.WriteString("\n")
 	}
-
-	sb.WriteString("\n")
 
 	// Add file movement protection for all deny write paths (user + mandatory)
 	if t.enableMoveBlockingMitigation && (len(expandedDenyWrite) > 0) {
