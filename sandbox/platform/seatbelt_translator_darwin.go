@@ -14,7 +14,8 @@ import (
 )
 
 type seatbeltPolicyTranslator struct {
-	logTag string
+	logTag                       string
+	enableMoveBlockingMitigation bool
 }
 
 // generateLogTag generates a unique log tag for tracking sandbox violations
@@ -26,6 +27,10 @@ func generateLogTag() string {
 func newSeatbeltPolicyTranslator() *seatbeltPolicyTranslator {
 	return &seatbeltPolicyTranslator{
 		logTag: generateLogTag(),
+
+		// We will keep this disabled for now. There are some issues with npm
+		// that needs investigation.
+		enableMoveBlockingMitigation: false,
 	}
 }
 
@@ -92,6 +97,23 @@ func getAncestorDirectories(pathStr string) []string {
 	}
 
 	return ancestors
+}
+
+// globDoubleStarAutoAllowParentDirIfNeeded checks if a pattern ends with /** and emits a literal rule for the parent directory.
+// This ensures operations like mkdir('dir') or stat('dir') succeed before accessing dir/** contents.
+func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern string, expanded string, operation string) {
+	if !strings.HasSuffix(expanded, "/**") {
+		return
+	}
+
+	parentDir := strings.TrimSuffix(expanded, "/**")
+	// Handle edge case where /** results in empty string (use "/" instead)
+	if parentDir == "" {
+		parentDir = "/"
+	}
+
+	sb.WriteString(fmt.Sprintf(";; Auto-allow parent directory for %s\n", pattern))
+	sb.WriteString(fmt.Sprintf("(allow %s (literal \"%s\"))\n", operation, parentDir))
 }
 
 // generateMoveBlockingRules generates deny rules for file movement (file-write-unlink) to protect paths.
@@ -358,6 +380,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
+			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-read*")
 			regexPattern := util.GlobToRegex(expanded)
 			sb.WriteString(fmt.Sprintf("(allow file-read* (regex \"%s\"))\n", regexPattern))
 		} else {
@@ -390,6 +413,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
+			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-write*")
 			regexPattern := util.GlobToRegex(expanded)
 			sb.WriteString(fmt.Sprintf("(allow file-write* (regex \"%s\"))\n", regexPattern))
 		} else {
@@ -419,7 +443,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	}
 
 	// Add file movement protection for deny read paths
-	if len(expandedDenyRead) > 0 {
+	if t.enableMoveBlockingMitigation && (len(expandedDenyRead) > 0) {
 		sb.WriteString("\n;; Prevent bypassing read restrictions via file movement\n")
 		for _, rule := range generateMoveBlockingRules(expandedDenyRead, t.logTag) {
 			sb.WriteString(rule + "\n")
@@ -470,7 +494,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	sb.WriteString("\n")
 
 	// Add file movement protection for all deny write paths (user + mandatory)
-	if len(expandedDenyWrite) > 0 {
+	if t.enableMoveBlockingMitigation && (len(expandedDenyWrite) > 0) {
 		sb.WriteString(";; Prevent bypassing write restrictions via file movement\n")
 		for _, rule := range generateMoveBlockingRules(expandedDenyWrite, t.logTag) {
 			sb.WriteString(rule + "\n")

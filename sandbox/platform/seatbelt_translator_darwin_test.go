@@ -5,6 +5,7 @@ package platform
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/safedep/pmg/sandbox"
@@ -85,6 +86,8 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			},
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
+				// Should generate literal rule for parent directory
+				assert.Contains(t, actual, `(allow file-read* (literal "/path/to/dir"))`)
 				// Should use regex matching for glob patterns
 				assert.Contains(t, actual, "(allow file-read* (regex")
 				assert.Contains(t, actual, "^/path/to/dir/.*$")
@@ -144,6 +147,84 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				// Should use regex matching for glob patterns
 				assert.Contains(t, actual, "(allow file-read* (regex")
 				assert.Contains(t, actual, `^/tmp/test[123]\.txt$`)
+			},
+		},
+		{
+			name: "write glob pattern ending with /** auto-allows parent dir",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{"/path/to/dir/**"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				// Should generate literal rule for parent directory
+				assert.Contains(t, actual, `(allow file-write* (literal "/path/to/dir"))`)
+				// Should also generate regex rule for contents
+				assert.Contains(t, actual, `(allow file-write* (regex "^/path/to/dir/.*$"))`)
+			},
+		},
+		{
+			name: "write glob pattern with ** in middle not auto-allowed",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{"/path/**/subdir"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				// Should only generate regex rule, no literal parent
+				assert.Contains(t, actual, `(allow file-write* (regex`)
+				assert.NotContains(t, actual, `(allow file-write* (literal "/path")`)
+			},
+		},
+		{
+			name: "write glob pattern with variable expansion and /**",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{"${HOME}/.npm/**"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				homeDir := os.Getenv("HOME")
+				expectedLiteral := fmt.Sprintf(`(allow file-write* (literal "%s/.npm"))`, homeDir)
+				// Check for the literal parent directory rule
+				assert.Contains(t, actual, expectedLiteral)
+				// Check for the regex rule (escaped dot)
+				assert.Contains(t, actual, `\.npm/.*$`)
+			},
+		},
+		{
+			name: "multiple /** patterns all auto-allow parents",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{
+						"/path/one/**",
+						"/path/two/**",
+						"/path/three/**",
+					},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				assert.Contains(t, actual, `(allow file-write* (literal "/path/one"))`)
+				assert.Contains(t, actual, `(allow file-write* (literal "/path/two"))`)
+				assert.Contains(t, actual, `(allow file-write* (literal "/path/three"))`)
+			},
+		},
+		{
+			name: "edge case /** pattern at root",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{"/**"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				// Should allow writing to root (empty string after trimming becomes "/")
+				assert.Contains(t, actual, `(allow file-write* (literal "/"))`)
+				assert.Contains(t, actual, `(allow file-write* (regex "^/.*$"))`)
 			},
 		},
 	}
@@ -407,6 +488,8 @@ func TestFilesystemTranslationWithMoveProtection(t *testing.T) {
 	}
 
 	translator := newSeatbeltPolicyTranslator()
+	translator.enableMoveBlockingMitigation = true
+
 	actual, err := translator.translate(policy)
 	assert.NoError(t, err)
 

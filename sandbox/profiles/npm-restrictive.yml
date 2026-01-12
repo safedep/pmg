@@ -36,12 +36,17 @@ filesystem:
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: Patterns ending with /** automatically allow creating the parent directory.
+    #       For example, ${CWD}/node_modules/** allows both:
+    #         1. Creating the node_modules directory itself
+    #         2. Writing any files/directories inside it
     # Temporary directories for shell scripts and package managers
     - /tmp/**
     - /var/tmp/**
     # Project directories
     - ${CWD}/node_modules/**
     - ${CWD}/package-lock.json
+    - ${CWD}/package.json
     - ${CWD}/yarn.lock
     - ${CWD}/pnpm-lock.yaml
     - ${CWD}/bun.lockb
