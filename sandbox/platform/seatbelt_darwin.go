@@ -61,7 +61,8 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	}
 
 	log.Debugf("Seatbelt profile written to %s", s.tempProfilePath)
-	log.Debugf("Seatbelt profile content:\n%s", sbProfile)
+
+	debugLogPolicyContent(sbProfile)
 
 	// Modify command to run via sandbox-exec
 	originalPath := cmd.Path
@@ -112,4 +113,16 @@ func (s *seatbeltSandbox) Close() error {
 	}
 
 	return nil
+}
+
+// debugLogPolicyContent logs the policy content when explicitly debugging is enabled.
+func debugLogPolicyContent(content string) {
+	filePath := os.Getenv("PMG_SANDBOX_DEBUG_LOG_SEATBELT_POLICY_CONTENT")
+	if filePath == "" {
+		return
+	}
+
+	if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
+		log.Warnf("failed to write seatbelt policy content to %s: %v", filePath, err)
+	}
 }

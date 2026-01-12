@@ -6,8 +6,22 @@ package_managers:
   - yarn
   - bun
 
+# Optional security settings (uncomment to enable)
+# allow_git_config: false  # Allow package managers to modify .git/config (default: false, blocks for security)
+
+# Allow interactive terminal (PTY) operations (default: false)
+allow_pty: false
+
 filesystem:
   allow_read:
+    # Essential system paths for process execution
+    - /
+    - /usr/**
+    - /var/**
+    - /Library/**
+    - /System/Library/**
+    - /private/var/**
+    # Project and user-specific paths
     - ${CWD}/**
     - ${HOME}/.npmrc
     - ${HOME}/.yarnrc
@@ -19,43 +33,48 @@ filesystem:
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/cache/**
-    - /usr/local/**
-    - /Library/**
-    - /System/Library/**
-    - /private/var/**
 
   allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: Patterns ending with /** automatically allow creating the parent directory.
+    #       For example, ${CWD}/node_modules/** allows both:
+    #         1. Creating the node_modules directory itself
+    #         2. Writing any files/directories inside it
+    # Temporary directories for shell scripts and package managers
+    - /tmp/**
+    - /var/tmp/**
+    # Project directories
     - ${CWD}/node_modules/**
+    - ${CWD}/package-lock.json
+    - ${CWD}/package.json
+    - ${CWD}/yarn.lock
+    - ${CWD}/pnpm-lock.yaml
+    - ${CWD}/bun.lockb
+    # Package manager caches and stores
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/cache/**
-    - ${CWD}/package-lock.json
-    - ${CWD}/yarn.lock
-    - ${CWD}/pnpm-lock.yaml
-    - ${CWD}/bun.lockb
-    - ${TMPDIR}/**
 
-  deny_read:
-    - ${HOME}/.ssh/**
-    - ${HOME}/.aws/**
-    - ${HOME}/.gcloud/**
-    - ${HOME}/.kube/**
-    - "**/.env"
-    - "**/.env.*"
-    - ${HOME}/.docker/config.json
+  # Additional deny rules (optional - credentials are automatically blocked)
+  # Automatically blocked for security:
+  #   - .env, .env.*, .ssh/, .aws/, .gcloud/, .kube/, .gnupg/, .docker/config.json
+  #   - .git/hooks/ (always blocked)
+  #   - .git/config (blocked unless allow_git_config: true)
+  deny_read: []
 
   deny_write:
-    - ${HOME}/.ssh/**
-    - ${HOME}/.aws/**
+    # Additional system directories to protect
     - /etc/**
     - /usr/**
     - /bin/**
     - /sbin/**
 
 network:
+  # MacOS sandbox-exec does not support network restrictions, so we allow all outbound traffic
+  # when at least one allow outbound rule is present.
   allow_outbound:
     - registry.npmjs.org:443
     - registry.yarnpkg.com:443
@@ -75,6 +94,10 @@ process:
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
     - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.asdf/shims/npm
+    - ${HOME}/.asdf/shims/pnpm
+    - ${HOME}/.asdf/shims/yarn
+    - ${HOME}/.asdf/shims/bun
     - /usr/bin/git
     - /usr/local/bin/git
     - /bin/bash
