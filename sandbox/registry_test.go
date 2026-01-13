@@ -238,7 +238,9 @@ func TestLoadCustomProfileWithInheritance(t *testing.T) {
 
 			tempFile, err := os.CreateTemp(t.TempDir(), "custom-policy-*.yml")
 			assert.NoError(t, err)
-			defer tempFile.Close()
+			defer func() {
+				assert.NoError(t, tempFile.Close())
+			}()
 
 			err = yaml.NewEncoder(tempFile).Encode(tt.policy)
 			assert.NoError(t, err)
