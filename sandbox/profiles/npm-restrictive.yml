@@ -11,8 +11,10 @@ package_managers:
 # Optional security settings (uncomment to enable)
 # allow_git_config: false  # Allow package managers to modify .git/config (default: false, blocks for security)
 
-# Allow interactive terminal (PTY) operations (default: false)
-allow_pty: false
+# Allow interactive terminal (PTY) operations
+# Required for npx and pnpx to work, especially for commands like:
+# npx create-next-app@latest
+allow_pty: true
 
 filesystem:
   allow_read:
