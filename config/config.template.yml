@@ -84,6 +84,14 @@ sandbox:
       enabled: true
       profile: npm-restrictive
 
+    npx:
+      enabled: true
+      profile: npm-restrictive
+
+    pnpx:
+      enabled: true
+      profile: npm-restrictive
+
     yarn:
       enabled: true
       profile: npm-restrictive
