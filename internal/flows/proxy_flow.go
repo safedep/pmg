@@ -2,7 +2,6 @@ package flows
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -135,13 +134,31 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
 
+	var executionError error
 	if !pty.IsInteractiveTerminal() {
 		// Execute the package manager command with proxy environment variables for non PTY or non-interactive TTY
-		return f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+		executionError = f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+	} else {
+		// Execute the package manager command with proxy environment variables
+		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
 
-	// Execute the package manager command with proxy environment variables
-	return f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
+	// from the execution result.
+	return handleExecutionResultError(executionError)
+}
+
+// handleExecutionResultError handles the error from the execution result.
+func handleExecutionResultError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		os.Exit(exitErr.ExitCode())
+	}
+
+	return fmt.Errorf("failed to execute command: %w", err)
 }
 
 // setupCACertificate generates or loads a CA certificate for MITM
@@ -275,7 +292,12 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
 
-	defer result.Close()
+	defer func() {
+		err := result.Close()
+		if err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
 
 	// Only run the command if the sandbox didn't already execute it
 	if result.ShouldRun() {
@@ -283,10 +305,6 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 
 		err = cmd.Run()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				os.Exit(exitErr.ExitCode())
-			}
-
 			return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
 		}
 	}
@@ -411,25 +429,26 @@ func (f *proxyFlow) executeWithProxy(
 		},
 	)
 
-	err = sess.Wait()
+	// sessionError may contain the exit code of the command if the command exited with a non-zero code.
+	sessionError := sess.Wait()
 
 	// Wait for the routers to copy all the remaining data
 	wg.Wait()
 
-	if err != nil {
-		var exitErr *pty.ExitError
-		if errors.As(err, &exitErr) {
-			// Close writer and reader
-			promptWriter.Close()
-			promptReader.Close()
+	if err := promptReader.Close(); err != nil {
+		log.Errorf("failed to close prompt reader: %v", err)
+	}
 
-			// Close the session
-			sess.Close()
+	if err := promptWriter.Close(); err != nil {
+		log.Errorf("failed to close prompt writer: %v", err)
+	}
 
-			os.Exit(exitErr.Code)
-		}
+	if err := sess.Close(); err != nil {
+		log.Errorf("failed to close session: %v", err)
+	}
 
-		return err
+	if sessionError != nil {
+		return fmt.Errorf("failed to wait for session: %w", sessionError)
 	}
 
 	return nil

@@ -246,7 +246,12 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
 
-	defer result.Close()
+	defer func() {
+		err := result.Close()
+		if err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
 
 	if result.ShouldRun() {
 		return cmd.Run()

@@ -52,6 +52,7 @@ func (r *ExecutionResult) Close() error {
 	if r.sandbox != nil {
 		return r.sandbox.Close()
 	}
+
 	return nil
 }
 
