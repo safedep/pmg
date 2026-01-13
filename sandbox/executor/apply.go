@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
+	"github.com/safedep/pmg/usefulerror"
 )
 
 type applySandboxConfig struct {
@@ -66,7 +67,11 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		// disable for the package manager in the config.
 		policyRef, exists := cfg.Config.Sandbox.Policies[pmName]
 		if !exists {
-			return nil, fmt.Errorf("no sandbox policy configured for %s", pmName)
+			return nil, usefulerror.Useful().
+				WithHumanError(fmt.Sprintf("no sandbox policy configured for %s", pmName)).
+				WithHelp("Please configure a sandbox policy for this package manager in the config file.").
+				WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md for more information.").
+				Wrap(fmt.Errorf("no sandbox policy configured for %s", pmName))
 		}
 
 		// The policy is explicitly disabled for this package manager, so we skip sandbox
