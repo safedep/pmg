@@ -3,24 +3,37 @@ package sandbox
 import (
 	"fmt"
 	"strings"
+
+	"github.com/safedep/dry/utils"
 )
 
 // SandboxPolicy represents a parsed and validated sandbox policy that defines
 // filesystem, network, and process execution restrictions for package managers.
-// Policy violations will block execution.
+// Policy violations will block execution. Policy supports inheritance from parent policies.
 type SandboxPolicy struct {
-	Name            string           `yaml:"name" json:"name"`
-	Description     string           `yaml:"description" json:"description"`
-	Inherits        string           `yaml:"inherits,omitempty" json:"inherits,omitempty"`
-	PackageManagers []string         `yaml:"package_managers" json:"package_managers"`
-	Filesystem      FilesystemPolicy `yaml:"filesystem" json:"filesystem"`
-	Network         NetworkPolicy    `yaml:"network" json:"network"`
-	Process         ProcessPolicy    `yaml:"process" json:"process"`
+	// These fields are not affected by inheritance and are set from the child policy.
+	Name            string   `yaml:"name" json:"name"`
+	Description     string   `yaml:"description" json:"description"`
+	Inherits        string   `yaml:"inherits,omitempty" json:"inherits,omitempty"`
+	PackageManagers []string `yaml:"package_managers" json:"package_managers"`
+
+	// These fields are affected by inheritance and are merged with the parent policy.
+	// Any new values added here should be handled in the MergeWithParent method.
+	Filesystem FilesystemPolicy `yaml:"filesystem" json:"filesystem"`
+	Network    NetworkPolicy    `yaml:"network" json:"network"`
+	Process    ProcessPolicy    `yaml:"process" json:"process"`
+
+	// The boolean fields are pointers to allow for nil values so that the YAML parser
+	// can set the values from the child policy if present. We can differentiate between
+	// nil and false values. Any new values added here should be handled in the
+	// MergeWithParent method. When present in the child policy, the parent value is ignored.
+	// When not present in the child policy, the parent value is used.
 
 	// AllowGitConfig allows write access to .git/config file.
-	AllowGitConfig bool `yaml:"allow_git_config" json:"allow_git_config"`
+	AllowGitConfig *bool `yaml:"allow_git_config" json:"allow_git_config"`
+
 	// AllowPTY allows pseudo-terminal (PTY) operations.
-	AllowPTY bool `yaml:"allow_pty" json:"allow_pty"`
+	AllowPTY *bool `yaml:"allow_pty" json:"allow_pty"`
 }
 
 // FilesystemPolicy defines allowed and denied filesystem access patterns.
@@ -115,6 +128,15 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	// Union process lists
 	child.Process.AllowExec = unionStringSlices(parent.Process.AllowExec, child.Process.AllowExec)
 	child.Process.DenyExec = unionStringSlices(parent.Process.DenyExec, child.Process.DenyExec)
+
+	// Set boolean fields by duplicating the parent value if not present in the child.
+	if child.AllowPTY == nil {
+		child.AllowPTY = utils.PtrTo(utils.SafelyGetValue(parent.AllowPTY))
+	}
+
+	if child.AllowGitConfig == nil {
+		child.AllowGitConfig = utils.PtrTo(utils.SafelyGetValue(parent.AllowGitConfig))
+	}
 }
 
 // unionStringSlices returns a new slice containing all unique elements from both slices.

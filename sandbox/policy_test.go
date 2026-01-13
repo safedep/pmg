@@ -3,6 +3,7 @@ package sandbox
 import (
 	"testing"
 
+	"github.com/safedep/dry/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -66,76 +67,115 @@ func TestUnionStringSlices(t *testing.T) {
 }
 
 func TestMergeWithParent(t *testing.T) {
-	parent := &SandboxPolicy{
-		Name:            "parent",
-		Description:     "Parent policy",
-		PackageManagers: []string{"npm", "yarn"},
-		AllowPTY:        true,
-		AllowGitConfig:  false,
-		Filesystem: FilesystemPolicy{
-			AllowRead:  []string{"/usr/**", "/home/**"},
-			AllowWrite: []string{"/tmp/**"},
-			DenyRead:   []string{"/etc/shadow"},
-			DenyWrite:  []string{"/etc/**"},
+	cases := []struct {
+		name   string
+		parent *SandboxPolicy
+		child  *SandboxPolicy
+		assert func(t *testing.T, parent, child *SandboxPolicy)
+	}{
+		{
+			name: "merge when all fields are present",
+			parent: &SandboxPolicy{
+				Name:            "parent",
+				Description:     "Parent policy",
+				PackageManagers: []string{"npm", "yarn"},
+				AllowPTY:        utils.PtrTo(true),
+				AllowGitConfig:  utils.PtrTo(false),
+				Filesystem: FilesystemPolicy{
+					AllowRead:  []string{"/usr/**", "/home/**"},
+					AllowWrite: []string{"/tmp/**"},
+					DenyRead:   []string{"/etc/shadow"},
+					DenyWrite:  []string{"/etc/**"},
+				},
+				Network: NetworkPolicy{
+					AllowOutbound: []string{"registry.npmjs.org:443"},
+					DenyOutbound:  []string{"*:*"},
+				},
+				Process: ProcessPolicy{
+					AllowExec: []string{"/usr/bin/node"},
+					DenyExec:  []string{"/usr/bin/curl"},
+				},
+			},
+			child: &SandboxPolicy{
+				Name:            "child",
+				Description:     "Child policy",
+				PackageManagers: []string{"npx"},
+				AllowPTY:        utils.PtrTo(false),
+				AllowGitConfig:  utils.PtrTo(true),
+				Filesystem: FilesystemPolicy{
+					AllowRead:  []string{"/var/**"},
+					AllowWrite: []string{"/home/**"},
+					DenyRead:   []string{},
+					DenyWrite:  []string{"/usr/**"},
+				},
+				Network: NetworkPolicy{
+					AllowOutbound: []string{"github.com:443"},
+					DenyOutbound:  []string{},
+				},
+				Process: ProcessPolicy{
+					AllowExec: []string{"/usr/bin/git"},
+					DenyExec:  []string{},
+				},
+			},
+			assert: func(t *testing.T, parent, child *SandboxPolicy) {
+				// Test that name and description are preserved from child
+				assert.Equal(t, "child", child.Name)
+				assert.Equal(t, "Child policy", child.Description)
+
+				// Test that package managers are replaced (not merged)
+				assert.Equal(t, []string{"npx"}, child.PackageManagers)
+
+				// Test that boolean flags are overridden
+				assert.False(t, *child.AllowPTY)
+				assert.True(t, *child.AllowGitConfig)
+
+				// Test filesystem lists are unioned
+				assert.ElementsMatch(t, []string{"/usr/**", "/home/**", "/var/**"}, child.Filesystem.AllowRead)
+				assert.ElementsMatch(t, []string{"/tmp/**", "/home/**"}, child.Filesystem.AllowWrite)
+				assert.ElementsMatch(t, []string{"/etc/shadow"}, child.Filesystem.DenyRead)
+				assert.ElementsMatch(t, []string{"/etc/**", "/usr/**"}, child.Filesystem.DenyWrite)
+
+				// Test network lists are unioned
+				assert.ElementsMatch(t, []string{"registry.npmjs.org:443", "github.com:443"}, child.Network.AllowOutbound)
+				assert.ElementsMatch(t, []string{"*:*"}, child.Network.DenyOutbound)
+
+				// Test process lists are unioned
+				assert.ElementsMatch(t, []string{"/usr/bin/node", "/usr/bin/git"}, child.Process.AllowExec)
+				assert.ElementsMatch(t, []string{"/usr/bin/curl"}, child.Process.DenyExec)
+			},
 		},
-		Network: NetworkPolicy{
-			AllowOutbound: []string{"registry.npmjs.org:443"},
-			DenyOutbound:  []string{"*:*"},
-		},
-		Process: ProcessPolicy{
-			AllowExec: []string{"/usr/bin/node"},
-			DenyExec:  []string{"/usr/bin/curl"},
+		{
+			name: "merge when child has no boolean fields",
+			parent: &SandboxPolicy{
+				Name:            "parent",
+				Description:     "Parent policy",
+				PackageManagers: []string{"npm", "yarn"},
+				AllowPTY:        utils.PtrTo(true),
+				AllowGitConfig:  utils.PtrTo(false),
+			},
+			child: &SandboxPolicy{
+				Filesystem: FilesystemPolicy{
+					AllowRead: []string{"/usr/**"},
+				},
+			},
+			assert: func(t *testing.T, parent, child *SandboxPolicy) {
+				// Child inherits boolean fields from parent if not present in child
+				assert.True(t, *child.AllowPTY)
+				assert.False(t, *child.AllowGitConfig)
+
+				// Still invalid because child has not name and package managers
+				assert.Error(t, child.Validate())
+				assert.Error(t, child.ValidateResolved())
+			},
 		},
 	}
 
-	child := &SandboxPolicy{
-		Name:            "child",
-		Description:     "Child policy",
-		PackageManagers: []string{"npx"}, // Should replace parent
-		AllowPTY:        false,           // Should override parent
-		AllowGitConfig:  true,            // Should override parent
-		Filesystem: FilesystemPolicy{
-			AllowRead:  []string{"/var/**"},  // Should be added to parent
-			AllowWrite: []string{"/home/**"}, // Should be added to parent
-			DenyRead:   []string{},
-			DenyWrite:  []string{"/usr/**"}, // Should be added to parent
-		},
-		Network: NetworkPolicy{
-			AllowOutbound: []string{"github.com:443"}, // Should be added to parent
-			DenyOutbound:  []string{},
-		},
-		Process: ProcessPolicy{
-			AllowExec: []string{"/usr/bin/git"}, // Should be added to parent
-			DenyExec:  []string{},
-		},
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.child.MergeWithParent(tt.parent)
+			tt.assert(t, tt.parent, tt.child)
+		})
 	}
-
-	child.MergeWithParent(parent)
-
-	// Test that name and description are preserved from child
-	assert.Equal(t, "child", child.Name)
-	assert.Equal(t, "Child policy", child.Description)
-
-	// Test that package managers are replaced (not merged)
-	assert.Equal(t, []string{"npx"}, child.PackageManagers)
-
-	// Test that boolean flags are overridden
-	assert.False(t, child.AllowPTY)
-	assert.True(t, child.AllowGitConfig)
-
-	// Test filesystem lists are unioned
-	assert.ElementsMatch(t, []string{"/usr/**", "/home/**", "/var/**"}, child.Filesystem.AllowRead)
-	assert.ElementsMatch(t, []string{"/tmp/**", "/home/**"}, child.Filesystem.AllowWrite)
-	assert.ElementsMatch(t, []string{"/etc/shadow"}, child.Filesystem.DenyRead)
-	assert.ElementsMatch(t, []string{"/etc/**", "/usr/**"}, child.Filesystem.DenyWrite)
-
-	// Test network lists are unioned
-	assert.ElementsMatch(t, []string{"registry.npmjs.org:443", "github.com:443"}, child.Network.AllowOutbound)
-	assert.ElementsMatch(t, []string{"*:*"}, child.Network.DenyOutbound)
-
-	// Test process lists are unioned
-	assert.ElementsMatch(t, []string{"/usr/bin/node", "/usr/bin/git"}, child.Process.AllowExec)
-	assert.ElementsMatch(t, []string{"/usr/bin/curl"}, child.Process.DenyExec)
 }
 
 func TestValidate(t *testing.T) {

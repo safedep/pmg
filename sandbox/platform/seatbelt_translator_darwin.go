@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/util"
 )
@@ -358,7 +359,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 	}
 
 	// PTY support (optional)
-	if policy.AllowPTY {
+	if utils.SafelyGetValue(policy.AllowPTY) {
 		sb.WriteString(";; Pseudo-terminal (PTY) support\n")
 		sb.WriteString("(allow pseudo-tty)\n")
 		sb.WriteString("(allow file-ioctl\n")
@@ -483,7 +484,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	if t.enableDangerousFileBlocking {
 		// Add mandatory deny patterns for security (credentials, git hooks, etc.)
 		sb.WriteString(";; Mandatory security denies (credentials, git hooks, etc.)\n")
-		mandatoryDenies := util.GetMandatoryDenyPatterns(policy.AllowGitConfig)
+		mandatoryDenies := util.GetMandatoryDenyPatterns(utils.SafelyGetValue(policy.AllowGitConfig))
 		for _, pattern := range mandatoryDenies {
 			// Expand variables if needed
 			expanded, err := util.ExpandVariables(pattern)

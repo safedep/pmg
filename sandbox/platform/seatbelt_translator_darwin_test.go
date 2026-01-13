@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 )
@@ -537,7 +538,7 @@ func TestPTYSupport(t *testing.T) {
 			Name:            "test",
 			Description:     "test without PTY",
 			PackageManagers: []string{"npm"},
-			AllowPTY:        false,
+			AllowPTY:        utils.PtrTo(false),
 		}
 
 		translator := newSeatbeltPolicyTranslator()
@@ -554,7 +555,7 @@ func TestPTYSupport(t *testing.T) {
 			Name:            "test",
 			Description:     "test with PTY",
 			PackageManagers: []string{"npm"},
-			AllowPTY:        true,
+			AllowPTY:        utils.PtrTo(true),
 		}
 
 		translator := newSeatbeltPolicyTranslator()
