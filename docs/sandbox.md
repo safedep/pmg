@@ -4,6 +4,37 @@ Design goal for sandbox in PMG context is to protect against unknown supply chai
 We do not want to re-invent sandbox and likely rely on OS native sandbox primitives. This is at the cost of developer experience,
 where we have to work within the limitations of the sandbox implementations that we use.
 
+## Usage
+
+- Make sure sandbox is enabled in your `config.yml` file.
+- Make sure sandbox profiles are configured for the package managers you want to sandbox. 
+  
+See [config/config.template.yml](../config/config.template.yml) for the configuration schema.
+
+```bash
+pmg npm install express
+```
+
+Explicitly enable sandbox:
+
+```bash
+pmg --sandbox --sandbox-profile=npm-restrictive npm install express
+```
+
+Run sandbox with custom policy file:
+
+```bash
+pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
+```
+
+## Supported Platforms
+
+| Platform | Supported | Implementation                     |
+| -------- | --------- | ---------------------------------- |
+| MacOS    | Yes       | Seatbelt sandbox-exec              |
+| Linux    | No        | Bubblewrap / seccomp-bpf (planned) |
+| Windows  | No        | Not yet supported                  |
+
 ## Concepts
 
 1. Policy
