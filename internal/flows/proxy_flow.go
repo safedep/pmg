@@ -2,7 +2,6 @@ package flows
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +20,8 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/sandbox/executor"
+	"github.com/safedep/pmg/usefulerror"
 )
 
 type proxyFlow struct {
@@ -51,9 +52,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
-		ui.SetStatus("Running in dry-run mode (proxy mode)")
 		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
+
+		ui.SetStatus("Running in dry-run mode (proxy mode)")
 		ui.ClearStatus()
 		return nil
 	}
@@ -134,13 +136,31 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
 
+	var executionError error
 	if !pty.IsInteractiveTerminal() {
 		// Execute the package manager command with proxy environment variables for non PTY or non-interactive TTY
-		return f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+		executionError = f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+	} else {
+		// Execute the package manager command with proxy environment variables
+		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
 
-	// Execute the package manager command with proxy environment variables
-	return f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
+	// from the execution result.
+	return handleExecutionResultError(executionError)
+}
+
+// handleExecutionResultError handles the error from the execution result.
+func handleExecutionResultError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		os.Exit(exitErr.ExitCode())
+	}
+
+	return fmt.Errorf("failed to execute command: %w", err)
 }
 
 // setupCACertificate generates or loads a CA certificate for MITM
@@ -269,13 +289,26 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 		nil,
 	)
 
-	err := cmd.Run()
+	result, err := executor.ApplySandbox(ctx, cmd, f.pm.Name())
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
 
-		return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+	defer func() {
+		err := result.Close()
+		if err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
+
+	// Only run the command if the sandbox didn't already execute it
+	if result.ShouldRun() {
+		log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
+
+		err = cmd.Run()
+		if err != nil {
+			return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+		}
 	}
 
 	log.Debugf("Command completed successfully")
@@ -298,7 +331,29 @@ func (f *proxyFlow) executeWithProxy(
 		return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
 	}
 
-	sessionConfig := pty.NewSessionConfig(parsedCmd.Command.Exe, parsedCmd.Command.Args, env)
+	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
+	result, err := executor.ApplySandbox(ctx, cmd, f.pm.Name())
+	if err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
+
+	if !result.ShouldRun() {
+		return usefulerror.Useful().
+			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
+			WithHumanError("Sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
+	}
+
+	// Extract the command executable and arguments from the sandboxed command
+	// for use to create the PTY session.
+	cmdExe := cmd.Path
+	cmdArgs := cmd.Args[1:]
+
+	log.Debugf("Running command with args: %s: %v", cmdExe, cmdArgs)
+
+	// Create the PTY session with the sandbox command
+	// This is not compatible with sandbox that executes the command directly within the sandbox
+	// because internally we use ptyx.Spawn() to create the process with PTY support.
+	sessionConfig := pty.NewSessionConfig(cmdExe, cmdArgs, env)
 
 	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {
@@ -378,24 +433,26 @@ func (f *proxyFlow) executeWithProxy(
 		},
 	)
 
-	err = sess.Wait()
+	// sessionError may contain the exit code of the command if the command exited with a non-zero code.
+	sessionError := sess.Wait()
 
 	// Wait for the routers to copy all the remaining data
 	wg.Wait()
 
-	if err != nil {
-		var exitErr *pty.ExitError
-		if errors.As(err, &exitErr) {
-			// Close writer and reader
-			promptWriter.Close()
-			promptReader.Close()
+	if err := promptReader.Close(); err != nil {
+		log.Errorf("failed to close prompt reader: %v", err)
+	}
 
-			// Close the session
-			sess.Close()
+	if err := promptWriter.Close(); err != nil {
+		log.Errorf("failed to close prompt writer: %v", err)
+	}
 
-			os.Exit(exitErr.Code)
-		}
-		return err
+	if err := sess.Close(); err != nil {
+		log.Errorf("failed to close session: %v", err)
+	}
+
+	if sessionError != nil {
+		return fmt.Errorf("failed to wait for session: %w", sessionError)
 	}
 
 	return nil

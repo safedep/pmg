@@ -59,6 +59,41 @@ type Config struct {
 	// ExperimentalProxyMode enables experimental proxy-based package interception.
 	// When enabled, PMG starts a proxy server and intercepts package manager requests in real-time.
 	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
+
+	// Sandbox enables sandboxing of package manager processes with controlled filesystem,
+	// network, and process execution access. Provides defense-in-depth against supply chain attacks.
+	Sandbox SandboxConfig `mapstructure:"sandbox"`
+}
+
+// SandboxConfig configures the sandbox system for isolating package manager processes.
+type SandboxConfig struct {
+	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
+	Enabled bool `mapstructure:"enabled"`
+
+	// Policies maps package manager names to their sandbox policy references.
+	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
+	Policies map[string]SandboxPolicyRef `mapstructure:"policies"`
+
+	// PolicyTemplates maps template names to their paths.
+	PolicyTemplates map[string]SandboxPolicyTemplate `mapstructure:"policy_templates"`
+}
+
+// SandboxPolicyTemplate defines a template for a sandbox policy, used to map
+// a profile name to a path.
+type SandboxPolicyTemplate struct {
+	// Path is the path to the template file.
+	// Relative path can be used to reference a template file in the config directory (example: ./npm-restrictive.yml)
+	Path string `mapstructure:"path"`
+}
+
+// SandboxPolicyRef references a sandbox policy for a specific package manager.
+type SandboxPolicyRef struct {
+	// Enabled enables sandboxing for this specific package manager.
+	Enabled bool `mapstructure:"enabled"`
+
+	// Profile is the name of a built-in profile (e.g., "npm-restrictive")
+	// or an absolute path to a custom YAML policy file.
+	Profile string `mapstructure:"profile"`
 }
 
 // TrustedPackage is a package that is trusted by the user and will be ignored by the security guardrails.
@@ -85,6 +120,11 @@ type RuntimeConfig struct {
 	// InsecureInstallation allows bypassing install blocking on malicious packages
 	InsecureInstallation bool
 
+	// SandboxProfileOverride is a runtime override for the sandbox policy profile.
+	// When set, this profile path is used instead of the configured policy for all package managers.
+	// This is a CLI-only flag (--sandbox-profile) and is not persisted to config.yml.
+	SandboxProfileOverride string
+
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir      string
 	configFilePath string
@@ -99,6 +139,11 @@ func (r *RuntimeConfig) ConfigFilePath() string {
 // EventLogDir returns the path to the event log directory.
 func (r *RuntimeConfig) EventLogDir() string {
 	return r.eventLogDir
+}
+
+// ConfigDir returns the path to the config directory.
+func (r *RuntimeConfig) ConfigDir() string {
+	return r.configDir
 }
 
 // DefaultConfig is a fail safe contract for the runtime configuration.
@@ -122,6 +167,9 @@ func DefaultConfig() RuntimeConfig {
 			SkipEventLogging:       false,
 			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
+			Sandbox: SandboxConfig{
+				Enabled: false,
+			},
 		},
 		DryRun:               false,
 		InsecureInstallation: insecureInstallation,

@@ -46,3 +46,74 @@ experimental_proxy_mode: false
 trusted_packages:
   - purl: pkg:npm/@safedep/pmg
     reason: "PMG is a trusted package for PMG"
+
+# Sandbox configuration (EXPERIMENTAL)
+# When enabled, package managers run in sandbox environments with restricted
+# filesystem, network, and process execution access. This provides defense-in-depth
+# protection against malicious install scripts and supply chain attacks.
+#
+# When sandboxing is enabled for a package manager, policy violations will block execution
+# (no "warn-only" mode). Sandboxing itself can be disabled globally or per package manager.
+#
+# Currently supported platforms:
+# - macOS (using Seatbelt sandbox-exec)
+# - Linux (planned: Bubblewrap or seccomp-bpf)
+# - Windows (planned)
+sandbox:
+  # Enable sandbox mode (opt-in, default: false for backward compatibility)
+  enabled: false
+
+  # Policy templates define policy profiles by name and path.
+  # They can be used to override a built-in profile or create a custom profile.
+  policy_templates:
+    # Name for the template. Can be used to override a built-in profile or create a custom profile.
+    # Path is the path to the template file.
+    # Relative path can be used to reference a template file in the config directory (example: ./npm-restrictive.yml)
+    npm-restrictive-override:
+      path: ./profiles/npm-restrictive.yml
+
+  # Per-package-manager sandbox policies
+  # Each package manager can have its own policy to account for unique security characteristics
+  policies:
+    # npm ecosystem. npm-restrictive is a built-in profile.
+    npm:
+      enabled: true
+      profile: npm-restrictive  # Built-in profile, template name, or path to custom YAML
+
+    pnpm:
+      enabled: true
+      profile: npm-restrictive
+
+    npx:
+      enabled: true
+      profile: npm-restrictive
+
+    pnpx:
+      enabled: true
+      profile: npm-restrictive
+
+    yarn:
+      enabled: true
+      profile: npm-restrictive
+
+    bun:
+      enabled: true
+      profile: npm-restrictive
+
+    # PyPI ecosystem. pypi-restrictive is a built-in profile.
+    pip:
+      enabled: true
+      profile: pypi-restrictive
+
+    pip3:
+      enabled: true
+      profile: pypi-restrictive
+
+    poetry:
+      enabled: true
+      profile: pypi-restrictive
+
+    uv:
+      enabled: true
+      profile: pypi-restrictive
+

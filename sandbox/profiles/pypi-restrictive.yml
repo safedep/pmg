@@ -1,0 +1,75 @@
+name: pypi-restrictive
+description: Restrictive sandbox policy for PyPI ecosystem (pip, poetry, uv)
+package_managers:
+  - pip
+  - pip3
+  - poetry
+  - uv
+
+# Optional security settings (uncomment to enable)
+# allow_git_config: false  # Allow package managers to modify .git/config (default: false, blocks for security)
+
+# Allow interactive terminal (PTY) operations (default: false)
+allow_pty: true
+
+filesystem:
+  allow_read:
+    - ${CWD}/**
+    - ${HOME}/.config/pip/**
+    - ${HOME}/.pip/**
+    - ${HOME}/.poetry/**
+    - ${HOME}/.cache/pip/**
+    - ${HOME}/.cache/pypoetry/**
+    - ${HOME}/.cache/poetry/**
+    - ${HOME}/.cache/uv/**
+    - /usr/local/**
+    - /Library/**
+    - /System/Library/**
+
+  allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: Patterns ending with /** automatically allow creating the parent directory.
+    #       For example, ${CWD}/.venv/** allows both:
+    #         1. Creating the .venv directory itself
+    #         2. Writing any files/directories inside it
+    - ${CWD}/.venv/**
+    - ${CWD}/venv/**
+    - ${HOME}/.cache/pip/**
+    - ${HOME}/.cache/pypoetry/**
+    - ${HOME}/.cache/poetry/**
+    - ${HOME}/.cache/uv/**
+    - ${HOME}/.local/lib/python*/**
+
+  # Additional deny rules (optional - credentials are automatically blocked)
+  # Automatically blocked for security:
+  #   - .env, .env.*, .ssh/, .aws/, .gcloud/, .kube/, .gnupg/, .docker/config.json
+  #   - .git/hooks/ (always blocked)
+  #   - .git/config (blocked unless allow_git_config: true)
+  deny_read: []
+
+  deny_write:
+    # Additional system directories to protect
+    - /etc/**
+    - /usr/**
+
+network:
+  allow_outbound:
+    - pypi.org:443
+    - files.pythonhosted.org:443
+    - github.com:443
+
+  deny_outbound:
+    - "*:*"
+
+process:
+  allow_exec:
+    - /usr/bin/python*
+    - /usr/local/bin/python*
+    - /usr/bin/gcc
+    - /usr/bin/clang
+    - /usr/bin/git
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget
+    - /bin/bash

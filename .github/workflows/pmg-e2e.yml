@@ -402,3 +402,44 @@ jobs:
           # Mode: --paranoid may require cloud credentials; run non-blocking with dry-run
           pmg --paranoid --dry-run npm install express || true
           cd .. && rm -rf pmg-modes-test
+
+  sandbox-e2e-macos:
+    name: Sandbox E2E - macOS
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          check-latest: true
+
+      - name: Build PMG
+        run: make
+
+      - name: Add pmg to PATH
+        run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+
+      - name: Setup PMG
+        run: pmg setup install
+
+      - name: Create Test Directories for Sandbox Permissions Tests
+        run: mkdir -p ~/.aws ~/.gcloud ~/.kube ~/.ssh
+
+      - name: Create Test Files for Sandbox Permissions Tests
+        run: |
+          touch ~/.aws/credentials
+          touch ~/.gcloud/credentials.json
+          touch ~/.kube/config
+          touch ~/.ssh/id_rsa
+
+      - name: Run Sandbox E2E Test
+        run: pmg --sandbox npm exec -- node test/sandbox-e2e.js
