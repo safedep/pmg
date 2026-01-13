@@ -15,13 +15,10 @@ type SandboxPolicy struct {
 	Filesystem      FilesystemPolicy `yaml:"filesystem" json:"filesystem"`
 	Network         NetworkPolicy    `yaml:"network" json:"network"`
 	Process         ProcessPolicy    `yaml:"process" json:"process"`
+
 	// AllowGitConfig allows write access to .git/config file.
-	// Default: false (blocks .git/config for security)
-	// Set to true if package managers need to modify git config (rare)
 	AllowGitConfig bool `yaml:"allow_git_config" json:"allow_git_config"`
 	// AllowPTY allows pseudo-terminal (PTY) operations.
-	// Default: false
-	// Set to true if package managers need interactive terminal support
 	AllowPTY bool `yaml:"allow_pty" json:"allow_pty"`
 }
 

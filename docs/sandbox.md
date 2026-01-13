@@ -4,7 +4,16 @@ Design goal for sandbox in PMG context is to protect against unknown supply chai
 We do not want to re-invent sandbox and likely rely on OS native sandbox primitives. This is at the cost of developer experience,
 where we have to work within the limitations of the sandbox implementations that we use.
 
-## Policy
+## Concepts
+
+1. Policy
+2. Profile
+3. Policy Template
+
+### Policy
+
+Policy is a set of rules that define the allowed and denied actions for a package manager. A sandbox implementation, such as
+`sandbox-exec` on MacOS enforces the policy.
 
 PMG defines its own policy model. The design goal is simplicity and ease of use. Sandbox implementations are expected to translate
 the policy model into their own native policy format. Rules for policy are:
@@ -14,6 +23,19 @@ the policy model into their own native policy format. Rules for policy are:
 - Policy profile allows binding package managers to a specific sandbox policy
 - Package manager must have a sandbox profile when sandbox is enabled
 - Package manager specific sandbox profile may be disabled to skip sandbox for the package manager
+
+### Profile
+
+Profile is a named reference to a policy. It is used to associate a policy with a package manager. PMG ships with a set of built-in profiles
+that are used to enforce the policies for the package manager. See [sandbox/profiles](../sandbox/profiles) for the list of built-in profiles.
+
+Custom profiles can be created by copying a built-in profile and modifying the rules to suit the needs. 
+See [sandbox/profiles/README.md](../sandbox/profiles/README.md) for more details.
+
+### Policy Template
+
+Policy template is a configuration primitive for overriding a built-in profile or creating a custom profile. It is used to map a profile name to a path.
+See [config/config.template.yml](../config/config.template.yml) for an example.
 
 ## Threat Model
 
