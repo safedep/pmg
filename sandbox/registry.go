@@ -91,7 +91,7 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 // Assumes registry mutex is already held.
 func (r *defaultProfileRegistry) resolveInheritance(child *SandboxPolicy) error {
 	if child.Inherits == "" {
-		return nil // No inheritance to resolve
+		return nil
 	}
 
 	// Look up parent profile (must be a built-in profile)
@@ -165,7 +165,7 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 
 		// Merge parent into child
 		policy.MergeWithParent(parent)
-		policy.Inherits = "" // Clear after resolution
+		policy.Inherits = ""
 	}
 
 	// Validate after inheritance resolution

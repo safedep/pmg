@@ -27,7 +27,10 @@ func TestLoggerInitialization(t *testing.T) {
 	// Initialize logger
 	err := InitializeWithDir(logDir)
 	assert.NoError(t, err, "Failed to initialize logger")
-	defer Close()
+	defer func() {
+		err := Close()
+		assert.NoError(t, err)
+	}()
 
 	// Check that directory was created
 	_, err = os.Stat(logDir)
@@ -47,7 +50,10 @@ func TestLogEvent(t *testing.T) {
 	// Initialize logger
 	err := reinitializeForTest(logDir)
 	assert.NoError(t, err, "Failed to initialize logger")
-	defer Close()
+	defer func() {
+		err := Close()
+		assert.NoError(t, err)
+	}()
 
 	// Log an event
 	event := Event{
@@ -87,7 +93,10 @@ func TestLogMalwareBlocked(t *testing.T) {
 	// Initialize logger
 	err := reinitializeForTest(logDir)
 	assert.NoError(t, err, "Failed to initialize logger")
-	defer Close()
+	defer func() {
+		err := Close()
+		assert.NoError(t, err)
+	}()
 
 	// Log malware blocked event
 	LogMalwareBlocked("malicious-pkg", "2.0.0", "pypi", "Contains known malware", nil)
@@ -114,14 +123,17 @@ func TestInitializeWithFile(t *testing.T) {
 	// Initialize logger with custom file
 	err := reinitializeForTest("")
 	if err == nil {
-		Close()
+		_ = Close()
 	}
 
 	// Reset for custom file
 	once = sync.Once{}
 	err = InitializeWithFile(logFile)
 	assert.NoError(t, err, "Failed to initialize logger with file")
-	defer Close()
+	defer func() {
+		err := Close()
+		assert.NoError(t, err)
+	}()
 
 	// Log an event
 	event := Event{
@@ -177,7 +189,10 @@ func TestCleanupOldLogs(t *testing.T) {
 	err = logger.init(logDir)
 	assert.NoError(t, err, "Failed to initialize logger")
 
-	defer logger.Close()
+	defer func() {
+		err := logger.Close()
+		assert.NoError(t, err)
+	}()
 
 	// Give cleanup goroutine time to run
 	time.Sleep(100 * time.Millisecond)

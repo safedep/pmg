@@ -242,16 +242,25 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 				continue
 			}
 
-			writer.WriteString(line + "\n")
+			if _, err := writer.WriteString(line + "\n"); err != nil {
+				log.Warnf("Warning: failed to write to temporary file: %s", err)
+				continue
+			}
 		}
 
 		writer.Flush()
 		tempFile.Close()
 
+		// Set permissions on temporary file to match original file.
+		if err := os.Chmod(tempPath, info.Mode()); err != nil {
+			_ = os.Remove(tempPath)
+			log.Warnf("Warning: failed to set permissions on temporary file for %s: %s", configPath, err)
+			continue
+		}
+
 		// Replace original file
-		os.Chmod(tempPath, info.Mode())
 		if err := os.Rename(tempPath, configPath); err != nil {
-			os.Remove(tempPath)
+			_ = os.Remove(tempPath)
 			log.Warnf("Warning: failed to update %s: %s", configPath, err)
 		}
 	}

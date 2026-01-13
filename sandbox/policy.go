@@ -11,7 +11,7 @@ import (
 type SandboxPolicy struct {
 	Name            string           `yaml:"name" json:"name"`
 	Description     string           `yaml:"description" json:"description"`
-	Inherits        string           `yaml:"inherits,omitempty" json:"inherits,omitempty"` // Optional parent profile name
+	Inherits        string           `yaml:"inherits,omitempty" json:"inherits,omitempty"`
 	PackageManagers []string         `yaml:"package_managers" json:"package_managers"`
 	Filesystem      FilesystemPolicy `yaml:"filesystem" json:"filesystem"`
 	Network         NetworkPolicy    `yaml:"network" json:"network"`

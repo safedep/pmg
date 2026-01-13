@@ -101,8 +101,10 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 		Env:  cfg.Env,
 	})
 	if err != nil {
-		c.Restore(oldState)
-		c.Close()
+		// We are already in error state, restore and close is best effort.
+		_ = c.Restore(oldState)
+		_ = c.Close()
+
 		return nil, fmt.Errorf("failed to spawn: %w", err)
 	}
 
