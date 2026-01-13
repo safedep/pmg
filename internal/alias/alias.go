@@ -211,6 +211,7 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 			if os.IsNotExist(err) {
 				continue
 			}
+
 			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
 			continue
 		}
@@ -218,12 +219,14 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		// Get original file permissions
 		info, err := os.Stat(configPath)
 		if err != nil {
+			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
 			continue
 		}
 
 		// Create temp file
 		tempFile, err := os.CreateTemp(filepath.Dir(configPath), ".tmp-"+filepath.Base(configPath))
 		if err != nil {
+			log.Warnf("Warning: failed to create temporary file for %s: %s", configPath, err)
 			continue
 		}
 
@@ -244,18 +247,20 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 
 			if _, err := writer.WriteString(line + "\n"); err != nil {
 				log.Warnf("Warning: failed to write to temporary file: %s", err)
-				continue
 			}
 		}
 
-		writer.Flush()
-		tempFile.Close()
+		if err := writer.Flush(); err != nil {
+			log.Warnf("Warning: failed to flush temporary file: %s", err)
+		}
+
+		if err := tempFile.Close(); err != nil {
+			log.Warnf("Warning: failed to close temporary file: %s", err)
+		}
 
 		// Set permissions on temporary file to match original file.
 		if err := os.Chmod(tempPath, info.Mode()); err != nil {
-			_ = os.Remove(tempPath)
 			log.Warnf("Warning: failed to set permissions on temporary file for %s: %s", configPath, err)
-			continue
 		}
 
 		// Replace original file
