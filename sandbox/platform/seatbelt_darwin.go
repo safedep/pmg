@@ -37,6 +37,9 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		return nil, fmt.Errorf("failed to translate sandbox policy: %w", err)
 	}
 
+	// Log pattern referred in sandbox.md as debugging guidance
+	log.Debugf("MacOS Seatbelt sandbox log tag: %s", s.translator.LogTag())
+
 	tmpFile, err := os.CreateTemp("", "pmg-sandbox-*.sb")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary sandbox profile: %w", err)

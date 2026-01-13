@@ -570,3 +570,11 @@ func TestPTYSupport(t *testing.T) {
 		assert.Contains(t, actual, "(allow file-read* file-write*")
 	})
 }
+
+func TestSeatbeltTranslatorDarwinLogTag(t *testing.T) {
+	translator := newSeatbeltPolicyTranslator()
+	assert.NotEmpty(t, translator.LogTag())
+
+	translator = &seatbeltPolicyTranslator{logTag: "test"}
+	assert.Equal(t, "test", translator.LogTag())
+}

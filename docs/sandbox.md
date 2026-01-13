@@ -27,6 +27,32 @@ the policy model into their own native policy format. Rules for policy are:
 The sandbox implementation currently only support `block` mode. This means, any policy violation will block the execution of the
 package manager command.
 
+## Debug
+
+### MacOS
+
+OSX sandbox implementation is based on [Chromium OSX Sandbox Design](https://www.chromium.org/developers/design-documents/sandbox/osx-sandboxing-design/)
+and [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Current implementation does not support
+identifying sandbox policy violations.
+
+To manually investigate sandbox policy violations, you can use the following command:
+
+```bash
+APP_LOG_LEVEL=debug APP_LOG_FILE=/tmp/pmg-debug.log pmg --sandbox --sandbox-profile=npm-restrictive npm install express
+```
+
+Find the log tag in the log file and use it to investigate the sandbox policy violation.
+
+```bash
+grep "PMG_SBX_" /tmp/pmg-debug.log
+```
+
+Use `log(1)` to filter the log file by the log tag or generic `PMG_SBX_` prefix.
+
+```bash
+log show --last 5m --predicate 'message ENDSWITH "PMG_SBX_"' --style compact
+```
+
 ## References
 
 - https://github.com/anthropic-experimental/sandbox-runtime

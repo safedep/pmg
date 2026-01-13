@@ -162,6 +162,10 @@ func generateMoveBlockingRules(pathPatterns []string, logTag string) []string {
 	return rules
 }
 
+func (t *seatbeltPolicyTranslator) LogTag() string {
+	return t.logTag
+}
+
 func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (string, error) {
 	var sb strings.Builder
 
