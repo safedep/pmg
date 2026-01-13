@@ -163,7 +163,7 @@ func TestMergeWithParent(t *testing.T) {
 				assert.True(t, *child.AllowPTY)
 				assert.False(t, *child.AllowGitConfig)
 
-				// Still invalid because child has not name and package managers
+				// Still invalid because child has no name and package managers
 				assert.Error(t, child.Validate())
 				assert.Error(t, child.ValidateResolved())
 			},
