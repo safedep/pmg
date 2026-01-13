@@ -24,7 +24,7 @@ import (
 //   - "/path/**/file" -> "^/path/(.*/)?file$"
 //   - "/tmp/file?.log" -> "^/tmp/file[^/]\\.log$"
 func GlobToRegex(globPattern string) string {
-	result := globPattern
+	result := normalizeGlobPathSeparator(globPattern)
 
 	// Escape regex special characters (except glob chars * ? [ ])
 	// We need to escape: . ^ $ + { } ( ) | \
@@ -74,6 +74,14 @@ func escapeRegexChars(s string) string {
 	}
 
 	return result
+}
+
+// normalizeGlobPathSeparator normalizes the path separator for a glob pattern.
+// This is to keep options open to normalize the path separator when we support Windows.
+// Particularly for Windows, the path separator is '\\' instead of '/'. We will normalize
+// the path separator to '/' for consistency.
+func normalizeGlobPathSeparator(s string) string {
+	return s
 }
 
 var escapeUnclosedBracketsRegex = regexp.MustCompile(`\[([^\]]*?)$`)

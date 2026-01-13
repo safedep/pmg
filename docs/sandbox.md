@@ -15,6 +15,13 @@ the policy model into their own native policy format. Rules for policy are:
 - Package manager must have a sandbox profile when sandbox is enabled
 - Package manager specific sandbox profile may be disabled to skip sandbox for the package manager
 
+## Threat Model
+
+- Policy files are trusted
+- Policy enforcement is a sandbox implementation concern
+- YAML to sandbox specific policy translation must not make the policy weaker than the original policy
+- Variable interpolation in policy files must consider only trusted sources
+
 ## Enforcement
 
 The sandbox implementation currently only support `block` mode. This means, any policy violation will block the execution of the

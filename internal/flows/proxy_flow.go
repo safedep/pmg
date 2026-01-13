@@ -21,6 +21,7 @@ import (
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/safedep/pmg/sandbox/executor"
+	"github.com/safedep/pmg/usefulerror"
 )
 
 type proxyFlow struct {
@@ -51,9 +52,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
-		ui.SetStatus("Running in dry-run mode (proxy mode)")
 		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
+
+		ui.SetStatus("Running in dry-run mode (proxy mode)")
 		ui.ClearStatus()
 		return nil
 	}
@@ -336,7 +338,9 @@ func (f *proxyFlow) executeWithProxy(
 	}
 
 	if !result.ShouldRun() {
-		return fmt.Errorf("sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
+		return usefulerror.Useful().
+			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
+			WithHumanError("Sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
 	}
 
 	// Extract the command executable and arguments from the sandboxed command

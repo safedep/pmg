@@ -4,8 +4,8 @@
 package platform
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +21,8 @@ type seatbeltPolicyTranslator struct {
 
 // generateLogTag generates a unique log tag for tracking sandbox violations
 func generateLogTag() string {
-	randomStr := fmt.Sprintf("%x", rand.Uint64())
+	// Go rand.Text() returns 26 bytes of random string
+	randomStr := rand.Text()
 	return fmt.Sprintf("PMG_SBX_%s", randomStr[:12])
 }
 
@@ -383,6 +384,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-read*")
+
 			regexPattern := util.GlobToRegex(expanded)
 			sb.WriteString(fmt.Sprintf("(allow file-read* (regex \"%s\"))\n", regexPattern))
 		} else {
@@ -416,6 +418,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-write*")
+
 			regexPattern := util.GlobToRegex(expanded)
 			sb.WriteString(fmt.Sprintf("(allow file-write* (regex \"%s\"))\n", regexPattern))
 		} else {
