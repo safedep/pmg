@@ -403,8 +403,8 @@ jobs:
           pmg --paranoid --dry-run npm install express || true
           cd .. && rm -rf pmg-modes-test
 
-  sandbox-e2e:
-    name: Sandbox E2E
+  sandbox-e2e-macos:
+    name: Sandbox E2E - macOS
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -428,6 +428,18 @@ jobs:
       - name: Add pmg to PATH
         run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
+      - name: Setup PMG
+        run: pmg setup install
+
+      - name: Create Test Directories for Sandbox Permissions Tests
+        run: mkdir -p ~/.aws ~/.gcloud ~/.kube ~/.ssh
+
+      - name: Create Test Files for Sandbox Permissions Tests
+        run: |
+          touch ~/.aws/credentials
+          touch ~/.gcloud/credentials.json
+          touch ~/.kube/config
+          touch ~/.ssh/id_rsa
+
       - name: Run Sandbox E2E Test
         run: pmg --sandbox npm exec -- node test/sandbox-e2e.js
-
