@@ -10,7 +10,7 @@ The assertion in [2] cannot be *implicit*. If so, it breaks the entire security 
 ## Security Goals
 
 - Adopt software supply chain security best practices so that PMG users can *verify* and only then trust PMG
-- PMG is open source, built in public and reviewed by the community for trust in code
+- PMG is open source, built in public and reviewed by the community for verifiable source of truth
 - PMG leverages GitHub build attestation to verify the integrity of the PMG binary with source provenance
 - PMG npm package has build attestation to verify the integrity of the PMG binary and build environment with source provenance
 - PMG security model is multi-layered without single point of failure
@@ -48,7 +48,7 @@ Install verified binary for your platform:
 gh release download $RELEASE_TAG -R safedep/pmg --dir ./pmg-$RELEASE_TAG 
 ```
 
-Install the platform specific binary from `./$pmg-$RELEASE_TAG`. To see binary specific attestation metadata, run:
+Install the platform specific binary from `./pmg-$RELEASE_TAG`. To see binary specific attestation metadata, run:
 
 ```bash
 gh attestation verify pmg_Linux_x86_64.tar.gz -R safedep/pmg --format json

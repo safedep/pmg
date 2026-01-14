@@ -17,6 +17,10 @@ See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 - Blocks malicious packages at install time
 - No configuration required, just install and use
 - Maintains package installation event log for transparency and audit trail
+- Enforces least privilege and defense in depth using OS native sandboxing
+
+PMG guarantees it's own artifact integrity using GitHub and npm attestations. Users can cryptographically prove that the binary they run
+matches the source code they reviewed, eliminating the risk of tampered or malicious builds. See [why and how to trust PMG](docs/trust.md).
 
 ## PMG in Action
 
