@@ -159,9 +159,11 @@ func (t *bubblewrapPolicyTranslator) addIsolationNamespaces(policy *sandbox.Sand
 //
 // Strategy:
 // 1. Start with essential system paths (added separately)
-// 2. Add user-specified allow_read paths (read-only bind mounts)
-// 3. Add user-specified allow_write paths (read-write bind mounts)
-// 4. Handle deny patterns by mounting /dev/null (prevents creation)
+// 2. Add user-specified allow_read paths FIRST (read-only bind mounts)
+//    This establishes the base filesystem view (e.g., "/" for full access)
+// 3. Add user-specified allow_write paths SECOND (read-write bind mounts)
+//    These OVERRIDE earlier read-only binds (bwrap: later mounts win)
+// 4. Handle deny patterns by mounting /dev/null or read-only for directories
 // 5. Add mandatory deny patterns
 func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
@@ -174,7 +176,13 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		boundPaths[path] = true
 	}
 
-	// 1. Process allow_read rules (read-only bind mounts)
+	// Mark tmpdir as already bound (will be handled by addTmpdirSupport())
+	// This prevents conflicts from policy patterns like /tmp/**
+	tmpDir := os.TempDir()
+	boundPaths[tmpDir] = true
+
+	// 1. Process allow_read rules FIRST (read-only bind mounts)
+	// This establishes the base read-only filesystem view (including "/" if specified)
 	for _, pattern := range policy.Filesystem.AllowRead {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -190,7 +198,11 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, readArgs...)
 	}
 
-	// 2. Process allow_write rules (read-write bind mounts)
+	// 2. Process allow_write rules SECOND (read-write bind mounts)
+	// These OVERRIDE earlier read-only binds (bwrap: later mounts win)
+	// Use a separate map so we don't skip paths that need write access
+	writeBoundPaths := make(map[string]bool)
+	writeBoundPaths[tmpDir] = true // tmpdir handled by addTmpdirSupport
 	for _, pattern := range policy.Filesystem.AllowWrite {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -198,7 +210,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			continue
 		}
 
-		writeArgs, err := t.processWriteRule(expanded, boundPaths)
+		writeArgs, err := t.processWriteRule(expanded, writeBoundPaths)
 		if err != nil {
 			log.Warnf("Failed to process allow_write rule '%s': %v", expanded, err)
 			continue
@@ -210,7 +222,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 	allowGitConfig := utils.SafelyGetValue(policy.AllowGitConfig)
 	denyPatterns := append([]string{}, policy.Filesystem.DenyWrite...)
 
-	// Add mandatory deny patterns
+	// Add mandatory deny patterns (credentials - these get completely hidden)
 	mandatoryDenies := util.GetMandatoryDenyPatterns(allowGitConfig)
 	denyPatterns = append(denyPatterns, mandatoryDenies...)
 
@@ -230,6 +242,69 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, denyArgs...)
 	}
 
+	// 4. Process mandatory credential directories - completely hide them with tmpfs
+	// This blocks both read AND write access (more secure than read-only mount)
+	hiddenDirs := make(map[string]bool) // Track to avoid duplicates
+	for _, pattern := range mandatoryDenies {
+		expanded, err := util.ExpandVariables(pattern)
+		if err != nil {
+			continue
+		}
+
+		var dirsToHide []string
+		if util.ContainsGlob(expanded) {
+			// Expand glob pattern to find matching directories
+			matches, err := filepath.Glob(expanded)
+			if err != nil {
+				continue
+			}
+			dirsToHide = matches
+		} else {
+			dirsToHide = []string{expanded}
+		}
+
+		for _, dir := range dirsToHide {
+			if hiddenDirs[dir] {
+				continue
+			}
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				args = append(args, "--tmpfs", dir)
+				hiddenDirs[dir] = true
+				log.Debugf("Hiding credential directory '%s' with tmpfs", dir)
+			}
+		}
+	}
+
+	// 5. Process deny_exec rules (mount /dev/null over executables)
+	for _, exePath := range policy.Process.DenyExec {
+		expanded, err := util.ExpandVariables(exePath)
+		if err != nil {
+			log.Warnf("Failed to expand variables in deny_exec pattern '%s': %v", exePath, err)
+			continue
+		}
+
+		// Handle glob patterns (e.g., /usr/bin/python*)
+		if util.ContainsGlob(expanded) {
+			matches, err := filepath.Glob(expanded)
+			if err != nil {
+				log.Warnf("Failed to expand deny_exec glob '%s': %v", expanded, err)
+				continue
+			}
+			for _, match := range matches {
+				if info, err := os.Stat(match); err == nil && !info.IsDir() {
+					args = append(args, "--ro-bind", "/dev/null", match)
+					log.Debugf("Blocked execution of '%s'", match)
+				}
+			}
+		} else {
+			// Literal path
+			if info, err := os.Stat(expanded); err == nil && !info.IsDir() {
+				args = append(args, "--ro-bind", "/dev/null", expanded)
+				log.Debugf("Blocked execution of '%s'", expanded)
+			}
+		}
+	}
+
 	return args, nil
 }
 
@@ -239,6 +314,13 @@ func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map
 
 	// Check if path contains glob pattern
 	if util.ContainsGlob(path) {
+		// Check if the base directory is already bound
+		baseDir := t.extractParentDir(path)
+		if boundPaths[baseDir] {
+			log.Debugf("Skipping pattern '%s' - base directory '%s' already bound", path, baseDir)
+			return args, nil
+		}
+
 		// Expand glob pattern to concrete paths with fallback detection
 		paths, useFallback, err := t.expandGlobPattern(path, t.config.maxGlobDepth, t.config.maxGlobPaths)
 		if err != nil {
@@ -280,6 +362,13 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 
 	// Check if path contains glob pattern
 	if util.ContainsGlob(path) {
+		// Check if the base directory is already bound (e.g., /tmp already bound, skip /tmp/**)
+		baseDir := t.extractParentDir(path)
+		if boundPaths[baseDir] {
+			log.Debugf("Skipping pattern '%s' - base directory '%s' already bound", path, baseDir)
+			return args, nil
+		}
+
 		// Expand glob pattern to concrete paths with fallback detection
 		paths, useFallback, err := t.expandGlobPattern(path, t.config.maxGlobDepth, t.config.maxGlobPaths)
 		if err != nil {
@@ -301,14 +390,25 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 		} else {
 			// Fine-grained: bind individual paths
 			for _, p := range paths {
-				if !boundPaths[p] {
-					args = append(args, "--bind-try", p, p)
-					boundPaths[p] = true
+				// Check if path exists - if not, bind parent directory instead
+				// This allows creating new directories (e.g., node_modules/** when node_modules doesn't exist)
+				pathToBind := p
+				if _, err := os.Stat(p); os.IsNotExist(err) {
+					parentDir := filepath.Dir(p)
+					if parentDir != "" && parentDir != "." && parentDir != "/" {
+						pathToBind = parentDir
+						log.Debugf("Path '%s' doesn't exist, binding parent '%s' as writable to allow creation", p, parentDir)
+					}
+				}
+
+				if !boundPaths[pathToBind] {
+					args = append(args, "--bind-try", pathToBind, pathToBind)
+					boundPaths[pathToBind] = true
 				} else {
-					// Path already bound as read-only, upgrade to read-write
-					// This is a limitation of the simple approach - we'd need to track
-					// and replace the previous bind. For now, log warning.
-					log.Warnf("Path '%s' already bound, cannot upgrade to read-write", p)
+					// Path already bound, add another bind to upgrade to read-write
+					// bwrap: later mounts override earlier ones
+					args = append(args, "--bind-try", pathToBind, pathToBind)
+					log.Debugf("Path '%s' already bound, adding write bind to override", pathToBind)
 				}
 			}
 		}
@@ -340,20 +440,36 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 		}
 
 		for _, p := range paths {
-			// Mount /dev/null to prevent access
-			args = append(args, "--ro-bind", "/dev/null", p)
+			info, err := os.Stat(p)
+			if err == nil {
+				if info.IsDir() {
+					// For directories, mount as read-only to prevent writes
+					// This overrides any previous writable bind of parent directories
+					args = append(args, "--ro-bind-try", p, p)
+					log.Debugf("Deny rule: mounted directory '%s' as read-only", p)
+				} else {
+					// For files, mount /dev/null to prevent access
+					args = append(args, "--ro-bind", "/dev/null", p)
+				}
+			}
 		}
 	} else {
 		// For literal paths, check if they exist
-		if _, err := os.Stat(path); err == nil {
-			// File exists - mount /dev/null over it
-			args = append(args, "--ro-bind", "/dev/null", path)
-		} else if os.IsNotExist(err) {
-			// File doesn't exist - find first non-existent ancestor and block it
-			nonExistentPath := t.findFirstNonExistentPath(path)
-			if nonExistentPath != "" {
-				args = append(args, "--ro-bind", "/dev/null", nonExistentPath)
+		if info, err := os.Stat(path); err == nil {
+			if info.IsDir() {
+				// For directories, mount as read-only to prevent writes
+				// This overrides any previous writable bind of parent directories
+				args = append(args, "--ro-bind-try", path, path)
+				log.Debugf("Deny rule: mounted directory '%s' as read-only", path)
+			} else {
+				// File exists - mount /dev/null over it
+				args = append(args, "--ro-bind", "/dev/null", path)
 			}
+		} else if os.IsNotExist(err) {
+			// File doesn't exist - skip blocking it
+			// Rationale: bwrap cannot create mount points in read-only parent directories.
+			// Non-existent files are already protected by deny-by-default (not in allow_write).
+			log.Debugf("Deny rule: skipping non-existent path '%s' (already protected by deny-by-default)", path)
 		}
 	}
 

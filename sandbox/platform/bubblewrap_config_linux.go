@@ -261,18 +261,20 @@ func getMandatoryDenyPatterns() []string {
 // shouldUnshareNetwork determines whether to isolate network based on policy.
 // Returns true if network should be completely isolated (--unshare-net).
 func (c *bubblewrapConfig) shouldUnshareNetwork(hasAllowRules bool, hasDenyAll bool) bool {
-	// If policy explicitly denies all network ("*:*"), isolate
+	// If there are allow rules, don't isolate network
+	// Note: bubblewrap can't do per-host filtering, so allow rules mean "allow network"
+	// The allow_outbound rules serve as documentation of intended access
+	if hasAllowRules {
+		return false
+	}
+
+	// No allow rules - check if we should deny all
 	if hasDenyAll {
 		return true
 	}
 
-	// If no allow rules and default is to isolate, unshare
-	if !hasAllowRules && c.unshareNetworkByDefault {
-		return true
-	}
-
-	// Otherwise, allow network (no --unshare-net)
-	return false
+	// No allow rules and no deny-all - use default behavior
+	return c.unshareNetworkByDefault
 }
 
 // getEssentialSystemPaths returns essential system paths for read-only binding.
