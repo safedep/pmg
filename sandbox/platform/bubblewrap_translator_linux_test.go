@@ -510,8 +510,10 @@ func TestBubblewrapTranslatorProcessDenyRule(t *testing.T) {
 	assert.Contains(t, argsStr, "/dev/null")
 	assert.Contains(t, argsStr, testFile)
 
-	// Non-existent file should also be blocked
-	assert.Contains(t, argsStr, nonExistentPath)
+	// Non-existent file should NOT be in args (protected by deny-by-default)
+	// In bubblewrap, paths that are not explicitly mounted are inaccessible,
+	// so we don't need to add deny rules for non-existent files
+	assert.NotContains(t, argsStr, nonExistentPath)
 }
 
 func TestBubblewrapTranslatorTmpdirSupport(t *testing.T) {
