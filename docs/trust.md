@@ -18,7 +18,7 @@ The assertion in [2] cannot be *implicit*. If so, it breaks the entire security 
 ## Verified Installation
 
 Zero-friction installation options are available in [README](../README.md). However, for more control, you can install PMG manually
-after verifying the integrity of the PMG binary. Verified installations allows you to:
+after verifying the integrity of the PMG binary. Verified installations allow you to:
 
 - Verify the integrity of the PMG binary and identify the exact source code that was used to build the binary
 - Manually review the source code for trust
@@ -66,7 +66,7 @@ Navigate to [npm package](https://www.npmjs.com/package/@safedep/pmg) to verify 
 
 ## Security Model
 
-PMG aim to provide a multi-layered security model to avoid single point of trust or failure. PMG's security
+PMG aims to provide a multi-layered security model to avoid single point of trust or failure. PMG's security
 model consists of the following layers:
 
 1. Threat Intelligence (provided by [SafeDep](https://safedep.io) with planned support for BYO adapters)
