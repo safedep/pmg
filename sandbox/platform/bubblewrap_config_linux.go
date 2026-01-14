@@ -34,6 +34,15 @@ type bubblewrapConfig struct {
 	// Prevents memory exhaustion from patterns matching huge directory trees.
 	maxGlobPaths int
 
+	// Glob fallback threshold for coarse-grained binding.
+	// When glob expansion yields more than this many paths, fallback to binding
+	// the parent directory instead of individual files for scalability.
+	globFallbackThreshold int
+
+	// Total argument limit for bwrap command.
+	// Warns when total arguments exceed this limit (approaching ARG_MAX).
+	totalArgsLimit int
+
 	// Whether to unshare the network namespace by default if policy has no network rules.
 	// When true and no network rules specified, completely isolates network access.
 	unshareNetworkByDefault bool
@@ -118,8 +127,10 @@ func newDefaultBubblewrapConfig() *bubblewrapConfig {
 
 		// Glob expansion limits
 		// Conservative defaults to prevent DoS via huge glob patterns
-		maxGlobDepth: 5,     // Scan up to 5 directory levels
-		maxGlobPaths: 10000, // Maximum 10k paths per glob pattern
+		maxGlobDepth:          5,     // Scan up to 5 directory levels
+		maxGlobPaths:          10000, // Maximum 10k paths per glob pattern
+		globFallbackThreshold: 100,   // Fallback to parent dir above 100 paths
+		totalArgsLimit:        8000,  // Total bwrap argument safety limit
 
 		// Network isolation (default: isolate network if no rules)
 		unshareNetworkByDefault: true,

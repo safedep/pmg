@@ -107,14 +107,31 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 
 ### Platform-Specific Limitations
 
-**Linux (Bubblewrap)**:
-- **Filesystem permissions are coarse-grained**: Linux sandbox uses bind mounts for filesystem isolation. When you specify a glob pattern like `${CWD}/*.txt`, the pattern is expanded to matching files at policy translation time, but Bubblewrap mounts entire directories rather than individual files. This means filesystem access control is at the directory level, not file-pattern level.
-- **Example**: A policy allowing `${CWD}/node_modules/**` will mount the entire `node_modules` directory tree, not selectively filter files by pattern.
-- **Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific filtering is not enforced in the initial implementation.
+<details>
+<summary>Linux (Bubblewrap)</summary>
 
-**macOS (Seatbelt)**:
-- **Network filtering is limited**: Seatbelt supports network rules in policies, but fine-grained host:port filtering is not consistently enforced across all connection types.
-- **Filesystem permissions are precise**: Uses regex-based pattern matching, allowing file-level access control.
+**Filesystem permissions are coarse-grained**: [Bubblewrap](https://github.com/containers/bubblewrap) uses bind mounts for filesystem isolation.
+
+To prevent `Argument list too long` errors with large directory trees, PMG automatically uses
+coarse-grained fallback strategies when glob patterns match many files.
+
+**Fallback Behavior:**
+
+- **Small patterns** (< 100 matches): Individual files are mounted (fine-grained, most precise)
+- **Large patterns** (> 100 matches): Parent directory is mounted (coarse-grained, scalable)
+- **Threshold**: 100 paths per pattern triggers coarse-grained fallback
+
+**Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific 
+filtering is not enforced.
+
+</details>
+
+<details>
+<summary>macOS (Seatbelt)</summary>
+
+**Network filtering is limited**: Seatbelt supports network rules in policies, but fine-grained `host:port` filtering is not enforced.
+
+</details>
 
 ## Concepts
 

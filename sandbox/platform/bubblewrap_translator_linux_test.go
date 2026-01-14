@@ -4,6 +4,7 @@
 package platform
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -496,8 +497,8 @@ func TestBubblewrapTranslatorProcessDenyRule(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Filesystem: sandbox.FilesystemPolicy{
 			DenyWrite: []string{
-				testFile,         // Existing file
-				nonExistentPath,  // Non-existent file
+				testFile,        // Existing file
+				nonExistentPath, // Non-existent file
 			},
 		},
 	}
@@ -659,11 +660,219 @@ func TestFindFirstNonExistentPath(t *testing.T) {
 	}
 }
 
+// TestGlobFallbackThreshold verifies coarse-grained fallback behavior when patterns match too many paths
+func TestGlobFallbackThreshold(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create 150 files (exceeds threshold of 100)
+	for i := 0; i < 150; i++ {
+		filePath := filepath.Join(tmpDir, fmt.Sprintf("file%d.txt", i))
+		require.NoError(t, os.WriteFile(filePath, []byte("test"), 0644))
+	}
+
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-fallback",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead: []string{tmpDir + "/*.txt"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	argsStr := argSliceToString(args)
+
+	// Should bind parent directory (tmpDir), not individual files
+	assert.Contains(t, argsStr, tmpDir)
+
+	// Should NOT contain individual file paths (fallback to parent dir)
+	assert.NotContains(t, argsStr, "file1.txt")
+	assert.NotContains(t, argsStr, "file50.txt")
+	assert.NotContains(t, argsStr, "file100.txt")
+
+	// Verify total argument count is reasonable (coarse-grained fallback should prevent explosion)
+	assert.Less(t, len(args), 300, "Coarse-grained fallback should prevent argument explosion")
+}
+
+// TestGlobFallbackThresholdGlobstar tests fallback with ** globstar patterns
+func TestGlobFallbackThresholdGlobstar(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create deep directory structure with 200 files (exceeds threshold)
+	for i := 0; i < 10; i++ {
+		subDir := filepath.Join(tmpDir, fmt.Sprintf("dir%d", i))
+		require.NoError(t, os.MkdirAll(subDir, 0755))
+		for j := 0; j < 20; j++ {
+			filePath := filepath.Join(subDir, fmt.Sprintf("file%d.txt", j))
+			require.NoError(t, os.WriteFile(filePath, []byte("test"), 0644))
+		}
+	}
+
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-fallback-globstar",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowWrite: []string{tmpDir + "/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	argsStr := argSliceToString(args)
+
+	// Should bind parent directory (tmpDir)
+	assert.Contains(t, argsStr, tmpDir)
+
+	// Should NOT contain individual subdirectory paths (fallback to parent)
+	assert.NotContains(t, argsStr, "dir1")
+	assert.NotContains(t, argsStr, "dir5")
+
+	// Verify total argument count is reasonable
+	assert.Less(t, len(args), 300, "Coarse-grained fallback should prevent argument explosion")
+}
+
+// TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback
+func TestGlobNoFallbackSmallPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create only 10 files (below threshold)
+	for i := 0; i < 10; i++ {
+		filePath := filepath.Join(tmpDir, fmt.Sprintf("file%d.txt", i))
+		require.NoError(t, os.WriteFile(filePath, []byte("test"), 0644))
+	}
+
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-no-fallback",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead: []string{tmpDir + "/*.txt"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	argsStr := argSliceToString(args)
+
+	// Should bind individual files (no fallback)
+	assert.Contains(t, argsStr, "file0.txt")
+	assert.Contains(t, argsStr, "file5.txt")
+}
+
+// TestTotalArgsLimit verifies global argument limit warning
+func TestTotalArgsLimit(t *testing.T) {
+	// Create policy with many patterns that would exceed limit
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-args-limit",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead: make([]string, 1000), // 1000 patterns
+		},
+	}
+
+	// Fill with literal paths to avoid glob expansion
+	for i := 0; i < 1000; i++ {
+		policy.Filesystem.AllowRead[i] = fmt.Sprintf("/tmp/path%d", i)
+	}
+
+	config := newDefaultBubblewrapConfig()
+	config.totalArgsLimit = 500 // Set low for testing
+	translator := newBubblewrapPolicyTranslator(config)
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err) // Should not error, just warn
+
+	// Verify args were generated despite exceeding limit
+	assert.Greater(t, len(args), config.totalArgsLimit)
+}
+
+// TestExtractParentDir tests the extractParentDir helper function
+func TestExtractParentDir(t *testing.T) {
+	cases := []struct {
+		name     string
+		pattern  string
+		expected string
+	}{
+		{
+			name:     "double star pattern",
+			pattern:  "/home/user/node_modules/**",
+			expected: "/home/user/node_modules",
+		},
+		{
+			name:     "single star pattern",
+			pattern:  "/tmp/*.txt",
+			expected: "/tmp",
+		},
+		{
+			name:     "middle glob",
+			pattern:  "/usr/lib/*.so",
+			expected: "/usr/lib",
+		},
+		{
+			name:     "complex glob",
+			pattern:  "/home/user/.cache/**/*.log",
+			expected: "/home/user/.cache",
+		},
+		{
+			name:     "file-level glob with dot",
+			pattern:  "/home/user/project/package.json.*",
+			expected: "/home/user/project",
+		},
+		{
+			name:     "file-level glob in CWD",
+			pattern:  "/home/user/project/*.lock",
+			expected: "/home/user/project",
+		},
+		{
+			name:     "question mark glob",
+			pattern:  "/tmp/file?.txt",
+			expected: "/tmp",
+		},
+		{
+			name:     "bracket glob",
+			pattern:  "/usr/lib/lib[abc].so",
+			expected: "/usr/lib",
+		},
+		{
+			name:     "no glob",
+			pattern:  "/home/user/file.txt",
+			expected: "/home/user/file.txt",
+		},
+		{
+			name:     "trailing double star",
+			pattern:  "/home/user/cache/**",
+			expected: "/home/user/cache",
+		},
+		{
+			name:     "trailing single star",
+			pattern:  "/var/log/*",
+			expected: "/var/log",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			config := newDefaultBubblewrapConfig()
+			translator := newBubblewrapPolicyTranslator(config)
+			result := translator.extractParentDir(tt.pattern)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 // Helper function to convert arg slice to string for easier assertion
 func argSliceToString(args []string) string {
 	result := ""
 	for _, arg := range args {
 		result += arg + " "
 	}
+
 	return result
 }

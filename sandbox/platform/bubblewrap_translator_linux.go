@@ -45,6 +45,7 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to add essential system permissions: %w", err)
 	}
+
 	args = append(args, systemArgs...)
 
 	// 2. Add isolation namespaces
@@ -56,6 +57,7 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate filesystem rules: %w", err)
 	}
+
 	args = append(args, filesystemArgs...)
 
 	// 4. Add PTY support if needed
@@ -68,7 +70,14 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 	tmpdirArgs := t.addTmpdirSupport()
 	args = append(args, tmpdirArgs...)
 
-	log.Debugf("Translated policy '%s' to %d bwrap arguments", policy.Name, len(args))
+	// 6. Check total argument limit and log warning if exceeded
+	// Do not fail, let bwrap fail naturally if it does.
+	if len(args) > t.config.totalArgsLimit {
+		log.Warnf("Total bwrap arguments (%d) exceeds safety limit (%d), sandbox may fail with 'Argument list too long' error",
+			len(args), t.config.totalArgsLimit)
+	}
+
+	log.Debugf("Translated policy '%s' to %d bwrap arguments (limit: %d)", policy.Name, len(args), t.config.totalArgsLimit)
 
 	return args, nil
 }
@@ -80,7 +89,6 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 
 	// Add essential system paths (read-only)
 	for _, path := range t.config.getEssentialSystemPaths() {
-		// Use --ro-bind-try which doesn't fail if path doesn't exist
 		args = append(args, "--ro-bind-try", path, path)
 	}
 
@@ -231,17 +239,28 @@ func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map
 
 	// Check if path contains glob pattern
 	if util.ContainsGlob(path) {
-		// Expand glob pattern to concrete paths
-		paths, err := t.expandGlobPattern(path, t.config.maxGlobDepth, t.config.maxGlobPaths)
+		// Expand glob pattern to concrete paths with fallback detection
+		paths, useFallback, err := t.expandGlobPattern(path, t.config.maxGlobDepth, t.config.maxGlobPaths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand glob pattern: %w", err)
 		}
 
-		// Create read-only bind for each expanded path
-		for _, p := range paths {
-			if !boundPaths[p] {
-				args = append(args, "--ro-bind-try", p, p)
-				boundPaths[p] = true
+		if useFallback {
+			// Coarse-grained: bind parent directory
+			for _, parentDir := range paths {
+				if !boundPaths[parentDir] {
+					args = append(args, "--ro-bind-try", parentDir, parentDir)
+					boundPaths[parentDir] = true
+					log.Debugf("Coarse-grained fallback: bound parent directory '%s' (read-only)", parentDir)
+				}
+			}
+		} else {
+			// Fine-grained: bind individual paths
+			for _, p := range paths {
+				if !boundPaths[p] {
+					args = append(args, "--ro-bind-try", p, p)
+					boundPaths[p] = true
+				}
 			}
 		}
 	} else {
@@ -261,22 +280,36 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 
 	// Check if path contains glob pattern
 	if util.ContainsGlob(path) {
-		// Expand glob pattern to concrete paths
-		paths, err := t.expandGlobPattern(path, t.config.maxGlobDepth, t.config.maxGlobPaths)
+		// Expand glob pattern to concrete paths with fallback detection
+		paths, useFallback, err := t.expandGlobPattern(path, t.config.maxGlobDepth, t.config.maxGlobPaths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand glob pattern: %w", err)
 		}
 
-		// Create read-write bind for each expanded path
-		for _, p := range paths {
-			if !boundPaths[p] {
-				args = append(args, "--bind-try", p, p)
-				boundPaths[p] = true
-			} else {
-				// Path already bound as read-only, upgrade to read-write
-				// This is a limitation of the simple approach - we'd need to track
-				// and replace the previous bind. For now, log warning.
-				log.Warnf("Path '%s' already bound, cannot upgrade to read-write", p)
+		if useFallback {
+			// Coarse-grained: bind parent directory
+			for _, parentDir := range paths {
+				if !boundPaths[parentDir] {
+					args = append(args, "--bind-try", parentDir, parentDir)
+					boundPaths[parentDir] = true
+					log.Debugf("Coarse-grained fallback: bound parent directory '%s' (read-write)", parentDir)
+				} else {
+					// Path already bound, skip (likely already bound as read-only from essential paths)
+					log.Debugf("Parent directory '%s' already bound, skipping duplicate bind", parentDir)
+				}
+			}
+		} else {
+			// Fine-grained: bind individual paths
+			for _, p := range paths {
+				if !boundPaths[p] {
+					args = append(args, "--bind-try", p, p)
+					boundPaths[p] = true
+				} else {
+					// Path already bound as read-only, upgrade to read-write
+					// This is a limitation of the simple approach - we'd need to track
+					// and replace the previous bind. For now, log warning.
+					log.Warnf("Path '%s' already bound, cannot upgrade to read-write", p)
+				}
 			}
 		}
 	} else {
@@ -298,7 +331,9 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 	// For glob patterns, expand and deny each path
 	if util.ContainsGlob(path) {
 		// For deny rules, we scan for existing files matching the pattern
-		paths, err := t.expandGlobPattern(path, t.config.mandatoryDenyScanDepth, t.config.maxGlobPaths)
+		// Note: For deny rules, we ignore the fallback indicator since we want to
+		// deny all matched paths individually for maximum security
+		paths, _, err := t.expandGlobPattern(path, t.config.mandatoryDenyScanDepth, t.config.maxGlobPaths)
 		if err != nil {
 			// If glob expansion fails, it's not critical for deny rules
 			return args, nil
@@ -350,25 +385,49 @@ func (t *bubblewrapPolicyTranslator) findFirstNonExistentPath(path string) strin
 
 // expandGlobPattern expands a glob pattern to a list of concrete paths.
 // Implements depth limiting and path count limiting to prevent DoS.
-func (t *bubblewrapPolicyTranslator) expandGlobPattern(pattern string, maxDepth int, maxPaths int) ([]string, error) {
+// Returns (paths, useFallback, error) where useFallback indicates if
+// coarse-grained parent directory fallback should be used.
+func (t *bubblewrapPolicyTranslator) expandGlobPattern(pattern string, maxDepth int, maxPaths int) ([]string, bool, error) {
 	// Handle ** globstar patterns specially
 	if strings.Contains(pattern, "**") {
-		return t.expandGlobstarPattern(pattern, maxDepth, maxPaths)
+		paths, err := t.expandGlobstarPattern(pattern, maxDepth, maxPaths)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// Check if we should use fallback
+		if len(paths) > t.config.globFallbackThreshold {
+			log.Warnf("Glob pattern '%s' matched %d paths (threshold: %d), using coarse-grained parent directory fallback for scalability",
+				pattern, len(paths), t.config.globFallbackThreshold)
+
+			parentDir := t.extractParentDir(pattern)
+			return []string{parentDir}, true, nil
+		}
+
+		return paths, false, nil
 	}
 
 	// Use filepath.Glob for simple patterns (*, ?, [])
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("glob expansion failed: %w", err)
+		return nil, false, fmt.Errorf("glob expansion failed: %w", err)
 	}
 
-	// Limit number of matches
+	// Check fallback threshold before applying maxPaths limit
+	if len(matches) > t.config.globFallbackThreshold {
+		log.Warnf("Glob pattern '%s' matched %d paths (threshold: %d), using coarse-grained parent directory fallback for scalability",
+			pattern, len(matches), t.config.globFallbackThreshold)
+		parentDir := t.extractParentDir(pattern)
+		return []string{parentDir}, true, nil
+	}
+
+	// Limit number of matches (shouldn't happen if fallback threshold < maxPaths)
 	if len(matches) > maxPaths {
 		log.Warnf("Glob pattern '%s' matched %d paths, limiting to %d", pattern, len(matches), maxPaths)
 		matches = matches[:maxPaths]
 	}
 
-	return matches, nil
+	return matches, false, nil
 }
 
 // expandGlobstarPattern expands patterns containing ** (recursive glob).
@@ -449,6 +508,40 @@ func (t *bubblewrapPolicyTranslator) walkWithDepthLimit(root string, suffix stri
 	})
 
 	return err
+}
+
+// extractParentDir extracts the parent directory from a glob pattern.
+// This is used for coarse-grained fallback when glob expansion yields too many paths.
+//
+// Examples:
+//   - ${CWD}/node_modules/** → ${CWD}/node_modules
+//   - ${HOME}/.cache/pnpm/** → ${HOME}/.cache/pnpm
+//   - /tmp/*.txt → /tmp
+//   - /usr/lib/**/*.so → /usr/lib
+//   - ${CWD}/package.json.* → ${CWD}
+func (t *bubblewrapPolicyTranslator) extractParentDir(pattern string) string {
+	// Remove trailing /** or /*
+	pattern = strings.TrimSuffix(pattern, "/**")
+	pattern = strings.TrimSuffix(pattern, "/*")
+
+	// Remove any remaining glob characters and find the parent directory
+	idx := strings.IndexAny(pattern, "*?[")
+	if idx >= 0 {
+		// Glob found - truncate at glob character and get the directory
+		pattern = pattern[:idx]
+		// Get the directory containing the file/pattern
+		pattern = filepath.Dir(pattern)
+	}
+
+	// Clean up trailing separator
+	pattern = strings.TrimSuffix(pattern, string(filepath.Separator))
+
+	// If pattern is now empty or just a separator, default to current directory
+	if pattern == "" || pattern == string(filepath.Separator) {
+		return "."
+	}
+
+	return pattern
 }
 
 // addPTYSupport adds arguments for pseudo-terminal support.
