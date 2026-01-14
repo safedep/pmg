@@ -65,6 +65,9 @@ sandbox:
 
   # Policy templates define policy profiles by name and path.
   # They can be used to override a built-in profile or create a custom profile.
+  # Note: Custom profiles loaded via policy_templates can inherit from built-in
+  # profiles using the 'inherits' field in the YAML (e.g., inherits: npm-restrictive).
+  # Inheritance allows you to extend a base profile with additional permissions.
   policy_templates:
     # Name for the template. Can be used to override a built-in profile or create a custom profile.
     # Path is the path to the template file.
@@ -86,11 +89,11 @@ sandbox:
 
     npx:
       enabled: true
-      profile: npm-restrictive
+      profile: npx
 
     pnpx:
       enabled: true
-      profile: npm-restrictive
+      profile: npx
 
     yarn:
       enabled: true

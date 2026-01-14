@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 )
@@ -89,7 +90,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				// Should generate literal rule for parent directory
 				assert.Contains(t, actual, `(allow file-read* (literal "/path/to/dir"))`)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(allow file-read* (regex")
+				assert.Contains(t, actual, "(allow file-read* (regex #")
 				assert.Contains(t, actual, "^/path/to/dir/.*$")
 			},
 		},
@@ -103,7 +104,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(allow file-read* (regex")
+				assert.Contains(t, actual, "(allow file-read* (regex #")
 				assert.Contains(t, actual, `^/path/to/[^/]*\.txt$`)
 			},
 		},
@@ -117,7 +118,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(allow file-write* (regex")
+				assert.Contains(t, actual, "(allow file-write* (regex #")
 				assert.Contains(t, actual, `^/path/to/file[^/]\.log$`)
 			},
 		},
@@ -131,7 +132,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(deny file-read* (regex")
+				assert.Contains(t, actual, "(deny file-read* (regex #")
 				assert.Contains(t, actual, `^/path/[^/]*/subdir$`)
 			},
 		},
@@ -145,7 +146,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(allow file-read* (regex")
+				assert.Contains(t, actual, "(allow file-read* (regex #")
 				assert.Contains(t, actual, `^/tmp/test[123]\.txt$`)
 			},
 		},
@@ -161,7 +162,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				// Should generate literal rule for parent directory
 				assert.Contains(t, actual, `(allow file-write* (literal "/path/to/dir"))`)
 				// Should also generate regex rule for contents
-				assert.Contains(t, actual, `(allow file-write* (regex "^/path/to/dir/.*$"))`)
+				assert.Contains(t, actual, `(allow file-write* (regex #"^/path/to/dir/.*$"))`)
 			},
 		},
 		{
@@ -174,7 +175,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should only generate regex rule, no literal parent
-				assert.Contains(t, actual, `(allow file-write* (regex`)
+				assert.Contains(t, actual, `(allow file-write* (regex #`)
 				assert.NotContains(t, actual, `(allow file-write* (literal "/path")`)
 			},
 		},
@@ -224,7 +225,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 				assert.NoError(t, err)
 				// Should allow writing to root (empty string after trimming becomes "/")
 				assert.Contains(t, actual, `(allow file-write* (literal "/"))`)
-				assert.Contains(t, actual, `(allow file-write* (regex "^/.*$"))`)
+				assert.Contains(t, actual, `(allow file-write* (regex #"^/.*$"))`)
 			},
 		},
 		{
@@ -288,7 +289,7 @@ func TestSeatbeltTranslatorDarwinProcessTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(allow process-exec* (regex")
+				assert.Contains(t, actual, "(allow process-exec* (regex #")
 				assert.Contains(t, actual, "^/usr/local/bin/.*$")
 			},
 		},
@@ -302,7 +303,7 @@ func TestSeatbeltTranslatorDarwinProcessTranslation(t *testing.T) {
 			assert: func(t *testing.T, actual string, err error) {
 				assert.NoError(t, err)
 				// Should use regex matching for glob patterns
-				assert.Contains(t, actual, "(allow process-exec* (regex")
+				assert.Contains(t, actual, "(allow process-exec* (regex #")
 				assert.Contains(t, actual, `^/usr/bin/python[^/]*$`)
 			},
 		},
@@ -537,7 +538,7 @@ func TestPTYSupport(t *testing.T) {
 			Name:            "test",
 			Description:     "test without PTY",
 			PackageManagers: []string{"npm"},
-			AllowPTY:        false,
+			AllowPTY:        utils.PtrTo(false),
 		}
 
 		translator := newSeatbeltPolicyTranslator()
@@ -554,7 +555,7 @@ func TestPTYSupport(t *testing.T) {
 			Name:            "test",
 			Description:     "test with PTY",
 			PackageManagers: []string{"npm"},
-			AllowPTY:        true,
+			AllowPTY:        utils.PtrTo(true),
 		}
 
 		translator := newSeatbeltPolicyTranslator()

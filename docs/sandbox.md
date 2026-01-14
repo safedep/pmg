@@ -94,7 +94,7 @@ To manually investigate sandbox policy violations, you can use the following com
 APP_LOG_LEVEL=debug APP_LOG_FILE=/tmp/pmg-debug.log pmg --sandbox --sandbox-profile=npm-restrictive npm install express
 ```
 
-Find the log tag in the log file and use it to investigate the sandbox policy violation.
+Find the log tag in the debug log file and use it to investigate the sandbox policy violation.
 
 ```bash
 grep "PMG_SBX_" /tmp/pmg-debug.log

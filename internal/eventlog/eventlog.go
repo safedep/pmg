@@ -248,7 +248,9 @@ func (l *fileWithRotationLogger) Log(event Event) error {
 
 	// Flush to ensure data is written
 	if l.file != nil {
-		l.file.Sync()
+		if err := l.file.Sync(); err != nil {
+			return fmt.Errorf("failed to sync file: %w", err)
+		}
 	}
 
 	return nil
@@ -267,6 +269,7 @@ func (l *fileWithRotationLogger) Close() error {
 	if l.file != nil {
 		return l.file.Close()
 	}
+
 	return nil
 }
 
@@ -303,7 +306,9 @@ func LogMalwareBlocked(packageName, version, ecosystem, reason string, details m
 	}
 
 	event.Details["reason"] = reason
-	LogEvent(event)
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log malware blocked event: %s", err)
+	}
 }
 
 // LogMalwareConfirmed logs when user confirms installation despite warning
@@ -316,7 +321,9 @@ func LogMalwareConfirmed(packageName, version, ecosystem string) {
 		Ecosystem:   ecosystem,
 	}
 
-	LogEvent(event)
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log malware confirmed event: %s", err)
+	}
 }
 
 // LogInstallAllowed logs when an installation is allowed
@@ -332,7 +339,9 @@ func LogInstallAllowed(packageName, version, ecosystem string, packageCount int)
 		},
 	}
 
-	LogEvent(event)
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log install allowed event: %s", err)
+	}
 }
 
 // LogInstallTrustedAllowed logs when an installation is allowed for a trusted package
@@ -345,7 +354,9 @@ func LogInstallTrustedAllowed(packageName, version, ecosystem string) {
 		Ecosystem:   ecosystem,
 	}
 
-	LogEvent(event)
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log install trusted allowed event: %s", err)
+	}
 }
 
 // LogInstallStarted logs when an installation starts
@@ -359,7 +370,9 @@ func LogInstallStarted(packageManager string, args []string) {
 		},
 	}
 
-	LogEvent(event)
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log install started event: %s", err)
+	}
 }
 
 // LogError logs an error event
@@ -372,7 +385,9 @@ func LogError(message string, err error) {
 		},
 	}
 
-	LogEvent(event)
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log error event: %s", err)
+	}
 }
 
 // Close closes the global logger

@@ -368,7 +368,9 @@ func (f *proxyFlow) executeWithProxy(
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		io.Copy(outputRouter, sess.PtyReader())
+		if _, err := io.Copy(outputRouter, sess.PtyReader()); err != nil {
+			log.Errorf("failed to copy output: %v", err)
+		}
 	})
 
 	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())

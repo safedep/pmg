@@ -1,0 +1,24 @@
+name: npx
+description: Profile for npx/pnpx generators with write access to current directory
+inherits: npm-restrictive
+
+package_managers:
+  - npx
+  - pnpx
+
+# npx and pnpx require PTY access to work, especially for commands like:
+# npx create-next-app@latest
+#
+# Explicitly setting this so that it is enabled even if we decide to turn this off
+# in parent profiles in the future.
+allow_pty: true
+
+filesystem:
+  # Add write permissions for common generator outputs
+  allow_write:
+    - ${CWD}/**
+
+  # Additional deny rules for extra security
+  deny_write:
+    - ${CWD}/.env
+    - ${CWD}/.env.*
