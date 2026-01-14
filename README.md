@@ -27,10 +27,14 @@ See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 Install `pmg` using Homebrew:
 
 ```shell
+# MacOS/Linux with Homebrew
 brew install safedep/tap/pmg
+
+# Other platforms
+npm install -g @safedep/pmg
 ```
 
-**Note**: More [installation options](#installation) are available.
+**Note**: More [installation options](#installation) are available. See [why and how to trust PMG](docs/trust.md).
 
 Set up `pmg` to protect your development environment from malicious packages:
 
