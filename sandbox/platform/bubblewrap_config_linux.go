@@ -5,7 +5,6 @@ package platform
 
 import (
 	"os"
-	"path/filepath"
 )
 
 // bubblewrapConfig contains configuration for Bubblewrap sandbox behavior.
@@ -63,10 +62,6 @@ type bubblewrapConfig struct {
 	// Seccomp filter configuration
 	seccomp seccompConfig
 
-	// Mandatory deny file patterns (overrides user policy)
-	// These files are always protected regardless of user configuration.
-	mandatoryDenyPatterns []string
-
 	// Maximum depth to scan for mandatory deny patterns (e.g., .env files in subdirectories)
 	// Set to 0 to only check literal paths, higher values scan subdirectories.
 	mandatoryDenyScanDepth int
@@ -88,10 +83,8 @@ type seccompConfig struct {
 
 // newDefaultBubblewrapConfig creates a bubblewrap config with safe default values.
 // These defaults are based on:
-// - Common Linux filesystem layouts (FHS - Filesystem Hierarchy Standard)
+// - Common Linux filesystem layouts
 // - Anthropic Sandbox Runtime implementation patterns
-// - Flatpak's bubblewrap usage
-// - Chrome/Docker seccomp profiles
 func newDefaultBubblewrapConfig() *bubblewrapConfig {
 	return &bubblewrapConfig{
 		// Essential system paths (read-only)
@@ -169,93 +162,9 @@ func newDefaultBubblewrapConfig() *bubblewrapConfig {
 			},
 		},
 
-		// Mandatory deny patterns
-		// These files are ALWAYS protected, regardless of user policy
-		mandatoryDenyPatterns: getMandatoryDenyPatterns(),
-
 		// Scan depth for finding dangerous files in project directories
-		mandatoryDenyScanDepth: 3, // Check up to 3 levels deep
+		mandatoryDenyScanDepth: 3,
 	}
-}
-
-// getMandatoryDenyPatterns returns file patterns that must always be denied write access.
-// These patterns protect credentials, secrets, and security-critical files.
-func getMandatoryDenyPatterns() []string {
-	home, _ := os.UserHomeDir()
-
-	patterns := []string{
-		// Environment files (secrets, API keys)
-		".env",
-		".env.*", // .env.local, .env.production, etc.
-
-		// Cloud provider credentials
-		".aws",           // AWS credentials
-		".aws/**",        // AWS config files
-		".gcloud",        // Google Cloud credentials
-		".gcloud/**",     // GCloud config
-		".azure",         // Azure credentials
-		".azure/**",      // Azure config
-		".config/gcloud", // Alternative GCloud location
-
-		// SSH keys
-		".ssh",       // SSH directory
-		".ssh/**",    // All SSH files
-		"id_rsa",     // SSH private key
-		"id_ed25519", // Ed25519 SSH key
-		"id_ecdsa",   // ECDSA SSH key
-
-		// GPG/PGP keys
-		".gnupg",
-		".gnupg/**",
-
-		// Kubernetes credentials
-		".kube",
-		".kube/**",
-		".kubeconfig",
-
-		// Docker credentials
-		".docker/config.json",
-
-		// Git security-critical files
-		".git/hooks",    // Git hooks (can execute arbitrary code)
-		".git/hooks/**", // All git hooks
-		".gitconfig",    // Global git config
-
-		// Shell configurations (backdoor risk)
-		".bashrc",
-		".bash_profile",
-		".zshrc",
-		".zprofile",
-		".profile",
-
-		// NPM/Node credentials
-		".npmrc", // May contain auth tokens (read-only is fine, write is dangerous)
-
-		// Python credentials
-		".pypirc", // PyPI credentials
-
-		// Database credentials
-		".pgpass",        // PostgreSQL password file
-		".my.cnf",        // MySQL config
-		".mysql_history", // MySQL command history (may contain passwords)
-
-		// Browser/session data
-		".mozilla",
-		".chrome",
-		".chromium",
-
-		// Additional credential stores
-		".netrc",  // Network authentication
-		".docker", // Docker configs
-	}
-
-	// Add home-directory-prefixed versions for absolute path matching
-	homePrefixed := make([]string, 0, len(patterns))
-	for _, pattern := range patterns {
-		homePrefixed = append(homePrefixed, filepath.Join(home, pattern))
-	}
-
-	return append(patterns, homePrefixed...)
 }
 
 // shouldUnshareNetwork determines whether to isolate network based on policy.

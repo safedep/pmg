@@ -449,11 +449,6 @@ func TestBubblewrapConfigDefaults(t *testing.T) {
 	assert.True(t, config.unsharePID)
 	assert.True(t, config.unshareIPC)
 	assert.True(t, config.dieWithParent)
-
-	// Mandatory deny patterns
-	assert.NotEmpty(t, config.mandatoryDenyPatterns)
-	assert.Contains(t, config.mandatoryDenyPatterns, ".env")
-	assert.Contains(t, config.mandatoryDenyPatterns, ".ssh")
 }
 
 func TestBubblewrapConfigEssentialPaths(t *testing.T) {

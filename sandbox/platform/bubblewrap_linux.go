@@ -10,6 +10,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/usefulerror"
 )
 
 // bubblewrapSandbox implements the Sandbox interface using Bubblewrap (bwrap) on Linux.
@@ -42,7 +43,15 @@ func newBubblewrapSandbox() (*bubblewrapSandbox, error) {
 // This implementation modifies the cmd in place and does NOT execute it.
 // Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
 func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
-	// Translate PMG policy to bwrap arguments
+	bwrapPath, err := exec.LookPath("bwrap")
+	if err != nil {
+		return nil, usefulerror.Useful().
+			WithCode("bubblewrap_not_found").
+			WithHumanError("Bubblewrap binary not found").
+			WithHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
+			Wrap(fmt.Errorf("bubblewrap binary not found: %w", err))
+	}
+
 	bwrapArgs, err := b.translator.translate(policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate sandbox policy to bubblewrap arguments: %w", err)
@@ -50,15 +59,8 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 
 	log.Debugf("Bubblewrap arguments: %v", bwrapArgs)
 
-	// Store original command details
 	originalPath := cmd.Path
 	originalArgs := cmd.Args
-
-	// Find bwrap binary
-	bwrapPath, err := exec.LookPath("bwrap")
-	if err != nil {
-		return nil, fmt.Errorf("bubblewrap binary not found: %w (install with: apt install bubblewrap)", err)
-	}
 
 	// Build bwrap command: bwrap [bwrap-args] -- <original-command> <original-args>
 	// The "--" separator is important to distinguish bwrap args from command args
@@ -81,7 +83,6 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 
 	log.Debugf("Sandboxed command: %s %v", cmd.Path, cmd.Args)
 
-	// Return execution result with this sandbox instance for cleanup
 	return sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(b)), nil
 }
 

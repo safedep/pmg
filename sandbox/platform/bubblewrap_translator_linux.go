@@ -158,13 +158,13 @@ func (t *bubblewrapPolicyTranslator) addIsolationNamespaces(policy *sandbox.Sand
 // - Paths not mounted are inaccessible (deny-by-default)
 //
 // Strategy:
-// 1. Start with essential system paths (added separately)
-// 2. Add user-specified allow_read paths FIRST (read-only bind mounts)
-//    This establishes the base filesystem view (e.g., "/" for full access)
-// 3. Add user-specified allow_write paths SECOND (read-write bind mounts)
-//    These OVERRIDE earlier read-only binds (bwrap: later mounts win)
-// 4. Handle deny patterns by mounting /dev/null or read-only for directories
-// 5. Add mandatory deny patterns
+//  1. Start with essential system paths (added separately)
+//  2. Add user-specified allow_read paths FIRST (read-only bind mounts)
+//     This establishes the base filesystem view (e.g., "/" for full access)
+//  3. Add user-specified allow_write paths SECOND (read-write bind mounts)
+//     These OVERRIDE earlier read-only binds (bwrap: later mounts win)
+//  4. Handle deny patterns by mounting /dev/null or read-only for directories
+//  5. Add mandatory deny patterns
 func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
 

@@ -5,6 +5,31 @@ PMG sandbox design goal is to protect against unknown supply chain attacks using
 We do not want to re-invent sandbox and likely rely on OS native sandbox primitives. This is at the cost of developer experience,
 where we have to work within the limitations of the sandbox implementations that we use.
 
+## Requirements
+
+- Bubblewrap on Linux
+- Seatbelt on MacOS
+
+<details>
+<summary>Bubblewrap Installation on Linux</summary>
+
+For Debian-based Linux distributions, you can install Bubblewrap with the following command:
+
+```bash
+sudo apt install bubblewrap
+```
+
+For Arch Linux, you can install Bubblewrap with the following command:
+
+```bash
+sudo pacman -S bubblewrap
+```
+
+For other Linux distributions, you can install Bubblewrap from the package manager of your choice.
+See [Bubblewrap Installation](https://github.com/containers/bubblewrap#installation) for more details.
+
+</details>
+
 ## Usage
 
 - Make sure sandbox is enabled in your `config.yml` file.
