@@ -442,9 +442,11 @@ func (t *bubblewrapPolicyTranslator) expandGlobstarPattern(pattern string, maxDe
 	basePath := strings.TrimSuffix(parts[0], "/")
 	suffix := strings.TrimPrefix(parts[1], "/")
 
-	// If base path is empty, start from root
+	// If base path is empty, it would walk from root which is prohibitively expensive.
+	// Skip such patterns to prevent filesystem scan timeouts.
 	if basePath == "" {
-		basePath = "/"
+		log.Debugf("Skipping globstar pattern '%s' with empty base path (would walk from root)", pattern)
+		return []string{}, nil
 	}
 
 	// Expand base path variables
