@@ -57,8 +57,14 @@ trusted_packages:
 #
 # Currently supported platforms:
 # - macOS (using Seatbelt sandbox-exec)
-# - Linux (planned: Bubblewrap or seccomp-bpf)
+# - Linux (using Bubblewrap with namespace isolation)
 # - Windows (planned)
+#
+# Platform-specific limitations:
+# - Linux: Filesystem permissions use coarse-grained bind mounts. Glob patterns (e.g., *.txt)
+#   are expanded at policy translation time, but entire directories may be mounted rather than
+#   individual matching files. This is less precise than macOS regex-based filtering.
+# - macOS: Network filtering is limited (all-or-nothing for most policies).
 sandbox:
   # Enable sandbox mode (opt-in, default: false for backward compatibility)
   enabled: false

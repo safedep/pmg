@@ -99,11 +99,22 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 
 ## Supported Platforms
 
-| Platform | Supported | Implementation                     |
-| -------- | --------- | ---------------------------------- |
-| MacOS    | Yes       | Seatbelt sandbox-exec              |
-| Linux    | No        | Bubblewrap / seccomp-bpf (planned) |
-| Windows  | No        | Not yet supported                  |
+| Platform | Supported | Implementation                      |
+| -------- | --------- | ----------------------------------- |
+| MacOS    | Yes       | Seatbelt sandbox-exec               |
+| Linux    | Yes       | Bubblewrap with namespace isolation |
+| Windows  | No        | Not yet supported                   |
+
+### Platform-Specific Limitations
+
+**Linux (Bubblewrap)**:
+- **Filesystem permissions are coarse-grained**: Linux sandbox uses bind mounts for filesystem isolation. When you specify a glob pattern like `${CWD}/*.txt`, the pattern is expanded to matching files at policy translation time, but Bubblewrap mounts entire directories rather than individual files. This means filesystem access control is at the directory level, not file-pattern level.
+- **Example**: A policy allowing `${CWD}/node_modules/**` will mount the entire `node_modules` directory tree, not selectively filter files by pattern.
+- **Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific filtering is not enforced in the initial implementation.
+
+**macOS (Seatbelt)**:
+- **Network filtering is limited**: Seatbelt supports network rules in policies, but fine-grained host:port filtering is not consistently enforced across all connection types.
+- **Filesystem permissions are precise**: Uses regex-based pattern matching, allowing file-level access control.
 
 ## Concepts
 
@@ -175,6 +186,29 @@ Use `log(1)` to filter the log file by the log tag or generic `PMG_SBX_` prefix.
 ```bash
 log show --last 5m --predicate 'message ENDSWITH "PMG_SBX_"' --style compact
 ```
+
+### Linux
+
+Linux sandbox implementation uses Bubblewrap for namespace-based isolation. Enable debug logging to see translated sandbox arguments:
+
+```bash
+APP_LOG_LEVEL=debug APP_LOG_FILE=/tmp/pmg-debug.log pmg --sandbox --sandbox-profile=npm-restrictive npm install express
+```
+
+Review the debug log to see the translated `bwrap` command-line arguments:
+
+```bash
+grep "Bubblewrap arguments" /tmp/pmg-debug.log
+```
+
+To debug sandbox violations, you can manually test commands with increased verbosity by running the sandbox command directly:
+
+```bash
+# Extract the bwrap command from debug logs and run with --verbose
+bwrap --verbose [arguments...] -- npm install express
+```
+
+**Note**: Unlike macOS, Bubblewrap does not provide real-time violation logging. Policy violations typically manifest as `EACCES` (Permission denied) errors.
 
 ## References
 
