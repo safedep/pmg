@@ -6,6 +6,27 @@ const os = require('os');
 const home = os.homedir();
 const results = { passed: 0, failed: 0, tests: [] };
 
+// Helper to test if a directory is blocked (either EPERM or empty via tmpfs)
+function isDirectoryBlocked(dirPath) {
+  try {
+    const contents = fs.readdirSync(dirPath);
+    // On Linux/bwrap, tmpfs makes directory empty (credentials hidden)
+    // On macOS/seatbelt, access is denied (EPERM)
+    if (contents.length === 0) {
+      return { blocked: true, reason: 'empty via tmpfs' };
+    }
+    return { blocked: false, reason: 'contents readable' };
+  } catch (e) {
+    if (e.code === 'EPERM') {
+      return { blocked: true, reason: 'EPERM' };
+    }
+    if (e.code === 'ENOENT') {
+      return { blocked: true, reason: 'does not exist', skip: true };
+    }
+    return { blocked: true, reason: e.code, skip: true };
+  }
+}
+
 function test(name, fn) {
   try {
     const result = fn();
@@ -26,66 +47,62 @@ console.log('--- Tests that SHOULD be BLOCKED ---\n');
 
 // Test 1: Read ~/.ssh (should be blocked)
 test('BLOCK: Read ~/.ssh directory', () => {
-  try {
-    fs.readdirSync(path.join(home, '.ssh'));
-    console.log('  ❌ FAIL: Could read ~/.ssh');
-    return false;
-  } catch (e) {
-    if (e.code === 'EPERM') {
-      console.log('  ✅ PASS: ~/.ssh blocked (EPERM)');
-      return true;
-    }
-    console.log(`  ⚠️  SKIP: ~/.ssh - ${e.code} (may not exist)`);
-    return true; // ENOENT is okay if dir doesn't exist
+  const result = isDirectoryBlocked(path.join(home, '.ssh'));
+  if (result.skip) {
+    console.log(`  ⚠️  SKIP: ~/.ssh - ${result.reason}`);
+    return true;
   }
+  if (result.blocked) {
+    console.log(`  ✅ PASS: ~/.ssh blocked (${result.reason})`);
+    return true;
+  }
+  console.log('  ❌ FAIL: Could read ~/.ssh contents');
+  return false;
 });
 
 // Test 2: Read ~/.aws (should be blocked)
 test('BLOCK: Read ~/.aws directory', () => {
-  try {
-    fs.readdirSync(path.join(home, '.aws'));
-    console.log('  ❌ FAIL: Could read ~/.aws');
-    return false;
-  } catch (e) {
-    if (e.code === 'EPERM') {
-      console.log('  ✅ PASS: ~/.aws blocked (EPERM)');
-      return true;
-    }
-    console.log(`  ⚠️  SKIP: ~/.aws - ${e.code} (may not exist)`);
+  const result = isDirectoryBlocked(path.join(home, '.aws'));
+  if (result.skip) {
+    console.log(`  ⚠️  SKIP: ~/.aws - ${result.reason}`);
     return true;
   }
+  if (result.blocked) {
+    console.log(`  ✅ PASS: ~/.aws blocked (${result.reason})`);
+    return true;
+  }
+  console.log('  ❌ FAIL: Could read ~/.aws contents');
+  return false;
 });
 
 // Test 3: Read ~/.kube (should be blocked)
-test('BLOCK: Read ~/.kube/config', () => {
-  try {
-    fs.readFileSync(path.join(home, '.kube', 'config'));
-    console.log('  ❌ FAIL: Could read ~/.kube/config');
-    return false;
-  } catch (e) {
-    if (e.code === 'EPERM') {
-      console.log('  ✅ PASS: ~/.kube/config blocked (EPERM)');
-      return true;
-    }
-    console.log(`  ⚠️  SKIP: ~/.kube/config - ${e.code} (may not exist)`);
+test('BLOCK: Read ~/.kube directory', () => {
+  const result = isDirectoryBlocked(path.join(home, '.kube'));
+  if (result.skip) {
+    console.log(`  ⚠️  SKIP: ~/.kube - ${result.reason}`);
     return true;
   }
+  if (result.blocked) {
+    console.log(`  ✅ PASS: ~/.kube blocked (${result.reason})`);
+    return true;
+  }
+  console.log('  ❌ FAIL: Could read ~/.kube contents');
+  return false;
 });
 
 // Test 4: Read ~/.gcloud (should be blocked)
 test('BLOCK: Read ~/.gcloud directory', () => {
-  try {
-    fs.readdirSync(path.join(home, '.gcloud'));
-    console.log('  ❌ FAIL: Could read ~/.gcloud');
-    return false;
-  } catch (e) {
-    if (e.code === 'EPERM') {
-      console.log('  ✅ PASS: ~/.gcloud blocked (EPERM)');
-      return true;
-    }
-    console.log(`  ⚠️  SKIP: ~/.gcloud - ${e.code} (may not exist)`);
+  const result = isDirectoryBlocked(path.join(home, '.gcloud'));
+  if (result.skip) {
+    console.log(`  ⚠️  SKIP: ~/.gcloud - ${result.reason}`);
     return true;
   }
+  if (result.blocked) {
+    console.log(`  ✅ PASS: ~/.gcloud blocked (${result.reason})`);
+    return true;
+  }
+  console.log('  ❌ FAIL: Could read ~/.gcloud contents');
+  return false;
 });
 
 // Test 5: Write to /etc (should be blocked)
