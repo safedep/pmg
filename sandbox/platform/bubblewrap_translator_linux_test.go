@@ -480,40 +480,115 @@ func TestBubblewrapConfigEssentialDevices(t *testing.T) {
 }
 
 func TestBubblewrapTranslatorProcessDenyRule(t *testing.T) {
-	tmpDir := t.TempDir()
+	t.Run("existing file is blocked with /dev/null", func(t *testing.T) {
+		tmpDir := t.TempDir()
 
-	// Create a test file that exists
-	testFile := filepath.Join(tmpDir, "existing.txt")
-	require.NoError(t, os.WriteFile(testFile, []byte("test"), 0644))
+		// Create a test file that exists
+		testFile := filepath.Join(tmpDir, "existing.txt")
+		require.NoError(t, os.WriteFile(testFile, []byte("test"), 0644))
 
-	// Create a path that doesn't exist
-	nonExistentPath := filepath.Join(tmpDir, ".env")
-
-	policy := &sandbox.SandboxPolicy{
-		Filesystem: sandbox.FilesystemPolicy{
-			DenyWrite: []string{
-				testFile,        // Existing file
-				nonExistentPath, // Non-existent file
+		policy := &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				DenyWrite: []string{testFile},
 			},
-		},
-	}
+		}
 
-	config := newDefaultBubblewrapConfig()
-	translator := newBubblewrapPolicyTranslator(config)
-	args, err := translator.translate(policy)
-	require.NoError(t, err)
+		config := newDefaultBubblewrapConfig()
+		translator := newBubblewrapPolicyTranslator(config)
+		args, err := translator.translate(policy)
+		require.NoError(t, err)
 
-	argsStr := argSliceToString(args)
+		argsStr := argSliceToString(args)
 
-	// Existing file should be mounted with /dev/null
-	assert.Contains(t, argsStr, "--ro-bind")
-	assert.Contains(t, argsStr, "/dev/null")
-	assert.Contains(t, argsStr, testFile)
+		// Existing file should be mounted with /dev/null
+		assert.Contains(t, argsStr, "--ro-bind")
+		assert.Contains(t, argsStr, "/dev/null")
+		assert.Contains(t, argsStr, testFile)
+	})
 
-	// Non-existent file should NOT be in args (protected by deny-by-default)
-	// In bubblewrap, paths that are not explicitly mounted are inaccessible,
-	// so we don't need to add deny rules for non-existent files
-	assert.NotContains(t, argsStr, nonExistentPath)
+	t.Run("non-existent file outside allowed write paths is skipped", func(t *testing.T) {
+		// Use a path that is truly outside any allowed write path
+		// Note: /tmp is always in allowedWritePaths due to tmpdir support
+		// So we use a path under /nonexistent which doesn't exist
+		nonExistentPath := "/nonexistent/completely/fake/path/.env"
+
+		policy := &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				DenyWrite: []string{nonExistentPath},
+				// No AllowWrite - path is not within any allowed write area
+			},
+		}
+
+		config := newDefaultBubblewrapConfig()
+		translator := newBubblewrapPolicyTranslator(config)
+		args, err := translator.translate(policy)
+		require.NoError(t, err)
+
+		argsStr := argSliceToString(args)
+
+		// Non-existent file should NOT be in args (protected by deny-by-default)
+		// Path is not within allowed write paths, so no need to block it
+		assert.NotContains(t, argsStr, nonExistentPath)
+	})
+
+	t.Run("non-existent file within allowed write path is blocked", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Non-existent path WITHIN an allowed write path
+		nonExistentPath := filepath.Join(tmpDir, ".env")
+
+		policy := &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowWrite: []string{tmpDir}, // Allow writes to tmpDir
+				DenyWrite:  []string{nonExistentPath},
+			},
+		}
+
+		config := newDefaultBubblewrapConfig()
+		translator := newBubblewrapPolicyTranslator(config)
+		args, err := translator.translate(policy)
+		require.NoError(t, err)
+
+		argsStr := argSliceToString(args)
+
+		// Non-existent file within allowed write path should be blocked
+		// by mounting /dev/null at the first non-existent component
+		assert.Contains(t, argsStr, "--ro-bind")
+		assert.Contains(t, argsStr, "/dev/null")
+		assert.Contains(t, argsStr, nonExistentPath)
+	})
+
+	t.Run("deeply nested non-existent path is blocked at first missing component", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a subdirectory that exists
+		existingDir := filepath.Join(tmpDir, "existing")
+		require.NoError(t, os.MkdirAll(existingDir, 0755))
+
+		// Deeply nested non-existent path: existing/nonexistent/deep/.env
+		// First non-existent component is "nonexistent"
+		nonExistentPath := filepath.Join(existingDir, "nonexistent", "deep", ".env")
+		firstNonExistent := filepath.Join(existingDir, "nonexistent")
+
+		policy := &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowWrite: []string{tmpDir}, // Allow writes to tmpDir
+				DenyWrite:  []string{nonExistentPath},
+			},
+		}
+
+		config := newDefaultBubblewrapConfig()
+		translator := newBubblewrapPolicyTranslator(config)
+		args, err := translator.translate(policy)
+		require.NoError(t, err)
+
+		argsStr := argSliceToString(args)
+
+		// Should mount /dev/null at the first non-existent component
+		assert.Contains(t, argsStr, "--ro-bind")
+		assert.Contains(t, argsStr, "/dev/null")
+		assert.Contains(t, argsStr, firstNonExistent)
+	})
 }
 
 func TestBubblewrapTranslatorTmpdirSupport(t *testing.T) {

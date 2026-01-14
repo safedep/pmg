@@ -218,6 +218,13 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, writeArgs...)
 	}
 
+	// Collect allowed write paths for deny rule processing
+	// This is used to determine if non-existent deny paths need to be blocked
+	allowedWritePaths := make([]string, 0, len(writeBoundPaths))
+	for path := range writeBoundPaths {
+		allowedWritePaths = append(allowedWritePaths, path)
+	}
+
 	// 3. Process deny_write rules (mount /dev/null to prevent creation)
 	allowGitConfig := utils.SafelyGetValue(policy.AllowGitConfig)
 	denyPatterns := append([]string{}, policy.Filesystem.DenyWrite...)
@@ -233,7 +240,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			continue
 		}
 
-		denyArgs, err := t.processDenyRule(expanded)
+		denyArgs, err := t.processDenyRule(expanded, allowedWritePaths)
 		if err != nil {
 			// Deny rules failing is not critical (file may not exist yet)
 			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
@@ -425,7 +432,8 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 
 // processDenyRule handles deny rules by mounting /dev/null to prevent file creation.
 // This technique is borrowed from Anthropic's sandbox-runtime.
-func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, error) {
+// allowedWritePaths is used to determine if non-existent paths need to be blocked.
+func (t *bubblewrapPolicyTranslator) processDenyRule(path string, allowedWritePaths []string) ([]string, error) {
 	args := []string{}
 
 	// For glob patterns, expand and deny each path
@@ -466,10 +474,18 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 				args = append(args, "--ro-bind", "/dev/null", path)
 			}
 		} else if os.IsNotExist(err) {
-			// File doesn't exist - skip blocking it
-			// Rationale: bwrap cannot create mount points in read-only parent directories.
-			// Non-existent files are already protected by deny-by-default (not in allow_write).
-			log.Debugf("Deny rule: skipping non-existent path '%s' (already protected by deny-by-default)", path)
+			// File doesn't exist - check if it's within an allowed write path
+			// If so, we need to block creation by mounting /dev/null at first non-existent component
+			if isWithinAllowedWritePath(path, allowedWritePaths) {
+				firstNonExistent := t.findFirstNonExistentPath(path)
+				if firstNonExistent != "" {
+					args = append(args, "--ro-bind", "/dev/null", firstNonExistent)
+					log.Debugf("Deny rule: blocking creation of '%s' by mounting /dev/null at '%s'", path, firstNonExistent)
+				}
+			} else {
+				// Not within allowed write paths - already protected by deny-by-default
+				log.Debugf("Deny rule: skipping '%s' - not within allowed write paths (protected by deny-by-default)", path)
+			}
 		}
 	}
 
@@ -497,6 +513,19 @@ func (t *bubblewrapPolicyTranslator) findFirstNonExistentPath(path string) strin
 	}
 
 	return ""
+}
+
+// isWithinAllowedWritePath checks if a target path is within any of the allowed write paths.
+// This is used to determine if a non-existent deny path needs to be blocked.
+func isWithinAllowedWritePath(targetPath string, allowedWritePaths []string) bool {
+	targetPath = filepath.Clean(targetPath)
+	for _, allowedPath := range allowedWritePaths {
+		allowedPath = filepath.Clean(allowedPath)
+		if targetPath == allowedPath || strings.HasPrefix(targetPath, allowedPath+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // expandGlobPattern expands a glob pattern to a list of concrete paths.
