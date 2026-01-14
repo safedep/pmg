@@ -1,6 +1,7 @@
 # Sandbox
 
-Design goal for sandbox in PMG context is to protect against unknown supply chain attacks using principle of least privilege.
+PMG sandbox design goal is to protect against unknown supply chain attacks using principle of least privilege.
+
 We do not want to re-invent sandbox and likely rely on OS native sandbox primitives. This is at the cost of developer experience,
 where we have to work within the limitations of the sandbox implementations that we use.
 
@@ -9,13 +10,14 @@ where we have to work within the limitations of the sandbox implementations that
 - Make sure sandbox is enabled in your `config.yml` file.
 - Make sure sandbox profiles are configured for the package managers you want to sandbox. 
   
-See [config/config.template.yml](../config/config.template.yml) for the configuration schema.
+See [configuration](./config.md) and [config/config.template.yml](../config/config.template.yml) for the configuration schema.
+Once sandbox is enabled, you can run package manager commands with sandbox protection.
 
 ```bash
 pmg npm install express
 ```
 
-Explicitly enable sandbox:
+Explicitly enable sandbox if not enabled in the `config.yml` file:
 
 ```bash
 pmg --sandbox --sandbox-profile=npm-restrictive npm install express
@@ -26,6 +28,74 @@ Run sandbox with custom policy file:
 ```bash
 pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 ```
+
+<details>
+<summary>Custom policy overrides using Policy Templates</summary>
+
+Policy templates allow custom policy overrides. To setup custom policy overrides for your package manager,
+start by looking up the PMG configuration directory:
+
+```bash
+pmg setup info
+```
+
+Create a new policy template file in the PMG configuration directory and edit it to suit your needs:
+
+```bash
+# Set the PMG configuration directory
+export PMG_CONFIG_DIR="/path/to/pmg/config/dir"
+
+# Create the policy template file
+cat > $PMG_CONFIG_DIR/sandbox-custom-policy.yml <<EOF
+name: pnpm-macos-custom-sandbox
+description: Custom profile for pnpm in MacOS
+inherits: npm-restrictive
+
+package_managers:
+  - pnpm
+
+allow_pty: true
+
+filesystem:
+  allow_write:
+    # pnpm i need write access here
+    - ${HOME}/Library/pnpm/.tools/**
+
+    # pnpm i creates these tmp files in local dir, at least on MacOS
+    - ${CWD}/_tmp_*
+
+    # pnpm self-update (or likely update) creates temporary package.json files
+    # for writing. This is likely for atomic update using filesystem rename operation
+    # which guarantees atomicity
+    - ${CWD}/package.json.*
+
+    # Need access for dependency resolution
+    - ${CWD}/.pnpm-store
+
+  # Additional deny rules for extra security
+  deny_write:
+    - ${CWD}/.env
+    - ${CWD}/.env.*
+EOF
+```
+
+Edit PMG configuration file to use the custom policy template and override the default
+policy for your package manager:
+
+```yaml
+policy_templates:
+  pnpm-macos-custom-sandbox:
+    path: ./sandbox-custom-policy.yml
+
+policies:
+  pnpm:
+    enabled: true
+    profile: pnpm-macos-custom-sandbox
+```
+
+Next time you run `pmg pnpm install`, the custom policy template will be used instead of the default policy.
+
+</details>
 
 ## Supported Platforms
 
