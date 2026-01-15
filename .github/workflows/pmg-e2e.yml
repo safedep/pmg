@@ -447,6 +447,10 @@ jobs:
   sandbox-e2e-linux:
     name: Sandbox E2E - Linux (Bubblewrap)
     runs-on: ubuntu-latest
+    # Bubblewrap relies on Linux user namespaces and related kernel capabilities.
+    # These are restricted on GitHub-hosted runners, so bwrap cannot function
+    # without a self-hosted runner with the required privileges enabled.
+    if: false
     timeout-minutes: 10
     defaults:
       run:
