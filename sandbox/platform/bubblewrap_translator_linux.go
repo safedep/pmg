@@ -155,6 +155,7 @@ func (t *bubblewrapPolicyTranslator) addIsolationNamespaces(policy *sandbox.Sand
 // - --ro-bind: Read-only bind mount
 // - --bind: Read-write bind mount
 // - --dev-bind: Device file bind mount
+// - --tmpfs: Temporary file system mount (used to hide specific files/directories)
 // - Paths not mounted are inaccessible (deny-by-default)
 //
 // Strategy:
@@ -168,18 +169,20 @@ func (t *bubblewrapPolicyTranslator) addIsolationNamespaces(policy *sandbox.Sand
 func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
 
-	// Track paths we've already bound to avoid duplicates
-	boundPaths := make(map[string]bool)
+	// Track paths we've already bound for read and write to avoid duplicates
+	// Bubblewrap later mounts win, so we need to track both read and write bound paths.
+	readBoundPaths := make(map[string]bool)
+	writeBoundPaths := make(map[string]bool)
 
 	// Add essential system paths to bound paths (already handled separately)
 	for _, path := range t.config.getEssentialSystemPaths() {
-		boundPaths[path] = true
+		readBoundPaths[path] = true
 	}
 
 	// Mark tmpdir as already bound (will be handled by addTmpdirSupport())
 	// This prevents conflicts from policy patterns like /tmp/**
 	tmpDir := os.TempDir()
-	boundPaths[tmpDir] = true
+	writeBoundPaths[tmpDir] = true
 
 	// 1. Process allow_read rules FIRST (read-only bind mounts)
 	// This establishes the base read-only filesystem view (including "/" if specified)
@@ -190,18 +193,19 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			continue
 		}
 
-		readArgs, err := t.processReadRule(expanded, boundPaths)
+		// Glob chars are handled by the processReadRule function.
+		readArgs, err := t.processReadRule(expanded, readBoundPaths)
 		if err != nil {
 			log.Warnf("Failed to process allow_read rule '%s': %v", expanded, err)
 			continue
 		}
+
 		args = append(args, readArgs...)
 	}
 
 	// 2. Process allow_write rules SECOND (read-write bind mounts)
 	// These OVERRIDE earlier read-only binds (bwrap: later mounts win)
 	// Use a separate map so we don't skip paths that need write access
-	writeBoundPaths := make(map[string]bool)
 	writeBoundPaths[tmpDir] = true // tmpdir handled by addTmpdirSupport
 	for _, pattern := range policy.Filesystem.AllowWrite {
 		expanded, err := util.ExpandVariables(pattern)
@@ -210,11 +214,13 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			continue
 		}
 
+		// Glob chars are handled by the processWriteRule function.
 		writeArgs, err := t.processWriteRule(expanded, writeBoundPaths)
 		if err != nil {
 			log.Warnf("Failed to process allow_write rule '%s': %v", expanded, err)
 			continue
 		}
+
 		args = append(args, writeArgs...)
 	}
 
@@ -242,16 +248,16 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		denyArgs, err := t.processDenyRule(expanded, allowedWritePaths)
 		if err != nil {
-			// Deny rules failing is not critical (file may not exist yet)
 			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
 			continue
 		}
+
 		args = append(args, denyArgs...)
 	}
 
 	// 4. Process mandatory credential directories - completely hide them with tmpfs
 	// This blocks both read AND write access (more secure than read-only mount)
-	hiddenDirs := make(map[string]bool) // Track to avoid duplicates
+	hiddenDirs := make(map[string]bool)
 	for _, pattern := range mandatoryDenies {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -260,11 +266,11 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		var dirsToHide []string
 		if util.ContainsGlob(expanded) {
-			// Expand glob pattern to find matching directories
 			matches, err := filepath.Glob(expanded)
 			if err != nil {
 				continue
 			}
+
 			dirsToHide = matches
 		} else {
 			dirsToHide = []string{expanded}
@@ -274,9 +280,11 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			if hiddenDirs[dir] {
 				continue
 			}
+
 			if info, err := os.Stat(dir); err == nil && info.IsDir() {
 				args = append(args, "--tmpfs", dir)
 				hiddenDirs[dir] = true
+
 				log.Debugf("Hiding credential directory '%s' with tmpfs", dir)
 			}
 		}
@@ -304,7 +312,6 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 				}
 			}
 		} else {
-			// Literal path
 			if info, err := os.Stat(expanded); err == nil && !info.IsDir() {
 				args = append(args, "--ro-bind", "/dev/null", expanded)
 				log.Debugf("Blocked execution of '%s'", expanded)
@@ -709,7 +716,6 @@ func (t *bubblewrapPolicyTranslator) addPTYSupport() []string {
 // Package managers need writable temp space for downloads, extraction, etc.
 func (t *bubblewrapPolicyTranslator) addTmpdirSupport() []string {
 	args := []string{}
-
 	tmpDir := os.TempDir()
 
 	// Bind tmp directory as writable

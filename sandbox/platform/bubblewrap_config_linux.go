@@ -85,6 +85,9 @@ type seccompConfig struct {
 // These defaults are based on:
 // - Common Linux filesystem layouts
 // - Anthropic Sandbox Runtime implementation patterns
+//
+// This config is for maintaining safe defaults for the sandbox. Future enhancements
+// will allow the user to override the config through policy or sandbox config available at PMG level.
 func newDefaultBubblewrapConfig() *bubblewrapConfig {
 	return &bubblewrapConfig{
 		// Essential system paths (read-only)
@@ -195,6 +198,7 @@ func (c *bubblewrapConfig) getEssentialSystemPaths() []string {
 			existingPaths = append(existingPaths, path)
 		}
 	}
+
 	return existingPaths
 }
 
@@ -207,5 +211,6 @@ func (c *bubblewrapConfig) getEssentialDevices() []string {
 			existingDevices = append(existingDevices, device)
 		}
 	}
+
 	return existingDevices
 }
