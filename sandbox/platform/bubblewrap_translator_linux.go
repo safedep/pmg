@@ -608,12 +608,17 @@ func (t *bubblewrapPolicyTranslator) walkWithDepthLimit(root string, suffix stri
 			return nil
 		}
 
-		// Calculate depth
+		// Calculate depth relative to root
 		relPath, err := filepath.Rel(root, path)
 		if err != nil {
 			return nil
 		}
-		depth := len(strings.Split(relPath, string(filepath.Separator)))
+		// When relPath is "." (the root itself), depth should be 0
+		// strings.Split(".", "/") returns ["."] with length 1, causing off-by-one error
+		depth := 0
+		if relPath != "." {
+			depth = len(strings.Split(relPath, string(filepath.Separator)))
+		}
 
 		// Enforce depth limit
 		if maxDepth > 0 && depth > maxDepth {
