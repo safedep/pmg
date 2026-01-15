@@ -497,6 +497,7 @@ jobs:
         run: |
           sudo systemctl stop apparmor
           sudo systemctl disable apparmor
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
