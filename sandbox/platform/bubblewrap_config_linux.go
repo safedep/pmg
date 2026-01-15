@@ -1,0 +1,216 @@
+//go:build linux
+// +build linux
+
+package platform
+
+import (
+	"os"
+)
+
+// bubblewrapConfig contains configuration for Bubblewrap sandbox behavior.
+// This allows for tuning sandbox isolation without hardcoding magic values
+// throughout the translator.
+type bubblewrapConfig struct {
+	// Essential system paths that are always mounted read-only for package managers
+	// to function. These paths provide access to system libraries, binaries, and
+	// runtime dependencies.
+	essentialSystemPaths []string
+
+	// Essential device files that must be accessible in the sandbox.
+	// These are critical for basic I/O operations and random number generation.
+	essentialDevices []string
+
+	// Proc filesystem paths to mount. The /proc filesystem provides runtime
+	// information about processes, system resources, and kernel parameters.
+	procPaths []string
+
+	// Maximum depth for glob pattern expansion. Limits filesystem traversal
+	// to prevent excessive scanning of deep directory trees.
+	// Set to 0 for unlimited depth (not recommended).
+	maxGlobDepth int
+
+	// Maximum number of paths to expand from a single glob pattern.
+	// Prevents memory exhaustion from patterns matching huge directory trees.
+	maxGlobPaths int
+
+	// Glob fallback threshold for coarse-grained binding.
+	// When glob expansion yields more than this many paths, fallback to binding
+	// the parent directory instead of individual files for scalability.
+	globFallbackThreshold int
+
+	// Total argument limit for bwrap command.
+	// Warns when total arguments exceed this limit (approaching ARG_MAX).
+	totalArgsLimit int
+
+	// Whether to unshare the network namespace by default if policy has no network rules.
+	// When true and no network rules specified, completely isolates network access.
+	unshareNetworkByDefault bool
+
+	// Whether to unshare the PID namespace. Isolates process tree visibility.
+	// Recommended for security but may break some package managers that inspect processes.
+	unsharePID bool
+
+	// Whether to unshare the IPC namespace. Isolates System V IPC and POSIX message queues.
+	unshareIPC bool
+
+	// Whether to create a new session (setsid). Detaches from terminal session.
+	newSession bool
+
+	// Whether to die when parent process exits. Ensures cleanup of orphaned sandboxes.
+	dieWithParent bool
+
+	// Seccomp filter configuration
+	seccomp seccompConfig
+
+	// Maximum depth to scan for mandatory deny patterns (e.g., .env files in subdirectories)
+	// Set to 0 to only check literal paths, higher values scan subdirectories.
+	mandatoryDenyScanDepth int
+}
+
+// seccompConfig contains seccomp-bpf filter settings
+type seccompConfig struct {
+	// Whether to enable seccomp filtering
+	enabled bool
+
+	// Path to seccomp filter file (BPF bytecode)
+	// If empty, uses built-in default filter
+	filterPath string
+
+	// Syscalls to deny (blocklist approach)
+	// Common dangerous syscalls: ptrace, kexec_load, module_init, etc.
+	deniedSyscalls []string
+}
+
+// newDefaultBubblewrapConfig creates a bubblewrap config with safe default values.
+// These defaults are based on:
+// - Common Linux filesystem layouts
+// - Anthropic Sandbox Runtime implementation patterns
+//
+// This config is for maintaining safe defaults for the sandbox. Future enhancements
+// will allow the user to override the config through policy or sandbox config available at PMG level.
+func newDefaultBubblewrapConfig() *bubblewrapConfig {
+	return &bubblewrapConfig{
+		// Essential system paths (read-only)
+		// Based on Filesystem Hierarchy Standard (FHS)
+		essentialSystemPaths: []string{
+			"/usr",     // User binaries, libraries, documentation
+			"/lib",     // Essential shared libraries
+			"/lib64",   // 64-bit libraries (on x86_64 systems)
+			"/bin",     // Essential command binaries (may be symlink to /usr/bin)
+			"/sbin",    // System binaries (may be symlink to /usr/sbin)
+			"/etc",     // System configuration files (read-only access needed for DNS, etc.)
+			"/opt",     // Optional application software packages
+			"/var/lib", // Variable state information (package databases, etc.)
+			"/sys",     // Sysfs - kernel and device information
+		},
+
+		// Essential device files
+		// Required for basic I/O, randomness, and null device operations
+		essentialDevices: []string{
+			"/dev/null",
+			"/dev/zero",
+			"/dev/random",
+			"/dev/urandom",
+			"/dev/full",
+			"/dev/tty", // For terminal operations
+		},
+
+		// Proc filesystem paths
+		// Provides process and system information
+		procPaths: []string{
+			"/proc", // Full proc filesystem
+		},
+
+		// Glob expansion limits
+		// Conservative defaults to prevent DoS via huge glob patterns
+		maxGlobDepth:          5,     // Scan up to 5 directory levels
+		maxGlobPaths:          10000, // Maximum 10k paths per glob pattern
+		globFallbackThreshold: 100,   // Fallback to parent dir above 100 paths
+		totalArgsLimit:        8000,  // Total bwrap argument safety limit
+
+		// Network isolation (default: isolate network if no rules)
+		unshareNetworkByDefault: true,
+
+		// Process/IPC isolation
+		unsharePID:    true, // Isolate PID namespace
+		unshareIPC:    true, // Isolate IPC namespace
+		newSession:    true, // Create new session
+		dieWithParent: true, // Cleanup on parent exit
+
+		// Seccomp configuration
+		seccomp: seccompConfig{
+			enabled:    false, // Disabled by default (Phase 4 enhancement)
+			filterPath: "",    // Use built-in filter when enabled
+			deniedSyscalls: []string{
+				// Dangerous syscalls that should be blocked
+				"ptrace",          // Process tracing (debugging/injection)
+				"kexec_load",      // Load new kernel
+				"module_init",     // Load kernel modules
+				"reboot",          // System reboot
+				"swapon",          // Enable swap
+				"swapoff",         // Disable swap
+				"mount",           // Mount filesystems
+				"umount",          // Unmount filesystems
+				"pivot_root",      // Change root filesystem
+				"chroot",          // Change root directory
+				"unshare",         // Create new namespaces (prevent nested sandboxing)
+				"setns",           // Join existing namespace
+				"acct",            // Process accounting
+				"add_key",         // Add key to kernel keyring
+				"request_key",     // Request key from kernel
+				"keyctl",          // Manipulate kernel keyring
+				"ioperm",          // Set port I/O permissions
+				"iopl",            // Set I/O privilege level
+				"perf_event_open", // Performance monitoring
+			},
+		},
+
+		// Scan depth for finding dangerous files in project directories
+		mandatoryDenyScanDepth: 3,
+	}
+}
+
+// shouldUnshareNetwork determines whether to isolate network based on policy.
+// Returns true if network should be completely isolated (--unshare-net).
+func (c *bubblewrapConfig) shouldUnshareNetwork(hasAllowRules bool, hasDenyAll bool) bool {
+	// If there are allow rules, don't isolate network
+	// Note: bubblewrap can't do per-host filtering, so allow rules mean "allow network"
+	// The allow_outbound rules serve as documentation of intended access
+	if hasAllowRules {
+		return false
+	}
+
+	// No allow rules - check if we should deny all
+	if hasDenyAll {
+		return true
+	}
+
+	// No allow rules and no deny-all - use default behavior
+	return c.unshareNetworkByDefault
+}
+
+// getEssentialSystemPaths returns essential system paths for read-only binding.
+// Filters out paths that don't exist on this system (e.g., /lib64 on 32-bit).
+func (c *bubblewrapConfig) getEssentialSystemPaths() []string {
+	existingPaths := make([]string, 0, len(c.essentialSystemPaths))
+	for _, path := range c.essentialSystemPaths {
+		if _, err := os.Stat(path); err == nil {
+			existingPaths = append(existingPaths, path)
+		}
+	}
+
+	return existingPaths
+}
+
+// getEssentialDevices returns essential device files for binding.
+// Filters out devices that don't exist on this system.
+func (c *bubblewrapConfig) getEssentialDevices() []string {
+	existingDevices := make([]string, 0, len(c.essentialDevices))
+	for _, device := range c.essentialDevices {
+		if _, err := os.Stat(device); err == nil {
+			existingDevices = append(existingDevices, device)
+		}
+	}
+
+	return existingDevices
+}
