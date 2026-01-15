@@ -448,6 +448,9 @@ jobs:
     name: Sandbox E2E - Linux (Bubblewrap)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout Source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -489,6 +492,11 @@ jobs:
           touch ~/.ssh/id_rsa
           touch ~/.gnupg/pubring.kbx
           touch ~/.docker/config.json
+
+      - name: Disable AppArmor for Bubblewrap
+        run: |
+          sudo systemctl stop apparmor
+          sudo systemctl disable apparmor
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
