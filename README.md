@@ -24,7 +24,7 @@ matches the source code they reviewed, eliminating the risk of tampered or malic
 
 ## PMG in Action
 
-<img src="./docs/demo/pmg-intro.gif" width="600" alt="pmg in action">
+<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
 ## TL;DR
 
