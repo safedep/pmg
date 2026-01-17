@@ -21,7 +21,7 @@ Type "clear" Sleep 1s Enter
 
 Type `pmg npm exec -- \` Enter
 Type `node -e "require('child_process').execSync('curl')" \` Enter
-Type ` 2>&1 | head -n 8` Enter 
+Type ` 2>&1 | head -n 8` Enter
 
 Sleep 4s
 
