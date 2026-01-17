@@ -8,26 +8,57 @@ import (
 	"github.com/safedep/pmg/usefulerror"
 )
 
-// ErrorExit prints the error message and exits the program with a non-zero status code.
+// ErrorExit prints a minimal, clean error message and exits with a non-zero status code.
 func ErrorExit(err error) {
 	log.Errorf("Exiting due to error: %s", err)
 
-	usefulErr, ok := usefulerror.AsUsefulError(err)
-	if !ok {
-		Fatalf("Error: %s", err)
-	}
-
-	additionalHelp := usefulErr.AdditionalHelp()
-	if additionalHelp == "" {
-		additionalHelp = fmt.Sprintf("If you believe this is a bug, please report it at: %s",
-			"https://github.com/safedep/pmg/issues/new?assignees=&labels=bug")
-	}
+	usefulErr := convertToUsefulError(err)
 
 	ClearStatus()
 
-	fmt.Println(Colors.Red(fmt.Sprintf("Error occurred: %s", usefulErr.HumanError())))
-	fmt.Println(Colors.Yellow(usefulErr.Help()))
-	fmt.Println(Colors.Yellow(additionalHelp))
+	// Use help as hint, but for unknown errors show bug report link
+	hint := usefulErr.Help()
+	if usefulErr.Code() == usefulerror.ErrCodeUnknown {
+		hint = "Report this issue: https://github.com/safedep/pmg/issues/new?labels=bug"
+	}
+
+	if verbosityLevel == VerbosityLevelVerbose {
+		printVerboseError(usefulErr.Code(), usefulErr.HumanError(), hint,
+			usefulErr.AdditionalHelp(), usefulErr.Error())
+	} else {
+		printMinimalError(usefulErr.Code(), usefulErr.HumanError(), hint)
+	}
 
 	os.Exit(1)
+}
+
+// printMinimalError prints error in minimal two-line format:
+// Line 1: Error code (red background) + message (red)
+// Line 2: Actionable hint with arrow prefix (dimmed)
+func printMinimalError(code, message, hint string) {
+	// Line 1: Error code + message
+	fmt.Printf("%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
+
+	// Line 2: Actionable hint with arrow (only if meaningful)
+	if hint != "" && hint != "No additional help is available for this error." {
+		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
+	}
+}
+
+// printVerboseError prints detailed error for debugging (--verbose mode)
+// Includes additional help and original error chain for troubleshooting
+func printVerboseError(code, message, hint, additionalHelp, originalError string) {
+	fmt.Printf("%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
+
+	if hint != "" && hint != "No additional help is available for this error." {
+		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
+	}
+
+	if additionalHelp != "" && additionalHelp != "No additional help is available for this error." {
+		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(additionalHelp))
+	}
+
+	if originalError != "" && originalError != message {
+		fmt.Printf(" %s %s\n", Colors.Dim("┄"), Colors.Dim(originalError))
+	}
 }

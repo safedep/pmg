@@ -57,11 +57,11 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		policy, err = registry.GetProfile(cfg.SandboxProfileOverride)
 		if err != nil {
 			return nil, usefulerror.Useful().
-				WithCode("sandbox_policy_load_failed").
-				WithHumanError(fmt.Sprintf("failed to load override sandbox policy %s: %s", cfg.SandboxProfileOverride, err)).
-				WithHelp("Please check the sandbox profile path and try again.").
+				WithCode(usefulerror.ErrCodeInvalidArgument).
+				WithHumanError(fmt.Sprintf("Failed to load sandbox profile override: %s", cfg.SandboxProfileOverride)).
+				WithHelp("Please verify the sandbox profile path and try again.").
 				WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
-				Wrap(fmt.Errorf("failed to load override sandbox policy %s: %w", cfg.SandboxProfileOverride, err))
+				Wrap(err)
 		}
 	} else {
 		log.Debugf("Looking up sandbox policy for %s", pmName)
@@ -73,8 +73,8 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		policyRef, exists := cfg.Config.Sandbox.Policies[pmName]
 		if !exists {
 			return nil, usefulerror.Useful().
-				WithCode("sandbox_policy_not_configured").
-				WithHumanError(fmt.Sprintf("no sandbox policy configured for %s", pmName)).
+				WithCode(usefulerror.ErrCodeNotFound).
+				WithHumanError(fmt.Sprintf("No sandbox policy configured for %s", pmName)).
 				WithHelp("Please configure a sandbox policy for this package manager in the config file.").
 				WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md for more information.").
 				Wrap(fmt.Errorf("no sandbox policy configured for %s", pmName))
@@ -130,8 +130,8 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 	if !sb.IsAvailable() {
 		return nil, usefulerror.Useful().
-			WithCode("sandbox_not_available").
-			WithHumanError(fmt.Sprintf("sandbox %s is required but not available", sb.Name())).
+			WithCode(usefulerror.ErrCodeInvalidArgument).
+			WithHumanError(fmt.Sprintf("Sandbox %s is required but not available", sb.Name())).
 			WithHelp("Please install the sandbox provider and try again.").
 			WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
 			Wrap(fmt.Errorf("sandbox %s is required but not available", sb.Name()))
