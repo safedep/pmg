@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/eventlog"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -148,6 +149,17 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				packageName, packageVersion,
 				result.Summary,
 				result.ReferenceURL)
+
+			err = b.interaction.Block(&ui.BlockConfig{
+				ShowReference:   true,
+				MalwarePackages: []*analyzer.PackageVersionAnalysisResult{result},
+			})
+
+			// On error, we just log. We don't need to handle the error because we are returning
+			// an action to block the package at the proxy level.
+			if err != nil {
+				log.Errorf("[%s] Failed to block installation: %v", ctx.RequestID, err)
+			}
 
 			return &proxy.InterceptorResponse{
 				Action:       proxy.ActionBlock,
