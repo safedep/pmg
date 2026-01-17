@@ -11,4 +11,6 @@ const (
 	ErrCodeCanceled         = "Canceled"
 	ErrCodeUnexpectedEOF    = "UnexpectedEOF"
 	ErrCodeUnknown          = "Unknown"
+	ErrCodeLifecycle        = "Lifecycle"
+	ErrCodeNetwork          = "Network"
 )

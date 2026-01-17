@@ -34,41 +34,41 @@ func Test_convertToUsefulError(t *testing.T) {
 		{
 			name:         "FileNotExist",
 			inputError:   &fs.PathError{Op: "open", Path: "/nonexistent/file.txt", Err: os.ErrNotExist},
-			wantCode:     ErrCodeNotExist,
+			wantCode:     usefulerror.ErrCodeNotFound,
 			wantContains: "/nonexistent/file.txt",
 		},
 		{
 			name:         "PermissionDenied",
 			inputError:   &fs.PathError{Op: "open", Path: "/root/secret", Err: os.ErrPermission},
-			wantCode:     ErrCodePermission,
+			wantCode:     usefulerror.ErrCodePermissionDenied,
 			wantContains: "/root/secret",
 		},
 		{
 			name:         "ContextTimeout",
 			inputError:   context.DeadlineExceeded,
-			wantCode:     ErrCodeTimeout,
+			wantCode:     usefulerror.ErrCodeTimeout,
 			wantContains: "timed out",
 		},
 		{
 			name:         "ContextCanceled",
 			inputError:   context.Canceled,
-			wantCode:     ErrCodeCanceled,
+			wantCode:     usefulerror.ErrCodeCanceled,
 			wantContains: "canceled",
 		},
 		{
 			name:       "UnexpectedEOF",
 			inputError: io.ErrUnexpectedEOF,
-			wantCode:   ErrCodeUnexpectedEOF,
+			wantCode:   usefulerror.ErrCodeUnexpectedEOF,
 		},
 		{
 			name:       "WrappedError",
 			inputError: fmt.Errorf("failed to read config: %w", os.ErrNotExist),
-			wantCode:   ErrCodeNotExist,
+			wantCode:   usefulerror.ErrCodeNotFound,
 		},
 		{
 			name:           "UnknownError",
 			inputError:     errors.New("some unknown error"),
-			wantCode:       ErrCodeUnknown,
+			wantCode:       usefulerror.ErrCodeUnknown,
 			wantHumanError: "some unknown error",
 		},
 		{
@@ -76,7 +76,7 @@ func Test_convertToUsefulError(t *testing.T) {
 			inputError: fmt.Errorf("more context: %w",
 				fmt.Errorf("outer context: %w",
 					errors.New("root cause error"))),
-			wantCode:       ErrCodeUnknown,
+			wantCode:       usefulerror.ErrCodeUnknown,
 			wantHumanError: "root cause error",
 		},
 		{
@@ -87,7 +87,7 @@ func Test_convertToUsefulError(t *testing.T) {
 		{
 			name:       "NetworkErrorMessage",
 			inputError: errors.New("connection refused"),
-			wantCode:   ErrCodeNetwork,
+			wantCode:   usefulerror.ErrCodeNetwork,
 		},
 	}
 

@@ -14,18 +14,6 @@ import (
 	"github.com/safedep/pmg/usefulerror"
 )
 
-// ErrorCode constants following npm-style naming convention
-const (
-	ErrCodeNotExist      = "ENOENT"         // File/directory not found
-	ErrCodePermission    = "EACCES"         // Permission denied
-	ErrCodeLifecycle     = "ELIFECYCLE"     // Process exited with error
-	ErrCodeNetwork       = "ENETWORK"       // Network connectivity issues
-	ErrCodeTimeout       = "ETIMEOUT"       // Operation timed out
-	ErrCodeCanceled      = "ECANCELED"      // Operation was canceled
-	ErrCodeUnexpectedEOF = "EUNEXPECTEDEOF" // Unexpected end of data
-	ErrCodeUnknown       = "EUNKNOWN"       // Unknown error
-)
-
 // errorMatcher defines how to detect and convert a specific error type
 type errorMatcher struct {
 	match   func(err error) bool
@@ -48,9 +36,10 @@ var errorMatchers = []errorMatcher{
 			}
 
 			return usefulerror.Useful().
-				WithCode(ErrCodeNotExist).
+				WithCode(usefulerror.ErrCodeNotFound).
 				WithHumanError(humanError).
 				WithHelp("Check if the path exists").
+				WithAdditionalHelp("Use 'ls' to check directory contents").
 				Wrap(err)
 		},
 	},
@@ -66,9 +55,10 @@ var errorMatchers = []errorMatcher{
 				humanError = fmt.Sprintf("Permission denied: %s", path)
 			}
 			return usefulerror.Useful().
-				WithCode(ErrCodePermission).
+				WithCode(usefulerror.ErrCodePermissionDenied).
 				WithHumanError(humanError).
 				WithHelp("Check permissions or use sudo").
+				WithAdditionalHelp("Use 'ls -la' to check permissions").
 				Wrap(err)
 		},
 	},
@@ -83,9 +73,10 @@ var errorMatchers = []errorMatcher{
 			errors.As(err, &exitErr)
 			exitCode := exitErr.ExitCode()
 			return usefulerror.Useful().
-				WithCode(ErrCodeLifecycle).
+				WithCode(usefulerror.ErrCodeLifecycle).
 				WithHumanError(fmt.Sprintf("Command failed with exit code %d", exitCode)).
 				WithHelp("Check command output above").
+				WithAdditionalHelp("Run with PMG_DEBUG=true for more details").
 				Wrap(err)
 		},
 	},
@@ -96,9 +87,10 @@ var errorMatchers = []errorMatcher{
 		},
 		convert: func(err error) usefulerror.UsefulError {
 			return usefulerror.Useful().
-				WithCode(ErrCodeTimeout).
+				WithCode(usefulerror.ErrCodeTimeout).
 				WithHumanError("Operation timed out").
 				WithHelp("Try again or check your network").
+				WithAdditionalHelp("Consider increasing timeout or retry later").
 				Wrap(err)
 		},
 	},
@@ -109,7 +101,7 @@ var errorMatchers = []errorMatcher{
 		},
 		convert: func(err error) usefulerror.UsefulError {
 			return usefulerror.Useful().
-				WithCode(ErrCodeCanceled).
+				WithCode(usefulerror.ErrCodeCanceled).
 				WithHumanError("Operation was canceled").
 				Wrap(err)
 		},
@@ -131,15 +123,17 @@ var errorMatchers = []errorMatcher{
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				return usefulerror.Useful().
-					WithCode(ErrCodeTimeout).
+					WithCode(usefulerror.ErrCodeTimeout).
 					WithHumanError("Network request timed out").
 					WithHelp("Check your internet connection").
+					WithAdditionalHelp("Consider increasing timeout or retry later").
 					Wrap(err)
 			}
 			return usefulerror.Useful().
-				WithCode(ErrCodeNetwork).
+				WithCode(usefulerror.ErrCodeNetwork).
 				WithHumanError("Network error occurred").
 				WithHelp("Check your internet connection").
+				WithAdditionalHelp("The package registry may be temporarily unavailable").
 				Wrap(err)
 		},
 	},
@@ -150,9 +144,10 @@ var errorMatchers = []errorMatcher{
 		},
 		convert: func(err error) usefulerror.UsefulError {
 			return usefulerror.Useful().
-				WithCode(ErrCodeUnexpectedEOF).
+				WithCode(usefulerror.ErrCodeUnexpectedEOF).
 				WithHumanError("Unexpected end of data").
 				WithHelp("Retry the download").
+				WithAdditionalHelp("This may indicate network instability").
 				Wrap(err)
 		},
 	},
@@ -177,7 +172,7 @@ func convertToUsefulError(err error) usefulerror.UsefulError {
 	}
 
 	return usefulerror.Useful().
-		WithCode(ErrCodeUnknown).
+		WithCode(usefulerror.ErrCodeUnknown).
 		WithHumanError(extractRootCause(err)).
 		WithHelp("An unexpected error occurred.").
 		Wrap(err)

@@ -59,7 +59,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 			return nil, usefulerror.Useful().
 				WithCode(usefulerror.ErrCodeInvalidArgument).
 				WithHumanError(fmt.Sprintf("Failed to load sandbox profile override: %s", cfg.SandboxProfileOverride)).
-				WithHelp("Please check the sandbox profile path and try again.").
+				WithHelp("Please verify the sandbox profile path and try again.").
 				WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
 				Wrap(err)
 		}
@@ -130,7 +130,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 	if !sb.IsAvailable() {
 		return nil, usefulerror.Useful().
-			WithCode(usefulerror.ErrCodeNotFound).
+			WithCode(usefulerror.ErrCodeInvalidArgument).
 			WithHumanError(fmt.Sprintf("Sandbox %s is required but not available", sb.Name())).
 			WithHelp("Please install the sandbox provider and try again.").
 			WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
