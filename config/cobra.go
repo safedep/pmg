@@ -23,6 +23,8 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.ExperimentalProxyMode, "Use experimental proxy-based interception (EXPERIMENTAL)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.Enabled, "sandbox",
 		globalConfig.Config.Sandbox.Enabled, "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.EnforceAlways, "sandbox-enforce",
+		globalConfig.Config.Sandbox.EnforceAlways, "Apply sandbox to all commands, not just install commands (requires --sandbox)")
 	cmd.PersistentFlags().StringVar(&globalConfig.SandboxProfileOverride, "sandbox-profile",
 		globalConfig.SandboxProfileOverride, "Override sandbox policy profile (built-in name or path to custom YAML)")
 }

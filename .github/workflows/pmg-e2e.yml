@@ -442,7 +442,7 @@ jobs:
           touch ~/.ssh/id_rsa
 
       - name: Run Sandbox E2E Test
-        run: pmg --sandbox npm exec -- node test/sandbox-e2e.js
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
 
   sandbox-e2e-linux:
     name: Sandbox E2E - Linux (Bubblewrap)
@@ -500,4 +500,4 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Run Sandbox E2E Test
-        run: pmg --sandbox --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
