@@ -55,8 +55,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
-		ui.SetStatus("Running in dry-run mode (proxy mode)")
-		ui.ClearStatus()
 		return nil
 	}
 
@@ -102,7 +100,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		SetStatus:   ui.SetStatus,
 		ClearStatus: ui.ClearStatus,
 		ShowWarning: ui.ShowWarning,
-		Block:       ui.Block,
+		Block:       ui.BlockNoExit,
 	}
 
 	// Create ecosystem-specific interceptor using factory
@@ -307,7 +305,7 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 
 		err = cmd.Run()
 		if err != nil {
-			return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+			return f.handlePackageManagerExecutionError(err)
 		}
 	}
 
@@ -454,8 +452,32 @@ func (f *proxyFlow) executeWithProxy(
 	}
 
 	if sessionError != nil {
-		return fmt.Errorf("failed to wait for session: %w", sessionError)
+		return f.handlePackageManagerExecutionError(sessionError)
 	}
 
 	return nil
+}
+
+func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return usefulerror.Useful().
+			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())).
+			WithHelp("Check the package manager command and its arguments").
+			Wrap(err)
+	}
+
+	if sessionError, ok := err.(*pty.ExitError); ok {
+		return usefulerror.Useful().
+			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", sessionError.Code)).
+			WithHelp("Check the package manager command and its arguments").
+			Wrap(sessionError.Err)
+	}
+
+	return usefulerror.Useful().
+		WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+		WithHumanError("Failed to execute package manager command").
+		WithHelp("Check the package manager command and its arguments").
+		Wrap(err)
 }

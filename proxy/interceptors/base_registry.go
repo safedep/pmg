@@ -10,7 +10,6 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/proxy"
 )
@@ -21,7 +20,6 @@ type baseRegistryInterceptor struct {
 	analyzer         analyzer.PackageVersionAnalyzer
 	cache            AnalysisCache
 	confirmationChan chan *ConfirmationRequest
-	interaction      guard.PackageManagerGuardInteraction
 }
 
 var _ proxy.Interceptor = (*baseRegistryInterceptor)(nil)

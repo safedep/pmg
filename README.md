@@ -24,11 +24,11 @@ matches the source code they reviewed, eliminating the risk of tampered or malic
 
 ## PMG in Action
 
-<img src="./docs/assets/pmg-intro.png" width="600" alt="pmg in action">
+<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
 ## TL;DR
 
-Install `pmg` using Homebrew:
+Install `pmg` using your favorite package manager:
 
 ```shell
 # MacOS/Linux with Homebrew
@@ -63,6 +63,7 @@ uv pip install <package-name>
 - Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis) with realtime threat detection
 - Deep dependency analysis and transitive dependency resolution
 - Fast and efficient package verification
+- Defense in depth using OS native sandboxing
 - Seamless integration with existing package managers
 - Automated shell integration with cross-shell support
 - Package installation tracking and event logging

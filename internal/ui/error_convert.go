@@ -76,7 +76,6 @@ var errorMatchers = []errorMatcher{
 				WithCode(usefulerror.ErrCodeLifecycle).
 				WithHumanError(fmt.Sprintf("Command failed with exit code %d", exitCode)).
 				WithHelp("Check command output above").
-				WithAdditionalHelp("Run with PMG_DEBUG=true for more details").
 				Wrap(err)
 		},
 	},
