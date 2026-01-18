@@ -2,6 +2,7 @@ package flows
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/packagemanager"
@@ -22,6 +23,10 @@ func (h hook) BeforeFlow(ctx context.Context, pc *packagemanager.ParsedCommand) 
 func NewSandboxPolicyHook() Hook {
 	return hook(func(ctx context.Context, pc *packagemanager.ParsedCommand) (context.Context, error) {
 		config := config.Get()
+
+		if pc == nil {
+			return ctx, fmt.Errorf("error while executing sandbox hook: got nil parsed command")
+		}
 
 		if config.Config.Sandbox.Enabled {
 			// Enable sandbox if it's enforced always or the command is supported.
