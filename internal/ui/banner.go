@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	brandPinkRed = color.RGB(219, 39, 119).Add(color.Bold).SprintFunc() // 	#DB2777 Brand Pink
-	whiteDim     = color.New(color.Faint).SprintFunc()
+	brandPinkRed  = color.RGB(219, 39, 119).Add(color.Bold).SprintFunc() // 	#DB2777 Brand Pink
+	whiteDim      = color.New(color.Faint).SprintFunc()
+	pseudoPattern = regexp.MustCompile(`^(v?\d+\.\d+\.\d+)-0\.\d{14}-[a-f0-9]{12}$`)
 )
 
 func GeneratePMGBanner(version, commit string) string {
@@ -27,7 +28,7 @@ func GeneratePMGBanner(version, commit string) string {
 	// Clean version to remove pseudo-version complexity
 	version = cleanVersion(version)
 
-	return fmt.Sprintf("%s 	%s: %s %s: %s \n\n", brandPinkRed(pmgASCIIText),
+	return fmt.Sprintf("%s 	%s: %s %s: %s\n\n", brandPinkRed(pmgASCIIText),
 		whiteDim("version"), Colors.Bold(version),
 		whiteDim("commit"), Colors.Bold(commit),
 	)
@@ -45,7 +46,6 @@ func cleanVersion(version string) string {
 
 	// Only clean pseudo-versions with timestamps
 	// Pattern: v1.2.3-0.20220101123456-abcdef123456
-	pseudoPattern := regexp.MustCompile(`^(v?\d+\.\d+\.\d+)-0\.\d{14}-[a-f0-9]{12}$`)
 	if matches := pseudoPattern.FindStringSubmatch(version); len(matches) > 1 {
 		return matches[1]
 	}
