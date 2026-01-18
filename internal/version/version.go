@@ -8,8 +8,21 @@ var (
 )
 
 func init() {
+	buildInfo, ok := runtimeDebug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+
 	if Version == "" {
-		buildInfo, _ := runtimeDebug.ReadBuildInfo()
 		Version = buildInfo.Main.Version
+	}
+
+	if Commit == "" {
+		for _, setting := range buildInfo.Settings {
+			if setting.Key == "vcs.revision" {
+				Commit = setting.Value
+				break
+			}
+		}
 	}
 }
