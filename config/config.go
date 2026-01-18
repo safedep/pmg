@@ -70,6 +70,11 @@ type SandboxConfig struct {
 	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
 	Enabled bool `mapstructure:"enabled"`
 
+	// EnforceAlways controls when sandboxing is applied:
+	// - When true: all commands are executed with sandbox enabled.
+	// - When false: only supported commands are executed in sandbox (defaults to false).
+	EnforceAlways bool `mapstructure:"enforce_always"`
+
 	// Policies maps package manager names to their sandbox policy references.
 	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
 	Policies map[string]SandboxPolicyRef `mapstructure:"policies"`
@@ -168,7 +173,8 @@ func DefaultConfig() RuntimeConfig {
 			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
 			Sandbox: SandboxConfig{
-				Enabled: false,
+				Enabled:       false,
+				EnforceAlways: false,
 			},
 		},
 		DryRun:               false,

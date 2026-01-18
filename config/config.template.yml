@@ -69,6 +69,10 @@ sandbox:
   # Enable sandbox mode (opt-in, default: false for backward compatibility)
   enabled: false
 
+  # When true, all commands (install and non-install) run with sandbox enabled.
+  # When false (default), only supported install commands run in sandbox.
+  enforce_always: false
+
   # Policy templates define policy profiles by name and path.
   # They can be used to override a built-in profile or create a custom profile.
   # Note: Custom profiles loaded via policy_templates can inherit from built-in
@@ -87,7 +91,7 @@ sandbox:
     # npm ecosystem. npm-restrictive is a built-in profile.
     npm:
       enabled: true
-      profile: npm-restrictive  # Built-in profile, template name, or path to custom YAML
+      profile: npm-restrictive # Built-in profile, template name, or path to custom YAML
 
     pnpm:
       enabled: true
@@ -125,4 +129,3 @@ sandbox:
     uv:
       enabled: true
       profile: pypi-restrictive
-
