@@ -305,7 +305,7 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 
 		err = cmd.Run()
 		if err != nil {
-			return fmt.Errorf("failed to execute %s: %w", f.pm.Name(), err)
+			return f.handlePackageManagerExecutionError(err)
 		}
 	}
 
@@ -452,8 +452,32 @@ func (f *proxyFlow) executeWithProxy(
 	}
 
 	if sessionError != nil {
-		return fmt.Errorf("failed to wait for session: %w", sessionError)
+		return f.handlePackageManagerExecutionError(sessionError)
 	}
 
 	return nil
+}
+
+func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return usefulerror.Useful().
+			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())).
+			WithHelp("Check the package manager command and its arguments").
+			Wrap(err)
+	}
+
+	if sessionError, ok := err.(*pty.ExitError); ok {
+		return usefulerror.Useful().
+			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", sessionError.Code)).
+			WithHelp("Check the package manager command and its arguments").
+			Wrap(sessionError.Err)
+	}
+
+	return usefulerror.Useful().
+		WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+		WithHumanError("Failed to execute package manager command").
+		WithHelp("Check the package manager command and its arguments").
+		Wrap(err)
 }

@@ -1,27 +1,24 @@
 Output pmg-intro.gif
-Set Theme "TokyoNightStorm"
 
-Set FontSize 26
+Set FontSize 28
 Set Width 1400
-Set Height 600
+Set Height 1000
 
 Set WindowBar Colorful
 
 Type "pmg setup install"
 Enter
-Sleep 3s
+Sleep 2s
 
-Type "clear" Sleep 1s Enter
+Enter
 
-Type "pmg npm install safedep-test-pkg@0.1.3"
+Type "source ~/.pmg.rc"
+Enter
+Sleep 2s
+
+Enter
+
+Type "npm install safedep-test-pkg"
 Enter
 Sleep 5s
-
-Type "clear" Sleep 1s Enter
-
-Type `pmg npm exec -- \` Enter
-Type `node -e "require('child_process').execSync('curl')" \` Enter
-Type ` 2>&1 | head -n 8` Enter
-
-Sleep 4s
 
