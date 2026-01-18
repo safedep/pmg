@@ -14,10 +14,6 @@ var (
 )
 
 func GeneratePMGBanner(version, commit string) string {
-	// 	var pmgASCIIText = `
-	// █▀█ █▀▄▀█ █▀▀	From SafeDep (github.com/safedep/pmg)
-	// █▀▀ █░▀░█ █▄█` // It should end here no \n
-
 	// Build the first line with a differently colored URL segment
 	line1 := fmt.Sprintf("█▀█ █▀▄▀█ █▀▀\tFrom SafeDep %s", whiteDim("(github.com/safedep/pmg)"))
 	line2 := "█▀▀ █░▀░█ █▄█"
