@@ -70,9 +70,9 @@ type SandboxConfig struct {
 	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
 	Enabled bool `mapstructure:"enabled"`
 
-	// EnforceAlways controls when sandboxing is applied:
-	// - When true: all commands are executed with sandbox enabled.
-	// - When false: only supported commands are executed in sandbox (defaults to false).
+	// EnforceAlways controls scope of sandbox enforcement:
+	// - When true: sandbox applies to all package manager commands
+	// - When false: sandbox only applies to install commands, others run unrestricted (default)
 	EnforceAlways bool `mapstructure:"enforce_always"`
 
 	// Policies maps package manager names to their sandbox policy references.

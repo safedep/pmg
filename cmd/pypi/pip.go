@@ -53,5 +53,7 @@ func executePipFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	return flows.Common(packageManager, packageResolver, nil).Run(ctx, args, parsedCommand)
+	hooks := []flows.Hook{flows.NewSandboxPolicyHook()}
+
+	return flows.Common(packageManager, packageResolver, hooks).Run(ctx, args, parsedCommand)
 }

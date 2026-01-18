@@ -69,8 +69,10 @@ sandbox:
   # Enable sandbox mode (opt-in, default: false for backward compatibility)
   enabled: false
 
-  # When true, all commands (install and non-install) run with sandbox enabled.
-  # When false (default), only supported install commands run in sandbox.
+  # Controls scope of sandbox enforcement:
+  # - true: sandbox applies to all package manager commands
+  # - false (default): sandbox only applies to install commands, others run unrestricted
+  # Requires 'enabled: true' and per-PM policies to be active. May break workflows expecting unrestricted commands.
   enforce_always: false
 
   # Policy templates define policy profiles by name and path.

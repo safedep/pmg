@@ -39,11 +39,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 
 		newCtx, err := h.BeforeFlow(ctx, parsedCmd)
 		if err != nil {
-			log.Errorf(
-				"Error before flow hook for command %s: %v",
-				parsedCmd.Command.Exe,
-				err,
-			)
+			log.Errorf("Error before flow hook for command %s: %v", parsedCmd.Command.Exe, err)
 		}
 
 		if newCtx != nil {
