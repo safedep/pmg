@@ -8,7 +8,6 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 )
@@ -119,11 +118,9 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			confirmationChan := make(chan *ConfirmationRequest, 1)
-			interaction := guard.PackageManagerGuardInteraction{}
 
 			base := &baseRegistryInterceptor{
 				confirmationChan: confirmationChan,
-				interaction:      interaction,
 			}
 
 			parsedURL, _ := url.Parse("https://registry.npmjs.org/test")

@@ -54,6 +54,14 @@ func ClearStatus() {
 }
 
 func Block(config *BlockConfig) error {
+	return blockWithExit(config, true)
+}
+
+func BlockNoExit(config *BlockConfig) error {
+	return blockWithExit(config, false)
+}
+
+func blockWithExit(config *BlockConfig, exit bool) error {
 	StopSpinner()
 
 	fmt.Println()
@@ -64,7 +72,10 @@ func Block(config *BlockConfig) error {
 	}
 
 	fmt.Println()
-	os.Exit(1)
+
+	if exit {
+		os.Exit(1)
+	}
 
 	return nil
 }

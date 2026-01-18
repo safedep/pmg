@@ -33,13 +33,9 @@ func ErrorExit(err error) {
 }
 
 // printMinimalError prints error in minimal two-line format:
-// Line 1: Error code (red background) + message (red)
-// Line 2: Actionable hint with arrow prefix (dimmed)
 func printMinimalError(code, message, hint string) {
-	// Line 1: Error code + message
 	fmt.Printf("%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
 
-	// Line 2: Actionable hint with arrow (only if meaningful)
 	if hint != "" && hint != "No additional help is available for this error." {
 		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox/executor"
+	"github.com/safedep/pmg/usefulerror"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -254,7 +255,21 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 	}()
 
 	if result.ShouldRun() {
-		return cmd.Run()
+		err := cmd.Run()
+		if err != nil {
+			humanError := "Failed to execute package manager command"
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				humanError = fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())
+			}
+
+			return usefulerror.Useful().
+				WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+				WithHumanError(humanError).
+				WithHelp("Check the package manager command and its arguments").
+				Wrap(err)
+		}
+
+		return nil
 	}
 
 	return nil
