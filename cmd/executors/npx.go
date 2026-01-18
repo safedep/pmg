@@ -51,9 +51,11 @@ func executeNpxFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
+	hooks := []flows.Hook{flows.NewSandboxPolicyHook()}
+
 	if config.Config.ExperimentalProxyMode {
-		return flows.ProxyFlow(packageExecutor, packageResolver).Run(ctx, args, parsedCommand)
+		return flows.ProxyFlow(packageExecutor, packageResolver, hooks).Run(ctx, args, parsedCommand)
 	}
 
-	return flows.Common(packageExecutor, packageResolver).Run(ctx, args, parsedCommand)
+	return flows.Common(packageExecutor, packageResolver, hooks).Run(ctx, args, parsedCommand)
 }

@@ -52,5 +52,5 @@ func executeUvFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	return flows.Common(packageManager, packageResolver, nil).Run(ctx, args, parsedCommand)
 }

@@ -51,9 +51,11 @@ func executeYarnFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
+	hooks := []flows.Hook{flows.NewSandboxPolicyHook()}
+
 	if config.Config.ExperimentalProxyMode {
-		return flows.ProxyFlow(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+		return flows.ProxyFlow(packageManager, packageResolver, hooks).Run(ctx, args, parsedCommand)
 	}
 
-	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	return flows.Common(packageManager, packageResolver, hooks).Run(ctx, args, parsedCommand)
 }
