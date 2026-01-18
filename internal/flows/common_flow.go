@@ -3,6 +3,7 @@ package flows
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -33,6 +34,25 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
 
 	cfg := config.Get()
+
+	// Initialize report data at the start
+	reportData := ui.NewReportData()
+	reportData.PackageManagerName = f.pm.Name()
+	reportData.FlowType = ui.FlowTypeGuard
+	reportData.DryRun = cfg.DryRun
+	reportData.InsecureMode = cfg.InsecureInstallation
+	reportData.TransitiveEnabled = cfg.Config.Transitive
+	reportData.ParanoidMode = cfg.Config.Paranoid
+	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
+	if cfg.Config.Sandbox.Enabled {
+		if policyRef, exists := cfg.Config.Sandbox.Policies[f.pm.Name()]; exists {
+			reportData.SandboxProfile = policyRef.Profile
+		}
+	}
+	if cfg.SandboxProfileOverride != "" {
+		reportData.SandboxProfile = cfg.SandboxProfileOverride
+	}
+	startTime := time.Now()
 
 	if cfg.Config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
@@ -67,10 +87,46 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		return fmt.Errorf("failed to create package manager guard: %s", err)
 	}
 
-	err = guardManager.Run(ctx, args, parsedCmd)
+	guardResult, err := guardManager.Run(ctx, args, parsedCmd)
+
+	// Populate report data from guard result
+	reportData.StartTime = startTime
+	if guardResult != nil {
+		reportData.TotalAnalyzed = guardResult.TotalAnalyzed
+		reportData.TrustedSkipped = guardResult.TrustedSkipped
+		reportData.AllowedCount = guardResult.AllowedCount
+		reportData.ConfirmedCount = guardResult.ConfirmedCount
+		reportData.BlockedCount = guardResult.BlockedCount
+		reportData.BlockedPackages = guardResult.BlockedPackages
+		reportData.ConfirmedPackages = guardResult.ConfirmedPackages
+
+		// Map guard outcome to report outcome
+		switch guardResult.Outcome {
+		case guard.OutcomeSuccess:
+			reportData.Outcome = ui.OutcomeSuccess
+		case guard.OutcomeBlocked:
+			reportData.Outcome = ui.OutcomeBlocked
+		case guard.OutcomeUserCancelled:
+			reportData.Outcome = ui.OutcomeUserCancelled
+		case guard.OutcomeDryRun:
+			reportData.Outcome = ui.OutcomeDryRun
+		case guard.OutcomeInsecureBypass:
+			reportData.Outcome = ui.OutcomeInsecureBypass
+		default:
+			reportData.Outcome = ui.OutcomeSuccess
+		}
+	}
+
+	if err != nil {
+		reportData.Outcome = ui.OutcomeError
+	}
+
+	// Show the report
+	ui.Report(reportData)
+
 	if err != nil {
 		return fmt.Errorf("failed to run package manager guard: %w", err)
 	}
 
-	return err
+	return nil
 }

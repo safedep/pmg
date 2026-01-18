@@ -53,11 +53,32 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	cfg := config.Get()
 
+	// Initialize report data at the start
+	reportData := ui.NewReportData()
+	reportData.PackageManagerName = f.pm.Name()
+	reportData.FlowType = ui.FlowTypeProxy
+	reportData.DryRun = cfg.DryRun
+	reportData.InsecureMode = cfg.InsecureInstallation
+	reportData.TransitiveEnabled = cfg.Config.Transitive
+	reportData.ParanoidMode = cfg.Config.Paranoid
+	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
+	if cfg.Config.Sandbox.Enabled {
+		if policyRef, exists := cfg.Config.Sandbox.Policies[f.pm.Name()]; exists {
+			reportData.SandboxProfile = policyRef.Profile
+		}
+	}
+	if cfg.SandboxProfileOverride != "" {
+		reportData.SandboxProfile = cfg.SandboxProfileOverride
+	}
+	startTime := time.Now()
+
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
 		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
+		reportData.Outcome = ui.OutcomeDryRun
+		ui.Report(reportData)
 		return nil
 	}
 
@@ -145,6 +166,36 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		// Execute the package manager command with proxy environment variables
 		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
+
+	// Populate report data from cache statistics
+	reportData.StartTime = startTime
+	stats := cache.GetStatistics()
+	reportData.TotalAnalyzed = stats.Total
+	reportData.AllowedCount = stats.AllowedCount
+	reportData.ConfirmedCount = stats.ConfirmedCount
+	reportData.BlockedCount = stats.BlockedCount
+
+	// Get blocked and confirmed packages for verbose mode
+	allResults := cache.GetAllResults()
+	for _, result := range allResults {
+		if result.Action == analyzer.ActionBlock {
+			reportData.BlockedPackages = append(reportData.BlockedPackages, result)
+		} else if result.Action == analyzer.ActionConfirm {
+			reportData.ConfirmedPackages = append(reportData.ConfirmedPackages, result)
+		}
+	}
+
+	// Set outcome based on execution result
+	if executionError != nil {
+		reportData.Outcome = ui.OutcomeError
+	} else if reportData.BlockedCount > 0 {
+		reportData.Outcome = ui.OutcomeBlocked
+	} else {
+		reportData.Outcome = ui.OutcomeSuccess
+	}
+
+	// Show the report
+	ui.Report(reportData)
 
 	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
 	// from the execution result.
