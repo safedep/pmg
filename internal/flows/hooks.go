@@ -28,8 +28,9 @@ func NewSandboxPolicyHook() Hook {
 			return ctx, fmt.Errorf("error while executing sandbox hook: got nil parsed command")
 		}
 
+		// Only proceed if sandbox is enabled
 		if config.Config.Sandbox.Enabled {
-			// Enable sandbox if it's enforced always or the command is supported.
+			// Apply sandbox to all commands if EnforceAlways=true, otherwise only to installation commands
 			config.Config.Sandbox.Enabled = config.Config.Sandbox.EnforceAlways || pc.IsInstallationCommand()
 		}
 
