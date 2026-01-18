@@ -16,8 +16,8 @@ var (
 
 func GeneratePMGBanner(version, commit string) string {
 	// Build the first line with a differently colored URL segment
-	line1 := fmt.Sprintf("█▀█ █▀▄▀█ █▀▀\tFrom SafeDep %s", whiteDim("(github.com/safedep/pmg)"))
-	line2 := "█▀▀ █░▀░█ █▄█"
+	line1 := fmt.Sprintf("%s\tFrom SafeDep %s", brandPinkRed("█▀█ █▀▄▀█ █▀▀"), whiteDim("(github.com/safedep/pmg)"))
+	line2 := brandPinkRed("█▀▀ █░▀░█ █▄█")
 
 	pmgASCIIText := "\n" + line1 + "\n" + line2 // It should end here no \n
 
@@ -28,7 +28,7 @@ func GeneratePMGBanner(version, commit string) string {
 	// Clean version to remove pseudo-version complexity
 	version = cleanVersion(version)
 
-	return fmt.Sprintf("%s 	%s: %s %s: %s\n\n", brandPinkRed(pmgASCIIText),
+	return fmt.Sprintf("%s 	%s: %s %s: %s\n\n", pmgASCIIText,
 		whiteDim("version"), Colors.Bold(version),
 		whiteDim("commit"), Colors.Bold(commit),
 	)
