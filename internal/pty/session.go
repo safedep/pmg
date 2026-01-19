@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/KennethanCeyer/ptyx"
+	"github.com/safedep/ptyx"
 	"golang.org/x/term"
 )
 

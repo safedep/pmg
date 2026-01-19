@@ -4,12 +4,9 @@ go 1.25.1
 
 tool github.com/golangci/golangci-lint/cmd/golangci-lint
 
-replace github.com/KennethanCeyer/ptyx v0.2.0 => github.com/safedep/ptyx v0.2.0
-
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.5.1-20250418165058-162f6b0cc319.2
 	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.6-20250418165058-162f6b0cc319.1
-	github.com/KennethanCeyer/ptyx v0.2.0
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.7.2
 	github.com/fatih/color v1.18.0
@@ -18,6 +15,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/posthog/posthog-go v1.5.12
 	github.com/safedep/dry v0.0.0-20250514080944-bb77f30c7175
+	github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
