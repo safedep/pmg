@@ -395,8 +395,8 @@ github.com/ryanrolds/sqlclosecheck v0.5.1 h1:dibWW826u0P8jNLsLN+En7+RqWWTYrjCB9f
 github.com/ryanrolds/sqlclosecheck v0.5.1/go.mod h1:2g3dUjoS6AL4huFdv6wn55WpLIDjY7ZgUR4J8HOO/XQ=
 github.com/safedep/dry v0.0.0-20250514080944-bb77f30c7175 h1:TxAI6m/v01CL+kwIYE3RZsuxu01pbuGy3wOi3WyBT1E=
 github.com/safedep/dry v0.0.0-20250514080944-bb77f30c7175/go.mod h1:Mdqx/Q2DhAcN38XiUNTGCC5MktofYDQW9Az7YWGEF0s=
-github.com/safedep/ptyx v0.2.0 h1:4M3YlVVB25ze0ANnY8JgOznhMFjiGMQP/pSDbIHclik=
-github.com/safedep/ptyx v0.2.0/go.mod h1:aLBSWDiEko9wd9zJj0hE8LiXpbLXM1t5QxuRWF22U4c=
+github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12 h1:NzARvPtncPbVI8a8Z0JKpJ7XJCSPpsRstV7wAgEtmOU=
+github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12/go.mod h1:fyt+PACz6dtEoqsnE0BPPv/lHpuBG/8zkDqeIVcyRY4=
 github.com/sagikazarmark/locafero v0.11.0 h1:1iurJgmM9G3PA/I+wWYIOw/5SyBtxapeHDcg+AAIFXc=
 github.com/sagikazarmark/locafero v0.11.0/go.mod h1:nVIGvgyzw595SUSUE6tvCp3YYTeHs15MvlmU87WwIik=
 github.com/sanposhiho/wastedassign/v2 v2.1.0 h1:crurBF7fJKIORrV85u9UUpePDYGWnwvv3+A96WvwXT0=
