@@ -29,6 +29,7 @@ func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.Package
 func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
 	var analyzers []analyzer.PackageVersionAnalyzer
 
+	// Configure sandbox based on command type and enforcement policy
 	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
 
 	cfg := config.Get()
