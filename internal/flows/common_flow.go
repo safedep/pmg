@@ -28,9 +28,13 @@ func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.Package
 
 func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
 	var analyzers []analyzer.PackageVersionAnalyzer
-	config := config.Get()
 
-	if config.Config.Paranoid {
+	// Configure sandbox based on command type and enforcement policy
+	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
+
+	cfg := config.Get()
+
+	if cfg.Config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 		if err != nil {
 			return fmt.Errorf("failed to create malware analyzer: %s", err)
@@ -55,15 +59,15 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	}
 
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
-	guardConfig.DryRun = config.DryRun
-	guardConfig.InsecureInstallation = config.InsecureInstallation
+	guardConfig.DryRun = cfg.DryRun
+	guardConfig.InsecureInstallation = cfg.InsecureInstallation
 
-	proxy, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
+	guardManager, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {
 		return fmt.Errorf("failed to create package manager guard: %s", err)
 	}
 
-	err = proxy.Run(ctx, args, parsedCmd)
+	err = guardManager.Run(ctx, args, parsedCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run package manager guard: %w", err)
 	}

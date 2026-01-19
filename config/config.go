@@ -70,6 +70,11 @@ type SandboxConfig struct {
 	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
 	Enabled bool `mapstructure:"enabled"`
 
+	// EnforceAlways controls scope of sandbox enforcement:
+	// - When true: sandbox applies to all package manager commands
+	// - When false: sandbox only applies to install commands, others run unrestricted (default)
+	EnforceAlways bool `mapstructure:"enforce_always"`
+
 	// Policies maps package manager names to their sandbox policy references.
 	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
 	Policies map[string]SandboxPolicyRef `mapstructure:"policies"`
@@ -168,7 +173,8 @@ func DefaultConfig() RuntimeConfig {
 			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
 			Sandbox: SandboxConfig{
-				Enabled: false,
+				Enabled:       false,
+				EnforceAlways: false,
 			},
 		},
 		DryRun:               false,
@@ -282,6 +288,14 @@ func eventLogDir() (string, error) {
 // that this function will never return nil.
 func Get() *RuntimeConfig {
 	return globalConfig
+}
+
+func ConfigureSandbox(isInstallationCommand bool) {
+	if globalConfig.Config.Sandbox.Enabled {
+		// Apply sandbox to all commands if EnforceAlways=true, otherwise only to
+		// installation commands else disable the sandbox
+		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || isInstallationCommand
+	}
 }
 
 // WriteTemplateConfig writes the template configuration file to disk if it doesn't already exist.

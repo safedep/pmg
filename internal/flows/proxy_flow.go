@@ -48,6 +48,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("proxy mode is not supported for %s", ecosystem.String())
 	}
 
+	// Configure sandbox based on command type and enforcement policy
+	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
+
 	cfg := config.Get()
 
 	// Check if dry-run mode is enabled
