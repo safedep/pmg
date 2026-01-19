@@ -52,7 +52,5 @@ func executePoetryFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	hooks := []flows.Hook{flows.NewSandboxPolicyHook()}
-
-	return flows.Common(packageManager, packageResolver, hooks).Run(ctx, args, parsedCommand)
+	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
@@ -15,41 +14,26 @@ import (
 type commonFlow struct {
 	pm              packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
-	hooks           []Hook
 }
 
 // Creates a common flow of execution for all package managers. This should work for most
 // of the cases unless a package manager has its own unique requirements. Configuration
 // should be passed through the context (Global Config)
-func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.PackageResolver, hooks []Hook) *commonFlow {
+func Common(pm packagemanager.PackageManager, pkgResolver packagemanager.PackageResolver) *commonFlow {
 	return &commonFlow{
 		pm:              pm,
 		packageResolver: pkgResolver,
-		hooks:           hooks,
 	}
 }
 
 func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
 	var analyzers []analyzer.PackageVersionAnalyzer
 
-	for _, h := range f.hooks {
-		if h == nil {
-			continue
-		}
+	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
 
-		newCtx, err := h.BeforeFlow(ctx, parsedCmd)
-		if err != nil {
-			log.Errorf("Error before flow hook for command %s: %v", parsedCmd.Command.Exe, err)
-		}
+	cfg := config.Get()
 
-		if newCtx != nil {
-			ctx = newCtx
-		}
-	}
-
-	config := config.Get()
-
-	if config.Config.Paranoid {
+	if cfg.Config.Paranoid {
 		malysisActiveScanAnalyzer, err := analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
 		if err != nil {
 			return fmt.Errorf("failed to create malware analyzer: %s", err)
@@ -74,8 +58,8 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	}
 
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
-	guardConfig.DryRun = config.DryRun
-	guardConfig.InsecureInstallation = config.InsecureInstallation
+	guardConfig.DryRun = cfg.DryRun
+	guardConfig.InsecureInstallation = cfg.InsecureInstallation
 
 	guardManager, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
 	if err != nil {

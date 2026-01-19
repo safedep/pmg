@@ -27,15 +27,13 @@ import (
 type proxyFlow struct {
 	pm              packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
-	hooks           []Hook
 }
 
 // ProxyFlow creates a new proxy-based flow for package manager protection
-func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.PackageResolver, hooks []Hook) *proxyFlow {
+func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.PackageResolver) *proxyFlow {
 	return &proxyFlow{
 		pm:              pm,
 		packageResolver: packageResolver,
-		hooks:           hooks,
 	}
 }
 
@@ -50,24 +48,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("proxy mode is not supported for %s", ecosystem.String())
 	}
 
-	for _, h := range f.hooks {
-		if h == nil {
-			continue
-		}
-
-		newCtx, err := h.BeforeFlow(ctx, parsedCmd)
-		if err != nil {
-			log.Errorf(
-				"Error before flow hook for command %s: %v",
-				parsedCmd.Command.Exe,
-				err,
-			)
-		}
-
-		if newCtx != nil {
-			ctx = newCtx
-		}
-	}
+	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
 
 	cfg := config.Get()
 

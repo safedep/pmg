@@ -290,6 +290,14 @@ func Get() *RuntimeConfig {
 	return globalConfig
 }
 
+func ConfigureSandbox(isInstallationCommand bool) {
+	if globalConfig.Config.Sandbox.Enabled {
+		// Apply sandbox to all commands if EnforceAlways=true, otherwise only to
+		// installation commands else disable the sandbox
+		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || isInstallationCommand
+	}
+}
+
 // WriteTemplateConfig writes the template configuration file to disk if it doesn't already exist.
 func WriteTemplateConfig() error {
 	configDir, err := configDir()

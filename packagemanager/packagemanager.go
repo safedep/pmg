@@ -40,7 +40,7 @@ type ParsedCommand struct {
 	ManifestFiles []string
 }
 
-// Supported if explicit install targets OR manifest-based install.
+// IsInstallationCommand returns true if command installs packages (explicit targets or from manifest).
 func (pc *ParsedCommand) IsInstallationCommand() bool {
 	return pc.HasInstallTarget() || pc.HasManifestInstall()
 }
