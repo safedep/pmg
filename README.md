@@ -24,8 +24,14 @@
 
 ---
 
-🤖 PMG protects developers from getting compromised by malicious packages.
-See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
+<div align="center">
+<h3>PMG protects developers from getting compromised by malicious packages.
+See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">example</a></h3>
+</div>
+
+---
+
+## Key Features
 
 - Wraps your favorite package manager (eg. `npm`, `pnpm`, `pip` and more)
 - Blocks malicious packages at install time
