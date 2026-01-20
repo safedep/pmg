@@ -31,6 +31,10 @@ See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">ex
 
 ---
 
+## PMG in Action
+
+<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
+
 ## Key Features
 
 - Wraps your favorite package manager (eg. `npm`, `pnpm`, `pip` and more)
@@ -41,10 +45,6 @@ See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">ex
 
 PMG guarantees its own artifact integrity using GitHub and npm attestations. Users can cryptographically prove that the binary they run
 matches the source code they reviewed, eliminating the risk of tampered or malicious builds. See [why and how to trust PMG](docs/trust.md).
-
-## PMG in Action
-
-<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
 ## Quick Start
 
