@@ -253,7 +253,7 @@ pmg npm install <package-name>
 ## Advanced
 
 - [Trusted Packages](docs/trusted-packages.md)
-- [Experimental Proxy Mode](docs/proxy-mode.md)
+- [Proxy Mode](docs/proxy-mode.md)
 - [Sandbox](docs/sandbox.md)
 
 ## Contributing

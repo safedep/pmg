@@ -23,14 +23,14 @@ experimental_proxy_mode: true
 
 ## Supported Package Managers
 
-| Package Manager | Status    |
-| --------------- | --------- |
-| `npm`           | ✅ Active  |
-| `npx`           | ✅ Active |
-| `pnpm`          | ✅ Active |
-| `pnpx`          | ✅ Active |
-| `bun`           | ✅ Active |
-| `yarn`          | ✅ Active |
-| `pip`           | 🕒 Planned |
-| `uv`            | 🕒 Planned |
-| `poetry`        | 🕒 Planned |
+| Package Manager | Status |
+| --------------- | ------ |
+| `npm`           | ✅      |
+| `npx`           | ✅      |
+| `pnpm`          | ✅      |
+| `pnpx`          | ✅      |
+| `bun`           | ✅      |
+| `yarn`          | ✅      |
+| `pip`           | 🕒      |
+| `uv`            | 🕒      |
+| `poetry`        | 🕒      |
