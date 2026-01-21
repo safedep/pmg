@@ -1,0 +1,83 @@
+package interceptors
+
+import (
+	"sync"
+
+	"github.com/safedep/pmg/analyzer"
+)
+
+// AnalysisStats contains aggregated statistics from analysis results
+type AnalysisStats struct {
+	TotalAnalyzed  int
+	AllowedCount   int
+	ConfirmedCount int
+	BlockedCount   int
+}
+
+// AnalysisStatsCollector tracks analysis statistics during proxy execution.
+// It is separate from the cache to allow different cache implementations
+// without coupling them to reporting concerns.
+type AnalysisStatsCollector struct {
+	mu                sync.RWMutex
+	stats             AnalysisStats
+	blockedPackages   []*analyzer.PackageVersionAnalysisResult
+	confirmedPackages []*analyzer.PackageVersionAnalysisResult
+}
+
+// NewAnalysisStatsCollector creates a new stats collector
+func NewAnalysisStatsCollector() *AnalysisStatsCollector {
+	return &AnalysisStatsCollector{}
+}
+
+// RecordResult records an analysis result and updates statistics
+func (c *AnalysisStatsCollector) RecordResult(result *analyzer.PackageVersionAnalysisResult) {
+	if result == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.TotalAnalyzed++
+
+	switch result.Action {
+	case analyzer.ActionAllow:
+		c.stats.AllowedCount++
+	case analyzer.ActionConfirm:
+		c.stats.ConfirmedCount++
+		c.confirmedPackages = append(c.confirmedPackages, result)
+	case analyzer.ActionBlock:
+		c.stats.BlockedCount++
+		c.blockedPackages = append(c.blockedPackages, result)
+	}
+}
+
+// GetStats returns the current statistics
+func (c *AnalysisStatsCollector) GetStats() AnalysisStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.stats
+}
+
+// GetBlockedPackages returns all blocked packages
+func (c *AnalysisStatsCollector) GetBlockedPackages() []*analyzer.PackageVersionAnalysisResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make([]*analyzer.PackageVersionAnalysisResult, len(c.blockedPackages))
+	copy(result, c.blockedPackages)
+	return result
+}
+
+// GetConfirmedPackages returns all confirmed packages
+func (c *AnalysisStatsCollector) GetConfirmedPackages() []*analyzer.PackageVersionAnalysisResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make([]*analyzer.PackageVersionAnalysisResult, len(c.confirmedPackages))
+	copy(result, c.confirmedPackages)
+	return result
+}

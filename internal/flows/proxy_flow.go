@@ -82,7 +82,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return nil
 	}
 
-	ui.SetStatus("Initializing experimental proxy mode...")
+	ui.SetStatus("Initializing proxy mode...")
 
 	// Setup CA certificate for MITM
 	caCert, caCertPath, err := f.setupCACertificate()
@@ -111,8 +111,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
 
-	// Create analysis cache
+	// Create analysis cache and stats collector
 	cache := interceptors.NewInMemoryAnalysisCache()
+	statsCollector := interceptors.NewAnalysisStatsCollector()
 
 	// Create confirmation channel and start confirmation handler
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 10)
@@ -128,7 +129,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, confirmationChan)
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan)
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
@@ -167,29 +168,22 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
 
-	// Populate report data from cache statistics
+	// Populate report data from stats collector
+	stats := statsCollector.GetStats()
 	reportData.StartTime = startTime
-	stats := cache.GetStatistics()
-	reportData.TotalAnalyzed = stats.Total
+	reportData.TotalAnalyzed = stats.TotalAnalyzed
 	reportData.AllowedCount = stats.AllowedCount
 	reportData.ConfirmedCount = stats.ConfirmedCount
 	reportData.BlockedCount = stats.BlockedCount
-
-	// Get blocked and confirmed packages for verbose mode
-	allResults := cache.GetAllResults()
-	for _, result := range allResults {
-		if result.Action == analyzer.ActionBlock {
-			reportData.BlockedPackages = append(reportData.BlockedPackages, result)
-		} else if result.Action == analyzer.ActionConfirm {
-			reportData.ConfirmedPackages = append(reportData.ConfirmedPackages, result)
-		}
-	}
+	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
+	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 
 	// Set outcome based on execution result
-	if executionError != nil {
-		reportData.Outcome = ui.OutcomeError
-	} else if reportData.BlockedCount > 0 {
+	// Check BlockedCount first - in proxy mode, blocking causes npm to fail (expected)
+	if reportData.BlockedCount > 0 {
 		reportData.Outcome = ui.OutcomeBlocked
+	} else if executionError != nil {
+		reportData.Outcome = ui.OutcomeError
 	} else {
 		reportData.Outcome = ui.OutcomeSuccess
 	}

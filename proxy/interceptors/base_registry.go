@@ -19,6 +19,7 @@ import (
 type baseRegistryInterceptor struct {
 	analyzer         analyzer.PackageVersionAnalyzer
 	cache            AnalysisCache
+	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 }
 
@@ -84,6 +85,11 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	}
 
 	b.cache.Set(ecosystem.String(), packageName, packageVersion, result)
+
+	// Record stats for reporting
+	if b.statsCollector != nil {
+		b.statsCollector.RecordResult(result)
+	}
 
 	log.Debugf("[%s] Analysis complete for %s@%s: action=%d", ctx.RequestID, packageName, packageVersion, result.Action)
 

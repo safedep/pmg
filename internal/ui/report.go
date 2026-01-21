@@ -142,10 +142,6 @@ func reportNormal(data *ReportData) {
 		return // Dry run already shows its own message
 	}
 
-	if data.Outcome == OutcomeBlocked || data.Outcome == OutcomeUserCancelled {
-		return // Block UI already shown
-	}
-
 	if data.Outcome == OutcomeError {
 		return // Error handling done elsewhere
 	}
@@ -154,7 +150,6 @@ func reportNormal(data *ReportData) {
 		return // Warning already shown
 	}
 
-	// Success case: show minimal assurance
 	if data.TotalAnalyzed == 0 {
 		// No packages analyzed (e.g., npm install with no new packages)
 		return
@@ -163,13 +158,25 @@ func reportNormal(data *ReportData) {
 	var icon string
 	var message string
 
-	if data.HasIssues() {
-		icon = Colors.Yellow("!")
-		message = fmt.Sprintf("PMG: %d packages analyzed (%d confirmed)",
-			data.TotalAnalyzed, data.ConfirmedCount)
-	} else {
-		icon = Colors.Green("✓")
-		message = fmt.Sprintf("PMG: %d packages analyzed", data.TotalAnalyzed)
+	switch data.Outcome {
+	case OutcomeBlocked:
+		icon = Colors.Red("✗")
+		message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
+			data.TotalAnalyzed, data.BlockedCount)
+	case OutcomeUserCancelled:
+		icon = Colors.Yellow("✗")
+		message = fmt.Sprintf("PMG: %d packages analyzed, installation cancelled",
+			data.TotalAnalyzed)
+	default:
+		// Success case
+		if data.HasIssues() {
+			icon = Colors.Yellow("!")
+			message = fmt.Sprintf("PMG: %d packages analyzed (%d confirmed)",
+				data.TotalAnalyzed, data.ConfirmedCount)
+		} else {
+			icon = Colors.Green("✓")
+			message = fmt.Sprintf("PMG: %d packages analyzed", data.TotalAnalyzed)
+		}
 	}
 
 	fmt.Printf("%s %s\n", icon, Colors.Dim(message))

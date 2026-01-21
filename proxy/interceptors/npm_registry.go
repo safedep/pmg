@@ -28,12 +28,14 @@ var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
 func NewNpmRegistryInterceptor(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
+	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 ) *NpmRegistryInterceptor {
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
 			cache:            cache,
+			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
 		},
 	}

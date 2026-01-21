@@ -77,35 +77,9 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 	}
 }
 
-// GuardOutcome represents the final result of the guard execution
-type GuardOutcome int
-
-const (
-	OutcomeSuccess GuardOutcome = iota
-	OutcomeBlocked
-	OutcomeUserCancelled
-	OutcomeDryRun
-	OutcomeInsecureBypass
-)
-
-func (o GuardOutcome) String() string {
-	switch o {
-	case OutcomeSuccess:
-		return "success"
-	case OutcomeBlocked:
-		return "blocked"
-	case OutcomeUserCancelled:
-		return "user_cancelled"
-	case OutcomeDryRun:
-		return "dry_run"
-	case OutcomeInsecureBypass:
-		return "insecure_bypass"
-	default:
-		return "unknown"
-	}
-}
-
-// GuardResult captures execution statistics from the guard for reporting
+// GuardResult captures execution statistics from the guard for reporting.
+// It contains pure data - the calling flow is responsible for interpreting
+// the outcome based on this data.
 type GuardResult struct {
 	TotalAnalyzed     int
 	TrustedSkipped    int
@@ -114,7 +88,8 @@ type GuardResult struct {
 	BlockedCount      int
 	BlockedPackages   []*analyzer.PackageVersionAnalysisResult
 	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
-	Outcome           GuardOutcome
+	// WasUserCancelled is true if the user declined to install suspicious packages
+	WasUserCancelled bool
 }
 
 type packageManagerGuard struct {
@@ -143,7 +118,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) (*GuardResult, error) {
 	log.Debugf("Running package manager guard with args: %v", args)
 
-	result := &GuardResult{Outcome: OutcomeSuccess}
+	result := &GuardResult{}
 
 	// Log the installation start
 	if g.packageManager != nil {
@@ -152,8 +127,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	if g.config.InsecureInstallation {
 		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
-		g.showWarning("⚠️  WARNING: INSECURE INSTALLATION MODE - Malware protection bypassed!")
-		result.Outcome = OutcomeInsecureBypass
+		g.showWarning("INSECURE INSTALLATION MODE - Malware protection bypassed!")
 		return result, g.continueExecution(ctx, parsedCommand)
 	}
 
@@ -228,7 +202,6 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
 			g.logMalwareDetection(analysisResult, true)
-			result.Outcome = OutcomeBlocked
 			return result, g.blockInstallation(blockConfig)
 		}
 
@@ -253,7 +226,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 				result.BlockedCount++
 				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
-			result.Outcome = OutcomeUserCancelled
+			result.WasUserCancelled = true
 			return result, g.blockInstallation(blockConfig)
 		}
 
@@ -446,7 +419,7 @@ func (g *packageManagerGuard) showWarning(message string) {
 }
 
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) (*GuardResult, error) {
-	result := &GuardResult{Outcome: OutcomeSuccess}
+	result := &GuardResult{}
 
 	extractorConfig := extractor.NewDefaultExtractorConfig()
 	extractorConfig.ExtractorPackageManager = extractor.PackageManagerName(g.packageManager.Name())
@@ -521,7 +494,6 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			result.BlockedCount++
 			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
-			result.Outcome = OutcomeBlocked
 			return result, g.blockInstallation(blockConfig)
 		}
 
@@ -546,7 +518,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 				result.BlockedCount++
 				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
-			result.Outcome = OutcomeUserCancelled
+			result.WasUserCancelled = true
 			return result, g.blockInstallation(blockConfig)
 		}
 

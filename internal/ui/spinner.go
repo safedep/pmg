@@ -32,7 +32,7 @@ func StartSpinnerWithColor(msg string, c ColorFn) {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				fmt.Printf("\r%s ... %s", c(msg), string(frames[pos%length]))
+				fmt.Printf("\r%s ... %s", c("PMG: "+msg), string(frames[pos%length]))
 				pos += 1
 			}
 		}

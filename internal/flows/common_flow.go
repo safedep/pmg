@@ -3,6 +3,7 @@ package flows
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/safedep/pmg/analyzer"
@@ -11,6 +12,37 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
+
+// inferOutcome determines the execution outcome based on config and guard result data.
+// This keeps outcome logic in the flow layer, separate from guard's pure data.
+func inferOutcome(result *guard.GuardResult, err error) ui.ExecutionOutcome {
+	cfg := config.Get()
+
+	// Error takes precedence unless we have blocked packages
+	if err != nil && (result == nil || result.BlockedCount == 0) {
+		return ui.OutcomeError
+	}
+
+	// Config-based outcomes
+	if cfg.InsecureInstallation {
+		return ui.OutcomeInsecureBypass
+	}
+	if cfg.DryRun {
+		return ui.OutcomeDryRun
+	}
+
+	// Data-based outcomes from guard result
+	if result != nil {
+		if result.WasUserCancelled {
+			return ui.OutcomeUserCancelled
+		}
+		if result.BlockedCount > 0 {
+			return ui.OutcomeBlocked
+		}
+	}
+
+	return ui.OutcomeSuccess
+}
 
 type commonFlow struct {
 	pm              packagemanager.PackageManager
@@ -44,6 +76,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	reportData.TransitiveEnabled = cfg.Config.Transitive
 	reportData.ParanoidMode = cfg.Config.Paranoid
 	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
+
 	if cfg.Config.Sandbox.Enabled {
 		if policyRef, exists := cfg.Config.Sandbox.Policies[f.pm.Name()]; exists {
 			reportData.SandboxProfile = policyRef.Profile
@@ -52,6 +85,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	if cfg.SandboxProfileOverride != "" {
 		reportData.SandboxProfile = cfg.SandboxProfileOverride
 	}
+
 	startTime := time.Now()
 
 	if cfg.Config.Paranoid {
@@ -75,7 +109,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		ClearStatus:              ui.ClearStatus,
 		ShowWarning:              ui.ShowWarning,
 		GetConfirmationOnMalware: ui.GetConfirmationOnMalware,
-		Block:                    ui.Block,
+		Block:                    ui.BlockNoExit,
 	}
 
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
@@ -99,30 +133,18 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		reportData.BlockedCount = guardResult.BlockedCount
 		reportData.BlockedPackages = guardResult.BlockedPackages
 		reportData.ConfirmedPackages = guardResult.ConfirmedPackages
-
-		// Map guard outcome to report outcome
-		switch guardResult.Outcome {
-		case guard.OutcomeSuccess:
-			reportData.Outcome = ui.OutcomeSuccess
-		case guard.OutcomeBlocked:
-			reportData.Outcome = ui.OutcomeBlocked
-		case guard.OutcomeUserCancelled:
-			reportData.Outcome = ui.OutcomeUserCancelled
-		case guard.OutcomeDryRun:
-			reportData.Outcome = ui.OutcomeDryRun
-		case guard.OutcomeInsecureBypass:
-			reportData.Outcome = ui.OutcomeInsecureBypass
-		default:
-			reportData.Outcome = ui.OutcomeSuccess
-		}
 	}
 
-	if err != nil {
-		reportData.Outcome = ui.OutcomeError
-	}
+	// Infer outcome from data and config
+	reportData.Outcome = inferOutcome(guardResult, err)
 
 	// Show the report
 	ui.Report(reportData)
+
+	// Exit after report for blocked/cancelled outcomes
+	if reportData.Outcome == ui.OutcomeBlocked || reportData.Outcome == ui.OutcomeUserCancelled {
+		os.Exit(1)
+	}
 
 	if err != nil {
 		return fmt.Errorf("failed to run package manager guard: %w", err)
