@@ -1,8 +1,19 @@
-# Package Manager Guard (PMG)
+<div align="center">
+    <img src="./docs/assets/pmg-github-banner.png" width="900" alt="PMG GitHub Banner">
+</div>
+<br/>
 
-<p>
-    Created and maintained by <b><a href="https://safedep.io/">https://safedep.io</a></b> with contributions from the community 🚀
-</p>
+<div align="center">
+    <h1>Package Manager Guard (PMG)</h1>
+</div>
+
+<div align="center">
+
+<a href="https://docs.safedep.io/pmg/quickstart"><img src="https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=for-the-badge&logo=gitbook&logoColor=white" alt="Docs"></a>
+<a href="https://safedep.io"><img src="https://img.shields.io/badge/Website-safedep.io-3b82f6?style=for-the-badge&logoColor=white" alt="Website"></a>
+
+<a href="https://discord.gg/kAGEj25dCn"><img src="https://img.shields.io/discord/1090352019379851304?style=for-the-badge&logo=discord&logoColor=white&color=5865F2" alt="Discord"></a>
+
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
 ![License](https://img.shields.io/github/license/safedep/pmg)
@@ -10,8 +21,20 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/safedep/pmg/badge)](https://api.securityscorecards.dev/projects/github.com/safedep/pmg)
 [![CodeQL](https://github.com/safedep/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/safedep/pmg/actions/workflows/codeql.yml)
 
-🤖 PMG protects developers from getting compromised by malicious packages.
-See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
+</div>
+
+---
+
+<div align="center">
+<h3>PMG protects developers from getting compromised by malicious packages.
+See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">example</a></h3>
+</div>
+
+---
+
+<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
+
+## Key Features
 
 - Wraps your favorite package manager (eg. `npm`, `pnpm`, `pip` and more)
 - Blocks malicious packages at install time
@@ -22,11 +45,7 @@ See [example](https://safedep.io/malicious-npm-package-express-cookie-parser/)
 PMG guarantees its own artifact integrity using GitHub and npm attestations. Users can cryptographically prove that the binary they run
 matches the source code they reviewed, eliminating the risk of tampered or malicious builds. See [why and how to trust PMG](docs/trust.md).
 
-## PMG in Action
-
-<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
-
-## TL;DR
+## Quick Start
 
 Install `pmg` using your favorite package manager:
 
@@ -72,17 +91,17 @@ uv pip install <package-name>
 
 PMG supports the following package managers:
 
-| Package Manager | Status   | Command                                                  |
-| --------------- | -------- | -------------------------------------------------------- |
-| `npm`           | ✅ Active | `pmg npm install <package>`                              |
-| `pnpm`          | ✅ Active | `pmg pnpm add <package>`                                 |
-| `bun`           | ✅ Active | `pmg bun add <package>`                                  |
-| `yarn`          | ✅ Active | `pmg yarn add <package>`                                 |
-| `pip`           | ✅ Active | `pmg pip install <package>`                              |
-| `uv`            | ✅ Active | `pmg uv add <package>` or `pmg uv pip install <package>` |
-| `poetry`        | ✅ Active | `pmg poetry add <package>`                               |
-| `npx`           | ✅ Active | `pmg npx <package> <action>`                             |
-| `pnpx`          | ✅ Active | `pmg pnpx <package> <action>`                            |
+| Package Manager | Status | Command                                                  |
+| --------------- | ------ | -------------------------------------------------------- |
+| `npm`           | ✅      | `pmg npm install <package>`                              |
+| `pnpm`          | ✅      | `pmg pnpm add <package>`                                 |
+| `bun`           | ✅      | `pmg bun add <package>`                                  |
+| `yarn`          | ✅      | `pmg yarn add <package>`                                 |
+| `pip`           | ✅      | `pmg pip install <package>`                              |
+| `uv`            | ✅      | `pmg uv add <package>` or `pmg uv pip install <package>` |
+| `poetry`        | ✅      | `pmg poetry add <package>`                               |
+| `npx`           | ✅      | `pmg npx <package> <action>`                             |
+| `pnpx`          | ✅      | `pmg pnpx <package> <action>`                            |
 
 > Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
 
@@ -233,7 +252,7 @@ pmg npm install <package-name>
 ## Advanced
 
 - [Trusted Packages](docs/trusted-packages.md)
-- [Experimental Proxy Mode](docs/proxy-mode.md)
+- [Proxy Mode](docs/proxy-mode.md)
 - [Sandbox](docs/sandbox.md)
 
 ## Contributing
