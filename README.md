@@ -1,4 +1,9 @@
 <div align="center">
+    <img src="./docs/assets/pmg-github-banner.png" width="900" alt="PMG GitHub Banner">
+</div>
+<br/>
+
+<div align="center">
     <h1>Package Manager Guard (PMG)</h1>
 </div>
 
@@ -18,10 +23,6 @@
 
 </div>
 
-<div align="center">
-    <img src="./docs/assets/pmg-github-banner.png" width="900" alt="PMG GitHub Banner">
-</div>
-
 ---
 
 <div align="center">
@@ -30,8 +31,6 @@ See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">ex
 </div>
 
 ---
-
-## PMG in Action
 
 <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
