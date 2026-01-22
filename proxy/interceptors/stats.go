@@ -29,8 +29,8 @@ func NewAnalysisStatsCollector() *AnalysisStatsCollector {
 	return &AnalysisStatsCollector{}
 }
 
-// RecordResult records an analysis result and updates statistics
-func (c *AnalysisStatsCollector) RecordResult(result *analyzer.PackageVersionAnalysisResult) {
+// RecordAllowed records a package that was allowed (safe)
+func (c *AnalysisStatsCollector) RecordAllowed(result *analyzer.PackageVersionAnalysisResult) {
 	if result == nil {
 		return
 	}
@@ -39,17 +39,35 @@ func (c *AnalysisStatsCollector) RecordResult(result *analyzer.PackageVersionAna
 	defer c.mu.Unlock()
 
 	c.stats.TotalAnalyzed++
+	c.stats.AllowedCount++
+}
 
-	switch result.Action {
-	case analyzer.ActionAllow:
-		c.stats.AllowedCount++
-	case analyzer.ActionConfirm:
-		c.stats.ConfirmedCount++
-		c.confirmedPackages = append(c.confirmedPackages, result)
-	case analyzer.ActionBlock:
-		c.stats.BlockedCount++
-		c.blockedPackages = append(c.blockedPackages, result)
+// RecordBlocked records a package that was blocked (malware or user declined)
+func (c *AnalysisStatsCollector) RecordBlocked(result *analyzer.PackageVersionAnalysisResult) {
+	if result == nil {
+		return
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.TotalAnalyzed++
+	c.stats.BlockedCount++
+	c.blockedPackages = append(c.blockedPackages, result)
+}
+
+// RecordConfirmed records a package where user confirmed installation despite warning
+func (c *AnalysisStatsCollector) RecordConfirmed(result *analyzer.PackageVersionAnalysisResult) {
+	if result == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.TotalAnalyzed++
+	c.stats.ConfirmedCount++
+	c.confirmedPackages = append(c.confirmedPackages, result)
 }
 
 // GetStats returns the current statistics

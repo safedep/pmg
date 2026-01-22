@@ -64,14 +64,17 @@ func BlockNoExit(config *BlockConfig) error {
 func blockWithExit(config *BlockConfig, exit bool) error {
 	StopSpinner()
 
-	fmt.Println()
-	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+	// We show the block message only in normal mode to avoid repeating information
+	// already shown to the user in verbose mode as part of the reporting.
+	if verbosityLevel != VerbosityLevelVerbose {
+		fmt.Println()
+		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
 
-	if config.ShowReference {
-		printMaliciousPackagesList(config.MalwarePackages)
+		if config.ShowReference {
+			printMaliciousPackagesList(config.MalwarePackages)
+			fmt.Println()
+		}
 	}
-
-	fmt.Println()
 
 	if exit {
 		os.Exit(1)

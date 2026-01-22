@@ -276,13 +276,8 @@ func printPackageDetail(pkg *analyzer.PackageVersionAnalysisResult) {
 	version := pkg.PackageVersion.GetVersion()
 	fmt.Printf("    - %s@%s\n", name, version)
 
-	if pkg.Summary != "" {
-		// Truncate long summaries
-		summary := pkg.Summary
-		if len(summary) > 60 {
-			summary = summary[:57] + "..."
-		}
-		fmt.Printf("      %s\n", Colors.Dim(summary))
+	if pkg.ReferenceURL != "" {
+		fmt.Printf("      %s\n", Colors.Dim(pkg.ReferenceURL))
 	}
 }
 
