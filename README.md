@@ -4,7 +4,7 @@
 <br/>
 
 <div align="center">
-    <h3>Package Manager Guard (PMG)</h3>
+    <h3 style="font-size: 30px">Package Manager Guard (PMG)</h3>
 </div>
 
 <div align="center">
