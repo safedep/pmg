@@ -7,6 +7,8 @@
     <h1>Package Manager Guard (PMG)</h1>
 </div>
 
+<div align="center">
+
 [![Docs](https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
 [![Website](https://img.shields.io/badge/Website-safedep.io-3b82f6?style=flat-square)](https://safedep.io)
 [![Discord](https://img.shields.io/discord/1090352019379851304?style=flat-square)](https://discord.gg/kAGEj25dCn)
@@ -17,6 +19,8 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/safedep/pmg/badge)](https://api.securityscorecards.dev/projects/github.com/safedep/pmg)
 [![CodeQL](https://github.com/safedep/pmg/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/safedep/pmg/actions/workflows/codeql.yml)
 
+</div>
+
 <div align="center">
   <h3>
     PMG protects developers from getting compromised by malicious packages.<br/>
@@ -26,7 +30,7 @@
 
 <br>
 
-<img src="./docs/demo/pmg-intro-2.gif" width="800" alt="pmg in action">
+<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
 ## Key Features
 
