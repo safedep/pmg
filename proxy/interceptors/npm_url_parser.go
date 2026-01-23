@@ -13,7 +13,15 @@ type npmPackageInfo struct {
 	IsScoped  bool
 }
 
-// parseNpmRegistryURL parses an NPM registry URL path to extract package information
+// RegistryURLParser defines the interface for parsing registry-specific URLs
+type RegistryURLParser interface {
+	ParseURL(urlPath string) (*npmPackageInfo, error)
+}
+
+type npmParser struct{}
+
+// parseNpmRegistryURL parses standard NPM registry URL paths (registry.npmjs.org, registry.yarnpkg.com)
+// This function handles the standard npm registry URL format.
 //
 // Supported URL patterns:
 // - /package                               -> {Name: "package", Version: ""}
@@ -22,7 +30,7 @@ type npmPackageInfo struct {
 // - /@scope/package/1.0.0                  -> {Name: "@scope/package", Version: "1.0.0", IsScoped: true}
 // - /package/-/package-1.0.0.tgz          -> {Name: "package", Version: "1.0.0", IsTarball: true}
 // - /@scope/package/-/@scope-package-1.0.0.tgz -> {Name: "@scope/package", Version: "1.0.0", IsTarball: true, IsScoped: true}
-func parseNpmRegistryURL(urlPath string) (*npmPackageInfo, error) {
+func (n npmParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
 	// Remove leading and trailing slashes
 	urlPath = strings.Trim(urlPath, "/")
 
@@ -41,6 +49,32 @@ func parseNpmRegistryURL(urlPath string) (*npmPackageInfo, error) {
 	}
 
 	return parseUnscopedPackageURL(segments)
+}
+
+type githubParser struct{}
+
+// ParseURL implements RegistryURLParser for GitHub npm registry
+func (g githubParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
+	// For now, just allow all GitHub npm registry requests through without analysis
+	// TODO: Implement proper GitHub npm registry URL parsing when analysis is enabled
+	// GitHub URLs follow patterns:
+	// - /download/@owner/package/version/hash.tgz -> {Name: "package", Version: "1.0.0", IsTarball: true}
+	// - /@owner/package (metadata requests)
+	return &npmPackageInfo{
+		IsTarball: false, // Mark as non-tarball to skip analysis
+	}, nil
+}
+
+type githubBlobParser struct{}
+
+// ParseURL implements RegistryURLParser for GitHub blob storage
+func (g githubBlobParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
+	// For now, just allow all GitHub blob storage requests through without analysis
+	// TODO: Implement proper GitHub blob storage URL parsing when analysis is enabled
+	// Pattern: /npmregistryv2prod/blobs/{blob_id}/{package_name}/{version}/***
+	return &npmPackageInfo{
+		IsTarball: false, // Mark as non-tarball to skip analysis
+	}, nil
 }
 
 // parseScopedPackageURL parses a scoped package URL
