@@ -14,6 +14,7 @@ var (
 		"registry.npmjs.org",
 		"registry.yarnpkg.com",
 		"npm.pkg.github.com",
+		"pkg-npm.githubusercontent.com",
 	}
 )
 
@@ -60,6 +61,12 @@ func (i *NpmRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool
 // We take a fail-open approach here, allowing requests that we can't parse the package information from the URL.
 func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Handling NPM registry request: %s", ctx.RequestID, ctx.URL.Path)
+
+	// Skip analysis for GitHub npm registry requests (private packages)
+	if ctx.Hostname == "npm.pkg.github.com" || ctx.Hostname == "pkg-npm.githubusercontent.com" {
+		log.Debugf("[%s] Skipping analysis for GitHub npm registry request: %s", ctx.RequestID, ctx.URL.String())
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
 
 	pkgInfo, err := parseNpmRegistryURL(ctx.URL.Path)
 	if err != nil {
