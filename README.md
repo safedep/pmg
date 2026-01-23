@@ -23,14 +23,12 @@
 
 </div>
 
----
-
 <div align="center">
-<h3>PMG protects developers from getting compromised by malicious packages.
-See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">example</a></h3>
+  <h3>
+    PMG protects developers from getting compromised by malicious packages.<br/>
+    See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">example</a>
+  </h3>
 </div>
-
----
 
 <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
