@@ -4,8 +4,8 @@ import "strings"
 
 // npmRegistryConfig defines configuration for npm registry endpoints
 type npmRegistryConfig struct {
-	// Endpoint hostname
-	Endpoint string
+	// Hostname
+	Host string
 
 	// Whether this registry is supported for malware analysis
 	SupportedForAnalysis bool
@@ -14,8 +14,8 @@ type npmRegistryConfig struct {
 	RegistryParser RegistryURLParser
 }
 
-// GetNpmRegistryEndpoints returns a list of all supported npm registry endpoints
-func GetNpmRegistryEndpoints() []string {
+// getNpmRegistryEndpoints returns a list of all supported npm registry endpoints
+func getNpmRegistryEndpoints() []string {
 	endpoints := make([]string, 0, len(npmRegistryDomains))
 	for endpoint := range npmRegistryDomains {
 		endpoints = append(endpoints, endpoint)
@@ -23,8 +23,8 @@ func GetNpmRegistryEndpoints() []string {
 	return endpoints
 }
 
-// GetNpmRegistryConfigForHostname returns the configuration for a hostname (with subdomain matching)
-func GetNpmRegistryConfigForHostname(hostname string) *npmRegistryConfig {
+// getNpmRegistryConfigForHostname returns the configuration for a hostname (with subdomain matching)
+func getNpmRegistryConfigForHostname(hostname string) *npmRegistryConfig {
 	// Check exact match first
 	if config, exists := npmRegistryDomains[hostname]; exists {
 		return config

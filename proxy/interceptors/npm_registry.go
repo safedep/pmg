@@ -11,22 +11,22 @@ import (
 
 var npmRegistryDomains = map[string]*npmRegistryConfig{
 	"registry.npmjs.org": {
-		Endpoint:             "registry.npmjs.org",
+		Host:                 "registry.npmjs.org",
 		SupportedForAnalysis: true,
 		RegistryParser:       npmParser{},
 	},
 	"registry.yarnpkg.com": {
-		Endpoint:             "registry.yarnpkg.com",
+		Host:                 "registry.yarnpkg.com",
 		SupportedForAnalysis: true,
 		RegistryParser:       npmParser{},
 	},
 	"npm.pkg.github.com": {
-		Endpoint:             "npm.pkg.github.com",
+		Host:                 "npm.pkg.github.com",
 		SupportedForAnalysis: false, // Skip analysis for now (private packages, auth complexity)
 		RegistryParser:       githubParser{},
 	},
 	"pkg-npm.githubusercontent.com": {
-		Endpoint:             "pkg-npm.githubusercontent.com",
+		Host:                 "pkg-npm.githubusercontent.com",
 		SupportedForAnalysis: false, // Skip analysis (blob storage, redirected downloads)
 		RegistryParser:       githubBlobParser{},
 	},
@@ -82,7 +82,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	log.Debugf("[%s] Handling NPM registry request: %s", ctx.RequestID, ctx.URL.Path)
 
 	// Get registry configuration
-	config := GetNpmRegistryConfigForHostname(ctx.Hostname)
+	config := getNpmRegistryConfigForHostname(ctx.Hostname)
 	if config == nil {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
@@ -92,7 +92,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	// Skip analysis for registries that are not supported for analysis
 	if !config.SupportedForAnalysis {
 		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
-			ctx.RequestID, config.Endpoint, ctx.URL.String())
+			ctx.RequestID, config.Host, ctx.URL.String())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -100,7 +100,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	pkgInfo, err := config.RegistryParser.ParseURL(ctx.URL.Path)
 	if err != nil {
 		log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
-			ctx.RequestID, ctx.URL.Path, config.Endpoint, err)
+			ctx.RequestID, ctx.URL.Path, config.Host, err)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
