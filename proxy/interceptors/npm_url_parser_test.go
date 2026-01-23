@@ -265,7 +265,8 @@ func TestParseNpmRegistryURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseNpmRegistryURL(tt.urlPath)
+			parser := npmParser{}
+			got, err := parser.ParseURL(tt.urlPath)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -277,6 +278,74 @@ func TestParseNpmRegistryURL(t *testing.T) {
 			assert.Equal(t, tt.wantVersion, got.Version)
 			assert.Equal(t, tt.wantIsTarball, got.IsTarball)
 			assert.Equal(t, tt.wantIsScoped, got.IsScoped)
+		})
+	}
+}
+
+func TestGithubParser_ParseURL(t *testing.T) {
+	tests := []struct {
+		name          string
+		urlPath       string
+		wantIsTarball bool
+		wantErr       bool
+	}{
+		{
+			name:          "github metadata request",
+			urlPath:       "/@owner/package",
+			wantIsTarball: false,
+			wantErr:       false,
+		},
+		{
+			name:          "github download request",
+			urlPath:       "/download/@owner/package/1.0.0/abc123.tgz",
+			wantIsTarball: false,
+			wantErr:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := githubParser{}
+			got, err := parser.ParseURL(tt.urlPath)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantIsTarball, got.IsTarball)
+		})
+	}
+}
+
+func TestGithubBlobParser_ParseURL(t *testing.T) {
+	tests := []struct {
+		name          string
+		urlPath       string
+		wantIsTarball bool
+		wantErr       bool
+	}{
+		{
+			name:          "github blob storage request",
+			urlPath:       "/npmregistryv2prod/blobs/132160241/gh-npm-pkg/1.0.0/abc123",
+			wantIsTarball: false,
+			wantErr:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := githubBlobParser{}
+			got, err := parser.ParseURL(tt.urlPath)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantIsTarball, got.IsTarball)
 		})
 	}
 }
