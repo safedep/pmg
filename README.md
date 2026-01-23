@@ -23,6 +23,8 @@
 
 </div>
 
+---
+
 <div align="center">
   <h3>
     PMG protects developers from getting compromised by malicious packages.<br/>
