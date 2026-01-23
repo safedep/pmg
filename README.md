@@ -23,7 +23,7 @@
 
 </div>
 
-<h1>&nbsp;</h1>
+<h1 style="font-size: 0"></h1>
 
 <div align="center">
   <h3>
