@@ -23,7 +23,7 @@
 
 </div>
 
-<h1 style="font-size: 0"></h1>
+<!--<h1 style="font-size: 0"></h1>-->
 
 <div align="center">
   <h3>
@@ -32,7 +32,7 @@
   </h3>
 </div>
 
-<h1 style="font-size: 0"></h1>
+<!--<h1 style="font-size: 0"></h1>-->
 
 <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 
