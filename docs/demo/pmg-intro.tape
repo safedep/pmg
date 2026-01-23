@@ -5,7 +5,7 @@ Set Width 1400
 Set Height 900
 
 Set Theme {
-  "background": "#0B1211",
+  "background": "#12201D",
   "foreground": "#C7D1CF",
   "cursor": "#0D9488",
 
