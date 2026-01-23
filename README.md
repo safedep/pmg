@@ -9,11 +9,9 @@
 
 <div align="center">
 
-<a href="https://docs.safedep.io/pmg/quickstart"><img src="https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=for-the-badge&logo=gitbook&logoColor=white" alt="Docs"></a>
-<a href="https://safedep.io"><img src="https://img.shields.io/badge/Website-safedep.io-3b82f6?style=for-the-badge&logoColor=white" alt="Website"></a>
-
-<a href="https://discord.gg/kAGEj25dCn"><img src="https://img.shields.io/discord/1090352019379851304?style=for-the-badge&logo=discord&logoColor=white&color=5865F2" alt="Discord"></a>
-
+[![Docs](https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
+[![Website](https://img.shields.io/badge/Website-safedep.io-3b82f6?style=flat-square)](https://safedep.io)
+[![Discord](https://img.shields.io/discord/1090352019379851304?style=flat-square)](https://discord.gg/kAGEj25dCn)
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
 ![License](https://img.shields.io/github/license/safedep/pmg)
