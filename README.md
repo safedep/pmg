@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="./docs/assets/pmg-banner.png" width="900" alt="PMG GitHub Banner">
+    <img src="./docs/assets/pmg-banner.png" alt="PMG GitHub Banner">
 </div>
 <br/>
 
