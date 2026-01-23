@@ -372,6 +372,27 @@ jobs:
           ! pmg npm install nyc-config@10.0.0 || echo "Malicious package correctly blocked"
           cd .. && rm -rf malicious-test
 
+      - name: Test safedep-test-pkg is Blocked using Proxy mode
+        run: |
+          echo "Testing that safedep-test-pkg is blocked..."
+          mkdir safedep-test-pkg-test && cd safedep-test-pkg-test
+          pmg npm init -y
+          # Attempt to install safedep-test-pkg - should fail
+          if pmg --experimental-proxy-mode npm --no-cache --prefer-online i safedep-test-pkg@0.1.3; then
+            echo "ERROR: safedep-test-pkg was not blocked!"
+            exit 1
+          else
+            echo "SUCCESS: safedep-test-pkg correctly blocked"
+          fi
+          # Verify package is not installed locally
+          if [ -d "node_modules/safedep-test-pkg" ]; then
+            echo "ERROR: safedep-test-pkg found in node_modules!"
+            exit 1
+          else
+            echo "SUCCESS: safedep-test-pkg not present in node_modules"
+          fi
+          cd .. && rm -rf safedep-test-pkg-test
+
       - name: Test PMG Modes
         run: |
           echo "Testing different PMG modes..."
