@@ -13,6 +13,7 @@ var (
 	npmRegistryDomains = []string{
 		"registry.npmjs.org",
 		"registry.yarnpkg.com",
+		"npm.pkg.github.com",
 	}
 )
 
