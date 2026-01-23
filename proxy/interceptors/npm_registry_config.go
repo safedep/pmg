@@ -14,15 +14,6 @@ type npmRegistryConfig struct {
 	RegistryParser RegistryURLParser
 }
 
-// getNpmRegistryEndpoints returns a list of all supported npm registry endpoints
-func getNpmRegistryEndpoints() []string {
-	endpoints := make([]string, 0, len(npmRegistryDomains))
-	for endpoint := range npmRegistryDomains {
-		endpoints = append(endpoints, endpoint)
-	}
-	return endpoints
-}
-
 // getNpmRegistryConfigForHostname returns the configuration for a hostname (with subdomain matching)
 func getNpmRegistryConfigForHostname(hostname string) *npmRegistryConfig {
 	// Check exact match first
