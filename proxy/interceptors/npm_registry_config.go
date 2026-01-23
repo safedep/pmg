@@ -11,7 +11,7 @@ type npmRegistryConfig struct {
 	SupportedForAnalysis bool
 
 	// Parser for the registry
-	RegistryParser RegistryURLParser
+	RegistryParser npmRegistryURLParser
 }
 
 // getNpmRegistryConfigForHostname returns the configuration for a hostname (with subdomain matching)

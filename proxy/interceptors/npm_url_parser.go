@@ -13,8 +13,8 @@ type npmPackageInfo struct {
 	IsScoped  bool
 }
 
-// RegistryURLParser defines the interface for parsing registry-specific URLs
-type RegistryURLParser interface {
+// npmRegistryURLParser defines the interface for parsing registry-specific URLs
+type npmRegistryURLParser interface {
 	ParseURL(urlPath string) (*npmPackageInfo, error)
 }
 
