@@ -23,6 +23,7 @@ const (
 	EventTypeInstallTrustedAllowed EventType = "install_trusted_allowed"
 	EventTypeInstallStarted        EventType = "install_started"
 	EventTypeDependencyResolved    EventType = "dependency_resolved"
+	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
 	EventTypeError                 EventType = "error"
 )
 
@@ -356,6 +357,21 @@ func LogInstallTrustedAllowed(packageName, version, ecosystem string) {
 
 	if err := LogEvent(event); err != nil {
 		log.Warnf("failed to log install trusted allowed event: %s", err)
+	}
+}
+
+// LogInstallInsecureBypass logs when an installation skips analysis due to insecure installation mode.
+func LogInstallInsecureBypass(packageName, version, ecosystem string) {
+	event := Event{
+		EventType:   EventTypeInstallInsecureBypass,
+		Message:     fmt.Sprintf("Installation bypassed analysis due to insecure installation mode: %s@%s", packageName, version),
+		PackageName: packageName,
+		Version:     version,
+		Ecosystem:   ecosystem,
+	}
+
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log install insecure bypass event: %s", err)
 	}
 }
 
