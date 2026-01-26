@@ -494,6 +494,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			result.BlockedCount++
 			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
+
+			g.logMalwareDetection(analysisResult, true)
+
 			return result, g.blockInstallation(blockConfig)
 		}
 
@@ -513,11 +516,14 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		if !confirmed {
 			blockConfig.ShowReference = false
 			blockConfig.MalwarePackages = confirmableMalwarePackages
+
 			for _, pkg := range confirmableMalwarePackages {
 				g.logMalwareDetection(pkg, true)
+
 				result.BlockedCount++
 				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
+
 			result.WasUserCancelled = true
 			return result, g.blockInstallation(blockConfig)
 		}

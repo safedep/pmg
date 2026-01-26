@@ -57,6 +57,14 @@ func (b *baseRegistryInterceptor) analyzePackage(
 		Version: packageVersion,
 	}
 
+	if cfg := config.Get(); cfg.InsecureInstallation {
+		log.Debugf("[%s] Skipping insecure installation", ctx.RequestID)
+		return &analyzer.PackageVersionAnalysisResult{
+			PackageVersion: pkgVersion,
+			Action:         analyzer.ActionAllow,
+		}, nil
+	}
+
 	if config.IsTrustedPackage(pkgVersion) {
 		log.Debugf("[%s] Skipping trusted package: %s/%s@%s",
 			ctx.RequestID, ecosystem.String(), packageName, packageVersion)

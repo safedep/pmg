@@ -62,14 +62,17 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.TransitiveEnabled = cfg.Config.Transitive
 	reportData.ParanoidMode = cfg.Config.Paranoid
 	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
+
 	if cfg.Config.Sandbox.Enabled {
 		if policyRef, exists := cfg.Config.Sandbox.Policies[f.pm.Name()]; exists {
 			reportData.SandboxProfile = policyRef.Profile
 		}
 	}
+
 	if cfg.SandboxProfileOverride != "" {
 		reportData.SandboxProfile = cfg.SandboxProfileOverride
 	}
+
 	startTime := time.Now()
 
 	// Check if dry-run mode is enabled
@@ -180,7 +183,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Set outcome based on execution result
 	// Check BlockedCount first - in proxy mode, blocking causes npm to fail (expected)
-	if reportData.BlockedCount > 0 {
+	if cfg.InsecureInstallation {
+		reportData.Outcome = ui.OutcomeInsecureBypass
+	} else if reportData.BlockedCount > 0 {
 		reportData.Outcome = ui.OutcomeBlocked
 	} else if executionError != nil {
 		reportData.Outcome = ui.OutcomeError

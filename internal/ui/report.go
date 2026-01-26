@@ -147,7 +147,18 @@ func reportNormal(data *ReportData) {
 	}
 
 	if data.Outcome == OutcomeInsecureBypass {
-		return // Warning already shown
+		// Security-sensitive: Always show warning when protection is bypassed
+		icon := Colors.Red("⚠")
+		message := "INSECURE MODE - Malware protection bypassed"
+
+		if data.TotalAnalyzed > 0 {
+			fmt.Printf("%s %s (%d packages installed without analysis)\n",
+				icon, Colors.Red(message), data.TotalAnalyzed)
+		} else {
+			fmt.Printf("%s %s\n", icon, Colors.Red(message))
+		}
+
+		return
 	}
 
 	if data.TotalAnalyzed == 0 {
