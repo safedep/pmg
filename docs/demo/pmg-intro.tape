@@ -11,6 +11,7 @@ Enter
 Sleep 2s
 
 Enter
+Enter
 
 Type "source ~/.pmg.rc"
 Enter

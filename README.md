@@ -262,9 +262,9 @@ Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
 <details>
 <summary>Private package artifacts inaccessible in non-proxy mode</summary>
 
-If `pmg` is unable to retrieve the private package’s artifacts (files, metadata, etc.), it cannot proceed with dependency tree analysis. This is a limitation of non-proxy mode, where `pmg` is responsible for resolving dependencies and cannot resolve transitive dependencies for private (non-accessible) packages.
+If `pmg` cannot retrieve private package artifacts (such as files or metadata), it cannot perform dependency tree analysis. This is a limitation of non-proxy mode, where `pmg` is responsible for resolving dependencies and is unable to resolve transitive dependencies for private (inaccessible) packages.
 
-With **Proxy Mode enabled**, this limitation **does not** apply—transitive dependencies are analyzed as long as they originate from public registries.
+This limitation does **not** apply when **Proxy Mode is enabled**.
 
 </details>
 
