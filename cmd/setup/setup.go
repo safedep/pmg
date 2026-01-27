@@ -55,6 +55,7 @@ func NewInstallCommand() *cobra.Command {
 				return fmt.Errorf("failed to write template config: %w", err)
 			}
 
+			ui.PrintSetupInstallCmdInfo(aliasManager.GetRcPath(), config.Get().ConfigDir())
 			return nil
 		},
 	}

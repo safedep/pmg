@@ -112,7 +112,7 @@ func New(config AliasConfig, rcFileManager RcFileManager) *AliasManager {
 // Install creates the RC file with aliases and sources it in shell configurations.
 func (a *AliasManager) Install() error {
 	aliases := a.buildAliases()
-	rcPath, err := a.rcFileManager.Create(aliases)
+	_, err := a.rcFileManager.Create(aliases)
 	if err != nil {
 		return fmt.Errorf("failed to create alias file: %w", err)
 	}
@@ -121,10 +121,6 @@ func (a *AliasManager) Install() error {
 	if err != nil {
 		return fmt.Errorf("failed to update shell configs: %w", err)
 	}
-
-	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases installed successfully")
-	fmt.Printf("   %s\n", ui.Colors.Dim(fmt.Sprintf("Created: %s", rcPath)))
-	fmt.Printf("   %s\n", ui.Colors.Dim("Restart your terminal or source your shell to use the new aliases"))
 
 	return nil
 }
@@ -141,6 +137,11 @@ func (a *AliasManager) Remove() error {
 
 	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. Existing aliases need a shell restart")
 	return nil
+}
+
+// GetRcPath returns the path to the alias RC file managed by AliasManager.
+func (a *AliasManager) GetRcPath() string {
+	return a.rcFileManager.GetRcPath()
 }
 
 // IsInstalled checks if the PMG aliases are sourced in any of the shell config files.
