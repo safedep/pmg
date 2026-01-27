@@ -24,6 +24,7 @@ func PrintInfoSection(title string, entries map[string]string) {
 	}
 }
 
+// PrintSetupInstallCmdInfo prints a success message with the alias & config path, and a restart reminder.
 func PrintSetupInstallCmdInfo(rcPath, configPath string) {
 	fmt.Printf("%s %s\n", Colors.Green("✓"), "PMG aliases installed successfully")
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Installed to:  %s", rcPath)))

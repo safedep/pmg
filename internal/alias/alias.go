@@ -139,6 +139,7 @@ func (a *AliasManager) Remove() error {
 	return nil
 }
 
+// GetRcPath returns the path to the alias RC file managed by AliasManager.
 func (a *AliasManager) GetRcPath() string {
 	return a.rcFileManager.GetRcPath()
 }
