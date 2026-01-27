@@ -26,7 +26,7 @@ func TestGuardConcurrentlyAnalyzePackagesMalwareQueryService(t *testing.T) {
 	}
 
 	t.Run("should resolve a single known malicious package version", func(t *testing.T) {
-		r, err := pg.concurrentAnalyzePackages(context.Background(), []*packagev1.PackageVersion{
+		r, trustedSkipped, err := pg.concurrentAnalyzePackages(context.Background(), []*packagev1.PackageVersion{
 			{
 				Package: &packagev1.Package{
 					Name:      "nyc-config",
@@ -39,6 +39,7 @@ func TestGuardConcurrentlyAnalyzePackagesMalwareQueryService(t *testing.T) {
 			t.Fatalf("failed to analyze packages: %v", err)
 		}
 
+		assert.Equal(t, 0, trustedSkipped)
 		assert.Equal(t, 1, len(r))
 		assert.Equal(t, "nyc-config", r[0].PackageVersion.GetPackage().GetName())
 		assert.Equal(t, "10.0.0", r[0].PackageVersion.GetVersion())
@@ -103,7 +104,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 			},
 		}
 
-		err = pg.Run(context.Background(), []string{"npm", "install", "nyc-config@10.0.0"}, parsedCommand)
+		_, err = pg.Run(context.Background(), []string{"npm", "install", "nyc-config@10.0.0"}, parsedCommand)
 
 		// With dry run enabled, we expect no error even though we're bypassing execution
 		assert.NoError(t, err)
@@ -160,7 +161,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 			},
 		}
 
-		err = pg.Run(context.Background(), []string{"npm", "install", "nyc-config@10.0.0"}, parsedCommand)
+		_, err = pg.Run(context.Background(), []string{"npm", "install", "nyc-config@10.0.0"}, parsedCommand)
 
 		// We expect no error from the guard itself (blocking is handled via the Block callback)
 		assert.NoError(t, err)
@@ -209,7 +210,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 			InstallTargets: []*packagemanager.PackageInstallTarget{}, // No install targets
 		}
 
-		err = pg.Run(context.Background(), []string{"npm", "list"}, parsedCommand)
+		_, err = pg.Run(context.Background(), []string{"npm", "list"}, parsedCommand)
 
 		// Should not error since there are no install targets to analyze
 		assert.NoError(t, err)
@@ -252,7 +253,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 			ManifestFiles:     []string{"package.json"},
 		}
 
-		err = pg.Run(context.Background(), []string{"npm", "install"}, parsedCommand)
+		_, err = pg.Run(context.Background(), []string{"npm", "install"}, parsedCommand)
 
 		// Should not error and should bypass malware checking
 		assert.NoError(t, err)

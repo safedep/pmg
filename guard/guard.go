@@ -77,6 +77,21 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 	}
 }
 
+// GuardResult captures execution statistics from the guard for reporting.
+// It contains pure data - the calling flow is responsible for interpreting
+// the outcome based on this data.
+type GuardResult struct {
+	TotalAnalyzed     int
+	TrustedSkipped    int
+	AllowedCount      int
+	ConfirmedCount    int
+	BlockedCount      int
+	BlockedPackages   []*analyzer.PackageVersionAnalysisResult
+	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
+	// WasUserCancelled is true if the user declined to install suspicious packages
+	WasUserCancelled bool
+}
+
 type packageManagerGuard struct {
 	config          PackageManagerGuardConfig
 	interaction     PackageManagerGuardInteraction
@@ -100,8 +115,10 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	}, nil
 }
 
-func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) error {
+func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedCommand *packagemanager.ParsedCommand) (*GuardResult, error) {
 	log.Debugf("Running package manager guard with args: %v", args)
+
+	result := &GuardResult{}
 
 	// Log the installation start
 	if g.packageManager != nil {
@@ -110,8 +127,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	if g.config.InsecureInstallation {
 		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
-		g.showWarning("⚠️  WARNING: INSECURE INSTALLATION MODE - Malware protection bypassed!")
-		return g.continueExecution(ctx, parsedCommand)
+		g.showWarning("INSECURE INSTALLATION MODE - Malware protection bypassed!")
+		return result, g.continueExecution(ctx, parsedCommand)
 	}
 
 	if !parsedCommand.HasInstallTarget() {
@@ -122,7 +139,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 
 		log.Debugf("No install target found, continuing execution")
-		return g.continueExecution(ctx, parsedCommand)
+		return result, g.continueExecution(ctx, parsedCommand)
 	}
 
 	blockConfig := ui.NewDefaultBlockConfig()
@@ -145,7 +162,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 				log.Debugf("Resolving latest version for package: %s", pkg.PackageVersion.Package.Name)
 				latestVersion, err := g.packageResolver.ResolveLatestVersion(ctx, pkg.PackageVersion.GetPackage())
 				if err != nil {
-					return fmt.Errorf("failed to resolve latest version: %w", err)
+					return result, fmt.Errorf("failed to resolve latest version: %w", err)
 				}
 
 				pkg.PackageVersion.Version = latestVersion.GetVersion()
@@ -155,7 +172,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 			dependencies, err := g.packageResolver.ResolveDependencies(ctx, pkg.PackageVersion)
 			if err != nil {
-				return fmt.Errorf("failed to resolve dependencies: %w", err)
+				return result, fmt.Errorf("failed to resolve dependencies: %w", err)
 			}
 
 			log.Debugf("Resolved %d dependencies for package: %s@%s", len(dependencies),
@@ -169,28 +186,36 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	g.setStatus(fmt.Sprintf("Analyzing %d dependencies for malware", len(packagesToAnalyze)))
 
-	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
+	analysisResults, trustedSkipped, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return result, fmt.Errorf("failed to analyze packages: %w", err)
 	}
 
+	// Populate result statistics
+	result.TotalAnalyzed = len(packagesToAnalyze)
+	result.TrustedSkipped = trustedSkipped
+
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
-	for _, result := range analysisResults {
-		if result.Action == analyzer.ActionBlock {
-			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
-			g.logMalwareDetection(result, true)
-			return g.blockInstallation(blockConfig)
+	for _, analysisResult := range analysisResults {
+		if analysisResult.Action == analyzer.ActionBlock {
+			result.BlockedCount++
+			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
+			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
+			g.logMalwareDetection(analysisResult, true)
+			return result, g.blockInstallation(blockConfig)
 		}
 
-		if result.Action == analyzer.ActionConfirm {
-			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
+		if analysisResult.Action == analyzer.ActionConfirm {
+			confirmableMalwarePackages = append(confirmableMalwarePackages, analysisResult)
+		} else {
+			result.AllowedCount++
 		}
 	}
 
 	if len(confirmableMalwarePackages) > 0 {
 		confirmed, err := g.getConfirmationOnMalware(ctx, confirmableMalwarePackages)
 		if err != nil {
-			return fmt.Errorf("failed to get confirmation on malware: %w", err)
+			return result, fmt.Errorf("failed to get confirmation on malware: %w", err)
 		}
 
 		if !confirmed {
@@ -198,13 +223,18 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			blockConfig.MalwarePackages = confirmableMalwarePackages
 			for _, pkg := range confirmableMalwarePackages {
 				g.logMalwareDetection(pkg, true)
+				result.BlockedCount++
+				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
-			return g.blockInstallation(blockConfig)
+			result.WasUserCancelled = true
+			return result, g.blockInstallation(blockConfig)
 		}
 
 		// User confirmed installation despite warning
 		for _, pkg := range confirmableMalwarePackages {
 			g.logMalwareDetection(pkg, false)
+			result.ConfirmedCount++
+			result.ConfirmedPackages = append(result.ConfirmedPackages, pkg)
 		}
 	}
 
@@ -223,7 +253,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	}
 
 	g.clearStatus()
-	return g.continueExecution(ctx, parsedCommand)
+	return result, g.continueExecution(ctx, parsedCommand)
 }
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
@@ -276,7 +306,7 @@ func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *package
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
-	packages []*packagev1.PackageVersion) ([]*analyzer.PackageVersionAnalysisResult, error) {
+	packages []*packagev1.PackageVersion) ([]*analyzer.PackageVersionAnalysisResult, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, g.config.AnalysisTimeout)
 	defer cancel()
 
@@ -303,12 +333,13 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 		}()
 	}
 
-	// Queue all packages for analysis
+	// Queue all packages for analysis, tracking trusted packages skipped
+	trustedSkipped := 0
 	for _, pkg := range packages {
 		if config.IsTrustedPackage(pkg) {
 			log.Debugf("Skipping trusted package: %s/%s@%s",
 				pkg.GetPackage().GetEcosystem(), pkg.GetPackage().GetName(), pkg.GetVersion())
-
+			trustedSkipped++
 			continue
 		}
 
@@ -341,10 +372,10 @@ func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
 	select {
 	case <-waiter:
 	case <-ctx.Done():
-		return nil, fmt.Errorf("analysis timed out")
+		return nil, 0, fmt.Errorf("analysis timed out")
 	}
 
-	return analysisResults, nil
+	return analysisResults, trustedSkipped, nil
 }
 
 func (g *packageManagerGuard) getConfirmationOnMalware(ctx context.Context, malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
@@ -387,7 +418,9 @@ func (g *packageManagerGuard) showWarning(message string) {
 	g.interaction.ShowWarning(message)
 }
 
-func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) error {
+func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) (*GuardResult, error) {
+	result := &GuardResult{}
+
 	extractorConfig := extractor.NewDefaultExtractorConfig()
 	extractorConfig.ExtractorPackageManager = extractor.PackageManagerName(g.packageManager.Name())
 	extractorConfig.ManifestFiles = parsedCommand.ManifestFiles
@@ -396,14 +429,14 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	packages, err := packageExtractor.ExtractManifest()
 	if err != nil {
-		return fmt.Errorf("failed to extract packages from manifest files: %w", err)
+		return result, fmt.Errorf("failed to extract packages from manifest files: %w", err)
 	}
 
 	blockConfig := ui.NewDefaultBlockConfig()
 
 	if len(packages) == 0 {
 		log.Debugf("No packages found in manifest files, continuing execution")
-		return g.continueExecution(ctx, parsedCommand)
+		return result, g.continueExecution(ctx, parsedCommand)
 	}
 
 	log.Debugf("Extracted %d packages from manifest files", len(packages))
@@ -422,7 +455,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 				log.Debugf("Resolving latest version for package: %s", pkg.Package.Name)
 				latestVersion, err := g.packageResolver.ResolveLatestVersion(ctx, pkg.GetPackage())
 				if err != nil {
-					return fmt.Errorf("failed to resolve latest version: %w", err)
+					return result, fmt.Errorf("failed to resolve latest version: %w", err)
 				}
 
 				pkg.Version = latestVersion.GetVersion()
@@ -432,7 +465,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 			dependencies, err := g.packageResolver.ResolveDependencies(ctx, pkg)
 			if err != nil {
-				return fmt.Errorf("failed to resolve dependencies: %w", err)
+				return result, fmt.Errorf("failed to resolve dependencies: %w", err)
 			}
 
 			log.Debugf("Resolved %d dependencies for package: %s@%s", len(dependencies),
@@ -446,41 +479,60 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	g.setStatus(fmt.Sprintf("Analyzing %d dependencies from manifest files", len(packagesToAnalyze)))
 
-	analysisResults, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
+	analysisResults, trustedSkipped, err := g.concurrentAnalyzePackages(ctx, packagesToAnalyze)
 	if err != nil {
-		return fmt.Errorf("failed to analyze packages: %w", err)
+		return result, fmt.Errorf("failed to analyze packages: %w", err)
 	}
 
+	// Populate result statistics
+	result.TotalAnalyzed = len(packagesToAnalyze)
+	result.TrustedSkipped = trustedSkipped
+
 	confirmableMalwarePackages := []*analyzer.PackageVersionAnalysisResult{}
-	for _, result := range analysisResults {
-		if result.Action == analyzer.ActionBlock {
-			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, result)
-			return g.blockInstallation(blockConfig)
+	for _, analysisResult := range analysisResults {
+		if analysisResult.Action == analyzer.ActionBlock {
+			result.BlockedCount++
+			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
+			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
+
+			g.logMalwareDetection(analysisResult, true)
+
+			return result, g.blockInstallation(blockConfig)
 		}
 
-		if result.Action == analyzer.ActionConfirm {
-			confirmableMalwarePackages = append(confirmableMalwarePackages, result)
+		if analysisResult.Action == analyzer.ActionConfirm {
+			confirmableMalwarePackages = append(confirmableMalwarePackages, analysisResult)
+		} else {
+			result.AllowedCount++
 		}
 	}
 
 	if len(confirmableMalwarePackages) > 0 {
 		confirmed, err := g.getConfirmationOnMalware(ctx, confirmableMalwarePackages)
 		if err != nil {
-			return fmt.Errorf("failed to get confirmation on malware: %w", err)
+			return result, fmt.Errorf("failed to get confirmation on malware: %w", err)
 		}
 
 		if !confirmed {
 			blockConfig.ShowReference = false
 			blockConfig.MalwarePackages = confirmableMalwarePackages
+
 			for _, pkg := range confirmableMalwarePackages {
 				g.logMalwareDetection(pkg, true)
+
+				result.BlockedCount++
+				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
-			return g.blockInstallation(blockConfig)
+
+			result.WasUserCancelled = true
+			return result, g.blockInstallation(blockConfig)
 		}
 
 		// User confirmed installation despite warning
 		for _, pkg := range confirmableMalwarePackages {
 			g.logMalwareDetection(pkg, false)
+			result.ConfirmedCount++
+			result.ConfirmedPackages = append(result.ConfirmedPackages, pkg)
 		}
 	}
 
@@ -498,7 +550,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	}
 
 	g.clearStatus()
-	return g.continueExecution(ctx, parsedCommand)
+	return result, g.continueExecution(ctx, parsedCommand)
 }
 
 // logMalwareDetection logs malware detection events

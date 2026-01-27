@@ -12,6 +12,7 @@ import (
 type InterceptorFactory struct {
 	analyzer         analyzer.PackageVersionAnalyzer
 	cache            AnalysisCache
+	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 }
 
@@ -19,11 +20,13 @@ type InterceptorFactory struct {
 func NewInterceptorFactory(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
+	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 ) *InterceptorFactory {
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
+		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
 	}
 }
@@ -36,6 +39,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 		return NewNpmRegistryInterceptor(
 			f.analyzer,
 			f.cache,
+			f.statsCollector,
 			f.confirmationChan,
 		), nil
 

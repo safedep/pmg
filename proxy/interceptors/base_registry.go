@@ -19,6 +19,7 @@ import (
 type baseRegistryInterceptor struct {
 	analyzer         analyzer.PackageVersionAnalyzer
 	cache            AnalysisCache
+	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 }
 
@@ -54,6 +55,17 @@ func (b *baseRegistryInterceptor) analyzePackage(
 			Name:      packageName,
 		},
 		Version: packageVersion,
+	}
+
+	if cfg := config.Get(); cfg.InsecureInstallation {
+		log.Debugf("[%s] Skipping insecure installation", ctx.RequestID)
+
+		eventlog.LogInstallInsecureBypass(packageName, packageVersion, ecosystem.String())
+
+		return &analyzer.PackageVersionAnalysisResult{
+			PackageVersion: pkgVersion,
+			Action:         analyzer.ActionAllow,
+		}, nil
 	}
 
 	if config.IsTrustedPackage(pkgVersion) {
@@ -108,6 +120,10 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			"reference_url": result.ReferenceURL,
 		})
 
+		if b.statsCollector != nil {
+			b.statsCollector.RecordBlocked(result)
+		}
+
 		message := fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
 			ecosystem.String(),
 			packageName, packageVersion,
@@ -126,6 +142,11 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		confirmed, err := b.requestUserConfirmation(ctx, result)
 		if err != nil {
 			log.Errorf("[%s] Failed to get user confirmation: %v", ctx.RequestID, err)
+
+			if b.statsCollector != nil {
+				b.statsCollector.RecordBlocked(result)
+			}
+
 			return &proxy.InterceptorResponse{
 				Action:       proxy.ActionBlock,
 				BlockCode:    http.StatusForbidden,
@@ -140,6 +161,10 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				"analysis_id":   result.AnalysisID,
 				"reference_url": result.ReferenceURL,
 			})
+
+			if b.statsCollector != nil {
+				b.statsCollector.RecordUserCancelled(result)
+			}
 
 			message := fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
 				ecosystem.String(),
@@ -157,17 +182,29 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		eventlog.LogMalwareConfirmed(packageName, packageVersion, ecosystem.String())
 		eventlog.LogInstallAllowed(packageName, packageVersion, ecosystem.String(), 1)
 
+		if b.statsCollector != nil {
+			b.statsCollector.RecordConfirmed(result)
+		}
+
 		log.Infof("[%s] User confirmed installation of suspicious package %s/%s@%s", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	case analyzer.ActionAllow:
 		eventlog.LogInstallAllowed(packageName, packageVersion, ecosystem.String(), 1)
 
+		if b.statsCollector != nil {
+			b.statsCollector.RecordAllowed(result)
+		}
+
 		log.Debugf("[%s] Package %s/%s@%s is safe, allowing request", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:
 		eventlog.LogInstallAllowed(packageName, packageVersion, ecosystem.String(), 1)
+
+		if b.statsCollector != nil {
+			b.statsCollector.RecordAllowed(result)
+		}
 
 		log.Warnf("[%s] Unknown analysis action %d for package %s/%s@%s, allowing by default", ctx.RequestID, result.Action, ecosystem.String(), packageName, packageVersion)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil

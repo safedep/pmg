@@ -53,15 +53,39 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	cfg := config.Get()
 
+	// Initialize report data at the start
+	reportData := ui.NewReportData()
+	reportData.PackageManagerName = f.pm.Name()
+	reportData.FlowType = ui.FlowTypeProxy
+	reportData.DryRun = cfg.DryRun
+	reportData.InsecureMode = cfg.InsecureInstallation
+	reportData.TransitiveEnabled = cfg.Config.Transitive
+	reportData.ParanoidMode = cfg.Config.Paranoid
+	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
+
+	if cfg.Config.Sandbox.Enabled {
+		if policyRef, exists := cfg.Config.Sandbox.Policies[f.pm.Name()]; exists {
+			reportData.SandboxProfile = policyRef.Profile
+		}
+	}
+
+	if cfg.SandboxProfileOverride != "" {
+		reportData.SandboxProfile = cfg.SandboxProfileOverride
+	}
+
+	startTime := time.Now()
+
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
 		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
+		reportData.Outcome = ui.OutcomeDryRun
+		ui.Report(reportData)
 		return nil
 	}
 
-	ui.SetStatus("Initializing experimental proxy mode...")
+	ui.SetStatus("Initializing proxy mode...")
 
 	// Setup CA certificate for MITM
 	caCert, caCertPath, err := f.setupCACertificate()
@@ -90,8 +114,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
 
-	// Create analysis cache
+	// Create analysis cache and stats collector
 	cache := interceptors.NewInMemoryAnalysisCache()
+	statsCollector := interceptors.NewAnalysisStatsCollector()
 
 	// Create confirmation channel and start confirmation handler
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 10)
@@ -107,7 +132,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, confirmationChan)
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan)
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
@@ -145,6 +170,22 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		// Execute the package manager command with proxy environment variables
 		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
+
+	// Populate report data from stats collector
+	stats := statsCollector.GetStats()
+	reportData.StartTime = startTime
+	reportData.TotalAnalyzed = stats.TotalAnalyzed
+	reportData.AllowedCount = stats.AllowedCount
+	reportData.ConfirmedCount = stats.ConfirmedCount
+	reportData.BlockedCount = stats.BlockedCount
+	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
+	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
+
+	// Set outcome based on execution result using shared inference logic
+	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
+
+	// Show the report
+	ui.Report(reportData)
 
 	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
 	// from the execution result.

@@ -64,14 +64,17 @@ func BlockNoExit(config *BlockConfig) error {
 func blockWithExit(config *BlockConfig, exit bool) error {
 	StopSpinner()
 
-	fmt.Println()
-	fmt.Println(Colors.Red("❌ Malicious package blocked!"))
+	// We show the block message only in normal mode to avoid repeating information
+	// already shown to the user in verbose mode as part of the reporting.
+	if verbosityLevel != VerbosityLevelVerbose {
+		fmt.Println()
+		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
 
-	if config.ShowReference {
-		printMaliciousPackagesList(config.MalwarePackages)
+		if config.ShowReference {
+			printMaliciousPackagesList(config.MalwarePackages)
+			fmt.Println()
+		}
 	}
-
-	fmt.Println()
 
 	if exit {
 		os.Exit(1)
@@ -86,7 +89,7 @@ func SetStatus(status string) {
 	}
 
 	StopSpinner()
-	StartSpinnerWithColor(fmt.Sprintf("ℹ️ %s", status), Colors.Green)
+	StartSpinnerWithColor(status, Colors.Dim)
 }
 
 // GetConfirmationOnMalware prompts the user to confirm installation of suspicious packages.
@@ -101,12 +104,12 @@ func GetConfirmationOnMalwareWithReader(malwarePackages []*analyzer.PackageVersi
 	StopSpinner()
 
 	fmt.Println()
-	fmt.Println(Colors.Red(fmt.Sprintf("🚨 Suspicious package(s) detected: %d", len(malwarePackages))))
+	fmt.Printf("%s %s\n", Colors.Yellow("!"), Colors.Yellow(fmt.Sprintf("Suspicious package(s) detected: %d", len(malwarePackages))))
 
 	printMaliciousPackagesList(malwarePackages)
 
 	fmt.Println()
-	fmt.Print(Colors.Yellow("Do you want to continue with the installation? (y/N) "))
+	fmt.Print(Colors.Normal("Do you want to continue with the installation? (y/N) "))
 
 	// Use Scanner on the provided reader to support PTY input routing
 	scanner := bufio.NewScanner(reader)
@@ -128,7 +131,7 @@ func GetConfirmationOnMalwareWithReader(malwarePackages []*analyzer.PackageVersi
 
 func ShowWarning(message string) {
 	// Print colored warning to stderr immediately - it won't be cleared by other output
-	fmt.Fprintf(os.Stderr, "%s\n", Colors.Red(message))
+	fmt.Fprintf(os.Stderr, "PMG: %s\n", Colors.Red(message))
 }
 
 func Fatalf(msg string, args ...interface{}) {
@@ -141,16 +144,16 @@ func Fatalf(msg string, args ...interface{}) {
 func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalysisResult) {
 	for _, mp := range malwarePackages {
 		fmt.Println()
-		fmt.Println("⚠️ ", Colors.Red(fmt.Sprintf("%s@%s", mp.PackageVersion.GetPackage().GetName(),
-			mp.PackageVersion.GetVersion())))
+		fmt.Printf("  %s %s\n", Colors.Red("-"),
+			Colors.Red(fmt.Sprintf("%s@%s", mp.PackageVersion.GetPackage().GetName(),
+				mp.PackageVersion.GetVersion())))
 
 		if verbosityLevel == VerbosityLevelVerbose {
-			fmt.Println(Colors.Yellow(termWidthFormatText(mp.Summary, 80)))
+			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatText(mp.Summary, 76)))
 		}
 
 		if mp.ReferenceURL != "" {
-			fmt.Println()
-			fmt.Println(Colors.Yellow(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
+			fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
 		}
 	}
 }
