@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/ui"
 )
 
 // AliasManager manages shell aliases for package managers.
@@ -121,9 +122,9 @@ func (a *AliasManager) Install() error {
 		return fmt.Errorf("failed to update shell configs: %w", err)
 	}
 
-	fmt.Println("✅ PMG aliases installed successfully!")
-	fmt.Printf("📁 Created: %s\n", rcPath)
-	fmt.Println("💡 Restart your terminal or source your shell to use the new aliases")
+	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases installed successfully")
+	fmt.Printf("   %s\n", ui.Colors.Dim(fmt.Sprintf("Created: %s", rcPath)))
+	fmt.Printf("   %s\n", ui.Colors.Dim("Restart your terminal or source your shell to use the new aliases"))
 
 	return nil
 }
@@ -138,7 +139,7 @@ func (a *AliasManager) Remove() error {
 		return fmt.Errorf("failed to clean shell configs: %w", err)
 	}
 
-	fmt.Println("✅ PMG config removed. Existing aliases need a shell restart.")
+	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. Existing aliases need a shell restart")
 	return nil
 }
 
