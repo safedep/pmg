@@ -13,37 +13,6 @@ import (
 	"github.com/safedep/pmg/packagemanager"
 )
 
-// inferOutcome determines the execution outcome based on config and guard result data.
-// This keeps outcome logic in the flow layer, separate from guard's pure data.
-func inferOutcome(result *guard.GuardResult, err error) ui.ExecutionOutcome {
-	cfg := config.Get()
-
-	// Error takes precedence unless we have blocked packages
-	if err != nil && (result == nil || result.BlockedCount == 0) {
-		return ui.OutcomeError
-	}
-
-	// Config-based outcomes
-	if cfg.InsecureInstallation {
-		return ui.OutcomeInsecureBypass
-	}
-	if cfg.DryRun {
-		return ui.OutcomeDryRun
-	}
-
-	// Data-based outcomes from guard result
-	if result != nil {
-		if result.WasUserCancelled {
-			return ui.OutcomeUserCancelled
-		}
-		if result.BlockedCount > 0 {
-			return ui.OutcomeBlocked
-		}
-	}
-
-	return ui.OutcomeSuccess
-}
-
 type commonFlow struct {
 	pm              packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
@@ -135,8 +104,20 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		reportData.ConfirmedPackages = guardResult.ConfirmedPackages
 	}
 
-	// Infer outcome from data and config
-	reportData.Outcome = inferOutcome(guardResult, err)
+	// Infer outcome from data and config using shared inference logic
+	blockedCount := 0
+	userCancelledCount := 0
+
+	if guardResult != nil {
+		blockedCount = guardResult.BlockedCount
+		// In guard flow, if user cancelled, all blocked packages are due to user cancellation
+		// (guard returns immediately on ActionBlock, so we can't have both types)
+		if guardResult.WasUserCancelled {
+			userCancelledCount = guardResult.BlockedCount
+		}
+	}
+
+	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, blockedCount, userCancelledCount, err)
 
 	// Show the report
 	ui.Report(reportData)

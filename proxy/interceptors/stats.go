@@ -8,10 +8,11 @@ import (
 
 // AnalysisStats contains aggregated statistics from analysis results
 type AnalysisStats struct {
-	TotalAnalyzed  int
-	AllowedCount   int
-	ConfirmedCount int
-	BlockedCount   int
+	TotalAnalyzed      int
+	AllowedCount       int
+	ConfirmedCount     int
+	BlockedCount       int
+	UserCancelledCount int
 }
 
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
@@ -42,7 +43,7 @@ func (c *AnalysisStatsCollector) RecordAllowed(result *analyzer.PackageVersionAn
 	c.stats.AllowedCount++
 }
 
-// RecordBlocked records a package that was blocked (malware or user declined)
+// RecordBlocked records a package that was automatically blocked (ActionBlock)
 func (c *AnalysisStatsCollector) RecordBlocked(result *analyzer.PackageVersionAnalysisResult) {
 	if result == nil {
 		return
@@ -53,6 +54,24 @@ func (c *AnalysisStatsCollector) RecordBlocked(result *analyzer.PackageVersionAn
 
 	c.stats.TotalAnalyzed++
 	c.stats.BlockedCount++
+	c.blockedPackages = append(c.blockedPackages, result)
+}
+
+// RecordUserCancelled records a package that was blocked because user declined confirmation (ActionConfirm declined)
+func (c *AnalysisStatsCollector) RecordUserCancelled(result *analyzer.PackageVersionAnalysisResult) {
+	if result == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.TotalAnalyzed++
+	c.stats.UserCancelledCount++
+
+	// User cancelled packages are counted as blocked as well
+	c.stats.BlockedCount++
+
 	c.blockedPackages = append(c.blockedPackages, result)
 }
 

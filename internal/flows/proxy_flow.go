@@ -181,17 +181,8 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 
-	// Set outcome based on execution result
-	// Check BlockedCount first - in proxy mode, blocking causes npm to fail (expected)
-	if cfg.InsecureInstallation {
-		reportData.Outcome = ui.OutcomeInsecureBypass
-	} else if reportData.BlockedCount > 0 {
-		reportData.Outcome = ui.OutcomeBlocked
-	} else if executionError != nil {
-		reportData.Outcome = ui.OutcomeError
-	} else {
-		reportData.Outcome = ui.OutcomeSuccess
-	}
+	// Set outcome based on execution result using shared inference logic
+	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
 
 	// Show the report
 	ui.Report(reportData)

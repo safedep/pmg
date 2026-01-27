@@ -163,7 +163,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			})
 
 			if b.statsCollector != nil {
-				b.statsCollector.RecordBlocked(result)
+				b.statsCollector.RecordUserCancelled(result)
 			}
 
 			message := fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
