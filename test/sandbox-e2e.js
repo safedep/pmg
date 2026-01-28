@@ -45,7 +45,7 @@ console.log('=== PMG Sandbox Policy Violation Tests ===\n');
 // ============================================
 console.log('--- Tests that SHOULD be BLOCKED ---\n');
 
-// Test 1: Read ~/.ssh (should be blocked)
+// Read ~/.ssh (should be blocked)
 test('BLOCK: Read ~/.ssh directory', () => {
   const result = isDirectoryBlocked(path.join(home, '.ssh'));
   if (result.skip) {
@@ -60,7 +60,7 @@ test('BLOCK: Read ~/.ssh directory', () => {
   return false;
 });
 
-// Test 2: Read ~/.aws (should be blocked)
+// Read ~/.aws (should be blocked)
 test('BLOCK: Read ~/.aws directory', () => {
   const result = isDirectoryBlocked(path.join(home, '.aws'));
   if (result.skip) {
@@ -75,7 +75,7 @@ test('BLOCK: Read ~/.aws directory', () => {
   return false;
 });
 
-// Test 3: Read ~/.kube (should be blocked)
+// Read ~/.kube (should be blocked)
 test('BLOCK: Read ~/.kube directory', () => {
   const result = isDirectoryBlocked(path.join(home, '.kube'));
   if (result.skip) {
@@ -90,7 +90,7 @@ test('BLOCK: Read ~/.kube directory', () => {
   return false;
 });
 
-// Test 4: Read ~/.gcloud (should be blocked)
+// Read ~/.gcloud (should be blocked)
 test('BLOCK: Read ~/.gcloud directory', () => {
   const result = isDirectoryBlocked(path.join(home, '.gcloud'));
   if (result.skip) {
@@ -105,7 +105,7 @@ test('BLOCK: Read ~/.gcloud directory', () => {
   return false;
 });
 
-// Test 5: Write to /etc (should be blocked)
+// Write to /etc (should be blocked)
 test('BLOCK: Write to /etc', () => {
   try {
     fs.writeFileSync('/etc/test-pmg-sandbox', 'test');
@@ -122,7 +122,7 @@ test('BLOCK: Write to /etc', () => {
   }
 });
 
-// Test 6: Write to /usr (should be blocked)
+// Write to /usr (should be blocked)
 test('BLOCK: Write to /usr', () => {
   try {
     fs.writeFileSync('/usr/test-pmg-sandbox', 'test');
@@ -135,7 +135,7 @@ test('BLOCK: Write to /usr', () => {
   }
 });
 
-// Test 7: Execute curl (should be blocked by policy)
+// Execute curl (should be blocked by policy)
 test('BLOCK: Execute /usr/bin/curl', () => {
   try {
     const result = spawnSync('/usr/bin/curl', ['--version'], { timeout: 5000 });
@@ -151,12 +151,55 @@ test('BLOCK: Execute /usr/bin/curl', () => {
   }
 });
 
+// Write to .git/hooks in CWD (should be blocked - security risk)
+test('BLOCK: Write to .git/hooks in CWD', () => {
+  const gitHooksDir = path.join(process.cwd(), '.git', 'hooks');
+  const testHookPath = path.join(gitHooksDir, 'test-pmg-sandbox-hook');
+
+  // Helper to clean up test hook if it was wrongly created
+  const cleanup = () => {
+    try {
+      if (fs.existsSync(testHookPath)) {
+        fs.unlinkSync(testHookPath);
+      }
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  };
+
+  try {
+    // First check if .git/hooks exists
+    if (!fs.existsSync(gitHooksDir)) {
+      console.log('  ⚠️  SKIP: .git/hooks does not exist in CWD');
+      return true;
+    }
+    fs.writeFileSync(testHookPath, '#!/bin/sh\necho "malicious hook"');
+    // If we get here, write succeeded when it should have been blocked
+    cleanup();
+    console.log('  ❌ FAIL: Could write to .git/hooks');
+    return false;
+  } catch (e) {
+    cleanup();
+    if (e.code === 'EPERM' || e.code === 'EACCES') {
+      console.log('  ✅ PASS: .git/hooks write blocked');
+      return true;
+    }
+    // ENOENT means directory doesn't exist, which is fine
+    if (e.code === 'ENOENT') {
+      console.log('  ⚠️  SKIP: .git/hooks does not exist');
+      return true;
+    }
+    console.log(`  ✅ PASS: .git/hooks write blocked (${e.code})`);
+    return true;
+  }
+});
+
 // ============================================
 // TESTS THAT SHOULD BE ALLOWED
 // ============================================
 console.log('\n--- Tests that SHOULD be ALLOWED ---\n');
 
-// Test 8: Read current directory
+// Read current directory
 test('ALLOW: Read current directory', () => {
   try {
     fs.readdirSync('.');
@@ -168,7 +211,7 @@ test('ALLOW: Read current directory', () => {
   }
 });
 
-// Test 9: Write to TMPDIR (allowed by policy)
+// Write to TMPDIR (allowed by policy)
 test('ALLOW: Write to TMPDIR', () => {
   try {
     const tmpFile = path.join(os.tmpdir(), 'test-pmg-sandbox-write.txt');
@@ -182,7 +225,7 @@ test('ALLOW: Write to TMPDIR', () => {
   }
 });
 
-// Test 10: Read node_modules (if exists)
+// Read node_modules (if exists)
 test('ALLOW: Read node_modules', () => {
   try {
     fs.readdirSync('node_modules');
@@ -198,7 +241,7 @@ test('ALLOW: Read node_modules', () => {
   }
 });
 
-// Test 11: Read system libraries
+// Read system libraries
 test('ALLOW: Read /usr/lib', () => {
   try {
     fs.readdirSync('/usr/lib');
@@ -210,7 +253,7 @@ test('ALLOW: Read /usr/lib', () => {
   }
 });
 
-// Test 12: Network access (DNS + HTTP)
+// Network access (DNS + HTTP)
 test('ALLOW: Network DNS resolution', () => {
   try {
     require('dns').lookup('registry.npmjs.org', (err) => { });

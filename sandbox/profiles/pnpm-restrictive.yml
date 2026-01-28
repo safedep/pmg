@@ -1,0 +1,28 @@
+name: pnpm-restrictive
+description: Profile for pnpm with write access to current directory
+inherits: npm-restrictive
+
+package_managers:
+  - pnpm
+
+filesystem:
+  allow_write:
+    # pnpm i need write access here
+    - ${HOME}/Library/pnpm/.tools/**
+    - ${HOME}/.pnpm-store/**
+
+    # pnpm i creates these tmp files in local dir, at least on MacOS
+    - ${CWD}/_tmp_*
+
+    # pnpm self-update (or likely update) creates temporary package.json files
+    # for writing. This is likely for atomic update using filesystem rename operation
+    # which guarantees atomicity
+    - ${CWD}/package.json.*
+
+    # Need access for dependency resolution
+    - ${CWD}/.pnpm-store
+
+  # Additional deny rules for extra security
+  deny_write:
+    - ${CWD}/.env
+    - ${CWD}/.env.*

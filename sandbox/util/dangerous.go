@@ -58,16 +58,23 @@ func GetMandatoryDenyPatterns(allowGitConfig bool) []string {
 		}
 	}
 
-	// Git hooks are ALWAYS blocked for security (can execute arbitrary code)
+	// Git hooks are blocked in CWD and HOME for security (can execute arbitrary code)
+	// We don't use global globs like **/.git/hooks to allow legitimate temp dir operations
+	// (e.g., npx cloning repos to /tmp)
 	patterns = append(patterns, filepath.Join(cwd, ".git/hooks"))
 	patterns = append(patterns, filepath.Join(cwd, ".git/hooks/**"))
-	patterns = append(patterns, "**/.git/hooks")
-	patterns = append(patterns, "**/.git/hooks/**")
 
-	// Git config is conditionally blocked
+	if home != "" {
+		patterns = append(patterns, filepath.Join(home, ".git/hooks"))
+		patterns = append(patterns, filepath.Join(home, ".git/hooks/**"))
+	}
+
+	// Git config is conditionally blocked in CWD and HOME
 	if !allowGitConfig {
 		patterns = append(patterns, filepath.Join(cwd, ".git/config"))
-		patterns = append(patterns, "**/.git/config")
+		if home != "" {
+			patterns = append(patterns, filepath.Join(home, ".git/config"))
+		}
 	}
 
 	return patterns

@@ -45,7 +45,9 @@ filesystem:
     #         1. Creating the node_modules directory itself
     #         2. Writing any files/directories inside it
     # Temporary directories for shell scripts and package managers
+    # Note: On macOS, /tmp is a symlink to /private/tmp, so we need both
     - /tmp/**
+    - /private/tmp/**
     - /var/tmp/**
     # Project directories
     - ${CWD}/node_modules/**
