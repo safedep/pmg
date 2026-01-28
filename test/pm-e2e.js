@@ -52,7 +52,7 @@ function testPackageManager(pm) {
   console.log(`\n  Test directory: ${testDir}`);
 
   try {
-    // Test 1: Initialize project
+    // Initialize project
     test(`${pm}: Initialize project`, () => {
       const initCmd = pm === 'npm' ? 'npm init -y' : 'pnpm init';
       const result = exec(initCmd, { cwd: testDir });
@@ -70,7 +70,7 @@ function testPackageManager(pm) {
       return false;
     });
 
-    // Test 2: Add dependencies
+    // Add dependencies
     const depsStr = TEST_DEPENDENCIES.join(', ');
     test(`${pm}: Add dependencies (${depsStr})`, () => {
       const depsList = TEST_DEPENDENCIES.join(' ');
@@ -96,7 +96,7 @@ function testPackageManager(pm) {
       return false;
     });
 
-    // Test 3: Verify node_modules exists
+    // Verify node_modules exists
     test(`${pm}: Verify node_modules created`, () => {
       const nodeModulesExists = fs.existsSync(path.join(testDir, 'node_modules'));
       if (!nodeModulesExists) {
@@ -114,7 +114,7 @@ function testPackageManager(pm) {
       return false;
     });
 
-    // Test 4: Clean install (remove node_modules and reinstall)
+    // Clean install (remove node_modules and reinstall)
     test(`${pm}: Clean install`, () => {
       // Remove node_modules
       const nodeModulesPath = path.join(testDir, 'node_modules');
