@@ -7,7 +7,7 @@ package_managers:
 
 filesystem:
   allow_write:
-    # pnpm i need write access here
+    # pnpm needs write access here
     - ${HOME}/Library/pnpm/.tools/**
     - ${HOME}/.pnpm-store/**
 
