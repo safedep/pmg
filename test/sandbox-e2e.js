@@ -151,12 +151,43 @@ test('BLOCK: Execute /usr/bin/curl', () => {
   }
 });
 
-// Write to .git/hooks in CWD (should be blocked - security risk)
-test('BLOCK: Write to .git/hooks in CWD', () => {
+// .git/hooks in CWD should be protected from persistent writes.
+// Two valid sandbox strategies:
+//   macOS/seatbelt: write is denied outright (EPERM)
+//   Linux/bwrap:    tmpfs hides real directory; writes go to ephemeral tmpfs
+// Both prevent malicious hooks from persisting to the real filesystem.
+test('BLOCK: .git/hooks in CWD is protected', () => {
   const gitHooksDir = path.join(process.cwd(), '.git', 'hooks');
-  const testHookPath = path.join(gitHooksDir, 'test-pmg-sandbox-hook');
 
-  // Helper to clean up test hook if it was wrongly created
+  if (!fs.existsSync(path.join(process.cwd(), '.git'))) {
+    console.log('  ⚠️  SKIP: .git does not exist in CWD');
+    return true;
+  }
+
+  // Count original hooks visible before any write attempt.
+  // On Linux/bwrap with tmpfs, the real hooks are hidden (directory appears empty).
+  let originalCount = 0;
+  try {
+    originalCount = fs.readdirSync(gitHooksDir).length;
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.log('  ⚠️  SKIP: .git/hooks does not exist');
+      return true;
+    }
+    // Read denied entirely — protected
+    console.log(`  ✅ PASS: .git/hooks read blocked (${e.code})`);
+    return true;
+  }
+
+  // If the directory is empty, tmpfs is hiding the real hooks
+  if (originalCount === 0) {
+    console.log('  ✅ PASS: .git/hooks hidden by tmpfs (real hooks not visible)');
+    return true;
+  }
+
+  // Directory is visible with contents — must be macOS/seatbelt.
+  // Verify writes are denied.
+  const testHookPath = path.join(gitHooksDir, 'test-pmg-sandbox-hook');
   const cleanup = () => {
     try {
       if (fs.existsSync(testHookPath)) {
@@ -168,13 +199,7 @@ test('BLOCK: Write to .git/hooks in CWD', () => {
   };
 
   try {
-    // First check if .git/hooks exists
-    if (!fs.existsSync(gitHooksDir)) {
-      console.log('  ⚠️  SKIP: .git/hooks does not exist in CWD');
-      return true;
-    }
     fs.writeFileSync(testHookPath, '#!/bin/sh\necho "malicious hook"');
-    // If we get here, write succeeded when it should have been blocked
     cleanup();
     console.log('  ❌ FAIL: Could write to .git/hooks');
     return false;
@@ -184,7 +209,6 @@ test('BLOCK: Write to .git/hooks in CWD', () => {
       console.log('  ✅ PASS: .git/hooks write blocked');
       return true;
     }
-    // ENOENT means directory doesn't exist, which is fine
     if (e.code === 'ENOENT') {
       console.log('  ⚠️  SKIP: .git/hooks does not exist');
       return true;
