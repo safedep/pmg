@@ -31,5 +31,5 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.SandboxProfileOverride, "Override sandbox policy profile (built-in name or path to custom YAML)")
 
 	// Hide the experimental proxy mode flag but keep it for backward compatibility
-	cmd.PersistentFlags().MarkHidden("experimental-proxy-mode")
+	_ = cmd.PersistentFlags().MarkHidden("experimental-proxy-mode")
 }

@@ -58,7 +58,7 @@ type Config struct {
 
 	// ProxyMode enables proxy-based package interception when supported by package managers.
 	// When enabled, PMG starts a proxy server and intercepts package manager requests in real-time.
-	ProxyMode bool
+	ProxyMode bool `mapstructure:"proxy_mode"`
 
 	// ExperimentalProxyMode is same as ProxyMode. Kept here for backward compatibility because
 	// we initially introduced it as an experimental feature.
