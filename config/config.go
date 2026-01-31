@@ -15,22 +15,22 @@ import (
 
 const (
 	// Environment variable key for the insecure installation flag
-	PMG_INSECURE_INSTALLATION_ENV_KEY = "PMG_INSECURE_INSTALLATION"
+	pmgInsecureInstallationEnvKey = "PMG_INSECURE_INSTALLATION"
 
 	// Allow overriding the config path from the environment
-	CONFIG_DIR_ENV_KEY = "PMG_CONFIG_DIR"
+	pmgConfigDirEnvKey = "PMG_CONFIG_DIR"
 
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
-	CONFIG_DEFAULT_HOME_RELATIVE_PATH = "safedep/pmg"
+	pmgDefaultHomeRelativePath = "safedep/pmg"
 
 	// Default log directory is relative to the config directory.
-	CONFIG_DEFAULT_LOG_DIR = "logs"
+	pmgDefaultLogDir = "logs"
 
 	// Config file name.
 	// Important: The config file path and the schema should be backward compatible. In case of breaking config
 	// changes, we must introduce a new file name and a migration path.
-	CONFIG_FILE_NAME = "config.yml"
+	pmgConfigFileName = "config.yml"
 )
 
 //go:embed config.template.yml
@@ -56,8 +56,12 @@ type Config struct {
 	// EventLogRetentionDays is the number of days to retain event logs.
 	EventLogRetentionDays int `mapstructure:"event_log_retention_days"`
 
-	// ExperimentalProxyMode enables experimental proxy-based package interception.
+	// ProxyMode enables proxy-based package interception when supported by package managers.
 	// When enabled, PMG starts a proxy server and intercepts package manager requests in real-time.
+	ProxyMode bool
+
+	// ExperimentalProxyMode is same as ProxyMode. Kept here for backward compatibility because
+	// we initially introduced it as an experimental feature.
 	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
 
 	// Sandbox enables sandboxing of package manager processes with controlled filesystem,
@@ -151,12 +155,18 @@ func (r *RuntimeConfig) ConfigDir() string {
 	return r.configDir
 }
 
+// IsProxyModeEnabled is a helper function to check for proxy mode with
+// support for backward compatibility
+func (r *RuntimeConfig) IsProxyModeEnabled() bool {
+	return (r.Config.ExperimentalProxyMode || r.Config.ProxyMode)
+}
+
 // DefaultConfig is a fail safe contract for the runtime configuration.
 // The config package return an appropriate RuntimeConfig based on the environment and the configuration.
 func DefaultConfig() RuntimeConfig {
 	// Backward compatibility for the insecure installation flag before config was introduced.
 	insecureInstallation := false
-	if val := os.Getenv(PMG_INSECURE_INSTALLATION_ENV_KEY); val != "" {
+	if val := os.Getenv(pmgInsecureInstallationEnvKey); val != "" {
 		if boolVal, err := strconv.ParseBool(val); err == nil {
 			insecureInstallation = boolVal
 		}
@@ -232,7 +242,7 @@ func loadConfig() {
 
 // configDir computes the path to the config directory.
 func configDir() (string, error) {
-	dir := os.Getenv(CONFIG_DIR_ENV_KEY)
+	dir := os.Getenv(pmgConfigDirEnvKey)
 	if dir != "" {
 		return dir, nil
 	}
@@ -242,7 +252,7 @@ func configDir() (string, error) {
 		return "", fmt.Errorf("failed to retrieve user config directory: %w", err)
 	}
 
-	return filepath.Join(userConfigDir, CONFIG_DEFAULT_HOME_RELATIVE_PATH), nil
+	return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
 }
 
 // configFilePath computes the path to the config file.
@@ -252,7 +262,7 @@ func configFilePath() (string, error) {
 		return "", fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	return filepath.Join(configDir, CONFIG_FILE_NAME), nil
+	return filepath.Join(configDir, pmgConfigFileName), nil
 }
 
 // eventLogDir computes the path to the event log directory.
@@ -270,14 +280,14 @@ func eventLogDir() (string, error) {
 			}
 		}
 
-		return filepath.Join(baseDir, CONFIG_DEFAULT_HOME_RELATIVE_PATH, CONFIG_DEFAULT_LOG_DIR), nil
+		return filepath.Join(baseDir, pmgDefaultHomeRelativePath, pmgDefaultLogDir), nil
 	case "darwin", "linux":
 		configDir, err := configDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to get config directory: %w", err)
 		}
 
-		return filepath.Join(configDir, CONFIG_DEFAULT_LOG_DIR), nil
+		return filepath.Join(configDir, pmgDefaultLogDir), nil
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
