@@ -11,7 +11,7 @@ filesystem:
     - ${HOME}/Library/pnpm/.tools/**
     - ${HOME}/.pnpm-store/**
 
-    # pnpm i creates these tmp files in local dir, at least on MacOS
+    # `pnpm i` creates the tmp files in local dir, at least on MacOS
     - ${CWD}/_tmp_*
 
     # pnpm self-update (or likely update) creates temporary package.json files
