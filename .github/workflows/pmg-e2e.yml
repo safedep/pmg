@@ -443,6 +443,11 @@ jobs:
           node-version: 20
           check-latest: true
 
+      - name: Setup PNPM
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        with:
+          version: 10
+
       - name: Build PMG
         run: make
 
@@ -465,6 +470,9 @@ jobs:
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
 
+      - name: Run Package Manager E2E Test
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
+
   sandbox-e2e-linux:
     name: Sandbox E2E - Linux (Bubblewrap)
     runs-on: ubuntu-latest
@@ -486,6 +494,11 @@ jobs:
         with:
           node-version: 20
           check-latest: true
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        with:
+          version: 10
 
       - name: Install Bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
@@ -522,3 +535,6 @@ jobs:
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+
+      - name: Run Package Manager E2E Test
+        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/pm-e2e.js
