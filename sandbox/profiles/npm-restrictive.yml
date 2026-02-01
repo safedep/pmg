@@ -77,6 +77,9 @@ filesystem:
     - /usr/**
     - /bin/**
     - /sbin/**
+    # Additional deny rules for extra security
+    - ${CWD}/.env
+    - ${CWD}/.env.*
 
 network:
   # MacOS sandbox-exec does not support network restrictions, so we allow all outbound traffic

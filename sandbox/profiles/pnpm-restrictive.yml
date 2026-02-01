@@ -22,7 +22,4 @@ filesystem:
     # Need access for dependency resolution
     - ${CWD}/.pnpm-store
 
-  # Additional deny rules for extra security
-  deny_write:
-    - ${CWD}/.env
-    - ${CWD}/.env.*
+
