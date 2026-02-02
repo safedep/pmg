@@ -51,7 +51,7 @@ func executeYarnFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	if config.Config.ExperimentalProxyMode {
+	if config.IsProxyModeEnabled() {
 		return flows.ProxyFlow(packageManager, packageResolver).Run(ctx, args, parsedCommand)
 	}
 

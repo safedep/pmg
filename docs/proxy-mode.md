@@ -1,6 +1,6 @@
 # Proxy Mode
 
-PMG supports an experimental proxy based interception as an alternative to the current optimistic dependency resolution. When enabled via `--experimental-proxy-mode` flag:
+PMG supports proxy based interception as an alternative to the current optimistic dependency resolution. When enabled via `--proxy-mode` flag:
 
 - PMG starts a micro-proxy server on a random localhost port
 - Runs `npm` and other supported package managers configured to use the proxy
@@ -10,7 +10,7 @@ PMG supports an experimental proxy based interception as an alternative to the c
 ## Usage
 
 ```bash
-pmg --experimental-proxy-mode npm install lodash
+pmg --proxy-mode npm install lodash
 ```
 
 ## Configuration
@@ -18,7 +18,7 @@ pmg --experimental-proxy-mode npm install lodash
 To permanently enable proxy mode, add the following to your `config.yml` file:
 
 ```yaml
-experimental_proxy_mode: true
+proxy_mode: true
 ```
 
 ## Supported Package Managers

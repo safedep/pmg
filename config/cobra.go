@@ -21,10 +21,15 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.SkipEventLogging, "Skip event logging")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ExperimentalProxyMode, "experimental-proxy-mode",
 		globalConfig.Config.ExperimentalProxyMode, "Use experimental proxy-based interception (EXPERIMENTAL)")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ProxyMode, "proxy-mode",
+		globalConfig.Config.ProxyMode, "Use proxy based interception")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.Enabled, "sandbox",
 		globalConfig.Config.Sandbox.Enabled, "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.EnforceAlways, "sandbox-enforce",
 		globalConfig.Config.Sandbox.EnforceAlways, "Apply sandbox to all commands, not just install commands (requires --sandbox)")
 	cmd.PersistentFlags().StringVar(&globalConfig.SandboxProfileOverride, "sandbox-profile",
 		globalConfig.SandboxProfileOverride, "Override sandbox policy profile (built-in name or path to custom YAML)")
+
+	// Hide the experimental proxy mode flag but keep it for backward compatibility
+	_ = cmd.PersistentFlags().MarkHidden("experimental-proxy-mode")
 }
