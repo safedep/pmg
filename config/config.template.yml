@@ -24,10 +24,10 @@ skip_event_logging: false
 event_log_retention_days: 7
 
 # Proxy mode. Default is true.
-# PMG uses an proxy-based interception approach instead of the
+# When enabled, PMG uses a proxy-based interception approach instead of the
 # default guard-based analysis. The proxy intercepts package manager requests in real-time
-# and analyzes packages as they are downloaded. This is an experimental feature and may not
-# work in all environments.
+# and analyzes packages as they are downloaded. Proxy mode may not work in all environments,
+# and can be disabled to fall back to the guard-based analysis.
 proxy_mode: true
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
