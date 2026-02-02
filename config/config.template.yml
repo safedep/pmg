@@ -23,8 +23,8 @@ skip_event_logging: false
 # This is the number of days to retain event logs.
 event_log_retention_days: 7
 
-# Proxy mode. Default is false.
-# When enabled, PMG uses an experimental proxy-based interception approach instead of the
+# Proxy mode. Default is true.
+# PMG uses an proxy-based interception approach instead of the
 # default guard-based analysis. The proxy intercepts package manager requests in real-time
 # and analyzes packages as they are downloaded. This is an experimental feature and may not
 # work in all environments.
