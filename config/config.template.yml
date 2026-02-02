@@ -97,7 +97,7 @@ sandbox:
 
     pnpm:
       enabled: true
-      profile: npm-restrictive
+      profile: pnpm-restrictive
 
     npx:
       enabled: true

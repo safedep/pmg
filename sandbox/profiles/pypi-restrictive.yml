@@ -32,6 +32,11 @@ filesystem:
     #       For example, ${CWD}/.venv/** allows both:
     #         1. Creating the .venv directory itself
     #         2. Writing any files/directories inside it
+    # Temporary directories for shell scripts and package managers
+    # Note: On macOS, /tmp is a symlink to /private/tmp, so we need both
+    - /tmp/**
+    - /private/tmp/**
+    - /var/tmp/**
     - ${CWD}/.venv/**
     - ${CWD}/venv/**
     - ${HOME}/.cache/pip/**
