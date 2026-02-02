@@ -15,8 +15,8 @@ include_dev_dependencies: false
 paranoid: false
 
 # Skip event logging. Default is false.
-# When skip event logging is enabled (false), all events will be logged to file. These events are useful for audit
-# trail and incident response on systems using PMG. Set this config to true to skip event logging.
+# When skip_event_logging is false, all events will be logged to file. These events are useful for audit
+# trail and incident response on systems using PMG. Set this config to true to disable event logging.
 skip_event_logging: false
 
 # Event log retention days. Default is 7.
