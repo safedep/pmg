@@ -15,20 +15,20 @@ include_dev_dependencies: false
 paranoid: false
 
 # Skip event logging. Default is false.
-# When event logging is enabled, all events will be logged to file. These events are useful for audit
-# trail and incident response on systems using PMG. Set this config to true to skip event logging.
+# When skip_event_logging is false, all events will be logged to file. These events are useful for audit
+# trail and incident response on systems using PMG. Set this config to true to disable event logging.
 skip_event_logging: false
 
 # Event log retention days. Default is 7.
 # This is the number of days to retain event logs.
 event_log_retention_days: 7
 
-# Proxy mode. Default is false.
-# When enabled, PMG uses an experimental proxy-based interception approach instead of the
+# Proxy mode. Default is true.
+# When enabled, PMG uses a proxy-based interception approach instead of the
 # default guard-based analysis. The proxy intercepts package manager requests in real-time
-# and analyzes packages as they are downloaded. This is an experimental feature and may not
-# work in all environments.
-proxy_mode: false
+# and analyzes packages as they are downloaded. Proxy mode may not work in all environments,
+# and can be disabled to fall back to the guard-based analysis.
+proxy_mode: true
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.

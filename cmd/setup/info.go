@@ -35,7 +35,7 @@ func executeSetupInfo() error {
 	cfg := config.Get()
 	configEntries := make(map[string]string)
 	configEntries["Config File"] = cfg.ConfigFilePath()
-	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.Config.ExperimentalProxyMode)
+	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.IsProxyModeEnabled())
 	ui.PrintInfoSection("Configuration", configEntries)
 
 	// Shell Integration section
