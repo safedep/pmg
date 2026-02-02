@@ -180,7 +180,7 @@ func DefaultConfig() RuntimeConfig {
 			Paranoid:               false,
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
-			ExperimentalProxyMode:  true,
+			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
 			ProxyMode:              true,
 			Sandbox: SandboxConfig{
