@@ -101,15 +101,15 @@ jobs:
           test -d node_modules/lodash
           cd .. && rm -rf npm-test
 
-      - name: Test NPM - Experimental Proxy Mode
+      - name: Test NPM - Proxy Mode
         run: |
-          echo "Testing NPM with experimental proxy-based interception..."
+          echo "Testing NPM with proxy-based interception..."
           mkdir npm-proxy-test && cd npm-proxy-test
           pmg npm init -y
 
           echo "Testing proxy mode single package installation..."
-          pmg --experimental-proxy-mode npm install express@5.2.1
-          pmg --experimental-proxy-mode npm install lodash@4.17.21
+          pmg npm install express@5.2.1
+          pmg npm install lodash@4.17.21
 
           # Verification: packages installed via proxy mode
           test -d node_modules/express
@@ -119,7 +119,7 @@ jobs:
 
           echo "Testing proxy mode manifest installation..."
           rm -rf node_modules package-lock.json
-          pmg --experimental-proxy-mode npm install
+          pmg npm install
 
           # Verification: manifest install via proxy mode works
           test -f package-lock.json
@@ -127,7 +127,7 @@ jobs:
           test -d node_modules/lodash
 
           echo "Testing proxy mode with scoped package..."
-          pmg --experimental-proxy-mode npm install @types/node@18.0.0
+          pmg npm install @types/node@18.0.0
 
           # Verification: scoped package installed via proxy
           test -d node_modules/@types
@@ -136,7 +136,7 @@ jobs:
 
           echo "Testing proxy mode dry-run (should not create files)..."
           rm -rf node_modules package-lock.json
-          pmg --experimental-proxy-mode --dry-run npm install
+          pmg --dry-run npm install
 
           # Verification: dry-run doesn't create files even in proxy mode
           test ! -d node_modules
@@ -378,7 +378,7 @@ jobs:
           mkdir safedep-test-pkg-test && cd safedep-test-pkg-test
           pmg npm init -y
           # Attempt to install safedep-test-pkg - should fail
-          if pmg --experimental-proxy-mode npm --no-cache --prefer-online i safedep-test-pkg@0.1.3; then
+          if pmg npm --no-cache --prefer-online i safedep-test-pkg@0.1.3; then
             echo "ERROR: safedep-test-pkg was not blocked!"
             exit 1
           else
