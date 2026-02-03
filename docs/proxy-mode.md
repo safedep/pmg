@@ -31,6 +31,6 @@ proxy_mode: true
 | `pnpx`          | ✅      |
 | `bun`           | ✅      |
 | `yarn`          | ✅      |
-| `pip`           | 🕒      |
-| `uv`            | 🕒      |
-| `poetry`        | 🕒      |
+| `pip`           | ✅      |
+| `uv`            | ✅      |
+| `poetry`        | ✅      |
