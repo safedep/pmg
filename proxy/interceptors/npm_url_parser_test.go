@@ -278,8 +278,10 @@ func TestParseNpmRegistryURL(t *testing.T) {
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.Equal(t, tt.wantIsTarball, got.IsFileDownload())
 
-			// Check scoped status via type assertion
-			if npmInfo, ok := got.(*npmPackageInfo); ok {
+			// Check scoped status via type assertion - must succeed for npm packages
+			npmInfo, ok := got.(*npmPackageInfo)
+			assert.True(t, ok, "expected *npmPackageInfo type")
+			if ok {
 				assert.Equal(t, tt.wantIsScoped, npmInfo.IsScoped())
 			}
 		})

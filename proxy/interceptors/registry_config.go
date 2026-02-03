@@ -49,14 +49,22 @@ func (m registryConfigMap) GetConfigForHostname(hostname string) *registryConfig
 		return config
 	}
 
-	// Check subdomain match: hostname could be "cdn.registry.example.org" matching "registry.example.org"
+	// Check subdomain match: hostname could be "cdn.registry.example.org" matching "registry.example.org".
+	// Defensive: Since Go map iteration order is non-deterministic, if multiple endpoints could match
+	// (e.g., both "example.org" and "registry.example.org"), we select the longest (most specific) one
+	// to ensure consistent behavior. In practice, our configured endpoints don't overlap.
+	var bestConfig *registryConfig
+	bestLen := 0
 	for endpoint, config := range m {
 		if strings.HasSuffix(hostname, "."+endpoint) {
-			return config
+			if len(endpoint) > bestLen {
+				bestLen = len(endpoint)
+				bestConfig = config
+			}
 		}
 	}
 
-	return nil
+	return bestConfig
 }
 
 // ContainsHostname checks if the hostname matches any configured registry (exact or subdomain match)

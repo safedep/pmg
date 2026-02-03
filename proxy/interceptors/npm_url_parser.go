@@ -13,7 +13,7 @@ type npmPackageInfo struct {
 	isScoped  bool
 }
 
-// Ensure npmPackageInfo implements PackageInfo interface
+// Ensure npmPackageInfo implements packageInfo interface
 var _ packageInfo = (*npmPackageInfo)(nil)
 
 // GetName returns the package name
