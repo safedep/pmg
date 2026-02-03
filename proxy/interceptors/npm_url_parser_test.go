@@ -274,10 +274,14 @@ func TestParseNpmRegistryURL(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.Equal(t, tt.wantName, got.Name)
-			assert.Equal(t, tt.wantVersion, got.Version)
-			assert.Equal(t, tt.wantIsTarball, got.IsTarball)
-			assert.Equal(t, tt.wantIsScoped, got.IsScoped)
+			assert.Equal(t, tt.wantName, got.GetName())
+			assert.Equal(t, tt.wantVersion, got.GetVersion())
+			assert.Equal(t, tt.wantIsTarball, got.IsFileDownload())
+
+			// Check scoped status via type assertion
+			if npmInfo, ok := got.(*npmPackageInfo); ok {
+				assert.Equal(t, tt.wantIsScoped, npmInfo.IsScoped())
+			}
 		})
 	}
 }
@@ -305,7 +309,7 @@ func TestGithubParser_ParseURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser := githubParser{}
+			parser := npmGithubParser{}
 			got, err := parser.ParseURL(tt.urlPath)
 
 			if tt.wantErr {
@@ -314,7 +318,7 @@ func TestGithubParser_ParseURL(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.Equal(t, tt.wantIsTarball, got.IsTarball)
+			assert.Equal(t, tt.wantIsTarball, got.IsFileDownload())
 		})
 	}
 }
@@ -336,7 +340,7 @@ func TestGithubBlobParser_ParseURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser := githubBlobParser{}
+			parser := npmGithubBlobParser{}
 			got, err := parser.ParseURL(tt.urlPath)
 
 			if tt.wantErr {
@@ -345,7 +349,7 @@ func TestGithubBlobParser_ParseURL(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.Equal(t, tt.wantIsTarball, got.IsTarball)
+			assert.Equal(t, tt.wantIsTarball, got.IsFileDownload())
 		})
 	}
 }

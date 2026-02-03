@@ -7,30 +7,51 @@ import (
 
 // npmPackageInfo represents parsed package information from an NPM registry URL
 type npmPackageInfo struct {
-	Name      string
-	Version   string
-	IsTarball bool
-	IsScoped  bool
+	name      string
+	version   string
+	isTarball bool
+	isScoped  bool
 }
 
-// npmRegistryURLParser defines the interface for parsing registry-specific URLs
-type npmRegistryURLParser interface {
-	ParseURL(urlPath string) (*npmPackageInfo, error)
+// Ensure npmPackageInfo implements PackageInfo interface
+var _ packageInfo = (*npmPackageInfo)(nil)
+
+// GetName returns the package name
+func (n *npmPackageInfo) GetName() string {
+	return n.name
 }
 
+// GetVersion returns the package version
+func (n *npmPackageInfo) GetVersion() string {
+	return n.version
+}
+
+// IsFileDownload returns true if this is a tarball download
+func (n *npmPackageInfo) IsFileDownload() bool {
+	return n.isTarball
+}
+
+// IsScoped returns true if this is a scoped package (@scope/name)
+func (n *npmPackageInfo) IsScoped() bool {
+	return n.isScoped
+}
+
+// npmParser parses standard NPM registry URL paths (registry.npmjs.org, registry.yarnpkg.com)
 type npmParser struct{}
 
-// parseNpmRegistryURL parses standard NPM registry URL paths (registry.npmjs.org, registry.yarnpkg.com)
-// This function handles the standard npm registry URL format.
+// Ensure npmParser implements RegistryURLParser interface
+var _ registryURLParser = npmParser{}
+
+// ParseURL parses standard NPM registry URL paths
 //
 // Supported URL patterns:
-// - /package                               -> {Name: "package", Version: ""}
-// - /package/1.0.0                         -> {Name: "package", Version: "1.0.0"}
-// - /@scope/package                        -> {Name: "@scope/package", Version: "", IsScoped: true}
-// - /@scope/package/1.0.0                  -> {Name: "@scope/package", Version: "1.0.0", IsScoped: true}
-// - /package/-/package-1.0.0.tgz          -> {Name: "package", Version: "1.0.0", IsTarball: true}
-// - /@scope/package/-/@scope-package-1.0.0.tgz -> {Name: "@scope/package", Version: "1.0.0", IsTarball: true, IsScoped: true}
-func (n npmParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
+// - /package                               -> {name: "package", version: ""}
+// - /package/1.0.0                         -> {name: "package", version: "1.0.0"}
+// - /@scope/package                        -> {name: "@scope/package", version: "", isScoped: true}
+// - /@scope/package/1.0.0                  -> {name: "@scope/package", version: "1.0.0", isScoped: true}
+// - /package/-/package-1.0.0.tgz          -> {name: "package", version: "1.0.0", isTarball: true}
+// - /@scope/package/-/@scope-package-1.0.0.tgz -> {name: "@scope/package", version: "1.0.0", isTarball: true, isScoped: true}
+func (n npmParser) ParseURL(urlPath string) (packageInfo, error) {
 	// Remove leading and trailing slashes
 	urlPath = strings.Trim(urlPath, "/")
 
@@ -51,29 +72,37 @@ func (n npmParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
 	return parseUnscopedPackageURL(segments)
 }
 
-type githubParser struct{}
+// npmGithubParser parses GitHub npm registry URLs
+type npmGithubParser struct{}
+
+// Ensure npmGithubParser implements RegistryURLParser interface
+var _ registryURLParser = npmGithubParser{}
 
 // ParseURL implements RegistryURLParser for GitHub npm registry
-func (g githubParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
+func (g npmGithubParser) ParseURL(urlPath string) (packageInfo, error) {
 	// For now, just allow all GitHub npm registry requests through without analysis
 	// TODO: Implement proper GitHub npm registry URL parsing when analysis is enabled
 	// GitHub URLs follow patterns:
-	// - /download/@owner/package/version/hash.tgz -> {Name: "package", Version: "1.0.0", IsTarball: true}
+	// - /download/@owner/package/version/hash.tgz -> {name: "package", version: "1.0.0", isTarball: true}
 	// - /@owner/package (metadata requests)
 	return &npmPackageInfo{
-		IsTarball: false, // Mark as non-tarball to skip analysis
+		isTarball: false, // Mark as non-tarball to skip analysis
 	}, nil
 }
 
-type githubBlobParser struct{}
+// npmGithubBlobParser parses GitHub blob storage URLs
+type npmGithubBlobParser struct{}
+
+// Ensure npmGithubBlobParser implements RegistryURLParser interface
+var _ registryURLParser = npmGithubBlobParser{}
 
 // ParseURL implements RegistryURLParser for GitHub blob storage
-func (g githubBlobParser) ParseURL(urlPath string) (*npmPackageInfo, error) {
+func (g npmGithubBlobParser) ParseURL(urlPath string) (packageInfo, error) {
 	// For now, just allow all GitHub blob storage requests through without analysis
 	// TODO: Implement proper GitHub blob storage URL parsing when analysis is enabled
 	// Pattern: /npmregistryv2prod/blobs/{blob_id}/{package_name}/{version}/***
 	return &npmPackageInfo{
-		IsTarball: false, // Mark as non-tarball to skip analysis
+		isTarball: false, // Mark as non-tarball to skip analysis
 	}, nil
 }
 
@@ -92,8 +121,8 @@ func parseScopedPackageURL(segments []string) (*npmPackageInfo, error) {
 	fullName := scope + "/" + packageName
 
 	info := &npmPackageInfo{
-		Name:     fullName,
-		IsScoped: true,
+		name:     fullName,
+		isScoped: true,
 	}
 
 	// Just the scoped package name: /@scope/package
@@ -112,14 +141,14 @@ func parseScopedPackageURL(segments []string) (*npmPackageInfo, error) {
 			return nil, fmt.Errorf("failed to extract version from tarball %s: %w", tarballName, err)
 		}
 
-		info.Version = version
-		info.IsTarball = true
+		info.version = version
+		info.isTarball = true
 		return info, nil
 	}
 
 	// Version metadata: /@scope/package/1.0.0
 	if len(segments) == 3 {
-		info.Version = segments[2]
+		info.version = segments[2]
 		return info, nil
 	}
 
@@ -139,8 +168,8 @@ func parseUnscopedPackageURL(segments []string) (*npmPackageInfo, error) {
 	packageName := segments[0]
 
 	info := &npmPackageInfo{
-		Name:     packageName,
-		IsScoped: false,
+		name:     packageName,
+		isScoped: false,
 	}
 
 	// Just the package name: /package
@@ -159,14 +188,14 @@ func parseUnscopedPackageURL(segments []string) (*npmPackageInfo, error) {
 			return nil, fmt.Errorf("failed to extract version from tarball %s: %w", tarballName, err)
 		}
 
-		info.Version = version
-		info.IsTarball = true
+		info.version = version
+		info.isTarball = true
 		return info, nil
 	}
 
 	// Version metadata: /package/1.0.0
 	if len(segments) == 2 {
-		info.Version = segments[1]
+		info.version = segments[1]
 		return info, nil
 	}
 
