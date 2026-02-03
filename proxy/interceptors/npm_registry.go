@@ -111,5 +111,5 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.baseRegistryInterceptor.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
+	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
 }
