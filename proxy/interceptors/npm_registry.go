@@ -1,34 +1,32 @@
 package interceptors
 
 import (
-	"strings"
-
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/proxy"
 )
 
-var npmRegistryDomains = map[string]*npmRegistryConfig{
+var npmRegistryDomains = registryConfigMap{
 	"registry.npmjs.org": {
 		Host:                 "registry.npmjs.org",
 		SupportedForAnalysis: true,
-		RegistryParser:       npmParser{},
+		Parser:               npmParser{},
 	},
 	"registry.yarnpkg.com": {
 		Host:                 "registry.yarnpkg.com",
 		SupportedForAnalysis: true,
-		RegistryParser:       npmParser{},
+		Parser:               npmParser{},
 	},
 	"npm.pkg.github.com": {
 		Host:                 "npm.pkg.github.com",
 		SupportedForAnalysis: false, // Skip analysis for now (private packages, auth complexity)
-		RegistryParser:       githubParser{},
+		Parser:               npmGithubParser{},
 	},
 	"pkg-npm.githubusercontent.com": {
 		Host:                 "pkg-npm.githubusercontent.com",
 		SupportedForAnalysis: false, // Skip analysis (blob storage, redirected downloads)
-		RegistryParser:       githubBlobParser{},
+		Parser:               npmGithubBlobParser{},
 	},
 }
 
@@ -64,18 +62,7 @@ func (i *NpmRegistryInterceptor) Name() string {
 
 // ShouldIntercept determines if this interceptor should handle the given request
 func (i *NpmRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	if _, exists := npmRegistryDomains[ctx.Hostname]; exists {
-		return true
-	}
-
-	// Check subdomain match
-	for domain := range npmRegistryDomains {
-		if strings.HasSuffix(ctx.Hostname, "."+domain) {
-			return true
-		}
-	}
-
-	return false
+	return npmRegistryDomains.ContainsHostname(ctx.Hostname)
 }
 
 // HandleRequest processes the request and returns response action
@@ -84,7 +71,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	log.Debugf("[%s] Handling NPM registry request: %s", ctx.RequestID, ctx.URL.Path)
 
 	// Get registry configuration
-	config := getNpmRegistryConfigForHostname(ctx.Hostname)
+	config := npmRegistryDomains.GetConfigForHostname(ctx.Hostname)
 	if config == nil {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
@@ -99,7 +86,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	}
 
 	// Parse URL using registry-specific strategy
-	pkgInfo, err := config.RegistryParser.ParseURL(ctx.URL.Path)
+	pkgInfo, err := config.Parser.ParseURL(ctx.URL.Path)
 	if err != nil {
 		log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
 			ctx.RequestID, ctx.URL.Path, config.Host, err)
@@ -108,21 +95,21 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 
 	// Only analyze tarball downloads (these have a specific version)
 	// Metadata requests (without version) are allowed through
-	if !pkgInfo.IsTarball {
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.Name)
+	if !pkgInfo.IsFileDownload() {
+		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	result, err := i.baseRegistryInterceptor.analyzePackage(
 		ctx,
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
-		pkgInfo.Name,
-		pkgInfo.Version,
+		pkgInfo.GetName(),
+		pkgInfo.GetVersion(),
 	)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, pkgInfo.Name, pkgInfo.Version, err)
+		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), err)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.baseRegistryInterceptor.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.Name, pkgInfo.Version, result)
+	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
 }
