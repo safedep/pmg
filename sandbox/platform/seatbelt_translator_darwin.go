@@ -555,6 +555,22 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 
 	sb.WriteString("\n")
 
+	// Network bind rules for local listening
+	if utils.SafelyGetValue(policy.AllowNetworkBind) {
+		sb.WriteString(";; Local network bind (localhost only)\n")
+		sb.WriteString("(allow network-bind (local ip \"localhost:*\"))\n")
+		sb.WriteString("(allow network* (local ip \"localhost:*\"))\n")
+	}
+
+	for _, addr := range policy.Network.AllowBind {
+		sb.WriteString(fmt.Sprintf("(allow network-bind (local ip \"%s\"))\n", addr))
+		sb.WriteString(fmt.Sprintf("(allow network* (local ip \"%s\"))\n", addr))
+	}
+
+	if utils.SafelyGetValue(policy.AllowNetworkBind) || len(policy.Network.AllowBind) > 0 {
+		sb.WriteString("\n")
+	}
+
 	return nil
 }
 

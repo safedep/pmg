@@ -572,6 +572,84 @@ func TestPTYSupport(t *testing.T) {
 	})
 }
 
+func TestNetworkBindSupport(t *testing.T) {
+	t.Run("AllowNetworkBind true with no AllowBind generates localhost-only bind rule", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name:             "test",
+			Description:      "test with network bind",
+			PackageManagers:  []string{"npm"},
+			AllowNetworkBind: utils.PtrTo(true),
+		}
+
+		translator := newSeatbeltPolicyTranslator()
+		actual, err := translator.translate(policy)
+		assert.NoError(t, err)
+
+		assert.Contains(t, actual, ";; Local network bind (localhost only)")
+		assert.Contains(t, actual, `(allow network-bind (local ip "localhost:*"))`)
+		assert.Contains(t, actual, `(allow network* (local ip "localhost:*"))`)
+		// Should not contain any explicit bind addresses
+		assert.NotContains(t, actual, `(allow network-bind (local ip "0.0.0.0:*"))`)
+	})
+
+	t.Run("AllowNetworkBind true with AllowBind generates both rules", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name:             "test",
+			Description:      "test with network bind and explicit addresses",
+			PackageManagers:  []string{"npm"},
+			AllowNetworkBind: utils.PtrTo(true),
+			Network: sandbox.NetworkPolicy{
+				AllowBind: []string{"0.0.0.0:*"},
+			},
+		}
+
+		translator := newSeatbeltPolicyTranslator()
+		actual, err := translator.translate(policy)
+		assert.NoError(t, err)
+
+		// Localhost bind from AllowNetworkBind
+		assert.Contains(t, actual, `(allow network-bind (local ip "localhost:*"))`)
+		// Explicit bind address
+		assert.Contains(t, actual, `(allow network-bind (local ip "0.0.0.0:*"))`)
+	})
+
+	t.Run("AllowNetworkBind false with AllowBind generates only explicit bind rule", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name:             "test",
+			Description:      "test with explicit bind only",
+			PackageManagers:  []string{"npm"},
+			AllowNetworkBind: utils.PtrTo(false),
+			Network: sandbox.NetworkPolicy{
+				AllowBind: []string{"0.0.0.0:*"},
+			},
+		}
+
+		translator := newSeatbeltPolicyTranslator()
+		actual, err := translator.translate(policy)
+		assert.NoError(t, err)
+
+		// Should NOT contain localhost bind
+		assert.NotContains(t, actual, ";; Local network bind (localhost only)")
+		assert.NotContains(t, actual, `(allow network-bind (local ip "localhost:*"))`)
+		// Should contain explicit bind address
+		assert.Contains(t, actual, `(allow network-bind (local ip "0.0.0.0:*"))`)
+	})
+
+	t.Run("AllowNetworkBind nil with no AllowBind generates no bind rules", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name:            "test",
+			Description:     "test without network bind",
+			PackageManagers: []string{"npm"},
+		}
+
+		translator := newSeatbeltPolicyTranslator()
+		actual, err := translator.translate(policy)
+		assert.NoError(t, err)
+
+		assert.NotContains(t, actual, "network-bind")
+	})
+}
+
 func TestSeatbeltTranslatorDarwinLogTag(t *testing.T) {
 	translator := newSeatbeltPolicyTranslator()
 	assert.NotEmpty(t, translator.LogTag())

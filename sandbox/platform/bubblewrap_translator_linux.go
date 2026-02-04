@@ -126,6 +126,11 @@ func (t *bubblewrapPolicyTranslator) addIsolationNamespaces(policy *sandbox.Sand
 		log.Debugf("Network allowed (no --unshare-net)")
 	}
 
+	// Note: AllowNetworkBind and Network.AllowBind are not handled here because
+	// bwrap's --unshare-net creates a namespace with loopback available, so
+	// localhost binding already works. Non-localhost binding requires full host
+	// network (no --unshare-net), which is controlled by AllowOutbound rules.
+
 	// PID namespace isolation
 	if t.config.unsharePID {
 		args = append(args, "--unshare-pid")

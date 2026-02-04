@@ -13,6 +13,9 @@ package_managers:
 # in parent profiles in the future.
 allow_pty: true
 
+# npx generators and dev servers frequently need to bind to localhost ports
+allow_network_bind: true
+
 filesystem:
   # Add write permissions for common generator outputs
   allow_write:
