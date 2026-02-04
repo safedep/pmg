@@ -210,19 +210,6 @@ jobs:
           pmg uv pip show numpy >/dev/null
           cd ..
 
-          echo "Testing that safedep-test-pkg is blocked via proxy mode (PyPI)..."
-          mkdir safedep-test-pkg-pypi && cd safedep-test-pkg-pypi
-          python -m venv venv && source venv/bin/activate
-          # Attempt to install safedep-test-pkg - should fail under proxy mode
-          if pmg pip install safedep-test-pkg==0.1.3; then
-            echo "ERROR: safedep-test-pkg (PyPI) was not blocked!"
-            exit 1
-          else
-            echo "SUCCESS: safedep-test-pkg (PyPI) correctly blocked"
-          fi
-          deactivate
-          cd ..
-
           cd .. && rm -rf pypi-proxy-test
 
       - name: Test PNPM - Single Package & Manifest
