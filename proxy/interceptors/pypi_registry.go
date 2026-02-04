@@ -116,7 +116,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	log.Debugf("[%s] Analyzing PyPI package: %s@%s (type: %s)",
 		ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), fileType)
 
-	result, err := i.baseRegistryInterceptor.analyzePackage(
+	result, err := i.analyzePackage(
 		ctx,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,
 		pkgInfo.GetName(),
@@ -127,5 +127,5 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.baseRegistryInterceptor.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
+	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
 }
