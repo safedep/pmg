@@ -34,6 +34,9 @@ type SandboxPolicy struct {
 
 	// AllowPTY allows pseudo-terminal (PTY) operations.
 	AllowPTY *bool `yaml:"allow_pty" json:"allow_pty"`
+
+	// AllowNetworkBind allows binding to localhost (127.0.0.1 / ::1) for listening.
+	AllowNetworkBind *bool `yaml:"allow_network_bind" json:"allow_network_bind"`
 }
 
 // FilesystemPolicy defines allowed and denied filesystem access patterns.
@@ -50,6 +53,7 @@ type FilesystemPolicy struct {
 type NetworkPolicy struct {
 	AllowOutbound []string `yaml:"allow_outbound" json:"allow_outbound"`
 	DenyOutbound  []string `yaml:"deny_outbound" json:"deny_outbound"`
+	AllowBind     []string `yaml:"allow_bind" json:"allow_bind"`
 }
 
 // ProcessPolicy defines allowed and denied process execution patterns.
@@ -124,6 +128,7 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	// Union network lists
 	child.Network.AllowOutbound = unionStringSlices(parent.Network.AllowOutbound, child.Network.AllowOutbound)
 	child.Network.DenyOutbound = unionStringSlices(parent.Network.DenyOutbound, child.Network.DenyOutbound)
+	child.Network.AllowBind = unionStringSlices(parent.Network.AllowBind, child.Network.AllowBind)
 
 	// Union process lists
 	child.Process.AllowExec = unionStringSlices(parent.Process.AllowExec, child.Process.AllowExec)
@@ -136,6 +141,10 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 
 	if child.AllowGitConfig == nil {
 		child.AllowGitConfig = utils.PtrTo(utils.SafelyGetValue(parent.AllowGitConfig))
+	}
+
+	if child.AllowNetworkBind == nil {
+		child.AllowNetworkBind = utils.PtrTo(utils.SafelyGetValue(parent.AllowNetworkBind))
 	}
 }
 
