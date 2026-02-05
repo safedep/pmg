@@ -81,9 +81,9 @@ jobs:
         run: |
           echo "Testing NPM single package installation..."
           mkdir npm-test && cd npm-test
-          pmg npm init -y
-          pmg npm install express@5.2.1
-          pmg npm install lodash@4.17.21
+          pmg --proxy-mode=false npm init -y
+          pmg --proxy-mode=false npm install express@5.2.1
+          pmg --proxy-mode=false npm install lodash@4.17.21
 
           # Verification: npm added packages present and manifest updated
           test -d node_modules/express
@@ -93,7 +93,7 @@ jobs:
 
           echo "Testing NPM manifest installation..."
           rm -rf node_modules package-lock.json
-          pmg npm install
+          pmg --proxy-mode=false npm install
 
           # Verification: npm lockfile and installed modules exist after manifest install
           test -f package-lock.json
@@ -144,13 +144,81 @@ jobs:
 
           cd .. && rm -rf npm-proxy-test
 
+      - name: Test PyPI - Proxy Mode
+        run: |
+          echo "Testing PyPI package managers with proxy-based interception..."
+          mkdir pypi-proxy-test && cd pypi-proxy-test
+
+          echo "Setting up Python virtual environment for pip and pip3 tests..."
+          python -m venv venv && source venv/bin/activate
+          python --version
+          pip --version
+
+          echo "Testing pip single package installation via proxy mode..."
+          pmg pip install requests==2.32.4
+          pmg pip install numpy==2.3.5
+
+          # Verification: packages installed and importable
+          python -c "import requests, numpy; print('pip ok:', requests.__version__, numpy.__version__)"
+
+          echo "Testing pip manifest installation via proxy mode..."
+          pmg pip freeze > requirements.txt
+          pmg pip uninstall -y requests numpy
+          pmg pip install -r requirements.txt
+          python -c "import requests, numpy; print('pip manifest ok:', requests.__version__, numpy.__version__)"
+          deactivate
+
+          echo "Setting up Python virtual environment for pip3 tests..."
+          python -m venv venv3 && source venv3/bin/activate
+          python --version
+          pip3 --version
+
+          echo "Testing pip3 single package installation via proxy mode..."
+          pmg pip3 install requests==2.32.4
+          pmg pip3 install numpy==2.3.5
+
+          # Verification: packages installed and importable
+          python -c "import requests, numpy; print('pip3 ok:', requests.__version__, numpy.__version__)"
+
+          echo "Testing pip3 manifest installation via proxy mode..."
+          pmg pip3 freeze > requirements3.txt
+          pmg pip3 uninstall -y requests numpy
+          pmg pip3 install -r requirements3.txt
+          python -c "import requests, numpy; print('pip3 manifest ok:', requests.__version__, numpy.__version__)"
+          deactivate
+
+          echo "Testing uv add and uv pip install via proxy mode..."
+          mkdir uv-proxy && cd uv-proxy
+          pmg uv init --no-readme
+          pmg uv add requests==2.32.4
+          pmg uv add numpy==2.3.5
+
+          # Verification: pyproject.toml lists expected dependencies
+          test -f pyproject.toml
+          grep -q 'requests' pyproject.toml
+          grep -q 'numpy' pyproject.toml
+
+          echo "Sync environment and verify installations..."
+          pmg uv sync
+          pmg uv pip show requests >/dev/null
+          pmg uv pip show numpy >/dev/null
+
+          echo "Testing uv pip install from requirements via proxy mode..."
+          pmg uv pip freeze > requirements.txt
+          pmg uv pip install -r requirements.txt
+          pmg uv pip show requests >/dev/null
+          pmg uv pip show numpy >/dev/null
+          cd ..
+
+          cd .. && rm -rf pypi-proxy-test
+
       - name: Test PNPM - Single Package & Manifest
         run: |
           echo "Testing PNPM single package installation..."
           mkdir pnpm-test && cd pnpm-test
-          pmg pnpm init
-          pmg pnpm add express@5.2.1
-          pmg pnpm add lodash@4.17.21
+          pmg --proxy-mode=false pnpm init
+          pmg --proxy-mode=false pnpm add express@5.2.1
+          pmg --proxy-mode=false pnpm add lodash@4.17.21
 
           # Verification: pnpm packages installed and lockfile created
           test -d node_modules/express
@@ -159,7 +227,7 @@ jobs:
 
           echo "Testing PNPM manifest installation..."
           rm -rf node_modules pnpm-lock.yaml
-          pmg pnpm install
+          pmg --proxy-mode=false pnpm install
 
           # Verification: pnpm lockfile and modules exist after manifest install
           test -f pnpm-lock.yaml
@@ -171,9 +239,9 @@ jobs:
         run: |
           echo "Testing Bun single package installation..."
           mkdir bun-test && cd bun-test
-          pmg bun init -y
-          pmg bun add express@5.2.1
-          pmg bun add lodash@4.17.21
+          pmg --proxy-mode=false bun init -y
+          pmg --proxy-mode=false bun add express@5.2.1
+          pmg --proxy-mode=false bun add lodash@4.17.21
 
           # Verification: bun packages installed and lockfile created
           test -d node_modules/express
@@ -182,7 +250,7 @@ jobs:
 
           echo "Testing Bun manifest installation..."
           rm -rf node_modules bun.lock
-          pmg bun install
+          pmg --proxy-mode=false bun install
 
           # Verification: bun lockfile and modules exist after manifest install
           test -f bun.lock
@@ -198,9 +266,9 @@ jobs:
           yarn --version
 
           mkdir yarn-test && cd yarn-test
-          pmg yarn init -y
-          pmg yarn add express@5.2.1
-          pmg yarn add lodash@4.17.21
+          pmg --proxy-mode=false yarn init -y
+          pmg --proxy-mode=false yarn add express@5.2.1
+          pmg --proxy-mode=false yarn add lodash@4.17.21
 
           # Verification: yarn packages installed and lockfile created
           test -d node_modules/express
@@ -209,7 +277,7 @@ jobs:
 
           echo "Testing Yarn manifest installation..."
           rm -rf node_modules yarn.lock
-          pmg yarn install
+          pmg --proxy-mode=false yarn install
 
           # Verification: yarn lockfile and modules exist after manifest install
           test -f yarn.lock
@@ -223,19 +291,19 @@ jobs:
           mkdir npx-test && cd npx-test
 
           echo "Testing npx with a simple package..."
-          pmg npx cowsay@1.6.0 "Hello from pmg npx" | tee npx-output.txt
+          pmg --proxy-mode=false npx cowsay@1.6.0 "Hello from pmg npx" | tee npx-output.txt
 
           # Verification: cowsay output contains our message
           grep -q "Hello from pmg npx" npx-output.txt
 
           echo "Testing npx with --package flag..."
-          pmg npx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee npx-pkg-output.txt
+          pmg --proxy-mode=false npx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee npx-pkg-output.txt
 
           # Verification: package flag execution produces expected output
           grep -q "Hello with package flag" npx-pkg-output.txt
 
           echo "Testing npx dry-run mode..."
-          pmg --dry-run npx cowsay@1.6.0 "This should not execute" | tee npx-dry-output.txt
+          pmg --proxy-mode=false --dry-run npx cowsay@1.6.0 "This should not execute" | tee npx-dry-output.txt
 
           # Verification: dry-run should NOT produce cowsay ASCII art (cow face ^__^ should not appear)
           ! grep -q '\^__\^' npx-dry-output.txt
@@ -248,19 +316,19 @@ jobs:
           mkdir pnpx-test && cd pnpx-test
 
           echo "Testing pnpx with a simple package..."
-          pmg pnpx cowsay@1.6.0 "Hello from pmg pnpx" | tee pnpx-output.txt
+          pmg --proxy-mode=false pnpx cowsay@1.6.0 "Hello from pmg pnpx" | tee pnpx-output.txt
 
           # Verification: cowsay output contains our message
           grep -q "Hello from pmg pnpx" pnpx-output.txt
 
           echo "Testing pnpx with --package flag..."
-          pmg pnpx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee pnpx-pkg-output.txt
+          pmg --proxy-mode=false pnpx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee pnpx-pkg-output.txt
 
           # Verification: package flag execution produces expected output
           grep -q "Hello with package flag" pnpx-pkg-output.txt
 
           echo "Testing pnpx dry-run mode..."
-          pmg --dry-run pnpx cowsay@1.6.0 "This should not execute" | tee pnpx-dry-output.txt
+          pmg --proxy-mode=false --dry-run pnpx cowsay@1.6.0 "This should not execute" | tee pnpx-dry-output.txt
 
           # Verification: dry-run should NOT produce cowsay ASCII art (cow face ^__^ should not appear)
           ! grep -q '\^__\^' pnpx-dry-output.txt
@@ -272,9 +340,9 @@ jobs:
           echo "Testing Pip single package installation..."
           mkdir pip-test && cd pip-test
           python -m venv venv && source venv/bin/activate
-          pmg pip install requests==2.32.4
-          pmg pip install numpy==2.3.5
-          pmg pip freeze > requirements.txt
+          pmg --proxy-mode=false pip install requests==2.32.4
+          pmg --proxy-mode=false pip install numpy==2.3.5
+          pmg --proxy-mode=false pip freeze > requirements.txt
 
           # Verification: requirements.txt contains expected packages
           test -s requirements.txt
@@ -282,8 +350,8 @@ jobs:
           grep -E '^numpy==' requirements.txt
 
           echo "Testing Pip manifest installation..."
-          pmg pip uninstall -y requests numpy
-          pmg pip install -r requirements.txt
+          pmg --proxy-mode=false pip uninstall -y requests numpy
+          pmg --proxy-mode=false pip install -r requirements.txt
 
           # Verification: imported packages are available in the environment
           python -c "import requests, numpy; print(requests.__version__); print(numpy.__version__)"
@@ -295,9 +363,9 @@ jobs:
           echo "Testing Pip3 single package installation..."
           mkdir pip3-test && cd pip3-test
           python -m venv venv && source venv/bin/activate
-          pmg pip3 install requests==2.32.4
-          pmg pip3 install numpy==2.3.5
-          pmg pip3 freeze > requirements.txt
+          pmg --proxy-mode=false pip3 install requests==2.32.4
+          pmg --proxy-mode=false pip3 install numpy==2.3.5
+          pmg --proxy-mode=false pip3 freeze > requirements.txt
 
           # Verification: requirements.txt contains expected packages
           test -s requirements.txt
@@ -305,8 +373,8 @@ jobs:
           grep -E '^numpy==' requirements.txt
 
           echo "Testing Pip3 manifest installation..."
-          pmg pip3 uninstall -y requests numpy
-          pmg pip3 install -r requirements.txt
+          pmg --proxy-mode=false pip3 uninstall -y requests numpy
+          pmg --proxy-mode=false pip3 install -r requirements.txt
 
           # Verification: imported packages are available in the environment
           python -c "import requests, numpy; print(requests.__version__); print(numpy.__version__)"
@@ -317,9 +385,9 @@ jobs:
         run: |
           echo "Testing UV single package installation..."
           mkdir uv-test && cd uv-test
-          pmg uv init --no-readme
-          pmg uv add requests==2.32.4
-          pmg uv add numpy==2.3.5
+          pmg --proxy-mode=false uv init --no-readme
+          pmg --proxy-mode=false uv add requests==2.32.4
+          pmg --proxy-mode=false uv add numpy==2.3.5
 
           # Verification: pyproject.toml lists expected dependencies
           test -f pyproject.toml
@@ -328,31 +396,31 @@ jobs:
 
           echo "Testing UV manifest installation..."
           rm -rf .venv uv.lock
-          pmg uv sync
+          pmg --proxy-mode=false uv sync
 
           # Verification: uv lockfile and virtualenv created; packages present
           test -d .venv
           test -f uv.lock
-          pmg uv pip show requests >/dev/null
-          pmg uv pip show numpy >/dev/null
+          pmg --proxy-mode=false uv pip show requests >/dev/null
+          pmg --proxy-mode=false uv pip show numpy >/dev/null
 
           echo "Testing UV pip commands..."
-          pmg uv pip freeze > requirements.txt
-          pmg uv pip install -r requirements.txt
-          pmg uv pip sync requirements.txt
+          pmg --proxy-mode=false uv pip freeze > requirements.txt
+          pmg --proxy-mode=false uv pip install -r requirements.txt
+          pmg --proxy-mode=false uv pip sync requirements.txt
 
           # Verification: uv pip can show installed packages after requirements sync
-          pmg uv pip show requests >/dev/null
-          pmg uv pip show numpy >/dev/null
+          pmg --proxy-mode=false uv pip show requests >/dev/null
+          pmg --proxy-mode=false uv pip show numpy >/dev/null
           cd .. && rm -rf uv-test
 
       - name: Test Poetry - Single Package & Manifest
         run: |
           echo "Testing Poetry single package installation..."
           mkdir poetry-test && cd poetry-test
-          pmg poetry init --name poetry-test --no-interaction --quiet
-          pmg poetry add requests==2.32.4
-          pmg poetry add numpy==2.3.5
+          pmg --proxy-mode=false poetry init --name poetry-test --no-interaction --quiet
+          pmg --proxy-mode=false poetry add requests==2.32.4
+          pmg --proxy-mode=false poetry add numpy==2.3.5
 
            # Verification: pyproject.toml dependencies updated
            test -f pyproject.toml
@@ -361,15 +429,15 @@ jobs:
 
           echo "Testing Poetry manifest installation..."
           rm -rf .venv poetry.lock
-          pmg poetry install --no-root
+          pmg --proxy-mode=false poetry install --no-root
           cd .. && rm -rf poetry-test
 
       - name: Test Malicious Package Detection
         run: |
           echo "Testing malicious package detection..."
           mkdir malicious-test && cd malicious-test
-          pmg npm init -y
-          ! pmg npm install nyc-config@10.0.0 || echo "Malicious package correctly blocked"
+          pmg --proxy-mode=false npm init -y
+          ! pmg --proxy-mode=false npm install nyc-config@10.0.0 || echo "Malicious package correctly blocked"
           cd .. && rm -rf malicious-test
 
       - name: Test safedep-test-pkg is Blocked using Proxy mode
@@ -399,29 +467,29 @@ jobs:
           mkdir pmg-modes-test && cd pmg-modes-test
           pmg npm init -y
           # Mode: --dry-run should not create node_modules or lockfiles
-          pmg --dry-run npm install express
+          pmg --proxy-mode=false --dry-run npm install express
           # Verification: no files created during dry-run
           test ! -d node_modules
           test ! -f package-lock.json
 
           # Mode: --silent should install without noisy output
-          pmg --silent npm install express
+          pmg --proxy-mode=false --silent npm install express
           # Verification: package installed
           test -d node_modules/express
           # Clean and test --verbose installation
           rm -rf node_modules package-lock.json
-          pmg --verbose npm install express
+          pmg --proxy-mode=false --verbose npm install express
           # Verification: package installed
           test -d node_modules/express
 
           # Clean and test --debug with log output
           rm -rf node_modules package-lock.json
-          pmg --debug --log debug.json npm install express
+          pmg --proxy-mode=false --debug --log debug.json npm install express
           # Verification: debug log written
           test -f debug.json
 
           # Mode: --paranoid may require cloud credentials; run non-blocking with dry-run
-          pmg --paranoid --dry-run npm install express || true
+          pmg --proxy-mode=false --paranoid --dry-run npm install express || true
           cd .. && rm -rf pmg-modes-test
 
   sandbox-e2e-macos:
