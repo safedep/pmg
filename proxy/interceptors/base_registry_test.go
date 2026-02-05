@@ -8,6 +8,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 )
@@ -156,3 +157,55 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 		})
 	}
 }
+
+func TestBaseRegistryInterceptor_HandleAnalysisResult_ParanoidTreatsSuspiciousAsBlocked(t *testing.T) {
+	cfg := config.Get()
+	ogParanoid := cfg.Config.Paranoid
+	cfg.Config.Paranoid = true
+
+	defer func() {
+		cfg.Config.Paranoid = ogParanoid
+	}()
+
+	confirmationChan := make(chan *ConfirmationRequest, 1)
+
+	base := &baseRegistryInterceptor{
+		confirmationChan: confirmationChan,
+	}
+
+	parsedURL, _ := url.Parse("https://registry.npmjs.org/test")
+	ctx := &proxy.RequestContext{
+		URL: parsedURL,
+		Method: "GET",
+		Headers: make(http.Header),
+		RequestID: "test-req-id",
+		StartTime: time.Now(),
+		Data: make(map[string]interface{}),
+	}
+
+	result := &analyzer.PackageVersionAnalysisResult{
+		Action: analyzer.ActionConfirm,
+		Summary: "Suspicious behaviour detected",
+		ReferenceURL: "https://example.com/suspicious-report",
+	}
+
+	response, err := base.handleAnalysisResult(
+		ctx,
+		packagev1.Ecosystem_ECOSYSTEM_NPM,
+		"suspicious-pkg",
+		"2.0.0",
+		result,
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, proxy.ActionBlock, response.Action)
+	assert.Equal(t, http.StatusForbidden, response.BlockCode)
+	assert.NotEmpty(t, response.BlockMessage)
+
+	// this ensures we didn't ask for user confirmation in paranoid mode
+	select {
+	case <- confirmationChan:
+		t.Fatalf("expected no confirmation request in paranoid mode")
+	default:	
+	}
+}	
