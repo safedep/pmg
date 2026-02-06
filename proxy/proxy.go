@@ -283,8 +283,25 @@ func (ps *proxyServer) registerHandlers() {
 				}
 
 				log.Debugf("[%s] Blocked by %s: %s", reqCtx.RequestID, interceptor.Name(), req.URL.String())
+				r := goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
 
-				return req, goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
+				// goproxy v1.8.x writes the response via (*http.Response).Write for MITM traffic.
+				// Ensure the protocol version is valid (defaults to HTTP/0.0 otherwise).
+				// Ref: https://github.com/elazarl/goproxy/issues/745
+				if req.ProtoMajor > 0 {
+					r.Proto = req.Proto
+					r.ProtoMajor = req.ProtoMajor
+					r.ProtoMinor = req.ProtoMinor
+				} else {
+					r.Proto = "HTTP/1.1"
+					r.ProtoMajor = 1
+					r.ProtoMinor = 1
+				}
+				r.Close = true
+				r.Header.Set("Connection", "close")
+				r.Header.Set("Proxy-Connection", "close")
+
+				return req, r
 
 			case ActionModifyRequest:
 				if resp.ModifiedHeaders != nil {
