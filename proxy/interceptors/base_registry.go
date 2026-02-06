@@ -111,6 +111,8 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 	packageVersion string,
 	result *analyzer.PackageVersionAnalysisResult,
 ) (*proxy.InterceptorResponse, error) {
+	cfg := config.Get()
+
 	switch result.Action {
 	case analyzer.ActionBlock:
 		log.Warnf("[%s] Blocking malicious package %s@%s", ctx.RequestID, packageName, packageVersion)
@@ -137,6 +139,35 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		}, nil
 
 	case analyzer.ActionConfirm:
+		// treat suspicious pkgs as malicious pkgs and block w/o asking user
+		if cfg.Config.Paranoid {
+			log.Warnf("[%s] Package %s/%s@%s is suspicious and paranoid mode is enabled, blocking",
+				ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+
+			eventlog.LogMalwareBlocked(packageName, packageVersion, ecosystem.String(), result.Summary, map[string]interface{}{
+				"analysis_id":   result.AnalysisID,
+				"reference_url": result.ReferenceURL,
+			})
+
+			if b.statsCollector != nil {
+				b.statsCollector.RecordBlocked(result)
+			}
+
+			message := fmt.Sprintf("Suspicious package blocked in paranoid mode: %s/%s@%s\n\nReason: %s\n\nReference: %s",
+				ecosystem.String(),
+				packageName,
+				packageVersion,
+				result.Summary,
+				result.ReferenceURL,
+			)
+
+			return &proxy.InterceptorResponse{
+				Action:       proxy.ActionBlock,
+				BlockCode:    http.StatusForbidden,
+				BlockMessage: message,
+			}, nil
+
+		}
 		log.Warnf("[%s] Package %s/%s@%s is suspicious, requesting user confirmation", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
 		confirmed, err := b.requestUserConfirmation(ctx, result)
