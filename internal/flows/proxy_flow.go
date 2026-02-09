@@ -85,8 +85,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return nil
 	}
 
-	ui.SetStatus("Initializing proxy mode...")
-
 	// Setup CA certificate for MITM
 	caCert, caCertPath, err := f.setupCACertificate()
 	if err != nil {

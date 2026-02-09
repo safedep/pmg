@@ -171,6 +171,12 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
+		fmt.Println()
+		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+
+		printMaliciousPackagesList(data.BlockedPackages)
+		fmt.Println()
+
 		icon = Colors.Red("✗")
 		message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
 			data.TotalAnalyzed, data.BlockedCount)
