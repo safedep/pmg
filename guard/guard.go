@@ -202,6 +202,10 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
 			g.logMalwareDetection(analysisResult, true)
+
+			// Clear any active status/spinner before returning so the UI is left in a clean state.
+			g.clearStatus()
+
 			return result, nil
 		}
 
@@ -227,6 +231,10 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
 			result.WasUserCancelled = true
+
+			// Clear any active status/spinner before returning so the UI is left in a clean state.
+			g.clearStatus()
+
 			return result, nil
 		}
 
@@ -489,6 +497,9 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 			g.logMalwareDetection(analysisResult, true)
 
+			// Clear any active status/spinner before returning so the UI is left in a clean state.
+			g.clearStatus()
+
 			return result, nil
 		}
 
@@ -517,6 +528,10 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			}
 
 			result.WasUserCancelled = true
+
+			// Clear any active status/spinner before returning so the UI is left in a clean state.
+			g.clearStatus()
+
 			return result, nil
 		}
 

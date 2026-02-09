@@ -124,16 +124,8 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		config.DryRun = true
 		config.ResolveDependencies = false // Disable dependency resolution to avoid nil pointer issues
 
-		blockCalled := false
-		var blockedPackages []*analyzer.PackageVersionAnalysisResult
-
 		interaction := PackageManagerGuardInteraction{
 			ShowWarning: func(message string) {},
-			Block: func(config *ui.BlockConfig) error {
-				blockCalled = true
-				blockedPackages = config.MalwarePackages
-				return nil
-			},
 		}
 
 		pg, err := NewPackageManagerGuard(config, nil, nil,
@@ -161,21 +153,17 @@ func TestGuardInsecureInstallation(t *testing.T) {
 			},
 		}
 
-		_, err = pg.Run(context.Background(), []string{"npm", "install", "nyc-config@10.0.0"}, parsedCommand)
+		r, err := pg.Run(context.Background(), []string{"npm", "install", "nyc-config@10.0.0"}, parsedCommand)
 
 		// We expect no error from the guard itself (blocking is handled via the Block callback)
 		assert.NoError(t, err)
 
-		// Block should be called because InsecureInstallation is disabled
-		assert.True(t, blockCalled, "Block should be called when InsecureInstallation is disabled")
-
 		// Verify that the malicious package was detected and blocked
-		assert.NotEmpty(t, blockedPackages, "Blocked packages should not be empty")
-		if len(blockedPackages) > 0 {
-			assert.Equal(t, "nyc-config", blockedPackages[0].PackageVersion.GetPackage().GetName())
-			assert.Equal(t, "10.0.0", blockedPackages[0].PackageVersion.GetVersion())
-			assert.Equal(t, analyzer.ActionBlock, blockedPackages[0].Action)
-		}
+		assert.NotEmpty(t, r.BlockedPackages, "Blocked packages should not be empty")
+		assert.Greater(t, r.BlockedCount, 0)
+		assert.Equal(t, "nyc-config", r.BlockedPackages[0].PackageVersion.GetPackage().GetName())
+		assert.Equal(t, "10.0.0", r.BlockedPackages[0].PackageVersion.GetVersion())
+		assert.Equal(t, analyzer.ActionBlock, r.BlockedPackages[0].Action)
 	})
 
 	t.Run("should continue execution for commands without install targets when InsecureInstallation is enabled", func(t *testing.T) {
@@ -269,4 +257,3 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		assert.False(t, config.InsecureInstallation, "InsecureInstallation should default to false")
 	})
 }
-
