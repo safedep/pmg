@@ -59,7 +59,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 
 	malysisQueryAnalyzer, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
 	if err != nil {
-		return fmt.Errorf("failed to create malware analyzer: %s", err)
+		return fmt.Errorf("failed to create malware analyzer: %w", err)
 	}
 
 	analyzers = append(analyzers, malysisQueryAnalyzer)

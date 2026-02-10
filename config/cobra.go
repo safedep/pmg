@@ -16,7 +16,7 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().BoolVar(&globalConfig.DryRun, "dry-run",
 		globalConfig.DryRun, "Dry run skips execution of package manager")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Paranoid, "paranoid",
-		globalConfig.Config.Paranoid, "Enable high-security defaults (treat suspicious as malicious; implies --sandbox-enforce)")
+		globalConfig.Config.Paranoid, "Enable high-security defaults (treat suspicious as malicious)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.SkipEventLogging, "skip-event-log",
 		globalConfig.Config.SkipEventLogging, "Skip event logging")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ExperimentalProxyMode, "experimental-proxy-mode",
