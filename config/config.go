@@ -307,6 +307,11 @@ func ConfigureSandbox(isInstallationCommand bool) {
 		// installation commands else disable the sandbox
 		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || isInstallationCommand
 	}
+
+	// For `paranoid` flag, enabled the sandbox
+	if globalConfig.Config.Paranoid {
+		globalConfig.Config.Sandbox.Enabled = true
+	}
 }
 
 // WriteTemplateConfig writes the template configuration file to disk if it doesn't already exist.
