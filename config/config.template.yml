@@ -10,8 +10,8 @@ transitive_depth: 5
 # Include dev dependencies in the dependency graph. Default is false.
 include_dev_dependencies: false
 
-# Enable paranoid mode. In paranoid mode, PMG will use SafeDep Cloud credentials
-# to scan unknown packages for malware. This is slow and should be used with caution.
+# Enable paranoid mode. In paranoid mode, PMG will treat suspicious packages
+# as malicious packages
 paranoid: false
 
 # Skip event logging. Default is false.

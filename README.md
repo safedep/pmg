@@ -172,6 +172,17 @@ This will:
 ## Usage
 
 <details>
+<summary>Paranoid Mode</summary>
+
+Use the `--paranoid` flag to treat suspicous (unverified) packages as malicious packages.
+
+```bash
+pmg --paranoid npm install <package-name>
+```
+
+</details>
+
+<details>
 <summary>Silent Mode</summary>
 
 Use the `--silent` flag to run PMG in silent mode:
