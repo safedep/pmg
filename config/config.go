@@ -44,7 +44,7 @@ type Config struct {
 	TransitiveDepth        int  `mapstructure:"transitive_depth"`
 	IncludeDevDependencies bool `mapstructure:"include_dev_dependencies"`
 
-	// Paranoid mode enables active scanning of unknown packages for malware.
+	// Paranoid enable's high-security defaults (treat suspicious as malicious; implies --sandbox-enforce)
 	Paranoid bool `mapstructure:"paranoid"`
 
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations

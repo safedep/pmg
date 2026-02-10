@@ -172,17 +172,6 @@ This will:
 ## Usage
 
 <details>
-<summary>Active Scanning</summary>
-
-Use the `--paranoid` flag to perform active malware scanning on unknown packages (requires [SafeDep Cloud credentials](https://docs.safedep.io/cloud/authentication#api-key-authentication)):
-
-```bash
-pmg --paranoid npm install <package-name>
-```
-
-</details>
-
-<details>
 <summary>Silent Mode</summary>
 
 Use the `--silent` flag to run PMG in silent mode:
