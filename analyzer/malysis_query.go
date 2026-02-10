@@ -10,6 +10,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	drygrpc "github.com/safedep/dry/adapters/grpc"
+	"github.com/safedep/pmg/config"
 	"google.golang.org/grpc"
 )
 
@@ -62,9 +63,15 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 		Data:           res.GetReport(),
 	}
 
+	cfg := config.Get()
 	// Mark the package version to be confirmed if it is malicious (not confirmed)
 	if res.GetReport().GetInference().GetIsMalware() {
 		analysisResult.Action = ActionConfirm
+
+		// Treat suspicious package as malicious when `--paranoid` flag is set to true
+		if cfg.Config.Paranoid {
+			analysisResult.Action = ActionBlock
+		}
 	}
 
 	// This is a confirmed malicious package, we must always block it
