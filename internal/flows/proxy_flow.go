@@ -242,14 +242,6 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 
 // createAnalyzer creates the malysis query analyzer
 func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
-	cfg := config.Get()
-
-	// Use paranoid mode (active scan) if enabled, otherwise use query mode
-	if cfg.Config.Paranoid {
-		log.Debugf("Creating malysis active scan analyzer (paranoid mode)")
-		return analyzer.NewMalysisActiveScanAnalyzer(analyzer.DefaultMalysisActiveScanAnalyzerConfig())
-	}
-
 	log.Debugf("Creating malysis query analyzer")
 	return analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
 }
