@@ -2,10 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
-var spinnerChan chan bool
+var (
+	spinnerChan chan bool
+	spinnerMu   sync.Mutex
+)
 
 func StartSpinner(msg string) {
 	StartSpinnerWithColor(msg, Colors.Normal)
@@ -20,7 +24,15 @@ func StartSpinnerWithColor(msg string, c ColorFn) {
 	frames := []rune(style)
 	length := len(frames)
 
+	spinnerMu.Lock()
+
+	// If a previous spinner exists, stop it cleanly before starting a new one
+	if spinnerChan != nil {
+		close(spinnerChan)
+		spinnerChan = nil
+	}
 	spinnerChan = make(chan bool)
+	spinnerMu.Unlock()
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	go func() {
@@ -40,6 +52,9 @@ func StartSpinnerWithColor(msg string, c ColorFn) {
 }
 
 func StopSpinner() {
+	spinnerMu.Lock()
+	defer spinnerMu.Unlock()
+
 	if spinnerChan == nil {
 		return
 	}
