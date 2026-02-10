@@ -254,6 +254,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 	}
 
+	g.clearStatus()
 	return result, g.continueExecution(ctx, parsedCommand)
 }
 
@@ -403,6 +404,14 @@ func (g *packageManagerGuard) showWarning(message string) {
 	g.interaction.ShowWarning(message)
 }
 
+func (g *packageManagerGuard) clearStatus() {
+	if g.interaction.ClearStatus == nil {
+		return
+	}
+
+	g.interaction.ClearStatus()
+}
+
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) (*GuardResult, error) {
 	result := &GuardResult{}
 
@@ -535,6 +544,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 		)
 	}
 
+	g.clearStatus()
 	return result, g.continueExecution(ctx, parsedCommand)
 }
 
