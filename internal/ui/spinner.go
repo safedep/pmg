@@ -52,6 +52,8 @@ func StopSpinner() {
 
 	close(spinnerChan)
 
+	spinnerChan = nil
+
 	fmt.Printf("\r")
 	fmt.Println()
 }

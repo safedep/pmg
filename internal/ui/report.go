@@ -135,7 +135,6 @@ func Report(data *ReportData) {
 // Normal successful execution produces no output
 func reportSilent(data *ReportData) {
 	// Silent mode: no report output
-	// Block messages and errors are already shown via ui.Block() and ui.ErrorExit()
 }
 
 // reportNormal shows minimal, assuring output
