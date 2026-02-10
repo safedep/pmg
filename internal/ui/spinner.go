@@ -40,6 +40,10 @@ func StartSpinnerWithColor(msg string, c ColorFn) {
 }
 
 func StopSpinner() {
+	if spinnerChan == nil {
+		return
+	}
+
 	// Gracefully handle the case where the spinner is already stopped
 	// and the channel is closed, yet client code calls StopSpinner() again.
 	defer func() {

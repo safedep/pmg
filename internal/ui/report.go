@@ -119,6 +119,8 @@ func (r *ReportData) WasSuccessful() bool {
 func Report(data *ReportData) {
 	data.Finalize()
 
+	StopSpinner()
+
 	switch verbosityLevel {
 	case VerbosityLevelSilent:
 		reportSilent(data)
