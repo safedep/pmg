@@ -202,7 +202,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			result.BlockedPackages = append(result.BlockedPackages, analysisResult)
 			blockConfig.MalwarePackages = append(blockConfig.MalwarePackages, analysisResult)
 			g.logMalwareDetection(analysisResult, true)
-			return result, g.blockInstallation(blockConfig)
+
+			return result, nil
 		}
 
 		if analysisResult.Action == analyzer.ActionConfirm {
@@ -227,7 +228,8 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 				result.BlockedPackages = append(result.BlockedPackages, pkg)
 			}
 			result.WasUserCancelled = true
-			return result, g.blockInstallation(blockConfig)
+
+			return result, nil
 		}
 
 		// User confirmed installation despite warning
@@ -394,12 +396,12 @@ func (g *packageManagerGuard) setStatus(status string) {
 	g.interaction.SetStatus(status)
 }
 
-func (g *packageManagerGuard) blockInstallation(config *ui.BlockConfig) error {
-	if g.interaction.Block == nil {
-		return nil
+func (g *packageManagerGuard) showWarning(message string) {
+	if g.interaction.ShowWarning == nil {
+		return
 	}
 
-	return g.interaction.Block(config)
+	g.interaction.ShowWarning(message)
 }
 
 func (g *packageManagerGuard) clearStatus() {
@@ -408,14 +410,6 @@ func (g *packageManagerGuard) clearStatus() {
 	}
 
 	g.interaction.ClearStatus()
-}
-
-func (g *packageManagerGuard) showWarning(message string) {
-	if g.interaction.ShowWarning == nil {
-		return
-	}
-
-	g.interaction.ShowWarning(message)
 }
 
 func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, parsedCommand *packagemanager.ParsedCommand) (*GuardResult, error) {
@@ -497,7 +491,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 			g.logMalwareDetection(analysisResult, true)
 
-			return result, g.blockInstallation(blockConfig)
+			return result, nil
 		}
 
 		if analysisResult.Action == analyzer.ActionConfirm {
@@ -525,7 +519,8 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			}
 
 			result.WasUserCancelled = true
-			return result, g.blockInstallation(blockConfig)
+
+			return result, nil
 		}
 
 		// User confirmed installation despite warning

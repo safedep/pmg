@@ -119,6 +119,8 @@ func (r *ReportData) WasSuccessful() bool {
 func Report(data *ReportData) {
 	data.Finalize()
 
+	StopSpinner()
+
 	switch verbosityLevel {
 	case VerbosityLevelSilent:
 		reportSilent(data)
@@ -133,7 +135,6 @@ func Report(data *ReportData) {
 // Normal successful execution produces no output
 func reportSilent(data *ReportData) {
 	// Silent mode: no report output
-	// Block messages and errors are already shown via ui.Block() and ui.ErrorExit()
 }
 
 // reportNormal shows minimal, assuring output
@@ -171,6 +172,12 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
+		fmt.Println()
+		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+
+		printMaliciousPackagesList(data.BlockedPackages)
+		fmt.Println()
+
 		icon = Colors.Red("✗")
 		message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
 			data.TotalAnalyzed, data.BlockedCount)
