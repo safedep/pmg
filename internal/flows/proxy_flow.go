@@ -141,7 +141,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, []proxy.Interceptor{
 		interceptor,
-		interceptors.NewHostObservationInterceptor(),
+		interceptors.NewAuditLoggerInterceptor(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start proxy server: %w", err)
