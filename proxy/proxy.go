@@ -216,6 +216,7 @@ func (ps *proxyServer) configureMITM() {
 
 				shouldMITM = true
 				log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
+				break
 			}
 		}
 		ps.mu.RUnlock()
