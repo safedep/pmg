@@ -76,3 +76,10 @@ type Interceptor interface {
 	// Called for each request matching ShouldIntercept
 	HandleRequest(ctx *RequestContext) (*InterceptorResponse, error)
 }
+
+// MITMDecider is an optional interface for interceptors that want to control
+// whether matching CONNECT requests should trigger MITM. If not implemented,
+// PMG defaults to using ShouldIntercept to decide MITM behavior.
+type MITMDecider interface {
+	ShouldMITM(ctx *RequestContext) bool
+}
