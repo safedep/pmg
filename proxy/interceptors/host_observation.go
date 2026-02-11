@@ -10,7 +10,6 @@ import (
 type HostObservationInterceptor struct{}
 
 var _ proxy.Interceptor = (*HostObservationInterceptor)(nil)
-var _ proxy.MITMDecider = (*HostObservationInterceptor)(nil)
 
 func NewHostObservationInterceptor() *HostObservationInterceptor {
 	return &HostObservationInterceptor{}
