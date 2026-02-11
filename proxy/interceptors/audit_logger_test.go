@@ -13,6 +13,7 @@ func TestAuditLoggerInterceptor_Behavior(t *testing.T) {
 
 	assert.Equal(t, "audit-logger-interceptor", i.Name())
 	assert.True(t, i.ShouldIntercept(nil))
+	assert.False(t, i.ShouldMITM(nil))
 }
 
 func TestAuditLoggerInterceptor_KnownRegistryHost(t *testing.T) {

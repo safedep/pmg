@@ -10,6 +10,7 @@ import (
 type AuditLoggerInterceptor struct{}
 
 var _ proxy.Interceptor = (*AuditLoggerInterceptor)(nil)
+var _ proxy.MITMDecider = (*AuditLoggerInterceptor)(nil)
 
 func NewAuditLoggerInterceptor() *AuditLoggerInterceptor {
 	return &AuditLoggerInterceptor{}
@@ -22,6 +23,11 @@ func (i *AuditLoggerInterceptor) Name() string {
 // ShouldIntercept is always true so we can observe all proxied traffic.
 func (i *AuditLoggerInterceptor) ShouldIntercept(_ *proxy.RequestContext) bool {
 	return true
+}
+
+// ShouldMITM is false because this interceptor is telemetry-only.
+func (i *AuditLoggerInterceptor) ShouldMITM(_ *proxy.RequestContext) bool {
+	return false
 }
 
 func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
