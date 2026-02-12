@@ -96,6 +96,7 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Logger = &goproxyLoggerWrapper{}
+	proxy.Tr = newUpstreamTransport(config)
 
 	// Set verbose to true for verbose logging.
 	// Logging is handled by our own logger which has log level controls.
@@ -129,6 +130,44 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	ps.registerHandlers()
 
 	return ps, nil
+}
+
+func newUpstreamTransport(config *ProxyConfig) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout: config.ConnectTimeout,
+	}
+
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: config.ConnectTimeout,
+			TLSClientConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: false,
+			},
+		}
+	}
+
+	transport := defaultTransport.Clone()
+	transport.Proxy = http.ProxyFromEnvironment
+	transport.DialContext = dialer.DialContext
+	transport.TLSHandshakeTimeout = config.ConnectTimeout
+
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if transport.TLSClientConfig != nil {
+		tlsConfig = transport.TLSClientConfig.Clone()
+		if tlsConfig.MinVersion < tls.VersionTLS12 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+	}
+
+	// Explicitly enforce upstream certificate validation.
+	tlsConfig.InsecureSkipVerify = false
+	transport.TLSClientConfig = tlsConfig
+
+	return transport
 }
 
 func (ps *proxyServer) Start() error {
