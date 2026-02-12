@@ -137,37 +137,17 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		Timeout: config.ConnectTimeout,
 	}
 
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return &http.Transport{
-			Proxy:               http.ProxyFromEnvironment,
-			DialContext:         dialer.DialContext,
-			TLSHandshakeTimeout: config.ConnectTimeout,
-			TLSClientConfig: &tls.Config{
-				MinVersion:         tls.VersionTLS12,
-				InsecureSkipVerify: false,
-			},
-		}
+	// Keep transport behavior close to goproxy defaults and only harden TLS:
+	// enforce server certificate verification and require TLS 1.2+.
+	return &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         dialer.DialContext,
+		TLSHandshakeTimeout: config.ConnectTimeout,
+		TLSClientConfig: &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: false,
+		},
 	}
-
-	transport := defaultTransport.Clone()
-	transport.Proxy = http.ProxyFromEnvironment
-	transport.DialContext = dialer.DialContext
-	transport.TLSHandshakeTimeout = config.ConnectTimeout
-
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
-	if transport.TLSClientConfig != nil {
-		tlsConfig = transport.TLSClientConfig.Clone()
-		if tlsConfig.MinVersion < tls.VersionTLS12 {
-			tlsConfig.MinVersion = tls.VersionTLS12
-		}
-	}
-
-	// Explicitly enforce upstream certificate validation.
-	tlsConfig.InsecureSkipVerify = false
-	transport.TLSClientConfig = tlsConfig
-
-	return transport
 }
 
 func (ps *proxyServer) Start() error {
