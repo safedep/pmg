@@ -115,6 +115,36 @@ func TestLogMalwareBlocked(t *testing.T) {
 	assert.Equal(t, "pypi", event.Ecosystem)
 }
 
+func TestLogProxyHostObserved(t *testing.T) {
+	tmpDir := t.TempDir()
+	logDir := filepath.Join(tmpDir, ".pmg", "logs")
+
+	err := reinitializeForTest(logDir)
+	assert.NoError(t, err, "Failed to initialize logger")
+	defer func() {
+		err := Close()
+		assert.NoError(t, err)
+	}()
+
+	LogProxyHostObserved("example.com", "CONNECT", "connect_tunnel_no_interceptor", map[string]interface{}{
+		"request_id": "abc123",
+	})
+
+	logFilePath := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
+	data, err := os.ReadFile(logFilePath)
+	assert.NoError(t, err, "Failed to read log file")
+
+	var event Event
+	err = json.Unmarshal(data, &event)
+	assert.NoError(t, err, "Failed to parse event")
+
+	assert.Equal(t, EventTypeProxyHostObserved, event.EventType)
+	assert.Equal(t, "example.com", event.Details["hostname"])
+	assert.Equal(t, "CONNECT", event.Details["method"])
+	assert.Equal(t, "connect_tunnel_no_interceptor", event.Details["reason"])
+	assert.Equal(t, "abc123", event.Details["request_id"])
+}
+
 func TestInitializeWithFile(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir := t.TempDir()

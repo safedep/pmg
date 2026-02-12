@@ -76,3 +76,8 @@ type Interceptor interface {
 	// Called for each request matching ShouldIntercept
 	HandleRequest(ctx *RequestContext) (*InterceptorResponse, error)
 }
+
+// MITMDecider is optional; implement to control whether CONNECT requests are MITM’d.
+type MITMDecider interface {
+	ShouldMITM(ctx *RequestContext) bool
+}

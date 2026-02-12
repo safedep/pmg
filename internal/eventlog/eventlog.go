@@ -24,6 +24,7 @@ const (
 	EventTypeInstallStarted        EventType = "install_started"
 	EventTypeDependencyResolved    EventType = "dependency_resolved"
 	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
+	EventTypeProxyHostObserved     EventType = "proxy_host_observed"
 	EventTypeError                 EventType = "error"
 )
 
@@ -388,6 +389,27 @@ func LogInstallStarted(packageManager string, args []string) {
 
 	if err := LogEvent(event); err != nil {
 		log.Warnf("failed to log install started event: %s", err)
+	}
+}
+
+// LogProxyHostObserved logs when proxy mode observes outbound traffic to a host.
+func LogProxyHostObserved(hostname, method, reason string, details map[string]interface{}) {
+	event := Event{
+		EventType: EventTypeProxyHostObserved,
+		Message:   fmt.Sprintf("Proxy observed outbound host: %s", hostname),
+		Details: map[string]interface{}{
+			"hostname": hostname,
+			"method":   method,
+			"reason":   reason,
+		},
+	}
+
+	for k, v := range details {
+		event.Details[k] = v
+	}
+
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log proxy host observed event: %s", err)
 	}
 }
 

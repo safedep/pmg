@@ -139,7 +139,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	log.Debugf("Created %s interceptor for ecosystem %s", interceptor.Name(), ecosystem.String())
 
 	// Create and start proxy server
-	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptor)
+	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, []proxy.Interceptor{
+		interceptor,
+		interceptors.NewAuditLoggerInterceptor(),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to start proxy server: %w", err)
 	}
@@ -247,13 +250,13 @@ func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor
 func (f *proxyFlow) createAndStartProxyServer(
 	certMgr certmanager.CertificateManager,
-	interceptor proxy.Interceptor,
+	interceptorsList []proxy.Interceptor,
 ) (proxy.ProxyServer, string, error) {
 	proxyConfig := &proxy.ProxyConfig{
 		ListenAddr:     "127.0.0.1:0",
 		CertManager:    certMgr,
 		EnableMITM:     true,
-		Interceptors:   []proxy.Interceptor{interceptor},
+		Interceptors:   interceptorsList,
 		ConnectTimeout: 30 * time.Second,
 		RequestTimeout: 5 * time.Minute,
 	}
@@ -280,6 +283,7 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 
 	env := os.Environ()
 	env = append(env,
+		"NODE_USE_ENV_PROXY=1",
 		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
 		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
 		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),

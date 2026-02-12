@@ -212,11 +212,25 @@ func (ps *proxyServer) configureMITM() {
 		ps.mu.RLock()
 		shouldMITM := false
 		for _, interceptor := range ps.interceptors {
-			if interceptor.ShouldIntercept(reqCtx) {
-				shouldMITM = true
-				log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
-				break
+			if !interceptor.ShouldIntercept(reqCtx) {
+				continue
 			}
+
+			mitm := true
+			if decider, ok := interceptor.(MITMDecider); ok {
+				mitm = decider.ShouldMITM(reqCtx)
+			}
+
+			if !mitm {
+				// Allow non-MITM interceptors (e.g., telemetry) to observe CONNECT traffic.
+				if _, err := interceptor.HandleRequest(reqCtx); err != nil {
+					log.Errorf("[%s] Interceptor %s error on CONNECT: %v", reqCtx.RequestID, interceptor.Name(), err)
+				}
+				continue
+			}
+
+			shouldMITM = true
+			log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
 		}
 		ps.mu.RUnlock()
 
