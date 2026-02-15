@@ -32,7 +32,7 @@
 
 Modern software development relies heavily on open-source packages. However, standard package managers (`npm`, `pip`, etc.) prioritize convenience over security, executing arbitrary code (like `postinstall` scripts) on your machine without validation. This vector is frequently exploited by attackers to steal credentials or inject backdoors.
 
-**PMG acts as a secure middleware layer.** It wraps your package manager to:
+**PMG acts as a security middleware layer.** It wraps your package manager to:
 
 1. **Analyze** packages for malware before they are installed.
 2. **Sandbox** the installation process to prevent system modification.
@@ -86,14 +86,14 @@ If a malicious package is detected, PMG blocks it immediately:
 
 ## Features
 
-| Feature                 | Description                                                                                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Malware Blocking**    | Real-time identifcation and blocking of malicious packages using [SafeDep](https://docs.safedep.io/cloud/malware-analysis). |
-| **Sandboxing**          | Enforces least privilege using OS-native sandboxing (Seatbelt on macOS) to contain installation scripts.                    |
-| **Dependency Analysis** | Deep scans of direct and transitive dependencies before they hit your disk.                                                 |
-| **Event Logging**       | Keeps a strictly verifiable audit trail of all installed packages in `~/.pmg/logs`.                                         |
-| **Zero Config**         | Works out of the box with sensible security defaults.                                                                       |
-| **Cross-Shell**         | Seamlessly integrates with Zsh, Bash, Fish, and more.                                                                       |
+| Feature                          | Description                                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Malicious Package Protection** | Real-time protection against malicious packages using [SafeDep](https://docs.safedep.io/cloud/malware-analysis). |
+| **Sandboxing**                   | Enforces least privilege using OS native sandboxing to contain installation scripts.                             |
+| **Dependency Analysis**          | Deep scans of direct and transitive dependencies before they hit your disk.                                      |
+| **Event Logging**                | Keeps a verifiable audit trail of all installed packages.                                                        |
+| **Zero Config**                  | Works out of the box with sensible security defaults.                                                            |
+| **Cross-Shell**                  | Seamlessly integrates with Zsh, Bash, Fish, and more.                                                            |
 
 ## Supported Package Managers
 
@@ -149,7 +149,7 @@ Download the latest binary for your platform from the [Releases Page](https://gi
 
 ## Trust and Security
 
-Security is the first priority. PMG builds are reproducible and signed.
+Security is our first class requirement. PMG builds are reproducible and signed.
 
 * **Attestations**: GitHub and npm attestations are used to guarantee artifact integrity.
 * **Verification**: Users can cryptographically prove the binary matches the source code.
@@ -204,5 +204,5 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## Telemetry
 
-PMG collects anonymous usage data to improve detection capabilities.
+PMG collects anonymous usage data to improve project stability and reliability.
 To disable: `export PMG_DISABLE_TELEMETRY=true`.
