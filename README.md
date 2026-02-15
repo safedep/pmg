@@ -5,6 +5,7 @@
 
 <div align="center">
     <h1>Package Manager Guard (PMG)</h1>
+    <h3>Prevent supply chain attacks before they happen.</h3>
 </div>
 
 <div align="center">
@@ -21,283 +22,187 @@
 
 </div>
 
-<div align="center">
-  <h3>
-    PMG protects developers from getting compromised by malicious packages.<br/>
-    See <a href="https://safedep.io/malicious-npm-package-express-cookie-parser/">example</a>
-  </h3>
-</div>
-
 <br>
 
-<img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
+<div align="center">
+  <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
+</div>
 
-## Key Features
+## Why PMG?
 
-- Wraps your favorite package manager (eg. `npm`, `pnpm`, `pip` and more)
-- Blocks malicious packages at install time
-- No configuration required, just install and use
-- Maintains package installation event log for transparency and audit trail
-- Enforces least privilege and defense in depth using OS native sandboxing
+Modern software development relies heavily on open-source packages. However, standard package managers (`npm`, `pip`, etc.) prioritize convenience over security, executing arbitrary code (like `postinstall` scripts) on your machine without validation. This vector is frequently exploited by attackers to steal credentials or inject backdoors.
 
-PMG guarantees its own artifact integrity using GitHub and npm attestations. Users can cryptographically prove that the binary they run
-matches the source code they reviewed, eliminating the risk of tampered or malicious builds. See [why and how to trust PMG](docs/trust.md).
+**PMG acts as a security middleware layer.** It wraps your package manager to:
+
+1. **Analyze** packages for malware before they are installed.
+2. **Sandbox** the installation process to prevent system modification.
+3. **Audit** every package installation event.
 
 ## Quick Start
 
-Install `pmg` using your favorite package manager:
+Get protected in seconds.
 
-```shell
-# MacOS/Linux with Homebrew
+### 1. Install
+
+**MacOS / Linux (Homebrew)**
+
+```bash
 brew install safedep/tap/pmg
+```
 
-# Other platforms
+**NPM**
+
+```bash
 npm install -g @safedep/pmg
 ```
 
-**Note**: More [installation options](#installation) are available. See [why and how to trust PMG](docs/trust.md).
+> See [Installation](#installation) for additional methods.
 
-Set up `pmg` to protect your development environment from malicious packages:
+### 2. Setup
 
-```
+Configure your shell to use PMG automatically.
+
+```bash
 pmg setup install
+# Restart your terminal to apply changes
 ```
 
-> **Note:** Make sure to restart your terminal or source your shell's config file.
+### 3. Use
 
-Continue using your favorite package manager as usual:
+Continue using your favorite package manager tools as usual. PMG works silently in the background.
 
-```shell
-npm install <package-name>
+```bash
+npm install express
+# or
+pip install requests
 ```
 
-```shell
-uv pip install <package-name>
+If a malicious package is detected, PMG blocks it immediately:
+
+```text
+[PMG] Blocked malicious package: malicious-lib@1.0.0
+[PMG] Reason: Known malware signature detected
 ```
 
 ## Features
 
-- Malicious package identification using [SafeDep Cloud](https://docs.safedep.io/cloud/malware-analysis) with realtime threat detection
-- Proxy based dependency analysis and resolution
-- Fast and efficient package verification
-- Defense in depth using OS native sandboxing
-- Seamless integration with existing package managers
-- Automated shell integration with cross-shell support
-- Package installation tracking and event logging
+| Feature                          | Description                                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Malicious Package Protection** | Real-time protection against malicious packages using [SafeDep](https://docs.safedep.io/cloud/malware-analysis). |
+| **Sandboxing**                   | Enforces least privilege using OS native sandboxing to contain installation scripts.                             |
+| **Dependency Analysis**          | Deep scans of direct and transitive dependencies before they hit your disk.                                      |
+| **Event Logging**                | Keeps a verifiable audit trail of all installed packages.                                                        |
+| **Zero Config**                  | Works out of the box with sensible security defaults.                                                            |
+| **Cross-Shell**                  | Seamlessly integrates with Zsh, Bash, Fish, and more.                                                            |
 
 ## Supported Package Managers
 
-PMG supports the following package managers:
+PMG supports the tools you already use:
 
-| Package Manager | Status | Command                                                  |
-| --------------- | ------ | -------------------------------------------------------- |
-| `npm`           | ✅      | `pmg npm install <package>`                              |
-| `pnpm`          | ✅      | `pmg pnpm add <package>`                                 |
-| `bun`           | ✅      | `pmg bun add <package>`                                  |
-| `yarn`          | ✅      | `pmg yarn add <package>`                                 |
-| `pip`           | ✅      | `pmg pip install <package>`                              |
-| `uv`            | ✅      | `pmg uv add <package>` or `pmg uv pip install <package>` |
-| `poetry`        | ✅      | `pmg poetry add <package>`                               |
-| `npx`           | ✅      | `pmg npx <package> <action>`                             |
-| `pnpx`          | ✅      | `pmg pnpx <package> <action>`                            |
-
-> Want us to support your favorite package manager? [Open an issue](https://github.com/safedep/pmg/issues) and let us know!
+| Ecosystem   | Tools    | Status | Command Example     |
+| ----------- | -------- | ------ | ------------------- |
+| **Node.js** | `npm`    | Yes    | `npm install <pkg>` |
+|             | `pnpm`   | Yes    | `pnpm add <pkg>`    |
+|             | `yarn`   | Yes    | `yarn add <pkg>`    |
+|             | `bun`    | Yes    | `bun add <pkg>`     |
+|             | `npx`    | Yes    | `npx <pkg>`         |
+| **Python**  | `pip`    | Yes    | `pip install <pkg>` |
+|             | `poetry` | Yes    | `poetry add <pkg>`  |
+|             | `uv`     | Yes    | `uv add <pkg>`      |
 
 ## Installation
 
-### Homebrew
-
-You can install `pmg` using `homebrew` in MacOS and Linux
+<details>
+<summary><strong>Homebrew (MacOS/Linux)</strong></summary>
 
 ```bash
 brew tap safedep/tap
 brew install safedep/tap/pmg
 ```
 
-### Binaries
+</details>
 
-Download the latest binary from the [releases page](https://github.com/safedep/pmg/releases).
-
-### Build from Source
-
-> Ensure $(go env GOPATH)/bin is in your $PATH
+<details>
+<summary><strong>NPM (Cross-Platform)</strong></summary>
 
 ```bash
+npm install -g @safedep/pmg
+```
+
+</details>
+
+<details>
+<summary><strong>Go (Build from Source)</strong></summary>
+
+```bash
+# Ensure $(go env GOPATH)/bin is in your $PATH
 go install github.com/safedep/pmg@latest
 ```
 
-## Setup
-
-PMG provides built-in commands to automatically configure shell aliases for seamless integration:
-
-### Install Aliases
-
-Set up PMG to intercept package manager commands:
-
-```bash
-pmg setup install
-```
-
-<details>
-<summary>Custom config directory</summary>
-
-```bash
-PMG_CONFIG_DIR=/path/to/config pmg setup install
-```
-</details>
-
-The setup command will:
-
-- Create a `~/.pmg.rc` file containing package manager aliases
-- Automatically add a source line to your shell configuration files
-- Create a default config file. See [config template](config/config.template.yml)
-
-> **Note**: After running `pmg setup install`, restart your terminal or run `source ~/.zshrc` (or your shell's config file) to activate the aliases.
-
-### Remove Aliases
-
-To remove PMG aliases and restore original package manager behavior:
-
-```bash
-pmg setup remove
-```
-
-This will:
-
-- Remove the source line from your shell configuration files
-- Delete the `~/.pmg.rc` file
-
-> ⚠️ Note: Aliases might still be active in your **current terminal session**. Restart your terminal or use `unalias <cmd>` to remove them instantly.
-
-## Usage
-
-<details>
-<summary>Paranoid Mode</summary>
-
-Use the `--paranoid` flag to treat suspicous (unverified) packages as malicious packages.
-
-```bash
-pmg --paranoid npm install <package-name>
-```
-
 </details>
 
 <details>
-<summary>Silent Mode</summary>
+<summary><strong>Binary Download</strong></summary>
 
-Use the `--silent` flag to run PMG in silent mode:
-
-```bash
-pmg --silent npm install <package-name>
-```
-
+Download the latest binary for your platform from the [Releases Page](https://github.com/safedep/pmg/releases).
 </details>
 
-<details>
-<summary>Dry Run</summary>
+## Trust and Security
 
-Use the `--dry-run` flag to skip actual package installation. When enabled `pmg` will not execute
-package manager commands. Useful for checking packages and their transitive dependencies for malware.
+Security is our first class requirement. PMG builds are reproducible and signed.
 
-```bash
-pmg --dry-run npm install <package-name>
-```
+* **Attestations**: GitHub and npm attestations are used to guarantee artifact integrity.
+* **Verification**: Users can cryptographically prove the binary matches the source code.
+* See [Trusting PMG](docs/trust.md) for verification steps.
 
-</details>
+## Usage Guide
 
-<details>
-<summary>Verbose Mode</summary>
+PMG runs transparently, but you can control it when needed.
 
-Use the `--verbose` flag to run PMG in verbose mode:
+### Paranoid Mode
 
-```bash
-pmg --verbose npm install <package-name>
-```
-
-</details>
-
-<details>
-<summary>Debugging</summary>
-
-Use the `--debug` flag to enable debug mode:
+Treat all unverified or suspicious packages as malicious.
 
 ```bash
-pmg --debug npm install <package-name>
+pmg --paranoid npm install <package>
 ```
 
-Store the debug logs in a file:
+### Dry Run
+
+Simulate installation to check for malware without writing to disk.
 
 ```bash
-pmg --debug --log /tmp/debug.json npm install <package-name>
+pmg --dry-run npm install <package>
 ```
 
-</details>
+### Debugging
 
-<details>
-<summary>Insecure Installation</summary>
+Enable verbose logs for troubleshooting.
 
-Allows bypassing the blocking behavior when malicious packages are detected during installation.
+```bash
+pmg --debug npm install <package>
+```
 
-> ⚠️ **Warning**: This is a security feature bypass. Use with extreme caution and only when you understand the risks.
+### Emergency Bypass
+>
+> ⚠️ **Warning**: Bypassing security checks exposes users to risk.
 
 ```bash
 export PMG_INSECURE_INSTALLATION=true
-pmg npm install <package-name>
+npm install <package>
 ```
 
-</details>
+## Advanced Documentation
 
-## Advanced
-
-- [Trusted Packages](docs/trusted-packages.md)
-- [Proxy Mode](docs/proxy-mode.md)
-- [Sandbox](docs/sandbox.md)
+* [Trusted Packages Configuration](docs/trusted-packages.md)
+* [Proxy Mode Architecture](docs/proxy-mode.md)
+* [Sandboxing Details](docs/sandbox.md)
 
 ## Contributing
 
-Refer to [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## Limitations
-
-<details>
-<summary>Private package artifacts inaccessible in non-proxy mode</summary>
-
-If `pmg` cannot retrieve private package artifacts (such as files or metadata), it cannot perform dependency tree analysis. This is a limitation of non-proxy mode, where `pmg` is responsible for resolving dependencies and is unable to resolve transitive dependencies for private (inaccessible) packages.
-
-This limitation does **not** apply when **Proxy Mode is enabled**.
-
-</details>
-
-<details>
-<summary>Approximate dependency version resolution</summary>
-
-`pmg` resolves the transitive dependencies of a package to be installed. It does it by querying
-package registry APIs such as `npmjs` and `pypi`. However, almost always, dependency versions are
-specified as ranges instead of specific version. Different package managers have different ways of
-resolving these ranges. It also depends on peer or host dependencies already available in the application.
-
-`pmg` is required to block a malicious package _before_ it is installed. Hence it applies its own heuristic
-to choose a version from a version range for evaluation. This is fine when all versions of a given package
-is malicious. However, there is a possibility of inconsistency when a specific version of a package is malicious.
-
-</details>
-
-<details>
-<summary>PyPI registry scanning only</summary>
-
-`pmg` only scans packages available in the PyPI registry when using any python package manager. Packages installed from
-alternative sources such as Git URLs, local file paths, or private registries are not analyzed for
-malware detection. This limitation applies to direct installations and transitive dependencies sourced
-from non-PyPI locations.
-
-</details>
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to build and test PMG locally.
 
 ## Telemetry
 
-`pmg` collects anonymous telemetry to help us understand how it is used and
-improve the product. To disable telemetry, set `PMG_DISABLE_TELEMETRY` environment
-variable to `true`.
-
-```bash
-export PMG_DISABLE_TELEMETRY=true
-```
+PMG collects anonymous usage data to improve project stability and reliability.
+To disable: `export PMG_DISABLE_TELEMETRY=true`.
