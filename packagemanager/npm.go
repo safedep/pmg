@@ -121,6 +121,9 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		flagSet.StringArrayVarP(&devPackages, "dev", "D", nil, "Install dev packages")
 	}
 
+	// Known only to prevent UnknownFlags mode from swallowing the next package arg.
+	flagSet.BoolP("global", "g", false, "Install packages globally")
+
 	err := flagSet.Parse(installArgs)
 	if err != nil {
 		return &ParsedCommand{Command: command}, nil

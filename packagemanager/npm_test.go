@@ -136,6 +136,41 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.Equal(t, false, parsedCommand.IsManifestInstall) // with no package name, npm won’t add or install anything new
 			},
 		},
+		{
+			name:    "npm install with global flag with single package",
+			command: "npm install -g prettier",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
+				assert.Equal(t, false, parsedCommand.IsManifestInstall)
+				assert.Equal(t, "prettier", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "npm install with global flag with multiple packages",
+			command: "npm install -g prettier eslint",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
+				assert.Equal(t, false, parsedCommand.IsManifestInstall)
+				assert.Equal(t, "prettier", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "eslint", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "npm install with global and dev flags with multiple packages",
+			command: "npm install -g --save-dev prettier eslint",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
+				assert.Equal(t, false, parsedCommand.IsManifestInstall)
+				var pkgs []string
+				for _, target := range parsedCommand.InstallTargets {
+					pkgs = append(pkgs, target.PackageVersion.Package.Name)
+				}
+				assert.ElementsMatch(t, []string{"prettier", "eslint"}, pkgs)
+			},
+		},
 	}
 
 	for _, tc := range cases {
