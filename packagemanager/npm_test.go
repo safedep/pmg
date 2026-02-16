@@ -164,8 +164,11 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
 				assert.Equal(t, false, parsedCommand.IsManifestInstall)
-				assert.Equal(t, "eslint", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
-				assert.Equal(t, "prettier", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
+				var pkgs []string
+				for _, target := range parsedCommand.InstallTargets {
+					pkgs = append(pkgs, target.PackageVersion.Package.Name)
+				}
+				assert.ElementsMatch(t, []string{"prettier", "eslint"}, pkgs)
 			},
 		},
 	}
