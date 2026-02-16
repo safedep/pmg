@@ -106,6 +106,7 @@ PMG supports the tools you already use:
 |             | `yarn`   | Yes    | `yarn add <pkg>`    |
 |             | `bun`    | Yes    | `bun add <pkg>`     |
 |             | `npx`    | Yes    | `npx <pkg>`         |
+|             | `pnpx`   | Yes    | `pnpx <pkg>`        |
 | **Python**  | `pip`    | Yes    | `pip install <pkg>` |
 |             | `poetry` | Yes    | `poetry add <pkg>`  |
 |             | `uv`     | Yes    | `uv add <pkg>`      |
