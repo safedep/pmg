@@ -29,7 +29,7 @@ func main() {
 	cmd := &cobra.Command{
 		Use:              "pmg",
 		TraverseChildren: true,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Always set this first because we will override the log
 			// level if debug or verbose is set
 			if logFile != "" {
@@ -72,6 +72,13 @@ func main() {
 			if eventlogErr != nil {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
+
+			// Parse and validate --sandbox-allow flags after all flags are resolved
+			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
+				return err
+			}
+
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {

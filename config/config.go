@@ -134,6 +134,11 @@ type RuntimeConfig struct {
 	// This is a CLI-only flag (--sandbox-profile) and is not persisted to config.yml.
 	SandboxProfileOverride string
 
+	// SandboxAllowOverrides holds runtime sandbox allow rules from --sandbox-allow flags.
+	// These are additive rules applied on top of the resolved sandbox policy.
+	// Not persisted to config.yml.
+	SandboxAllowOverrides []SandboxAllowOverride
+
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir      string
 	configFilePath string
@@ -159,6 +164,29 @@ func (r *RuntimeConfig) ConfigDir() string {
 // support for backward compatibility
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
 	return (r.Config.ExperimentalProxyMode || r.Config.ProxyMode)
+}
+
+// SandboxAllowType represents the type of a sandbox allow override.
+type SandboxAllowType string
+
+const (
+	SandboxAllowRead       SandboxAllowType = "read"
+	SandboxAllowWrite      SandboxAllowType = "write"
+	SandboxAllowExec       SandboxAllowType = "exec"
+	SandboxAllowNetConnect SandboxAllowType = "net-connect"
+	SandboxAllowNetBind    SandboxAllowType = "net-bind"
+)
+
+// SandboxAllowOverride represents a single --sandbox-allow flag value.
+type SandboxAllowOverride struct {
+	// Type is the resource type (read, write, exec, net-connect, net-bind).
+	Type SandboxAllowType
+
+	// Value is the resolved value (absolute path, host:port, etc.).
+	Value string
+
+	// Raw is the original CLI value before resolution (for logging/warnings).
+	Raw string
 }
 
 // DefaultConfig is a fail safe contract for the runtime configuration.

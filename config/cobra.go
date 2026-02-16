@@ -1,6 +1,13 @@
 package config
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+)
+
+// sandboxAllowRaw holds the raw --sandbox-allow flag values before parsing.
+var sandboxAllowRaw []string
 
 // ApplyCobraFlags applies the cobra flags to the command.
 // These flags are local concern of the config package. This helper function is used
@@ -29,7 +36,26 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.Sandbox.EnforceAlways, "Apply sandbox to all commands, not just install commands (requires --sandbox)")
 	cmd.PersistentFlags().StringVar(&globalConfig.SandboxProfileOverride, "sandbox-profile",
 		globalConfig.SandboxProfileOverride, "Override sandbox policy profile (built-in name or path to custom YAML)")
+	cmd.PersistentFlags().StringArrayVar(&sandboxAllowRaw, "sandbox-allow",
+		nil, "Add runtime sandbox allow rule (type=value). Types: read, write, exec, net-connect, net-bind")
 
 	// Hide the experimental proxy mode flag but keep it for backward compatibility
 	_ = cmd.PersistentFlags().MarkHidden("experimental-proxy-mode")
+}
+
+// FinalizeSandboxAllowOverrides parses the raw --sandbox-allow flag values
+// and stores the validated overrides in the global config. This must be called
+// after cobra flag parsing is complete (e.g., in PersistentPreRun).
+func FinalizeSandboxAllowOverrides() error {
+	if len(sandboxAllowRaw) == 0 {
+		return nil
+	}
+
+	overrides, err := parseSandboxAllowOverrides(sandboxAllowRaw)
+	if err != nil {
+		return fmt.Errorf("failed to parse --sandbox-allow flags: %w", err)
+	}
+
+	globalConfig.SandboxAllowOverrides = overrides
+	return nil
 }
