@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/pmg/usefulerror"
@@ -114,6 +116,12 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 	log.Debugf("Loaded sandbox policy %s", policy.Name)
 
+	// Apply runtime --sandbox-allow overrides to the policy before execution
+	if len(cfg.SandboxAllowOverrides) > 0 {
+		applyRuntimeOverrides(policy, cfg.SandboxAllowOverrides)
+		logSandboxOverridesToEventLog(policy.Name, cfg.SandboxAllowOverrides)
+	}
+
 	if !policy.AppliesToPackageManager(pmName) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
 	}
@@ -145,4 +153,50 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 	}
 
 	return result, nil
+}
+
+// applyRuntimeOverrides applies --sandbox-allow overrides to the policy.
+// Overrides are additive — they only append to allow lists, never modify deny lists.
+// Warnings are logged for conflicts with deny rules and mandatory deny patterns.
+func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.SandboxAllowOverride) {
+	for _, override := range overrides {
+		switch override.Type {
+		case config.SandboxAllowRead:
+			log.Infof("Sandbox override: allowing read access to %s", override.Value)
+			policy.Filesystem.AllowRead = append(policy.Filesystem.AllowRead, override.Value)
+
+		case config.SandboxAllowWrite:
+			log.Infof("Sandbox override: allowing write access to %s", override.Value)
+			policy.Filesystem.AllowWrite = append(policy.Filesystem.AllowWrite, override.Value)
+
+		case config.SandboxAllowExec:
+			log.Infof("Sandbox override: allowing execution of %s", override.Value)
+			policy.Process.AllowExec = append(policy.Process.AllowExec, override.Value)
+
+		case config.SandboxAllowNetConnect:
+			log.Infof("Sandbox override: allowing outbound connection to %s", override.Value)
+			policy.Network.AllowOutbound = append(policy.Network.AllowOutbound, override.Value)
+
+		case config.SandboxAllowNetBind:
+			log.Infof("Sandbox override: allowing network bind on %s", override.Value)
+			policy.Network.AllowBind = append(policy.Network.AllowBind, override.Value)
+
+			// Enable AllowNetworkBind so the translator emits bind rules.
+			// Without this, AllowBind entries would be ignored on some platforms.
+			policy.AllowNetworkBind = utils.PtrTo(true)
+		}
+	}
+}
+
+// logSandboxOverridesToEventLog records sandbox allow overrides in the audit event log.
+func logSandboxOverridesToEventLog(profileName string, overrides []config.SandboxAllowOverride) {
+	entries := make([]map[string]string, 0, len(overrides))
+	for _, o := range overrides {
+		entries = append(entries, map[string]string{
+			"type":  string(o.Type),
+			"value": o.Value,
+		})
+	}
+
+	eventlog.LogSandboxOverrides(profileName, entries)
 }

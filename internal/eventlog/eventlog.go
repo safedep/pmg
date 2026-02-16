@@ -25,6 +25,7 @@ const (
 	EventTypeDependencyResolved    EventType = "dependency_resolved"
 	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
 	EventTypeProxyHostObserved     EventType = "proxy_host_observed"
+	EventTypeSandboxOverride       EventType = "sandbox_override"
 	EventTypeError                 EventType = "error"
 )
 
@@ -410,6 +411,22 @@ func LogProxyHostObserved(hostname, method, reason string, details map[string]in
 
 	if err := LogEvent(event); err != nil {
 		log.Warnf("failed to log proxy host observed event: %s", err)
+	}
+}
+
+// LogSandboxOverrides logs when runtime sandbox allow overrides are applied.
+func LogSandboxOverrides(sandboxProfile string, overrides []map[string]string) {
+	event := Event{
+		EventType: EventTypeSandboxOverride,
+		Message:   fmt.Sprintf("Sandbox runtime overrides applied (%d rules)", len(overrides)),
+		Details: map[string]interface{}{
+			"sandbox_profile":          sandboxProfile,
+			"sandbox_runtime_overrides": overrides,
+		},
+	}
+
+	if err := LogEvent(event); err != nil {
+		log.Warnf("failed to log sandbox override event: %s", err)
 	}
 }
 

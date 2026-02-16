@@ -72,6 +72,11 @@ func main() {
 			if eventlogErr != nil {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
+
+			// Parse and validate --sandbox-allow flags after all flags are resolved
+			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
+				ui.Fatalf("pmg: %v", err)
+			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {

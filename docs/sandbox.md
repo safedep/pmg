@@ -54,6 +54,34 @@ Run sandbox with custom policy file:
 pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 ```
 
+### Runtime Allow Overrides
+
+Use `--sandbox-allow` to make one-off exceptions without creating a custom profile. This is useful when a command needs access that the default profile blocks.
+
+```bash
+# Allow writing to a specific file
+pmg --sandbox-allow write=./.gitignore npx create-next-app@latest
+
+# Allow executing a binary blocked by the profile
+pmg --sandbox-allow exec=$(which curl) npm install some-package
+
+# Allow outbound connection to a private registry
+pmg --sandbox-allow net-connect=npm.internal.corp:443 npm install @corp/private-pkg
+
+# Allow a dev server to bind to a local port
+pmg --sandbox-allow net-bind=127.0.0.1:3000 npx some-dev-tool
+
+# Multiple overrides
+pmg \
+  --sandbox-allow write=./.gitignore \
+  --sandbox-allow exec=$(which curl) \
+  npm install some-package
+```
+
+Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`.
+
+Overrides are additive (append to allow lists), non-persistent (apply to current invocation only), and logged in the event log for auditing. They cannot bypass explicit deny rules in the profile or mandatory security protections (`.env`, `.ssh`, `.aws`, `.git/hooks`, etc.).
+
 <details>
 <summary>Custom policy overrides using Policy Templates</summary>
 
