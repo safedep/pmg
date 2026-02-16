@@ -158,7 +158,7 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "npm install with global flag with multiple packages and random flag",
+			name:    "npm install with global and dev flags with multiple packages",
 			command: "npm install -g --save-dev prettier eslint",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
