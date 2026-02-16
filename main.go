@@ -29,7 +29,7 @@ func main() {
 	cmd := &cobra.Command{
 		Use:              "pmg",
 		TraverseChildren: true,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			// Always set this first because we will override the log
 			// level if debug or verbose is set
 			if logFile != "" {
@@ -75,10 +75,8 @@ func main() {
 
 			// Parse and validate --sandbox-allow flags after all flags are resolved
 			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
-				return err
+				ui.Fatalf("pmg: %v", err)
 			}
-
-			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
