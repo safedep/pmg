@@ -163,9 +163,3 @@ func TestApplyRuntimeOverrides_DenyListsUnmodified(t *testing.T) {
 	assert.Equal(t, []string{"*:*"}, policy.Network.DenyOutbound)
 }
 
-func TestSliceContains(t *testing.T) {
-	assert.True(t, sliceContains([]string{"a", "b", "c"}, "b"))
-	assert.False(t, sliceContains([]string{"a", "b", "c"}, "d"))
-	assert.False(t, sliceContains([]string{}, "a"))
-}
-

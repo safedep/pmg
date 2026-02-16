@@ -166,22 +166,10 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 			policy.Filesystem.AllowRead = append(policy.Filesystem.AllowRead, override.Value)
 
 		case config.SandboxAllowWrite:
-			if sliceContains(policy.Filesystem.DenyWrite, override.Value) {
-				log.Warnf("--sandbox-allow write=%s conflicts with deny_write rule in profile %q. "+
-					"CLI overrides cannot bypass explicit deny rules. To allow this, use a custom profile without the deny rule.",
-					override.Raw, policy.Name)
-			}
-
 			log.Infof("Sandbox override: allowing write access to %s", override.Value)
 			policy.Filesystem.AllowWrite = append(policy.Filesystem.AllowWrite, override.Value)
 
 		case config.SandboxAllowExec:
-			if sliceContains(policy.Process.DenyExec, override.Value) {
-				log.Warnf("--sandbox-allow exec=%s conflicts with deny_exec rule in profile %q. "+
-					"CLI overrides cannot bypass explicit deny rules. To allow this, use a custom profile without the deny rule.",
-					override.Raw, policy.Name)
-			}
-
 			log.Infof("Sandbox override: allowing execution of %s", override.Value)
 			policy.Process.AllowExec = append(policy.Process.AllowExec, override.Value)
 
@@ -198,18 +186,6 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 			policy.AllowNetworkBind = utils.PtrTo(true)
 		}
 	}
-}
-
-// sliceContains checks if a string slice contains a value.
-// Comparison is exact match (not glob/pattern matching).
-func sliceContains(slice []string, value string) bool {
-	for _, item := range slice {
-		if item == value {
-			return true
-		}
-	}
-
-	return false
 }
 
 // logSandboxOverridesToEventLog records sandbox allow overrides in the audit event log.
