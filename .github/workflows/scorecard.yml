@@ -17,9 +17,10 @@ on:
       - "**/*.md"
       - "docs/**"
 
+# PRs share a concurrency group (cancel/serialize); Pushes use unique groups to avoid cancellation/queuing
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Declare default permissions as read only.
 permissions: read-all
