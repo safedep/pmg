@@ -26,3 +26,4 @@ bin/
 .env
 
 dist/
+.DS_Store
