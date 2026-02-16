@@ -184,7 +184,6 @@ pmg --debug npm install <package>
 ```
 
 ### Emergency Bypass
->
 > ⚠️ **Warning**: Bypassing security checks exposes users to risk.
 
 ```bash
