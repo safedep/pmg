@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -205,13 +206,6 @@ func GenerateCA(config CertManagerConfig) (*Certificate, error) {
 		Bytes: certDER,
 	})
 
-	if config.ShouldMerge {
-		certPEM, err = mergeWithSystemCABundle(certPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to merge CA certificate with system bundle: %w", err)
-		}
-	}
-
 	privKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
@@ -271,7 +265,9 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 	return tlsCert, nil
 }
 
-func mergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
+// MergeWithSystemCABundle appends system CA bundle content to the provided PEM
+// certificate bytes. If no system bundle is discovered, it returns caCertPEM as-is.
+func MergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
 	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
 	if systemBundlePath == "" {
 		// No base bundle discovered; return PMG CA only.
@@ -283,7 +279,13 @@ func mergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
 	}
 
-	merged := make([]byte, 0, len(caCertPEM)+len(systemBundle)+2)
+	caLen := len(caCertPEM)
+	sysLen := len(systemBundle)
+	if caLen > math.MaxInt-sysLen-2 {
+		return nil, fmt.Errorf("merged CA bundle size would overflow")
+	}
+
+	merged := make([]byte, 0, caLen+sysLen+2)
 	merged = append(merged, caCertPEM...)
 
 	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
