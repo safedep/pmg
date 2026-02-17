@@ -329,3 +329,26 @@ func TestSystemCABundleCandidatesForOS_LinuxIncludesKnownBundlePaths(t *testing.
 	assert.Contains(t, joined, "/etc/ssl/ca-bundle.pem")
 	assert.Contains(t, joined, "/etc/ssl/cert.pem")
 }
+
+func TestFirstReadablePath(t *testing.T) {
+	tempDir := t.TempDir()
+
+	readableFile1 := filepath.Join(tempDir, "ca1.pem")
+	readableFile2 := filepath.Join(tempDir, "ca2.pem")
+	dirPath := filepath.Join(tempDir, "certs")
+	missingFile := filepath.Join(tempDir, "missing.pem")
+
+	assert.NoError(t, os.MkdirAll(dirPath, 0o755))
+	assert.NoError(t, os.WriteFile(readableFile1, []byte("CERT1"), 0o600))
+	assert.NoError(t, os.WriteFile(readableFile2, []byte("CERT2"), 0o600))
+
+	t.Run("returns first readable file and skips empty, directory, and missing", func(t *testing.T) {
+		got := firstReadablePath("", dirPath, missingFile, readableFile1, readableFile2)
+		assert.Equal(t, readableFile1, got)
+	})
+
+	t.Run("returns empty when no readable file exists", func(t *testing.T) {
+		got := firstReadablePath("", dirPath, missingFile)
+		assert.Equal(t, "", got)
+	})
+}
