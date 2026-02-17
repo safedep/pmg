@@ -278,15 +278,16 @@ func MergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
 	}
 
-	caLen := len(caCertPEM)
-	sysLen := len(systemBundle)
-	const extra = 2
-	maxInt := int(^uint(0) >> 1)
-	if caLen > maxInt-sysLen-extra {
+	caLen := int64(len(caCertPEM))
+	sysLen := int64(len(systemBundle))
+	const extra = int64(2)
+
+	maxInt64 := int64(^uint(0) >> 1)
+	if caLen > maxInt64-sysLen-extra {
 		return nil, fmt.Errorf("merged CA bundle size would overflow")
 	}
 
-	totalCap := caLen + sysLen + extra
+	totalCap := int(caLen + sysLen + extra)
 	merged := make([]byte, 0, totalCap)
 	merged = append(merged, caCertPEM...)
 
