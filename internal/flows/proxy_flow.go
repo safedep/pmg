@@ -212,7 +212,7 @@ func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, erro
 
 	// Generate CA certificate
 	caConfig := certmanager.DefaultCertManagerConfig()
-	caConfig.ShouldMerge = true
+	caConfig.MergeWithSystemCABundle = true
 
 	caCert, err := certmanager.GenerateCA(caConfig)
 	if err != nil {
