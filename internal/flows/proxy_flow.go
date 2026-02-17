@@ -224,7 +224,7 @@ func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, erro
 	caCertPath := filepath.Join(tempDir, fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
 
 	bundlePEM := caCert.Certificate
-	if caConfig.ShouldMerge {
+	if caConfig.MergeWithSystemCABundle {
 		mergedBundlePEM, err := certmanager.MergeWithSystemCABundle(bundlePEM)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to merge CA with system bundle: %w", err)

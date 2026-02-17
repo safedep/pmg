@@ -66,17 +66,17 @@ type CertManagerConfig struct {
 	// KeySize specifies the RSA key size in bits
 	KeySize int
 
-	// ShouldMerge tells if system cert should be merged with PMG cert
-	ShouldMerge bool
+	// MergeWithSystemCABundle tells if system cert should be merged with PMG cert
+	MergeWithSystemCABundle bool
 }
 
 // DefaultCertManagerConfig returns a configuration with reasonable defaults
 func DefaultCertManagerConfig() CertManagerConfig {
 	return CertManagerConfig{
-		CAValidityDays:       365,
-		HostCertValidityDays: 1,
-		KeySize:              2048,
-		ShouldMerge:          false,
+		CAValidityDays:          365,
+		HostCertValidityDays:    1,
+		KeySize:                 2048,
+		MergeWithSystemCABundle: false,
 	}
 }
 

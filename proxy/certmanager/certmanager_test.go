@@ -266,7 +266,7 @@ func TestGenerateCA_WithoutMerge(t *testing.T) {
 
 func TestGenerateCA_WithMergeConfig_DoesNotAlterCertificatePEM(t *testing.T) {
 	config := DefaultCertManagerConfig()
-	config.ShouldMerge = true
+	config.MergeWithSystemCABundle = true
 
 	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
 	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
