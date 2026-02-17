@@ -3,6 +3,9 @@ package certmanager
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,4 +247,71 @@ func BenchmarkCacheOperations(b *testing.B) {
 			cache.Get("example.com")
 		}
 	})
+}
+
+func TestGenerateCA_WithoutMerge(t *testing.T) {
+	config := DefaultCertManagerConfig()
+
+	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
+	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
+
+	original := os.Getenv("REQUESTS_CA_BUNDLE")
+	assert.NoError(t, os.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath))
+	t.Cleanup(func() { _ = os.Setenv("REQUESTS_CA_BUNDLE", original) })
+
+	ca, err := GenerateCA(config)
+	assert.NoError(t, err, "Failed to generate CA")
+	assert.False(t, strings.Contains(string(ca.Certificate), "SYSTEM_CA_CERT"), "CA should not include system bundle content when merge is disabled")
+}
+
+func TestGenerateCA_WithMerge(t *testing.T) {
+	config := DefaultCertManagerConfig()
+	config.ShouldMerge = true
+
+	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
+	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
+
+	original := os.Getenv("REQUESTS_CA_BUNDLE")
+	assert.NoError(t, os.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath))
+	t.Cleanup(func() { _ = os.Setenv("REQUESTS_CA_BUNDLE", original) })
+
+	ca, err := GenerateCA(config)
+	assert.NoError(t, err, "Failed to generate CA")
+	assert.True(t, strings.Contains(string(ca.Certificate), "SYSTEM_CA_CERT"), "Merged certificate bundle should contain system CA content")
+}
+
+func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testing.T) {
+	env := map[string]string{
+		"ProgramFiles":      `C:\Program Files`,
+		"ProgramFiles(x86)": `C:\Program Files (x86)`,
+		"SystemRoot":        `C:\Windows`,
+	}
+
+	candidates := systemCABundleCandidatesForOS("windows", func(k string) string { return env[k] })
+	joined := strings.Join(candidates, "|")
+
+	assert.Contains(t, joined, `Git/mingw64/ssl/certs/ca-bundle.crt`)
+	assert.Contains(t, joined, `Git/usr/ssl/certs/ca-bundle.crt`)
+	assert.Contains(t, joined, `Git/mingw32/ssl/certs/ca-bundle.crt`)
+	assert.Contains(t, joined, `System32/curl-ca-bundle.crt`)
+}
+
+func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing.T) {
+	candidates := systemCABundleCandidatesForOS("darwin", func(string) string { return "" })
+	joined := strings.Join(candidates, "|")
+
+	assert.Contains(t, joined, "/opt/homebrew/etc/openssl@3/cert.pem")
+	assert.Contains(t, joined, "/usr/local/etc/openssl@3/cert.pem")
+	assert.Contains(t, joined, "/etc/ssl/cert.pem")
+}
+
+func TestSystemCABundleCandidatesForOS_LinuxIncludesKnownBundlePaths(t *testing.T) {
+	candidates := systemCABundleCandidatesForOS("linux", func(string) string { return "" })
+	joined := strings.Join(candidates, "|")
+
+	assert.Contains(t, joined, "/etc/ssl/certs/ca-certificates.crt")
+	assert.Contains(t, joined, "/etc/pki/tls/certs/ca-bundle.crt")
+	assert.Contains(t, joined, "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	assert.Contains(t, joined, "/etc/ssl/ca-bundle.pem")
+	assert.Contains(t, joined, "/etc/ssl/cert.pem")
 }

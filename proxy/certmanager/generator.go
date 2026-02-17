@@ -9,6 +9,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -202,6 +205,13 @@ func GenerateCA(config CertManagerConfig) (*Certificate, error) {
 		Bytes: certDER,
 	})
 
+	if config.ShouldMerge {
+		certPEM, err = mergeWithSystemCABundle(certPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to merge CA certificate with system bundle: %w", err)
+		}
+	}
+
 	privKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
@@ -259,4 +269,87 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 	}
 
 	return tlsCert, nil
+}
+
+func mergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
+	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
+	if systemBundlePath == "" {
+		// No base bundle discovered; return PMG CA only.
+		return caCertPEM, nil
+	}
+
+	systemBundle, err := os.ReadFile(systemBundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
+	}
+
+	merged := make([]byte, 0, len(caCertPEM)+len(systemBundle)+2)
+	merged = append(merged, caCertPEM...)
+
+	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
+		merged = append(merged, '\n')
+	}
+	merged = append(merged, systemBundle...)
+
+	return merged, nil
+}
+
+func firstReadablePath(paths ...string) string {
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		return path
+	}
+
+	return ""
+}
+
+func systemCABundleCandidates() []string {
+	return systemCABundleCandidatesForOS(runtime.GOOS, os.Getenv)
+}
+
+func systemCABundleCandidatesForOS(goos string, getenv func(string) string) []string {
+	candidates := []string{
+		getenv("REQUESTS_CA_BUNDLE"),
+		getenv("SSL_CERT_FILE"),
+		getenv("PIP_CERT"),
+		getenv("CURL_CA_BUNDLE"),
+	}
+
+	switch goos {
+	case "darwin":
+		candidates = append(candidates,
+			"/opt/homebrew/etc/openssl@3/cert.pem",
+			"/usr/local/etc/openssl@3/cert.pem",
+			"/etc/ssl/cert.pem",
+		)
+	case "linux":
+		candidates = append(candidates,
+			"/etc/ssl/certs/ca-certificates.crt",
+			"/etc/pki/tls/certs/ca-bundle.crt",
+			"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+			"/etc/ssl/ca-bundle.pem",
+			"/etc/ssl/cert.pem",
+		)
+	case "windows":
+		programFiles := getenv("ProgramFiles")
+		programFilesX86 := getenv("ProgramFiles(x86)")
+		systemRoot := getenv("SystemRoot")
+
+		candidates = append(candidates,
+			filepath.Join(programFiles, "Git", "mingw64", "ssl", "certs", "ca-bundle.crt"),
+			filepath.Join(programFiles, "Git", "usr", "ssl", "certs", "ca-bundle.crt"),
+			filepath.Join(programFilesX86, "Git", "mingw32", "ssl", "certs", "ca-bundle.crt"),
+			filepath.Join(systemRoot, "System32", "curl-ca-bundle.crt"),
+		)
+	}
+
+	return candidates
 }
