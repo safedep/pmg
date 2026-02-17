@@ -345,12 +345,22 @@ func systemCABundleCandidatesForOS(goos string, getenv func(string) string) []st
 		programFilesX86 := getenv("ProgramFiles(x86)")
 		systemRoot := getenv("SystemRoot")
 
-		candidates = append(candidates,
-			filepath.Join(programFiles, "Git", "mingw64", "ssl", "certs", "ca-bundle.crt"),
-			filepath.Join(programFiles, "Git", "usr", "ssl", "certs", "ca-bundle.crt"),
-			filepath.Join(programFilesX86, "Git", "mingw32", "ssl", "certs", "ca-bundle.crt"),
-			filepath.Join(systemRoot, "System32", "curl-ca-bundle.crt"),
-		)
+		if programFiles != "" {
+			candidates = append(candidates,
+				filepath.Join(programFiles, "Git", "mingw64", "ssl", "certs", "ca-bundle.crt"),
+				filepath.Join(programFiles, "Git", "usr", "ssl", "certs", "ca-bundle.crt"),
+			)
+		}
+		if programFilesX86 != "" {
+			candidates = append(candidates,
+				filepath.Join(programFilesX86, "Git", "mingw32", "ssl", "certs", "ca-bundle.crt"),
+			)
+		}
+		if systemRoot != "" {
+			candidates = append(candidates,
+				filepath.Join(systemRoot, "System32", "curl-ca-bundle.crt"),
+			)
+		}
 	}
 
 	return candidates
