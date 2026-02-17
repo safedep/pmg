@@ -66,7 +66,9 @@ type CertManagerConfig struct {
 	// KeySize specifies the RSA key size in bits
 	KeySize int
 
-	// MergeWithSystemCABundle tells if system cert should be merged with PMG cert
+	// MergeWithSystemCABundle, when true, merges the generated PMG CA certificate with the
+	// system's CA bundle (if found) so that child processes trust both
+	// PMG-intercepted connections and the original system certificates.
 	MergeWithSystemCABundle bool
 }
 

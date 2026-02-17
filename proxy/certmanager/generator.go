@@ -8,7 +8,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -281,17 +280,24 @@ func MergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
 
 	caLen := len(caCertPEM)
 	sysLen := len(systemBundle)
-	if caLen > math.MaxInt-sysLen-2 {
+	const extra = 2
+	maxInt := int(^uint(0) >> 1)
+	if caLen > maxInt-sysLen-extra {
 		return nil, fmt.Errorf("merged CA bundle size would overflow")
 	}
 
-	merged := make([]byte, 0, caLen+sysLen+2)
+	totalCap := caLen + sysLen + extra
+	merged := make([]byte, 0, totalCap)
 	merged = append(merged, caCertPEM...)
 
 	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
 		merged = append(merged, '\n')
 	}
 	merged = append(merged, systemBundle...)
+
+	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
+		merged = append(merged, '\n')
+	}
 
 	return merged, nil
 }
