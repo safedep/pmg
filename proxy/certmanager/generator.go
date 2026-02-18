@@ -15,6 +15,13 @@ import (
 	"time"
 )
 
+const (
+	maxSystemCABundleBytes int64 = 2 * 1024 * 1024
+	goosDarwin                   = "darwin"
+	goosLinux                    = "linux"
+	goosWindows                  = "windows"
+)
+
 // certManager implements the CertificateManager interface
 type certManager struct {
 	ca     *Certificate
@@ -279,9 +286,22 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		return caCert, nil
 	}
 
+	info, err := os.Stat(systemBundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat system CA bundle %s: %w", systemBundlePath, err)
+	}
+
+	if info.Size() > maxSystemCABundleBytes {
+		return nil, fmt.Errorf("system CA bundle too large: %d bytes", info.Size())
+	}
+
 	systemBundle, err := os.ReadFile(systemBundlePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
+	}
+
+	if int64(len(systemBundle)) > maxSystemCABundleBytes {
+		return nil, fmt.Errorf("system CA bundle too large: %d bytes", len(systemBundle))
 	}
 
 	caLen := int64(len(caCertPEM))
@@ -338,25 +358,30 @@ func firstReadablePath(paths ...string) string {
 }
 
 func systemCABundleCandidates() []string {
-	return systemCABundleCandidatesForOS(runtime.GOOS, os.Getenv)
+	return systemCABundleCandidatesForOS(runtime.GOOS)
 }
 
-func systemCABundleCandidatesForOS(goos string, getenv func(string) string) []string {
-	candidates := []string{
-		getenv("REQUESTS_CA_BUNDLE"),
-		getenv("SSL_CERT_FILE"),
-		getenv("PIP_CERT"),
-		getenv("CURL_CA_BUNDLE"),
+func systemCABundleCandidatesForOS(goos string) []string {
+	var candidates []string
+	appendIfSet := func(key string) {
+		if value := os.Getenv(key); value != "" {
+			candidates = append(candidates, value)
+		}
 	}
 
+	appendIfSet("REQUESTS_CA_BUNDLE")
+	appendIfSet("SSL_CERT_FILE")
+	appendIfSet("PIP_CERT")
+	appendIfSet("CURL_CA_BUNDLE")
+
 	switch goos {
-	case "darwin":
+	case goosDarwin:
 		candidates = append(candidates,
 			"/opt/homebrew/etc/openssl@3/cert.pem",
 			"/usr/local/etc/openssl@3/cert.pem",
 			"/etc/ssl/cert.pem",
 		)
-	case "linux":
+	case goosLinux:
 		candidates = append(candidates,
 			"/etc/ssl/certs/ca-certificates.crt",
 			"/etc/pki/tls/certs/ca-bundle.crt",
@@ -364,10 +389,10 @@ func systemCABundleCandidatesForOS(goos string, getenv func(string) string) []st
 			"/etc/ssl/ca-bundle.pem",
 			"/etc/ssl/cert.pem",
 		)
-	case "windows":
-		programFiles := getenv("ProgramFiles")
-		programFilesX86 := getenv("ProgramFiles(x86)")
-		systemRoot := getenv("SystemRoot")
+	case goosWindows:
+		programFiles := os.Getenv("ProgramFiles")
+		programFilesX86 := os.Getenv("ProgramFiles(x86)")
+		systemRoot := os.Getenv("SystemRoot")
 
 		if programFiles != "" {
 			candidates = append(candidates,

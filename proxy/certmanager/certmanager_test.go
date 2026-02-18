@@ -255,9 +255,7 @@ func TestGenerateCAWithSystemCA(t *testing.T) {
 	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
 	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
 
-	original := os.Getenv("REQUESTS_CA_BUNDLE")
-	assert.NoError(t, os.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath))
-	t.Cleanup(func() { _ = os.Setenv("REQUESTS_CA_BUNDLE", original) })
+	t.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath)
 
 	ca, err := GenerateCAWithSystemCA(config)
 	assert.NoError(t, err, "Failed to generate CA with system CA bundle")
@@ -266,13 +264,15 @@ func TestGenerateCAWithSystemCA(t *testing.T) {
 }
 
 func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testing.T) {
-	env := map[string]string{
-		"ProgramFiles":      `C:\Program Files`,
-		"ProgramFiles(x86)": `C:\Program Files (x86)`,
-		"SystemRoot":        `C:\Windows`,
-	}
+	t.Setenv("REQUESTS_CA_BUNDLE", "")
+	t.Setenv("SSL_CERT_FILE", "")
+	t.Setenv("PIP_CERT", "")
+	t.Setenv("CURL_CA_BUNDLE", "")
+	t.Setenv("ProgramFiles", `C:\Program Files`)
+	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
+	t.Setenv("SystemRoot", `C:\Windows`)
 
-	candidates := systemCABundleCandidatesForOS("windows", func(k string) string { return env[k] })
+	candidates := systemCABundleCandidatesForOS(goosWindows)
 	joined := strings.Join(candidates, "|")
 
 	assert.Contains(t, joined, `Git/mingw64/ssl/certs/ca-bundle.crt`)
@@ -282,7 +282,11 @@ func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testi
 }
 
 func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing.T) {
-	candidates := systemCABundleCandidatesForOS("darwin", func(string) string { return "" })
+	t.Setenv("REQUESTS_CA_BUNDLE", "")
+	t.Setenv("SSL_CERT_FILE", "")
+	t.Setenv("PIP_CERT", "")
+	t.Setenv("CURL_CA_BUNDLE", "")
+	candidates := systemCABundleCandidatesForOS(goosDarwin)
 	joined := strings.Join(candidates, "|")
 
 	assert.Contains(t, joined, "/opt/homebrew/etc/openssl@3/cert.pem")
@@ -291,7 +295,11 @@ func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing
 }
 
 func TestSystemCABundleCandidatesForOS_LinuxIncludesKnownBundlePaths(t *testing.T) {
-	candidates := systemCABundleCandidatesForOS("linux", func(string) string { return "" })
+	t.Setenv("REQUESTS_CA_BUNDLE", "")
+	t.Setenv("SSL_CERT_FILE", "")
+	t.Setenv("PIP_CERT", "")
+	t.Setenv("CURL_CA_BUNDLE", "")
+	candidates := systemCABundleCandidatesForOS(goosLinux)
 	joined := strings.Join(candidates, "|")
 
 	assert.Contains(t, joined, "/etc/ssl/certs/ca-certificates.crt")
@@ -322,4 +330,21 @@ func TestFirstReadablePath(t *testing.T) {
 		got := firstReadablePath("", dirPath, missingFile)
 		assert.Equal(t, "", got)
 	})
+}
+
+func TestGenerateCAWithSystemCA_FailsForOversizedSystemBundle(t *testing.T) {
+	config := DefaultCertManagerConfig()
+
+	systemBundlePath := filepath.Join(t.TempDir(), "oversized-system.pem")
+	oversized := make([]byte, maxSystemCABundleBytes+1)
+	for i := range oversized {
+		oversized[i] = 'A'
+	}
+	assert.NoError(t, os.WriteFile(systemBundlePath, oversized, 0600))
+
+	t.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath)
+
+	_, err := GenerateCAWithSystemCA(config)
+	assert.Error(t, err, "expected error for oversized system CA bundle")
+	assert.ErrorContains(t, err, "system CA bundle too large")
 }
