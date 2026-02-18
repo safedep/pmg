@@ -300,21 +300,16 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
 	}
 
-	if int64(len(systemBundle)) > maxSystemCABundleBytes {
-		return nil, fmt.Errorf("system CA bundle too large: %d bytes", len(systemBundle))
-	}
-
 	caLen := int64(len(caCertPEM))
 	sysLen := int64(len(systemBundle))
 	const extra = int64(2)
 
-	maxInt64 := int64(^uint(0) >> 1)
-	if caLen > maxInt64-sysLen-extra {
-		return nil, fmt.Errorf("merged CA bundle size would overflow")
+	totalCap := caLen + sysLen + extra
+	if totalCap > maxSystemCABundleBytes {
+		return nil, fmt.Errorf("merged CA bundle too large: %d bytes", totalCap)
 	}
 
-	totalCap := int(caLen + sysLen + extra)
-	merged := make([]byte, 0, totalCap)
+	merged := make([]byte, 0, int(totalCap))
 	merged = append(merged, caCertPEM...)
 
 	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
