@@ -249,7 +249,7 @@ func BenchmarkCacheOperations(b *testing.B) {
 	})
 }
 
-func TestGenerateCA_WithoutMerge(t *testing.T) {
+func TestGenerateCAWithSystemCA(t *testing.T) {
 	config := DefaultCertManagerConfig()
 
 	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
@@ -259,39 +259,10 @@ func TestGenerateCA_WithoutMerge(t *testing.T) {
 	assert.NoError(t, os.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath))
 	t.Cleanup(func() { _ = os.Setenv("REQUESTS_CA_BUNDLE", original) })
 
-	ca, err := GenerateCA(config)
-	assert.NoError(t, err, "Failed to generate CA")
-	assert.False(t, strings.Contains(string(ca.Certificate), "SYSTEM_CA_CERT"), "CA should not include system bundle content when merge is disabled")
-}
-
-func TestGenerateCA_WithMergeConfig_DoesNotAlterCertificatePEM(t *testing.T) {
-	config := DefaultCertManagerConfig()
-	config.MergeWithSystemCABundle = true
-
-	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
-	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
-
-	original := os.Getenv("REQUESTS_CA_BUNDLE")
-	assert.NoError(t, os.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath))
-	t.Cleanup(func() { _ = os.Setenv("REQUESTS_CA_BUNDLE", original) })
-
-	ca, err := GenerateCA(config)
-	assert.NoError(t, err, "Failed to generate CA")
-	assert.False(t, strings.Contains(string(ca.Certificate), "SYSTEM_CA_CERT"), "GenerateCA should return only PMG CA certificate PEM")
-}
-
-func TestMergeWithSystemCABundle(t *testing.T) {
-	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
-	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
-
-	original := os.Getenv("REQUESTS_CA_BUNDLE")
-	assert.NoError(t, os.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath))
-	t.Cleanup(func() { _ = os.Setenv("REQUESTS_CA_BUNDLE", original) })
-
-	merged, err := MergeWithSystemCABundle([]byte("PMG_CA_CERT\n"))
-	assert.NoError(t, err, "Failed to merge with system CA bundle")
-	assert.True(t, strings.Contains(string(merged), "PMG_CA_CERT"), "Merged bundle should contain PMG CA content")
-	assert.True(t, strings.Contains(string(merged), "SYSTEM_CA_CERT"), "Merged bundle should contain system CA content")
+	ca, err := GenerateCAWithSystemCA(config)
+	assert.NoError(t, err, "Failed to generate CA with system CA bundle")
+	assert.NotNil(t, ca, "CA certificate should not be nil")
+	assert.True(t, strings.Contains(string(ca.Certificate), "SYSTEM_CA_CERT"), "Merged certificate should contain system CA content")
 }
 
 func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testing.T) {

@@ -264,13 +264,19 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 	return tlsCert, nil
 }
 
-// MergeWithSystemCABundle appends system CA bundle content to the provided PEM
-// certificate bytes. If no system bundle is discovered, it returns caCertPEM as-is.
-func MergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
+// GenerateCAWithSystemCA generates a self-signed certificate and appends system CA bundle
+// content to the certificate bytes. If no system bundle is discovered, it returns the CA cert as-is.
+func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
+	caCert, err := GenerateCA(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CA: %w", err)
+	}
+
+	caCertPEM := caCert.Certificate
 	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
 	if systemBundlePath == "" {
 		// No base bundle discovered; return PMG CA only.
-		return caCertPEM, nil
+		return caCert, nil
 	}
 
 	systemBundle, err := os.ReadFile(systemBundlePath)
@@ -300,7 +306,12 @@ func MergeWithSystemCABundle(caCertPEM []byte) ([]byte, error) {
 		merged = append(merged, '\n')
 	}
 
-	return merged, nil
+	return &Certificate{
+		Certificate: merged,
+		PrivateKey:  caCert.PrivateKey,
+		X509Cert:    caCert.X509Cert,
+		PrivKey:     caCert.PrivKey,
+	}, nil
 }
 
 func firstReadablePath(paths ...string) string {

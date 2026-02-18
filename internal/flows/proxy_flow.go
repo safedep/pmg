@@ -212,9 +212,7 @@ func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, erro
 
 	// Generate CA certificate
 	caConfig := certmanager.DefaultCertManagerConfig()
-	caConfig.MergeWithSystemCABundle = true
-
-	caCert, err := certmanager.GenerateCA(caConfig)
+	caCert, err := certmanager.GenerateCAWithSystemCA(caConfig)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate CA certificate: %w", err)
 	}
@@ -223,16 +221,7 @@ func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, erro
 	tempDir := os.TempDir()
 	caCertPath := filepath.Join(tempDir, fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
 
-	bundlePEM := caCert.Certificate
-	if caConfig.MergeWithSystemCABundle {
-		mergedBundlePEM, err := certmanager.MergeWithSystemCABundle(bundlePEM)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to merge CA with system bundle: %w", err)
-		}
-		bundlePEM = mergedBundlePEM
-	}
-
-	if err := os.WriteFile(caCertPath, bundlePEM, 0600); err != nil {
+	if err := os.WriteFile(caCertPath, caCert.Certificate, 0600); err != nil {
 		return nil, "", fmt.Errorf("failed to write CA certificate to %s: %w", caCertPath, err)
 	}
 
