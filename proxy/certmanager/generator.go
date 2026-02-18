@@ -314,11 +314,18 @@ func firstReadablePath(paths ...string) string {
 			continue
 		}
 
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		f.Close()
+
 		return path
 	}
 
 	return ""
 }
+
 
 func systemCABundleCandidates() []string {
 	return systemCABundleCandidatesForOS(runtime.GOOS, os.Getenv)
