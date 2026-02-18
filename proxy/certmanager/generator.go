@@ -364,9 +364,7 @@ func systemCABundleCandidatesForOS(goos string) []string {
 		}
 	}
 
-	appendIfSet("REQUESTS_CA_BUNDLE")
 	appendIfSet("SSL_CERT_FILE")
-	appendIfSet("PIP_CERT")
 	appendIfSet("CURL_CA_BUNDLE")
 
 	switch goos {

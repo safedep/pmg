@@ -255,7 +255,7 @@ func TestGenerateCAWithSystemCA(t *testing.T) {
 	systemBundlePath := filepath.Join(t.TempDir(), "system.pem")
 	assert.NoError(t, os.WriteFile(systemBundlePath, []byte("SYSTEM_CA_CERT\n"), 0600))
 
-	t.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath)
+	t.Setenv("SSL_CERT_FILE", systemBundlePath)
 
 	ca, err := GenerateCAWithSystemCA(config)
 	assert.NoError(t, err, "Failed to generate CA with system CA bundle")
@@ -264,9 +264,8 @@ func TestGenerateCAWithSystemCA(t *testing.T) {
 }
 
 func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testing.T) {
-	t.Setenv("REQUESTS_CA_BUNDLE", "")
 	t.Setenv("SSL_CERT_FILE", "")
-	t.Setenv("PIP_CERT", "")
+
 	t.Setenv("CURL_CA_BUNDLE", "")
 	t.Setenv("ProgramFiles", `C:\Program Files`)
 	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
@@ -282,9 +281,8 @@ func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testi
 }
 
 func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing.T) {
-	t.Setenv("REQUESTS_CA_BUNDLE", "")
 	t.Setenv("SSL_CERT_FILE", "")
-	t.Setenv("PIP_CERT", "")
+
 	t.Setenv("CURL_CA_BUNDLE", "")
 	candidates := systemCABundleCandidatesForOS(goosDarwin)
 	joined := strings.Join(candidates, "|")
@@ -295,9 +293,8 @@ func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing
 }
 
 func TestSystemCABundleCandidatesForOS_LinuxIncludesKnownBundlePaths(t *testing.T) {
-	t.Setenv("REQUESTS_CA_BUNDLE", "")
 	t.Setenv("SSL_CERT_FILE", "")
-	t.Setenv("PIP_CERT", "")
+
 	t.Setenv("CURL_CA_BUNDLE", "")
 	candidates := systemCABundleCandidatesForOS(goosLinux)
 	joined := strings.Join(candidates, "|")
@@ -342,7 +339,7 @@ func TestGenerateCAWithSystemCA_FailsForOversizedSystemBundle(t *testing.T) {
 	}
 	assert.NoError(t, os.WriteFile(systemBundlePath, oversized, 0600))
 
-	t.Setenv("REQUESTS_CA_BUNDLE", systemBundlePath)
+	t.Setenv("SSL_CERT_FILE", systemBundlePath)
 
 	_, err := GenerateCAWithSystemCA(config)
 	assert.Error(t, err, "expected error for oversized system CA bundle")
