@@ -9,7 +9,19 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
+	"runtime"
 	"time"
+
+	"github.com/safedep/dry/log"
+)
+
+const (
+	maxSystemCABundleBytes int64 = 10 * 1024 * 1024
+	goosDarwin                   = "darwin"
+	goosLinux                    = "linux"
+	goosWindows                  = "windows"
 )
 
 // certManager implements the CertificateManager interface
@@ -259,4 +271,159 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 	}
 
 	return tlsCert, nil
+}
+
+// GenerateCAWithSystemCA generates a self-signed certificate and appends system CA bundle
+// content to the certificate bytes. If the system bundle is unavailable or too large to merge,
+// it falls back to the PMG CA so proxy startup remains functional.
+func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
+	caCert, err := GenerateCA(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CA: %w", err)
+	}
+
+	caCertPEM := caCert.Certificate
+	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
+
+	// No system CA found. Continue using only PMG cert.
+	if systemBundlePath == "" {
+		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
+		return caCert, nil
+	}
+
+	info, err := os.Stat(systemBundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat system CA bundle %s: %w", systemBundlePath, err)
+	}
+
+	// We make sure there is a boundary on the size of CA bundle loaded
+	// from the system. Beyond that, we just skip it and return PMG cert.
+	if info.Size() > maxSystemCABundleBytes {
+		log.Errorf(
+			"Skipping system CA bundle merge: %s is too large (%d bytes > %d bytes)",
+			systemBundlePath,
+			info.Size(),
+			maxSystemCABundleBytes,
+		)
+
+		return caCert, nil
+	}
+
+	systemBundle, err := os.ReadFile(systemBundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
+	}
+
+	caLen := int64(len(caCertPEM))
+	sysLen := int64(len(systemBundle))
+	const extra = int64(2)
+
+	totalCap := caLen + sysLen + extra
+	if totalCap > maxSystemCABundleBytes {
+		log.Errorf(
+			"Skipping system CA bundle merge: merged CA would be too large (%d bytes > %d bytes)",
+			totalCap,
+			maxSystemCABundleBytes,
+		)
+
+		return caCert, nil
+	}
+
+	merged := make([]byte, 0, int(totalCap))
+	merged = append(merged, caCertPEM...)
+
+	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
+		merged = append(merged, '\n')
+	}
+	merged = append(merged, systemBundle...)
+
+	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
+		merged = append(merged, '\n')
+	}
+
+	return &Certificate{
+		Certificate: merged,
+		PrivateKey:  caCert.PrivateKey,
+		X509Cert:    caCert.X509Cert,
+		PrivKey:     caCert.PrivKey,
+	}, nil
+}
+
+func firstReadablePath(paths ...string) string {
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		_ = f.Close()
+
+		return path
+	}
+
+	return ""
+}
+
+func systemCABundleCandidates() []string {
+	return systemCABundleCandidatesForOS(runtime.GOOS)
+}
+
+func systemCABundleCandidatesForOS(goos string) []string {
+	var candidates []string
+	appendIfSet := func(key string) {
+		if value := os.Getenv(key); value != "" {
+			candidates = append(candidates, value)
+		}
+	}
+
+	appendIfSet("SSL_CERT_FILE")
+	appendIfSet("CURL_CA_BUNDLE")
+
+	switch goos {
+	case goosDarwin:
+		candidates = append(candidates,
+			"/opt/homebrew/etc/openssl@3/cert.pem",
+			"/usr/local/etc/openssl@3/cert.pem",
+			"/etc/ssl/cert.pem",
+		)
+	case goosLinux:
+		candidates = append(candidates,
+			"/etc/ssl/certs/ca-certificates.crt",
+			"/etc/pki/tls/certs/ca-bundle.crt",
+			"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+			"/etc/ssl/ca-bundle.pem",
+			"/etc/ssl/cert.pem",
+		)
+	case goosWindows:
+		programFiles := os.Getenv("ProgramFiles")
+		programFilesX86 := os.Getenv("ProgramFiles(x86)")
+		systemRoot := os.Getenv("SystemRoot")
+
+		if programFiles != "" {
+			candidates = append(candidates,
+				filepath.Join(programFiles, "Git", "mingw64", "ssl", "certs", "ca-bundle.crt"),
+				filepath.Join(programFiles, "Git", "usr", "ssl", "certs", "ca-bundle.crt"),
+			)
+		}
+		if programFilesX86 != "" {
+			candidates = append(candidates,
+				filepath.Join(programFilesX86, "Git", "mingw32", "ssl", "certs", "ca-bundle.crt"),
+			)
+		}
+		if systemRoot != "" {
+			candidates = append(candidates,
+				filepath.Join(systemRoot, "System32", "curl-ca-bundle.crt"),
+			)
+		}
+	}
+
+	return candidates
 }

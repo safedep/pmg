@@ -206,13 +206,13 @@ func handleExecutionResultError(err error) error {
 	return fmt.Errorf("failed to execute command: %w", err)
 }
 
-// setupCACertificate generates or loads a CA certificate for MITM
+// setupCACertificate generates CA for MITM and writes proxy bundle for child package managers.
 func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, error) {
 	log.Debugf("Generating CA certificate for proxy MITM")
 
 	// Generate CA certificate
 	caConfig := certmanager.DefaultCertManagerConfig()
-	caCert, err := certmanager.GenerateCA(caConfig)
+	caCert, err := certmanager.GenerateCAWithSystemCA(caConfig)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate CA certificate: %w", err)
 	}
