@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/safedep/dry/log"
 )
 
 const (
-	maxSystemCABundleBytes int64 = 2 * 1024 * 1024
+	maxSystemCABundleBytes int64 = 10 * 1024 * 1024
 	goosDarwin                   = "darwin"
 	goosLinux                    = "linux"
 	goosWindows                  = "windows"
@@ -272,7 +274,8 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 }
 
 // GenerateCAWithSystemCA generates a self-signed certificate and appends system CA bundle
-// content to the certificate bytes. If no system bundle is discovered, it returns the CA cert as-is.
+// content to the certificate bytes. If the system bundle is unavailable or too large to merge,
+// it falls back to the PMG CA so proxy startup remains functional.
 func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 	caCert, err := GenerateCA(config)
 	if err != nil {
@@ -281,8 +284,10 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 
 	caCertPEM := caCert.Certificate
 	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
+
+	// No system CA found. Continue using only PMG cert.
 	if systemBundlePath == "" {
-		// No base bundle discovered; return PMG CA only.
+		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
 		return caCert, nil
 	}
 
@@ -291,8 +296,17 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		return nil, fmt.Errorf("failed to stat system CA bundle %s: %w", systemBundlePath, err)
 	}
 
+	// We make sure there is a boundary on the size of CA bundle loaded
+	// from the system. Beyond that, we just skip it and return PMG cert.
 	if info.Size() > maxSystemCABundleBytes {
-		return nil, fmt.Errorf("system CA bundle too large: %d bytes", info.Size())
+		log.Errorf(
+			"Skipping system CA bundle merge: %s is too large (%d bytes > %d bytes)",
+			systemBundlePath,
+			info.Size(),
+			maxSystemCABundleBytes,
+		)
+
+		return caCert, nil
 	}
 
 	systemBundle, err := os.ReadFile(systemBundlePath)
@@ -306,7 +320,13 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 
 	totalCap := caLen + sysLen + extra
 	if totalCap > maxSystemCABundleBytes {
-		return nil, fmt.Errorf("merged CA bundle too large: %d bytes", totalCap)
+		log.Errorf(
+			"Skipping system CA bundle merge: merged CA would be too large (%d bytes > %d bytes)",
+			totalCap,
+			maxSystemCABundleBytes,
+		)
+
+		return caCert, nil
 	}
 
 	merged := make([]byte, 0, int(totalCap))

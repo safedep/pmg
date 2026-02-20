@@ -329,7 +329,7 @@ func TestFirstReadablePath(t *testing.T) {
 	})
 }
 
-func TestGenerateCAWithSystemCA_FailsForOversizedSystemBundle(t *testing.T) {
+func TestGenerateCAWithSystemCA_SkipsOversizedSystemBundle(t *testing.T) {
 	config := DefaultCertManagerConfig()
 
 	systemBundlePath := filepath.Join(t.TempDir(), "oversized-system.pem")
@@ -341,7 +341,8 @@ func TestGenerateCAWithSystemCA_FailsForOversizedSystemBundle(t *testing.T) {
 
 	t.Setenv("SSL_CERT_FILE", systemBundlePath)
 
-	_, err := GenerateCAWithSystemCA(config)
-	assert.Error(t, err, "expected error for oversized system CA bundle")
-	assert.ErrorContains(t, err, "system CA bundle too large")
+	ca, err := GenerateCAWithSystemCA(config)
+	assert.NoError(t, err, "oversized system CA bundle should be skipped")
+	assert.NotNil(t, ca, "CA certificate should not be nil")
+	assert.Less(t, len(ca.Certificate), int(maxSystemCABundleBytes), "oversized system CA content must not be merged")
 }
