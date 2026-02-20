@@ -2,7 +2,9 @@ package setup
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -89,6 +91,38 @@ func executeSetupInfo() error {
 	securityEntries["Event Log Directory"] = cfg.EventLogDir()
 
 	ui.PrintInfoSection("Security", securityEntries)
+
+	// Sandbox section
+	sandboxCfg := cfg.Config.Sandbox
+	sandboxEntries := make(map[string]string)
+	sandboxEntries["Enabled"] = strconv.FormatBool(sandboxCfg.Enabled)
+	sandboxEntries["Enforce Always"] = strconv.FormatBool(sandboxCfg.EnforceAlways)
+
+	if len(sandboxCfg.Policies) > 0 {
+		pmNames := make([]string, 0, len(sandboxCfg.Policies))
+		for name := range sandboxCfg.Policies {
+			pmNames = append(pmNames, name)
+		}
+
+		sort.Strings(pmNames)
+
+		policyParts := make([]string, 0, len(pmNames))
+		for _, name := range pmNames {
+			ref := sandboxCfg.Policies[name]
+			status := "disabled"
+			if ref.Enabled {
+				status = ref.Profile
+			}
+
+			policyParts = append(policyParts, fmt.Sprintf("%s(%s)", name, status))
+		}
+
+		sandboxEntries["Policies"] = strings.Join(policyParts, ", ")
+	} else {
+		sandboxEntries["Policies"] = "None"
+	}
+
+	ui.PrintInfoSection("Sandbox", sandboxEntries)
 
 	return nil
 }
