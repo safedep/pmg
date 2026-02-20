@@ -5,7 +5,7 @@ on:
     types: [opened]
 
 # Minimal permissions - only what's needed to add a label.
-# Project access is handled by PROJECT_TOKEN secret.
+# Project access is handled by ISSUE_TRIAGE_GITHUB_TOKEN secret.
 permissions:
   issues: write
 
