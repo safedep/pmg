@@ -1,0 +1,32 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+# Minimal permissions - only what's needed to add a label.
+# Project access is handled by ISSUE_TRIAGE_GITHUB_TOKEN secret.
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Add to SafeDep Operations project
+        uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+        with:
+          project-url: https://github.com/orgs/safedep/projects/5
+          github-token: ${{ secrets.ISSUE_TRIAGE_GITHUB_TOKEN }}
+
+      - name: Add need-analysis label
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['need-analysis']
+            });
