@@ -10,6 +10,12 @@ transitive_depth: 5
 # Include dev dependencies in the dependency graph. Default is false.
 include_dev_dependencies: false
 
+# UI verbosity level. Valid values: silent, normal, verbose. Default is normal.
+# silent: PMG is hidden from the user except for errors and malicious package detection
+# normal: Show minimal status updates
+# verbose: Show verbose status updates and detailed information
+verbosity: normal
+
 # Enable paranoid mode. In paranoid mode, PMG will treat suspicious packages
 # as malicious packages
 paranoid: false

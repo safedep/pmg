@@ -14,6 +14,11 @@ import (
 )
 
 const (
+	// Verbosity level constants for the config file
+	VerbositySilent  = "silent"
+	VerbosityNormal  = "normal"
+	VerbosityVerbose = "verbose"
+
 	// Environment variable key for the insecure installation flag
 	pmgInsecureInstallationEnvKey = "PMG_INSECURE_INSTALLATION"
 
@@ -63,6 +68,9 @@ type Config struct {
 	// ExperimentalProxyMode is same as ProxyMode. Kept here for backward compatibility because
 	// we initially introduced it as an experimental feature.
 	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
+
+	// Verbosity controls the UI verbosity level. Valid values: "silent", "normal", "verbose".
+	Verbosity string `mapstructure:"verbosity"`
 
 	// Sandbox enables sandboxing of package manager processes with controlled filesystem,
 	// network, and process execution access. Provides defense-in-depth against supply chain attacks.
@@ -211,6 +219,7 @@ func DefaultConfig() RuntimeConfig {
 			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
 			ProxyMode:              true,
+			Verbosity:              VerbosityNormal,
 			Sandbox: SandboxConfig{
 				Enabled:       false,
 				EnforceAlways: false,
