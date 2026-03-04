@@ -39,11 +39,8 @@ func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
-
-	// Get the ecosystem from the package manager
+	// Check if we have a supported ecosystem else fail fast
 	ecosystem := f.pm.Ecosystem()
-
-	// Check if proxy mode is supported for this ecosystem
 	if !interceptors.IsSupported(ecosystem) {
 		return fmt.Errorf("proxy mode is not supported for %s", ecosystem.String())
 	}
@@ -82,6 +79,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 		reportData.Outcome = ui.OutcomeDryRun
 		ui.Report(reportData)
+
 		return nil
 	}
 
@@ -164,12 +162,12 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
 
 	var executionError error
-	if !pty.IsInteractiveTerminal() {
-		// Execute the package manager command with proxy environment variables for non PTY or non-interactive TTY
-		executionError = f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
-	} else {
+	if pty.IsInteractiveTerminal() {
 		// Execute the package manager command with proxy environment variables
 		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
+	} else {
+		// Execute the package manager command with proxy environment variables for non PTY or non-interactive TTY
+		executionError = f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
 	}
 
 	// Populate report data from stats collector
@@ -221,7 +219,7 @@ func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, erro
 	tempDir := os.TempDir()
 	caCertPath := filepath.Join(tempDir, fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
 
-	if err := os.WriteFile(caCertPath, caCert.Certificate, 0600); err != nil {
+	if err := os.WriteFile(caCertPath, caCert.Certificate, 0o600); err != nil {
 		return nil, "", fmt.Errorf("failed to write CA certificate to %s: %w", caCertPath, err)
 	}
 
