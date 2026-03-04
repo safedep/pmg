@@ -47,6 +47,17 @@ func main() {
 				os.Setenv("APP_LOG_SKIP_STDOUT_LOGGER", "true")
 			}
 
+			// Apply config-based verbosity first
+			switch config.Get().Config.Verbosity {
+			case config.VerbositySilent:
+				ui.SetVerbosityLevel(ui.VerbosityLevelSilent)
+			case config.VerbosityVerbose:
+				ui.SetVerbosityLevel(ui.VerbosityLevelVerbose)
+			default:
+				ui.SetVerbosityLevel(ui.VerbosityLevelNormal)
+			}
+
+			// CLI flags override config
 			if silent && verbose {
 				ui.Fatalf("pmg: --silent and --verbose cannot be used together")
 			}

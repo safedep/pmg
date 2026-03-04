@@ -54,6 +54,7 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.Equal(t, def.Paranoid, parsed.Paranoid, "paranoid mismatch")
 	assert.Equal(t, def.SkipEventLogging, parsed.SkipEventLogging, "skip_event_logging mismatch")
 	assert.Equal(t, def.EventLogRetentionDays, parsed.EventLogRetentionDays, "event_log_retention_days mismatch")
+	assert.Equal(t, def.Verbosity, parsed.Verbosity, "verbosity mismatch")
 
 	assert.NotEmpty(t, parsed.TrustedPackages, "expected at least one trusted_packages entry")
 
