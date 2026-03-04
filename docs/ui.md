@@ -2,6 +2,8 @@
 
 PMG is an interactive tool. We support multiple interactivity modes such as `silent`, `verbose` etc. to meet different developer experience needs. As such, we need to standardize the UI, UX and interactive messaging guidance for developers.
 
+The verbosity level can be set per-invocation using `--silent` or `--verbose` CLI flags, or persisted via the `verbosity` option in the [configuration file](config.md).
+
 ## Messaging
 
 Two types of messages to users are supported:
