@@ -36,13 +36,21 @@ type InteractiveSession interface {
 
 // IsInteractiveTerminal returns true if stdin is a real terminal (TTY).
 // Returns false in CI environments (when the "CI" env var set to "true"),
-// when input is piped, or in non-interactive shells.
+// when input or output is piped, or in non-interactive shells.
 func IsInteractiveTerminal() bool {
 	if ci := os.Getenv("CI"); ci != "" && strings.ToLower(ci) == "true" {
 		return false
 	}
 
-	return term.IsTerminal(int(os.Stdin.Fd()))
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		return false
+	}
+
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return false
+	}
+
+	return true
 }
 
 var _ InteractiveSession = &session{}
