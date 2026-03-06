@@ -156,22 +156,26 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 }
 
 // applyRuntimeOverrides applies --sandbox-allow overrides to the policy.
-// Overrides are additive — they only append to allow lists, never modify deny lists.
-// Warnings are logged for conflicts with deny rules and mandatory deny patterns.
+// Overrides append to allow lists and remove exact matches from corresponding deny lists
+// so that deny rules don't shadow the explicit override. Only full-path exact matches are
+// removed — glob and wildcard deny patterns are never modified to stay secure by default.
 func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.SandboxAllowOverride) {
 	for _, override := range overrides {
 		switch override.Type {
 		case config.SandboxAllowRead:
 			log.Infof("Sandbox override: allowing read access to %s", override.Value)
 			policy.Filesystem.AllowRead = append(policy.Filesystem.AllowRead, override.Value)
+			policy.Filesystem.DenyRead = removeExactMatch(policy.Filesystem.DenyRead, override.Value)
 
 		case config.SandboxAllowWrite:
 			log.Infof("Sandbox override: allowing write access to %s", override.Value)
 			policy.Filesystem.AllowWrite = append(policy.Filesystem.AllowWrite, override.Value)
+			policy.Filesystem.DenyWrite = removeExactMatch(policy.Filesystem.DenyWrite, override.Value)
 
 		case config.SandboxAllowExec:
 			log.Infof("Sandbox override: allowing execution of %s", override.Value)
 			policy.Process.AllowExec = append(policy.Process.AllowExec, override.Value)
+			policy.Process.DenyExec = removeExactMatch(policy.Process.DenyExec, override.Value)
 
 		case config.SandboxAllowNetConnect:
 			log.Infof("Sandbox override: allowing outbound connection to %s", override.Value)
@@ -186,6 +190,23 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 			policy.AllowNetworkBind = utils.PtrTo(true)
 		}
 	}
+}
+
+// removeExactMatch removes entries from the slice that exactly match the given value.
+// Glob patterns and wildcards in the slice are never matched. Only literal string
+// equality is used. This keeps broad deny rules intact while allowing targeted overrides.
+func removeExactMatch(slice []string, value string) []string {
+	result := make([]string, 0, len(slice))
+	for _, entry := range slice {
+		if entry == value {
+			log.Infof("Sandbox override: removing conflicting deny rule for %s", value)
+			continue
+		}
+
+		result = append(result, entry)
+	}
+
+	return result
 }
 
 // logSandboxOverridesToEventLog records sandbox allow overrides in the audit event log.
