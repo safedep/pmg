@@ -14,6 +14,10 @@ allow_pty: true
 
 filesystem:
   allow_read:
+    # Root read is required for shims (e.g., asdf, pyenv) that traverse the filesystem.
+    # This is safe because deny rules have higher precedence and dangerous files
+    # (.env, .ssh, .aws, .gnupg, etc.) are blocked by mandatory deny patterns.
+    - /
     - ${CWD}/**
     - ${HOME}/.config/pip/**
     - ${HOME}/.pip/**
@@ -43,6 +47,7 @@ filesystem:
     - ${HOME}/.cache/pypoetry/**
     - ${HOME}/.cache/poetry/**
     - ${HOME}/.cache/uv/**
+    - ${HOME}/Library/Caches/pip/**
     - ${HOME}/.local/lib/python*/**
 
   # Additional deny rules (optional - credentials are automatically blocked)
@@ -73,8 +78,11 @@ process:
     - /usr/bin/gcc
     - /usr/bin/clang
     - /usr/bin/git
+    # Required for shims (e.g., asdf) that use #!/usr/bin/env bash
+    - /bin/bash
+    - /bin/sh
+    - /usr/bin/env
 
   deny_exec:
     - /usr/bin/curl
     - /usr/bin/wget
-    - /bin/bash
