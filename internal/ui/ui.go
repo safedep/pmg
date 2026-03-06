@@ -50,7 +50,7 @@ func SetVerbosityLevel(level VerbosityLevel) {
 
 func ClearStatus() {
 	StopSpinner()
-	fmt.Print("\r")
+	fmt.Fprint(os.Stderr, "\r")
 }
 
 func Block(config *BlockConfig) error {

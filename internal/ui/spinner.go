@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -44,7 +45,7 @@ func StartSpinnerWithColor(msg string, c ColorFn) {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				fmt.Printf("\r%s ... %s", c("PMG: "+msg), string(frames[pos%length]))
+				fmt.Fprintf(os.Stderr, "\r%s ... %s", c("PMG: "+msg), string(frames[pos%length]))
 				pos += 1
 			}
 		}
@@ -69,6 +70,6 @@ func StopSpinner() {
 
 	spinnerChan = nil
 
-	fmt.Printf("\r")
-	fmt.Println()
+	fmt.Fprint(os.Stderr, "\r")
+	fmt.Fprintln(os.Stderr)
 }
