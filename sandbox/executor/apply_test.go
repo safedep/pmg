@@ -136,7 +136,7 @@ func TestApplyRuntimeOverrides_EmptyOverrides(t *testing.T) {
 	assert.Equal(t, []string{"/existing"}, policy.Filesystem.AllowWrite)
 }
 
-func TestApplyRuntimeOverrides_DenyListsUnmodified(t *testing.T) {
+func TestApplyRuntimeOverrides_DenyListsUnmodifiedWhenNoConflict(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Filesystem: sandbox.FilesystemPolicy{
 			DenyWrite: []string{"/protected"},
@@ -157,9 +157,64 @@ func TestApplyRuntimeOverrides_DenyListsUnmodified(t *testing.T) {
 
 	applyRuntimeOverrides(policy, overrides)
 
-	// Deny lists should never be modified by overrides
+	// Deny lists should be unchanged when overrides don't conflict
 	assert.Equal(t, []string{"/protected"}, policy.Filesystem.DenyWrite)
 	assert.Equal(t, []string{"/usr/bin/curl"}, policy.Process.DenyExec)
 	assert.Equal(t, []string{"*:*"}, policy.Network.DenyOutbound)
+}
+
+func TestApplyRuntimeOverrides_RemovesExactDenyConflict(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Filesystem: sandbox.FilesystemPolicy{
+			DenyRead:  []string{"/secret", "/other"},
+			DenyWrite: []string{"/protected", "/tmp/data"},
+		},
+		Process: sandbox.ProcessPolicy{
+			DenyExec: []string{"/usr/bin/curl", "/bin/bash"},
+		},
+	}
+
+	overrides := []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowRead, Value: "/secret", Raw: "read=/secret"},
+		{Type: config.SandboxAllowWrite, Value: "/protected", Raw: "write=/protected"},
+		{Type: config.SandboxAllowExec, Value: "/bin/bash", Raw: "exec=/bin/bash"},
+	}
+
+	applyRuntimeOverrides(policy, overrides)
+
+	// Exact matches should be removed from deny lists
+	assert.Equal(t, []string{"/other"}, policy.Filesystem.DenyRead)
+	assert.Equal(t, []string{"/tmp/data"}, policy.Filesystem.DenyWrite)
+	assert.Equal(t, []string{"/usr/bin/curl"}, policy.Process.DenyExec)
+
+	// Allow lists should have the overrides
+	assert.Contains(t, policy.Filesystem.AllowRead, "/secret")
+	assert.Contains(t, policy.Filesystem.AllowWrite, "/protected")
+	assert.Contains(t, policy.Process.AllowExec, "/bin/bash")
+}
+
+func TestApplyRuntimeOverrides_PreservesGlobDenyPatterns(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Filesystem: sandbox.FilesystemPolicy{
+			DenyRead:  []string{"/etc/**"},
+			DenyWrite: []string{"/usr/**"},
+		},
+		Process: sandbox.ProcessPolicy{
+			DenyExec: []string{"/usr/bin/*"},
+		},
+	}
+
+	overrides := []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowRead, Value: "/etc/hosts", Raw: "read=/etc/hosts"},
+		{Type: config.SandboxAllowWrite, Value: "/usr/local/bin/tool", Raw: "write=/usr/local/bin/tool"},
+		{Type: config.SandboxAllowExec, Value: "/usr/bin/git", Raw: "exec=/usr/bin/git"},
+	}
+
+	applyRuntimeOverrides(policy, overrides)
+
+	// Glob/wildcard deny patterns must NOT be removed — only exact matches are removed
+	assert.Equal(t, []string{"/etc/**"}, policy.Filesystem.DenyRead)
+	assert.Equal(t, []string{"/usr/**"}, policy.Filesystem.DenyWrite)
+	assert.Equal(t, []string{"/usr/bin/*"}, policy.Process.DenyExec)
 }
 
