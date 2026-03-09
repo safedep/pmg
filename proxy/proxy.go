@@ -139,8 +139,17 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 
 	// Keep transport behavior close to goproxy defaults and only harden TLS:
 	// enforce server certificate verification and require TLS 1.2+.
+	//
+	// Proxy is explicitly nil (not http.ProxyFromEnvironment) so that PMG's own
+	// upstream connections always go direct to the registry. Using
+	// http.ProxyFromEnvironment would cause the transport to inherit any
+	// HTTPS_PROXY/HTTP_PROXY env vars present in the user's shell (e.g. a
+	// corporate proxy), routing PMG's outbound traffic through that external
+	// proxy. When that proxy drops or resets the connection, npm/pip see an
+	// ECONNRESET / "socket hang up" error, which is the root cause of the
+	// reported npm proxy failures.
 	return &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy:               nil,
 		DialContext:         dialer.DialContext,
 		TLSHandshakeTimeout: config.ConnectTimeout,
 		TLSClientConfig: &tls.Config{
