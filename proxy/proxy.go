@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,6 +141,9 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 
 	// Keep transport behavior close to goproxy defaults and only harden TLS:
 	// enforce server certificate verification and require TLS 1.2+.
+	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
+	// that PMG works in enterprise environments that require a corporate
+	// upstream proxy to reach the internet.
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		DialContext:         dialer.DialContext,
@@ -219,6 +224,58 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 	log.Debugf("Removed interceptor: %s", name)
 }
 
+// normalizeRequestURL fixes malformed URLs produced by goproxy's MITM URL reconstruction.
+//
+// When a client (e.g., npm) sends absolute-form Request-URIs inside a CONNECT tunnel
+// (e.g., "POST http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk"),
+// goproxy's MITM code checks if req.URL starts with "scheme://" and, if not, naively
+// prepends "scheme://connectHost" to the full URI. Since the client's URI starts with
+// "http://" but the MITM scheme is "https", the check fails and goproxy produces:
+//
+//	https://registry.npmjs.org:443http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk
+//
+// This function detects the embedded absolute URI and extracts it, preserving the
+// correct scheme from the MITM connection.
+func normalizeRequestURL(req *http.Request) {
+	if req == nil || req.URL == nil {
+		return
+	}
+
+	urlStr := req.URL.String()
+
+	// Skip past the initial "scheme://" to avoid matching it
+	prefixLen := len(req.URL.Scheme) + len("://")
+	if prefixLen >= len(urlStr) {
+		return
+	}
+
+	rest := urlStr[prefixLen:]
+
+	// Look for an embedded absolute URI (http:// or https://) in the rest of the URL
+	embeddedIdx := -1
+	if idx := strings.Index(rest, "http://"); idx >= 0 {
+		embeddedIdx = prefixLen + idx
+	} else if idx := strings.Index(rest, "https://"); idx >= 0 {
+		embeddedIdx = prefixLen + idx
+	}
+
+	if embeddedIdx < 0 {
+		return
+	}
+
+	// Extract the embedded URL and re-parse it
+	embeddedURLStr := urlStr[embeddedIdx:]
+	parsed, err := url.Parse(embeddedURLStr)
+	if err != nil {
+		return
+	}
+
+	// Preserve the MITM scheme (https) rather than the client's scheme (http)
+	originalScheme := req.URL.Scheme
+	parsed.Scheme = originalScheme
+	req.URL = parsed
+}
+
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
@@ -277,6 +334,13 @@ func (ps *proxyServer) configureMITM() {
 
 func (ps *proxyServer) registerHandlers() {
 	ps.proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		// Fix malformed URLs produced by goproxy's MITM URL reconstruction.
+		// When a client sends absolute-form Request-URIs (e.g., http://host:port/path)
+		// inside a CONNECT tunnel, goproxy naively prepends scheme://connectHost to the
+		// full URI, producing malformed URLs like https://host:443http://host:443/path.
+		// We detect and fix this before processing.
+		normalizeRequestURL(req)
+
 		reqCtx, err := newRequestContext(req)
 		if err != nil {
 			log.Errorf("Failed to create request context: %v", err)
