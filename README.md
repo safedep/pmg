@@ -5,7 +5,6 @@
 
 <div align="center">
     <h1>Package Manager Guard (PMG)</h1>
-    <h3>Prevent supply chain attacks before they happen.</h3>
 </div>
 
 <div align="center">
@@ -30,13 +29,23 @@
 
 ## Why PMG?
 
-Modern software development relies heavily on open-source packages. However, standard package managers (`npm`, `pip`, etc.) prioritize convenience over security, executing arbitrary code (like `postinstall` scripts) on your machine without validation. This vector is frequently exploited by attackers to steal credentials or inject backdoors.
+AI coding agents install packages you didn't choose. Claude Code, Cursor, Copilot, Windsurf all run `npm install` and `pip install` autonomously, and you have no idea what they just put on your machine.
 
-**PMG acts as a security middleware layer.** It wraps your package manager to:
+PMG ensures every package is checked for malware before it executes, whether you picked it or an AI agent did.
 
 1. **Analyze** packages for malware before they are installed.
 2. **Sandbox** the installation process to prevent system modification.
 3. **Audit** every package installation event.
+
+Install PMG once, and every `npm install`, `pip install`, and `poetry add` is protected automatically.
+
+> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316) and used by engineering teams worldwide to secure their software supply chain.
+
+## How PMG is Different
+
+Most security tools scan after installation and report vulnerabilities. By then, malicious code has already executed on your machine.
+
+PMG intercepts package managers **before** code executes, blocking malicious packages at install time, not flagging them after the damage is done. Detection is powered by [SafeDep's malicious package analysis engine](https://safedep.io). For defense in depth, PMG sandboxes the installation process using OS-native isolation, so even zero-day malware that evades detection cannot modify your system.
 
 ## Quick Start
 
@@ -69,7 +78,7 @@ pmg setup install
 
 ### 3. Use
 
-Continue using your favorite package manager tools as usual. PMG works silently in the background.
+Use your package managers as usual — or let your AI coding agent use them. PMG works silently in the background.
 
 ```bash
 npm install express
@@ -77,17 +86,21 @@ npm install express
 pip install requests
 ```
 
-If a malicious package is detected, PMG blocks it immediately:
+When an AI agent (or you) tries to install a malicious package, PMG blocks it:
 
 ```text
-[PMG] Blocked malicious package: malicious-lib@1.0.0
-[PMG] Reason: Known malware signature detected
+✗ Malicious package blocked
+
+  - safedep-test-pkg@1.0.0
+
+✗ PMG: 1 packages analyzed, 1 blocked
 ```
 
 ## Features
 
 | Feature                          | Description                                                                                                      |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **AI Agent Safety Net**          | Protects against malicious packages installed by AI coding agents (Claude Code, Cursor, Copilot, Windsurf).      |
 | **Malicious Package Protection** | Real-time protection against malicious packages using [SafeDep](https://docs.safedep.io/cloud/malware-analysis). |
 | **Sandboxing**                   | Enforces least privilege using OS native sandboxing to contain installation scripts.                             |
 | **Dependency Analysis**          | Deep scans of direct and transitive dependencies before they hit your disk.                                      |
@@ -184,19 +197,15 @@ Enable verbose logs for troubleshooting.
 pmg --debug npm install <package>
 ```
 
-### Emergency Bypass
-> ⚠️ **Warning**: Bypassing security checks exposes users to risk.
-
-```bash
-export PMG_INSECURE_INSTALLATION=true
-npm install <package>
-```
-
 ## Advanced Documentation
 
 * [Trusted Packages Configuration](docs/trusted-packages.md)
 * [Proxy Mode Architecture](docs/proxy-mode.md)
 * [Sandboxing Details](docs/sandbox.md)
+
+## Support
+
+If PMG saved you from a bad package, [star this repo](https://github.com/safedep/pmg) — it helps others find it.
 
 ## Contributing
 
