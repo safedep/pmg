@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,6 +141,9 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 
 	// Keep transport behavior close to goproxy defaults and only harden TLS:
 	// enforce server certificate verification and require TLS 1.2+.
+	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
+	// that PMG works in enterprise environments that require a corporate
+	// upstream proxy to reach the internet.
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		DialContext:         dialer.DialContext,
@@ -219,6 +224,78 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 	log.Debugf("Removed interceptor: %s", name)
 }
 
+// normalizeRequestURL fixes malformed URLs produced by goproxy's MITM URL reconstruction.
+//
+// When a client (e.g., npm) sends absolute-form Request-URIs inside a CONNECT tunnel
+// (e.g., "POST http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk"),
+// goproxy's MITM code checks if req.URL starts with "scheme://" and, if not, naively
+// prepends "scheme://connectHost" to the full URI. Since the client's URI starts with
+// "http://" but the MITM scheme is "https", the check fails and goproxy produces:
+//
+//	https://registry.npmjs.org:443http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk
+//
+// This function detects the embedded absolute URI and extracts it, preserving the
+// correct scheme from the MITM connection.
+func normalizeRequestURL(req *http.Request) {
+	if req == nil || req.URL == nil {
+		return
+	}
+
+	host := req.URL.Host
+	if host == "" {
+		return
+	}
+
+	// The goproxy bug produces a Host field like "registry.npmjs.org:443http:"
+	// where the embedded scheme leaks into the authority. A valid host:port
+	// never contains "http:" or "https:", so this check is precise and avoids
+	// false positives from query parameters or path segments.
+	var embeddedScheme string
+	var schemeIdx int
+	if idx := strings.Index(host, "http:"); idx > 0 {
+		embeddedScheme = "http"
+		schemeIdx = idx
+	} else if idx := strings.Index(host, "https:"); idx > 0 {
+		embeddedScheme = "https"
+		schemeIdx = idx
+	}
+
+	if embeddedScheme == "" {
+		return
+	}
+
+	// Extract the real host (everything before the embedded scheme)
+	realHost := host[:schemeIdx]
+
+	// Reconstruct the embedded URL from the scheme found in the host
+	// plus the path portion that Go's URL parser placed after the authority.
+	// The full original URL looks like: scheme://realHost + embeddedScheme://embeddedHost/path
+	// Go parsed the authority as "realHost + embeddedScheme:" and the path as
+	// "//embeddedHost/path", so we combine them back.
+	embeddedURL := embeddedScheme + ":" + req.URL.Path
+	if req.URL.RawQuery != "" {
+		embeddedURL += "?" + req.URL.RawQuery
+	}
+	if req.URL.Fragment != "" {
+		embeddedURL += "#" + req.URL.Fragment
+	}
+
+	parsed, err := url.Parse(embeddedURL)
+	if err != nil {
+		return
+	}
+
+	// If the embedded URL parsed to a valid host, use it. Otherwise fall back
+	// to the real host we extracted from the authority.
+	if parsed.Host == "" {
+		parsed.Host = realHost
+	}
+
+	// Preserve the MITM scheme (e.g. https) rather than the client's scheme
+	parsed.Scheme = req.URL.Scheme
+	req.URL = parsed
+}
+
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
@@ -277,6 +354,13 @@ func (ps *proxyServer) configureMITM() {
 
 func (ps *proxyServer) registerHandlers() {
 	ps.proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		// Fix malformed URLs produced by goproxy's MITM URL reconstruction.
+		// When a client sends absolute-form Request-URIs (e.g., http://host:port/path)
+		// inside a CONNECT tunnel, goproxy naively prepends scheme://connectHost to the
+		// full URI, producing malformed URLs like https://host:443http://host:443/path.
+		// We detect and fix this before processing.
+		normalizeRequestURL(req)
+
 		reqCtx, err := newRequestContext(req)
 		if err != nil {
 			log.Errorf("Failed to create request context: %v", err)
