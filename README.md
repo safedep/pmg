@@ -169,35 +169,7 @@ Security is our first class requirement. PMG builds are reproducible and signed.
 * **Verification**: Users can cryptographically prove the binary matches the source code.
 * See [Trusting PMG](docs/trust.md) for verification steps.
 
-## Usage Guide
-
-PMG runs transparently, but you can control it when needed.
-
-### Paranoid Mode
-
-Treat all unverified or suspicious packages as malicious.
-
-```bash
-pmg --paranoid npm install <package>
-```
-
-### Dry Run
-
-Simulate installation to check for malware without writing to disk.
-
-```bash
-pmg --dry-run npm install <package>
-```
-
-### Debugging
-
-Enable verbose logs for troubleshooting.
-
-```bash
-pmg --debug npm install <package>
-```
-
-## Advanced Documentation
+## User Guide
 
 * [Trusted Packages Configuration](docs/trusted-packages.md)
 * [Proxy Mode Architecture](docs/proxy-mode.md)
