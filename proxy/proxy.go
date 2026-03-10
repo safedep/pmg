@@ -241,38 +241,58 @@ func normalizeRequestURL(req *http.Request) {
 		return
 	}
 
-	urlStr := req.URL.String()
-
-	// Skip past the initial "scheme://" to avoid matching it
-	prefixLen := len(req.URL.Scheme) + len("://")
-	if prefixLen >= len(urlStr) {
+	host := req.URL.Host
+	if host == "" {
 		return
 	}
 
-	rest := urlStr[prefixLen:]
-
-	// Look for an embedded absolute URI (http:// or https://) in the rest of the URL
-	embeddedIdx := -1
-	if idx := strings.Index(rest, "http://"); idx >= 0 {
-		embeddedIdx = prefixLen + idx
-	} else if idx := strings.Index(rest, "https://"); idx >= 0 {
-		embeddedIdx = prefixLen + idx
+	// The goproxy bug produces a Host field like "registry.npmjs.org:443http:"
+	// where the embedded scheme leaks into the authority. A valid host:port
+	// never contains "http:" or "https:", so this check is precise and avoids
+	// false positives from query parameters or path segments.
+	var embeddedScheme string
+	var schemeIdx int
+	if idx := strings.Index(host, "http:"); idx > 0 {
+		embeddedScheme = "http"
+		schemeIdx = idx
+	} else if idx := strings.Index(host, "https:"); idx > 0 {
+		embeddedScheme = "https"
+		schemeIdx = idx
 	}
 
-	if embeddedIdx < 0 {
+	if embeddedScheme == "" {
 		return
 	}
 
-	// Extract the embedded URL and re-parse it
-	embeddedURLStr := urlStr[embeddedIdx:]
-	parsed, err := url.Parse(embeddedURLStr)
+	// Extract the real host (everything before the embedded scheme)
+	realHost := host[:schemeIdx]
+
+	// Reconstruct the embedded URL from the scheme found in the host
+	// plus the path portion that Go's URL parser placed after the authority.
+	// The full original URL looks like: scheme://realHost + embeddedScheme://embeddedHost/path
+	// Go parsed the authority as "realHost + embeddedScheme:" and the path as
+	// "//embeddedHost/path", so we combine them back.
+	embeddedURL := embeddedScheme + ":" + req.URL.Path
+	if req.URL.RawQuery != "" {
+		embeddedURL += "?" + req.URL.RawQuery
+	}
+	if req.URL.Fragment != "" {
+		embeddedURL += "#" + req.URL.Fragment
+	}
+
+	parsed, err := url.Parse(embeddedURL)
 	if err != nil {
 		return
 	}
 
-	// Preserve the MITM scheme (https) rather than the client's scheme (http)
-	originalScheme := req.URL.Scheme
-	parsed.Scheme = originalScheme
+	// If the embedded URL parsed to a valid host, use it. Otherwise fall back
+	// to the real host we extracted from the authority.
+	if parsed.Host == "" {
+		parsed.Host = realHost
+	}
+
+	// Preserve the MITM scheme (e.g. https) rather than the client's scheme
+	parsed.Scheme = req.URL.Scheme
 	req.URL = parsed
 }
 

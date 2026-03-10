@@ -57,7 +57,32 @@ func TestNormalizeRequestURL(t *testing.T) {
 		{
 			name:        "URL with scoped package encoding",
 			inputURL:    "https://npm.pkg.github.com:443http://npm.pkg.github.com:443/@scope%2fpackage",
-			expectedURL: "https://npm.pkg.github.com:443/@scope%2fpackage",
+			expectedURL: "https://npm.pkg.github.com:443/@scope/package",
+		},
+		{
+			name:        "URL with http in query parameter is unchanged",
+			inputURL:    "https://example.com/api?redirect=http://foo.com",
+			expectedURL: "https://example.com/api?redirect=http://foo.com",
+		},
+		{
+			name:        "URL with https in query parameter is unchanged",
+			inputURL:    "https://example.com/api?url=https://bar.com/path",
+			expectedURL: "https://example.com/api?url=https://bar.com/path",
+		},
+		{
+			name:        "URL with http in path segment is unchanged",
+			inputURL:    "https://example.com/proxy/http://target.com/resource",
+			expectedURL: "https://example.com/proxy/http://target.com/resource",
+		},
+		{
+			name:        "URL with http in fragment is unchanged",
+			inputURL:    "https://example.com/docs#http://ref.com",
+			expectedURL: "https://example.com/docs#http://ref.com",
+		},
+		{
+			name:        "malformed URL with query string preserved",
+			inputURL:    "https://registry.npmjs.org:443http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk?foo=bar",
+			expectedURL: "https://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk?foo=bar",
 		},
 	}
 
