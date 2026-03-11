@@ -190,7 +190,7 @@ func TestResponseProtoNormalisedToHTTP11(t *testing.T) {
 
 	resp, err := client.Get(upstream.URL)
 	assert.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, 1, resp.ProtoMajor, "response ProtoMajor should be 1 (HTTP/1.1)")
 	assert.Equal(t, 1, resp.ProtoMinor, "response ProtoMinor should be 1 (HTTP/1.1)")
