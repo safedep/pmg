@@ -139,14 +139,31 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		Timeout: config.ConnectTimeout,
 	}
 
-	// Keep transport behavior close to goproxy defaults and only harden TLS:
-	// enforce server certificate verification and require TLS 1.2+.
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
 	// that PMG works in enterprise environments that require a corporate
 	// upstream proxy to reach the internet.
+	//
+	// ForceAttemptHTTP2 is required because Go's http.Transport silently
+	// disables HTTP/2 when a custom TLSClientConfig or DialContext is set.
+	// Without it, every proxied request opens a separate HTTP/1.1 TCP+TLS
+	// connection to the upstream registry. During npm install of large
+	// projects (1000+ packages), this creates a burst of concurrent
+	// connections that triggers rate-limiting (RST) from CDNs like
+	// Cloudflare (which fronts registry.npmjs.org). HTTP/2 multiplexing
+	// allows hundreds of requests to share a few TCP connections.
+	//
+	// MaxConnsPerHost caps concurrent connections per upstream host to
+	// prevent overwhelming registries even if HTTP/2 is not negotiated.
+	// MaxIdleConnsPerHost is raised from the default of 2 to improve
+	// connection reuse.
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		DialContext:         dialer.DialContext,
+		ForceAttemptHTTP2:   true,
+		MaxConnsPerHost:     100,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 50,
+		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: config.ConnectTimeout,
 		TLSClientConfig: &tls.Config{
 			MinVersion:         tls.VersionTLS12,
@@ -437,6 +454,22 @@ func (ps *proxyServer) registerHandlers() {
 	})
 
 	ps.proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		if resp == nil {
+			return resp
+		}
+
+		// When the upstream transport negotiates HTTP/2, responses arrive with
+		// Proto "HTTP/2.0" and ProtoMajor 2. goproxy writes MITM responses via
+		// resp.Write(), which serialises the status line verbatim. An HTTP/1.1
+		// client (pip, npm, etc.) rejects the "HTTP/2.0 200 OK" status line and
+		// resets the connection. Normalise to HTTP/1.1 so the response is valid
+		// for the downstream MITM connection.
+		if resp.ProtoMajor != 1 {
+			resp.Proto = "HTTP/1.1"
+			resp.ProtoMajor = 1
+			resp.ProtoMinor = 1
+		}
+
 		reqCtx, err := newRequestContext(ctx.Req)
 		if err != nil {
 			log.Errorf("Failed to create request context: %v", err)
@@ -444,10 +477,6 @@ func (ps *proxyServer) registerHandlers() {
 		}
 
 		log.Debugf("[%s] Response received for %s", reqCtx.RequestID, ctx.Req.URL.String())
-
-		if resp == nil {
-			return resp
-		}
 
 		modifier, ok := ctx.UserData.(ResponseModifierFunc)
 		if !ok || modifier == nil {

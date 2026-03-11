@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
@@ -26,6 +27,25 @@ func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
 	assert.NotNil(t, internalProxy.proxy.Tr.TLSClientConfig)
 	assert.False(t, internalProxy.proxy.Tr.TLSClientConfig.InsecureSkipVerify, "upstream TLS verification must stay enabled")
 	assert.GreaterOrEqual(t, internalProxy.proxy.Tr.TLSClientConfig.MinVersion, uint16(tls.VersionTLS12), "minimum TLS version should be 1.2+")
+}
+
+func TestNewProxyServerUpstreamTransportEnablesHTTP2(t *testing.T) {
+	server, err := NewProxyServer(&ProxyConfig{
+		ListenAddr:     "127.0.0.1:0",
+		EnableMITM:     false,
+		ConnectTimeout: 30 * time.Second,
+		RequestTimeout: 5 * time.Minute,
+	})
+	assert.NoError(t, err)
+
+	internalProxy, ok := server.(*proxyServer)
+	assert.True(t, ok)
+
+	tr := internalProxy.proxy.Tr
+	assert.True(t, tr.ForceAttemptHTTP2, "HTTP/2 must be enabled to allow upstream connection multiplexing")
+	assert.Equal(t, 100, tr.MaxConnsPerHost, "MaxConnsPerHost should cap concurrent connections per upstream host")
+	assert.Equal(t, 50, tr.MaxIdleConnsPerHost, "MaxIdleConnsPerHost should be raised from default of 2 for connection reuse")
+	assert.Equal(t, 200, tr.MaxIdleConns, "MaxIdleConns should accommodate multiple upstream registries")
 }
 
 func TestNormalizeRequestURL(t *testing.T) {
@@ -129,4 +149,50 @@ func TestNewProxyServerRejectsUntrustedUpstreamCertByDefault(t *testing.T) {
 	resp, err := internalProxy.proxy.Tr.RoundTrip(req)
 	assert.Error(t, err, "untrusted upstream certificate should fail verification")
 	assert.Nil(t, resp)
+}
+
+func TestResponseProtoNormalisedToHTTP11(t *testing.T) {
+	// When the upstream transport negotiates HTTP/2, responses arrive with
+	// Proto "HTTP/2.0". goproxy writes MITM responses via resp.Write() which
+	// serialises the status line verbatim. An HTTP/1.1 client rejects the
+	// "HTTP/2.0 200 OK" status line and resets the connection.
+	// The OnResponse handler must normalise the proto back to HTTP/1.1.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	server, err := NewProxyServer(&ProxyConfig{
+		ListenAddr:     "127.0.0.1:0",
+		EnableMITM:     false,
+		ConnectTimeout: 5 * time.Second,
+		RequestTimeout: 5 * time.Second,
+	})
+	assert.NoError(t, err)
+
+	ps, ok := server.(*proxyServer)
+	assert.True(t, ok)
+
+	// Simulate an HTTP/2 response going through the OnResponse handler by
+	// sending a request through the proxy to the upstream test server.
+	assert.NoError(t, ps.Start())
+	defer func() {
+		_ = ps.Stop(t.Context())
+	}()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(&url.URL{
+				Scheme: "http",
+				Host:   ps.Address(),
+			}),
+		},
+	}
+
+	resp, err := client.Get(upstream.URL)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, 1, resp.ProtoMajor, "response ProtoMajor should be 1 (HTTP/1.1)")
+	assert.Equal(t, 1, resp.ProtoMinor, "response ProtoMinor should be 1 (HTTP/1.1)")
 }
