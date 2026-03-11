@@ -139,14 +139,31 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		Timeout: config.ConnectTimeout,
 	}
 
-	// Keep transport behavior close to goproxy defaults and only harden TLS:
-	// enforce server certificate verification and require TLS 1.2+.
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
 	// that PMG works in enterprise environments that require a corporate
 	// upstream proxy to reach the internet.
+	//
+	// ForceAttemptHTTP2 is required because Go's http.Transport silently
+	// disables HTTP/2 when a custom TLSClientConfig or DialContext is set.
+	// Without it, every proxied request opens a separate HTTP/1.1 TCP+TLS
+	// connection to the upstream registry. During npm install of large
+	// projects (1000+ packages), this creates a burst of concurrent
+	// connections that triggers rate-limiting (RST) from CDNs like
+	// Cloudflare (which fronts registry.npmjs.org). HTTP/2 multiplexing
+	// allows hundreds of requests to share a few TCP connections.
+	//
+	// MaxConnsPerHost caps concurrent connections per upstream host to
+	// prevent overwhelming registries even if HTTP/2 is not negotiated.
+	// MaxIdleConnsPerHost is raised from the default of 2 to improve
+	// connection reuse.
 	return &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		DialContext:         dialer.DialContext,
+		ForceAttemptHTTP2:   true,
+		MaxConnsPerHost:     100,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 50,
+		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: config.ConnectTimeout,
 		TLSClientConfig: &tls.Config{
 			MinVersion:         tls.VersionTLS12,

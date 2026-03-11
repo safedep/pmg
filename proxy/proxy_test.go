@@ -28,6 +28,25 @@ func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
 	assert.GreaterOrEqual(t, internalProxy.proxy.Tr.TLSClientConfig.MinVersion, uint16(tls.VersionTLS12), "minimum TLS version should be 1.2+")
 }
 
+func TestNewProxyServerUpstreamTransportEnablesHTTP2(t *testing.T) {
+	server, err := NewProxyServer(&ProxyConfig{
+		ListenAddr:     "127.0.0.1:0",
+		EnableMITM:     false,
+		ConnectTimeout: 30 * time.Second,
+		RequestTimeout: 5 * time.Minute,
+	})
+	assert.NoError(t, err)
+
+	internalProxy, ok := server.(*proxyServer)
+	assert.True(t, ok)
+
+	tr := internalProxy.proxy.Tr
+	assert.True(t, tr.ForceAttemptHTTP2, "HTTP/2 must be enabled to allow upstream connection multiplexing")
+	assert.Equal(t, 100, tr.MaxConnsPerHost, "MaxConnsPerHost should cap concurrent connections per upstream host")
+	assert.Equal(t, 50, tr.MaxIdleConnsPerHost, "MaxIdleConnsPerHost should be raised from default of 2 for connection reuse")
+	assert.Equal(t, 200, tr.MaxIdleConns, "MaxIdleConns should accommodate multiple upstream registries")
+}
+
 func TestNormalizeRequestURL(t *testing.T) {
 	tests := []struct {
 		name        string
