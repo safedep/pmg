@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
@@ -189,7 +190,7 @@ func TestResponseProtoNormalisedToHTTP11(t *testing.T) {
 	}
 
 	resp, err := client.Get(upstream.URL)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, 1, resp.ProtoMajor, "response ProtoMajor should be 1 (HTTP/1.1)")
