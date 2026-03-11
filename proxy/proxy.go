@@ -466,6 +466,18 @@ func (ps *proxyServer) registerHandlers() {
 			return resp
 		}
 
+		// When the upstream transport negotiates HTTP/2, responses arrive with
+		// Proto "HTTP/2.0" and ProtoMajor 2. goproxy writes MITM responses via
+		// resp.Write(), which serialises the status line verbatim. An HTTP/1.1
+		// client (pip, npm, etc.) rejects the "HTTP/2.0 200 OK" status line and
+		// resets the connection. Normalise to HTTP/1.1 so the response is valid
+		// for the downstream MITM connection.
+		if resp.ProtoMajor != 1 {
+			resp.Proto = "HTTP/1.1"
+			resp.ProtoMajor = 1
+			resp.ProtoMinor = 1
+		}
+
 		modifier, ok := ctx.UserData.(ResponseModifierFunc)
 		if !ok || modifier == nil {
 			return resp

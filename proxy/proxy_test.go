@@ -149,3 +149,49 @@ func TestNewProxyServerRejectsUntrustedUpstreamCertByDefault(t *testing.T) {
 	assert.Error(t, err, "untrusted upstream certificate should fail verification")
 	assert.Nil(t, resp)
 }
+
+func TestResponseProtoNormalisedToHTTP11(t *testing.T) {
+	// When the upstream transport negotiates HTTP/2, responses arrive with
+	// Proto "HTTP/2.0". goproxy writes MITM responses via resp.Write() which
+	// serialises the status line verbatim. An HTTP/1.1 client rejects the
+	// "HTTP/2.0 200 OK" status line and resets the connection.
+	// The OnResponse handler must normalise the proto back to HTTP/1.1.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	server, err := NewProxyServer(&ProxyConfig{
+		ListenAddr:     "127.0.0.1:0",
+		EnableMITM:     false,
+		ConnectTimeout: 5 * time.Second,
+		RequestTimeout: 5 * time.Second,
+	})
+	assert.NoError(t, err)
+
+	ps, ok := server.(*proxyServer)
+	assert.True(t, ok)
+
+	// Simulate an HTTP/2 response going through the OnResponse handler by
+	// sending a request through the proxy to the upstream test server.
+	assert.NoError(t, ps.Start())
+	defer func() {
+		_ = ps.Stop(t.Context())
+	}()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(&url.URL{
+				Scheme: "http",
+				Host:   ps.Address(),
+			}),
+		},
+	}
+
+	resp, err := client.Get(upstream.URL)
+	assert.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, 1, resp.ProtoMajor, "response ProtoMajor should be 1 (HTTP/1.1)")
+	assert.Equal(t, 1, resp.ProtoMinor, "response ProtoMinor should be 1 (HTTP/1.1)")
+}
