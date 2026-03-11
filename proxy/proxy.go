@@ -454,14 +454,6 @@ func (ps *proxyServer) registerHandlers() {
 	})
 
 	ps.proxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		reqCtx, err := newRequestContext(ctx.Req)
-		if err != nil {
-			log.Errorf("Failed to create request context: %v", err)
-			return resp
-		}
-
-		log.Debugf("[%s] Response received for %s", reqCtx.RequestID, ctx.Req.URL.String())
-
 		if resp == nil {
 			return resp
 		}
@@ -477,6 +469,14 @@ func (ps *proxyServer) registerHandlers() {
 			resp.ProtoMajor = 1
 			resp.ProtoMinor = 1
 		}
+
+		reqCtx, err := newRequestContext(ctx.Req)
+		if err != nil {
+			log.Errorf("Failed to create request context: %v", err)
+			return resp
+		}
+
+		log.Debugf("[%s] Response received for %s", reqCtx.RequestID, ctx.Req.URL.String())
 
 		modifier, ok := ctx.UserData.(ResponseModifierFunc)
 		if !ok || modifier == nil {
