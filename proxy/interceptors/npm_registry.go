@@ -37,6 +37,7 @@ type NpmRegistryInterceptor struct {
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
+var _ proxy.MITMDecider = (*NpmRegistryInterceptor)(nil)
 
 // NewNpmRegistryInterceptor creates a new NPM registry interceptor
 func NewNpmRegistryInterceptor(
@@ -58,6 +59,15 @@ func NewNpmRegistryInterceptor(
 // Name returns the interceptor name for logging
 func (i *NpmRegistryInterceptor) Name() string {
 	return "npm-registry-interceptor"
+}
+
+func (i *NpmRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
+	config := npmRegistryDomains.GetConfigForHostname(ctx.Hostname)
+	if config == nil {
+		return false
+	}
+
+	return config.SupportedForAnalysis
 }
 
 // ShouldIntercept determines if this interceptor should handle the given request
