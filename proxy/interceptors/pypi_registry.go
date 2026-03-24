@@ -38,6 +38,7 @@ type PypiRegistryInterceptor struct {
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
+var _ proxy.MITMDecider = (*PypiRegistryInterceptor)(nil)
 
 // NewPypiRegistryInterceptor creates a new PyPI registry interceptor
 func NewPypiRegistryInterceptor(
@@ -59,6 +60,15 @@ func NewPypiRegistryInterceptor(
 // Name returns the interceptor name for logging
 func (i *PypiRegistryInterceptor) Name() string {
 	return "pypi-registry-interceptor"
+}
+
+func (i *PypiRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
+	config := pypiRegistryDomains.GetConfigForHostname(ctx.Hostname)
+	if config == nil {
+		return false
+	}
+
+	return config.SupportedForAnalysis
 }
 
 // ShouldIntercept determines if this interceptor should handle the given request
