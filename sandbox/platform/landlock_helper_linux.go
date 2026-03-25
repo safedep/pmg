@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,22 +16,46 @@ import (
 
 	"github.com/landlock-lsm/go-landlock/landlock"
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
+	"github.com/safedep/dry/log"
 	"golang.org/x/sys/unix"
 )
 
 // RunLandlockHelper is the entry point for the __landlock_sandbox_exec helper process.
-// Called by the thin Cobra command in cmd/landlock/.
-func RunLandlockHelper(args []string) error {
-	// 1. Read policy from FD=3
-	policy, err := readLandlockPolicyFromFD()
+// policyFile is the path to the policy JSON temp file.
+// auditSocket is the path to the audit unix socket.
+// cmdArgs are the target command args (everything after "--").
+func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
+	// 1. Read and delete policy file.
+	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
-		return fmt.Errorf("read policy from FD=3: %w", err)
+		return fmt.Errorf("read policy from file: %w", err)
+	}
+	_ = os.Remove(policyFile)
+
+	// 2. Initialize logger.
+	log.InitZapLogger("pmg", "landlock-helper")
+
+	// 3. Connect to audit unix socket.
+	var auditWriter io.Writer = io.Discard
+	conn, err := net.Dial("unix", auditSocket)
+	if err == nil {
+		defer conn.Close()
+		auditWriter = conn
+	} else {
+		log.Debugf("Failed to connect to audit socket %s: %v", auditSocket, err)
 	}
 
-	// 2. Open FD=4 for audit writing
-	auditFd := os.NewFile(4, "audit-pipe")
+	// Override command from cmdArgs (args after "--").
+	if len(cmdArgs) > 0 {
+		policy.Command = cmdArgs[0]
+		if len(cmdArgs) > 1 {
+			policy.Args = cmdArgs[1:]
+		} else {
+			policy.Args = nil
+		}
+	}
 
-	// 3. Set no new privileges
+	// 4. Set no new privileges
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)
 	}
@@ -88,7 +113,7 @@ func RunLandlockHelper(args []string) error {
 		if errors.As(err, &pathErr) &&
 			(errors.Is(pathErr.Err, unix.EPERM) || errors.Is(pathErr.Err, unix.EINVAL)) {
 			// Retry without namespace isolation
-			landlockWriteAuditEvent(auditFd, auditEvent{ //nolint:errcheck
+			_ = landlockWriteAuditEvent(auditWriter, auditEvent{
 				Type:    auditNamespaceUnavailable,
 				Message: fmt.Sprintf("namespace clone failed (%v), retrying without namespaces", err),
 				Ts:      time.Now().UnixNano(),
@@ -114,7 +139,7 @@ func RunLandlockHelper(args []string) error {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
 		_ = supervisor.Stop()
-		landlockWriteAuditEvent(auditFd, auditEvent{ //nolint:errcheck
+		_ = landlockWriteAuditEvent(auditWriter, auditEvent{
 			Type:    auditMemFdOpenFailed,
 			PID:     childPID,
 			Error:   err.Error(),
@@ -125,7 +150,7 @@ func RunLandlockHelper(args []string) error {
 	}
 
 	// 12. Transition supervisor to enforcement mode
-	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, auditFd); err != nil {
+	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, auditWriter); err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
 		memFd.Close()
@@ -152,7 +177,6 @@ func RunLandlockHelper(args []string) error {
 	signal.Stop(sigCh)
 	close(sigCh)
 	memFd.Close()
-	auditFd.Close()
 
 	// 17. Exit with child's exit code
 	exitCode := 0
@@ -169,11 +193,15 @@ func RunLandlockHelper(args []string) error {
 	return nil // unreachable
 }
 
-// readLandlockPolicyFromFD reads the landlockExecPolicy JSON from FD=3.
-func readLandlockPolicyFromFD() (*landlockExecPolicy, error) {
-	f := os.NewFile(3, "policy-pipe")
-	if f == nil {
-		return nil, fmt.Errorf("FD=3 is not available")
+// readLandlockPolicyFromFile reads and deserializes a landlockExecPolicy from a file path.
+func readLandlockPolicyFromFile(path string) (*landlockExecPolicy, error) {
+	if path == "" {
+		return nil, fmt.Errorf("policy file path is empty")
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open policy file: %w", err)
 	}
 	defer f.Close()
 

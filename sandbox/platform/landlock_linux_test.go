@@ -5,6 +5,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"testing"
 
@@ -39,13 +40,50 @@ func TestLandlockSandbox_IsAvailable_False(t *testing.T) {
 func TestLandlockSandbox_Close(t *testing.T) {
 	sb := &landlockSandbox{abi: newLandlockABI(4)}
 
-	// Close should return nil
+	// Close with no resources should return nil
 	err := sb.Close()
 	assert.NoError(t, err)
 
 	// Close should be idempotent
 	err = sb.Close()
 	assert.NoError(t, err)
+}
+
+func TestLandlockSandbox_Close_CleansUpResources(t *testing.T) {
+	sb := &landlockSandbox{abi: newLandlockABI(4)}
+
+	policy := &sandbox.SandboxPolicy{
+		Name:            "test",
+		Description:     "test policy",
+		PackageManagers: []string{"npm"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead: []string{"/usr"},
+		},
+	}
+
+	cmd := exec.Command("/bin/echo", "hello")
+	ctx := context.Background()
+	result, err := sb.Execute(ctx, cmd, policy)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify resources exist before Close
+	assert.NotEmpty(t, sb.policyFile)
+	assert.NotEmpty(t, sb.socketPath)
+	assert.NotNil(t, sb.listener)
+
+	_, err = os.Stat(sb.policyFile)
+	assert.NoError(t, err, "policy file should exist before Close")
+	_, err = os.Stat(sb.socketPath)
+	assert.NoError(t, err, "socket file should exist before Close")
+
+	// Close should clean up
+	err = result.Close()
+	assert.NoError(t, err)
+
+	assert.Empty(t, sb.policyFile)
+	assert.Empty(t, sb.socketPath)
+	assert.Nil(t, sb.listener)
 }
 
 func TestLandlockSandbox_Execute_RewiresCmd(t *testing.T) {
@@ -73,19 +111,34 @@ func TestLandlockSandbox_Execute_RewiresCmd(t *testing.T) {
 	// cmd.Args should contain __landlock_sandbox_exec
 	assert.Equal(t, "__landlock_sandbox_exec", cmd.Args[1])
 
-	// cmd.Args should contain "--" separator
-	separatorFound := false
+	// cmd.Args should contain --policy-file and --audit-socket
+	var policyFileArg, auditSocketArg string
 	separatorIdx := -1
 	for i, arg := range cmd.Args {
+		if arg == "--policy-file" && i+1 < len(cmd.Args) {
+			policyFileArg = cmd.Args[i+1]
+		}
+		if arg == "--audit-socket" && i+1 < len(cmd.Args) {
+			auditSocketArg = cmd.Args[i+1]
+		}
 		if arg == "--" {
-			separatorFound = true
 			separatorIdx = i
 			break
 		}
 	}
-	assert.True(t, separatorFound, "Should have -- separator in args")
+	assert.NotEmpty(t, policyFileArg, "Should have --policy-file arg")
+	assert.NotEmpty(t, auditSocketArg, "Should have --audit-socket arg")
+
+	// Policy file should exist on disk
+	_, err = os.Stat(policyFileArg)
+	assert.NoError(t, err, "Policy temp file should exist")
+
+	// Socket path should exist on disk
+	_, err = os.Stat(auditSocketArg)
+	assert.NoError(t, err, "Audit socket file should exist")
 
 	// After separator should be the original command and args
+	assert.True(t, separatorIdx >= 0, "Should have -- separator in args")
 	if separatorIdx >= 0 && separatorIdx+1 < len(cmd.Args) {
 		afterSeparator := cmd.Args[separatorIdx+1:]
 		assert.Equal(t, "/bin/echo", afterSeparator[0])
@@ -93,18 +146,11 @@ func TestLandlockSandbox_Execute_RewiresCmd(t *testing.T) {
 		assert.Equal(t, "world", afterSeparator[2])
 	}
 
-	// ExtraFiles should have exactly 2 entries (policyR at FD=3, auditW at FD=4)
-	assert.Len(t, cmd.ExtraFiles, 2)
+	// ExtraFiles should be empty (no longer using pipe-based communication)
+	assert.Empty(t, cmd.ExtraFiles)
 
 	// result.ShouldRun() should return true (CLI-wrapper pattern, executed=false)
 	assert.True(t, result.ShouldRun())
-
-	// Cleanup: close the extra files to avoid leaking
-	for _, f := range cmd.ExtraFiles {
-		if f != nil {
-			f.Close()
-		}
-	}
 
 	err = result.Close()
 	assert.NoError(t, err)
@@ -133,15 +179,15 @@ func TestLandlockSandbox_Execute_PolicySerialized(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// ExtraFiles[0] is the policy read end (FD=3 in child)
-	require.Len(t, cmd.ExtraFiles, 2)
-	policyR := cmd.ExtraFiles[0]
-	require.NotNil(t, policyR)
+	// Policy file path should be stored on the sandbox struct
+	require.NotEmpty(t, sb.policyFile)
 
-	// Read and decode the policy from the pipe
+	// Read and decode the policy from the temp file
+	policyData, err := os.ReadFile(sb.policyFile)
+	require.NoError(t, err)
+
 	var execPolicy landlockExecPolicy
-	decoder := json.NewDecoder(policyR)
-	err = decoder.Decode(&execPolicy)
+	err = json.Unmarshal(policyData, &execPolicy)
 	require.NoError(t, err)
 
 	// Verify the exec policy contains the command info
@@ -160,12 +206,6 @@ func TestLandlockSandbox_Execute_PolicySerialized(t *testing.T) {
 		}
 	}
 	assert.True(t, foundUsr, "Should have /usr in filesystem rules")
-
-	// Cleanup
-	policyR.Close()
-	if cmd.ExtraFiles[1] != nil {
-		cmd.ExtraFiles[1].Close()
-	}
 
 	err = result.Close()
 	assert.NoError(t, err)
