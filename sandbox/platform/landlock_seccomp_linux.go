@@ -344,7 +344,15 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 		Filter: &filter[0],
 	}
 
-	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER | unix.SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV)
+	// TSYNC atomically applies the filter to ALL threads in the process.
+	// This is critical for Go's multi-threaded runtime: the child process
+	// (spawned via exec.Cmd.Start) may be forked from any runtime thread.
+	// Without TSYNC, only the current thread gets the filter.
+	flags := uintptr(
+		unix.SECCOMP_FILTER_FLAG_NEW_LISTENER |
+			unix.SECCOMP_FILTER_FLAG_TSYNC |
+			unix.SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV,
+	)
 
 	fd, _, errno := unix.Syscall(
 		unix.SYS_SECCOMP,
@@ -352,15 +360,15 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 		flags,
 		uintptr(unsafe.Pointer(&prog)),
 	)
-
-	// Keep filter and prog alive across the syscall — the GC must not collect
-	// the backing array while the kernel is reading from the pointer.
 	runtime.KeepAlive(&filter)
 	runtime.KeepAlive(&prog)
 
 	if errno == unix.EINVAL {
-		// Retry without WAIT_KILLABLE_RECV (older kernels).
-		flags = uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
+		// Retry without WAIT_KILLABLE_RECV (kernel < 5.19).
+		flags = uintptr(
+			unix.SECCOMP_FILTER_FLAG_NEW_LISTENER |
+				unix.SECCOMP_FILTER_FLAG_TSYNC,
+		)
 		fd, _, errno = unix.Syscall(
 			unix.SYS_SECCOMP,
 			2,

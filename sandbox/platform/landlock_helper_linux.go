@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -55,17 +56,33 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}
 
-	// 4. Set no new privileges
+	// Pin this goroutine to the current OS thread. PR_SET_NO_NEW_PRIVS and
+	// seccomp filters are per-thread. Without LockOSThread, Go's scheduler
+	// can migrate this goroutine to a different thread between the prctl()
+	// and seccomp() calls, causing EINVAL because the new thread doesn't
+	// have NO_NEW_PRIVS set.
+	runtime.LockOSThread()
+	// Note: we intentionally do NOT call UnlockOSThread(). The helper
+	// process exits after the child completes, so thread pinning is permanent.
+
+	// 4. Set no new privileges (per-thread, must be on the same thread as seccomp)
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)
 	}
 
-	// 4. Die if parent exits
+	// 5. Die if parent exits
 	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); err != nil {
 		return fmt.Errorf("prctl PR_SET_PDEATHSIG: %w", err)
 	}
 
-	// 5. Build go-landlock rules from policy
+	// 6. Install seccomp-notify BPF filter and start Phase 1 loop
+	// Must be on the same thread as PR_SET_NO_NEW_PRIVS above.
+	supervisor, err := newLandlockSupervisor()
+	if err != nil {
+		return fmt.Errorf("create seccomp supervisor: %w", err)
+	}
+
+	// 7. Build go-landlock rules from policy
 	var rules []landlock.Rule
 	for _, r := range policy.FilesystemRules {
 		rules = append(rules, landlock.PathAccess(
@@ -76,13 +93,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	// Select config version based on highest ABI features used
 	cfg := landlockSelectConfig(policy)
 
-	// 6. Install seccomp-notify BPF filter and start Phase 1 loop
-	supervisor, err := newLandlockSupervisor()
-	if err != nil {
-		return fmt.Errorf("create seccomp supervisor: %w", err)
-	}
-
-	// 7. Apply Landlock filesystem restrictions
+	// 8. Apply Landlock filesystem restrictions
 	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
 		_ = supervisor.Stop()
 		return fmt.Errorf("landlock restrict paths: %w", err)
