@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"unsafe"
@@ -321,9 +322,26 @@ type seccompSupervisor struct {
 // notification loop goroutine. In phase 1 (before Enforce is called), all
 // notifications are auto-continued.
 func newLandlockSupervisor() (*seccompSupervisor, error) {
-	prog, err := landlockBuildBPFFilter()
-	if err != nil {
-		return nil, fmt.Errorf("build seccomp BPF filter: %w", err)
+	// Build the BPF filter inline so the filter slice stays alive on the stack
+	// during the seccomp syscall. If we return the slice from a function,
+	// the GC may collect it before the syscall reads the pointer.
+	filter := []unix.SockFilter{
+		// [0] Load syscall number
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
+		// [1-4] Check against intercepted syscalls
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 4, Jf: 0, K: uint32(unix.SYS_OPENAT)},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 3, Jf: 0, K: uint32(unix.SYS_OPENAT2)},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
+		// [5] Allow all other syscalls
+		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
+		// [6] Notify supervisor for intercepted syscalls
+		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
+	}
+
+	prog := unix.SockFprog{
+		Len:    uint16(len(filter)),
+		Filter: &filter[0],
 	}
 
 	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER | unix.SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV)
@@ -332,8 +350,13 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 		unix.SYS_SECCOMP,
 		2, // SECCOMP_SET_MODE_FILTER
 		flags,
-		uintptr(unsafe.Pointer(prog)),
+		uintptr(unsafe.Pointer(&prog)),
 	)
+
+	// Keep filter and prog alive across the syscall — the GC must not collect
+	// the backing array while the kernel is reading from the pointer.
+	runtime.KeepAlive(&filter)
+	runtime.KeepAlive(&prog)
 
 	if errno == unix.EINVAL {
 		// Retry without WAIT_KILLABLE_RECV (older kernels).
@@ -342,8 +365,10 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 			unix.SYS_SECCOMP,
 			2,
 			flags,
-			uintptr(unsafe.Pointer(prog)),
+			uintptr(unsafe.Pointer(&prog)),
 		)
+		runtime.KeepAlive(&filter)
+		runtime.KeepAlive(&prog)
 	}
 
 	if errno != 0 {
