@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"unsafe"
@@ -56,15 +55,17 @@ type seccompNotifResp struct {
 }
 
 // Compile-time size assertions to ensure struct layout matches kernel expectations.
-var _ [unsafe.Sizeof(seccompData{}) - 64]byte
-var _ [unsafe.Sizeof(seccompNotification{}) - 80]byte
-var _ [unsafe.Sizeof(seccompNotifResp{}) - 24]byte
+var (
+	_ [unsafe.Sizeof(seccompData{}) - 64]byte
+	_ [unsafe.Sizeof(seccompNotification{}) - 80]byte
+	_ [unsafe.Sizeof(seccompNotifResp{}) - 24]byte
+)
 
 // denyMode specifies what kind of access should be denied for a path.
 type denyMode int
 
 const (
-	denyRead  denyMode = iota
+	denyRead denyMode = iota
 	denyWrite
 	denyBoth
 )
@@ -142,45 +143,6 @@ func landlockBuildBPFFilter() (*unix.SockFprog, error) {
 // landlockProbeSeccompNotify verifies that seccomp user notification is available on the
 // running kernel. It attempts to install a trivial seccomp filter with the
 // NEW_LISTENER flag. Returns nil if available, an error if not (kernel < 5.0).
-func landlockProbeSeccompNotify() error {
-	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
-		return fmt.Errorf("seccomp-notify probe: unsupported architecture %s", runtime.GOARCH)
-	}
-
-	// Probe whether the kernel supports SECCOMP_FILTER_FLAG_NEW_LISTENER
-	// without actually installing a filter (which would require PR_SET_NO_NEW_PRIVS
-	// and irreversibly affect the current process).
-	//
-	// Strategy: call seccomp(SET_MODE_FILTER, NEW_LISTENER, NULL).
-	// The kernel validates flags BEFORE dereferencing the prog pointer:
-	//   - EFAULT = flags accepted, NULL pointer rejected → feature available
-	//   - EINVAL = flags rejected → feature not available
-	//   - ENOSYS = seccomp syscall not available at all
-	_, _, errno := unix.Syscall(
-		unix.SYS_SECCOMP,
-		2, // SECCOMP_SET_MODE_FILTER
-		uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER),
-		0, // NULL pointer — triggers EFAULT if flags are valid
-	)
-
-	switch errno {
-	case unix.EFAULT:
-		// Kernel accepted the flags but rejected the NULL pointer.
-		// This means SECCOMP_FILTER_FLAG_NEW_LISTENER is supported.
-		return nil
-	case 0:
-		// Should not happen with NULL pointer, but treat as success.
-		return nil
-	case unix.ENOSYS:
-		return fmt.Errorf("seccomp syscall not available: %w", errno)
-	case unix.EINVAL:
-		return fmt.Errorf("seccomp-notify not available (SECCOMP_FILTER_FLAG_NEW_LISTENER not supported): %w", errno)
-	default:
-		// Any other error (EACCES, EPERM, etc.) — the syscall exists and
-		// recognized the flags, so the feature is available.
-		return nil
-	}
-}
 
 // isPathDenied checks if a path should be denied based on the deny list and open flags.
 // flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY, O_RDWR).
@@ -271,8 +233,10 @@ func readPathFromMem(memFd *os.File, addr uintptr) (string, error) {
 // _AT_FDCWD is the Linux AT_FDCWD constant (-100). When stored as uint64 in
 // seccomp args it may appear as 0xFFFFFF9C (32-bit sign-extended) or
 // 0xFFFFFFFFFFFFFF9C (64-bit).
-const _AT_FDCWD_32 = 0xFFFFFF9C
-const _AT_FDCWD_64 = 0xFFFFFFFFFFFFFF9C
+const (
+	_AT_FDCWD_32 = 0xFFFFFF9C
+	_AT_FDCWD_64 = 0xFFFFFFFFFFFFFF9C
+)
 
 // resolveNotifPath resolves a path from seccomp notification arguments.
 // Handles AT_FDCWD and dirfd-relative paths via os.Readlink on /proc/<pid>/cwd
