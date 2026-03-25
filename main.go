@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/executors"
+	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
 	"github.com/safedep/pmg/cmd/setup"
@@ -127,6 +128,11 @@ func main() {
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
+
+	// Register Landlock sandbox helper command (Linux only, hidden)
+	if subcmd := landlockCmd.NewLandlockSandboxExecCommand(); subcmd != nil {
+		cmd.AddCommand(subcmd)
+	}
 
 	// Print Banner on --help / -h
 	cmd.SetHelpFunc(func(command *cobra.Command, args []string) {

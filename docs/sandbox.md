@@ -19,7 +19,8 @@ where we have to work within the limitations of the sandbox implementations that
 
 ## Requirements
 
-- Bubblewrap on Linux
+- Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
+- Bubblewrap on Linux (fallback for kernels < 5.13, or when `PMG_SANDBOX_DRIVER=bubblewrap` is set)
 - Seatbelt on MacOS
 
 <details>
@@ -167,13 +168,39 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 | Platform | Supported | Implementation                      |
 | -------- | --------- | ----------------------------------- |
 | MacOS    | Yes       | Seatbelt sandbox-exec               |
-| Linux    | Yes       | Bubblewrap with namespace isolation |
+| Linux    | Yes       | Landlock (default, kernel 5.13+) or Bubblewrap (fallback) |
 | Windows  | No        | Not yet supported                   |
 
 ### Platform-Specific Limitations
 
 <details>
-<summary>Linux (Bubblewrap)</summary>
+<summary>Linux (Landlock, default)</summary>
+
+**Default sandbox on kernel 5.13+**: Landlock provides kernel-native filesystem access control
+without requiring external binaries or unprivileged user namespaces.
+
+**Deny enforcement**: Deny rules (DenyRead, DenyWrite, DenyExec) are enforced via seccomp
+user notifications. This introduces a small TOCTOU window (microseconds) between reading
+the path and responding.
+
+**Network filtering**: Not enforced. Landlock supports TCP port filtering only (V4+, no hostname).
+Use `--proxy-mode` for network control.
+
+**PID/IPC namespace isolation**: Applied best-effort via `CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWNS`.
+If unavailable, a warning is printed and the command continues. Set `PMG_SANDBOX_DRIVER=bubblewrap`
+to force Bubblewrap if namespace isolation is required.
+
+**`/proc` access**: The sandbox supervisor requires `/proc` read access. When PID namespace
+isolation succeeds, `/proc` is scoped to the child's namespace. When it fails, `/proc`
+exposes all system processes.
+
+**Fallback**: If Landlock is unavailable (kernel < 5.13), Bubblewrap is used automatically.
+Set `PMG_SANDBOX_DRIVER=bubblewrap` to force Bubblewrap.
+
+</details>
+
+<details>
+<summary>Linux (Bubblewrap, fallback)</summary>
 
 **Filesystem permissions are coarse-grained**: [Bubblewrap](https://github.com/containers/bubblewrap) uses bind mounts for filesystem isolation.
 
