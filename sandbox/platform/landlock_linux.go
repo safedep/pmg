@@ -32,9 +32,15 @@ func newLandlockSandbox() (sandbox.Sandbox, error) {
 		return nil, fmt.Errorf("landlock not available: %w", err)
 	}
 
+	log.Debugf("Landlock ABI V%d detected (Refer=%v, Truncate=%v, Network=%v, IoctlDev=%v, Scoping=%v)",
+		abi.Version, abi.HasRefer, abi.HasTruncate, abi.HasNetwork, abi.HasIoctlDev, abi.HasScoping)
+
+	log.Debugf("Probing seccomp-notify support...")
 	if err := landlockProbeSeccompNotify(); err != nil {
 		return nil, fmt.Errorf("seccomp-notify not available: %w", err)
 	}
+
+	log.Debugf("seccomp-notify available")
 
 	return &landlockSandbox{abi: abi}, nil
 }

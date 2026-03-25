@@ -147,64 +147,39 @@ func landlockProbeSeccompNotify() error {
 		return fmt.Errorf("seccomp-notify probe: unsupported architecture %s", runtime.GOARCH)
 	}
 
-	// Build a minimal BPF filter that allows everything.
-	// We only care about whether the NEW_LISTENER flag is accepted.
-	filter := []unix.SockFilter{
-		// Load syscall number
-		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-		// Allow everything
-		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-	}
-
-	prog := unix.SockFprog{
-		Len:    uint16(len(filter)),
-		Filter: &filter[0],
-	}
-
-	// Use SECCOMP_SET_MODE_FILTER with NEW_LISTENER flag.
-	// On success this returns a notification fd; on failure it returns an error.
-	// We do NOT actually install this in the current process -- we use
-	// prctl + seccomp in a way that probes support without side effects.
+	// Probe whether the kernel supports SECCOMP_FILTER_FLAG_NEW_LISTENER
+	// without actually installing a filter (which would require PR_SET_NO_NEW_PRIVS
+	// and irreversibly affect the current process).
 	//
-	// We call seccomp(SECCOMP_SET_MODE_FILTER, ...) with TSYNC flag intentionally
-	// omitted. Since we cannot safely install a filter in the current process
-	// (it would affect all threads), we check for the existence of the required
-	// constants and kernel version via a lighter method.
-	//
-	// Strategy: attempt the syscall with an invalid pointer to detect ENOSYS
-	// (kernel doesn't support seccomp-notify) vs EFAULT (kernel does support it
-	// but the pointer is bad).
+	// Strategy: call seccomp(SET_MODE_FILTER, NEW_LISTENER, NULL).
+	// The kernel validates flags BEFORE dereferencing the prog pointer:
+	//   - EFAULT = flags accepted, NULL pointer rejected → feature available
+	//   - EINVAL = flags rejected → feature not available
+	//   - ENOSYS = seccomp syscall not available at all
 	_, _, errno := unix.Syscall(
 		unix.SYS_SECCOMP,
 		2, // SECCOMP_SET_MODE_FILTER
 		uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER),
-		uintptr(unsafe.Pointer(&prog)),
+		0, // NULL pointer — triggers EFAULT if flags are valid
 	)
 
-	// If we get ENOSYS, seccomp user notification is not supported.
-	if errno == unix.ENOSYS {
-		return fmt.Errorf("seccomp-notify not available: %w", errno)
-	}
-
-	// EACCES/EPERM means seccomp is available but we lack privileges.
-	// That's fine -- the feature exists.
-	if errno == unix.EACCES || errno == unix.EPERM {
+	switch errno {
+	case unix.EFAULT:
+		// Kernel accepted the flags but rejected the NULL pointer.
+		// This means SECCOMP_FILTER_FLAG_NEW_LISTENER is supported.
 		return nil
-	}
-
-	// errno == 0 means success (we got an fd). Close it.
-	if errno == 0 {
+	case 0:
+		// Should not happen with NULL pointer, but treat as success.
 		return nil
-	}
-
-	// EINVAL could mean the flag isn't supported.
-	if errno == unix.EINVAL {
+	case unix.ENOSYS:
+		return fmt.Errorf("seccomp syscall not available: %w", errno)
+	case unix.EINVAL:
 		return fmt.Errorf("seccomp-notify not available (SECCOMP_FILTER_FLAG_NEW_LISTENER not supported): %w", errno)
+	default:
+		// Any other error (EACCES, EPERM, etc.) — the syscall exists and
+		// recognized the flags, so the feature is available.
+		return nil
 	}
-
-	// Any other error -- report it but don't consider it fatal for the probe.
-	// EFAULT would be unexpected since we passed a valid pointer.
-	return fmt.Errorf("seccomp-notify probe returned unexpected error: %w", errno)
 }
 
 // isPathDenied checks if a path should be denied based on the deny list and open flags.
