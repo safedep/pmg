@@ -344,13 +344,22 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 		Filter: &filter[0],
 	}
 
-	// TSYNC atomically applies the filter to ALL threads in the process.
-	// This is critical for Go's multi-threaded runtime: the child process
-	// (spawned via exec.Cmd.Start) may be forked from any runtime thread.
-	// Without TSYNC, only the current thread gets the filter.
+	// NEW_LISTENER: returns the notify fd for the supervisor.
+	// TSYNC: atomically applies the filter to all threads (needed for Go's
+	//   multi-threaded runtime — the child may be forked from any thread).
+	// TSYNC_ESRCH (Linux 5.7+): lifts the historical TSYNC + NEW_LISTENER
+	//   mutual exclusion. Required to use both flags together.
+	// WAIT_KILLABLE_RECV (Linux 5.19+): prevents Go's SIGURG from
+	//   interrupting the blocking ioctl(NOTIF_RECV).
+	//
+	// Ref: https://github.com/subtrace/subtrace/blob/main/cmd/run/engine/seccomp/seccomp.go
+	// Ref: https://github.com/torvalds/linux/commit/51891498f2da
+	const _SECCOMP_FILTER_FLAG_TSYNC_ESRCH = 1 << 4
+
 	flags := uintptr(
 		unix.SECCOMP_FILTER_FLAG_NEW_LISTENER |
 			unix.SECCOMP_FILTER_FLAG_TSYNC |
+			_SECCOMP_FILTER_FLAG_TSYNC_ESRCH |
 			unix.SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV,
 	)
 
@@ -367,7 +376,8 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 		// Retry without WAIT_KILLABLE_RECV (kernel < 5.19).
 		flags = uintptr(
 			unix.SECCOMP_FILTER_FLAG_NEW_LISTENER |
-				unix.SECCOMP_FILTER_FLAG_TSYNC,
+				unix.SECCOMP_FILTER_FLAG_TSYNC |
+				_SECCOMP_FILTER_FLAG_TSYNC_ESRCH,
 		)
 		fd, _, errno = unix.Syscall(
 			unix.SYS_SECCOMP,
