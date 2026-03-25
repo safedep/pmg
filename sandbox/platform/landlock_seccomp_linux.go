@@ -307,7 +307,7 @@ type seccompPhase struct {
 	memFd     *os.File
 	denyPaths []denyPathEntry
 	denyExec  []string
-	auditFd   *os.File
+	auditWriter io.Writer
 }
 
 // seccompSupervisor manages the seccomp notification loop.
@@ -362,14 +362,14 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 
 // Enforce transitions the supervisor to enforcement mode. From this point on,
 // syscalls from childPID are checked against the deny lists.
-func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, auditFd *os.File) error {
+func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, auditWriter io.Writer) error {
 	p := &seccompPhase{
-		enforcing: true,
-		childPID:  uint32(childPID),
-		memFd:     memFd,
-		denyPaths: denyPaths,
-		denyExec:  denyExec,
-		auditFd:   auditFd,
+		enforcing:   true,
+		childPID:    uint32(childPID),
+		memFd:       memFd,
+		denyPaths:   denyPaths,
+		denyExec:    denyExec,
+		auditWriter: auditWriter,
 	}
 	s.phase.Store(p)
 	return nil
@@ -444,8 +444,8 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 	}
 
 	if isExecDenied(resolved, phase.denyExec) {
-		if phase.auditFd != nil {
-			_ = landlockWriteAuditEvent(phase.auditFd, auditEvent{
+		if phase.auditWriter != nil {
+			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 				Type:    auditSeccompDeny,
 				Syscall: syscallName(notif.Data.Nr),
 				Path:    resolved,
@@ -478,8 +478,8 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 	flags := classifyOpenFlags(notif.Data.Nr, notif.Data.Args, phase.memFd)
 
 	if isPathDenied(resolved, flags, phase.denyPaths) {
-		if phase.auditFd != nil {
-			_ = landlockWriteAuditEvent(phase.auditFd, auditEvent{
+		if phase.auditWriter != nil {
+			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 				Type:    auditSeccompDeny,
 				Syscall: syscallName(notif.Data.Nr),
 				Path:    resolved,

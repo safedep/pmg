@@ -80,7 +80,7 @@ func TestLoadCustomProfile(t *testing.T) {
 
 			tempFile, err := os.CreateTemp(t.TempDir(), "sandbox-policy-*.yml")
 			assert.NoError(t, err)
-			defer tempFile.Close()
+			defer func() { _ = tempFile.Close() }()
 
 			err = yaml.NewEncoder(tempFile).Encode(c.policy)
 			assert.NoError(t, err)

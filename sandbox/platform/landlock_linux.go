@@ -6,8 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/sandbox"
@@ -16,12 +19,17 @@ import (
 // landlockSandbox implements the Sandbox interface using Landlock LSM on Linux.
 // This implementation follows the CLI-wrapper pattern (like Bubblewrap):
 // - Modifies the cmd in place by rewiring it to re-exec pmg with __landlock_sandbox_exec
-// - Passes the translated policy via a pipe on FD=3
-// - Passes an audit pipe on FD=4 for future audit event consumption
+// - Passes the translated policy via a temp file (--policy-file)
+// - Passes an audit unix socket path (--audit-socket) for future audit event consumption
 // - Returns ExecutionResult with executed=false
 // - Caller must call cmd.Run() to execute the sandboxed command
 type landlockSandbox struct {
 	abi *landlockABI
+
+	// Cleanup state from last Execute()
+	policyFile string
+	socketPath string
+	listener   net.Listener
 }
 
 // newLandlockSandbox creates a new Landlock sandbox instance after verifying
@@ -49,10 +57,21 @@ func (s *landlockSandbox) IsAvailable() bool {
 }
 
 // Close cleans up any resources allocated by the sandbox.
-// For Landlock, there are no persistent resources to clean up since
-// all state is passed via pipes to the child process.
+// It closes the audit socket listener and removes temporary files.
 // This method is idempotent and safe to call multiple times.
 func (s *landlockSandbox) Close() error {
+	if s.listener != nil {
+		_ = s.listener.Close()
+		s.listener = nil
+	}
+	if s.socketPath != "" {
+		_ = os.Remove(s.socketPath)
+		s.socketPath = ""
+	}
+	if s.policyFile != "" {
+		_ = os.Remove(s.policyFile)
+		s.policyFile = ""
+	}
 	return nil
 }
 
@@ -76,33 +95,45 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	}
 	execPolicy.Env = cmd.Env
 
-	// 3. Create pipes: policy (FD=3), audit (FD=4)
-	policyR, policyW, err := os.Pipe()
+	// 3. Write policy JSON to a temp file
+	policyFile, err := os.CreateTemp("", "pmg-landlock-policy-*.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create policy pipe: %w", err)
+		return nil, fmt.Errorf("failed to create policy temp file: %w", err)
 	}
 
-	auditR, auditW, err := os.Pipe()
-	if err != nil {
-		policyR.Close()
-		policyW.Close()
-		return nil, fmt.Errorf("failed to create audit pipe: %w", err)
+	if err := json.NewEncoder(policyFile).Encode(execPolicy); err != nil {
+		_ = policyFile.Close()
+		_ = os.Remove(policyFile.Name())
+		return nil, fmt.Errorf("failed to write policy to temp file: %w", err)
 	}
+	policyFilePath := policyFile.Name()
+	_ = policyFile.Close()
+	s.policyFile = policyFilePath
 
-	// 4. Write policy JSON to pipe in goroutine
+	// 4. Create unix socket for audit events
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("pmg-landlock-audit-%d.sock", os.Getpid()))
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		_ = os.Remove(policyFilePath)
+		return nil, fmt.Errorf("failed to create audit unix socket: %w", err)
+	}
+	s.socketPath = socketPath
+	s.listener = listener
+
+	// Accept one connection and drain it (for future audit event parsing)
 	go func() {
-		defer policyW.Close()
-		if encErr := json.NewEncoder(policyW).Encode(execPolicy); encErr != nil {
-			log.Errorf("Failed to encode landlock exec policy: %v", encErr)
+		conn, err := listener.Accept()
+		if err != nil {
+			return
 		}
+		io.Copy(io.Discard, conn)
+		conn.Close()
 	}()
 
 	// 5. Rewire cmd to re-exec pmg with __landlock_sandbox_exec
 	selfExe, err := os.Executable()
 	if err != nil {
-		policyR.Close()
-		auditR.Close()
-		auditW.Close()
+		s.Close()
 		return nil, fmt.Errorf("failed to get self executable path: %w", err)
 	}
 
@@ -110,25 +141,15 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	originalArgs := cmd.Args
 
 	cmd.Path = selfExe
-	cmd.Args = []string{"pmg", "__landlock_sandbox_exec", "--", originalPath}
+	cmd.Args = []string{
+		"pmg", "__landlock_sandbox_exec",
+		"--policy-file", policyFilePath,
+		"--audit-socket", socketPath,
+		"--", originalPath,
+	}
 	if len(originalArgs) > 1 {
 		cmd.Args = append(cmd.Args, originalArgs[1:]...)
 	}
-
-	// ExtraFiles must be [policyR, auditW] at indices 0 and 1,
-	// mapping to FD=3 and FD=4 in the child process.
-	if len(cmd.ExtraFiles) > 0 {
-		// Close pipes to avoid leaking file descriptors
-		policyR.Close()
-		auditR.Close()
-		auditW.Close()
-		return nil, fmt.Errorf("cmd.ExtraFiles must be empty for landlock sandbox, got %d entries", len(cmd.ExtraFiles))
-	}
-	cmd.ExtraFiles = []*os.File{policyR, auditW}
-
-	// Close auditR for now since audit consumption is out of scope.
-	// In the future, this would be drained for audit events.
-	auditR.Close()
 
 	log.Debugf("Landlock sandboxed command: %s %v", cmd.Path, cmd.Args)
 

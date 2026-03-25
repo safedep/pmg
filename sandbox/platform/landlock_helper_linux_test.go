@@ -3,8 +3,8 @@
 package platform
 
 import (
-	"bytes"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestReadLandlockPolicyFromReader(t *testing.T) {
+func TestReadLandlockPolicyFromFile(t *testing.T) {
 	policy := &landlockExecPolicy{
 		Command: "/usr/bin/node",
 		Args:    []string{"index.js"},
@@ -30,11 +30,16 @@ func TestReadLandlockPolicyFromReader(t *testing.T) {
 		SkipIPCNamespace: false,
 	}
 
-	var buf bytes.Buffer
-	err := json.NewEncoder(&buf).Encode(policy)
+	// Write policy to temp file
+	f, err := os.CreateTemp("", "pmg-test-policy-*.json")
 	require.NoError(t, err)
+	defer os.Remove(f.Name())
 
-	got, err := readLandlockPolicyFromReader(&buf)
+	err = json.NewEncoder(f).Encode(policy)
+	require.NoError(t, err)
+	f.Close()
+
+	got, err := readLandlockPolicyFromFile(f.Name())
 	require.NoError(t, err)
 
 	assert.Equal(t, "/usr/bin/node", got.Command)
@@ -52,7 +57,7 @@ func TestReadLandlockPolicyFromReader(t *testing.T) {
 	assert.False(t, got.SkipIPCNamespace)
 }
 
-func TestReadLandlockPolicyFromReader_Invalid(t *testing.T) {
+func TestReadLandlockPolicyFromFile_Invalid(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -73,11 +78,29 @@ func TestReadLandlockPolicyFromReader_Invalid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			buf := bytes.NewBufferString(tt.input)
-			_, err := readLandlockPolicyFromReader(buf)
+			f, err := os.CreateTemp("", "pmg-test-policy-*.json")
+			require.NoError(t, err)
+			defer os.Remove(f.Name())
+
+			_, err = f.WriteString(tt.input)
+			require.NoError(t, err)
+			f.Close()
+
+			_, err = readLandlockPolicyFromFile(f.Name())
 			assert.Error(t, err)
 		})
 	}
+}
+
+func TestReadLandlockPolicyFromFile_EmptyPath(t *testing.T) {
+	_, err := readLandlockPolicyFromFile("")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "policy file path is empty")
+}
+
+func TestReadLandlockPolicyFromFile_NonexistentFile(t *testing.T) {
+	_, err := readLandlockPolicyFromFile("/tmp/nonexistent-policy-file-12345.json")
+	assert.Error(t, err)
 }
 
 func TestLandlockBuildCloneflags_Default(t *testing.T) {
