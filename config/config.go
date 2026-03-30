@@ -11,6 +11,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config/merge"
 )
 
 const (
@@ -346,7 +347,10 @@ func ConfigureSandbox(isInstallationCommand bool) {
 	}
 }
 
-// WriteTemplateConfig writes the template configuration file to disk if it doesn't already exist.
+// WriteTemplateConfig writes the template configuration file to disk.
+// If the config file does not exist, the full template is written.
+// If it already exists, missing keys from the template are merged
+// into the existing config while preserving all user values and comments.
 func WriteTemplateConfig() error {
 	configDir, err := configDir()
 	if err != nil {
@@ -362,13 +366,21 @@ func WriteTemplateConfig() error {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}
 
-	// Do not overwrite the config file if it already exists
-	if _, err := os.Stat(configFilePath); err == nil {
-		return nil
+	existingConfig, err := os.ReadFile(configFilePath)
+	if os.IsNotExist(err) {
+		return os.WriteFile(configFilePath, []byte(templateConfig), 0o644)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read existing config: %w", err)
 	}
 
-	if err := os.WriteFile(configFilePath, []byte(templateConfig), 0o644); err != nil {
-		return fmt.Errorf("failed to write template config: %w", err)
+	merged, err := merge.MergeYAML(existingConfig, []byte(templateConfig))
+	if err != nil {
+		return fmt.Errorf("failed to merge config: %w", err)
+	}
+
+	if err := os.WriteFile(configFilePath, merged, 0o644); err != nil {
+		return fmt.Errorf("failed to write merged config: %w", err)
 	}
 
 	return nil

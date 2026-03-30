@@ -8,6 +8,7 @@ require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/google/osv-scalibr v0.2.1
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.6.7
