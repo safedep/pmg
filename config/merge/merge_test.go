@@ -9,21 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// yamlUnmarshal wraps goccy/go-yaml Unmarshal for use in tests.
-func yamlUnmarshal(data []byte, v any) error {
-	return yaml.Unmarshal(data, v)
-}
-
-// parseYAML is a test helper that unmarshals YAML bytes into a map.
 func parseYAML(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 	var m map[string]any
-	err := yamlUnmarshal(data, &m)
-	require.NoError(t, err, "failed to parse YAML result")
+	require.NoError(t, yaml.Unmarshal(data, &m), "failed to parse YAML result")
 	return m
 }
 
-// assertDeepValue navigates a nested map by keys and asserts the leaf value.
 func assertDeepValue(t *testing.T, m map[string]any, keys []string, expected any) {
 	t.Helper()
 	current := any(m)
@@ -38,42 +30,35 @@ func assertDeepValue(t *testing.T, m map[string]any, keys []string, expected any
 
 func TestMergeYAML(t *testing.T) {
 	tests := []struct {
-		name     string
-		existing string
-		template string
-		// check is called with the merged output for custom assertions.
-		check func(t *testing.T, merged []byte)
-		// wantErr indicates the merge should fail.
+		name    string
+		dest    string
+		source  string
+		check   func(t *testing.T, merged []byte)
 		wantErr bool
 	}{
 		{
-			name:     "new top-level key appended",
-			existing: "name: alice\n",
-			template: "name: default\nage: 30\n",
+			name:   "new top-level key appended",
+			dest:   "name: alice\n",
+			source: "name: default\nage: 30\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
-				assert.Equal(t, "alice", m["name"], "existing value must be kept")
-				assert.Equal(t, uint64(30), m["age"], "new key must be added")
+				assert.Equal(t, "alice", m["name"])
+				assert.Equal(t, uint64(30), m["age"])
 			},
 		},
 		{
-			name:     "existing value never overwritten",
-			existing: "port: 8080\n",
-			template: "port: 3000\n",
+			name:   "existing value never overwritten",
+			dest:   "port: 8080\n",
+			source: "port: 3000\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, uint64(8080), m["port"])
 			},
 		},
 		{
-			name: "nested key added under existing parent",
-			existing: `server:
-  host: localhost
-`,
-			template: `server:
-  host: 0.0.0.0
-  port: 9090
-`,
+			name:   "nested key added under existing parent",
+			dest:   "server:\n  host: localhost\n",
+			source: "server:\n  host: 0.0.0.0\n  port: 9090\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assertDeepValue(t, m, []string{"server", "host"}, "localhost")
@@ -81,18 +66,9 @@ func TestMergeYAML(t *testing.T) {
 			},
 		},
 		{
-			name: "deeply nested new keys 3+ levels",
-			existing: `a:
-  b:
-    c: 1
-`,
-			template: `a:
-  b:
-    c: 99
-    d: 2
-  e:
-    f: 3
-`,
+			name:   "deeply nested new keys 3+ levels",
+			dest:   "a:\n  b:\n    c: 1\n",
+			source: "a:\n  b:\n    c: 99\n    d: 2\n  e:\n    f: 3\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assertDeepValue(t, m, []string{"a", "b", "c"}, uint64(1))
@@ -101,12 +77,9 @@ func TestMergeYAML(t *testing.T) {
 			},
 		},
 		{
-			name: "user-only keys preserved",
-			existing: `custom: myvalue
-name: alice
-`,
-			template: `name: default
-`,
+			name:   "user-only keys preserved",
+			dest:   "custom: myvalue\nname: alice\n",
+			source: "name: default\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, "myvalue", m["custom"])
@@ -114,41 +87,30 @@ name: alice
 			},
 		},
 		{
-			name: "user comments preserved",
-			existing: `# User's important comment
-name: alice
-`,
-			template: `name: default
-age: 30
-`,
+			name:   "user comments preserved",
+			dest:   "# User's important comment\nname: alice\n",
+			source: "name: default\nage: 30\n",
 			check: func(t *testing.T, merged []byte) {
-				s := string(merged)
-				assert.Contains(t, s, "# User's important comment")
+				assert.Contains(t, string(merged), "# User's important comment")
 				m := parseYAML(t, merged)
 				assert.Equal(t, "alice", m["name"])
 				assert.Equal(t, uint64(30), m["age"])
 			},
 		},
 		{
-			name:     "template comments come with new keys",
-			existing: "name: alice\n",
-			template: `name: default
-# This is the age field
-age: 30
-`,
+			name:   "source comments come with new keys",
+			dest:   "name: alice\n",
+			source: "name: default\n# This is the age field\nage: 30\n",
 			check: func(t *testing.T, merged []byte) {
-				s := string(merged)
-				assert.Contains(t, s, "# This is the age field")
+				assert.Contains(t, string(merged), "# This is the age field")
 				m := parseYAML(t, merged)
 				assert.Equal(t, uint64(30), m["age"])
 			},
 		},
 		{
-			name:     "empty existing config gets all template keys",
-			existing: "",
-			template: `name: default
-port: 3000
-`,
+			name:   "empty dest gets all source keys",
+			dest:   "",
+			source: "name: default\nport: 3000\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, "default", m["name"])
@@ -156,11 +118,9 @@ port: 3000
 			},
 		},
 		{
-			name: "empty template is no-op",
-			existing: `name: alice
-port: 8080
-`,
-			template: "",
+			name:   "empty source is no-op",
+			dest:   "name: alice\nport: 8080\n",
+			source: "",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, "alice", m["name"])
@@ -168,26 +128,18 @@ port: 8080
 			},
 		},
 		{
-			name: "type mismatch user scalar vs template mapping - user wins",
-			existing: `server: simple-string
-`,
-			template: `server:
-  host: localhost
-  port: 9090
-`,
+			name:   "type mismatch user scalar vs source mapping - dest wins",
+			dest:   "server: simple-string\n",
+			source: "server:\n  host: localhost\n  port: 9090\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, "simple-string", m["server"])
 			},
 		},
 		{
-			name: "type mismatch user mapping vs template scalar - user wins",
-			existing: `server:
-  host: localhost
-  port: 9090
-`,
-			template: `server: simple-string
-`,
+			name:   "type mismatch user mapping vs source scalar - dest wins",
+			dest:   "server:\n  host: localhost\n  port: 9090\n",
+			source: "server: simple-string\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				srv, ok := m["server"].(map[string]any)
@@ -196,47 +148,34 @@ port: 8080
 			},
 		},
 		{
-			name: "different key order no duplicates",
-			existing: `b: 2
-a: 1
-`,
-			template: `a: 10
-b: 20
-c: 3
-`,
+			name:   "different key order no duplicates",
+			dest:   "b: 2\na: 1\n",
+			source: "a: 10\nb: 20\nc: 3\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, uint64(1), m["a"])
 				assert.Equal(t, uint64(2), m["b"])
 				assert.Equal(t, uint64(3), m["c"])
-				// Ensure no duplicate keys in output
-				count := strings.Count(string(merged), "a:")
-				assert.Equal(t, 1, count, "key 'a' should appear exactly once")
-				count = strings.Count(string(merged), "b:")
-				assert.Equal(t, 1, count, "key 'b' should appear exactly once")
+				assert.Equal(t, 1, strings.Count(string(merged), "a:"))
+				assert.Equal(t, 1, strings.Count(string(merged), "b:"))
 			},
 		},
 		{
-			name:     "malformed existing YAML returns error",
-			existing: ":\n  :\n[invalid yaml{{{",
-			template: "name: default\n",
-			wantErr:  true,
+			name:    "malformed dest returns error",
+			dest:    ":\n  :\n[invalid yaml{{{",
+			source:  "name: default\n",
+			wantErr: true,
 		},
 		{
-			name:     "malformed template YAML returns error",
-			existing: "name: alice\n",
-			template: ":\n  :\n[invalid yaml{{{",
-			wantErr:  true,
+			name:    "malformed source returns error",
+			dest:    "name: alice\n",
+			source:  ":\n  :\n[invalid yaml{{{",
+			wantErr: true,
 		},
 		{
-			name: "inline comments on existing keys preserved",
-			existing: `name: alice # this is the name
-port: 8080 # server port
-`,
-			template: `name: default
-port: 3000
-age: 30
-`,
+			name:   "inline comments on existing keys preserved",
+			dest:   "name: alice # this is the name\nport: 8080 # server port\n",
+			source: "name: default\nport: 3000\nage: 30\n",
 			check: func(t *testing.T, merged []byte) {
 				s := string(merged)
 				assert.Contains(t, s, "# this is the name")
@@ -247,13 +186,9 @@ age: 30
 			},
 		},
 		{
-			name:     "multiple new top-level keys appended",
-			existing: "name: alice\n",
-			template: `name: default
-age: 30
-city: nyc
-debug: true
-`,
+			name:   "multiple new top-level keys appended",
+			dest:   "name: alice\n",
+			source: "name: default\nage: 30\ncity: nyc\ndebug: true\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, "alice", m["name"])
@@ -263,13 +198,9 @@ debug: true
 			},
 		},
 		{
-			name:     "new nested section added entirely",
-			existing: "name: alice\n",
-			template: `name: default
-database:
-  host: db.local
-  port: 5432
-`,
+			name:   "new nested section added entirely",
+			dest:   "name: alice\n",
+			source: "name: default\ndatabase:\n  host: db.local\n  port: 5432\n",
 			check: func(t *testing.T, merged []byte) {
 				m := parseYAML(t, merged)
 				assert.Equal(t, "alice", m["name"])
@@ -281,7 +212,7 @@ database:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			merged, err := MergeYAML([]byte(tc.existing), []byte(tc.template))
+			merged, err := MergeYAML([]byte(tc.dest), []byte(tc.source))
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -344,41 +275,86 @@ sandbox:
 	require.NoError(t, err)
 
 	raw := string(result)
-
-	// User comments preserved
 	assert.Contains(t, raw, "# My PMG config")
 	assert.Contains(t, raw, "# My custom trusted packages")
 
 	parsed := parseYAML(t, result)
 
-	// User's customized values are kept
 	assert.Equal(t, false, parsed["transitive"])
 	assert.Equal(t, uint64(10), parsed["transitive_depth"])
 	assert.Equal(t, "verbose", parsed["verbosity"])
 	assert.Equal(t, false, parsed["proxy_mode"])
 
-	// New keys from template are added
 	assert.Equal(t, false, parsed["include_dev_dependencies"])
 	assert.Equal(t, false, parsed["paranoid"])
 	assert.Equal(t, false, parsed["skip_event_logging"])
 	assert.Equal(t, uint64(7), parsed["event_log_retention_days"])
 
-	// Sandbox: user's enabled=true preserved, new sub-keys added
 	sandbox, ok := parsed["sandbox"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, sandbox["enabled"])
 	assert.Equal(t, true, sandbox["enforce_always"])
+	assert.NotNil(t, sandbox["policy_templates"])
 
-	// policy_templates should be added (missing from user config)
-	assert.NotNil(t, sandbox["policy_templates"], "policy_templates should be merged from template")
-
-	// User's npm policy override preserved
 	policies, ok := sandbox["policies"].(map[string]any)
 	require.True(t, ok)
 	npm, ok := policies["npm"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, false, npm["enabled"], "user disabled npm sandbox, should be preserved")
+	assert.Equal(t, false, npm["enabled"])
+	assert.NotNil(t, policies["pnpm"])
+}
 
-	// pnpm policy added from template
-	assert.NotNil(t, policies["pnpm"], "pnpm policy should be merged from template")
+func BenchmarkMergeYAML(b *testing.B) {
+	dest := []byte(`transitive: false
+transitive_depth: 10
+verbosity: verbose
+proxy_mode: false
+trusted_packages:
+  - purl: pkg:npm/my-internal-lib
+    reason: "Internal library"
+sandbox:
+  enabled: true
+  enforce_always: true
+  policies:
+    npm:
+      enabled: false
+      profile: npm-restrictive
+`)
+
+	source := []byte(`transitive: true
+transitive_depth: 5
+include_dev_dependencies: false
+verbosity: normal
+paranoid: false
+skip_event_logging: false
+event_log_retention_days: 7
+proxy_mode: true
+trusted_packages:
+  - purl: pkg:npm/@safedep/pmg
+    reason: "PMG is a trusted package for PMG"
+sandbox:
+  enabled: false
+  enforce_always: false
+  policy_templates:
+    npm-restrictive-override:
+      path: ./profiles/npm-restrictive.yml
+  policies:
+    npm:
+      enabled: true
+      profile: npm-restrictive
+    pnpm:
+      enabled: true
+      profile: pnpm-restrictive
+    pip:
+      enabled: true
+      profile: pypi-restrictive
+`)
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, err := MergeYAML(dest, source)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }

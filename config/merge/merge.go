@@ -8,58 +8,48 @@ import (
 	"github.com/goccy/go-yaml/parser"
 )
 
-// MergeYAML merges missing keys from template into existing YAML config.
-// It preserves all existing user values, comments, and formatting.
-// Only keys present in template but absent in existing are added.
-func MergeYAML(existing []byte, template []byte) ([]byte, error) {
-	existingEmpty := isEmptyYAML(existing)
-	templateEmpty := isEmptyYAML(template)
+// MergeYAML merges missing keys from source into dest while preserving
+// all existing dest values, comments, and formatting.
+func MergeYAML(dest []byte, source []byte) ([]byte, error) {
+	destEmpty := isEmptyYAML(dest)
+	sourceEmpty := isEmptyYAML(source)
 
-	// Rule 8: empty template → return existing unchanged
-	if templateEmpty {
-		return existing, nil
+	if sourceEmpty {
+		return dest, nil
 	}
 
-	// Rule 7: empty existing → return full template
-	if existingEmpty {
-		// Validate template parses
-		_, err := parser.ParseBytes(template, parser.ParseComments)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse template YAML: %w", err)
+	if destEmpty {
+		if _, err := parser.ParseBytes(source, parser.ParseComments); err != nil {
+			return nil, fmt.Errorf("failed to parse source YAML: %w", err)
 		}
-		return template, nil
+		return source, nil
 	}
 
-	// Parse both files
-	existingFile, err := parser.ParseBytes(existing, parser.ParseComments)
+	destFile, err := parser.ParseBytes(dest, parser.ParseComments)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse existing YAML: %w", err)
+		return nil, fmt.Errorf("failed to parse dest YAML: %w", err)
 	}
 
-	templateFile, err := parser.ParseBytes(template, parser.ParseComments)
+	sourceFile, err := parser.ParseBytes(source, parser.ParseComments)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse template YAML: %w", err)
+		return nil, fmt.Errorf("failed to parse source YAML: %w", err)
 	}
 
-	// Extract root mapping nodes
-	existingMap, err := getRootMapping(existingFile)
+	destMap, err := getRootMapping(destFile)
 	if err != nil {
-		return nil, fmt.Errorf("existing config: %w", err)
+		return nil, fmt.Errorf("dest: %w", err)
 	}
 
-	templateMap, err := getRootMapping(templateFile)
+	sourceMap, err := getRootMapping(sourceFile)
 	if err != nil {
-		return nil, fmt.Errorf("template config: %w", err)
+		return nil, fmt.Errorf("source: %w", err)
 	}
 
-	// Recursively merge
-	mergeMapping(existingMap, templateMap)
+	mergeMappings(destMap, sourceMap)
 
-	// Serialize back
-	return []byte(existingFile.String() + "\n"), nil
+	return []byte(destFile.String() + "\n"), nil
 }
 
-// isEmptyYAML checks if YAML content is empty or whitespace/comments only.
 func isEmptyYAML(data []byte) bool {
 	s := strings.TrimSpace(string(data))
 	if s == "" {
@@ -75,7 +65,6 @@ func isEmptyYAML(data []byte) bool {
 	return true
 }
 
-// getRootMapping extracts the root MappingNode from a parsed YAML file.
 func getRootMapping(file *ast.File) (*ast.MappingNode, error) {
 	if len(file.Docs) == 0 {
 		return nil, fmt.Errorf("no documents found")
@@ -91,52 +80,39 @@ func getRootMapping(file *ast.File) (*ast.MappingNode, error) {
 	return mapping, nil
 }
 
-// mergeMapping recursively merges keys from tmpl into target.
-// Keys that exist in target are never overwritten.
-// Keys only in tmpl are appended to target.
-func mergeMapping(target, tmpl *ast.MappingNode) {
-	// Build lookup of existing keys
-	existingKeys := make(map[string]int, len(target.Values))
-	for i, mv := range target.Values {
-		existingKeys[mv.Key.String()] = i
+// mergeMappings recursively appends keys from source that are missing in dest.
+// When a key exists in both and both values are mappings, it recurses.
+// Otherwise dest's value wins.
+func mergeMappings(dest, source *ast.MappingNode) {
+	existing := make(map[string]int, len(dest.Values))
+	for i, mv := range dest.Values {
+		existing[mv.Key.String()] = i
 	}
 
-	for _, tmplMV := range tmpl.Values {
-		key := tmplMV.Key.String()
-		idx, exists := existingKeys[key]
-		if !exists {
-			// Key not in target — append it with its comments
-			// Adjust column to match target's indentation
-			targetCol := targetStartColumn(target)
-			tmplCol := tmplMV.Key.GetToken().Position.Column
-			colDiff := targetCol - tmplCol
-			if colDiff != 0 {
-				tmplMV.AddColumn(colDiff)
+	for _, srcMV := range source.Values {
+		key := srcMV.Key.String()
+		idx, found := existing[key]
+		if !found {
+			destCol := startColumn(dest)
+			srcCol := srcMV.Key.GetToken().Position.Column
+			if colDiff := destCol - srcCol; colDiff != 0 {
+				srcMV.AddColumn(colDiff)
 			}
-			target.Values = append(target.Values, tmplMV)
-		} else {
-			// Key exists in both — recurse if both are mappings
-			existingValue := target.Values[idx].Value
-			tmplValue := tmplMV.Value
+			dest.Values = append(dest.Values, srcMV)
+			continue
+		}
 
-			existingMapping, existingIsMap := existingValue.(*ast.MappingNode)
-			tmplMapping, tmplIsMap := tmplValue.(*ast.MappingNode)
-
-			if existingIsMap && tmplIsMap {
-				// Both are mappings — recurse
-				mergeMapping(existingMapping, tmplMapping)
-			}
-			// Otherwise user wins (rule 5, 9)
+		destMapping, destOk := dest.Values[idx].Value.(*ast.MappingNode)
+		srcMapping, srcOk := srcMV.Value.(*ast.MappingNode)
+		if destOk && srcOk {
+			mergeMappings(destMapping, srcMapping)
 		}
 	}
 }
 
-// targetStartColumn returns the column of the first key in a mapping,
-// or 1 if the mapping has no values yet.
-func targetStartColumn(m *ast.MappingNode) int {
+func startColumn(m *ast.MappingNode) int {
 	if len(m.Values) > 0 {
 		return m.Values[0].Key.GetToken().Position.Column
 	}
 	return 1
 }
-
