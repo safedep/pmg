@@ -86,15 +86,25 @@ npm install express
 pip install requests
 ```
 
-When an AI agent (or you) tries to install a malicious package, PMG blocks it:
+Try installing a known-malicious test package to verify PMG is working:
 
-```text
+```bash
+npm i safedep-test-pkg@0.1.3
+```
+
+<details>
+<summary>Expected output</summary>
+
+```
 ✗ Malicious package blocked
 
-  - safedep-test-pkg@1.0.0
+  - safedep-test-pkg@0.1.3
+    Reference: https://app.safedep.io/community/malysis/01KF5JYDND9XR94WNEJ2G74KY2
 
 ✗ PMG: 1 packages analyzed, 1 blocked
 ```
+
+</details>
 
 ## Features
 
