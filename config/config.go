@@ -11,7 +11,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/config/merge"
+	"github.com/safedep/dry/utils"
 )
 
 const (
@@ -376,7 +376,7 @@ func WriteTemplateConfig() error {
 		return fmt.Errorf("failed to read existing config: %w", err)
 	}
 
-	merged, err := merge.MergeYAML(existingConfig, []byte(templateConfig))
+	merged, err := utils.MergeYAML(existingConfig, []byte(templateConfig))
 	if err != nil {
 		return fmt.Errorf("failed to merge config: %w", err)
 	}
