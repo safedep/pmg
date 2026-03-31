@@ -76,6 +76,8 @@ pmg setup install
 # Restart your terminal to apply changes
 ```
 
+> **Tip:** Re-run `pmg setup install` after upgrading PMG to pick up new configuration options.
+
 ### 3. Use
 
 Use your package managers as usual — or let your AI coding agent use them. PMG works silently in the background.
