@@ -5,8 +5,7 @@
 ```bash
 go build ./...          # Build
 go test ./... -count=1  # Run all tests
-go test ./config/merge/ -v -count=1  # Run specific package tests
-go test ./config/merge/ -bench=. -benchmem  # Run benchmarks
+go test ./config/ -v -count=1  # Run specific package tests
 ```
 
 ## Project Structure
