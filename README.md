@@ -86,7 +86,7 @@ npm install express
 pip install requests
 ```
 
-Try installing a known-malicious test package to verify PMG is working:
+Verify PMG is working by installing a test package. This is a harmless package flagged as malicious in the SafeDep database, specifically meant for testing:
 
 ```bash
 npm i safedep-test-pkg@0.1.3
