@@ -34,8 +34,9 @@ func NewSetupCommand() *cobra.Command {
 
 func NewInstallCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "install",
-		Short: "Setup PMG config and aliases for package managers (npm, pnpm, pip, and more)",
+		Use:          "install",
+		Short:        "Setup PMG config and aliases for package managers (npm, pnpm, pip, and more)",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
@@ -63,8 +64,9 @@ func NewInstallCommand() *cobra.Command {
 
 func NewRemoveCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove",
-		Short: "Removes pmg aliases from the user's shell config file.",
+		Use:          "remove",
+		Short:        "Removes pmg aliases from the user's shell config file.",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 

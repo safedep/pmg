@@ -9,17 +9,18 @@ import (
 )
 
 // loadViperConfig loads the configuration using Viper if available.
-// This function will panic for system errors since it is part of the init path.
-func loadViperConfig() {
+// It returns an error if the config file exists but cannot be read or parsed,
+// allowing the caller to fall back to default configuration.
+func loadViperConfig() error {
 	configPath, err := configFilePath()
 	if err != nil {
-		panic(fmt.Errorf("failed to get config file path: %w", err))
+		return fmt.Errorf("failed to get config file path: %w", err)
 	}
 
 	// Check if config file exists before attempting to load
 	// If it doesn't exist, we use the default configuration (see config.go)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return
+		return nil
 	}
 
 	v := viper.New()
@@ -31,13 +32,14 @@ func loadViperConfig() {
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
 	if err := v.ReadInConfig(); err != nil {
-		panic(fmt.Errorf("failed to read config file %s: %w", configPath, err))
+		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
 	var loadedConfig Config
 	if err := v.Unmarshal(&loadedConfig); err != nil {
-		panic(fmt.Errorf("failed to unmarshal config: %w", err))
+		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	globalConfig.Config = loadedConfig
+	return nil
 }

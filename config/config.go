@@ -273,10 +273,12 @@ func initConfig() {
 
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
-// Right now we only support loading from a config file using Viper. All loader
-// functions should be safe with reasonable defaults and panic only in case of system errors.
+// Right now we only support loading from a config file using Viper. If loading
+// fails, the default configuration is used and a warning is logged.
 func loadConfig() {
-	loadViperConfig()
+	if err := loadViperConfig(); err != nil {
+		log.Warnf("Failed to load config, using defaults: %v", err)
+	}
 }
 
 // configDir computes the path to the config directory.
