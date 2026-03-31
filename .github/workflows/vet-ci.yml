@@ -2,15 +2,9 @@ name: vet OSS Components
 
 on:
   pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
   push:
     branches:
       - main
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
 # PRs share a concurrency group (cancel/serialize); Pushes use unique groups to avoid cancellation/queuing
 concurrency:

@@ -4,15 +4,9 @@ on:
   pull_request:
     branches:
       - main
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
   push:
     branches:
       - main
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
   workflow_dispatch:
 
 # PRs share a concurrency group (cancel/serialize); Pushes use unique groups to avoid cancellation/queuing
