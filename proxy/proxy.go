@@ -134,6 +134,15 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	return ps, nil
 }
 
+func proxyWithLoopbackBypass(req *http.Request) (*url.URL, error) {
+	host := req.URL.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return nil, nil
+	}
+
+	return http.ProxyFromEnvironment(req)
+}
+
 func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 	dialer := &net.Dialer{
 		Timeout: config.ConnectTimeout,
@@ -141,7 +150,9 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
 	// that PMG works in enterprise environments that require a corporate
-	// upstream proxy to reach the internet.
+	// upstream proxy to reach the internet. Loopback addresses are always
+	// bypassed to avoid routing localhost traffic through an external proxy,
+	// which would fail because the proxy can't reach the user's localhost.
 	//
 	// ForceAttemptHTTP2 is required because Go's http.Transport silently
 	// disables HTTP/2 when a custom TLSClientConfig or DialContext is set.
@@ -157,7 +168,7 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 	// MaxIdleConnsPerHost is raised from the default of 2 to improve
 	// connection reuse.
 	return &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy:               proxyWithLoopbackBypass,
 		DialContext:         dialer.DialContext,
 		ForceAttemptHTTP2:   true,
 		MaxConnsPerHost:     100,

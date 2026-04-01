@@ -126,6 +126,35 @@ func TestNormalizeRequestURLNilSafety(t *testing.T) {
 	normalizeRequestURL(&http.Request{URL: &url.URL{}})
 }
 
+func TestProxyWithLoopbackBypass(t *testing.T) {
+	tests := []struct {
+		name          string
+		url           string
+		shouldBypass  bool
+	}{
+		{"localhost bypassed", "http://localhost:9876/", true},
+		{"127.0.0.1 bypassed", "http://127.0.0.1:9876/", true},
+		{"ipv6 loopback bypassed", "http://[::1]:9876/", true},
+		{"registry not bypassed", "https://registry.npmjs.org/lodash", false},
+		{"external host not bypassed", "http://example.com/", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := url.Parse(tt.url)
+			require.NoError(t, err)
+
+			req := &http.Request{URL: parsed}
+			proxyURL, err := proxyWithLoopbackBypass(req)
+			assert.NoError(t, err)
+
+			if tt.shouldBypass {
+				assert.Nil(t, proxyURL, "loopback address should bypass proxy")
+			}
+		})
+	}
+}
+
 func TestNewProxyServerRejectsUntrustedUpstreamCertByDefault(t *testing.T) {
 	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
