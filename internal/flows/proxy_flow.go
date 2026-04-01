@@ -292,6 +292,8 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 		fmt.Sprintf("PIP_CERT=%s", caCertPath),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
 		"PIP_RETRIES=0",
+		"NO_PROXY=127.0.0.1,localhost,::1",
+		"no_proxy=127.0.0.1,localhost,::1",
 	)
 
 	return env
