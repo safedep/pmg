@@ -279,14 +279,18 @@ func (f *proxyFlow) createAndStartProxyServer(
 func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
+	noProxyList := "localhost,127.0.0.1,[::1]"
+
 	env := os.Environ()
 	env = append(env,
 		"NODE_USE_ENV_PROXY=1",
 		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
 		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
+		fmt.Sprintf("NO_PROXY=%s", noProxyList),
 		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
 		fmt.Sprintf("http_proxy=%s", proxyURL),
 		fmt.Sprintf("https_proxy=%s", proxyURL),
+		fmt.Sprintf("no_proxy=%s", noProxyList),
 		fmt.Sprintf("SSL_CERT_FILE=%s", caCertPath),
 		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
 		fmt.Sprintf("PIP_CERT=%s", caCertPath),
