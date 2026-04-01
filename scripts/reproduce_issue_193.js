@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * Reproducer for PMG issue #193
- * https://github.com/safedep/pmg/issues/193
+ * Reproducer for loopback proxy interference bug
  *
  * What this script does:
  *   1. Starts a real local HTTP server on 127.0.0.1 (simulates an internal app service)
