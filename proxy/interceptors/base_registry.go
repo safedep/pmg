@@ -12,6 +12,9 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/proxy"
+	gobreaker "github.com/sony/gobreaker/v2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // baseRegistryInterceptor provides common functionality for registry interceptors
@@ -21,6 +24,25 @@ type baseRegistryInterceptor struct {
 	cache            AnalysisCache
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
+	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
+}
+
+func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
+	return newAnalyzerCircuitBreakerWithTimeout(name, 30*time.Second)
+}
+
+func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
+	return gobreaker.NewCircuitBreaker[*analyzer.PackageVersionAnalysisResult](gobreaker.Settings{
+		Name:        name,
+		MaxRequests: 1,
+		Timeout:     cooldown,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 3
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			log.Infof("Circuit breaker %s: %s -> %s", name, from, to)
+		},
+	})
 }
 
 var _ proxy.Interceptor = (*baseRegistryInterceptor)(nil)
@@ -87,10 +109,25 @@ func (b *baseRegistryInterceptor) analyzePackage(
 
 	log.Debugf("[%s] Analyzing package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-	analysisCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	result, err := b.circuitBreaker.Execute(func() (*analyzer.PackageVersionAnalysisResult, error) {
+		analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	result, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
+		res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
+		if err != nil {
+			// NotFound means the package is not in the analysis DB — this is expected
+			// and should not count as a circuit breaker failure
+			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+				log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
+				return &analyzer.PackageVersionAnalysisResult{
+					PackageVersion: pkgVersion,
+					Action:         analyzer.ActionAllow,
+				}, nil
+			}
+		}
+
+		return res, err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("analyzer failed: %w", err)
 	}

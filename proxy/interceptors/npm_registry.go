@@ -52,6 +52,7 @@ func NewNpmRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-npm"),
 		},
 	}
 }

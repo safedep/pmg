@@ -53,6 +53,7 @@ func NewPypiRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
+			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
 		},
 	}
 }

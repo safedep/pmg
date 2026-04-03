@@ -8,13 +8,13 @@ require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0
-	github.com/goccy/go-yaml v1.19.2
 	github.com/google/osv-scalibr v0.2.1
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/posthog/posthog-go v1.5.12
 	github.com/safedep/dry v0.0.0-20260331131405-bd4c66ef7083
 	github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
@@ -42,6 +42,7 @@ require (
 	github.com/go-playground/validator/v10 v10.28.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
