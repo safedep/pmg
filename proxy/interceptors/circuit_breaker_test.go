@@ -155,24 +155,39 @@ func TestCircuitBreaker_CacheBypassesBreaker(t *testing.T) {
 }
 
 func TestCircuitBreaker_NotFoundDoesNotCountAsFailure(t *testing.T) {
-	notFoundErr := status.Error(codes.NotFound, "package not found")
-	mock := &mockAnalyzer{err: notFoundErr}
-	base := newTestBaseInterceptor(mock)
-	ctx := newTestRequestContext()
-
-	// NotFound errors should return allow and not trip the breaker
-	for i := 0; i < 5; i++ {
-		result, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("unknown-%d", i), "1.0.0")
-		require.NoError(t, err)
-		assert.Equal(t, analyzer.ActionAllow, result.Action)
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "single wrapped gRPC error (analyzer layer)",
+			err:  fmt.Errorf("failed to query package analysis: %w", status.Error(codes.NotFound, "package not found")),
+		},
+		{
+			name: "double wrapped gRPC error (interceptor + analyzer layers)",
+			err:  fmt.Errorf("analyzer failed: %w", fmt.Errorf("failed to query package analysis: %w", status.Error(codes.NotFound, "package not found"))),
+		},
 	}
 
-	// All 5 calls should have reached the analyzer (breaker never tripped)
-	assert.Equal(t, 5, mock.callCount)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockAnalyzer{err: tt.err}
+			base := newTestBaseInterceptor(mock)
+			ctx := newTestRequestContext()
+
+			for i := 0; i < 5; i++ {
+				result, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("unknown-%d", i), "1.0.0")
+				require.NoError(t, err)
+				assert.Equal(t, analyzer.ActionAllow, result.Action)
+			}
+
+			assert.Equal(t, 5, mock.callCount, "all calls should reach analyzer (breaker never tripped)")
+		})
+	}
 }
 
 func TestCircuitBreaker_NotFoundFollowedByRealFailures(t *testing.T) {
-	mock := &mockAnalyzer{err: status.Error(codes.NotFound, "not found")}
+	mock := &mockAnalyzer{err: fmt.Errorf("failed to query package analysis: %w", status.Error(codes.NotFound, "not found"))}
 	base := newTestBaseInterceptor(mock)
 	ctx := newTestRequestContext()
 

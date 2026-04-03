@@ -116,7 +116,8 @@ func (b *baseRegistryInterceptor) analyzePackage(
 		res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
 		if err != nil {
 			// NotFound means the package is not in the analysis DB — this is expected
-			// and should not count as a circuit breaker failure
+			// and should not count as a circuit breaker failure.
+			// Since gRPC v1.75.0, status.FromError unwraps error chains via errors.As.
 			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 				log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
 				return &analyzer.PackageVersionAnalysisResult{
