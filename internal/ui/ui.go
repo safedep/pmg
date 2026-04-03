@@ -141,6 +141,33 @@ func Fatalf(msg string, args ...interface{}) {
 	os.Exit(1)
 }
 
+func printCooldownPackagesList(packages []CooldownBlockedPackage) {
+	for _, pkg := range packages {
+		fmt.Println()
+		fmt.Printf("  %s %s\n",
+			Colors.Yellow("⊘"),
+			Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
+
+		dateStr := ""
+		if !pkg.PublishDate.IsZero() {
+			dateStr = fmt.Sprintf(" (%s)", pkg.PublishDate.Format("2006-01-02"))
+		}
+
+		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf(
+			"Published %s ago%s — available in %s",
+			pluralizeDays(pkg.DaysAgo), dateStr, pluralizeDays(pkg.DaysLeft),
+		)))
+		fmt.Printf("    %s\n", Colors.Dim("Tip: add to trusted_packages in your PMG config to bypass"))
+	}
+}
+
+func pluralizeDays(n int) string {
+	if n == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", n)
+}
+
 func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalysisResult) {
 	for _, mp := range malwarePackages {
 		fmt.Println()

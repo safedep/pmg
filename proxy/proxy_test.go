@@ -2,9 +2,13 @@ package proxy
 
 import (
 	"crypto/tls"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,9 +132,9 @@ func TestNormalizeRequestURLNilSafety(t *testing.T) {
 
 func TestProxyWithLoopbackBypass(t *testing.T) {
 	tests := []struct {
-		name          string
-		url           string
-		shouldBypass  bool
+		name         string
+		url          string
+		shouldBypass bool
 	}{
 		{"localhost bypassed", "http://localhost:9876/", true},
 		{"127.0.0.1 bypassed", "http://127.0.0.1:9876/", true},
@@ -224,4 +228,99 @@ func TestResponseProtoNormalisedToHTTP11(t *testing.T) {
 
 	assert.Equal(t, 1, resp.ProtoMajor, "response ProtoMajor should be 1 (HTTP/1.1)")
 	assert.Equal(t, 1, resp.ProtoMinor, "response ProtoMinor should be 1 (HTTP/1.1)")
+}
+
+func TestApplyResponseModifier(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		modifier       ResponseModifierFunc
+		expectedBody   string
+		expectedStatus int
+	}{
+		{
+			name: "modifier returns body unchanged",
+			body: `{"name":"lodash"}`,
+			modifier: func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+				return statusCode, headers, body, nil
+			},
+			expectedBody:   `{"name":"lodash"}`,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "modifier rewrites body",
+			body: `original`,
+			modifier: func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+				return statusCode, headers, []byte(`rewritten`), nil
+			},
+			expectedBody:   `rewritten`,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "modifier changes status code",
+			body: `body`,
+			modifier: func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+				return http.StatusTeapot, headers, body, nil
+			},
+			expectedBody:   `body`,
+			expectedStatus: http.StatusTeapot,
+		},
+		{
+			name: "modifier error restores original body",
+			body: `original`,
+			modifier: func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+				return 0, nil, nil, fmt.Errorf("modifier failed")
+			},
+			expectedBody:   `original`,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "empty body handled",
+			body: ``,
+			modifier: func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+				return statusCode, headers, body, nil
+			},
+			expectedBody:   ``,
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(tt.body)),
+			}
+
+			got, _ := applyResponseModifier(resp, tt.modifier)
+
+			assert.Equal(t, tt.expectedStatus, got.StatusCode)
+
+			gotBody, err := io.ReadAll(got.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedBody, string(gotBody))
+		})
+	}
+}
+
+func TestApplyResponseModifier_ContentLengthUpdated(t *testing.T) {
+	original := `short`
+	replacement := `this is a longer body`
+
+	resp := &http.Response{
+		StatusCode:    http.StatusOK,
+		Header:        http.Header{},
+		Body:          io.NopCloser(strings.NewReader(original)),
+		ContentLength: int64(len(original)),
+	}
+
+	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+		return statusCode, headers, []byte(replacement), nil
+	}
+
+	got, err := applyResponseModifier(resp, modifier)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len(replacement)), got.ContentLength)
+	assert.Equal(t, strconv.Itoa(len(replacement)), got.Header.Get("Content-Length"))
 }

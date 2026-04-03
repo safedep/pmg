@@ -2,17 +2,29 @@ package interceptors
 
 import (
 	"sync"
+	"time"
 
 	"github.com/safedep/pmg/analyzer"
 )
 
+// CooldownBlock records a package blocked by the dependency cooldown policy.
+type CooldownBlock struct {
+	Name         string
+	Version      string
+	PublishDate  time.Time
+	DaysAgo      int
+	DaysLeft     int
+	CooldownDays int
+}
+
 // AnalysisStats contains aggregated statistics from analysis results
 type AnalysisStats struct {
-	TotalAnalyzed      int
-	AllowedCount       int
-	ConfirmedCount     int
-	BlockedCount       int
-	UserCancelledCount int
+	TotalAnalyzed        int
+	AllowedCount         int
+	ConfirmedCount       int
+	BlockedCount         int
+	UserCancelledCount   int
+	CooldownBlockedCount int
 }
 
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
@@ -23,6 +35,7 @@ type AnalysisStatsCollector struct {
 	stats             AnalysisStats
 	blockedPackages   []*analyzer.PackageVersionAnalysisResult
 	confirmedPackages []*analyzer.PackageVersionAnalysisResult
+	cooldownBlocks    []CooldownBlock
 }
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -116,5 +129,35 @@ func (c *AnalysisStatsCollector) GetConfirmedPackages() []*analyzer.PackageVersi
 	// Return a copy to avoid race conditions
 	result := make([]*analyzer.PackageVersionAnalysisResult, len(c.confirmedPackages))
 	copy(result, c.confirmedPackages)
+	return result
+}
+
+// RecordCooldownBlocked records a package blocked by the dependency cooldown policy.
+// It increments both the cooldown-specific counter and the overall BlockedCount so that
+// inferOutcome correctly treats cooldown-only sessions as OutcomeBlocked.
+func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, publishDate time.Time, daysAgo, daysLeft, cooldownDays int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.TotalAnalyzed++
+	c.stats.BlockedCount++
+	c.stats.CooldownBlockedCount++
+	c.cooldownBlocks = append(c.cooldownBlocks, CooldownBlock{
+		Name:         name,
+		Version:      version,
+		PublishDate:  publishDate,
+		DaysAgo:      daysAgo,
+		DaysLeft:     daysLeft,
+		CooldownDays: cooldownDays,
+	})
+}
+
+// GetCooldownBlocks returns all packages blocked by the cooldown policy.
+func (c *AnalysisStatsCollector) GetCooldownBlocks() []CooldownBlock {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]CooldownBlock, len(c.cooldownBlocks))
+	copy(result, c.cooldownBlocks)
 	return result
 }

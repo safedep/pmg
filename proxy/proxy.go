@@ -1,12 +1,15 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -494,10 +497,37 @@ func (ps *proxyServer) registerHandlers() {
 			return resp
 		}
 
-		// TODO: Implement response body modification
-		// This requires buffering the response body, modifying it, and creating a new response
-		// For now, lets skip it
+		modifiedResp, err := applyResponseModifier(resp, modifier)
+		if err != nil {
+			log.Errorf("[%s] Response modifier failed for %s: %v", reqCtx.RequestID, ctx.Req.URL.String(), err)
+			return resp
+		}
 
-		return resp
+		return modifiedResp
 	})
+}
+
+// applyResponseModifier reads the full response body, passes it to the modifier function,
+// and returns a new response with the modifier's output. Content-Length is updated to match.
+func applyResponseModifier(resp *http.Response, modifier ResponseModifierFunc) (*http.Response, error) {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp, fmt.Errorf("failed to read response body: %w", err)
+	}
+	_ = resp.Body.Close()
+
+	newStatus, newHeaders, newBody, err := modifier(resp.StatusCode, resp.Header, body)
+	if err != nil {
+		// Restore original body so the response remains usable on error
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		return resp, fmt.Errorf("modifier returned error: %w", err)
+	}
+
+	resp.StatusCode = newStatus
+	resp.Header = newHeaders
+	resp.Body = io.NopCloser(bytes.NewReader(newBody))
+	resp.ContentLength = int64(len(newBody))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(newBody)))
+
+	return resp, nil
 }

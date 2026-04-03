@@ -137,3 +137,19 @@ sandbox:
     uv:
       enabled: true
       profile: pypi-restrictive
+
+# Dependency cooldown blocks installation of package versions published within a configurable
+# time window. Malicious packages are often caught within the first few days of publication,
+# so enforcing a cooldown period reduces exposure to supply chain attacks.
+#
+# When a package version is published within the cooldown window, PMG will block the
+# installation with a message indicating when the cooldown expires.
+#
+# Applies to all packages universally (new and existing dependencies alike).
+# Currently supported: NPM in proxy mode only.
+dependency_cooldown:
+  # Enable dependency cooldown. Default is true.
+  enabled: true
+
+  # Cooldown period in days. Default is 5.
+  days: 5
