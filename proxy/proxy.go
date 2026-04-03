@@ -16,6 +16,11 @@ import (
 	"github.com/safedep/pmg/proxy/certmanager"
 )
 
+// defaultServerReadWriteTimeout is the default timeout for the http.Server's
+// ReadTimeout and WriteTimeout. These deadlines persist on hijacked CONNECT
+// tunnel connections, so this must be large enough for a full bulk install.
+const defaultServerReadWriteTimeout = 30 * time.Minute
+
 // ProxyServer manages the proxy lifecycle
 type ProxyServer interface {
 	// Start begins listening on the configured address
@@ -49,16 +54,29 @@ type ProxyConfig struct {
 	EnableMITM     bool
 	RequestTimeout time.Duration
 	ConnectTimeout time.Duration
+
+	// ServerReadWriteTimeout is the timeout applied to the http.Server's
+	// ReadTimeout and WriteTimeout. These deadlines are set on the raw TCP
+	// connection and persist after Hijack(), which means they become the
+	// hard wall-clock limit for CONNECT tunnels (used for non-MITM traffic
+	// like private registries). A bulk "npm install" can easily run for
+	// 15-30 minutes, so this must be significantly larger than
+	// RequestTimeout (which governs individual upstream round-trips for
+	// MITM'd connections).
+	//
+	// If zero, defaults to 30 minutes.
+	ServerReadWriteTimeout time.Duration
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
 func DefaultProxyConfig() *ProxyConfig {
 	return &ProxyConfig{
-		ListenAddr:     "127.0.0.1:0",
-		EnableMITM:     true,
-		ConnectTimeout: 30 * time.Second,
-		RequestTimeout: 5 * time.Minute,
-		Interceptors:   []Interceptor{},
+		ListenAddr:             "127.0.0.1:0",
+		EnableMITM:             true,
+		ConnectTimeout:         30 * time.Second,
+		RequestTimeout:         5 * time.Minute,
+		ServerReadWriteTimeout: defaultServerReadWriteTimeout,
+		Interceptors:           []Interceptor{},
 	}
 }
 
@@ -168,14 +186,15 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 	// MaxIdleConnsPerHost is raised from the default of 2 to improve
 	// connection reuse.
 	return &http.Transport{
-		Proxy:               proxyWithLoopbackBypass,
-		DialContext:         dialer.DialContext,
-		ForceAttemptHTTP2:   true,
-		MaxConnsPerHost:     100,
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 50,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: config.ConnectTimeout,
+		Proxy:                 proxyWithLoopbackBypass,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxConnsPerHost:       100,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   50,
+		IdleConnTimeout:       120 * time.Second,
+		TLSHandshakeTimeout:   config.ConnectTimeout,
+		ResponseHeaderTimeout: config.RequestTimeout,
 		TLSClientConfig: &tls.Config{
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: false,
@@ -191,10 +210,15 @@ func (ps *proxyServer) Start() error {
 
 	ps.listener = listener
 
+	serverTimeout := ps.config.ServerReadWriteTimeout
+	if serverTimeout == 0 {
+		serverTimeout = defaultServerReadWriteTimeout
+	}
+
 	ps.server = &http.Server{
 		Handler:      ps.proxy,
-		ReadTimeout:  ps.config.RequestTimeout,
-		WriteTimeout: ps.config.RequestTimeout,
+		ReadTimeout:  serverTimeout,
+		WriteTimeout: serverTimeout,
 	}
 
 	log.Debugf("Proxy server listening on %s", ps.Address())

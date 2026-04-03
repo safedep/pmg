@@ -48,6 +48,49 @@ func TestNewProxyServerUpstreamTransportEnablesHTTP2(t *testing.T) {
 	assert.Equal(t, 200, tr.MaxIdleConns, "MaxIdleConns should accommodate multiple upstream registries")
 }
 
+func TestServerTimeoutSeparateFromRequestTimeout(t *testing.T) {
+	server, err := NewProxyServer(&ProxyConfig{
+		ListenAddr:             "127.0.0.1:0",
+		EnableMITM:             false,
+		ConnectTimeout:         30 * time.Second,
+		RequestTimeout:         5 * time.Minute,
+		ServerReadWriteTimeout: defaultServerReadWriteTimeout,
+	})
+	require.NoError(t, err)
+
+	ps, ok := server.(*proxyServer)
+	require.True(t, ok)
+	require.NoError(t, ps.Start())
+	defer func() { _ = ps.Stop(t.Context()) }()
+
+	// http.Server timeouts should use ServerReadWriteTimeout, not RequestTimeout
+	assert.Equal(t, defaultServerReadWriteTimeout, ps.server.ReadTimeout,
+		"server ReadTimeout should use ServerReadWriteTimeout to avoid deadline leaking into hijacked CONNECT tunnels")
+	assert.Equal(t, defaultServerReadWriteTimeout, ps.server.WriteTimeout,
+		"server WriteTimeout should use ServerReadWriteTimeout to avoid deadline leaking into hijacked CONNECT tunnels")
+}
+
+func TestServerTimeoutDefaultsWhenZero(t *testing.T) {
+	server, err := NewProxyServer(&ProxyConfig{
+		ListenAddr:     "127.0.0.1:0",
+		EnableMITM:     false,
+		ConnectTimeout: 30 * time.Second,
+		RequestTimeout: 5 * time.Minute,
+		// ServerReadWriteTimeout omitted (zero value)
+	})
+	require.NoError(t, err)
+
+	ps, ok := server.(*proxyServer)
+	require.True(t, ok)
+	require.NoError(t, ps.Start())
+	defer func() { _ = ps.Stop(t.Context()) }()
+
+	assert.Equal(t, defaultServerReadWriteTimeout, ps.server.ReadTimeout,
+		"server ReadTimeout should default to 30 minutes when ServerReadWriteTimeout is zero")
+	assert.Equal(t, defaultServerReadWriteTimeout, ps.server.WriteTimeout,
+		"server WriteTimeout should default to 30 minutes when ServerReadWriteTimeout is zero")
+}
+
 func TestNormalizeRequestURL(t *testing.T) {
 	tests := []struct {
 		name        string
