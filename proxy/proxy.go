@@ -186,14 +186,15 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 	// MaxIdleConnsPerHost is raised from the default of 2 to improve
 	// connection reuse.
 	return &http.Transport{
-		Proxy:               proxyWithLoopbackBypass,
-		DialContext:         dialer.DialContext,
-		ForceAttemptHTTP2:   true,
-		MaxConnsPerHost:     100,
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 50,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: config.ConnectTimeout,
+		Proxy:                 proxyWithLoopbackBypass,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxConnsPerHost:       100,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   50,
+		IdleConnTimeout:       120 * time.Second,
+		TLSHandshakeTimeout:   config.ConnectTimeout,
+		ResponseHeaderTimeout: config.RequestTimeout,
 		TLSClientConfig: &tls.Config{
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: false,
