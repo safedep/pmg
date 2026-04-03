@@ -250,14 +250,9 @@ func (f *proxyFlow) createAndStartProxyServer(
 	certMgr certmanager.CertificateManager,
 	interceptorsList []proxy.Interceptor,
 ) (proxy.ProxyServer, string, error) {
-	proxyConfig := &proxy.ProxyConfig{
-		ListenAddr:     "127.0.0.1:0",
-		CertManager:    certMgr,
-		EnableMITM:     true,
-		Interceptors:   interceptorsList,
-		ConnectTimeout: 30 * time.Second,
-		RequestTimeout: 5 * time.Minute,
-	}
+	proxyConfig := proxy.DefaultProxyConfig()
+	proxyConfig.CertManager = certMgr
+	proxyConfig.Interceptors = interceptorsList
 
 	proxyServer, err := proxy.NewProxyServer(proxyConfig)
 	if err != nil {
