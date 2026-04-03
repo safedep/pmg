@@ -113,7 +113,7 @@ func TestCircuitBreaker_RecoveryAfterCooldown(t *testing.T) {
 
 	// Trip the breaker
 	for i := 0; i < 3; i++ {
-		base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", "1.0.0")
+		_, _ = base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", "1.0.0")
 	}
 	assert.Equal(t, 3, mock.callCount)
 
@@ -145,7 +145,7 @@ func TestCircuitBreaker_CacheBypassesBreaker(t *testing.T) {
 
 	// Trip the breaker with other packages
 	for i := 0; i < 3; i++ {
-		base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("fail-%d", i), "1.0.0")
+		_, _ = base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("fail-%d", i), "1.0.0")
 	}
 
 	// Cached package should still be served even though breaker is open
