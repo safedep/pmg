@@ -137,3 +137,9 @@ sandbox:
     uv:
       enabled: true
       profile: pypi-restrictive
+
+# Dependency cooldown blocks installation of package versions published within
+# a configurable time window.
+# dependency_cooldown:
+#   enabled: true
+#   days: 5

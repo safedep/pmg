@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -518,9 +520,24 @@ func (ps *proxyServer) registerHandlers() {
 			return resp
 		}
 
-		// TODO: Implement response body modification
-		// This requires buffering the response body, modifying it, and creating a new response
-		// For now, lets skip it
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Errorf("[%s] Failed to read response body for modifier: %v", reqCtx.RequestID, err)
+			return resp
+		}
+		resp.Body.Close()
+
+		newStatusCode, newHeaders, newBody, err := modifier(resp.StatusCode, resp.Header, body)
+		if err != nil {
+			log.Errorf("[%s] Response modifier error: %v", reqCtx.RequestID, err)
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			return resp
+		}
+
+		resp.StatusCode = newStatusCode
+		resp.Header = newHeaders
+		resp.Body = io.NopCloser(bytes.NewReader(newBody))
+		resp.ContentLength = int64(len(newBody))
 
 		return resp
 	})

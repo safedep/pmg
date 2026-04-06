@@ -158,6 +158,40 @@ func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalys
 	}
 }
 
+func printCooldownPackagesList(packages []CooldownBlockedPackage) {
+	for _, pkg := range packages {
+		fmt.Println()
+		fmt.Printf("  %s %s\n",
+			Colors.Yellow("⊘"),
+			Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
+
+		dateStr := ""
+		if !pkg.PublishDate.IsZero() {
+			dateStr = fmt.Sprintf(" (%s)", pkg.PublishDate.Format("2006-01-02"))
+		}
+
+		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf(
+			"Published %s ago%s — available in %s",
+			pluralizeDays(pkg.DaysAgo), dateStr, pluralizeDays(pkg.DaysLeft),
+		)))
+		fmt.Printf("    %s\n", Colors.Dim("Tip: add to trusted_packages in your PMG config to bypass"))
+	}
+}
+
+func pluralizeDays(n int) string {
+	if n == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", n)
+}
+
+func pluralizePackages(n int) string {
+	if n == 1 {
+		return "1 package"
+	}
+	return fmt.Sprintf("%d packages", n)
+}
+
 // Format the string to be maximum maxWidth. Use newlines to wrap the text.
 func termWidthFormatText(text string, maxWidth int) string {
 	// Replace all newlines with spaces so that we can split the text into words

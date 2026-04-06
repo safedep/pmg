@@ -57,6 +57,16 @@ func (o ExecutionOutcome) String() string {
 	}
 }
 
+// CooldownBlockedPackage is a package blocked by the dependency cooldown policy.
+type CooldownBlockedPackage struct {
+	Name         string
+	Version      string
+	PublishDate  time.Time
+	DaysAgo      int
+	DaysLeft     int
+	CooldownDays int
+}
+
 // ReportData captures execution statistics for the post-execution report.
 // This is a pure data model with no rendering logic.
 type ReportData struct {
@@ -77,6 +87,9 @@ type ReportData struct {
 	// Details for verbose mode
 	BlockedPackages   []*analyzer.PackageVersionAnalysisResult
 	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
+
+	// Packages blocked by the dependency cooldown policy (proxy mode only)
+	CooldownBlockedPackages []CooldownBlockedPackage
 
 	// Configuration context
 	FlowType          FlowType
@@ -106,7 +119,7 @@ func (r *ReportData) Finalize() {
 
 // HasIssues returns true if any packages were blocked or required confirmation
 func (r *ReportData) HasIssues() bool {
-	return r.BlockedCount > 0 || r.ConfirmedCount > 0
+	return r.BlockedCount > 0 || r.ConfirmedCount > 0 || len(r.CooldownBlockedPackages) > 0
 }
 
 // WasSuccessful returns true if execution completed without blocks or errors
@@ -172,15 +185,33 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
-		fmt.Println()
-		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+		if len(data.BlockedPackages) > 0 {
+			fmt.Println()
+			fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+			printMaliciousPackagesList(data.BlockedPackages)
+			fmt.Println()
+		}
 
-		printMaliciousPackagesList(data.BlockedPackages)
-		fmt.Println()
+		if len(data.CooldownBlockedPackages) > 0 {
+			fmt.Println()
+			n := len(data.CooldownBlockedPackages)
+			fmt.Printf("%s %s\n",
+				Colors.Yellow("⊘"),
+				Colors.Yellow(fmt.Sprintf("Dependency cooldown — %s blocked", pluralizePackages(n))))
+			printCooldownPackagesList(data.CooldownBlockedPackages)
+			fmt.Println()
+		}
 
-		icon = Colors.Red("✗")
-		message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
-			data.TotalAnalyzed, data.BlockedCount)
+		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.CooldownBlockedPackages) > 0
+		if onlyCooldown {
+			icon = Colors.Yellow("⊘")
+			message = fmt.Sprintf("PMG: %s analyzed, %s blocked by cooldown",
+				pluralizePackages(data.TotalAnalyzed), pluralizePackages(data.BlockedCount))
+		} else {
+			icon = Colors.Red("✗")
+			message = fmt.Sprintf("PMG: %d packages analyzed, %d blocked",
+				data.TotalAnalyzed, data.BlockedCount)
+		}
 	case OutcomeUserCancelled:
 		icon = Colors.Yellow("✗")
 		message = fmt.Sprintf("PMG: %d packages analyzed, installation cancelled",
@@ -265,6 +296,23 @@ func reportVerbose(data *ReportData) {
 		}
 	}
 
+	if len(data.CooldownBlockedPackages) > 0 {
+		fmt.Println()
+		fmt.Println(Colors.Yellow("  Blocked by dependency cooldown:"))
+		for _, pkg := range data.CooldownBlockedPackages {
+			dateStr := ""
+			if !pkg.PublishDate.IsZero() {
+				dateStr = fmt.Sprintf(" (%s)", pkg.PublishDate.Format("2006-01-02"))
+			}
+			fmt.Printf("    %s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
+			fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf(
+				"Published %s ago%s — cooldown: %d days, available in %s",
+				pluralizeDays(pkg.DaysAgo), dateStr, pkg.CooldownDays, pluralizeDays(pkg.DaysLeft),
+			)))
+			fmt.Printf("      %s\n", Colors.Dim("Tip: add to trusted_packages in your PMG config to bypass"))
+		}
+	}
+
 	fmt.Println()
 }
 
@@ -273,7 +321,16 @@ func printOutcomeLine(data *ReportData) {
 	case OutcomeSuccess:
 		fmt.Printf("  %s %s\n", Colors.Green("✓"), Colors.Green("Installation completed successfully"))
 	case OutcomeBlocked:
-		fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked - malicious package detected"))
+		hasMalware := len(data.BlockedPackages) > 0
+		hasCooldown := len(data.CooldownBlockedPackages) > 0
+		switch {
+		case hasMalware && hasCooldown:
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected + cooldown policy"))
+		case hasCooldown:
+			fmt.Printf("  %s %s\n", Colors.Yellow("⊘"), Colors.Yellow("Installation blocked — dependency cooldown policy"))
+		default:
+			fmt.Printf("  %s %s\n", Colors.Red("✗"), Colors.Red("Installation blocked — malicious package detected"))
+		}
 	case OutcomeUserCancelled:
 		fmt.Printf("  %s %s\n", Colors.Yellow("✗"), Colors.Yellow("Installation cancelled by user"))
 	case OutcomeDryRun:
