@@ -390,6 +390,33 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t 
 	assert.Equal(t, 1, stats.BlockedCount)
 }
 
+func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_ReportsOldestVersion(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 100})
+
+	now := time.Now()
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-90 * 24 * time.Hour), // oldest — closest to exiting cooldown
+		"2.0.0": now.Add(-30 * 24 * time.Hour),
+		"2.1.0": now.Add(-1 * 24 * time.Hour), // newest — farthest from exiting cooldown
+	}
+	distTags := map[string]string{"latest": "2.1.0"}
+	body := buildTestPackument(versions, distTags)
+
+	collector := NewAnalysisStatsCollector()
+	handler := NewNpmCooldownHandler(collector)
+	ctx := makeTestRequestContext("https://registry.npmjs.org/multipkg")
+
+	resp, err := handler.HandleMetadataRequest(ctx, "multipkg")
+	require.NoError(t, err)
+
+	_, _, _, err = resp.ResponseModifier(200, http.Header{}, body)
+	require.NoError(t, err)
+
+	blocks := collector.GetCooldownBlocks()
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "1.0.0", blocks[0].Version, "should report oldest version (closest to exiting cooldown)")
+}
+
 func TestNpmCooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 

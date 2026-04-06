@@ -57,7 +57,7 @@ func (h *NpmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
 			if remaining == 0 && h.statsCollector != nil {
-				latestStripped, latestDate := mostRecentVersion(dates)
+				latestStripped, latestDate := oldestVersion(dates)
 				if latestStripped != "" {
 					cooldownDuration := time.Duration(cooldownDays) * 24 * time.Hour
 					age := time.Since(latestDate)
@@ -193,18 +193,21 @@ func stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays
 	return result, len(tooNew), remaining
 }
 
-func mostRecentVersion(dates map[string]time.Time) (string, time.Time) {
-	var latest string
-	var latestTime time.Time
+// oldestVersion returns the version with the earliest publish date.
+// When all versions are blocked by cooldown, this is the version closest
+// to exiting the cooldown window (shortest wait for the user).
+func oldestVersion(dates map[string]time.Time) (string, time.Time) {
+	var oldest string
+	var oldestTime time.Time
 
 	for version, publishDate := range dates {
-		if publishDate.After(latestTime) {
-			latest = version
-			latestTime = publishDate
+		if oldestTime.IsZero() || publishDate.Before(oldestTime) {
+			oldest = version
+			oldestTime = publishDate
 		}
 	}
 
-	return latest, latestTime
+	return oldest, oldestTime
 }
 
 func latestNonCooldownVersion(dates map[string]time.Time, tooNew map[string]bool) string {
