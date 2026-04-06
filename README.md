@@ -29,23 +29,23 @@
 
 ## Why PMG?
 
-AI coding agents install packages you didn't choose. Claude Code, Cursor, Copilot, Windsurf all run `npm install` and `pip install` autonomously, and you have no idea what they just put on your machine.
+Developers and AI coding agents install packages every day. Each `npm install` or `pip install` executes thousands of lines of code that nobody reviews.
 
-PMG ensures every package is checked for malware before it executes, whether you picked it or an AI agent did.
+Malicious packages ship constantly in popular ecosystems:
 
-1. **Analyze** packages for malware before they are installed.
-2. **Sandbox** the installation process to prevent system modification.
-3. **Audit** every package installation event.
+- [**litellm 1.82.8**](https://safedep.io/malicious-litellm-1-82-8-analysis/) - a popular AI proxy library compromised to exfiltrate credentials
+- [**telnyx 4.87.2**](https://safedep.io/malicious-telnyx-pypi-compromise/) - a legitimate telecom SDK hijacked on PyPI
+- [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
 
-Install PMG once, and every `npm install`, `pip install`, and `poetry add` is protected automatically.
+PMG intercepts every package install and checks it for malware **before** code executes. Install it once, and every `npm install`, `pip install`, and `poetry add` is protected automatically.
 
-> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316) and used by engineering teams worldwide to secure their software supply chain.
+> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316) and used by engineering teams worldwide.
 
-## How PMG is Different
+## How PMG Works
 
-Most security tools scan after installation and report vulnerabilities. By then, malicious code has already executed on your machine.
-
-PMG intercepts package managers **before** code executes, blocking malicious packages at install time, not flagging them after the damage is done. Detection is powered by [SafeDep's malicious package analysis engine](https://safedep.io). For defense in depth, PMG sandboxes the installation process using OS-native isolation, so even zero-day malware that evades detection cannot modify your system.
+- **Malicious Package Protection** - Every package is analyzed against [SafeDep's real-time threat intelligence](https://safedep.io) before installation. Malicious packages are blocked before code executes on the system.
+- **Sandboxed Installation** - Package installation runs inside OS-native sandboxes (macOS Seatbelt, Linux Bubblewrap), preventing install scripts from modifying the system even if a threat evades detection.
+- **Audit Logging** - Every package installation event is logged, providing a verifiable trail of what was installed, when, and from where.
 
 ## Quick Start
 
@@ -80,7 +80,7 @@ pmg setup install
 
 ### 3. Use
 
-Use your package managers as usual — or let your AI coding agent use them. PMG works silently in the background.
+Use your package managers as usual or let your AI coding agent use them. PMG works silently in the background.
 
 ```bash
 npm install express
@@ -172,6 +172,12 @@ go install github.com/safedep/pmg@latest
 
 Download the latest binary for your platform from the [Releases Page](https://github.com/safedep/pmg/releases).
 </details>
+
+## Uninstallation
+
+```bash
+pmg setup remove
+```
 
 ## Trust and Security
 

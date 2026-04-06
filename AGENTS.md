@@ -25,5 +25,20 @@ go test ./config/ -v -count=1  # Run specific package tests
 - Use comments for trade-offs, known uncovered cases, and anything useful for a human reader
 - Code itself should be readable without comments explaining the obvious
 - Follow existing patterns in the codebase
-- Use `testify` (assert/require) for tests
+- Use `testify` (assert/require) for test assertions — do not use raw `if` checks with `t.Errorf`/`t.Fatalf`
+- Use `require` for assertions that should stop the test on failure (e.g. nil error checks before using a value)
+- Use `assert` for assertions where the test can continue after failure
 - Table-driven tests preferred
+
+## Code Reuse
+
+- Follow DRY — do not duplicate code
+- Prefer refactoring existing code for reusability over copying and modifying
+- Extract shared logic into functions or packages when patterns repeat
+
+## Error Handling
+
+- Never swallow errors — always handle them explicitly
+- Prefer failing fast by returning errors up the call stack
+- When soft failure is acceptable, log with `log.Warnf` from `github.com/safedep/dry/log`
+- Do not use `_ = someFunc()` to discard errors silently
