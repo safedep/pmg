@@ -176,8 +176,26 @@ Download the latest binary for your platform from the [Releases Page](https://gi
 
 ## Uninstallation
 
+Remove shell integration:
+
 ```bash
 pmg setup remove
+```
+
+To also remove the PMG configuration file:
+
+```bash
+pmg setup remove --config-file
+```
+
+Then uninstall PMG itself:
+
+```bash
+# Homebrew
+brew uninstall safedep/tap/pmg
+
+# NPM
+npm uninstall -g @safedep/pmg
 ```
 
 ## Trust and Security
