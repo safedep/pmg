@@ -61,4 +61,7 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	first := parsed.TrustedPackages[0]
 	assert.NotEmpty(t, first.Purl, "first trusted package has empty purl")
 	assert.NotEmpty(t, first.Reason, "first trusted package has empty reason")
+
+	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
+	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
 }
