@@ -67,6 +67,11 @@ func (h *NpmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 				}
 			}
 
+			// Prevent npm from caching the modified response. Without this,
+			// npm would serve the stripped metadata from cache even after the
+			// cooldown window passes or settings change.
+			headers.Set("Cache-Control", "no-store")
+
 			return statusCode, headers, strippedBody, nil
 		}
 
