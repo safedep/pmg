@@ -43,7 +43,8 @@ PMG intercepts every package install and checks it for malware **before** code e
 
 ## How PMG Works
 
-- **Malicious Package Protection** - Every package is analyzed against [SafeDep's real-time threat intelligence](https://safedep.io) before installation. Malicious packages are blocked before code executes on the system.
+- **Package Interception** - PMG sets up a local micro-proxy that intercepts all packages pulled from public registries, giving full visibility and control over what gets installed.
+- **Malicious Package Protection** - Every intercepted package is analyzed against [SafeDep's real-time threat intelligence](https://safedep.io) before installation. Malicious packages are blocked before code executes on the system.
 - **Sandboxed Installation** - Package installation runs inside OS-native sandboxes (macOS Seatbelt, Linux Bubblewrap), preventing install scripts from modifying the system even if a threat evades detection.
 - **Audit Logging** - Every package installation event is logged, providing a verifiable trail of what was installed, when, and from where.
 
