@@ -144,16 +144,21 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 
 	var metadata map[string]json.RawMessage
 	if err := json.Unmarshal(body, &metadata); err != nil {
+		log.Warnf("Cooldown: failed to unmarshal metadata body: %v", err)
 		return body, 0, remaining
 	}
 
 	if raw, ok := metadata["versions"]; ok {
 		var versions map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &versions); err == nil {
+		if err := json.Unmarshal(raw, &versions); err != nil {
+			log.Warnf("Cooldown: failed to unmarshal versions field: %v", err)
+		} else {
 			for v := range tooNew {
 				delete(versions, v)
 			}
-			if updated, err := json.Marshal(versions); err == nil {
+			if updated, err := json.Marshal(versions); err != nil {
+				log.Warnf("Cooldown: failed to marshal updated versions: %v", err)
+			} else {
 				metadata["versions"] = updated
 			}
 		}
@@ -161,11 +166,15 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 
 	if raw, ok := metadata["time"]; ok {
 		var timeMap map[string]string
-		if err := json.Unmarshal(raw, &timeMap); err == nil {
+		if err := json.Unmarshal(raw, &timeMap); err != nil {
+			log.Warnf("Cooldown: failed to unmarshal time field: %v", err)
+		} else {
 			for v := range tooNew {
 				delete(timeMap, v)
 			}
-			if updated, err := json.Marshal(timeMap); err == nil {
+			if updated, err := json.Marshal(timeMap); err != nil {
+				log.Warnf("Cooldown: failed to marshal updated time: %v", err)
+			} else {
 				metadata["time"] = updated
 			}
 		}
@@ -173,7 +182,9 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 
 	if raw, ok := metadata["dist-tags"]; ok {
 		var distTags map[string]string
-		if err := json.Unmarshal(raw, &distTags); err == nil {
+		if err := json.Unmarshal(raw, &distTags); err != nil {
+			log.Warnf("Cooldown: failed to unmarshal dist-tags field: %v", err)
+		} else {
 			changed := false
 			for tag, version := range distTags {
 				if tooNew[version] {
@@ -187,7 +198,9 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 				}
 			}
 			if changed {
-				if updated, err := json.Marshal(distTags); err == nil {
+				if updated, err := json.Marshal(distTags); err != nil {
+					log.Warnf("Cooldown: failed to marshal updated dist-tags: %v", err)
+				} else {
 					metadata["dist-tags"] = updated
 				}
 			}
@@ -196,6 +209,7 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 
 	result, err := json.Marshal(metadata)
 	if err != nil {
+		log.Warnf("Cooldown: failed to marshal final metadata: %v", err)
 		return body, 0, remaining
 	}
 
