@@ -35,15 +35,20 @@ func loadViperConfig() error {
 		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	// Unmarshal directly into globalConfig.Config (which already holds DefaultConfig() values)
-	// instead of a fresh zero-value struct. Viper uses mapstructure with ZeroFields=false,
-	// so keys missing from the YAML retain their defaults. This is critical for users who
+	// Unmarshal into a copy of the current defaults (not a zero-value struct) so that
+	// keys missing from the YAML retain their defaults. This is critical for users who
 	// upgrade PMG without re-running "pmg setup install" — their old config.yml won't have
 	// newer keys (e.g. dependency_cooldown), and those must fall back to defaults rather than
 	// silently becoming Go zero values (false/0/"").
-	if err := v.Unmarshal(&globalConfig.Config); err != nil {
+	//
+	// We use a copy rather than unmarshalling directly into globalConfig.Config so that
+	// on error the caller's "using defaults" fallback is truthful — globalConfig.Config
+	// stays in a clean default state instead of being partially overwritten.
+	merged := globalConfig.Config
+	if err := v.Unmarshal(&merged); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	globalConfig.Config = merged
 	return nil
 }
