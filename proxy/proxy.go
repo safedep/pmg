@@ -521,13 +521,13 @@ func (ps *proxyServer) registerHandlers() {
 		}
 
 		body, err := io.ReadAll(resp.Body)
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Warnf("[%s] Failed to close response body: %v", reqCtx.RequestID, closeErr)
+		}
 		if err != nil {
 			log.Errorf("[%s] Failed to read response body for modifier: %v", reqCtx.RequestID, err)
 			resp.Body = io.NopCloser(bytes.NewReader(body))
 			return resp
-		}
-		if err := resp.Body.Close(); err != nil {
-			log.Warnf("[%s] Failed to close response body: %v", reqCtx.RequestID, err)
 		}
 
 		newStatusCode, newHeaders, newBody, err := modifier(resp.StatusCode, resp.Header, body)
