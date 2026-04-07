@@ -535,10 +535,12 @@ func (ps *proxyServer) registerHandlers() {
 		if err != nil {
 			log.Errorf("[%s] Response modifier error: %v", reqCtx.RequestID, err)
 			resp.Body = io.NopCloser(bytes.NewReader(body))
+			resp.ContentLength = int64(len(body))
 			return resp
 		}
 
 		resp.StatusCode = newStatusCode
+		resp.Status = ""
 		resp.Header = newHeaders
 		resp.Body = io.NopCloser(bytes.NewReader(newBody))
 		resp.ContentLength = int64(len(newBody))
