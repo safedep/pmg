@@ -29,6 +29,8 @@ func mustParseURL(rawURL string) *url.URL {
 }
 
 func TestParseNpmMetadataTime(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+
 	tests := []struct {
 		name          string
 		body          []byte
@@ -100,7 +102,7 @@ func TestParseNpmMetadataTime(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dates, err := parseNpmMetadataTime(tc.body)
+			dates, err := handler.parseMetadataTime(tc.body)
 			if tc.expectError {
 				assert.Error(t, err)
 				return
@@ -112,6 +114,8 @@ func TestParseNpmMetadataTime(t *testing.T) {
 }
 
 func TestParseNpmMetadataTime_CorrectDates(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+
 	body := []byte(`{
 		"time": {
 			"created": "2021-01-01T00:00:00.000Z",
@@ -121,7 +125,7 @@ func TestParseNpmMetadataTime_CorrectDates(t *testing.T) {
 		}
 	}`)
 
-	dates, err := parseNpmMetadataTime(body)
+	dates, err := handler.parseMetadataTime(body)
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, len(dates))
@@ -166,6 +170,7 @@ func buildTestPackument(versions map[string]time.Time, distTags map[string]strin
 }
 
 func TestStripCooldownVersions_MixedVersions(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-30 * 24 * time.Hour), // old
@@ -175,10 +180,10 @@ func TestStripCooldownVersions_MixedVersions(t *testing.T) {
 	distTags := map[string]string{"latest": "1.0.2"}
 	body := buildTestPackument(versions, distTags)
 
-	dates, err := parseNpmMetadataTime(body)
+	dates, err := handler.parseMetadataTime(body)
 	require.NoError(t, err)
 
-	newBody, stripped, remaining := stripCooldownVersions(body, dates, 5)
+	newBody, stripped, remaining := handler.stripCooldownVersions(body, dates, 5)
 	assert.Equal(t, 1, stripped)
 	assert.Equal(t, 2, remaining)
 
@@ -203,6 +208,7 @@ func TestStripCooldownVersions_MixedVersions(t *testing.T) {
 }
 
 func TestStripCooldownVersions_AllVersionsTooNew(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-1 * 24 * time.Hour), // too new
@@ -211,10 +217,10 @@ func TestStripCooldownVersions_AllVersionsTooNew(t *testing.T) {
 	distTags := map[string]string{"latest": "1.0.1"}
 	body := buildTestPackument(versions, distTags)
 
-	dates, err := parseNpmMetadataTime(body)
+	dates, err := handler.parseMetadataTime(body)
 	require.NoError(t, err)
 
-	newBody, stripped, remaining := stripCooldownVersions(body, dates, 5)
+	newBody, stripped, remaining := handler.stripCooldownVersions(body, dates, 5)
 	assert.Equal(t, 2, stripped)
 	assert.Equal(t, 0, remaining)
 
@@ -228,6 +234,7 @@ func TestStripCooldownVersions_AllVersionsTooNew(t *testing.T) {
 }
 
 func TestStripCooldownVersions_NoVersionsTooNew(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-10 * 24 * time.Hour), // old enough
@@ -236,16 +243,17 @@ func TestStripCooldownVersions_NoVersionsTooNew(t *testing.T) {
 	distTags := map[string]string{"latest": "1.0.0"}
 	body := buildTestPackument(versions, distTags)
 
-	dates, err := parseNpmMetadataTime(body)
+	dates, err := handler.parseMetadataTime(body)
 	require.NoError(t, err)
 
-	newBody, stripped, remaining := stripCooldownVersions(body, dates, 5)
+	newBody, stripped, remaining := handler.stripCooldownVersions(body, dates, 5)
 	assert.Equal(t, 0, stripped)
 	assert.Equal(t, 2, remaining)
 	assert.Equal(t, body, newBody) // body unchanged
 }
 
 func TestStripCooldownVersions_SingleVersionInCooldown(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-1 * 24 * time.Hour), // too new
@@ -253,19 +261,20 @@ func TestStripCooldownVersions_SingleVersionInCooldown(t *testing.T) {
 	distTags := map[string]string{"latest": "1.0.0"}
 	body := buildTestPackument(versions, distTags)
 
-	dates, err := parseNpmMetadataTime(body)
+	dates, err := handler.parseMetadataTime(body)
 	require.NoError(t, err)
 
-	_, stripped, remaining := stripCooldownVersions(body, dates, 5)
+	_, stripped, remaining := handler.stripCooldownVersions(body, dates, 5)
 	assert.Equal(t, 1, stripped)
 	assert.Equal(t, 0, remaining)
 }
 
 func TestStripCooldownVersions_MalformedJSON(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
 	body := []byte(`not-json`)
 	dates := map[string]time.Time{"1.0.0": time.Now().Add(-1 * time.Hour)}
 
-	newBody, stripped, _ := stripCooldownVersions(body, dates, 5)
+	newBody, stripped, _ := handler.stripCooldownVersions(body, dates, 5)
 	assert.Equal(t, 0, stripped)
 	assert.Equal(t, body, newBody)
 }
@@ -282,24 +291,22 @@ func makeTestRequestContext(rawURL string) *proxy.RequestContext {
 	}
 }
 
-func TestNpmCooldown_HandleMetadataRequest_OverridesAcceptHeader(t *testing.T) {
-	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
-
+func TestNpmCooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	collector := NewAnalysisStatsCollector()
-	handler := NewNpmCooldownHandler(collector)
+	handler := newNpmCooldownHandler(collector)
 
 	ctx := makeTestRequestContext("https://registry.npmjs.org/lodash")
 	ctx.Headers.Set("Accept", "application/vnd.npm.install-v1+json")
+	ctx.Headers.Set("Accept-Encoding", "gzip")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "lodash")
+	resp, err := handler.HandleMetadataRequest(ctx, "lodash", 5)
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
+	assert.Equal(t, "identity", ctx.Headers.Get("Accept-Encoding"))
 }
 
 func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
-	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
-
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-30 * 24 * time.Hour), // old
@@ -309,10 +316,10 @@ func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
 	body := buildTestPackument(versions, distTags)
 
 	collector := NewAnalysisStatsCollector()
-	handler := NewNpmCooldownHandler(collector)
+	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg")
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5)
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -335,8 +342,6 @@ func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
 }
 
 func TestNpmCooldown_HandleMetadataRequest_NoVersionsInCooldown(t *testing.T) {
-	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
-
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-30 * 24 * time.Hour), // old
@@ -346,10 +351,10 @@ func TestNpmCooldown_HandleMetadataRequest_NoVersionsInCooldown(t *testing.T) {
 	body := buildTestPackument(versions, distTags)
 
 	collector := NewAnalysisStatsCollector()
-	handler := NewNpmCooldownHandler(collector)
+	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg")
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5)
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -359,8 +364,6 @@ func TestNpmCooldown_HandleMetadataRequest_NoVersionsInCooldown(t *testing.T) {
 }
 
 func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t *testing.T) {
-	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
-
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-1 * 24 * time.Hour), // too new
@@ -369,10 +372,10 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t 
 	body := buildTestPackument(versions, distTags)
 
 	collector := NewAnalysisStatsCollector()
-	handler := NewNpmCooldownHandler(collector)
+	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/newpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "newpkg")
+	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5)
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -391,8 +394,6 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t 
 }
 
 func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_ReportsOldestVersion(t *testing.T) {
-	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 100})
-
 	now := time.Now()
 	versions := map[string]time.Time{
 		"1.0.0": now.Add(-90 * 24 * time.Hour), // oldest — closest to exiting cooldown
@@ -403,10 +404,10 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_ReportsOldestVe
 	body := buildTestPackument(versions, distTags)
 
 	collector := NewAnalysisStatsCollector()
-	handler := NewNpmCooldownHandler(collector)
+	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/multipkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "multipkg")
+	resp, err := handler.HandleMetadataRequest(ctx, "multipkg", 100)
 	require.NoError(t, err)
 
 	_, _, _, err = resp.ResponseModifier(200, http.Header{}, body)
@@ -418,14 +419,12 @@ func TestNpmCooldown_HandleMetadataRequest_AllVersionsInCooldown_ReportsOldestVe
 }
 
 func TestNpmCooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T) {
-	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
-
 	body := []byte(`not-json`)
 	collector := NewAnalysisStatsCollector()
-	handler := NewNpmCooldownHandler(collector)
+	handler := newNpmCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://registry.npmjs.org/badpkg")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "badpkg")
+	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5)
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 

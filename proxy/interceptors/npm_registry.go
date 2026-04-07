@@ -35,7 +35,7 @@ var npmRegistryDomains = registryConfigMap{
 // It embeds baseRegistryInterceptor to reuse ecosystem agnostic functionality
 type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
-	cooldownHandler *NpmCooldownHandler
+	cooldownHandler *npmCooldownHandler
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
@@ -56,7 +56,7 @@ func NewNpmRegistryInterceptor(
 			confirmationChan: confirmationChan,
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-npm"),
 		},
-		cooldownHandler: NewNpmCooldownHandler(statsCollector),
+		cooldownHandler: newNpmCooldownHandler(statsCollector),
 	}
 }
 
@@ -111,7 +111,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 
 	if !pkgInfo.IsFileDownload() {
 		if depCooldownConfig.Enabled {
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName())
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days)
 		}
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())

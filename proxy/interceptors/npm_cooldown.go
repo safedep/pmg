@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -18,16 +17,15 @@ var npmMetadataTimeSkipKeys = map[string]bool{
 	"modified": true,
 }
 
-// NpmCooldownHandler handles dependency cooldown for npm packages.
+// npmCooldownHandler handles dependency cooldown for npm packages.
 // It strips recently-published versions from metadata responses so npm's
 // resolver naturally falls back to the latest eligible version.
-type NpmCooldownHandler struct {
+type npmCooldownHandler struct {
 	statsCollector *AnalysisStatsCollector
 }
 
-// NewNpmCooldownHandler creates a new cooldown handler.
-func NewNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *NpmCooldownHandler {
-	return &NpmCooldownHandler{
+func newNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *npmCooldownHandler {
+	return &npmCooldownHandler{
 		statsCollector: statsCollector,
 	}
 }
@@ -35,15 +33,21 @@ func NewNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *NpmCooldownH
 // HandleMetadataRequest overrides the Accept header to force the registry to return
 // a full packument (which includes publish dates in the "time" field), then registers
 // a response modifier that strips versions within the cooldown window.
-func (h *NpmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string) (*proxy.InterceptorResponse, error) {
+func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
 	// Force full packument so the response always contains the "time" field.
 	// Abbreviated metadata (Accept: application/vnd.npm.install-v1+json) omits it.
 	ctx.Headers.Set("Accept", "application/json")
 
+	// Prevent the server from compressing the response so we can parse the JSON body.
+	// Go's http.Transport only auto-decompresses when it added the Accept-Encoding
+	// header itself; since the client's original header is forwarded by the proxy,
+	// we'd get raw gzip bytes that fail JSON parsing.
+	ctx.Headers.Set("Accept-Encoding", "identity")
+
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
-		dates, err := parseNpmMetadataTime(body)
+		dates, err := h.parseMetadataTime(body)
 		if err != nil {
 			log.Warnf("[%s] Cooldown: failed to parse metadata time for %s: %v", ctx.RequestID, packageName, err)
 			return statusCode, headers, body, nil
@@ -51,14 +55,13 @@ func (h *NpmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 
 		log.Debugf("[%s] Cooldown: parsed %d publish dates for %s", ctx.RequestID, len(dates), packageName)
 
-		cooldownDays := config.Get().Config.DependencyCooldown.Days
-		strippedBody, stripped, remaining := stripCooldownVersions(body, dates, cooldownDays)
+		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
 			if remaining == 0 && h.statsCollector != nil {
-				latestStripped, latestDate := oldestVersion(dates)
+				latestStripped, latestDate := h.oldestVersion(dates)
 				if latestStripped != "" {
 					cooldownDuration := time.Duration(cooldownDays) * 24 * time.Hour
 					age := time.Since(latestDate)
@@ -85,8 +88,8 @@ func (h *NpmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 	}, nil
 }
 
-// parseNpmMetadataTime extracts version publish dates from an NPM package metadata body.
-func parseNpmMetadataTime(body []byte) (map[string]time.Time, error) {
+// parseMetadataTime extracts version publish dates from an NPM package metadata body.
+func (h *npmCooldownHandler) parseMetadataTime(body []byte) (map[string]time.Time, error) {
 	var metadata struct {
 		Time map[string]string `json:"time"`
 	}
@@ -122,7 +125,7 @@ func parseNpmMetadataTime(body []byte) (map[string]time.Time, error) {
 
 // stripCooldownVersions removes versions published within the cooldown window from the
 // NPM metadata response. It strips entries from "versions", "time", and updates "dist-tags".
-func stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
+func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
 	cooldownDuration := time.Duration(cooldownDays) * 24 * time.Hour
 	now := time.Now()
 
@@ -174,7 +177,7 @@ func stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays
 			changed := false
 			for tag, version := range distTags {
 				if tooNew[version] {
-					latest := latestNonCooldownVersion(dates, tooNew)
+					latest := h.latestNonCooldownVersion(dates, tooNew)
 					if latest != "" {
 						distTags[tag] = latest
 					} else {
@@ -202,7 +205,7 @@ func stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays
 // oldestVersion returns the version with the earliest publish date.
 // When all versions are blocked by cooldown, this is the version closest
 // to exiting the cooldown window (shortest wait for the user).
-func oldestVersion(dates map[string]time.Time) (string, time.Time) {
+func (h *npmCooldownHandler) oldestVersion(dates map[string]time.Time) (string, time.Time) {
 	var oldest string
 	var oldestTime time.Time
 
@@ -216,7 +219,7 @@ func oldestVersion(dates map[string]time.Time) (string, time.Time) {
 	return oldest, oldestTime
 }
 
-func latestNonCooldownVersion(dates map[string]time.Time, tooNew map[string]bool) string {
+func (h *npmCooldownHandler) latestNonCooldownVersion(dates map[string]time.Time, tooNew map[string]bool) string {
 	var latest string
 	var latestTime time.Time
 
