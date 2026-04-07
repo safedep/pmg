@@ -3,6 +3,7 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
@@ -62,7 +63,7 @@ func (h *NpmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 					cooldownDuration := time.Duration(cooldownDays) * 24 * time.Hour
 					age := time.Since(latestDate)
 					daysAgo := int(age.Hours() / 24)
-					daysLeft := int((cooldownDuration-age).Hours()/24) + 1
+					daysLeft := int(math.Ceil((cooldownDuration - age).Hours() / 24))
 					h.statsCollector.RecordCooldownBlocked(packageName, latestStripped, latestDate, daysAgo, daysLeft, cooldownDays)
 				}
 			}

@@ -527,6 +527,7 @@ func (ps *proxyServer) registerHandlers() {
 		if err != nil {
 			log.Errorf("[%s] Failed to read response body for modifier: %v", reqCtx.RequestID, err)
 			resp.Body = io.NopCloser(bytes.NewReader(body))
+			resp.ContentLength = int64(len(body))
 			return resp
 		}
 
