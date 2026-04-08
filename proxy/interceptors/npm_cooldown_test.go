@@ -489,14 +489,15 @@ func TestNpmCooldown_TarballRequestBypassesCooldown(t *testing.T) {
 func TestIsWithinCooldown(t *testing.T) {
 	h := newNpmCooldownHandler(nil)
 	now := time.Now()
+	day := 24 * time.Hour
 
 	tests := []struct {
-		name                string
-		publishDate         time.Time
-		cooldownDays        int
-		wantWithinCooldown  bool
+		name                 string
+		publishDate          time.Time
+		cooldownDays         int
+		wantWithinCooldown   bool
 		wantDaysSincePublish int
-		wantDaysRemaining   int
+		wantDaysRemaining    int
 	}{
 		{
 			name:                 "published today with 30 day cooldown",
@@ -508,7 +509,7 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "published exactly at cooldown boundary",
-			publishDate:          now.AddDate(0, 0, -30),
+			publishDate:          now.Add(-30 * day),
 			cooldownDays:         30,
 			wantWithinCooldown:   false,
 			wantDaysSincePublish: 30,
@@ -516,7 +517,7 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "published one day before cooldown expires",
-			publishDate:          now.AddDate(0, 0, -29),
+			publishDate:          now.Add(-29 * day),
 			cooldownDays:         30,
 			wantWithinCooldown:   true,
 			wantDaysSincePublish: 29,
@@ -524,7 +525,7 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "published well beyond cooldown",
-			publishDate:          now.AddDate(0, 0, -365),
+			publishDate:          now.Add(-365 * day),
 			cooldownDays:         30,
 			wantWithinCooldown:   false,
 			wantDaysSincePublish: 365,
@@ -540,7 +541,7 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "future publish date is clamped to zero days",
-			publishDate:          now.AddDate(0, 0, 5),
+			publishDate:          now.Add(5 * day),
 			cooldownDays:         30,
 			wantWithinCooldown:   true,
 			wantDaysSincePublish: 0,
@@ -548,7 +549,7 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "large cooldown days that previously caused overflow",
-			publishDate:          now.AddDate(0, 0, -10),
+			publishDate:          now.Add(-10 * day),
 			cooldownDays:         1000000,
 			wantWithinCooldown:   true,
 			wantDaysSincePublish: 10,
@@ -556,7 +557,7 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "max int cooldown days does not overflow",
-			publishDate:          now.AddDate(0, 0, -1),
+			publishDate:          now.Add(-1 * day),
 			cooldownDays:         int(^uint(0) >> 1), // math.MaxInt
 			wantWithinCooldown:   true,
 			wantDaysSincePublish: 1,
@@ -564,15 +565,15 @@ func TestIsWithinCooldown(t *testing.T) {
 		},
 		{
 			name:                 "very old publish date well past cooldown",
-			publishDate:          now.AddDate(-10, 0, 0),
+			publishDate:          now.Add(-3652 * day),
 			cooldownDays:         30,
 			wantWithinCooldown:   false,
-			wantDaysSincePublish: int(time.Since(now.AddDate(-10, 0, 0)).Hours() / 24),
+			wantDaysSincePublish: 3652,
 			wantDaysRemaining:    0,
 		},
 		{
 			name:                 "one day cooldown with publish yesterday",
-			publishDate:          now.AddDate(0, 0, -1),
+			publishDate:          now.Add(-1 * day),
 			cooldownDays:         1,
 			wantWithinCooldown:   false,
 			wantDaysSincePublish: 1,
