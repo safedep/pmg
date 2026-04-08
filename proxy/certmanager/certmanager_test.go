@@ -272,10 +272,10 @@ func BenchmarkGenerateHostCert(b *testing.B) {
 func BenchmarkGenerateHostCertUncached(b *testing.B) {
 	config := DefaultCertManagerConfig()
 	ca, err := GenerateCA(config)
-	assert.NoError(b, err, "Failed to generate CA")
+	require.NoError(b, err, "Failed to generate CA")
 
 	cm, err := NewCertificateManagerWithCA(ca, config)
-	assert.NoError(b, err, "Failed to create certificate manager")
+	require.NoError(b, err, "Failed to create certificate manager")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -288,10 +288,10 @@ func BenchmarkGenerateHostCertUncached(b *testing.B) {
 func BenchmarkGetTLSConfig(b *testing.B) {
 	config := DefaultCertManagerConfig()
 	ca, err := GenerateCA(config)
-	assert.NoError(b, err, "Failed to generate CA")
+	require.NoError(b, err, "Failed to generate CA")
 
 	cm, err := NewCertificateManagerWithCA(ca, config)
-	assert.NoError(b, err, "Failed to create certificate manager")
+	require.NoError(b, err, "Failed to create certificate manager")
 
 	b.Run("Uncached", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
