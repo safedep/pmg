@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateCA(t *testing.T) {
@@ -207,10 +208,10 @@ func TestNewCertificateManagerWithNilCA(t *testing.T) {
 func TestConcurrentCertGeneration(t *testing.T) {
 	config := DefaultCertManagerConfig()
 	ca, err := GenerateCA(config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	cm, err := NewCertificateManagerWithCA(ca, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	hostname := "registry.npmjs.org"
 	const goroutines = 50
@@ -232,8 +233,8 @@ func TestConcurrentCertGeneration(t *testing.T) {
 	wg.Wait()
 
 	for i := 0; i < goroutines; i++ {
-		assert.NoError(t, errs[i], "goroutine %d should not error", i)
-		assert.NotNil(t, certs[i], "goroutine %d should get a certificate", i)
+		require.NoError(t, errs[i], "goroutine %d should not error", i)
+		require.NotNil(t, certs[i], "goroutine %d should get a certificate", i)
 	}
 
 	// All goroutines should receive the same cached certificate.
