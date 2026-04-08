@@ -1,12 +1,12 @@
 # Dependency Cooldown
 
-Dependency cooldown blocks installation of package versions published within a configurable time window. This reduces exposure to supply chain attacks by ensuring only versions that have been available for a minimum number of days can be installed.
+Dependency cooldown filters package versions published within a configurable time window out of registry metadata responses during version resolution. This reduces exposure to supply chain attacks by ensuring the package manager normally only resolves versions that have been available for a minimum number of days.
 
 ## How It Works
 
-When cooldown is enabled, PMG intercepts package metadata responses from the registry and strips versions published within the cooldown window. The package manager's resolver then falls back to the latest eligible version automatically.
+When cooldown is enabled, PMG intercepts package metadata responses from the registry and strips versions published within the cooldown window. If the requested version range allows an older eligible release, the resolver falls back to it automatically. If no eligible version satisfies the request, the install fails.
 
-If all versions of a package are within the cooldown window, the installation is blocked entirely and PMG reports the earliest version and estimated wait time.
+Cooldown is enforced through metadata filtering and does not apply to direct tarball installs or workflows that already have a resolved tarball URL (e.g., lockfile or cache scenarios).
 
 ## Configuration
 
