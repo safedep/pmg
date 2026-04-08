@@ -64,7 +64,7 @@ func (npm *npmPackageManager) Ecosystem() packagev1.Ecosystem {
 }
 
 func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && (args[0] == "npm" || args[0] == "pnpm" || args[0] == "bun" || args[0] == "yarn") {
+	if len(args) > 0 && args[0] == npm.Config.CommandName {
 		args = args[1:]
 	}
 
