@@ -3,7 +3,6 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
@@ -63,10 +62,11 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 			if remaining == 0 && h.statsCollector != nil {
 				latestStripped, latestDate := h.oldestVersion(dates)
 				if latestStripped != "" {
-					cooldownDuration := time.Duration(cooldownDays) * 24 * time.Hour
-					age := time.Since(latestDate)
-					daysAgo := int(age.Hours() / 24)
-					daysLeft := int(math.Ceil((cooldownDuration - age).Hours() / 24))
+					daysAgo := int(time.Since(latestDate).Hours() / 24)
+					daysLeft := cooldownDays - daysAgo
+					if daysLeft < 0 {
+						daysLeft = 0
+					}
 					h.statsCollector.RecordCooldownBlocked(packageName, latestStripped, latestDate, daysAgo, daysLeft, cooldownDays)
 				}
 			}
@@ -126,12 +126,12 @@ func (h *npmCooldownHandler) parseMetadataTime(body []byte) (map[string]time.Tim
 // stripCooldownVersions removes versions published within the cooldown window from the
 // NPM metadata response. It strips entries from "versions", "time", and updates "dist-tags".
 func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
-	cooldownDuration := time.Duration(cooldownDays) * 24 * time.Hour
 	now := time.Now()
 
 	tooNew := make(map[string]bool)
 	for version, publishDate := range dates {
-		if now.Sub(publishDate) < cooldownDuration {
+		daysSincePublish := int(now.Sub(publishDate).Hours() / 24)
+		if daysSincePublish < cooldownDays {
 			tooNew[version] = true
 		}
 	}
