@@ -60,14 +60,14 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
 			if remaining == 0 && h.statsCollector != nil {
-				latestStripped, latestDate := h.oldestVersion(dates)
-				if latestStripped != "" {
-					daysAgo := int(time.Since(latestDate).Hours() / 24)
+				oldestVer, oldestDate := h.oldestVersion(dates)
+				if oldestVer != "" {
+					daysAgo := int(time.Since(oldestDate).Hours() / 24)
 					daysLeft := cooldownDays - daysAgo
 					if daysLeft < 0 {
 						daysLeft = 0
 					}
-					h.statsCollector.RecordCooldownBlocked(packageName, latestStripped, latestDate, daysAgo, daysLeft, cooldownDays)
+					h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
 				}
 			}
 

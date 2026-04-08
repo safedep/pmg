@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/internal/models"
 )
 
 // FlowType indicates which execution flow was used
@@ -57,16 +58,6 @@ func (o ExecutionOutcome) String() string {
 	}
 }
 
-// CooldownBlockedPackage is a package blocked by the dependency cooldown policy.
-type CooldownBlockedPackage struct {
-	Name         string
-	Version      string
-	PublishDate  time.Time
-	DaysAgo      int
-	DaysLeft     int
-	CooldownDays int
-}
-
 // ReportData captures execution statistics for the post-execution report.
 // This is a pure data model with no rendering logic.
 type ReportData struct {
@@ -89,7 +80,7 @@ type ReportData struct {
 	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
 
 	// Packages blocked by the dependency cooldown policy (proxy mode only)
-	CooldownBlockedPackages []CooldownBlockedPackage
+	CooldownBlockedPackages []models.CooldownBlock
 
 	// Configuration context
 	FlowType          FlowType

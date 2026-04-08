@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/internal/models"
 )
 
 // The UI is internal to PMG and opinionated for the CLI.
@@ -158,7 +159,7 @@ func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalys
 	}
 }
 
-func printCooldownPackagesList(packages []CooldownBlockedPackage) {
+func printCooldownPackagesList(packages []models.CooldownBlock) {
 	for _, pkg := range packages {
 		fmt.Println()
 		fmt.Printf("  %s %s\n",

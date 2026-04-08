@@ -180,16 +180,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 
-	for _, cb := range statsCollector.GetCooldownBlocks() {
-		reportData.CooldownBlockedPackages = append(reportData.CooldownBlockedPackages, ui.CooldownBlockedPackage{
-			Name:         cb.Name,
-			Version:      cb.Version,
-			PublishDate:  cb.PublishDate,
-			DaysAgo:      cb.DaysAgo,
-			DaysLeft:     cb.DaysLeft,
-			CooldownDays: cb.CooldownDays,
-		})
-	}
+	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)

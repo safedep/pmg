@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/internal/models"
 )
 
 // AnalysisStats contains aggregated statistics from analysis results
@@ -17,16 +18,6 @@ type AnalysisStats struct {
 	CooldownBlockedCount int
 }
 
-// CooldownBlock records a package blocked by the dependency cooldown policy.
-type CooldownBlock struct {
-	Name         string
-	Version      string
-	PublishDate  time.Time
-	DaysAgo      int
-	DaysLeft     int
-	CooldownDays int
-}
-
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
 // It is separate from the cache to allow different cache implementations
 // without coupling them to reporting concerns.
@@ -35,7 +26,7 @@ type AnalysisStatsCollector struct {
 	stats             AnalysisStats
 	blockedPackages   []*analyzer.PackageVersionAnalysisResult
 	confirmedPackages []*analyzer.PackageVersionAnalysisResult
-	cooldownBlocks    []CooldownBlock
+	cooldownBlocks    []models.CooldownBlock
 }
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -140,7 +131,7 @@ func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, pub
 	c.stats.TotalAnalyzed++
 	c.stats.BlockedCount++
 	c.stats.CooldownBlockedCount++
-	c.cooldownBlocks = append(c.cooldownBlocks, CooldownBlock{
+	c.cooldownBlocks = append(c.cooldownBlocks, models.CooldownBlock{
 		Name:         name,
 		Version:      version,
 		PublishDate:  publishDate,
@@ -151,11 +142,11 @@ func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, pub
 }
 
 // GetCooldownBlocks returns all packages blocked by the cooldown policy.
-func (c *AnalysisStatsCollector) GetCooldownBlocks() []CooldownBlock {
+func (c *AnalysisStatsCollector) GetCooldownBlocks() []models.CooldownBlock {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	result := make([]CooldownBlock, len(c.cooldownBlocks))
+	result := make([]models.CooldownBlock, len(c.cooldownBlocks))
 	copy(result, c.cooldownBlocks)
 	return result
 }
