@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNpmParseCommand(t *testing.T) {
@@ -253,7 +254,7 @@ func TestYarnParseCommand(t *testing.T) {
 			name:    "yarn npm subcommand is not stripped",
 			command: "npm login",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "yarn", parsedCommand.Command.Exe)
 				assert.Equal(t, []string{"npm", "login"}, parsedCommand.Command.Args)
 			},
