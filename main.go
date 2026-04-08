@@ -84,6 +84,8 @@ func main() {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
 
+			config.FinalizeDependencyCooldownOverride()
+
 			// Parse and validate --sandbox-allow flags after all flags are resolved
 			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
 				ui.Fatalf("pmg: %v", err)
