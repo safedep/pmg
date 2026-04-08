@@ -23,7 +23,7 @@ dependency_cooldown:
 Use `--skip-dependency-cooldown` to disable cooldown enforcement for a single invocation without changing the config file:
 
 ```bash
-pmg npm install --skip-dependency-cooldown express
+pmg --skip-dependency-cooldown npm install express
 ```
 
 ## Requirements
