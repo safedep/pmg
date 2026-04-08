@@ -62,11 +62,7 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 			if remaining == 0 && h.statsCollector != nil {
 				oldestVer, oldestDate := h.oldestVersion(dates)
 				if oldestVer != "" {
-					daysAgo := int(time.Since(oldestDate).Hours() / 24)
-					daysLeft := cooldownDays - daysAgo
-					if daysLeft < 0 {
-						daysLeft = 0
-					}
+					_, daysAgo, daysLeft := h.isWithinCooldown(oldestDate, cooldownDays)
 					h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
 				}
 			}
@@ -126,12 +122,9 @@ func (h *npmCooldownHandler) parseMetadataTime(body []byte) (map[string]time.Tim
 // stripCooldownVersions removes versions published within the cooldown window from the
 // NPM metadata response. It strips entries from "versions", "time", and updates "dist-tags".
 func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
-	now := time.Now()
-
 	tooNew := make(map[string]bool)
 	for version, publishDate := range dates {
-		daysSincePublish := int(now.Sub(publishDate).Hours() / 24)
-		if daysSincePublish < cooldownDays {
+		if withinCooldown, _, _ := h.isWithinCooldown(publishDate, cooldownDays); withinCooldown {
 			tooNew[version] = true
 		}
 	}
@@ -231,6 +224,21 @@ func (h *npmCooldownHandler) oldestVersion(dates map[string]time.Time) (string, 
 	}
 
 	return oldest, oldestTime
+}
+
+// isWithinCooldown reports whether a version published at publishDate is still
+// within the cooldown window of cooldownDays. It also returns the number of
+// whole days since publication.
+func (h *npmCooldownHandler) isWithinCooldown(publishDate time.Time, cooldownDays int) (withinCooldown bool, daysSincePublish int, daysRemaining int) {
+	daysSincePublish = int(time.Since(publishDate).Hours() / 24)
+	if daysSincePublish < 0 {
+		daysSincePublish = 0
+	}
+	daysRemaining = cooldownDays - daysSincePublish
+	if daysRemaining < 0 {
+		daysRemaining = 0
+	}
+	return daysSincePublish < cooldownDays, daysSincePublish, daysRemaining
 }
 
 func (h *npmCooldownHandler) latestNonCooldownVersion(dates map[string]time.Time, tooNew map[string]bool) string {
