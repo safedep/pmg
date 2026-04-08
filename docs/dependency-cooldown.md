@@ -18,9 +18,6 @@ dependency_cooldown:
   days: 5
 ```
 
-- `enabled` — Enable or disable cooldown enforcement (default: `true`)
-- `days` — Number of days a version must exist before it can be installed (default: `5`)
-
 ## CLI Override
 
 Use `--skip-dependency-cooldown` to disable cooldown enforcement for a single invocation without changing the config file:
