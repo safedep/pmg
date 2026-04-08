@@ -249,6 +249,15 @@ func TestYarnParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
+		{
+			name:    "yarn npm subcommand is not stripped",
+			command: "npm login",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, "yarn", parsedCommand.Command.Exe)
+				assert.Equal(t, []string{"npm", "login"}, parsedCommand.Command.Args)
+			},
+		},
 	}
 
 	for _, tc := range cases {
