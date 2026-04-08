@@ -3,9 +3,11 @@ package certmanager
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -202,6 +204,45 @@ func TestNewCertificateManagerWithNilCA(t *testing.T) {
 	}
 }
 
+func TestConcurrentCertGeneration(t *testing.T) {
+	config := DefaultCertManagerConfig()
+	ca, err := GenerateCA(config)
+	assert.NoError(t, err)
+
+	cm, err := NewCertificateManagerWithCA(ca, config)
+	assert.NoError(t, err)
+
+	hostname := "registry.npmjs.org"
+	const goroutines = 50
+
+	certs := make([]*Certificate, goroutines)
+	errs := make([]error, goroutines)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	// Launch many goroutines requesting the same hostname concurrently.
+	// Singleflight should ensure only one RSA key generation happens.
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			certs[idx], errs[idx] = cm.GenerateCertForHost(hostname)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < goroutines; i++ {
+		assert.NoError(t, errs[i], "goroutine %d should not error", i)
+		assert.NotNil(t, certs[i], "goroutine %d should get a certificate", i)
+	}
+
+	// All goroutines should receive the same cached certificate.
+	for i := 1; i < goroutines; i++ {
+		assert.Equal(t, certs[0].X509Cert.SerialNumber, certs[i].X509Cert.SerialNumber,
+			"goroutine %d should get the same certificate as goroutine 0", i)
+	}
+}
+
 func BenchmarkGenerateCA(b *testing.B) {
 	config := DefaultCertManagerConfig()
 
@@ -225,6 +266,50 @@ func BenchmarkGenerateHostCert(b *testing.B) {
 		_, err := cm.GenerateCertForHost("example.com")
 		assert.NoError(b, err, "Failed to generate host certificate")
 	}
+}
+
+func BenchmarkGenerateHostCertUncached(b *testing.B) {
+	config := DefaultCertManagerConfig()
+	ca, err := GenerateCA(config)
+	assert.NoError(b, err, "Failed to generate CA")
+
+	cm, err := NewCertificateManagerWithCA(ca, config)
+	assert.NoError(b, err, "Failed to create certificate manager")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		hostname := fmt.Sprintf("host-%d.example.com", i)
+		_, err := cm.GenerateCertForHost(hostname)
+		assert.NoError(b, err, "Failed to generate host certificate")
+	}
+}
+
+func BenchmarkGetTLSConfig(b *testing.B) {
+	config := DefaultCertManagerConfig()
+	ca, err := GenerateCA(config)
+	assert.NoError(b, err, "Failed to generate CA")
+
+	cm, err := NewCertificateManagerWithCA(ca, config)
+	assert.NoError(b, err, "Failed to create certificate manager")
+
+	b.Run("Uncached", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			hostname := fmt.Sprintf("host-%d.example.com", i)
+			_, err := cm.GetTLSConfig(hostname)
+			assert.NoError(b, err, "Failed to get TLS config")
+		}
+	})
+
+	b.Run("Cached", func(b *testing.B) {
+		_, err := cm.GetTLSConfig("cached.example.com")
+		assert.NoError(b, err)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := cm.GetTLSConfig("cached.example.com")
+			assert.NoError(b, err, "Failed to get TLS config")
+		}
+	})
 }
 
 func BenchmarkCacheOperations(b *testing.B) {

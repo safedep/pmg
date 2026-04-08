@@ -15,13 +15,15 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
-	maxSystemCABundleBytes int64 = 10 * 1024 * 1024
-	goosDarwin                   = "darwin"
-	goosLinux                    = "linux"
-	goosWindows                  = "windows"
+	maxSystemCABundleBytes int64         = 10 * 1024 * 1024
+	certExpiryThreshold    time.Duration = 1 * time.Hour
+	goosDarwin                           = "darwin"
+	goosLinux                            = "linux"
+	goosWindows                          = "windows"
 )
 
 // certManager implements the CertificateManager interface
@@ -29,6 +31,7 @@ type certManager struct {
 	ca     *Certificate
 	cache  CertificateCache
 	config CertManagerConfig
+	group  singleflight.Group
 }
 
 // NewCertificateManagerWithCA creates a new certificate manager with an existing CA certificate
@@ -51,7 +54,7 @@ func NewCertificateManagerWithCA(ca *Certificate, config CertManagerConfig) (Cer
 		ca = parsedCA
 	}
 
-	if ca.IsExpired(1 * time.Hour) {
+	if ca.IsExpired(certExpiryThreshold) {
 		return nil, fmt.Errorf("CA certificate is expired")
 	}
 
@@ -67,23 +70,39 @@ func (cm *certManager) GetCA() (*Certificate, error) {
 	return cm.ca, nil
 }
 
-// GenerateCertForHost creates a certificate for the given hostname
-// Uses caching to avoid regeneration
+// GenerateCertForHost creates a certificate for the given hostname.
+// Uses caching and singleflight to ensure only one goroutine generates
+// a certificate for a given hostname at a time, preventing CPU starvation
+// when many concurrent CONNECT requests arrive for the same host.
 func (cm *certManager) GenerateCertForHost(hostname string) (*Certificate, error) {
 	if cached, found := cm.cache.Get(hostname); found {
-		if !cached.IsExpired(1 * time.Hour) {
+		if !cached.IsExpired(certExpiryThreshold) {
 			return cached, nil
 		}
 	}
 
-	cert, err := cm.generateHostCert(hostname)
+	result, err, _ := cm.group.Do(hostname, func() (interface{}, error) {
+		// Re-check cache: another goroutine in a previous singleflight
+		// group may have populated it while we were waiting.
+		if cached, found := cm.cache.Get(hostname); found {
+			if !cached.IsExpired(certExpiryThreshold) {
+				return cached, nil
+			}
+		}
+
+		cert, err := cm.generateHostCert(hostname)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate certificate for %s: %w", hostname, err)
+		}
+
+		cm.cache.Set(hostname, cert)
+		return cert, nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate certificate for %s: %w", hostname, err)
+		return nil, err
 	}
 
-	cm.cache.Set(hostname, cert)
-
-	return cert, nil
+	return result.(*Certificate), nil
 }
 
 // GetTLSConfig returns a tls.Config for the given hostname
