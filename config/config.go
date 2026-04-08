@@ -76,6 +76,8 @@ type Config struct {
 	// Sandbox enables sandboxing of package manager processes with controlled filesystem,
 	// network, and process execution access. Provides defense-in-depth against supply chain attacks.
 	Sandbox SandboxConfig `mapstructure:"sandbox"`
+
+	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -94,6 +96,13 @@ type SandboxConfig struct {
 
 	// PolicyTemplates maps template names to their paths.
 	PolicyTemplates map[string]SandboxPolicyTemplate `mapstructure:"policy_templates"`
+}
+
+// DependencyCooldownConfig blocks installation of package versions published within a
+// configurable time window, reducing exposure to supply chain attacks.
+type DependencyCooldownConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	Days    int  `mapstructure:"days"`
 }
 
 // SandboxPolicyTemplate defines a template for a sandbox policy, used to map
@@ -224,6 +233,10 @@ func DefaultConfig() RuntimeConfig {
 			Sandbox: SandboxConfig{
 				Enabled:       false,
 				EnforceAlways: false,
+			},
+			DependencyCooldown: DependencyCooldownConfig{
+				Enabled: true,
+				Days:    5,
 			},
 		},
 		DryRun:               false,

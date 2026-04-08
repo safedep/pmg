@@ -4,6 +4,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -34,6 +35,7 @@ var npmRegistryDomains = registryConfigMap{
 // It embeds baseRegistryInterceptor to reuse ecosystem agnostic functionality
 type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
+	cooldownHandler *npmCooldownHandler
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
@@ -54,6 +56,7 @@ func NewNpmRegistryInterceptor(
 			confirmationChan: confirmationChan,
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-npm"),
 		},
+		cooldownHandler: newNpmCooldownHandler(statsCollector),
 	}
 }
 
@@ -104,9 +107,13 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	// Only analyze tarball downloads (these have a specific version)
-	// Metadata requests (without version) are allowed through
+	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+
 	if !pkgInfo.IsFileDownload() {
+		if depCooldownConfig.Enabled {
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days)
+		}
+
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}

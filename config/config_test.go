@@ -45,6 +45,64 @@ func TestConfigHasDefaultValues(t *testing.T) {
 	})
 }
 
+func TestPartialConfigFallsBackToDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.yml")
+
+	// Write a minimal config that only sets a couple of fields,
+	// simulating a user who upgraded PMG without re-running setup
+	partialConfig := []byte("transitive: false\nparanoid: true\n")
+	err := os.WriteFile(configPath, partialConfig, 0o644)
+	require.NoError(t, err)
+
+	initConfig()
+	config := Get()
+
+	// Explicitly set values should be respected
+	assert.Equal(t, false, config.Config.Transitive)
+	assert.Equal(t, true, config.Config.Paranoid)
+
+	// Missing keys should fall back to DefaultConfig() values, not Go zero values
+	defaults := DefaultConfig().Config
+	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
+	assert.Equal(t, defaults.ProxyMode, config.Config.ProxyMode)
+	assert.Equal(t, defaults.Verbosity, config.Config.Verbosity)
+	assert.Equal(t, defaults.EventLogRetentionDays, config.Config.EventLogRetentionDays)
+	assert.Equal(t, defaults.DependencyCooldown.Enabled, config.Config.DependencyCooldown.Enabled)
+	assert.Equal(t, defaults.DependencyCooldown.Days, config.Config.DependencyCooldown.Days)
+	assert.Equal(t, defaults.Sandbox.Enabled, config.Config.Sandbox.Enabled)
+}
+
+func TestPartialConfigWithNestedOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.yml")
+
+	// Override only one nested field; other nested and top-level fields should keep defaults
+	partialConfig := []byte("dependency_cooldown:\n  days: 10\n")
+	err := os.WriteFile(configPath, partialConfig, 0o644)
+	require.NoError(t, err)
+
+	initConfig()
+	config := Get()
+
+	defaults := DefaultConfig().Config
+
+	// Explicitly set nested value should be respected
+	assert.Equal(t, 10, config.Config.DependencyCooldown.Days)
+
+	// Sibling nested field should fall back to default
+	assert.Equal(t, defaults.DependencyCooldown.Enabled, config.Config.DependencyCooldown.Enabled)
+
+	// Top-level fields should fall back to defaults
+	assert.Equal(t, defaults.Transitive, config.Config.Transitive)
+	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
+	assert.Equal(t, defaults.ProxyMode, config.Config.ProxyMode)
+}
+
 func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)

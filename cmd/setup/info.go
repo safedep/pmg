@@ -87,6 +87,8 @@ func executeSetupInfo() error {
 		securityEntries["Trusted Packages"] = "None"
 	}
 
+	securityEntries["Dependency Cooldown"] = strconv.FormatBool(cfg.Config.DependencyCooldown.Enabled)
+	securityEntries["Dependency Cooldown Days"] = strconv.Itoa(cfg.Config.DependencyCooldown.Days)
 	securityEntries["Event Logging"] = strconv.FormatBool(!cfg.Config.SkipEventLogging)
 	securityEntries["Event Log Directory"] = cfg.EventLogDir()
 
