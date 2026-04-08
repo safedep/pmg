@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var skipDependencyCooldown bool
+
 // sandboxAllowRaw holds the raw --sandbox-allow flag values before parsing.
 var sandboxAllowRaw []string
 
@@ -39,8 +41,20 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringArrayVar(&sandboxAllowRaw, "sandbox-allow",
 		nil, "Add runtime sandbox allow rule (type=value). Types: read, write, exec, net-connect, net-bind")
 
+	cmd.PersistentFlags().BoolVar(&skipDependencyCooldown, "skip-dependency-cooldown",
+		false, "Skip dependency cooldown enforcement")
+
 	// Hide the experimental proxy mode flag but keep it for backward compatibility
 	_ = cmd.PersistentFlags().MarkHidden("experimental-proxy-mode")
+}
+
+// FinalizeDependencyCooldownOverride disables dependency cooldown in the global
+// config when --skip-dependency-cooldown is set. Must be called after cobra
+// flag parsing is complete.
+func FinalizeDependencyCooldownOverride() {
+	if skipDependencyCooldown {
+		globalConfig.Config.DependencyCooldown.Enabled = false
+	}
 }
 
 // FinalizeSandboxAllowOverrides parses the raw --sandbox-allow flag values
