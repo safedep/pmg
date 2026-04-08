@@ -118,6 +118,7 @@ npm i safedep-test-pkg@0.1.3
 | **Sandboxing**                   | Enforces least privilege using OS native sandboxing to contain installation scripts.                             |
 | **Dependency Analysis**          | Deep scans of direct and transitive dependencies before they hit your disk.                                      |
 | **Event Logging**                | Keeps a verifiable audit trail of all installed packages.                                                        |
+| **Dependency Cooldown**           | Blocks package versions published within a configurable time window, reducing exposure to supply chain attacks.   |
 | **Zero Config**                  | Works out of the box with sensible security defaults.                                                            |
 | **Cross-Shell**                  | Seamlessly integrates with Zsh, Bash, Fish, and more.                                                            |
 
@@ -209,6 +210,7 @@ Security is our first class requirement. PMG builds are reproducible and signed.
 ## User Guide
 
 * [Trusted Packages Configuration](docs/trusted-packages.md)
+* [Dependency Cooldown](docs/dependency-cooldown.md)
 * [Proxy Mode Architecture](docs/proxy-mode.md)
 * [Sandboxing Details](docs/sandbox.md)
 
