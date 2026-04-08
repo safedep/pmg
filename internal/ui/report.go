@@ -309,7 +309,10 @@ func reportVerbose(data *ReportData) {
 				"Published %s ago%s — cooldown: %d days, available in %s",
 				pluralizeDays(pkg.DaysAgo), dateStr, pkg.CooldownDays, pluralizeDays(pkg.DaysLeft),
 			)))
-			fmt.Printf("      %s\n", Colors.Dim("Tip: add to trusted_packages in your PMG config to bypass"))
+			fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf(
+				"Tip: wait %s for cooldown to expire",
+				pluralizeDays(pkg.DaysLeft),
+			)))
 		}
 	}
 

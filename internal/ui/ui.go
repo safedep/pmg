@@ -174,7 +174,10 @@ func printCooldownPackagesList(packages []CooldownBlockedPackage) {
 			"Published %s ago%s — available in %s",
 			pluralizeDays(pkg.DaysAgo), dateStr, pluralizeDays(pkg.DaysLeft),
 		)))
-		fmt.Printf("    %s\n", Colors.Dim("Tip: add to trusted_packages in your PMG config to bypass"))
+		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf(
+			"Tip: wait %s for cooldown to expire",
+			pluralizeDays(pkg.DaysLeft),
+		)))
 	}
 }
 
