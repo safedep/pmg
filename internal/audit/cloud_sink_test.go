@@ -35,7 +35,7 @@ func TestCloudSinkEmitsTranslatableEvents(t *testing.T) {
 
 	sink, err := newCloudSinkWithTransport(transport, "", walPath)
 	require.NoError(t, err)
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	err = sink.Handle(context.Background(), AuditEvent{
 		Type:      EventTypeMalwareBlocked,
@@ -51,7 +51,7 @@ func TestCloudSinkSkipsUntranslatableEvents(t *testing.T) {
 
 	sink, err := newCloudSinkWithTransport(transport, "", walPath)
 	require.NoError(t, err)
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	err = sink.Handle(context.Background(), AuditEvent{
 		Type:      EventTypeProxyHostObserved,
@@ -68,7 +68,7 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 
 	sink, err := newCloudSinkWithTransport(transport, "", walPath)
 	require.NoError(t, err)
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	ctx := context.Background()
 	err = sink.Handle(ctx, AuditEvent{
