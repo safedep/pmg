@@ -11,35 +11,45 @@ import (
 )
 
 type NpmPackageManagerConfig struct {
-	InstallCommands []string
-	CommandName     string
+	InstallCommands  []string
+	DownloadCommands []string
+	CommandName      string
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		CommandName:     "npm",
+		// "exec" is the npm v7+ built-in equivalent of npx.
+		DownloadCommands: []string{"update", "up", "upgrade", "ci", "audit", "dedupe", "exec"},
+		CommandName:      "npm",
 	}
 }
 
 func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		CommandName:     "pnpm",
+		// "dlx" downloads and runs a package (pnpm's npx equivalent).
+		// "exec" runs a command from the project's node_modules (may resolve packages).
+		DownloadCommands: []string{"update", "up", "upgrade", "dedupe", "dlx", "exec"},
+		CommandName:      "pnpm",
 	}
 }
 
 func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		CommandName:     "bun",
+		// "x" is bun's npx equivalent (also exposed as the `bunx` binary).
+		DownloadCommands: []string{"update", "upgrade", "x"},
+		CommandName:      "bun",
 	}
 }
 
 func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "add", ""},
-		CommandName:     "yarn",
+		// "dlx" downloads and runs a package without installing it (yarn's npx equivalent).
+		DownloadCommands: []string{"upgrade", "up", "dlx"},
+		CommandName:      "yarn",
 	}
 }
 
@@ -96,7 +106,13 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		// No install command found, return as-is
+		// Check if this is a known download command (e.g., npm update, npm ci)
+		for _, arg := range args {
+			if slices.Contains(npm.Config.DownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			}
+		}
+
 		return &ParsedCommand{Command: command}, nil
 	}
 

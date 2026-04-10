@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"slices"
 	"sync"
 	"time"
@@ -16,10 +15,9 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
-	"github.com/safedep/pmg/sandbox/executor"
-	"github.com/safedep/pmg/usefulerror"
 )
 
 type PackageManagerGuardInteraction struct {
@@ -254,52 +252,11 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 }
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
-	if len(pc.Command.Exe) == 0 {
-		return fmt.Errorf("no command to execute")
+	pmName := ""
+	if g.packageManager != nil {
+		pmName = g.packageManager.Name()
 	}
-
-	if g.config.DryRun {
-		log.Debugf("Dry run, skipping command execution")
-		return nil
-	}
-
-	cmd := exec.CommandContext(ctx, pc.Command.Exe, pc.Command.Args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	pmName := g.packageManager.Name()
-	result, err := executor.ApplySandbox(ctx, cmd, pmName)
-	if err != nil {
-		return fmt.Errorf("failed to apply sandbox: %w", err)
-	}
-
-	defer func() {
-		err := result.Close()
-		if err != nil {
-			log.Errorf("failed to close sandbox: %v", err)
-		}
-	}()
-
-	if result.ShouldRun() {
-		err := cmd.Run()
-		if err != nil {
-			humanError := "Failed to execute package manager command"
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				humanError = fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())
-			}
-
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-				WithHumanError(humanError).
-				WithHelp("Check the package manager command and its arguments").
-				Wrap(err)
-		}
-
-		return nil
-	}
-
-	return nil
+	return runner.Execute(ctx, pc, pmName, g.config.DryRun)
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
