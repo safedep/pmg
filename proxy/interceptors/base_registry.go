@@ -10,7 +10,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/eventlog"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 	gobreaker "github.com/sony/gobreaker/v2"
 	"google.golang.org/grpc/codes"
@@ -82,7 +82,7 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	if cfg := config.Get(); cfg.InsecureInstallation {
 		log.Debugf("[%s] Skipping insecure installation", ctx.RequestID)
 
-		eventlog.LogInstallInsecureBypass(packageName, packageVersion, ecosystem.String())
+		audit.LogInstallInsecureBypass(pkgVersion)
 
 		return &analyzer.PackageVersionAnalysisResult{
 			PackageVersion: pkgVersion,
@@ -94,7 +94,7 @@ func (b *baseRegistryInterceptor) analyzePackage(
 		log.Debugf("[%s] Skipping trusted package: %s/%s@%s",
 			ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
-		eventlog.LogInstallTrustedAllowed(packageName, packageVersion, ecosystem.String())
+		audit.LogInstallTrustedAllowed(pkgVersion)
 
 		return &analyzer.PackageVersionAnalysisResult{
 			PackageVersion: pkgVersion,
@@ -153,10 +153,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 	case analyzer.ActionBlock:
 		log.Warnf("[%s] Blocking malicious package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-		eventlog.LogMalwareBlocked(packageName, packageVersion, ecosystem.String(), result.Summary, map[string]interface{}{
-			"analysis_id":   result.AnalysisID,
-			"reference_url": result.ReferenceURL,
-		})
+		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, true, false)
 
 		if b.statsCollector != nil {
 			b.statsCollector.RecordBlocked(result)
@@ -195,10 +192,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		if !confirmed {
 			log.Infof("[%s] User declined installation of suspicious package %s/%s@%s", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
-			eventlog.LogMalwareBlocked(packageName, packageVersion, ecosystem.String(), result.Summary, map[string]interface{}{
-				"analysis_id":   result.AnalysisID,
-				"reference_url": result.ReferenceURL,
-			})
+			audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, true, false)
 
 			if b.statsCollector != nil {
 				b.statsCollector.RecordUserCancelled(result)
@@ -217,8 +211,8 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			}, nil
 		}
 
-		eventlog.LogMalwareConfirmed(packageName, packageVersion, ecosystem.String())
-		eventlog.LogInstallAllowed(packageName, packageVersion, ecosystem.String(), 1)
+		audit.LogMalwareConfirmed(result.PackageVersion)
+		audit.LogInstallAllowed(result.PackageVersion, 1)
 
 		if b.statsCollector != nil {
 			b.statsCollector.RecordConfirmed(result)
@@ -228,7 +222,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	case analyzer.ActionAllow:
-		eventlog.LogInstallAllowed(packageName, packageVersion, ecosystem.String(), 1)
+		audit.LogInstallAllowed(result.PackageVersion, 1)
 
 		if b.statsCollector != nil {
 			b.statsCollector.RecordAllowed(result)
@@ -238,7 +232,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:
-		eventlog.LogInstallAllowed(packageName, packageVersion, ecosystem.String(), 1)
+		audit.LogInstallAllowed(result.PackageVersion, 1)
 
 		if b.statsCollector != nil {
 			b.statsCollector.RecordAllowed(result)

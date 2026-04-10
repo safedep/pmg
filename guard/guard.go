@@ -15,7 +15,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
-	"github.com/safedep/pmg/internal/eventlog"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox/executor"
@@ -122,7 +122,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	// Log the installation start
 	if g.packageManager != nil {
-		eventlog.LogInstallStarted(g.packageManager.Name(), args)
+		audit.LogInstallStarted(g.packageManager.Name(), args)
 	}
 
 	if g.config.InsecureInstallation {
@@ -245,12 +245,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	// Log successful installation allowance
 	if len(parsedCommand.InstallTargets) > 0 {
 		for _, target := range parsedCommand.InstallTargets {
-			eventlog.LogInstallAllowed(
-				target.PackageVersion.GetPackage().GetName(),
-				target.PackageVersion.GetVersion(),
-				target.PackageVersion.GetPackage().GetEcosystem().String(),
-				len(packagesToAnalyze),
-			)
+			audit.LogInstallAllowed(target.PackageVersion, len(packagesToAnalyze))
 		}
 	}
 
@@ -535,13 +530,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	// Log successful installation allowance for manifest-based installations
 	if len(packages) > 0 {
-		firstPkg := packages[0]
-		eventlog.LogInstallAllowed(
-			firstPkg.GetPackage().GetName(),
-			firstPkg.GetVersion(),
-			firstPkg.GetPackage().GetEcosystem().String(),
-			len(packagesToAnalyze),
-		)
+		audit.LogInstallAllowed(packages[0], len(packagesToAnalyze))
 	}
 
 	g.clearStatus()
@@ -554,29 +543,9 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 		return
 	}
 
-	pkg := result.PackageVersion.GetPackage()
-	if pkg == nil {
-		return
-	}
-
-	details := map[string]interface{}{
-		"analysis_id":   result.AnalysisID,
-		"reference_url": result.ReferenceURL,
-	}
-
 	if blocked {
-		eventlog.LogMalwareBlocked(
-			pkg.GetName(),
-			result.PackageVersion.GetVersion(),
-			pkg.GetEcosystem().String(),
-			result.Summary,
-			details,
-		)
+		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, true, false)
 	} else {
-		eventlog.LogMalwareConfirmed(
-			pkg.GetName(),
-			result.PackageVersion.GetVersion(),
-			pkg.GetEcosystem().String(),
-		)
+		audit.LogMalwareConfirmed(result.PackageVersion)
 	}
 }

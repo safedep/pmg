@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	appVersion "github.com/safedep/pmg/internal/version"
@@ -84,6 +85,10 @@ func main() {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
 
+			if err := audit.Initialize(); err != nil {
+				log.Warnf("failed to initialize audit system: %v", err)
+			}
+
 			config.FinalizeDependencyCooldownOverride()
 
 			// Parse and validate --sandbox-allow flags after all flags are resolved
@@ -130,6 +135,7 @@ func main() {
 	})
 
 	defer analytics.Close()
+	defer audit.Close()
 	defer eventlog.Close()
 
 	analytics.TrackCommandRun()

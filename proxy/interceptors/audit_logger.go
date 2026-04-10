@@ -1,7 +1,7 @@
 package interceptors
 
 import (
-	"github.com/safedep/pmg/internal/eventlog"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -39,7 +39,7 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	eventlog.LogProxyHostObserved(ctx.Hostname, ctx.Method, "audit_logger_interceptor", map[string]interface{}{
+	audit.LogProxyHostObserved(ctx.Hostname, ctx.Method, "audit_logger_interceptor", map[string]interface{}{
 		"request_id": ctx.RequestID,
 	})
 
