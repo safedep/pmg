@@ -147,7 +147,7 @@ func TestPublicAPISilentWhenNotInitialized(t *testing.T) {
 
 	// None of these should panic
 	LogMalwareBlocked(nil, "reason", "", "", false, false)
-	LogMalwareConfirmed(nil)
+	LogMalwareConfirmed(nil, "", false, false)
 	LogInstallAllowed(nil, 5)
 	LogInstallTrustedAllowed(nil)
 	LogInstallInsecureBypass(nil)
@@ -208,7 +208,7 @@ func TestLogMalwareConfirmedIncrementsSession(t *testing.T) {
 	defer resetGlobal()
 
 	a.startSession("npm", nil)
-	LogMalwareConfirmed(testPackageVersion("pkg", "1.0", "npm"))
+	LogMalwareConfirmed(testPackageVersion("pkg", "1.0", "npm"), "a-1", true, false)
 
 	sess := a.getSession()
 	require.NotNil(t, sess)

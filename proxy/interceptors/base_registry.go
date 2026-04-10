@@ -211,7 +211,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			}, nil
 		}
 
-		audit.LogMalwareConfirmed(result.PackageVersion)
+		audit.LogMalwareConfirmed(result.PackageVersion, result.AnalysisID, result.IsMalware, result.IsVerified)
 		audit.LogInstallAllowed(result.PackageVersion, 1)
 
 		if b.statsCollector != nil {

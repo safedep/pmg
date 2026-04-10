@@ -103,11 +103,14 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 }
 
 // LogMalwareConfirmed records that the user confirmed installation of a flagged package.
-func LogMalwareConfirmed(pv *packagev1.PackageVersion) {
+func LogMalwareConfirmed(pv *packagev1.PackageVersion, analysisID string, isMalware, isVerified bool) {
 	logEvent(AuditEvent{
 		Type:           EventTypeMalwareConfirmed,
 		Message:        fmt.Sprintf("User confirmed installation of flagged package: %s@%s", pkgName(pv), pkgVersion(pv)),
 		PackageVersion: pv,
+		AnalysisID:     analysisID,
+		IsMalware:      isMalware,
+		IsVerified:     isVerified,
 	})
 
 	if global != nil {
