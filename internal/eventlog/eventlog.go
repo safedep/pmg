@@ -126,7 +126,9 @@ func InitializeWithDir(logDir string) error {
 func reinitializeForTest(logDir string) error {
 	// Close existing logger if any
 	if globalLogger != nil {
-		globalLogger.Close()
+		if err := globalLogger.Close(); err != nil {
+			log.Warnf("failed to close existing logger: %v", err)
+		}
 	}
 
 	// Reset once
@@ -281,8 +283,6 @@ func (l *fileWithRotationLogger) IsActive() bool {
 	return l.active
 }
 
-// Global logging functions
-
 // LogEvent logs an event using the global logger
 func LogEvent(event Event) error {
 	// If logger is not initialized or not active, silently fail
@@ -291,158 +291,6 @@ func LogEvent(event Event) error {
 	}
 
 	return globalLogger.Log(event)
-}
-
-// LogMalwareBlocked logs when malware is blocked
-func LogMalwareBlocked(packageName, version, ecosystem, reason string, details map[string]interface{}) {
-	event := Event{
-		EventType:   EventTypeMalwareBlocked,
-		Message:     fmt.Sprintf("Blocked installation of malicious package: %s@%s", packageName, version),
-		PackageName: packageName,
-		Version:     version,
-		Ecosystem:   ecosystem,
-		Details:     details,
-	}
-
-	if details == nil {
-		event.Details = make(map[string]interface{})
-	}
-
-	event.Details["reason"] = reason
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log malware blocked event: %s", err)
-	}
-}
-
-// LogMalwareConfirmed logs when user confirms installation despite warning
-func LogMalwareConfirmed(packageName, version, ecosystem string) {
-	event := Event{
-		EventType:   EventTypeMalwareConfirmed,
-		Message:     fmt.Sprintf("User confirmed installation of flagged package: %s@%s", packageName, version),
-		PackageName: packageName,
-		Version:     version,
-		Ecosystem:   ecosystem,
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log malware confirmed event: %s", err)
-	}
-}
-
-// LogInstallAllowed logs when an installation is allowed
-func LogInstallAllowed(packageName, version, ecosystem string, packageCount int) {
-	event := Event{
-		EventType:   EventTypeInstallAllowed,
-		Message:     fmt.Sprintf("Installation allowed for %s@%s (%d packages analyzed)", packageName, version, packageCount),
-		PackageName: packageName,
-		Version:     version,
-		Ecosystem:   ecosystem,
-		Details: map[string]interface{}{
-			"packages_analyzed": packageCount,
-		},
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log install allowed event: %s", err)
-	}
-}
-
-// LogInstallTrustedAllowed logs when an installation is allowed for a trusted package
-func LogInstallTrustedAllowed(packageName, version, ecosystem string) {
-	event := Event{
-		EventType:   EventTypeInstallTrustedAllowed,
-		Message:     fmt.Sprintf("Installation allowed for trusted package: %s@%s", packageName, version),
-		PackageName: packageName,
-		Version:     version,
-		Ecosystem:   ecosystem,
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log install trusted allowed event: %s", err)
-	}
-}
-
-// LogInstallInsecureBypass logs when an installation skips analysis due to insecure installation mode.
-func LogInstallInsecureBypass(packageName, version, ecosystem string) {
-	event := Event{
-		EventType:   EventTypeInstallInsecureBypass,
-		Message:     fmt.Sprintf("Installation bypassed analysis due to insecure installation mode: %s@%s", packageName, version),
-		PackageName: packageName,
-		Version:     version,
-		Ecosystem:   ecosystem,
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log install insecure bypass event: %s", err)
-	}
-}
-
-// LogInstallStarted logs when an installation starts
-func LogInstallStarted(packageManager string, args []string) {
-	event := Event{
-		EventType: EventTypeInstallStarted,
-		Message:   fmt.Sprintf("Starting package installation with %s", packageManager),
-		Details: map[string]interface{}{
-			"package_manager": packageManager,
-			"arguments":       args,
-		},
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log install started event: %s", err)
-	}
-}
-
-// LogProxyHostObserved logs when proxy mode observes outbound traffic to a host.
-func LogProxyHostObserved(hostname, method, reason string, details map[string]interface{}) {
-	event := Event{
-		EventType: EventTypeProxyHostObserved,
-		Message:   fmt.Sprintf("Proxy observed outbound host: %s", hostname),
-		Details: map[string]interface{}{
-			"hostname": hostname,
-			"method":   method,
-			"reason":   reason,
-		},
-	}
-
-	for k, v := range details {
-		event.Details[k] = v
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log proxy host observed event: %s", err)
-	}
-}
-
-// LogSandboxOverrides logs when runtime sandbox allow overrides are applied.
-func LogSandboxOverrides(sandboxProfile string, overrides []map[string]string) {
-	event := Event{
-		EventType: EventTypeSandboxOverride,
-		Message:   fmt.Sprintf("Sandbox runtime overrides applied (%d rules)", len(overrides)),
-		Details: map[string]interface{}{
-			"sandbox_profile":          sandboxProfile,
-			"sandbox_runtime_overrides": overrides,
-		},
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log sandbox override event: %s", err)
-	}
-}
-
-// LogError logs an error event
-func LogError(message string, err error) {
-	event := Event{
-		EventType: EventTypeError,
-		Message:   message,
-		Details: map[string]interface{}{
-			"error": err.Error(),
-		},
-	}
-
-	if err := LogEvent(event); err != nil {
-		log.Warnf("failed to log error event: %s", err)
-	}
 }
 
 // Close closes the global logger

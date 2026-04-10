@@ -66,6 +66,7 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	cfg := config.Get()
 	// Mark the package version to be confirmed if it is malicious (not confirmed)
 	if res.GetReport().GetInference().GetIsMalware() {
+		analysisResult.IsMalware = true
 		analysisResult.Action = ActionConfirm
 
 		// Treat suspicious package as malicious when `--paranoid` flag is set to true
@@ -76,6 +77,8 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 
 	// This is a confirmed malicious package, we must always block it
 	if res.GetVerificationRecord().GetIsMalware() {
+		analysisResult.IsMalware = true
+		analysisResult.IsVerified = true
 		analysisResult.Action = ActionBlock
 	}
 

@@ -35,6 +35,12 @@ type PackageVersionAnalysisResult struct {
 	// Summary of the analysis
 	Summary string
 
+	// Whether the package is flagged as malware by inference
+	IsMalware bool
+
+	// Whether the malware verdict has been verified (confirmed by a human or verification system)
+	IsVerified bool
+
 	// Analyzer specific data
 	Data any
 }

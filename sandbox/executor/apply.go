@@ -9,7 +9,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/eventlog"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/pmg/usefulerror"
@@ -119,7 +119,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 	// Apply runtime --sandbox-allow overrides to the policy before execution
 	if len(cfg.SandboxAllowOverrides) > 0 {
 		applyRuntimeOverrides(policy, cfg.SandboxAllowOverrides)
-		logSandboxOverridesToEventLog(policy.Name, cfg.SandboxAllowOverrides)
+		logSandboxOverrides(policy.Name, cfg.SandboxAllowOverrides)
 	}
 
 	if !policy.AppliesToPackageManager(pmName) {
@@ -209,8 +209,8 @@ func removeExactMatch(slice []string, value string) []string {
 	return result
 }
 
-// logSandboxOverridesToEventLog records sandbox allow overrides in the audit event log.
-func logSandboxOverridesToEventLog(profileName string, overrides []config.SandboxAllowOverride) {
+// logSandboxOverrides records sandbox allow overrides in the audit event log.
+func logSandboxOverrides(profileName string, overrides []config.SandboxAllowOverride) {
 	entries := make([]map[string]string, 0, len(overrides))
 	for _, o := range overrides {
 		entries = append(entries, map[string]string{
@@ -219,5 +219,5 @@ func logSandboxOverridesToEventLog(profileName string, overrides []config.Sandbo
 		})
 	}
 
-	eventlog.LogSandboxOverrides(profileName, entries)
+	audit.LogSandboxOverride(profileName, entries)
 }
