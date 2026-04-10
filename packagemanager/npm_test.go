@@ -71,12 +71,53 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "not an installation command",
+			name:    "update is a known download command",
 			command: "npm update @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.NotNil(t, parsedCommand)
-				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsKnownDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "ci is a known download command",
+			command: "npm ci",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.True(t, parsedCommand.IsKnownDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+				assert.False(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "audit is a known download command",
+			command: "npm audit",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.True(t, parsedCommand.IsKnownDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "ls is not a download command",
+			command: "npm ls",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.False(t, parsedCommand.IsKnownDownloadCommand)
+				assert.False(t, parsedCommand.MayDownloadPackages())
+				assert.False(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "install sets MayDownloadPackages via IsInstallationCommand",
+			command: "npm install express",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.False(t, parsedCommand.IsKnownDownloadCommand)
+				assert.True(t, parsedCommand.IsInstallationCommand())
+				assert.True(t, parsedCommand.MayDownloadPackages())
 			},
 		},
 		{
@@ -400,6 +441,93 @@ func TestBunParseCommand(t *testing.T) {
 
 			parsedCommand, err := bun.ParseCommand(strings.Split(tc.command, " "))
 			tc.assert(t, parsedCommand, err)
+		})
+	}
+}
+
+func TestNpmDownloadCommands(t *testing.T) {
+	cases := []struct {
+		name                   string
+		pm                     func() (*npmPackageManager, error)
+		command                string
+		isKnownDownloadCommand bool
+		isInstallationCommand  bool
+	}{
+		{
+			name:                   "yarn upgrade is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
+			command:                "yarn upgrade",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "pnpm update is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:                "pnpm update",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "bun update is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
+			command:                "bun update",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "npm exec is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:                "npm exec create-react-app",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "pnpm dlx is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:                "pnpm dlx create-react-app",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "pnpm exec is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:                "pnpm exec tsc",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "yarn dlx is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
+			command:                "yarn dlx create-react-app",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "bun x is a known download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
+			command:                "bun x create-vite",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "npm outdated is not a download command",
+			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:                "npm outdated",
+			isKnownDownloadCommand: false,
+			isInstallationCommand:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pm, err := tc.pm()
+			assert.NoError(t, err)
+
+			parsed, err := pm.ParseCommand(strings.Split(tc.command, " "))
+			assert.NoError(t, err)
+			assert.Equal(t, tc.isKnownDownloadCommand, parsed.IsKnownDownloadCommand)
+			assert.Equal(t, tc.isInstallationCommand, parsed.IsInstallationCommand())
+			assert.Equal(t, tc.isKnownDownloadCommand || tc.isInstallationCommand, parsed.MayDownloadPackages())
 		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/pty"
+	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
@@ -49,6 +50,12 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
 
 	cfg := config.Get()
+
+	// Skip proxy for commands that don't download packages when proxy_install_only is enabled
+	if cfg.Config.ProxyInstallOnly && !parsedCmd.MayDownloadPackages() {
+		log.Debugf("Skipping proxy for non-download command (proxy_install_only=true)")
+		return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+	}
 
 	// Initialize report data at the start
 	reportData := ui.NewReportData()

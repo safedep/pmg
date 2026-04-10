@@ -38,11 +38,24 @@ type ParsedCommand struct {
 	// ManifestFiles contains the list of manifest files to install from
 	// (e.g., ["requirements.txt"] for pip install -r requirements.txt)
 	ManifestFiles []string
+
+	// IsKnownDownloadCommand is true for commands that may download packages but are not
+	// fully parsed (e.g., npm update, npm ci, poetry update). Used by the proxy to decide
+	// whether to intercept when proxy_install_only is enabled.
+	IsKnownDownloadCommand bool
 }
 
 // IsInstallationCommand returns true if command installs packages (explicit targets or from manifest).
+// This is used by guard mode where we need to know which packages are being installed.
 func (pc *ParsedCommand) IsInstallationCommand() bool {
 	return pc.HasInstallTarget() || pc.HasManifestInstall()
+}
+
+// MayDownloadPackages returns true if the command may download packages from a registry.
+// This is broader than IsInstallationCommand and includes commands like npm update or npm ci
+// that download packages but are not fully parsed. Used by the proxy to decide interception scope.
+func (pc *ParsedCommand) MayDownloadPackages() bool {
+	return pc.IsInstallationCommand() || pc.IsKnownDownloadCommand
 }
 
 func (pc *ParsedCommand) HasInstallTarget() bool {

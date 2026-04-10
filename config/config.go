@@ -70,6 +70,11 @@ type Config struct {
 	// we initially introduced it as an experimental feature.
 	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
 
+	// ProxyInstallOnly restricts proxy interception to install commands only.
+	// When false (default), proxy runs for all package manager commands.
+	// When true, non-install commands (e.g., npm ls, pip list) bypass the proxy and execute directly.
+	ProxyInstallOnly bool `mapstructure:"proxy_install_only"`
+
 	// Verbosity controls the UI verbosity level. Valid values: "silent", "normal", "verbose".
 	Verbosity string `mapstructure:"verbosity"`
 

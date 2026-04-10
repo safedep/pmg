@@ -36,6 +36,12 @@ event_log_retention_days: 7
 # and can be disabled to fall back to the guard-based analysis.
 proxy_mode: true
 
+# Restrict proxy to install commands only. Default is false.
+# When false, the proxy intercepts all package manager commands (e.g., npm install, npm ls).
+# When true, non-install commands bypass the proxy and execute directly, which can improve
+# performance for commands that don't download packages (e.g., npm ls, pip list, npm outdated).
+proxy_install_only: false
+
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
 # Example:

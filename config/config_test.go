@@ -27,6 +27,7 @@ func TestConfigHasDefaultValues(t *testing.T) {
 		assert.Equal(t, []TrustedPackage{}, config.Config.TrustedPackages)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist", config.configDir)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist/config.yml", config.configFilePath)
+		assert.Equal(t, false, config.Config.ProxyInstallOnly)
 	})
 
 	t.Run("when no config directory is set", func(t *testing.T) {
@@ -101,6 +102,26 @@ func TestPartialConfigWithNestedOverride(t *testing.T) {
 	assert.Equal(t, defaults.Transitive, config.Config.Transitive)
 	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
 	assert.Equal(t, defaults.ProxyMode, config.Config.ProxyMode)
+}
+
+func TestProxyInstallOnlyConfig(t *testing.T) {
+	t.Run("defaults to false", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+		initConfig()
+		assert.Equal(t, false, Get().Config.ProxyInstallOnly)
+	})
+
+	t.Run("can be set to true via config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly)
+	})
 }
 
 func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {

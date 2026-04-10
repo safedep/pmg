@@ -1,6 +1,7 @@
 package packagemanager
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -853,6 +854,86 @@ func TestPypiConvertWildcardConstraint(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := pypiConvertWildcardConstraint(tc.input)
 			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestPypiDownloadCommands(t *testing.T) {
+	cases := []struct {
+		name                   string
+		pm                     func() (*pypiPackageManager, error)
+		command                string
+		isKnownDownloadCommand bool
+		isInstallationCommand  bool
+	}{
+		{
+			name:                   "poetry update is a known download command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			command:                "poetry update",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "poetry add is an installation command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			command:                "poetry add django",
+			isKnownDownloadCommand: false,
+			isInstallationCommand:  true,
+		},
+		{
+			name:                   "uv sync is an installation command (manifest install)",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			command:                "uv sync",
+			isKnownDownloadCommand: false,
+			isInstallationCommand:  true,
+		},
+		{
+			name:                   "pip download is a known download command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			command:                "pip download requests",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "pip3 download is a known download command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPip3PackageManagerConfig()) },
+			command:                "pip3 download django",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "uv pip download is a known download command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			command:                "uv pip download requests",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "uv run is a known download command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			command:                "uv run script.py",
+			isKnownDownloadCommand: true,
+			isInstallationCommand:  false,
+		},
+		{
+			name:                   "pip list is not a download command",
+			pm:                     func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			command:                "pip list",
+			isKnownDownloadCommand: false,
+			isInstallationCommand:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pm, err := tc.pm()
+			assert.NoError(t, err)
+
+			parsed, err := pm.ParseCommand(strings.Split(tc.command, " "))
+			assert.NoError(t, err)
+			assert.Equal(t, tc.isKnownDownloadCommand, parsed.IsKnownDownloadCommand)
+			assert.Equal(t, tc.isInstallationCommand, parsed.IsInstallationCommand())
+			assert.Equal(t, tc.isKnownDownloadCommand || tc.isInstallationCommand, parsed.MayDownloadPackages())
 		})
 	}
 }
