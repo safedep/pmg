@@ -135,12 +135,12 @@ func main() {
 	})
 
 	defer analytics.Close()
+	defer eventlog.Close()
 	defer func() {
 		if err := audit.Close(); err != nil {
 			log.Warnf("failed to close audit system: %v", err)
 		}
 	}()
-	defer eventlog.Close()
 
 	analytics.TrackCommandRun()
 	analytics.TrackCI()

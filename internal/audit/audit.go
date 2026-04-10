@@ -133,6 +133,10 @@ func LogInstallInsecureBypass(pv *packagev1.PackageVersion) {
 		Message:        fmt.Sprintf("Installation bypassed analysis due to insecure installation mode: %s@%s", pkgName(pv), pkgVersion(pv)),
 		PackageVersion: pv,
 	})
+
+	if global != nil {
+		global.recordInsecureBypassed()
+	}
 }
 
 // LogInstallStarted records the start of a package installation session.

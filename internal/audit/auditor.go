@@ -13,11 +13,12 @@ type session struct {
 	startTime      time.Time
 	packageManager string
 	args           []string
-	totalAnalyzed  uint32
-	allowedCount   uint32
-	blockedCount   uint32
-	confirmedCount uint32
-	trustedSkipped uint32
+	totalAnalyzed   uint32
+	allowedCount    uint32
+	blockedCount    uint32
+	confirmedCount  uint32
+	trustedSkipped  uint32
+	insecureBypassed uint32
 }
 
 type auditor struct {
@@ -90,6 +91,9 @@ func (a *auditor) recordBlocked() {
 	s.totalAnalyzed++
 }
 
+// recordConfirmed tracks that a user confirmed a suspicious package. It does not
+// increment totalAnalyzed because the subsequent LogInstallAllowed call for the
+// same package already does that.
 func (a *auditor) recordConfirmed() {
 	s := a.getSession()
 	if s == nil {
@@ -98,7 +102,6 @@ func (a *auditor) recordConfirmed() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.confirmedCount++
-	s.totalAnalyzed++
 }
 
 func (a *auditor) recordTrustedSkipped() {
@@ -109,5 +112,16 @@ func (a *auditor) recordTrustedSkipped() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.trustedSkipped++
+	s.totalAnalyzed++
+}
+
+func (a *auditor) recordInsecureBypassed() {
+	s := a.getSession()
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.insecureBypassed++
 	s.totalAnalyzed++
 }

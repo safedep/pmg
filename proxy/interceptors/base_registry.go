@@ -153,7 +153,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 	case analyzer.ActionBlock:
 		log.Warnf("[%s] Blocking malicious package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, true, false)
+		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, result.IsMalware, result.IsVerified)
 
 		if b.statsCollector != nil {
 			b.statsCollector.RecordBlocked(result)
@@ -192,7 +192,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		if !confirmed {
 			log.Infof("[%s] User declined installation of suspicious package %s/%s@%s", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
-			audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, true, false)
+			audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, result.IsMalware, result.IsVerified)
 
 			if b.statsCollector != nil {
 				b.statsCollector.RecordUserCancelled(result)

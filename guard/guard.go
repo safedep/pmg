@@ -544,7 +544,7 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 	}
 
 	if blocked {
-		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, true, false)
+		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, result.IsMalware, result.IsVerified)
 	} else {
 		audit.LogMalwareConfirmed(result.PackageVersion)
 	}

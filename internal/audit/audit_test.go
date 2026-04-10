@@ -116,7 +116,7 @@ func TestAuditorSessionTracking(t *testing.T) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	assert.Equal(t, uint32(4), s.totalAnalyzed)
+	assert.Equal(t, uint32(3), s.totalAnalyzed) // confirmed doesn't count — LogInstallAllowed does
 	assert.Equal(t, uint32(1), s.allowedCount)
 	assert.Equal(t, uint32(1), s.blockedCount)
 	assert.Equal(t, uint32(1), s.confirmedCount)
@@ -212,7 +212,7 @@ func TestLogMalwareConfirmedIncrementsSession(t *testing.T) {
 	sess := a.getSession()
 	require.NotNil(t, sess)
 	assert.Equal(t, uint32(1), sess.confirmedCount)
-	assert.Equal(t, uint32(1), sess.totalAnalyzed)
+	assert.Equal(t, uint32(0), sess.totalAnalyzed) // confirmed doesn't increment — LogInstallAllowed does
 }
 
 func TestLogInstallTrustedAllowedIncrementsSession(t *testing.T) {
