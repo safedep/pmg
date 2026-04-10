@@ -15,6 +15,7 @@ import (
 
 type cloudSink struct {
 	syncClient   *endpointsync.SyncClient
+	cloudClient  *cloud.Client
 	invocationID string
 }
 
@@ -36,7 +37,16 @@ func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
 
 	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
 
-	return newCloudSinkWithTransport(transport, cfg.Config.Cloud.EndpointID, cfg.CloudSyncDBPath())
+	sink, err := newCloudSinkWithTransport(transport, cfg.Config.Cloud.EndpointID, cfg.CloudSyncDBPath())
+	if err != nil {
+		if closeErr := cloudClient.Close(); closeErr != nil {
+			log.Warnf("failed to close cloud client after sink init failure: %v", closeErr)
+		}
+		return nil, err
+	}
+
+	sink.cloudClient = cloudClient
+	return sink, nil
 }
 
 func newCloudSinkWithTransport(transport endpointsync.EventTransport, endpointID, walPath string) (*cloudSink, error) {
@@ -95,5 +105,16 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 }
 
 func (s *cloudSink) Close() error {
-	return s.syncClient.Close()
+	var errs []error
+	if s.syncClient != nil {
+		if err := s.syncClient.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.cloudClient != nil {
+		if err := s.cloudClient.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
