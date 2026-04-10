@@ -85,8 +85,8 @@ func main() {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
 
-			if err := audit.Initialize(); err != nil {
-				log.Warnf("failed to initialize audit system: %v", err)
+			if err := audit.Initialize(config.Get()); err != nil {
+				ui.Fatalf("failed to initialize audit system: %v", err)
 			}
 
 			config.FinalizeDependencyCooldownOverride()

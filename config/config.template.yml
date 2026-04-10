@@ -143,3 +143,12 @@ sandbox:
 dependency_cooldown:
   enabled: true
   days: 5
+
+# Cloud sync configuration.
+# When enabled, PMG audit events are synced to SafeDep Cloud for centralized visibility.
+# Requires SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables for authentication.
+cloud:
+  enabled: false
+  # Endpoint ID is not required. By default, it falls back to the machine's hostname.
+  # Set it only if you want to explicitly override the identifier for this endpoint.
+  # endpoint_id: "my-machine"

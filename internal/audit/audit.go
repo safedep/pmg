@@ -5,6 +5,9 @@ import (
 	"fmt"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
 )
 
 var global *auditor
@@ -17,9 +20,25 @@ func resetGlobal() {
 	global = nil
 }
 
-func Initialize() error {
-	a := newAuditor(newEventlogSink())
-	global = a
+// Initialize sets up the audit system with an eventlog sink and, when enabled,
+// a cloud sync sink.
+func Initialize(cfg *config.RuntimeConfig) error {
+	var sinks []Sink
+	sinks = append(sinks, newEventlogSink())
+
+	if cfg.Config.Cloud.Enabled && !analytics.IsDisabled() {
+		cs, err := newCloudSink(cfg)
+		if err != nil {
+			return fmt.Errorf("cloud sync is enabled but failed to initialize: %w", err)
+		}
+		sinks = append(sinks, cs)
+	}
+
+	if cfg.Config.Cloud.Enabled && analytics.IsDisabled() {
+		log.Warnf("Cloud sync is disabled because telemetry is disabled")
+	}
+
+	setGlobal(newAuditor(sinks...))
 	return nil
 }
 

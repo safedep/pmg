@@ -7,6 +7,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -228,4 +229,19 @@ func TestLogInstallTrustedAllowedIncrementsSession(t *testing.T) {
 	require.NotNil(t, sess)
 	assert.Equal(t, uint32(1), sess.trustedSkipped)
 	assert.Equal(t, uint32(1), sess.totalAnalyzed)
+}
+
+func TestInitializeWithCloudDisabled(t *testing.T) {
+	resetGlobal()
+	defer resetGlobal()
+
+	cfg := config.Get()
+	cfg.Config.Cloud.Enabled = false
+
+	err := Initialize(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, global)
+
+	// Should have exactly one sink (eventlog)
+	assert.Len(t, global.sinks, 1)
 }
