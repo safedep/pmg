@@ -43,7 +43,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 	}
 
 	for _, pmgEvent := range pmgEvents {
-		toolEvent, err := s.SyncClient.NewEvent()
+		toolEvent, err := s.syncClient.NewEvent()
 		if err != nil {
 			return fmt.Errorf("failed to create tool event: %w", err)
 		}
@@ -51,7 +51,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 		toolEvent.SetPmgEvent(pmgEvent)
 		toolEvent.SetInvocationId(s.invocationID)
 
-		if err := s.SyncClient.Emit(ctx, toolEvent); err != nil {
+		if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
 			if errors.Is(err, endpointsync.ErrWALFull) {
 				log.Warnf("Cloud sync WAL is full, dropping event: %v", err)
 				return nil

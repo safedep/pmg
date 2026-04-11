@@ -38,7 +38,7 @@ func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *clou
 		endpointsync.WithWALPath(walPath))
 	require.NoError(t, err)
 	return &cloudSink{
-		SyncClientBundle: &SyncClientBundle{SyncClient: syncClient},
+		SyncClientBundle: &SyncClientBundle{syncClient: syncClient},
 		invocationID:     "test-invocation",
 	}
 }
@@ -92,7 +92,7 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	synced, err := sink.SyncClient.Sync(ctx)
+	synced, err := sink.syncClient.Sync(ctx)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, synced)

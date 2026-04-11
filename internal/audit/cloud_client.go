@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -14,15 +15,20 @@ import (
 // SyncClientBundle holds a SyncClient and its underlying cloud client.
 // Callers must call Close() when done.
 type SyncClientBundle struct {
-	SyncClient       *endpointsync.SyncClient
+	syncClient       *endpointsync.SyncClient
 	cloudClient      *cloud.Client
 	keychainResolver cloud.CloseableCredentialResolver
 }
 
+// Sync delivers pending events from the WAL to SafeDep Cloud.
+func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
+	return b.syncClient.Sync(ctx)
+}
+
 func (b *SyncClientBundle) Close() error {
 	var errs []error
-	if b.SyncClient != nil {
-		if err := b.SyncClient.Close(); err != nil {
+	if b.syncClient != nil {
+		if err := b.syncClient.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -118,7 +124,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	}
 
 	return &SyncClientBundle{
-		SyncClient:       syncClient,
+		syncClient:       syncClient,
 		cloudClient:      cloudClient,
 		keychainResolver: keychainResolver,
 	}, nil
