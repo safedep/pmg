@@ -152,7 +152,9 @@ func TestMapPackageManager(t *testing.T) {
 		expected controltowerv1.PmgPackageManager
 	}{
 		{"npm", "npm", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_NPM},
+		{"npx", "npx", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_NPM},
 		{"pnpm", "pnpm", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PNPM},
+		{"pnpx", "pnpx", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PNPM},
 		{"yarn", "yarn", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_YARN},
 		{"bun", "bun", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_BUN},
 		{"pip", "pip", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP},

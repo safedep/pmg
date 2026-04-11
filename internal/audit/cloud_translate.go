@@ -148,9 +148,9 @@ func mapSessionOutcome(outcome Outcome) controltowerv1.PmgSessionOutcome {
 
 func mapPackageManager(name string) controltowerv1.PmgPackageManager {
 	switch name {
-	case "npm":
+	case "npm", "npx":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_NPM
-	case "pnpm":
+	case "pnpm", "pnpx":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PNPM
 	case "yarn":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_YARN
