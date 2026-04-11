@@ -13,9 +13,10 @@ import (
 )
 
 type cloudSink struct {
-	syncClient   *endpointsync.SyncClient
-	cloudClient  *cloud.Client
-	invocationID string
+	syncClient       *endpointsync.SyncClient
+	cloudClient      *cloud.Client
+	keychainResolver cloud.CloseableCredentialResolver
+	invocationID     string
 }
 
 func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
@@ -33,9 +34,10 @@ func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
 	}
 
 	return &cloudSink{
-		syncClient:   bundle.SyncClient,
-		cloudClient:  bundle.cloudClient,
-		invocationID: invocationID.String(),
+		syncClient:       bundle.SyncClient,
+		cloudClient:      bundle.cloudClient,
+		keychainResolver: bundle.keychainResolver,
+		invocationID:     invocationID.String(),
 	}, nil
 }
 
@@ -75,6 +77,11 @@ func (s *cloudSink) Close() error {
 	}
 	if s.cloudClient != nil {
 		if err := s.cloudClient.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.keychainResolver != nil {
+		if err := s.keychainResolver.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}

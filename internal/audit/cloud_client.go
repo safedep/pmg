@@ -81,6 +81,11 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 
 	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
 	if err != nil {
+		if keychainResolver != nil {
+			if closeErr := keychainResolver.Close(); closeErr != nil {
+				log.Warnf("failed to close keychain resolver: %v", closeErr)
+			}
+		}
 		return nil, fmt.Errorf("failed to create data plane client: %w", err)
 	}
 
@@ -103,6 +108,11 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	if err != nil {
 		if closeErr := cloudClient.Close(); closeErr != nil {
 			log.Warnf("failed to close cloud client after sync client init failure: %v", closeErr)
+		}
+		if keychainResolver != nil {
+			if closeErr := keychainResolver.Close(); closeErr != nil {
+				log.Warnf("failed to close keychain resolver: %v", closeErr)
+			}
 		}
 		return nil, fmt.Errorf("failed to create sync client: %w", err)
 	}
