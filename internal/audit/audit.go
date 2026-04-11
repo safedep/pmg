@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"fmt"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -226,6 +227,43 @@ func LogError(message string, err error) {
 	}
 
 	logEvent(event)
+}
+
+// LogSessionComplete records the end of a PMG invocation with aggregate session stats.
+func LogSessionComplete(outcome Outcome, flowType FlowType) {
+	if global == nil {
+		return
+	}
+
+	s := global.getSession()
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cfg := config.Get()
+
+	logEvent(AuditEvent{
+		Type:    EventTypeSessionComplete,
+		Message: fmt.Sprintf("Session complete: %s", outcome),
+		SessionData: &SessionData{
+			PackageManager:    s.packageManager,
+			FlowType:          flowType,
+			Outcome:           outcome,
+			TotalAnalyzed:     s.totalAnalyzed,
+			AllowedCount:      s.allowedCount,
+			BlockedCount:      s.blockedCount,
+			ConfirmedCount:    s.confirmedCount,
+			TrustedSkipped:    s.trustedSkipped,
+			InsecureBypassed:  s.insecureBypassed,
+			Duration:          time.Since(s.startTime),
+			SandboxEnabled:    cfg.Config.Sandbox.Enabled,
+			ParanoidMode:      cfg.Config.Paranoid,
+			TransitiveEnabled: cfg.Config.Transitive,
+		},
+	})
 }
 
 func mergeDetails(base, extra map[string]interface{}) map[string]interface{} {

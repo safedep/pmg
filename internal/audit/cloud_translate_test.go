@@ -3,6 +3,7 @@ package audit
 import (
 	"errors"
 	"testing"
+	"time"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/stretchr/testify/assert"
@@ -21,8 +22,9 @@ func TestTranslateMalwareBlocked(t *testing.T) {
 		IsVerified:     true,
 	}
 
-	result := testSink.translateToPmgEvent(event)
-	require.NotNil(t, result)
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
 
 	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION, result.GetEventType())
 	require.True(t, result.HasPackageDecision())
@@ -44,8 +46,9 @@ func TestTranslateMalwareConfirmed(t *testing.T) {
 		IsVerified:     false,
 	}
 
-	result := testSink.translateToPmgEvent(event)
-	require.NotNil(t, result)
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
 
 	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION, result.GetEventType())
 	require.True(t, result.HasPackageDecision())
@@ -57,22 +60,13 @@ func TestTranslateMalwareConfirmed(t *testing.T) {
 	assert.False(t, decision.GetIsVerified())
 }
 
-func TestTranslateInsecureBypass(t *testing.T) {
+func TestTranslateInsecureBypassReturnsEmpty(t *testing.T) {
 	event := AuditEvent{
-		Type:           EventTypeInstallInsecureBypass,
-		PackageManager: "npm",
-		PackageCount:   5,
+		Type: EventTypeInstallInsecureBypass,
 	}
 
-	result := testSink.translateToPmgEvent(event)
-	require.NotNil(t, result)
-
-	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_INSECURE_BYPASS, result.GetEventType())
-	require.True(t, result.HasInsecureBypass())
-
-	bypass := result.GetInsecureBypass()
-	assert.Equal(t, controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_NPM, bypass.GetPackageManager())
-	assert.Equal(t, uint32(5), bypass.GetPackagesBypassed())
+	results := testSink.translateToPmgEvents(event)
+	assert.Empty(t, results)
 }
 
 func TestTranslateSandboxOverride(t *testing.T) {
@@ -85,8 +79,9 @@ func TestTranslateSandboxOverride(t *testing.T) {
 		},
 	}
 
-	result := testSink.translateToPmgEvent(event)
-	require.NotNil(t, result)
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
 
 	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_SANDBOX_OVERRIDE, result.GetEventType())
 	require.True(t, result.HasSandboxOverride())
@@ -103,8 +98,9 @@ func TestTranslateError(t *testing.T) {
 		Error:   errors.New("connection refused"),
 	}
 
-	result := testSink.translateToPmgEvent(event)
-	require.NotNil(t, result)
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
 
 	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_ERROR, result.GetEventType())
 	require.True(t, result.HasError())
@@ -121,27 +117,29 @@ func TestTranslateErrorNilError(t *testing.T) {
 		Error:   nil,
 	}
 
-	result := testSink.translateToPmgEvent(event)
-	require.NotNil(t, result)
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
 
 	pmgErr := result.GetError()
 	assert.Equal(t, "", pmgErr.GetErrorType())
 	assert.Equal(t, "unknown issue", pmgErr.GetMessage())
 }
 
-func TestTranslateUnsupportedEventReturnsNil(t *testing.T) {
+func TestTranslateUnsupportedEventReturnsEmpty(t *testing.T) {
 	unsupported := []EventType{
 		EventTypeProxyHostObserved,
 		EventTypeDependencyResolved,
 		EventTypeInstallStarted,
 		EventTypeInstallAllowed,
 		EventTypeInstallTrustedAllowed,
+		EventTypeInstallInsecureBypass,
 	}
 
 	for _, et := range unsupported {
 		t.Run(string(et), func(t *testing.T) {
-			result := testSink.translateToPmgEvent(AuditEvent{Type: et})
-			assert.Nil(t, result)
+			results := testSink.translateToPmgEvents(AuditEvent{Type: et})
+			assert.Empty(t, results)
 		})
 	}
 }
@@ -167,6 +165,119 @@ func TestMapPackageManager(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, mapPackageManager(tc.input))
+		})
+	}
+}
+
+func TestTranslateSessionComplete(t *testing.T) {
+	event := AuditEvent{
+		Type: EventTypeSessionComplete,
+		SessionData: &SessionData{
+			PackageManager:    "npm",
+			FlowType:          FlowTypeProxy,
+			Outcome:           OutcomeSuccess,
+			TotalAnalyzed:     10,
+			AllowedCount:      8,
+			BlockedCount:      1,
+			ConfirmedCount:    1,
+			TrustedSkipped:    2,
+			InsecureBypassed:  0,
+			Duration:          5 * time.Second,
+			SandboxEnabled:    true,
+			ParanoidMode:      false,
+			TransitiveEnabled: true,
+		},
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+
+	summary := results[0].GetSessionSummary()
+	require.NotNil(t, summary)
+	assert.Equal(t, controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_NPM, summary.GetPackageManager())
+	assert.Equal(t, controltowerv1.PmgFlowType_PMG_FLOW_TYPE_PROXY, summary.GetFlowType())
+	assert.Equal(t, uint32(10), summary.GetTotalAnalyzed())
+	assert.Equal(t, uint32(8), summary.GetAllowedCount())
+	assert.Equal(t, uint32(1), summary.GetBlockedCount())
+	assert.Equal(t, uint32(1), summary.GetConfirmedCount())
+	assert.Equal(t, uint32(2), summary.GetTrustedSkipped())
+	assert.True(t, summary.GetSandboxEnabled())
+	assert.False(t, summary.GetParanoidMode())
+	assert.True(t, summary.GetTransitiveEnabled())
+	assert.Equal(t, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_SUCCESS, summary.GetOutcome())
+}
+
+func TestTranslateSessionCompleteWithInsecureBypass(t *testing.T) {
+	event := AuditEvent{
+		Type: EventTypeSessionComplete,
+		SessionData: &SessionData{
+			PackageManager:   "pip",
+			FlowType:         FlowTypeGuard,
+			Outcome:          OutcomeInsecureBypass,
+			InsecureBypassed: 3,
+		},
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 2)
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_SESSION_SUMMARY, results[0].GetEventType())
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_INSECURE_BYPASS, results[1].GetEventType())
+	bypass := results[1].GetInsecureBypass()
+	require.NotNil(t, bypass)
+	assert.Equal(t, controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP, bypass.GetPackageManager())
+	assert.Equal(t, uint32(3), bypass.GetPackagesBypassed())
+}
+
+func TestTranslateSessionCompleteNilSessionData(t *testing.T) {
+	event := AuditEvent{
+		Type:        EventTypeSessionComplete,
+		SessionData: nil,
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	assert.Empty(t, results)
+}
+
+func TestMapFlowType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    FlowType
+		expected controltowerv1.PmgFlowType
+	}{
+		{"guard", FlowTypeGuard, controltowerv1.PmgFlowType_PMG_FLOW_TYPE_GUARD},
+		{"proxy", FlowTypeProxy, controltowerv1.PmgFlowType_PMG_FLOW_TYPE_PROXY},
+		{"unknown", FlowType("other"), controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED},
+		{"empty", FlowType(""), controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, mapFlowType(tc.input))
+		})
+	}
+}
+
+func TestMapSessionOutcome(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    Outcome
+		expected controltowerv1.PmgSessionOutcome
+	}{
+		{"success", OutcomeSuccess, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_SUCCESS},
+		{"blocked", OutcomeBlocked, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_BLOCKED},
+		{"user_cancelled", OutcomeUserCancelled, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_USER_CANCELLED},
+		{"error", OutcomeError, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_ERROR},
+		{"dry_run", OutcomeDryRun, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_DRY_RUN},
+		{"insecure_bypass", OutcomeInsecureBypass, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_INSECURE_BYPASS},
+		{"unknown", Outcome("other"), controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_UNSPECIFIED},
+		{"empty", Outcome(""), controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_UNSPECIFIED},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, mapSessionOutcome(tc.input))
 		})
 	}
 }

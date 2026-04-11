@@ -14,6 +14,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -78,6 +79,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
 		reportData.Outcome = ui.OutcomeDryRun
+		audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
 		ui.Report(reportData)
 
 		return nil
@@ -184,6 +186,8 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
+
+	audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
 
 	// Show the report
 	ui.Report(reportData)

@@ -4,20 +4,30 @@ import (
 	"fmt"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func (s *cloudSink) translateToPmgEvent(event AuditEvent) *controltowerv1.PmgEvent {
+func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.PmgEvent {
 	switch event.Type {
 	case EventTypeMalwareBlocked:
-		return newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED)
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED)}
 	case EventTypeMalwareConfirmed:
-		return newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED)
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED)}
 	case EventTypeInstallInsecureBypass:
-		return newInsecureBypassEvent(event)
+		return nil
 	case EventTypeSandboxOverride:
-		return newSandboxOverrideEvent(event)
+		return []*controltowerv1.PmgEvent{newSandboxOverrideEvent(event)}
 	case EventTypeError:
-		return newErrorEvent(event)
+		return []*controltowerv1.PmgEvent{newErrorEvent(event)}
+	case EventTypeSessionComplete:
+		if event.SessionData == nil {
+			return nil
+		}
+		events := []*controltowerv1.PmgEvent{newSessionSummaryEvent(event.SessionData)}
+		if event.SessionData.InsecureBypassed > 0 {
+			events = append(events, newInsecureBypassFromSession(event.SessionData))
+		}
+		return events
 	default:
 		return nil
 	}
@@ -41,17 +51,6 @@ func newPackageDecisionEvent(event AuditEvent, action controltowerv1.PmgPackageA
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION)
 	e.SetPackageDecision(decision)
-	return e
-}
-
-func newInsecureBypassEvent(event AuditEvent) *controltowerv1.PmgEvent {
-	bypass := &controltowerv1.PmgInsecureBypass{}
-	bypass.SetPackageManager(mapPackageManager(event.PackageManager))
-	bypass.SetPackagesBypassed(uint32(event.PackageCount))
-
-	e := &controltowerv1.PmgEvent{}
-	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_INSECURE_BYPASS)
-	e.SetInsecureBypass(bypass)
 	return e
 }
 
@@ -84,6 +83,68 @@ func newErrorEvent(event AuditEvent) *controltowerv1.PmgEvent {
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_ERROR)
 	e.SetError(pmgErr)
 	return e
+}
+
+func newSessionSummaryEvent(data *SessionData) *controltowerv1.PmgEvent {
+	summary := &controltowerv1.PmgSessionSummary{}
+	summary.SetPackageManager(mapPackageManager(data.PackageManager))
+	summary.SetFlowType(mapFlowType(data.FlowType))
+	summary.SetTotalAnalyzed(data.TotalAnalyzed)
+	summary.SetAllowedCount(data.AllowedCount)
+	summary.SetBlockedCount(data.BlockedCount)
+	summary.SetConfirmedCount(data.ConfirmedCount)
+	summary.SetTrustedSkipped(data.TrustedSkipped)
+	summary.SetDuration(durationpb.New(data.Duration))
+	summary.SetSandboxEnabled(data.SandboxEnabled)
+	summary.SetParanoidMode(data.ParanoidMode)
+	summary.SetTransitiveEnabled(data.TransitiveEnabled)
+	summary.SetOutcome(mapSessionOutcome(data.Outcome))
+
+	e := &controltowerv1.PmgEvent{}
+	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_SESSION_SUMMARY)
+	e.SetSessionSummary(summary)
+	return e
+}
+
+func newInsecureBypassFromSession(data *SessionData) *controltowerv1.PmgEvent {
+	bypass := &controltowerv1.PmgInsecureBypass{}
+	bypass.SetPackageManager(mapPackageManager(data.PackageManager))
+	bypass.SetPackagesBypassed(data.InsecureBypassed)
+
+	e := &controltowerv1.PmgEvent{}
+	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_INSECURE_BYPASS)
+	e.SetInsecureBypass(bypass)
+	return e
+}
+
+func mapFlowType(ft FlowType) controltowerv1.PmgFlowType {
+	switch ft {
+	case FlowTypeGuard:
+		return controltowerv1.PmgFlowType_PMG_FLOW_TYPE_GUARD
+	case FlowTypeProxy:
+		return controltowerv1.PmgFlowType_PMG_FLOW_TYPE_PROXY
+	default:
+		return controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED
+	}
+}
+
+func mapSessionOutcome(outcome Outcome) controltowerv1.PmgSessionOutcome {
+	switch outcome {
+	case OutcomeSuccess:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_SUCCESS
+	case OutcomeBlocked:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_BLOCKED
+	case OutcomeUserCancelled:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_USER_CANCELLED
+	case OutcomeError:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_ERROR
+	case OutcomeDryRun:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_DRY_RUN
+	case OutcomeInsecureBypass:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_INSECURE_BYPASS
+	default:
+		return controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_UNSPECIFIED
+	}
 }
 
 func mapPackageManager(name string) controltowerv1.PmgPackageManager {

@@ -80,25 +80,27 @@ func newCloudSinkWithTransport(transport endpointsync.EventTransport, endpointID
 }
 
 func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
-	pmgEvent := s.translateToPmgEvent(event)
-	if pmgEvent == nil {
+	pmgEvents := s.translateToPmgEvents(event)
+	if len(pmgEvents) == 0 {
 		return nil
 	}
 
-	toolEvent, err := s.syncClient.NewEvent()
-	if err != nil {
-		return fmt.Errorf("failed to create tool event: %w", err)
-	}
-
-	toolEvent.SetPmgEvent(pmgEvent)
-	toolEvent.SetInvocationId(s.invocationID)
-
-	if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
-		if errors.Is(err, endpointsync.ErrWALFull) {
-			log.Warnf("Cloud sync WAL is full, dropping event: %v", err)
-			return nil
+	for _, pmgEvent := range pmgEvents {
+		toolEvent, err := s.syncClient.NewEvent()
+		if err != nil {
+			return fmt.Errorf("failed to create tool event: %w", err)
 		}
-		return fmt.Errorf("failed to emit cloud event: %w", err)
+
+		toolEvent.SetPmgEvent(pmgEvent)
+		toolEvent.SetInvocationId(s.invocationID)
+
+		if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
+			if errors.Is(err, endpointsync.ErrWALFull) {
+				log.Warnf("Cloud sync WAL is full, dropping event: %v", err)
+				return nil
+			}
+			return fmt.Errorf("failed to emit cloud event: %w", err)
+		}
 	}
 
 	return nil
