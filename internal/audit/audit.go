@@ -9,7 +9,6 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
-	"github.com/safedep/pmg/usefulerror"
 )
 
 var global *auditor
@@ -31,14 +30,10 @@ func Initialize(cfg *config.RuntimeConfig) error {
 	if cfg.Config.Cloud.Enabled && !analytics.IsDisabled() {
 		cs, err := newCloudSink(cfg)
 		if err != nil {
-			return usefulerror.Useful().
-				Wrap(err).
-				WithCode(usefulerror.ErrCodeLifecycle).
-				WithHumanError("Cloud sync is enabled but failed to initialize").
-				WithHelp("Ensure SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables are set").
-				WithAdditionalHelp("Disable cloud sync with 'cloud.enabled: false' in config if not needed")
+			log.Warnf("Cloud sync initialization failed: %v", err)
+		} else {
+			sinks = append(sinks, cs)
 		}
-		sinks = append(sinks, cs)
 	}
 
 	if cfg.Config.Cloud.Enabled && analytics.IsDisabled() {

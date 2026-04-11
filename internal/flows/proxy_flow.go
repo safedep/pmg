@@ -74,14 +74,19 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	startTime := time.Now()
 
 	audit.LogInstallStarted(f.pm.Name(), args)
+
+	sessionCompleted := false
 	defer func() {
+		if sessionCompleted {
+			return
+		}
+
 		// On early error returns (e.g. CA cert, analyzer init), reportData.Outcome
-		// is still the default (Success). Override to Error for these cases. Don't
-		// override when outcome was explicitly set (e.g. Blocked) — those paths may
-		// also return an error from the underlying package manager command.
+		// is still the default (Success). Override to Error for these cases.
 		if runErr != nil && reportData.Outcome == ui.OutcomeSuccess {
 			reportData.Outcome = ui.OutcomeError
 		}
+
 		audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
 	}()
 
@@ -169,6 +174,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}()
 
 	ui.ClearStatus()
+
 	log.Infof("Proxy server started on %s", proxyAddr)
 	log.Infof("Running %s with proxy protection enabled", f.pm.Name())
 
@@ -192,11 +198,15 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.BlockedCount = stats.BlockedCount
 	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
-
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
+
+	// Emit session complete before report/exit — handleExecutionResultError may call
+	// os.Exit which skips defers, so we must emit the session summary here.
+	audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
+	sessionCompleted = true
 
 	// Show the report
 	ui.Report(reportData)

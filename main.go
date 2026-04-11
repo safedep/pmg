@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/cmd/cloud"
 	"github.com/safedep/pmg/cmd/executors"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
@@ -127,6 +128,7 @@ func main() {
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
+	cmd.AddCommand(cloud.NewCloudCommand())
 
 	// Print Banner on --help / -h
 	cmd.SetHelpFunc(func(command *cobra.Command, args []string) {

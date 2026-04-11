@@ -11,7 +11,7 @@ import (
 )
 
 // testCloudSink returns a cloudSink with no real SyncClient, suitable for testing translation.
-var testSink = &cloudSink{invocationID: "test-invocation"}
+var testSink = &cloudSink{SyncClientBundle: &SyncClientBundle{}, invocationID: "test-invocation"}
 
 func TestTranslateMalwareBlocked(t *testing.T) {
 	event := AuditEvent{
