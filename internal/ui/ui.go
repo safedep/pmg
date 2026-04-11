@@ -166,7 +166,12 @@ func PromptInput(label string) (string, error) {
 }
 
 // PromptSecret prints a label and reads input from stdin with echo disabled.
+// Falls back to visible input if stdin is not a terminal (e.g. piped input).
 func PromptSecret(label string) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("interactive terminal required for secure input")
+	}
+
 	fmt.Printf("%s %s", Colors.Cyan("▪"), Colors.Bold(label))
 	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println() // newline after hidden input
