@@ -135,6 +135,22 @@ func ShowWarning(message string) {
 	fmt.Fprintf(os.Stderr, "PMG: %s\n", Colors.Red(message))
 }
 
+// Infof prints an informational message, suppressed in silent mode.
+func Infof(msg string, args ...interface{}) {
+	if verbosityLevel == VerbosityLevelSilent {
+		return
+	}
+	fmt.Println(fmt.Sprintf(msg, args...))
+}
+
+// Successf prints a green success message, suppressed in silent mode.
+func Successf(msg string, args ...interface{}) {
+	if verbosityLevel == VerbosityLevelSilent {
+		return
+	}
+	fmt.Printf("%s %s\n", Colors.Green("✓"), fmt.Sprintf(msg, args...))
+}
+
 func Fatalf(msg string, args ...interface{}) {
 	ClearStatus()
 

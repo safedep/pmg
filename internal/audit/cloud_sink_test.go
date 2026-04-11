@@ -6,6 +6,7 @@ import (
 	"time"
 
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,17 +30,28 @@ func (m *mockTransport) Close() error {
 	return nil
 }
 
+func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *cloudSink {
+	t.Helper()
+	walPath := t.TempDir() + "/test-sync.db"
+	identity := endpointsync.NewEndpointIdentityResolver()
+	syncClient, err := endpointsync.NewSyncClient("pmg", "test", transport, identity,
+		endpointsync.WithWALPath(walPath))
+	require.NoError(t, err)
+	return &cloudSink{
+		syncClient:   syncClient,
+		invocationID: "test-invocation",
+	}
+}
+
 func TestCloudSinkEmitsTranslatableEvents(t *testing.T) {
 	transport := &mockTransport{}
-	walPath := t.TempDir() + "/test-sync.db"
 
-	sink, err := newCloudSinkWithTransport(transport, "", walPath)
-	require.NoError(t, err)
+	sink := newTestCloudSink(t, transport)
 	defer func() {
 		require.NoError(t, sink.Close())
 	}()
 
-	err = sink.Handle(context.Background(), AuditEvent{
+	err := sink.Handle(context.Background(), AuditEvent{
 		Type:      EventTypeMalwareBlocked,
 		Timestamp: time.Now(),
 		Message:   "blocked malware package",
@@ -49,15 +61,13 @@ func TestCloudSinkEmitsTranslatableEvents(t *testing.T) {
 
 func TestCloudSinkSkipsUntranslatableEvents(t *testing.T) {
 	transport := &mockTransport{}
-	walPath := t.TempDir() + "/test-sync.db"
 
-	sink, err := newCloudSinkWithTransport(transport, "", walPath)
-	require.NoError(t, err)
+	sink := newTestCloudSink(t, transport)
 	defer func() {
 		require.NoError(t, sink.Close())
 	}()
 
-	err = sink.Handle(context.Background(), AuditEvent{
+	err := sink.Handle(context.Background(), AuditEvent{
 		Type:      EventTypeProxyHostObserved,
 		Timestamp: time.Now(),
 		Message:   "observed proxy host",
@@ -68,16 +78,14 @@ func TestCloudSinkSkipsUntranslatableEvents(t *testing.T) {
 
 func TestCloudSinkEmitAndSync(t *testing.T) {
 	transport := &mockTransport{}
-	walPath := t.TempDir() + "/test-sync.db"
 
-	sink, err := newCloudSinkWithTransport(transport, "", walPath)
-	require.NoError(t, err)
+	sink := newTestCloudSink(t, transport)
 	defer func() {
 		require.NoError(t, sink.Close())
 	}()
 
 	ctx := context.Background()
-	err = sink.Handle(ctx, AuditEvent{
+	err := sink.Handle(ctx, AuditEvent{
 		Type:      EventTypeMalwareBlocked,
 		Timestamp: time.Now(),
 		Message:   "blocked malware package",

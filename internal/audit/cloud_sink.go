@@ -10,7 +10,6 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
-	appVersion "github.com/safedep/pmg/internal/version"
 )
 
 type cloudSink struct {
@@ -20,64 +19,22 @@ type cloudSink struct {
 }
 
 func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
-	resolver, err := cloud.NewEnvCredentialResolver()
+	bundle, err := NewSyncClientBundle(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create credential resolver: %w", err)
-	}
-
-	creds, err := resolver.Resolve()
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve cloud credentials: %w", err)
-	}
-
-	cloudClient, err := cloud.NewDataPlaneClient("pmg", creds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create data plane client: %w", err)
-	}
-
-	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
-
-	sink, err := newCloudSinkWithTransport(transport, cfg.Config.Cloud.EndpointID, cfg.CloudSyncDBPath())
-	if err != nil {
-		if closeErr := cloudClient.Close(); closeErr != nil {
-			log.Warnf("failed to close cloud client after sink init failure: %v", closeErr)
-		}
 		return nil, err
-	}
-
-	sink.cloudClient = cloudClient
-	return sink, nil
-}
-
-func newCloudSinkWithTransport(transport endpointsync.EventTransport, endpointID, walPath string) (*cloudSink, error) {
-	var identityOpts []endpointsync.EndpointIdentityOption
-	if endpointID != "" {
-		identityOpts = append(identityOpts, endpointsync.WithEndpointID(endpointID))
-	}
-
-	identity := endpointsync.NewEndpointIdentityResolver(identityOpts...)
-
-	toolVersion := appVersion.Version
-	if toolVersion == "" {
-		toolVersion = "dev"
-	}
-
-	syncClient, err := endpointsync.NewSyncClient("pmg", toolVersion, transport, identity,
-		endpointsync.WithWALPath(walPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sync client: %w", err)
 	}
 
 	invocationID, err := uuid.NewRandom()
 	if err != nil {
-		if closeErr := syncClient.Close(); closeErr != nil {
-			log.Warnf("failed to close sync client after invocation ID generation failure: %v", closeErr)
+		if closeErr := bundle.Close(); closeErr != nil {
+			log.Warnf("failed to close sync client bundle after invocation ID failure: %v", closeErr)
 		}
 		return nil, fmt.Errorf("failed to generate invocation ID: %w", err)
 	}
 
 	return &cloudSink{
-		syncClient:   syncClient,
+		syncClient:   bundle.SyncClient,
+		cloudClient:  bundle.cloudClient,
 		invocationID: invocationID.String(),
 	}, nil
 }
