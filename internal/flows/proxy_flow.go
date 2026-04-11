@@ -73,6 +73,8 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	startTime := time.Now()
 
+	audit.LogInstallStarted(f.pm.Name(), args)
+
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
 		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
