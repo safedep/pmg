@@ -126,5 +126,15 @@ func executeSetupInfo() error {
 
 	ui.PrintInfoSection("Sandbox", sandboxEntries)
 
+	if cfg.Config.Cloud.Enabled {
+		cloudEntries := make(map[string]string)
+		cloudEntries["Enabled"] = "true"
+		cloudEntries["Sync DB"] = cfg.CloudSyncDBPath()
+		if cfg.Config.Cloud.EndpointID != "" {
+			cloudEntries["Endpoint ID"] = cfg.Config.Cloud.EndpointID
+		}
+		ui.PrintInfoSection("Cloud Sync", cloudEntries)
+	}
+
 	return nil
 }

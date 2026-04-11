@@ -13,6 +13,11 @@ func newEventlogSink() *eventlogSink {
 }
 
 func (s *eventlogSink) Handle(_ context.Context, event AuditEvent) error {
+	details := event.Details
+	if details == nil && event.SessionData != nil {
+		details = sessionDataToDetails(event.SessionData)
+	}
+
 	elEvent := eventlog.Event{
 		Timestamp:   event.Timestamp,
 		EventType:   mapEventType(event.Type),
@@ -20,9 +25,23 @@ func (s *eventlogSink) Handle(_ context.Context, event AuditEvent) error {
 		PackageName: pkgName(event.PackageVersion),
 		Version:     pkgVersion(event.PackageVersion),
 		Ecosystem:   pkgEcosystem(event.PackageVersion),
-		Details:     event.Details,
+		Details:     details,
 	}
 	return eventlog.LogEvent(elEvent)
+}
+
+func sessionDataToDetails(sd *SessionData) map[string]interface{} {
+	return map[string]interface{}{
+		"outcome":           sd.Outcome,
+		"flow_type":         sd.FlowType,
+		"package_manager":   sd.PackageManager,
+		"total_analyzed":    sd.TotalAnalyzed,
+		"allowed_count":     sd.AllowedCount,
+		"blocked_count":     sd.BlockedCount,
+		"confirmed_count":   sd.ConfirmedCount,
+		"trusted_skipped":   sd.TrustedSkipped,
+		"insecure_bypassed": sd.InsecureBypassed,
+	}
 }
 
 func (s *eventlogSink) Close() error {

@@ -3,8 +3,13 @@ package audit
 import (
 	"context"
 	"fmt"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/usefulerror"
 )
 
 var global *auditor
@@ -17,9 +22,30 @@ func resetGlobal() {
 	global = nil
 }
 
-func Initialize() error {
-	a := newAuditor(newEventlogSink())
-	global = a
+// Initialize sets up the audit system with an eventlog sink and, when enabled,
+// a cloud sync sink.
+func Initialize(cfg *config.RuntimeConfig) error {
+	var sinks []Sink
+	sinks = append(sinks, newEventlogSink())
+
+	if cfg.Config.Cloud.Enabled && !analytics.IsDisabled() {
+		cs, err := newCloudSink(cfg)
+		if err != nil {
+			return usefulerror.Useful().
+				Wrap(err).
+				WithCode(usefulerror.ErrCodeLifecycle).
+				WithHumanError("Cloud sync is enabled but failed to initialize").
+				WithHelp("Ensure SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables are set").
+				WithAdditionalHelp("Disable cloud sync with 'cloud.enabled: false' in config if not needed")
+		}
+		sinks = append(sinks, cs)
+	}
+
+	if cfg.Config.Cloud.Enabled && analytics.IsDisabled() {
+		log.Warnf("Cloud sync is disabled because telemetry is disabled")
+	}
+
+	setGlobal(newAuditor(sinks...))
 	return nil
 }
 
@@ -84,11 +110,14 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 }
 
 // LogMalwareConfirmed records that the user confirmed installation of a flagged package.
-func LogMalwareConfirmed(pv *packagev1.PackageVersion) {
+func LogMalwareConfirmed(pv *packagev1.PackageVersion, analysisID string, isMalware, isVerified bool) {
 	logEvent(AuditEvent{
 		Type:           EventTypeMalwareConfirmed,
 		Message:        fmt.Sprintf("User confirmed installation of flagged package: %s@%s", pkgName(pv), pkgVersion(pv)),
 		PackageVersion: pv,
+		AnalysisID:     analysisID,
+		IsMalware:      isMalware,
+		IsVerified:     isVerified,
 	})
 
 	if global != nil {
@@ -204,6 +233,43 @@ func LogError(message string, err error) {
 	}
 
 	logEvent(event)
+}
+
+// LogSessionComplete records the end of a PMG invocation with aggregate session stats.
+func LogSessionComplete(outcome Outcome, flowType FlowType) {
+	if global == nil {
+		return
+	}
+
+	s := global.getSession()
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cfg := config.Get()
+
+	logEvent(AuditEvent{
+		Type:    EventTypeSessionComplete,
+		Message: fmt.Sprintf("Session complete: %s", outcome),
+		SessionData: &SessionData{
+			PackageManager:    s.packageManager,
+			FlowType:          flowType,
+			Outcome:           outcome,
+			TotalAnalyzed:     s.totalAnalyzed,
+			AllowedCount:      s.allowedCount,
+			BlockedCount:      s.blockedCount,
+			ConfirmedCount:    s.confirmedCount,
+			TrustedSkipped:    s.trustedSkipped,
+			InsecureBypassed:  s.insecureBypassed,
+			Duration:          time.Since(s.startTime),
+			SandboxEnabled:    cfg.Config.Sandbox.Enabled,
+			ParanoidMode:      cfg.Config.Paranoid,
+			TransitiveEnabled: cfg.Config.Transitive,
+		},
+	})
 }
 
 func mergeDetails(base, extra map[string]interface{}) map[string]interface{} {

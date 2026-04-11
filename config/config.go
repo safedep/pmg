@@ -78,6 +78,14 @@ type Config struct {
 	Sandbox SandboxConfig `mapstructure:"sandbox"`
 
 	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
+
+	Cloud CloudConfig `mapstructure:"cloud"`
+}
+
+// CloudConfig configures audit event sync to SafeDep Cloud.
+type CloudConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	EndpointID string `mapstructure:"endpoint_id"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -163,6 +171,11 @@ type RuntimeConfig struct {
 	eventLogDir    string
 }
 
+// CloudSyncDBPath returns the path to the cloud sync WAL database.
+func (r *RuntimeConfig) CloudSyncDBPath() string {
+	return filepath.Join(r.configDir, "cloud-sync.db")
+}
+
 // ConfigFilePath returns the path to the config file.
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
@@ -237,6 +250,9 @@ func DefaultConfig() RuntimeConfig {
 			DependencyCooldown: DependencyCooldownConfig{
 				Enabled: true,
 				Days:    5,
+			},
+			Cloud: CloudConfig{
+				Enabled: false,
 			},
 		},
 		DryRun:               false,

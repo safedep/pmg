@@ -14,6 +14,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -38,7 +39,7 @@ func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.
 }
 
 // Run executes the proxy-based flow
-func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
+func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
 	// Check if we have a supported ecosystem else fail fast
 	ecosystem := f.pm.Ecosystem()
 	if !interceptors.IsSupported(ecosystem) {
@@ -71,6 +72,18 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	startTime := time.Now()
+
+	audit.LogInstallStarted(f.pm.Name(), args)
+	defer func() {
+		// On early error returns (e.g. CA cert, analyzer init), reportData.Outcome
+		// is still the default (Success). Override to Error for these cases. Don't
+		// override when outcome was explicitly set (e.g. Blocked) — those paths may
+		// also return an error from the underlying package manager command.
+		if runErr != nil && reportData.Outcome == ui.OutcomeSuccess {
+			reportData.Outcome = ui.OutcomeError
+		}
+		audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
+	}()
 
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {

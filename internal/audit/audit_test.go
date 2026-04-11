@@ -7,6 +7,8 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -146,7 +148,7 @@ func TestPublicAPISilentWhenNotInitialized(t *testing.T) {
 
 	// None of these should panic
 	LogMalwareBlocked(nil, "reason", "", "", false, false)
-	LogMalwareConfirmed(nil)
+	LogMalwareConfirmed(nil, "", false, false)
 	LogInstallAllowed(nil, 5)
 	LogInstallTrustedAllowed(nil)
 	LogInstallInsecureBypass(nil)
@@ -207,7 +209,7 @@ func TestLogMalwareConfirmedIncrementsSession(t *testing.T) {
 	defer resetGlobal()
 
 	a.startSession("npm", nil)
-	LogMalwareConfirmed(testPackageVersion("pkg", "1.0", "npm"))
+	LogMalwareConfirmed(testPackageVersion("pkg", "1.0", "npm"), "a-1", true, false)
 
 	sess := a.getSession()
 	require.NotNil(t, sess)
@@ -228,4 +230,87 @@ func TestLogInstallTrustedAllowedIncrementsSession(t *testing.T) {
 	require.NotNil(t, sess)
 	assert.Equal(t, uint32(1), sess.trustedSkipped)
 	assert.Equal(t, uint32(1), sess.totalAnalyzed)
+}
+
+func TestLogSessionCompleteDispatchesEvent(t *testing.T) {
+	s := &mockSink{}
+	a := newAuditor(s)
+	setGlobal(a)
+	defer resetGlobal()
+
+	a.startSession("npm", []string{"install", "express"})
+	LogInstallAllowed(testPackageVersion("express", "4.0.0", "npm"), 1)
+	LogSessionComplete(OutcomeSuccess, FlowTypeGuard)
+
+	events := s.getEvents()
+	require.Len(t, events, 2)
+	assert.Equal(t, EventTypeSessionComplete, events[1].Type)
+	require.NotNil(t, events[1].SessionData)
+	assert.Equal(t, "npm", events[1].SessionData.PackageManager)
+	assert.Equal(t, FlowTypeGuard, events[1].SessionData.FlowType)
+	assert.Equal(t, OutcomeSuccess, events[1].SessionData.Outcome)
+	assert.Equal(t, uint32(1), events[1].SessionData.AllowedCount)
+}
+
+func TestLogSessionCompleteSilentWhenNotInitialized(t *testing.T) {
+	resetGlobal()
+	// Should not panic
+	LogSessionComplete(OutcomeSuccess, FlowTypeGuard)
+}
+
+// TestUIOutcomesMappToAuditOutcomes ensures every ui.ExecutionOutcome has a
+// corresponding audit.Outcome constant. If someone adds a new outcome to the
+// UI layer without updating the audit package, this test will fail.
+//
+// Both lists must be kept in sync manually. If a new ui.ExecutionOutcome is
+// added, add it to uiOutcomes below AND add a matching audit.Outcome constant.
+// The length check catches the case where one list is updated but not the other.
+func TestUIOutcomesMappToAuditOutcomes(t *testing.T) {
+	auditOutcomes := []Outcome{
+		OutcomeSuccess,
+		OutcomeBlocked,
+		OutcomeUserCancelled,
+		OutcomeDryRun,
+		OutcomeError,
+		OutcomeInsecureBypass,
+	}
+
+	uiOutcomes := []ui.ExecutionOutcome{
+		ui.OutcomeSuccess,
+		ui.OutcomeBlocked,
+		ui.OutcomeUserCancelled,
+		ui.OutcomeDryRun,
+		ui.OutcomeError,
+		ui.OutcomeInsecureBypass,
+	}
+
+	require.Equal(t, len(uiOutcomes), len(auditOutcomes),
+		"ui.ExecutionOutcome and audit.Outcome count mismatch — a new outcome was added to one but not the other")
+
+	knownOutcomes := make(map[Outcome]bool, len(auditOutcomes))
+	for _, o := range auditOutcomes {
+		knownOutcomes[o] = true
+	}
+
+	for _, uiOutcome := range uiOutcomes {
+		auditOutcome := Outcome(uiOutcome.String())
+		assert.True(t, knownOutcomes[auditOutcome],
+			"ui.ExecutionOutcome %q (String()=%q) has no matching audit.Outcome constant — add it to audit/event.go",
+			uiOutcome, uiOutcome.String())
+	}
+}
+
+func TestInitializeWithCloudDisabled(t *testing.T) {
+	resetGlobal()
+	defer resetGlobal()
+
+	cfg := config.Get()
+	cfg.Config.Cloud.Enabled = false
+
+	err := Initialize(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, global)
+
+	// Should have exactly one sink (eventlog)
+	assert.Len(t, global.sinks, 1)
 }

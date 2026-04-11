@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
@@ -109,6 +110,10 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	}
 
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, blockedCount, userCancelledCount, err)
+
+	// Session complete is called here (not deferred) because guard.Run() calls
+	// LogInstallStarted internally, and all paths after guard.Run() reach this point.
+	audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeGuard)
 
 	// Show the report
 	ui.Report(reportData)

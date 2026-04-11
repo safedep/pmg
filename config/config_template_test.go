@@ -64,4 +64,6 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 
 	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
 	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
+
+	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
 }

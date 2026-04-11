@@ -9,15 +9,15 @@ import (
 )
 
 type session struct {
-	mu             sync.Mutex
-	startTime      time.Time
-	packageManager string
-	args           []string
-	totalAnalyzed   uint32
-	allowedCount    uint32
-	blockedCount    uint32
-	confirmedCount  uint32
-	trustedSkipped  uint32
+	mu               sync.Mutex
+	startTime        time.Time
+	packageManager   string
+	args             []string
+	totalAnalyzed    uint32
+	allowedCount     uint32
+	blockedCount     uint32
+	confirmedCount   uint32
+	trustedSkipped   uint32
 	insecureBypassed uint32
 }
 
