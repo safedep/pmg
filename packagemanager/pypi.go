@@ -18,35 +18,42 @@ type pypiCommandParser interface {
 }
 
 type PypiPackageManagerConfig struct {
-	InstallCommands []string
-	CommandName     string
+	InstallCommands  []string
+	DownloadCommands []string
+	CommandName      string
 }
 
 func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands: []string{"install"},
-		CommandName:     "pip",
+		InstallCommands:  []string{"install"},
+		DownloadCommands: []string{"download"},
+		CommandName:      "pip",
 	}
 }
 
 func DefaultPip3PackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands: []string{"install"},
-		CommandName:     "pip3",
+		InstallCommands:  []string{"install"},
+		DownloadCommands: []string{"download"},
+		CommandName:      "pip3",
 	}
 }
 
 func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
 		InstallCommands: []string{"add", "install"},
-		CommandName:     "uv",
+		// "download" covers both `uv pip download` and bare `uv download`.
+		// "run" covers `uv run` which auto-installs script dependencies.
+		DownloadCommands: []string{"download", "run"},
+		CommandName:      "uv",
 	}
 }
 
 func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands: []string{"add"},
-		CommandName:     "poetry",
+		InstallCommands:  []string{"add"},
+		DownloadCommands: []string{"update", "install"},
+		CommandName:      "poetry",
 	}
 }
 
@@ -123,7 +130,13 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if installCmdIndex == -1 {
-		// No install command found, return as-is
+		// Check if this is a known download command
+		for _, arg := range args {
+			if slices.Contains(p.config.DownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			}
+		}
+
 		return &ParsedCommand{Command: command}, nil
 	}
 
@@ -242,7 +255,13 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if installCmdIndex == -1 {
-		// No install command found, return as-is
+		// Check if this is a known download command
+		for _, arg := range args {
+			if slices.Contains(u.config.DownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			}
+		}
+
 		return &ParsedCommand{Command: command}, nil
 	}
 
@@ -340,7 +359,13 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		// No install command found, return as-is
+		// Check if this is a known download command
+		for _, arg := range args {
+			if slices.Contains(p.config.DownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			}
+		}
+
 		return &ParsedCommand{Command: command}, nil
 	}
 
