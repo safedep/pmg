@@ -70,7 +70,11 @@ func newCloudSinkWithTransport(transport endpointsync.EventTransport, endpointID
 
 	invocationID, err := uuid.NewRandom()
 	if err != nil {
+		if closeErr := syncClient.Close(); closeErr != nil {
+			log.Warnf("failed to close sync client after invocation ID generation failure: %v", closeErr)
+		}
 		return nil, fmt.Errorf("failed to generate invocation ID: %w", err)
+	}
 	}
 
 	return &cloudSink{
