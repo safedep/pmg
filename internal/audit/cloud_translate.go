@@ -41,12 +41,8 @@ func newPackageDecisionEvent(event AuditEvent, action controltowerv1.PmgPackageA
 	if event.AnalysisID != "" {
 		decision.SetAnalysisId(event.AnalysisID)
 	}
-	if event.IsMalware {
-		decision.SetIsMalware(event.IsMalware)
-	}
-	if event.IsVerified {
-		decision.SetIsVerified(event.IsVerified)
-	}
+	decision.SetIsMalware(event.IsMalware)
+	decision.SetIsVerified(event.IsVerified)
 
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION)

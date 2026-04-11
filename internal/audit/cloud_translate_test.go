@@ -58,6 +58,7 @@ func TestTranslateMalwareConfirmed(t *testing.T) {
 	assert.Equal(t, "analysis-456", decision.GetAnalysisId())
 	assert.False(t, decision.GetIsMalware())
 	assert.False(t, decision.GetIsVerified())
+	assert.False(t, decision.GetIsVerified())
 }
 
 func TestTranslateInsecureBypassReturnsEmpty(t *testing.T) {
