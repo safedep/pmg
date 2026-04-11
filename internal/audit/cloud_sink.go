@@ -75,7 +75,6 @@ func newCloudSinkWithTransport(transport endpointsync.EventTransport, endpointID
 		}
 		return nil, fmt.Errorf("failed to generate invocation ID: %w", err)
 	}
-	}
 
 	return &cloudSink{
 		syncClient:   syncClient,
