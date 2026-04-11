@@ -6,17 +6,14 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 )
 
 type cloudSink struct {
-	syncClient       *endpointsync.SyncClient
-	cloudClient      *cloud.Client
-	keychainResolver cloud.CloseableCredentialResolver
-	invocationID     string
+	*SyncClientBundle
+	invocationID string
 }
 
 func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
@@ -34,9 +31,7 @@ func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
 	}
 
 	return &cloudSink{
-		syncClient:       bundle.SyncClient,
-		cloudClient:      bundle.cloudClient,
-		keychainResolver: bundle.keychainResolver,
+		SyncClientBundle: bundle,
 		invocationID:     invocationID.String(),
 	}, nil
 }
@@ -48,7 +43,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 	}
 
 	for _, pmgEvent := range pmgEvents {
-		toolEvent, err := s.syncClient.NewEvent()
+		toolEvent, err := s.SyncClient.NewEvent()
 		if err != nil {
 			return fmt.Errorf("failed to create tool event: %w", err)
 		}
@@ -56,7 +51,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 		toolEvent.SetPmgEvent(pmgEvent)
 		toolEvent.SetInvocationId(s.invocationID)
 
-		if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
+		if err := s.SyncClient.Emit(ctx, toolEvent); err != nil {
 			if errors.Is(err, endpointsync.ErrWALFull) {
 				log.Warnf("Cloud sync WAL is full, dropping event: %v", err)
 				return nil
@@ -68,22 +63,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 	return nil
 }
 
+// Close delegates to the embedded SyncClientBundle.Close().
 func (s *cloudSink) Close() error {
-	var errs []error
-	if s.syncClient != nil {
-		if err := s.syncClient.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if s.cloudClient != nil {
-		if err := s.cloudClient.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if s.keychainResolver != nil {
-		if err := s.keychainResolver.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return s.SyncClientBundle.Close()
 }
