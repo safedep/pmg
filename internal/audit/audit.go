@@ -35,7 +35,7 @@ func Initialize(cfg *config.RuntimeConfig) error {
 				Wrap(err).
 				WithCode(usefulerror.ErrCodeLifecycle).
 				WithHumanError("Cloud sync is enabled but failed to initialize").
-				WithHelp("Ensure SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables are set").
+				WithHelp("Run 'pmg cloud login' to store credentials, or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables").
 				WithAdditionalHelp("Disable cloud sync with 'cloud.enabled: false' in config if not needed")
 		}
 		sinks = append(sinks, cs)

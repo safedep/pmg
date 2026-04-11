@@ -9,6 +9,7 @@ import (
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"golang.org/x/term"
 )
 
 // The UI is internal to PMG and opinionated for the CLI.
@@ -149,6 +150,30 @@ func Successf(msg string, args ...interface{}) {
 		return
 	}
 	fmt.Printf("%s %s\n", Colors.Green("✓"), fmt.Sprintf(msg, args...))
+}
+
+// PromptInput prints a label and reads a line of visible input from stdin.
+func PromptInput(label string) (string, error) {
+	fmt.Printf("%s %s", Colors.Cyan("›"), Colors.Bold(label))
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		return strings.TrimSpace(scanner.Text()), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("no input received")
+}
+
+// PromptSecret prints a label and reads input from stdin with echo disabled.
+func PromptSecret(label string) (string, error) {
+	fmt.Printf("%s %s", Colors.Cyan("▪"), Colors.Bold(label))
+	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println() // newline after hidden input
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(raw)), nil
 }
 
 func Fatalf(msg string, args ...interface{}) {

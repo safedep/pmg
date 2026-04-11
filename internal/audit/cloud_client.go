@@ -14,8 +14,9 @@ import (
 // SyncClientBundle holds a SyncClient and its underlying cloud client.
 // Callers must call Close() when done.
 type SyncClientBundle struct {
-	SyncClient  *endpointsync.SyncClient
-	cloudClient *cloud.Client
+	SyncClient       *endpointsync.SyncClient
+	cloudClient      *cloud.Client
+	keychainResolver cloud.CloseableCredentialResolver
 }
 
 func (b *SyncClientBundle) Close() error {
@@ -30,18 +31,51 @@ func (b *SyncClientBundle) Close() error {
 			errs = append(errs, err)
 		}
 	}
+	if b.keychainResolver != nil {
+		if err := b.keychainResolver.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return errors.Join(errs...)
 }
 
 // NewSyncClientBundle creates an authenticated SyncClient connected to SafeDep Cloud.
 func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
-	resolver, err := cloud.NewEnvCredentialResolver()
+	// Build credential resolver chain: keychain first, env fallback.
+	var resolvers []cloud.CredentialResolver
+	var keychainResolver cloud.CloseableCredentialResolver
+
+	keychainResolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create credential resolver: %w", err)
+		log.Debugf("Keychain credential resolver not available, skipping: %v", err)
+	} else {
+		resolvers = append(resolvers, keychainResolver)
 	}
 
-	creds, err := resolver.Resolve()
+	envResolver, err := cloud.NewEnvCredentialResolver()
 	if err != nil {
+		log.Debugf("Env credential resolver not available, skipping: %v", err)
+	} else {
+		resolvers = append(resolvers, envResolver)
+	}
+
+	if len(resolvers) == 0 {
+		if keychainResolver != nil {
+			if closeErr := keychainResolver.Close(); closeErr != nil {
+				log.Warnf("failed to close keychain resolver: %v", closeErr)
+			}
+		}
+		return nil, fmt.Errorf("no credential resolvers available")
+	}
+
+	chain := cloud.NewChainCredentialResolver(resolvers...)
+	creds, err := chain.Resolve()
+	if err != nil {
+		if keychainResolver != nil {
+			if closeErr := keychainResolver.Close(); closeErr != nil {
+				log.Warnf("failed to close keychain resolver: %v", closeErr)
+			}
+		}
 		return nil, fmt.Errorf("failed to resolve cloud credentials: %w", err)
 	}
 
@@ -74,7 +108,8 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	}
 
 	return &SyncClientBundle{
-		SyncClient:  syncClient,
-		cloudClient: cloudClient,
+		SyncClient:       syncClient,
+		cloudClient:      cloudClient,
+		keychainResolver: keychainResolver,
 	}, nil
 }
