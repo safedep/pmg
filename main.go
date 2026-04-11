@@ -86,7 +86,7 @@ func main() {
 			}
 
 			if err := audit.Initialize(config.Get()); err != nil {
-				ui.Fatalf("failed to initialize audit system: %v", err)
+				ui.ErrorExit(err)
 			}
 
 			config.FinalizeDependencyCooldownOverride()
