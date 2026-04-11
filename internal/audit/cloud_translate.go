@@ -14,6 +14,9 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 	case EventTypeMalwareConfirmed:
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED)}
 	case EventTypeInstallInsecureBypass:
+		// PmgInsecureBypass is a session-level aggregate (package manager + total bypassed count),
+		// not a per-package event. It is emitted as part of EventTypeSessionComplete when
+		// the session's insecureBypassed counter is > 0.
 		return nil
 	case EventTypeSandboxOverride:
 		return []*controltowerv1.PmgEvent{newSandboxOverrideEvent(event)}
