@@ -53,8 +53,85 @@ var (
 			llsyscall.AccessFSRemoveFile |
 			llsyscall.AccessFSRemoveDir)
 
-	landlockExecuteAccess = uint64(llsyscall.AccessFSExecute)
+	// Execute access includes ReadFile because the kernel must read the
+	// shebang line of script files (e.g. #!/bin/bash) to determine the
+	// interpreter. Without ReadFile, execve on scripts fails with EACCES.
+	landlockExecuteAccess = uint64(llsyscall.AccessFSExecute | llsyscall.AccessFSReadFile)
 )
+
+// landlockFileAccess is the set of Landlock access flags valid for regular files.
+// Matches the go-landlock library's accessFile constant. All other access flags
+// are directory-only and must be stripped when the rule targets a non-directory.
+var landlockFileAccess = uint64(
+	llsyscall.AccessFSReadFile |
+		llsyscall.AccessFSWriteFile |
+		llsyscall.AccessFSExecute |
+		llsyscall.AccessFSTruncate |
+		llsyscall.AccessFSIoctlDev)
+
+// landlockAdjustAccessForPath stats the given path and strips directory-only
+// access flags when the path refers to a regular file. If the path does not
+// exist or cannot be stat'd, the original access mask is returned unchanged
+// (go-landlock's IgnoreIfMissing handles missing paths).
+func landlockAdjustAccessForPath(path string, access uint64) uint64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return access
+	}
+	if !info.IsDir() {
+		access &= landlockFileAccess
+	}
+	return access
+}
+
+// landlockUsrBinAlternate returns the /usr/bin equivalent of a /bin path and
+// vice versa, to handle merged-/usr systems where /bin is a symlink to /usr/bin.
+// Returns empty string if the path is not in /bin or /usr/bin.
+func landlockUsrBinAlternate(path string) string {
+	prefixes := [][2]string{
+		{"/bin/", "/usr/bin/"},
+		{"/sbin/", "/usr/sbin/"},
+		{"/lib/", "/usr/lib/"},
+		{"/lib64/", "/usr/lib64/"},
+	}
+	for _, pair := range prefixes {
+		if strings.HasPrefix(path, pair[0]) {
+			return pair[1] + strings.TrimPrefix(path, pair[0])
+		}
+		if strings.HasPrefix(path, pair[1]) {
+			return pair[0] + strings.TrimPrefix(path, pair[1])
+		}
+	}
+	return ""
+}
+
+// landlockIsWithinWritableArea checks if a path (or glob pattern) falls within
+// any of the write-allowed prefixes. This is used to skip deny_write entries
+// that Landlock already prevents (paths outside the write allow-list).
+func landlockIsWithinWritableArea(path string, writePrefixes []string) bool {
+	// Strip glob suffix to get the base path for prefix matching.
+	base := path
+	if idx := strings.IndexAny(base, "*?["); idx >= 0 {
+		base = base[:idx]
+	}
+
+	for _, prefix := range writePrefixes {
+		expandedPrefix, err := util.ExpandVariables(prefix)
+		if err != nil {
+			continue
+		}
+		// Strip glob from prefix too.
+		cleanPrefix := expandedPrefix
+		if idx := strings.IndexAny(cleanPrefix, "*?["); idx >= 0 {
+			cleanPrefix = cleanPrefix[:idx]
+		}
+		// Check if the deny path falls within this writable prefix.
+		if strings.HasPrefix(base, cleanPrefix) || strings.HasPrefix(cleanPrefix, base) {
+			return true
+		}
+	}
+	return false
+}
 
 // landlockGlobFallbackThreshold is the maximum number of glob matches before
 // falling back to the parent directory. Same threshold as Bubblewrap translator.
@@ -117,6 +194,15 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 				Path:   p,
 				Access: landlockExecuteAccess,
 			})
+			// On merged-/usr systems, /bin/X and /usr/bin/X refer to the
+			// same file. Add the alternate path so Landlock covers both
+			// access routes.
+			if alt := landlockUsrBinAlternate(p); alt != "" {
+				ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
+					Path:   alt,
+					Access: landlockExecuteAccess,
+				})
+			}
 		}
 	}
 
@@ -146,7 +232,13 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 5. Map DenyWrite -> denyPathEntry with denyWrite mode
+	// 5. Map DenyWrite -> denyPathEntry with denyWrite mode.
+	// Landlock already prevents writes to paths outside the allow_write list,
+	// so deny_write rules are only needed for paths within writable areas.
+	// Skip deny_write entries that fall outside the write allow-list to avoid
+	// generating thousands of redundant seccomp deny entries (e.g. /etc/**,
+	// /usr/** are already read-only under Landlock).
+	writablePrefixes := policy.Filesystem.AllowWrite
 	for _, pattern := range policy.Filesystem.DenyWrite {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -156,6 +248,10 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		// Drop /proc deny entries with warning
 		if strings.HasPrefix(expanded, "/proc") {
 			log.Warnf("Dropping /proc deny entry '%s': Landlock cannot deny /proc sub-paths reliably", expanded)
+			continue
+		}
+		// Skip deny entries that are already not writable under Landlock.
+		if !landlockIsWithinWritableArea(expanded, writablePrefixes) {
 			continue
 		}
 		if util.ContainsGlob(expanded) {
@@ -210,6 +306,19 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 	}
 
 	// 8. Add implicit filesystem rules
+	// Standard system binary directories need execute access. Unlike bubblewrap
+	// (where read-only bind mounts still permit execution), Landlock requires
+	// explicit execute permission. The deny_exec list (enforced via seccomp)
+	// blocks specific dangerous executables within these directories.
+	sysExecDirs := []string{"/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64",
+		"/bin", "/sbin", "/lib", "/lib64"}
+	for _, dir := range sysExecDirs {
+		ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
+			Path:   dir,
+			Access: landlockExecuteAccess,
+		})
+	}
+
 	// /proc (read access) - supervisor needs it
 	ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
 		Path:   "/proc",
