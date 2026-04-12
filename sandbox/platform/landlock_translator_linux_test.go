@@ -56,7 +56,7 @@ func TestLandlockTranslatePolicy_AllowRead(t *testing.T) {
 	}
 
 	abi := newLandlockABI(3)
-	expectedAccess := uint64(llsyscall.AccessFSReadFile | llsyscall.AccessFSReadDir)
+	expectedAccess := uint64(llsyscall.AccessFSReadFile | llsyscall.AccessFSReadDir | llsyscall.AccessFSExecute)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -308,7 +308,7 @@ func TestLandlockTranslatePolicy_ImplicitRules(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	readAccess := uint64(llsyscall.AccessFSReadFile | llsyscall.AccessFSReadDir)
+	readAccess := uint64(llsyscall.AccessFSReadFile | llsyscall.AccessFSReadDir | llsyscall.AccessFSExecute)
 
 	// /proc must be present with read access
 	procRule := findRule(ep.FilesystemRules, "/proc")

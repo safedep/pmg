@@ -38,8 +38,18 @@ type landlockPathRule struct {
 }
 
 // Landlock access flag groups composed from go-landlock syscall constants.
+//
+// Note on Execute: Landlock is stricter than bubblewrap's bind-mount model.
+// With bubblewrap, a read-only bind automatically permits execve of anything
+// inside. With Landlock, EXECUTE must be granted explicitly — otherwise
+// execve returns EACCES even for script interpreters that the policy clearly
+// intends to allow (e.g. /usr/bin/node reached via an allow_read of $HOME).
+//
+// We include AccessFSExecute in landlockReadAccess so `allow_read: /` matches
+// user intent: "I can read and run stuff from under here." Deny-exec is still
+// enforced via the seccomp supervisor, which wins over the Landlock allow.
 var (
-	landlockReadAccess = uint64(llsyscall.AccessFSReadFile | llsyscall.AccessFSReadDir)
+	landlockReadAccess = uint64(llsyscall.AccessFSReadFile | llsyscall.AccessFSReadDir | llsyscall.AccessFSExecute)
 
 	landlockWriteAccessBase = uint64(
 		llsyscall.AccessFSWriteFile |

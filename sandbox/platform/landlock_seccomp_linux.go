@@ -5,12 +5,14 @@ package platform
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -20,9 +22,8 @@ import (
 // ioctl constants for seccomp-notify, from Linux kernel UAPI include/uapi/linux/seccomp.h.
 // These are _IOWR('!', N, struct) values.
 const (
-	_SECCOMP_IOCTL_NOTIF_RECV     = 0xc0502100
-	_SECCOMP_IOCTL_NOTIF_SEND     = 0xc0182101
-	_SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40082102
+	_SECCOMP_IOCTL_NOTIF_RECV = 0xc0502100
+	_SECCOMP_IOCTL_NOTIF_SEND = 0xc0182101
 )
 
 // seccomp constants available in golang.org/x/sys/unix, aliased here for clarity.
@@ -149,8 +150,9 @@ func landlockBuildBPFFilter() (*unix.SockFprog, error) {
 // flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY, O_RDWR).
 // Matching rules:
 //   - Exact match: /home/user/.env matches deny /home/user/.env
-//   - Directory prefix: /home/user/.ssh/id_rsa matches deny /home/user/.ssh/
-//     (deny path ends with /)
+//   - Directory subtree: /home/user/.ssh/id_rsa matches deny /home/user/.ssh
+//     or deny /home/user/.ssh/ (either with or without trailing slash — a
+//     deny entry without slash is treated as "this path OR anything beneath it")
 //   - Must NOT match partial names: /home/.envrc does NOT match deny /home/.env
 func isPathDenied(path string, flags int, denyPaths []denyPathEntry) bool {
 	accessMode := flags & unix.O_ACCMODE
@@ -161,8 +163,8 @@ func isPathDenied(path string, flags int, denyPaths []denyPathEntry) bool {
 			// Directory prefix match: path must start with the deny prefix.
 			matched = strings.HasPrefix(path, entry.Path)
 		} else {
-			// Exact match only.
-			matched = path == entry.Path
+			// Exact match OR any path under this entry as a directory.
+			matched = path == entry.Path || strings.HasPrefix(path, entry.Path+"/")
 		}
 
 		if !matched {
@@ -195,7 +197,7 @@ func isExecDenied(path string, denyExec []string) bool {
 				return true
 			}
 		} else {
-			if path == entry {
+			if path == entry || strings.HasPrefix(path, entry+"/") {
 				return true
 			}
 		}
@@ -305,15 +307,27 @@ func dirfdFromArgs(val uint64) int {
 type seccompPhase struct {
 	enforcing bool
 	childPID  uint32
+	// memFd is the pre-opened /proc/<childPID>/mem fd for the direct child.
+	// Descendants (grandchildren spawned via fork/exec) have their own PIDs;
+	// use memFdFor(pid) to resolve the right fd for any notification.
 	memFd     *os.File
 	denyPaths []denyPathEntry
 	denyExec  []string
 	auditWriter io.Writer
+
+	// memFdCache maps descendant PID -> /proc/<pid>/mem fd. Entries live for
+	// the duration of the enforce phase; fds are closed in (*seccompSupervisor).Stop.
+	memFdMu    sync.Mutex
+	memFdCache map[uint32]*os.File
 }
 
 // seccompSupervisor manages the seccomp notification loop.
 type seccompSupervisor struct {
 	notifyFd int
+	// stopFd is an eventfd written to by Stop() to wake the recv loop.
+	// Closing notifyFd does NOT wake a goroutine blocked in ioctl(NOTIF_RECV),
+	// so we poll on both fds and use stopFd as an interrupt.
+	stopFd   int
 	phase    atomic.Pointer[seccompPhase]
 	loopDone chan struct{}
 }
@@ -368,23 +382,26 @@ func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
 	}
 
 	// NEW_LISTENER: returns the notify fd for the supervisor.
-	// TSYNC: atomically applies the filter to all threads (needed for Go's
-	//   multi-threaded runtime — the child may be forked from any thread).
-	// TSYNC_ESRCH (Linux 5.7+): lifts the historical TSYNC + NEW_LISTENER
-	//   mutual exclusion. Required to use both flags together.
 	// WAIT_KILLABLE_RECV (Linux 5.19+): prevents Go's SIGURG from
 	//   interrupting the blocking ioctl(NOTIF_RECV).
 	//
+	// NOTE: we intentionally do NOT use TSYNC. TSYNC applies the filter to
+	// every thread in the thread group, which deadlocks Go:
+	//  1. Go runtime has many threads that do openat for internal reasons
+	//     (GC, stack growth /proc/self/maps reads, etc).
+	//  2. When an openat traps, that thread is kernel-suspended pending a
+	//     seccomp-notify response.
+	//  3. Go's GC stop-the-world needs every thread to reach a safe point.
+	//     A kernel-suspended thread cannot, so STW blocks indefinitely.
+	//  4. The supervisor goroutine can't be scheduled, so nobody responds.
+	//
+	// Without TSYNC, only the calling thread gets the filter. The child
+	// inherits the filter via normal clone() inheritance (the caller forks
+	// from this same locked OS thread). Other goroutines/runtime threads
+	// stay unfiltered and the supervisor is free to service notifications.
+	//
 	// Ref: https://github.com/subtrace/subtrace/blob/main/cmd/run/engine/seccomp/seccomp.go
-	// Ref: https://github.com/torvalds/linux/commit/51891498f2da
-	const _SECCOMP_FILTER_FLAG_TSYNC_ESRCH = 1 << 4
-
-	flags := uintptr(
-		unix.SECCOMP_FILTER_FLAG_NEW_LISTENER |
-			unix.SECCOMP_FILTER_FLAG_TSYNC |
-			_SECCOMP_FILTER_FLAG_TSYNC_ESRCH |
-			unix.SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV,
-	)
+	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
 
 	fd, _, errno := unix.Syscall(
 		unix.SYS_SECCOMP,
@@ -397,11 +414,7 @@ func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
 
 	if errno == unix.EINVAL {
 		// Retry without WAIT_KILLABLE_RECV (kernel < 5.19).
-		flags = uintptr(
-			unix.SECCOMP_FILTER_FLAG_NEW_LISTENER |
-				unix.SECCOMP_FILTER_FLAG_TSYNC |
-				_SECCOMP_FILTER_FLAG_TSYNC_ESRCH,
-		)
+		flags = uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
 		fd, _, errno = unix.Syscall(
 			unix.SYS_SECCOMP,
 			unix.SECCOMP_SET_MODE_FILTER,
@@ -416,8 +429,15 @@ func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
 		return nil, fmt.Errorf("seccomp SET_MODE_FILTER: %w", errno)
 	}
 
+	stopFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		unix.Close(int(fd))
+		return nil, fmt.Errorf("eventfd: %w", err)
+	}
+
 	s := &seccompSupervisor{
 		notifyFd: int(fd),
+		stopFd:   stopFd,
 		loopDone: make(chan struct{}),
 	}
 
@@ -427,7 +447,7 @@ func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
 }
 
 // Enforce transitions the supervisor to enforcement mode. From this point on,
-// syscalls from childPID are checked against the deny lists.
+// syscalls from childPID and its descendants are checked against the deny lists.
 func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, auditWriter io.Writer) error {
 	p := &seccompPhase{
 		enforcing:   true,
@@ -436,15 +456,70 @@ func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []de
 		denyPaths:   denyPaths,
 		denyExec:    denyExec,
 		auditWriter: auditWriter,
+		memFdCache:  map[uint32]*os.File{uint32(childPID): memFd},
 	}
 	s.phase.Store(p)
 	return nil
 }
 
-// Stop closes the notification fd and waits for the loop goroutine to exit.
+// memFdFor returns an open /proc/<pid>/mem fd for the given PID, caching it.
+// Returns nil if the fd cannot be opened (e.g., dumpable=0 from an execve
+// inside the sandboxed process tree, or the process already exited).
+func (p *seccompPhase) memFdFor(pid uint32) *os.File {
+	p.memFdMu.Lock()
+	defer p.memFdMu.Unlock()
+	if fd, ok := p.memFdCache[pid]; ok {
+		return fd
+	}
+	fd, err := os.Open(fmt.Sprintf("/proc/%d/mem", pid))
+	if err != nil {
+		return nil
+	}
+	p.memFdCache[pid] = fd
+	return fd
+}
+
+// invalidateMemFd drops the cached /proc/<pid>/mem fd. Call this after an
+// execve on `pid`: execve can change the process's address space layout and
+// (crucially) its dumpable / PTRACE_MODE_ATTACH state, which invalidates
+// reads through the existing mem fd with EIO/EOF. Callers will reopen on
+// the next lookup.
+func (p *seccompPhase) invalidateMemFd(pid uint32) {
+	p.memFdMu.Lock()
+	defer p.memFdMu.Unlock()
+	if fd, ok := p.memFdCache[pid]; ok {
+		_ = fd.Close()
+		delete(p.memFdCache, pid)
+	}
+}
+
+// closeDescendantMemFds closes all cached memfd entries EXCEPT the direct
+// child's. Called on Stop; the direct child's memfd is owned by the helper
+// caller and closed separately.
+func (p *seccompPhase) closeDescendantMemFds() {
+	p.memFdMu.Lock()
+	defer p.memFdMu.Unlock()
+	for pid, fd := range p.memFdCache {
+		if pid == p.childPID {
+			continue
+		}
+		_ = fd.Close()
+		delete(p.memFdCache, pid)
+	}
+}
+
+// Stop signals the recv loop to exit via the eventfd, waits for it, then
+// closes the notification fd. Closing notifyFd alone does NOT wake a
+// goroutine blocked in ioctl(SECCOMP_IOCTL_NOTIF_RECV).
 func (s *seccompSupervisor) Stop() error {
-	unix.Close(s.notifyFd)
+	var one = [8]byte{1}
+	_, _ = unix.Write(s.stopFd, one[:])
 	<-s.loopDone
+	if phase := s.phase.Load(); phase != nil {
+		phase.closeDescendantMemFds()
+	}
+	unix.Close(s.notifyFd)
+	unix.Close(s.stopFd)
 	return nil
 }
 
@@ -456,9 +531,18 @@ func (s *seccompSupervisor) loop() {
 	defer runtime.UnlockOSThread()
 
 	for {
+		ready, err := waitForNotif(s.notifyFd, s.stopFd)
+		if err != nil || !ready {
+			// stop signalled or fatal poll error — exit loop.
+			return
+		}
 		notif, err := recvNotification(s.notifyFd)
 		if err != nil {
-			// fd closed or unrecoverable error — exit loop.
+			// ENOENT: notif expired (process exited between poll and recv).
+			// Retry the loop rather than exit — the listener is still valid.
+			if errors.Is(err, unix.ENOENT) {
+				continue
+			}
 			return
 		}
 
@@ -468,15 +552,20 @@ func (s *seccompSupervisor) loop() {
 			continue
 		}
 
-		// Only enforce for the expected child PID.
-		if notif.PID != phase.childPID {
-			_ = respondContinue(s.notifyFd, notif.ID)
-			continue
-		}
+		// Enforce for the direct child AND all descendants. A memfd per
+		// notifying PID is resolved lazily in handleOpen/handleExec — we do
+		// NOT skip descendants here, because npm-style flows spawn real work
+		// (node, python, etc.) as grandchildren and the deny list must apply
+		// to them too.
 
 		switch notif.Data.Nr {
 		case int32(unix.SYS_EXECVE), int32(unix.SYS_EXECVEAT):
 			s.handleExec(notif, phase)
+			// execve reshapes the process's memory layout and may drop
+			// PTRACE-read permission (if the new binary is setuid or
+			// changes dumpable). Drop the cached memfd so the next
+			// openat re-opens /proc/<pid>/mem fresh.
+			phase.invalidateMemFd(notif.PID)
 		case int32(unix.SYS_OPENAT), int32(unix.SYS_OPENAT2):
 			s.handleOpen(notif, phase)
 		default:
@@ -499,7 +588,15 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 		pathAddr = uintptr(notif.Data.Args[1])
 	}
 
-	rawPath, err := readPathFromMem(phase.memFd, pathAddr)
+	memFd := phase.memFdFor(notif.PID)
+	if memFd == nil {
+		// Process gone or /proc/<pid>/mem unreadable — fail-closed would
+		// kill the process; fail-open to avoid breaking legit flows.
+		_ = respondContinue(s.notifyFd, notif.ID)
+		return
+	}
+
+	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
 		// Cannot read memory (EIO, ESRCH) — process may have died. Continue.
 		_ = respondContinue(s.notifyFd, notif.ID)
@@ -532,8 +629,21 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 	dirfd := dirfdFromArgs(notif.Data.Args[0])
 	pathAddr := uintptr(notif.Data.Args[1])
 
-	rawPath, err := readPathFromMem(phase.memFd, pathAddr)
+	memFd := phase.memFdFor(notif.PID)
+	if memFd == nil {
+		// Can't read the target's memory — typically because an execve in the
+		// process chain with NO_NEW_PRIVS set makes /proc/<pid>/mem owner-RW
+		// only via CAP_SYS_PTRACE (dumpable=0). Fail open rather than deny
+		// every openat from the process, but this is a real enforcement gap
+		// for grandchild processes. See docs/sandbox.md.
+		_ = respondContinue(s.notifyFd, notif.ID)
+		return
+	}
+
+	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
+		// Same fail-open path as above; memfd exists but read returned EIO
+		// or similar (stale fd after execve).
 		_ = respondContinue(s.notifyFd, notif.ID)
 		return
 	}
@@ -544,7 +654,7 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 		return
 	}
 
-	flags := classifyOpenFlags(notif.Data.Nr, notif.Data.Args, phase.memFd)
+	flags := classifyOpenFlags(notif.Data.Nr, notif.Data.Args, memFd)
 
 	if isPathDenied(resolved, flags, phase.denyPaths) {
 		if phase.auditWriter != nil {
@@ -575,6 +685,33 @@ func syscallName(nr int32) string {
 		return "execveat"
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
+	}
+}
+
+// waitForNotif blocks until notifyFd has a notification to read or stopFd is
+// signalled. Returns (true, nil) when a notification is ready, (false, nil)
+// when stop was signalled, and (false, err) on fatal errors.
+func waitForNotif(notifyFd, stopFd int) (bool, error) {
+	pfds := []unix.PollFd{
+		{Fd: int32(notifyFd), Events: unix.POLLIN},
+		{Fd: int32(stopFd), Events: unix.POLLIN},
+	}
+	for {
+		_, err := unix.Ppoll(pfds, nil, nil)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("ppoll: %w", err)
+		}
+		if pfds[1].Revents&unix.POLLIN != 0 {
+			return false, nil
+		}
+		if pfds[0].Revents&(unix.POLLIN|unix.POLLERR|unix.POLLHUP) != 0 {
+			// POLLERR/POLLHUP on notifyFd means the child died and the
+			// listener is no longer useful — caller will see EINVAL on recv.
+			return true, nil
+		}
 	}
 }
 

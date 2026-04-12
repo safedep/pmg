@@ -289,6 +289,29 @@ func TestIsPathDenied_DirectoryPrefix(t *testing.T) {
 	}
 }
 
+// Deny entries without a trailing slash are treated as "this path or anything
+// beneath it" — matching how GetMandatoryDenyPatterns emits entries like
+// "/home/user/.ssh" (no slash) that must cover "~/.ssh/id_rsa" too.
+func TestIsPathDenied_DirectoryWithoutTrailingSlash(t *testing.T) {
+	deny := []denyPathEntry{
+		{Path: "/home/user/.ssh", Mode: denyBoth},
+	}
+
+	if !isPathDenied("/home/user/.ssh", unix.O_RDONLY, deny) {
+		t.Error("exact match on /home/user/.ssh should be denied")
+	}
+	if !isPathDenied("/home/user/.ssh/id_rsa", unix.O_RDONLY, deny) {
+		t.Error("/home/user/.ssh/id_rsa should match deny /home/user/.ssh (no trailing slash)")
+	}
+	// Must not false-match on similarly-prefixed siblings.
+	if isPathDenied("/home/user/.ssh2/id_rsa", unix.O_RDONLY, deny) {
+		t.Error("/home/user/.ssh2/id_rsa must NOT match deny /home/user/.ssh (no trailing slash)")
+	}
+	if isPathDenied("/home/user/.sshfoo", unix.O_RDONLY, deny) {
+		t.Error("/home/user/.sshfoo must NOT match deny /home/user/.ssh")
+	}
+}
+
 func TestIsPathDenied_NoMatch(t *testing.T) {
 	deny := []denyPathEntry{
 		{Path: "/home/user/.env", Mode: denyBoth},
