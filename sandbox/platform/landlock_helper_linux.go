@@ -77,7 +77,15 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 
 	// 6. Install seccomp-notify BPF filter and start Phase 1 loop
 	// Must be on the same thread as PR_SET_NO_NEW_PRIVS above.
-	supervisor, err := newLandlockSupervisor()
+	// Only intercept execve/execveat — NOT openat. Intercepting openat causes
+	// every file open to round-trip through the supervisor, making package
+	// managers (which do tens of thousands of opens) unusably slow. Landlock
+	// handles filesystem allow-list enforcement; DenyPaths for sensitive files
+	// (.ssh, .env, etc.) are documented as best-effort and rely on the Landlock
+	// allow-list not granting access to those paths. If the allow-list does
+	// grant access (e.g. "/" is readable), those paths are accessible — this is
+	// a known limitation of the Landlock driver vs bubblewrap.
+	supervisor, err := newLandlockSupervisor(false)
 	if err != nil {
 		return fmt.Errorf("create seccomp supervisor: %w", err)
 	}
@@ -85,8 +93,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	// 7. Build go-landlock rules from policy
 	var rules []landlock.Rule
 	for _, r := range policy.FilesystemRules {
+		access := landlockAdjustAccessForPath(r.Path, r.Access)
 		rules = append(rules, landlock.PathAccess(
-			landlock.AccessFSSet(r.Access), r.Path,
+			landlock.AccessFSSet(access), r.Path,
 		).IgnoreIfMissing())
 	}
 
@@ -95,7 +104,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 
 	// 8. Apply Landlock filesystem restrictions
 	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
-		_ = supervisor.Stop()
+		if supervisor != nil {
+			_ = supervisor.Stop()
+		}
 		return fmt.Errorf("landlock restrict paths: %w", err)
 	}
 
@@ -146,7 +157,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	// 11. Pre-open /proc/<child-pid>/mem (FAIL-CLOSE)
 	memFd, err := openLandlockChildMemFd(childPID)
 	if err != nil {
-		// FAIL-CLOSE: kill child and return error
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
 		_ = supervisor.Stop()

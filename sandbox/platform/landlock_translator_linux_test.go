@@ -156,7 +156,9 @@ func TestLandlockTranslatePolicy_AllowExec(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expectedAccess := uint64(llsyscall.AccessFSExecute)
+	// Execute access includes ReadFile because the kernel must read the
+	// shebang line of script files to determine the interpreter.
+	expectedAccess := uint64(llsyscall.AccessFSExecute | llsyscall.AccessFSReadFile)
 
 	for _, path := range []string{"/usr/bin/node", "/usr/bin/npm"} {
 		rule := findRule(ep.FilesystemRules, path)
@@ -194,6 +196,9 @@ func TestLandlockTranslatePolicy_DenyRead(t *testing.T) {
 
 func TestLandlockTranslatePolicy_DenyWrite(t *testing.T) {
 	policy := newTestPolicy()
+	// DenyWrite is only effective within writable areas. Add /etc as writable
+	// so the deny rule for /etc/hosts is not pruned as redundant.
+	policy.Filesystem.AllowWrite = []string{"/etc/**"}
 	policy.Filesystem.DenyWrite = []string{"/etc/hosts"}
 	abi := newLandlockABI(3)
 
@@ -208,6 +213,24 @@ func TestLandlockTranslatePolicy_DenyWrite(t *testing.T) {
 	}
 	if entry.Mode != denyWrite {
 		t.Errorf("mode = %d, want denyWrite (%d)", entry.Mode, denyWrite)
+	}
+}
+
+func TestLandlockTranslatePolicy_DenyWriteSkippedWhenNotWritable(t *testing.T) {
+	policy := newTestPolicy()
+	// No AllowWrite for /etc, so deny_write for /etc/hosts is redundant
+	// (Landlock already prevents writes).
+	policy.Filesystem.DenyWrite = []string{"/etc/hosts"}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	entry := findDenyPath(ep.DenyPaths, "/etc/hosts")
+	if entry != nil {
+		t.Error("expected deny entry for /etc/hosts to be pruned (not in writable area)")
 	}
 }
 

@@ -321,22 +321,45 @@ type seccompSupervisor struct {
 // newLandlockSupervisor installs a seccomp-notify BPF filter and starts the
 // notification loop goroutine. In phase 1 (before Enforce is called), all
 // notifications are auto-continued.
-func newLandlockSupervisor() (*seccompSupervisor, error) {
+//
+// interceptOpen controls whether openat/openat2 are included in the BPF filter.
+// This should only be true when there are deny-path rules that need enforcement
+// beyond what Landlock provides. Intercepting openat causes significant overhead
+// because every file open round-trips through the supervisor; it should be
+// avoided when the deny list is empty or contains only write-deny entries that
+// Landlock already covers.
+func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
 	// Build the BPF filter inline so the filter slice stays alive on the stack
 	// during the seccomp syscall. If we return the slice from a function,
 	// the GC may collect it before the syscall reads the pointer.
-	filter := []unix.SockFilter{
-		// [0] Load syscall number
-		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-		// [1-4] Check against intercepted syscalls
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 4, Jf: 0, K: uint32(unix.SYS_OPENAT)},
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 3, Jf: 0, K: uint32(unix.SYS_OPENAT2)},
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
-		// [5] Allow all other syscalls
-		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-		// [6] Notify supervisor for intercepted syscalls
-		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
+	var filter []unix.SockFilter
+
+	if interceptOpen {
+		filter = []unix.SockFilter{
+			// [0] Load syscall number
+			{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
+			// [1-4] Check against intercepted syscalls
+			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 4, Jf: 0, K: uint32(unix.SYS_OPENAT)},
+			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 3, Jf: 0, K: uint32(unix.SYS_OPENAT2)},
+			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
+			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
+			// [5] Allow all other syscalls
+			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
+			// [6] Notify supervisor for intercepted syscalls
+			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
+		}
+	} else {
+		filter = []unix.SockFilter{
+			// [0] Load syscall number
+			{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
+			// [1-2] Check against intercepted syscalls (execve only)
+			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
+			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
+			// [3] Allow all other syscalls
+			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
+			// [4] Notify supervisor for intercepted syscalls
+			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
+		}
 	}
 
 	prog := unix.SockFprog{
@@ -365,7 +388,7 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 
 	fd, _, errno := unix.Syscall(
 		unix.SYS_SECCOMP,
-		2, // SECCOMP_SET_MODE_FILTER
+		unix.SECCOMP_SET_MODE_FILTER,
 		flags,
 		uintptr(unsafe.Pointer(&prog)),
 	)
@@ -381,7 +404,7 @@ func newLandlockSupervisor() (*seccompSupervisor, error) {
 		)
 		fd, _, errno = unix.Syscall(
 			unix.SYS_SECCOMP,
-			2,
+			unix.SECCOMP_SET_MODE_FILTER,
 			flags,
 			uintptr(unsafe.Pointer(&prog)),
 		)
@@ -428,6 +451,9 @@ func (s *seccompSupervisor) Stop() error {
 // loop is the main notification processing goroutine.
 func (s *seccompSupervisor) loop() {
 	defer close(s.loopDone)
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	for {
 		notif, err := recvNotification(s.notifyFd)
