@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -26,12 +27,15 @@ import (
 // auditSocket is the path to the audit unix socket.
 // cmdArgs are the target command args (everything after "--").
 func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
-	// 1. Read and delete policy file.
+	// 1. Read and delete policy file. PMG_KEEP_POLICY leaves the file on disk
+	// for manual debugging of translator output; never set in production.
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("read policy from file: %w", err)
 	}
-	_ = os.Remove(policyFile)
+	if os.Getenv("PMG_KEEP_POLICY") == "" {
+		_ = os.Remove(policyFile)
+	}
 
 	// 2. Initialize logger.
 	log.InitZapLogger("pmg", "landlock-helper")
@@ -75,22 +79,31 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("prctl PR_SET_PDEATHSIG: %w", err)
 	}
 
-	// 6. Install seccomp-notify BPF filter and start Phase 1 loop
-	// Must be on the same thread as PR_SET_NO_NEW_PRIVS above.
-	// Only intercept execve/execveat — NOT openat. Intercepting openat causes
-	// every file open to round-trip through the supervisor, making package
-	// managers (which do tens of thousands of opens) unusably slow. Landlock
-	// handles filesystem allow-list enforcement; DenyPaths for sensitive files
-	// (.ssh, .env, etc.) are documented as best-effort and rely on the Landlock
-	// allow-list not granting access to those paths. If the allow-list does
-	// grant access (e.g. "/" is readable), those paths are accessible — this is
-	// a known limitation of the Landlock driver vs bubblewrap.
-	supervisor, err := newLandlockSupervisor(false)
-	if err != nil {
-		return fmt.Errorf("create seccomp supervisor: %w", err)
+	// 5b. Allow any process (specifically the supervisor goroutine in this
+	// same pmg helper) to ptrace us and our descendants. On systems with
+	// Yama ptrace_scope=1 (default on Arch, Ubuntu, etc.), only a direct
+	// parent can ptrace a child — grandchildren spawned by bash shims
+	// (/home/user/.asdf/shims/npm -> asdf -> node) become unreachable, so
+	// /proc/<pid>/mem opens with EACCES and the supervisor can't resolve
+	// openat path arguments. PR_SET_PTRACER is inherited across fork AND
+	// execve (until a setuid exec, which we don't expect), so calling it
+	// here on the helper makes every descendant ptraceable.
+	if err := unix.Prctl(unix.PR_SET_PTRACER, unix.PR_SET_PTRACER_ANY, 0, 0, 0); err != nil {
+		// Non-fatal: on kernels without Yama or with ptrace_scope=0, this
+		// call may return EINVAL but the mem fds will work anyway.
+		log.Debugf("prctl PR_SET_PTRACER: %v (non-fatal)", err)
 	}
 
-	// 7. Build go-landlock rules from policy
+	// 6. Build go-landlock rules and apply them BEFORE installing the seccomp
+	// filter. Order matters: go-landlock's BestEffort() probes kernel features
+	// via openat + landlock_create_ruleset and RestrictPaths opens O_PATH fds
+	// for every rule. If seccomp intercepts openat first, each landlock
+	// operation round-trips through our supervisor and we've observed this to
+	// deadlock (helper main thread kernel-suspended in
+	// seccomp_do_user_notification, a handful of openats serviced then stuck).
+	// Applying Landlock first, before any filter is live, keeps landlock's
+	// internal openats filter-free; the filter installed afterwards only sees
+	// syscalls from the exec'd target and its descendants.
 	var rules []landlock.Rule
 	for _, r := range policy.FilesystemRules {
 		access := landlockAdjustAccessForPath(r.Path, r.Access)
@@ -98,16 +111,27 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 			landlock.AccessFSSet(access), r.Path,
 		).IgnoreIfMissing())
 	}
-
-	// Select config version based on highest ABI features used
 	cfg := landlockSelectConfig(policy)
 
-	// 8. Apply Landlock filesystem restrictions
-	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
-		if supervisor != nil {
-			_ = supervisor.Stop()
+	// PMG_SKIP_LANDLOCK is a debug-only escape hatch: when set, we skip
+	// RestrictPaths and only seccomp enforcement applies. Useful when
+	// diagnosing which layer (landlock vs seccomp) rejects an access.
+	if os.Getenv("PMG_SKIP_LANDLOCK") == "" {
+		if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
+			return fmt.Errorf("landlock restrict paths: %w", err)
 		}
-		return fmt.Errorf("landlock restrict paths: %w", err)
+	}
+
+
+	// 7. Install seccomp-notify BPF filter and start supervisor loop. Must run
+	// on the same thread as PR_SET_NO_NEW_PRIVS above. We intercept
+	// openat/openat2 (in addition to execve/execveat) whenever the policy
+	// defines any deny paths, since Landlock cannot carve deny holes out of a
+	// broader allow.
+	interceptOpen := len(policy.DenyPaths) > 0
+	supervisor, err := newLandlockSupervisor(interceptOpen)
+	if err != nil {
+		return fmt.Errorf("create seccomp supervisor: %w", err)
 	}
 
 	// 8. Build exec.Cmd from policy
@@ -120,6 +144,17 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Debug: if PMG_LANDLOCK_DEBUG_OUT is set, tee child stdout/stderr to files
+	// so we can see failures when the parent pmg proxy swallows output.
+	if debugDir := os.Getenv("PMG_LANDLOCK_DEBUG_OUT"); debugDir != "" {
+		if outF, err := os.Create(filepath.Join(debugDir, "child.out")); err == nil {
+			cmd.Stdout = io.MultiWriter(os.Stdout, outF)
+		}
+		if errF, err := os.Create(filepath.Join(debugDir, "child.err")); err == nil {
+			cmd.Stderr = io.MultiWriter(os.Stderr, errF)
+		}
+	}
 
 	// 9. Set namespace clone flags
 	cloneFlags := landlockBuildCloneflags(policy)
