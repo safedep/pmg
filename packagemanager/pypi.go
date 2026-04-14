@@ -18,42 +18,60 @@ type pypiCommandParser interface {
 }
 
 type PypiPackageManagerConfig struct {
-	InstallCommands  []string
-	DownloadCommands []string
-	CommandName      string
+	InstallCommands     []string
+	NonDownloadCommands []string
+	CommandName         string
 }
 
 func DefaultPipPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands:  []string{"install"},
-		DownloadCommands: []string{"download"},
-		CommandName:      "pip",
+		InstallCommands: []string{"install"},
+		NonDownloadCommands: []string{
+			// Removal — no registry download
+			"uninstall",
+			// Inspection / read-only
+			"list", "show", "check", "freeze", "config",
+		},
+		CommandName: "pip",
 	}
 }
 
 func DefaultPip3PackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands:  []string{"install"},
-		DownloadCommands: []string{"download"},
-		CommandName:      "pip3",
+		InstallCommands: []string{"install"},
+		NonDownloadCommands: []string{
+			"uninstall",
+			"list", "show", "check", "freeze", "config",
+		},
+		CommandName: "pip3",
 	}
 }
 
 func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
 		InstallCommands: []string{"add", "install"},
-		// "download" covers both `uv pip download` and bare `uv download`.
-		// "run" covers `uv run` which auto-installs script dependencies.
-		DownloadCommands: []string{"download", "run"},
-		CommandName:      "uv",
+		// uv uses nested subcommands (e.g., `uv pip list`, `uv tool run`) making it
+		// unsafe to classify commands by a single arg scan. Run the proxy for all
+		// non-install uv commands to avoid missing coverage.
+		NonDownloadCommands: []string{},
+		CommandName:         "uv",
 	}
 }
 
 func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
-		InstallCommands:  []string{"add"},
-		DownloadCommands: []string{"update", "install"},
-		CommandName:      "poetry",
+		InstallCommands: []string{"add"},
+		NonDownloadCommands: []string{
+			// Script runners — "run" executes a command in the venv (e.g., `poetry run uvicorn app:app`).
+			// "shell" activates the venv shell. Both may start long-running processes and must not
+			// have proxy env vars set against them.
+			"run", "shell",
+			// Removal
+			"remove",
+			// Inspection / read-only
+			"show", "config", "check",
+		},
+		CommandName: "poetry",
 	}
 }
 
@@ -130,10 +148,9 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if installCmdIndex == -1 {
-		// Check if this is a known download command
 		for _, arg := range args {
-			if slices.Contains(p.config.DownloadCommands, arg) {
-				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			if slices.Contains(p.config.NonDownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
 		}
 
@@ -255,10 +272,9 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if installCmdIndex == -1 {
-		// Check if this is a known download command
 		for _, arg := range args {
-			if slices.Contains(u.config.DownloadCommands, arg) {
-				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			if slices.Contains(u.config.NonDownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
 		}
 
@@ -359,10 +375,9 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		// Check if this is a known download command
 		for _, arg := range args {
-			if slices.Contains(p.config.DownloadCommands, arg) {
-				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			if slices.Contains(p.config.NonDownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
 		}
 

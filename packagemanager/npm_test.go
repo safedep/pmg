@@ -71,41 +71,41 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "update is a known download command",
+			name:    "update is not a known non-download command (proxy runs)",
 			command: "npm update @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.NotNil(t, parsedCommand)
 				assert.Empty(t, parsedCommand.InstallTargets)
-				assert.True(t, parsedCommand.IsKnownDownloadCommand)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.True(t, parsedCommand.MayDownloadPackages())
 			},
 		},
 		{
-			name:    "ci is a known download command",
+			name:    "ci is not a known non-download command (proxy runs)",
 			command: "npm ci",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.True(t, parsedCommand.IsKnownDownloadCommand)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.True(t, parsedCommand.MayDownloadPackages())
 				assert.False(t, parsedCommand.IsInstallationCommand())
 			},
 		},
 		{
-			name:    "audit is a known download command",
+			name:    "audit is not a known non-download command (proxy runs; audit fix can download)",
 			command: "npm audit",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.True(t, parsedCommand.IsKnownDownloadCommand)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.True(t, parsedCommand.MayDownloadPackages())
 			},
 		},
 		{
-			name:    "ls is not a download command",
+			name:    "ls is a known non-download command (proxy skipped)",
 			command: "npm ls",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.False(t, parsedCommand.IsKnownDownloadCommand)
+				assert.True(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.False(t, parsedCommand.MayDownloadPackages())
 				assert.False(t, parsedCommand.IsInstallationCommand())
 			},
@@ -115,7 +115,7 @@ func TestNpmParseCommand(t *testing.T) {
 			command: "npm install express",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
-				assert.False(t, parsedCommand.IsKnownDownloadCommand)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.True(t, parsedCommand.IsInstallationCommand())
 				assert.True(t, parsedCommand.MayDownloadPackages())
 			},
@@ -445,76 +445,129 @@ func TestBunParseCommand(t *testing.T) {
 	}
 }
 
-func TestNpmDownloadCommands(t *testing.T) {
+func TestNpmProxyBehavior(t *testing.T) {
 	cases := []struct {
-		name                   string
-		pm                     func() (*npmPackageManager, error)
-		command                string
-		isKnownDownloadCommand bool
-		isInstallationCommand  bool
+		name                     string
+		pm                       func() (*npmPackageManager, error)
+		command                  string
+		isKnownNonDownloadCmd    bool // proxy skipped when proxy_install_only=true
+		isInstallationCommand    bool
 	}{
+		// Commands that proxy MUST run for (not known-safe)
 		{
-			name:                   "yarn upgrade is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
-			command:                "yarn upgrade",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "yarn upgrade — proxy runs (may download)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
+			command:               "yarn upgrade",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "pnpm update is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
-			command:                "pnpm update",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "pnpm update — proxy runs (may download)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:               "pnpm update",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "bun update is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
-			command:                "bun update",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "bun update — proxy runs (may download)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
+			command:               "bun update",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "npm exec is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
-			command:                "npm exec create-react-app",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "npm exec — proxy runs (may download and run package)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm exec create-react-app",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "pnpm dlx is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
-			command:                "pnpm dlx create-react-app",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "pnpm dlx — proxy runs (downloads and runs package)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:               "pnpm dlx create-react-app",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "pnpm exec is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
-			command:                "pnpm exec tsc",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "pnpm exec — proxy runs (may resolve packages)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:               "pnpm exec tsc",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "yarn dlx is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
-			command:                "yarn dlx create-react-app",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "yarn dlx — proxy runs (downloads and runs package)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
+			command:               "yarn dlx create-react-app",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "bun x is a known download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
-			command:                "bun x create-vite",
-			isKnownDownloadCommand: true,
-			isInstallationCommand:  false,
+			name:                  "bun x — proxy runs (bun's npx equivalent)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
+			command:               "bun x create-vite",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		// Commands where proxy is safely skipped
+		{
+			name:                  "npm outdated — proxy skipped (read-only registry check)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm outdated",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
 		},
 		{
-			name:                   "npm outdated is not a download command",
-			pm:                     func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
-			command:                "npm outdated",
-			isKnownDownloadCommand: false,
-			isInstallationCommand:  false,
+			name:                  "npm list — proxy skipped (lists installed packages)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm list",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "pnpm why — proxy skipped (dependency reason lookup)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
+			command:               "pnpm why express",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "yarn why — proxy skipped (dependency reason lookup)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
+			command:               "yarn why express",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		// Script execution via run
+		{
+			name:                  "npm run dev — proxy skipped (executes local script, no registry contact)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm run dev",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "yarn run build — proxy skipped (executes local script)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
+			command:               "yarn run build",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "bun run test — proxy skipped (executes local script)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
+			command:               "bun run test",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		// Unknown commands default to proxy running (fail safe)
+		{
+			name:                  "unknown npm subcommand — proxy runs (fail safe)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm some-future-command",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
 		},
 	}
 
@@ -525,9 +578,9 @@ func TestNpmDownloadCommands(t *testing.T) {
 
 			parsed, err := pm.ParseCommand(strings.Split(tc.command, " "))
 			assert.NoError(t, err)
-			assert.Equal(t, tc.isKnownDownloadCommand, parsed.IsKnownDownloadCommand)
+			assert.Equal(t, tc.isKnownNonDownloadCmd, parsed.IsKnownNonDownloadCommand)
 			assert.Equal(t, tc.isInstallationCommand, parsed.IsInstallationCommand())
-			assert.Equal(t, tc.isKnownDownloadCommand || tc.isInstallationCommand, parsed.MayDownloadPackages())
+			assert.Equal(t, !tc.isKnownNonDownloadCmd, parsed.MayDownloadPackages())
 		})
 	}
 }

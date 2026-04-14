@@ -39,10 +39,11 @@ type ParsedCommand struct {
 	// (e.g., ["requirements.txt"] for pip install -r requirements.txt)
 	ManifestFiles []string
 
-	// IsKnownDownloadCommand is true for commands that may download packages but are not
-	// fully parsed (e.g., npm update, npm ci, poetry update). Used by the proxy to decide
-	// whether to intercept when proxy_install_only is enabled.
-	IsKnownDownloadCommand bool
+	// IsKnownNonDownloadCommand is true for commands that are known to not download packages
+	// (e.g., npm ls, pip list, yarn why). Used by the proxy to decide whether to skip
+	// interception when proxy_install_only is enabled. Unknown commands default to false so
+	// the proxy runs — fail safe when a new subcommand is added to a package manager.
+	IsKnownNonDownloadCommand bool
 }
 
 // IsInstallationCommand returns true if command installs packages (explicit targets or from manifest).
@@ -52,10 +53,10 @@ func (pc *ParsedCommand) IsInstallationCommand() bool {
 }
 
 // MayDownloadPackages returns true if the command may download packages from a registry.
-// This is broader than IsInstallationCommand and includes commands like npm update or npm ci
-// that download packages but are not fully parsed. Used by the proxy to decide interception scope.
+// Returns false only for commands explicitly known to be non-download (e.g., npm ls, pip list).
+// Unknown commands return true by default — fail safe when new package manager subcommands appear.
 func (pc *ParsedCommand) MayDownloadPackages() bool {
-	return pc.IsInstallationCommand() || pc.IsKnownDownloadCommand
+	return !pc.IsKnownNonDownloadCommand
 }
 
 func (pc *ParsedCommand) HasInstallTarget() bool {

@@ -11,45 +11,73 @@ import (
 )
 
 type NpmPackageManagerConfig struct {
-	InstallCommands  []string
-	DownloadCommands []string
-	CommandName      string
+	InstallCommands     []string
+	NonDownloadCommands []string
+	CommandName         string
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		// "exec" is the npm v7+ built-in equivalent of npx.
-		DownloadCommands: []string{"update", "up", "upgrade", "ci", "audit", "dedupe", "exec"},
-		CommandName:      "npm",
+		// Commands that are known to never download packages from a registry.
+		// Anything not in this list (including unknown future commands) runs with the proxy.
+		//
+		// Script runners: "run", "start", "stop", "restart", "test"/"t" are all shorthand for
+		// "npm run <script>". They spin up local processes (dev servers, test runners) that make
+		// their own HTTP calls — setting proxy env vars breaks them without providing any security
+		// benefit since they don't contact the package registry themselves.
+		//
+		// "exec" is intentionally excluded — it downloads and runs a package (npx equivalent).
+		NonDownloadCommands: []string{
+			// Script runners — may start servers or long-running processes
+			"run", "start", "stop", "restart", "test", "t",
+			// Removal — uninstalls local packages, no registry download
+			"uninstall", "remove", "rm", "r", "un", "unlink",
+			// Local operations — no registry contact
+			"rebuild", "prune", "link", "cache", "pack",
+			// Inspection / read-only registry queries
+			"ls", "list", "outdated", "view", "info", "show", "search",
+			"config", "ping", "whoami", "version", "help",
+		},
+		CommandName: "npm",
 	}
 }
 
 func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		// "dlx" downloads and runs a package (pnpm's npx equivalent).
-		// "exec" runs a command from the project's node_modules (may resolve packages).
-		DownloadCommands: []string{"update", "up", "upgrade", "dedupe", "dlx", "exec"},
-		CommandName:      "pnpm",
+		NonDownloadCommands: []string{
+			"run", "start", "stop", "restart", "test",
+			"remove", "rm", "uninstall", "un",
+			"prune", "link", "unlink",
+			"ls", "list", "outdated", "info", "view", "config", "why",
+		},
+		CommandName: "pnpm",
 	}
 }
 
 func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		// "x" is bun's npx equivalent (also exposed as the `bunx` binary).
-		DownloadCommands: []string{"update", "upgrade", "x"},
-		CommandName:      "bun",
+		NonDownloadCommands: []string{
+			// Script runners and local operations
+			"run", "test", "build",
+			// Removal
+			"remove", "rm",
+		},
+		CommandName: "bun",
 	}
 }
 
 func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "add", ""},
-		// "dlx" downloads and runs a package without installing it (yarn's npx equivalent).
-		DownloadCommands: []string{"upgrade", "up", "dlx"},
-		CommandName:      "yarn",
+		NonDownloadCommands: []string{
+			"run", "start", "stop", "restart", "test",
+			"remove", "unlink",
+			"ls", "list", "outdated", "info", "config", "why",
+		},
+		CommandName: "yarn",
 	}
 }
 
@@ -106,10 +134,11 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		// Check if this is a known download command (e.g., npm update, npm ci)
+		// Check if this is a known non-download command (e.g., npm ls, npm outdated).
+		// Unknown commands are treated as potential downloads — fail safe.
 		for _, arg := range args {
-			if slices.Contains(npm.Config.DownloadCommands, arg) {
-				return &ParsedCommand{Command: command, IsKnownDownloadCommand: true}, nil
+			if slices.Contains(npm.Config.NonDownloadCommands, arg) {
+				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
 		}
 
