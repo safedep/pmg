@@ -3,47 +3,43 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/spf13/viper"
 )
 
-// loadViperConfig loads the configuration using Viper if available.
-// It returns an error if the config file exists but cannot be read or parsed,
-// allowing the caller to fall back to default configuration.
+// loadViperConfig loads the configuration using Viper.
+// Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
+// Cobra flags write directly to the config struct after this function runs.
 func loadViperConfig() error {
 	configPath, err := configFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}
 
-	// Check if config file exists before attempting to load
-	// If it doesn't exist, we use the default configuration (see config.go)
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil
-	}
-
 	v := viper.New()
-
-	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
 	v.SetEnvPrefix("PMG")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
-	if err := v.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	// Register all config struct fields as Viper defaults so that env vars work
+	// for any key Viper wouldn't otherwise know about — either because there is no
+	// config file, or because the key is absent from the file (e.g. commented out,
+	// or a new key added after the user last ran "pmg setup install").
+	registerViperDefaults(v, globalConfig.Config, "")
+
+	// Merge the user config file on top if it exists.
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		v.SetConfigFile(configPath)
+		if err := v.MergeInConfig(); err != nil {
+			return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		}
 	}
 
-	// Unmarshal into a copy of the current defaults (not a zero-value struct) so that
-	// keys missing from the YAML retain their defaults. This is critical for users who
-	// upgrade PMG without re-running "pmg setup install" — their old config.yml won't have
-	// newer keys (e.g. dependency_cooldown), and those must fall back to defaults rather than
-	// silently becoming Go zero values (false/0/"").
-	//
-	// We use a copy rather than unmarshalling directly into globalConfig.Config so that
-	// on error the caller's "using defaults" fallback is truthful — globalConfig.Config
-	// stays in a clean default state instead of being partially overwritten.
+	// Unmarshal into a copy of the current defaults so that keys absent from
+	// both the env and the user config file retain their Go defaults.
 	merged := globalConfig.Config
 	if err := v.Unmarshal(&merged); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
@@ -51,4 +47,43 @@ func loadViperConfig() error {
 
 	globalConfig.Config = merged
 	return nil
+}
+
+// registerViperDefaults walks cfg (a struct) recursively via reflection and registers
+// each field as a Viper default using its mapstructure tag as the key. This is the
+// minimum required for AutomaticEnv to resolve env vars for those keys.
+func registerViperDefaults(v *viper.Viper, cfg any, prefix string) {
+	t := reflect.TypeOf(cfg)
+	val := reflect.ValueOf(cfg)
+
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+		val = val.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+		fieldVal := val.Field(i)
+
+		tag := field.Tag.Get("mapstructure")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		// Strip options like ",squash" or ",omitempty"
+		key := strings.SplitN(tag, ",", 2)[0]
+		if prefix != "" {
+			key = prefix + "." + key
+		}
+
+		if field.Type.Kind() == reflect.Struct {
+			registerViperDefaults(v, fieldVal.Interface(), key)
+		} else {
+			v.SetDefault(key, fieldVal.Interface())
+		}
+	}
 }
