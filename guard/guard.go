@@ -15,10 +15,14 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/audit"
-	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
+
+// CommandExecutor executes a parsed package manager command directly.
+// It is injected into the guard so that callers control execution behavior
+// (e.g., dry-run, sandbox application) without guard depending on internal packages.
+type CommandExecutor func(ctx context.Context, pc *packagemanager.ParsedCommand) error
 
 type PackageManagerGuardInteraction struct {
 	// SetStatus is called to set the status of the guard in the UI
@@ -96,6 +100,7 @@ type packageManagerGuard struct {
 	analyzers       []analyzer.PackageVersionAnalyzer
 	packageManager  packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
+	executor        CommandExecutor
 }
 
 func NewPackageManagerGuard(config PackageManagerGuardConfig,
@@ -103,6 +108,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	packageResolver packagemanager.PackageResolver,
 	analyzers []analyzer.PackageVersionAnalyzer,
 	interaction PackageManagerGuardInteraction,
+	executor CommandExecutor,
 ) (*packageManagerGuard, error) {
 	return &packageManagerGuard{
 		interaction:     interaction,
@@ -110,6 +116,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 		packageManager:  packageManager,
 		packageResolver: packageResolver,
 		config:          config,
+		executor:        executor,
 	}, nil
 }
 
@@ -252,11 +259,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 }
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
-	pmName := ""
-	if g.packageManager != nil {
-		pmName = g.packageManager.Name()
-	}
-	return runner.Execute(ctx, pc, pmName, g.config.DryRun)
+	return g.executor(ctx, pc)
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
