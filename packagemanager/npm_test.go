@@ -561,6 +561,28 @@ func TestNpmProxyBehavior(t *testing.T) {
 			isKnownNonDownloadCmd: true,
 			isInstallationCommand: false,
 		},
+		// False positive regression: package/script names matching NonDownloadCommands words
+		{
+			name:                  "npm exec test — proxy runs (test is package arg, not subcommand)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm exec test",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "npm update config — proxy runs (config is package name, not subcommand)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm update config",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "npm publish --tag version — proxy runs (version is flag value, not subcommand)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm publish --tag version",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
 		// Unknown commands default to proxy running (fail safe)
 		{
 			name:                  "unknown npm subcommand — proxy runs (fail safe)",

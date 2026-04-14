@@ -134,12 +134,18 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		// Check if this is a known non-download command (e.g., npm ls, npm outdated).
-		// Unknown commands are treated as potential downloads — fail safe.
+		// Check only the first non-flag arg (the subcommand) against NonDownloadCommands.
+		// Scanning all args would cause false positives when package names or script
+		// arguments happen to match a known non-download command (e.g. `npm exec test`,
+		// `npm update config`, `npm publish --tag version`).
 		for _, arg := range args {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
 			if slices.Contains(npm.Config.NonDownloadCommands, arg) {
 				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
+			break
 		}
 
 		return &ParsedCommand{Command: command}, nil

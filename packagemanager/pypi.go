@@ -149,9 +149,13 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	if installCmdIndex == -1 {
 		for _, arg := range args {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
 			if slices.Contains(p.config.NonDownloadCommands, arg) {
 				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
+			break
 		}
 
 		return &ParsedCommand{Command: command}, nil
@@ -376,9 +380,13 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 
 	if installCmdIndex == -1 {
 		for _, arg := range args {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
 			if slices.Contains(p.config.NonDownloadCommands, arg) {
 				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
 			}
+			break
 		}
 
 		return &ParsedCommand{Command: command}, nil
