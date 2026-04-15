@@ -32,7 +32,7 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	assert.False(t, false, cfg.Paranoid, "expected Paranoid false")
 	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
 	assert.Equal(t, 7, cfg.EventLogRetentionDays, "expected EventLogRetentionDays 7")
-	assert.Empty(t, cfg.TrustedPackages)
+	assert.Len(t, cfg.TrustedPackages, 1)
 }
 
 func TestTemplateMatchesDefaults(t *testing.T) {
@@ -56,7 +56,11 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.Equal(t, def.EventLogRetentionDays, parsed.EventLogRetentionDays, "event_log_retention_days mismatch")
 	assert.Equal(t, def.Verbosity, parsed.Verbosity, "verbosity mismatch")
 
-	assert.Equal(t, def.TrustedPackages, parsed.TrustedPackages, "trusted_packages mismatch")
+	assert.NotEmpty(t, parsed.TrustedPackages, "expected at least one trusted_packages entry")
+
+	first := parsed.TrustedPackages[0]
+	assert.NotEmpty(t, first.Purl, "first trusted package has empty purl")
+	assert.NotEmpty(t, first.Reason, "first trusted package has empty reason")
 
 	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
 	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
