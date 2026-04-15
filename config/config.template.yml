@@ -55,9 +55,7 @@ proxy_install_only: false
 #
 # The purl is the package identifier and the reason is the reason for trusting the package.
 # PURL specification: https://github.com/package-url/purl-spec
-trusted_packages:
-  - purl: pkg:npm/@safedep/pmg
-    reason: "PMG is a trusted package for PMG"
+trusted_packages: []
 
 # Sandbox configuration (EXPERIMENTAL)
 # When enabled, package managers run in sandbox environments with restricted
