@@ -3,6 +3,8 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -22,9 +24,55 @@ func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldow
 	return &pypiCooldownHandler{statsCollector: statsCollector}
 }
 
-// HandleMetadataRequest is a stub — implemented in Task 4.
+// HandleMetadataRequest overrides the Accept header to force a PEP 691 JSON response,
+// then registers a response modifier that strips files for versions within the cooldown window.
 func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int) (*proxy.InterceptorResponse, error) {
-	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
+
+	// Force PEP 691 JSON so we receive upload-time per file entry.
+	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
+	// Prevent compression so the response body can be parsed as JSON directly.
+	ctx.Headers.Set("Accept-Encoding", "identity")
+
+	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+		if !strings.Contains(headers.Get("Content-Type"), pypiSimpleAPIContentType) {
+			log.Warnf("[%s] Cooldown: unexpected content-type %q for %s, skipping cooldown",
+				ctx.RequestID, headers.Get("Content-Type"), packageName)
+			return statusCode, headers, body, nil
+		}
+
+		dates, err := h.parsePEP691Files(body)
+		if err != nil {
+			log.Warnf("[%s] Cooldown: failed to parse PEP 691 metadata for %s: %v", ctx.RequestID, packageName, err)
+			return statusCode, headers, body, nil
+		}
+
+		log.Debugf("[%s] Cooldown: parsed %d versions for %s", ctx.RequestID, len(dates), packageName)
+
+		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays)
+		if stripped > 0 {
+			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
+				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
+
+			if remaining == 0 && h.statsCollector != nil {
+				oldestVer, oldestDate := cooldownOldestVersion(dates)
+				if oldestVer != "" {
+					_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
+					h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
+				}
+			}
+
+			headers.Set("Cache-Control", "no-store")
+			return statusCode, headers, strippedBody, nil
+		}
+
+		return statusCode, headers, body, nil
+	}
+
+	return &proxy.InterceptorResponse{
+		Action:           proxy.ActionModifyResponse,
+		ResponseModifier: modifier,
+	}, nil
 }
 
 // parsePEP691Files extracts the earliest upload-time per version from a PEP 691 JSON body.
