@@ -1,9 +1,12 @@
 package interceptors
 
 import (
+	"strings"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -35,6 +38,7 @@ var pypiRegistryDomains = registryConfigMap{
 // It embeds baseRegistryInterceptor to reuse ecosystem agnostic functionality
 type PypiRegistryInterceptor struct {
 	baseRegistryInterceptor
+	cooldownHandler *pypiCooldownHandler
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
@@ -55,6 +59,7 @@ func NewPypiRegistryInterceptor(
 			confirmationChan: confirmationChan,
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
 		},
+		cooldownHandler: newPypiCooldownHandler(statsCollector),
 	}
 }
 
@@ -105,9 +110,15 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	// Only analyze actual file downloads (sdist or wheel)
-	// Metadata requests (Simple API or JSON API) are allowed through
 	if !pkgInfo.IsFileDownload() {
+		depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+		// Only apply cooldown to Simple API requests (/simple/{pkg}/) — pip uses these
+		// for version resolution. JSON API requests (/pypi/{pkg}/json) are allowed through;
+		// they have a different response structure and pip does not use them for installs.
+		if depCooldownConfig.Enabled && strings.HasPrefix(ctx.URL.Path, "/simple/") {
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days)
+		}
+
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}

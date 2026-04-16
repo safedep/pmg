@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -488,4 +489,67 @@ func TestPyPICooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T)
 	_, _, retBody, err := resp.ResponseModifier(200, headers, body)
 	require.NoError(t, err)
 	assert.Equal(t, body, retBody)
+}
+
+func TestPyPICooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+
+	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
+	ctx.Hostname = "pypi.org"
+	ctx.Headers.Set("Accept", "text/html")
+
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
+	assert.Equal(t, "application/vnd.pypi.simple.v1+json", ctx.Headers.Get("Accept"))
+}
+
+func TestPyPICooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false, Days: 5})
+
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+
+	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
+	ctx.Hostname = "pypi.org"
+	ctx.Headers.Set("Accept", "text/html")
+
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Equal(t, "text/html", ctx.Headers.Get("Accept"))
+}
+
+func TestPyPICooldown_JSONAPIRequest_NotIntercepted(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+
+	ctx := makeTestRequestContext("https://pypi.org/pypi/requests/json")
+	ctx.Hostname = "pypi.org"
+	ctx.Headers.Set("Accept", "application/json")
+
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
+}
+
+func TestPyPICooldown_FileDownloadBypassesCooldown(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	origInsecure := config.Get().InsecureInstallation
+	config.Get().InsecureInstallation = true
+	t.Cleanup(func() { config.Get().InsecureInstallation = origInsecure })
+
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+
+	ctx := makeTestRequestContext("https://files.pythonhosted.org/packages/ab/cd/ef/requests-2.31.0-py3-none-any.whl")
+	ctx.Hostname = "files.pythonhosted.org"
+
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.NotEqual(t, proxy.ActionModifyResponse, resp.Action)
+	assert.NotEqual(t, "application/vnd.pypi.simple.v1+json", ctx.Headers.Get("Accept"))
 }
