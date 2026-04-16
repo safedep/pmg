@@ -11,6 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// noopExecutor is a no-op executor for use in tests that set DryRun=true
+// or otherwise don't reach actual command execution.
+var noopExecutor CommandExecutor = func(_ context.Context, _ *packagemanager.ParsedCommand) error {
+	return nil
+}
+
 func TestGuardConcurrentlyAnalyzePackagesMalwareQueryService(t *testing.T) {
 	mq, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
 	if err != nil {
@@ -20,7 +26,7 @@ func TestGuardConcurrentlyAnalyzePackagesMalwareQueryService(t *testing.T) {
 	pg, err := NewPackageManagerGuard(DefaultPackageManagerGuardConfig(), nil, nil,
 		[]analyzer.PackageVersionAnalyzer{mq}, PackageManagerGuardInteraction{
 			ShowWarning: func(message string) {},
-		})
+		}, noopExecutor)
 	if err != nil {
 		t.Fatalf("failed to create pg: %v", err)
 	}
@@ -80,7 +86,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		}
 
 		pg, err := NewPackageManagerGuard(config, nil, nil,
-			[]analyzer.PackageVersionAnalyzer{mq}, interaction)
+			[]analyzer.PackageVersionAnalyzer{mq}, interaction, noopExecutor)
 		if err != nil {
 			t.Fatalf("failed to create pg: %v", err)
 		}
@@ -129,7 +135,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		}
 
 		pg, err := NewPackageManagerGuard(config, nil, nil,
-			[]analyzer.PackageVersionAnalyzer{mq}, interaction)
+			[]analyzer.PackageVersionAnalyzer{mq}, interaction, noopExecutor)
 		if err != nil {
 			t.Fatalf("failed to create pg: %v", err)
 		}
@@ -184,7 +190,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		}
 
 		pg, err := NewPackageManagerGuard(config, nil, nil,
-			[]analyzer.PackageVersionAnalyzer{mq}, interaction)
+			[]analyzer.PackageVersionAnalyzer{mq}, interaction, noopExecutor)
 		if err != nil {
 			t.Fatalf("failed to create pg: %v", err)
 		}
@@ -225,7 +231,7 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		}
 
 		pg, err := NewPackageManagerGuard(config, nil, nil,
-			[]analyzer.PackageVersionAnalyzer{mq}, interaction)
+			[]analyzer.PackageVersionAnalyzer{mq}, interaction, noopExecutor)
 		if err != nil {
 			t.Fatalf("failed to create pg: %v", err)
 		}

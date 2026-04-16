@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,9 +25,10 @@ func TestConfigHasDefaultValues(t *testing.T) {
 		assert.Equal(t, 5, config.Config.TransitiveDepth)
 		assert.Equal(t, false, config.Config.IncludeDevDependencies)
 		assert.Equal(t, false, config.Config.Paranoid)
-		assert.Equal(t, []TrustedPackage{}, config.Config.TrustedPackages)
+		assert.Len(t, config.Config.TrustedPackages, 1)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist", config.configDir)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist/config.yml", config.configFilePath)
+		assert.Equal(t, false, config.Config.ProxyInstallOnly)
 	})
 
 	t.Run("when no config directory is set", func(t *testing.T) {
@@ -101,6 +103,109 @@ func TestPartialConfigWithNestedOverride(t *testing.T) {
 	assert.Equal(t, defaults.Transitive, config.Config.Transitive)
 	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
 	assert.Equal(t, defaults.ProxyMode, config.Config.ProxyMode)
+}
+
+func TestProxyInstallOnlyConfig(t *testing.T) {
+	t.Run("defaults to false", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+		initConfig()
+		assert.Equal(t, false, Get().Config.ProxyInstallOnly)
+	})
+
+	t.Run("can be set to true via config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly)
+	})
+}
+
+// TestConfigPrecedence verifies the expected override order:
+// flags > env var > config file > default
+func TestConfigPrecedence(t *testing.T) {
+	t.Run("env var overrides config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: false\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should override config file")
+	})
+
+	t.Run("config file overrides default", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		t.Setenv("PMG_PROXY_INSTALL_ONLY", "")
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "config file should override default")
+	})
+
+	t.Run("env var works when key is absent from config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
+
+		// Config file exists but proxy_install_only is not in it (e.g. commented out
+		// or user hasn't re-run "pmg setup install" after an upgrade)
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("transitive: false\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should work even when key is absent from config file")
+	})
+
+	t.Run("env var works without a config file", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should work even without a config file")
+	})
+
+	t.Run("default is used when neither env var nor config file sets the key", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		t.Setenv("PMG_PROXY_INSTALL_ONLY", "")
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("transitive: false\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, false, Get().Config.ProxyInstallOnly, "should use default when key absent from config and env")
+	})
+
+	t.Run("cobra flag overrides env var", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		t.Setenv("PMG_PARANOID", "true")
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.Paranoid, "env var should set paranoid=true")
+
+		// Simulate cobra flag parsing — BoolVar writes directly to the struct
+		// field after Viper, giving flags the highest effective precedence.
+		cmd := &cobra.Command{}
+		ApplyCobraFlags(cmd)
+		require.NoError(t, cmd.ParseFlags([]string{"--paranoid=false"}))
+
+		assert.Equal(t, false, Get().Config.Paranoid, "cobra flag should override env var")
+	})
 }
 
 func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
@@ -77,7 +78,12 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	guardConfig.DryRun = cfg.DryRun
 	guardConfig.InsecureInstallation = cfg.InsecureInstallation
 
-	guardManager, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction)
+	pmName := f.pm.Name()
+	executor := func(ctx context.Context, pc *packagemanager.ParsedCommand) error {
+		return runner.Execute(ctx, pc, pmName, cfg.DryRun)
+	}
+
+	guardManager, err := guard.NewPackageManagerGuard(guardConfig, f.pm, f.packageResolver, analyzers, interaction, executor)
 	if err != nil {
 		return fmt.Errorf("failed to create package manager guard: %s", err)
 	}

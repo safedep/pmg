@@ -11,35 +11,73 @@ import (
 )
 
 type NpmPackageManagerConfig struct {
-	InstallCommands []string
-	CommandName     string
+	InstallCommands     []string
+	NonDownloadCommands []string
+	CommandName         string
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		CommandName:     "npm",
+		// Commands that are known to never download packages from a registry.
+		// Anything not in this list (including unknown future commands) runs with the proxy.
+		//
+		// Script runners: "run", "start", "stop", "restart", "test"/"t" are all shorthand for
+		// "npm run <script>". They spin up local processes (dev servers, test runners) that make
+		// their own HTTP calls — setting proxy env vars breaks them without providing any security
+		// benefit since they don't contact the package registry themselves.
+		//
+		// "exec" is intentionally excluded — it downloads and runs a package (npx equivalent).
+		NonDownloadCommands: []string{
+			// Script runners — may start servers or long-running processes
+			"run", "start", "stop", "restart", "test", "t",
+			// Removal — uninstalls local packages, no registry download
+			"uninstall", "remove", "rm", "r", "un", "unlink",
+			// Local operations — no registry contact
+			"rebuild", "prune", "link", "cache", "pack",
+			// Inspection / read-only registry queries
+			"ls", "list", "outdated", "view", "info", "show", "search",
+			"config", "ping", "whoami", "version", "help",
+		},
+		CommandName: "npm",
 	}
 }
 
 func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		CommandName:     "pnpm",
+		NonDownloadCommands: []string{
+			"run", "start", "stop", "restart", "test",
+			"remove", "rm", "uninstall", "un",
+			"prune", "link", "unlink",
+			"ls", "list", "outdated", "info", "view", "config", "why",
+		},
+		CommandName: "pnpm",
 	}
 }
 
 func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
-		CommandName:     "bun",
+		NonDownloadCommands: []string{
+			// Script runners and local operations
+			"run", "test", "build",
+			// Removal
+			"remove", "rm",
+		},
+		CommandName: "bun",
 	}
 }
 
 func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "add", ""},
-		CommandName:     "yarn",
+		NonDownloadCommands: []string{
+			"run", "start", "stop", "restart", "test",
+			"remove", "unlink",
+			"ls", "list", "outdated", "info", "config", "why",
+		},
+		CommandName: "yarn",
 	}
 }
 
@@ -96,8 +134,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		// No install command found, return as-is
-		return &ParsedCommand{Command: command}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, npm.Config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command

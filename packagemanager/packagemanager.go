@@ -2,6 +2,8 @@ package packagemanager
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
@@ -38,11 +40,25 @@ type ParsedCommand struct {
 	// ManifestFiles contains the list of manifest files to install from
 	// (e.g., ["requirements.txt"] for pip install -r requirements.txt)
 	ManifestFiles []string
+
+	// IsKnownNonDownloadCommand is true for commands that are known to not download packages
+	// (e.g., npm ls, pip list, yarn why). Used by the proxy to decide whether to skip
+	// interception when proxy_install_only is enabled. Unknown commands default to false so
+	// the proxy runs — fail safe when a new subcommand is added to a package manager.
+	IsKnownNonDownloadCommand bool
 }
 
 // IsInstallationCommand returns true if command installs packages (explicit targets or from manifest).
+// This is used by guard mode where we need to know which packages are being installed.
 func (pc *ParsedCommand) IsInstallationCommand() bool {
 	return pc.HasInstallTarget() || pc.HasManifestInstall()
+}
+
+// MayDownloadPackages returns true if the command may download packages from a registry.
+// Returns false only for commands explicitly known to be non-download (e.g., npm ls, pip list).
+// Unknown commands return true by default — fail safe when new package manager subcommands appear.
+func (pc *ParsedCommand) MayDownloadPackages() bool {
+	return !pc.IsKnownNonDownloadCommand
 }
 
 func (pc *ParsedCommand) HasInstallTarget() bool {
@@ -55,6 +71,19 @@ func (pc *ParsedCommand) HasManifestInstall() bool {
 
 func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
 	return pc.IsManifestInstall && !pc.HasInstallTarget()
+}
+
+// isFirstNonFlagArgInList checks if the first non-flag argument in args is in nonDownloadCmds.
+// Only the first non-flag arg (the subcommand) is checked to avoid false positives when package
+// names or script arguments happen to match a known non-download command.
+func isFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return slices.Contains(nonDownloadCmds, arg)
+	}
+	return false
 }
 
 // PackageManager is the contract for implementing a package manager
