@@ -92,7 +92,7 @@ pip install requests
 Verify PMG is working by installing a test package. This is a harmless package flagged as malicious in the SafeDep database, specifically meant for testing:
 
 ```bash
-npm i safedep-test-pkg@0.1.3
+npm --prefer-online --no-cache i safedep-test-pkg@0.1.3
 ```
 
 <details>
