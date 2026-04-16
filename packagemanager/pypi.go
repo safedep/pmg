@@ -148,17 +148,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if installCmdIndex == -1 {
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "-") {
-				continue
-			}
-			if slices.Contains(p.config.NonDownloadCommands, arg) {
-				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
-			}
-			break
-		}
-
-		return &ParsedCommand{Command: command}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, p.config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command
@@ -379,17 +369,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "-") {
-				continue
-			}
-			if slices.Contains(p.config.NonDownloadCommands, arg) {
-				return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: true}, nil
-			}
-			break
-		}
-
-		return &ParsedCommand{Command: command}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, p.config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command

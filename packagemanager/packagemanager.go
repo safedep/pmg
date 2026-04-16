@@ -2,6 +2,8 @@ package packagemanager
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
@@ -69,6 +71,19 @@ func (pc *ParsedCommand) HasManifestInstall() bool {
 
 func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
 	return pc.IsManifestInstall && !pc.HasInstallTarget()
+}
+
+// isFirstNonFlagArgInList checks if the first non-flag argument in args is in nonDownloadCmds.
+// Only the first non-flag arg (the subcommand) is checked to avoid false positives when package
+// names or script arguments happen to match a known non-download command.
+func isFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return slices.Contains(nonDownloadCmds, arg)
+	}
+	return false
 }
 
 // PackageManager is the contract for implementing a package manager
