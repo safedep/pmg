@@ -166,6 +166,189 @@ func TestParsePEP691Files_EmptyFiles(t *testing.T) {
 	assert.Empty(t, dates)
 }
 
+func TestStripCooldownFiles_MixedVersions(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * day), // old — eligible
+		"2.0.0": now.Add(-1 * day),  // too new (5d cooldown)
+	}
+	body := buildTestPEP691Response(versions)
+
+	dates, err := handler.parsePEP691Files(body)
+	require.NoError(t, err)
+
+	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5)
+	assert.Equal(t, 1, stripped)
+	assert.Equal(t, 1, remaining)
+
+	var result struct {
+		Files []struct {
+			Filename string `json:"filename"`
+		} `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(newBody, &result))
+
+	filenames := make([]string, 0, len(result.Files))
+	for _, f := range result.Files {
+		filenames = append(filenames, f.Filename)
+	}
+	assert.Contains(t, filenames, "testpkg-1.0.0.tar.gz")
+	assert.NotContains(t, filenames, "testpkg-2.0.0.tar.gz")
+}
+
+func TestStripCooldownFiles_AllVersionsTooNew(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-1 * day),
+		"2.0.0": now.Add(-2 * day),
+	}
+	body := buildTestPEP691Response(versions)
+
+	dates, err := handler.parsePEP691Files(body)
+	require.NoError(t, err)
+
+	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5)
+	assert.Equal(t, 2, stripped)
+	assert.Equal(t, 0, remaining)
+
+	var result struct {
+		Files []json.RawMessage `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(newBody, &result))
+	assert.Empty(t, result.Files)
+}
+
+func TestStripCooldownFiles_NoVersionsTooNew(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-10 * day),
+		"2.0.0": now.Add(-20 * day),
+	}
+	body := buildTestPEP691Response(versions)
+
+	dates, err := handler.parsePEP691Files(body)
+	require.NoError(t, err)
+
+	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5)
+	assert.Equal(t, 0, stripped)
+	assert.Equal(t, 2, remaining)
+	assert.Equal(t, body, newBody)
+}
+
+func TestStripCooldownFiles_SingleVersionInCooldown(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	now := time.Now()
+
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-1 * 24 * time.Hour),
+	}
+	body := buildTestPEP691Response(versions)
+
+	dates, err := handler.parsePEP691Files(body)
+	require.NoError(t, err)
+
+	_, stripped, remaining := handler.stripCooldownFiles(body, dates, 5)
+	assert.Equal(t, 1, stripped)
+	assert.Equal(t, 0, remaining)
+}
+
+func TestStripCooldownFiles_MultipleFilesPerVersion_AllStripped(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	now := time.Now()
+
+	body, _ := json.Marshal(map[string]any{
+		"meta": map[string]string{"api-version": "1.0"},
+		"name": "testpkg",
+		"files": []map[string]any{
+			{
+				"filename":    "testpkg-1.0.0.tar.gz",
+				"url":         "https://files.pythonhosted.org/packages/testpkg-1.0.0.tar.gz",
+				"upload-time": now.Add(-1 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
+				"hashes":      map[string]string{"sha256": "abc"},
+			},
+			{
+				"filename":    "testpkg-1.0.0-py3-none-any.whl",
+				"url":         "https://files.pythonhosted.org/packages/testpkg-1.0.0-py3-none-any.whl",
+				"upload-time": now.Add(-2 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
+				"hashes":      map[string]string{"sha256": "def"},
+			},
+		},
+	})
+
+	dates, err := handler.parsePEP691Files(body)
+	require.NoError(t, err)
+
+	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5)
+	assert.Equal(t, 1, stripped)  // 1 version stripped
+	assert.Equal(t, 0, remaining)
+
+	var result struct {
+		Files []json.RawMessage `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(newBody, &result))
+	assert.Empty(t, result.Files) // both files (sdist + wheel) removed
+}
+
+func TestStripCooldownFiles_MalformedJSON(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	body := []byte(`not-json`)
+	dates := map[string]time.Time{"1.0.0": time.Now().Add(-1 * time.Hour)}
+
+	newBody, stripped, _ := handler.stripCooldownFiles(body, dates, 5)
+	assert.Equal(t, 0, stripped)
+	assert.Equal(t, body, newBody)
+}
+
+func TestStripCooldownFiles_UnparseableFilename_KeepFile(t *testing.T) {
+	handler := newPypiCooldownHandler(nil)
+	now := time.Now()
+
+	// .egg is an unsupported extension — parseFilename will fail
+	// The file must be kept (fail-open), not stripped
+	body, _ := json.Marshal(map[string]any{
+		"meta": map[string]string{"api-version": "1.0"},
+		"name": "testpkg",
+		"files": []map[string]any{
+			{
+				"filename":    "testpkg-1.0.0.egg",
+				"url":         "https://files.pythonhosted.org/packages/testpkg-1.0.0.egg",
+				"upload-time": now.Add(-1 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
+				"hashes":      map[string]string{"sha256": "abc"},
+			},
+		},
+	})
+
+	// parsePEP691Files will skip the .egg file (no version extracted),
+	// so dates will be empty — nothing to strip
+	dates, err := handler.parsePEP691Files(body)
+	require.NoError(t, err)
+	assert.Empty(t, dates)
+
+	// Force tooNew to include a version that matches nothing, to exercise the
+	// stripCooldownFiles path with a non-empty tooNew map
+	forcedDates := map[string]time.Time{
+		"1.0.0": now.Add(-1 * 24 * time.Hour),
+	}
+	newBody, stripped, _ := handler.stripCooldownFiles(body, forcedDates, 5)
+	assert.Equal(t, 1, stripped) // version is "stripped" from the date map perspective
+
+	var result struct {
+		Files []json.RawMessage `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(newBody, &result))
+	// The .egg file must still be present — unparseable filename means fail-open
+	assert.Len(t, result.Files, 1)
+}
+
 var (
 	_ = config.DependencyCooldownConfig{}
 	_ = proxy.ActionAllow

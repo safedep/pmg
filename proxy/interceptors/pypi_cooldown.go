@@ -75,6 +75,79 @@ func (h *pypiCooldownHandler) parsePEP691Files(body []byte) (map[string]time.Tim
 	return dates, nil
 }
 
+// stripCooldownFiles removes all file entries for versions within the cooldown window
+// from a PEP 691 JSON body. Returns the modified body, number of versions stripped,
+// and number of versions remaining.
+func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
+	tooNew := make(map[string]bool)
+	for version, uploadDate := range dates {
+		if within, _, _ := cooldownIsWithinWindow(uploadDate, cooldownDays); within {
+			tooNew[version] = true
+		}
+	}
+
+	remaining := len(dates) - len(tooNew)
+
+	if len(tooNew) == 0 {
+		return body, 0, remaining
+	}
+
+	var resp map[string]json.RawMessage
+	if err := json.Unmarshal(body, &resp); err != nil {
+		log.Warnf("Cooldown: failed to unmarshal PEP 691 body for stripping: %v", err)
+		return body, 0, remaining
+	}
+
+	rawFiles, ok := resp["files"]
+	if !ok {
+		return body, 0, remaining
+	}
+
+	var files []json.RawMessage
+	if err := json.Unmarshal(rawFiles, &files); err != nil {
+		log.Warnf("Cooldown: failed to unmarshal files array: %v", err)
+		return body, 0, remaining
+	}
+
+	filtered := make([]json.RawMessage, 0, len(files))
+	for _, rawFile := range files {
+		var f struct {
+			Filename string `json:"filename"`
+		}
+		if err := json.Unmarshal(rawFile, &f); err != nil {
+			// Keep files we cannot parse to avoid accidentally dropping valid entries
+			filtered = append(filtered, rawFile)
+			continue
+		}
+
+		pkgInfo, err := parseFilename(f.Filename)
+		if err != nil {
+			// unparseable filename — keep it (fail-open)
+			filtered = append(filtered, rawFile)
+			continue
+		}
+		if tooNew[pkgInfo.GetVersion()] {
+			continue // strip
+		}
+		filtered = append(filtered, rawFile)
+	}
+
+	updatedFiles, err := json.Marshal(filtered)
+	if err != nil {
+		log.Warnf("Cooldown: failed to marshal filtered files array: %v", err)
+		return body, 0, remaining
+	}
+	resp["files"] = updatedFiles
+
+	result, err := json.Marshal(resp)
+	if err != nil {
+		log.Warnf("Cooldown: failed to marshal final PEP 691 response: %v", err)
+		return body, 0, remaining
+	}
+
+	return result, len(tooNew), remaining
+}
+
 // parsePEP691UploadTime parses the ISO 8601 upload-time field from PEP 691 responses.
 // Example: "2023-05-22T15:12:44.000000+00:00"
 func parsePEP691UploadTime(s string) (time.Time, error) {
