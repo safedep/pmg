@@ -47,9 +47,7 @@ func executeGoFlow(ctx context.Context, args []string) error {
 	}
 
 	if config.Get().IsProxyModeEnabled() {
-		// Proxy interception is not supported for Go yet. Keep the command inside
-		// the common guard flow so audit logging and sandbox enforcement still apply.
-		return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+		return flows.ProxyFlow(packageManager, packageResolver).Run(ctx, args, parsedCommand)
 	}
 
 	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)

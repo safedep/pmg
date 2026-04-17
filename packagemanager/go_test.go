@@ -91,6 +91,42 @@ func TestGoParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "go run remote module target",
+			command: "go run github.com/google/uuid@v1.6.0",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "github.com/google/uuid", parsed.InstallTargets[0].PackageVersion.GetPackage().GetName())
+				assert.Equal(t, "v1.6.0", parsed.InstallTargets[0].PackageVersion.GetVersion())
+				assert.True(t, parsed.IsInstallationCommand())
+				assert.True(t, parsed.MayDownloadPackages())
+				assert.False(t, parsed.IsKnownNonDownloadCommand)
+			},
+		},
+		{
+			name:    "go run remote module target without explicit version",
+			command: "go run github.com/google/uuid",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "github.com/google/uuid", parsed.InstallTargets[0].PackageVersion.GetPackage().GetName())
+				assert.Empty(t, parsed.InstallTargets[0].PackageVersion.GetVersion())
+				assert.True(t, parsed.IsInstallationCommand())
+				assert.True(t, parsed.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "go run local package does not produce install target",
+			command: "go run ./main.go",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsed.InstallTargets)
+				assert.False(t, parsed.IsInstallationCommand())
+				assert.True(t, parsed.MayDownloadPackages())
+				assert.False(t, parsed.IsKnownNonDownloadCommand)
+			},
+		},
+		{
 			name:    "go test is known non download command",
 			command: "go test ./...",
 			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
