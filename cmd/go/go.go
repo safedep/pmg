@@ -3,10 +3,10 @@ package gocmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/spf13/cobra"
@@ -41,18 +41,16 @@ func executeGoFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, parsedCommand.Command.Exe, parsedCommand.Command.Args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-
-		return fmt.Errorf("failed to execute go command: %w", err)
+	packageResolver, err := packagemanager.NewGoDependencyResolver(packagemanager.NewDefaultGoDependencyResolverConfig())
+	if err != nil {
+		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	return nil
+	if config.Get().IsProxyModeEnabled() {
+		// Proxy interception is not supported for Go yet. Keep the command inside
+		// the common guard flow so audit logging and sandbox enforcement still apply.
+		return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	}
+
+	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
 }
