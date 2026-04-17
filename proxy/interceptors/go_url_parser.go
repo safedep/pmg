@@ -103,9 +103,13 @@ func (g goProxyParser) ParseURL(urlPath string) (packageInfo, error) {
 			if version == "" {
 				return nil, fmt.Errorf("invalid Go proxy URL: empty version in %s request", s.requestType)
 			}
+			unescapedVersion, err := unescapeModulePath(version)
+			if err != nil {
+				return nil, fmt.Errorf("invalid version encoding in %s request: %w", s.requestType, err)
+			}
 			return &goModuleInfo{
 				name:        mod,
-				version:     version,
+				version:     unescapedVersion,
 				isZip:       s.isZip,
 				requestType: s.requestType,
 			}, nil
