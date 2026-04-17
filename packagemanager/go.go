@@ -53,13 +53,15 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	switch args[subcmdIndex] {
-	case "build", "run", "test", "fmt", "fix", "generate", "tool", "version", "env", "vet":
+	case "build", "test", "fmt", "fix", "generate", "tool", "version", "env", "vet":
 		return &ParsedCommand{
 			Command:                   command,
 			IsKnownNonDownloadCommand: true,
 		}, nil
 	case "install":
 		return g.parseGoInstall(command, args[subcmdIndex+1:])
+	case "run":
+		return g.parseGoRun(command, args[subcmdIndex+1:])
 	case "get":
 		return g.parseGoGet(command, args[subcmdIndex+1:])
 	case "mod":
@@ -71,6 +73,18 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 
 func (g *goPackageManager) parseGoInstall(command Command, args []string) (*ParsedCommand, error) {
 	targets, err := goParseRemoteModuleTargets(args, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ParsedCommand{
+		Command:        command,
+		InstallTargets: targets,
+	}, nil
+}
+
+func (g *goPackageManager) parseGoRun(command Command, args []string) (*ParsedCommand, error) {
+	targets, err := goParseRemoteModuleTargets(args, false)
 	if err != nil {
 		return nil, err
 	}
