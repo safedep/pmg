@@ -227,5 +227,9 @@ func isGoRemoteModuleTarget(target string) bool {
 		firstSegment = target[:slash]
 	}
 
+	if firstSegment == "..." {
+		return false
+	}
+
 	return strings.Contains(firstSegment, ".")
 }
