@@ -51,6 +51,14 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.confirmationChan,
 		), nil
 
+	case packagev1.Ecosystem_ECOSYSTEM_GO:
+		return NewGoRegistryInterceptor(
+			f.analyzer,
+			f.cache,
+			f.statsCollector,
+			f.confirmationChan,
+		), nil
+
 	default:
 		return nil, fmt.Errorf("proxy-based interception not yet supported for ecosystem: %s", ecosystem.String())
 	}
@@ -61,6 +69,7 @@ func SupportedEcosystems() []packagev1.Ecosystem {
 	return []packagev1.Ecosystem{
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,
+		packagev1.Ecosystem_ECOSYSTEM_GO,
 	}
 }
 
