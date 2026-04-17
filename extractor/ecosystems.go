@@ -30,6 +30,7 @@ const (
 	Yarn   PackageManagerName = "yarn"
 	Uv     PackageManagerName = "uv"
 	Poetry PackageManagerName = "poetry"
+	Go     PackageManagerName = "go"
 )
 
 type ExtractorManager struct {
@@ -47,6 +48,7 @@ func NewExtractorManager() *ExtractorManager {
 			Uv:     &UvExtractor{},
 			Poetry: &PoetryExtractor{},
 			Pip3:   &Pip3Extractor{},
+			Go:     &GoExtractor{},
 		},
 	}
 }
