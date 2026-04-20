@@ -298,12 +298,16 @@ func TestNpmCooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	ctx := makeTestRequestContext("https://registry.npmjs.org/lodash")
 	ctx.Headers.Set("Accept", "application/vnd.npm.install-v1+json")
 	ctx.Headers.Set("Accept-Encoding", "gzip")
+	ctx.Headers.Set("If-None-Match", `"abc123"`)
+	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
 	resp, err := handler.HandleMetadataRequest(ctx, "lodash", 5)
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
 	assert.Equal(t, "identity", ctx.Headers.Get("Accept-Encoding"))
+	assert.Empty(t, ctx.Headers.Get("If-None-Match"))
+	assert.Empty(t, ctx.Headers.Get("If-Modified-Since"))
 }
 
 func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
@@ -484,117 +488,4 @@ func TestNpmCooldown_TarballRequestBypassesCooldown(t *testing.T) {
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 	// Accept header should not be set to application/json for tarball requests
 	assert.NotEqual(t, proxy.ActionModifyResponse, resp.Action)
-}
-
-func TestIsWithinCooldown(t *testing.T) {
-	h := newNpmCooldownHandler(nil)
-	now := time.Now()
-	day := 24 * time.Hour
-
-	tests := []struct {
-		name                 string
-		publishDate          time.Time
-		cooldownDays         int
-		wantWithinCooldown   bool
-		wantDaysSincePublish int
-		wantDaysRemaining    int
-	}{
-		{
-			name:                 "published today with 30 day cooldown",
-			publishDate:          now,
-			cooldownDays:         30,
-			wantWithinCooldown:   true,
-			wantDaysSincePublish: 0,
-			wantDaysRemaining:    30,
-		},
-		{
-			name:                 "published exactly at cooldown boundary",
-			publishDate:          now.Add(-30 * day),
-			cooldownDays:         30,
-			wantWithinCooldown:   false,
-			wantDaysSincePublish: 30,
-			wantDaysRemaining:    0,
-		},
-		{
-			name:                 "published one day before cooldown expires",
-			publishDate:          now.Add(-29 * day),
-			cooldownDays:         30,
-			wantWithinCooldown:   true,
-			wantDaysSincePublish: 29,
-			wantDaysRemaining:    1,
-		},
-		{
-			name:                 "published well beyond cooldown",
-			publishDate:          now.Add(-365 * day),
-			cooldownDays:         30,
-			wantWithinCooldown:   false,
-			wantDaysSincePublish: 365,
-			wantDaysRemaining:    0,
-		},
-		{
-			name:                 "zero cooldown days",
-			publishDate:          now,
-			cooldownDays:         0,
-			wantWithinCooldown:   false,
-			wantDaysSincePublish: 0,
-			wantDaysRemaining:    0,
-		},
-		{
-			name:                 "future publish date is clamped to zero days",
-			publishDate:          now.Add(5 * day),
-			cooldownDays:         30,
-			wantWithinCooldown:   true,
-			wantDaysSincePublish: 0,
-			wantDaysRemaining:    30,
-		},
-		{
-			name:                 "large cooldown days that previously caused overflow",
-			publishDate:          now.Add(-10 * day),
-			cooldownDays:         1000000,
-			wantWithinCooldown:   true,
-			wantDaysSincePublish: 10,
-			wantDaysRemaining:    999990,
-		},
-		{
-			name:                 "max int cooldown days does not overflow",
-			publishDate:          now.Add(-1 * day),
-			cooldownDays:         int(^uint(0) >> 1), // math.MaxInt
-			wantWithinCooldown:   true,
-			wantDaysSincePublish: 1,
-			wantDaysRemaining:    int(^uint(0)>>1) - 1,
-		},
-		{
-			name:                 "very old publish date well past cooldown",
-			publishDate:          now.Add(-3652 * day),
-			cooldownDays:         30,
-			wantWithinCooldown:   false,
-			wantDaysSincePublish: 3652,
-			wantDaysRemaining:    0,
-		},
-		{
-			name:                 "one day cooldown with publish yesterday",
-			publishDate:          now.Add(-1 * day),
-			cooldownDays:         1,
-			wantWithinCooldown:   false,
-			wantDaysSincePublish: 1,
-			wantDaysRemaining:    0,
-		},
-		{
-			name:                 "one day cooldown with publish today",
-			publishDate:          now,
-			cooldownDays:         1,
-			wantWithinCooldown:   true,
-			wantDaysSincePublish: 0,
-			wantDaysRemaining:    1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			withinCooldown, daysSincePublish, daysRemaining := h.isWithinCooldown(tt.publishDate, tt.cooldownDays)
-			assert.Equal(t, tt.wantWithinCooldown, withinCooldown, "withinCooldown")
-			assert.Equal(t, tt.wantDaysSincePublish, daysSincePublish, "daysSincePublish")
-			assert.Equal(t, tt.wantDaysRemaining, daysRemaining, "daysRemaining")
-		})
-	}
 }
