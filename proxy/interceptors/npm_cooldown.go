@@ -45,6 +45,13 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 	// we'd get raw gzip bytes that fail JSON parsing.
 	ctx.Headers.Set("Accept-Encoding", "identity")
 
+	// Strip conditional-GET headers so the registry cannot return 304 Not Modified.
+	// A 304 has no body — the modifier would receive an empty body, fail to parse
+	// it as JSON, and fail-open, letting the client use its cached (unfiltered)
+	// response. Removing these forces a full 200 response on every request.
+	ctx.Headers.Del("If-None-Match")
+	ctx.Headers.Del("If-Modified-Since")
+
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		dates, err := h.parseMetadataTime(body)
 		if err != nil {
@@ -60,9 +67,9 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
 			if remaining == 0 && h.statsCollector != nil {
-				oldestVer, oldestDate := h.oldestVersion(dates)
+				oldestVer, oldestDate := cooldownOldestVersion(dates)
 				if oldestVer != "" {
-					_, daysAgo, daysLeft := h.isWithinCooldown(oldestDate, cooldownDays)
+					_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
 					h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
 				}
 			}
@@ -124,7 +131,7 @@ func (h *npmCooldownHandler) parseMetadataTime(body []byte) (map[string]time.Tim
 func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
 	tooNew := make(map[string]bool)
 	for version, publishDate := range dates {
-		if withinCooldown, _, _ := h.isWithinCooldown(publishDate, cooldownDays); withinCooldown {
+		if withinCooldown, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); withinCooldown {
 			tooNew[version] = true
 		}
 	}
@@ -181,7 +188,7 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 			changed := false
 			for tag, version := range distTags {
 				if tooNew[version] {
-					latest := h.latestNonCooldownVersion(dates, tooNew)
+					latest := cooldownLatestEligibleVersion(dates, tooNew)
 					if latest != "" {
 						distTags[tag] = latest
 					} else {
@@ -209,51 +216,3 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 	return result, len(tooNew), remaining
 }
 
-// oldestVersion returns the version with the earliest publish date.
-// When all versions are blocked by cooldown, this is the version closest
-// to exiting the cooldown window (shortest wait for the user).
-func (h *npmCooldownHandler) oldestVersion(dates map[string]time.Time) (string, time.Time) {
-	var oldest string
-	var oldestTime time.Time
-
-	for version, publishDate := range dates {
-		if oldestTime.IsZero() || publishDate.Before(oldestTime) {
-			oldest = version
-			oldestTime = publishDate
-		}
-	}
-
-	return oldest, oldestTime
-}
-
-// isWithinCooldown reports whether a version published at publishDate is still
-// within the cooldown window of cooldownDays. It also returns the number of
-// whole days since publication.
-func (h *npmCooldownHandler) isWithinCooldown(publishDate time.Time, cooldownDays int) (withinCooldown bool, daysSincePublish int, daysRemaining int) {
-	daysSincePublish = int(time.Since(publishDate).Hours() / 24)
-	if daysSincePublish < 0 {
-		daysSincePublish = 0
-	}
-	daysRemaining = cooldownDays - daysSincePublish
-	if daysRemaining < 0 {
-		daysRemaining = 0
-	}
-	return daysSincePublish < cooldownDays, daysSincePublish, daysRemaining
-}
-
-func (h *npmCooldownHandler) latestNonCooldownVersion(dates map[string]time.Time, tooNew map[string]bool) string {
-	var latest string
-	var latestTime time.Time
-
-	for version, publishDate := range dates {
-		if tooNew[version] {
-			continue
-		}
-		if publishDate.After(latestTime) {
-			latest = version
-			latestTime = publishDate
-		}
-	}
-
-	return latest
-}

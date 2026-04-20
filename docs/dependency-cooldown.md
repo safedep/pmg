@@ -28,4 +28,12 @@ pmg --skip-dependency-cooldown npm install express
 
 ## Requirements
 
-Dependency cooldown requires [proxy mode](proxy-mode.md) to be enabled. It is currently supported for npm packages.
+Dependency cooldown requires [proxy mode](proxy-mode.md) to be enabled. It is supported for npm and PyPI packages.
+
+## Limitations
+
+### PyPI: requires pip 22.3+ or a PEP 691-capable client
+
+PyPI cooldown is enforced by filtering the [PEP 691 JSON Simple API](https://peps.python.org/pep-0691/) response, which includes a per-file `upload-time` field needed to determine when each version was published. This JSON format is only supported by pip 22.3+ (released October 2022) and other modern tools such as uv, Poetry, and PDM.
+
+Older pip versions request the HTML Simple API, which carries no publish timestamps. PMG cannot apply cooldown filtering to HTML responses and fails open; the request passes through unchanged and the client receives the full version list. Old pip gets no cooldown protection but does not break.
