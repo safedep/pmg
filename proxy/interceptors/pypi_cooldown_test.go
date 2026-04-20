@@ -360,6 +360,7 @@ func TestPyPICooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/vnd.pypi.simple.v1+json", ctx.Headers.Get("Accept"))
 	assert.Equal(t, "identity", ctx.Headers.Get("Accept-Encoding"))
+	assert.Equal(t, "no-cache", ctx.Headers.Get("Cache-Control"))
 }
 
 func TestPyPICooldown_HandleMetadataRequest_NonJSONResponse_FailOpen(t *testing.T) {

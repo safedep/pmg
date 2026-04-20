@@ -33,6 +33,10 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 	// Prevent compression so the response body can be parsed as JSON directly.
 	ctx.Headers.Set("Accept-Encoding", "identity")
+	// Prevent conditional GET (If-None-Match / If-Modified-Since): a 304 response
+	// has no body, so the modifier would never run and pip would use its cached
+	// (possibly unfiltered) response.
+	ctx.Headers.Set("Cache-Control", "no-cache")
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		if !strings.Contains(headers.Get("Content-Type"), pypiSimpleAPIContentType) {

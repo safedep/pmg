@@ -304,6 +304,7 @@ func TestNpmCooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
 	assert.Equal(t, "identity", ctx.Headers.Get("Accept-Encoding"))
+	assert.Equal(t, "no-cache", ctx.Headers.Get("Cache-Control"))
 }
 
 func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
