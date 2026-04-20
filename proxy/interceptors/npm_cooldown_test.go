@@ -298,13 +298,16 @@ func TestNpmCooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	ctx := makeTestRequestContext("https://registry.npmjs.org/lodash")
 	ctx.Headers.Set("Accept", "application/vnd.npm.install-v1+json")
 	ctx.Headers.Set("Accept-Encoding", "gzip")
+	ctx.Headers.Set("If-None-Match", `"abc123"`)
+	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
 	resp, err := handler.HandleMetadataRequest(ctx, "lodash", 5)
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
 	assert.Equal(t, "identity", ctx.Headers.Get("Accept-Encoding"))
-	assert.Equal(t, "no-cache", ctx.Headers.Get("Cache-Control"))
+	assert.Empty(t, ctx.Headers.Get("If-None-Match"))
+	assert.Empty(t, ctx.Headers.Get("If-Modified-Since"))
 }
 
 func TestNpmCooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {

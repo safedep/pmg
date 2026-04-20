@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -33,18 +32,14 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 	// Prevent compression so the response body can be parsed as JSON directly.
 	ctx.Headers.Set("Accept-Encoding", "identity")
-	// Prevent conditional GET (If-None-Match / If-Modified-Since): a 304 response
-	// has no body, so the modifier would never run and pip would use its cached
-	// (possibly unfiltered) response.
-	ctx.Headers.Set("Cache-Control", "no-cache")
+	// Strip conditional-GET headers so PyPI cannot return 304 Not Modified.
+	// A 304 has no body — the modifier would receive an empty body, fail to parse
+	// it as JSON, and fail-open, letting the client use its cached (unfiltered)
+	// response. Removing these forces a full 200 response on every request.
+	ctx.Headers.Del("If-None-Match")
+	ctx.Headers.Del("If-Modified-Since")
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
-		if !strings.Contains(headers.Get("Content-Type"), pypiSimpleAPIContentType) {
-			log.Warnf("[%s] Cooldown: unexpected content-type %q for %s, skipping cooldown",
-				ctx.RequestID, headers.Get("Content-Type"), packageName)
-			return statusCode, headers, body, nil
-		}
-
 		dates, err := h.parsePEP691Files(body)
 		if err != nil {
 			log.Warnf("[%s] Cooldown: failed to parse PEP 691 metadata for %s: %v", ctx.RequestID, packageName, err)

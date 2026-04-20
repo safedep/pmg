@@ -45,10 +45,12 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 	// we'd get raw gzip bytes that fail JSON parsing.
 	ctx.Headers.Set("Accept-Encoding", "identity")
 
-	// Prevent conditional GET (If-None-Match / If-Modified-Since): a 304 response
-	// has no body, so the modifier would never run and the client would use its
-	// cached (possibly unfiltered) response.
-	ctx.Headers.Set("Cache-Control", "no-cache")
+	// Strip conditional-GET headers so the registry cannot return 304 Not Modified.
+	// A 304 has no body — the modifier would receive an empty body, fail to parse
+	// it as JSON, and fail-open, letting the client use its cached (unfiltered)
+	// response. Removing these forces a full 200 response on every request.
+	ctx.Headers.Del("If-None-Match")
+	ctx.Headers.Del("If-Modified-Since")
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		dates, err := h.parseMetadataTime(body)
