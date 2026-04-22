@@ -8,6 +8,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
@@ -38,6 +39,7 @@ func executeSetupInfo() error {
 	configEntries := make(map[string]string)
 	configEntries["Config File"] = cfg.ConfigFilePath()
 	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.IsProxyModeEnabled())
+	configEntries["Proxy Install Only"] = strconv.FormatBool(cfg.Config.ProxyInstallOnly)
 	ui.PrintInfoSection("Configuration", configEntries)
 
 	// Shell Integration section
@@ -89,6 +91,7 @@ func executeSetupInfo() error {
 
 	securityEntries["Dependency Cooldown"] = strconv.FormatBool(cfg.Config.DependencyCooldown.Enabled)
 	securityEntries["Dependency Cooldown Days"] = strconv.Itoa(cfg.Config.DependencyCooldown.Days)
+	securityEntries["Telemetry"] = strconv.FormatBool(!analytics.IsDisabled())
 	securityEntries["Event Logging"] = strconv.FormatBool(!cfg.Config.SkipEventLogging)
 	securityEntries["Event Log Directory"] = cfg.EventLogDir()
 
