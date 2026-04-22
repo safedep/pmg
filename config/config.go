@@ -53,6 +53,9 @@ type Config struct {
 	// Paranoid enables high-security defaults (e.g., treating suspicious behavior as malicious).
 	Paranoid bool `mapstructure:"paranoid"`
 
+	// DisableTelemetry allows turning off telemetry collection.
+	DisableTelemetry bool `mapstructure:"disable_telemetry"`
+
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 
@@ -242,6 +245,7 @@ func DefaultConfig() RuntimeConfig {
 			TransitiveDepth:        5,
 			IncludeDevDependencies: false,
 			Paranoid:               false,
+			DisableTelemetry:       false,
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
 			ExperimentalProxyMode:  false,

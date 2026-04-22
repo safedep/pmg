@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/posthog/posthog-go"
+	"github.com/safedep/pmg/config"
 )
 
 const (
@@ -47,6 +48,10 @@ func init() {
 }
 
 func isTelemetryDisabled() bool {
+	if config.Get().Config.DisableTelemetry {
+		return true
+	}
+
 	val := os.Getenv(telemetryDisableEnvKey)
 	if booleanVal, err := strconv.ParseBool(val); err == nil {
 		return booleanVal

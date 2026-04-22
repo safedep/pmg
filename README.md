@@ -225,4 +225,6 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 ## Telemetry
 
 PMG collects anonymous usage data to improve project stability and reliability.
-To disable: `export PMG_DISABLE_TELEMETRY=true`.
+To disable, either:
+- Set `disable_telemetry: true` in your PMG config file, or
+- Export `PMG_DISABLE_TELEMETRY=true`.

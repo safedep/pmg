@@ -154,6 +154,19 @@ func TestConfigPrecedence(t *testing.T) {
 		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "config file should override default")
 	})
 
+	t.Run("telemetry can be disabled via config", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		t.Setenv("PMG_DISABLE_TELEMETRY", "")
+
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte("disable_telemetry: true\n"), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		assert.Equal(t, true, Get().Config.DisableTelemetry, "config file should disable telemetry")
+	})
+
 	t.Run("env var works when key is absent from config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)

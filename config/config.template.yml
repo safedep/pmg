@@ -20,6 +20,9 @@ verbosity: normal
 # as malicious packages
 paranoid: false
 
+# Disable anonymous telemetry. Default is false.
+disable_telemetry: false
+
 # Skip event logging. Default is false.
 # When skip_event_logging is false, all events will be logged to file. These events are useful for audit
 # trail and incident response on systems using PMG. Set this config to true to disable event logging.

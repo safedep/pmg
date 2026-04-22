@@ -31,7 +31,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
 
 	if analytics.IsDisabled() {
-		ui.Infof("Cloud sync is disabled because telemetry is disabled (PMG_DISABLE_TELEMETRY)")
+		ui.Infof("Cloud sync is disabled because telemetry is disabled (disable_telemetry or PMG_DISABLE_TELEMETRY)")
 		return nil
 	}
 
