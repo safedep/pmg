@@ -30,7 +30,7 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	assert.Equal(t, 5, cfg.TransitiveDepth, "expected TransitiveDepth 5")
 	assert.False(t, false, cfg.IncludeDevDependencies, "expected IncludeDevDependencies false")
 	assert.False(t, false, cfg.Paranoid, "expected Paranoid false")
-	assert.False(t, false, cfg.DisableTelemetry, "expected DisableTelemetry false")
+	assert.False(t, cfg.DisableTelemetry, "expected DisableTelemetry false")
 	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
 	assert.Equal(t, 7, cfg.EventLogRetentionDays, "expected EventLogRetentionDays 7")
 	assert.Len(t, cfg.TrustedPackages, 1)
