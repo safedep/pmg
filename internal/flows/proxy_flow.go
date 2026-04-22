@@ -152,8 +152,19 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Block:       ui.BlockNoExit,
 	}
 
+	// Extract pinned versions from install targets so cooldown handlers can
+	// report when a user's explicitly requested version was blocked.
+	pinnedVersions := make(map[string]string)
+	for _, t := range parsedCmd.InstallTargets {
+		if t.HasVersion() {
+			pinnedVersions[t.PackageVersion.GetPackage().GetName()] = t.PackageVersion.GetVersion()
+		}
+	}
+
 	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan)
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
+		PinnedVersions: pinnedVersions,
+	})
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)

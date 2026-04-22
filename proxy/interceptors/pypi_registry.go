@@ -50,6 +50,7 @@ func NewPypiRegistryInterceptor(
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
+	execContext InterceptorContext,
 ) *PypiRegistryInterceptor {
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -58,6 +59,7 @@ func NewPypiRegistryInterceptor(
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
+			execContext:      execContext,
 		},
 		cooldownHandler: newPypiCooldownHandler(statsCollector),
 	}
@@ -116,7 +118,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		// for version resolution. JSON API requests (/pypi/{pkg}/json) are allowed through;
 		// they have a different response structure and pip does not use them for installs.
 		if depCooldownConfig.Enabled && strings.HasPrefix(ctx.URL.Path, "/simple/") {
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days)
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())

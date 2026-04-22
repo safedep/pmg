@@ -32,7 +32,7 @@ func newNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *npmCooldownH
 // HandleMetadataRequest overrides the Accept header to force the registry to return
 // a full packument (which includes publish dates in the "time" field), then registers
 // a response modifier that strips versions within the cooldown window.
-func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int) (*proxy.InterceptorResponse, error) {
+func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
 	// Force full packument so the response always contains the "time" field.
@@ -66,11 +66,19 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
-			if remaining == 0 && h.statsCollector != nil {
-				oldestVer, oldestDate := cooldownOldestVersion(dates)
-				if oldestVer != "" {
-					_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
-					h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
+			if h.statsCollector != nil {
+				if remaining == 0 {
+					oldestVer, oldestDate := cooldownOldestVersion(dates)
+					if oldestVer != "" {
+						_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
+						h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
+					}
+				} else if pinnedVersion != "" {
+					if pinnedDate, ok := dates[pinnedVersion]; ok {
+						if withinCooldown, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays); withinCooldown {
+							h.statsCollector.RecordCooldownBlocked(packageName, pinnedVersion, pinnedDate, daysAgo, daysLeft, cooldownDays)
+						}
+					}
 				}
 			}
 
@@ -215,4 +223,3 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 
 	return result, len(tooNew), remaining
 }
-
