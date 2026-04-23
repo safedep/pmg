@@ -23,7 +23,6 @@ npm install -g @safedep/pmg
 You can also install PMG with Homebrew:
 
 ```bash
-brew tap safedep/tap
 brew install safedep/tap/pmg
 ```
 
