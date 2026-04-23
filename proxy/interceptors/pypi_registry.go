@@ -52,6 +52,14 @@ func NewPypiRegistryInterceptor(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) *PypiRegistryInterceptor {
+	// Re-key pinned versions to the normalized form (lowercase, underscores→hyphens)
+	// so lookups by URL-parsed package name match correctly.
+	normalizedPinned := make(map[string]string, len(execContext.PinnedVersions))
+	for name, version := range execContext.PinnedVersions {
+		normalizedPinned[denormalizePyPIPackageName(name)] = version
+	}
+	execContext.PinnedVersions = normalizedPinned
+
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
