@@ -20,6 +20,9 @@ verbosity: normal
 # as malicious packages
 paranoid: false
 
+# Disable anonymous telemetry. Default is false.
+disable_telemetry: false
+
 # Skip event logging. Default is false.
 # When skip_event_logging is false, all events will be logged to file. These events are useful for audit
 # trail and incident response on systems using PMG. Set this config to true to disable event logging.
@@ -35,6 +38,12 @@ event_log_retention_days: 7
 # and analyzes packages as they are downloaded. Proxy mode may not work in all environments,
 # and can be disabled to fall back to the guard-based analysis.
 proxy_mode: true
+
+# Restrict proxy to install commands only. Default is false.
+# When false, the proxy intercepts all package manager commands (e.g., npm install, npm ls).
+# When true, non-install commands bypass the proxy and execute directly, which can improve
+# performance for commands that don't download packages (e.g., npm ls, pip list, npm outdated).
+proxy_install_only: false
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
@@ -137,3 +146,18 @@ sandbox:
     uv:
       enabled: true
       profile: pypi-restrictive
+
+# Dependency cooldown blocks installation of package versions published within
+# a configurable time window.
+dependency_cooldown:
+  enabled: true
+  days: 5
+
+# Cloud sync configuration.
+# When enabled, PMG audit events are synced to SafeDep Cloud for centralized visibility.
+# Requires SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables for authentication.
+cloud:
+  enabled: false
+  # Endpoint ID is not required. By default, it falls back to the machine's hostname.
+  # Set it only if you want to explicitly override the identifier for this endpoint.
+  # endpoint_id: "my-machine"

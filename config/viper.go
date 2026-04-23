@@ -8,38 +8,41 @@ import (
 	"github.com/spf13/viper"
 )
 
-// loadViperConfig loads the configuration using Viper if available.
-// It returns an error if the config file exists but cannot be read or parsed,
-// allowing the caller to fall back to default configuration.
+// loadViperConfig loads the configuration using Viper.
+// Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
+// Cobra flags write directly to the config struct after this function runs.
 func loadViperConfig() error {
 	configPath, err := configFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}
 
-	// Check if config file exists before attempting to load
-	// If it doesn't exist, we use the default configuration (see config.go)
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil
-	}
-
 	v := viper.New()
-
-	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
 	v.SetEnvPrefix("PMG")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
-	if err := v.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	// Load the embedded template as the base so Viper knows all keys and their
+	// defaults. This is required for AutomaticEnv to resolve PMG_* env vars for
+	// keys that are absent from or newer than the user's config file.
+	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
+		return fmt.Errorf("failed to load default config: %w", err)
 	}
 
-	var loadedConfig Config
-	if err := v.Unmarshal(&loadedConfig); err != nil {
+	// Merge user config on top if it exists.
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		v.SetConfigFile(configPath)
+		if err := v.MergeInConfig(); err != nil {
+			return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		}
+	}
+
+	merged := globalConfig.Config
+	if err := v.Unmarshal(&merged); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	globalConfig.Config = loadedConfig
+	globalConfig.Config = merged
 	return nil
 }

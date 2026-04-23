@@ -53,6 +53,9 @@ type Config struct {
 	// Paranoid enables high-security defaults (e.g., treating suspicious behavior as malicious).
 	Paranoid bool `mapstructure:"paranoid"`
 
+	// DisableTelemetry allows turning off telemetry collection.
+	DisableTelemetry bool `mapstructure:"disable_telemetry"`
+
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 
@@ -70,12 +73,27 @@ type Config struct {
 	// we initially introduced it as an experimental feature.
 	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
 
+	// ProxyInstallOnly restricts proxy interception to install commands only.
+	// When false (default), proxy runs for all package manager commands.
+	// When true, non-install commands (e.g., npm ls, pip list) bypass the proxy and execute directly.
+	ProxyInstallOnly bool `mapstructure:"proxy_install_only"`
+
 	// Verbosity controls the UI verbosity level. Valid values: "silent", "normal", "verbose".
 	Verbosity string `mapstructure:"verbosity"`
 
 	// Sandbox enables sandboxing of package manager processes with controlled filesystem,
 	// network, and process execution access. Provides defense-in-depth against supply chain attacks.
 	Sandbox SandboxConfig `mapstructure:"sandbox"`
+
+	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
+
+	Cloud CloudConfig `mapstructure:"cloud"`
+}
+
+// CloudConfig configures audit event sync to SafeDep Cloud.
+type CloudConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	EndpointID string `mapstructure:"endpoint_id"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -94,6 +112,13 @@ type SandboxConfig struct {
 
 	// PolicyTemplates maps template names to their paths.
 	PolicyTemplates map[string]SandboxPolicyTemplate `mapstructure:"policy_templates"`
+}
+
+// DependencyCooldownConfig blocks installation of package versions published within a
+// configurable time window, reducing exposure to supply chain attacks.
+type DependencyCooldownConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	Days    int  `mapstructure:"days"`
 }
 
 // SandboxPolicyTemplate defines a template for a sandbox policy, used to map
@@ -152,6 +177,11 @@ type RuntimeConfig struct {
 	configDir      string
 	configFilePath string
 	eventLogDir    string
+}
+
+// CloudSyncDBPath returns the path to the cloud sync WAL database.
+func (r *RuntimeConfig) CloudSyncDBPath() string {
+	return filepath.Join(r.configDir, "cloud-sync.db")
 }
 
 // ConfigFilePath returns the path to the config file.
@@ -215,6 +245,7 @@ func DefaultConfig() RuntimeConfig {
 			TransitiveDepth:        5,
 			IncludeDevDependencies: false,
 			Paranoid:               false,
+			DisableTelemetry:       false,
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
 			ExperimentalProxyMode:  false,
@@ -224,6 +255,13 @@ func DefaultConfig() RuntimeConfig {
 			Sandbox: SandboxConfig{
 				Enabled:       false,
 				EnforceAlways: false,
+			},
+			DependencyCooldown: DependencyCooldownConfig{
+				Enabled: true,
+				Days:    5,
+			},
+			Cloud: CloudConfig{
+				Enabled: false,
 			},
 		},
 		DryRun:               false,

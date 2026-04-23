@@ -2,17 +2,20 @@ package interceptors
 
 import (
 	"sync"
+	"time"
 
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/internal/models"
 )
 
 // AnalysisStats contains aggregated statistics from analysis results
 type AnalysisStats struct {
-	TotalAnalyzed      int
-	AllowedCount       int
-	ConfirmedCount     int
-	BlockedCount       int
-	UserCancelledCount int
+	TotalAnalyzed        int
+	AllowedCount         int
+	ConfirmedCount       int
+	BlockedCount         int
+	UserCancelledCount   int
+	CooldownBlockedCount int
 }
 
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
@@ -23,6 +26,7 @@ type AnalysisStatsCollector struct {
 	stats             AnalysisStats
 	blockedPackages   []*analyzer.PackageVersionAnalysisResult
 	confirmedPackages []*analyzer.PackageVersionAnalysisResult
+	cooldownBlocks    []models.CooldownBlock
 }
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -116,5 +120,33 @@ func (c *AnalysisStatsCollector) GetConfirmedPackages() []*analyzer.PackageVersi
 	// Return a copy to avoid race conditions
 	result := make([]*analyzer.PackageVersionAnalysisResult, len(c.confirmedPackages))
 	copy(result, c.confirmedPackages)
+	return result
+}
+
+// RecordCooldownBlocked records a package blocked by the dependency cooldown policy.
+func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, publishDate time.Time, daysAgo, daysLeft, cooldownDays int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.stats.TotalAnalyzed++
+	c.stats.BlockedCount++
+	c.stats.CooldownBlockedCount++
+	c.cooldownBlocks = append(c.cooldownBlocks, models.CooldownBlock{
+		Name:         name,
+		Version:      version,
+		PublishDate:  publishDate,
+		DaysAgo:      daysAgo,
+		DaysLeft:     daysLeft,
+		CooldownDays: cooldownDays,
+	})
+}
+
+// GetCooldownBlocks returns all packages blocked by the cooldown policy.
+func (c *AnalysisStatsCollector) GetCooldownBlocks() []models.CooldownBlock {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]models.CooldownBlock, len(c.cooldownBlocks))
+	copy(result, c.cooldownBlocks)
 	return result
 }

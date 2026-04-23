@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/internal/models"
+	"golang.org/x/term"
 )
 
 // The UI is internal to PMG and opinionated for the CLI.
@@ -134,6 +136,51 @@ func ShowWarning(message string) {
 	fmt.Fprintf(os.Stderr, "PMG: %s\n", Colors.Red(message))
 }
 
+// Infof prints an informational message, suppressed in silent mode.
+func Infof(msg string, args ...interface{}) {
+	if verbosityLevel == VerbosityLevelSilent {
+		return
+	}
+	fmt.Println(fmt.Sprintf(msg, args...))
+}
+
+// Successf prints a green success message, suppressed in silent mode.
+func Successf(msg string, args ...interface{}) {
+	if verbosityLevel == VerbosityLevelSilent {
+		return
+	}
+	fmt.Printf("%s %s\n", Colors.Green("✓"), fmt.Sprintf(msg, args...))
+}
+
+// PromptInput prints a label and reads a line of visible input from stdin.
+func PromptInput(label string) (string, error) {
+	fmt.Printf("%s %s", Colors.Cyan("›"), Colors.Bold(label))
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		return strings.TrimSpace(scanner.Text()), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("no input received")
+}
+
+// PromptSecret prints a label and reads input from stdin with echo disabled.
+// Returns an error if stdin is not a terminal (e.g. piped input).
+func PromptSecret(label string) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("interactive terminal required for secure input")
+	}
+
+	fmt.Printf("%s %s", Colors.Cyan("▪"), Colors.Bold(label))
+	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println() // newline after hidden input
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
 func Fatalf(msg string, args ...interface{}) {
 	ClearStatus()
 
@@ -156,6 +203,43 @@ func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalys
 			fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf("Reference: %s", mp.ReferenceURL)))
 		}
 	}
+}
+
+func printCooldownPackagesList(packages []models.CooldownBlock) {
+	for _, pkg := range packages {
+		fmt.Println()
+		fmt.Printf("  %s %s\n",
+			Colors.Yellow("⊘"),
+			Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
+
+		dateStr := ""
+		if !pkg.PublishDate.IsZero() {
+			dateStr = fmt.Sprintf(" (%s)", pkg.PublishDate.Format("2006-01-02"))
+		}
+
+		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf(
+			"Published %s ago%s — available in %s",
+			pluralizeDays(pkg.DaysAgo), dateStr, pluralizeDays(pkg.DaysLeft),
+		)))
+		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf(
+			"Tip: wait %s for cooldown to expire",
+			pluralizeDays(pkg.DaysLeft),
+		)))
+	}
+}
+
+func pluralizeDays(n int) string {
+	if n == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", n)
+}
+
+func pluralizePackages(n int) string {
+	if n == 1 {
+		return "1 package"
+	}
+	return fmt.Sprintf("%d packages", n)
 }
 
 // Format the string to be maximum maxWidth. Use newlines to wrap the text.

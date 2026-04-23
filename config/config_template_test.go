@@ -30,6 +30,7 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	assert.Equal(t, 5, cfg.TransitiveDepth, "expected TransitiveDepth 5")
 	assert.False(t, false, cfg.IncludeDevDependencies, "expected IncludeDevDependencies false")
 	assert.False(t, false, cfg.Paranoid, "expected Paranoid false")
+	assert.False(t, cfg.DisableTelemetry, "expected DisableTelemetry false")
 	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
 	assert.Equal(t, 7, cfg.EventLogRetentionDays, "expected EventLogRetentionDays 7")
 	assert.Len(t, cfg.TrustedPackages, 1)
@@ -52,6 +53,7 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.Equal(t, def.TransitiveDepth, parsed.TransitiveDepth, "transitive_depth mismatch")
 	assert.Equal(t, def.IncludeDevDependencies, parsed.IncludeDevDependencies, "include_dev_dependencies mismatch")
 	assert.Equal(t, def.Paranoid, parsed.Paranoid, "paranoid mismatch")
+	assert.Equal(t, def.DisableTelemetry, parsed.DisableTelemetry, "disable_telemetry mismatch")
 	assert.Equal(t, def.SkipEventLogging, parsed.SkipEventLogging, "skip_event_logging mismatch")
 	assert.Equal(t, def.EventLogRetentionDays, parsed.EventLogRetentionDays, "event_log_retention_days mismatch")
 	assert.Equal(t, def.Verbosity, parsed.Verbosity, "verbosity mismatch")
@@ -61,4 +63,9 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	first := parsed.TrustedPackages[0]
 	assert.NotEmpty(t, first.Purl, "first trusted package has empty purl")
 	assert.NotEmpty(t, first.Reason, "first trusted package has empty reason")
+
+	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
+	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
+
+	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
 }

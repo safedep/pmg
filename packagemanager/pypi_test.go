@@ -1,6 +1,7 @@
 package packagemanager
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -853,6 +854,117 @@ func TestPypiConvertWildcardConstraint(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := pypiConvertWildcardConstraint(tc.input)
 			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestPypiProxyBehavior(t *testing.T) {
+	cases := []struct {
+		name                  string
+		pm                    func() (*pypiPackageManager, error)
+		command               string
+		isKnownNonDownloadCmd bool // proxy skipped when proxy_install_only=true
+		isInstallationCommand bool
+	}{
+		// Commands where proxy MUST run
+		{
+			name:                  "poetry update — proxy runs (may download)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			command:               "poetry update",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "poetry add — proxy runs (installation command)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			command:               "poetry add django",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "uv sync — proxy runs (manifest install)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			command:               "uv sync",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "pip download — proxy runs (explicitly downloads packages)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			command:               "pip download requests",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "pip3 download — proxy runs (explicitly downloads packages)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPip3PackageManagerConfig()) },
+			command:               "pip3 download django",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "uv pip download — proxy runs (uv has complex subcommands, fail safe)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			command:               "uv pip download requests",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "uv run — proxy runs (auto-installs script dependencies)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			command:               "uv run script.py",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		// Commands where proxy is safely skipped
+		{
+			name:                  "pip list — proxy skipped (lists installed packages)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			command:               "pip list",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "pip show — proxy skipped (shows package metadata)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			command:               "pip show requests",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "poetry show — proxy skipped (shows dependency info)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			command:               "poetry show",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "poetry check — proxy skipped (validates pyproject.toml)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			command:               "poetry check",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		// Unknown commands default to proxy running (fail safe)
+		{
+			name:                  "unknown pip subcommand — proxy runs (fail safe)",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			command:               "pip some-future-command",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pm, err := tc.pm()
+			assert.NoError(t, err)
+
+			parsed, err := pm.ParseCommand(strings.Split(tc.command, " "))
+			assert.NoError(t, err)
+			assert.Equal(t, tc.isKnownNonDownloadCmd, parsed.IsKnownNonDownloadCommand)
+			assert.Equal(t, tc.isInstallationCommand, parsed.IsInstallationCommand())
+			assert.Equal(t, !tc.isKnownNonDownloadCmd, parsed.MayDownloadPackages())
 		})
 	}
 }

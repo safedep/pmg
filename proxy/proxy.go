@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -518,9 +520,33 @@ func (ps *proxyServer) registerHandlers() {
 			return resp
 		}
 
-		// TODO: Implement response body modification
-		// This requires buffering the response body, modifying it, and creating a new response
-		// For now, lets skip it
+		body, err := io.ReadAll(resp.Body)
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Warnf("[%s] Failed to close response body: %v", reqCtx.RequestID, closeErr)
+		}
+		if err != nil {
+			log.Errorf("[%s] Failed to read response body for modifier: %v", reqCtx.RequestID, err)
+			errMsg := []byte("PMG: failed to read response from upstream registry")
+			resp.StatusCode = http.StatusServiceUnavailable
+			resp.Status = ""
+			resp.Body = io.NopCloser(bytes.NewReader(errMsg))
+			resp.ContentLength = int64(len(errMsg))
+			return resp
+		}
+
+		newStatusCode, newHeaders, newBody, err := modifier(resp.StatusCode, resp.Header, body)
+		if err != nil {
+			log.Errorf("[%s] Response modifier error: %v", reqCtx.RequestID, err)
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			resp.ContentLength = int64(len(body))
+			return resp
+		}
+
+		resp.StatusCode = newStatusCode
+		resp.Status = ""
+		resp.Header = newHeaders
+		resp.Body = io.NopCloser(bytes.NewReader(newBody))
+		resp.ContentLength = int64(len(newBody))
 
 		return resp
 	})
