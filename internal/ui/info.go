@@ -20,7 +20,8 @@ func PrintInfoSection(title string, entries map[string]string) {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		fmt.Printf("%-25s: %s\n", Colors.Bold(k), entries[k])
+		padded := fmt.Sprintf("%-25s", k)
+		fmt.Printf("%s: %s\n", Colors.Bold(padded), entries[k])
 	}
 }
 

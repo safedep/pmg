@@ -164,6 +164,11 @@ func (s *stubMalwareAnalysisServiceClient) InternalAnalyzePackage(ctx context.Co
 	return nil, nil
 }
 func (s *stubMalwareAnalysisServiceClient) ListPackageAnalysisRecords(ctx context.Context, req *malysisv1.ListPackageAnalysisRecordsRequest, opts ...grpc.CallOption) (*malysisv1.ListPackageAnalysisRecordsResponse, error) {
-	// Not used in these tests
+	return nil, nil
+}
+func (s *stubMalwareAnalysisServiceClient) InternalAgenticAnalyzePackage(ctx context.Context, req *malysisv1.InternalAgenticAnalyzePackageRequest, opts ...grpc.CallOption) (*malysisv1.InternalAgenticAnalyzePackageResponse, error) {
+	return nil, nil
+}
+func (s *stubMalwareAnalysisServiceClient) InternalPublishDomainEvent(ctx context.Context, req *malysisv1.InternalPublishDomainEventRequest, opts ...grpc.CallOption) (*malysisv1.InternalPublishDomainEventResponse, error) {
 	return nil, nil
 }

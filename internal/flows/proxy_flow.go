@@ -14,7 +14,9 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/pty"
+	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
@@ -38,7 +40,7 @@ func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.
 }
 
 // Run executes the proxy-based flow
-func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) error {
+func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
 	// Check if we have a supported ecosystem else fail fast
 	ecosystem := f.pm.Ecosystem()
 	if !interceptors.IsSupported(ecosystem) {
@@ -49,6 +51,12 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
 
 	cfg := config.Get()
+
+	// Skip proxy for commands that don't download packages when proxy_install_only is enabled
+	if cfg.Config.ProxyInstallOnly && !parsedCmd.MayDownloadPackages() {
+		log.Debugf("Skipping proxy for non-download command (proxy_install_only=true)")
+		return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+	}
 
 	// Initialize report data at the start
 	reportData := ui.NewReportData()
@@ -71,6 +79,23 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	startTime := time.Now()
+
+	audit.LogInstallStarted(f.pm.Name(), args)
+
+	sessionCompleted := false
+	defer func() {
+		if sessionCompleted {
+			return
+		}
+
+		// On early error returns (e.g. CA cert, analyzer init), reportData.Outcome
+		// is still the default (Success). Override to Error for these cases.
+		if runErr != nil && reportData.Outcome == ui.OutcomeSuccess {
+			reportData.Outcome = ui.OutcomeError
+		}
+
+		audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
+	}()
 
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
@@ -127,8 +152,19 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Block:       ui.BlockNoExit,
 	}
 
+	// Extract pinned versions from install targets so cooldown handlers can
+	// report when a user's explicitly requested version was blocked.
+	pinnedVersions := make(map[string]string)
+	for _, target := range parsedCmd.InstallTargets {
+		if target.IsExplicitVersion {
+			pinnedVersions[target.PackageVersion.GetPackage().GetName()] = target.PackageVersion.GetVersion()
+		}
+	}
+
 	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan)
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
+		PinnedVersions: pinnedVersions,
+	})
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
@@ -156,6 +192,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}()
 
 	ui.ClearStatus()
+
 	log.Infof("Proxy server started on %s", proxyAddr)
 	log.Infof("Running %s with proxy protection enabled", f.pm.Name())
 
@@ -179,9 +216,15 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.BlockedCount = stats.BlockedCount
 	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
+	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
+
+	// Emit session complete before report/exit — handleExecutionResultError may call
+	// os.Exit which skips defers, so we must emit the session summary here.
+	audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
+	sessionCompleted = true
 
 	// Show the report
 	ui.Report(reportData)

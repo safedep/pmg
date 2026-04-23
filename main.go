@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/cmd/cloud"
 	"github.com/safedep/pmg/cmd/executors"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
@@ -12,6 +13,7 @@ import (
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/ui"
 	appVersion "github.com/safedep/pmg/internal/version"
@@ -84,6 +86,12 @@ func main() {
 				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
 
+			if err := audit.Initialize(config.Get()); err != nil {
+				ui.ErrorExit(err)
+			}
+
+			config.FinalizeDependencyCooldownOverride()
+
 			// Parse and validate --sandbox-allow flags after all flags are resolved
 			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
 				ui.Fatalf("pmg: %v", err)
@@ -120,6 +128,7 @@ func main() {
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
+	cmd.AddCommand(cloud.NewCloudCommand())
 
 	// Print Banner on --help / -h
 	cmd.SetHelpFunc(func(command *cobra.Command, args []string) {
@@ -129,6 +138,11 @@ func main() {
 
 	defer analytics.Close()
 	defer eventlog.Close()
+	defer func() {
+		if err := audit.Close(); err != nil {
+			log.Warnf("failed to close audit system: %v", err)
+		}
+	}()
 
 	analytics.TrackCommandRun()
 	analytics.TrackCI()

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"slices"
 	"sync"
 	"time"
@@ -15,12 +14,15 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
-	"github.com/safedep/pmg/internal/eventlog"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
-	"github.com/safedep/pmg/sandbox/executor"
-	"github.com/safedep/pmg/usefulerror"
 )
+
+// CommandExecutor executes a parsed package manager command directly.
+// It is injected into the guard so that callers control execution behavior
+// (e.g., dry-run, sandbox application) without guard depending on internal packages.
+type CommandExecutor func(ctx context.Context, pc *packagemanager.ParsedCommand) error
 
 type PackageManagerGuardInteraction struct {
 	// SetStatus is called to set the status of the guard in the UI
@@ -98,6 +100,7 @@ type packageManagerGuard struct {
 	analyzers       []analyzer.PackageVersionAnalyzer
 	packageManager  packagemanager.PackageManager
 	packageResolver packagemanager.PackageResolver
+	executor        CommandExecutor
 }
 
 func NewPackageManagerGuard(config PackageManagerGuardConfig,
@@ -105,6 +108,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 	packageResolver packagemanager.PackageResolver,
 	analyzers []analyzer.PackageVersionAnalyzer,
 	interaction PackageManagerGuardInteraction,
+	executor CommandExecutor,
 ) (*packageManagerGuard, error) {
 	return &packageManagerGuard{
 		interaction:     interaction,
@@ -112,6 +116,7 @@ func NewPackageManagerGuard(config PackageManagerGuardConfig,
 		packageManager:  packageManager,
 		packageResolver: packageResolver,
 		config:          config,
+		executor:        executor,
 	}, nil
 }
 
@@ -122,7 +127,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 	// Log the installation start
 	if g.packageManager != nil {
-		eventlog.LogInstallStarted(g.packageManager.Name(), args)
+		audit.LogInstallStarted(g.packageManager.Name(), args)
 	}
 
 	if g.config.InsecureInstallation {
@@ -245,12 +250,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 	// Log successful installation allowance
 	if len(parsedCommand.InstallTargets) > 0 {
 		for _, target := range parsedCommand.InstallTargets {
-			eventlog.LogInstallAllowed(
-				target.PackageVersion.GetPackage().GetName(),
-				target.PackageVersion.GetVersion(),
-				target.PackageVersion.GetPackage().GetEcosystem().String(),
-				len(packagesToAnalyze),
-			)
+			audit.LogInstallAllowed(target.PackageVersion, len(packagesToAnalyze))
 		}
 	}
 
@@ -259,52 +259,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 }
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
-	if len(pc.Command.Exe) == 0 {
-		return fmt.Errorf("no command to execute")
-	}
-
-	if g.config.DryRun {
-		log.Debugf("Dry run, skipping command execution")
-		return nil
-	}
-
-	cmd := exec.CommandContext(ctx, pc.Command.Exe, pc.Command.Args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	pmName := g.packageManager.Name()
-	result, err := executor.ApplySandbox(ctx, cmd, pmName)
-	if err != nil {
-		return fmt.Errorf("failed to apply sandbox: %w", err)
-	}
-
-	defer func() {
-		err := result.Close()
-		if err != nil {
-			log.Errorf("failed to close sandbox: %v", err)
-		}
-	}()
-
-	if result.ShouldRun() {
-		err := cmd.Run()
-		if err != nil {
-			humanError := "Failed to execute package manager command"
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				humanError = fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())
-			}
-
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-				WithHumanError(humanError).
-				WithHelp("Check the package manager command and its arguments").
-				Wrap(err)
-		}
-
-		return nil
-	}
-
-	return nil
+	return g.executor(ctx, pc)
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
@@ -535,13 +490,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 	// Log successful installation allowance for manifest-based installations
 	if len(packages) > 0 {
-		firstPkg := packages[0]
-		eventlog.LogInstallAllowed(
-			firstPkg.GetPackage().GetName(),
-			firstPkg.GetVersion(),
-			firstPkg.GetPackage().GetEcosystem().String(),
-			len(packagesToAnalyze),
-		)
+		audit.LogInstallAllowed(packages[0], len(packagesToAnalyze))
 	}
 
 	g.clearStatus()
@@ -554,29 +503,9 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 		return
 	}
 
-	pkg := result.PackageVersion.GetPackage()
-	if pkg == nil {
-		return
-	}
-
-	details := map[string]interface{}{
-		"analysis_id":   result.AnalysisID,
-		"reference_url": result.ReferenceURL,
-	}
-
 	if blocked {
-		eventlog.LogMalwareBlocked(
-			pkg.GetName(),
-			result.PackageVersion.GetVersion(),
-			pkg.GetEcosystem().String(),
-			result.Summary,
-			details,
-		)
+		audit.LogMalwareBlocked(result.PackageVersion, result.Summary, result.AnalysisID, result.ReferenceURL, result.IsMalware, result.IsVerified)
 	} else {
-		eventlog.LogMalwareConfirmed(
-			pkg.GetName(),
-			result.PackageVersion.GetVersion(),
-			pkg.GetEcosystem().String(),
-		)
+		audit.LogMalwareConfirmed(result.PackageVersion, result.AnalysisID, result.IsMalware, result.IsVerified)
 	}
 }

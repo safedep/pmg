@@ -85,12 +85,10 @@ func TestLogEvent(t *testing.T) {
 	assert.Equal(t, "evil-package", loggedEvent.PackageName)
 }
 
-func TestLogMalwareBlocked(t *testing.T) {
-	// Create a temporary directory for testing
+func TestLogEventMalwareBlocked(t *testing.T) {
 	tmpDir := t.TempDir()
 	logDir := filepath.Join(tmpDir, ".pmg", "logs")
 
-	// Initialize logger
 	err := reinitializeForTest(logDir)
 	assert.NoError(t, err, "Failed to initialize logger")
 	defer func() {
@@ -98,10 +96,16 @@ func TestLogMalwareBlocked(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 
-	// Log malware blocked event
-	LogMalwareBlocked("malicious-pkg", "2.0.0", "pypi", "Contains known malware", nil)
+	err = LogEvent(Event{
+		EventType:   EventTypeMalwareBlocked,
+		Message:     "Blocked installation of malicious package: malicious-pkg@2.0.0",
+		PackageName: "malicious-pkg",
+		Version:     "2.0.0",
+		Ecosystem:   "pypi",
+		Details:     map[string]interface{}{"reason": "Contains known malware"},
+	})
+	assert.NoError(t, err)
 
-	// Read and verify
 	logFilePath := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
 	data, err := os.ReadFile(logFilePath)
 	assert.NoError(t, err, "Failed to read log file")
@@ -115,7 +119,7 @@ func TestLogMalwareBlocked(t *testing.T) {
 	assert.Equal(t, "pypi", event.Ecosystem)
 }
 
-func TestLogProxyHostObserved(t *testing.T) {
+func TestLogEventProxyHostObserved(t *testing.T) {
 	tmpDir := t.TempDir()
 	logDir := filepath.Join(tmpDir, ".pmg", "logs")
 
@@ -126,9 +130,17 @@ func TestLogProxyHostObserved(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 
-	LogProxyHostObserved("example.com", "CONNECT", "connect_tunnel_no_interceptor", map[string]interface{}{
-		"request_id": "abc123",
+	err = LogEvent(Event{
+		EventType: EventTypeProxyHostObserved,
+		Message:   "Proxy observed outbound host: example.com",
+		Details: map[string]interface{}{
+			"hostname":   "example.com",
+			"method":     "CONNECT",
+			"reason":     "connect_tunnel_no_interceptor",
+			"request_id": "abc123",
+		},
 	})
+	assert.NoError(t, err)
 
 	logFilePath := filepath.Join(logDir, time.Now().Format("20060102")+"-pmg.log")
 	data, err := os.ReadFile(logFilePath)
