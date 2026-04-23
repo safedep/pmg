@@ -53,21 +53,7 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
 
-			if h.statsCollector != nil {
-				if remaining == 0 {
-					oldestVer, oldestDate := cooldownOldestVersion(dates)
-					if oldestVer != "" {
-						_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
-						h.statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
-					}
-				} else if pinnedVersion != "" {
-					if pinnedDate, ok := dates[pinnedVersion]; ok {
-						if withinCooldown, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays); withinCooldown {
-							h.statsCollector.RecordCooldownBlocked(packageName, pinnedVersion, pinnedDate, daysAgo, daysLeft, cooldownDays)
-						}
-					}
-				}
-			}
+			recordCooldownStats(h.statsCollector, packageName, pinnedVersion, dates, remaining, cooldownDays)
 
 			headers.Set("Cache-Control", "no-store")
 			return statusCode, headers, strippedBody, nil

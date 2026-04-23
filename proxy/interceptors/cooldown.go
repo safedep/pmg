@@ -31,6 +31,29 @@ func cooldownOldestVersion(dates map[string]time.Time) (string, time.Time) {
 	return oldest, oldestTime
 }
 
+// recordCooldownStats records a cooldown block event. When all versions are blocked
+// (remaining == 0), it reports the oldest version (closest to exiting cooldown).
+// Otherwise, if a pinned version was stripped, it reports that specific version.
+func recordCooldownStats(statsCollector *AnalysisStatsCollector, packageName string, pinnedVersion string, dates map[string]time.Time, remaining int, cooldownDays int) {
+	if statsCollector == nil {
+		return
+	}
+
+	if remaining == 0 {
+		oldestVer, oldestDate := cooldownOldestVersion(dates)
+		if oldestVer != "" {
+			_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
+			statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
+		}
+	} else if pinnedVersion != "" {
+		if pinnedDate, ok := dates[pinnedVersion]; ok {
+			if withinCooldown, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays); withinCooldown {
+				statsCollector.RecordCooldownBlocked(packageName, pinnedVersion, pinnedDate, daysAgo, daysLeft, cooldownDays)
+			}
+		}
+	}
+}
+
 // cooldownLatestEligibleVersion returns the most recently published version not in tooNew.
 func cooldownLatestEligibleVersion(dates map[string]time.Time, tooNew map[string]bool) string {
 	var latest string
