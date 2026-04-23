@@ -155,9 +155,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Extract pinned versions from install targets so cooldown handlers can
 	// report when a user's explicitly requested version was blocked.
 	pinnedVersions := make(map[string]string)
-	for _, t := range parsedCmd.InstallTargets {
-		if t.HasVersion() {
-			pinnedVersions[t.PackageVersion.GetPackage().GetName()] = t.PackageVersion.GetVersion()
+	for _, target := range parsedCmd.InstallTargets {
+		if target.IsExplicitVersion {
+			pinnedVersions[target.PackageVersion.GetPackage().GetName()] = target.PackageVersion.GetVersion()
 		}
 	}
 
