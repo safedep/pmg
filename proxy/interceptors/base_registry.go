@@ -25,6 +25,7 @@ type baseRegistryInterceptor struct {
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
+	execContext      InterceptorContext
 }
 
 func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {

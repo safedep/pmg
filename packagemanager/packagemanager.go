@@ -20,6 +20,10 @@ type PackageInstallTarget struct {
 	// Example: "django[mysql,redis]" has Extras as ["mysql", "redis"]
 	// Currently only specific to Python packages
 	Extras []string
+
+	// IsExplicitVersion indicates the user provided an explicit version constraint
+	// (e.g. ==1.2.3) as opposed to the version being auto-resolved by the resolver.
+	IsExplicitVersion bool
 }
 
 func (pit *PackageInstallTarget) HasVersion() bool {
