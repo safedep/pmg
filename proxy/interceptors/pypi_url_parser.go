@@ -370,5 +370,8 @@ func extractNameVersionFromParts(parts []string) (string, string) {
 func denormalizePyPIPackageName(name string) string {
 	// Convert underscores to hyphens (common PyPI convention)
 	// Keep lowercase as that's the normalized form
-	return strings.ReplaceAll(strings.ToLower(name), "_", "-")
+	name = strings.ToLower(name)
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, ".", "-")
+	return name
 }
