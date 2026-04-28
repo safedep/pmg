@@ -8,12 +8,20 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
+// InterceptorContext carries per-execution data from the CLI command into
+// the interceptor layer. Unlike the factory's long-lived dependencies
+// (analyzer, cache, stats), this holds context specific to the current run.
+type InterceptorContext struct {
+	PinnedVersions map[string]string
+}
+
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy
 type InterceptorFactory struct {
 	analyzer         analyzer.PackageVersionAnalyzer
 	cache            AnalysisCache
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
+	execContext      InterceptorContext
 }
 
 // NewInterceptorFactory creates a new interceptor factory with shared dependencies
@@ -22,12 +30,14 @@ func NewInterceptorFactory(
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
+	execContext InterceptorContext,
 ) *InterceptorFactory {
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
 		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
+		execContext:      execContext,
 	}
 }
 
@@ -41,6 +51,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.cache,
 			f.statsCollector,
 			f.confirmationChan,
+			f.execContext,
 		), nil
 
 	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
@@ -49,6 +60,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.cache,
 			f.statsCollector,
 			f.confirmationChan,
+			f.execContext,
 		), nil
 
 	default:

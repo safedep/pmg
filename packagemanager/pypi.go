@@ -188,6 +188,8 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		isExplicit := version != ""
+
 		version, err = pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
@@ -201,7 +203,8 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras: extras,
+			Extras:            extras,
+			IsExplicitVersion: isExplicit,
 		})
 	}
 
@@ -304,6 +307,8 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		isExplicit := version != ""
+
 		version, err = pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
@@ -317,7 +322,8 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras: extras,
+			Extras:            extras,
+			IsExplicitVersion: isExplicit,
 		})
 	}
 
@@ -400,6 +406,8 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		isExplicit := version != ""
+
 		version, err = pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
@@ -413,7 +421,8 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 				},
 				Version: version,
 			},
-			Extras: extras,
+			Extras:            extras,
+			IsExplicitVersion: isExplicit,
 		})
 	}
 
