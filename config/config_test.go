@@ -221,6 +221,64 @@ func TestConfigPrecedence(t *testing.T) {
 	})
 }
 
+func TestConfigureSandbox(t *testing.T) {
+	tests := []struct {
+		name                 string
+		sandboxEnabled       bool
+		enforceAlways        bool
+		mayDownloadPackages  bool
+		expectedSandboxState bool
+	}{
+		{
+			name:                 "sandbox disabled stays disabled regardless of command",
+			sandboxEnabled:       false,
+			mayDownloadPackages:  true,
+			expectedSandboxState: false,
+		},
+		{
+			name:                 "sandbox enabled with download command stays enabled",
+			sandboxEnabled:       true,
+			mayDownloadPackages:  true,
+			expectedSandboxState: true,
+		},
+		{
+			name:                 "sandbox enabled with non-download command gets disabled",
+			sandboxEnabled:       true,
+			mayDownloadPackages:  false,
+			expectedSandboxState: false,
+		},
+		{
+			name:                 "enforce_always keeps sandbox enabled for non-download command",
+			sandboxEnabled:       true,
+			enforceAlways:        true,
+			mayDownloadPackages:  false,
+			expectedSandboxState: true,
+		},
+		{
+			name:                 "enforce_always with download command stays enabled",
+			sandboxEnabled:       true,
+			enforceAlways:        true,
+			mayDownloadPackages:  true,
+			expectedSandboxState: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+			initConfig()
+
+			cfg := Get()
+			cfg.Config.Sandbox.Enabled = tc.sandboxEnabled
+			cfg.Config.Sandbox.EnforceAlways = tc.enforceAlways
+
+			ConfigureSandbox(tc.mayDownloadPackages)
+
+			assert.Equal(t, tc.expectedSandboxState, cfg.Config.Sandbox.Enabled)
+		})
+	}
+}
+
 func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)
