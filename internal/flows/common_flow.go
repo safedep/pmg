@@ -34,7 +34,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	var analyzers []analyzer.PackageVersionAnalyzer
 
 	// Configure sandbox based on command type and enforcement policy
-	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
+	config.ConfigureSandbox(parsedCmd.IsInstallationCommand() || parsedCmd.MayDownloadPackages())
 
 	cfg := config.Get()
 

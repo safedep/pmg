@@ -379,11 +379,11 @@ func Get() *RuntimeConfig {
 	return globalConfig
 }
 
-func ConfigureSandbox(isInstallationCommand bool) {
+func ConfigureSandbox(mayDownloadPackages bool) {
 	if globalConfig.Config.Sandbox.Enabled {
 		// Apply sandbox to all commands if EnforceAlways=true, otherwise only to
-		// installation commands else disable the sandbox
-		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || isInstallationCommand
+		// commands that may download packages (install, update, etc.)
+		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || mayDownloadPackages
 	}
 }
 
