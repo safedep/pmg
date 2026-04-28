@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"strings"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/cloud"
@@ -96,6 +98,10 @@ func main() {
 			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
 				ui.Fatalf("pmg: %v", err)
 			}
+
+			if debug {
+				logDebugContext()
+			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -150,4 +156,20 @@ func main() {
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func logDebugContext() {
+	cfg := config.Get()
+
+	log.Debugf("Command: pmg %s", strings.Join(os.Args[1:], " "))
+	log.Debugf("PMG %s (commit: %s) running on %s/%s with %s",
+		appVersion.Version, appVersion.Commit, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	log.Debugf("Using config file: %s", cfg.ConfigFilePath())
+	log.Debugf("Proxy mode enabled: %t, install only: %t", cfg.IsProxyModeEnabled(), cfg.Config.ProxyInstallOnly)
+	log.Debugf("Sandbox enabled: %t, enforce always: %t", cfg.Config.Sandbox.Enabled, cfg.Config.Sandbox.EnforceAlways)
+	log.Debugf("Transitive analysis enabled: %t (depth: %d), paranoid: %t", cfg.Config.Transitive, cfg.Config.TransitiveDepth, cfg.Config.Paranoid)
+	log.Debugf("Dependency cooldown enabled: %t (days: %d)", cfg.Config.DependencyCooldown.Enabled, cfg.Config.DependencyCooldown.Days)
+	log.Debugf("Cloud sync enabled: %t, telemetry disabled: %t", cfg.Config.Cloud.Enabled, cfg.Config.DisableTelemetry)
+	log.Debugf("Dry run: %t, insecure installation: %t, trusted packages: %d",
+		cfg.DryRun, cfg.InsecureInstallation, len(cfg.Config.TrustedPackages))
 }
