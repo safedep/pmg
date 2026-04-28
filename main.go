@@ -74,10 +74,6 @@ func main() {
 
 			log.InitZapLogger("pmg", "cli")
 
-			if debug {
-				logDebugContext()
-			}
-
 			// Initialize event logging (silently fail if it can't be initialized)
 			var eventlogErr error
 			if logFile != "" {
@@ -101,6 +97,10 @@ func main() {
 			// Parse and validate --sandbox-allow flags after all flags are resolved
 			if err := config.FinalizeSandboxAllowOverrides(); err != nil {
 				ui.Fatalf("pmg: %v", err)
+			}
+
+			if debug {
+				logDebugContext()
 			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
