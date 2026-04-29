@@ -13,6 +13,7 @@ permissions:
 jobs:
   goreleaser:
     timeout-minutes: 60
+    environment: npm-release
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
     permissions:
