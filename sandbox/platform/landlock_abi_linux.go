@@ -35,10 +35,9 @@ func newLandlockABI(version int) *landlockABI {
 	}
 }
 
-// detectABI probes the running kernel for Landlock support and returns the detected
-// ABI version with feature flags. Returns an error if Landlock is not supported
-// by the kernel. The version is capped at 6 for feature flag purposes since we
-// do not know about features beyond V6, though the raw version is preserved.
+// landlockDetectABI probes the running kernel for Landlock support and returns
+// the detected ABI version with feature flags. Returns an error if Landlock is
+// not supported by the kernel.
 func landlockDetectABI() (*landlockABI, error) {
 	version, err := llsyscall.LandlockGetABIVersion()
 	if err != nil {

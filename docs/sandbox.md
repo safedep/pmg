@@ -215,6 +215,9 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 **Default sandbox on kernel 5.13+**: Landlock provides kernel-native filesystem access control
 without requiring external binaries or unprivileged user namespaces.
 
+For the architecture, design tradeoffs, and known limitations see
+[sandbox-landlock.md](./sandbox-landlock.md).
+
 **Deny enforcement**: Deny rules (DenyRead, DenyWrite, DenyExec) are enforced via seccomp
 user notifications. This introduces a small TOCTOU window (microseconds) between reading
 the path and responding.

@@ -82,20 +82,17 @@ func (s *landlockSandbox) Close() error {
 // This implementation modifies the cmd in place and does NOT execute it.
 // Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
 func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
-	// 1. Translate policy -> landlockExecPolicy
 	execPolicy, err := landlockTranslatePolicy(policy, s.abi)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate policy: %w", err)
 	}
 
-	// 2. Set target command in the exec policy
 	execPolicy.Command = cmd.Path
 	if len(cmd.Args) > 1 {
 		execPolicy.Args = cmd.Args[1:]
 	}
 	execPolicy.Env = cmd.Env
 
-	// 3. Write policy JSON to a temp file
 	policyFile, err := os.CreateTemp("", "pmg-landlock-policy-*.json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create policy temp file: %w", err)
@@ -106,21 +103,21 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		_ = os.Remove(policyFile.Name())
 		return nil, fmt.Errorf("failed to write policy to temp file: %w", err)
 	}
+
 	policyFilePath := policyFile.Name()
 	_ = policyFile.Close()
 	s.policyFile = policyFilePath
 
-	// 4. Create unix socket for audit events
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("pmg-landlock-audit-%d.sock", os.Getpid()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		_ = os.Remove(policyFilePath)
 		return nil, fmt.Errorf("failed to create audit unix socket: %w", err)
 	}
+
 	s.socketPath = socketPath
 	s.listener = listener
 
-	// Accept one connection and drain it (for future audit event parsing)
 	go func() {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -130,7 +127,6 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		conn.Close()
 	}()
 
-	// 5. Rewire cmd to re-exec pmg with __landlock_sandbox_exec
 	selfExe, err := os.Executable()
 	if err != nil {
 		s.Close()

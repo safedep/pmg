@@ -23,10 +23,9 @@ func NewLandlockShimCommand() *cobra.Command {
 		Use:                "__landlock_shim",
 		Hidden:             true,
 		DisableFlagParsing: false,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			// Skip parent pmg initialization — the shim re-execs the target
-			// almost immediately and does not need config/analytics/etc.
-		},
+		// Skip parent pmg initialization — the shim re-execs almost
+		// immediately and does not need config/analytics/etc.
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return platform.RunLandlockShim(policyFile, notifySocketFd, args)
 		},

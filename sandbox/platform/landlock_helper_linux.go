@@ -45,8 +45,8 @@ import (
 // filesystem, same environment. The user namespace is only a capability
 // vehicle.
 func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
-	// 1. Read policy file. The shim will re-open it from disk; we do NOT
-	// delete here so the shim can access it.
+	// The shim will re-open this file from disk; we keep it alive until the
+	// shim has loaded it.
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("read policy from file: %w", err)
@@ -57,10 +57,8 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}()
 
-	// 2. Initialize logger.
 	log.InitZapLogger("pmg", "landlock-helper")
 
-	// 3. Connect to audit unix socket.
 	var auditWriter io.Writer = io.Discard
 	conn, err := net.Dial("unix", auditSocket)
 	if err == nil {
@@ -70,7 +68,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		log.Debugf("Failed to connect to audit socket %s: %v", auditSocket, err)
 	}
 
-	// Override command from cmdArgs (args after "--").
 	if len(cmdArgs) > 0 {
 		policy.Command = cmdArgs[0]
 		if len(cmdArgs) > 1 {
@@ -80,14 +77,13 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}
 
-	// 4. Die if parent exits.
+	// Die if parent exits.
 	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); err != nil {
 		return fmt.Errorf("prctl PR_SET_PDEATHSIG: %w", err)
 	}
 
-	// 5. Set up a socketpair. The shim uses its end (passed via ExtraFiles)
-	// to send the seccomp notify fd back; the helper reads it from the
-	// local end.
+	// Socketpair: the shim sends its seccomp notify fd back to the helper
+	// over its end (passed via ExtraFiles).
 	sockPair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	if err != nil {
 		return fmt.Errorf("socketpair: %w", err)
@@ -96,9 +92,8 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	shimSockFile := os.NewFile(uintptr(sockPair[1]), "shim-notify-shim")
 	defer helperSockFile.Close()
 
-	// 6. Build the shim command. The shim's ExtraFiles[0] will be at fd=3
-	// inside the shim process. Go's exec.Cmd writes uid_map/gid_map for us
-	// when UidMappings/GidMappings are populated.
+	// ExtraFiles[0] becomes fd=3 inside the shim. Go's exec.Cmd writes
+	// uid_map/gid_map automatically when UidMappings/GidMappings are set.
 	selfExe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve self exe: %w", err)
@@ -142,13 +137,13 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		GidMappingsEnableSetgroups: false,
 	}
 
-	// Optional extra clone flags from policy (PID/IPC namespaces).
 	extraCloneFlags := landlockBuildCloneflags(policy)
 	if extraCloneFlags != 0 {
 		cmd.SysProcAttr.Cloneflags |= extraCloneFlags
 	}
 
-	// 7. Start the shim. Retry without extra-ns flags if clone fails.
+	// Retry without extra-ns flags if clone fails (kernel/seccomp policy
+	// may forbid PID/IPC namespaces in restricted environments).
 	if err := cmd.Start(); err != nil {
 		var pathErr *os.PathError
 		if errors.As(err, &pathErr) &&
@@ -173,7 +168,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	_ = shimSockFile.Close() // child has its own copy
 	childPID := cmd.Process.Pid
 
-	// 8. Receive the seccomp notify fd from the shim.
 	notifyFd, err := receiveNotifyFd(int(helperSockFile.Fd()))
 	if err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
@@ -181,7 +175,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("receive notify fd from shim: %w", err)
 	}
 
-	// 9. Construct the supervisor using the shim-provided notify fd.
 	supervisor, err := newLandlockSupervisorFromFd(notifyFd)
 	if err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
@@ -190,8 +183,8 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("create supervisor: %w", err)
 	}
 
-	// 10. Open /proc/<child-pid>/mem (dumpable=1 in the shim tree, so this
-	// succeeds even for grandchildren via memFdFor).
+	// dumpable=1 is preserved across the shim tree (no NNP), so this open
+	// succeeds for grandchildren too via memFdFor.
 	memFd, err := openLandlockChildMemFd(childPID)
 	if err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
@@ -207,7 +200,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("open /proc/%d/mem (fail-close): %w", childPID, err)
 	}
 
-	// 11. Transition supervisor to enforce mode.
 	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, auditWriter); err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
@@ -216,7 +208,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("enforce seccomp rules: %w", err)
 	}
 
-	// 12. Signal forwarding.
 	sigCh := make(chan os.Signal, 3)
 	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
 	go func() {
@@ -225,10 +216,8 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}()
 
-	// 13. Wait for child.
 	waitErr := cmd.Wait()
 
-	// 14. Stop supervisor and cleanup.
 	_ = supervisor.Stop()
 	signal.Stop(sigCh)
 	close(sigCh)

@@ -119,7 +119,7 @@ func landlockUsrBinAlternate(path string) string {
 // any of the write-allowed prefixes. This is used to skip deny_write entries
 // that Landlock already prevents (paths outside the write allow-list).
 func landlockIsWithinWritableArea(path string, writePrefixes []string) bool {
-	// Strip glob suffix to get the base path for prefix matching.
+	// Strip glob suffix from both sides; we only compare the literal prefix.
 	base := path
 	if idx := strings.IndexAny(base, "*?["); idx >= 0 {
 		base = base[:idx]
@@ -130,12 +130,10 @@ func landlockIsWithinWritableArea(path string, writePrefixes []string) bool {
 		if err != nil {
 			continue
 		}
-		// Strip glob from prefix too.
 		cleanPrefix := expandedPrefix
 		if idx := strings.IndexAny(cleanPrefix, "*?["); idx >= 0 {
 			cleanPrefix = cleanPrefix[:idx]
 		}
-		// Check if the deny path falls within this writable prefix.
 		if strings.HasPrefix(base, cleanPrefix) || strings.HasPrefix(cleanPrefix, base) {
 			return true
 		}
@@ -153,7 +151,6 @@ const landlockGlobFallbackThreshold = 100
 func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*landlockExecPolicy, error) {
 	ep := &landlockExecPolicy{}
 
-	// Build ABI-aware write access mask
 	writeAccess := landlockWriteAccessBase
 	if abi.HasRefer {
 		writeAccess |= uint64(llsyscall.AccessFSRefer)
@@ -162,7 +159,6 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		writeAccess |= uint64(llsyscall.AccessFSTruncate)
 	}
 
-	// 1. Map AllowRead -> filesystem rules with read access flags
 	for _, pattern := range policy.Filesystem.AllowRead {
 		paths, err := landlockExpandPattern(pattern)
 		if err != nil {
@@ -177,7 +173,6 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 2. Map AllowWrite -> filesystem rules with write access flags
 	for _, pattern := range policy.Filesystem.AllowWrite {
 		paths, err := landlockExpandPattern(pattern)
 		if err != nil {
@@ -192,7 +187,6 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 3. Map AllowExec -> filesystem rules with execute flag
 	for _, pattern := range policy.Process.AllowExec {
 		paths, err := landlockExpandPattern(pattern)
 		if err != nil {
@@ -216,14 +210,12 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 4. Map DenyRead -> denyPathEntry with denyRead mode
 	for _, pattern := range policy.Filesystem.DenyRead {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
 			log.Warnf("Failed to expand deny_read pattern '%s': %v", pattern, err)
 			continue
 		}
-		// Drop /proc deny entries with warning
 		if strings.HasPrefix(expanded, "/proc") {
 			log.Warnf("Dropping /proc deny entry '%s': Landlock cannot deny /proc sub-paths reliably", expanded)
 			continue
@@ -242,12 +234,9 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 5. Map DenyWrite -> denyPathEntry with denyWrite mode.
-	// Landlock already prevents writes to paths outside the allow_write list,
-	// so deny_write rules are only needed for paths within writable areas.
-	// Skip deny_write entries that fall outside the write allow-list to avoid
-	// generating thousands of redundant seccomp deny entries (e.g. /etc/**,
-	// /usr/** are already read-only under Landlock).
+	// Landlock already prevents writes outside allow_write, so deny_write is
+	// only meaningful within writable areas. Skipping the rest avoids thousands
+	// of redundant seccomp deny entries (e.g. /etc/**, /usr/**).
 	writablePrefixes := policy.Filesystem.AllowWrite
 	for _, pattern := range policy.Filesystem.DenyWrite {
 		expanded, err := util.ExpandVariables(pattern)
@@ -255,12 +244,10 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 			log.Warnf("Failed to expand deny_write pattern '%s': %v", pattern, err)
 			continue
 		}
-		// Drop /proc deny entries with warning
 		if strings.HasPrefix(expanded, "/proc") {
 			log.Warnf("Dropping /proc deny entry '%s': Landlock cannot deny /proc sub-paths reliably", expanded)
 			continue
 		}
-		// Skip deny entries that are already not writable under Landlock.
 		if !landlockIsWithinWritableArea(expanded, writablePrefixes) {
 			continue
 		}
@@ -278,7 +265,6 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 6. Map DenyExec -> DenyExecPaths
 	for _, pattern := range policy.Process.DenyExec {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -297,7 +283,6 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 7. Add mandatory denies from GetMandatoryDenyPatterns
 	allowGitConfig := utils.SafelyGetValue(policy.AllowGitConfig)
 	mandatoryDenies := util.GetMandatoryDenyPatterns(allowGitConfig)
 	for _, pattern := range mandatoryDenies {
@@ -315,11 +300,9 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	// 8. Add implicit filesystem rules
-	// Standard system binary directories need execute access. Unlike bubblewrap
-	// (where read-only bind mounts still permit execution), Landlock requires
-	// explicit execute permission. The deny_exec list (enforced via seccomp)
-	// blocks specific dangerous executables within these directories.
+	// Unlike bubblewrap's read-only bind mounts, Landlock requires explicit
+	// execute permission on system binary directories. The deny_exec list
+	// (enforced via seccomp) blocks specific dangerous binaries within them.
 	sysExecDirs := []string{"/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64",
 		"/bin", "/sbin", "/lib", "/lib64"}
 	for _, dir := range sysExecDirs {
@@ -329,13 +312,12 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		})
 	}
 
-	// /proc (read access) - supervisor needs it
+	// /proc read access — the supervisor reads /proc/<pid>/{cwd,fd,mem}.
 	ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
 		Path:   "/proc",
 		Access: landlockReadAccess,
 	})
 
-	// /dev/null, /dev/zero, /dev/random, /dev/urandom (read+write)
 	devReadWrite := landlockReadAccess | writeAccess
 	for _, dev := range []string{"/dev/null", "/dev/zero", "/dev/random", "/dev/urandom"} {
 		ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
@@ -344,13 +326,11 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		})
 	}
 
-	// os.TempDir() (write access)
 	ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
 		Path:   os.TempDir(),
 		Access: writeAccess,
 	})
 
-	// 9. Handle AllowPTY
 	allowPTY := utils.SafelyGetValue(policy.AllowPTY)
 	ep.AllowPTY = allowPTY
 	if allowPTY {
@@ -368,7 +348,6 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		})
 	}
 
-	// 10. Detect explicit /proc allows -> SkipPIDNamespace
 	if landlockPolicyExplicitlyAllowsProc(policy) {
 		ep.SkipPIDNamespace = true
 		log.Warnf("Policy explicitly allows /proc paths beyond /proc/self - skipping PID namespace isolation")
@@ -395,7 +374,6 @@ func landlockExpandPattern(pattern string) ([]string, error) {
 		return nil, err
 	}
 
-	// Fallback to parent directory when matches exceed threshold
 	if len(matches) > landlockGlobFallbackThreshold {
 		parentDir := landlockExtractParentDir(expanded)
 		log.Warnf("Glob pattern '%s' matched %d paths (threshold: %d), using parent directory '%s'",
@@ -404,7 +382,8 @@ func landlockExpandPattern(pattern string) ([]string, error) {
 	}
 
 	if len(matches) == 0 {
-		// No matches found; return the expanded pattern as-is (the path may not exist yet)
+		// Path may not exist yet — return the expanded pattern so go-landlock's
+		// IgnoreIfMissing handles it.
 		return []string{expanded}, nil
 	}
 
@@ -451,7 +430,6 @@ func landlockPolicyExplicitlyAllowsProc(policy *sandbox.SandboxPolicy) bool {
 		if expanded == "/proc/self" || strings.HasPrefix(expanded, "/proc/self/") {
 			continue
 		}
-		// Any other /proc path is explicit
 		return true
 	}
 

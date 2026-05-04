@@ -137,7 +137,6 @@ func main() {
 	cmd.AddCommand(setup.NewRemoveCommand())
 	cmd.AddCommand(cloud.NewCloudCommand())
 
-	// Register Landlock sandbox helper command (Linux only, hidden)
 	if subcmd := landlockCmd.NewLandlockSandboxExecCommand(); subcmd != nil {
 		cmd.AddCommand(subcmd)
 	}

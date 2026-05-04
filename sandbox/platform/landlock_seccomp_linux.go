@@ -142,10 +142,6 @@ func landlockBuildBPFFilter() (*unix.SockFprog, error) {
 	}, nil
 }
 
-// landlockProbeSeccompNotify verifies that seccomp user notification is available on the
-// running kernel. It attempts to install a trivial seccomp filter with the
-// NEW_LISTENER flag. Returns nil if available, an error if not (kernel < 5.0).
-
 // isPathDenied checks if a path should be denied based on the deny list and open flags.
 // flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY, O_RDWR).
 // Matching rules:
@@ -170,7 +166,6 @@ func isPathDenied(path string, flags int, denyPaths []denyPathEntry) bool {
 		if !matched {
 			continue
 		}
-
 		switch entry.Mode {
 		case denyRead:
 			if accessMode == unix.O_RDONLY || accessMode == unix.O_RDWR {

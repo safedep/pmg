@@ -16,12 +16,10 @@ func NewLandlockSandboxExecCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "__landlock_sandbox_exec",
 		Hidden: true,
-		// Override PersistentPreRun to prevent the parent's full initialization
-		// (config loading, event log init, analytics, etc.) from running.
-		// RunLandlockHelper initializes its own minimal logger.
+		// Skip parent pmg initialization (config, event log, analytics) —
+		// RunLandlockHelper sets up its own minimal logger.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// args contains everything after "--" (the target command)
 			return platform.RunLandlockHelper(policyFile, auditSocket, args)
 		},
 	}

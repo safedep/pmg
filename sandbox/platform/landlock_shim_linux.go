@@ -35,35 +35,30 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: no target command")
 	}
 
-	// Pin to the OS thread. Without TSYNC the filter applies only to the
-	// current thread; we must also execve from this thread so the target
-	// inherits the filter.
+	// Without TSYNC the filter applies only to this thread; we must also
+	// execve from this same thread so the target inherits it.
 	runtime.LockOSThread()
 
-	// 1. Load policy (the file is owned by the helper; shim doesn't delete it).
+	// The policy file is owned by the helper; shim doesn't delete it.
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("shim: read policy: %w", err)
 	}
 
-	// 2. Install seccomp filter. Whether we intercept openat/openat2 depends
-	// on whether the policy has any deny rules — matches helper logic.
 	interceptOpen := len(policy.DenyPaths) > 0
 	notifyFd, err := shimInstallSeccomp(interceptOpen)
 	if err != nil {
 		return fmt.Errorf("shim: install seccomp: %w", err)
 	}
 
-	// 3. Hand the notify fd to the helper via SCM_RIGHTS.
 	if err := sendFdToSocket(notifySocketFd, notifyFd); err != nil {
 		return fmt.Errorf("shim: send notify fd: %w", err)
 	}
-	// Close the notify fd in our process — the helper owns it now and the
-	// kernel routes notifications via the shared file description.
+	// Helper owns the notify fd now; kernel routes notifications via the
+	// shared file description.
 	_ = unix.Close(notifyFd)
 	_ = unix.Close(notifySocketFd)
 
-	// 4. Apply Landlock.
 	var rules []landlock.Rule
 	for _, r := range policy.FilesystemRules {
 		access := landlockAdjustAccessForPath(r.Path, r.Access)
@@ -76,7 +71,6 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: landlock restrict: %w", err)
 	}
 
-	// 5. execve target. Args[0] is the program path.
 	target := args[0]
 	env := os.Environ()
 	if len(policy.Env) > 0 {
