@@ -19,6 +19,10 @@ filesystem:
     # which guarantees atomicity
     - ${CWD}/package.json.*
 
+    # pnpm install/update writes pnpm-lock.yaml atomically via a sibling
+    # temp file (e.g. pnpm-lock.yaml.139703784) followed by rename.
+    - ${CWD}/pnpm-lock.yaml.*
+
     # Need access for dependency resolution
     - ${CWD}/.pnpm-store
 
