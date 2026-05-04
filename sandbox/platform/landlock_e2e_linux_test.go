@@ -231,6 +231,61 @@ func TestLandlockHelper_DenyBothBlocksWrite(t *testing.T) {
 		"expected permission denied; got: %q exit=%d", combined, exit)
 }
 
+// TestLandlockHelper_GrandchildDenyBlocksRead is the big one: deny-rule
+// enforcement must reach DESCENDANT processes, not just the direct target.
+// This is the contract gap we historically had vs bubblewrap. We use a
+// nested bash chain so the `cat` that actually opens the secret is a
+// grandchild of the helper (bash -> bash -> cat), forcing enforcement to
+// route through per-descendant /proc/<pid>/mem reads. Works because the
+// shim installs seccomp inside a user namespace WITHOUT NO_NEW_PRIVS,
+// keeping dumpable=1 through every execve in the tree.
+func TestLandlockHelper_GrandchildDenyBlocksRead(t *testing.T) {
+	if os.Getenv("LANDLOCK_E2E") == "skip" {
+		t.Skip("LANDLOCK_E2E=skip")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not found")
+	}
+	// Requires unprivileged user namespaces for the shim architecture.
+	if b, err := os.ReadFile("/proc/sys/kernel/unprivileged_userns_clone"); err == nil {
+		if len(b) > 0 && b[0] == '0' {
+			t.Skip("unprivileged user namespaces disabled")
+		}
+	}
+
+	home := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(home, ".ssh"), 0o700))
+	secretPath := filepath.Join(home, ".ssh", "id_ed25519")
+	const secret = "GRANDCHILD-SECRET-CONTENT"
+	require.NoError(t, os.WriteFile(secretPath, []byte(secret), 0o600))
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: home, Access: landlockRuleReadExec},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: filepath.Join(home, ".ssh"), Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/bash",
+		// Two layers of exec-via-bash before cat hits the secret.
+		Args: []string{"-c",
+			"exec /bin/bash -c 'exec /bin/cat " + secretPath + "'"},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, _ := runHelper(t, policyPath)
+	assert.NotContains(t, stdout, secret, "grandchild must not read the secret")
+	combined := stdout + stderr
+	assert.True(t,
+		bytesContainsAny(combined, []string{"Permission denied", "EACCES"}),
+		"expected permission-denied from grandchild; got: %q", combined)
+}
+
 // bytesContainsAny reports whether s contains any of the given substrings.
 func bytesContainsAny(s string, subs []string) bool {
 	for _, sub := range subs {

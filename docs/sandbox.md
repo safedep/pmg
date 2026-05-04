@@ -219,6 +219,30 @@ without requiring external binaries or unprivileged user namespaces.
 user notifications. This introduces a small TOCTOU window (microseconds) between reading
 the path and responding.
 
+**Deny enforcement across the process tree**: seccomp-notify resolves the path argument of
+an intercepted `openat(2)` by reading `/proc/<pid>/mem` of the trapping process. PMG ships
+this in a two-stage architecture so enforcement applies to direct targets AND every
+descendant (grandchildren, great-grandchildren, etc.):
+
+1. The helper process (`pmg __landlock_sandbox_exec`) clones a tiny shim
+   (`pmg __landlock_shim`) with `CLONE_NEWUSER` and a uid/gid map of `0 -> host uid`.
+   The shim runs as uid 0 inside a fresh user namespace so it has `CAP_SYS_ADMIN` in that
+   namespace.
+2. The shim installs the seccomp-notify filter **without** `PR_SET_NO_NEW_PRIVS` (permitted
+   by `CAP_SYS_ADMIN` in the ns). It then applies Landlock and `execve`s the real target.
+3. Because `NO_NEW_PRIVS` was never set, subsequent `execve` calls in the tree do **not**
+   reset `dumpable` to 0, so the helper can keep opening `/proc/<pid>/mem` for any
+   descendant. Deny rules like `~/.ssh` are enforced for the full process tree.
+
+The user namespace is purely a capability vehicle. Host uid/gid are preserved through the
+mapping, so targets see the same filesystem ownership they normally would. Tools that
+refuse to run as root (npm's root-in-container warning) are unaffected because the
+outside-view uid never changes.
+
+**Requirements**: unprivileged user namespaces must be enabled (`unprivileged_userns_clone=1`
+on Debian/Ubuntu; default on most modern distros). If disabled, the helper fails with an
+EPERM on `clone()` and the sandbox falls back to Bubblewrap.
+
 **Network filtering**: Not enforced. Landlock supports TCP port filtering only (V4+, no hostname).
 Use `--proxy-mode` for network control.
 

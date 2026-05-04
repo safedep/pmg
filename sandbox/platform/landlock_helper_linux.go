@@ -11,10 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/landlock-lsm/go-landlock/landlock"
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
@@ -22,20 +22,40 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// RunLandlockHelper is the entry point for the __landlock_sandbox_exec helper process.
-// policyFile is the path to the policy JSON temp file.
-// auditSocket is the path to the audit unix socket.
-// cmdArgs are the target command args (everything after "--").
+// RunLandlockHelper is the entry point for the __landlock_sandbox_exec helper
+// process. policyFile is the path to the policy JSON temp file. auditSocket is
+// the path to the audit unix socket. cmdArgs are the target command args
+// (everything after "--").
+//
+// Architecture — why the helper spawns a shim in a user namespace:
+//
+// We want to install seccomp-notify AND keep /proc/<pid>/mem readable for
+// descendants, so the supervisor can resolve openat path arguments throughout
+// the process tree. Unprivileged seccomp install requires PR_SET_NO_NEW_PRIVS
+// — but NNP + execve resets the target's dumpable flag to 0, which blocks
+// /proc/<pid>/mem opens for anyone without CAP_SYS_PTRACE. This defeats
+// deny-rule enforcement on grandchildren (bash -> npm -> node).
+//
+// Fix: fork the target through a thin shim with CLONE_NEWUSER + uid map
+// 0->host. The shim boots as uid 0 inside the new user namespace (so
+// CAP_SYS_ADMIN in that ns) and installs seccomp WITHOUT NNP, which means
+// descendants keep dumpable=1 and the helper can read their memory. The
+// shim then execve's the real target with the filter inherited. To the real
+// target, this is indistinguishable from running directly — same uid, same
+// filesystem, same environment. The user namespace is only a capability
+// vehicle.
 func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
-	// 1. Read and delete policy file. PMG_KEEP_POLICY leaves the file on disk
-	// for manual debugging of translator output; never set in production.
+	// 1. Read policy file. The shim will re-open it from disk; we do NOT
+	// delete here so the shim can access it.
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("read policy from file: %w", err)
 	}
-	if os.Getenv("PMG_KEEP_POLICY") == "" {
-		_ = os.Remove(policyFile)
-	}
+	defer func() {
+		if os.Getenv("PMG_KEEP_POLICY") == "" {
+			_ = os.Remove(policyFile)
+		}
+	}()
 
 	// 2. Initialize logger.
 	log.InitZapLogger("pmg", "landlock-helper")
@@ -60,82 +80,40 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}
 
-	// Pin this goroutine to the current OS thread. PR_SET_NO_NEW_PRIVS and
-	// seccomp filters are per-thread. Without LockOSThread, Go's scheduler
-	// can migrate this goroutine to a different thread between the prctl()
-	// and seccomp() calls, causing EINVAL because the new thread doesn't
-	// have NO_NEW_PRIVS set.
-	runtime.LockOSThread()
-	// Note: we intentionally do NOT call UnlockOSThread(). The helper
-	// process exits after the child completes, so thread pinning is permanent.
-
-	// 4. Set no new privileges (per-thread, must be on the same thread as seccomp)
-	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
-		return fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)
-	}
-
-	// 5. Die if parent exits
+	// 4. Die if parent exits.
 	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); err != nil {
 		return fmt.Errorf("prctl PR_SET_PDEATHSIG: %w", err)
 	}
 
-	// 5b. Allow any process (specifically the supervisor goroutine in this
-	// same pmg helper) to ptrace us and our descendants. On systems with
-	// Yama ptrace_scope=1 (default on Arch, Ubuntu, etc.), only a direct
-	// parent can ptrace a child — grandchildren spawned by bash shims
-	// (/home/user/.asdf/shims/npm -> asdf -> node) become unreachable, so
-	// /proc/<pid>/mem opens with EACCES and the supervisor can't resolve
-	// openat path arguments. PR_SET_PTRACER is inherited across fork AND
-	// execve (until a setuid exec, which we don't expect), so calling it
-	// here on the helper makes every descendant ptraceable.
-	if err := unix.Prctl(unix.PR_SET_PTRACER, unix.PR_SET_PTRACER_ANY, 0, 0, 0); err != nil {
-		// Non-fatal: on kernels without Yama or with ptrace_scope=0, this
-		// call may return EINVAL but the mem fds will work anyway.
-		log.Debugf("prctl PR_SET_PTRACER: %v (non-fatal)", err)
-	}
-
-	// 6. Build go-landlock rules and apply them BEFORE installing the seccomp
-	// filter. Order matters: go-landlock's BestEffort() probes kernel features
-	// via openat + landlock_create_ruleset and RestrictPaths opens O_PATH fds
-	// for every rule. If seccomp intercepts openat first, each landlock
-	// operation round-trips through our supervisor and we've observed this to
-	// deadlock (helper main thread kernel-suspended in
-	// seccomp_do_user_notification, a handful of openats serviced then stuck).
-	// Applying Landlock first, before any filter is live, keeps landlock's
-	// internal openats filter-free; the filter installed afterwards only sees
-	// syscalls from the exec'd target and its descendants.
-	var rules []landlock.Rule
-	for _, r := range policy.FilesystemRules {
-		access := landlockAdjustAccessForPath(r.Path, r.Access)
-		rules = append(rules, landlock.PathAccess(
-			landlock.AccessFSSet(access), r.Path,
-		).IgnoreIfMissing())
-	}
-	cfg := landlockSelectConfig(policy)
-
-	// PMG_SKIP_LANDLOCK is a debug-only escape hatch: when set, we skip
-	// RestrictPaths and only seccomp enforcement applies. Useful when
-	// diagnosing which layer (landlock vs seccomp) rejects an access.
-	if os.Getenv("PMG_SKIP_LANDLOCK") == "" {
-		if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
-			return fmt.Errorf("landlock restrict paths: %w", err)
-		}
-	}
-
-
-	// 7. Install seccomp-notify BPF filter and start supervisor loop. Must run
-	// on the same thread as PR_SET_NO_NEW_PRIVS above. We intercept
-	// openat/openat2 (in addition to execve/execveat) whenever the policy
-	// defines any deny paths, since Landlock cannot carve deny holes out of a
-	// broader allow.
-	interceptOpen := len(policy.DenyPaths) > 0
-	supervisor, err := newLandlockSupervisor(interceptOpen)
+	// 5. Set up a socketpair. The shim uses its end (passed via ExtraFiles)
+	// to send the seccomp notify fd back; the helper reads it from the
+	// local end.
+	sockPair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	if err != nil {
-		return fmt.Errorf("create seccomp supervisor: %w", err)
+		return fmt.Errorf("socketpair: %w", err)
 	}
+	helperSockFile := os.NewFile(uintptr(sockPair[0]), "shim-notify-helper")
+	shimSockFile := os.NewFile(uintptr(sockPair[1]), "shim-notify-shim")
+	defer helperSockFile.Close()
 
-	// 8. Build exec.Cmd from policy
-	cmd := exec.Command(policy.Command, policy.Args...)
+	// 6. Build the shim command. The shim's ExtraFiles[0] will be at fd=3
+	// inside the shim process. Go's exec.Cmd writes uid_map/gid_map for us
+	// when UidMappings/GidMappings are populated.
+	selfExe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve self exe: %w", err)
+	}
+	shimArgs := []string{
+		selfExe, "__landlock_shim",
+		"--policy-file", policyFile,
+		"--notify-socket-fd", "3",
+		"--", policy.Command,
+	}
+	shimArgs = append(shimArgs, policy.Args...)
+
+	cmd := exec.Command(selfExe, shimArgs[1:]...)
+	cmd.Path = selfExe
+	cmd.Args = shimArgs
 	if len(policy.Env) > 0 {
 		cmd.Env = policy.Env
 	} else {
@@ -144,52 +122,76 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.ExtraFiles = []*os.File{shimSockFile}
 
-	// Debug: if PMG_LANDLOCK_DEBUG_OUT is set, tee child stdout/stderr to files
-	// so we can see failures when the parent pmg proxy swallows output.
-	if debugDir := os.Getenv("PMG_LANDLOCK_DEBUG_OUT"); debugDir != "" {
-		if outF, err := os.Create(filepath.Join(debugDir, "child.out")); err == nil {
-			cmd.Stdout = io.MultiWriter(os.Stdout, outF)
-		}
-		if errF, err := os.Create(filepath.Join(debugDir, "child.err")); err == nil {
-			cmd.Stderr = io.MultiWriter(os.Stderr, errF)
-		}
+	// CLONE_NEWUSER is the whole point — see function-level comment. We map
+	// host uid/gid to 0 in the ns so the shim has CAP_SYS_ADMIN to install
+	// seccomp without NNP. Identity mapping would leave us as unprivileged
+	// uid inside the ns and we'd have to re-acquire caps via ambient, which
+	// is not trivial in a Go runtime.
+	uid := os.Getuid()
+	gid := os.Getgid()
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUSER,
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: uid, Size: 1},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: gid, Size: 1},
+		},
+		GidMappingsEnableSetgroups: false,
 	}
 
-	// 9. Set namespace clone flags
-	cloneFlags := landlockBuildCloneflags(policy)
-	if cloneFlags != 0 {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Cloneflags: cloneFlags,
-		}
+	// Optional extra clone flags from policy (PID/IPC namespaces).
+	extraCloneFlags := landlockBuildCloneflags(policy)
+	if extraCloneFlags != 0 {
+		cmd.SysProcAttr.Cloneflags |= extraCloneFlags
 	}
 
-	// 10. Start child process
+	// 7. Start the shim. Retry without extra-ns flags if clone fails.
 	if err := cmd.Start(); err != nil {
 		var pathErr *os.PathError
 		if errors.As(err, &pathErr) &&
-			(errors.Is(pathErr.Err, unix.EPERM) || errors.Is(pathErr.Err, unix.EINVAL)) {
-			// Retry without namespace isolation
+			(errors.Is(pathErr.Err, unix.EPERM) || errors.Is(pathErr.Err, unix.EINVAL)) &&
+			extraCloneFlags != 0 {
 			_ = landlockWriteAuditEvent(auditWriter, auditEvent{
 				Type:    auditNamespaceUnavailable,
-				Message: fmt.Sprintf("namespace clone failed (%v), retrying without namespaces", err),
+				Message: fmt.Sprintf("namespace clone failed (%v), retrying without PID/IPC ns", err),
 				Ts:      time.Now().UnixNano(),
 			})
-			fmt.Fprintf(os.Stderr, "pmg: warning: namespace isolation unavailable (%v), continuing without it\n", err)
-			cmd.SysProcAttr = nil
+			fmt.Fprintf(os.Stderr, "pmg: warning: PID/IPC namespace unavailable (%v), continuing without\n", err)
+			cmd.SysProcAttr.Cloneflags &^= extraCloneFlags
 			if err := cmd.Start(); err != nil {
-				_ = supervisor.Stop()
-				return fmt.Errorf("start child process (retry): %w", err)
+				_ = shimSockFile.Close()
+				return fmt.Errorf("start shim (retry): %w", err)
 			}
 		} else {
-			_ = supervisor.Stop()
-			return fmt.Errorf("start child process: %w", err)
+			_ = shimSockFile.Close()
+			return fmt.Errorf("start shim: %w", err)
 		}
 	}
-
+	_ = shimSockFile.Close() // child has its own copy
 	childPID := cmd.Process.Pid
 
-	// 11. Pre-open /proc/<child-pid>/mem (FAIL-CLOSE)
+	// 8. Receive the seccomp notify fd from the shim.
+	notifyFd, err := receiveNotifyFd(int(helperSockFile.Fd()))
+	if err != nil {
+		_ = cmd.Process.Signal(unix.SIGKILL)
+		_ = cmd.Wait()
+		return fmt.Errorf("receive notify fd from shim: %w", err)
+	}
+
+	// 9. Construct the supervisor using the shim-provided notify fd.
+	supervisor, err := newLandlockSupervisorFromFd(notifyFd)
+	if err != nil {
+		_ = cmd.Process.Signal(unix.SIGKILL)
+		_ = cmd.Wait()
+		_ = unix.Close(notifyFd)
+		return fmt.Errorf("create supervisor: %w", err)
+	}
+
+	// 10. Open /proc/<child-pid>/mem (dumpable=1 in the shim tree, so this
+	// succeeds even for grandchildren via memFdFor).
 	memFd, err := openLandlockChildMemFd(childPID)
 	if err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
@@ -205,7 +207,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("open /proc/%d/mem (fail-close): %w", childPID, err)
 	}
 
-	// 12. Transition supervisor to enforcement mode
+	// 11. Transition supervisor to enforce mode.
 	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, auditWriter); err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
@@ -214,7 +216,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("enforce seccomp rules: %w", err)
 	}
 
-	// 13. Signal forwarding
+	// 12. Signal forwarding.
 	sigCh := make(chan os.Signal, 3)
 	signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM, unix.SIGQUIT)
 	go func() {
@@ -223,18 +225,15 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}()
 
-	// 14. Wait for child
+	// 13. Wait for child.
 	waitErr := cmd.Wait()
 
-	// 15. Stop supervisor
+	// 14. Stop supervisor and cleanup.
 	_ = supervisor.Stop()
-
-	// 16. Cleanup
 	signal.Stop(sigCh)
 	close(sigCh)
 	memFd.Close()
 
-	// 17. Exit with child's exit code
 	exitCode := 0
 	if waitErr != nil {
 		var exitErr *exec.ExitError
@@ -245,51 +244,94 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}
 	os.Exit(exitCode)
-
 	return nil // unreachable
 }
 
-// readLandlockPolicyFromFile reads and deserializes a landlockExecPolicy from a file path.
+// receiveNotifyFd reads a single SCM_RIGHTS-packed fd from the socketpair.
+// The shim writes it right after installing the seccomp filter. Returns the
+// fd as seen by the helper (kernel re-numbered at recvmsg time).
+func receiveNotifyFd(sockFd int) (int, error) {
+	buf := make([]byte, 1)
+	oob := make([]byte, unix.CmsgSpace(4))
+	iov := unix.Iovec{Base: &buf[0], Len: 1}
+	msg := unix.Msghdr{Iov: &iov, Iovlen: 1, Control: &oob[0]}
+	msg.SetControllen(len(oob))
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for {
+		_, _, errno := unix.Syscall(
+			unix.SYS_RECVMSG,
+			uintptr(sockFd),
+			uintptr(unsafe.Pointer(&msg)),
+			0,
+		)
+		runtime.KeepAlive(&buf)
+		runtime.KeepAlive(&oob)
+		runtime.KeepAlive(&iov)
+		runtime.KeepAlive(&msg)
+		if errno == unix.EINTR {
+			continue
+		}
+		if errno != 0 {
+			return -1, fmt.Errorf("recvmsg: %w", errno)
+		}
+		break
+	}
+	cmsgs, err := unix.ParseSocketControlMessage(oob[:msg.Controllen])
+	if err != nil {
+		return -1, fmt.Errorf("parse cmsg: %w", err)
+	}
+	if len(cmsgs) == 0 {
+		return -1, fmt.Errorf("no SCM_RIGHTS cmsg received (shim likely failed before send)")
+	}
+	fds, err := unix.ParseUnixRights(&cmsgs[0])
+	if err != nil {
+		return -1, fmt.Errorf("parse unix rights: %w", err)
+	}
+	if len(fds) == 0 {
+		return -1, fmt.Errorf("no fds in cmsg")
+	}
+	return fds[0], nil
+}
+
+// readLandlockPolicyFromFile reads and deserializes a landlockExecPolicy from
+// a file path.
 func readLandlockPolicyFromFile(path string) (*landlockExecPolicy, error) {
 	if path == "" {
 		return nil, fmt.Errorf("policy file path is empty")
 	}
-
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open policy file: %w", err)
 	}
 	defer f.Close()
-
 	return readLandlockPolicyFromReader(f)
 }
 
-// readLandlockPolicyFromReader reads and deserializes a landlockExecPolicy from an io.Reader.
+// readLandlockPolicyFromReader reads and deserializes a landlockExecPolicy
+// from an io.Reader.
 func readLandlockPolicyFromReader(r io.Reader) (*landlockExecPolicy, error) {
 	var policy landlockExecPolicy
 	if err := json.NewDecoder(r).Decode(&policy); err != nil {
 		return nil, fmt.Errorf("decode policy JSON: %w", err)
 	}
-
 	if policy.Command == "" {
 		return nil, fmt.Errorf("policy has empty command")
 	}
-
 	return &policy, nil
 }
 
-// landlockBuildCloneflags builds the clone flags for the child process based on policy.
+// landlockBuildCloneflags builds extra clone flags for the shim process based
+// on the policy. The CLONE_NEWUSER flag itself is always added by the caller;
+// this function returns ONLY the optional PID/IPC/MNT namespace flags.
 func landlockBuildCloneflags(policy *landlockExecPolicy) uintptr {
 	var flags uintptr
-
 	if !policy.SkipPIDNamespace {
 		flags |= unix.CLONE_NEWPID | unix.CLONE_NEWNS
 	}
-
 	if !policy.SkipIPCNamespace {
 		flags |= unix.CLONE_NEWIPC
 	}
-
 	return flags
 }
 
@@ -303,11 +345,11 @@ func openLandlockChildMemFd(pid int) (*os.File, error) {
 	return f, nil
 }
 
-// landlockSelectConfig determines the appropriate go-landlock Config version
-// based on the access flags used in the policy's filesystem rules.
+// landlockSelectConfig picks the Landlock go library's Config (and thus
+// ABI target) based on the highest access flag used in the policy. Kept
+// in the helper file to avoid import cycles; consumed by the shim.
 func landlockSelectConfig(policy *landlockExecPolicy) landlock.Config {
 	var hasRefer, hasTruncate, hasIoctlDev bool
-
 	for _, r := range policy.FilesystemRules {
 		if r.Access&uint64(llsyscall.AccessFSRefer) != 0 {
 			hasRefer = true
@@ -319,7 +361,6 @@ func landlockSelectConfig(policy *landlockExecPolicy) landlock.Config {
 			hasIoctlDev = true
 		}
 	}
-
 	switch {
 	case hasIoctlDev:
 		return landlock.V5

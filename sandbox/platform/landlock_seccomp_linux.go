@@ -446,6 +446,25 @@ func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
 	return s, nil
 }
 
+// newLandlockSupervisorFromFd wraps an already-created seccomp notify fd
+// (obtained from the shim over a socketpair) in a supervisor. Unlike
+// newLandlockSupervisor, it does NOT install a filter — the shim did that
+// inside its user namespace so the helper stays unfiltered.
+func newLandlockSupervisorFromFd(notifyFd int) (*seccompSupervisor, error) {
+	stopFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		_ = unix.Close(notifyFd)
+		return nil, fmt.Errorf("eventfd: %w", err)
+	}
+	s := &seccompSupervisor{
+		notifyFd: notifyFd,
+		stopFd:   stopFd,
+		loopDone: make(chan struct{}),
+	}
+	go s.loop()
+	return s, nil
+}
+
 // Enforce transitions the supervisor to enforcement mode. From this point on,
 // syscalls from childPID and its descendants are checked against the deny lists.
 func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, auditWriter io.Writer) error {

@@ -141,6 +141,9 @@ func main() {
 	if subcmd := landlockCmd.NewLandlockSandboxExecCommand(); subcmd != nil {
 		cmd.AddCommand(subcmd)
 	}
+	if subcmd := landlockCmd.NewLandlockShimCommand(); subcmd != nil {
+		cmd.AddCommand(subcmd)
+	}
 
 	// Print Banner on --help / -h
 	cmd.SetHelpFunc(func(command *cobra.Command, args []string) {
