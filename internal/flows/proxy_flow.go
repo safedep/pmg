@@ -424,6 +424,12 @@ func (f *proxyFlow) executeWithProxy(
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
 
+	defer func() {
+		if err := result.Close(); err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
+
 	if !result.ShouldRun() {
 		return usefulerror.Useful().
 			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
