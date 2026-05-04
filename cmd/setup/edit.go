@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/shellwords"
 	"github.com/spf13/cobra"
 )
 
@@ -48,9 +49,13 @@ func runEdit() error {
 		return err
 	}
 
-	// Split editor command so $EDITOR="code --wait" works. Editors with
-	// spaces in their executable path should be wrapped in a shell script.
-	parts := strings.Fields(editor)
+	parts, err := shellwords.Split(editor)
+	if err != nil {
+		return fmt.Errorf("invalid editor command %q: %w", editor, err)
+	}
+	if len(parts) == 0 {
+		return fmt.Errorf("editor command is empty")
+	}
 	parts = append(parts, path)
 
 	c := exec.Command(parts[0], parts[1:]...)
