@@ -329,3 +329,56 @@ func TestWriteTemplateConfigCreatesNewFile(t *testing.T) {
 	// Should be the full template
 	assert.Equal(t, templateConfig, string(result))
 }
+
+func TestProxyConfigSection(t *testing.T) {
+	t.Run("defaults to enabled with install_only false", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+		initConfig()
+
+		cfg := Get()
+		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
+		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly)
+		assert.NotNil(t, cfg.Config.Proxy.Policies)
+	})
+
+	t.Run("reads proxy section from config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configYAML := `proxy:
+  enabled: true
+  install_only: true
+  policies:
+    npm:
+      skip_commands: ["my-script", "dev"]
+`
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		cfg := Get()
+
+		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
+		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
+		assert.Equal(t, []string{"my-script", "dev"}, cfg.Config.Proxy.Policies["npm"].SkipCommands)
+	})
+
+	t.Run("falls back to legacy keys when proxy section absent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configYAML := `proxy_mode: false
+proxy_install_only: true
+`
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		cfg := Get()
+
+		assert.Equal(t, false, cfg.Config.Proxy.Enabled)
+		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
+	})
+}

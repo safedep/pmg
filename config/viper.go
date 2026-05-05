@@ -44,5 +44,13 @@ func loadViperConfig() error {
 	}
 
 	globalConfig.Config = merged
+	applyProxyLegacyFallback(v)
 	return nil
+}
+
+func applyProxyLegacyFallback(v *viper.Viper) {
+	if !v.IsSet("proxy") {
+		globalConfig.Config.Proxy.Enabled = v.GetBool("proxy_mode") || v.GetBool("experimental_proxy_mode")
+		globalConfig.Config.Proxy.InstallOnly = v.GetBool("proxy_install_only")
+	}
 }

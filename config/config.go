@@ -88,12 +88,24 @@ type Config struct {
 	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
 
 	Cloud CloudConfig `mapstructure:"cloud"`
+
+	Proxy ProxyConfig `mapstructure:"proxy"`
 }
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
 type CloudConfig struct {
 	Enabled    bool   `mapstructure:"enabled"`
 	EndpointID string `mapstructure:"endpoint_id"`
+}
+
+type ProxyPolicy struct {
+	SkipCommands []string `mapstructure:"skip_commands"`
+}
+
+type ProxyConfig struct {
+	Enabled     bool                   `mapstructure:"enabled"`
+	InstallOnly bool                   `mapstructure:"install_only"`
+	Policies    map[string]ProxyPolicy `mapstructure:"policies"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -262,6 +274,11 @@ func DefaultConfig() RuntimeConfig {
 			},
 			Cloud: CloudConfig{
 				Enabled: false,
+			},
+			Proxy: ProxyConfig{
+				Enabled:     true,
+				InstallOnly: false,
+				Policies:    map[string]ProxyPolicy{},
 			},
 		},
 		DryRun:               false,
