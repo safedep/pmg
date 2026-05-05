@@ -9,10 +9,10 @@ where we have to work within the limitations of the sandbox implementations that
 
 - **Default deny**: All operations are blocked unless explicitly allowed by the policy. An empty policy grants no access.
 - **Deny rules override allow rules**: When a path appears in both allow and deny lists, the deny rule wins. Deny rules are placed after allow rules in the generated sandbox profile to ensure this.
-- **Credential and sensitive file protection**: The sandbox automatically blocks read and write access to credential files regardless of user configuration. Protected files include `.env`, `.env.*`, `.aws`, `.gcloud`, `.kube`, `.ssh`, `.gnupg`, and `.docker/config.json`. These mandatory deny patterns are injected at translation time and cannot be removed by policy configuration or runtime overrides.
+- **Credential and sensitive file protection**: The sandbox blocks read and write access to credential files by default. Protected files include `.env`, `.env.*`, `.aws`, `.gcloud`, `.kube`, `.ssh`, `.gnupg`, and `.docker/config.json`. These mandatory denies are injected for three forms per file — the path under `${CWD}`, a `**/<file>` glob, and the path under `${HOME}`. A user can opt out by listing the literal path in `allow_read` (read-side) or `allow_write` (write-side) of their policy, **or** by passing it via `--sandbox-allow read=...` / `--sandbox-allow write=...` at runtime. Listing the CWD-absolute or HOME-absolute form additionally suppresses the corresponding `**/<file>` glob on the same direction (so `--sandbox-allow read=./.env` is enough to read `${CWD}/.env`). Suppression requires an exact post-expansion string match; broad globs like `${HOME}/**` do not opt out of `${HOME}/.aws`. The OTHER absolute form remains denied. `.git/hooks` is unconditional (cannot be opted out) due to arbitrary-code-execution risk.
 - **Git hooks are always blocked**: Write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks.
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
-- **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. Mandatory deny patterns (credentials, git hooks) cannot be overridden because they are re-injected at translation time.
+- **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. Mandatory deny patterns for credential files can be opted out by an exact-match entry in `allow_read` / `allow_write` (policy or runtime); `.git/hooks` is unconditional and cannot be opted out.
 - **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`) in the child override the parent.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
 - **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Network filtering is coarse-grained — host-level filtering is not enforced on either platform.
@@ -92,7 +92,7 @@ pmg \
 
 Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`.
 
-Overrides are non-persistent (apply to current invocation only) and logged in the event log for auditing. An override adds the path to the allow list and removes an exact match entry from the corresponding deny list. Glob deny patterns are never removed. Mandatory security protections (`.env`, `.ssh`, `.aws`, `.git/hooks`, etc.) cannot be bypassed by overrides.
+Overrides are non-persistent (apply to current invocation only) and logged in the event log for auditing. An override adds the path to the allow list and removes an exact match entry from the corresponding deny list. Glob deny patterns are never removed. Mandatory security protections for credential files (`.env`, `.ssh`, `.aws`, etc.) can be opted out of by listing the exact literal path in either the policy file's `allow_read` / `allow_write` or via `--sandbox-allow read=...` / `--sandbox-allow write=...` at runtime — both channels are treated at par as explicit user intent. Suppression is exact-match only: broad paths or globs do not opt out. `.git/hooks` is unconditional and cannot be opted out by either channel.
 
 <details>
 <summary>Custom policy overrides using Policy Templates</summary>
@@ -188,6 +188,13 @@ coarse-grained fallback strategies when glob patterns match many files.
 
 **Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific
 filtering is not enforced.
+
+**Per-direction mandatory deny is asymmetric on Linux**: bwrap has no primitive that allows writes
+while denying reads for the same path. If a user opts out of write for a mandatory deny path
+(e.g., listing it in `allow_write` but not `allow_read`), the resulting bind mount necessarily
+also exposes reads — the read-side mandatory deny is unenforceable. PMG emits a `log.Warnf` when
+this case is detected. The macOS Seatbelt translator does not have this limitation because
+Seatbelt's `file-read*` and `file-write*` rules are independent.
 
 </details>
 
