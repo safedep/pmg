@@ -195,6 +195,11 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
+	// allow_write grants read+write to mirror Bubblewrap's --bind (which
+	// exposes both directions). Package managers routinely reopen files in
+	// temp/cache trees with O_RDONLY/O_RDWR, so write-only access would
+	// surface as spurious EACCES on otherwise-allowed paths.
+	readWriteAccess := landlockReadAccess | writeAccess
 	for _, pattern := range policy.Filesystem.AllowWrite {
 		paths, err := landlockExpandPattern(pattern)
 		if err != nil {
@@ -204,7 +209,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		for _, p := range paths {
 			ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
 				Path:   p,
-				Access: writeAccess,
+				Access: readWriteAccess,
 			})
 		}
 	}
