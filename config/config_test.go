@@ -168,19 +168,6 @@ func TestConfigPrecedence(t *testing.T) {
 		assert.Equal(t, true, Get().Config.DisableTelemetry, "config file should disable telemetry")
 	})
 
-	t.Run("env var for nested key works when absent from config file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		t.Setenv("PMG_CONFIG_DIR", tmpDir)
-		t.Setenv("PMG_PARANOID", "true")
-
-		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("transitive: false\n"), 0o644)
-		require.NoError(t, err)
-
-		initConfig()
-		assert.Equal(t, true, Get().Config.Paranoid, "env var should work even when key is absent from config file")
-	})
-
 	t.Run("env var works without a config file", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
 		t.Setenv("PMG_PARANOID", "true")

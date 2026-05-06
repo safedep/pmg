@@ -77,10 +77,10 @@ func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
 	return pc.IsManifestInstall && !pc.HasInstallTarget()
 }
 
-// isFirstNonFlagArgInList checks if the first non-flag argument in args is in nonDownloadCmds.
+// IsFirstNonFlagArgInList checks if the first non-flag argument in args is in the given list.
 // Only the first non-flag arg (the subcommand) is checked to avoid false positives when package
-// names or script arguments happen to match a known non-download command.
-func isFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
+// names or script arguments happen to match a known command.
+func IsFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
 			continue

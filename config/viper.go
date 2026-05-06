@@ -22,7 +22,7 @@ func loadViperConfig() error {
 	v.SetConfigType("yaml")
 	v.SetEnvPrefix("PMG")
 	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 
 	// Load the embedded template as the base so Viper knows all keys and their
 	// defaults. This is required for AutomaticEnv to resolve PMG_* env vars for

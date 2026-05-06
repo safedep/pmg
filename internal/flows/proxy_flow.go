@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -62,7 +60,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Skip proxy for user-defined skip commands
 	if policy, ok := cfg.Config.Proxy.Policies[f.pm.Name()]; ok && len(policy.SkipCommands) > 0 {
-		if isFirstArgInSkipCommands(parsedCmd.Command.Args, policy.SkipCommands) {
+		if packagemanager.IsFirstNonFlagArgInList(parsedCmd.Command.Args, policy.SkipCommands) {
 			log.Debugf("Skipping proxy for user-defined skip command")
 			return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
 		}
@@ -571,12 +569,3 @@ func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
 		Wrap(err)
 }
 
-func isFirstArgInSkipCommands(args []string, skipCommands []string) bool {
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		return slices.Contains(skipCommands, arg)
-	}
-	return false
-}
