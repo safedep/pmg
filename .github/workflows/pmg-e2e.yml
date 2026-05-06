@@ -626,6 +626,11 @@ jobs:
     env:
       PMG_SANDBOX_DRIVER: landlock
       PMG_LANDLOCK_E2E: "1"
+      # Redirect npm's cache into /tmp so it sits outside any pre-existing
+      # state in /home/runner/.npm (which setup-node / the runner image may
+      # have populated with state the sandbox policy doesn't account for).
+      # The npm-restrictive profile already grants /tmp/** read+write.
+      npm_config_cache: /tmp/npm-cache
     steps:
       - name: Checkout Source
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
