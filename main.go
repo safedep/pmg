@@ -165,7 +165,7 @@ func logDebugContext() {
 	log.Debugf("PMG %s (commit: %s) running on %s/%s with %s",
 		appVersion.Version, appVersion.Commit, runtime.GOOS, runtime.GOARCH, runtime.Version())
 	log.Debugf("Using config file: %s", cfg.ConfigFilePath())
-	log.Debugf("Proxy mode enabled: %t, install only: %t", cfg.IsProxyModeEnabled(), cfg.Config.ProxyInstallOnly)
+	log.Debugf("Proxy mode enabled: %t, install only: %t", cfg.IsProxyModeEnabled(), cfg.Config.Proxy.InstallOnly)
 	log.Debugf("Sandbox enabled: %t, enforce always: %t", cfg.Config.Sandbox.Enabled, cfg.Config.Sandbox.EnforceAlways)
 	log.Debugf("Transitive analysis enabled: %t (depth: %d), paranoid: %t", cfg.Config.Transitive, cfg.Config.TransitiveDepth, cfg.Config.Paranoid)
 	log.Debugf("Dependency cooldown enabled: %t (days: %d)", cfg.Config.DependencyCooldown.Enabled, cfg.Config.DependencyCooldown.Days)

@@ -32,18 +32,27 @@ skip_event_logging: false
 # This is the number of days to retain event logs.
 event_log_retention_days: 7
 
-# Proxy mode. Default is true.
+# Proxy configuration.
 # When enabled, PMG uses a proxy-based interception approach instead of the
 # default guard-based analysis. The proxy intercepts package manager requests in real-time
 # and analyzes packages as they are downloaded. Proxy mode may not work in all environments,
 # and can be disabled to fall back to the guard-based analysis.
-proxy_mode: true
+proxy:
+  enabled: true
 
-# Restrict proxy to install commands only. Default is false.
-# When false, the proxy intercepts all package manager commands (e.g., npm install, npm ls).
-# When true, non-install commands bypass the proxy and execute directly, which can improve
-# performance for commands that don't download packages (e.g., npm ls, pip list, npm outdated).
-proxy_install_only: false
+  # When true, only install commands are proxied. Other commands
+  # (e.g., npm ls, pip list) bypass the proxy and execute directly.
+  install_only: false
+
+  # Per-package-manager proxy policies.
+  # Additional commands to bypass the proxy.
+  # Example:
+  #   policies:
+  #     pip:
+  #       skip_commands: ["list", "show"]
+  policies:
+    npm:
+      skip_commands: ["my-script"]
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 // loadViperConfig loads the configuration using Viper.
@@ -44,13 +45,43 @@ func loadViperConfig() error {
 	}
 
 	globalConfig.Config = merged
-	applyProxyLegacyFallback(v)
+
+	// Resolve proxy config: new proxy section > legacy flat keys.
+	// Viper can't distinguish "value from template" vs "value from user config"
+	// (v.IsSet is always true for template keys), so we check the raw user file.
+	if !hasProxySectionInFile(configPath) {
+		applyProxyLegacyFallback(v)
+	}
+
 	return nil
 }
 
+// hasProxySectionInFile checks whether the user's config file contains a
+// top-level "proxy" key. Returns false if the file doesn't exist or can't
+// be parsed.
+func hasProxySectionInFile(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+
+	_, ok := raw["proxy"]
+	return ok
+}
+
+// applyProxyLegacyFallback populates the new Proxy struct from deprecated
+// flat keys when the user's config file does not have a proxy: section.
 func applyProxyLegacyFallback(v *viper.Viper) {
-	if !v.IsSet("proxy") {
-		globalConfig.Config.Proxy.Enabled = v.GetBool("proxy_mode") || v.GetBool("experimental_proxy_mode")
+	if v.IsSet("proxy_mode") {
+		globalConfig.Config.Proxy.Enabled = v.GetBool("proxy_mode")
+	}
+
+	if v.IsSet("proxy_install_only") {
 		globalConfig.Config.Proxy.InstallOnly = v.GetBool("proxy_install_only")
 	}
 }

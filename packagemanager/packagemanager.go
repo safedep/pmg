@@ -47,7 +47,7 @@ type ParsedCommand struct {
 
 	// IsKnownNonDownloadCommand is true for commands that are known to not download packages
 	// (e.g., npm ls, pip list, yarn why). Used by the proxy to decide whether to skip
-	// interception when proxy_install_only is enabled. Unknown commands default to false so
+	// interception when proxy.install_only is enabled. Unknown commands default to false so
 	// the proxy runs — fail safe when a new subcommand is added to a package manager.
 	IsKnownNonDownloadCommand bool
 }
