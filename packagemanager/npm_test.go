@@ -539,26 +539,26 @@ func TestNpmProxyBehavior(t *testing.T) {
 			isKnownNonDownloadCmd: true,
 			isInstallationCommand: false,
 		},
-		// Script execution via run
+		// Script runners are not in NonDownloadCommands — proxy runs for them
 		{
-			name:                  "npm run dev — proxy skipped (executes local script, no registry contact)",
+			name:                  "npm run dev — proxy runs (script runner)",
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
 			command:               "npm run dev",
-			isKnownNonDownloadCmd: true,
+			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		{
-			name:                  "yarn run build — proxy skipped (executes local script)",
+			name:                  "yarn run build — proxy runs (script runner)",
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
 			command:               "yarn run build",
-			isKnownNonDownloadCmd: true,
+			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		{
-			name:                  "bun run test — proxy skipped (executes local script)",
+			name:                  "bun run test — proxy runs (script runner)",
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
 			command:               "bun run test",
-			isKnownNonDownloadCmd: true,
+			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		// False positive regression: package/script names matching NonDownloadCommands words
