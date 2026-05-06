@@ -52,17 +52,19 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	cfg := config.Get()
 
-	// Skip proxy for commands that don't download packages when install_only is enabled
-	if cfg.Config.Proxy.InstallOnly && !parsedCmd.MayDownloadPackages() {
-		log.Debugf("Skipping proxy for non-download command (install_only=true)")
-		return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
-	}
-
-	// Skip proxy for user-defined skip commands
-	if policy, ok := cfg.Config.Proxy.Policies[f.pm.Name()]; ok && len(policy.SkipCommands) > 0 {
-		if packagemanager.IsFirstNonFlagArgInList(parsedCmd.Command.Args, policy.SkipCommands) {
-			log.Debugf("Skipping proxy for user-defined skip command")
+	// When install_only is enabled, skip proxy for known non-download commands
+	// and user-defined skip commands
+	if cfg.Config.Proxy.InstallOnly {
+		if !parsedCmd.MayDownloadPackages() {
+			log.Debugf("Skipping proxy for non-download command (install_only=true)")
 			return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+		}
+
+		if cmds, ok := cfg.Config.Proxy.SkipCommands[f.pm.Name()]; ok && len(cmds) > 0 {
+			if packagemanager.IsFirstNonFlagArgInList(parsedCmd.Command.Args, cmds) {
+				log.Debugf("Skipping proxy for user-defined skip command (install_only=true)")
+				return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+			}
 		}
 	}
 

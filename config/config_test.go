@@ -325,7 +325,7 @@ func TestProxyConfigSection(t *testing.T) {
 		cfg := Get()
 		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
 		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly)
-		assert.NotNil(t, cfg.Config.Proxy.Policies)
+		assert.NotNil(t, cfg.Config.Proxy.SkipCommands)
 	})
 
 	t.Run("reads proxy section from config file", func(t *testing.T) {
@@ -335,9 +335,8 @@ func TestProxyConfigSection(t *testing.T) {
 		configYAML := `proxy:
   enabled: true
   install_only: true
-  policies:
-    npm:
-      skip_commands: ["my-script", "dev"]
+  skip_commands:
+    npm: ["my-script", "dev"]
 `
 		configPath := filepath.Join(tmpDir, "config.yml")
 		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
@@ -348,7 +347,7 @@ func TestProxyConfigSection(t *testing.T) {
 
 		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
 		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
-		assert.Equal(t, []string{"my-script", "dev"}, cfg.Config.Proxy.Policies["npm"].SkipCommands)
+		assert.Equal(t, []string{"my-script", "dev"}, cfg.Config.Proxy.SkipCommands["npm"])
 	})
 
 	t.Run("falls back to legacy keys from config file", func(t *testing.T) {
