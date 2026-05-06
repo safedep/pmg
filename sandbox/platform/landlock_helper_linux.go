@@ -59,10 +59,14 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 
 	log.InitZapLogger("pmg", "landlock-helper")
 
-	var auditWriter io.Writer = io.Discard
+	auditWriter := io.Writer(io.Discard)
 	conn, err := net.Dial("unix", auditSocket)
 	if err == nil {
-		defer conn.Close()
+		defer func() {
+			if cerr := conn.Close(); cerr != nil {
+				log.Warnf("close audit socket: %v", cerr)
+			}
+		}()
 		auditWriter = conn
 	} else {
 		log.Debugf("Failed to connect to audit socket %s: %v", auditSocket, err)
@@ -90,7 +94,11 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	}
 	helperSockFile := os.NewFile(uintptr(sockPair[0]), "shim-notify-helper")
 	shimSockFile := os.NewFile(uintptr(sockPair[1]), "shim-notify-shim")
-	defer helperSockFile.Close()
+	defer func() {
+		if err := helperSockFile.Close(); err != nil {
+			log.Warnf("close helper socket: %v", err)
+		}
+	}()
 
 	// ExtraFiles[0] becomes fd=3 inside the shim. Go's exec.Cmd writes
 	// uid_map/gid_map automatically when UidMappings/GidMappings are set.
@@ -203,7 +211,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, auditWriter); err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
-		memFd.Close()
+		if cerr := memFd.Close(); cerr != nil {
+			log.Warnf("close /proc/%d/mem: %v", childPID, cerr)
+		}
 		_ = supervisor.Stop()
 		return fmt.Errorf("enforce seccomp rules: %w", err)
 	}
@@ -221,7 +231,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	_ = supervisor.Stop()
 	signal.Stop(sigCh)
 	close(sigCh)
-	memFd.Close()
+	if err := memFd.Close(); err != nil {
+		log.Warnf("close /proc/%d/mem: %v", childPID, err)
+	}
 
 	exitCode := 0
 	if waitErr != nil {
@@ -293,7 +305,11 @@ func readLandlockPolicyFromFile(path string) (*landlockExecPolicy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open policy file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Warnf("close policy file %s: %v", path, err)
+		}
+	}()
 	return readLandlockPolicyFromReader(f)
 }
 

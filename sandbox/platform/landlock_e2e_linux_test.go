@@ -19,11 +19,23 @@ import (
 // bypassing the rest of pmg (config, proxy, etc.). They verify the helper
 // flow on a real kernel + Landlock ABI.
 //
-// Skipped when kernel Landlock is unavailable or the pmg binary cannot be
-// located/built. Set LANDLOCK_E2E=skip to skip unconditionally.
+// Opt-in: skipped unless PMG_LANDLOCK_E2E=1 is set in the environment. They
+// require a kernel that allows installing seccomp without NNP from inside an
+// unprivileged user namespace — Ubuntu 24.04 blocks this by default via
+// `kernel.apparmor_restrict_unprivileged_userns=1`, so CI must disable
+// AppArmor (or the sysctl) before setting the env var. Also skipped when
+// kernel Landlock is unavailable or the pmg binary cannot be located/built.
 
 const landlockRuleReadExec = uint64(13) // READ_FILE | READ_DIR | EXECUTE
 const landlockRuleReadDir = uint64(12)  // READ_FILE | READ_DIR
+
+// landlockE2EEnabled reports whether the user has opted into running these
+// e2e tests. Default: skip. The CI landlock job sets PMG_LANDLOCK_E2E=1 after
+// disabling AppArmor.
+func landlockE2EEnabled() bool {
+	v := os.Getenv("PMG_LANDLOCK_E2E")
+	return v == "1" || v == "true" || v == "yes"
+}
 
 // buildPmgBinary locates or builds bin/pmg. Returns absolute path.
 func buildPmgBinary(t *testing.T) string {
@@ -112,8 +124,8 @@ func baseRules() []landlockPathRule {
 // exit cleanly. Regression for the supervisor.Stop hang and for the
 // landlock-before-seccomp ordering deadlock.
 func TestLandlockHelper_EchoRuns(t *testing.T) {
-	if os.Getenv("LANDLOCK_E2E") == "skip" {
-		t.Skip("LANDLOCK_E2E=skip")
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
 	if _, err := landlockDetectABI(); err != nil {
 		t.Skipf("Landlock not available: %v", err)
@@ -144,8 +156,8 @@ func TestLandlockHelper_EchoRuns(t *testing.T) {
 // docs/sandbox.md for details. This test intentionally uses /usr/bin/cat
 // as a direct target to keep enforcement in scope.
 func TestLandlockHelper_DirectChildDenyBlocksRead(t *testing.T) {
-	if os.Getenv("LANDLOCK_E2E") == "skip" {
-		t.Skip("LANDLOCK_E2E=skip")
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
 	if _, err := landlockDetectABI(); err != nil {
 		t.Skipf("Landlock not available: %v", err)
@@ -190,8 +202,8 @@ func TestLandlockHelper_DirectChildDenyBlocksRead(t *testing.T) {
 // read the openat path argument — see grandchild limitation note in
 // TestLandlockHelper_DirectChildDenyBlocksRead.
 func TestLandlockHelper_DenyBothBlocksWrite(t *testing.T) {
-	if os.Getenv("LANDLOCK_E2E") == "skip" {
-		t.Skip("LANDLOCK_E2E=skip")
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
 	if _, err := landlockDetectABI(); err != nil {
 		t.Skipf("Landlock not available: %v", err)
@@ -240,8 +252,8 @@ func TestLandlockHelper_DenyBothBlocksWrite(t *testing.T) {
 // shim installs seccomp inside a user namespace WITHOUT NO_NEW_PRIVS,
 // keeping dumpable=1 through every execve in the tree.
 func TestLandlockHelper_GrandchildDenyBlocksRead(t *testing.T) {
-	if os.Getenv("LANDLOCK_E2E") == "skip" {
-		t.Skip("LANDLOCK_E2E=skip")
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
 	if _, err := landlockDetectABI(); err != nil {
 		t.Skipf("Landlock not available: %v", err)

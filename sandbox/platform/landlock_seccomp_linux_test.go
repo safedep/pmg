@@ -360,8 +360,16 @@ func TestReadPathFromMem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Logf("remove temp file: %v", err)
+		}
+	}()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			t.Logf("close temp file: %v", err)
+		}
+	}()
 
 	testPath := "/home/user/.env"
 	data := append([]byte(testPath), 0) // null-terminated
@@ -377,7 +385,11 @@ func TestReadPathFromMem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open temp file: %v", err)
 	}
-	defer memFd.Close()
+	defer func() {
+		if err := memFd.Close(); err != nil {
+			t.Logf("close mem fd: %v", err)
+		}
+	}()
 
 	result, err := readPathFromMem(memFd, 0)
 	if err != nil {
@@ -394,8 +406,16 @@ func TestReadPathFromMem_Offset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Logf("remove temp file: %v", err)
+		}
+	}()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			t.Logf("close temp file: %v", err)
+		}
+	}()
 
 	// Write padding, then a null-terminated path at a known offset.
 	padding := make([]byte, 100)
@@ -409,7 +429,11 @@ func TestReadPathFromMem_Offset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open temp file: %v", err)
 	}
-	defer memFd.Close()
+	defer func() {
+		if err := memFd.Close(); err != nil {
+			t.Logf("close mem fd: %v", err)
+		}
+	}()
 
 	result, err := readPathFromMem(memFd, 100)
 	if err != nil {

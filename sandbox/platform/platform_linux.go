@@ -13,11 +13,17 @@ import (
 // NewSandbox creates a platform-specific sandbox instance for Linux.
 // Prefers Landlock (kernel 5.13+) with seccomp-notify for deny enforcement.
 // Falls back to Bubblewrap if Landlock or seccomp-notify is unavailable.
-// Set PMG_SANDBOX_DRIVER=bubblewrap to force Bubblewrap.
+// Set PMG_SANDBOX_DRIVER=bubblewrap to force Bubblewrap, or
+// PMG_SANDBOX_DRIVER=landlock to force Landlock (no fallback — fails if
+// Landlock is unavailable).
 func NewSandbox() (sandbox.Sandbox, error) {
-	if driver := os.Getenv("PMG_SANDBOX_DRIVER"); driver == "bubblewrap" {
+	switch os.Getenv("PMG_SANDBOX_DRIVER") {
+	case "bubblewrap":
 		log.Debugf("PMG_SANDBOX_DRIVER=bubblewrap: forcing Bubblewrap sandbox")
 		return newBubblewrapSandbox()
+	case "landlock":
+		log.Debugf("PMG_SANDBOX_DRIVER=landlock: forcing Landlock sandbox")
+		return newLandlockSandbox()
 	}
 
 	sb, err := newLandlockSandbox()

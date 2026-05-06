@@ -628,10 +628,6 @@ func (t *bubblewrapPolicyTranslator) expandGlobstarPattern(pattern string, maxDe
 	return expandGlobstarPattern(pattern, maxDepth, maxPaths)
 }
 
-func (t *bubblewrapPolicyTranslator) walkWithDepthLimit(root, suffix string, maxDepth, maxPaths int, matches *[]string) error {
-	return walkGlobWithDepthLimit(root, suffix, maxDepth, maxPaths, matches)
-}
-
 func (t *bubblewrapPolicyTranslator) extractParentDir(pattern string) string {
 	return extractGlobParentDir(pattern)
 }

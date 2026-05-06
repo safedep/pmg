@@ -33,11 +33,15 @@ func TestReadLandlockPolicyFromFile(t *testing.T) {
 	// Write policy to temp file
 	f, err := os.CreateTemp("", "pmg-test-policy-*.json")
 	require.NoError(t, err)
-	defer os.Remove(f.Name())
+	defer func() {
+		if err := os.Remove(f.Name()); err != nil {
+			t.Logf("remove temp policy: %v", err)
+		}
+	}()
 
 	err = json.NewEncoder(f).Encode(policy)
 	require.NoError(t, err)
-	f.Close()
+	require.NoError(t, f.Close())
 
 	got, err := readLandlockPolicyFromFile(f.Name())
 	require.NoError(t, err)
@@ -80,11 +84,15 @@ func TestReadLandlockPolicyFromFile_Invalid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f, err := os.CreateTemp("", "pmg-test-policy-*.json")
 			require.NoError(t, err)
-			defer os.Remove(f.Name())
+			defer func() {
+				if err := os.Remove(f.Name()); err != nil {
+					t.Logf("remove temp policy: %v", err)
+				}
+			}()
 
 			_, err = f.WriteString(tt.input)
 			require.NoError(t, err)
-			f.Close()
+			require.NoError(t, f.Close())
 
 			_, err = readLandlockPolicyFromFile(f.Name())
 			assert.Error(t, err)

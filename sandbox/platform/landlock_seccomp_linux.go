@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/safedep/dry/log"
 	"golang.org/x/sys/unix"
 )
 
@@ -327,124 +328,11 @@ type seccompSupervisor struct {
 	loopDone chan struct{}
 }
 
-// newLandlockSupervisor installs a seccomp-notify BPF filter and starts the
-// notification loop goroutine. In phase 1 (before Enforce is called), all
-// notifications are auto-continued.
-//
-// interceptOpen controls whether openat/openat2 are included in the BPF filter.
-// This should only be true when there are deny-path rules that need enforcement
-// beyond what Landlock provides. Intercepting openat causes significant overhead
-// because every file open round-trips through the supervisor; it should be
-// avoided when the deny list is empty or contains only write-deny entries that
-// Landlock already covers.
-func newLandlockSupervisor(interceptOpen bool) (*seccompSupervisor, error) {
-	// Build the BPF filter inline so the filter slice stays alive on the stack
-	// during the seccomp syscall. If we return the slice from a function,
-	// the GC may collect it before the syscall reads the pointer.
-	var filter []unix.SockFilter
-
-	if interceptOpen {
-		filter = []unix.SockFilter{
-			// [0] Load syscall number
-			{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-			// [1-4] Check against intercepted syscalls
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 4, Jf: 0, K: uint32(unix.SYS_OPENAT)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 3, Jf: 0, K: uint32(unix.SYS_OPENAT2)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
-			// [5] Allow all other syscalls
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-			// [6] Notify supervisor for intercepted syscalls
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
-		}
-	} else {
-		filter = []unix.SockFilter{
-			// [0] Load syscall number
-			{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-			// [1-2] Check against intercepted syscalls (execve only)
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
-			// [3] Allow all other syscalls
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-			// [4] Notify supervisor for intercepted syscalls
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
-		}
-	}
-
-	prog := unix.SockFprog{
-		Len:    uint16(len(filter)),
-		Filter: &filter[0],
-	}
-
-	// NEW_LISTENER: returns the notify fd for the supervisor.
-	// WAIT_KILLABLE_RECV (Linux 5.19+): prevents Go's SIGURG from
-	//   interrupting the blocking ioctl(NOTIF_RECV).
-	//
-	// NOTE: we intentionally do NOT use TSYNC. TSYNC applies the filter to
-	// every thread in the thread group, which deadlocks Go:
-	//  1. Go runtime has many threads that do openat for internal reasons
-	//     (GC, stack growth /proc/self/maps reads, etc).
-	//  2. When an openat traps, that thread is kernel-suspended pending a
-	//     seccomp-notify response.
-	//  3. Go's GC stop-the-world needs every thread to reach a safe point.
-	//     A kernel-suspended thread cannot, so STW blocks indefinitely.
-	//  4. The supervisor goroutine can't be scheduled, so nobody responds.
-	//
-	// Without TSYNC, only the calling thread gets the filter. The child
-	// inherits the filter via normal clone() inheritance (the caller forks
-	// from this same locked OS thread). Other goroutines/runtime threads
-	// stay unfiltered and the supervisor is free to service notifications.
-	//
-	// Ref: https://github.com/subtrace/subtrace/blob/main/cmd/run/engine/seccomp/seccomp.go
-	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
-
-	fd, _, errno := unix.Syscall(
-		unix.SYS_SECCOMP,
-		unix.SECCOMP_SET_MODE_FILTER,
-		flags,
-		uintptr(unsafe.Pointer(&prog)),
-	)
-	runtime.KeepAlive(&filter)
-	runtime.KeepAlive(&prog)
-
-	if errno == unix.EINVAL {
-		// Retry without WAIT_KILLABLE_RECV (kernel < 5.19).
-		flags = uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
-		fd, _, errno = unix.Syscall(
-			unix.SYS_SECCOMP,
-			unix.SECCOMP_SET_MODE_FILTER,
-			flags,
-			uintptr(unsafe.Pointer(&prog)),
-		)
-		runtime.KeepAlive(&filter)
-		runtime.KeepAlive(&prog)
-	}
-
-	if errno != 0 {
-		return nil, fmt.Errorf("seccomp SET_MODE_FILTER: %w", errno)
-	}
-
-	stopFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
-	if err != nil {
-		unix.Close(int(fd))
-		return nil, fmt.Errorf("eventfd: %w", err)
-	}
-
-	s := &seccompSupervisor{
-		notifyFd: int(fd),
-		stopFd:   stopFd,
-		loopDone: make(chan struct{}),
-	}
-
-	go s.loop()
-
-	return s, nil
-}
 
 // newLandlockSupervisorFromFd wraps an already-created seccomp notify fd
-// (obtained from the shim over a socketpair) in a supervisor. Unlike
-// newLandlockSupervisor, it does NOT install a filter — the shim did that
-// inside its user namespace so the helper stays unfiltered.
+// (obtained from the shim over a socketpair) in a supervisor. It does NOT
+// install a filter — the shim did that inside its user namespace so the
+// helper stays unfiltered.
 func newLandlockSupervisorFromFd(notifyFd int) (*seccompSupervisor, error) {
 	stopFd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
 	if err != nil {
@@ -532,8 +420,12 @@ func (s *seccompSupervisor) Stop() error {
 	if phase := s.phase.Load(); phase != nil {
 		phase.closeDescendantMemFds()
 	}
-	unix.Close(s.notifyFd)
-	unix.Close(s.stopFd)
+	if err := unix.Close(s.notifyFd); err != nil {
+		log.Warnf("close seccomp notify fd: %v", err)
+	}
+	if err := unix.Close(s.stopFd); err != nil {
+		log.Warnf("close seccomp stop fd: %v", err)
+	}
 	return nil
 }
 

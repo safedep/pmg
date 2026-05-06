@@ -123,13 +123,19 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		if err != nil {
 			return
 		}
-		io.Copy(io.Discard, conn)
-		conn.Close()
+		if _, err := io.Copy(io.Discard, conn); err != nil {
+			log.Warnf("audit socket drain: %v", err)
+		}
+		if err := conn.Close(); err != nil {
+			log.Warnf("close audit conn: %v", err)
+		}
 	}()
 
 	selfExe, err := os.Executable()
 	if err != nil {
-		s.Close()
+		if cerr := s.Close(); cerr != nil {
+			log.Warnf("close landlock driver after self-exe lookup failure: %v", cerr)
+		}
 		return nil, fmt.Errorf("failed to get self executable path: %w", err)
 	}
 
