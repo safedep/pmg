@@ -115,6 +115,21 @@ func landlockUsrBinAlternate(path string) string {
 	return ""
 }
 
+// landlockIsProcPath returns true if the path is /proc or any path under /proc.
+// Uses a path boundary check so /process, /procurement, etc. don't match.
+func landlockIsProcPath(path string) bool {
+	return path == "/proc" || strings.HasPrefix(path, "/proc/")
+}
+
+// landlockGlobMatches expands a glob pattern, transparently handling **
+// globstar (which filepath.Glob does not). Used for deny-path expansion.
+func landlockGlobMatches(pattern string) ([]string, error) {
+	if strings.Contains(pattern, "**") {
+		return expandGlobstarPattern(pattern, landlockGlobstarMaxDepth, landlockGlobstarMaxPaths)
+	}
+	return filepath.Glob(pattern)
+}
+
 // landlockIsWithinWritableArea checks if a path (or glob pattern) falls within
 // any of the write-allowed prefixes. This is used to skip deny_write entries
 // that Landlock already prevents (paths outside the write allow-list).
@@ -144,6 +159,13 @@ func landlockIsWithinWritableArea(path string, writePrefixes []string) bool {
 // landlockGlobFallbackThreshold is the maximum number of glob matches before
 // falling back to the parent directory. Same threshold as Bubblewrap translator.
 const landlockGlobFallbackThreshold = 100
+
+// Globstar walk limits, matching the Bubblewrap translator defaults so the
+// two drivers expand built-in profiles consistently.
+const (
+	landlockGlobstarMaxDepth = 5
+	landlockGlobstarMaxPaths = 1000
+)
 
 // landlockTranslatePolicy converts a SandboxPolicy into a landlockExecPolicy
 // that can be applied by the Landlock driver. It expands variables, resolves
@@ -216,12 +238,12 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 			log.Warnf("Failed to expand deny_read pattern '%s': %v", pattern, err)
 			continue
 		}
-		if strings.HasPrefix(expanded, "/proc") {
+		if landlockIsProcPath(expanded) {
 			log.Warnf("Dropping /proc deny entry '%s': Landlock cannot deny /proc sub-paths reliably", expanded)
 			continue
 		}
 		if util.ContainsGlob(expanded) {
-			matches, err := filepath.Glob(expanded)
+			matches, err := landlockGlobMatches(expanded)
 			if err != nil {
 				log.Warnf("Failed to expand deny_read glob '%s': %v", expanded, err)
 				continue
@@ -244,7 +266,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 			log.Warnf("Failed to expand deny_write pattern '%s': %v", pattern, err)
 			continue
 		}
-		if strings.HasPrefix(expanded, "/proc") {
+		if landlockIsProcPath(expanded) {
 			log.Warnf("Dropping /proc deny entry '%s': Landlock cannot deny /proc sub-paths reliably", expanded)
 			continue
 		}
@@ -252,7 +274,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 			continue
 		}
 		if util.ContainsGlob(expanded) {
-			matches, err := filepath.Glob(expanded)
+			matches, err := landlockGlobMatches(expanded)
 			if err != nil {
 				log.Warnf("Failed to expand deny_write glob '%s': %v", expanded, err)
 				continue
@@ -272,7 +294,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 			continue
 		}
 		if util.ContainsGlob(expanded) {
-			matches, err := filepath.Glob(expanded)
+			matches, err := landlockGlobMatches(expanded)
 			if err != nil {
 				log.Warnf("Failed to expand deny_exec glob '%s': %v", expanded, err)
 				continue
@@ -283,21 +305,69 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 		}
 	}
 
-	allowGitConfig := utils.SafelyGetValue(policy.AllowGitConfig)
-	mandatoryDenies := util.GetMandatoryDenyPatterns(allowGitConfig)
-	for _, pattern := range mandatoryDenies {
+	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
+	if err != nil {
+		log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
+		expandedAllowRead = nil
+	}
+	expandedAllowWrite, err := expandAll(policy.Filesystem.AllowWrite)
+	if err != nil {
+		log.Warnf("sandbox: failed to expand allow_write for mandatory deny suppression, all mandatory denies preserved: %v", err)
+		expandedAllowWrite = nil
+	}
+
+	mandatoryResult := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{
+		AllowGitConfig: utils.SafelyGetValue(policy.AllowGitConfig),
+		AllowRead:      expandedAllowRead,
+		AllowWrite:     expandedAllowWrite,
+	})
+
+	for _, p := range mandatoryResult.SuppressedRead {
+		log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
+	}
+	for _, p := range mandatoryResult.SuppressedWrite {
+		log.Warnf("sandbox: mandatory deny %q suppressed for write by explicit allow rule in policy %q", p, policy.Name)
+	}
+
+	// Collapse paths that appear in both directions into a single denyBoth
+	// entry; emit per-direction entries for the rest.
+	denyWriteSet := make(map[string]bool, len(mandatoryResult.DenyWrite))
+	for _, p := range mandatoryResult.DenyWrite {
+		denyWriteSet[p] = true
+	}
+	bothSet := make(map[string]bool)
+	for _, p := range mandatoryResult.DenyRead {
+		if denyWriteSet[p] {
+			bothSet[p] = true
+		}
+	}
+	appendDeny := func(pattern string, mode denyMode) {
 		if util.ContainsGlob(pattern) {
-			matches, err := filepath.Glob(pattern)
+			matches, err := landlockGlobMatches(pattern)
 			if err != nil {
 				log.Warnf("Failed to expand mandatory deny glob '%s': %v", pattern, err)
-				continue
+				return
 			}
 			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: denyBoth})
+				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: mode})
 			}
-		} else {
-			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: pattern, Mode: denyBoth})
+			return
 		}
+		ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: pattern, Mode: mode})
+	}
+
+	for _, p := range mandatoryResult.DenyRead {
+		if bothSet[p] {
+			appendDeny(p, denyBoth)
+			continue
+		}
+		appendDeny(p, denyRead)
+	}
+	for _, p := range mandatoryResult.DenyWrite {
+		if bothSet[p] {
+			continue // already emitted as denyBoth
+		}
+		appendDeny(p, denyWrite)
 	}
 
 	// Unlike bubblewrap's read-only bind mounts, Landlock requires explicit
@@ -357,8 +427,13 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 }
 
 // landlockExpandPattern expands variables and glob patterns in a path string,
-// returning a list of concrete paths. When glob matches exceed the fallback
-// threshold, uses the parent directory instead.
+// returning a list of concrete paths. Handles ** globstar (which
+// filepath.Glob does not) so built-in profiles like ${CWD}/node_modules/**
+// expand correctly even when the parent directory does not yet exist; in
+// that case the parent path is returned so Landlock can still grant
+// recursive coverage on the directory once it is created. When glob
+// matches exceed the fallback threshold, uses the parent directory
+// instead.
 func landlockExpandPattern(pattern string) ([]string, error) {
 	expanded, err := util.ExpandVariables(pattern)
 	if err != nil {
@@ -369,46 +444,35 @@ func landlockExpandPattern(pattern string) ([]string, error) {
 		return []string{expanded}, nil
 	}
 
-	matches, err := filepath.Glob(expanded)
-	if err != nil {
-		return nil, err
+	var matches []string
+	if strings.Contains(expanded, "**") {
+		matches, err = expandGlobstarPattern(expanded, landlockGlobstarMaxDepth, landlockGlobstarMaxPaths)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		matches, err = filepath.Glob(expanded)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(matches) > landlockGlobFallbackThreshold {
-		parentDir := landlockExtractParentDir(expanded)
+		parentDir := extractGlobParentDir(expanded)
 		log.Warnf("Glob pattern '%s' matched %d paths (threshold: %d), using parent directory '%s'",
 			expanded, len(matches), landlockGlobFallbackThreshold, parentDir)
 		return []string{parentDir}, nil
 	}
 
 	if len(matches) == 0 {
-		// Path may not exist yet — return the expanded pattern so go-landlock's
+		// Path may not exist yet. For globstar patterns, expandGlobstarPattern
+		// already returned the base path when it was missing. For non-globstar
+		// patterns, fall back to the literal expanded pattern so go-landlock's
 		// IgnoreIfMissing handles it.
 		return []string{expanded}, nil
 	}
 
 	return matches, nil
-}
-
-// landlockExtractParentDir extracts the parent directory from a glob pattern.
-// Same logic as the Bubblewrap translator.
-func landlockExtractParentDir(pattern string) string {
-	pattern = strings.TrimSuffix(pattern, "/**")
-	pattern = strings.TrimSuffix(pattern, "/*")
-
-	idx := strings.IndexAny(pattern, "*?[")
-	if idx >= 0 {
-		pattern = pattern[:idx]
-		pattern = filepath.Dir(pattern)
-	}
-
-	pattern = strings.TrimSuffix(pattern, string(filepath.Separator))
-
-	if pattern == "" || pattern == string(filepath.Separator) {
-		return "."
-	}
-
-	return pattern
 }
 
 // landlockPolicyExplicitlyAllowsProc returns true if the policy's AllowRead or
@@ -423,7 +487,7 @@ func landlockPolicyExplicitlyAllowsProc(policy *sandbox.SandboxPolicy) bool {
 		if err != nil {
 			continue
 		}
-		if !strings.HasPrefix(expanded, "/proc") {
+		if !landlockIsProcPath(expanded) {
 			continue
 		}
 		// Allow /proc/self and /proc/self/* without triggering
