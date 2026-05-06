@@ -62,10 +62,6 @@ func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
 		InstallCommands: []string{"add"},
 		NonDownloadCommands: []string{
-			// Script runners — "run" executes a command in the venv (e.g., `poetry run uvicorn app:app`).
-			// "shell" activates the venv shell. Both may start long-running processes and must not
-			// have proxy env vars set against them.
-			"run", "shell",
 			// Removal
 			"remove",
 			// Inspection / read-only
