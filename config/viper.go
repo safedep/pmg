@@ -76,12 +76,14 @@ func hasProxySectionInFile(path string) bool {
 
 // applyProxyLegacyFallback populates the new Proxy struct from deprecated
 // flat keys when the user's config file does not have a proxy: section.
+// New env vars (PMG_PROXY_ENABLED, PMG_PROXY_INSTALL_ONLY) take precedence
+// over legacy config file keys to respect the documented precedence order.
 func applyProxyLegacyFallback(v *viper.Viper) {
-	if v.IsSet("proxy_mode") {
+	if os.Getenv("PMG_PROXY_ENABLED") == "" && v.IsSet("proxy_mode") {
 		globalConfig.Config.Proxy.Enabled = v.GetBool("proxy_mode")
 	}
 
-	if v.IsSet("proxy_install_only") {
+	if os.Getenv("PMG_PROXY_INSTALL_ONLY") == "" && v.IsSet("proxy_install_only") {
 		globalConfig.Config.Proxy.InstallOnly = v.GetBool("proxy_install_only")
 	}
 }

@@ -52,7 +52,7 @@ proxy:
   #       skip_commands: ["list", "show"]
   policies:
     npm:
-      skip_commands: ["my-script"]
+      skip_commands: []
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
