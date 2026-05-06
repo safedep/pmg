@@ -91,14 +91,10 @@ type CloudConfig struct {
 	EndpointID string `mapstructure:"endpoint_id"`
 }
 
-type ProxyPolicy struct {
-	SkipCommands []string `mapstructure:"skip_commands"`
-}
-
 type ProxyConfig struct {
-	Enabled     bool                   `mapstructure:"enabled"`
-	InstallOnly bool                   `mapstructure:"install_only"`
-	Policies    map[string]ProxyPolicy `mapstructure:"policies"`
+	Enabled      bool                `mapstructure:"enabled"`
+	InstallOnly  bool                `mapstructure:"install_only"`
+	SkipCommands map[string][]string `mapstructure:"skip_commands"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -268,7 +264,7 @@ func DefaultConfig() RuntimeConfig {
 			Proxy: ProxyConfig{
 				Enabled:     true,
 				InstallOnly: false,
-				Policies:    map[string]ProxyPolicy{},
+				SkipCommands: map[string][]string{},
 			},
 		},
 		DryRun:               false,

@@ -3,55 +3,6 @@
 A generic, extensible HTTP/HTTPS proxy server with man-in-the-middle (MITM) capabilities for intercepting and analyzing package manager traffic. 
 Built with [goproxy](https://github.com/elazarl/goproxy) library.
 
-## Configuration
-
-Proxy behavior is configured under the `proxy:` section in `config.yml`:
-
-```yaml
-proxy:
-  enabled: true
-  install_only: false
-  policies:
-    npm:
-      skip_commands: ["my-script"]
-```
-
-| Key | Default | Description |
-|---|---|---|
-| `enabled` | `true` | Enable proxy-based interception. When `false`, PMG falls back to guard-based analysis. |
-| `install_only` | `false` | When `true`, only install commands are proxied. Other commands (e.g., `npm ls`, `pip list`) bypass the proxy and execute directly. |
-| `policies` | `{}` | Per-package-manager policies. Each entry maps a package manager name to a policy with `skip_commands`. |
-
-### Per-package-manager skip commands
-
-The `policies` section lets you define additional commands that should bypass the proxy for specific package managers:
-
-```yaml
-proxy:
-  policies:
-    npm:
-      skip_commands: ["dev", "my-script"]
-    pip:
-      skip_commands: ["list", "show"]
-```
-
-Commands in `skip_commands` are matched against the first non-flag argument. For example, `npm dev` would match `dev`, but `npm install dev` would not since `install` is the first non-flag argument.
-
-### CLI flags
-
-| Flag | Description |
-|---|---|
-| `--proxy-mode` | Override `proxy.enabled` |
-
-### Environment variables
-
-| Variable | Description |
-|---|---|
-| `PMG_PROXY_ENABLED` | Override `proxy.enabled` |
-| `PMG_PROXY_INSTALL_ONLY` | Override `proxy.install_only` |
-
-Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat config keys) are still supported when the `proxy:` section does not exist in the config file.
-
 ## Features
 
 - Selective interception of HTTPS traffic
