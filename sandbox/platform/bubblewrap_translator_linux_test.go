@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -914,4 +915,129 @@ func argSliceToString(args []string) string {
 	}
 
 	return result
+}
+
+func TestBubblewrapMandatoryDenySuppression(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	t.Run("read-side opt-out preserves real ro-bind and skips tmpfs and /dev/null", func(t *testing.T) {
+		// Real .env in an isolated CWD so processDenyRule does not skip the
+		// path as non-existent.
+		dir := t.TempDir()
+		envPath := filepath.Join(dir, ".env")
+		require.NoError(t, os.WriteFile(envPath, []byte("X=1\n"), 0o600))
+
+		origCwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		t.Cleanup(func() {
+			_ = os.Chdir(origCwd)
+		})
+
+		policy := &sandbox.SandboxPolicy{
+			Name: "test",
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowRead: []string{envPath},
+			},
+		}
+		args := translateForTest(t, policy)
+
+		assertNoTmpfsAt(t, args, envPath)
+		// /dev/null overlay would mask reads; allow_read --ro-bind already
+		// denies writes via EROFS, so the mandatory write deny is redundant.
+		assertNoDevNullMount(t, args, envPath)
+		assertReadBind(t, args, envPath)
+	})
+
+	t.Run("user deny_write still wins for paths also in allow_read", func(t *testing.T) {
+		dir := t.TempDir()
+		envPath := filepath.Join(dir, ".env")
+		require.NoError(t, os.WriteFile(envPath, []byte("X=1\n"), 0o600))
+
+		origCwd, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(dir))
+		t.Cleanup(func() {
+			_ = os.Chdir(origCwd)
+		})
+
+		policy := &sandbox.SandboxPolicy{
+			Name: "test",
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowRead: []string{envPath},
+				DenyWrite: []string{envPath},
+			},
+		}
+		args := translateForTest(t, policy)
+
+		assertDevNullMount(t, args, envPath)
+	})
+
+	t.Run("write-side opt-out skips both tmpfs and /dev/null for that path", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name: "test",
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowWrite: []string{filepath.Join(cwd, ".env")},
+			},
+		}
+		args := translateForTest(t, policy)
+
+		assertNoTmpfsAt(t, args, filepath.Join(cwd, ".env"))
+		assertNoDevNullMount(t, args, filepath.Join(cwd, ".env"))
+	})
+
+	t.Run("no opt-out: tmpfs fires for the path", func(t *testing.T) {
+		// tmpfs only fires for paths that exist on the host; assert at the
+		// GetMandatoryDenyPatterns level instead of the translator output.
+		r := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{})
+		assert.Contains(t, r.DenyRead, filepath.Join(cwd, ".env"))
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".env"))
+	})
+}
+
+func translateForTest(t *testing.T, policy *sandbox.SandboxPolicy) []string {
+	t.Helper()
+	tr := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	args, err := tr.translate(policy)
+	require.NoError(t, err)
+	return args
+}
+
+func assertNoTmpfsAt(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--tmpfs" && args[i+1] == path {
+			t.Fatalf("expected no --tmpfs at %q, but found one", path)
+		}
+	}
+}
+
+func assertDevNullMount(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--ro-bind" || args[i] == "--bind") && args[i+1] == "/dev/null" && args[i+2] == path {
+			return
+		}
+	}
+	t.Fatalf("expected /dev/null mount at %q, not found in args: %v", path, args)
+}
+
+func assertNoDevNullMount(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--ro-bind" || args[i] == "--bind") && args[i+1] == "/dev/null" && args[i+2] == path {
+			t.Fatalf("expected no /dev/null mount at %q, but found one", path)
+		}
+	}
+}
+
+func assertReadBind(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--ro-bind" || args[i] == "--ro-bind-try") && args[i+1] == path && args[i+2] == path {
+			return
+		}
+	}
+	t.Fatalf("expected --ro-bind %q %q, not found in args: %v", path, path, args)
 }

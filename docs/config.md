@@ -12,11 +12,18 @@ To see the configuration file path and activated configuration, run:
 pmg setup info
 ```
 
+To edit configuration file:
+
+```bash
+pmg setup edit
+```
+
 See [config template](../config/config.template.yml) for the configuration schema.
 
 ## Environment Variables
 
-Any configuration key can be overridden using environment variables, without modifying the config file. This is useful for CI/CD pipelines or temporary overrides.
+Any configuration key can be overridden using environment variables, without modifying the config
+file. This is useful for CI/CD pipelines or temporary overrides.
 
 **Format:** `PMG_<KEY>` where the key is the config key uppercased, with nested keys joined by `_`.
 
@@ -48,3 +55,4 @@ PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 2. Environment variables (`PMG_*`)
 3. Config file (`config.yml`)
 4. Built-in defaults
+

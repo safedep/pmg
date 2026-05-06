@@ -218,6 +218,44 @@ test('BLOCK: .git/hooks in CWD is protected', () => {
   }
 });
 
+// $CWD/.env should be protected from reads.
+// Two valid sandbox strategies:
+//   macOS/seatbelt: read is denied outright (EPERM/EACCES)
+//   Linux/bwrap:    tmpfs masks the file with an empty placeholder
+// Both prevent the sandboxed process from exfiltrating real secrets.
+test('BLOCK: Read $CWD/.env', () => {
+  const envPath = path.join(process.cwd(), '.env');
+
+  if (!fs.existsSync(envPath)) {
+    console.log('  ⚠️  SKIP: $CWD/.env does not exist');
+    return true;
+  }
+
+  let contents;
+  try {
+    contents = fs.readFileSync(envPath, 'utf8');
+  } catch (e) {
+    if (e.code === 'EPERM' || e.code === 'EACCES') {
+      console.log('  ✅ PASS: $CWD/.env read blocked (EPERM)');
+      return true;
+    }
+    if (e.code === 'ENOENT') {
+      console.log('  ✅ PASS: $CWD/.env hidden by tmpfs (ENOENT)');
+      return true;
+    }
+    console.log(`  ✅ PASS: $CWD/.env read blocked (${e.code})`);
+    return true;
+  }
+
+  if (contents.length === 0) {
+    console.log('  ✅ PASS: $CWD/.env masked by tmpfs (empty placeholder)');
+    return true;
+  }
+
+  console.log('  ❌ FAIL: Could read $CWD/.env contents');
+  return false;
+});
+
 // ============================================
 // TESTS THAT SHOULD BE ALLOWED
 // ============================================

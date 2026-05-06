@@ -230,14 +230,46 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 	}
 
 	// 3. Process deny_write rules (mount /dev/null to prevent access)
-	allowGitConfig := utils.SafelyGetValue(policy.AllowGitConfig)
-	denyPatterns := append([]string{}, policy.Filesystem.DenyWrite...)
+	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
+	if err != nil {
+		log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
+		expandedAllowRead = nil
+	}
+	expandedAllowWrite, err := expandAll(policy.Filesystem.AllowWrite)
+	if err != nil {
+		log.Warnf("sandbox: failed to expand allow_write for mandatory deny suppression, all mandatory denies preserved: %v", err)
+		expandedAllowWrite = nil
+	}
 
-	// Add mandatory deny patterns (credentials - these get completely hidden)
-	mandatoryDenies := util.GetMandatoryDenyPatterns(allowGitConfig)
-	denyPatterns = append(denyPatterns, mandatoryDenies...)
+	mandatoryResult := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{
+		AllowGitConfig: utils.SafelyGetValue(policy.AllowGitConfig),
+		AllowRead:      expandedAllowRead,
+		AllowWrite:     expandedAllowWrite,
+	})
 
-	for _, pattern := range denyPatterns {
+	for _, p := range mandatoryResult.SuppressedRead {
+		log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
+	}
+	for _, p := range mandatoryResult.SuppressedWrite {
+		log.Warnf("sandbox: mandatory deny %q suppressed for write by explicit allow rule in policy %q", p, policy.Name)
+	}
+
+	// bwrap has no primitive that denies reads while allowing writes — --bind
+	// exposes both, and read-blocking mounts (--tmpfs, --ro-bind /dev/null)
+	// also block writes. When the user opts out of write but not read for a
+	// mandatory path, the read-side deny is unenforceable; warn so it's not
+	// silent.
+	suppressedWriteSet := make(map[string]bool, len(mandatoryResult.SuppressedWrite))
+	for _, p := range mandatoryResult.SuppressedWrite {
+		suppressedWriteSet[p] = true
+	}
+	for _, p := range mandatoryResult.DenyRead {
+		if suppressedWriteSet[p] {
+			log.Warnf("sandbox: read-side mandatory deny %q cannot be enforced on linux because allow_write for the same path exposes both read and write; consider also listing the path in allow_read if read access is intended, or remove from allow_write if not", p)
+		}
+	}
+
+	for _, pattern := range policy.Filesystem.DenyWrite {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
 			log.Warnf("Failed to expand variables in deny pattern '%s': %v", pattern, err)
@@ -253,10 +285,40 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, denyArgs...)
 	}
 
-	// 4. Process mandatory credential directories - completely hide them with tmpfs
-	// This blocks both read AND write access (more secure than read-only mount)
+	// Skip mandatory write denies for paths the user listed in allow_read: the
+	// allow_read --ro-bind already denies writes (EROFS), and overlaying
+	// /dev/null on top would also mask reads, breaking the read-side opt-out.
+	// User-listed deny_write entries above are unaffected — "deny wins" still
+	// applies to explicit user rules.
+	allowReadSet := make(map[string]bool, len(expandedAllowRead))
+	for _, p := range expandedAllowRead {
+		allowReadSet[filepath.Clean(p)] = true
+	}
+	for _, pattern := range mandatoryResult.DenyWrite {
+		if allowReadSet[filepath.Clean(pattern)] {
+			continue
+		}
+
+		expanded, err := util.ExpandVariables(pattern)
+		if err != nil {
+			log.Warnf("Failed to expand variables in deny pattern '%s': %v", pattern, err)
+			continue
+		}
+
+		denyArgs, err := t.processDenyRule(expanded)
+		if err != nil {
+			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
+			continue
+		}
+
+		args = append(args, denyArgs...)
+	}
+
+	// 4. Tmpfs-hide credential directories. Tmpfs blocks both directions, so
+	// only paths denied on both sides qualify.
+	tmpfsCandidates := intersectStrings(mandatoryResult.DenyRead, mandatoryResult.DenyWrite)
 	hiddenDirs := make(map[string]bool)
-	for _, pattern := range mandatoryDenies {
+	for _, pattern := range tmpfsCandidates {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
 			continue
@@ -708,4 +770,31 @@ func (t *bubblewrapPolicyTranslator) addTmpdirSupport() []string {
 	args = append(args, "--bind", tmpDir, tmpDir)
 
 	return args
+}
+
+func expandAll(patterns []string) ([]string, error) {
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		expanded, err := util.ExpandVariables(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand pattern %q: %w", p, err)
+		}
+		out = append(out, expanded)
+	}
+	return out, nil
+}
+
+// intersectStrings returns the order-preserving intersection of a and b.
+func intersectStrings(a, b []string) []string {
+	bset := make(map[string]bool, len(b))
+	for _, x := range b {
+		bset[x] = true
+	}
+	out := []string{}
+	for _, x := range a {
+		if bset[x] {
+			out = append(out, x)
+		}
+	}
+	return out
 }
