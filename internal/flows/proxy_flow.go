@@ -52,10 +52,18 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	cfg := config.Get()
 
-	// Skip proxy for commands that don't download packages when proxy_install_only is enabled
-	if cfg.Config.ProxyInstallOnly && !parsedCmd.MayDownloadPackages() {
-		log.Debugf("Skipping proxy for non-download command (proxy_install_only=true)")
+	// Skip proxy for commands that don't download packages when install_only is enabled
+	if cfg.Config.Proxy.InstallOnly && !parsedCmd.MayDownloadPackages() {
+		log.Debugf("Skipping proxy for non-download command (install_only=true)")
 		return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+	}
+
+	// Skip proxy for user-defined skip commands
+	if policy, ok := cfg.Config.Proxy.Policies[f.pm.Name()]; ok && len(policy.SkipCommands) > 0 {
+		if packagemanager.IsFirstNonFlagArgInList(parsedCmd.Command.Args, policy.SkipCommands) {
+			log.Debugf("Skipping proxy for user-defined skip command")
+			return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+		}
 	}
 
 	// Initialize report data at the start
@@ -99,7 +107,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
-		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
+		log.Infof("Dry-run mode: Would execute %s with proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
 		reportData.Outcome = ui.OutcomeDryRun
@@ -560,3 +568,4 @@ func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
 		WithHelp("Check the package manager command and its arguments").
 		Wrap(err)
 }
+

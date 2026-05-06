@@ -28,10 +28,8 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 		globalConfig.Config.Paranoid, "Enable high-security defaults (treat suspicious as malicious)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.SkipEventLogging, "skip-event-log",
 		globalConfig.Config.SkipEventLogging, "Skip event logging")
-	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ExperimentalProxyMode, "experimental-proxy-mode",
-		globalConfig.Config.ExperimentalProxyMode, "Use experimental proxy-based interception (EXPERIMENTAL)")
-	cmd.PersistentFlags().BoolVar(&globalConfig.Config.ProxyMode, "proxy-mode",
-		globalConfig.Config.ProxyMode, "Use proxy based interception")
+	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Proxy.Enabled, "proxy-mode",
+		globalConfig.Config.Proxy.Enabled, "Use proxy based interception")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.Enabled, "sandbox",
 		globalConfig.Config.Sandbox.Enabled, "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)")
 	cmd.PersistentFlags().BoolVar(&globalConfig.Config.Sandbox.EnforceAlways, "sandbox-enforce",
@@ -44,8 +42,6 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().BoolVar(&skipDependencyCooldown, "skip-dependency-cooldown",
 		false, "Skip dependency cooldown enforcement")
 
-	// Hide the experimental proxy mode flag but keep it for backward compatibility
-	_ = cmd.PersistentFlags().MarkHidden("experimental-proxy-mode")
 }
 
 // FinalizeDependencyCooldownOverride disables dependency cooldown in the global

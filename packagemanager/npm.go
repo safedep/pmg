@@ -134,7 +134,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, npm.Config.NonDownloadCommands)}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: IsFirstNonFlagArgInList(args, npm.Config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command
