@@ -18,8 +18,10 @@ func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 		r := GetMandatoryDenyPatterns(emptyOpts())
 
 		for _, p := range []string{
-			"**/.env", "**/.env.*", "**/.ssh", "**/.aws",
-			"**/.gcloud", "**/.kube", "**/.gnupg", "**/.docker/config.json",
+			"**/.env", "**/.env.*", "**/.ssh", "**/.aws", "**/.azure",
+			"**/.gcloud", "**/.config/gcloud", "**/.kube", "**/.gnupg",
+			"**/.docker/config.json", "**/.netrc", "**/.git-credentials",
+			"**/.pgpass", "**/.config/gh",
 		} {
 			assert.Contains(t, r.DenyRead, p, "DenyRead missing %s", p)
 			assert.Contains(t, r.DenyWrite, p, "DenyWrite missing %s", p)

@@ -2,20 +2,49 @@
 
 PMG sandbox design goal is to protect against unknown supply chain attacks using principle of least privilege.
 
-We do not want to re-invent sandbox and likely rely on OS native sandbox primitives. This is at the cost of developer experience,
-where we have to work within the limitations of the sandbox implementations that we use.
+We do not want to re-invent sandbox and rely on OS native sandbox primitives. This is at the cost of
+developer experience, where we have to work within the limitations of the sandbox implementations
+that we use.
 
 ## Security Model
 
+The sandbox is default-deny. Every operation is blocked unless the policy allows it, and deny rules
+win over allow rules when both match. PMG ships mandatory denies for credential files (`.env`,
+`.ssh`, `.aws`, `.gcloud` and more). See [dangerous.go](../sandbox/dangerous.go) for the full list.
+This protects against accidental credential leaks and some classes of supply chain attacks that
+attempt to access credentials. To allow legitimate access, you can opt out of a mandatory deny
+via an exact match entry in `allow_read` or `allow_write` (in the policy or via `--sandbox-allow`).
+
+<details>
+<summary>Detailed rules</summary>
+
 - **Default deny**: All operations are blocked unless explicitly allowed by the policy. An empty policy grants no access.
 - **Deny rules override allow rules**: When a path appears in both allow and deny lists, the deny rule wins. Deny rules are placed after allow rules in the generated sandbox profile to ensure this.
-- **Credential and sensitive file protection**: The sandbox blocks read and write access to credential files by default. Protected files include `.env`, `.env.*`, `.aws`, `.gcloud`, `.kube`, `.ssh`, `.gnupg`, and `.docker/config.json`. These mandatory denies are injected for three forms per file — the path under `${CWD}`, a `**/<file>` glob, and the path under `${HOME}`. A user can opt out by listing the literal path in `allow_read` (read-side) or `allow_write` (write-side) of their policy, **or** by passing it via `--sandbox-allow read=...` / `--sandbox-allow write=...` at runtime. Listing the CWD-absolute or HOME-absolute form additionally suppresses the corresponding `**/<file>` glob on the same direction (so `--sandbox-allow read=./.env` is enough to read `${CWD}/.env`). Suppression requires an exact post-expansion string match; broad globs like `${HOME}/**` do not opt out of `${HOME}/.aws`. The OTHER absolute form remains denied. `.git/hooks` is unconditional (cannot be opted out) due to arbitrary-code-execution risk.
+- **Credential and sensitive file protection**: The sandbox blocks read and write access to known list of credential files by default.
 - **Git hooks are always blocked**: Write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks.
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
-- **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. Mandatory deny patterns for credential files can be opted out by an exact-match entry in `allow_read` / `allow_write` (policy or runtime); `.git/hooks` is unconditional and cannot be opted out.
+- **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
 - **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`) in the child override the parent.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
 - **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Network filtering is coarse-grained — host-level filtering is not enforced on either platform.
+
+</details>
+
+### Mandatory Credential Protection
+
+PMG maintains a known list of credential and sensitive files at
+[dangerous.go](../sandbox/dangerous.go) that are blocked by default in the sandbox. PMG injects three deny patterns per file:
+
+- The path under `${CWD}`
+- The path under `${HOME}`
+- A `**/<file>` glob.
+
+To opt out, list the literal path in `allow_read` or `allow_write` in your policy, or pass
+`--sandbox-allow read=...` / `write=...` at runtime. Listing a CWD-absolute or HOME-absolute path
+also suppresses the matching `**/<file>` glob on the same direction, so `--sandbox-allow
+read=./.env` is enough to read `${CWD}/.env`. Suppression is exact post-expansion match; broad globs
+like `${HOME}/**` do not opt out of `${HOME}/.aws`. The unnamed absolute form stays denied.
+`.git/hooks` does not accept opt-outs because hooks can execute arbitrary code.
 
 ## Requirements
 
@@ -44,7 +73,7 @@ See [Bubblewrap Installation](https://github.com/containers/bubblewrap#installat
 
 ## Usage
 
-- Make sure sandbox is enabled in your `config.yml` file.
+- Make sure sandbox is enabled in your `config.yml` file. See [configuration](./config.md) for the configuration schema.
 - Make sure sandbox profiles are configured for the package managers you want to sandbox.
   
 See [configuration](./config.md) and [config/config.template.yml](../config/config.template.yml) for the configuration schema.
@@ -68,7 +97,8 @@ pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 
 ### Runtime Allow Overrides
 
-Use `--sandbox-allow` to make one-off exceptions without creating a custom profile. This is useful when a command needs access that the default profile blocks.
+Use `--sandbox-allow` to make one-off exceptions without creating a custom profile. This is useful
+when a command needs access that the default profile blocks.
 
 ```bash
 # Allow writing to a specific file
@@ -92,7 +122,13 @@ pmg \
 
 Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`.
 
-Overrides are non-persistent (apply to current invocation only) and logged in the event log for auditing. An override adds the path to the allow list and removes an exact match entry from the corresponding deny list. Glob deny patterns are never removed. Mandatory security protections for credential files (`.env`, `.ssh`, `.aws`, etc.) can be opted out of by listing the exact literal path in either the policy file's `allow_read` / `allow_write` or via `--sandbox-allow read=...` / `--sandbox-allow write=...` at runtime — both channels are treated at par as explicit user intent. Suppression is exact-match only: broad paths or globs do not opt out. `.git/hooks` is unconditional and cannot be opted out by either channel.
+Overrides are non-persistent (apply to current invocation only) and logged in the event log for
+auditing. An override adds the path to the allow list and removes an exact match entry from the
+corresponding deny list. Glob deny patterns are never removed. An exact-match entry in `allow_read`
+or `allow_write` (in the policy or via `--sandbox-allow read=...` / `write=...`) opts out of the
+mandatory deny for that credential file. PMG treats both channels as explicit user intent.
+Suppression is exact-match only; broad paths or globs do not opt out. `.git/hooks` does not accept
+opt-outs.
 
 <details>
 <summary>Custom policy overrides using Policy Templates</summary>
@@ -190,11 +226,11 @@ coarse-grained fallback strategies when glob patterns match many files.
 filtering is not enforced.
 
 **Per-direction mandatory deny is asymmetric on Linux**: bwrap has no primitive that allows writes
-while denying reads for the same path. If a user opts out of write for a mandatory deny path
-(e.g., listing it in `allow_write` but not `allow_read`), the resulting bind mount necessarily
-also exposes reads — the read-side mandatory deny is unenforceable. PMG emits a `log.Warnf` when
-this case is detected. The macOS Seatbelt translator does not have this limitation because
-Seatbelt's `file-read*` and `file-write*` rules are independent.
+while denying reads for the same path. `--bind` exposes both directions; `--tmpfs` and
+`--ro-bind /dev/null` block both. If you opt out of write for a mandatory deny path (e.g., list it
+in `allow_write` but not `allow_read`), the bind mount also exposes reads, and PMG cannot enforce
+the read-side mandatory deny. PMG warns via `log.Warnf` when it detects this case. macOS Seatbelt
+does not have this limitation; its `file-read*` and `file-write*` rules are independent.
 
 </details>
 
@@ -207,9 +243,12 @@ Seatbelt's `file-read*` and `file-write*` rules are independent.
 
 ## Concepts
 
-1. Policy
-2. Profile
-3. Policy Template
+PMG layers three concepts: a **Policy** is the rule set defining what is allowed and denied. A
+**Profile** is a named binding from a package manager to a policy. A **Policy Template** maps a
+profile name to a YAML file so you can override the built-ins.
+
+<details>
+<summary>Detailed concepts</summary>
 
 ### Policy
 
@@ -238,12 +277,23 @@ See [sandbox/profiles/README.md](../sandbox/profiles/README.md) for more details
 Policy template is a configuration primitive for overriding a built-in profile or creating a custom profile. It is used to map a profile name to a path.
 See [config/config.template.yml](../config/config.template.yml) for an example.
 
+</details>
+
 ## Threat Model
+
+PMG trusts policy files and the operator's CLI as the source of intent. The sandbox implementation
+enforces what the policy declares. Translation from PMG's YAML to the native sandbox format must
+not weaken it. Variable interpolation consumes only trusted sources.
+
+<details>
+<summary>Detailed assumptions</summary>
 
 - Policy files are trusted
 - Policy enforcement is a sandbox implementation concern
 - YAML to sandbox specific policy translation must not make the policy weaker than the original policy
 - Variable interpolation in policy files must consider only trusted sources
+
+</details>
 
 ## Enforcement
 

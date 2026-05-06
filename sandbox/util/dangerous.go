@@ -11,11 +11,17 @@ var DANGEROUS_FILES = []string{
 	".env",
 	".env.*",
 	".aws",
+	".azure",
 	".gcloud",
+	".config/gcloud",
 	".kube",
 	".ssh",
 	".gnupg",
 	".docker/config.json",
+	".netrc",
+	".git-credentials",
+	".pgpass",
+	".config/gh",
 }
 
 // MandatoryDenyOptions configures GetMandatoryDenyPatterns. AllowRead and
