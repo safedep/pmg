@@ -203,6 +203,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 	sb.WriteString("(allow mach-lookup\n")
 	sb.WriteString("  (global-name \"com.apple.audio.systemsoundserver\")\n")
 	sb.WriteString("  (global-name \"com.apple.distributed_notifications@Uv3\")\n")
+	sb.WriteString("  (global-name \"com.apple.FSEvents\")\n")
 	sb.WriteString("  (global-name \"com.apple.FontObjectsServer\")\n")
 	sb.WriteString("  (global-name \"com.apple.fonts\")\n")
 	sb.WriteString("  (global-name \"com.apple.logd\")\n")
