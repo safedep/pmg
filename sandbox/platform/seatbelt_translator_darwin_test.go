@@ -446,9 +446,9 @@ func TestGenerateMoveBlockingRules(t *testing.T) {
 			logTag:   "test",
 			assert: func(t *testing.T, rules []string) {
 				// Should block moving the path itself
-				assert.Contains(t, rules, "(deny file-write-unlink (subpath \"/sensitive/data\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/sensitive/data\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/sensitive/data")))
 				// Should block moving the parent directory
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/sensitive\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/sensitive\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/sensitive")))
 			},
 		},
 		{
@@ -457,9 +457,9 @@ func TestGenerateMoveBlockingRules(t *testing.T) {
 			logTag:   "test",
 			assert: func(t *testing.T, rules []string) {
 				// Should block moving the base directory
-				assert.Contains(t, rules, "(deny file-write-unlink (subpath \"/path/to\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/path/to\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/path/to")))
 				// Should block moving ancestor directories
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/path\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/path\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/path")))
 			},
 		},
 		{
@@ -467,11 +467,11 @@ func TestGenerateMoveBlockingRules(t *testing.T) {
 			patterns: []string{"/tmp/test", "/var/log/app"},
 			logTag:   "test",
 			assert: func(t *testing.T, rules []string) {
-				assert.Contains(t, rules, "(deny file-write-unlink (subpath \"/tmp/test\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/tmp\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (subpath \"/var/log/app\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/var/log\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/var\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/tmp/test\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/tmp/test")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/tmp\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/tmp")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/var/log/app\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/var/log/app")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/var/log\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/var/log")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/var\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/var")))
 			},
 		},
 		{
@@ -480,11 +480,11 @@ func TestGenerateMoveBlockingRules(t *testing.T) {
 			logTag:   "test",
 			assert: func(t *testing.T, rules []string) {
 				// Should have rules for all ancestors
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/a/b/c/d/e\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/a/b/c/d\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/a/b/c\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/a/b\") (with message \"test\"))")
-				assert.Contains(t, rules, "(deny file-write-unlink (literal \"/a\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b/c/d/e\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b/c/d/e")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b/c/d\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b/c/d")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b/c\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b/c")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b")))
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a")))
 			},
 		},
 		{
@@ -493,7 +493,7 @@ func TestGenerateMoveBlockingRules(t *testing.T) {
 			logTag:   "test",
 			assert: func(t *testing.T, rules []string) {
 				// Should only have the file itself, no ancestors
-				assert.Contains(t, rules, "(deny file-write-unlink (subpath \"/file\") (with message \"test\"))")
+				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/file\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/file")))
 				// Should not contain root as ancestor
 				for _, rule := range rules {
 					assert.NotContains(t, rule, "(deny file-write-unlink (literal \"/\"))")
@@ -666,6 +666,7 @@ func TestNetworkBindSupport(t *testing.T) {
 func TestSeatbeltTranslatorDarwinLogTag(t *testing.T) {
 	translator := newSeatbeltPolicyTranslator()
 	assert.NotEmpty(t, translator.LogTag())
+	assert.Contains(t, seatbeltLogMessage(translator.LogTag(), "file-read", "/tmp/test"), "run="+translator.LogTag())
 
 	translator = &seatbeltPolicyTranslator{logTag: "test"}
 	assert.Equal(t, "test", translator.LogTag())

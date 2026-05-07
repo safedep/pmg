@@ -13,5 +13,6 @@ const (
 	ErrCodeUnknown                       = "Unknown"
 	ErrCodeLifecycle                     = "Lifecycle"
 	ErrCodeNetwork                       = "Network"
+	ErrCodeSandboxViolation              = "SandboxViolation"
 	ErrCodePackageManagerExecutionFailed = "PackageManagerExecutionFailed"
 )

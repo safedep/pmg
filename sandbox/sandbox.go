@@ -5,6 +5,29 @@ import (
 	"os/exec"
 )
 
+// ViolationReport is a best-effort sandbox violation summary collected from a
+// sandbox implementation after command execution fails.
+type ViolationReport struct {
+	SandboxName   string
+	PolicyName    string
+	CorrelationID string
+	Violations    []Violation
+}
+
+// Violation captures one sandbox denial event.
+type Violation struct {
+	Kind       string
+	Target     string
+	RuleTarget string
+	Process    string
+	RawLog     string
+	RuleLabel  string
+}
+
+type violationReporter interface {
+	BestEffortViolation(err error) (*ViolationReport, error)
+}
+
 // ExecutionResult represents the result of executing a command in a sandbox.
 // It contains sandbox internal state and allows for future extension with
 // additional metadata (e.g., exit codes, resource usage, violation events).
@@ -44,6 +67,22 @@ func NewExecutionResult(opts ...ExecutionResultOpt) *ExecutionResult {
 // ShouldRun returns true if the caller should execute cmd.Run().
 func (r *ExecutionResult) ShouldRun() bool {
 	return !r.executed
+}
+
+// BestEffortViolation returns sandbox-specific best-effort violation details.
+// Implementations may use platform logs or other weak signals, so callers
+// should treat the result as advisory.
+func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, error) {
+	if r == nil || r.sandbox == nil {
+		return nil, nil
+	}
+
+	reporter, ok := r.sandbox.(violationReporter)
+	if !ok {
+		return nil, nil
+	}
+
+	return reporter.BestEffortViolation(err)
 }
 
 // Close cleans up any resources allocated by the sandbox.
