@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/cloud"
 	"github.com/safedep/pmg/cmd/executors"
+	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
 	"github.com/safedep/pmg/cmd/setup"
@@ -135,6 +136,13 @@ func main() {
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
 	cmd.AddCommand(cloud.NewCloudCommand())
+
+	if subcmd := landlockCmd.NewLandlockSandboxExecCommand(); subcmd != nil {
+		cmd.AddCommand(subcmd)
+	}
+	if subcmd := landlockCmd.NewLandlockShimCommand(); subcmd != nil {
+		cmd.AddCommand(subcmd)
+	}
 
 	// Print Banner on --help / -h
 	cmd.SetHelpFunc(func(command *cobra.Command, args []string) {

@@ -624,125 +624,12 @@ func (t *bubblewrapPolicyTranslator) expandGlobPattern(pattern string, maxDepth 
 	return matches, false, nil
 }
 
-// expandGlobstarPattern expands patterns containing ** (recursive glob).
-// This requires custom implementation since filepath.Glob doesn't support **.
-func (t *bubblewrapPolicyTranslator) expandGlobstarPattern(pattern string, maxDepth int, maxPaths int) ([]string, error) {
-	// Split pattern at **
-	parts := strings.Split(pattern, "**")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("only one ** globstar supported per pattern")
-	}
-
-	basePath := strings.TrimSuffix(parts[0], "/")
-	suffix := strings.TrimPrefix(parts[1], "/")
-
-	// If base path is empty, it would walk from root which is prohibitively expensive.
-	// Skip such patterns to prevent filesystem scan timeouts.
-	if basePath == "" {
-		log.Debugf("Skipping globstar pattern '%s' with empty base path (would walk from root)", pattern)
-		return []string{}, nil
-	}
-
-	// Expand base path variables
-	var err error
-	basePath, err = util.ExpandVariables(basePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand base path: %w", err)
-	}
-
-	// Check if base path exists
-	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		// Base path doesn't exist yet, return just the base
-		return []string{basePath}, nil
-	}
-
-	matches := []string{}
-
-	// Walk the directory tree with depth limiting
-	err = t.walkWithDepthLimit(basePath, suffix, maxDepth, maxPaths, &matches)
-	if err != nil {
-		return nil, fmt.Errorf("failed to walk directory tree: %w", err)
-	}
-
-	return matches, nil
+func (t *bubblewrapPolicyTranslator) expandGlobstarPattern(pattern string, maxDepth, maxPaths int) ([]string, error) {
+	return expandGlobstarPattern(pattern, maxDepth, maxPaths)
 }
 
-// walkWithDepthLimit walks a directory tree with depth limiting.
-func (t *bubblewrapPolicyTranslator) walkWithDepthLimit(root string, suffix string, maxDepth int, maxPaths int, matches *[]string) error {
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// Skip paths we can't access
-			return nil
-		}
-
-		// Calculate depth relative to root
-		relPath, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		// When relPath is "." (the root itself), depth should be 0
-		// strings.Split(".", "/") returns ["."] with length 1, causing off-by-one error
-		depth := 0
-		if relPath != "." {
-			depth = len(strings.Split(relPath, string(filepath.Separator)))
-		}
-
-		// Enforce depth limit
-		if maxDepth > 0 && depth > maxDepth {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Match suffix
-		if suffix == "" || strings.HasSuffix(path, suffix) {
-			*matches = append(*matches, path)
-
-			// Enforce path count limit
-			if len(*matches) >= maxPaths {
-				return filepath.SkipAll
-			}
-		}
-
-		return nil
-	})
-
-	return err
-}
-
-// extractParentDir extracts the parent directory from a glob pattern.
-// This is used for coarse-grained fallback when glob expansion yields too many paths.
-//
-// Examples:
-//   - ${CWD}/node_modules/** → ${CWD}/node_modules
-//   - ${HOME}/.cache/pnpm/** → ${HOME}/.cache/pnpm
-//   - /tmp/*.txt → /tmp
-//   - /usr/lib/**/*.so → /usr/lib
-//   - ${CWD}/package.json.* → ${CWD}
 func (t *bubblewrapPolicyTranslator) extractParentDir(pattern string) string {
-	// Remove trailing /** or /*
-	pattern = strings.TrimSuffix(pattern, "/**")
-	pattern = strings.TrimSuffix(pattern, "/*")
-
-	// Remove any remaining glob characters and find the parent directory
-	idx := strings.IndexAny(pattern, "*?[")
-	if idx >= 0 {
-		// Glob found - truncate at glob character and get the directory
-		pattern = pattern[:idx]
-		// Get the directory containing the file/pattern
-		pattern = filepath.Dir(pattern)
-	}
-
-	// Clean up trailing separator
-	pattern = strings.TrimSuffix(pattern, string(filepath.Separator))
-
-	// If pattern is now empty or just a separator, default to current directory
-	if pattern == "" || pattern == string(filepath.Separator) {
-		return "."
-	}
-
-	return pattern
+	return extractGlobParentDir(pattern)
 }
 
 // addPTYSupport adds arguments for pseudo-terminal support.
