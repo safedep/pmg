@@ -135,4 +135,5 @@ func (a *auditor) recordCooldownBlocked() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cooldownBlockedCount++
+	s.totalAnalyzed++
 }
