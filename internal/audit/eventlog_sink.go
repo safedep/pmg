@@ -40,7 +40,8 @@ func sessionDataToDetails(sd *SessionData) map[string]interface{} {
 		"blocked_count":     sd.BlockedCount,
 		"confirmed_count":   sd.ConfirmedCount,
 		"trusted_skipped":   sd.TrustedSkipped,
-		"insecure_bypassed": sd.InsecureBypassed,
+		"insecure_bypassed":     sd.InsecureBypassed,
+		"cooldown_blocked_count": sd.CooldownBlockedCount,
 	}
 }
 

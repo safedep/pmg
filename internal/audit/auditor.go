@@ -9,16 +9,17 @@ import (
 )
 
 type session struct {
-	mu               sync.Mutex
-	startTime        time.Time
-	packageManager   string
-	args             []string
-	totalAnalyzed    uint32
-	allowedCount     uint32
-	blockedCount     uint32
-	confirmedCount   uint32
-	trustedSkipped   uint32
-	insecureBypassed uint32
+	mu                   sync.Mutex
+	startTime            time.Time
+	packageManager       string
+	args                 []string
+	totalAnalyzed        uint32
+	allowedCount         uint32
+	blockedCount         uint32
+	confirmedCount       uint32
+	trustedSkipped       uint32
+	insecureBypassed     uint32
+	cooldownBlockedCount uint32
 }
 
 type auditor struct {
@@ -124,4 +125,14 @@ func (a *auditor) recordInsecureBypassed() {
 	defer s.mu.Unlock()
 	s.insecureBypassed++
 	s.totalAnalyzed++
+}
+
+func (a *auditor) recordCooldownBlocked() {
+	s := a.getSession()
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cooldownBlockedCount++
 }
