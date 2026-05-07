@@ -62,7 +62,7 @@ func TestSeatbeltTranslatorDarwinAlwaysAllowsFSEventsMachLookup(t *testing.T) {
 
 	translator := newSeatbeltPolicyTranslator()
 	actual, err := translator.translate(policy)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Contains(t, actual, `(global-name "com.apple.FSEvents")`)
 }
