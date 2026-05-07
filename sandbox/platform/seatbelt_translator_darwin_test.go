@@ -57,6 +57,16 @@ func TestSeatbeltTranslatorDarwinCommonTranslation(t *testing.T) {
 	assert.Contains(t, actual, "(allow process-fork)")
 }
 
+func TestSeatbeltTranslatorDarwinAlwaysAllowsFSEventsMachLookup(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{}
+
+	translator := newSeatbeltPolicyTranslator()
+	actual, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assert.Contains(t, actual, `(global-name "com.apple.FSEvents")`)
+}
+
 func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 	cases := []struct {
 		name   string
