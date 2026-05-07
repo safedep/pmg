@@ -32,15 +32,15 @@ func (s *eventlogSink) Handle(_ context.Context, event AuditEvent) error {
 
 func sessionDataToDetails(sd *SessionData) map[string]interface{} {
 	return map[string]interface{}{
-		"outcome":           sd.Outcome,
-		"flow_type":         sd.FlowType,
-		"package_manager":   sd.PackageManager,
-		"total_analyzed":    sd.TotalAnalyzed,
-		"allowed_count":     sd.AllowedCount,
-		"blocked_count":     sd.BlockedCount,
-		"confirmed_count":   sd.ConfirmedCount,
-		"trusted_skipped":   sd.TrustedSkipped,
-		"insecure_bypassed":     sd.InsecureBypassed,
+		"outcome":                sd.Outcome,
+		"flow_type":              sd.FlowType,
+		"package_manager":        sd.PackageManager,
+		"total_analyzed":         sd.TotalAnalyzed,
+		"allowed_count":          sd.AllowedCount,
+		"blocked_count":          sd.BlockedCount,
+		"confirmed_count":        sd.ConfirmedCount,
+		"trusted_skipped":        sd.TrustedSkipped,
+		"insecure_bypassed":      sd.InsecureBypassed,
 		"cooldown_blocked_count": sd.CooldownBlockedCount,
 	}
 }
