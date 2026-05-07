@@ -67,6 +67,8 @@ func mapEventType(t EventType) eventlog.EventType {
 		return eventlog.EventTypeInstallInsecureBypass
 	case EventTypeProxyHostObserved:
 		return eventlog.EventTypeProxyHostObserved
+	case EventTypeDependencyCooldown:
+		return eventlog.EventTypeDependencyCooldown
 	case EventTypeSandboxOverride:
 		return eventlog.EventTypeSandboxOverride
 	case EventTypeError:
