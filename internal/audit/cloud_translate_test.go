@@ -127,9 +127,57 @@ func TestTranslateErrorNilError(t *testing.T) {
 	assert.Equal(t, "unknown issue", pmgErr.GetMessage())
 }
 
+func TestTranslateCooldownBlocked(t *testing.T) {
+	publishDate := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	event := AuditEvent{
+		Type:           EventTypeDependencyCooldown,
+		PackageVersion: testPackageVersion("new-pkg", "1.0.0", "npm"),
+		PublishDate:    publishDate,
+		CooldownDays:   30,
+		DaysAgo:        6,
+		DaysLeft:       24,
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION, result.GetEventType())
+	require.True(t, result.HasPackageDecision())
+
+	decision := result.GetPackageDecision()
+	assert.Equal(t, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED, decision.GetAction())
+	assert.NotNil(t, decision.GetPackageVersion())
+
+	require.True(t, decision.HasCooldown())
+	cooldown := decision.GetCooldown()
+	assert.Equal(t, publishDate.Unix(), cooldown.GetPublishDate().AsTime().Unix())
+	assert.Equal(t, uint32(30), cooldown.GetCooldownDays())
+	assert.Equal(t, uint32(6), cooldown.GetDaysSincePublish())
+	assert.Equal(t, uint32(24), cooldown.GetDaysRemaining())
+}
+
+func TestTranslateHostObservation(t *testing.T) {
+	event := AuditEvent{
+		Type:     EventTypeProxyHostObserved,
+		Hostname: "evil.example.com",
+		Method:   "CONNECT",
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION, result.GetEventType())
+	require.True(t, result.HasHostObservation())
+
+	obs := result.GetHostObservation()
+	assert.Equal(t, "evil.example.com", obs.GetHostname())
+	assert.Equal(t, "CONNECT", obs.GetMethod())
+}
+
 func TestTranslateUnsupportedEventReturnsEmpty(t *testing.T) {
 	unsupported := []EventType{
-		EventTypeProxyHostObserved,
 		EventTypeDependencyResolved,
 		EventTypeInstallStarted,
 		EventTypeInstallAllowed,
@@ -176,19 +224,20 @@ func TestTranslateSessionComplete(t *testing.T) {
 	event := AuditEvent{
 		Type: EventTypeSessionComplete,
 		SessionData: &SessionData{
-			PackageManager:    "npm",
-			FlowType:          FlowTypeProxy,
-			Outcome:           OutcomeSuccess,
-			TotalAnalyzed:     10,
-			AllowedCount:      8,
-			BlockedCount:      1,
-			ConfirmedCount:    1,
-			TrustedSkipped:    2,
-			InsecureBypassed:  0,
-			Duration:          5 * time.Second,
-			SandboxEnabled:    true,
-			ParanoidMode:      false,
-			TransitiveEnabled: true,
+			PackageManager:       "npm",
+			FlowType:             FlowTypeProxy,
+			Outcome:              OutcomeSuccess,
+			TotalAnalyzed:        10,
+			AllowedCount:         8,
+			BlockedCount:         1,
+			ConfirmedCount:       1,
+			TrustedSkipped:       2,
+			InsecureBypassed:     0,
+			CooldownBlockedCount: 3,
+			Duration:             5 * time.Second,
+			SandboxEnabled:       true,
+			ParanoidMode:         false,
+			TransitiveEnabled:    true,
 		},
 	}
 
@@ -204,6 +253,7 @@ func TestTranslateSessionComplete(t *testing.T) {
 	assert.Equal(t, uint32(1), summary.GetBlockedCount())
 	assert.Equal(t, uint32(1), summary.GetConfirmedCount())
 	assert.Equal(t, uint32(2), summary.GetTrustedSkipped())
+	assert.Equal(t, uint32(3), summary.GetCooldownBlockedCount())
 	assert.True(t, summary.GetSandboxEnabled())
 	assert.False(t, summary.GetParanoidMode())
 	assert.True(t, summary.GetTransitiveEnabled())

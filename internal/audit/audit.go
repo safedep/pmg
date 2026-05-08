@@ -199,6 +199,23 @@ func LogProxyHostObserved(hostname, method, reason string, details map[string]in
 	})
 }
 
+// LogDependencyCooldown records that a package was blocked by the dependency cooldown policy.
+func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, cooldownDays, daysAgo, daysLeft int) {
+	logEvent(AuditEvent{
+		Type:           EventTypeDependencyCooldown,
+		Message:        fmt.Sprintf("Package blocked by cooldown policy: %s@%s (published %d days ago, %d days remaining)", pkgName(pv), pkgVersion(pv), daysAgo, daysLeft),
+		PackageVersion: pv,
+		PublishDate:    publishDate,
+		CooldownDays:   cooldownDays,
+		DaysAgo:        daysAgo,
+		DaysLeft:       daysLeft,
+	})
+
+	if global != nil {
+		global.recordCooldownBlocked()
+	}
+}
+
 // LogSandboxOverride records that runtime sandbox policy overrides were applied.
 func LogSandboxOverride(sandboxProfile string, overrides []map[string]string) {
 	logEvent(AuditEvent{
@@ -250,19 +267,20 @@ func LogSessionComplete(outcome Outcome, flowType FlowType) {
 		Type:    EventTypeSessionComplete,
 		Message: fmt.Sprintf("Session complete: %s", outcome),
 		SessionData: &SessionData{
-			PackageManager:    s.packageManager,
-			FlowType:          flowType,
-			Outcome:           outcome,
-			TotalAnalyzed:     s.totalAnalyzed,
-			AllowedCount:      s.allowedCount,
-			BlockedCount:      s.blockedCount,
-			ConfirmedCount:    s.confirmedCount,
-			TrustedSkipped:    s.trustedSkipped,
-			InsecureBypassed:  s.insecureBypassed,
-			Duration:          time.Since(s.startTime),
-			SandboxEnabled:    cfg.Config.Sandbox.Enabled,
-			ParanoidMode:      cfg.Config.Paranoid,
-			TransitiveEnabled: cfg.Config.Transitive,
+			PackageManager:       s.packageManager,
+			FlowType:             flowType,
+			Outcome:              outcome,
+			TotalAnalyzed:        s.totalAnalyzed,
+			AllowedCount:         s.allowedCount,
+			BlockedCount:         s.blockedCount,
+			ConfirmedCount:       s.confirmedCount,
+			TrustedSkipped:       s.trustedSkipped,
+			InsecureBypassed:     s.insecureBypassed,
+			CooldownBlockedCount: s.cooldownBlockedCount,
+			Duration:             time.Since(s.startTime),
+			SandboxEnabled:       cfg.Config.Sandbox.Enabled,
+			ParanoidMode:         cfg.Config.Paranoid,
+			TransitiveEnabled:    cfg.Config.Transitive,
 		},
 	})
 }

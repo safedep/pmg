@@ -1,6 +1,11 @@
 package interceptors
 
-import "time"
+import (
+	"time"
+
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/internal/audit"
+)
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still
 // within the cooldown window of cooldownDays. Returns withinCooldown, daysSincePublish,
@@ -34,21 +39,32 @@ func cooldownOldestVersion(dates map[string]time.Time) (string, time.Time) {
 // recordCooldownStats records a cooldown block event. When all versions are blocked
 // (remaining == 0), it reports the oldest version (closest to exiting cooldown).
 // Otherwise, if a pinned version was stripped, it reports that specific version.
-func recordCooldownStats(statsCollector *AnalysisStatsCollector, packageName string, pinnedVersion string, dates map[string]time.Time, remaining int, cooldownDays int) {
+func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, remaining int, cooldownDays int) {
 	if statsCollector == nil {
 		return
+	}
+
+	logCooldown := func(version string, publishDate time.Time, daysAgo, daysLeft int) {
+		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays)
+
+		pv := &packagev1.PackageVersion{}
+		pv.SetPackage(&packagev1.Package{})
+		pv.GetPackage().SetName(packageName)
+		pv.GetPackage().SetEcosystem(ecosystem)
+		pv.SetVersion(version)
+		audit.LogDependencyCooldown(pv, publishDate, cooldownDays, daysAgo, daysLeft)
 	}
 
 	if remaining == 0 {
 		oldestVer, oldestDate := cooldownOldestVersion(dates)
 		if oldestVer != "" {
 			_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
-			statsCollector.RecordCooldownBlocked(packageName, oldestVer, oldestDate, daysAgo, daysLeft, cooldownDays)
+			logCooldown(oldestVer, oldestDate, daysAgo, daysLeft)
 		}
 	} else if pinnedVersion != "" {
 		if pinnedDate, ok := dates[pinnedVersion]; ok {
 			if withinCooldown, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays); withinCooldown {
-				statsCollector.RecordCooldownBlocked(packageName, pinnedVersion, pinnedDate, daysAgo, daysLeft, cooldownDays)
+				logCooldown(pinnedVersion, pinnedDate, daysAgo, daysLeft)
 			}
 		}
 	}
