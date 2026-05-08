@@ -209,6 +209,16 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
 
+	// Resolve the real package manager binary by searching PATH with ~/.pmg/bin
+	// stripped out. Without this, exec.CommandContext resolves to the shim script
+	// (because ~/.pmg/bin is still in the current process's PATH), causing
+	// infinite recursion: shim → pmg → shim → pmg → ...
+	realBinary, err := shim.ResolveRealBinary(parsedCmd.Command.Exe)
+	if err != nil {
+		return fmt.Errorf("failed to resolve real %s binary: %w", parsedCmd.Command.Exe, err)
+	}
+	parsedCmd.Command.Exe = realBinary
+
 	var executionError error
 	if pty.IsInteractiveTerminal() {
 		// Execute the package manager command with proxy environment variables
