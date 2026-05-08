@@ -4,8 +4,12 @@ package platform
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	"github.com/safedep/dry/utils"
@@ -296,6 +300,23 @@ func TestLandlockTranslatePolicy_MandatoryDenies(t *testing.T) {
 	if !hasEnvDeny {
 		t.Error("expected .env in mandatory deny paths with denyBoth mode")
 	}
+}
+
+func TestLandlockTranslatePolicy_AllowReadSuppression(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	cwdEnv := filepath.Clean(filepath.Join(cwd, ".env"))
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowRead = []string{cwdEnv}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi)
+	require.NoError(t, err)
+
+	envEntry := findDenyPath(ep.DenyPaths, cwdEnv)
+	require.NotNil(t, envEntry)
+	assert.Equal(t, denyWrite, envEntry.Mode)
 }
 
 func TestLandlockTranslatePolicy_ImplicitRules(t *testing.T) {
