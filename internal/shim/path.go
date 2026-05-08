@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/safedep/dry/log"
 )
 
 const pmgBinSuffix = "/.pmg/bin"
@@ -33,8 +35,14 @@ func ResolveRealBinary(name string) (string, error) {
 	filteredPath := FilterPMGFromPath(os.Getenv("PATH"))
 
 	originalPath := os.Getenv("PATH")
-	os.Setenv("PATH", filteredPath)
-	defer os.Setenv("PATH", originalPath)
+	if err := os.Setenv("PATH", filteredPath); err != nil {
+		return "", fmt.Errorf("failed to set filtered PATH: %w", err)
+	}
+	defer func() {
+		if err := os.Setenv("PATH", originalPath); err != nil {
+			log.Warnf("failed to restore PATH: %v", err)
+		}
+	}()
 
 	resolved, err := exec.LookPath(name)
 	if err != nil {

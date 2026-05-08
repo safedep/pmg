@@ -138,7 +138,9 @@ func (m *ShimManager) addPathToShells() error {
 		}
 
 		_, err = fmt.Fprintf(f, "\n%s", shell.PathExport(m.config.BinDir))
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			log.Warnf("Warning: failed to close %s: %s", shell.Name(), closeErr)
+		}
 		if err != nil {
 			log.Warnf("Warning: failed to write PATH export to %s: %s", shell.Name(), err)
 		}
@@ -189,7 +191,9 @@ func (m *ShimManager) removePathFromShells() error {
 		if err := writer.Flush(); err != nil {
 			log.Warnf("Warning: failed to flush temporary file: %s", err)
 		}
-		tempFile.Close()
+		if err := tempFile.Close(); err != nil {
+			log.Warnf("Warning: failed to close temporary file: %s", err)
+		}
 
 		if err := os.Chmod(tempPath, info.Mode()); err != nil {
 			log.Warnf("Warning: failed to set permissions on temporary file: %s", err)
