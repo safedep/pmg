@@ -1,9 +1,12 @@
 package shim
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFilterPMGFromPath(t *testing.T) {
@@ -55,6 +58,29 @@ func TestFilterPMGFromPath(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestResolveRealBinary(t *testing.T) {
+	tmpDir := t.TempDir()
+	pmgBinDir := filepath.Join(tmpDir, ".pmg", "bin")
+	realBinDir := filepath.Join(tmpDir, "real-bin")
+	require.NoError(t, os.MkdirAll(pmgBinDir, 0o755))
+	require.NoError(t, os.MkdirAll(realBinDir, 0o755))
+
+	// Create a fake shim in pmg bin
+	shimPath := filepath.Join(pmgBinDir, "npm")
+	require.NoError(t, os.WriteFile(shimPath, []byte("#!/bin/sh\necho shim"), 0o755))
+
+	// Create a fake real binary
+	realPath := filepath.Join(realBinDir, "npm")
+	require.NoError(t, os.WriteFile(realPath, []byte("#!/bin/sh\necho real"), 0o755))
+
+	// Set PATH with pmg bin first (simulating shim setup)
+	t.Setenv("PATH", pmgBinDir+":"+realBinDir)
+
+	resolved, err := ResolveRealBinary("npm")
+	require.NoError(t, err)
+	assert.Equal(t, realPath, resolved)
 }
 
 func TestFilterPMGFromEnv(t *testing.T) {

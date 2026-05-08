@@ -1,6 +1,9 @@
 package shim
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -21,6 +24,24 @@ func FilterPMGFromPath(pathEnv string) string {
 	}
 
 	return strings.Join(filtered, ":")
+}
+
+// ResolveRealBinary finds the real binary path for a command by searching
+// PATH with ~/.pmg/bin stripped out. This prevents exec.CommandContext from
+// resolving to the shim script, which would cause infinite recursion.
+func ResolveRealBinary(name string) (string, error) {
+	filteredPath := FilterPMGFromPath(os.Getenv("PATH"))
+
+	originalPath := os.Getenv("PATH")
+	os.Setenv("PATH", filteredPath)
+	defer os.Setenv("PATH", originalPath)
+
+	resolved, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("could not find %s in PATH (excluding pmg shims): %w", name, err)
+	}
+
+	return resolved, nil
 }
 
 func FilterPMGFromEnv(env []string) []string {
