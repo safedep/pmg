@@ -56,3 +56,48 @@ func TestFilterPMGFromPath(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterPMGFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      []string
+		expected []string
+	}{
+		{
+			name: "filters PATH entry",
+			env: []string{
+				"HOME=/home/user",
+				"PATH=/home/user/.pmg/bin:/usr/local/bin:/usr/bin",
+				"SHELL=/bin/zsh",
+			},
+			expected: []string{
+				"HOME=/home/user",
+				"PATH=/usr/local/bin:/usr/bin",
+				"SHELL=/bin/zsh",
+			},
+		},
+		{
+			name: "no PATH entry",
+			env: []string{
+				"HOME=/home/user",
+				"SHELL=/bin/zsh",
+			},
+			expected: []string{
+				"HOME=/home/user",
+				"SHELL=/bin/zsh",
+			},
+		},
+		{
+			name:     "empty env",
+			env:      []string{},
+			expected: []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := FilterPMGFromEnv(tc.env)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
