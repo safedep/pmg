@@ -32,3 +32,10 @@ func PrintSetupInstallCmdInfo(rcPath, configPath string) {
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Config at:     %s", configPath)))
 	fmt.Printf("   %s\n", Colors.Dim("Restart your terminal or source your shell to use the new aliases"))
 }
+
+func PrintSetupShimInstallCmdInfo(binDir, configPath string) {
+	fmt.Printf("%s %s\n", Colors.Green("✓"), "PMG shims installed successfully")
+	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Shims at:      %s", binDir)))
+	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Config at:     %s", configPath)))
+	fmt.Printf("   %s\n", Colors.Dim("Restart your terminal or source your shell for changes to take effect"))
+}
