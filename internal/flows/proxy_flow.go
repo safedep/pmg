@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/runner"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
@@ -329,7 +330,7 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 
 	noProxyList := "localhost,127.0.0.1,[::1]"
 
-	env := os.Environ()
+	env := shim.FilterPMGFromEnv(os.Environ())
 	env = append(env,
 		"NODE_USE_ENV_PROXY=1",
 		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
