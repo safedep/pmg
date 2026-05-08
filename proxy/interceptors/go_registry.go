@@ -13,6 +13,11 @@ var goRegistryDomains = registryConfigMap{
 		SupportedForAnalysis: true,
 		Parser:               goProxyParser{},
 	},
+	"sum.golang.org": {
+		Host:                 "sum.golang.org",
+		SupportedForAnalysis: false,
+		Parser:               goProxyParser{},
+	},
 }
 
 // GoRegistryInterceptor intercepts Go module registry requests and analyzes packages for malware
