@@ -12,6 +12,10 @@ func (b bashShell) Source(rcPath string) string {
 	return defaultShellSource(rcPath)
 }
 
+func (b bashShell) PathExport(binDir string) string {
+	return defaultPathExport(binDir)
+}
+
 func (b bashShell) Name() string {
 	return "bash"
 }

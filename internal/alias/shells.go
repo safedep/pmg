@@ -8,11 +8,17 @@ import (
 
 type Shell interface {
 	Source(rcPath string) string
+	PathExport(binDir string) string
 	Name() string
 	Path() string
 }
 
 var commentForRemovingShellSource = "# remove aliases by running `pmg setup remove` or deleting the line"
+var commentForRemovingShellShims = "# remove PMG shims by running `pmg setup remove` or deleting the line"
+
+func defaultPathExport(binDir string) string {
+	return fmt.Sprintf("%s\nexport PATH=\"%s:$PATH\"  # PMG shims\n", commentForRemovingShellShims, binDir)
+}
 
 func defaultShellSource(rcPath string) string {
 	return fmt.Sprintf("%s \n[ -f '%s' ] && source '%s'  # PMG source aliases\n", commentForRemovingShellSource, rcPath, rcPath)
