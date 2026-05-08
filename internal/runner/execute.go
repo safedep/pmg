@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/safedep/pmg/usefulerror"
@@ -24,7 +25,12 @@ func Execute(ctx context.Context, pc *packagemanager.ParsedCommand, pmName strin
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, pc.Command.Exe, pc.Command.Args...)
+	realBinary, err := shim.ResolveRealBinary(pc.Command.Exe)
+	if err != nil {
+		return fmt.Errorf("failed to resolve real %s binary: %w", pc.Command.Exe, err)
+	}
+
+	cmd := exec.CommandContext(ctx, realBinary, pc.Command.Args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

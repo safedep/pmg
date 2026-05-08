@@ -3,6 +3,7 @@ package shim
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,26 +62,112 @@ func TestFilterPMGFromPath(t *testing.T) {
 }
 
 func TestResolveRealBinary(t *testing.T) {
-	tmpDir := t.TempDir()
-	pmgBinDir := filepath.Join(tmpDir, ".pmg", "bin")
-	realBinDir := filepath.Join(tmpDir, "real-bin")
-	require.NoError(t, os.MkdirAll(pmgBinDir, 0o755))
-	require.NoError(t, os.MkdirAll(realBinDir, 0o755))
+	tests := []struct {
+		name      string
+		setupDirs func(t *testing.T, tmpDir string) (pmgBin, realBin string)
+		binary    string
+		wantPath  func(realBinDir string) string
+		wantErr   bool
+	}{
+		{
+			name: "skips shim and finds real binary",
+			setupDirs: func(t *testing.T, tmpDir string) (string, string) {
+				pmgBin := filepath.Join(tmpDir, ".pmg", "bin")
+				realBin := filepath.Join(tmpDir, "real-bin")
+				require.NoError(t, os.MkdirAll(pmgBin, 0o755))
+				require.NoError(t, os.MkdirAll(realBin, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(pmgBin, "npm"), []byte("#!/bin/sh\necho shim"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(realBin, "npm"), []byte("#!/bin/sh\necho real"), 0o755))
+				return pmgBin, realBin
+			},
+			binary:   "npm",
+			wantPath: func(realBin string) string { return filepath.Join(realBin, "npm") },
+		},
+		{
+			name: "returns error when binary not found outside shim dir",
+			setupDirs: func(t *testing.T, tmpDir string) (string, string) {
+				pmgBin := filepath.Join(tmpDir, ".pmg", "bin")
+				realBin := filepath.Join(tmpDir, "real-bin")
+				require.NoError(t, os.MkdirAll(pmgBin, 0o755))
+				require.NoError(t, os.MkdirAll(realBin, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(pmgBin, "npm"), []byte("#!/bin/sh\necho shim"), 0o755))
+				return pmgBin, realBin
+			},
+			binary:  "npm",
+			wantErr: true,
+		},
+		{
+			name: "works when no shim dir exists in PATH",
+			setupDirs: func(t *testing.T, tmpDir string) (string, string) {
+				realBin := filepath.Join(tmpDir, "real-bin")
+				require.NoError(t, os.MkdirAll(realBin, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(realBin, "npm"), []byte("#!/bin/sh\necho real"), 0o755))
+				return "", realBin
+			},
+			binary:   "npm",
+			wantPath: func(realBin string) string { return filepath.Join(realBin, "npm") },
+		},
+		{
+			name: "resolves correct binary when multiple exist",
+			setupDirs: func(t *testing.T, tmpDir string) (string, string) {
+				pmgBin := filepath.Join(tmpDir, ".pmg", "bin")
+				firstBin := filepath.Join(tmpDir, "first-bin")
+				secondBin := filepath.Join(tmpDir, "second-bin")
+				require.NoError(t, os.MkdirAll(pmgBin, 0o755))
+				require.NoError(t, os.MkdirAll(firstBin, 0o755))
+				require.NoError(t, os.MkdirAll(secondBin, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(pmgBin, "npm"), []byte("#!/bin/sh\necho shim"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(firstBin, "npm"), []byte("#!/bin/sh\necho first"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(secondBin, "npm"), []byte("#!/bin/sh\necho second"), 0o755))
+				return pmgBin, firstBin + ":" + secondBin
+			},
+			binary:   "npm",
+			wantPath: func(realBin string) string { return filepath.Join(filepath.SplitList(realBin)[0], "npm") },
+		},
+		{
+			name: "restores original PATH after resolution",
+			setupDirs: func(t *testing.T, tmpDir string) (string, string) {
+				pmgBin := filepath.Join(tmpDir, ".pmg", "bin")
+				realBin := filepath.Join(tmpDir, "real-bin")
+				require.NoError(t, os.MkdirAll(pmgBin, 0o755))
+				require.NoError(t, os.MkdirAll(realBin, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(pmgBin, "npm"), []byte("#!/bin/sh\necho shim"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(realBin, "npm"), []byte("#!/bin/sh\necho real"), 0o755))
+				return pmgBin, realBin
+			},
+			binary:   "npm",
+			wantPath: func(realBin string) string { return filepath.Join(realBin, "npm") },
+		},
+	}
 
-	// Create a fake shim in pmg bin
-	shimPath := filepath.Join(pmgBinDir, "npm")
-	require.NoError(t, os.WriteFile(shimPath, []byte("#!/bin/sh\necho shim"), 0o755))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			pmgBin, realBin := tc.setupDirs(t, tmpDir)
 
-	// Create a fake real binary
-	realPath := filepath.Join(realBinDir, "npm")
-	require.NoError(t, os.WriteFile(realPath, []byte("#!/bin/sh\necho real"), 0o755))
+			var pathParts []string
+			if pmgBin != "" {
+				pathParts = append(pathParts, pmgBin)
+			}
+			pathParts = append(pathParts, filepath.SplitList(realBin)...)
 
-	// Set PATH with pmg bin first (simulating shim setup)
-	t.Setenv("PATH", pmgBinDir+":"+realBinDir)
+			t.Setenv("PATH", strings.Join(pathParts, ":"))
+			originalPath := os.Getenv("PATH")
 
-	resolved, err := ResolveRealBinary("npm")
-	require.NoError(t, err)
-	assert.Equal(t, realPath, resolved)
+			resolved, err := ResolveRealBinary(tc.binary)
+
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantPath(realBin), resolved)
+
+			// Verify PATH was restored
+			assert.Equal(t, originalPath, os.Getenv("PATH"), "PATH should be restored after ResolveRealBinary")
+		})
+	}
 }
 
 func TestFilterPMGFromEnv(t *testing.T) {
