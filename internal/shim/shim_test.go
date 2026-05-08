@@ -139,6 +139,18 @@ func TestShimManagerIsInstalled(t *testing.T) {
 	assert.True(t, installed)
 }
 
+func TestDefaultShimConfig(t *testing.T) {
+	homeDir := "/home/testuser"
+	cfg := DefaultShimConfig(homeDir)
+
+	assert.Equal(t, filepath.Join(homeDir, ".pmg", "bin"), cfg.BinDir)
+	assert.Equal(t, homeDir, cfg.HomeDir)
+	assert.NotEmpty(t, cfg.PackageManagers)
+	assert.Contains(t, cfg.PackageManagers, "npm")
+	assert.Contains(t, cfg.PackageManagers, "pip")
+	assert.NotEmpty(t, cfg.Shells)
+}
+
 type stubShell struct {
 	name    string
 	path    string

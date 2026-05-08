@@ -3,7 +3,6 @@ package setup
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -62,14 +61,7 @@ func installWithShims() error {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	cfg := alias.DefaultConfig()
-
-	mgr := shim.NewShimManager(shim.ShimConfig{
-		BinDir:          filepath.Join(homeDir, ".pmg", "bin"),
-		HomeDir:         homeDir,
-		PackageManagers: cfg.PackageManagers,
-		Shells:          cfg.Shells,
-	})
+	mgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
 
 	if err := mgr.Install(); err != nil {
 		return fmt.Errorf("failed to install shims: %w", err)
@@ -123,20 +115,13 @@ func NewRemoveCommand() *cobra.Command {
 				return fmt.Errorf("failed to get home directory: %w", err)
 			}
 
-			aliasCfg := alias.DefaultConfig()
-
-			// Remove shims
-			shimMgr := shim.NewShimManager(shim.ShimConfig{
-				BinDir:          filepath.Join(homeDir, ".pmg", "bin"),
-				HomeDir:         homeDir,
-				PackageManagers: aliasCfg.PackageManagers,
-				Shells:          aliasCfg.Shells,
-			})
+			shimMgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
 			if err := shimMgr.Remove(); err != nil {
 				return fmt.Errorf("failed to remove shims: %w", err)
 			}
 
 			// Also remove aliases (for migration cleanup)
+			aliasCfg := alias.DefaultConfig()
 			rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
 			if err != nil {
 				return err

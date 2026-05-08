@@ -30,6 +30,16 @@ func NewShimManager(config ShimConfig) *ShimManager {
 	return &ShimManager{config: config}
 }
 
+func DefaultShimConfig(homeDir string) ShimConfig {
+	aliasCfg := alias.DefaultConfig()
+	return ShimConfig{
+		BinDir:          filepath.Join(homeDir, ".pmg", "bin"),
+		HomeDir:         homeDir,
+		PackageManagers: aliasCfg.PackageManagers,
+		Shells:          aliasCfg.Shells,
+	}
+}
+
 func (m *ShimManager) Install() error {
 	if err := os.MkdirAll(m.config.BinDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create shim directory %s: %w", m.config.BinDir, err)
