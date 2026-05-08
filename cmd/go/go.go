@@ -41,14 +41,9 @@ func executeGoFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	packageResolver, err := packagemanager.NewGoDependencyResolver(packagemanager.NewDefaultGoDependencyResolverConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create dependency resolver: %w", err)
+	if !config.Get().IsProxyModeEnabled() {
+		return fmt.Errorf("guard mode is not supported for Go ecosystem, enable proxy mode to use pmg with Go")
 	}
 
-	if config.Get().IsProxyModeEnabled() {
-		return flows.ProxyFlow(packageManager, packageResolver).Run(ctx, args, parsedCommand)
-	}
-
-	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	return flows.ProxyFlow(packageManager, nil).Run(ctx, args, parsedCommand)
 }

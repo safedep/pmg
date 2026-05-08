@@ -91,7 +91,6 @@ func (g goProxyParser) ParseURL(urlPath string) (packageInfo, error) {
 		isZip       bool
 	}
 
-	// Order matters: check longest suffixes first to avoid ".info" matching inside ".information" etc.
 	suffixes := []suffixMapping{
 		{".info", "info", false},
 		{".mod", "mod", false},
