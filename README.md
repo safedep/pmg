@@ -54,6 +54,12 @@ Get protected in seconds.
 
 ### 1. Install
 
+**MacOS / Linux (Install Script)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh
+```
+
 **MacOS / Linux (Homebrew)**
 
 ```bash
@@ -65,6 +71,8 @@ brew install safedep/tap/pmg
 ```bash
 npm install -g @safedep/pmg
 ```
+
+> **Note:** NPM-based installs can be fragile when Node.js is managed by version managers like [`mise`](https://mise.jdx.dev/) or [`asdf`](https://asdf-vm.com/), since the global `npm` bin path changes with the active Node version. Prefer the install script or Homebrew in those setups.
 
 > See [Installation](#installation) for additional methods.
 
@@ -141,6 +149,17 @@ PMG supports the tools you already use:
 ## Installation
 
 <details>
+<summary><strong>Install Script (MacOS/Linux)</strong></summary>
+
+Downloads the latest release from GitHub, verifies its SHA-256 checksum, and installs to `$HOME/.local/bin` (if on `PATH`) or `/usr/local/bin`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh
+```
+
+</details>
+
+<details>
 <summary><strong>Homebrew (MacOS/Linux)</strong></summary>
 
 ```bash
@@ -156,6 +175,8 @@ brew install safedep/tap/pmg
 ```bash
 npm install -g @safedep/pmg
 ```
+
+> **Note:** NPM-based installs can be fragile when Node.js is managed by version managers like [`mise`](https://mise.jdx.dev/) or [`asdf`](https://asdf-vm.com/). The global `npm` bin path changes with the active Node version, so switching versions can leave `pmg` unavailable on `PATH` (or pointing to an old install). For these setups, prefer the install script or Homebrew.
 
 </details>
 
@@ -225,4 +246,6 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 ## Telemetry
 
 PMG collects anonymous usage data to improve project stability and reliability.
-To disable: `export PMG_DISABLE_TELEMETRY=true`.
+To disable, either:
+- Set `disable_telemetry: true` in your PMG config file, or
+- Export `PMG_DISABLE_TELEMETRY=true`.

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/util"
@@ -202,6 +203,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 	sb.WriteString("(allow mach-lookup\n")
 	sb.WriteString("  (global-name \"com.apple.audio.systemsoundserver\")\n")
 	sb.WriteString("  (global-name \"com.apple.distributed_notifications@Uv3\")\n")
+	sb.WriteString("  (global-name \"com.apple.FSEvents\")\n")
 	sb.WriteString("  (global-name \"com.apple.FontObjectsServer\")\n")
 	sb.WriteString("  (global-name \"com.apple.fonts\")\n")
 	sb.WriteString("  (global-name \"com.apple.logd\")\n")
@@ -482,26 +484,58 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	sb.WriteString("\n")
 
 	if t.enableDangerousFileBlocking {
-		// Add mandatory deny patterns for security (credentials, git hooks, etc.)
 		sb.WriteString(";; Mandatory security denies (credentials, git hooks, etc.)\n")
-		mandatoryDenies := util.GetMandatoryDenyPatterns(utils.SafelyGetValue(policy.AllowGitConfig))
-		for _, pattern := range mandatoryDenies {
-			// Expand variables if needed
+		expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
+		if err != nil {
+			log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
+			expandedAllowRead = nil
+		}
+		expandedAllowWrite, err := expandAll(policy.Filesystem.AllowWrite)
+		if err != nil {
+			log.Warnf("sandbox: failed to expand allow_write for mandatory deny suppression, all mandatory denies preserved: %v", err)
+			expandedAllowWrite = nil
+		}
+
+		mandatoryResult := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{
+			AllowGitConfig: utils.SafelyGetValue(policy.AllowGitConfig),
+			AllowRead:      expandedAllowRead,
+			AllowWrite:     expandedAllowWrite,
+		})
+
+		for _, p := range mandatoryResult.SuppressedRead {
+			log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
+		}
+		for _, p := range mandatoryResult.SuppressedWrite {
+			log.Warnf("sandbox: mandatory deny %q suppressed for write by explicit allow rule in policy %q", p, policy.Name)
+		}
+
+		for _, pattern := range mandatoryResult.DenyWrite {
 			expanded, err := util.ExpandVariables(pattern)
 			if err != nil {
 				return fmt.Errorf("failed to expand mandatory deny pattern %s: %w", pattern, err)
 			}
 
-			// Use regex matching for glob patterns, subpath for literals
 			if util.ContainsGlob(expanded) {
 				regexPattern := util.GlobToRegex(expanded)
 				sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
-				sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
 			} else {
 				sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
-				sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
 			}
 			expandedDenyWrite = append(expandedDenyWrite, expanded)
+		}
+
+		for _, pattern := range mandatoryResult.DenyRead {
+			expanded, err := util.ExpandVariables(pattern)
+			if err != nil {
+				return fmt.Errorf("failed to expand mandatory deny pattern %s: %w", pattern, err)
+			}
+
+			if util.ContainsGlob(expanded) {
+				regexPattern := util.GlobToRegex(expanded)
+				sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+			} else {
+				sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+			}
 		}
 
 		sb.WriteString("\n")
@@ -615,4 +649,16 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 	sb.WriteString("\n")
 
 	return nil
+}
+
+func expandAll(patterns []string) ([]string, error) {
+	out := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		expanded, err := util.ExpandVariables(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand pattern %q: %w", p, err)
+		}
+		out = append(out, expanded)
+	}
+	return out, nil
 }

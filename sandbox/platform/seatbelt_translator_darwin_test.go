@@ -6,11 +6,14 @@ package platform
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSeatbeltTranslatorDarwinCommonTranslation(t *testing.T) {
@@ -52,6 +55,16 @@ func TestSeatbeltTranslatorDarwinCommonTranslation(t *testing.T) {
 
 	// Allow process fork
 	assert.Contains(t, actual, "(allow process-fork)")
+}
+
+func TestSeatbeltTranslatorDarwinAlwaysAllowsFSEventsMachLookup(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{}
+
+	translator := newSeatbeltPolicyTranslator()
+	actual, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assert.Contains(t, actual, `(global-name "com.apple.FSEvents")`)
 }
 
 func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
@@ -656,4 +669,60 @@ func TestSeatbeltTranslatorDarwinLogTag(t *testing.T) {
 
 	translator = &seatbeltPolicyTranslator{logTag: "test"}
 	assert.Equal(t, "test", translator.LogTag())
+}
+
+func TestSeatbeltMandatoryDenySuppression(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	t.Run("allow_read with literal CWD .env removes file-read* deny but keeps file-write* deny", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name: "test",
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowRead: []string{filepath.Join(cwd, ".env")},
+			},
+		}
+		out := translateFilesystemForTest(t, policy)
+
+		assert.NotContains(t, out, fmt.Sprintf(`(deny file-read* (subpath "%s")`, filepath.Join(cwd, ".env")))
+		assert.Contains(t, out, fmt.Sprintf(`(deny file-write* (subpath "%s")`, filepath.Join(cwd, ".env")))
+	})
+
+	t.Run("allow_write with literal CWD .env removes file-write* deny but keeps file-read* deny", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name: "test",
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowWrite: []string{filepath.Join(cwd, ".env")},
+			},
+		}
+		out := translateFilesystemForTest(t, policy)
+
+		assert.NotContains(t, out, fmt.Sprintf(`(deny file-write* (subpath "%s")`, filepath.Join(cwd, ".env")))
+		assert.Contains(t, out, fmt.Sprintf(`(deny file-read* (subpath "%s")`, filepath.Join(cwd, ".env")))
+	})
+
+	t.Run("broad glob does NOT remove mandatory denies", func(t *testing.T) {
+		policy := &sandbox.SandboxPolicy{
+			Name: "test",
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowRead: []string{filepath.Join(cwd, "**")},
+			},
+		}
+		out := translateFilesystemForTest(t, policy)
+
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		assert.Contains(t, out, fmt.Sprintf(`(deny file-read* (subpath "%s")`, filepath.Join(cwd, ".env")))
+		assert.Contains(t, out, fmt.Sprintf(`(deny file-read* (subpath "%s")`, filepath.Join(home, ".env")))
+		assert.Contains(t, out, fmt.Sprintf(`(deny file-read* (subpath "%s")`, filepath.Join(cwd, ".ssh")))
+	})
+}
+
+func translateFilesystemForTest(t *testing.T, policy *sandbox.SandboxPolicy) string {
+	t.Helper()
+	tr := newSeatbeltPolicyTranslator()
+	var sb strings.Builder
+	require.NoError(t, tr.translateFilesystem(policy, &sb))
+	return sb.String()
 }

@@ -28,6 +28,7 @@ func NewSetupCommand() *cobra.Command {
 	setupCmd.AddCommand(NewInstallCommand())
 	setupCmd.AddCommand(NewRemoveCommand())
 	setupCmd.AddCommand(NewInfoCommand())
+	setupCmd.AddCommand(NewEditCommand())
 
 	return setupCmd
 }

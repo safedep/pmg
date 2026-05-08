@@ -8,7 +8,7 @@ import (
 )
 
 func TestPypiRegistryInterceptor_ShouldMITM(t *testing.T) {
-	interceptor := NewPypiRegistryInterceptor(nil, nil, nil, nil)
+	interceptor := NewPypiRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
 
 	tests := []struct {
 		name     string

@@ -20,6 +20,10 @@ type PackageInstallTarget struct {
 	// Example: "django[mysql,redis]" has Extras as ["mysql", "redis"]
 	// Currently only specific to Python packages
 	Extras []string
+
+	// IsExplicitVersion indicates the user provided an explicit version constraint
+	// (e.g. ==1.2.3) as opposed to the version being auto-resolved by the resolver.
+	IsExplicitVersion bool
 }
 
 func (pit *PackageInstallTarget) HasVersion() bool {
@@ -43,7 +47,7 @@ type ParsedCommand struct {
 
 	// IsKnownNonDownloadCommand is true for commands that are known to not download packages
 	// (e.g., npm ls, pip list, yarn why). Used by the proxy to decide whether to skip
-	// interception when proxy_install_only is enabled. Unknown commands default to false so
+	// interception when proxy.install_only is enabled. Unknown commands default to false so
 	// the proxy runs — fail safe when a new subcommand is added to a package manager.
 	IsKnownNonDownloadCommand bool
 }
@@ -73,10 +77,10 @@ func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
 	return pc.IsManifestInstall && !pc.HasInstallTarget()
 }
 
-// isFirstNonFlagArgInList checks if the first non-flag argument in args is in nonDownloadCmds.
+// IsFirstNonFlagArgInList checks if the first non-flag argument in args is in the given list.
 // Only the first non-flag arg (the subcommand) is checked to avoid false positives when package
-// names or script arguments happen to match a known non-download command.
-func isFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
+// names or script arguments happen to match a known command.
+func IsFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {
 			continue

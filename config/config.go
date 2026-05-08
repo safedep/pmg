@@ -53,6 +53,9 @@ type Config struct {
 	// Paranoid enables high-security defaults (e.g., treating suspicious behavior as malicious).
 	Paranoid bool `mapstructure:"paranoid"`
 
+	// DisableTelemetry allows turning off telemetry collection.
+	DisableTelemetry bool `mapstructure:"disable_telemetry"`
+
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 
@@ -62,17 +65,10 @@ type Config struct {
 	// EventLogRetentionDays is the number of days to retain event logs.
 	EventLogRetentionDays int `mapstructure:"event_log_retention_days"`
 
-	// ProxyMode enables proxy-based package interception when supported by package managers.
-	// When enabled, PMG starts a proxy server and intercepts package manager requests in real-time.
+	// Deprecated: Use Proxy.Enabled instead. Kept for backward compatibility with old config files.
 	ProxyMode bool `mapstructure:"proxy_mode"`
 
-	// ExperimentalProxyMode is same as ProxyMode. Kept here for backward compatibility because
-	// we initially introduced it as an experimental feature.
-	ExperimentalProxyMode bool `mapstructure:"experimental_proxy_mode"`
-
-	// ProxyInstallOnly restricts proxy interception to install commands only.
-	// When false (default), proxy runs for all package manager commands.
-	// When true, non-install commands (e.g., npm ls, pip list) bypass the proxy and execute directly.
+	// Deprecated: Use Proxy.InstallOnly instead. Kept for backward compatibility with old config files.
 	ProxyInstallOnly bool `mapstructure:"proxy_install_only"`
 
 	// Verbosity controls the UI verbosity level. Valid values: "silent", "normal", "verbose".
@@ -85,12 +81,20 @@ type Config struct {
 	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
 
 	Cloud CloudConfig `mapstructure:"cloud"`
+
+	Proxy ProxyConfig `mapstructure:"proxy"`
 }
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
 type CloudConfig struct {
 	Enabled    bool   `mapstructure:"enabled"`
 	EndpointID string `mapstructure:"endpoint_id"`
+}
+
+type ProxyConfig struct {
+	Enabled      bool                `mapstructure:"enabled"`
+	InstallOnly  bool                `mapstructure:"install_only"`
+	SkipCommands map[string][]string `mapstructure:"skip_commands"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -196,10 +200,8 @@ func (r *RuntimeConfig) ConfigDir() string {
 	return r.configDir
 }
 
-// IsProxyModeEnabled is a helper function to check for proxy mode with
-// support for backward compatibility
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
-	return (r.Config.ExperimentalProxyMode || r.Config.ProxyMode)
+	return r.Config.Proxy.Enabled
 }
 
 // SandboxAllowType represents the type of a sandbox allow override.
@@ -242,9 +244,9 @@ func DefaultConfig() RuntimeConfig {
 			TransitiveDepth:        5,
 			IncludeDevDependencies: false,
 			Paranoid:               false,
+			DisableTelemetry:       false,
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
-			ExperimentalProxyMode:  false,
 			TrustedPackages:        []TrustedPackage{},
 			ProxyMode:              true,
 			Verbosity:              VerbosityNormal,
@@ -258,6 +260,11 @@ func DefaultConfig() RuntimeConfig {
 			},
 			Cloud: CloudConfig{
 				Enabled: false,
+			},
+			Proxy: ProxyConfig{
+				Enabled:     true,
+				InstallOnly: false,
+				SkipCommands: map[string][]string{},
 			},
 		},
 		DryRun:               false,
@@ -375,11 +382,11 @@ func Get() *RuntimeConfig {
 	return globalConfig
 }
 
-func ConfigureSandbox(isInstallationCommand bool) {
+func ConfigureSandbox(mayDownloadPackages bool) {
 	if globalConfig.Config.Sandbox.Enabled {
 		// Apply sandbox to all commands if EnforceAlways=true, otherwise only to
-		// installation commands else disable the sandbox
-		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || isInstallationCommand
+		// commands that may download packages (install, update, etc.)
+		globalConfig.Config.Sandbox.Enabled = globalConfig.Config.Sandbox.EnforceAlways || mayDownloadPackages
 	}
 }
 

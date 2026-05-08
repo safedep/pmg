@@ -48,14 +48,24 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Configure sandbox based on command type and enforcement policy
-	config.ConfigureSandbox(parsedCmd.IsInstallationCommand())
+	config.ConfigureSandbox(parsedCmd.IsInstallationCommand() || parsedCmd.MayDownloadPackages())
 
 	cfg := config.Get()
 
-	// Skip proxy for commands that don't download packages when proxy_install_only is enabled
-	if cfg.Config.ProxyInstallOnly && !parsedCmd.MayDownloadPackages() {
-		log.Debugf("Skipping proxy for non-download command (proxy_install_only=true)")
-		return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+	// When install_only is enabled, skip proxy for known non-download commands
+	// and user-defined skip commands
+	if cfg.Config.Proxy.InstallOnly {
+		if !parsedCmd.MayDownloadPackages() {
+			log.Debugf("Skipping proxy for non-download command (install_only=true)")
+			return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+		}
+
+		if cmds, ok := cfg.Config.Proxy.SkipCommands[f.pm.Name()]; ok && len(cmds) > 0 {
+			if packagemanager.IsFirstNonFlagArgInList(parsedCmd.Command.Args, cmds) {
+				log.Debugf("Skipping proxy for user-defined skip command (install_only=true)")
+				return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+			}
+		}
 	}
 
 	// Initialize report data at the start
@@ -99,7 +109,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
-		log.Infof("Dry-run mode: Would execute %s with experimental proxy protection", f.pm.Name())
+		log.Infof("Dry-run mode: Would execute %s with proxy protection", f.pm.Name())
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
 		reportData.Outcome = ui.OutcomeDryRun
@@ -152,8 +162,19 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Block:       ui.BlockNoExit,
 	}
 
+	// Extract pinned versions from install targets so cooldown handlers can
+	// report when a user's explicitly requested version was blocked.
+	pinnedVersions := make(map[string]string)
+	for _, target := range parsedCmd.InstallTargets {
+		if target.IsExplicitVersion {
+			pinnedVersions[target.PackageVersion.GetPackage().GetName()] = target.PackageVersion.GetVersion()
+		}
+	}
+
 	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan)
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
+		PinnedVersions: pinnedVersions,
+	})
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
@@ -403,6 +424,12 @@ func (f *proxyFlow) executeWithProxy(
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
 
+	defer func() {
+		if err := result.Close(); err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
+
 	if !result.ShouldRun() {
 		return usefulerror.Useful().
 			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
@@ -549,3 +576,4 @@ func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
 		WithHelp("Check the package manager command and its arguments").
 		Wrap(err)
 }
+

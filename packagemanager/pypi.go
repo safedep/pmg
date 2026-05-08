@@ -62,10 +62,6 @@ func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
 		InstallCommands: []string{"add"},
 		NonDownloadCommands: []string{
-			// Script runners — "run" executes a command in the venv (e.g., `poetry run uvicorn app:app`).
-			// "shell" activates the venv shell. Both may start long-running processes and must not
-			// have proxy env vars set against them.
-			"run", "shell",
 			// Removal
 			"remove",
 			// Inspection / read-only
@@ -148,7 +144,7 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if installCmdIndex == -1 {
-		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, p.config.NonDownloadCommands)}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: IsFirstNonFlagArgInList(args, p.config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command
@@ -188,6 +184,8 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		isExplicit := version != ""
+
 		version, err = pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
@@ -201,7 +199,8 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras: extras,
+			Extras:            extras,
+			IsExplicitVersion: isExplicit,
 		})
 	}
 
@@ -304,6 +303,8 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		isExplicit := version != ""
+
 		version, err = pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
@@ -317,7 +318,8 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras: extras,
+			Extras:            extras,
+			IsExplicitVersion: isExplicit,
 		})
 	}
 
@@ -369,7 +371,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, p.config.NonDownloadCommands)}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: IsFirstNonFlagArgInList(args, p.config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command
@@ -400,6 +402,8 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
+		isExplicit := version != ""
+
 		version, err = pypiGetMatchingVersion(packageName, version)
 		if err != nil {
 			return nil, ErrFailedToResolveVersion.Wrap(err)
@@ -413,7 +417,8 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 				},
 				Version: version,
 			},
-			Extras: extras,
+			Extras:            extras,
+			IsExplicitVersion: isExplicit,
 		})
 	}
 

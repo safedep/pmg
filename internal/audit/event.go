@@ -8,19 +8,20 @@ import (
 
 // SessionData carries aggregate session statistics for session-complete events.
 type SessionData struct {
-	PackageManager    string
-	FlowType          FlowType
-	Outcome           Outcome
-	TotalAnalyzed     uint32
-	AllowedCount      uint32
-	BlockedCount      uint32
-	ConfirmedCount    uint32
-	TrustedSkipped    uint32
-	InsecureBypassed  uint32
-	Duration          time.Duration
-	SandboxEnabled    bool
-	ParanoidMode      bool
-	TransitiveEnabled bool
+	PackageManager       string
+	FlowType             FlowType
+	Outcome              Outcome
+	TotalAnalyzed        uint32
+	AllowedCount         uint32
+	BlockedCount         uint32
+	ConfirmedCount       uint32
+	TrustedSkipped       uint32
+	InsecureBypassed     uint32
+	CooldownBlockedCount uint32
+	Duration             time.Duration
+	SandboxEnabled       bool
+	ParanoidMode         bool
+	TransitiveEnabled    bool
 }
 
 // FlowType identifies how PMG intercepted the package installation.
@@ -54,6 +55,7 @@ const (
 	EventTypeDependencyResolved    EventType = "dependency_resolved"
 	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
 	EventTypeProxyHostObserved     EventType = "proxy_host_observed"
+	EventTypeDependencyCooldown    EventType = "dependency_cooldown"
 	EventTypeSandboxOverride       EventType = "sandbox_override"
 	EventTypeError                 EventType = "error"
 	EventTypeSessionComplete       EventType = "session_complete"
@@ -90,6 +92,12 @@ type AuditEvent struct {
 	Hostname string
 	Method   string
 	Reason   string
+
+	// Cooldown context
+	PublishDate  time.Time
+	CooldownDays int
+	DaysAgo      int
+	DaysLeft     int
 
 	// Error context
 	Error error

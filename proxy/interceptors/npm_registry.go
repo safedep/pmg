@@ -47,6 +47,7 @@ func NewNpmRegistryInterceptor(
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
+	execContext InterceptorContext,
 ) *NpmRegistryInterceptor {
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -55,6 +56,7 @@ func NewNpmRegistryInterceptor(
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-npm"),
+			execContext:      execContext,
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
 	}
@@ -111,7 +113,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 
 	if !pkgInfo.IsFileDownload() {
 		if depCooldownConfig.Enabled {
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days)
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())

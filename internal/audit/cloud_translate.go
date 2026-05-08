@@ -5,6 +5,7 @@ import (
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.PmgEvent {
@@ -18,6 +19,10 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 		// not a per-package event. It is emitted as part of EventTypeSessionComplete when
 		// the session's insecureBypassed counter is > 0.
 		return nil
+	case EventTypeDependencyCooldown:
+		return []*controltowerv1.PmgEvent{newCooldownBlockedEvent(event)}
+	case EventTypeProxyHostObserved:
+		return []*controltowerv1.PmgEvent{newHostObservationEvent(event)}
 	case EventTypeSandboxOverride:
 		return []*controltowerv1.PmgEvent{newSandboxOverrideEvent(event)}
 	case EventTypeError:
@@ -84,6 +89,37 @@ func newErrorEvent(event AuditEvent) *controltowerv1.PmgEvent {
 	return e
 }
 
+func newCooldownBlockedEvent(event AuditEvent) *controltowerv1.PmgEvent {
+	decision := &controltowerv1.PmgPackageDecision{}
+	decision.SetPackageVersion(event.PackageVersion)
+	decision.SetAction(controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_BLOCKED)
+
+	cooldown := &controltowerv1.PmgDependencyCooldown{}
+	if !event.PublishDate.IsZero() {
+		cooldown.SetPublishDate(timestamppb.New(event.PublishDate))
+	}
+	cooldown.SetCooldownDays(uint32(event.CooldownDays))
+	cooldown.SetDaysSincePublish(uint32(event.DaysAgo))
+	cooldown.SetDaysRemaining(uint32(event.DaysLeft))
+	decision.SetCooldown(cooldown)
+
+	e := &controltowerv1.PmgEvent{}
+	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION)
+	e.SetPackageDecision(decision)
+	return e
+}
+
+func newHostObservationEvent(event AuditEvent) *controltowerv1.PmgEvent {
+	obs := &controltowerv1.PmgHostObservation{}
+	obs.SetHostname(event.Hostname)
+	obs.SetMethod(event.Method)
+
+	e := &controltowerv1.PmgEvent{}
+	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION)
+	e.SetHostObservation(obs)
+	return e
+}
+
 func newSessionSummaryEvent(data *SessionData) *controltowerv1.PmgEvent {
 	summary := &controltowerv1.PmgSessionSummary{}
 	summary.SetPackageManager(mapPackageManager(data.PackageManager))
@@ -93,6 +129,7 @@ func newSessionSummaryEvent(data *SessionData) *controltowerv1.PmgEvent {
 	summary.SetBlockedCount(data.BlockedCount)
 	summary.SetConfirmedCount(data.ConfirmedCount)
 	summary.SetTrustedSkipped(data.TrustedSkipped)
+	summary.SetCooldownBlockedCount(data.CooldownBlockedCount)
 	summary.SetDuration(durationpb.New(data.Duration))
 	summary.SetSandboxEnabled(data.SandboxEnabled)
 	summary.SetParanoidMode(data.ParanoidMode)

@@ -3,14 +3,15 @@ module github.com/safedep/pmg
 go 1.25.1
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260409081445-73994c4e35a3.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260409081445-73994c4e35a3.1
+	buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260507092425-ac47f9a19339.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260507092425-ac47f9a19339.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0
 	github.com/google/osv-scalibr v0.2.1
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.6.7
+	github.com/landlock-lsm/go-landlock v0.7.0
 	github.com/posthog/posthog-go v1.5.12
 	github.com/safedep/dry v0.0.0-20260411074023-b589e91de472
 	github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12
@@ -20,8 +21,10 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.20.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.42.0
 	google.golang.org/grpc v1.80.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -80,12 +83,11 @@ require (
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
+	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

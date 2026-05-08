@@ -28,7 +28,7 @@ func TestConfigHasDefaultValues(t *testing.T) {
 		assert.Len(t, config.Config.TrustedPackages, 1)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist", config.configDir)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist/config.yml", config.configFilePath)
-		assert.Equal(t, false, config.Config.ProxyInstallOnly)
+		assert.Equal(t, false, config.Config.Proxy.InstallOnly)
 	})
 
 	t.Run("when no config directory is set", func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestPartialConfigFallsBackToDefaults(t *testing.T) {
 	// Missing keys should fall back to DefaultConfig() values, not Go zero values
 	defaults := DefaultConfig().Config
 	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
-	assert.Equal(t, defaults.ProxyMode, config.Config.ProxyMode)
+	assert.Equal(t, defaults.Proxy.Enabled, config.Config.Proxy.Enabled)
 	assert.Equal(t, defaults.Verbosity, config.Config.Verbosity)
 	assert.Equal(t, defaults.EventLogRetentionDays, config.Config.EventLogRetentionDays)
 	assert.Equal(t, defaults.DependencyCooldown.Enabled, config.Config.DependencyCooldown.Enabled)
@@ -102,14 +102,14 @@ func TestPartialConfigWithNestedOverride(t *testing.T) {
 	// Top-level fields should fall back to defaults
 	assert.Equal(t, defaults.Transitive, config.Config.Transitive)
 	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
-	assert.Equal(t, defaults.ProxyMode, config.Config.ProxyMode)
+	assert.Equal(t, defaults.Proxy.Enabled, config.Config.Proxy.Enabled)
 }
 
 func TestProxyInstallOnlyConfig(t *testing.T) {
 	t.Run("defaults to false", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
 		initConfig()
-		assert.Equal(t, false, Get().Config.ProxyInstallOnly)
+		assert.Equal(t, false, Get().Config.Proxy.InstallOnly)
 	})
 
 	t.Run("can be set to true via config file", func(t *testing.T) {
@@ -117,18 +117,18 @@ func TestProxyInstallOnlyConfig(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
 
 		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		err := os.WriteFile(configPath, []byte("proxy:\n  install_only: true\n"), 0o644)
 		require.NoError(t, err)
 
 		initConfig()
-		assert.Equal(t, true, Get().Config.ProxyInstallOnly)
+		assert.Equal(t, true, Get().Config.Proxy.InstallOnly)
 	})
 }
 
 // TestConfigPrecedence verifies the expected override order:
 // flags > env var > config file > default
 func TestConfigPrecedence(t *testing.T) {
-	t.Run("env var overrides config file", func(t *testing.T) {
+	t.Run("env var sets legacy flat field", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
 		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
@@ -138,7 +138,8 @@ func TestConfigPrecedence(t *testing.T) {
 		require.NoError(t, err)
 
 		initConfig()
-		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should override config file")
+		// PMG_PROXY_INSTALL_ONLY maps to the flat proxy_install_only key, not nested proxy.install_only
+		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should set legacy flat field")
 	})
 
 	t.Run("config file overrides default", func(t *testing.T) {
@@ -147,34 +148,32 @@ func TestConfigPrecedence(t *testing.T) {
 		t.Setenv("PMG_PROXY_INSTALL_ONLY", "")
 
 		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("proxy_install_only: true\n"), 0o644)
+		err := os.WriteFile(configPath, []byte("proxy:\n  install_only: true\n"), 0o644)
 		require.NoError(t, err)
 
 		initConfig()
-		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "config file should override default")
+		assert.Equal(t, true, Get().Config.Proxy.InstallOnly, "config file should override default")
 	})
 
-	t.Run("env var works when key is absent from config file", func(t *testing.T) {
+	t.Run("telemetry can be disabled via config", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
-		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
+		t.Setenv("PMG_DISABLE_TELEMETRY", "")
 
-		// Config file exists but proxy_install_only is not in it (e.g. commented out
-		// or user hasn't re-run "pmg setup install" after an upgrade)
 		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("transitive: false\n"), 0o644)
+		err := os.WriteFile(configPath, []byte("disable_telemetry: true\n"), 0o644)
 		require.NoError(t, err)
 
 		initConfig()
-		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should work even when key is absent from config file")
+		assert.Equal(t, true, Get().Config.DisableTelemetry, "config file should disable telemetry")
 	})
 
 	t.Run("env var works without a config file", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
-		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
+		t.Setenv("PMG_PARANOID", "true")
 
 		initConfig()
-		assert.Equal(t, true, Get().Config.ProxyInstallOnly, "env var should work even without a config file")
+		assert.Equal(t, true, Get().Config.Paranoid, "env var should work even without a config file")
 	})
 
 	t.Run("default is used when neither env var nor config file sets the key", func(t *testing.T) {
@@ -187,7 +186,8 @@ func TestConfigPrecedence(t *testing.T) {
 		require.NoError(t, err)
 
 		initConfig()
-		assert.Equal(t, false, Get().Config.ProxyInstallOnly, "should use default when key absent from config and env")
+		assert.Equal(t, false, Get().Config.Proxy.InstallOnly, "should use default when key absent from config and env")
+		assert.Equal(t, false, Get().Config.ProxyInstallOnly, "legacy flat field should also default to false")
 	})
 
 	t.Run("cobra flag overrides env var", func(t *testing.T) {
@@ -206,6 +206,64 @@ func TestConfigPrecedence(t *testing.T) {
 
 		assert.Equal(t, false, Get().Config.Paranoid, "cobra flag should override env var")
 	})
+}
+
+func TestConfigureSandbox(t *testing.T) {
+	tests := []struct {
+		name                 string
+		sandboxEnabled       bool
+		enforceAlways        bool
+		mayDownloadPackages  bool
+		expectedSandboxState bool
+	}{
+		{
+			name:                 "sandbox disabled stays disabled regardless of command",
+			sandboxEnabled:       false,
+			mayDownloadPackages:  true,
+			expectedSandboxState: false,
+		},
+		{
+			name:                 "sandbox enabled with download command stays enabled",
+			sandboxEnabled:       true,
+			mayDownloadPackages:  true,
+			expectedSandboxState: true,
+		},
+		{
+			name:                 "sandbox enabled with non-download command gets disabled",
+			sandboxEnabled:       true,
+			mayDownloadPackages:  false,
+			expectedSandboxState: false,
+		},
+		{
+			name:                 "enforce_always keeps sandbox enabled for non-download command",
+			sandboxEnabled:       true,
+			enforceAlways:        true,
+			mayDownloadPackages:  false,
+			expectedSandboxState: true,
+		},
+		{
+			name:                 "enforce_always with download command stays enabled",
+			sandboxEnabled:       true,
+			enforceAlways:        true,
+			mayDownloadPackages:  true,
+			expectedSandboxState: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+			initConfig()
+
+			cfg := Get()
+			cfg.Config.Sandbox.Enabled = tc.sandboxEnabled
+			cfg.Config.Sandbox.EnforceAlways = tc.enforceAlways
+
+			ConfigureSandbox(tc.mayDownloadPackages)
+
+			assert.Equal(t, tc.expectedSandboxState, cfg.Config.Sandbox.Enabled)
+		})
+	}
 }
 
 func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {
@@ -237,7 +295,7 @@ func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {
 	assert.Contains(t, raw, "transitive_depth: 10")
 
 	// New keys from template added
-	assert.Contains(t, raw, "proxy_mode:")
+	assert.Contains(t, raw, "proxy:")
 	assert.Contains(t, raw, "sandbox:")
 	assert.Contains(t, raw, "verbosity:")
 }
@@ -257,4 +315,89 @@ func TestWriteTemplateConfigCreatesNewFile(t *testing.T) {
 
 	// Should be the full template
 	assert.Equal(t, templateConfig, string(result))
+}
+
+func TestProxyConfigSection(t *testing.T) {
+	t.Run("defaults to enabled with install_only false", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+		initConfig()
+
+		cfg := Get()
+		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
+		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly)
+		assert.NotNil(t, cfg.Config.Proxy.SkipCommands)
+	})
+
+	t.Run("reads proxy section from config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configYAML := `proxy:
+  enabled: true
+  install_only: true
+  skip_commands:
+    npm: ["my-script", "dev"]
+`
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		cfg := Get()
+
+		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
+		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
+		assert.Equal(t, []string{"my-script", "dev"}, cfg.Config.Proxy.SkipCommands["npm"])
+	})
+
+	t.Run("falls back to legacy keys from config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configYAML := `proxy_mode: false
+proxy_install_only: true
+`
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		cfg := Get()
+
+		assert.Equal(t, false, cfg.Config.Proxy.Enabled)
+		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
+	})
+
+	t.Run("falls back to legacy keys from env vars", func(t *testing.T) {
+		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
+		t.Setenv("PMG_PROXY_MODE", "false")
+		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
+
+		initConfig()
+		cfg := Get()
+
+		assert.Equal(t, false, cfg.Config.Proxy.Enabled, "PMG_PROXY_MODE=false should set Proxy.Enabled=false")
+		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly, "PMG_PROXY_INSTALL_ONLY=true should set Proxy.InstallOnly=true")
+	})
+
+	t.Run("new proxy section takes precedence over old keys", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+		configYAML := `proxy_mode: false
+proxy_install_only: true
+proxy:
+  enabled: true
+  install_only: false
+`
+		configPath := filepath.Join(tmpDir, "config.yml")
+		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
+		require.NoError(t, err)
+
+		initConfig()
+		cfg := Get()
+
+		assert.Equal(t, true, cfg.Config.Proxy.Enabled, "new proxy.enabled should win over old proxy_mode")
+		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly, "new proxy.install_only should win over old proxy_install_only")
+	})
 }

@@ -357,7 +357,7 @@ func TestPyPICooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	ctx.Headers.Set("If-None-Match", `"abc123"`)
 	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/vnd.pypi.simple.v1+json", ctx.Headers.Get("Accept"))
@@ -370,7 +370,7 @@ func TestPyPICooldown_HandleMetadataRequest_NonJSONResponse_FailOpen(t *testing.
 	handler := newPypiCooldownHandler(nil)
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -396,7 +396,7 @@ func TestPyPICooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
 	handler := newPypiCooldownHandler(NewAnalysisStatsCollector())
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -433,7 +433,7 @@ func TestPyPICooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t
 	handler := newPypiCooldownHandler(collector)
 	ctx := makeTestRequestContext("https://pypi.org/simple/newpkg/")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5)
+	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -466,7 +466,7 @@ func TestPyPICooldown_HandleMetadataRequest_NoVersionsInCooldown_BodyUnchanged(t
 	handler := newPypiCooldownHandler(nil)
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -482,7 +482,7 @@ func TestPyPICooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T)
 	handler := newPypiCooldownHandler(nil)
 	ctx := makeTestRequestContext("https://pypi.org/simple/badpkg/")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5)
+	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -495,10 +495,98 @@ func TestPyPICooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T)
 	assert.Equal(t, body, retBody)
 }
 
+func TestPyPICooldown_HandleMetadataRequest_PinnedVersionInCooldown_RecordsStats(t *testing.T) {
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * day),
+		"2.0.0": now.Add(-1 * day),
+	}
+	body := buildTestPEP691Response(versions)
+
+	collector := NewAnalysisStatsCollector()
+	handler := newPypiCooldownHandler(collector)
+	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/vnd.pypi.simple.v1+json")
+
+	_, _, _, err = resp.ResponseModifier(200, headers, body)
+	require.NoError(t, err)
+
+	blocks := collector.GetCooldownBlocks()
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "testpkg", blocks[0].Name)
+	assert.Equal(t, "2.0.0", blocks[0].Version)
+	assert.Equal(t, 5, blocks[0].CooldownDays)
+
+	stats := collector.GetStats()
+	assert.Equal(t, 1, stats.CooldownBlockedCount)
+	assert.Equal(t, 1, stats.BlockedCount)
+}
+
+func TestPyPICooldown_HandleMetadataRequest_PinnedVersionNotInCooldown_NoBlock(t *testing.T) {
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * day),
+		"2.0.0": now.Add(-1 * day),
+	}
+	body := buildTestPEP691Response(versions)
+
+	collector := NewAnalysisStatsCollector()
+	handler := newPypiCooldownHandler(collector)
+	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/vnd.pypi.simple.v1+json")
+
+	_, _, _, err = resp.ResponseModifier(200, headers, body)
+	require.NoError(t, err)
+
+	blocks := collector.GetCooldownBlocks()
+	assert.Empty(t, blocks)
+}
+
+func TestPyPICooldown_HandleMetadataRequest_UnpinnedWithRemainingVersions_NoBlock(t *testing.T) {
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * day),
+		"2.0.0": now.Add(-1 * day),
+	}
+	body := buildTestPEP691Response(versions)
+
+	collector := NewAnalysisStatsCollector()
+	handler := newPypiCooldownHandler(collector)
+	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/vnd.pypi.simple.v1+json")
+
+	_, _, _, err = resp.ResponseModifier(200, headers, body)
+	require.NoError(t, err)
+
+	blocks := collector.GetCooldownBlocks()
+	assert.Empty(t, blocks)
+}
+
 func TestPyPICooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
 
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Hostname = "pypi.org"
@@ -513,7 +601,7 @@ func TestPyPICooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
 func TestPyPICooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false, Days: 5})
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
 
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Hostname = "pypi.org"
@@ -528,7 +616,7 @@ func TestPyPICooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 func TestPyPICooldown_JSONAPIRequest_NotIntercepted(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
 
 	ctx := makeTestRequestContext("https://pypi.org/pypi/requests/json")
 	ctx.Hostname = "pypi.org"
@@ -547,7 +635,7 @@ func TestPyPICooldown_FileDownloadBypassesCooldown(t *testing.T) {
 	config.Get().InsecureInstallation = true
 	t.Cleanup(func() { config.Get().InsecureInstallation = origInsecure })
 
-	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1))
+	interceptor := NewPypiRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
 
 	ctx := makeTestRequestContext("https://files.pythonhosted.org/packages/ab/cd/ef/requests-2.31.0-py3-none-any.whl")
 	ctx.Hostname = "files.pythonhosted.org"

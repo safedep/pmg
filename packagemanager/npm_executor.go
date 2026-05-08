@@ -106,6 +106,7 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		}
 
 		installTarget := &PackageInstallTarget{
+			IsExplicitVersion: version != "",
 			PackageVersion: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
 					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,

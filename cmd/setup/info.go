@@ -6,8 +6,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/safedep/dry/cloud"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
@@ -38,6 +41,7 @@ func executeSetupInfo() error {
 	configEntries := make(map[string]string)
 	configEntries["Config File"] = cfg.ConfigFilePath()
 	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.IsProxyModeEnabled())
+	configEntries["Proxy Install Only"] = strconv.FormatBool(cfg.Config.Proxy.InstallOnly)
 	ui.PrintInfoSection("Configuration", configEntries)
 
 	// Shell Integration section
@@ -89,6 +93,7 @@ func executeSetupInfo() error {
 
 	securityEntries["Dependency Cooldown"] = strconv.FormatBool(cfg.Config.DependencyCooldown.Enabled)
 	securityEntries["Dependency Cooldown Days"] = strconv.Itoa(cfg.Config.DependencyCooldown.Days)
+	securityEntries["Telemetry"] = strconv.FormatBool(!analytics.IsDisabled())
 	securityEntries["Event Logging"] = strconv.FormatBool(!cfg.Config.SkipEventLogging)
 	securityEntries["Event Log Directory"] = cfg.EventLogDir()
 
@@ -133,8 +138,54 @@ func executeSetupInfo() error {
 		if cfg.Config.Cloud.EndpointID != "" {
 			cloudEntries["Endpoint ID"] = cfg.Config.Cloud.EndpointID
 		}
+		cloudEntries["Credentials"] = describeCloudCredentials()
 		ui.PrintInfoSection("Cloud Sync", cloudEntries)
 	}
 
 	return nil
+}
+
+// describeCloudCredentials reports whether SafeDep Cloud credentials can be
+// resolved, and from where. The resolution order matches NewSyncClientBundle:
+// keychain first, then environment variables. No network calls are made.
+func describeCloudCredentials() string {
+	if source, ok := tryResolveKeychainCredentials(); ok {
+		return source
+	}
+	if source, ok := tryResolveEnvCredentials(); ok {
+		return source
+	}
+	return "not configured (run 'pmg cloud login' or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID)"
+}
+
+func tryResolveKeychainCredentials() (string, bool) {
+	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey)
+	if err != nil {
+		log.Debugf("keychain credential resolver unavailable: %v", err)
+		return "", false
+	}
+	defer func() {
+		if err := resolver.Close(); err != nil {
+			log.Warnf("failed to close keychain resolver: %v", err)
+		}
+	}()
+
+	if _, err := resolver.Resolve(); err != nil {
+		log.Debugf("no keychain credentials: %v", err)
+		return "", false
+	}
+	return "keychain", true
+}
+
+func tryResolveEnvCredentials() (string, bool) {
+	resolver, err := cloud.NewEnvCredentialResolver()
+	if err != nil {
+		log.Debugf("env credential resolver unavailable: %v", err)
+		return "", false
+	}
+	if _, err := resolver.Resolve(); err != nil {
+		log.Debugf("no env credentials: %v", err)
+		return "", false
+	}
+	return "environment (SAFEDEP_API_KEY, SAFEDEP_TENANT_ID)", true
 }

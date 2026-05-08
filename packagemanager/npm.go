@@ -21,16 +21,7 @@ func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 		InstallCommands: []string{"install", "i", "add"},
 		// Commands that are known to never download packages from a registry.
 		// Anything not in this list (including unknown future commands) runs with the proxy.
-		//
-		// Script runners: "run", "start", "stop", "restart", "test"/"t" are all shorthand for
-		// "npm run <script>". They spin up local processes (dev servers, test runners) that make
-		// their own HTTP calls — setting proxy env vars breaks them without providing any security
-		// benefit since they don't contact the package registry themselves.
-		//
-		// "exec" is intentionally excluded — it downloads and runs a package (npx equivalent).
 		NonDownloadCommands: []string{
-			// Script runners — may start servers or long-running processes
-			"run", "start", "stop", "restart", "test", "t",
 			// Removal — uninstalls local packages, no registry download
 			"uninstall", "remove", "rm", "r", "un", "unlink",
 			// Local operations — no registry contact
@@ -47,7 +38,6 @@ func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
 		NonDownloadCommands: []string{
-			"run", "start", "stop", "restart", "test",
 			"remove", "rm", "uninstall", "un",
 			"prune", "link", "unlink",
 			"ls", "list", "outdated", "info", "view", "config", "why",
@@ -60,8 +50,6 @@ func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "i", "add"},
 		NonDownloadCommands: []string{
-			// Script runners and local operations
-			"run", "test", "build",
 			// Removal
 			"remove", "rm",
 		},
@@ -73,7 +61,6 @@ func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
 		InstallCommands: []string{"install", "add", ""},
 		NonDownloadCommands: []string{
-			"run", "start", "stop", "restart", "test",
 			"remove", "unlink",
 			"ls", "list", "outdated", "info", "config", "why",
 		},
@@ -134,7 +121,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	if installCmdIndex == -1 {
-		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, npm.Config.NonDownloadCommands)}, nil
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: IsFirstNonFlagArgInList(args, npm.Config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command
@@ -203,6 +190,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}
 
 		installTargets = append(installTargets, &PackageInstallTarget{
+			IsExplicitVersion: version != "",
 			PackageVersion: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
 					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,

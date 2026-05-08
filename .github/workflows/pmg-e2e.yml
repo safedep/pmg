@@ -31,21 +31,21 @@ jobs:
         shell: bash
     steps:
       - name: Checkout Source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Setup Go
-        uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
           check-latest: true
 
       - name: Setup PNPM
-        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
         with:
           version: 10
 
@@ -55,7 +55,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.11"
 
@@ -503,21 +503,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Setup Go
-        uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
           check-latest: true
 
       - name: Setup PNPM
-        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
         with:
           version: 10
 
@@ -539,6 +539,7 @@ jobs:
           touch ~/.gcloud/credentials.json
           touch ~/.kube/config
           touch ~/.ssh/id_rsa
+          touch ./.env
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
@@ -553,23 +554,25 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      PMG_SANDBOX_DRIVER: bubblewrap
     steps:
       - name: Checkout Source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Setup Go
-        uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
           check-latest: true
 
       - name: Setup PNPM
-        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
         with:
           version: 10
 
@@ -599,12 +602,92 @@ jobs:
           touch ~/.ssh/id_rsa
           touch ~/.gnupg/pubring.kbx
           touch ~/.docker/config.json
+          touch ./.env
 
       - name: Disable AppArmor for Bubblewrap
         run: |
           sudo systemctl stop apparmor
           sudo systemctl disable apparmor
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Run Sandbox E2E Test
+        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+
+      - name: Run Package Manager E2E Test
+        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/pm-e2e.js
+
+  sandbox-e2e-linux-landlock:
+    name: Sandbox E2E - Linux (Landlock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      PMG_SANDBOX_DRIVER: landlock
+      PMG_LANDLOCK_E2E: "1"
+      # Redirect npm's cache into /tmp so it sits outside any pre-existing
+      # state in /home/runner/.npm (which setup-node / the runner image may
+      # have populated with state the sandbox policy doesn't account for).
+      # The npm-restrictive profile already grants /tmp/** read+write.
+      npm_config_cache: /tmp/npm-cache
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 20
+          check-latest: true
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: 10
+
+      - name: Build PMG
+        run: make
+
+      - name: Add pmg to PATH
+        run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+
+      - name: Setup PMG
+        run: pmg setup install
+
+      - name: Create Test Directories for Sandbox Permissions Tests
+        run: mkdir -p ~/.aws ~/.gcloud ~/.kube ~/.ssh ~/.gnupg ~/.docker
+
+      - name: Create Test Files for Sandbox Permissions Tests
+        run: |
+          touch ~/.aws/credentials
+          touch ~/.gcloud/credentials.json
+          touch ~/.kube/config
+          touch ~/.ssh/id_rsa
+          touch ~/.gnupg/pubring.kbx
+          touch ~/.docker/config.json
+          touch ./.env
+
+      - name: Disable AppArmor for User Namespaces
+        run: |
+          sudo systemctl stop apparmor
+          sudo systemctl disable apparmor
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Verify Landlock Available
+        run: |
+          if [ ! -d /sys/kernel/security/landlock ] && ! grep -q landlock /proc/kallsyms 2>/dev/null; then
+            echo "Landlock not detected by sysfs probe (continuing — driver will fail loudly if unavailable)"
+          fi
+          uname -a
+
+      - name: Run Landlock Helper E2E Tests (Go)
+        run: go test -count=1 -v -run TestLandlockHelper ./sandbox/platform/...
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
