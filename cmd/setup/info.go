@@ -152,6 +152,11 @@ func resolveSandboxDriverName() string {
 	if err != nil {
 		return "unavailable"
 	}
+
+	if !sb.IsAvailable() {
+		return "unavailable"
+	}
+
 	return sb.Name()
 }
 
