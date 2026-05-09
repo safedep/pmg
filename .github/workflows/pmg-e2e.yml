@@ -78,9 +78,11 @@ jobs:
         run: |
           test -f $HOME/.config/safedep/pmg/config.yml
 
-      - name: Test pmg.rc File is Created
+      - name: Test PMG Shims are Installed
         run: |
-          test -f $HOME/.pmg.rc
+          test -d $HOME/.pmg/bin
+          test -x $HOME/.pmg/bin/npm
+          test -x $HOME/.pmg/bin/pip
 
       - name: Test NPM - Single Package & Manifest
         run: |
