@@ -61,6 +61,10 @@ func installWithShims() error {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
+	if err := migrateAliasesToShims(); err != nil {
+		return fmt.Errorf("failed to migrate aliases: %w", err)
+	}
+
 	mgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
 
 	if err := mgr.Install(); err != nil {
@@ -72,6 +76,32 @@ func installWithShims() error {
 	}
 
 	ui.PrintSetupShimInstallCmdInfo(mgr.GetBinDir(), config.Get().ConfigDir())
+	return nil
+}
+
+func migrateAliasesToShims() error {
+	aliasCfg := alias.DefaultConfig()
+	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+	if err != nil {
+		return err
+	}
+
+	aliasManager := alias.New(aliasCfg, rcFileManager)
+	installed, err := aliasManager.IsInstalled()
+	if err != nil {
+		return fmt.Errorf("failed to check alias state: %w", err)
+	}
+
+	if !installed {
+		return nil
+	}
+
+	fmt.Printf("%s Migrating from shell aliases to PATH shims...\n", ui.Colors.Yellow("→"))
+	if err := aliasManager.Remove(); err != nil {
+		return fmt.Errorf("failed to remove aliases: %w", err)
+	}
+	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "Old aliases removed")
+
 	return nil
 }
 
