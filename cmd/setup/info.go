@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
+	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/spf13/cobra"
 )
 
@@ -104,6 +105,7 @@ func executeSetupInfo() error {
 	sandboxEntries := make(map[string]string)
 	sandboxEntries["Enabled"] = strconv.FormatBool(sandboxCfg.Enabled)
 	sandboxEntries["Enforce Always"] = strconv.FormatBool(sandboxCfg.EnforceAlways)
+	sandboxEntries["Driver"] = resolveSandboxDriverName()
 
 	if len(sandboxCfg.Policies) > 0 {
 		pmNames := make([]string, 0, len(sandboxCfg.Policies))
@@ -143,6 +145,19 @@ func executeSetupInfo() error {
 	}
 
 	return nil
+}
+
+func resolveSandboxDriverName() string {
+	sb, err := platform.NewSandbox()
+	if err != nil {
+		return "unavailable"
+	}
+
+	if !sb.IsAvailable() {
+		return "unavailable"
+	}
+
+	return sb.Name()
 }
 
 // describeCloudCredentials reports whether SafeDep Cloud credentials can be
