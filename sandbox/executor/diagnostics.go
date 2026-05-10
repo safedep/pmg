@@ -94,13 +94,15 @@ func suggestSandboxOverride(v sandbox.Violation) string {
 		return ""
 	}
 
+	quotedTarget := shellQuote(v.Target)
+
 	switch v.Kind {
 	case sandbox.ViolationKindFSRead:
-		return fmt.Sprintf("--sandbox-allow read=%s", v.Target)
+		return fmt.Sprintf("--sandbox-allow read=%s", quotedTarget)
 	case sandbox.ViolationKindFSWrite, sandbox.ViolationKindFSDeleteOrRename:
-		return fmt.Sprintf("--sandbox-allow write=%s", v.Target)
+		return fmt.Sprintf("--sandbox-allow write=%s", quotedTarget)
 	case sandbox.ViolationKindExec:
-		return fmt.Sprintf("--sandbox-allow exec=%s", v.Target)
+		return fmt.Sprintf("--sandbox-allow exec=%s", quotedTarget)
 	default:
 		return ""
 	}
@@ -111,7 +113,21 @@ func isSafeSandboxOverrideTarget(value string) bool {
 		return false
 	}
 
-	return !strings.ContainsAny(value, "*?[]")
+	if strings.ContainsAny(value, "*?[]") {
+		return false
+	}
+
+	for _, r := range value {
+		if r == 0 || r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+
+	return true
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func emptyFallback(value, fallback string) string {

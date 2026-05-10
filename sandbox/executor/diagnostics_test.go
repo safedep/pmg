@@ -17,9 +17,23 @@ func TestSuggestSandboxOverrideSkipsGlobRuleTarget(t *testing.T) {
 }
 
 func TestSuggestSandboxOverrideUsesConcretePath(t *testing.T) {
-	assert.Equal(t, "--sandbox-allow read=./.env", suggestSandboxOverride(sandbox.Violation{
+	assert.Equal(t, "--sandbox-allow read='./.env'", suggestSandboxOverride(sandbox.Violation{
 		Kind:   sandbox.ViolationKindFSRead,
 		Target: "./.env",
+	}))
+}
+
+func TestSuggestSandboxOverrideQuotesSpacesAndSingleQuotes(t *testing.T) {
+	assert.Equal(t, "--sandbox-allow read='/tmp/My Dir/it'\\''s.env'", suggestSandboxOverride(sandbox.Violation{
+		Kind:   sandbox.ViolationKindFSRead,
+		Target: "/tmp/My Dir/it's.env",
+	}))
+}
+
+func TestSuggestSandboxOverrideSkipsControlCharacters(t *testing.T) {
+	assert.Empty(t, suggestSandboxOverride(sandbox.Violation{
+		Kind:   sandbox.ViolationKindFSRead,
+		Target: "/tmp/bad\npath",
 	}))
 }
 
