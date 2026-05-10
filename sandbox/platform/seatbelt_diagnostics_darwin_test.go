@@ -6,6 +6,7 @@ package platform
 import (
 	"testing"
 
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +20,16 @@ func TestParseSeatbeltLogPayload(t *testing.T) {
 	assert.Equal(t, "run-1", payload.RunID)
 	assert.Equal(t, "file-write", payload.Kind)
 	assert.Equal(t, "/Users/dev/project/.env", payload.Target)
+}
+
+func TestParseSeatbeltLogPayloadEmptyTarget(t *testing.T) {
+	msg := `Sandbox: node(123) deny(1) default ` + seatbeltLogMessage("run-1", "default", "")
+
+	payload, ok := parseSeatbeltLogPayload(msg)
+	require.True(t, ok)
+	assert.Equal(t, "run-1", payload.RunID)
+	assert.Equal(t, "default", payload.Kind)
+	assert.Empty(t, payload.Target)
 }
 
 func TestExtractSeatbeltDeniedPath(t *testing.T) {
@@ -59,7 +70,8 @@ func TestExtractSeatbeltViolations(t *testing.T) {
 
 	violations := extractSeatbeltViolations(entries, "run-1")
 	require.Len(t, violations, 1)
-	assert.Equal(t, "file-read", violations[0].Kind)
+	assert.Equal(t, sandbox.ViolationKindFSRead, violations[0].Kind)
+	assert.Equal(t, "file-read", violations[0].RawKind)
 	assert.Equal(t, "/tmp/.env", violations[0].Target)
 	assert.Equal(t, "/tmp/.env", violations[0].RuleTarget)
 	assert.Equal(t, "node", violations[0].Process)

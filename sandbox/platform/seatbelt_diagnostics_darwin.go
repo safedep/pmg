@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -21,10 +22,12 @@ import (
 )
 
 const seatbeltLogWindowPadding = 2 * time.Second
-const seatbeltMaxQueryWait = 1500 * time.Millisecond
-const seatbeltQueryInterval = 150 * time.Millisecond
+const seatbeltMaxQueryWait = 6 * time.Second
+const seatbeltQueryInterval = 250 * time.Millisecond
+const seatbeltLogCommandTimeout = 5 * time.Second
+const macOSUnifiedLogPath = "/usr/bin/log"
 
-var seatbeltMessagePattern = regexp.MustCompile(`PMG_SBX\|run=([^|]+)\|kind=([^|]+)\|target=([^"\s]+)`)
+var seatbeltMessagePattern = regexp.MustCompile(`PMG_SBX\|run=([^|]+)\|kind=([^|]+)\|target=([^"\s]*)`)
 
 type seatbeltLogEntry struct {
 	EventMessage     string `json:"eventMessage"`
@@ -114,7 +117,8 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 		}
 
 		violations = append(violations, sandbox.Violation{
-			Kind:       payload.Kind,
+			Kind:       normalizeSeatbeltViolationKind(payload.Kind),
+			RawKind:    payload.Kind,
 			Target:     target,
 			RuleTarget: payload.Target,
 			Process:    process,
@@ -124,6 +128,21 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 	}
 
 	return violations
+}
+
+func normalizeSeatbeltViolationKind(kind string) sandbox.ViolationKind {
+	switch kind {
+	case "file-read":
+		return sandbox.ViolationKindFSRead
+	case "file-write":
+		return sandbox.ViolationKindFSWrite
+	case "file-write-unlink":
+		return sandbox.ViolationKindFSDeleteOrRename
+	case "process-exec":
+		return sandbox.ViolationKindExec
+	default:
+		return sandbox.ViolationKindGenericDeny
+	}
 }
 
 func extractSeatbeltDeniedPath(raw string, payload *seatbeltLogPayload) string {
@@ -158,8 +177,12 @@ func extractSeatbeltDeniedPath(raw string, payload *seatbeltLogPayload) string {
 }
 
 func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, error) {
-	if _, err := exec.LookPath("log"); err != nil {
+	info, err := os.Stat(macOSUnifiedLogPath)
+	if err != nil {
 		return nil, fmt.Errorf("macOS unified log CLI not available: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("macOS unified log CLI not available: %s is a directory", macOSUnifiedLogPath)
 	}
 
 	predicate := fmt.Sprintf(`eventMessage CONTAINS "PMG_SBX|run=%s|"`, s.logTag)
@@ -171,7 +194,10 @@ func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, e
 		"--predicate", predicate,
 	}
 
-	cmd := exec.CommandContext(context.Background(), "/usr/bin/log", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), seatbeltLogCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, macOSUnifiedLogPath, args...)
 
 	output, err := cmd.Output()
 	if err != nil {

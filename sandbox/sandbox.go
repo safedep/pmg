@@ -5,6 +5,19 @@ import (
 	"os/exec"
 )
 
+// ViolationKind is PMG's normalized taxonomy for sandbox denials.
+type ViolationKind string
+
+const (
+	ViolationKindFSRead           ViolationKind = "fs_read"
+	ViolationKindFSWrite          ViolationKind = "fs_write"
+	ViolationKindFSDeleteOrRename ViolationKind = "fs_delete_or_rename"
+	ViolationKindExec             ViolationKind = "exec"
+	ViolationKindNetworkConnect   ViolationKind = "network_connect"
+	ViolationKindNetworkBind      ViolationKind = "network_bind"
+	ViolationKindGenericDeny      ViolationKind = "generic_deny"
+)
+
 // ViolationReport is a best-effort sandbox violation summary collected from a
 // sandbox implementation after command execution fails.
 type ViolationReport struct {
@@ -16,7 +29,8 @@ type ViolationReport struct {
 
 // Violation captures one sandbox denial event.
 type Violation struct {
-	Kind       string
+	Kind       ViolationKind
+	RawKind    string
 	Target     string
 	RuleTarget string
 	Process    string
