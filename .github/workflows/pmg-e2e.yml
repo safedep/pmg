@@ -78,11 +78,13 @@ jobs:
         run: |
           test -f $HOME/.config/safedep/pmg/config.yml
 
-      - name: Test PMG Shims are Installed
+      - name: Test PMG Aliases and Shims are Installed
         run: |
+          test -f $HOME/.pmg.rc
           test -d $HOME/.pmg/bin
-          test -x $HOME/.pmg/bin/npm
-          test -x $HOME/.pmg/bin/pip
+          for shim in npm pip pip3 pnpm bun uv yarn poetry npx pnpx; do
+            test -x $HOME/.pmg/bin/$shim || { echo "Missing shim: $shim"; exit 1; }
+          done
 
       - name: Test NPM - Single Package & Manifest
         run: |

@@ -10,7 +10,6 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/alias"
-	"github.com/safedep/pmg/internal/ui"
 )
 
 const shimMarker = "PMG shims"
@@ -67,7 +66,6 @@ func (m *ShimManager) Remove() error {
 		return fmt.Errorf("failed to clean shell configs: %w", err)
 	}
 
-	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG shims removed. Restart your terminal for changes to take effect")
 	return nil
 }
 

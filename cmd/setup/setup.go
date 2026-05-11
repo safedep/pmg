@@ -14,7 +14,6 @@ import (
 
 var (
 	setupRemoveConfigFile = false
-	setupUseAliases       = false
 )
 
 func NewSetupCommand() *cobra.Command {
@@ -36,76 +35,23 @@ func NewSetupCommand() *cobra.Command {
 }
 
 func NewInstallCommand() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:          "install",
-		Short:        "Setup PMG config and shims for package managers (npm, pnpm, pip, and more)",
+		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-
-			if setupUseAliases {
-				return installWithAliases()
-			}
-
-			return installWithShims()
+			return install()
 		},
 	}
-
-	cmd.Flags().BoolVar(&setupUseAliases, "use-aliases", false, "Use shell aliases instead of PATH shims (legacy mode)")
-	return cmd
 }
 
-func installWithShims() error {
+func install() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	if err := migrateAliasesToShims(); err != nil {
-		return fmt.Errorf("failed to migrate aliases: %w", err)
-	}
-
-	mgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
-
-	if err := mgr.Install(); err != nil {
-		return fmt.Errorf("failed to install shims: %w", err)
-	}
-
-	if err := config.WriteTemplateConfig(); err != nil {
-		return fmt.Errorf("failed to write template config: %w", err)
-	}
-
-	ui.PrintSetupShimInstallCmdInfo(mgr.GetBinDir(), config.Get().ConfigDir())
-	return nil
-}
-
-func migrateAliasesToShims() error {
-	aliasCfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
-	if err != nil {
-		return err
-	}
-
-	aliasManager := alias.New(aliasCfg, rcFileManager)
-	installed, err := aliasManager.IsInstalled()
-	if err != nil {
-		return fmt.Errorf("failed to check alias state: %w", err)
-	}
-
-	if !installed {
-		return nil
-	}
-
-	fmt.Printf("%s Migrating from shell aliases to PATH shims...\n", ui.Colors.Yellow("→"))
-	if err := aliasManager.Remove(); err != nil {
-		return fmt.Errorf("failed to remove aliases: %w", err)
-	}
-	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "Old aliases removed")
-
-	return nil
-}
-
-func installWithAliases() error {
 	cfg := alias.DefaultConfig()
 	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 	if err != nil {
@@ -117,11 +63,16 @@ func installWithAliases() error {
 		return fmt.Errorf("failed to install aliases: %w", err)
 	}
 
+	shimMgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
+	if err := shimMgr.Install(); err != nil {
+		return fmt.Errorf("failed to install shims: %w", err)
+	}
+
 	if err := config.WriteTemplateConfig(); err != nil {
 		return fmt.Errorf("failed to write template config: %w", err)
 	}
 
-	ui.PrintSetupInstallCmdInfo(aliasManager.GetRcPath(), config.Get().ConfigDir())
+	ui.PrintSetupInstallCmdInfo(aliasManager.GetRcPath(), shimMgr.GetBinDir(), config.Get().ConfigDir())
 	return nil
 }
 
@@ -140,6 +91,17 @@ func NewRemoveCommand() *cobra.Command {
 				}
 			}
 
+			aliasCfg := alias.DefaultConfig()
+			rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+			if err != nil {
+				return err
+			}
+
+			aliasManager := alias.New(aliasCfg, rcFileManager)
+			if err := aliasManager.Remove(); err != nil {
+				return fmt.Errorf("failed to remove aliases: %w", err)
+			}
+
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
 				return fmt.Errorf("failed to get home directory: %w", err)
@@ -150,15 +112,8 @@ func NewRemoveCommand() *cobra.Command {
 				return fmt.Errorf("failed to remove shims: %w", err)
 			}
 
-			// Also remove aliases (for migration cleanup)
-			aliasCfg := alias.DefaultConfig()
-			rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
-			if err != nil {
-				return err
-			}
-
-			aliasManager := alias.New(aliasCfg, rcFileManager)
-			return aliasManager.Remove()
+			fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases and shims removed. Restart your terminal for changes to take effect")
+			return nil
 		},
 	}
 
