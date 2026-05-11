@@ -29,14 +29,19 @@ func NewShimManager(config ShimConfig) *ShimManager {
 	return &ShimManager{config: config}
 }
 
-func DefaultShimConfig(homeDir string) ShimConfig {
+func NewDefaultShimManager() (*ShimManager, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
 	aliasCfg := alias.DefaultConfig()
-	return ShimConfig{
+	return &ShimManager{config: ShimConfig{
 		BinDir:          filepath.Join(homeDir, ".pmg", "bin"),
 		HomeDir:         homeDir,
 		PackageManagers: aliasCfg.PackageManagers,
 		Shells:          aliasCfg.Shells,
-	}
+	}}, nil
 }
 
 func (m *ShimManager) Install() error {
@@ -136,9 +141,7 @@ func (m *ShimManager) addPathToShells() error {
 		}
 
 		_, err = fmt.Fprintf(f, "\n%s", shell.PathExport(m.config.BinDir))
-		if closeErr := f.Close(); closeErr != nil {
-			log.Warnf("Warning: failed to close %s: %s", shell.Name(), closeErr)
-		}
+		f.Close()
 		if err != nil {
 			log.Warnf("Warning: failed to write PATH export to %s: %s", shell.Name(), err)
 		}
@@ -189,9 +192,7 @@ func (m *ShimManager) removePathFromShells() error {
 		if err := writer.Flush(); err != nil {
 			log.Warnf("Warning: failed to flush temporary file: %s", err)
 		}
-		if err := tempFile.Close(); err != nil {
-			log.Warnf("Warning: failed to close temporary file: %s", err)
-		}
+		tempFile.Close()
 
 		if err := os.Chmod(tempPath, info.Mode()); err != nil {
 			log.Warnf("Warning: failed to set permissions on temporary file: %s", err)

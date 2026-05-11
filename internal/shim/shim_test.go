@@ -139,16 +139,16 @@ func TestShimManagerIsInstalled(t *testing.T) {
 	assert.True(t, installed)
 }
 
-func TestDefaultShimConfig(t *testing.T) {
-	homeDir := "/home/testuser"
-	cfg := DefaultShimConfig(homeDir)
+func TestNewDefaultShimManager(t *testing.T) {
+	mgr, err := NewDefaultShimManager()
+	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(homeDir, ".pmg", "bin"), cfg.BinDir)
-	assert.Equal(t, homeDir, cfg.HomeDir)
-	assert.NotEmpty(t, cfg.PackageManagers)
-	assert.Contains(t, cfg.PackageManagers, "npm")
-	assert.Contains(t, cfg.PackageManagers, "pip")
-	assert.NotEmpty(t, cfg.Shells)
+	assert.NotEmpty(t, mgr.GetBinDir())
+	assert.Contains(t, mgr.GetBinDir(), ".pmg/bin")
+	assert.NotEmpty(t, mgr.config.PackageManagers)
+	assert.Contains(t, mgr.config.PackageManagers, "npm")
+	assert.Contains(t, mgr.config.PackageManagers, "pip")
+	assert.NotEmpty(t, mgr.config.Shells)
 }
 
 type stubShell struct {

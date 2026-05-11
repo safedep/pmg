@@ -4,19 +4,21 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
-
-	"github.com/safedep/dry/log"
+	"sync"
 )
 
 const pmgBinSuffix = "/.pmg/bin"
+
+var resolverMu sync.Mutex
 
 func FilterPMGFromPath(pathEnv string) string {
 	if pathEnv == "" {
 		return ""
 	}
 
-	entries := strings.Split(pathEnv, ":")
+	entries := filepath.SplitList(pathEnv)
 	filtered := make([]string, 0, len(entries))
 
 	for _, entry := range entries {
@@ -25,24 +27,23 @@ func FilterPMGFromPath(pathEnv string) string {
 		}
 	}
 
-	return strings.Join(filtered, ":")
+	return strings.Join(filtered, string(os.PathListSeparator))
 }
 
 // ResolveRealBinary finds the real binary path for a command by searching
 // PATH with ~/.pmg/bin stripped out. This prevents exec.CommandContext from
 // resolving to the shim script, which would cause infinite recursion.
 func ResolveRealBinary(name string) (string, error) {
-	filteredPath := FilterPMGFromPath(os.Getenv("PATH"))
+	resolverMu.Lock()
+	defer resolverMu.Unlock()
 
 	originalPath := os.Getenv("PATH")
+	filteredPath := FilterPMGFromPath(originalPath)
+
 	if err := os.Setenv("PATH", filteredPath); err != nil {
 		return "", fmt.Errorf("failed to set filtered PATH: %w", err)
 	}
-	defer func() {
-		if err := os.Setenv("PATH", originalPath); err != nil {
-			log.Warnf("failed to restore PATH: %v", err)
-		}
-	}()
+	defer os.Setenv("PATH", originalPath) //nolint:errcheck
 
 	resolved, err := exec.LookPath(name)
 	if err != nil {

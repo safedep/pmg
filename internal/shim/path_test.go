@@ -164,7 +164,6 @@ func TestResolveRealBinary(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantPath(realBin), resolved)
 
-			// Verify PATH was restored
 			assert.Equal(t, originalPath, os.Getenv("PATH"), "PATH should be restored after ResolveRealBinary")
 		})
 	}

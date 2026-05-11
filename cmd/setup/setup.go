@@ -19,8 +19,8 @@ var (
 func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Manage PMG shell integration (shims and aliases)",
-		Long:  "Setup and manage PMG config, shell shims or aliases that allow you to use package manager commands with security guardrails.",
+		Short: "Manage PMG shell integration (aliases and shims)",
+		Long:  "Setup and manage PMG config, shell aliases and PATH shims that allow you to use package manager commands with security guardrails.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -47,11 +47,6 @@ func NewInstallCommand() *cobra.Command {
 }
 
 func install() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
 	cfg := alias.DefaultConfig()
 	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 	if err != nil {
@@ -63,7 +58,11 @@ func install() error {
 		return fmt.Errorf("failed to install aliases: %w", err)
 	}
 
-	shimMgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
+	shimMgr, err := shim.NewDefaultShimManager()
+	if err != nil {
+		return fmt.Errorf("failed to create shim manager: %w", err)
+	}
+
 	if err := shimMgr.Install(); err != nil {
 		return fmt.Errorf("failed to install shims: %w", err)
 	}
@@ -79,7 +78,7 @@ func install() error {
 func NewRemoveCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "remove",
-		Short:        "Removes pmg shims and aliases from the user's shell config.",
+		Short:        "Removes pmg aliases and shims from the user's shell config.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
@@ -91,23 +90,22 @@ func NewRemoveCommand() *cobra.Command {
 				}
 			}
 
-			aliasCfg := alias.DefaultConfig()
-			rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+			cfg := alias.DefaultConfig()
+			rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 			if err != nil {
 				return err
 			}
 
-			aliasManager := alias.New(aliasCfg, rcFileManager)
+			aliasManager := alias.New(cfg, rcFileManager)
 			if err := aliasManager.Remove(); err != nil {
 				return fmt.Errorf("failed to remove aliases: %w", err)
 			}
 
-			homeDir, err := os.UserHomeDir()
+			shimMgr, err := shim.NewDefaultShimManager()
 			if err != nil {
-				return fmt.Errorf("failed to get home directory: %w", err)
+				return fmt.Errorf("failed to create shim manager: %w", err)
 			}
 
-			shimMgr := shim.NewShimManager(shim.DefaultShimConfig(homeDir))
 			if err := shimMgr.Remove(); err != nil {
 				return fmt.Errorf("failed to remove shims: %w", err)
 			}
