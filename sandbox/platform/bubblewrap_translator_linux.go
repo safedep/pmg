@@ -229,7 +229,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, writeArgs...)
 	}
 
-	// 3. Process deny_write rules (mount /dev/null to prevent access)
+	// 3. Process deny_write rules after allow_write so read-only binds override writable parents.
 	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
 	if err != nil {
 		log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
@@ -276,7 +276,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			continue
 		}
 
-		denyArgs, err := t.processDenyRule(expanded)
+		denyArgs, err := t.processDenyWriteRule(expanded)
 		if err != nil {
 			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
 			continue
@@ -377,6 +377,37 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 				log.Debugf("Blocked execution of '%s'", expanded)
 			}
 		}
+	}
+
+	return args, nil
+}
+
+// processDenyWriteRule handles deny_write rules without masking reads. Files
+// and directories are mounted read-only over any earlier writable parent bind.
+func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string) ([]string, error) {
+	args := []string{}
+
+	if util.ContainsGlob(path) {
+		paths, _, err := t.expandGlobPattern(path, t.config.mandatoryDenyScanDepth, t.config.maxGlobPaths)
+		if err != nil {
+			return args, nil
+		}
+
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				args = append(args, "--ro-bind-try", p, p)
+				log.Debugf("Deny write rule: mounted '%s' as read-only", p)
+			}
+		}
+
+		return args, nil
+	}
+
+	if _, err := os.Stat(path); err == nil {
+		args = append(args, "--ro-bind-try", path, path)
+		log.Debugf("Deny write rule: mounted '%s' as read-only", path)
+	} else if os.IsNotExist(err) {
+		log.Debugf("Deny write rule: skipping non-existent path '%s'", path)
 	}
 
 	return args, nil
