@@ -169,6 +169,47 @@ func TestResolveRealBinary(t *testing.T) {
 	}
 }
 
+func TestResolveRealBinaryConcurrent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	pmgBin := filepath.Join(tmpDir, ".pmg", "bin")
+	realBin := filepath.Join(tmpDir, "real-bin")
+	require.NoError(t, os.MkdirAll(pmgBin, 0o755))
+	require.NoError(t, os.MkdirAll(realBin, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pmgBin, "npm"), []byte("#!/bin/sh\necho shim"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(realBin, "npm"), []byte("#!/bin/sh\necho real"), 0o755))
+
+	t.Setenv("PATH", pmgBin+":"+realBin)
+
+	const goroutines = 10
+	errs := make(chan error, goroutines)
+	paths := make(chan string, goroutines)
+
+	for range goroutines {
+		go func() {
+			resolved, err := ResolveRealBinary("npm")
+			if err != nil {
+				errs <- err
+				paths <- ""
+				return
+			}
+			errs <- nil
+			paths <- resolved
+		}()
+	}
+
+	expectedPath := filepath.Join(realBin, "npm")
+	for i := range goroutines {
+		assert.NoError(t, <-errs, "goroutine %d should not error", i)
+		resolved := <-paths
+		if resolved != "" {
+			assert.Equal(t, expectedPath, resolved, "goroutine %d should resolve to real binary", i)
+		}
+	}
+
+	assert.Equal(t, pmgBin+":"+realBin, os.Getenv("PATH"), "PATH should be restored after concurrent calls")
+}
+
 func TestFilterPMGFromEnv(t *testing.T) {
 	tests := []struct {
 		name     string
