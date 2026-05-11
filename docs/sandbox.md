@@ -213,7 +213,9 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 <summary>Linux (Landlock, default)</summary>
 
 **Default sandbox on kernel 5.13+**: Landlock provides kernel-native filesystem access control
-without requiring external binaries or unprivileged user namespaces.
+without requiring external binaries. PMG's deny-rule enforcement also requires unprivileged
+user namespaces because the shim needs `CAP_SYS_ADMIN` inside a fresh user namespace to install
+seccomp-notify without `NO_NEW_PRIVS`.
 
 For the architecture, design tradeoffs, and known limitations see
 [sandbox-landlock.md](./sandbox-landlock.md).
@@ -243,8 +245,11 @@ refuse to run as root (npm's root-in-container warning) are unaffected because t
 outside-view uid never changes.
 
 **Requirements**: unprivileged user namespaces must be enabled (`unprivileged_userns_clone=1`
-on Debian/Ubuntu; default on most modern distros). If disabled, the helper fails with an
-EPERM on `clone()` and the sandbox falls back to Bubblewrap.
+on Debian/Ubuntu; default on most modern distros), and any host LSM policy must allow the shim
+to use `CAP_SYS_ADMIN` inside that namespace. PMG probes this at driver-selection time. If the
+probe fails, for example on Ubuntu AppArmor setups that deny capabilities inside
+`unprivileged_userns`, the sandbox falls back to Bubblewrap unless
+`PMG_SANDBOX_DRIVER=landlock` is set.
 
 **Network filtering**: Not enforced. Landlock supports TCP port filtering only (V4+, no hostname).
 Use `--proxy-mode` for network control.
@@ -257,8 +262,8 @@ to force Bubblewrap if namespace isolation is required.
 isolation succeeds, `/proc` is scoped to the child's namespace. When it fails, `/proc`
 exposes all system processes.
 
-**Fallback**: If Landlock is unavailable (kernel < 5.13), Bubblewrap is used automatically.
-Set `PMG_SANDBOX_DRIVER=bubblewrap` to force Bubblewrap.
+**Fallback**: If Landlock is unavailable (kernel < 5.13) or the no-NNP shim probe fails,
+Bubblewrap is used automatically. Set `PMG_SANDBOX_DRIVER=bubblewrap` to force Bubblewrap.
 
 </details>
 

@@ -33,11 +33,15 @@ type landlockSandbox struct {
 }
 
 // newLandlockSandbox creates a new Landlock sandbox instance after verifying
-// that both Landlock and seccomp user notification are available on the system.
+// that Landlock and the no-NNP seccomp shim path are available on the system.
 func newLandlockSandbox() (sandbox.Sandbox, error) {
 	abi, err := landlockDetectABI()
 	if err != nil {
 		return nil, fmt.Errorf("landlock not available: %w", err)
+	}
+
+	if err := landlockShimProbe(); err != nil {
+		return nil, fmt.Errorf("landlock shim not available: %w", err)
 	}
 
 	log.Debugf("Landlock ABI V%d detected (Refer=%v, Truncate=%v, Network=%v, IoctlDev=%v, Scoping=%v)",
