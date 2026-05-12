@@ -17,6 +17,7 @@ const shimMarker = "PMG shims"
 type ShimConfig struct {
 	BinDir          string
 	HomeDir         string
+	PMGBin          string
 	PackageManagers []string
 	Shells          []alias.Shell
 }
@@ -36,15 +37,29 @@ func NewDefaultShimManager() (*ShimManager, error) {
 	}
 
 	aliasCfg := alias.DefaultConfig()
+	pmgBin, err := currentExecutable()
+	if err != nil {
+		return nil, err
+	}
+
 	return &ShimManager{config: ShimConfig{
 		BinDir:          filepath.Join(homeDir, ".pmg", "bin"),
 		HomeDir:         homeDir,
+		PMGBin:          pmgBin,
 		PackageManagers: aliasCfg.PackageManagers,
 		Shells:          aliasCfg.Shells,
 	}}, nil
 }
 
 func (m *ShimManager) Install() error {
+	if m.config.PMGBin == "" {
+		pmgBin, err := currentExecutable()
+		if err != nil {
+			return err
+		}
+		m.config.PMGBin = pmgBin
+	}
+
 	if err := os.MkdirAll(m.config.BinDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create shim directory %s: %w", m.config.BinDir, err)
 	}
@@ -101,20 +116,38 @@ func (m *ShimManager) GetBinDir() string {
 
 func (m *ShimManager) writeShimScript(pm string) error {
 	shimPath := filepath.Join(m.config.BinDir, pm)
+	pmgBin := shellQuote(m.config.PMGBin)
 
 	content := fmt.Sprintf(`#!/bin/sh
 # PMG shim - do not edit, managed by pmg setup
-PMG_BIN="$(command -v pmg 2>/dev/null)"
-if [ -n "$PMG_BIN" ]; then
-  exec pmg %s "$@"
+PMG_BIN=%s
+if [ ! -x "$PMG_BIN" ]; then
+  echo "[pmg] error: PMG binary not found or not executable: $PMG_BIN" >&2
+  echo "[pmg] error: run 'pmg setup install' again or remove shims with 'pmg setup remove'" >&2
+  exit 127
 fi
-echo "[pmg] warning: pmg not found, falling back to native %s" >&2
-PATH="$(echo "$PATH" | tr ':' '\n' | grep -vF "/.pmg/bin" | tr '\n' ':' | sed 's/:$//')"
-export PATH
-exec %s "$@"
-`, pm, pm, pm)
+exec "$PMG_BIN" %s "$@"
+`, pmgBin, pm)
 
 	return os.WriteFile(shimPath, []byte(content), 0o755)
+}
+
+func currentExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve pmg executable: %w", err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return filepath.Abs(exe)
+	}
+
+	return resolved, nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func (m *ShimManager) addPathToShells() error {
