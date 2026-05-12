@@ -25,6 +25,7 @@ func TestShimManagerInstall(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(fishConfig, "config.fish"), []byte("# existing fish config\n"), 0o644))
 
 	pms := []string{"npm", "pip"}
+	pmgBin := filepath.Join(homeDir, "bin", "pmg")
 	shells := []alias.Shell{
 		&stubShell{name: "bash", path: ".bashrc", useFish: false},
 		&stubShell{name: "fish", path: ".config/fish/config.fish", useFish: true},
@@ -33,6 +34,7 @@ func TestShimManagerInstall(t *testing.T) {
 	mgr := NewShimManager(ShimConfig{
 		BinDir:          binDir,
 		HomeDir:         homeDir,
+		PMGBin:          pmgBin,
 		PackageManagers: pms,
 		Shells:          shells,
 	})
@@ -48,7 +50,11 @@ func TestShimManagerInstall(t *testing.T) {
 		content, err := os.ReadFile(shimPath)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "#!/bin/sh")
-		assert.Contains(t, string(content), "exec pmg "+pm)
+		assert.Contains(t, string(content), "PMG_BIN='"+pmgBin+"'")
+		assert.Contains(t, string(content), `exec "$PMG_BIN" `+pm+` "$@"`)
+		assert.NotContains(t, string(content), "command -v pmg")
+		assert.NotContains(t, string(content), "exec pmg")
+		assert.NotContains(t, string(content), "falling back to native")
 	}
 
 	bashContent, err := os.ReadFile(bashrc)
@@ -145,10 +151,32 @@ func TestNewDefaultShimManager(t *testing.T) {
 
 	assert.NotEmpty(t, mgr.GetBinDir())
 	assert.Contains(t, mgr.GetBinDir(), ".pmg/bin")
+	assert.NotEmpty(t, mgr.config.PMGBin)
+	assert.True(t, filepath.IsAbs(mgr.config.PMGBin))
 	assert.NotEmpty(t, mgr.config.PackageManagers)
 	assert.Contains(t, mgr.config.PackageManagers, "npm")
 	assert.Contains(t, mgr.config.PackageManagers, "pip")
 	assert.NotEmpty(t, mgr.config.Shells)
+}
+
+func TestShimManagerInstallEscapesPMGBin(t *testing.T) {
+	homeDir := t.TempDir()
+	binDir := filepath.Join(homeDir, ".pmg", "bin")
+	pmgBin := filepath.Join(homeDir, "PMG's bin", "pmg")
+
+	mgr := NewShimManager(ShimConfig{
+		BinDir:          binDir,
+		HomeDir:         homeDir,
+		PMGBin:          pmgBin,
+		PackageManagers: []string{"npm"},
+	})
+
+	require.NoError(t, mgr.Install())
+
+	content, err := os.ReadFile(filepath.Join(binDir, "npm"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), `PMG_BIN='`+homeDir+`/PMG'\''s bin/pmg'`)
+	assert.NotContains(t, string(content), "command -v pmg")
 }
 
 type stubShell struct {
