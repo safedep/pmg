@@ -10,7 +10,6 @@ import (
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox/executor"
-	"github.com/safedep/pmg/usefulerror"
 )
 
 // Execute runs a package manager command without proxy or guard analysis.
@@ -48,16 +47,11 @@ func Execute(ctx context.Context, pc *packagemanager.ParsedCommand, pmName strin
 
 	if result.ShouldRun() {
 		if err := cmd.Run(); err != nil {
-			humanError := "Failed to execute package manager command"
+			exitCode := -1
 			if exitErr, ok := err.(*exec.ExitError); ok {
-				humanError = fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())
+				exitCode = exitErr.ExitCode()
 			}
-
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-				WithHumanError(humanError).
-				WithHelp("Check the package manager command and its arguments").
-				Wrap(err)
+			return executor.WrapCommandExecutionError(err, result, exitCode)
 		}
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/safedep/pmg/usefulerror"
 )
@@ -405,7 +406,7 @@ func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
 
 		err = cmd.Run()
 		if err != nil {
-			return f.handlePackageManagerExecutionError(err)
+			return f.handlePackageManagerExecutionError(err, result)
 		}
 	}
 
@@ -558,32 +559,20 @@ func (f *proxyFlow) executeWithProxy(
 	}
 
 	if sessionError != nil {
-		return f.handlePackageManagerExecutionError(sessionError)
+		return f.handlePackageManagerExecutionError(sessionError, result)
 	}
 
 	return nil
 }
 
-func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
+func (f *proxyFlow) handlePackageManagerExecutionError(err error, result *sandbox.ExecutionResult) error {
 	if exitErr, ok := err.(*exec.ExitError); ok {
-		return usefulerror.Useful().
-			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())).
-			WithHelp("Check the package manager command and its arguments").
-			Wrap(err)
+		return executor.WrapCommandExecutionError(err, result, exitErr.ExitCode())
 	}
 
 	if sessionError, ok := err.(*pty.ExitError); ok {
-		return usefulerror.Useful().
-			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", sessionError.Code)).
-			WithHelp("Check the package manager command and its arguments").
-			Wrap(sessionError.Err)
+		return executor.WrapCommandExecutionError(sessionError, result, sessionError.Code)
 	}
 
-	return usefulerror.Useful().
-		WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-		WithHumanError("Failed to execute package manager command").
-		WithHelp("Check the package manager command and its arguments").
-		Wrap(err)
+	return executor.WrapCommandExecutionError(err, result, -1)
 }

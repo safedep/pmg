@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/sandbox"
@@ -17,6 +18,9 @@ type seatbeltSandbox struct {
 	translator       *seatbeltPolicyTranslator
 	tempProfilePath  string
 	cleanupCompleted bool
+	policyName       string
+	logTag           string
+	startedAt        time.Time
 }
 
 func newSeatbeltSandbox() (*seatbeltSandbox, error) {
@@ -38,7 +42,11 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	}
 
 	// Log pattern referred in sandbox.md as debugging guidance
-	log.Debugf("MacOS Seatbelt sandbox log tag: %s", s.translator.LogTag())
+	s.logTag = s.translator.LogTag()
+	s.policyName = policy.Name
+	s.startedAt = time.Now()
+
+	log.Debugf("MacOS Seatbelt sandbox log tag: %s", s.logTag)
 
 	tmpFile, err := os.CreateTemp("", "pmg-sandbox-*.sb")
 	if err != nil {
