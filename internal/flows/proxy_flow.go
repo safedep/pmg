@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/runner"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
@@ -209,6 +210,16 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
 
+	// Resolve the real package manager binary by searching PATH with ~/.pmg/bin
+	// stripped out. Without this, exec.CommandContext resolves to the shim script
+	// (because ~/.pmg/bin is still in the current process's PATH), causing
+	// infinite recursion: shim → pmg → shim → pmg → ...
+	realBinary, err := shim.ResolveRealBinary(parsedCmd.Command.Exe)
+	if err != nil {
+		return fmt.Errorf("failed to resolve real %s binary: %w", parsedCmd.Command.Exe, err)
+	}
+	parsedCmd.Command.Exe = realBinary
+
 	var executionError error
 	if pty.IsInteractiveTerminal() {
 		// Execute the package manager command with proxy environment variables
@@ -330,7 +341,7 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 
 	noProxyList := "localhost,127.0.0.1,[::1]"
 
-	env := os.Environ()
+	env := shim.FilterPMGFromEnv(os.Environ())
 	env = append(env,
 		"NODE_USE_ENV_PROXY=1",
 		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),

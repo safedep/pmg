@@ -7,6 +7,52 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestShellPathExport(t *testing.T) {
+	tests := []struct {
+		name     string
+		shell    Shell
+		binDir   string
+		contains []string
+	}{
+		{
+			name:   "bash path export",
+			shell:  &bashShell{},
+			binDir: "/home/user/.pmg/bin",
+			contains: []string{
+				`export PATH="/home/user/.pmg/bin:$PATH"`,
+				"PMG shims",
+			},
+		},
+		{
+			name:   "zsh path export",
+			shell:  &zshShell{},
+			binDir: "/home/user/.pmg/bin",
+			contains: []string{
+				`export PATH="/home/user/.pmg/bin:$PATH"`,
+				"PMG shims",
+			},
+		},
+		{
+			name:   "fish path export",
+			shell:  &fishShell{},
+			binDir: "/home/user/.pmg/bin",
+			contains: []string{
+				`fish_add_path --prepend "/home/user/.pmg/bin"`,
+				"PMG shims",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.shell.PathExport(tc.binDir)
+			for _, s := range tc.contains {
+				assert.Contains(t, result, s)
+			}
+		})
+	}
+}
+
 func TestDetectShell(t *testing.T) {
 	cases := []struct {
 		name          string
