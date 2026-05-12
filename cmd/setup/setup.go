@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -47,6 +48,18 @@ func NewInstallCommand() *cobra.Command {
 }
 
 func install() error {
+	if err := config.WriteTemplateConfig(); err != nil {
+		return fmt.Errorf("failed to write template config: %w", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config written successfully")
+		fmt.Printf("   %s\n", ui.Colors.Dim(fmt.Sprintf("Config:  %s", config.Get().ConfigDir())))
+		fmt.Printf("\n%s Shell aliases and PATH shims are not supported on Windows. Use WSL for full shell integration.\n",
+			ui.Colors.Yellow("⚠"))
+		return nil
+	}
+
 	cfg := alias.DefaultConfig()
 	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 	if err != nil {
@@ -67,10 +80,6 @@ func install() error {
 		return fmt.Errorf("failed to install shims: %w", err)
 	}
 
-	if err := config.WriteTemplateConfig(); err != nil {
-		return fmt.Errorf("failed to write template config: %w", err)
-	}
-
 	ui.PrintSetupInstallCmdInfo(aliasManager.GetRcPath(), shimMgr.GetBinDir(), config.Get().ConfigDir())
 	return nil
 }
@@ -88,6 +97,11 @@ func NewRemoveCommand() *cobra.Command {
 				if err := os.Remove(config.ConfigFilePath()); err != nil && !os.IsNotExist(err) {
 					return fmt.Errorf("failed to remove config file %q: %w", config.ConfigFilePath(), err)
 				}
+			}
+
+			if runtime.GOOS == "windows" {
+				fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. No aliases or shims to clean up on Windows.")
+				return nil
 			}
 
 			cfg := alias.DefaultConfig()
