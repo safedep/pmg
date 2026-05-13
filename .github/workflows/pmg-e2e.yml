@@ -265,6 +265,15 @@ jobs:
           test -f bun.lock
           test -d node_modules/express
           test -d node_modules/lodash
+
+          echo "Testing Bun frozen manifest installation with bun ci..."
+          rm -rf node_modules
+          pmg --proxy-mode=false bun ci
+
+          # Verification: bun lockfile and modules exist after frozen manifest install
+          test -f bun.lock
+          test -d node_modules/express
+          test -d node_modules/lodash
           cd .. && rm -rf bun-test
 
       - name: Test Yarn - Single Package & Manifest
