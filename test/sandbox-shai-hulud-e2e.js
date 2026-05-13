@@ -21,11 +21,11 @@ const fs = require('fs');
 const { spawnSync } = require('child_process');
 const path = require('path');
 const os = require('os');
-const dns = require('dns');
 
 const home = os.homedir();
 const cwd = process.cwd();
 const results = { passed: 0, failed: 0, tests: [] };
+const strictNetworkSandbox = process.platform === 'linux';
 
 // A directory is "blocked" if access is denied (EPERM/EACCES) OR if the
 // sandbox hides real contents via tmpfs (directory appears empty / file
@@ -95,6 +95,13 @@ console.log('--- Credential file reads (should be BLOCKED) ---\n');
   { name: '~/.netrc (HTTP basic auth, including registry creds)', p: path.join(home, '.netrc') },
   { name: '~/.docker/config.json (registry auth tokens)', p: path.join(home, '.docker', 'config.json') },
   { name: '~/.config/gh/hosts.yml (gh CLI GitHub tokens)', p: path.join(home, '.config', 'gh', 'hosts.yml') },
+  { name: '~/.aws/credentials (AWS credentials)', p: path.join(home, '.aws', 'credentials') },
+  { name: '~/.aws/config (AWS profile config)', p: path.join(home, '.aws', 'config') },
+  { name: '~/.gcloud/credentials.json (GCP credentials)', p: path.join(home, '.gcloud', 'credentials.json') },
+  { name: '~/.config/gcloud (GCP ADC/config)', p: path.join(home, '.config', 'gcloud') },
+  { name: '~/.azure (Azure CLI tokens)', p: path.join(home, '.azure') },
+  { name: '~/.kube/config (Kubernetes credentials)', p: path.join(home, '.kube', 'config') },
+  { name: '~/.ssh/id_rsa (SSH private key)', p: path.join(home, '.ssh', 'id_rsa') },
   { name: '~/.gnupg (signing keys)', p: path.join(home, '.gnupg') },
   { name: '~/.config/git/credentials', p: path.join(home, '.config', 'git', 'credentials') },
   { name: '~/.git-credentials (stored HTTPS creds)', p: path.join(home, '.git-credentials') },
@@ -131,6 +138,10 @@ test('BLOCK or fail-closed: AWS IMDS at 169.254.169.254', () => {
     console.log(`  ✅ PASS: IMDS unreachable (exit=${result.status})`);
     return true;
   }
+  if (strictNetworkSandbox) {
+    console.log(`  ❌ FAIL: IMDS reachable from Linux sandbox (exit=${result.status})`);
+    return false;
+  }
   console.log(`  ⚠️  WARN: IMDS reachable from sandbox (exit=${result.status}) — rely on detection layer`);
   return true; // network filtering is best-effort on macOS; do not hard-fail
 });
@@ -146,6 +157,10 @@ test('BLOCK or fail-closed: Vault probe at 127.0.0.1:8200', () => {
   if (result.status === 2 || result.status === 3 || result.status === null) {
     console.log(`  ✅ PASS: Vault probe failed closed (exit=${result.status})`);
     return true;
+  }
+  if (strictNetworkSandbox) {
+    console.log(`  ❌ FAIL: 127.0.0.1:8200 reachable from Linux sandbox`);
+    return false;
   }
   console.log(`  ⚠️  WARN: 127.0.0.1:8200 reachable — only meaningful if Vault was running`);
   return true;
@@ -184,6 +199,26 @@ console.log('\n--- IDE/AI agent poisoning writes (should be BLOCKED) ---\n');
   });
 });
 
+[
+  path.join(home, '.dev-env', 'runner.sh'),
+  path.join(cwd, '.github', 'workflows', 'discussion.yaml'),
+  path.join(cwd, '.github', 'workflows', 'shai-hulud-test.yml'),
+].forEach((target) => {
+  test(`BLOCK: Write persistence file ${target}`, () => {
+    if (fs.existsSync(target)) {
+      console.log(`  ⚠️  SKIP: ${target} already exists`);
+      return true;
+    }
+    const r = isWriteBlocked(target);
+    if (r.blocked) {
+      console.log(`  ✅ PASS: ${target} write blocked (${r.reason})`);
+      return true;
+    }
+    console.log(`  ❌ FAIL: Could write persistence file ${target}`);
+    return false;
+  });
+});
+
 // ============================================================
 // 4. PAYLOAD STAGING & EXECUTION
 //    npm variant: downloads Bun via setup.mjs, runs `bun router_init.js`.
@@ -192,14 +227,36 @@ console.log('\n--- IDE/AI agent poisoning writes (should be BLOCKED) ---\n');
 // ============================================================
 console.log('\n--- Dropper download & execution (should be BLOCKED) ---\n');
 
-test('BLOCK: Execute /usr/bin/wget (Bun-loader download path)', () => {
-  const r = spawnSync('/usr/bin/wget', ['--version'], { timeout: 3000 });
-  if (r.error || r.status === null || r.signal === 'SIGKILL') {
-    console.log(`  ✅ PASS: wget execution blocked (${r.error ? r.error.code : 'killed'})`);
-    return true;
+test('BLOCK: Execute /usr/bin/curl (loader download path)', () => {
+  const candidates = ['/usr/bin/curl', '/usr/local/bin/curl'];
+  for (const curl of candidates) {
+    if (!fs.existsSync(curl)) continue;
+    const r = spawnSync(curl, ['--version'], { timeout: 3000 });
+    if (r.error || r.status === null || r.signal === 'SIGKILL') {
+      console.log(`  ✅ PASS: ${curl} execution blocked (${r.error ? r.error.code : 'killed'})`);
+      return true;
+    }
+    console.log(`  ❌ FAIL: ${curl} executed successfully`);
+    return false;
   }
-  console.log('  ❌ FAIL: wget executed successfully');
-  return false;
+  console.log('  ⚠️  SKIP: no curl binary present');
+  return true;
+});
+
+test('BLOCK: Execute /usr/bin/wget (Bun-loader download path)', () => {
+  const candidates = ['/usr/bin/wget', '/usr/local/bin/wget'];
+  for (const wget of candidates) {
+    if (!fs.existsSync(wget)) continue;
+    const r = spawnSync(wget, ['--version'], { timeout: 3000 });
+    if (r.error || r.status === null || r.signal === 'SIGKILL') {
+      console.log(`  ✅ PASS: ${wget} execution blocked (${r.error ? r.error.code : 'killed'})`);
+      return true;
+    }
+    console.log(`  ❌ FAIL: ${wget} executed successfully`);
+    return false;
+  }
+  console.log('  ⚠️  SKIP: no wget binary present');
+  return true;
 });
 
 test('BLOCK: Execute /usr/bin/python3 (transformers.pyz runner)', () => {
@@ -218,6 +275,53 @@ test('BLOCK: Execute /usr/bin/python3 (transformers.pyz runner)', () => {
   }
   console.log('  ⚠️  SKIP: no python3 binary present');
   return true;
+});
+
+test('BLOCK: TanStack-style optionalDependency prepare script sensitive write', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), `pmg-tanstack-prepare-${process.pid}-`));
+  const dep = path.join(base, 'dep');
+  const app = path.join(base, 'app');
+  try {
+    fs.mkdirSync(dep, { recursive: true });
+    fs.mkdirSync(app, { recursive: true });
+    fs.writeFileSync(path.join(dep, 'package.json'), JSON.stringify({
+      name: 'pmg-benign-optional-dep',
+      version: '1.0.0',
+      scripts: {
+        prepare: 'node prepare.js',
+      },
+    }));
+    fs.writeFileSync(path.join(dep, 'prepare.js'), `
+      const fs = require('fs');
+      const path = require('path');
+      const target = process.env.PMG_TANSTACK_PREPARE_TARGET;
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, 'pmg-sandbox-test-marker');
+    `);
+    fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({
+      name: 'pmg-tanstack-prepare-fixture',
+      version: '1.0.0',
+      optionalDependencies: {
+        'pmg-benign-optional-dep': `file:${dep}`,
+      },
+    }));
+
+    const target = path.join(app, '.github', 'workflows', 'discussion.yaml');
+    const r = spawnSync('npm', ['install', '--ignore-scripts=false', '--foreground-scripts'], {
+      cwd: app,
+      env: { ...process.env, PMG_TANSTACK_PREPARE_TARGET: target },
+      timeout: 15000,
+      stdio: 'pipe',
+    });
+    if (!fs.existsSync(target)) {
+      console.log(`  ✅ PASS: optionalDependency prepare path did not create workflow (exit=${r.status})`);
+      return true;
+    }
+    console.log('  ❌ FAIL: optionalDependency prepare script created workflow file');
+    return false;
+  } finally {
+    try { fs.rmSync(base, { recursive: true, force: true }); } catch (_) {}
+  }
 });
 
 test('BLOCK: Execute a dropped binary from /tmp (simulated .pyz path)', () => {
@@ -250,36 +354,55 @@ test('BLOCK: Execute a dropped binary from /tmp (simulated .pyz path)', () => {
 // ============================================================
 // 5. ENVIRONMENT TOKEN SCANNING — the payload greps process.env for
 //    ghp_*, gho_*, ghs_*, npm_*, AWS_*, VAULT_TOKEN, ACTIONS_ID_TOKEN.
-//    We can't prevent a payload from reading its own process.env, but we
-//    record what *would* be exposed if the sandbox forwarded these vars.
+//    A sandbox cannot prevent a payload from reading its own process.env once
+//    those variables are forwarded, so CI must fail if high-risk credentials
+//    are visible to install scripts.
 // ============================================================
-console.log('\n--- Env var leakage surface (informational) ---\n');
+console.log('\n--- Env var leakage surface (should be BLOCKED by env scrubbing) ---\n');
 
-test('INFO: env var leak surface for credential scanner', () => {
-  const patterns = {
-    'GitHub PAT (ghp_/gho_)': /^(ghp|gho)_[A-Za-z0-9_\-.]{36,}$/,
-    'GitHub App install (ghs_)': /^ghs_[A-Za-z0-9_\-.]{36,}$/,
-    'npm publish token': /^npm_[A-Za-z0-9_\-.]{36,}$/,
-    'AWS_SECRET_ACCESS_KEY': /^AWS_SECRET_ACCESS_KEY$/,
-    'VAULT_TOKEN': /^VAULT_TOKEN$/,
-    'ACTIONS_ID_TOKEN_REQUEST_TOKEN': /^ACTIONS_ID_TOKEN_REQUEST_TOKEN$/,
-  };
+test('BLOCK: env var leak surface for credential scanner', () => {
+  const sensitiveNames = [
+    /^GITHUB_TOKEN$/,
+    /^GH_TOKEN$/,
+    /^ACTIONS_ID_TOKEN_REQUEST_TOKEN$/,
+    /^ACTIONS_ID_TOKEN_REQUEST_URL$/,
+    /^NPM_TOKEN$/,
+    /^NODE_AUTH_TOKEN$/,
+    /^NPM_CONFIG_TOKEN$/,
+    /^AWS_ACCESS_KEY_ID$/,
+    /^AWS_SECRET_ACCESS_KEY$/,
+    /^AWS_SESSION_TOKEN$/,
+    /^GOOGLE_APPLICATION_CREDENTIALS$/,
+    /^GOOGLE_GHA_CREDS_PATH$/,
+    /^AZURE_[A-Z0-9_]*(TOKEN|SECRET|PASSWORD|CREDENTIALS)$/,
+    /^VAULT_TOKEN$/,
+    /^PYPI_TOKEN$/,
+    /^PYPI_PASSWORD$/,
+    /^TWINE_USERNAME$/,
+    /^TWINE_PASSWORD$/,
+  ];
+  const sensitiveValues = [
+    /^(ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_\-.]{20,}$/,
+    /^npm_[A-Za-z0-9_\-.]{20,}$/,
+    /^pypi-[A-Za-z0-9_\-.]{20,}$/,
+    /^AKIA[A-Z0-9]{16}$/,
+  ];
   const exposed = [];
   for (const [k, v] of Object.entries(process.env)) {
-    for (const [label, re] of Object.entries(patterns)) {
-      // Match either env name or env value (token pattern in value)
-      if (re.test(k) || (typeof v === 'string' && /^(ghp|gho|ghs|npm)_/.test(v) && re.test(v))) {
-        exposed.push(`${label}=${k}`);
-      }
+    if (sensitiveNames.some((re) => re.test(k))) {
+      exposed.push(k);
+      continue;
+    }
+    if (typeof v === 'string' && sensitiveValues.some((re) => re.test(v))) {
+      exposed.push(`${k}=<credential-shaped value>`);
     }
   }
   if (exposed.length === 0) {
     console.log('  ✅ PASS: no credential-shaped env vars visible to sandboxed process');
     return true;
   }
-  console.log(`  ⚠️  WARN: sandboxed process can see: ${exposed.join(', ')}`);
-  console.log('         consider scrubbing these from the env passed into install scripts');
-  return true; // informational only
+  console.log(`  ❌ FAIL: sandboxed process can see sensitive env vars: ${exposed.join(', ')}`);
+  return false;
 });
 
 // ============================================================
