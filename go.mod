@@ -10,10 +10,10 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/google/osv-scalibr v0.2.1
 	github.com/google/uuid v1.6.0
-	github.com/jedib0t/go-pretty/v6 v6.6.7
+	github.com/jedib0t/go-pretty/v6 v6.7.9
 	github.com/landlock-lsm/go-landlock v0.7.0
 	github.com/posthog/posthog-go v1.5.12
-	github.com/safedep/dry v0.0.0-20260411074023-b589e91de472
+	github.com/safedep/dry v0.0.0-20260513152148-f809919cc4ce
 	github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1
@@ -35,7 +35,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/caarlos0/env/v11 v11.3.1 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
-	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
+	github.com/clipperhouse/uax29/v2 v2.5.0 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/denisbrodbeck/machineid v1.0.1 // indirect
