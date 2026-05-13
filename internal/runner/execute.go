@@ -168,7 +168,16 @@ func runPTY(
 	defer promptWriter.Close()
 	defer promptReader.Close()
 
-	go inputRouter.ReadLoop(os.Stdin)
+	inputCtx, cancelInput := context.WithCancel(ctx)
+	inputDone := make(chan struct{})
+	go func() {
+		defer close(inputDone)
+		inputRouter.ReadLoopContext(inputCtx, os.Stdin)
+	}()
+	defer func() {
+		cancelInput()
+		<-inputDone
+	}()
 
 	if beforeWait != nil {
 		runtime := &PTYRuntime{
