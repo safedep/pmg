@@ -1,8 +1,6 @@
 package cloud
 
 import (
-	"os"
-
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/ui"
@@ -29,16 +27,32 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	var tenantID, apiKey string
 
 	if loginFromEnv {
-		apiKey = os.Getenv("SAFEDEP_API_KEY")
-		tenantID = os.Getenv("SAFEDEP_TENANT_ID")
+		resolver, err := cloud.NewEnvCredentialResolver()
+		if err != nil {
+			ui.ErrorExit(usefulerror.Useful().
+				Wrap(err).
+				WithCode(usefulerror.ErrCodeLifecycle).
+				WithHumanError("Failed to create environment credential resolver"))
+		}
 
-		if apiKey == "" {
+		creds, err := resolver.Resolve()
+		if err != nil {
+			ui.ErrorExit(usefulerror.Useful().
+				Wrap(err).
+				WithCode(usefulerror.ErrCodeInvalidArgument).
+				WithHumanError("Failed to resolve credentials from environment").
+				WithHelp("Set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables"))
+		}
+
+		apiKey, err = creds.GetAPIKey()
+		if err != nil || apiKey == "" {
 			ui.ErrorExit(usefulerror.Useful().
 				WithCode(usefulerror.ErrCodeInvalidArgument).
 				WithHumanError("SAFEDEP_API_KEY environment variable is not set"))
 		}
 
-		if tenantID == "" {
+		tenantID, err = creds.GetTenantDomain()
+		if err != nil || tenantID == "" {
 			ui.ErrorExit(usefulerror.Useful().
 				WithCode(usefulerror.ErrCodeInvalidArgument).
 				WithHumanError("SAFEDEP_TENANT_ID environment variable is not set"))
