@@ -33,6 +33,7 @@ func Execute(ctx context.Context, pc *packagemanager.ParsedCommand, pmName strin
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Env = shim.FilterPMGFromEnv(os.Environ())
 
 	result, err := executor.ApplySandbox(ctx, cmd, pmName)
 	if err != nil {
