@@ -1,9 +1,14 @@
 package runner
 
 import (
+	"context"
+	"os"
 	"testing"
 
+	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/packagemanager"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMergeEnvOverridesExistingValues(t *testing.T) {
@@ -56,4 +61,35 @@ func TestExecutionModeAuto(t *testing.T) {
 		Mode:          ExecutionModeAuto,
 		IsInteractive: func() bool { return false },
 	}))
+}
+
+func TestExecuteWithOptionsRunsDirectHookBeforeSandbox(t *testing.T) {
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() {
+		*cfg = previous
+	})
+
+	cfg.Config.Sandbox.Enabled = true
+	cfg.Config.Sandbox.Policies = map[string]config.SandboxPolicyRef{}
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	hookCalled := false
+	err = ExecuteWithOptions(context.Background(), &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{
+			Exe: exe,
+		},
+	}, ExecuteOptions{
+		PackageManagerName: "npm",
+		Mode:               ExecutionModeDirect,
+		BeforeDirectRun: func() error {
+			hookCalled = true
+			return nil
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, hookCalled)
 }

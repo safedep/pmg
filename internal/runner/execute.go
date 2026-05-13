@@ -33,9 +33,18 @@ type ExecuteOptions struct {
 	DirectEnvOverrides []string
 	PTYEnvOverrides    []string
 	Mode               ExecutionMode
-	OnDirectStart      func() error
-	OnPTYStart         func(*PTYRuntime) error
-	IsInteractive      func() bool
+
+	// BeforeDirectRun runs after command/env construction and before sandbox
+	// application for non-PTY execution. Use this for setup that must exist even
+	// when a sandbox implementation executes the child inside ApplySandbox.
+	BeforeDirectRun func() error
+
+	// PreparePTYSession runs after the PTY session and routers are created, but
+	// before waiting for the child process. Use this to wire interactive routing,
+	// prompts, or output buffering around an already-started PTY child.
+	PreparePTYSession func(*PTYRuntime) error
+
+	IsInteractive func() bool
 }
 
 type PTYRuntime struct {
@@ -82,6 +91,12 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 	cmd.Stderr = os.Stderr
 	cmd.Env = commandEnv(modeEnvOverrides(opts, mode))
 
+	if mode != ExecutionModePTY && opts.BeforeDirectRun != nil {
+		if err := opts.BeforeDirectRun(); err != nil {
+			return err
+		}
+	}
+
 	result, err := executor.ApplySandbox(ctx, cmd, opts.PackageManagerName)
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
@@ -95,19 +110,13 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	switch mode {
 	case ExecutionModePTY:
-		return runPTY(ctx, cmd, cmd.Env, result, opts.OnPTYStart)
+		return runPTY(ctx, cmd, cmd.Env, result, opts.PreparePTYSession)
 	default:
-		return runDirect(cmd, result, opts.OnDirectStart)
+		return runDirect(cmd, result)
 	}
 }
 
-func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult, beforeRun func() error) error {
-	if beforeRun != nil {
-		if err := beforeRun(); err != nil {
-			return err
-		}
-	}
-
+func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult) error {
 	if !result.ShouldRun() {
 		return nil
 	}

@@ -207,7 +207,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		Mode:               runner.ExecutionModeAuto,
 		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath),
 		DirectEnvOverrides: []string{"CI=true"},
-		OnDirectStart: func() error {
+		BeforeDirectRun: func() error {
 			log.Debugf("Executing proxy for non interactive TTY")
 
 			interaction.GetConfirmationOnMalware = func(_ []*analyzer.PackageVersionAnalysisResult) (bool, error) {
@@ -217,7 +217,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 			go interceptors.HandleConfirmationRequests(confirmationChan, interaction, nil)
 			return nil
 		},
-		OnPTYStart: func(runtime *runner.PTYRuntime) error {
+		PreparePTYSession: func(runtime *runner.PTYRuntime) error {
 			log.Debugf("Executing proxy for interactive TTY")
 
 			interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
