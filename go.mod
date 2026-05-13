@@ -1,6 +1,6 @@
 module github.com/safedep/pmg
 
-go 1.26.2
+go 1.25.1
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260507092425-ac47f9a19339.1
@@ -13,7 +13,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.7.9
 	github.com/landlock-lsm/go-landlock v0.7.0
 	github.com/posthog/posthog-go v1.5.12
-	github.com/safedep/dry v0.0.0-20260504122816-5c551221f38b
+	github.com/safedep/dry v0.0.0-20260513152148-f809919cc4ce
 	github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1
