@@ -130,11 +130,8 @@ if [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]]; then
     log "Cloud sync enabled in config"
   fi
 
-  # Store credentials in macOS Keychain.
-  # pmg uses go-keyring with service="safedep", account="default/api_key" and "default/tenant_domain"
-  security add-generic-password -U -s "safedep" -a "default/api_key" -w "$CLOUD_API_KEY"
-  security add-generic-password -U -s "safedep" -a "default/tenant_domain" -w "$CLOUD_TENANT_ID"
-  log "Credentials stored in macOS Keychain"
+  SAFEDEP_API_KEY="$CLOUD_API_KEY" SAFEDEP_TENANT_ID="$CLOUD_TENANT_ID" pmg cloud login --from-env
+  log "Credentials stored securely"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
