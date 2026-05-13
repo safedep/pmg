@@ -10,6 +10,13 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
+var (
+	landlockSandboxFactory   = newLandlockSandbox
+	bubblewrapSandboxFactory = func() (sandbox.Sandbox, error) {
+		return newBubblewrapSandbox()
+	}
+)
+
 // NewSandbox creates a platform-specific sandbox instance for Linux.
 // Prefers Landlock (kernel 5.13+) with seccomp-notify for deny enforcement.
 // Falls back to Bubblewrap if Landlock or seccomp-notify is unavailable.
@@ -20,18 +27,22 @@ func NewSandbox() (sandbox.Sandbox, error) {
 	switch os.Getenv("PMG_SANDBOX_DRIVER") {
 	case "bubblewrap":
 		log.Debugf("PMG_SANDBOX_DRIVER=bubblewrap: forcing Bubblewrap sandbox")
-		return newBubblewrapSandbox()
+		return bubblewrapSandboxFactory()
 	case "landlock":
 		log.Debugf("PMG_SANDBOX_DRIVER=landlock: forcing Landlock sandbox")
-		return newLandlockSandbox()
+		return landlockSandboxFactory()
 	}
 
-	sb, err := newLandlockSandbox()
+	sb, err := landlockSandboxFactory()
 	if err == nil {
-		log.Debugf("Using Landlock sandbox driver (ABI V%d)", sb.(*landlockSandbox).abi.Version)
+		if ll, ok := sb.(*landlockSandbox); ok {
+			log.Debugf("Using Landlock sandbox driver (ABI V%d)", ll.abi.Version)
+		} else {
+			log.Debugf("Using Landlock sandbox driver")
+		}
 		return sb, nil
 	}
 
 	log.Debugf("Landlock not available (%v), falling back to Bubblewrap", err)
-	return newBubblewrapSandbox()
+	return bubblewrapSandboxFactory()
 }

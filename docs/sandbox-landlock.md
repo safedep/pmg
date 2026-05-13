@@ -132,7 +132,11 @@ constant tax that maps to most of the decisions above:
 ## Limitations
 
 - **Unprivileged user namespaces required.** On distros that disable them, `clone()`
-  returns EPERM. We don't yet probe and fall back to bubblewrap (TODO).
+  returns EPERM. PMG probes the shim path at driver-selection time and falls back
+  to Bubblewrap when it cannot work.
+- **Host LSM policy must allow the user-ns capability path.** Ubuntu AppArmor can allow
+  user namespace creation while denying `CAP_SYS_ADMIN` inside the namespace through the
+  `unprivileged_userns` profile. The shim probe catches this before PMG selects Landlock.
 - **Network filtering not enforced.** Landlock V4 does TCP ports, not hostnames. Use
   proxy-mode.
 - **PID/IPC namespace isolation is best-effort.** Retried without on EPERM.
