@@ -414,6 +414,26 @@ func TestBunParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "manifest installation with short form",
+			command: "bun i",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.True(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "manifest installation with ci",
+			command: "bun ci",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, true, parsedCommand.IsManifestInstall)
+				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
+				assert.True(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
 			name:    "multiple package installations",
 			command: "bun add @types/node @types/react",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
@@ -474,6 +494,13 @@ func TestNpmProxyBehavior(t *testing.T) {
 			command:               "bun update",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
+		},
+		{
+			name:                  "bun ci — manifest install",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
+			command:               "bun ci",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
 		},
 		{
 			name:                  "npm exec — proxy runs (may download and run package)",
