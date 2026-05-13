@@ -154,7 +154,11 @@ func runPTY(
 	if err != nil {
 		return fmt.Errorf("failed to create pty session: %w", err)
 	}
-	defer sess.Close()
+	defer func() {
+		if err := sess.Close(); err != nil {
+			log.Warnf("failed to close pty session: %v", err)
+		}
+	}()
 
 	outputRouter, err := pty.NewOutputRouter(os.Stdout)
 	if err != nil {
@@ -174,8 +178,16 @@ func runPTY(
 	}
 
 	promptReader, promptWriter := io.Pipe()
-	defer promptWriter.Close()
-	defer promptReader.Close()
+	defer func() {
+		if err := promptWriter.Close(); err != nil {
+			log.Warnf("failed to close prompt writer: %v", err)
+		}
+	}()
+	defer func() {
+		if err := promptReader.Close(); err != nil {
+			log.Warnf("failed to close prompt reader: %v", err)
+		}
+	}()
 
 	inputCtx, cancelInput := context.WithCancel(ctx)
 	inputDone := make(chan struct{})

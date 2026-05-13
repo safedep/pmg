@@ -235,7 +235,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 							return fmt.Errorf("failed to set cooked mode: %w", err)
 						}
 
-						fmt.Fprint(os.Stdout, "\033[?25h")
+						if _, err := fmt.Fprint(os.Stdout, "\033[?25h"); err != nil {
+							log.Warnf("failed to force cursor visible: %v", err)
+						}
 
 						runtime.InputRouter.RouteToPrompt(runtime.PromptWriter)
 						interaction.SetInput(runtime.PromptReader)

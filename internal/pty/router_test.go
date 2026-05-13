@@ -16,8 +16,12 @@ import (
 func TestInputRouterReadLoopContextStopsOnCancelForFileReader(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
-	defer reader.Close()
-	defer writer.Close()
+	defer func() {
+		require.NoError(t, reader.Close())
+	}()
+	defer func() {
+		require.NoError(t, writer.Close())
+	}()
 
 	router, err := NewInputRouter(&bytes.Buffer{})
 	require.NoError(t, err)
@@ -44,8 +48,12 @@ func TestInputRouterReadLoopContextStopsOnCancelForFileReader(t *testing.T) {
 func TestInputRouterReadLoopContextStopsOnWriteError(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
-	defer reader.Close()
-	defer writer.Close()
+	defer func() {
+		require.NoError(t, reader.Close())
+	}()
+	defer func() {
+		require.NoError(t, writer.Close())
+	}()
 
 	router, err := NewInputRouter(errorWriter{})
 	require.NoError(t, err)
