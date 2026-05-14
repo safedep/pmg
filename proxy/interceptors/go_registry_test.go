@@ -8,7 +8,7 @@ import (
 )
 
 func TestGoRegistryInterceptor_ShouldMITM(t *testing.T) {
-	interceptor := NewGoRegistryInterceptor(nil, nil, nil, nil)
+	interceptor := NewGoRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
 
 	tests := []struct {
 		name     string
@@ -29,7 +29,7 @@ func TestGoRegistryInterceptor_ShouldMITM(t *testing.T) {
 }
 
 func TestGoRegistryInterceptor_ShouldIntercept(t *testing.T) {
-	interceptor := NewGoRegistryInterceptor(nil, nil, nil, nil)
+	interceptor := NewGoRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
 
 	tests := []struct {
 		name          string

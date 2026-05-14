@@ -35,6 +35,7 @@ func NewGoRegistryInterceptor(
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
+	execContext InterceptorContext,
 ) *GoRegistryInterceptor {
 	return &GoRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -42,6 +43,7 @@ func NewGoRegistryInterceptor(
 			cache:            cache,
 			statsCollector:   statsCollector,
 			confirmationChan: confirmationChan,
+			execContext:      execContext,
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-go"),
 		},
 	}
