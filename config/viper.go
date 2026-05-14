@@ -9,13 +9,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// loadViperConfig loads the configuration using Viper.
-// Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
-// Cobra flags write directly to the config struct after this function runs.
-func loadViperConfig() error {
+// newConfigViper creates a Viper instance configured with template defaults,
+// env var support, and the user's config file merged on top.
+func newConfigViper() (*viper.Viper, error) {
 	configPath, err := configFilePath()
 	if err != nil {
-		return fmt.Errorf("failed to get config file path: %w", err)
+		return nil, fmt.Errorf("failed to get config file path: %w", err)
 	}
 
 	v := viper.New()
@@ -24,19 +23,32 @@ func loadViperConfig() error {
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 
-	// Load the embedded template as the base so Viper knows all keys and their
-	// defaults. This is required for AutomaticEnv to resolve PMG_* env vars for
-	// keys that are absent from or newer than the user's config file.
 	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
-		return fmt.Errorf("failed to load default config: %w", err)
+		return nil, fmt.Errorf("failed to load default config: %w", err)
 	}
 
-	// Merge user config on top if it exists.
 	if _, statErr := os.Stat(configPath); statErr == nil {
 		v.SetConfigFile(configPath)
 		if err := v.MergeInConfig(); err != nil {
-			return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+			return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 		}
+	}
+
+	return v, nil
+}
+
+// loadViperConfig loads the configuration using Viper.
+// Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
+// Cobra flags write directly to the config struct after this function runs.
+func loadViperConfig() error {
+	v, err := newConfigViper()
+	if err != nil {
+		return err
+	}
+
+	configPath, err := configFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
 	}
 
 	merged := globalConfig.Config

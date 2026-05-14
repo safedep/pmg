@@ -9,7 +9,6 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
-	"github.com/spf13/viper"
 )
 
 func SetValueInYAML(data []byte, key, value string) ([]byte, error) {
@@ -65,6 +64,10 @@ func setValueAtPath(node *ast.MappingNode, segments []string, value string) erro
 }
 
 func replaceScalarValue(mv *ast.MappingValueNode, value string) error {
+	if mv.Value == nil {
+		return fmt.Errorf("cannot set value: %q has no existing value", mv.Key.String())
+	}
+
 	switch mv.Value.(type) {
 	case *ast.MappingNode:
 		return fmt.Errorf("cannot set value on non-scalar node: %q is a mapping", mv.Key.String())
@@ -135,26 +138,13 @@ func ensureConfigFileExists(path string) error {
 }
 
 func GetConfigValue(key string) (any, error) {
-	configPath, err := configFilePath()
+	if key == "" {
+		return nil, fmt.Errorf("key cannot be empty")
+	}
+
+	v, err := newConfigViper()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get config file path: %w", err)
-	}
-
-	v := viper.New()
-	v.SetConfigType("yaml")
-	v.SetEnvPrefix("PMG")
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
-
-	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
-		return nil, fmt.Errorf("failed to load default config: %w", err)
-	}
-
-	if _, statErr := os.Stat(configPath); statErr == nil {
-		v.SetConfigFile(configPath)
-		if err := v.MergeInConfig(); err != nil {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
+		return nil, err
 	}
 
 	if !v.IsSet(key) {
