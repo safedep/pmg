@@ -138,6 +138,14 @@ func replaceScalarValue(mv *ast.MappingValueNode, value string) error {
 		return fmt.Errorf("cannot set value on non-scalar node: %q is a mapping", mv.Key.String())
 	case *ast.SequenceNode:
 		return fmt.Errorf("cannot set value on non-scalar node: %q is a sequence", mv.Key.String())
+	case *ast.BoolNode:
+		if value != "true" && value != "false" {
+			return fmt.Errorf("invalid value %q for %q: expected true or false", value, mv.Key.String())
+		}
+	case *ast.IntegerNode:
+		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+			return fmt.Errorf("invalid value %q for %q: expected an integer", value, mv.Key.String())
+		}
 	}
 
 	newNode, err := createScalarNode(value, mv.Value.GetToken().Position)

@@ -125,6 +125,20 @@ func Test_setValueInYAML(t *testing.T) {
 			value:   "true",
 			wantErr: "cannot set value on non-scalar node",
 		},
+		{
+			name:    "error on invalid bool value",
+			input:   "paranoid: false\n",
+			key:     "paranoid",
+			value:   "falce",
+			wantErr: "invalid value",
+		},
+		{
+			name:    "error on non-integer for integer field",
+			input:   "transitive_depth: 5\n",
+			key:     "transitive_depth",
+			value:   "abc",
+			wantErr: "invalid value",
+		},
 	}
 
 	for _, tt := range tests {
