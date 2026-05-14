@@ -45,6 +45,7 @@ func loadViperConfig() error {
 	}
 
 	globalConfig.Config = merged
+	globalConfig.viper = v
 
 	// Resolve proxy config: new proxy section > legacy flat keys.
 	// Viper can't distinguish "value from template" vs "value from user config"

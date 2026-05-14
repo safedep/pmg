@@ -321,7 +321,8 @@ func TestGetConfigValue(t *testing.T) {
 
 		val, err := GetConfigValue("paranoid")
 		require.NoError(t, err)
-		assert.Equal(t, true, val)
+		// Viper returns env var values as strings
+		assert.Equal(t, "true", val)
 	})
 }
 
