@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
@@ -43,16 +44,36 @@ func GetConfigValue(key string) (any, error) {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
 
-	v, err := newConfigViper()
+	var configMap map[string]any
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName: "mapstructure",
+		Result:  &configMap,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create decoder: %w", err)
 	}
 
-	if !v.IsSet(key) {
-		return nil, fmt.Errorf("unknown config key: %s", key)
+	if err := decoder.Decode(Get().Config); err != nil {
+		return nil, fmt.Errorf("failed to decode config: %w", err)
 	}
 
-	return v.Get(key), nil
+	segments := strings.Split(key, ".")
+	var current any = configMap
+
+	for _, seg := range segments {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("unknown config key: %s", key)
+		}
+
+		val, exists := m[seg]
+		if !exists {
+			return nil, fmt.Errorf("unknown config key: %s", key)
+		}
+		current = val
+	}
+
+	return current, nil
 }
 
 func setValueInYAML(data []byte, key, value string) ([]byte, error) {

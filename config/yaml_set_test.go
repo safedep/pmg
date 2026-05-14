@@ -217,26 +217,69 @@ func TestSetConfigValue(t *testing.T) {
 }
 
 func TestGetConfigValue(t *testing.T) {
-	t.Run("reads value from config file", func(t *testing.T) {
+	configYAML := "paranoid: true\ntransitive: false\ntransitive_depth: 10\nverbosity: verbose\n" +
+		"cloud:\n  enabled: true\n  endpoint_id: ep-123\n" +
+		"dependency_cooldown:\n  enabled: true\n  days: 7\n" +
+		"proxy:\n  enabled: false\n  install_only: true\n" +
+		"sandbox:\n  enabled: true\n  enforce_always: false\n"
+
+	setupConfig := func(t *testing.T) {
+		t.Helper()
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
+		err := os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte(configYAML), 0o644)
+		require.NoError(t, err)
 		initConfig()
+	}
 
-		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("paranoid: true\ntransitive_depth: 10\nverbosity: verbose\n"), 0o644)
+	tests := []struct {
+		name     string
+		key      string
+		expected any
+		wantErr  string
+	}{
+		{name: "top-level bool true", key: "paranoid", expected: true},
+		{name: "top-level bool false", key: "transitive", expected: false},
+		{name: "top-level integer", key: "transitive_depth", expected: 10},
+		{name: "top-level string", key: "verbosity", expected: "verbose"},
+		{name: "nested bool", key: "cloud.enabled", expected: true},
+		{name: "nested string", key: "cloud.endpoint_id", expected: "ep-123"},
+		{name: "nested integer", key: "dependency_cooldown.days", expected: 7},
+		{name: "nested bool under proxy", key: "proxy.enabled", expected: false},
+		{name: "nested bool under proxy install_only", key: "proxy.install_only", expected: true},
+		{name: "nested bool under sandbox", key: "sandbox.enabled", expected: true},
+		{name: "nested bool under sandbox enforce_always", key: "sandbox.enforce_always", expected: false},
+		{name: "error on empty key", key: "", wantErr: "key cannot be empty"},
+		{name: "error on unknown top-level key", key: "totally_bogus", wantErr: "unknown config key"},
+		{name: "error on unknown nested key", key: "cloud.nonexistent", wantErr: "unknown config key"},
+		{name: "error on too-deep key", key: "cloud.enabled.deep", wantErr: "unknown config key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupConfig(t)
+
+			val, err := GetConfigValue(tt.key)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, val)
+		})
+	}
+
+	t.Run("returns nested object as map", func(t *testing.T) {
+		setupConfig(t)
+
+		val, err := GetConfigValue("cloud")
 		require.NoError(t, err)
 
-		val, err := GetConfigValue("paranoid")
-		require.NoError(t, err)
-		assert.Equal(t, true, val)
-
-		val, err = GetConfigValue("transitive_depth")
-		require.NoError(t, err)
-		assert.Equal(t, 10, val)
-
-		val, err = GetConfigValue("verbosity")
-		require.NoError(t, err)
-		assert.Equal(t, "verbose", val)
+		m, ok := val.(map[string]any)
+		require.True(t, ok, "expected map[string]any, got %T", val)
+		assert.Equal(t, true, m["enabled"])
+		assert.Equal(t, "ep-123", m["endpoint_id"])
 	})
 
 	t.Run("returns defaults when no config file exists", func(t *testing.T) {
@@ -252,64 +295,31 @@ func TestGetConfigValue(t *testing.T) {
 		assert.Equal(t, false, val)
 	})
 
-	t.Run("returns nested object as map", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		t.Setenv("PMG_CONFIG_DIR", tmpDir)
-		initConfig()
-
-		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("cloud:\n  enabled: true\n"), 0o644)
-		require.NoError(t, err)
-
-		val, err := GetConfigValue("cloud")
-		require.NoError(t, err)
-
-		m, ok := val.(map[string]any)
-		require.True(t, ok, "expected map[string]any, got %T", val)
-		assert.Equal(t, true, m["enabled"])
-	})
-
-	t.Run("returns error for unknown key", func(t *testing.T) {
-		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
-		initConfig()
-
-		_, err := GetConfigValue("totally_bogus_key")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unknown config key")
-	})
-
-	t.Run("returns error for empty key", func(t *testing.T) {
-		_, err := GetConfigValue("")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "key cannot be empty")
-	})
-
 	t.Run("env var overrides config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
 		t.Setenv("PMG_PARANOID", "true")
-		initConfig()
 
-		configPath := filepath.Join(tmpDir, "config.yml")
-		err := os.WriteFile(configPath, []byte("paranoid: false\n"), 0o644)
+		err := os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte("paranoid: false\n"), 0o644)
 		require.NoError(t, err)
+
+		initConfig()
 
 		val, err := GetConfigValue("paranoid")
 		require.NoError(t, err)
-		// Viper returns env var values as strings via Get(); the JSON
-		// marshaler in the CLI command handles the final representation.
-		assert.Equal(t, "true", val)
+		assert.Equal(t, true, val)
 	})
 }
 
 func TestSetThenGetRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)
-	initConfig()
 
 	configPath := filepath.Join(tmpDir, "config.yml")
 	err := os.WriteFile(configPath, []byte("paranoid: false\ntransitive_depth: 5\nverbosity: normal\n"), 0o644)
 	require.NoError(t, err)
+
+	initConfig()
 
 	err = SetConfigValue("paranoid", "true")
 	require.NoError(t, err)
@@ -319,6 +329,9 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 
 	err = SetConfigValue("verbosity", "silent")
 	require.NoError(t, err)
+
+	// Reload global config from file to pick up changes
+	initConfig()
 
 	val, err := GetConfigValue("paranoid")
 	require.NoError(t, err)
