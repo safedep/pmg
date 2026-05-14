@@ -127,21 +127,21 @@ func TestGoParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "go test is known non download command",
+			name:    "go test may download packages",
 			command: "go test ./...",
 			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
 				require.NoError(t, err)
-				assert.True(t, parsed.IsKnownNonDownloadCommand)
-				assert.False(t, parsed.MayDownloadPackages())
+				assert.False(t, parsed.IsKnownNonDownloadCommand)
+				assert.True(t, parsed.MayDownloadPackages())
 			},
 		},
 		{
-			name:    "go build is known non download command",
+			name:    "go build may download packages",
 			command: "go build ./...",
 			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
 				require.NoError(t, err)
-				assert.True(t, parsed.IsKnownNonDownloadCommand)
-				assert.False(t, parsed.MayDownloadPackages())
+				assert.False(t, parsed.IsKnownNonDownloadCommand)
+				assert.True(t, parsed.MayDownloadPackages())
 			},
 		},
 		{

@@ -8,12 +8,16 @@ import (
 )
 
 type GoPackageManagerConfig struct {
-	CommandName string
+	CommandName         string
+	NonDownloadCommands []string
 }
 
 func DefaultGoPackageManagerConfig() GoPackageManagerConfig {
 	return GoPackageManagerConfig{
 		CommandName: "go",
+		NonDownloadCommands: []string{
+			"fmt", "fix", "version", "env", "vet",
+		},
 	}
 }
 
@@ -53,10 +57,10 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	switch args[subcmdIndex] {
-	case "build", "test", "fmt", "fix", "generate", "tool", "version", "env", "vet":
+	case "fmt", "fix", "version", "env", "vet":
 		return &ParsedCommand{
 			Command:                   command,
-			IsKnownNonDownloadCommand: true,
+			IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, g.Config.NonDownloadCommands),
 		}, nil
 	case "install":
 		return g.parseGoInstall(command, args[subcmdIndex+1:])
