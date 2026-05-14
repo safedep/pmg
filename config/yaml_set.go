@@ -131,8 +131,12 @@ func SetConfigValue(key, value string) error {
 }
 
 func ensureConfigFileExists(path string) error {
-	if _, err := os.Stat(path); err == nil {
+	_, err := os.Stat(path)
+	if err == nil {
 		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat config file %q: %w", path, err)
 	}
 	return WriteTemplateConfig()
 }
