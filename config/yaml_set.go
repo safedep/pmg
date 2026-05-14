@@ -11,7 +11,51 @@ import (
 	"github.com/goccy/go-yaml/token"
 )
 
-func SetValueInYAML(data []byte, key, value string) ([]byte, error) {
+func SetConfigValue(key, value string) error {
+	configPath, err := configFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	if err := ensureConfigFileExists(configPath); err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	result, err := setValueInYAML(data, key, value)
+	if err != nil {
+		return fmt.Errorf("failed to set config value: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, result, 0o644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+func GetConfigValue(key string) (any, error) {
+	if key == "" {
+		return nil, fmt.Errorf("key cannot be empty")
+	}
+
+	v, err := newConfigViper()
+	if err != nil {
+		return nil, err
+	}
+
+	if !v.IsSet(key) {
+		return nil, fmt.Errorf("unknown config key: %s", key)
+	}
+
+	return v.Get(key), nil
+}
+
+func setValueInYAML(data []byte, key, value string) ([]byte, error) {
 	if key == "" {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
@@ -103,33 +147,6 @@ func createScalarNode(value string, pos *token.Position) (ast.Node, error) {
 	return ast.String(tk), nil
 }
 
-func SetConfigValue(key, value string) error {
-	configPath, err := configFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config file path: %w", err)
-	}
-
-	if err := ensureConfigFileExists(configPath); err != nil {
-		return err
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	result, err := SetValueInYAML(data, key, value)
-	if err != nil {
-		return fmt.Errorf("failed to set config value: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, result, 0o644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-
-	return nil
-}
-
 func ensureConfigFileExists(path string) error {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -139,21 +156,4 @@ func ensureConfigFileExists(path string) error {
 		return fmt.Errorf("failed to stat config file %q: %w", path, err)
 	}
 	return WriteTemplateConfig()
-}
-
-func GetConfigValue(key string) (any, error) {
-	if key == "" {
-		return nil, fmt.Errorf("key cannot be empty")
-	}
-
-	v, err := newConfigViper()
-	if err != nil {
-		return nil, err
-	}
-
-	if !v.IsSet(key) {
-		return nil, fmt.Errorf("unknown config key: %s", key)
-	}
-
-	return v.Get(key), nil
 }
