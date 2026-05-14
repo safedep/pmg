@@ -48,7 +48,7 @@ func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 
 func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 	return NpmPackageManagerConfig{
-		InstallCommands: []string{"install", "i", "add"},
+		InstallCommands: []string{"install", "i", "add", "ci"},
 		NonDownloadCommands: []string{
 			// Removal
 			"remove", "rm",

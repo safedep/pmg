@@ -125,7 +125,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 			},
 		},
 		{
-			name: "deny write with /dev/null mount",
+			name: "deny write with read-only bind",
 			policy: &sandbox.SandboxPolicy{
 				Filesystem: sandbox.FilesystemPolicy{
 					DenyWrite: []string{"/etc/passwd"},
@@ -133,14 +133,10 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 			},
 			assert: func(t *testing.T, args []string, err error) {
 				require.NoError(t, err)
-				argsStr := argSliceToString(args)
 
-				// Should mount /dev/null over denied path if it exists
-				// Since /etc/passwd exists, it should be blocked
 				if _, err := os.Stat("/etc/passwd"); err == nil {
-					assert.Contains(t, argsStr, "--ro-bind")
-					assert.Contains(t, argsStr, "/dev/null")
-					assert.Contains(t, argsStr, "/etc/passwd")
+					assertNoDevNullMount(t, args, "/etc/passwd")
+					assertReadBind(t, args, "/etc/passwd")
 				}
 			},
 		},
@@ -480,8 +476,8 @@ func TestBubblewrapConfigEssentialDevices(t *testing.T) {
 	}
 }
 
-func TestBubblewrapTranslatorProcessDenyRule(t *testing.T) {
-	t.Run("existing file is blocked with /dev/null", func(t *testing.T) {
+func TestBubblewrapTranslatorProcessDenyWriteRule(t *testing.T) {
+	t.Run("existing file is mounted read-only", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		// Create a test file that exists
@@ -499,19 +495,15 @@ func TestBubblewrapTranslatorProcessDenyRule(t *testing.T) {
 		args, err := translator.translate(policy)
 		require.NoError(t, err)
 
-		argsStr := argSliceToString(args)
-
-		// Existing file should be mounted with /dev/null
-		assert.Contains(t, argsStr, "--ro-bind")
-		assert.Contains(t, argsStr, "/dev/null")
-		assert.Contains(t, argsStr, testFile)
+		assertNoDevNullMount(t, args, testFile)
+		assertReadBind(t, args, testFile)
 	})
 
 	t.Run("non-existent file is skipped to avoid creating empty files", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		// Non-existent file - should be skipped because using --ro-bind /dev/null
-		// on non-existent paths causes bwrap to create the file as a mount point
+		// Non-existent file - should be skipped because bwrap requires a real
+		// mount target for file-level read-only bind overrides.
 		nonExistentPath := filepath.Join(tmpDir, ".env")
 
 		policy := &sandbox.SandboxPolicy{
@@ -950,7 +942,7 @@ func TestBubblewrapMandatoryDenySuppression(t *testing.T) {
 		assertReadBind(t, args, envPath)
 	})
 
-	t.Run("user deny_write still wins for paths also in allow_read", func(t *testing.T) {
+	t.Run("user deny_write preserves read for paths also in allow_read", func(t *testing.T) {
 		dir := t.TempDir()
 		envPath := filepath.Join(dir, ".env")
 		require.NoError(t, os.WriteFile(envPath, []byte("X=1\n"), 0o600))
@@ -965,13 +957,15 @@ func TestBubblewrapMandatoryDenySuppression(t *testing.T) {
 		policy := &sandbox.SandboxPolicy{
 			Name: "test",
 			Filesystem: sandbox.FilesystemPolicy{
-				AllowRead: []string{envPath},
-				DenyWrite: []string{envPath},
+				AllowRead:  []string{envPath},
+				AllowWrite: []string{dir},
+				DenyWrite:  []string{envPath},
 			},
 		}
 		args := translateForTest(t, policy)
 
-		assertDevNullMount(t, args, envPath)
+		assertNoDevNullMount(t, args, envPath)
+		assertReadOnlyBindAfterWritableBind(t, args, envPath, dir)
 	})
 
 	t.Run("write-side opt-out skips both tmpfs and /dev/null for that path", func(t *testing.T) {
@@ -1013,16 +1007,6 @@ func assertNoTmpfsAt(t *testing.T, args []string, path string) {
 	}
 }
 
-func assertDevNullMount(t *testing.T, args []string, path string) {
-	t.Helper()
-	for i := 0; i+2 < len(args); i++ {
-		if (args[i] == "--ro-bind" || args[i] == "--bind") && args[i+1] == "/dev/null" && args[i+2] == path {
-			return
-		}
-	}
-	t.Fatalf("expected /dev/null mount at %q, not found in args: %v", path, args)
-}
-
 func assertNoDevNullMount(t *testing.T, args []string, path string) {
 	t.Helper()
 	for i := 0; i+2 < len(args); i++ {
@@ -1040,4 +1024,23 @@ func assertReadBind(t *testing.T, args []string, path string) {
 		}
 	}
 	t.Fatalf("expected --ro-bind %q %q, not found in args: %v", path, path, args)
+}
+
+func assertReadOnlyBindAfterWritableBind(t *testing.T, args []string, readOnlyPath string, writablePath string) {
+	t.Helper()
+
+	writableBindIndex := -1
+	readOnlyBindIndex := -1
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == writablePath && args[i+2] == writablePath {
+			writableBindIndex = i
+		}
+		if (args[i] == "--ro-bind" || args[i] == "--ro-bind-try") && args[i+1] == readOnlyPath && args[i+2] == readOnlyPath {
+			readOnlyBindIndex = i
+		}
+	}
+
+	require.NotEqual(t, -1, writableBindIndex, "expected writable bind for %q in args: %v", writablePath, args)
+	require.NotEqual(t, -1, readOnlyBindIndex, "expected read-only bind for %q in args: %v", readOnlyPath, args)
+	assert.Greater(t, readOnlyBindIndex, writableBindIndex, "deny_write read-only bind must override earlier writable parent bind")
 }

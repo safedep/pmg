@@ -6,6 +6,7 @@ package platform
 import (
 	"crypto/rand"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -26,6 +27,10 @@ func generateLogTag() string {
 	// Go rand.Text() returns 26 bytes of random string
 	randomStr := rand.Text()
 	return fmt.Sprintf("PMG_SBX_%s", randomStr[:12])
+}
+
+func seatbeltLogMessage(runID, kind, target string) string {
+	return fmt.Sprintf("PMG_SBX|run=%s|kind=%s|target=%s", runID, kind, url.QueryEscape(target))
 }
 
 func newSeatbeltPolicyTranslator() *seatbeltPolicyTranslator {
@@ -140,23 +145,23 @@ func generateMoveBlockingRules(pathPatterns []string, logTag string) []string {
 		if util.ContainsGlob(pathPattern) {
 			// For glob patterns, use regex matching for precise pattern enforcement
 			regexPattern := util.GlobToRegex(pathPattern)
-			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (regex #\"%s\") (with message \"%s\"))", regexPattern, logTag))
+			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (regex #\"%s\") (with message \"%s\"))", regexPattern, seatbeltLogMessage(logTag, "file-write-unlink", pathPattern)))
 
 			// Also block moving the base directory to prevent bypass
 			baseDir := extractBaseDir(pathPattern)
-			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (subpath \"%s\") (with message \"%s\"))", baseDir, logTag))
+			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (subpath \"%s\") (with message \"%s\"))", baseDir, seatbeltLogMessage(logTag, "file-write-unlink", baseDir)))
 
 			// Block moving ancestor directories
 			for _, ancestorDir := range getAncestorDirectories(baseDir) {
-				rules = append(rules, fmt.Sprintf("(deny file-write-unlink (literal \"%s\") (with message \"%s\"))", ancestorDir, logTag))
+				rules = append(rules, fmt.Sprintf("(deny file-write-unlink (literal \"%s\") (with message \"%s\"))", ancestorDir, seatbeltLogMessage(logTag, "file-write-unlink", ancestorDir)))
 			}
 		} else {
 			// For literal paths, use subpath matching
-			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (subpath \"%s\") (with message \"%s\"))", pathPattern, logTag))
+			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (subpath \"%s\") (with message \"%s\"))", pathPattern, seatbeltLogMessage(logTag, "file-write-unlink", pathPattern)))
 
 			// Block moving ancestor directories
 			for _, ancestorDir := range getAncestorDirectories(pathPattern) {
-				rules = append(rules, fmt.Sprintf("(deny file-write-unlink (literal \"%s\") (with message \"%s\"))", ancestorDir, logTag))
+				rules = append(rules, fmt.Sprintf("(deny file-write-unlink (literal \"%s\") (with message \"%s\"))", ancestorDir, seatbeltLogMessage(logTag, "file-write-unlink", ancestorDir)))
 			}
 		}
 	}
@@ -179,7 +184,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 
 	// Default policy: deny by default for maximum security
 	// Add log tag to track what gets denied by the default rule
-	sb.WriteString(fmt.Sprintf("(deny default (with message \"%s\"))\n\n", t.logTag))
+	sb.WriteString(fmt.Sprintf("(deny default (with message \"%s\"))\n\n", seatbeltLogMessage(t.logTag, "default", "")))
 
 	// Essential system permissions - based on Chrome/Chromium sandbox policy
 	// These are the minimum permissions needed for stable process execution
@@ -447,9 +452,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-read", expanded)))
 		} else {
-			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded)))
 		}
 		expandedDenyRead = append(expandedDenyRead, expanded)
 	}
@@ -474,9 +479,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-write", expanded)))
 		} else {
-			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-write", expanded)))
 		}
 		expandedDenyWrite = append(expandedDenyWrite, expanded)
 	}
@@ -517,9 +522,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 			if util.ContainsGlob(expanded) {
 				regexPattern := util.GlobToRegex(expanded)
-				sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+				sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-write", expanded)))
 			} else {
-				sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+				sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-write", expanded)))
 			}
 			expandedDenyWrite = append(expandedDenyWrite, expanded)
 		}
@@ -532,9 +537,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 			if util.ContainsGlob(expanded) {
 				regexPattern := util.GlobToRegex(expanded)
-				sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+				sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-read", expanded)))
 			} else {
-				sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+				sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded)))
 			}
 		}
 
@@ -640,9 +645,9 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 		if util.ContainsGlob(expanded) {
 			// For glob patterns, use regex matching for precise control
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny process-exec* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny process-exec* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "process-exec", expanded)))
 		} else {
-			sb.WriteString(fmt.Sprintf("(deny process-exec* (literal \"%s\") (with message \"%s\"))\n", expanded, t.logTag))
+			sb.WriteString(fmt.Sprintf("(deny process-exec* (literal \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "process-exec", expanded)))
 		}
 	}
 

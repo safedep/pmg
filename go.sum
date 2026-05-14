@@ -2,12 +2,8 @@ al.essio.dev/pkg/shellescape v1.5.1 h1:86HrALUujYS/h+GtqoB26SBEdkWfmMI6FubjXlsXy
 al.essio.dev/pkg/shellescape v1.5.1/go.mod h1:6sIqp7X2P6mThCQ7twERpZTuigpr6KbZWtls1U8I890=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1 h1:NXwdBG3BiC6xWH4iG3csbT+JHF9u1jl5ThDhumCnKnk=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1/go.mod h1:tvtbpgaVXZX4g6Pn+AnzFycuRK3MOz5HJfEGeEllXYM=
-buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260409081445-73994c4e35a3.1 h1:OKKSMXf1k7NZ1qcp5gfpTw0F3QGVM/X6ghkRs9GtrIA=
-buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260409081445-73994c4e35a3.1/go.mod h1:k1tkPvr2SWI5hWfY/fF9XgIBh1sZOMPMPl/bUH3L0wE=
 buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260507092425-ac47f9a19339.1 h1:TgL0Xu+EFQhr68C/eGrflL+TaFtEUWkfWXQ+f+vWGdg=
 buf.build/gen/go/safedep/api/grpc/go v1.6.1-20260507092425-ac47f9a19339.1/go.mod h1:AU7tshd3hSyemWEYn6mofmWPUJaWmGExFHAQSjp6N4o=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260409081445-73994c4e35a3.1 h1:x5a6h/YeT2cqgxqmBGOCKlifMEMb4VRJ3eOgQkNvJrs=
-buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260409081445-73994c4e35a3.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
 buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260507092425-ac47f9a19339.1 h1:JRzHMhoJg1Mlae+PR+ZZ1I1aaqAJdyF4WY3CidJD/us=
 buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260507092425-ac47f9a19339.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
@@ -27,8 +23,8 @@ github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XL
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/clipperhouse/stringish v0.1.1 h1:+NSqMOr3GR6k1FdRhhnXrLfztGzuG+VuFDfatpWHKCs=
 github.com/clipperhouse/stringish v0.1.1/go.mod h1:v/WhFtE1q0ovMta2+m+UbpZ+2/HEXNWYXQgCt4hdOzA=
-github.com/clipperhouse/uax29/v2 v2.3.0 h1:SNdx9DVUqMoBuBoW3iLOj4FQv3dN5mDtuqwuhIGpJy4=
-github.com/clipperhouse/uax29/v2 v2.3.0/go.mod h1:Wn1g7MK6OoeDT0vL+Q0SQLDz/KpfsVRgg6W7ihQeh4g=
+github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w94cO8U=
+github.com/clipperhouse/uax29/v2 v2.5.0/go.mod h1:Wn1g7MK6OoeDT0vL+Q0SQLDz/KpfsVRgg6W7ihQeh4g=
 github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGXZJjfX53e64911xZQV5JYwmTeXPW+k8Sc=
 github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 h1:6xNmx7iTtyBRev0+D/Tv1FZd4SCg8axKApyNyRsAt/w=
 github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5/go.mod h1:KdCmV+x/BuvyMxRnYBlmVaq4OLiKW6iRQfvC62cvdkI=
@@ -128,8 +124,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
-github.com/jedib0t/go-pretty/v6 v6.6.7 h1:m+LbHpm0aIAPLzLbMfn8dc3Ht8MW7lsSO4MPItz/Uuo=
-github.com/jedib0t/go-pretty/v6 v6.6.7/go.mod h1:YwC5CE4fJ1HFUDeivSV1r//AmANFHyqczZk+U6BDALU=
+github.com/jedib0t/go-pretty/v6 v6.7.9 h1:frarzQWmkZd97syT81+TH8INKPpzoxQnk+Mk5EIHSrM=
+github.com/jedib0t/go-pretty/v6 v6.7.9/go.mod h1:YwC5CE4fJ1HFUDeivSV1r//AmANFHyqczZk+U6BDALU=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
@@ -176,8 +172,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qq
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/safedep/dry v0.0.0-20260411074023-b589e91de472 h1:8CztWcu+C7alCjAS5AVDRhxr/LL/9y6lHwpZKmxZjvE=
-github.com/safedep/dry v0.0.0-20260411074023-b589e91de472/go.mod h1:JOiCF9w4plbcMS6XnLNpDaSoUEabdscP+eFk+kROHrs=
+github.com/safedep/dry v0.0.0-20260513152148-f809919cc4ce h1:0FxzXTmSrMWse6u0Wv2CbZOjXB1EFZE1qjhF4vB9NOg=
+github.com/safedep/dry v0.0.0-20260513152148-f809919cc4ce/go.mod h1:tKhOr0osgpefdBbxG8n4H5gYH1GLXidKS+hzNbRQ9LQ=
 github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12 h1:NzARvPtncPbVI8a8Z0JKpJ7XJCSPpsRstV7wAgEtmOU=
 github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12/go.mod h1:fyt+PACz6dtEoqsnE0BPPv/lHpuBG/8zkDqeIVcyRY4=
 github.com/sagikazarmark/locafero v0.11.0 h1:1iurJgmM9G3PA/I+wWYIOw/5SyBtxapeHDcg+AAIFXc=

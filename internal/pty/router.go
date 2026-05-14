@@ -2,6 +2,7 @@ package pty
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -86,20 +87,31 @@ func NewInputRouter(ptyWriter io.Writer) (*InputRouter, error) {
 //
 // This function blocks until src returns an error (e.g., EOF).
 func (r *InputRouter) ReadLoop(src io.Reader) {
+	r.ReadLoopContext(context.Background(), src)
+}
+
+// ReadLoopContext continuously reads from src and routes data to the current
+// destination until src returns an error or ctx is cancelled.
+func (r *InputRouter) ReadLoopContext(ctx context.Context, src io.Reader) {
 	buf := make([]byte, 1024)
 	for {
-		nr, err := src.Read(buf)
+		nr, err := readInput(ctx, src, buf)
 		if err != nil {
 			return
 		}
 
-		// Check where to route the data
+		if nr == 0 {
+			continue
+		}
+
 		if dest := r.dest.Load(); dest != nil {
-			// Send confirmation prompt response to the pipe. (PMG)
-			_, _ = dest.w.Write(buf[:nr])
+			if _, err := dest.w.Write(buf[:nr]); err != nil {
+				return
+			}
 		} else {
-			// Send response to the child PTY.
-			_, _ = r.defaultDst.Write(buf[:nr])
+			if _, err := r.defaultDst.Write(buf[:nr]); err != nil {
+				return
+			}
 		}
 	}
 }

@@ -3,11 +3,9 @@ package flows
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -15,15 +13,12 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
-	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
-	"github.com/safedep/pmg/sandbox/executor"
-	"github.com/safedep/pmg/usefulerror"
 )
 
 type proxyFlow struct {
@@ -206,16 +201,67 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	log.Infof("Proxy server started on %s", proxyAddr)
 	log.Infof("Running %s with proxy protection enabled", f.pm.Name())
 
-	proxyEnv := f.setupEnvForProxy(proxyAddr, caCertPath)
+	executionError := runner.ExecuteWithOptions(ctx, parsedCmd, runner.ExecuteOptions{
+		PackageManagerName: f.pm.Name(),
+		DryRun:             cfg.DryRun,
+		Mode:               runner.ExecutionModeAuto,
+		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath),
+		DirectEnvOverrides: []string{"CI=true"},
+		BeforeDirectRun: func() error {
+			log.Debugf("Executing proxy for non interactive TTY")
 
-	var executionError error
-	if pty.IsInteractiveTerminal() {
-		// Execute the package manager command with proxy environment variables
-		executionError = f.executeWithProxy(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
-	} else {
-		// Execute the package manager command with proxy environment variables for non PTY or non-interactive TTY
-		executionError = f.executeWithProxyForNonInteractiveTTY(ctx, parsedCmd, proxyEnv, confirmationChan, interaction)
-	}
+			interaction.GetConfirmationOnMalware = func(_ []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+				return false, nil
+			}
+
+			go interceptors.HandleConfirmationRequests(confirmationChan, interaction, nil)
+			return nil
+		},
+		PreparePTYSession: func(runtime *runner.PTYRuntime) error {
+			log.Debugf("Executing proxy for interactive TTY")
+
+			interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+				return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
+			}
+
+			go interceptors.HandleConfirmationRequests(
+				confirmationChan,
+				interaction,
+				&interceptors.ConfirmationHook{
+					BeforeInteraction: func(_ []*analyzer.PackageVersionAnalysisResult) error {
+						runtime.OutputRouter.Pause()
+
+						if err := runtime.Session.SetCookedMode(); err != nil {
+							return fmt.Errorf("failed to set cooked mode: %w", err)
+						}
+
+						if _, err := fmt.Fprint(os.Stdout, "\033[?25h"); err != nil {
+							log.Warnf("failed to force cursor visible: %v", err)
+						}
+
+						runtime.InputRouter.RouteToPrompt(runtime.PromptWriter)
+						interaction.SetInput(runtime.PromptReader)
+
+						return nil
+					},
+					AfterInteraction: func(_ []*analyzer.PackageVersionAnalysisResult, _ bool) error {
+						runtime.InputRouter.RouteToPTY()
+
+						if err := runtime.Session.SetRawMode(); err != nil {
+							return fmt.Errorf("failed to set raw mode: %w", err)
+						}
+
+						interaction.SetInput(nil)
+						runtime.OutputRouter.Resume()
+
+						return nil
+					},
+				},
+			)
+
+			return nil
+		},
+	})
 
 	// Populate report data from stats collector
 	stats := statsCollector.GetStats()
@@ -329,8 +375,7 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 
 	noProxyList := "localhost,127.0.0.1,[::1]"
 
-	env := os.Environ()
-	env = append(env,
+	return []string{
 		"NODE_USE_ENV_PROXY=1",
 		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
 		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
@@ -538,42 +583,4 @@ func (f *proxyFlow) executeWithProxy(
 	if err := promptReader.Close(); err != nil {
 		log.Errorf("failed to close prompt reader: %v", err)
 	}
-
-	if err := promptWriter.Close(); err != nil {
-		log.Errorf("failed to close prompt writer: %v", err)
-	}
-
-	if err := sess.Close(); err != nil {
-		log.Errorf("failed to close session: %v", err)
-	}
-
-	if sessionError != nil {
-		return f.handlePackageManagerExecutionError(sessionError)
-	}
-
-	return nil
-}
-
-func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return usefulerror.Useful().
-			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", exitErr.ExitCode())).
-			WithHelp("Check the package manager command and its arguments").
-			Wrap(err)
-	}
-
-	if sessionError, ok := err.(*pty.ExitError); ok {
-		return usefulerror.Useful().
-			WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-			WithHumanError(fmt.Sprintf("Package manager command exited with code: %d", sessionError.Code)).
-			WithHelp("Check the package manager command and its arguments").
-			Wrap(sessionError.Err)
-	}
-
-	return usefulerror.Useful().
-		WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
-		WithHumanError("Failed to execute package manager command").
-		WithHelp("Check the package manager command and its arguments").
-		Wrap(err)
 }

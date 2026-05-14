@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/internal/ui"
 )
 
 // AliasManager manages shell aliases for package managers.
@@ -135,7 +134,6 @@ func (a *AliasManager) Remove() error {
 		return fmt.Errorf("failed to clean shell configs: %w", err)
 	}
 
-	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. Existing aliases need a shell restart")
 	return nil
 }
 
