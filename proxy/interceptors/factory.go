@@ -69,6 +69,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.cache,
 			f.statsCollector,
 			f.confirmationChan,
+			f.execContext,
 		), nil
 
 	default:
