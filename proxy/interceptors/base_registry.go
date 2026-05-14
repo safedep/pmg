@@ -26,7 +26,6 @@ type baseRegistryInterceptor struct {
 	confirmationChan chan *ConfirmationRequest
 	execContext      InterceptorContext
 	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
-	execContext      InterceptorContext
 }
 
 func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
@@ -104,24 +103,16 @@ func (b *baseRegistryInterceptor) analyzePackage(
 		}, nil
 	}
 
-	for _, pinned := range b.execContext.PinnedVersions {
-		if pinned == nil || pinned.GetPackage() == nil {
-			continue
-		}
+	if pinnedVersion, exists := b.execContext.PinnedVersions[packageName]; exists && pinnedVersion == packageVersion {
+		log.Debugf("[%s] Skipping pinned package from command context: %s/%s@%s",
+			ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
-		if pinned.GetPackage().GetEcosystem() == ecosystem &&
-			pinned.GetPackage().GetName() == packageName &&
-			pinned.GetVersion() == packageVersion {
-			log.Debugf("[%s] Skipping pinned package from command context: %s/%s@%s",
-				ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+		audit.LogInstallTrustedAllowed(pkgVersion)
 
-			audit.LogInstallTrustedAllowed(pkgVersion)
-
-			return &analyzer.PackageVersionAnalysisResult{
-				PackageVersion: pkgVersion,
-				Action:         analyzer.ActionAllow,
-			}, nil
-		}
+		return &analyzer.PackageVersionAnalysisResult{
+			PackageVersion: pkgVersion,
+			Action:         analyzer.ActionAllow,
+		}, nil
 	}
 
 	if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {

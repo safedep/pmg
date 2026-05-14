@@ -344,6 +344,7 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 		fmt.Sprintf("PIP_CERT=%s", caCertPath),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
 		"PIP_RETRIES=0",
+		fmt.Sprintf("GOPROXY=https://proxy.golang.org,%s,direct", proxyURL),
 	)
 
 	return env
@@ -576,4 +577,3 @@ func (f *proxyFlow) handlePackageManagerExecutionError(err error) error {
 		WithHelp("Check the package manager command and its arguments").
 		Wrap(err)
 }
-
