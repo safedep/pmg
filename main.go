@@ -8,6 +8,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/cmd/cloud"
+	configCmd "github.com/safedep/pmg/cmd/config"
 	"github.com/safedep/pmg/cmd/executors"
 	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
@@ -136,6 +137,7 @@ func main() {
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
 	cmd.AddCommand(cloud.NewCloudCommand())
+	cmd.AddCommand(configCmd.NewConfigCommand())
 
 	if subcmd := landlockCmd.NewLandlockSandboxExecCommand(); subcmd != nil {
 		cmd.AddCommand(subcmd)
