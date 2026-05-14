@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetValueInYAML(t *testing.T) {
+func Test_setValueInYAML(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -97,7 +97,7 @@ func TestSetValueInYAML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := SetValueInYAML([]byte(tt.input), tt.key, tt.value)
+			result, err := setValueInYAML([]byte(tt.input), tt.key, tt.value)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)

@@ -47,8 +47,8 @@ func newGetCommand() *cobra.Command {
 				return fmt.Errorf("failed to marshal value: %w", err)
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), string(data))
-			return nil
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			return err
 		},
 	}
 }
