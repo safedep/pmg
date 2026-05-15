@@ -11,6 +11,9 @@ import (
 	"github.com/goccy/go-yaml/token"
 )
 
+// SetConfigValue updates a config value in the YAML config file on disk.
+// It does not update the in-memory config or viper state. Callers that need
+// the updated value must re-initialize the config after calling this function.
 func SetConfigValue(key, value string) error {
 	configPath, err := configFilePath()
 	if err != nil {
@@ -19,6 +22,11 @@ func SetConfigValue(key, value string) error {
 
 	if err := ensureConfigFileExists(configPath); err != nil {
 		return err
+	}
+
+	fi, err := os.Stat(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat config file: %w", err)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -31,7 +39,7 @@ func SetConfigValue(key, value string) error {
 		return fmt.Errorf("failed to set config value: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, result, 0o644); err != nil {
+	if err := os.WriteFile(configPath, result, fi.Mode()); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -133,6 +141,8 @@ func replaceScalarValue(mv *ast.MappingValueNode, value string) error {
 		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
 			return fmt.Errorf("invalid value %q for %q: expected an integer", value, mv.Key.String())
 		}
+	default:
+		return fmt.Errorf("unsupported node type for key %q: %T", mv.Key.String(), mv.Value)
 	}
 
 	newNode, err := createScalarNode(value, pos)
