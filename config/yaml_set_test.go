@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -324,6 +325,78 @@ func TestGetConfigValue(t *testing.T) {
 		// Viper returns env var values as strings
 		assert.Equal(t, "true", val)
 	})
+}
+
+func TestSetStringFieldPreservesType(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		key   string
+		value string
+	}{
+		{
+			name:  "string field set to bool-like value stays string",
+			input: "verbosity: normal\n",
+			key:   "verbosity",
+			value: "true",
+		},
+		{
+			name:  "string field set to integer-like value stays string",
+			input: "verbosity: normal\n",
+			key:   "verbosity",
+			value: "42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := setValueInYAML([]byte(tt.input), tt.key, tt.value)
+			require.NoError(t, err)
+
+			file, err := parser.ParseBytes(result, parser.ParseComments)
+			require.NoError(t, err)
+
+			root := file.Docs[0].Body.(*ast.MappingNode)
+			for _, mv := range root.Values {
+				if mv.Key.String() == tt.key {
+					assert.Equal(t, ast.StringType, mv.Value.Type(),
+						"expected StringType but got %s", mv.Value.Type())
+					return
+				}
+			}
+			t.Fatalf("key %q not found in result", tt.key)
+		})
+	}
+}
+
+func Test_needsQuoting(t *testing.T) {
+	tests := []struct {
+		value    string
+		expected bool
+	}{
+		{"true", true},
+		{"false", true},
+		{"True", true},
+		{"False", true},
+		{"yes", true},
+		{"no", true},
+		{"null", true},
+		{"42", true},
+		{"-5", true},
+		{"0", true},
+		{"3.14", true},
+		{"hello", false},
+		{"normal", false},
+		{"verbose", false},
+		{"", false},
+		{"123abc", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			assert.Equal(t, tt.expected, needsQuoting(tt.value))
+		})
+	}
 }
 
 func TestSetThenGetRoundTrip(t *testing.T) {

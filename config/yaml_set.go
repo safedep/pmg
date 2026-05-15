@@ -112,11 +112,19 @@ func replaceScalarValue(mv *ast.MappingValueNode, value string) error {
 		return fmt.Errorf("cannot set value: %q has no existing value", mv.Key.String())
 	}
 
+	pos := mv.Value.GetToken().Position
+
 	switch mv.Value.(type) {
 	case *ast.MappingNode:
 		return fmt.Errorf("cannot set value on non-scalar node: %q is a mapping", mv.Key.String())
 	case *ast.SequenceNode:
 		return fmt.Errorf("cannot set value on non-scalar node: %q is a sequence", mv.Key.String())
+	case *ast.StringNode:
+		newNode, err := createStringNode(value, pos)
+		if err != nil {
+			return err
+		}
+		return mv.Replace(newNode)
 	case *ast.BoolNode:
 		if value != "true" && value != "false" {
 			return fmt.Errorf("invalid value %q for %q: expected true or false", value, mv.Key.String())
@@ -127,11 +135,42 @@ func replaceScalarValue(mv *ast.MappingValueNode, value string) error {
 		}
 	}
 
-	newNode, err := createScalarNode(value, mv.Value.GetToken().Position)
+	newNode, err := createScalarNode(value, pos)
 	if err != nil {
 		return err
 	}
 	return mv.Replace(newNode)
+}
+
+func createStringNode(value string, pos *token.Position) (ast.Node, error) {
+	newPos := &token.Position{
+		Line:   pos.Line,
+		Column: pos.Column,
+		Offset: pos.Offset,
+	}
+
+	if needsQuoting(value) {
+		tk := token.New(value, value, newPos)
+		tk.Type = token.DoubleQuoteType
+		return ast.String(tk), nil
+	}
+
+	tk := token.String(value, value, newPos)
+	return ast.String(tk), nil
+}
+
+func needsQuoting(value string) bool {
+	if value == "true" || value == "false" || value == "null" ||
+		value == "True" || value == "False" || value == "yes" || value == "no" {
+		return true
+	}
+	if _, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return true
+	}
+	if _, err := strconv.ParseFloat(value, 64); err == nil {
+		return true
+	}
+	return false
 }
 
 func createScalarNode(value string, pos *token.Position) (ast.Node, error) {
