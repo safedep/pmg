@@ -388,7 +388,7 @@ func Test_needsQuoting(t *testing.T) {
 		{"hello", false},
 		{"normal", false},
 		{"verbose", false},
-		{"", false},
+		{"", true},
 		{"123abc", false},
 	}
 

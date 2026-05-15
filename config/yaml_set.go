@@ -170,6 +170,9 @@ func createStringNode(value string, pos *token.Position) (ast.Node, error) {
 }
 
 func needsQuoting(value string) bool {
+	if value == "" {
+		return true
+	}
 	if value == "true" || value == "false" || value == "null" ||
 		value == "True" || value == "False" || value == "yes" || value == "no" {
 		return true
