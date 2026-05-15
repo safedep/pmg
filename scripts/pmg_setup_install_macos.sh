@@ -117,21 +117,11 @@ pmg setup install
 # ── Enable cloud sync ───────────────────────────────────────────────────────
 if [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]]; then
   log "Enabling cloud sync"
-
-  CONFIG_FILE="${HOME}/Library/Application Support/safedep/pmg/config.yml"
-
-  if [[ -f "$CONFIG_FILE" ]]; then
-    awk '
-      /^cloud:/ { in_cloud=1 }
-      in_cloud && /^  enabled: false/ { sub(/enabled: false/, "enabled: true"); in_cloud=0 }
-      /^[a-z]/ && !/^cloud:/ { in_cloud=0 }
-      { print }
-    ' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-    log "Cloud sync enabled in config"
-  fi
+  pmg config set cloud.enabled true
+  log "Cloud sync enabled in config"
 
   SAFEDEP_API_KEY="$CLOUD_API_KEY" SAFEDEP_TENANT_ID="$CLOUD_TENANT_ID" pmg cloud login --from-env
-  log "Credentials stored securely"
+  log "Credentials stored in macOS Keychain"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
