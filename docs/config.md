@@ -15,9 +15,23 @@ pmg setup info
 To edit configuration file:
 
 ```bash
-pmg setup edit
+pmg config edit
 ```
 
+To get a config value (output is JSON):
+
+```bash
+pmg config get paranoid
+pmg config get cloud.enabled
+```
+
+To set a config value:
+
+```bash
+pmg config set paranoid true
+pmg config set transitive_depth 10
+pmg config set cloud.enabled true
+```
 See [config template](../config/config.template.yml) for the configuration schema.
 
 ## Environment Variables
@@ -58,3 +72,10 @@ PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 3. Config file (`config.yml`)
 4. Built-in defaults
 
+
+**Limitation**
+
+- `config set` can only update keys that are present and uncommented in the config file.
+If a key is commented out (e.g. `# endpoint_id: "my-machine"`) or missing entirely, `set` will
+return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
+or run `pmg setup install` to merge missing template keys into your config.

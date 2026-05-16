@@ -45,6 +45,7 @@ func loadViperConfig() error {
 	}
 
 	globalConfig.Config = merged
+	globalConfig.viper = v
 
 	// Resolve proxy config: new proxy section > legacy flat keys.
 	// Viper can't distinguish "value from template" vs "value from user config"
@@ -80,10 +81,14 @@ func hasProxySectionInFile(path string) bool {
 // over legacy config file keys to respect the documented precedence order.
 func applyProxyLegacyFallback(v *viper.Viper) {
 	if os.Getenv("PMG_PROXY_ENABLED") == "" && v.IsSet("proxy_mode") {
-		globalConfig.Config.Proxy.Enabled = v.GetBool("proxy_mode")
+		val := v.GetBool("proxy_mode")
+		globalConfig.Config.Proxy.Enabled = val
+		v.Set("proxy.enabled", val)
 	}
 
 	if os.Getenv("PMG_PROXY_INSTALL_ONLY") == "" && v.IsSet("proxy_install_only") {
-		globalConfig.Config.Proxy.InstallOnly = v.GetBool("proxy_install_only")
+		val := v.GetBool("proxy_install_only")
+		globalConfig.Config.Proxy.InstallOnly = val
+		v.Set("proxy.install_only", val)
 	}
 }

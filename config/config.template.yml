@@ -166,4 +166,4 @@ cloud:
   enabled: false
   # Endpoint ID is not required. By default, it falls back to the machine's hostname.
   # Set it only if you want to explicitly override the identifier for this endpoint.
-  # endpoint_id: "my-machine"
+  endpoint_id: ""

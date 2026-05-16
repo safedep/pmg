@@ -1,6 +1,7 @@
-package setup
+package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -8,12 +9,63 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/safedep/pmg/config"
+	appConfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/shellwords"
 	"github.com/spf13/cobra"
 )
 
-func NewEditCommand() *cobra.Command {
+func NewConfigCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "View and modify PMG configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+
+	cmd.AddCommand(newGetCommand())
+	cmd.AddCommand(newSetCommand())
+	cmd.AddCommand(newEditCommand())
+
+	return cmd
+}
+
+func newGetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:          "get <key>",
+		Short:        "Get a config value by dot-notation key (output is JSON)",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			value, err := appConfig.GetConfigValue(args[0])
+			if err != nil {
+				return err
+			}
+
+			data, err := json.Marshal(value)
+			if err != nil {
+				return fmt.Errorf("failed to marshal value: %w", err)
+			}
+
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			return err
+		},
+	}
+}
+
+func newSetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:          "set <key> <value>",
+		Short:        "Set a config value by dot-notation key",
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return appConfig.SetConfigValue(args[0], args[1])
+		},
+	}
+}
+
+func newEditCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit",
 		Short: "Open the PMG config file in your default editor",
@@ -33,11 +85,11 @@ If the config file does not exist, a template is created first.`,
 }
 
 func runEdit() error {
-	cfg := config.Get()
+	cfg := appConfig.Get()
 	path := cfg.ConfigFilePath()
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := config.WriteTemplateConfig(); err != nil {
+		if err := appConfig.WriteTemplateConfig(); err != nil {
 			return fmt.Errorf("failed to create config file: %w", err)
 		}
 	} else if err != nil {
