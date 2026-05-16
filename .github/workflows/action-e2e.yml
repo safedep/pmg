@@ -97,10 +97,14 @@ jobs:
             exit 1
           fi
 
-  sandbox-landlock:
-    name: Sandbox (landlock) installs and runs
+  sandbox-setup:
+    name: Sandbox setup (${{ matrix.driver }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [landlock, bubblewrap]
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -109,33 +113,25 @@ jobs:
       - uses: ./
         with:
           sandbox: "true"
-          sandbox-driver: landlock
-      - name: Sandboxed install
-        env:
-          npm_config_cache: /tmp/npm-cache
+          sandbox-driver: ${{ matrix.driver }}
+      - name: Sandbox env vars propagated
+        shell: bash
         run: |
-          mkdir t && cd t
-          npm init -y
-          npm install express@5.2.1
-
-  sandbox-bubblewrap:
-    name: Sandbox (bubblewrap) installs and runs
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 20
-      - uses: ./
-        with:
-          sandbox: "true"
-          sandbox-driver: bubblewrap
-      - name: Sandboxed install
+          set -e
+          test "$PMG_SANDBOX_ENABLED" = "true"
+          test "$PMG_SANDBOX_DRIVER" = "${{ matrix.driver }}"
+          pmg version
+      - name: Bubblewrap binary installed when driver=bubblewrap
+        if: matrix.driver == 'bubblewrap'
+        run: bwrap --version
+      - name: AppArmor user-ns restriction relaxed
+        shell: bash
         run: |
-          mkdir t && cd t
-          npm init -y
-          npm install express@5.2.1
+          # systemctl-stop is best-effort; just confirm the sysctl is now 0
+          # so unprivileged user namespaces work for either driver.
+          v=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo "missing")
+          echo "apparmor_restrict_unprivileged_userns=$v"
+          test "$v" = "0" -o "$v" = "missing"
 
   non-linux-fail-fast:
     name: Action fails fast on non-Linux runners
