@@ -25,43 +25,43 @@ inputs:
     default: ""
 
   paranoid:
-    description: Treat suspicious packages as malicious (PMG_PARANOID).
+    description: Treat suspicious packages as malicious (PMG_PARANOID). Empty = use PMG default (false).
     required: false
-    default: "false"
+    default: ""
   cooldown-enabled:
-    description: Block recently-published package versions (PMG_DEPENDENCY_COOLDOWN_ENABLED).
+    description: Block recently-published package versions (PMG_DEPENDENCY_COOLDOWN_ENABLED). Empty = use PMG default (true).
     required: false
-    default: "true"
+    default: ""
   cooldown-days:
-    description: Cooldown window in days. Leave empty to use the PMG default.
+    description: Cooldown window in days (PMG_DEPENDENCY_COOLDOWN_DAYS). Empty = use PMG default (5).
     required: false
     default: ""
   proxy-mode:
-    description: Use proxy-based interception. Disabling falls back to guard-based analysis (PMG_PROXY_ENABLED).
+    description: Use proxy-based interception (PMG_PROXY_ENABLED). Empty = use PMG default (true). Setting "false" falls back to guard-based analysis.
     required: false
-    default: "true"
+    default: ""
 
   sandbox:
-    description: Run package managers inside an OS sandbox (Landlock/Bubblewrap). Disabling AppArmor user-namespace restrictions on the runner may be required for unprivileged user namespaces to work.
+    description: Run package managers inside an OS sandbox (PMG_SANDBOX_ENABLED). Empty = use PMG default (false). Enabling will also relax AppArmor user-namespace restrictions on the runner so unprivileged user namespaces work.
     required: false
-    default: "false"
+    default: ""
   sandbox-driver:
-    description: Sandbox backend on Linux. One of "landlock" or "bubblewrap".
+    description: Sandbox backend on Linux (PMG_SANDBOX_DRIVER). One of "landlock" or "bubblewrap". Defaults to "landlock" when sandbox is enabled and this is empty.
     required: false
-    default: landlock
+    default: ""
 
   verbosity:
-    description: PMG output verbosity. One of "silent", "normal", "verbose".
+    description: PMG output verbosity (PMG_VERBOSITY). One of "silent", "normal", "verbose". Empty = use PMG default.
     required: false
-    default: normal
+    default: ""
   disable-telemetry:
-    description: Disable anonymous PMG telemetry (PMG_DISABLE_TELEMETRY).
+    description: Disable anonymous PMG telemetry (PMG_DISABLE_TELEMETRY). Empty = use PMG default.
     required: false
-    default: "false"
+    default: ""
   skip-event-logging:
-    description: Skip writing audit events to the local event log (PMG_SKIP_EVENT_LOGGING).
+    description: Skip writing audit events to the local event log (PMG_SKIP_EVENT_LOGGING). Empty = use PMG default.
     required: false
-    default: "false"
+    default: ""
 
   config-file:
     description: Path (relative to the workspace) to a user-supplied PMG config.yml. Copied into the PMG config directory before "pmg setup install" runs, so PMG merges any missing template keys into it.
@@ -129,32 +129,42 @@ runs:
 
         mkdir -p "$install_dir"
         bin_path="${install_dir}/pmg"
+        tar_path="${install_dir}/${asset}"
 
-        if [ "$INPUT_CACHE" = "true" ] && [ -x "$bin_path" ]; then
-          echo "Using cached PMG at $bin_path (cache: true, opt-in)"
-        else
-          tmpdir=$(mktemp -d)
-          trap 'rm -rf "$tmpdir"' EXIT
+        # Always fetch upstream checksums.txt — even on a cache hit — so a
+        # tampered cache entry is caught before we run the binary.
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' EXIT
+        curl -fsSL -o "${tmpdir}/checksums.txt" \
+          "https://github.com/${repo}/releases/download/${tag}/checksums.txt"
+        expected=$(grep "  ${asset}\$" "${tmpdir}/checksums.txt" | cut -d' ' -f1 || true)
+        if [ -z "$expected" ]; then
+          echo "::error::No checksum entry for ${asset} in ${tag}/checksums.txt" >&2
+          exit 1
+        fi
 
-          curl -fsSL -o "${tmpdir}/checksums.txt" \
-            "https://github.com/${repo}/releases/download/${tag}/checksums.txt"
-          expected=$(grep "  ${asset}\$" "${tmpdir}/checksums.txt" | cut -d' ' -f1)
-          if [ -z "$expected" ]; then
-            echo "::error::No checksum entry for ${asset} in ${tag}/checksums.txt" >&2
-            exit 1
+        need_download=true
+        if [ "$INPUT_CACHE" = "true" ] && [ -f "$tar_path" ] && [ -x "$bin_path" ]; then
+          cached=$(sha256sum "$tar_path" | cut -d' ' -f1)
+          if [ "$cached" = "$expected" ]; then
+            echo "Cached PMG ${tag} verified against upstream checksum"
+            need_download=false
+          else
+            echo "Cached PMG ${tag} checksum drift (want ${expected}, got ${cached}); refreshing"
+            rm -f "$tar_path" "$bin_path"
           fi
+        fi
 
-          curl -fsSL -o "${tmpdir}/${asset}" \
+        if [ "$need_download" = "true" ]; then
+          curl -fsSL -o "$tar_path" \
             "https://github.com/${repo}/releases/download/${tag}/${asset}"
-
-          actual=$(sha256sum "${tmpdir}/${asset}" | cut -d' ' -f1)
+          actual=$(sha256sum "$tar_path" | cut -d' ' -f1)
           if [ "$actual" != "$expected" ]; then
             echo "::error::Checksum mismatch for ${asset}: want ${expected}, got ${actual}" >&2
             exit 1
           fi
           echo "Checksum verified for ${asset}"
-
-          tar -xzf "${tmpdir}/${asset}" -C "$install_dir" pmg
+          tar -xzf "$tar_path" -C "$install_dir" pmg
           chmod +x "$bin_path"
         fi
 
@@ -210,14 +220,6 @@ runs:
         cp "$src" "$dest_dir/config.yml"
         echo "Staged $src -> $dest_dir/config.yml"
 
-    - name: Run pmg setup install
-      shell: bash
-      run: pmg setup install
-
-    - name: Add PMG shims to PATH
-      shell: bash
-      run: echo "$HOME/.pmg/bin" >> "$GITHUB_PATH"
-
     - name: Export PMG configuration
       shell: bash
       env:
@@ -266,17 +268,30 @@ runs:
           fi
         fi
 
+        # Only emit PMG_* vars when the user explicitly set the input. This
+        # preserves the "config-file overrides PMG defaults" guarantee — env
+        # vars take precedence over config.yml in Viper, so empty pass-through
+        # means we don't shadow file-based tuning.
         export_var PMG_PARANOID                     "$IN_PARANOID"
         export_var PMG_DEPENDENCY_COOLDOWN_ENABLED  "$IN_COOLDOWN_ENABLED"
         export_var PMG_DEPENDENCY_COOLDOWN_DAYS     "$IN_COOLDOWN_DAYS"
         export_var PMG_PROXY_ENABLED                "$IN_PROXY_MODE"
         export_var PMG_SANDBOX_ENABLED              "$IN_SANDBOX"
         if [ "$IN_SANDBOX" = "true" ]; then
-          export_var PMG_SANDBOX_DRIVER             "$IN_SANDBOX_DRIVER"
+          driver="${IN_SANDBOX_DRIVER:-landlock}"
+          export_var PMG_SANDBOX_DRIVER             "$driver"
         fi
         export_var PMG_VERBOSITY                    "$IN_VERBOSITY"
         export_var PMG_DISABLE_TELEMETRY            "$IN_DISABLE_TELEMETRY"
         export_var PMG_SKIP_EVENT_LOGGING           "$IN_SKIP_EVENT_LOGGING"
+
+    - name: Run pmg setup install
+      shell: bash
+      run: pmg setup install
+
+    - name: Add PMG shims to PATH
+      shell: bash
+      run: echo "$HOME/.pmg/bin" >> "$GITHUB_PATH"
 
     - name: Verify PMG
       shell: bash

@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
       - uses: ./
@@ -44,14 +44,20 @@ jobs:
           npm install express@5.2.1
           test -d node_modules/express
       - name: Block a known-malicious package
+        shell: bash
         run: |
+          set -eo pipefail
           mkdir m && cd m
           npm init -y
           set +e
-          npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 2>&1 | tee out.log
+          npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 >out.log 2>&1
           code=$?
           set -e
-          test "$code" -ne 0
+          cat out.log
+          if [ "$code" -eq 0 ]; then
+            echo "::error::Expected install to fail (malicious package), but it succeeded." >&2
+            exit 1
+          fi
           grep -qi "Malicious package blocked" out.log
 
   custom-config-file:
@@ -59,8 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
       - name: Write custom PMG config
@@ -81,14 +87,23 @@ jobs:
           test -f "$dest"
           grep -q "^paranoid: true" "$dest"
           grep -q "days: 365" "$dest"
+      - name: Verify env doesn't shadow file-based tuning
+        shell: bash
+        run: |
+          # With no explicit "paranoid" input, the action must not export
+          # PMG_PARANOID — otherwise it would override the staged config.
+          if [ -n "${PMG_PARANOID:-}" ]; then
+            echo "::error::PMG_PARANOID leaked into env ($PMG_PARANOID); would shadow config-file" >&2
+            exit 1
+          fi
 
   sandbox-landlock:
     name: Sandbox (landlock) installs and runs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
       - uses: ./
@@ -108,8 +123,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 20
       - uses: ./
@@ -131,7 +146,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Action must exit non-zero
         id: run
         continue-on-error: true

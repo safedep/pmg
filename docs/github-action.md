@@ -36,23 +36,28 @@ real toolchains.
 
 ## Inputs
 
-| Input | Default | Description |
+All toggle inputs default to empty. When empty, the action emits no
+`PMG_*` env var for that key and PMG's own defaults apply — so a YAML
+loaded via `config-file` is never silently shadowed. Set an input
+explicitly to override.
+
+| Input | Effect when set | PMG default if empty |
 |---|---|---|
-| `version` | `latest` | PMG release tag (e.g. `v0.42.0`) or `latest`. |
-| `api-key` | _empty_ | SafeDep Cloud API key. Set together with `tenant-id` to enable cloud sync. Mask with a secret. |
-| `tenant-id` | _empty_ | SafeDep Cloud tenant ID. |
-| `endpoint-id` | `github-actions/<owner>/<repo>` when cloud is enabled | Identifier reported to SafeDep Cloud. Defaults to a stable per-repo string instead of the ephemeral runner hostname. |
-| `paranoid` | `false` | Treat suspicious packages as malicious. |
-| `cooldown-enabled` | `true` | Block recently-published versions. |
-| `cooldown-days` | _PMG default (5)_ | Cooldown window in days. |
-| `proxy-mode` | `true` | Use proxy-based interception. Set `false` for guard-based analysis. |
-| `sandbox` | `false` | Run package managers inside Landlock/Bubblewrap. The action will attempt to relax AppArmor user-namespace restrictions on the runner. |
-| `sandbox-driver` | `landlock` | One of `landlock` or `bubblewrap`. |
-| `verbosity` | `normal` | One of `silent`, `normal`, `verbose`. |
-| `disable-telemetry` | `false` | Disable PMG anonymous telemetry. |
-| `skip-event-logging` | `false` | Skip writing audit events to the local event log. |
-| `config-file` | _empty_ | Path to a YAML file in the repo. Copied to PMG's config dir before setup so you can override any config key. |
-| `cache` | `false` | Reuse a previously-extracted PMG binary from `$RUNNER_TOOL_CACHE` (intended for self-hosted runners). Off by default; fresh download per run keeps the binary current and reduces blast radius of cached-artifact tampering. |
+| `version` | PMG release tag (e.g. `v0.42.0`) or `latest` | `latest` |
+| `api-key` | SafeDep Cloud API key. Set together with `tenant-id`; mask with a secret | unset (cloud sync disabled) |
+| `tenant-id` | SafeDep Cloud tenant ID | unset |
+| `endpoint-id` | Reported to SafeDep Cloud as the "machine" identifier | `github-actions/<owner>/<repo>` when cloud is enabled |
+| `paranoid` | `PMG_PARANOID` | `false` |
+| `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
+| `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `5` |
+| `proxy-mode` | `PMG_PROXY_ENABLED`. Set `false` for guard-based analysis | `true` |
+| `sandbox` | `PMG_SANDBOX_ENABLED`. Also relaxes AppArmor user-ns restrictions on the runner | `false` |
+| `sandbox-driver` | `PMG_SANDBOX_DRIVER` — `landlock` or `bubblewrap` | `landlock` when sandbox is enabled |
+| `verbosity` | `PMG_VERBOSITY` — `silent`, `normal`, or `verbose` | `normal` |
+| `disable-telemetry` | `PMG_DISABLE_TELEMETRY` | `false` |
+| `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
+| `config-file` | Path to a YAML file in the repo. Copied to PMG's config dir before setup so you can override any config key | unset |
+| `cache` | Reuse a previously-extracted PMG binary from `$RUNNER_TOOL_CACHE`. On cache hit, the cached tarball is re-verified against `checksums.txt` fetched from upstream every run | `false` (fresh download per run) |
 
 ## Outputs
 
