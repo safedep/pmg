@@ -204,7 +204,7 @@ Protect your CI workflows by adding a single step. Every `npm install`,
 ```yaml
 - uses: actions/setup-node@v4
   with:
-    node-version: 20
+    node-version: 24
 - uses: safedep/pmg@v1
 - run: npm ci
 ```
