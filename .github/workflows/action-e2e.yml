@@ -74,10 +74,13 @@ jobs:
       - uses: ./
         with:
           config-file: pmg.yml
-      - name: Verify config values
+      - name: Verify config staged into PMG config dir
         run: |
-          test "$(pmg config get paranoid)" = "true"
-          test "$(pmg config get dependency_cooldown.days)" = "365"
+          set -e
+          dest="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml"
+          test -f "$dest"
+          grep -q "^paranoid: true" "$dest"
+          grep -q "days: 365" "$dest"
 
   sandbox-landlock:
     name: Sandbox (landlock) installs and runs

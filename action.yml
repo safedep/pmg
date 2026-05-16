@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ""
   endpoint-id:
-    description: Identifier reported to SafeDep Cloud for this runner. Defaults to "github-actions/${{ github.repository }}" so events aggregate per repository instead of per ephemeral runner hostname.
+    description: Identifier reported to SafeDep Cloud for this runner. When empty and cloud is enabled, defaults to "github-actions/<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
     required: false
     default: ""
 
