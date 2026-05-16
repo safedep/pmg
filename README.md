@@ -196,6 +196,24 @@ go install github.com/safedep/pmg@latest
 Download the latest binary for your platform from the [Releases Page](https://github.com/safedep/pmg/releases).
 </details>
 
+## GitHub Actions
+
+Protect your CI workflows by adding a single step. Every `npm install`,
+`pip install`, etc. in the job is transparently analyzed by PMG.
+
+```yaml
+- uses: actions/setup-node@v4
+  with:
+    node-version: 20
+- uses: safedep/pmg@v1
+- run: npm ci
+```
+
+Zero-config users get malware blocking and dependency cooldown out of the
+box. Power users tune behavior via inputs (`paranoid`, `sandbox`,
+`cooldown-days`, ...) or by pointing `config-file` at a YAML in the repo.
+See [docs/github-action.md](docs/github-action.md) for the full reference.
+
 ## Uninstallation
 
 Remove shell integration:

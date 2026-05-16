@@ -1,0 +1,139 @@
+name: Action E2E
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - action.yml
+      - docs/github-action.md
+      - .github/workflows/action-e2e.yml
+  push:
+    branches: [main]
+    paths:
+      - action.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  default-config:
+    name: Default config installs and protects
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - uses: ./
+      - name: PATH wiring
+        run: |
+          set -e
+          which pmg
+          which npm
+          test "$(command -v npm)" = "$HOME/.pmg/bin/npm"
+      - name: Install a benign package
+        run: |
+          mkdir t && cd t
+          npm init -y
+          npm install express@5.2.1
+          test -d node_modules/express
+      - name: Block a known-malicious package
+        run: |
+          mkdir m && cd m
+          npm init -y
+          set +e
+          npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 2>&1 | tee out.log
+          code=$?
+          set -e
+          test "$code" -ne 0
+          grep -qi "Malicious package blocked" out.log
+
+  custom-config-file:
+    name: config-file input overrides defaults
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Write custom PMG config
+        run: |
+          cat > pmg.yml <<'YAML'
+          paranoid: true
+          dependency_cooldown:
+            enabled: true
+            days: 365
+          YAML
+      - uses: ./
+        with:
+          config-file: pmg.yml
+      - name: Verify config values
+        run: |
+          test "$(pmg config get paranoid)" = "true"
+          test "$(pmg config get dependency_cooldown.days)" = "365"
+
+  sandbox-landlock:
+    name: Sandbox (landlock) installs and runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - uses: ./
+        with:
+          sandbox: "true"
+          sandbox-driver: landlock
+      - name: Sandboxed install
+        env:
+          npm_config_cache: /tmp/npm-cache
+        run: |
+          mkdir t && cd t
+          npm init -y
+          npm install express@5.2.1
+
+  sandbox-bubblewrap:
+    name: Sandbox (bubblewrap) installs and runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - uses: ./
+        with:
+          sandbox: "true"
+          sandbox-driver: bubblewrap
+      - name: Sandboxed install
+        run: |
+          mkdir t && cd t
+          npm init -y
+          npm install express@5.2.1
+
+  non-linux-fail-fast:
+    name: Action fails fast on non-Linux runners
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Action must exit non-zero
+        id: run
+        continue-on-error: true
+        uses: ./
+      - name: Verify it failed
+        shell: bash
+        run: |
+          test "${{ steps.run.outcome }}" = "failure"
