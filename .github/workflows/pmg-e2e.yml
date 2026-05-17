@@ -557,6 +557,9 @@ jobs:
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
 
+      - name: Run Shai-Hulud Sandbox E2E Test
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-shai-hulud-e2e.js
+
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
 
@@ -625,6 +628,9 @@ jobs:
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+
+      - name: Run Shai-Hulud Sandbox E2E Test
+        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-shai-hulud-e2e.js
 
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/pm-e2e.js
@@ -704,6 +710,9 @@ jobs:
 
       - name: Run Sandbox E2E Test
         run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+
+      - name: Run Shai-Hulud Sandbox E2E Test
+        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-shai-hulud-e2e.js
 
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/pm-e2e.js
