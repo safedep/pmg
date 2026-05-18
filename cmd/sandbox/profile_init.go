@@ -6,10 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
-	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/spf13/cobra"
 )
 
@@ -110,21 +108,6 @@ func runProfileInit(out io.Writer, name string, opts *profileInitOptions, factor
 
 	_, err = fmt.Fprintln(out, target)
 	return err
-}
-
-func knownBuiltinNames(registry pmgsandbox.ProfileRegistry) string {
-	summaries, err := registry.ListProfiles()
-	if err != nil {
-		return ""
-	}
-	names := make([]string, 0, len(summaries))
-	for _, s := range summaries {
-		if s.Source == pmgsandbox.ProfileSourceBuiltin {
-			names = append(names, s.Name)
-		}
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }
 
 func renderScaffold(name, description, inheritsFrom string, pms []string, placeholderPM bool) string {
