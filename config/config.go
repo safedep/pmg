@@ -27,12 +27,21 @@ const (
 	// Allow overriding the config path from the environment
 	pmgConfigDirEnvKey = "PMG_CONFIG_DIR"
 
+	// Allow overriding the cache path from the environment
+	pmgCacheDirEnvKey = "PMG_CACHE_DIR"
+
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
 	pmgDefaultHomeRelativePath = "safedep/pmg"
 
 	// Default log directory is relative to the config directory.
 	pmgDefaultLogDir = "logs"
+
+	// Default sandbox profile directory is relative to the config directory.
+	pmgDefaultSandboxProfileDir = "sandbox/profiles"
+
+	// Default sandbox violation cache directory is relative to the cache root.
+	pmgDefaultSandboxViolationCacheDir = "sandbox/violations"
 
 	// Config file name.
 	// Important: The config file path and the schema should be backward compatible. In case of breaking config
@@ -176,10 +185,12 @@ type RuntimeConfig struct {
 	SandboxAllowOverrides []SandboxAllowOverride
 
 	// Internal config values computed at runtime and must be accessed via. API
-	configDir      string
-	configFilePath string
-	eventLogDir    string
-	viper          *viper.Viper
+	configDir                string
+	configFilePath           string
+	eventLogDir              string
+	sandboxProfileDir        string
+	sandboxViolationCacheDir string
+	viper                    *viper.Viper
 }
 
 // CloudSyncDBPath returns the path to the cloud sync WAL database.
@@ -200,6 +211,16 @@ func (r *RuntimeConfig) EventLogDir() string {
 // ConfigDir returns the path to the config directory.
 func (r *RuntimeConfig) ConfigDir() string {
 	return r.configDir
+}
+
+// SandboxProfileDir returns the path to the user sandbox profile directory.
+func (r *RuntimeConfig) SandboxProfileDir() string {
+	return r.sandboxProfileDir
+}
+
+// SandboxViolationCacheDir returns the path to the sandbox violation cache directory.
+func (r *RuntimeConfig) SandboxViolationCacheDir() string {
+	return r.sandboxViolationCacheDir
 }
 
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
@@ -303,9 +324,21 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get event log directory: %w", err))
 	}
 
+	sandboxProfileDir, err := sandboxProfileDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get sandbox profile directory: %w", err))
+	}
+
+	sandboxViolationCacheDir, err := sandboxViolationCacheDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get sandbox violation cache directory: %w", err))
+	}
+
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = configFilePath
 	globalConfig.eventLogDir = eventLogDir
+	globalConfig.sandboxProfileDir = sandboxProfileDir
+	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
 
 	loadConfig()
 
@@ -375,6 +408,55 @@ func eventLogDir() (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
+}
+
+// cacheDir computes the path to the cache root directory.
+func cacheDir() (string, error) {
+	dir := os.Getenv(pmgCacheDirEnvKey)
+	if dir != "" {
+		return dir, nil
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		// Windows: %LOCALAPPDATA%\safedep\pmg or %USERPROFILE%\safedep\pmg
+		baseDir := os.Getenv("LOCALAPPDATA")
+		if baseDir == "" {
+			baseDir = os.Getenv("USERPROFILE")
+			if baseDir == "" {
+				return "", fmt.Errorf("could not determine Windows user directory for cache storage")
+			}
+		}
+		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
+	case "darwin", "linux":
+		userCacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to retrieve user cache directory: %w", err)
+		}
+		return filepath.Join(userCacheDir, pmgDefaultHomeRelativePath), nil
+	default:
+		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+// sandboxProfileDir computes the path to the sandbox profile directory.
+func sandboxProfileDir() (string, error) {
+	configDir, err := configDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	return filepath.Join(configDir, pmgDefaultSandboxProfileDir), nil
+}
+
+// sandboxViolationCacheDir computes the path to the sandbox violation cache directory.
+func sandboxViolationCacheDir() (string, error) {
+	cacheDir, err := cacheDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get cache directory: %w", err)
+	}
+
+	return filepath.Join(cacheDir, pmgDefaultSandboxViolationCacheDir), nil
 }
 
 // Get returns the global configuration.

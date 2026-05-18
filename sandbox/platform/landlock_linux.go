@@ -47,8 +47,8 @@ func newLandlockSandbox() (sandbox.Sandbox, error) {
 }
 
 // Name returns the name of this sandbox implementation.
-func (s *landlockSandbox) Name() string {
-	return "landlock"
+func (s *landlockSandbox) Name() sandbox.DriverName {
+	return sandbox.DriverLandlock
 }
 
 // IsAvailable returns true if Landlock is available and functional on this system.

@@ -122,8 +122,30 @@ func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern strin
 		parentDir = "/"
 	}
 
-	sb.WriteString(fmt.Sprintf(";; Auto-allow parent directory for %s\n", pattern))
-	sb.WriteString(fmt.Sprintf("(allow %s (literal \"%s\"))\n", operation, parentDir))
+	sb.WriteString(";; Auto-allow parent directory for ")
+	sb.WriteString(pattern)
+	sb.WriteString("\n")
+	sb.WriteString("(allow ")
+	sb.WriteString(operation)
+	sb.WriteString(" (literal \"")
+	sb.WriteString(parentDir)
+	sb.WriteString("\"))\n")
+}
+
+func writeSeatbeltDenyRule(sb *strings.Builder, operation, matcher, value, message string) {
+	sb.WriteString("(deny ")
+	sb.WriteString(operation)
+	sb.WriteString("* (")
+	sb.WriteString(matcher)
+	if matcher == "regex" {
+		sb.WriteString(" #\"")
+	} else {
+		sb.WriteString(" \"")
+	}
+	sb.WriteString(value)
+	sb.WriteString("\") (with message \"")
+	sb.WriteString(message)
+	sb.WriteString("\"))\n")
 }
 
 // generateMoveBlockingRules generates deny rules for file movement (file-write-unlink) to protect paths.
@@ -398,9 +420,13 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-read*")
 
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(allow file-read* (regex #\"%s\"))\n", regexPattern))
+			sb.WriteString("(allow file-read* (regex #\"")
+			sb.WriteString(regexPattern)
+			sb.WriteString("\"))\n")
 		} else {
-			sb.WriteString(fmt.Sprintf("(allow file-read* (subpath \"%s\"))\n", expanded))
+			sb.WriteString("(allow file-read* (subpath \"")
+			sb.WriteString(expanded)
+			sb.WriteString("\"))\n")
 		}
 	}
 
@@ -414,7 +440,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		if len(tmpdirParents) > 0 {
 			sb.WriteString(";; Auto-allow TMPDIR parent on macOS\n")
 			for _, parent := range tmpdirParents {
-				sb.WriteString(fmt.Sprintf("(allow file-write* (subpath \"%s\"))\n", parent))
+				sb.WriteString("(allow file-write* (subpath \"")
+				sb.WriteString(parent)
+				sb.WriteString("\"))\n")
 			}
 			sb.WriteString("\n")
 		}
@@ -432,9 +460,13 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 			globDoubleStarAutoAllowParentDirIfNeeded(sb, pattern, expanded, "file-write*")
 
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(allow file-write* (regex #\"%s\"))\n", regexPattern))
+			sb.WriteString("(allow file-write* (regex #\"")
+			sb.WriteString(regexPattern)
+			sb.WriteString("\"))\n")
 		} else {
-			sb.WriteString(fmt.Sprintf("(allow file-write* (subpath \"%s\"))\n", expanded))
+			sb.WriteString("(allow file-write* (subpath \"")
+			sb.WriteString(expanded)
+			sb.WriteString("\"))\n")
 		}
 	}
 
@@ -452,9 +484,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-read", expanded)))
+			writeSeatbeltDenyRule(sb, "file-read", "regex", regexPattern, seatbeltLogMessage(t.logTag, "file-read", expanded))
 		} else {
-			sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded)))
+			writeSeatbeltDenyRule(sb, "file-read", "subpath", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded))
 		}
 		expandedDenyRead = append(expandedDenyRead, expanded)
 	}
@@ -479,9 +511,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-write", expanded)))
+			writeSeatbeltDenyRule(sb, "file-write", "regex", regexPattern, seatbeltLogMessage(t.logTag, "file-write", expanded))
 		} else {
-			sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-write", expanded)))
+			writeSeatbeltDenyRule(sb, "file-write", "subpath", expanded, seatbeltLogMessage(t.logTag, "file-write", expanded))
 		}
 		expandedDenyWrite = append(expandedDenyWrite, expanded)
 	}
@@ -522,9 +554,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 			if util.ContainsGlob(expanded) {
 				regexPattern := util.GlobToRegex(expanded)
-				sb.WriteString(fmt.Sprintf("(deny file-write* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-write", expanded)))
+				writeSeatbeltDenyRule(sb, "file-write", "regex", regexPattern, seatbeltLogMessage(t.logTag, "file-write", expanded))
 			} else {
-				sb.WriteString(fmt.Sprintf("(deny file-write* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-write", expanded)))
+				writeSeatbeltDenyRule(sb, "file-write", "subpath", expanded, seatbeltLogMessage(t.logTag, "file-write", expanded))
 			}
 			expandedDenyWrite = append(expandedDenyWrite, expanded)
 		}
@@ -537,9 +569,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 			if util.ContainsGlob(expanded) {
 				regexPattern := util.GlobToRegex(expanded)
-				sb.WriteString(fmt.Sprintf("(deny file-read* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "file-read", expanded)))
+				writeSeatbeltDenyRule(sb, "file-read", "regex", regexPattern, seatbeltLogMessage(t.logTag, "file-read", expanded))
 			} else {
-				sb.WriteString(fmt.Sprintf("(deny file-read* (subpath \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded)))
+				writeSeatbeltDenyRule(sb, "file-read", "subpath", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded))
 			}
 		}
 
@@ -602,8 +634,12 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	}
 
 	for _, addr := range policy.Network.AllowBind {
-		sb.WriteString(fmt.Sprintf("(allow network-bind (local ip \"%s\"))\n", addr))
-		sb.WriteString(fmt.Sprintf("(allow network* (local ip \"%s\"))\n", addr))
+		sb.WriteString("(allow network-bind (local ip \"")
+		sb.WriteString(addr)
+		sb.WriteString("\"))\n")
+		sb.WriteString("(allow network* (local ip \"")
+		sb.WriteString(addr)
+		sb.WriteString("\"))\n")
 	}
 
 	if utils.SafelyGetValue(policy.AllowNetworkBind) || len(policy.Network.AllowBind) > 0 {
@@ -627,9 +663,13 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 		if util.ContainsGlob(expanded) {
 			// For glob patterns, use regex matching for precise control
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(allow process-exec* (regex #\"%s\"))\n", regexPattern))
+			sb.WriteString("(allow process-exec* (regex #\"")
+			sb.WriteString(regexPattern)
+			sb.WriteString("\"))\n")
 		} else {
-			sb.WriteString(fmt.Sprintf("(allow process-exec* (literal \"%s\"))\n", expanded))
+			sb.WriteString("(allow process-exec* (literal \"")
+			sb.WriteString(expanded)
+			sb.WriteString("\"))\n")
 		}
 	}
 
@@ -645,9 +685,9 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 		if util.ContainsGlob(expanded) {
 			// For glob patterns, use regex matching for precise control
 			regexPattern := util.GlobToRegex(expanded)
-			sb.WriteString(fmt.Sprintf("(deny process-exec* (regex #\"%s\") (with message \"%s\"))\n", regexPattern, seatbeltLogMessage(t.logTag, "process-exec", expanded)))
+			writeSeatbeltDenyRule(sb, "process-exec", "regex", regexPattern, seatbeltLogMessage(t.logTag, "process-exec", expanded))
 		} else {
-			sb.WriteString(fmt.Sprintf("(deny process-exec* (literal \"%s\") (with message \"%s\"))\n", expanded, seatbeltLogMessage(t.logTag, "process-exec", expanded)))
+			writeSeatbeltDenyRule(sb, "process-exec", "literal", expanded, seatbeltLogMessage(t.logTag, "process-exec", expanded))
 		}
 	}
 

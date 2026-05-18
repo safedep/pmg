@@ -17,11 +17,11 @@ import (
 // PMG_SANDBOX_DRIVER=landlock to force Landlock (no fallback — fails if
 // Landlock is unavailable).
 func NewSandbox() (sandbox.Sandbox, error) {
-	switch os.Getenv("PMG_SANDBOX_DRIVER") {
-	case "bubblewrap":
+	switch sandbox.DriverName(os.Getenv("PMG_SANDBOX_DRIVER")) {
+	case sandbox.DriverBubblewrap:
 		log.Debugf("PMG_SANDBOX_DRIVER=bubblewrap: forcing Bubblewrap sandbox")
 		return newBubblewrapSandbox()
-	case "landlock":
+	case sandbox.DriverLandlock:
 		log.Debugf("PMG_SANDBOX_DRIVER=landlock: forcing Landlock sandbox")
 		return newLandlockSandbox()
 	}
@@ -34,4 +34,16 @@ func NewSandbox() (sandbox.Sandbox, error) {
 
 	log.Debugf("Landlock not available (%v), falling back to Bubblewrap", err)
 	return newBubblewrapSandbox()
+}
+
+// NewBubblewrapSandbox returns a Bubblewrap-backed sandbox instance regardless
+// of platform driver selection. Useful for per-driver diagnostics.
+func NewBubblewrapSandbox() (sandbox.Sandbox, error) {
+	return newBubblewrapSandbox()
+}
+
+// NewLandlockSandbox returns a Landlock-backed sandbox instance regardless of
+// platform driver selection. Useful for per-driver diagnostics.
+func NewLandlockSandbox() (sandbox.Sandbox, error) {
+	return newLandlockSandbox()
 }

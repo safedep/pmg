@@ -87,8 +87,8 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 }
 
 // Name returns the name of this sandbox implementation.
-func (b *bubblewrapSandbox) Name() string {
-	return "bubblewrap"
+func (b *bubblewrapSandbox) Name() sandbox.DriverName {
+	return sandbox.DriverBubblewrap
 }
 
 // IsAvailable returns true if bubblewrap (bwrap) is available on this system.

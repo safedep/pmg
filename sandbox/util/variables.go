@@ -6,42 +6,46 @@ import (
 	"strings"
 )
 
-// ExpandVariables expands known variables in a path or pattern.
+// ExpandVariables expands known variables in a path or pattern using process
+// environment values. See ExpandVariablesWith for supported variables.
+func ExpandVariables(pattern string) (string, error) {
+	return ExpandVariablesWith(pattern, "", "", "")
+}
+
+// ExpandVariablesWith expands known variables in a path or pattern. Any of
+// cwd, home, tmpDir left empty falls back to the corresponding process value.
 // Supported variables:
 // - ${HOME}: User home directory
 // - ${CWD}: Current working directory
 // - ${TMPDIR}: Temporary directory
-func ExpandVariables(pattern string) (string, error) {
-	result := pattern
-
-	// Get home directory
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+func ExpandVariablesWith(pattern, cwd, home, tmpDir string) (string, error) {
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		home = h
 	}
 
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
+	if cwd == "" {
+		c, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		cwd = c
 	}
 
-	// Get temp directory
-	tmpDir := os.TempDir()
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
 
-	// Replace variables
 	replacer := strings.NewReplacer(
 		"${HOME}", home,
 		"${CWD}", cwd,
 		"${TMPDIR}", tmpDir,
 	)
 
-	result = replacer.Replace(result)
-
-	// Clean up path (resolve .., ., etc.)
-	result = filepath.Clean(result)
-
-	return result, nil
+	return filepath.Clean(replacer.Replace(pattern)), nil
 }
 
 // ContainsGlob returns true if the pattern contains glob wildcards.

@@ -157,7 +157,7 @@ func resolveSandboxDriverName() string {
 		return "unavailable"
 	}
 
-	return sb.Name()
+	return string(sb.Name())
 }
 
 // describeCloudCredentials reports whether SafeDep Cloud credentials can be

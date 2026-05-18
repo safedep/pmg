@@ -46,7 +46,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		opt(applyConfig)
 	}
 
-	registry, err := sandbox.NewProfileRegistry()
+	registry, err := sandbox.NewProfileRegistry(sandbox.WithUserProfileDir(cfg.SandboxProfileDir()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create profile registry: %w", err)
 	}

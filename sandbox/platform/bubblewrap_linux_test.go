@@ -18,7 +18,7 @@ func TestBubblewrapSandboxCreation(t *testing.T) {
 	sb, err := newBubblewrapSandbox()
 	require.NoError(t, err)
 	assert.NotNil(t, sb)
-	assert.Equal(t, "bubblewrap", sb.Name())
+	assert.Equal(t, sandbox.DriverBubblewrap, sb.Name())
 }
 
 func TestBubblewrapSandboxIsAvailable(t *testing.T) {

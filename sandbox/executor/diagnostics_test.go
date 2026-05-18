@@ -1,113 +1,85 @@
 package executor
 
 import (
-	"os"
-	"path/filepath"
+	"context"
+	"errors"
+	"os/exec"
 	"testing"
 
 	"github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestSuggestSandboxOverrideSkipsGlobRuleTarget(t *testing.T) {
-	assert.Empty(t, suggestSandboxOverride(sandbox.Violation{
-		Kind:   sandbox.ViolationKindFSRead,
-		Target: "**/.env",
-	}))
+type fakeViolationSandbox struct {
+	report *sandbox.ViolationReport
 }
 
-func TestSuggestSandboxOverrideUsesConcretePath(t *testing.T) {
-	assert.Equal(t, "--sandbox-allow read='./.env'", suggestSandboxOverride(sandbox.Violation{
-		Kind:   sandbox.ViolationKindFSRead,
-		Target: "./.env",
-	}))
+func (f *fakeViolationSandbox) Execute(context.Context, *exec.Cmd, *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
+	return sandbox.NewExecutionResult(), nil
 }
 
-func TestSuggestSandboxOverrideQuotesSpacesAndSingleQuotes(t *testing.T) {
-	assert.Equal(t, "--sandbox-allow read='/tmp/My Dir/it'\\''s.env'", suggestSandboxOverride(sandbox.Violation{
-		Kind:   sandbox.ViolationKindFSRead,
-		Target: "/tmp/My Dir/it's.env",
-	}))
+func (f *fakeViolationSandbox) Name() sandbox.DriverName {
+	return sandbox.DriverSeatbelt
 }
 
-func TestSuggestSandboxOverrideSkipsControlCharacters(t *testing.T) {
-	assert.Empty(t, suggestSandboxOverride(sandbox.Violation{
-		Kind:   sandbox.ViolationKindFSRead,
-		Target: "/tmp/bad\npath",
-	}))
+func (f *fakeViolationSandbox) IsAvailable() bool {
+	return true
 }
 
-func TestBuildSandboxDetailsIncludesMatchedRule(t *testing.T) {
-	details := buildSandboxDetails(&sandbox.ViolationReport{
-		SandboxName:   "seatbelt",
-		PolicyName:    "npm-restrictive",
-		CorrelationID: "run-1",
-		Violations: []sandbox.Violation{
-			{
-				Kind:       sandbox.ViolationKindFSRead,
-				RawKind:    "file-read",
-				Target:     "./.env",
-				RuleTarget: "**/.env",
-				Process:    "node",
-				RuleLabel:  "read access denied: ./.env",
+func (f *fakeViolationSandbox) Close() error {
+	return nil
+}
+
+func (f *fakeViolationSandbox) BestEffortViolation(error) (*sandbox.ViolationReport, error) {
+	return f.report, nil
+}
+
+// WrapCommandExecutionError must never claim the sandbox blocked a command.
+// Even when violations were observed, the user-facing error stays the package
+// manager's native exit; a neutral breadcrumb points at the forensic command.
+func TestWrapCommandExecutionErrorDoesNotAttributeFailureToSandbox(t *testing.T) {
+	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(&fakeViolationSandbox{
+		report: &sandbox.ViolationReport{
+			SandboxName:   sandbox.DriverSeatbelt,
+			PolicyName:    "npm-restrictive",
+			CorrelationID: "run-1",
+			Violations: []sandbox.Violation{
+				{
+					Kind:       sandbox.ViolationKindFSRead,
+					RawKind:    "file-read",
+					Target:     "./.env",
+					RuleTarget: "**/.env",
+					RuleLabel:  "read access denied: ./.env",
+				},
 			},
 		},
-	})
+	}))
 
-	assert.Contains(t, details, "Matched rule: **/.env")
+	err := WrapCommandExecutionError(errors.New("npm failed"), result, 1)
+
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, usefulerror.ErrCodePackageManagerExecutionFailed, usefulErr.Code())
+	assert.Equal(t, "Package manager command exited with code: 1", usefulErr.HumanError())
+	assert.NotContains(t, usefulErr.Help(), "./.env")
+	assert.Contains(t, usefulErr.AdditionalHelp(), "pmg sandbox violations list")
 }
 
-func TestPrimarySandboxViolationPrefersConcreteProjectPathOverDefaultNoise(t *testing.T) {
-	cwd, err := os.Getwd()
-	assert.NoError(t, err)
+func TestWrapCommandExecutionErrorOmitsBreadcrumbWhenNoViolations(t *testing.T) {
+	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(&fakeViolationSandbox{
+		report: nil,
+	}))
 
-	report := &sandbox.ViolationReport{
-		Violations: []sandbox.Violation{
-			{
-				Kind:      sandbox.ViolationKindGenericDeny,
-				RawKind:   "default",
-				Target:    "/dev/dtracehelper",
-				RuleLabel: "sandbox denied access to /dev/dtracehelper",
-			},
-			{
-				Kind:       sandbox.ViolationKindFSRead,
-				RawKind:    "file-read",
-				Target:     filepath.Join(cwd, ".env"),
-				RuleTarget: "**/.env",
-				RuleLabel:  "read access denied: " + filepath.Join(cwd, ".env"),
-			},
-		},
-	}
+	err := WrapCommandExecutionError(errors.New("npm failed"), result, 1)
 
-	primary := primarySandboxViolation(report)
-	if assert.NotNil(t, primary) {
-		assert.Equal(t, sandbox.ViolationKindFSRead, primary.Kind)
-		assert.Equal(t, filepath.Join(cwd, ".env"), primary.Target)
-	}
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, usefulerror.ErrCodePackageManagerExecutionFailed, usefulErr.Code())
+	assert.NotContains(t, usefulErr.AdditionalHelp(), "pmg sandbox violations list")
 }
 
-func TestBuildSandboxHintUsesRankedPrimaryViolation(t *testing.T) {
-	cwd, err := os.Getwd()
-	assert.NoError(t, err)
-
-	hint := buildSandboxHint(&sandbox.ViolationReport{
-		Violations: []sandbox.Violation{
-			{
-				Kind:      sandbox.ViolationKindGenericDeny,
-				RawKind:   "default",
-				Target:    "/dev/dtracehelper",
-				RuleLabel: "sandbox denied access to /dev/dtracehelper",
-			},
-			{
-				Kind:       sandbox.ViolationKindFSRead,
-				RawKind:    "file-read",
-				Target:     filepath.Join(cwd, ".env"),
-				RuleTarget: "**/.env",
-				RuleLabel:  "read access denied: " + filepath.Join(cwd, ".env"),
-			},
-		},
-	})
-
-	assert.Contains(t, hint, "Reason: read access denied:")
-	assert.NotContains(t, hint, "/dev/dtracehelper")
+func TestWrapCommandExecutionErrorReturnsNilOnNilError(t *testing.T) {
+	assert.NoError(t, WrapCommandExecutionError(nil, nil, 0))
 }
