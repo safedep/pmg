@@ -10,6 +10,11 @@ import (
 
 // ErrorExit prints a minimal, clean error message and exits with a non-zero status code.
 func ErrorExit(err error) {
+	ErrorExitWithCode(err, 1)
+}
+
+// ErrorExitWithCode prints a minimal, clean error message and exits with code.
+func ErrorExitWithCode(err error, code int) {
 	log.Errorf("Exiting due to error: %s", err)
 
 	usefulErr := convertToUsefulError(err)
@@ -29,7 +34,7 @@ func ErrorExit(err error) {
 		printMinimalError(usefulErr.Code(), usefulErr.HumanError(), hint)
 	}
 
-	os.Exit(1)
+	os.Exit(code)
 }
 
 // printMinimalError prints error in minimal two-line format:

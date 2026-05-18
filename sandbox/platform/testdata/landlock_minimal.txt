@@ -1,0 +1,110 @@
+# Landlock ruleset
+# policy: render-min
+abi: GOLDEN (GOLDEN)
+features: GOLDEN
+allow_pty: false
+skip_pid_namespace: false
+skip_ipc_namespace: false
+
+filesystem_rules (16):
+  - path: /tmp
+    access: execute|read_file|read_dir
+  - path: /tmp
+    access: execute|read_file|read_dir|write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
+  - path: /usr/bin
+    access: execute|read_file
+  - path: /usr/sbin
+    access: execute|read_file
+  - path: /usr/lib
+    access: execute|read_file
+  - path: /usr/lib64
+    access: execute|read_file
+  - path: /bin
+    access: execute|read_file
+  - path: /sbin
+    access: execute|read_file
+  - path: /lib
+    access: execute|read_file
+  - path: /lib64
+    access: execute|read_file
+  - path: /proc
+    access: execute|read_file|read_dir
+  - path: /dev/null
+    access: execute|read_file|read_dir|write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
+  - path: /dev/zero
+    access: execute|read_file|read_dir|write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
+  - path: /dev/random
+    access: execute|read_file|read_dir|write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
+  - path: /dev/urandom
+    access: execute|read_file|read_dir|write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
+  - path: /tmp
+    access: write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
+
+deny_paths (32):
+  - path: /src/sandbox/platform/.env
+    mode: both
+  - path: /root/.env
+    mode: both
+  - path: /src/sandbox/platform/.aws
+    mode: both
+  - path: /root/.aws
+    mode: both
+  - path: /src/sandbox/platform/.azure
+    mode: both
+  - path: /root/.azure
+    mode: both
+  - path: /src/sandbox/platform/.gcloud
+    mode: both
+  - path: /root/.gcloud
+    mode: both
+  - path: /src/sandbox/platform/.config/gcloud
+    mode: both
+  - path: /root/.config/gcloud
+    mode: both
+  - path: /src/sandbox/platform/.kube
+    mode: both
+  - path: /root/.kube
+    mode: both
+  - path: /src/sandbox/platform/.ssh
+    mode: both
+  - path: /root/.ssh
+    mode: both
+  - path: /src/sandbox/platform/.gnupg
+    mode: both
+  - path: /root/.gnupg
+    mode: both
+  - path: /src/sandbox/platform/.docker/config.json
+    mode: both
+  - path: /root/.docker/config.json
+    mode: both
+  - path: /src/sandbox/platform/.netrc
+    mode: both
+  - path: /root/.netrc
+    mode: both
+  - path: /src/sandbox/platform/.git-credentials
+    mode: both
+  - path: /root/.git-credentials
+    mode: both
+  - path: /src/sandbox/platform/.pgpass
+    mode: both
+  - path: /root/.pgpass
+    mode: both
+  - path: /src/sandbox/platform/.config/gh
+    mode: both
+  - path: /root/.config/gh
+    mode: both
+  - path: /src/sandbox/platform/.git/config
+    mode: both
+  - path: /root/.git/config
+    mode: both
+  - path: /src/sandbox/platform/.git/hooks
+    mode: both
+  - path: /src/sandbox/platform/.git/hooks
+    mode: both
+  - path: /root/.git/hooks
+    mode: both
+  - path: /root/.git/hooks
+    mode: both
+
+deny_exec_paths (1):
+  - /bin/sh

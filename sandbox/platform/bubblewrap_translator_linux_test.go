@@ -70,7 +70,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 	cases := []struct {
 		name   string
 		policy *sandbox.SandboxPolicy
-		assert func(t *testing.T, args []string, err error)
+		assert func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy)
 	}{
 		{
 			name: "simple read-only path",
@@ -79,7 +79,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 					AllowRead: []string{"/usr/local"},
 				},
 			},
-			assert: func(t *testing.T, args []string, err error) {
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
 				require.NoError(t, err)
 				argsStr := argSliceToString(args)
 				// Should have read-only bind for the path
@@ -94,7 +94,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 					AllowWrite: []string{"/tmp/test"},
 				},
 			},
-			assert: func(t *testing.T, args []string, err error) {
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
 				require.NoError(t, err)
 				argsStr := argSliceToString(args)
 				// Should have read-write bind for the path
@@ -110,7 +110,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 					AllowWrite: []string{"${CWD}/node_modules"},
 				},
 			},
-			assert: func(t *testing.T, args []string, err error) {
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
 				require.NoError(t, err)
 				argsStr := argSliceToString(args)
 
@@ -131,13 +131,65 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 					DenyWrite: []string{"/etc/passwd"},
 				},
 			},
-			assert: func(t *testing.T, args []string, err error) {
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
 				require.NoError(t, err)
 
 				if _, err := os.Stat("/etc/passwd"); err == nil {
 					assertNoDevNullMount(t, args, "/etc/passwd")
 					assertReadBind(t, args, "/etc/passwd")
 				}
+			},
+		},
+		{
+			name: "deny read masks file with dev null",
+			policy: func() *sandbox.SandboxPolicy {
+				dir := t.TempDir()
+				path := filepath.Join(dir, "secret.txt")
+				require.NoError(t, os.WriteFile(path, []byte("secret"), 0o600))
+				return &sandbox.SandboxPolicy{
+					Filesystem: sandbox.FilesystemPolicy{
+						DenyRead: []string{path},
+					},
+				}
+			}(),
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
+				require.NoError(t, err)
+				assertDevNullMount(t, args, policy.Filesystem.DenyRead[0])
+			},
+		},
+		{
+			name: "deny read hides directory with tmpfs",
+			policy: func() *sandbox.SandboxPolicy {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("secret"), 0o600))
+				return &sandbox.SandboxPolicy{
+					Filesystem: sandbox.FilesystemPolicy{
+						DenyRead: []string{dir},
+					},
+				}
+			}(),
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
+				require.NoError(t, err)
+				assertTmpfsAt(t, args, policy.Filesystem.DenyRead[0])
+			},
+		},
+		{
+			name: "deny read globstar uses parent directory approximation",
+			policy: func() *sandbox.SandboxPolicy {
+				dir := t.TempDir()
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "nested"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "nested", "secret.txt"), []byte("secret"), 0o600))
+				return &sandbox.SandboxPolicy{
+					Filesystem: sandbox.FilesystemPolicy{
+						DenyRead: []string{filepath.Join(dir, "**")},
+					},
+				}
+			}(),
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
+				require.NoError(t, err)
+				parentDir := filepath.Dir(policy.Filesystem.DenyRead[0])
+				assertTmpfsAt(t, args, parentDir)
+				assertNoDevNullMount(t, args, filepath.Join(parentDir, "nested", "secret.txt"))
 			},
 		},
 		{
@@ -155,7 +207,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 					},
 				},
 			},
-			assert: func(t *testing.T, args []string, err error) {
+			assert: func(t *testing.T, args []string, err error, policy *sandbox.SandboxPolicy) {
 				require.NoError(t, err)
 				argsStr := argSliceToString(args)
 
@@ -176,7 +228,7 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 			config := newDefaultBubblewrapConfig()
 			translator := newBubblewrapPolicyTranslator(config)
 			args, err := translator.translate(tt.policy)
-			tt.assert(t, args, err)
+			tt.assert(t, args, err, tt.policy)
 		})
 	}
 }
@@ -646,52 +698,6 @@ func TestExpandGlobstarPattern(t *testing.T) {
 	}
 }
 
-func TestFindFirstNonExistentPath(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a directory structure
-	existingDir := filepath.Join(tmpDir, "existing")
-	require.NoError(t, os.MkdirAll(existingDir, 0755))
-
-	config := newDefaultBubblewrapConfig()
-	translator := newBubblewrapPolicyTranslator(config)
-
-	cases := []struct {
-		name     string
-		path     string
-		expected string
-	}{
-		{
-			name:     "file in existing directory",
-			path:     filepath.Join(existingDir, "nonexistent.txt"),
-			expected: filepath.Join(existingDir, "nonexistent.txt"),
-		},
-		{
-			name:     "nested non-existent path",
-			path:     filepath.Join(existingDir, "deep", "nested", "file.txt"),
-			expected: filepath.Join(existingDir, "deep"),
-		},
-		{
-			name:     "completely non-existent path",
-			path:     "/totally/nonexistent/path/file.txt",
-			expected: "", // No parent exists, can't block creation
-		},
-	}
-
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			result := translator.findFirstNonExistentPath(tt.path)
-			if tt.expected == "" {
-				// For completely non-existent paths, we might get empty or a high-level path
-				// Just verify no panic
-				assert.True(t, true)
-			} else {
-				assert.Equal(t, tt.expected, result)
-			}
-		})
-	}
-}
-
 // TestGlobFallbackThreshold verifies coarse-grained fallback behavior when patterns match too many paths
 func TestGlobFallbackThreshold(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -1007,6 +1013,17 @@ func assertNoTmpfsAt(t *testing.T, args []string, path string) {
 	}
 }
 
+func assertTmpfsAt(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--tmpfs" && args[i+1] == path {
+			return
+		}
+	}
+
+	t.Fatalf("expected --tmpfs at %q, but none found", path)
+}
+
 func assertNoDevNullMount(t *testing.T, args []string, path string) {
 	t.Helper()
 	for i := 0; i+2 < len(args); i++ {
@@ -1014,6 +1031,17 @@ func assertNoDevNullMount(t *testing.T, args []string, path string) {
 			t.Fatalf("expected no /dev/null mount at %q, but found one", path)
 		}
 	}
+}
+
+func assertDevNullMount(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == "--ro-bind" && args[i+1] == "/dev/null" && args[i+2] == path {
+			return
+		}
+	}
+
+	t.Fatalf("expected /dev/null mount at %q, but none found", path)
 }
 
 func assertReadBind(t *testing.T, args []string, path string) {

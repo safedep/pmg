@@ -269,6 +269,22 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 	}
 
+	for _, pattern := range policy.Filesystem.DenyRead {
+		expanded, err := util.ExpandVariables(pattern)
+		if err != nil {
+			log.Warnf("Failed to expand variables in deny_read pattern '%s': %v", pattern, err)
+			continue
+		}
+
+		denyArgs, err := t.processDenyReadRule(expanded)
+		if err != nil {
+			log.Debugf("Deny read rule '%s' skipped: %v", expanded, err)
+			continue
+		}
+
+		args = append(args, denyArgs...)
+	}
+
 	for _, pattern := range policy.Filesystem.DenyWrite {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -377,6 +393,52 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 				log.Debugf("Blocked execution of '%s'", expanded)
 			}
 		}
+	}
+
+	return args, nil
+}
+
+// processDenyReadRule hides readable content. Files are masked with /dev/null;
+// directories are overlaid with tmpfs so their host contents are not visible.
+func (t *bubblewrapPolicyTranslator) processDenyReadRule(path string) ([]string, error) {
+	args := []string{}
+
+	if util.ContainsGlob(path) {
+		if strings.Contains(path, "**") {
+			parentDir := t.extractParentDir(path)
+			if parentDir == "" || parentDir == "." {
+				return args, nil
+			}
+			log.Warnf("Deny read glob '%s' uses **; hiding parent directory '%s' to avoid expanding many bubblewrap arguments", path, parentDir)
+			return t.processDenyReadRule(parentDir)
+		}
+
+		paths, _, err := t.expandGlobPattern(path, t.config.mandatoryDenyScanDepth, t.config.maxGlobPaths)
+		if err != nil {
+			return args, nil
+		}
+
+		for _, p := range paths {
+			if info, err := os.Stat(p); err == nil {
+				if info.IsDir() {
+					args = append(args, "--tmpfs", p)
+				} else {
+					args = append(args, "--ro-bind", "/dev/null", p)
+				}
+			}
+		}
+
+		return args, nil
+	}
+
+	if info, err := os.Stat(path); err == nil {
+		if info.IsDir() {
+			args = append(args, "--tmpfs", path)
+		} else {
+			args = append(args, "--ro-bind", "/dev/null", path)
+		}
+	} else if os.IsNotExist(err) {
+		log.Debugf("Deny read rule: skipping non-existent path '%s'", path)
 	}
 
 	return args, nil
@@ -583,29 +645,6 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 	}
 
 	return args, nil
-}
-
-// findFirstNonExistentPath walks up the directory tree to find the first path component
-// that doesn't exist. This allows us to block file creation by mounting /dev/null.
-//
-// Example: If /home/user/.env doesn't exist but /home/user does, returns /home/user/.env
-func (t *bubblewrapPolicyTranslator) findFirstNonExistentPath(path string) string {
-	path = filepath.Clean(path)
-
-	// Walk up the tree
-	for path != "/" && path != "." {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			// Check if parent exists
-			parent := filepath.Dir(path)
-			if _, err := os.Stat(parent); err == nil {
-				// Parent exists, this is the first non-existent path
-				return path
-			}
-		}
-		path = filepath.Dir(path)
-	}
-
-	return ""
 }
 
 // expandGlobPattern expands a glob pattern to a list of concrete paths.

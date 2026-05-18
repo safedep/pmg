@@ -80,6 +80,9 @@ See [Bubblewrap Installation](https://github.com/containers/bubblewrap#installat
 See [configuration](./config.md) and [config/config.template.yml](../config/config.template.yml) for the configuration schema.
 Once sandbox is enabled, you can run package manager commands with sandbox protection.
 
+Run `pmg sandbox doctor` to see platform specific sandbox setup and driver status. Continue using
+PMG as usual, sandbox will be applied to configured package managers automatically.
+
 ```bash
 pmg npm install express
 ```
@@ -95,6 +98,51 @@ Run sandbox with custom policy file:
 ```bash
 pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 ```
+
+### Sandbox Profile Commands
+
+Use profile commands to inspect, create, and validate sandbox profiles.
+
+```bash
+# List built-in and user profiles
+pmg sandbox profile list
+
+# Scaffold a user profile that inherits from a built-in
+pmg sandbox profile init my-npm --from npm-restrictive
+
+# Show a profile, or its fully resolved policy
+pmg sandbox profile show npm-restrictive
+pmg sandbox profile show npm-restrictive --resolved
+
+# Lint a built-in, user profile, or profile file
+pmg sandbox profile lint npm-restrictive
+pmg sandbox profile lint ./my-profile.yml --strict
+
+# Compare two resolved profiles
+pmg sandbox profile diff npm-restrictive pypi-restrictive
+```
+
+### Sandbox Debug Commands
+
+Use these commands when a sandboxed package manager command fails and you need to inspect why.
+
+```bash
+# Check sandbox driver availability and host setup
+pmg sandbox doctor
+
+# List recent sandbox denials captured by PMG
+pmg sandbox violations list
+
+# Explain the latest captured denial and show a suggested override when possible
+pmg sandbox explain --last
+
+# Inspect the resolved policy PMG will apply
+pmg sandbox profile show npm-restrictive --resolved
+```
+
+`pmg sandbox doctor` runs platform-specific checks for the current host. Cached violation reports
+used by `violations list` and `explain --last` are currently produced by macOS Seatbelt diagnostics;
+on Linux, Bubblewrap and Landlock denials may only appear as command errors such as `EACCES`.
 
 ### Runtime Allow Overrides
 

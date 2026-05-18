@@ -42,3 +42,4 @@ go test ./config/ -v -count=1  # Run specific package tests
 - Prefer failing fast by returning errors up the call stack
 - When soft failure is acceptable, log with `log.Warnf` from `github.com/safedep/dry/log`
 - Do not use `_ = someFunc()` to discard errors silently
+- For CLI/user-facing errors, prefer `usefulerror` with a specific code and actionable help so `ui.ErrorExit` does not classify expected failures as `Unknown`

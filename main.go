@@ -13,6 +13,7 @@ import (
 	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
+	sandboxCmd "github.com/safedep/pmg/cmd/sandbox"
 	"github.com/safedep/pmg/cmd/setup"
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
@@ -136,6 +137,7 @@ func main() {
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
+	cmd.AddCommand(sandboxCmd.NewCommand())
 	cmd.AddCommand(cloud.NewCloudCommand())
 	cmd.AddCommand(configCmd.NewConfigCommand())
 
@@ -164,6 +166,10 @@ func main() {
 	analytics.TrackCI()
 
 	if err := cmd.Execute(); err != nil {
+		type exitCoder interface{ ExitCode() int }
+		if ec, ok := err.(exitCoder); ok {
+			os.Exit(ec.ExitCode())
+		}
 		os.Exit(1)
 	}
 }

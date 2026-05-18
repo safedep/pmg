@@ -10,3 +10,9 @@ import "github.com/safedep/pmg/sandbox"
 func NewSandbox() (sandbox.Sandbox, error) {
 	return newSeatbeltSandbox()
 }
+
+// NewSeatbeltSandbox returns a Seatbelt-backed sandbox instance regardless of
+// any platform-wide driver selection. Useful for per-driver diagnostics.
+func NewSeatbeltSandbox() (sandbox.Sandbox, error) {
+	return newSeatbeltSandbox()
+}

@@ -98,8 +98,8 @@ func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 }
 
 // Name returns the name of this sandbox implementation.
-func (s *seatbeltSandbox) Name() string {
-	return "seatbelt"
+func (s *seatbeltSandbox) Name() sandbox.DriverName {
+	return sandbox.DriverSeatbelt
 }
 
 // IsAvailable returns true if sandbox-exec is available on this system.

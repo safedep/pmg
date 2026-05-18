@@ -16,7 +16,7 @@ import (
 
 func TestLandlockSandbox_Name(t *testing.T) {
 	sb := &landlockSandbox{abi: newLandlockABI(4)}
-	assert.Equal(t, "landlock", sb.Name())
+	assert.Equal(t, sandbox.DriverLandlock, sb.Name())
 }
 
 func TestLandlockSandbox_IsAvailable_True(t *testing.T) {

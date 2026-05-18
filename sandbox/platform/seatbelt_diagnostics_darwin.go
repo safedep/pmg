@@ -29,6 +29,12 @@ const macOSUnifiedLogPath = "/usr/bin/log"
 
 var seatbeltMessagePattern = regexp.MustCompile(`PMG_SBX\|run=([^|]+)\|kind=([^|]+)\|target=([^"\s]*)`)
 
+// seatbeltDenyVerbPattern captures the sandbox-exec denial verb from a raw log
+// line such as `Sandbox: node(123) deny(1) file-write-data /path`. The verb is
+// used to recover a typed ViolationKind when a denial hit the catch-all
+// `(deny default ...)` rule (which only carries `kind=default` in our marker).
+var seatbeltDenyVerbPattern = regexp.MustCompile(`\bdeny\(\d+\)\s+(\S+)`)
+
 type seatbeltLogEntry struct {
 	EventMessage     string `json:"eventMessage"`
 	Process          string `json:"process"`
@@ -116,14 +122,29 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			target = payload.Target
 		}
 
+		kind := normalizeSeatbeltViolationKind(payload.Kind)
+		labelKind := payload.Kind
+
+		// When the deny hit our catch-all `(deny default ...)` rule, the
+		// marker only carries `kind=default`. The sandbox-exec preamble in
+		// the same log line names the real verb (file-write-data, etc.) so
+		// we recover the typed kind from there. This drives accurate
+		// primary-violation ranking and `--sandbox-allow` suggestions.
+		if kind == sandbox.ViolationKindGenericDeny {
+			if inferredKind, inferredLabelKind, ok := inferSeatbeltKindFromRawLog(entry.EventMessage); ok {
+				kind = inferredKind
+				labelKind = inferredLabelKind
+			}
+		}
+
 		violations = append(violations, sandbox.Violation{
-			Kind:       normalizeSeatbeltViolationKind(payload.Kind),
+			Kind:       kind,
 			RawKind:    payload.Kind,
 			Target:     target,
 			RuleTarget: payload.Target,
 			Process:    process,
 			RawLog:     strings.TrimSpace(entry.EventMessage),
-			RuleLabel:  summarizeSeatbeltViolation(payload.Kind, target),
+			RuleLabel:  summarizeSeatbeltViolation(labelKind, target),
 		})
 	}
 
@@ -143,6 +164,34 @@ func normalizeSeatbeltViolationKind(kind string) sandbox.ViolationKind {
 	default:
 		return sandbox.ViolationKindGenericDeny
 	}
+}
+
+// inferSeatbeltKindFromRawLog recovers a typed ViolationKind from the
+// sandbox-exec denial verb embedded in raw. It returns the typed kind plus a
+// canonical marker name (the one our own rules would emit for the same kind,
+// suitable for summarizeSeatbeltViolation). Only verbs that map to kinds
+// scoreViolation and suggestOverride already understand are recognized; all
+// others fall back to (generic_deny, "", false) so the caller keeps the
+// original classification.
+func inferSeatbeltKindFromRawLog(raw string) (sandbox.ViolationKind, string, bool) {
+	m := seatbeltDenyVerbPattern.FindStringSubmatch(raw)
+	if len(m) != 2 {
+		return sandbox.ViolationKindGenericDeny, "", false
+	}
+
+	verb := m[1]
+	switch {
+	case verb == "file-write-unlink", verb == "file-write-mount", verb == "file-rename":
+		return sandbox.ViolationKindFSDeleteOrRename, "file-write-unlink", true
+	case strings.HasPrefix(verb, "file-write"), verb == "file-link", verb == "file-mknod":
+		return sandbox.ViolationKindFSWrite, "file-write", true
+	case strings.HasPrefix(verb, "file-read"):
+		return sandbox.ViolationKindFSRead, "file-read", true
+	case strings.HasPrefix(verb, "process-exec"):
+		return sandbox.ViolationKindExec, "process-exec", true
+	}
+
+	return sandbox.ViolationKindGenericDeny, "", false
 }
 
 func extractSeatbeltDeniedPath(raw string, payload *seatbeltLogPayload) string {
