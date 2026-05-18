@@ -80,6 +80,9 @@ See [Bubblewrap Installation](https://github.com/containers/bubblewrap#installat
 See [configuration](./config.md) and [config/config.template.yml](../config/config.template.yml) for the configuration schema.
 Once sandbox is enabled, you can run package manager commands with sandbox protection.
 
+Run `pmg sandbox doctor` to see platform specific sandbox setup and driver status. Continue using
+PMG as usual, sandbox will be applied to configured package managers automatically.
+
 ```bash
 pmg npm install express
 ```
