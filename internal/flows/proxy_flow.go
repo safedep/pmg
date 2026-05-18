@@ -389,5 +389,198 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 		fmt.Sprintf("PIP_CERT=%s", caCertPath),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
 		"PIP_RETRIES=0",
+		fmt.Sprintf("GOPROXY=https://proxy.golang.org,%s,direct", proxyURL),
+	)
+
+	return env
+}
+
+// executeWithProxyForNonInteractiveTTY runs the command without PTY (for CI/non-interactive environments)
+func (f *proxyFlow) executeWithProxyForNonInteractiveTTY(
+	ctx context.Context,
+	parsedCmd *packagemanager.ParsedCommand,
+	env []string,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	interaction *guard.PackageManagerGuardInteraction,
+) error {
+	log.Debugf("Executing proxy for non interactive TTY")
+
+	// For non-interactive terminals, we enforce suspicious packages as malicious
+	interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+		return false, nil
+	}
+
+	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
+	cmd.Env = append(env, "CI=true")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	go interceptors.HandleConfirmationRequests(
+		confirmationChan,
+		interaction,
+		nil,
+	)
+
+	result, err := executor.ApplySandbox(ctx, cmd, f.pm.Name())
+	if err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
+
+	defer func() {
+		err := result.Close()
+		if err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
+
+	// Only run the command if the sandbox didn't already execute it
+	if result.ShouldRun() {
+		log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
+
+		err = cmd.Run()
+		if err != nil {
+			return f.handlePackageManagerExecutionError(err)
+		}
+	}
+
+	log.Debugf("Command completed successfully")
+	return nil
+}
+
+// executeWithProxy executes the package manager command with proxy environment variables.
+func (f *proxyFlow) executeWithProxy(
+	ctx context.Context,
+	parsedCmd *packagemanager.ParsedCommand,
+	env []string,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	interaction *guard.PackageManagerGuardInteraction,
+) error {
+	log.Debugf("Executing proxy for interactive TTY")
+
+	// Set the confirmation handler to use the interaction's reader
+	// This allows PTY input routing during proxy mode
+	interaction.GetConfirmationOnMalware = func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error) {
+		return ui.GetConfirmationOnMalwareWithReader(malwarePackages, interaction.Reader())
+	}
+
+	cmd := exec.CommandContext(ctx, parsedCmd.Command.Exe, parsedCmd.Command.Args...)
+	result, err := executor.ApplySandbox(ctx, cmd, f.pm.Name())
+	if err != nil {
+		return fmt.Errorf("failed to apply sandbox: %w", err)
+	}
+
+	defer func() {
+		if err := result.Close(); err != nil {
+			log.Errorf("failed to close sandbox: %v", err)
+		}
+	}()
+
+	if !result.ShouldRun() {
+		return usefulerror.Useful().
+			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
+			WithHumanError("Sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
+	}
+
+	// Extract the command executable and arguments from the sandboxed command
+	// for use to create the PTY session.
+	cmdExe := cmd.Path
+	cmdArgs := cmd.Args[1:]
+
+	log.Debugf("Running command with args: %s: %v", cmdExe, cmdArgs)
+
+	// Create the PTY session with the sandbox command
+	// This is not compatible with sandbox that executes the command directly within the sandbox
+	// because internally we use ptyx.Spawn() to create the process with PTY support.
+	sessionConfig := pty.NewSessionConfig(cmdExe, cmdArgs, env)
+
+	sess, err := pty.NewSession(ctx, sessionConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create pty session: %w", err)
+	}
+	defer sess.Close()
+
+	outputRouter, err := pty.NewOutputRouter(os.Stdout)
+	if err != nil {
+		return fmt.Errorf("failed to create output router: %w", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		if _, err := io.Copy(outputRouter, sess.PtyReader()); err != nil {
+			log.Errorf("failed to copy output: %v", err)
+		}
+	})
+
+	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
+	if err != nil {
+		return fmt.Errorf("failed to create input router: %w", err)
+	}
+
+	promptReader, promptWriter := io.Pipe()
+	defer func() {
+		promptWriter.Close()
+		promptReader.Close()
+	}()
+
+	// Note: This goroutine cannot be cleanly cancelled because os.Stdin.Read() is
+	// a blocking syscall that doesn't support timeouts or cancellation. This is a
+	// known limitation. The goroutine will exit when the process terminates, which
+	// is acceptable for a CLI tool. For long-running servers, stdin reading should
+	// be handled differently.
+	go inputRouter.ReadLoop(os.Stdin)
+
+	go interceptors.HandleConfirmationRequests(
+		confirmationChan,
+		interaction,
+		&interceptors.ConfirmationHook{
+			BeforeInteraction: func(_ []*analyzer.PackageVersionAnalysisResult) error {
+				// Pause printing the child output
+				outputRouter.Pause()
+
+				// Restore "Cooked" mode so user can type normally with echo
+				if err := sess.SetCookedMode(); err != nil {
+					return fmt.Errorf("failed to set cooked mode: %w", err)
+				}
+
+				// Force cursor visible (ANSI escape sequence)
+				fmt.Fprint(os.Stdout, "\033[?25h")
+
+				// Switch Input: Route keystrokes to the Prompt Pipe
+				inputRouter.RouteToPrompt(promptWriter)
+
+				// Inject the Reader into the Interaction for the confirmation prompt
+				interaction.SetInput(promptReader)
+
+				return nil
+			},
+			AfterInteraction: func(_ []*analyzer.PackageVersionAnalysisResult, _ bool) error {
+				// Switch input back to PTY
+				inputRouter.RouteToPTY()
+
+				// Restore "Raw" mode for the PTY
+				if err := sess.SetRawMode(); err != nil {
+					return fmt.Errorf("failed to set raw mode: %w", err)
+				}
+
+				// Clear the interaction input (back to default)
+				interaction.SetInput(nil)
+
+				// Flush buffered output and resume live output
+				outputRouter.Resume()
+
+				return nil
+			},
+		},
+	)
+
+	// sessionError may contain the exit code of the command if the command exited with a non-zero code.
+	sessionError := sess.Wait()
+
+	// Wait for the routers to copy all the remaining data
+	wg.Wait()
+
+	if err := promptReader.Close(); err != nil {
+		log.Errorf("failed to close prompt reader: %v", err)
 	}
 }

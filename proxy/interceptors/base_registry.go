@@ -24,8 +24,8 @@ type baseRegistryInterceptor struct {
 	cache            AnalysisCache
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
-	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
 	execContext      InterceptorContext
+	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
 }
 
 func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
@@ -93,6 +93,18 @@ func (b *baseRegistryInterceptor) analyzePackage(
 
 	if config.IsTrustedPackage(pkgVersion) {
 		log.Debugf("[%s] Skipping trusted package: %s/%s@%s",
+			ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+
+		audit.LogInstallTrustedAllowed(pkgVersion)
+
+		return &analyzer.PackageVersionAnalysisResult{
+			PackageVersion: pkgVersion,
+			Action:         analyzer.ActionAllow,
+		}, nil
+	}
+
+	if pinnedVersion, exists := b.execContext.PinnedVersions[packageName]; exists && pinnedVersion == packageVersion {
+		log.Debugf("[%s] Skipping pinned package from command context: %s/%s@%s",
 			ctx.RequestID, ecosystem.String(), packageName, packageVersion)
 
 		audit.LogInstallTrustedAllowed(pkgVersion)
