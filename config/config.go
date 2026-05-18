@@ -12,6 +12,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -178,6 +179,7 @@ type RuntimeConfig struct {
 	configDir      string
 	configFilePath string
 	eventLogDir    string
+	viper          *viper.Viper
 }
 
 // CloudSyncDBPath returns the path to the cloud sync WAL database.

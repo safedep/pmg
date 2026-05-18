@@ -1,0 +1,308 @@
+name: Setup PMG
+description: Install Package Manager Guard (PMG) and wrap npm/pip/etc. in this Linux GitHub Actions runner.
+author: SafeDep
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  version:
+    description: PMG release tag to install (e.g. v0.42.0) or "latest".
+    required: false
+    default: latest
+
+  api-key:
+    description: SafeDep Cloud API key. When set together with tenant-id, cloud sync is enabled and credentials are passed via env (no keychain needed in CI).
+    required: false
+    default: ""
+  tenant-id:
+    description: SafeDep Cloud tenant ID. Required when api-key is set.
+    required: false
+    default: ""
+  endpoint-id:
+    description: Identifier reported to SafeDep Cloud for this runner. When empty and cloud is enabled, defaults to "github-actions/<owner>/<repo>" so events aggregate per repository instead of per ephemeral runner hostname.
+    required: false
+    default: ""
+
+  paranoid:
+    description: Treat suspicious packages as malicious (PMG_PARANOID). Empty = use PMG default (false).
+    required: false
+    default: ""
+  cooldown-enabled:
+    description: Block recently-published package versions (PMG_DEPENDENCY_COOLDOWN_ENABLED). Empty = use PMG default (true).
+    required: false
+    default: ""
+  cooldown-days:
+    description: Cooldown window in days (PMG_DEPENDENCY_COOLDOWN_DAYS). Empty = use PMG default (5).
+    required: false
+    default: ""
+  proxy-mode:
+    description: Use proxy-based interception (PMG_PROXY_ENABLED). Empty = use PMG default (true). Setting "false" falls back to guard-based analysis.
+    required: false
+    default: ""
+
+  sandbox:
+    description: Run package managers inside an OS sandbox (PMG_SANDBOX_ENABLED). Empty = use PMG default (false). Enabling will also relax AppArmor user-namespace restrictions on the runner so unprivileged user namespaces work.
+    required: false
+    default: ""
+  sandbox-driver:
+    description: Sandbox backend on Linux (PMG_SANDBOX_DRIVER). One of "landlock" or "bubblewrap". Defaults to "landlock" when sandbox is enabled and this is empty.
+    required: false
+    default: ""
+
+  verbosity:
+    description: PMG output verbosity (PMG_VERBOSITY). One of "silent", "normal", "verbose". Empty = use PMG default.
+    required: false
+    default: ""
+  disable-telemetry:
+    description: Disable anonymous PMG telemetry (PMG_DISABLE_TELEMETRY). Empty = use PMG default.
+    required: false
+    default: ""
+  skip-event-logging:
+    description: Skip writing audit events to the local event log (PMG_SKIP_EVENT_LOGGING). Empty = use PMG default.
+    required: false
+    default: ""
+
+  config-file:
+    description: Path (relative to the workspace) to a user-supplied PMG config.yml. Copied into the PMG config directory before "pmg setup install" runs, so PMG merges any missing template keys into it.
+    required: false
+    default: ""
+
+  cache:
+    description: Reuse a previously-installed PMG binary from $RUNNER_TOOL_CACHE/pmg/<version>/<arch>. Off by default; fresh download per run keeps the binary current and reduces the blast radius of any cached artifact tampering. Checksum verification still runs on every install path.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Verify runner OS
+      shell: bash
+      run: |
+        if [ "${{ runner.os }}" != "Linux" ]; then
+          echo "::error::safedep/pmg action currently supports Linux runners only. See https://github.com/safedep/pmg/issues/248 for cross-platform tracking."
+          exit 1
+        fi
+
+    - name: Install PMG
+      id: install
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CACHE: ${{ inputs.cache }}
+      run: |
+        set -euo pipefail
+
+        repo="safedep/pmg"
+
+        # Resolve version tag.
+        if [ "$INPUT_VERSION" = "latest" ] || [ -z "$INPUT_VERSION" ]; then
+          echo "Resolving latest PMG release..."
+          tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' \
+            "https://github.com/${repo}/releases/latest" | sed 's|.*/||' | tr -d '\r\n')
+          if [ -z "$tag" ]; then
+            echo "::error::Could not resolve latest PMG release tag." >&2
+            exit 1
+          fi
+        else
+          tag="$INPUT_VERSION"
+        fi
+        echo "PMG version: $tag"
+
+        # Map architecture.
+        case "$(uname -m)" in
+          x86_64|amd64) arch="x86_64" ;;
+          aarch64|arm64) arch="arm64" ;;
+          *)
+            echo "::error::Unsupported architecture: $(uname -m)" >&2
+            exit 1
+            ;;
+        esac
+
+        asset="pmg_Linux_${arch}.tar.gz"
+        cache_dir="${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}/pmg/${tag}/${arch}"
+        install_dir="$cache_dir"
+
+        if [ "$INPUT_CACHE" != "true" ]; then
+          install_dir="${RUNNER_TEMP:-/tmp}/pmg-${tag}-${arch}"
+        fi
+
+        mkdir -p "$install_dir"
+        bin_path="${install_dir}/pmg"
+        tar_path="${install_dir}/${asset}"
+
+        # Always fetch upstream checksums.txt — even on a cache hit — so a
+        # tampered cache entry is caught before we run the binary.
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' EXIT
+        curl -fsSL -o "${tmpdir}/checksums.txt" \
+          "https://github.com/${repo}/releases/download/${tag}/checksums.txt"
+        expected=$(grep "  ${asset}\$" "${tmpdir}/checksums.txt" | cut -d' ' -f1 || true)
+        if [ -z "$expected" ]; then
+          echo "::error::No checksum entry for ${asset} in ${tag}/checksums.txt" >&2
+          exit 1
+        fi
+
+        need_download=true
+        if [ "$INPUT_CACHE" = "true" ] && [ -f "$tar_path" ] && [ -x "$bin_path" ]; then
+          cached=$(sha256sum "$tar_path" | cut -d' ' -f1)
+          if [ "$cached" = "$expected" ]; then
+            echo "Cached PMG ${tag} verified against upstream checksum"
+            need_download=false
+          else
+            echo "Cached PMG ${tag} checksum drift (want ${expected}, got ${cached}); refreshing"
+            rm -f "$tar_path" "$bin_path"
+          fi
+        fi
+
+        if [ "$need_download" = "true" ]; then
+          curl -fsSL -o "$tar_path" \
+            "https://github.com/${repo}/releases/download/${tag}/${asset}"
+          actual=$(sha256sum "$tar_path" | cut -d' ' -f1)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Checksum mismatch for ${asset}: want ${expected}, got ${actual}" >&2
+            exit 1
+          fi
+          echo "Checksum verified for ${asset}"
+          tar -xzf "$tar_path" -C "$install_dir" pmg
+          chmod +x "$bin_path"
+        fi
+
+        echo "$install_dir" >> "$GITHUB_PATH"
+        echo "pmg-bin-dir=$install_dir" >> "$GITHUB_OUTPUT"
+        echo "pmg-version=$tag" >> "$GITHUB_OUTPUT"
+
+    - name: Prepare sandbox (apt + AppArmor)
+      if: inputs.sandbox == 'true'
+      shell: bash
+      env:
+        INPUT_DRIVER: ${{ inputs.sandbox-driver }}
+      run: |
+        set -euo pipefail
+        if [ "$INPUT_DRIVER" = "bubblewrap" ]; then
+          if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y bubblewrap
+          else
+            apt-get update
+            apt-get install -y bubblewrap
+          fi
+        fi
+
+        # Relax AppArmor restriction on unprivileged user namespaces so
+        # Landlock helper and Bubblewrap can clone with CLONE_NEWUSER.
+        # Tolerate failure on locked-down runners; the sandbox driver will
+        # report a clear error at runtime if it cannot start.
+        if command -v sudo >/dev/null 2>&1; then
+          sudo systemctl stop apparmor 2>/dev/null || true
+          sudo systemctl disable apparmor 2>/dev/null || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
+        else
+          systemctl stop apparmor 2>/dev/null || true
+          systemctl disable apparmor 2>/dev/null || true
+          sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
+        fi
+
+    - name: Stage user config file
+      if: inputs.config-file != ''
+      shell: bash
+      env:
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+      run: |
+        set -euo pipefail
+        src="${GITHUB_WORKSPACE}/${INPUT_CONFIG_FILE}"
+        if [ ! -f "$src" ]; then
+          echo "::error::config-file not found: $src" >&2
+          exit 1
+        fi
+        dest_dir="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
+        mkdir -p "$dest_dir"
+        cp "$src" "$dest_dir/config.yml"
+        echo "Staged $src -> $dest_dir/config.yml"
+
+    - name: Export PMG configuration
+      shell: bash
+      env:
+        IN_API_KEY: ${{ inputs.api-key }}
+        IN_TENANT_ID: ${{ inputs.tenant-id }}
+        IN_ENDPOINT_ID: ${{ inputs.endpoint-id }}
+        IN_PARANOID: ${{ inputs.paranoid }}
+        IN_COOLDOWN_ENABLED: ${{ inputs.cooldown-enabled }}
+        IN_COOLDOWN_DAYS: ${{ inputs.cooldown-days }}
+        IN_PROXY_MODE: ${{ inputs.proxy-mode }}
+        IN_SANDBOX: ${{ inputs.sandbox }}
+        IN_SANDBOX_DRIVER: ${{ inputs.sandbox-driver }}
+        IN_VERBOSITY: ${{ inputs.verbosity }}
+        IN_DISABLE_TELEMETRY: ${{ inputs.disable-telemetry }}
+        IN_SKIP_EVENT_LOGGING: ${{ inputs.skip-event-logging }}
+        GH_REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        export_var() {
+          local name="$1" value="$2"
+          if [ -n "$value" ]; then
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          fi
+        }
+
+        # Cloud credentials. PMG sync reads these directly when no keychain
+        # credential is found, so we skip "pmg cloud login" entirely.
+        if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
+          if [ -z "$IN_API_KEY" ] || [ -z "$IN_TENANT_ID" ]; then
+            echo "::error::api-key and tenant-id must be set together." >&2
+            exit 1
+          fi
+          echo "::add-mask::$IN_API_KEY"
+          export_var SAFEDEP_API_KEY "$IN_API_KEY"
+          export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
+          export_var PMG_CLOUD_ENABLED "true"
+
+          if [ -n "$IN_ENDPOINT_ID" ]; then
+            export_var PMG_CLOUD_ENDPOINT_ID "$IN_ENDPOINT_ID"
+          else
+            # Stable per-repo identifier; the runner hostname is ephemeral
+            # so PMG's hostname fallback would create a new "machine" entry
+            # in SafeDep Cloud for every job.
+            export_var PMG_CLOUD_ENDPOINT_ID "github-actions/${GH_REPOSITORY}"
+          fi
+        fi
+
+        # Only emit PMG_* vars when the user explicitly set the input. This
+        # preserves the "config-file overrides PMG defaults" guarantee — env
+        # vars take precedence over config.yml in Viper, so empty pass-through
+        # means we don't shadow file-based tuning.
+        export_var PMG_PARANOID                     "$IN_PARANOID"
+        export_var PMG_DEPENDENCY_COOLDOWN_ENABLED  "$IN_COOLDOWN_ENABLED"
+        export_var PMG_DEPENDENCY_COOLDOWN_DAYS     "$IN_COOLDOWN_DAYS"
+        export_var PMG_PROXY_ENABLED                "$IN_PROXY_MODE"
+        export_var PMG_SANDBOX_ENABLED              "$IN_SANDBOX"
+        if [ "$IN_SANDBOX" = "true" ]; then
+          driver="${IN_SANDBOX_DRIVER:-landlock}"
+          export_var PMG_SANDBOX_DRIVER             "$driver"
+        fi
+        export_var PMG_VERBOSITY                    "$IN_VERBOSITY"
+        export_var PMG_DISABLE_TELEMETRY            "$IN_DISABLE_TELEMETRY"
+        export_var PMG_SKIP_EVENT_LOGGING           "$IN_SKIP_EVENT_LOGGING"
+
+    - name: Run pmg setup install
+      shell: bash
+      run: pmg setup install
+
+    - name: Add PMG shims to PATH
+      shell: bash
+      run: echo "$HOME/.pmg/bin" >> "$GITHUB_PATH"
+
+    - name: Verify PMG
+      shell: bash
+      run: |
+        pmg version
+        echo "npm resolves to: $(command -v npm || echo '<not installed>')"
+
+outputs:
+  version:
+    description: The resolved PMG version that was installed.
+    value: ${{ steps.install.outputs.pmg-version }}
+  bin-dir:
+    description: Directory containing the pmg binary on this runner.
+    value: ${{ steps.install.outputs.pmg-bin-dir }}

@@ -1,0 +1,153 @@
+name: Action E2E
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - action.yml
+      - docs/github-action.md
+      - .github/workflows/action-e2e.yml
+  push:
+    branches: [main]
+    paths:
+      - action.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  default-config:
+    name: Default config installs and protects
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - uses: ./
+      - name: PATH wiring
+        run: |
+          set -e
+          which pmg
+          which npm
+          test "$(command -v npm)" = "$HOME/.pmg/bin/npm"
+      - name: Install a benign package
+        run: |
+          mkdir t && cd t
+          npm init -y
+          npm install express@5.2.1
+          test -d node_modules/express
+      - name: Block a known-malicious package
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir m && cd m
+          npm init -y
+          set +e
+          npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 >out.log 2>&1
+          code=$?
+          set -e
+          cat out.log
+          if [ "$code" -eq 0 ]; then
+            echo "::error::Expected install to fail (malicious package), but it succeeded." >&2
+            exit 1
+          fi
+          grep -qi "Malicious package blocked" out.log
+
+  custom-config-file:
+    name: config-file input overrides defaults
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - name: Write custom PMG config
+        run: |
+          cat > pmg.yml <<'YAML'
+          paranoid: true
+          dependency_cooldown:
+            enabled: true
+            days: 365
+          YAML
+      - uses: ./
+        with:
+          config-file: pmg.yml
+      - name: Verify config staged into PMG config dir
+        run: |
+          set -e
+          dest="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml"
+          test -f "$dest"
+          grep -q "^paranoid: true" "$dest"
+          grep -q "days: 365" "$dest"
+      - name: Verify env doesn't shadow file-based tuning
+        shell: bash
+        run: |
+          # With no explicit "paranoid" input, the action must not export
+          # PMG_PARANOID — otherwise it would override the staged config.
+          if [ -n "${PMG_PARANOID:-}" ]; then
+            echo "::error::PMG_PARANOID leaked into env ($PMG_PARANOID); would shadow config-file" >&2
+            exit 1
+          fi
+
+  sandbox-setup:
+    name: Sandbox setup (${{ matrix.driver }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [landlock, bubblewrap]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - uses: ./
+        with:
+          sandbox: "true"
+          sandbox-driver: ${{ matrix.driver }}
+      - name: Sandbox env vars propagated
+        shell: bash
+        run: |
+          set -e
+          test "$PMG_SANDBOX_ENABLED" = "true"
+          test "$PMG_SANDBOX_DRIVER" = "${{ matrix.driver }}"
+          pmg version
+      - name: Bubblewrap binary installed when driver=bubblewrap
+        if: matrix.driver == 'bubblewrap'
+        run: bwrap --version
+      - name: AppArmor user-ns restriction relaxed
+        shell: bash
+        run: |
+          # systemctl-stop is best-effort; just confirm the sysctl is now 0
+          # so unprivileged user namespaces work for either driver.
+          v=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo "missing")
+          echo "apparmor_restrict_unprivileged_userns=$v"
+          test "$v" = "0" -o "$v" = "missing"
+
+  non-linux-fail-fast:
+    name: Action fails fast on non-Linux runners
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Action must exit non-zero
+        id: run
+        continue-on-error: true
+        uses: ./
+      - name: Verify it failed
+        shell: bash
+        run: |
+          test "${{ steps.run.outcome }}" = "failure"
