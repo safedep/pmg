@@ -9,53 +9,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSuggestOverrideSkipsGlobRuleTarget(t *testing.T) {
-	assert.Empty(t, suggestOverride(Violation{
+func TestOverrideSuggestionSkipsGlobRuleTarget(t *testing.T) {
+	assert.Nil(t, overrideSuggestion(Violation{
 		Kind:   ViolationKindFSRead,
 		Target: "**/.env",
 	}))
 }
 
-func TestSuggestOverrideUsesConcretePath(t *testing.T) {
-	assert.Equal(t, "--sandbox-allow read='./.env'", suggestOverride(Violation{
+func TestOverrideSuggestionUsesConcretePath(t *testing.T) {
+	o := overrideSuggestion(Violation{
 		Kind:   ViolationKindFSRead,
 		Target: "./.env",
-	}))
+	})
+	require.NotNil(t, o)
+	assert.Equal(t, ViolationKindFSRead, o.Kind)
+	assert.Equal(t, "./.env", o.Target)
 }
 
-func TestSuggestOverrideQuotesSpacesAndSingleQuotes(t *testing.T) {
-	assert.Equal(t, "--sandbox-allow read='/tmp/My Dir/it'\\''s.env'", suggestOverride(Violation{
+func TestOverrideSuggestionPreservesRawTargetCharacters(t *testing.T) {
+	// Shell escaping is the presentation layer's job — the domain layer
+	// returns the raw target verbatim, special characters included.
+	o := overrideSuggestion(Violation{
 		Kind:   ViolationKindFSRead,
 		Target: "/tmp/My Dir/it's.env",
-	}))
+	})
+	require.NotNil(t, o)
+	assert.Equal(t, "/tmp/My Dir/it's.env", o.Target)
 }
 
-func TestSuggestOverrideSkipsControlCharacters(t *testing.T) {
-	assert.Empty(t, suggestOverride(Violation{
+func TestOverrideSuggestionSkipsControlCharacters(t *testing.T) {
+	assert.Nil(t, overrideSuggestion(Violation{
 		Kind:   ViolationKindFSRead,
 		Target: "/tmp/bad\npath",
 	}))
 }
 
-func TestDetailsIncludesMatchedRule(t *testing.T) {
-	report := &ViolationReport{
-		SandboxName:   "seatbelt",
-		PolicyName:    "npm-restrictive",
-		CorrelationID: "run-1",
-		Violations: []Violation{
-			{
-				Kind:       ViolationKindFSRead,
-				RawKind:    "file-read",
-				Target:     "./.env",
-				RuleTarget: "**/.env",
-				Process:    "node",
-				RuleLabel:  "read access denied: ./.env",
-			},
-		},
+func TestOverrideSuggestionMapsAllSupportedKinds(t *testing.T) {
+	tests := []struct {
+		kind ViolationKind
+		want bool
+	}{
+		{ViolationKindFSRead, true},
+		{ViolationKindFSWrite, true},
+		{ViolationKindFSDeleteOrRename, true},
+		{ViolationKindExec, true},
+		{ViolationKindGenericDeny, false},
 	}
-
-	details := explanationDetails(report, primaryViolation(report))
-	assert.Contains(t, details, "Matched rule: **/.env")
+	for _, tt := range tests {
+		t.Run(string(tt.kind), func(t *testing.T) {
+			o := overrideSuggestion(Violation{Kind: tt.kind, Target: "/tmp/x"})
+			if tt.want {
+				require.NotNil(t, o)
+				assert.Equal(t, tt.kind, o.Kind)
+			} else {
+				assert.Nil(t, o)
+			}
+		})
+	}
 }
 
 func TestPrimaryViolationPrefersConcreteProjectPathOverDefaultNoise(t *testing.T) {
@@ -141,43 +151,7 @@ func TestIsSensitiveProjectFileRejectsParentRelativeTargets(t *testing.T) {
 	assert.True(t, isSensitiveProjectFile("./.ssh/config"))
 }
 
-func TestHintUsesRankedPrimaryViolation(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-
-	report := &ViolationReport{
-		Violations: []Violation{
-			{
-				Kind:      ViolationKindGenericDeny,
-				RawKind:   "default",
-				Target:    "/dev/dtracehelper",
-				RuleLabel: "sandbox denied access to /dev/dtracehelper",
-			},
-			{
-				Kind:       ViolationKindFSRead,
-				RawKind:    "file-read",
-				Target:     filepath.Join(cwd, ".env"),
-				RuleTarget: "**/.env",
-				RuleLabel:  "read access denied: " + filepath.Join(cwd, ".env"),
-			},
-		},
-	}
-
-	hint := explanationHint(primaryViolation(report))
-	assert.Contains(t, hint, "Reason: read access denied:")
-	assert.NotContains(t, hint, "/dev/dtracehelper")
-}
-
-func TestHintEmptyReport(t *testing.T) {
-	assert.Equal(t, "Reason: sandbox denied an operation", explanationHint(primaryViolation(&ViolationReport{})))
-}
-
-func TestDetailsEmptyReport(t *testing.T) {
-	report := &ViolationReport{}
-	assert.Empty(t, explanationDetails(report, primaryViolation(report)))
-}
-
-func TestBuildExplanationReturnsAllFields(t *testing.T) {
+func TestBuildExplanationStructuredOutput(t *testing.T) {
 	exp := BuildExplanation(&ViolationReport{
 		SandboxName:   "seatbelt",
 		PolicyName:    "npm-restrictive",
@@ -188,11 +162,25 @@ func TestBuildExplanationReturnsAllFields(t *testing.T) {
 				Target:    "./.env",
 				RuleLabel: "read access denied: ./.env",
 			},
+			{
+				Kind:      ViolationKindFSWrite,
+				Target:    "./out.log",
+				RuleLabel: "write access denied: ./out.log",
+			},
 		},
 	})
 
 	require.NotNil(t, exp.Primary)
-	assert.Contains(t, exp.Hint, "Reason: read access denied")
-	assert.Contains(t, exp.Details, "Sandbox: seatbelt")
-	assert.Equal(t, "--sandbox-allow read='./.env'", exp.SuggestedOverride)
+	assert.Equal(t, ViolationKindFSRead, exp.Primary.Kind)
+	require.NotNil(t, exp.Override)
+	assert.Equal(t, ViolationKindFSRead, exp.Override.Kind)
+	assert.Equal(t, "./.env", exp.Override.Target)
+	assert.Equal(t, 1, exp.AdditionalDenials)
+}
+
+func TestBuildExplanationEmptyReport(t *testing.T) {
+	exp := BuildExplanation(&ViolationReport{})
+	assert.Nil(t, exp.Primary)
+	assert.Nil(t, exp.Override)
+	assert.Equal(t, 0, exp.AdditionalDenials)
 }

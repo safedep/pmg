@@ -6,12 +6,15 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsDisabled(t *testing.T) {
 	t.Run("returns true if PMG_DISABLE_TELEMETRY is set to true", func(t *testing.T) {
-		os.Setenv(telemetryDisableEnvKey, "true")
-		defer os.Unsetenv(telemetryDisableEnvKey)
+		require.NoError(t, os.Setenv(telemetryDisableEnvKey, "true"))
+		defer func() {
+			require.NoError(t, os.Unsetenv(telemetryDisableEnvKey))
+		}()
 
 		assert.True(t, IsDisabled())
 	})

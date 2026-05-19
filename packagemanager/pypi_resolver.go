@@ -168,7 +168,11 @@ func getPypiPackageDependencies(packageName, version string, packageTargets []*P
 	if res.StatusCode != 200 {
 		return nil, ErrFailedToFetchPackage.Wrap(err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			log.Warnf("failed to close PyPI response body: %v", err)
+		}
+	}()
 
 	var pypipkg pypiPackage
 	err = json.NewDecoder(res.Body).Decode(&pypipkg)

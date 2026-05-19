@@ -59,7 +59,11 @@ func (m *defaultRcFileManager) Create(aliases []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Warnf("failed to close rc file %s: %v", rcPath, err)
+		}
+	}()
 
 	for _, alias := range aliases {
 		if _, err := f.WriteString(alias); err != nil {
@@ -290,7 +294,11 @@ func (a *AliasManager) addSourceLine(configPath, sourceLine string) error {
 		return err
 	}
 
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Warnf("failed to close config file %s: %v", configPath, err)
+		}
+	}()
 
 	_, err = fmt.Fprintf(f, "\n%s", sourceLine)
 	return err

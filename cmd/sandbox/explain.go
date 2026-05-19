@@ -205,87 +205,7 @@ func explainUsageHelp() string {
 // --- Human rendering ----------------------------------------------------
 
 func renderExplanation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord) error {
-	exp := pmgsandbox.BuildExplanation(rec.Report)
-
-	recordedAt := ""
-	if !rec.RecordedAt.IsZero() {
-		recordedAt = rec.RecordedAt.UTC().Format(time.RFC3339)
-	}
-
-	header := fmt.Sprintf("%s %s  %s %s",
-		ui.Colors.Dim("Sandbox:"), ui.Colors.Bold(string(rec.Report.SandboxName)),
-		ui.Colors.Dim("Profile:"), ui.Colors.Bold(rec.Report.PolicyName),
-	)
-	if recordedAt != "" {
-		header = fmt.Sprintf("%s  %s %s", header, ui.Colors.Dim("Recorded:"), ui.Colors.Normal(recordedAt))
-	}
-
-	if _, err := fmt.Fprintln(out, header); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(out, ui.Colors.Normal("--------------------------------------------------------")); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(out); err != nil {
-		return err
-	}
-
-	if exp.Hint != "" {
-		if _, err := fmt.Fprintln(out, exp.Hint); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(out); err != nil {
-			return err
-		}
-	}
-
-	if exp.Details != "" {
-		if _, err := fmt.Fprintln(out, ui.Colors.Bold("Details:")); err != nil {
-			return err
-		}
-		for _, line := range strings.Split(exp.Details, "\n") {
-			if _, err := fmt.Fprintf(out, "  %s\n", line); err != nil {
-				return err
-			}
-		}
-		if _, err := fmt.Fprintln(out); err != nil {
-			return err
-		}
-	}
-
-	if exp.SuggestedOverride != "" {
-		if _, err := fmt.Fprintln(out, ui.Colors.Bold("Suggested override:")); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(out, "  %s\n", ui.Colors.Cyan(exp.SuggestedOverride)); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(out); err != nil {
-			return err
-		}
-	}
-
-	if exp.Primary != nil {
-		if _, err := fmt.Fprintln(out, ui.Colors.Bold("Primary violation:")); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(out, "  %s   %s\n", ui.Colors.Dim("Kind:"), string(exp.Primary.Kind)); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(out, "  %s %s\n", ui.Colors.Dim("Target:"), exp.Primary.Target); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(out, "  %s   %s\n", ui.Colors.Dim("Rule:"), exp.Primary.RuleLabel); err != nil {
-			return err
-		}
-		if exp.Primary.Process != "" {
-			if _, err := fmt.Fprintf(out, "  %s %s\n", ui.Colors.Dim("Process:"), exp.Primary.Process); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return ui.RenderSandboxViolation(out, rec)
 }
 
 // --- JSON output --------------------------------------------------------
@@ -322,9 +242,9 @@ func writeExplainJSON(out io.Writer, rec *pmgsandbox.ViolationCacheRecord) error
 
 	payload := explainJSONOutput{
 		Explanation: explainJSONExplanation{
-			Hint:              exp.Hint,
-			Details:           exp.Details,
-			SuggestedOverride: exp.SuggestedOverride,
+			Hint:              ui.FormatSandboxHint(exp.Primary, exp.Override),
+			Details:           ui.FormatSandboxDetails(rec.Report, exp.Primary),
+			SuggestedOverride: ui.FormatSandboxOverrideFlag(exp.Override),
 		},
 		Report: rec.Report,
 	}

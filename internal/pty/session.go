@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/ptyx"
 	"golang.org/x/term"
 )
@@ -93,7 +94,9 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	// 2. Set raw mode, save old state
 	oldState, err := c.MakeRaw()
 	if err != nil {
-		c.Close()
+		if closeErr := c.Close(); closeErr != nil {
+			log.Warnf("failed to close console after MakeRaw error: %v", closeErr)
+		}
 		return nil, fmt.Errorf("failed to set raw mode: %w", err)
 	}
 

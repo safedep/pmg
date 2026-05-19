@@ -17,6 +17,7 @@ import (
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/requirements"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/uvlock"
 	"github.com/google/osv-scalibr/fs"
+	"github.com/safedep/dry/log"
 )
 
 func getExtractorForFile(filename string) (filesystem.Extractor, error) {
@@ -55,7 +56,11 @@ func parseLockfile(lockfilePath, scanDir string, ecosystem packagev1.Ecosystem) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lockfile: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Warnf("failed to close lockfile: %v", err)
+		}
+	}()
 
 	inputConfig := &filesystem.ScanInput{
 		FS:     fs.DirFS(scanDir),

@@ -1,93 +1,66 @@
 package sandbox
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// Explanation is structured, render-free explanation data for a violation
-// report. The cmd layer formats this through internal/ui/.
+// Explanation is structured data extracted from a ViolationReport. It carries
+// only domain facts — the human-readable rendering and any CLI-specific
+// suggestion strings (flag names, line layout) belong to the presentation
+// layer (see internal/ui).
 type Explanation struct {
-	Hint              string
-	Details           string
-	SuggestedOverride string
-	Primary           *Violation
+	// Primary is the violation most likely to be actionable, chosen by
+	// scoreViolation. Nil when the report contains no violations.
+	Primary *Violation
+
+	// Override carries a structured override hint for the primary violation
+	// (kind + target) when one can be safely suggested. Nil when no safe
+	// suggestion is available (glob targets, control characters, unsupported
+	// violation kinds). The presentation layer decides how to render this as a
+	// CLI flag, an API hint, etc.
+	Override *OverrideSuggestion
+
+	// AdditionalDenials counts violations beyond Primary so callers can show
+	// "+N more" without re-walking the report.
+	AdditionalDenials int
+}
+
+// OverrideSuggestion is the structured form of a "you can re-run with this
+// allowance" hint. Kind tells the consumer which permission would unblock the
+// operation; Target is the path/exec the user would whitelist.
+type OverrideSuggestion struct {
+	Kind   ViolationKind
+	Target string
 }
 
 // BuildExplanation produces an Explanation for the given report.
 func BuildExplanation(report *ViolationReport) Explanation {
 	primary := primaryViolation(report)
-	exp := Explanation{
-		Hint:    explanationHint(primary),
-		Details: explanationDetails(report, primary),
-		Primary: primary,
-	}
+	exp := Explanation{Primary: primary}
 	if primary != nil {
-		exp.SuggestedOverride = suggestOverride(*primary)
+		exp.Override = overrideSuggestion(*primary)
+		if report != nil && len(report.Violations) > 1 {
+			exp.AdditionalDenials = len(report.Violations) - 1
+		}
 	}
 	return exp
 }
 
-func explanationHint(primary *Violation) string {
-	if primary == nil {
-		return "Reason: sandbox denied an operation"
-	}
-
-	hint := fmt.Sprintf("Reason: %s", primary.RuleLabel)
-
-	if override := suggestOverride(*primary); override != "" {
-		hint = fmt.Sprintf("%s. Override: %s", hint, override)
-	}
-
-	return hint
-}
-
-func explanationDetails(report *ViolationReport, primary *Violation) string {
-	if primary == nil {
-		return ""
-	}
-
-	lines := []string{
-		fmt.Sprintf("Sandbox: %s", report.SandboxName),
-		fmt.Sprintf("Policy: %s", report.PolicyName),
-		fmt.Sprintf("Correlation: %s", report.CorrelationID),
-		fmt.Sprintf("Process: %s", emptyFallback(primary.Process, "unknown")),
-		fmt.Sprintf("Violation: %s", primary.RuleLabel),
-	}
-
-	if primary.RuleTarget != "" && primary.RuleTarget != primary.Target {
-		lines = append(lines, fmt.Sprintf("Matched rule: %s", primary.RuleTarget))
-	}
-
-	if primary.RawLog != "" {
-		lines = append(lines, fmt.Sprintf("Seatbelt log: %s", primary.RawLog))
-	}
-
-	if len(report.Violations) > 1 {
-		lines = append(lines, fmt.Sprintf("Additional denials observed: %d", len(report.Violations)-1))
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func suggestOverride(v Violation) string {
+func overrideSuggestion(v Violation) *OverrideSuggestion {
 	if !isSafeOverrideTarget(v.Target) {
-		return ""
+		return nil
 	}
-
-	quotedTarget := shellQuote(v.Target)
 
 	switch v.Kind {
-	case ViolationKindFSRead:
-		return fmt.Sprintf("--sandbox-allow read=%s", quotedTarget)
-	case ViolationKindFSWrite, ViolationKindFSDeleteOrRename:
-		return fmt.Sprintf("--sandbox-allow write=%s", quotedTarget)
-	case ViolationKindExec:
-		return fmt.Sprintf("--sandbox-allow exec=%s", quotedTarget)
+	case ViolationKindFSRead,
+		ViolationKindFSWrite,
+		ViolationKindFSDeleteOrRename,
+		ViolationKindExec:
+		return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
 	default:
-		return ""
+		return nil
 	}
 }
 
@@ -170,18 +143,6 @@ func isSafeOverrideTarget(value string) bool {
 	}
 
 	return true
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
-}
-
-func emptyFallback(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-
-	return value
 }
 
 func isProjectPath(target, cwd string) bool {

@@ -32,6 +32,12 @@ var (
 	logFile string
 )
 
+func setLogEnv(key, value string) {
+	if err := os.Setenv(key, value); err != nil {
+		log.Warnf("failed to set %s: %v", key, err)
+	}
+}
+
 func main() {
 	cmd := &cobra.Command{
 		Use:              "pmg",
@@ -40,18 +46,18 @@ func main() {
 			// Always set this first because we will override the log
 			// level if debug or verbose is set
 			if logFile != "" {
-				os.Setenv("APP_LOG_FILE", logFile)
-				os.Setenv("APP_LOG_LEVEL", "info")
+				setLogEnv("APP_LOG_FILE", logFile)
+				setLogEnv("APP_LOG_LEVEL", "info")
 			}
 
 			// Set the log level when debug is enabled
 			if debug {
-				os.Setenv("APP_LOG_LEVEL", "debug")
+				setLogEnv("APP_LOG_LEVEL", "debug")
 			}
 
 			// Skip stdout logging when debugging is not enabled
 			if !debug {
-				os.Setenv("APP_LOG_SKIP_STDOUT_LOGGER", "true")
+				setLogEnv("APP_LOG_SKIP_STDOUT_LOGGER", "true")
 			}
 
 			// Apply config-based verbosity first
@@ -155,7 +161,11 @@ func main() {
 	})
 
 	defer analytics.Close()
-	defer eventlog.Close()
+	defer func() {
+		if err := eventlog.Close(); err != nil {
+			log.Warnf("failed to close eventlog: %v", err)
+		}
+	}()
 	defer func() {
 		if err := audit.Close(); err != nil {
 			log.Warnf("failed to close audit system: %v", err)

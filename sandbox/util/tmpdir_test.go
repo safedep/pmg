@@ -5,15 +5,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetTmpdirParent(t *testing.T) {
 	// Save original TMPDIR
 	originalTmpdir := os.Getenv("TMPDIR")
-	defer os.Setenv("TMPDIR", originalTmpdir)
+	defer func() {
+		require.NoError(t, os.Setenv("TMPDIR", originalTmpdir))
+	}()
 
 	t.Run("macOS pattern with /var prefix", func(t *testing.T) {
-		os.Setenv("TMPDIR", "/var/folders/ab/cd1234ef/T/")
+		require.NoError(t, os.Setenv("TMPDIR", "/var/folders/ab/cd1234ef/T/"))
 		parents := GetTmpdirParent()
 
 		assert.Len(t, parents, 2)
@@ -22,7 +25,7 @@ func TestGetTmpdirParent(t *testing.T) {
 	})
 
 	t.Run("macOS pattern with /private/var prefix", func(t *testing.T) {
-		os.Setenv("TMPDIR", "/private/var/folders/xy/z9876543/T/")
+		require.NoError(t, os.Setenv("TMPDIR", "/private/var/folders/xy/z9876543/T/"))
 		parents := GetTmpdirParent()
 
 		assert.Len(t, parents, 2)
@@ -31,7 +34,7 @@ func TestGetTmpdirParent(t *testing.T) {
 	})
 
 	t.Run("macOS pattern without trailing slash", func(t *testing.T) {
-		os.Setenv("TMPDIR", "/var/folders/12/abcdefgh/T")
+		require.NoError(t, os.Setenv("TMPDIR", "/var/folders/12/abcdefgh/T"))
 		parents := GetTmpdirParent()
 
 		assert.Len(t, parents, 2)
@@ -50,20 +53,20 @@ func TestGetTmpdirParent(t *testing.T) {
 		}
 
 		for _, tmpdir := range testCases {
-			os.Setenv("TMPDIR", tmpdir)
+			require.NoError(t, os.Setenv("TMPDIR", tmpdir))
 			parents := GetTmpdirParent()
 			assert.Empty(t, parents, "Expected empty result for TMPDIR=%s", tmpdir)
 		}
 	})
 
 	t.Run("empty TMPDIR returns empty", func(t *testing.T) {
-		os.Setenv("TMPDIR", "")
+		require.NoError(t, os.Setenv("TMPDIR", ""))
 		parents := GetTmpdirParent()
 		assert.Empty(t, parents)
 	})
 
 	t.Run("unset TMPDIR returns empty", func(t *testing.T) {
-		os.Unsetenv("TMPDIR")
+		require.NoError(t, os.Unsetenv("TMPDIR"))
 		parents := GetTmpdirParent()
 		assert.Empty(t, parents)
 	})
