@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -22,6 +23,33 @@ func TestNewDefaultProfileRegistry(t *testing.T) {
 	pypiRestrictive, err := registry.GetProfile("pypi-restrictive")
 	assert.NoError(t, err)
 	assert.NotNil(t, pypiRestrictive)
+}
+
+func TestGetProfileUnknownWrapsErrProfileNotFound(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	assert.NoError(t, err)
+
+	_, err = registry.GetProfile("definitely-not-a-real-profile-name")
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrProfileNotFound),
+		"unknown profile should wrap ErrProfileNotFound, got %T: %v", err, err)
+}
+
+func TestLoadCustomProfileInvalidYAMLWrapsErrProfileInvalid(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	assert.NoError(t, err)
+
+	tempFile, err := os.CreateTemp(t.TempDir(), "bad-policy-*.yml")
+	assert.NoError(t, err)
+	defer func() { _ = tempFile.Close() }()
+
+	_, err = tempFile.WriteString("name: bad\npackage_managers:\n  - npm\n  invalid: : :\n")
+	assert.NoError(t, err)
+
+	_, err = registry.LoadCustomProfile(tempFile.Name())
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrProfileInvalid),
+		"YAML parse failure should wrap ErrProfileInvalid, got %T: %v", err, err)
 }
 
 func TestLoadCustomProfile(t *testing.T) {
@@ -188,6 +216,8 @@ func TestLoadCustomProfileWithInheritance(t *testing.T) {
 				assert.Error(t, err)
 				assert.Nil(t, policy)
 				assert.Contains(t, err.Error(), "inherits from unknown profile")
+				assert.True(t, errors.Is(err, ErrProfileNotFound),
+					"missing parent profile should wrap ErrProfileNotFound")
 			},
 		},
 		{

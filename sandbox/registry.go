@@ -66,12 +66,12 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 
 		policy, err := parsePolicy(data)
 		if err != nil {
-			return fmt.Errorf("failed to parse profile %s: %w", entry.Name(), err)
+			return fmt.Errorf("failed to parse profile %s: %w: %w", entry.Name(), ErrProfileInvalid, err)
 		}
 
 		// Basic validation (without inheritance resolution)
 		if err := policy.Validate(); err != nil {
-			return fmt.Errorf("invalid profile %s: %w", entry.Name(), err)
+			return fmt.Errorf("invalid profile %s: %w: %w", entry.Name(), ErrProfileInvalid, err)
 		}
 
 		r.mu.Lock()
@@ -93,7 +93,7 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 
 			// Validate after inheritance resolution
 			if err := policy.ValidateResolved(); err != nil {
-				return fmt.Errorf("invalid profile %s after inheritance: %w", name, err)
+				return fmt.Errorf("invalid profile %s after inheritance: %w: %w", name, ErrProfileInvalid, err)
 			}
 		}
 	}
@@ -112,12 +112,12 @@ func (r *defaultProfileRegistry) resolveInheritance(child *SandboxPolicy) error 
 	// Look up parent profile (must be a built-in profile)
 	parent, exists := r.profiles[child.Inherits]
 	if !exists {
-		return fmt.Errorf("parent profile '%s' not found (only built-in profiles can be inherited)", child.Inherits)
+		return fmt.Errorf("%w: parent profile '%s' (only built-in profiles can be inherited)", ErrProfileNotFound, child.Inherits)
 	}
 
 	// Prevent inheritance chains (parent must not itself inherit)
 	if parent.Inherits != "" {
-		return fmt.Errorf("inheritance chains not allowed: parent profile '%s' inherits from '%s'", parent.Name, parent.Inherits)
+		return fmt.Errorf("%w: inheritance chains not allowed: parent profile '%s' inherits from '%s'", ErrProfileInvalid, parent.Name, parent.Inherits)
 	}
 
 	// Merge parent into child
@@ -153,7 +153,7 @@ func (r *defaultProfileRegistry) GetProfile(name string) (*SandboxPolicy, error)
 		return r.LoadCustomProfile(name)
 	}
 
-	return nil, fmt.Errorf("sandbox profile not found: %s (not a built-in profile, no matching user profile, and file does not exist)", name)
+	return nil, fmt.Errorf("%w: %s (not a built-in profile, no matching user profile, and file does not exist)", ErrProfileNotFound, name)
 }
 
 // findUserProfileByName looks for `<name>.yml` then `<name>.yaml` under
@@ -221,12 +221,12 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 
 	policy, err := parsePolicy(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse custom profile %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse custom profile %s: %w: %w", path, ErrProfileInvalid, err)
 	}
 
 	// Basic validation
 	if err := policy.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid custom profile %s: %w", path, err)
+		return nil, fmt.Errorf("invalid custom profile %s: %w: %w", path, ErrProfileInvalid, err)
 	}
 
 	// Resolve inheritance if present
@@ -236,12 +236,12 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 		r.mu.RUnlock()
 
 		if !exists {
-			return nil, fmt.Errorf("custom profile %s inherits from unknown profile '%s' (only built-in profiles can be inherited)", path, policy.Inherits)
+			return nil, fmt.Errorf("%w: custom profile %s inherits from unknown profile '%s' (only built-in profiles can be inherited)", ErrProfileNotFound, path, policy.Inherits)
 		}
 
 		// Prevent inheritance chains
 		if parent.Inherits != "" {
-			return nil, fmt.Errorf("custom profile %s: parent profile '%s' inherits from '%s' (chains not allowed)", path, parent.Name, parent.Inherits)
+			return nil, fmt.Errorf("%w: custom profile %s parent '%s' inherits from '%s' (chains not allowed)", ErrProfileInvalid, path, parent.Name, parent.Inherits)
 		}
 
 		// Merge parent into child
@@ -251,7 +251,7 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 
 	// Validate after inheritance resolution
 	if err := policy.ValidateResolved(); err != nil {
-		return nil, fmt.Errorf("invalid custom profile %s after inheritance: %w", path, err)
+		return nil, fmt.Errorf("invalid custom profile %s after inheritance: %w: %w", path, ErrProfileInvalid, err)
 	}
 
 	r.mu.Lock()

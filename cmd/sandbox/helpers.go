@@ -80,9 +80,9 @@ func wrapUseful(err error, code, help string) error {
 }
 
 // profileLoadError classifies an error from the sandbox profile registry
-// (GetProfile, LoadCustomProfile, ResolveProfile) into a UsefulError. Errors
-// whose message reads as a missing profile/file are reported as NotFound;
-// everything else (parse/validate/inheritance) is InvalidArgument.
+// (GetProfile, LoadCustomProfile, ResolveProfile) into a UsefulError using
+// the sandbox package's sentinel errors. Falls back to Unknown when neither
+// sentinel matches (e.g. a raw IO error from a custom path read).
 func profileLoadError(err error) error {
 	if err == nil {
 		return nil
@@ -90,13 +90,16 @@ func profileLoadError(err error) error {
 	if _, ok := usefulerror.AsUsefulError(err); ok {
 		return err
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "not found") || strings.Contains(msg, "no such file") {
+	switch {
+	case errors.Is(err, pmgsandbox.ErrProfileNotFound):
 		return wrapUseful(err, usefulerror.ErrCodeNotFound,
 			"Use `pmg sandbox profile list` to see available profiles, or pass an existing profile YAML path.")
+	case errors.Is(err, pmgsandbox.ErrProfileInvalid):
+		return wrapUseful(err, usefulerror.ErrCodeInvalidArgument,
+			"Check the profile YAML for syntax/schema issues and verify any 'inherits:' parent name.")
 	}
-	return wrapUseful(err, usefulerror.ErrCodeInvalidArgument,
-		"Check the profile YAML for syntax/schema issues and verify any 'inherits:' parent name.")
+	return wrapUseful(err, usefulerror.ErrCodeUnknown,
+		"Failed to load the sandbox profile. Run with --verbose for the underlying cause.")
 }
 
 // registryInitError wraps a registry construction failure as a UsefulError.
