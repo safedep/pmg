@@ -1,11 +1,17 @@
 <div align="center">
-    <img src="./docs/assets/pmg-banner.png" alt="PMG GitHub Banner">
-</div>
-<br/>
-
-<div align="center">
     <h1>Package Manager Guard (PMG)</h1>
 </div>
+
+<p align="center">
+    <strong>Block malicious npm and pip packages before they install.</strong><br>
+    Defense in depth for the package managers you already use.
+</p>
+
+<div align="center">
+  <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
+</div>
+
+<br>
 
 <div align="center">
 
@@ -21,64 +27,44 @@
 
 </div>
 
-<br>
-
-<div align="center">
-  <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
-</div>
-
 ## Why PMG?
 
 Developers and AI coding agents install packages every day. Each `npm install` or `pip install` executes thousands of lines of code that nobody reviews.
 
-Malicious packages ship constantly in popular ecosystems:
+Recent compromises in popular ecosystems:
 
+- [**Mini Shai-Hulud**](https://safedep.io/mini-shai-hulud-strikes-again-314-npm-packages-compromised/) - 300+ popular packages compromised
 - [**litellm 1.82.8**](https://safedep.io/malicious-litellm-1-82-8-analysis/) - a popular AI proxy library compromised to exfiltrate credentials
 - [**telnyx 4.87.2**](https://safedep.io/malicious-telnyx-pypi-compromise/) - a legitimate telecom SDK hijacked on PyPI
 - [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
 
-PMG intercepts every package install and checks it for malware **before** code executes. Install it once, and every `npm install`, `pip install`, and `poetry add` is protected automatically.
+PMG intercepts every package install and checks it for malware **before** code executes. Install it once, and PMG covers every `npm install`, `pip install`, and `poetry add` after that.
 
-> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316) and used by engineering teams worldwide.
+> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316).
 
 ## How PMG Works
 
-- **Transparent Protection** - PMG wraps `npm`, `pip`, and other package managers to transparently apply protection. Developers and AI agents use their tools as usual with no workflow changes.
-- **Malicious Package Protection** - Every intercepted package is analyzed against [SafeDep's real-time threat intelligence](https://safedep.io) before installation. Malicious packages are blocked before code executes on the system.
-- **Sandboxed Installation** - Package installation runs inside OS-native sandboxes (macOS Seatbelt, Linux Bubblewrap), preventing install scripts from modifying the system even if a threat evades detection.
-- **Audit Logging** - Every package installation event is logged, providing a verifiable trail of what was installed, when, and from where.
+PMG takes a defense in depth approach. Each install passes through three independent layers before code runs, plus an audit trail after.
+
+- **Transparent Interception** - PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands. No workflow changes.
+- **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages never reach disk.
+- **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so freshly compromised versions cannot land before the ecosystem has had time to flag them.
+- **Layer 3: Sandbox** - PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Bubblewrap), so install scripts cannot touch the system even if a threat slips past the first two layers.
+- **Audit Logging** - PMG logs every install (what, when, from where) for a verifiable audit trail.
 
 ## Quick Start
 
-Get protected in seconds.
-
 ### 1. Install
-
-**MacOS / Linux (Install Script)**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh
 ```
 
-**MacOS / Linux (Homebrew)**
-
-```bash
-brew install safedep/tap/pmg
-```
-
-**NPM**
-
-```bash
-npm install -g @safedep/pmg
-```
-
-> **Note:** NPM-based installs can be fragile when Node.js is managed by version managers like [`mise`](https://mise.jdx.dev/) or [`asdf`](https://asdf-vm.com/), since the global `npm` bin path changes with the active Node version. Prefer the install script or Homebrew in those setups.
-
-> See [Installation](#installation) for additional methods.
+> See [Installation](#installation) for Homebrew, npm, and other install methods.
 
 ### 2. Setup
 
-Configure your shell to use PMG automatically.
+Wire PMG into your shell so it intercepts package managers.
 
 ```bash
 pmg setup install
@@ -89,7 +75,7 @@ pmg setup install
 
 ### 3. Use
 
-Use your package managers as usual or let your AI coding agent use them. PMG works silently in the background.
+Run your package managers as usual, or let your AI coding agent run them. PMG sits in the path.
 
 ```bash
 npm install express
@@ -97,7 +83,7 @@ npm install express
 pip install requests
 ```
 
-Verify PMG is working by installing a test package. This is a harmless package flagged as malicious in the SafeDep database, specifically meant for testing:
+Verify PMG works by installing `safedep-test-pkg`. It's harmless, but SafeDep flags it as malicious so you can confirm the block path:
 
 ```bash
 npm --prefer-online --no-cache i safedep-test-pkg@0.1.3
@@ -119,32 +105,28 @@ npm --prefer-online --no-cache i safedep-test-pkg@0.1.3
 
 ## Features
 
-| Feature                          | Description                                                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **AI Agent Safety Net**          | Protects against malicious packages installed by AI coding agents (Claude Code, Cursor, Copilot, Windsurf).      |
-| **Malicious Package Protection** | Real-time protection against malicious packages using [SafeDep](https://docs.safedep.io/cloud/malware-analysis). |
-| **Sandboxing**                   | Enforces least privilege using OS native sandboxing to contain installation scripts.                             |
-| **Dependency Analysis**          | Deep scans of direct and transitive dependencies before they hit your disk.                                      |
-| **Event Logging**                | Keeps a verifiable audit trail of all installed packages.                                                        |
-| **Dependency Cooldown**           | Blocks package versions published within a configurable time window, reducing exposure to supply chain attacks.   |
-| **Zero Config**                  | Works out of the box with sensible security defaults.                                                            |
-| **Cross-Shell**                  | Seamlessly integrates with Zsh, Bash, Fish, and more.                                                            |
+| Feature                  | Description                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| **AI Agent Safety Net**  | Catches malicious packages installed by AI coding agents (Claude Code, Cursor, Copilot, Windsurf).           |
+| **Dependency Cooldown**  | Blocks package versions published within a configurable time window, reducing exposure to supply chain attacks. |
+| **Zero Config**          | Works out of the box with sensible security defaults.                                                        |
+| **Cross-Shell**          | Integrates with Zsh, Bash, Fish, and more.                                                                   |
 
 ## Supported Package Managers
 
 PMG supports the tools you already use:
 
-| Ecosystem   | Tools    | Status | Command Example     |
-| ----------- | -------- | ------ | ------------------- |
-| **Node.js** | `npm`    | Yes    | `npm install <pkg>` |
-|             | `pnpm`   | Yes    | `pnpm add <pkg>`    |
-|             | `yarn`   | Yes    | `yarn add <pkg>`    |
-|             | `bun`    | Yes    | `bun add <pkg>`     |
-|             | `npx`    | Yes    | `npx <pkg>`         |
-|             | `pnpx`   | Yes    | `pnpx <pkg>`        |
-| **Python**  | `pip`    | Yes    | `pip install <pkg>` |
-|             | `poetry` | Yes    | `poetry add <pkg>`  |
-|             | `uv`     | Yes    | `uv add <pkg>`      |
+| Ecosystem   | Tools    | Command Example     |
+| ----------- | -------- | ------------------- |
+| **Node.js** | `npm`    | `npm install <pkg>` |
+|             | `pnpm`   | `pnpm add <pkg>`    |
+|             | `yarn`   | `yarn add <pkg>`    |
+|             | `bun`    | `bun add <pkg>`     |
+|             | `npx`    | `npx <pkg>`         |
+|             | `pnpx`   | `pnpx <pkg>`        |
+| **Python**  | `pip`    | `pip install <pkg>` |
+|             | `poetry` | `poetry add <pkg>`  |
+|             | `uv`     | `uv add <pkg>`      |
 
 ## Installation
 
@@ -198,21 +180,22 @@ Download the latest binary for your platform from the [Releases Page](https://gi
 
 ## GitHub Actions
 
-Protect your CI workflows by adding a single step. Every `npm install`,
-`pip install`, etc. in the job is transparently analyzed by PMG.
+Protect CI workflows with one step. PMG analyzes every `npm install`,
+`pip install`, etc. in the job.
 
 ```yaml
-- uses: actions/setup-node@v4
+# Consider pinning third-party Actions to a full commit SHA
+- uses: actions/setup-node@v6
   with:
     node-version: 24
 - uses: safedep/pmg@v1
 - run: npm ci
 ```
 
-Zero-config users get malware blocking and dependency cooldown out of the
-box. Power users tune behavior via inputs (`paranoid`, `sandbox`,
-`cooldown-days`, ...) or by pointing `config-file` at a YAML in the repo.
-See [docs/github-action.md](docs/github-action.md) for the full reference.
+By default you get malware blocking and dependency cooldown. Tune behavior
+via inputs (`paranoid`, `sandbox`, `cooldown-days`, ...) or point
+`config-file` at a YAML in the repo. See
+[docs/github-action.md](docs/github-action.md) for the full reference.
 
 ## Uninstallation
 
@@ -240,30 +223,30 @@ npm uninstall -g @safedep/pmg
 
 ## Trust and Security
 
-Security is our first class requirement. PMG builds are reproducible and signed.
+PMG builds are reproducible and signed.
 
-* **Attestations**: GitHub and npm attestations are used to guarantee artifact integrity.
-* **Verification**: Users can cryptographically prove the binary matches the source code.
-* See [Trusting PMG](docs/trust.md) for verification steps.
+- **Attestations**: GitHub and npm attestations guarantee artifact integrity.
+- **Verification**: You can cryptographically prove the binary matches the source code.
+- See [Trusting PMG](docs/trust.md) for verification steps.
 
 ## User Guide
 
-* [Trusted Packages Configuration](docs/trusted-packages.md)
-* [Dependency Cooldown](docs/dependency-cooldown.md)
-* [Proxy Mode Architecture](docs/proxy-mode.md)
-* [Sandboxing Details](docs/sandbox.md)
+- [Trusted Packages Configuration](docs/trusted-packages.md)
+- [Dependency Cooldown](docs/dependency-cooldown.md)
+- [Proxy Mode Architecture](docs/proxy-mode.md)
+- [Sandboxing Details](docs/sandbox.md)
 
 ## Support
 
-If PMG saved you from a bad package, [star this repo](https://github.com/safedep/pmg) — it helps others find it.
+If PMG saved you from a bad package, [star this repo](https://github.com/safedep/pmg). It helps others find it.
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to build and test PMG locally.
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test instructions.
 
 ## Telemetry
 
-PMG collects anonymous usage data to improve project stability and reliability.
-To disable, either:
+PMG collects anonymous usage data. To disable, either:
+
 - Set `disable_telemetry: true` in your PMG config file, or
 - Export `PMG_DISABLE_TELEMETRY=true`.
