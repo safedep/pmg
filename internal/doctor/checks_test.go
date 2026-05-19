@@ -81,6 +81,62 @@ func TestCheckDirectoryWritable(t *testing.T) {
 	}
 }
 
+func TestCheckSandbox(t *testing.T) {
+	tests := []struct {
+		name       string
+		enabled    bool
+		available  bool
+		driver     string
+		wantStatus CheckStatus
+	}{
+		{name: "enabled and available", enabled: true, available: true, driver: "seatbelt", wantStatus: StatusPass},
+		{name: "enabled but unavailable", enabled: true, available: false, wantStatus: StatusFail},
+		{name: "disabled", enabled: false, available: false, wantStatus: StatusWarn},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CheckSandbox(tt.enabled, tt.available, tt.driver)
+			assert.Equal(t, tt.wantStatus, result.Status)
+		})
+	}
+}
+
+func TestCheckSecurityFeature(t *testing.T) {
+	tests := []struct {
+		name       string
+		feature    string
+		enabled    bool
+		wantStatus CheckStatus
+	}{
+		{name: "enabled", feature: "Dependency Cooldown", enabled: true, wantStatus: StatusPass},
+		{name: "disabled", feature: "Dependency Cooldown", enabled: false, wantStatus: StatusWarn},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CheckSecurityFeature(tt.feature, tt.enabled)
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.Contains(t, result.Message, tt.feature)
+		})
+	}
+}
+
+func TestCheckProxyMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		enabled    bool
+		wantStatus CheckStatus
+	}{
+		{name: "enabled", enabled: true, wantStatus: StatusPass},
+		{name: "disabled is fail", enabled: false, wantStatus: StatusFail},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CheckProxyMode(tt.enabled)
+			assert.Equal(t, tt.wantStatus, result.Status)
+		})
+	}
+}
+
 func TestCheckAliasInstalled(t *testing.T) {
 	tests := []struct {
 		name       string

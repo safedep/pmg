@@ -54,6 +54,51 @@ func CheckDirectoryWritable(dir string, label string) CheckResult {
 	}
 }
 
+func CheckSandbox(enabled bool, available bool, driverName string) CheckResult {
+	if !enabled {
+		return CheckResult{
+			Status:  StatusWarn,
+			Message: "sandbox disabled → enable in config for defense-in-depth",
+		}
+	}
+	if !available {
+		return CheckResult{
+			Status:  StatusFail,
+			Message: "sandbox enabled but no driver available on this platform",
+		}
+	}
+	return CheckResult{
+		Status:  StatusPass,
+		Message: fmt.Sprintf("sandbox enabled (%s)", driverName),
+	}
+}
+
+func CheckSecurityFeature(feature string, enabled bool) CheckResult {
+	if enabled {
+		return CheckResult{
+			Status:  StatusPass,
+			Message: fmt.Sprintf("%s is enabled", feature),
+		}
+	}
+	return CheckResult{
+		Status:  StatusWarn,
+		Message: fmt.Sprintf("%s is disabled", feature),
+	}
+}
+
+func CheckProxyMode(enabled bool) CheckResult {
+	if enabled {
+		return CheckResult{
+			Status:  StatusPass,
+			Message: "Proxy Mode is enabled",
+		}
+	}
+	return CheckResult{
+		Status:  StatusFail,
+		Message: "Proxy Mode is disabled → required for package interception",
+	}
+}
+
 func CheckAliasInstalled(installed bool, err error) CheckResult {
 	if err != nil {
 		return CheckResult{
