@@ -9,6 +9,11 @@ import (
 	"github.com/safedep/pmg/internal/analytics"
 )
 
+// SyncBackgroundSubcommand is the cobra `Use` of the hidden child command
+// that MaybeSpawnBackgroundSync forks. Shared with cmd/cloud so renaming the
+// command can't desync the spawn args from the cobra registration.
+const SyncBackgroundSubcommand = "sync-background"
+
 // detachedSpawner forks a detached child running `name` with `args`. Pulled
 // behind a package var so tests can intercept without actually forking the
 // test binary into the background.
@@ -46,7 +51,7 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 		return
 	}
 
-	if err := spawnDetached(pmgPath, "cloud", "sync-background"); err != nil {
+	if err := spawnDetached(pmgPath, "cloud", SyncBackgroundSubcommand); err != nil {
 		log.Warnf("Auto-sync: failed to spawn background sync child: %v", err)
 	}
 }

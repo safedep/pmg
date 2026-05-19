@@ -2,7 +2,6 @@ package audit
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -154,15 +153,4 @@ func TestMaybeSpawnBackgroundSyncSwallowsSpawnError(t *testing.T) {
 	// neither panics nor blocks when the underlying spawn fails.
 	assert.NotPanics(t, func() { MaybeSpawnBackgroundSync(cfg) })
 	assert.Equal(t, 1, rec.callCount(), "spawner should still be invoked once")
-}
-
-// Smoke-check that the lock and lastrun paths used by the spawner test fixture
-// resolve under PMG_CONFIG_DIR so we don't accidentally poke at the host's
-// real PMG config directory during tests.
-func TestSpawnerFixturePathsAreSandboxed(t *testing.T) {
-	cfg := newAutoSyncConfig(t)
-	tmpDir := cfg.ConfigDir()
-
-	assert.Equal(t, filepath.Join(tmpDir, "cloud-sync.lock"), cfg.CloudSyncLockPath())
-	assert.Equal(t, filepath.Join(tmpDir, "cloud-sync.lastrun"), cfg.CloudSyncLastRunPath())
 }

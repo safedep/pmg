@@ -90,9 +90,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}()
 
 	synced, err := bundle.Sync(ctx)
-	if writeErr := audit.WriteLastSyncAttempt(cfg.CloudSyncLastRunPath()); writeErr != nil {
-		log.Warnf("failed to update cloud sync lastrun: %v", writeErr)
-	}
+	recordLastSyncAttempt(cfg)
 	if err != nil {
 		ui.ErrorExit(usefulerror.Useful().
 			Wrap(err).

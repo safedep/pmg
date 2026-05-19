@@ -17,7 +17,7 @@ import (
 // the orphaned process.
 func newSyncBackgroundCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:    "sync-background",
+		Use:    audit.SyncBackgroundSubcommand,
 		Short:  "Internal: drain the cloud sync WAL from a detached child process",
 		Hidden: true,
 		RunE:   runSyncBackground,
@@ -88,11 +88,10 @@ func runSyncBackground(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// recordLastSyncAttempt updates the cooldown timestamp on every attempt
-// (success or failure). A failing cloud endpoint must not cause every PMG
-// invocation to retry immediately.
+// recordLastSyncAttempt updates the cooldown timestamp on every attempt so a
+// failing cloud endpoint does not cause every PMG invocation to retry.
 func recordLastSyncAttempt(cfg *config.RuntimeConfig) {
 	if err := audit.WriteLastSyncAttempt(cfg.CloudSyncLastRunPath()); err != nil {
-		log.Warnf("Auto-sync: failed to update lastrun: %v", err)
+		log.Warnf("failed to update cloud sync lastrun: %v", err)
 	}
 }

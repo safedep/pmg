@@ -196,8 +196,6 @@ func tryResolveKeychainCredentials() (string, bool) {
 	return "keychain", true
 }
 
-// describeAutoSync renders the auto-sync configuration into a single line
-// suitable for the Cloud Sync info section.
 func describeAutoSync(c config.CloudAutoSyncConfig) string {
 	if !c.Enabled {
 		return "disabled"
@@ -205,9 +203,8 @@ func describeAutoSync(c config.CloudAutoSyncConfig) string {
 	return fmt.Sprintf("enabled (every %s, timeout %s)", c.MinInterval, c.Timeout)
 }
 
-// describeLastSync formats the lastrun timestamp as a human-friendly relative
-// time. Missing or unparseable timestamps render as "never" so a fresh
-// install does not look broken.
+// describeLastSync renders a missing or unparseable timestamp as "never" so a
+// fresh install does not look broken.
 func describeLastSync(path string) string {
 	last := audit.ReadLastSyncAttempt(path)
 	if last.IsZero() {
