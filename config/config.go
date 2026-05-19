@@ -332,6 +332,14 @@ func init() {
 	initConfig()
 }
 
+// Reload re-runs the initialization that runs at package init. Tests that
+// mutate PMG_CONFIG_DIR via t.Setenv must call this so the resolved config
+// directory reflects the new env, instead of the value computed when the
+// package was first loaded.
+func Reload() {
+	initConfig()
+}
+
 // initConfig should be idempotent and can be called multiple times.
 // This is required for testing purposes.
 func initConfig() {

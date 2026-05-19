@@ -57,16 +57,14 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	// fool the analytics short-circuit in MaybeSpawnBackgroundSync.
 	t.Setenv("PMG_DISABLE_TELEMETRY", "false")
 
-	// Snapshot the existing shared config so sibling tests aren't affected by
-	// the mutations we make below.
-	cfg := config.Get()
-	originalCloud := cfg.Config.Cloud
-	originalDisableTelemetry := cfg.Config.DisableTelemetry
-	t.Cleanup(func() {
-		cfg.Config.Cloud = originalCloud
-		cfg.Config.DisableTelemetry = originalDisableTelemetry
-	})
+	// Re-init the config so configDir picks up the tmpDir we just set. Without
+	// this, cfg.CloudSyncLastRunPath() points at the user's real config dir
+	// (which may not even exist in CI), and writes from the test go to the
+	// wrong place — or fail outright.
+	config.Reload()
+	t.Cleanup(config.Reload)
 
+	cfg := config.Get()
 	cfg.Config.Cloud.Enabled = true
 	cfg.Config.Cloud.AutoSync.Enabled = true
 	cfg.Config.Cloud.AutoSync.MinInterval = 15 * time.Minute
