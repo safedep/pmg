@@ -14,6 +14,15 @@ import (
 // command can't desync the spawn args from the cobra registration.
 const SyncBackgroundSubcommand = "sync-background"
 
+// isBackgroundSyncChild gates MaybeSpawnBackgroundSync against a respawn
+// chain when an early-exit child (e.g. losing the lock race) leaves
+// cloud-sync.lastrun stale.
+var isBackgroundSyncChild bool
+
+func MarkBackgroundSyncChild() {
+	isBackgroundSyncChild = true
+}
+
 // detachedSpawner forks a detached child running `name` with `args`. Pulled
 // behind a package var so tests can intercept without actually forking the
 // test binary into the background.
@@ -31,6 +40,9 @@ var spawnDetached detachedSpawner = spawnDetachedExec
 // output.
 func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if cfg == nil {
+		return
+	}
+	if isBackgroundSyncChild {
 		return
 	}
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {

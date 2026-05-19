@@ -57,10 +57,9 @@ func newAutoSyncConfig(t *testing.T) *config.RuntimeConfig {
 	// fool the analytics short-circuit in MaybeSpawnBackgroundSync.
 	t.Setenv("PMG_DISABLE_TELEMETRY", "false")
 
-	// Re-init the config so configDir picks up the tmpDir we just set. Without
-	// this, cfg.CloudSyncLastRunPath() points at the user's real config dir
-	// (which may not even exist in CI), and writes from the test go to the
-	// wrong place — or fail outright.
+	// Re-init the config so configDir picks up the tmpDir we just set.
+	// Without this, cfg.CloudSyncLastRunPath() points at the user's real
+	// config dir, which may not even exist in CI.
 	config.Reload()
 	t.Cleanup(config.Reload)
 
@@ -113,6 +112,17 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
 		cfg.Config.DisableTelemetry = true
+
+		MaybeSpawnBackgroundSync(cfg)
+		assert.Equal(t, 0, rec.callCount())
+	})
+
+	t.Run("we are the sync-background child", func(t *testing.T) {
+		rec := withMockSpawner(t)
+		cfg := newAutoSyncConfig(t)
+
+		t.Cleanup(func() { isBackgroundSyncChild = false })
+		MarkBackgroundSyncChild()
 
 		MaybeSpawnBackgroundSync(cfg)
 		assert.Equal(t, 0, rec.callCount())

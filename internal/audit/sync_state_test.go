@@ -126,9 +126,8 @@ func TestSyncLockAllowsSecondAcquisitionAfterRelease(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		// Hold briefly, then release so the second acquirer can proceed.
-		// assert (not require) is safe from a goroutine — it calls t.Errorf
-		// rather than t.FailNow, so failure reporting doesn't goexit here.
+		// assert (not require) is safe from a goroutine. require.NoError
+		// calls t.FailNow which is not goroutine-safe.
 		time.Sleep(50 * time.Millisecond)
 		assert.NoError(t, first.Unlock())
 	}()

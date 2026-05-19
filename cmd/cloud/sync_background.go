@@ -26,6 +26,8 @@ func newSyncBackgroundCommand() *cobra.Command {
 }
 
 func runSyncBackground(cmd *cobra.Command, args []string) error {
+	audit.MarkBackgroundSyncChild()
+
 	cfg := config.Get()
 
 	if analytics.IsDisabled() {
