@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 )
 
@@ -39,12 +40,13 @@ func newProfileListCommand(factory registryFactory) *cobra.Command {
 func runProfileList(out io.Writer, opts *profileListOptions, factory registryFactory) error {
 	registry, err := factory()
 	if err != nil {
-		return err
+		return registryInitError(err)
 	}
 
 	summaries, err := registry.ListProfiles()
 	if err != nil {
-		return err
+		return wrapUseful(err, usefulerror.ErrCodeUnknown,
+			"Failed to enumerate sandbox profiles. Check the user profile directory permissions.")
 	}
 
 	if opts.jsonOut {

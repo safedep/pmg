@@ -148,4 +148,7 @@ func TestProfileShowDriverNonNativeErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, stderr.String())
 	assert.Contains(t, err.Error(), "not available")
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok, "non-native driver error should be reported as a UsefulError")
+	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
 }

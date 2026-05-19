@@ -56,12 +56,12 @@ func (e *lintFailError) ExitCode() int { return ExitCodeLintFail }
 func runProfileLint(out io.Writer, name string, opts *profileLintOptions, factory registryFactory) error {
 	registry, err := factory()
 	if err != nil {
-		return err
+		return registryInitError(err)
 	}
 
 	policy, resolvedName, err := resolveProfileForLint(name, registry)
 	if err != nil {
-		return err
+		return profileLoadError(err)
 	}
 
 	issues := pmgsandbox.LintProfile(policy)
@@ -89,7 +89,7 @@ func resolveProfileForLint(name string, registry pmgsandbox.ProfileRegistry) (*p
 	if _, ok := registry.BuiltinProfileYAML(name); ok {
 		policy, err := registry.GetProfile(name)
 		if err != nil {
-			return nil, "", err
+			return nil, "", profileLoadError(err)
 		}
 		return policy, name, nil
 	}
@@ -102,7 +102,7 @@ func resolveProfileForLint(name string, registry pmgsandbox.ProfileRegistry) (*p
 		if s.Source == pmgsandbox.ProfileSourceUser && s.Name == name {
 			policy, loadErr := registry.LoadCustomProfile(s.Path)
 			if loadErr != nil {
-				return nil, "", loadErr
+				return nil, "", profileLoadError(loadErr)
 			}
 			return policy, s.Path, nil
 		}
@@ -111,7 +111,7 @@ func resolveProfileForLint(name string, registry pmgsandbox.ProfileRegistry) (*p
 	if _, statErr := os.Stat(name); statErr == nil {
 		policy, loadErr := registry.LoadCustomProfile(name)
 		if loadErr != nil {
-			return nil, "", loadErr
+			return nil, "", profileLoadError(loadErr)
 		}
 		return policy, name, nil
 	}

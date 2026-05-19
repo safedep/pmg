@@ -62,6 +62,51 @@ func notFoundError(message, help string) error {
 		Wrap(errors.New(message))
 }
 
+// wrapUseful wraps err in a UsefulError with the given code and help if it is
+// not already a UsefulError. Returns err unchanged when nil or already useful,
+// so call sites can apply it uniformly without losing pre-classified errors.
+func wrapUseful(err error, code, help string) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := usefulerror.AsUsefulError(err); ok {
+		return err
+	}
+	return usefulerror.Useful().
+		WithCode(code).
+		WithHumanError(err.Error()).
+		WithHelp(help).
+		Wrap(err)
+}
+
+// profileLoadError classifies an error from the sandbox profile registry
+// (GetProfile, LoadCustomProfile, ResolveProfile) into a UsefulError. Errors
+// whose message reads as a missing profile/file are reported as NotFound;
+// everything else (parse/validate/inheritance) is InvalidArgument.
+func profileLoadError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := usefulerror.AsUsefulError(err); ok {
+		return err
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "not found") || strings.Contains(msg, "no such file") {
+		return wrapUseful(err, usefulerror.ErrCodeNotFound,
+			"Use `pmg sandbox profile list` to see available profiles, or pass an existing profile YAML path.")
+	}
+	return wrapUseful(err, usefulerror.ErrCodeInvalidArgument,
+		"Check the profile YAML for syntax/schema issues and verify any 'inherits:' parent name.")
+}
+
+// registryInitError wraps a registry construction failure as a UsefulError.
+// These are typically caused by broken built-in profiles or an unreadable
+// user profile directory, neither of which the user can act on without context.
+func registryInitError(err error) error {
+	return wrapUseful(err, usefulerror.ErrCodeUnknown,
+		"Failed to initialise the sandbox profile registry. Run with --verbose for details.")
+}
+
 func writeJSONIndent(out io.Writer, v any) error {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")

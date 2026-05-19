@@ -196,6 +196,25 @@ func TestProfileLintMissingTargetShowsUsage(t *testing.T) {
 	assert.Contains(t, stdout.String(), "pmg sandbox profile lint npm-restrictive")
 }
 
+func TestProfileLint_InvalidYAMLReturnsInvalidArgument(t *testing.T) {
+	dir := t.TempDir()
+	// Write a syntactically broken YAML file under the user dir.
+	path := filepath.Join(dir, "broken.yml")
+	require.NoError(t, os.WriteFile(path, []byte("name: broken\npackage_managers:\n  - npm\n  invalid: : :\n"), 0o644))
+
+	cmd := newProfileLintCommand(newTestRegistry(t, dir))
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"broken"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+}
+
 func TestProfileLint_LiteralPath(t *testing.T) {
 	dir := t.TempDir()
 	path := writeUserProfileLint(t, dir, "literal", `name: literal

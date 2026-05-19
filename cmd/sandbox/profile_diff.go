@@ -9,6 +9,7 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -68,7 +69,7 @@ func runProfileDiff(out io.Writer, errOut io.Writer, nameA, nameB string, opts *
 
 	registry, err := factory()
 	if err != nil {
-		return &diffOpError{err: err}
+		return &diffOpError{err: registryInitError(err)}
 	}
 
 	dataA, err := materialize(registry, nameA, opts)
@@ -82,7 +83,8 @@ func runProfileDiff(out io.Writer, errOut io.Writer, nameA, nameB string, opts *
 
 	if bytes.Equal(dataA, dataB) {
 		if _, err := fmt.Fprintln(errOut, "profiles are identical"); err != nil {
-			return &diffOpError{err: err}
+			return &diffOpError{err: wrapUseful(err, usefulerror.ErrCodeUnknown,
+				"Failed to write diff output. Check that stderr is writable.")}
 		}
 		return nil
 	}
@@ -96,16 +98,20 @@ func runProfileDiff(out io.Writer, errOut io.Writer, nameA, nameB string, opts *
 	}
 	text, err := difflib.GetUnifiedDiffString(diff)
 	if err != nil {
-		return &diffOpError{err: fmt.Errorf("failed to render diff: %w", err)}
+		return &diffOpError{err: wrapUseful(fmt.Errorf("failed to render diff: %w", err),
+			usefulerror.ErrCodeUnknown,
+			"Could not render the unified diff. Re-run with --verbose for the underlying cause.")}
 	}
 
 	if _, err := io.WriteString(out, text); err != nil {
-		return &diffOpError{err: err}
+		return &diffOpError{err: wrapUseful(err, usefulerror.ErrCodeUnknown,
+			"Failed to write diff output. Check that stdout is writable.")}
 	}
 
 	if !strings.HasSuffix(text, "\n") {
 		if _, err := fmt.Fprintln(out); err != nil {
-			return &diffOpError{err: err}
+			return &diffOpError{err: wrapUseful(err, usefulerror.ErrCodeUnknown,
+				"Failed to write diff output. Check that stdout is writable.")}
 		}
 	}
 
@@ -118,11 +124,16 @@ func materialize(registry pmgsandbox.ProfileRegistry, name string, opts *profile
 		Home: opts.home,
 	})
 	if err != nil {
-		return nil, err
+		return nil, profileLoadError(err)
 	}
 
 	if opts.driver != "" {
-		return platform.Render(pmgsandbox.DriverName(opts.driver), policy)
+		rendered, err := platform.Render(pmgsandbox.DriverName(opts.driver), policy)
+		if err != nil {
+			return nil, wrapUseful(err, usefulerror.ErrCodeInvalidArgument,
+				"Could not render the policy for the requested driver. Verify the driver is supported on this host.")
+		}
+		return rendered, nil
 	}
 
 	// Strip inherits since both sides are post-resolution.
@@ -130,7 +141,9 @@ func materialize(registry pmgsandbox.ProfileRegistry, name string, opts *profile
 
 	data, err := yaml.Marshal(policy)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resolved policy %s: %w", name, err)
+		return nil, wrapUseful(fmt.Errorf("failed to marshal resolved policy %s: %w", name, err),
+			usefulerror.ErrCodeUnknown,
+			"Failed to marshal the resolved policy to YAML. Re-run with --verbose for the underlying cause.")
 	}
 	return data, nil
 }

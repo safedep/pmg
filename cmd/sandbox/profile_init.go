@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 )
 
@@ -59,7 +60,7 @@ func runProfileInit(out io.Writer, name string, opts *profileInitOptions, factor
 
 	registry, err := factory()
 	if err != nil {
-		return err
+		return registryInitError(err)
 	}
 
 	userDir := registry.UserProfileDir()
@@ -93,17 +94,23 @@ func runProfileInit(out io.Writer, name string, opts *profileInitOptions, factor
 			"Choose a different profile name, or edit the existing profile file to merge changes.",
 		)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to stat %s: %w", target, err)
+		return wrapUseful(fmt.Errorf("failed to stat %s: %w", target, err),
+			usefulerror.ErrCodeUnknown,
+			"Could not stat the target profile path. Check the user profile directory permissions.")
 	}
 
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create user profile directory %s: %w", userDir, err)
+		return wrapUseful(fmt.Errorf("failed to create user profile directory %s: %w", userDir, err),
+			usefulerror.ErrCodePermissionDenied,
+			"Could not create the user profile directory. Check filesystem permissions for "+userDir+".")
 	}
 
 	content := renderScaffold(name, opts.description, opts.from, pms, placeholderPM)
 
 	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", target, err)
+		return wrapUseful(fmt.Errorf("failed to write %s: %w", target, err),
+			usefulerror.ErrCodePermissionDenied,
+			"Could not write the scaffolded profile. Check filesystem permissions for "+target+".")
 	}
 
 	_, err = fmt.Fprintln(out, target)

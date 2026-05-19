@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/dry/log"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -53,7 +54,7 @@ func runProfileShow(out io.Writer, name string, opts *profileShowOptions, factor
 
 	registry, err := factory()
 	if err != nil {
-		return err
+		return registryInitError(err)
 	}
 
 	if opts.driver != "" {
@@ -70,7 +71,7 @@ func runProfileShow(out io.Writer, name string, opts *profileShowOptions, factor
 func runProfileShowRaw(out io.Writer, name string, opts *profileShowOptions, registry pmgsandbox.ProfileRegistry) error {
 	source, path, data, err := loadProfileSource(name, registry)
 	if err != nil {
-		return err
+		return profileLoadError(err)
 	}
 
 	if opts.jsonOut {
@@ -93,7 +94,7 @@ func runProfileShowResolved(out io.Writer, name string, opts *profileShowOptions
 		Home: opts.home,
 	})
 	if err != nil {
-		return err
+		return profileLoadError(err)
 	}
 
 	if opts.jsonOut {
@@ -106,7 +107,9 @@ func runProfileShowResolved(out io.Writer, name string, opts *profileShowOptions
 
 	data, err := yaml.Marshal(policy)
 	if err != nil {
-		return fmt.Errorf("failed to marshal resolved policy: %w", err)
+		return wrapUseful(fmt.Errorf("failed to marshal resolved policy: %w", err),
+			usefulerror.ErrCodeUnknown,
+			"Failed to marshal the resolved policy to YAML. Re-run with --verbose for the underlying cause.")
 	}
 
 	_, err = out.Write(data)
@@ -119,12 +122,13 @@ func runProfileShowDriver(out io.Writer, name string, opts *profileShowOptions, 
 		Home: opts.home,
 	})
 	if err != nil {
-		return err
+		return profileLoadError(err)
 	}
 
 	rendered, err := platform.Render(pmgsandbox.DriverName(opts.driver), policy)
 	if err != nil {
-		return err
+		return wrapUseful(err, usefulerror.ErrCodeInvalidArgument,
+			"Could not render the policy for the requested driver. Verify the driver is supported on this host.")
 	}
 
 	if opts.jsonOut {
