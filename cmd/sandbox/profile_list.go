@@ -45,7 +45,7 @@ func runProfileList(out io.Writer, opts *profileListOptions, factory registryFac
 
 	summaries, err := registry.ListProfiles()
 	if err != nil {
-		return wrapUseful(err, usefulerror.ErrCodeUnknown,
+		return wrapUseful(err, ioErrorCode(err, usefulerror.ErrCodeUnknown),
 			"Failed to enumerate sandbox profiles. Check the user profile directory permissions.")
 	}
 

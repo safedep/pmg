@@ -198,7 +198,6 @@ func TestProfileLintMissingTargetShowsUsage(t *testing.T) {
 
 func TestProfileLint_InvalidYAMLReturnsInvalidArgument(t *testing.T) {
 	dir := t.TempDir()
-	// Write a syntactically broken YAML file under the user dir.
 	path := filepath.Join(dir, "broken.yml")
 	require.NoError(t, os.WriteFile(path, []byte("name: broken\npackage_managers:\n  - npm\n  invalid: : :\n"), 0o644))
 

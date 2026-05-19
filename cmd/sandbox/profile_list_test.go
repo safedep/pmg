@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,6 +121,24 @@ func TestProfileListRegistryFailureReturnsUseful(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, usefulerror.ErrCodeUnknown, usefulErr.Code())
 	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestProfileListRegistryPermissionErrorReturnsPermissionDenied(t *testing.T) {
+	factory := func() (pmgsandbox.ProfileRegistry, error) {
+		return nil, fmt.Errorf("read dir: %w", fs.ErrPermission)
+	}
+
+	cmd := newProfileListCommand(factory)
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, usefulerror.ErrCodePermissionDenied, usefulErr.Code())
 }
 
 func TestProfileListRejectsUnexpectedArgs(t *testing.T) {

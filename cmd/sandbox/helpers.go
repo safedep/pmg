@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"regexp"
 	"strings"
 
@@ -62,9 +63,8 @@ func notFoundError(message, help string) error {
 		Wrap(errors.New(message))
 }
 
-// wrapUseful wraps err in a UsefulError with the given code and help if it is
-// not already a UsefulError. Returns err unchanged when nil or already useful,
-// so call sites can apply it uniformly without losing pre-classified errors.
+// Idempotent: returns err unchanged when nil or already useful, so call
+// sites can apply it without losing more precise pre-classified errors.
 func wrapUseful(err error, code, help string) error {
 	if err == nil {
 		return nil
@@ -79,10 +79,6 @@ func wrapUseful(err error, code, help string) error {
 		Wrap(err)
 }
 
-// profileLoadError classifies an error from the sandbox profile registry
-// (GetProfile, LoadCustomProfile, ResolveProfile) into a UsefulError using
-// the sandbox package's sentinel errors. Falls back to Unknown when neither
-// sentinel matches (e.g. a raw IO error from a custom path read).
 func profileLoadError(err error) error {
 	if err == nil {
 		return nil
@@ -102,12 +98,19 @@ func profileLoadError(err error) error {
 		"Failed to load the sandbox profile. Run with --verbose for the underlying cause.")
 }
 
-// registryInitError wraps a registry construction failure as a UsefulError.
-// These are typically caused by broken built-in profiles or an unreadable
-// user profile directory, neither of which the user can act on without context.
 func registryInitError(err error) error {
-	return wrapUseful(err, usefulerror.ErrCodeUnknown,
+	return wrapUseful(err, ioErrorCode(err, usefulerror.ErrCodeUnknown),
 		"Failed to initialise the sandbox profile registry. Run with --verbose for details.")
+}
+
+func ioErrorCode(err error, fallback string) string {
+	switch {
+	case errors.Is(err, fs.ErrPermission):
+		return usefulerror.ErrCodePermissionDenied
+	case errors.Is(err, fs.ErrNotExist):
+		return usefulerror.ErrCodeNotFound
+	}
+	return fallback
 }
 
 func writeJSONIndent(out io.Writer, v any) error {
