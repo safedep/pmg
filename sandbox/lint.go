@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/safedep/pmg/sandbox/util"
 )
 
 // LintLevel categorises a lint issue. Errors indicate a profile that cannot
@@ -23,14 +25,6 @@ type LintIssue struct {
 	Message string    `json:"message"`
 	Field   string    `json:"field,omitempty"`
 	Rule    string    `json:"rule,omitempty"`
-}
-
-// supportedVariables enumerates the variables ExpandVariablesWith understands.
-// Kept in sync manually with sandbox/util/variables.go.
-var supportedVariables = map[string]struct{}{
-	"${HOME}":   {},
-	"${CWD}":    {},
-	"${TMPDIR}": {},
 }
 
 var variableTokenRe = regexp.MustCompile(`\$\{[^}]+\}`)
@@ -70,31 +64,35 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		}
 	}
 
+	// allowOnly marks lists where broadness and dead-rule checks make sense:
+	// deny-lists and network allow_bind are out of scope for those checks.
 	allowLists := []struct {
-		name  string
-		rules []string
+		name      string
+		rules     []string
+		allowOnly bool
 	}{
-		{"filesystem.allow_read", policy.Filesystem.AllowRead},
-		{"filesystem.allow_write", policy.Filesystem.AllowWrite},
-		{"filesystem.deny_read", policy.Filesystem.DenyRead},
-		{"filesystem.deny_write", policy.Filesystem.DenyWrite},
-		{"network.allow_outbound", policy.Network.AllowOutbound},
-		{"network.deny_outbound", policy.Network.DenyOutbound},
-		{"network.allow_bind", policy.Network.AllowBind},
-		{"process.allow_exec", policy.Process.AllowExec},
-		{"process.deny_exec", policy.Process.DenyExec},
+		{"filesystem.allow_read", policy.Filesystem.AllowRead, true},
+		{"filesystem.allow_write", policy.Filesystem.AllowWrite, true},
+		{"filesystem.deny_read", policy.Filesystem.DenyRead, false},
+		{"filesystem.deny_write", policy.Filesystem.DenyWrite, false},
+		{"network.allow_outbound", policy.Network.AllowOutbound, false},
+		{"network.deny_outbound", policy.Network.DenyOutbound, false},
+		{"network.allow_bind", policy.Network.AllowBind, false},
+		{"process.allow_exec", policy.Process.AllowExec, true},
+		{"process.deny_exec", policy.Process.DenyExec, false},
 	}
 
+	knownVars := strings.Join(util.SupportedVariables, ", ")
 	for _, list := range allowLists {
 		for i, rule := range list.rules {
 			for _, tok := range variableTokenRe.FindAllString(rule, -1) {
-				if _, ok := supportedVariables[tok]; ok {
+				if util.IsSupportedVariable(tok) {
 					continue
 				}
 				warns = append(warns, LintIssue{
 					Level:   LintLevelWarn,
 					Code:    "vars.unresolved",
-					Message: "unsupported variable " + tok + " (known: ${HOME}, ${CWD}, ${TMPDIR})",
+					Message: "unsupported variable " + tok + " (known: " + knownVars + ")",
 					Field:   fieldRef(list.name, i),
 					Rule:    rule,
 				})
@@ -102,13 +100,8 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		}
 	}
 
-	allowOnly := map[string]bool{
-		"filesystem.allow_read":  true,
-		"filesystem.allow_write": true,
-		"process.allow_exec":     true,
-	}
 	for _, list := range allowLists {
-		if !allowOnly[list.name] {
+		if !list.allowOnly {
 			continue
 		}
 		for i, rule := range list.rules {
@@ -160,7 +153,7 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 	// Dead rules: a later rule is "shadowed" only if it is a strict prefix
 	// match of an earlier rule whose pattern ends with "/**".
 	for _, list := range allowLists {
-		if !allowOnly[list.name] {
+		if !list.allowOnly {
 			continue
 		}
 		for i, rule := range list.rules {
@@ -205,8 +198,8 @@ func broadCheck(rule string) (string, string) {
 	switch rule {
 	case "/**":
 		return "broad.root_glob", "rule grants access to entire filesystem (/**)"
-	case "${HOME}/**":
-		return "broad.home_glob", "rule grants access to entire user home (${HOME}/**)"
+	case util.VarHome + "/**":
+		return "broad.home_glob", "rule grants access to entire user home (" + util.VarHome + "/**)"
 	case "**":
 		return "broad.all_glob", "rule uses unrestricted glob (**)"
 	}

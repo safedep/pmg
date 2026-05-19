@@ -258,6 +258,44 @@ func TestContainsGlob(t *testing.T) {
 	}
 }
 
+func TestIsSupportedVariable(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		expected bool
+	}{
+		{"HOME is supported", "${HOME}", true},
+		{"CWD is supported", "${CWD}", true},
+		{"TMPDIR is supported", "${TMPDIR}", true},
+		{"unknown variable", "${USER}", false},
+		{"empty token", "", false},
+		{"bare name without braces", "HOME", false},
+		{"missing closing brace", "${HOME", false},
+		{"missing opening brace", "HOME}", false},
+		{"case mismatch", "${home}", false},
+		{"embedded variable in path is not a bare token", "${HOME}/foo", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsSupportedVariable(tt.token))
+		})
+	}
+}
+
+func TestSupportedVariablesCoversReplacer(t *testing.T) {
+	// Guard against drift: every entry in SupportedVariables must actually be
+	// expanded by ExpandVariablesWith, otherwise the linter and expander would
+	// disagree about what is "known".
+	for _, v := range SupportedVariables {
+		t.Run(v, func(t *testing.T) {
+			out, err := ExpandVariablesWith(v, "/cwd", "/home", "/tmp")
+			assert.NoError(t, err)
+			assert.NotEqual(t, v, out, "variable %q was not expanded", v)
+		})
+	}
+}
+
 func TestExpandVariablesWithVariableReplacement(t *testing.T) {
 	tests := []struct {
 		name          string

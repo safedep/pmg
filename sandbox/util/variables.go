@@ -6,6 +6,28 @@ import (
 	"strings"
 )
 
+// Variable names recognised by ExpandVariablesWith. SupportedVariables is the
+// authoritative list — callers that need to validate variable usage (e.g. the
+// linter) should consume it rather than maintaining their own copy.
+const (
+	VarHome   = "${HOME}"
+	VarCWD    = "${CWD}"
+	VarTMPDir = "${TMPDIR}"
+)
+
+var SupportedVariables = []string{VarHome, VarCWD, VarTMPDir}
+
+// IsSupportedVariable reports whether tok is one of the variables that
+// ExpandVariablesWith will expand.
+func IsSupportedVariable(tok string) bool {
+	for _, v := range SupportedVariables {
+		if v == tok {
+			return true
+		}
+	}
+	return false
+}
+
 // ExpandVariables expands known variables in a path or pattern using process
 // environment values. See ExpandVariablesWith for supported variables.
 func ExpandVariables(pattern string) (string, error) {
@@ -14,10 +36,7 @@ func ExpandVariables(pattern string) (string, error) {
 
 // ExpandVariablesWith expands known variables in a path or pattern. Any of
 // cwd, home, tmpDir left empty falls back to the corresponding process value.
-// Supported variables:
-// - ${HOME}: User home directory
-// - ${CWD}: Current working directory
-// - ${TMPDIR}: Temporary directory
+// The set of recognised tokens is SupportedVariables.
 func ExpandVariablesWith(pattern, cwd, home, tmpDir string) (string, error) {
 	if home == "" {
 		h, err := os.UserHomeDir()
@@ -40,9 +59,9 @@ func ExpandVariablesWith(pattern, cwd, home, tmpDir string) (string, error) {
 	}
 
 	replacer := strings.NewReplacer(
-		"${HOME}", home,
-		"${CWD}", cwd,
-		"${TMPDIR}", tmpDir,
+		VarHome, home,
+		VarCWD, cwd,
+		VarTMPDir, tmpDir,
 	)
 
 	return filepath.Clean(replacer.Replace(pattern)), nil
