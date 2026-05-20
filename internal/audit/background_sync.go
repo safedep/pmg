@@ -63,6 +63,10 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 		return
 	}
 
+	// This may seem like a pollution of concerns because the internal audit package
+	// is aware of the CLI cmd layer. We mitigate the risk by having SSOT for sub-command
+	// definition. We gain simplicity of the API that can be plugged in to appropriate
+	// hook point in the main command handler.
 	if err := spawnDetached(pmgPath, "cloud", SyncBackgroundSubcommand); err != nil {
 		log.Warnf("Auto-sync: failed to spawn background sync child: %v", err)
 	}
