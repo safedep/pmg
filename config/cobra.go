@@ -17,9 +17,11 @@ var sandboxAllowRaw []string
 // metadata used to reason about it (managed). configFlagSpecs is the single
 // source of truth, so the cobra wiring and policy decisions cannot drift apart.
 type flagSpec struct {
-	name    string // CLI flag name
-	usage   string
-	managed bool // true when the globally managed config governs this value
+	name  string
+	usage string
+
+	// true when the globally managed config governs this value
+	managed bool
 
 	// bind registers the flag on fs. It owns the type, target field, and default
 	// (read at bind time), keeping the flag tied to its config field with
@@ -28,54 +30,78 @@ type flagSpec struct {
 }
 
 var configFlagSpecs = []flagSpec{
-	{name: "transitive", usage: "Resolve transitive dependencies", managed: true,
+	{
+		name: "transitive", usage: "Resolve transitive dependencies", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Transitive, name, globalConfig.Config.Transitive, usage)
-		}},
-	{name: "transitive-depth", usage: "Maximum depth of transitive dependencies to resolve", managed: true,
+		},
+	},
+	{
+		name: "transitive-depth", usage: "Maximum depth of transitive dependencies to resolve", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.IntVar(&globalConfig.Config.TransitiveDepth, name, globalConfig.Config.TransitiveDepth, usage)
-		}},
-	{name: "include-dev-dependencies", usage: "Include dev dependencies in the dependency graph (slows down resolution)", managed: true,
+		},
+	},
+	{
+		name: "include-dev-dependencies", usage: "Include dev dependencies in the dependency graph (slows down resolution)", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.IncludeDevDependencies, name, globalConfig.Config.IncludeDevDependencies, usage)
-		}},
-	{name: "dry-run", usage: "Dry run skips execution of package manager", managed: false,
+		},
+	},
+	{
+		name: "dry-run", usage: "Dry run skips execution of package manager", managed: false,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.DryRun, name, globalConfig.DryRun, usage)
-		}},
-	{name: "paranoid", usage: "Enable high-security defaults (treat suspicious as malicious)", managed: true,
+		},
+	},
+	{
+		name: "paranoid", usage: "Enable high-security defaults (treat suspicious as malicious)", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Paranoid, name, globalConfig.Config.Paranoid, usage)
-		}},
-	{name: "skip-event-log", usage: "Skip event logging", managed: true,
+		},
+	},
+	{
+		name: "skip-event-log", usage: "Skip event logging", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.SkipEventLogging, name, globalConfig.Config.SkipEventLogging, usage)
-		}},
-	{name: "proxy-mode", usage: "Use proxy based interception", managed: true,
+		},
+	},
+	{
+		name: "proxy-mode", usage: "Use proxy based interception", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Proxy.Enabled, name, globalConfig.Config.Proxy.Enabled, usage)
-		}},
-	{name: "sandbox", usage: "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)", managed: true,
+		},
+	},
+	{
+		name: "sandbox", usage: "Enable sandbox mode to isolate package manager processes (EXPERIMENTAL)", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Sandbox.Enabled, name, globalConfig.Config.Sandbox.Enabled, usage)
-		}},
-	{name: "sandbox-enforce", usage: "Apply sandbox to all commands, not just install commands (requires --sandbox)", managed: true,
+		},
+	},
+	{
+		name: "sandbox-enforce", usage: "Apply sandbox to all commands, not just install commands (requires --sandbox)", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.Sandbox.EnforceAlways, name, globalConfig.Config.Sandbox.EnforceAlways, usage)
-		}},
-	{name: "sandbox-profile", usage: "Override sandbox policy profile (built-in name or path to custom YAML)", managed: true,
+		},
+	},
+	{
+		name: "sandbox-profile", usage: "Override sandbox policy profile (built-in name or path to custom YAML)", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.StringVar(&globalConfig.SandboxProfileOverride, name, globalConfig.SandboxProfileOverride, usage)
-		}},
-	{name: "sandbox-allow", usage: "Add runtime sandbox allow rule (type=value). Types: read, write, exec, net-connect, net-bind", managed: true,
+		},
+	},
+	{
+		name: "sandbox-allow", usage: "Add runtime sandbox allow rule (type=value). Types: read, write, exec, net-connect, net-bind", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.StringArrayVar(&sandboxAllowRaw, name, nil, usage)
-		}},
-	{name: "skip-dependency-cooldown", usage: "Skip dependency cooldown enforcement", managed: true,
+		},
+	},
+	{
+		name: "skip-dependency-cooldown", usage: "Skip dependency cooldown enforcement", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&skipDependencyCooldown, name, false, usage)
-		}},
+		},
+	},
 }
 
 // ApplyCobraFlags binds the config flags onto cmd as persistent flags. Defaults
