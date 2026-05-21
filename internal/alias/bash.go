@@ -3,6 +3,7 @@ package alias
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -93,11 +94,35 @@ func bashInstallRcFiles(homeDir string, create bool, goos string) ([]string, err
 	return []string{target}, nil
 }
 
+// bashrcSourceRe matches a real sourcing of a bashrc file: a `source` or `.`
+// command whose argument ends in `.bashrc` (for example `source ~/.bashrc` or
+// `. "$HOME/.bashrc"`). Requiring the command keyword avoids matching mere
+// mentions in comments or unrelated commands.
+var bashrcSourceRe = regexp.MustCompile(`(^|[\s;&|()])(source|\.)\s+\S*\.bashrc($|[\s;'"&|)])`)
+
+// referencesBashrc reports whether the file at path actually sources a bashrc
+// file. It skips comment lines and inline comments so a commented mention does
+// not wrongly suppress wiring the login file.
 func referencesBashrc(path string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 
-	return strings.Contains(string(data), ".bashrc")
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if i := strings.Index(line, "#"); i >= 0 {
+			line = line[:i]
+		}
+
+		if bashrcSourceRe.MatchString(line) {
+			return true
+		}
+	}
+
+	return false
 }

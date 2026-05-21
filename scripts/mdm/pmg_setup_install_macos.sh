@@ -91,7 +91,7 @@ configure_user() {
     || warn "cloud login failed for $user"
 }
 
-while IFS=$'\t' read -r user uid home; do
+while IFS=$'\t' read -r user _ _; do
   configure_user "$user"
 done < <(each_target_user)
 

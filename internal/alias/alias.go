@@ -1,8 +1,6 @@
 package alias
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -215,72 +213,20 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		return err
 	}
 
+	drop := func(line string) bool {
+		return strings.Contains(line, a.config.RcFileName) ||
+			strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource)
+	}
+
 	for _, shell := range a.config.Shells {
 		for _, configPath := range shell.CandidateRcFiles(homeDir) {
-			a.removeSourceLinesFromFile(configPath)
+			if err := RewriteFileDroppingLines(configPath, drop); err != nil {
+				log.Warnf("Warning: failed to update %s: %s", configPath, err)
+			}
 		}
 	}
 
 	return nil
-}
-
-// removeSourceLinesFromFile strips PMG source lines and their comment from a
-// single shell configuration file. A missing file is a no-op.
-func (a *AliasManager) removeSourceLinesFromFile(configPath string) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warnf("Warning: skipping %s (%s)", configPath, err)
-		}
-		return
-	}
-
-	info, err := os.Stat(configPath)
-	if err != nil {
-		log.Warnf("Warning: skipping %s (%s)", configPath, err)
-		return
-	}
-
-	tempFile, err := os.CreateTemp(filepath.Dir(configPath), ".tmp-"+filepath.Base(configPath))
-	if err != nil {
-		log.Warnf("Warning: failed to create temporary file for %s: %s", configPath, err)
-		return
-	}
-
-	tempPath := tempFile.Name()
-
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	writer := bufio.NewWriter(tempFile)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if strings.Contains(line, a.config.RcFileName) ||
-			strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource) {
-			continue
-		}
-
-		if _, err := writer.WriteString(line + "\n"); err != nil {
-			log.Warnf("Warning: failed to write to temporary file: %s", err)
-		}
-	}
-
-	if err := writer.Flush(); err != nil {
-		log.Warnf("Warning: failed to flush temporary file: %s", err)
-	}
-
-	if err := tempFile.Close(); err != nil {
-		log.Warnf("Warning: failed to close temporary file: %s", err)
-	}
-
-	if err := os.Chmod(tempPath, info.Mode()); err != nil {
-		log.Warnf("Warning: failed to set permissions on temporary file for %s: %s", configPath, err)
-	}
-
-	if err := os.Rename(tempPath, configPath); err != nil {
-		_ = os.Remove(tempPath)
-		log.Warnf("Warning: failed to update %s: %s", configPath, err)
-	}
 }
 
 // addSourceLine adds a source line to the specified shell configuration file.

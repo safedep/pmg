@@ -1,10 +1,12 @@
 package alias
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,6 +113,13 @@ func TestBashInstallRcFiles(t *testing.T) {
 			wantRel:  []string{bashrc, bashProfile},
 		},
 		{
+			name:     "darwin login only mentions bashrc in a comment gets both",
+			goos:     "darwin",
+			create:   true,
+			existing: map[string]string{bashrc: "# bashrc\n", bashProfile: "# see ~/.bashrc\n"},
+			wantRel:  []string{bashrc, bashProfile},
+		},
+		{
 			name:     "darwin nothing exists, primary creates bash_profile",
 			goos:     "darwin",
 			create:   true,
@@ -170,6 +179,85 @@ func TestBashInstallRcFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReferencesBashrc(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"source with tilde", "source ~/.bashrc\n", true},
+		{"dot command", ". ~/.bashrc\n", true},
+		{"quoted home var", "[ -f \"$HOME/.bashrc\" ] && source \"$HOME/.bashrc\"\n", true},
+		{"conditional dot", "[ -f ~/.bashrc ] && . ~/.bashrc\n", true},
+		{"commented mention", "# see ~/.bashrc for details\n", false},
+		{"inline comment", "echo hi # ~/.bashrc\n", false},
+		{"unrelated command", "cat ~/.bashrc\n", false},
+		{"different file", "source ~/.bashrc-backup\n", false},
+		{"no mention", "export PATH=/usr/bin\n", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "profile")
+			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o644))
+			assert.Equal(t, tc.want, referencesBashrc(path))
+		})
+	}
+}
+
+func TestRewriteFileDroppingLines(t *testing.T) {
+	t.Run("drops matching lines and keeps the rest", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "rc")
+		require.NoError(t, os.WriteFile(path, []byte("keep1\ndrop me\nkeep2\n"), 0o644))
+
+		err := RewriteFileDroppingLines(path, func(line string) bool {
+			return strings.Contains(line, "drop")
+		})
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "keep1\nkeep2\n", string(data))
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	})
+
+	t.Run("preserves a line longer than the scanner token limit", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "rc")
+		longLine := strings.Repeat("x", bufio.MaxScanTokenSize+1024)
+		require.NoError(t, os.WriteFile(path, []byte(longLine+"\nPMG drop\nafter\n"), 0o644))
+
+		err := RewriteFileDroppingLines(path, func(line string) bool {
+			return strings.Contains(line, "PMG drop")
+		})
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, longLine+"\nafter\n", string(data))
+	})
+
+	t.Run("leaves the file untouched when nothing matches", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "rc")
+		original := "line1\nline2"
+		require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+		err := RewriteFileDroppingLines(path, func(string) bool { return false })
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, original, string(data))
+	})
+
+	t.Run("missing file is a no-op", func(t *testing.T) {
+		err := RewriteFileDroppingLines(filepath.Join(t.TempDir(), "nope"), func(string) bool { return true })
+		assert.NoError(t, err)
+	})
 }
 
 func TestDetectShell(t *testing.T) {

@@ -43,7 +43,7 @@ remove_user_state() {
   fi
 }
 
-while IFS=$'\t' read -r user uid home; do
+while IFS=$'\t' read -r user _ home; do
   remove_user_state "$user" "$home"
 done < <(each_target_user)
 
@@ -52,10 +52,18 @@ remove_binary() {
   if brew_bin=$(find_brew) && run_brew "$brew_bin" ls --versions safedep/tap/pmg &>/dev/null; then
     log "Uninstalling pmg via Homebrew"
     run_brew "$brew_bin" uninstall safedep/tap/pmg || warn "brew uninstall failed"
-  elif [[ -e /usr/local/bin/pmg ]]; then
-    log "Removing /usr/local/bin/pmg"
-    run_as_root rm -f /usr/local/bin/pmg || warn "failed to remove binary (need root)"
+    return
   fi
+
+  # Not brew-managed: remove machine-wide binaries from the locations resolve_pmg
+  # checks, so a manual install in either prefix is not left behind.
+  local path
+  for path in /usr/local/bin/pmg /opt/homebrew/bin/pmg; do
+    if [[ -e "$path" ]]; then
+      log "Removing $path"
+      run_as_root rm -f "$path" || warn "failed to remove $path (need root)"
+    fi
+  done
 }
 remove_binary
 

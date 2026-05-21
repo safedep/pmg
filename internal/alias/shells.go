@@ -113,3 +113,80 @@ func singleRcFile(path string, create bool) ([]string, error) {
 
 	return []string{path}, nil
 }
+
+// RewriteFileDroppingLines rewrites path, removing every line for which drop
+// returns true (the line is passed without its trailing newline). It preserves
+// the rest of the file byte for byte and its permissions, replaces the file
+// atomically via a temp file, and skips the write when no line is dropped. A
+// missing file is a no-op. It reads the file in one shot rather than scanning,
+// so it has no per-line length limit.
+func RewriteFileDroppingLines(path string, drop func(line string) bool) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var b strings.Builder
+	b.Grow(len(data))
+
+	dropped := false
+	for _, line := range strings.SplitAfter(string(data), "\n") {
+		// SplitAfter keeps the newline on each line; the final element is the
+		// empty remainder after the last newline.
+		if line == "" {
+			continue
+		}
+		if drop(strings.TrimRight(line, "\r\n")) {
+			dropped = true
+			continue
+		}
+		b.WriteString(line)
+	}
+
+	if !dropped {
+		return nil
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	return writeFileAtomic(path, []byte(b.String()), info.Mode())
+}
+
+// writeFileAtomic writes data to a temp file in the target directory, then
+// renames it over path so a crash never leaves a half-written file.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tempFile, err := os.CreateTemp(filepath.Dir(path), ".tmp-"+filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+
+	if _, err := tempFile.Write(data); err != nil {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+
+	if err := os.Chmod(tempPath, perm); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+
+	return nil
+}
