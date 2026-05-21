@@ -21,6 +21,12 @@ type InteractiveSession interface {
 	// PtyReader returns the reader to receive output from the child process
 	PtyReader() io.Reader
 
+	// CopyOutputContext copies child output to dst until the child exits (EOF)
+	// or ctx is cancelled. On unix it drives the read with a poll(2) loop so it
+	// works even when the Go netpoller cannot manage the PTY master, and so it
+	// can be cancelled without leaking a goroutine blocked in read().
+	CopyOutputContext(ctx context.Context, dst io.Writer) error
+
 	// SetRawMode puts terminal in raw mode (for PTY passthrough)
 	SetRawMode() error
 
@@ -128,6 +134,10 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 
 func (s *session) PtyWriter() io.Writer { return s.spawn.PtyWriter() }
 func (s *session) PtyReader() io.Reader { return s.spawn.PtyReader() }
+
+func (s *session) CopyOutputContext(ctx context.Context, dst io.Writer) error {
+	return copyPTYOutput(ctx, dst, s.spawn.PtyReader())
+}
 
 func (s *session) SetRawMode() error {
 	_, err := s.console.MakeRaw()
