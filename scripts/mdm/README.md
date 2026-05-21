@@ -61,6 +61,7 @@ It then removes the machine-wide binary via `brew uninstall`, or by deleting `/u
 Include a `config.yml` next to the scripts to centrally manage PMG configuration. When that file is present at `/Library/Application Support/safedep/pmg/config.yml`, PMG treats it as authoritative and **ignores every user's own config**. Users cannot override it: `pmg config set` and `pmg config edit` refuse, and the file is root-owned (`0644`), so it is not user-writable.
 
 - The file can be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to user values.
+- To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The install script skips the per-user `pmg config set` (a managed config refuses it) but still stores each logged-in user's credentials in the Keychain.
 - Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config.
 - Re-deploying the package overwrites the global config, keeping it in sync with the package.
 - Uninstall removes the global config whenever it is present, regardless of whether the uninstall package ships a `config.yml`. Set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it.

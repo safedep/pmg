@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/viper"
 )
 
@@ -200,7 +202,6 @@ type RuntimeConfig struct {
 	configDir                string
 	configFilePath           string // active config: globally managed file if present, else per-user
 	userConfigFilePath       string // per-user config file, used for writes and removal
-	configManaged            bool   // true when the active config is the globally managed file
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxViolationCacheDir string
@@ -237,9 +238,11 @@ func (r *RuntimeConfig) UserConfigFilePath() string {
 }
 
 // IsManaged reports whether the active config is the globally managed file.
-// When true, the per-user file is ignored and config writes are refused.
+// When true, the per-user file is ignored and config writes are refused. It is
+// derived: the active path differs from the per-user path only when the global
+// file was chosen.
 func (r *RuntimeConfig) IsManaged() bool {
-	return r.configManaged
+	return r.configFilePath != r.userConfigFilePath
 }
 
 // EventLogDir returns the path to the event log directory.
@@ -366,7 +369,7 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get config directory: %w", err))
 	}
 
-	activeConfigPath, managed, err := resolveConfigFile()
+	activeConfigPath, err := resolveConfigFile()
 	if err != nil {
 		panic(fmt.Errorf("failed to resolve config file path: %w", err))
 	}
@@ -394,7 +397,6 @@ func initConfig() {
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
-	globalConfig.configManaged = managed
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
@@ -482,19 +484,13 @@ func globalConfigFilePath() string {
 }
 
 // resolveConfigFile picks the active config file. The globally managed file,
-// when present, is authoritative and the per-user file is ignored entirely. It
-// returns the active path and whether that path is the globally managed file.
-func resolveConfigFile() (path string, managed bool, err error) {
+// when present, is authoritative and the per-user file is ignored entirely.
+func resolveConfigFile() (string, error) {
 	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
-		return global, true, nil
+		return global, nil
 	}
 
-	userPath, err := userConfigFilePath()
-	if err != nil {
-		return "", false, err
-	}
-
-	return userPath, false, nil
+	return userConfigFilePath()
 }
 
 func isRegularFile(path string) bool {
@@ -602,7 +598,7 @@ func ConfigureSandbox(mayDownloadPackages bool) {
 // When a globally managed config is active, this is a no-op: the per-user
 // file is ignored at load time, so creating it would only mislead.
 func WriteTemplateConfig() error {
-	if globalConfig.configManaged {
+	if globalConfig.IsManaged() {
 		return nil
 	}
 
@@ -653,4 +649,16 @@ func RemoveUserConfigFile() error {
 	}
 
 	return nil
+}
+
+// NewManagedConfigError returns the error shown when a user tries to change a
+// globally managed configuration. It carries a useful error code and help text
+// so the CLI presents it as an expected, actionable failure rather than a bug.
+func NewManagedConfigError() error {
+	msg := fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath)
+	return usefulerror.Useful().
+		WithCode(usefulerror.ErrCodePermissionDenied).
+		WithHumanError(msg).
+		WithHelp("This machine's PMG configuration is centrally managed. Contact your administrator to change it.").
+		Wrap(errors.New(msg))
 }

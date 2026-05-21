@@ -82,6 +82,10 @@ if [[ -f "${SCRIPT_DIR}/config.yml" ]]; then
   install_global_config "${SCRIPT_DIR}/config.yml"
 fi
 
+if [[ -f "$GLOBAL_CONFIG_FILE" && -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]]; then
+  log "Config is globally managed; set 'cloud.enabled: true' in the bundled config.yml to enable sync (per-user config is locked)"
+fi
+
 configure_user() {
   local user="$1"
   log "Configuring pmg for $user"
@@ -92,7 +96,11 @@ configure_user() {
     log "  $user is not logged in; run 'pmg cloud login' in their session to enable cloud sync"
     return
   fi
-  run_user_file "$user" "$PMG_BIN" config set cloud.enabled true || warn "could not enable cloud sync for $user"
+  # When config is globally managed, `cloud.enabled` comes from the global file;
+  # per-user `config set` is refused. Per-user credentials still go to the Keychain.
+  if [[ ! -f "$GLOBAL_CONFIG_FILE" ]]; then
+    run_user_file "$user" "$PMG_BIN" config set cloud.enabled true || warn "could not enable cloud sync for $user"
+  fi
   run_user_session "$user" \
     env SAFEDEP_API_KEY="$CLOUD_API_KEY" SAFEDEP_TENANT_ID="$CLOUD_TENANT_ID" "$PMG_BIN" cloud login --from-env \
     || warn "cloud login failed for $user"

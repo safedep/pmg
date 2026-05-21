@@ -15,8 +15,8 @@ import (
 // It does not update the in-memory config or viper state. Callers that need
 // the updated value must re-initialize the config after calling this function.
 func SetConfigValue(key, value string) error {
-	if globalConfig.configManaged {
-		return fmt.Errorf("configuration is globally managed (%s) and cannot be modified", globalConfig.configFilePath)
+	if globalConfig.IsManaged() {
+		return NewManagedConfigError()
 	}
 
 	configPath, err := userConfigFilePath()
