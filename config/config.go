@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"time"
 
 	_ "embed"
@@ -306,12 +305,7 @@ type SandboxAllowOverride struct {
 // The config package return an appropriate RuntimeConfig based on the environment and the configuration.
 func DefaultConfig() RuntimeConfig {
 	// Backward compatibility for the insecure installation flag before config was introduced.
-	insecureInstallation := false
-	if val := os.Getenv(pmgInsecureInstallationEnvKey); val != "" {
-		if boolVal, err := strconv.ParseBool(val); err == nil {
-			insecureInstallation = boolVal
-		}
-	}
+	insecureInstallation := utils.EnvBool(pmgInsecureInstallationEnvKey, false)
 
 	return RuntimeConfig{
 		Config: Config{
@@ -414,7 +408,7 @@ func initConfig() {
 	// A globally managed config enforces lockdown only when it opts in via
 	// global_lockdown, read straight from the file so it cannot be flipped by
 	// env or CLI.
-	globalConfig.configLocked = globalConfig.IsManaged() && globalConfigEnablesLockdown(activeConfigPath)
+	globalConfig.configLocked = globalConfig.IsManaged() && globalConfigEnablesLockdown(globalConfigFilePath())
 
 	// When locked, env cannot bypass the config, including the
 	// PMG_INSECURE_INSTALLATION malicious-package block bypass.

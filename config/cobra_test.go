@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// withLockedState swaps globalConfig for a fresh one with the requested lockdown
-// state and restores the original afterwards. RejectManagedFlagOverrides keys off
-// IsLocked, so only configLocked matters here.
+// withLockedState swaps globalConfig for a fresh managed config with the
+// requested lockdown state, and restores the original afterwards. Locked implies
+// managed, matching production (initConfig sets configLocked = IsManaged() && ...).
 func withLockedState(t *testing.T, locked bool) {
 	t.Helper()
 
@@ -20,6 +20,8 @@ func withLockedState(t *testing.T, locked bool) {
 
 	cfg := DefaultConfig()
 	globalConfig = &cfg
+	globalConfig.configFilePath = "/global/config.yml" // managed: active path differs from user path
+	globalConfig.userConfigFilePath = "/user/config.yml"
 	globalConfig.configLocked = locked
 }
 

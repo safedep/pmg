@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -64,21 +65,26 @@ func loadViperConfig() error {
 	return nil
 }
 
-// hasProxySectionInFile checks whether the user's config file contains a
-// top-level "proxy" key. Returns false if the file doesn't exist or can't
-// be parsed.
-func hasProxySectionInFile(path string) bool {
+// readConfigFileKeys reads path and returns its top-level YAML mapping. It
+// returns nil when the file is missing or cannot be parsed.
+func readConfigFileKeys(path string) map[string]any {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return nil
 	}
 
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return false
+		return nil
 	}
 
-	_, ok := raw["proxy"]
+	return raw
+}
+
+// hasProxySectionInFile checks whether the config file at path contains a
+// top-level "proxy" key.
+func hasProxySectionInFile(path string) bool {
+	_, ok := readConfigFileKeys(path)["proxy"]
 	return ok
 }
 
@@ -86,19 +92,18 @@ func hasProxySectionInFile(path string) bool {
 // global_lockdown: true. It reads the file directly, so the flag cannot be
 // flipped via env or CLI.
 func globalConfigEnablesLockdown(path string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
+	value, ok := readConfigFileKeys(path)["global_lockdown"]
+	if !ok {
 		return false
 	}
 
-	var raw struct {
-		GlobalLockdown bool `yaml:"global_lockdown"`
-	}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	enabled, isBool := value.(bool)
+	if !isBool {
+		log.Warnf("config %q sets global_lockdown to a non-boolean value (%v); treating as disabled", path, value)
 		return false
 	}
 
-	return raw.GlobalLockdown
+	return enabled
 }
 
 // applyProxyLegacyFallback populates the new Proxy struct from deprecated
