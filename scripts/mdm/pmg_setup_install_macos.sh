@@ -75,6 +75,13 @@ fi
 PMG_BIN=$(resolve_pmg) || { echo "Error: pmg not found after install" >&2; exit 1; }
 log "pmg installed: $("$PMG_BIN" version 2>/dev/null || echo unknown)"
 
+# Install the globally managed config if the package ships one. Done before the
+# per-user loop so each user's `setup install` sees managed mode and skips
+# writing a per-user config.
+if [[ -f "${SCRIPT_DIR}/config.yml" ]]; then
+  install_global_config "${SCRIPT_DIR}/config.yml"
+fi
+
 configure_user() {
   local user="$1"
   log "Configuring pmg for $user"

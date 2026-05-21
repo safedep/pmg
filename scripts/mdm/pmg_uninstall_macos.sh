@@ -67,4 +67,6 @@ remove_binary() {
 }
 remove_binary
 
+remove_global_config
+
 log "pmg uninstall complete"

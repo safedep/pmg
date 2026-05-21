@@ -123,3 +123,32 @@ resolve_pmg() {
   done
   return 1
 }
+
+# Machine-wide globally managed config. When this file is present pmg treats it as
+# authoritative and ignores every user's config. It must match the path pmg
+# resolves on macOS.
+readonly GLOBAL_CONFIG_DIR="/Library/Application Support/safedep/pmg"
+readonly GLOBAL_CONFIG_FILE="${GLOBAL_CONFIG_DIR}/config.yml"
+
+# install_global_config <src> installs a bundled config.yml as the globally
+# managed config: root-owned and 0644 so users can read but not modify it.
+install_global_config() {
+  local src="$1"
+  log "Installing globally managed config to $GLOBAL_CONFIG_FILE"
+  run_as_root install -d -m 0755 "$GLOBAL_CONFIG_DIR" || { warn "failed to create $GLOBAL_CONFIG_DIR (need root)"; return 1; }
+  run_as_root install -m 0644 "$src" "$GLOBAL_CONFIG_FILE" || { warn "failed to install global config (need root)"; return 1; }
+}
+
+# remove_global_config removes the globally managed config when present, unless
+# PMG_KEEP_GLOBAL_CONFIG is set.
+remove_global_config() {
+  if [[ -n "${PMG_KEEP_GLOBAL_CONFIG:-}" ]]; then
+    [[ -e "$GLOBAL_CONFIG_FILE" ]] && log "Keeping globally managed config ($GLOBAL_CONFIG_FILE); PMG_KEEP_GLOBAL_CONFIG is set"
+    return 0
+  fi
+
+  [[ -e "$GLOBAL_CONFIG_FILE" ]] || return 0
+  log "Removing globally managed config $GLOBAL_CONFIG_FILE"
+  run_as_root rm -f "$GLOBAL_CONFIG_FILE" || warn "failed to remove global config (need root)"
+  run_as_root rmdir "$GLOBAL_CONFIG_DIR" 2>/dev/null || true
+}
