@@ -160,7 +160,6 @@ func main() {
 		fmt.Println(command.UsageString())
 	})
 
-	defer analytics.Close()
 	defer func() {
 		if err := eventlog.Close(); err != nil {
 			log.Warnf("failed to close eventlog: %v", err)
@@ -178,6 +177,8 @@ func main() {
 		}
 	}()
 
+	// Analytics are best-effort. Do not flush on exit because the PostHog
+	// client can block the CLI while draining its queue.
 	analytics.TrackCommandRun()
 	analytics.TrackCI()
 
