@@ -65,34 +65,46 @@ func loadViperConfig() error {
 	return nil
 }
 
-// readConfigFileKeys reads path and returns its top-level YAML mapping. It
-// returns nil when the file is missing or cannot be parsed.
-func readConfigFileKeys(path string) map[string]any {
+// readConfigFileKeys reads path and returns its top-level YAML mapping.
+func readConfigFileKeys(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
 	}
 
-	return raw
+	return raw, nil
 }
 
 // hasProxySectionInFile checks whether the config file at path contains a
-// top-level "proxy" key.
+// top-level "proxy" key. A missing or unparseable file reports false.
 func hasProxySectionInFile(path string) bool {
-	_, ok := readConfigFileKeys(path)["proxy"]
+	raw, err := readConfigFileKeys(path)
+	if err != nil {
+		return false
+	}
+
+	_, ok := raw["proxy"]
 	return ok
 }
 
-// globalConfigEnablesLockdown reports whether the config file at path sets
-// global_lockdown: true. It reads the file directly, so the flag cannot be
-// flipped via env or CLI.
+// globalConfigEnablesLockdown reports whether the global config file at path
+// enables lockdown. It is only called when a global config is present, so a read
+// or parse failure means a managed file we cannot interpret: fail closed
+// (locked) rather than silently dropping policy. global_lockdown is read directly
+// from the file, so it cannot be flipped via env or CLI.
 func globalConfigEnablesLockdown(path string) bool {
-	value, ok := readConfigFileKeys(path)["global_lockdown"]
+	raw, err := readConfigFileKeys(path)
+	if err != nil {
+		log.Warnf("could not read global config %q to determine lockdown (%v); defaulting to locked", path, err)
+		return true
+	}
+
+	value, ok := raw["global_lockdown"]
 	if !ok {
 		return false
 	}

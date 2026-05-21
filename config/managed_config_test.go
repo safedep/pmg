@@ -160,6 +160,18 @@ func TestInsecureInstallationEnvHonoredWhenNotManaged(t *testing.T) {
 	assert.True(t, Get().InsecureInstallation)
 }
 
+func TestMalformedGlobalConfigFailsClosed(t *testing.T) {
+	globalDir := t.TempDir()
+	// Present but unparseable YAML ("mapping values not allowed in this context").
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("a: b: c\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	initConfig()
+
+	require.True(t, Get().IsManaged())
+	assert.True(t, Get().IsLocked(), "a present but unparseable global config must fail closed (locked)")
+}
+
 func TestRemoveUserConfigFileNeverTouchesGlobal(t *testing.T) {
 	globalDir := t.TempDir()
 	userDir := t.TempDir()

@@ -83,6 +83,13 @@ func main() {
 
 			log.InitZapLogger("pmg", "cli")
 
+			// Refuse flags that would override a globally managed config before any
+			// config-dependent initialization (event logging, audit) runs, so a
+			// managed flag like --skip-event-log cannot take effect first.
+			if err := config.RejectManagedFlagOverrides(cmd); err != nil {
+				ui.ErrorExit(err)
+			}
+
 			// Initialize event logging (silently fail if it can't be initialized)
 			var eventlogErr error
 			if logFile != "" {
@@ -98,12 +105,6 @@ func main() {
 			}
 
 			if err := audit.Initialize(config.Get()); err != nil {
-				ui.ErrorExit(err)
-			}
-
-			// Refuse flags that would override a globally managed config before
-			// applying any of them.
-			if err := config.RejectManagedFlagOverrides(cmd); err != nil {
 				ui.ErrorExit(err)
 			}
 
