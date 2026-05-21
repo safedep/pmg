@@ -11,6 +11,7 @@ func NewCloudCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(newSyncCommand())
+	cmd.AddCommand(newSyncBackgroundCommand())
 	cmd.AddCommand(newLoginCommand())
 	cmd.AddCommand(newLogoutCommand())
 

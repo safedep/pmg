@@ -167,3 +167,23 @@ cloud:
   # Endpoint ID is not required. By default, it falls back to the machine's hostname.
   # Set it only if you want to explicitly override the identifier for this endpoint.
   endpoint_id: ""
+
+  # Auto sync drains the local cloud-sync WAL to SafeDep Cloud opportunistically
+  # at the end of each PMG invocation, gated by a per-host cooldown so it does
+  # not fire on every command. The drain runs as a short-lived detached child
+  # so the user-facing CLI returns immediately.
+  #
+  # Disable this in ephemeral environments (CI runners, throwaway VMs) where
+  # the detached child may be torn down before it finishes draining; in those
+  # environments, prefer an explicit `pmg cloud sync` at job-end.
+  auto_sync:
+    enabled: true
+
+    # Minimum gap between sync attempts. The lastrun timestamp is updated on
+    # every attempt (success or failure), so a failing cloud endpoint will not
+    # cause every PMG invocation to retry. Reduce this if you want a more
+    # aggressive retry cadence.
+    min_interval: 15m
+
+    # Hard timeout applied to a single background sync attempt.
+    timeout: 5m

@@ -166,6 +166,12 @@ func main() {
 			log.Warnf("failed to close eventlog: %v", err)
 		}
 	}()
+	// Defers run LIFO. The spawn must observe the parent's released SQLite
+	// handle, so we declare it BEFORE audit.Close's defer (it then runs AFTER
+	// audit.Close at exit time).
+	defer func() {
+		audit.MaybeSpawnBackgroundSync(config.Get())
+	}()
 	defer func() {
 		if err := audit.Close(); err != nil {
 			log.Warnf("failed to close audit system: %v", err)

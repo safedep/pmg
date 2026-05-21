@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
 
 	_ "embed"
 
@@ -97,8 +98,19 @@ type Config struct {
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
 type CloudConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	EndpointID string `mapstructure:"endpoint_id"`
+	Enabled    bool                `mapstructure:"enabled"`
+	EndpointID string              `mapstructure:"endpoint_id"`
+	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
+}
+
+// CloudAutoSyncConfig controls opportunistic background sync of the cloud
+// audit WAL. When Enabled, PMG spawns a detached `pmg cloud sync-background`
+// child at the end of each invocation, gated by a per-host cooldown so the
+// sync does not fire on every command.
+type CloudAutoSyncConfig struct {
+	Enabled     bool          `mapstructure:"enabled"`
+	MinInterval time.Duration `mapstructure:"min_interval"`
+	Timeout     time.Duration `mapstructure:"timeout"`
 }
 
 type ProxyConfig struct {
@@ -198,6 +210,18 @@ func (r *RuntimeConfig) CloudSyncDBPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.db")
 }
 
+// CloudSyncLockPath returns the path to the cross-process lock file that
+// serializes manual `pmg cloud sync` and the auto-sync background child.
+func (r *RuntimeConfig) CloudSyncLockPath() string {
+	return filepath.Join(r.configDir, "cloud-sync.lock")
+}
+
+// CloudSyncLastRunPath returns the path to the timestamp file recording the
+// last sync attempt (success or failure) in Unix epoch seconds.
+func (r *RuntimeConfig) CloudSyncLastRunPath() string {
+	return filepath.Join(r.configDir, "cloud-sync.lastrun")
+}
+
 // ConfigFilePath returns the path to the config file.
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
@@ -283,6 +307,11 @@ func DefaultConfig() RuntimeConfig {
 			},
 			Cloud: CloudConfig{
 				Enabled: false,
+				AutoSync: CloudAutoSyncConfig{
+					Enabled:     true,
+					MinInterval: 15 * time.Minute,
+					Timeout:     5 * time.Minute,
+				},
 			},
 			Proxy: ProxyConfig{
 				Enabled:     true,
@@ -300,6 +329,14 @@ func DefaultConfig() RuntimeConfig {
 var globalConfig *RuntimeConfig
 
 func init() {
+	initConfig()
+}
+
+// Reload re-runs the initialization that runs at package init. Tests that
+// mutate PMG_CONFIG_DIR via t.Setenv must call this so the resolved config
+// directory reflects the new env, instead of the value computed when the
+// package was first loaded.
+func Reload() {
 	initConfig()
 }
 

@@ -5,12 +5,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/analytics"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/sandbox/platform"
@@ -141,6 +143,8 @@ func executeSetupInfo() error {
 			cloudEntries["Endpoint ID"] = cfg.Config.Cloud.EndpointID
 		}
 		cloudEntries["Credentials"] = describeCloudCredentials()
+		cloudEntries["Auto Sync"] = describeAutoSync(cfg.Config.Cloud.AutoSync)
+		cloudEntries["Last Sync"] = describeLastSync(cfg.CloudSyncLastRunPath())
 		ui.PrintInfoSection("Cloud Sync", cloudEntries)
 	}
 
@@ -190,6 +194,34 @@ func tryResolveKeychainCredentials() (string, bool) {
 		return "", false
 	}
 	return "keychain", true
+}
+
+func describeAutoSync(c config.CloudAutoSyncConfig) string {
+	if !c.Enabled {
+		return "disabled"
+	}
+	return fmt.Sprintf("enabled (every %s, timeout %s)", c.MinInterval, c.Timeout)
+}
+
+// describeLastSync renders a missing or unparseable timestamp as "never" so a
+// fresh install does not look broken.
+func describeLastSync(path string) string {
+	last := audit.ReadLastSyncAttempt(path)
+	if last.IsZero() {
+		return "never"
+	}
+
+	delta := time.Since(last)
+	switch {
+	case delta < time.Minute:
+		return "just now"
+	case delta < time.Hour:
+		return fmt.Sprintf("%d minutes ago", int(delta.Minutes()))
+	case delta < 24*time.Hour:
+		return fmt.Sprintf("%d hours ago", int(delta.Hours()))
+	default:
+		return fmt.Sprintf("%d days ago", int(delta.Hours()/24))
+	}
 }
 
 func tryResolveEnvCredentials() (string, bool) {
