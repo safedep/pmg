@@ -45,7 +45,10 @@ func executeSetupInfo() error {
 	configEntries["Config File"] = cfg.ConfigFilePath()
 	configSource := "user"
 	if cfg.IsManaged() {
-		configSource = "global (managed)"
+		configSource = "global"
+		if cfg.IsLocked() {
+			configSource = "global (locked)"
+		}
 	}
 	configEntries["Config Source"] = configSource
 	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.IsProxyModeEnabled())

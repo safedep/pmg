@@ -72,7 +72,7 @@ PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 3. Config file (`config.yml`)
 4. Built-in defaults
 
-Under a [globally managed config](#globally-managed-configuration), PMG disables `PMG_*` and managed-flag overrides.
+Under a [globally managed config](#globally-managed-configuration) with `global_lockdown` enabled, PMG disables `PMG_*` and managed-flag overrides.
 
 
 **Limitation**
@@ -84,7 +84,7 @@ or run `pmg setup install` to merge missing template keys into your config.
 
 ## Globally Managed Configuration
 
-For centrally managed or fleet deployments, PMG can read an OS-level **global config file**. When this file exists, it is authoritative: PMG uses it and ignores the per-user `config.yml` (the two are never merged). An administrator, or an individual who wants a machine-wide config, can pin configuration that users cannot change.
+For centrally managed or fleet deployments, PMG can read an OS-level **global config file**. When this file exists, it is authoritative: PMG uses it and ignores the per-user `config.yml` (the two are never merged). An administrator ships a machine-wide baseline this way, and can lock it (see [Lockdown](#lockdown)) to forbid user overrides.
 
 **Paths** (used when the file is present):
 
@@ -98,24 +98,44 @@ Check whether a global config is active with `pmg setup info`:
 
 ```bash
 pmg setup info
-# Config Source: global (managed)   <- global config in effect
-# Config Source: user               <- per-user config in effect
+# Config Source: global            <- global config, overrides allowed
+# Config Source: global (locked)   <- global config with lockdown enabled
+# Config Source: user              <- per-user config in effect
 ```
 
 ### Behaviour
 
-- **Authoritative.** When a global file is present, PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to a user's values.
+Whenever a global config file is present:
+
+- **It is authoritative.** PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to a user's values.
 - **`config set` and `config edit` fail.** They return an error stating the config is globally managed. To change it, deploy an updated file at the OS path, which is root-owned and not writable by users.
-- **`pmg setup install` skips the per-user config** while a global config is active. It still creates shell aliases and shims per user.
+- **`pmg setup install` skips the per-user config.** It still creates shell aliases and shims per user.
+
+By default a user can still override the global config's values at runtime through `PMG_*` environment variables and CLI flags. Enable lockdown to forbid that.
+
+### Lockdown
+
+Add `global_lockdown: true` to the global config to enforce it:
+
+```yaml
+# Only meaningful in the global config file.
+global_lockdown: true
+```
+
+When lockdown is on:
+
 - **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--transitive`, `--transitive-depth`, `--include-dev-dependencies`, `--paranoid`, `--skip-event-log`, `--proxy-mode`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
-- **`PMG_*` variables cannot change a managed config**, including `PMG_INSECURE_INSTALLATION` (which otherwise bypasses malicious-package blocking). `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` still relocate per-user state directories (logs, cache) but leave the managed config alone.
+- **`PMG_*` variables cannot change the config**, including `PMG_INSECURE_INSTALLATION` (which otherwise bypasses malicious-package blocking).
 
-### Precedence under a managed config
+PMG reads `global_lockdown` straight from the global file, so a user cannot flip it through env or CLI. `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` still relocate per-user state directories (logs, cache) in any mode, but leave the managed config alone.
 
-Under a managed config, PMG disables `PMG_*` environment overrides and rejects flags that would change a managed value. The effective order is:
+### Precedence
 
-1. Global config file
-2. Built-in defaults
+| Mode | Effective order (highest to lowest) |
+|---|---|
+| No global config | CLI flags > `PMG_*` env > per-user `config.yml` > built-in defaults |
+| Global config, no lockdown | CLI flags > `PMG_*` env > global config > built-in defaults |
+| Global config, `global_lockdown: true` | global config > built-in defaults (env and managed-flag overrides refused) |
 
 ### Deploying via MDM (macOS)
 

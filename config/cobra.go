@@ -87,11 +87,12 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 	}
 }
 
-// RejectManagedFlagOverrides fails when the active config is globally managed and
-// the user explicitly set a flag whose value that config governs. Operational
-// flags (managed == false) are unaffected. Call it after flag parsing.
+// RejectManagedFlagOverrides fails when the active config is a locked global
+// config and the user explicitly set a flag whose value that config governs.
+// Operational flags (managed == false) are unaffected, and an unlocked managed
+// config allows flag overrides. Call it after flag parsing.
 func RejectManagedFlagOverrides(cmd *cobra.Command) error {
-	if !Get().IsManaged() {
+	if !Get().IsLocked() {
 		return nil
 	}
 

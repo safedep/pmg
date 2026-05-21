@@ -85,7 +85,20 @@ func TestSetConfigValueRefusedWhenManaged(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(userDir, "config.yml"))
 }
 
-func TestEnvDoesNotOverrideManagedConfig(t *testing.T) {
+func TestEnvDoesNotOverrideLockedConfig(t *testing.T) {
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\nglobal_lockdown: true\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	t.Setenv("PMG_PARANOID", "false")
+	initConfig()
+
+	require.True(t, Get().IsLocked())
+	assert.True(t, Get().Config.Paranoid, "PMG_PARANOID must not override a locked config")
+}
+
+func TestEnvOverridesManagedConfigWhenNotLocked(t *testing.T) {
 	globalDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
 
@@ -95,7 +108,8 @@ func TestEnvDoesNotOverrideManagedConfig(t *testing.T) {
 	initConfig()
 
 	require.True(t, Get().IsManaged())
-	assert.True(t, Get().Config.Paranoid, "PMG_PARANOID must not override a globally managed config")
+	require.False(t, Get().IsLocked())
+	assert.False(t, Get().Config.Paranoid, "without lockdown, PMG_PARANOID overrides the managed baseline")
 }
 
 func TestEnvOverridesUserConfigWhenNotManaged(t *testing.T) {
@@ -111,7 +125,19 @@ func TestEnvOverridesUserConfigWhenNotManaged(t *testing.T) {
 	assert.False(t, Get().Config.Paranoid, "PMG_PARANOID should override the per-user config")
 }
 
-func TestInsecureInstallationEnvIgnoredWhenManaged(t *testing.T) {
+func TestInsecureInstallationEnvIgnoredWhenLocked(t *testing.T) {
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("global_lockdown: true\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	t.Setenv("PMG_INSECURE_INSTALLATION", "true")
+	initConfig()
+
+	require.True(t, Get().IsLocked())
+	assert.False(t, Get().InsecureInstallation, "PMG_INSECURE_INSTALLATION must not bypass a locked config")
+}
+
+func TestInsecureInstallationHonoredWhenManagedNotLocked(t *testing.T) {
 	globalDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
 
@@ -120,7 +146,8 @@ func TestInsecureInstallationEnvIgnoredWhenManaged(t *testing.T) {
 	initConfig()
 
 	require.True(t, Get().IsManaged())
-	assert.False(t, Get().InsecureInstallation, "PMG_INSECURE_INSTALLATION must not bypass a globally managed config")
+	require.False(t, Get().IsLocked())
+	assert.True(t, Get().InsecureInstallation, "without lockdown, PMG_INSECURE_INSTALLATION is honored")
 }
 
 func TestInsecureInstallationEnvHonoredWhenNotManaged(t *testing.T) {

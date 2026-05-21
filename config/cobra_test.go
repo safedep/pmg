@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// withManagedState swaps globalConfig for a fresh one with the requested managed
-// state (derived from whether the active path differs from the user path) and
-// restores the original afterwards.
-func withManagedState(t *testing.T, managed bool) {
+// withLockedState swaps globalConfig for a fresh one with the requested lockdown
+// state and restores the original afterwards. RejectManagedFlagOverrides keys off
+// IsLocked, so only configLocked matters here.
+func withLockedState(t *testing.T, locked bool) {
 	t.Helper()
 
 	orig := globalConfig
@@ -20,31 +20,26 @@ func withManagedState(t *testing.T, managed bool) {
 
 	cfg := DefaultConfig()
 	globalConfig = &cfg
-	globalConfig.userConfigFilePath = "/user/config.yml"
-	if managed {
-		globalConfig.configFilePath = "/global/config.yml"
-	} else {
-		globalConfig.configFilePath = "/user/config.yml"
-	}
+	globalConfig.configLocked = locked
 }
 
 func TestRejectManagedFlagOverrides(t *testing.T) {
 	tests := []struct {
 		name    string
-		managed bool
+		locked  bool
 		args    []string
 		wantErr bool
 	}{
-		{"managed blocks a managed flag", true, []string{"--paranoid"}, true},
-		{"managed blocks sandbox-allow", true, []string{"--sandbox-allow", "read=/tmp"}, true},
-		{"managed allows dry-run", true, []string{"--dry-run"}, false},
-		{"managed allows no flags", true, nil, false},
-		{"unmanaged allows a managed flag", false, []string{"--paranoid"}, false},
+		{"locked blocks a managed flag", true, []string{"--paranoid"}, true},
+		{"locked blocks sandbox-allow", true, []string{"--sandbox-allow", "read=/tmp"}, true},
+		{"locked allows dry-run", true, []string{"--dry-run"}, false},
+		{"locked allows no flags", true, nil, false},
+		{"unlocked allows a managed flag", false, []string{"--paranoid"}, false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			withManagedState(t, tc.managed)
+			withLockedState(t, tc.locked)
 
 			cmd := &cobra.Command{Use: "test", Run: func(*cobra.Command, []string) {}}
 			ApplyCobraFlags(cmd)
@@ -64,7 +59,7 @@ func TestRejectManagedFlagOverrides(t *testing.T) {
 // Proves the check sees managed flags set as inherited persistent flags on a
 // subcommand, which is how they reach the real root PersistentPreRun.
 func TestRejectManagedFlagOverridesDetectsInheritedFlag(t *testing.T) {
-	withManagedState(t, true)
+	withLockedState(t, true)
 
 	root := &cobra.Command{Use: "pmg"}
 	ApplyCobraFlags(root)
