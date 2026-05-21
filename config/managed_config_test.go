@@ -85,6 +85,54 @@ func TestSetConfigValueRefusedWhenManaged(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(userDir, "config.yml"))
 }
 
+func TestEnvDoesNotOverrideManagedConfig(t *testing.T) {
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	t.Setenv("PMG_PARANOID", "false")
+	initConfig()
+
+	require.True(t, Get().IsManaged())
+	assert.True(t, Get().Config.Paranoid, "PMG_PARANOID must not override a globally managed config")
+}
+
+func TestEnvOverridesUserConfigWhenNotManaged(t *testing.T) {
+	userDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
+
+	useManagedConfigDir(t, t.TempDir()) // empty global dir -> not managed
+	t.Setenv("PMG_CONFIG_DIR", userDir)
+	t.Setenv("PMG_PARANOID", "false")
+	initConfig()
+
+	require.False(t, Get().IsManaged())
+	assert.False(t, Get().Config.Paranoid, "PMG_PARANOID should override the per-user config")
+}
+
+func TestInsecureInstallationEnvIgnoredWhenManaged(t *testing.T) {
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	t.Setenv("PMG_INSECURE_INSTALLATION", "true")
+	initConfig()
+
+	require.True(t, Get().IsManaged())
+	assert.False(t, Get().InsecureInstallation, "PMG_INSECURE_INSTALLATION must not bypass a globally managed config")
+}
+
+func TestInsecureInstallationEnvHonoredWhenNotManaged(t *testing.T) {
+	useManagedConfigDir(t, t.TempDir()) // empty global dir -> not managed
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	t.Setenv("PMG_INSECURE_INSTALLATION", "true")
+	initConfig()
+
+	require.False(t, Get().IsManaged())
+	assert.True(t, Get().InsecureInstallation)
+}
+
 func TestRemoveUserConfigFileNeverTouchesGlobal(t *testing.T) {
 	globalDir := t.TempDir()
 	userDir := t.TempDir()

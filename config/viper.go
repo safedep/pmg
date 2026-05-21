@@ -11,6 +11,8 @@ import (
 
 // loadViperConfig loads the configuration using Viper.
 // Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
+// When a globally managed config is active, env overrides are disabled and
+// managed flags are rejected, so the managed file is authoritative.
 // Cobra flags write directly to the config struct after this function runs.
 func loadViperConfig() error {
 	// Use the active config path resolved by initConfig (globally managed file
@@ -19,12 +21,17 @@ func loadViperConfig() error {
 
 	v := viper.New()
 	v.SetConfigType("yaml")
-	v.SetEnvPrefix("PMG")
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+
+	// A globally managed config must not be bypassable via PMG_* env vars, so
+	// AutomaticEnv is enabled only when the per-user config is active.
+	if !globalConfig.IsManaged() {
+		v.SetEnvPrefix("PMG")
+		v.AutomaticEnv()
+		v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	}
 
 	// Load the embedded template as the base so Viper knows all keys and their
-	// defaults. This is required for AutomaticEnv to resolve PMG_* env vars for
+	// defaults, and (when env overrides are enabled) can resolve PMG_* vars for
 	// keys that are absent from or newer than the user's config file.
 	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
 		return fmt.Errorf("failed to load default config: %w", err)
@@ -79,13 +86,16 @@ func hasProxySectionInFile(path string) bool {
 // New env vars (PMG_PROXY_ENABLED, PMG_PROXY_INSTALL_ONLY) take precedence
 // over legacy config file keys to respect the documented precedence order.
 func applyProxyLegacyFallback(v *viper.Viper) {
-	if os.Getenv("PMG_PROXY_ENABLED") == "" && v.IsSet("proxy_mode") {
+	// A managed config ignores env, so env must not suppress the legacy migration.
+	envIgnored := globalConfig.IsManaged()
+
+	if (envIgnored || os.Getenv("PMG_PROXY_ENABLED") == "") && v.IsSet("proxy_mode") {
 		val := v.GetBool("proxy_mode")
 		globalConfig.Config.Proxy.Enabled = val
 		v.Set("proxy.enabled", val)
 	}
 
-	if os.Getenv("PMG_PROXY_INSTALL_ONLY") == "" && v.IsSet("proxy_install_only") {
+	if (envIgnored || os.Getenv("PMG_PROXY_INSTALL_ONLY") == "") && v.IsSet("proxy_install_only") {
 		val := v.GetBool("proxy_install_only")
 		globalConfig.Config.Proxy.InstallOnly = val
 		v.Set("proxy.install_only", val)

@@ -401,6 +401,12 @@ func initConfig() {
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
 
+	// A globally managed config cannot be bypassed via environment variables,
+	// including the PMG_INSECURE_INSTALLATION malicious-package block bypass.
+	if globalConfig.IsManaged() {
+		globalConfig.InsecureInstallation = false
+	}
+
 	loadConfig()
 
 	if err := preprocessTrustedPackages(&globalConfig.Config); err != nil {
