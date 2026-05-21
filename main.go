@@ -101,6 +101,12 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
+			// Refuse flags that would override a globally managed config before
+			// applying any of them.
+			if err := config.RejectManagedFlagOverrides(cmd); err != nil {
+				ui.ErrorExit(err)
+			}
+
 			config.FinalizeDependencyCooldownOverride()
 
 			// Parse and validate --sandbox-allow flags after all flags are resolved

@@ -655,10 +655,15 @@ func RemoveUserConfigFile() error {
 // globally managed configuration. It carries a useful error code and help text
 // so the CLI presents it as an expected, actionable failure rather than a bug.
 func NewManagedConfigError() error {
-	msg := fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath)
+	return managedError(fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath))
+}
+
+// managedError builds the standard "globally managed" CLI error with a useful
+// code and actionable help.
+func managedError(message string) error {
 	return usefulerror.Useful().
 		WithCode(usefulerror.ErrCodePermissionDenied).
-		WithHumanError(msg).
+		WithHumanError(message).
 		WithHelp("This machine's PMG configuration is centrally managed. Contact your administrator to change it.").
-		Wrap(errors.New(msg))
+		Wrap(errors.New(message))
 }
