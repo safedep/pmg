@@ -86,6 +86,10 @@ If the config file does not exist, a template is created first.`,
 
 func runEdit() error {
 	cfg := appConfig.Get()
+	if cfg.IsManaged() {
+		return fmt.Errorf("configuration is globally managed (%s) and cannot be edited", cfg.ConfigFilePath())
+	}
+
 	path := cfg.ConfigFilePath()
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {

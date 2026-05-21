@@ -13,10 +13,9 @@ import (
 // Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
 // Cobra flags write directly to the config struct after this function runs.
 func loadViperConfig() error {
-	configPath, err := configFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config file path: %w", err)
-	}
+	// Use the active config path resolved by initConfig (globally managed file
+	// when present, otherwise the per-user file).
+	configPath := globalConfig.configFilePath
 
 	v := viper.New()
 	v.SetConfigType("yaml")

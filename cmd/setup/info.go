@@ -43,6 +43,11 @@ func executeSetupInfo() error {
 	cfg := config.Get()
 	configEntries := make(map[string]string)
 	configEntries["Config File"] = cfg.ConfigFilePath()
+	configSource := "user"
+	if cfg.IsManaged() {
+		configSource = "global (managed)"
+	}
+	configEntries["Config Source"] = configSource
 	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.IsProxyModeEnabled())
 	configEntries["Proxy Install Only"] = strconv.FormatBool(cfg.Config.Proxy.InstallOnly)
 	ui.PrintInfoSection("Configuration", configEntries)

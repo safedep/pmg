@@ -2,7 +2,6 @@ package setup
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/safedep/pmg/config"
@@ -13,9 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	setupRemoveConfigFile = false
-)
+var setupRemoveConfigFile = false
 
 func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
@@ -49,6 +46,11 @@ func NewInstallCommand() *cobra.Command {
 func install() error {
 	if err := config.WriteTemplateConfig(); err != nil {
 		return fmt.Errorf("failed to write template config: %w", err)
+	}
+
+	if config.Get().IsManaged() {
+		fmt.Printf("%s %s\n", ui.Colors.Dim("ℹ"),
+			fmt.Sprintf("Using globally managed config: %s", config.Get().ConfigFilePath()))
 	}
 
 	if runtime.GOOS == "windows" {
@@ -92,9 +94,10 @@ func NewRemoveCommand() *cobra.Command {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 
 			if setupRemoveConfigFile {
-				config := config.Get()
-				if err := os.Remove(config.ConfigFilePath()); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("failed to remove config file %q: %w", config.ConfigFilePath(), err)
+				// Only ever remove the per-user file; the globally managed
+				// config is not ours to delete from a per-user uninstall.
+				if err := config.RemoveUserConfigFile(); err != nil {
+					return err
 				}
 			}
 

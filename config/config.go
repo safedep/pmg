@@ -198,7 +198,9 @@ type RuntimeConfig struct {
 
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir                string
-	configFilePath           string
+	configFilePath           string // active config: globally managed file if present, else per-user
+	userConfigFilePath       string // per-user config file, used for writes and removal
+	configManaged            bool   // true when the active config is the globally managed file
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxViolationCacheDir string
@@ -222,9 +224,22 @@ func (r *RuntimeConfig) CloudSyncLastRunPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.lastrun")
 }
 
-// ConfigFilePath returns the path to the config file.
+// ConfigFilePath returns the path to the active config file (the globally
+// managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
+}
+
+// UserConfigFilePath returns the per-user config file path, regardless of
+// whether a globally managed config is active.
+func (r *RuntimeConfig) UserConfigFilePath() string {
+	return r.userConfigFilePath
+}
+
+// IsManaged reports whether the active config is the globally managed file.
+// When true, the per-user file is ignored and config writes are refused.
+func (r *RuntimeConfig) IsManaged() bool {
+	return r.configManaged
 }
 
 // EventLogDir returns the path to the event log directory.
@@ -351,9 +366,14 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get config directory: %w", err))
 	}
 
-	configFilePath, err := configFilePath()
+	activeConfigPath, managed, err := resolveConfigFile()
 	if err != nil {
-		panic(fmt.Errorf("failed to get config file path: %w", err))
+		panic(fmt.Errorf("failed to resolve config file path: %w", err))
+	}
+
+	userConfigPath, err := userConfigFilePath()
+	if err != nil {
+		panic(fmt.Errorf("failed to get user config file path: %w", err))
 	}
 
 	eventLogDir, err := eventLogDir()
@@ -372,7 +392,9 @@ func initConfig() {
 	}
 
 	globalConfig.configDir = configDir
-	globalConfig.configFilePath = configFilePath
+	globalConfig.configFilePath = activeConfigPath
+	globalConfig.userConfigFilePath = userConfigPath
+	globalConfig.configManaged = managed
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
@@ -409,14 +431,75 @@ func configDir() (string, error) {
 	return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
 }
 
-// configFilePath computes the path to the config file.
-func configFilePath() (string, error) {
+// userConfigFilePath computes the path to the per-user config file.
+func userConfigFilePath() (string, error) {
 	configDir, err := configDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory: %w", err)
 	}
 
 	return filepath.Join(configDir, pmgConfigFileName), nil
+}
+
+// globalConfigDirOverride replaces the OS-level managed config directory. It
+// exists only for tests within this package. There is intentionally no env var
+// or flag for it, so a user cannot point the "managed" config at their own file
+// and bypass the globally managed config.
+var globalConfigDirOverride string
+
+// globalConfigDir returns the OS-level directory for a globally managed config
+// file, or "" when the platform has no such location.
+func globalConfigDir() string {
+	if globalConfigDirOverride != "" {
+		return globalConfigDirOverride
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		return "/Library/Application Support/safedep/pmg"
+	case "linux":
+		return "/etc/safedep/pmg"
+	case "windows":
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		return filepath.Join(programData, "safedep", "pmg")
+	}
+
+	return ""
+}
+
+// globalConfigFilePath returns the path to the globally managed config file, or
+// "" when the platform has no global config location.
+func globalConfigFilePath() string {
+	dir := globalConfigDir()
+	if dir == "" {
+		return ""
+	}
+
+	return filepath.Join(dir, pmgConfigFileName)
+}
+
+// resolveConfigFile picks the active config file. The globally managed file,
+// when present, is authoritative and the per-user file is ignored entirely. It
+// returns the active path and whether that path is the globally managed file.
+func resolveConfigFile() (path string, managed bool, err error) {
+	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
+		return global, true, nil
+	}
+
+	userPath, err := userConfigFilePath()
+	if err != nil {
+		return "", false, err
+	}
+
+	return userPath, false, nil
+}
+
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // eventLogDir computes the path to the event log directory.
@@ -515,7 +598,14 @@ func ConfigureSandbox(mayDownloadPackages bool) {
 // If the config file does not exist, the full template is written.
 // If it already exists, missing keys from the template are merged
 // into the existing config while preserving all user values and comments.
+//
+// When a globally managed config is active, this is a no-op: the per-user
+// file is ignored at load time, so creating it would only mislead.
 func WriteTemplateConfig() error {
+	if globalConfig.configManaged {
+		return nil
+	}
+
 	configDir, err := configDir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
@@ -525,7 +615,7 @@ func WriteTemplateConfig() error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	configFilePath, err := configFilePath()
+	configFilePath, err := userConfigFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}
@@ -545,6 +635,21 @@ func WriteTemplateConfig() error {
 
 	if err := os.WriteFile(configFilePath, merged, 0o644); err != nil {
 		return fmt.Errorf("failed to write merged config: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveUserConfigFile deletes the per-user config file. It never touches the
+// globally managed file. A missing file is not an error.
+func RemoveUserConfigFile() error {
+	path, err := userConfigFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove config file %q: %w", path, err)
 	}
 
 	return nil
