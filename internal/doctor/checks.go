@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -226,6 +227,46 @@ func isExecutableNotFound(err error) bool {
 		return execErr.Err == exec.ErrNotFound
 	}
 	return false
+}
+
+func CheckShimDirectory(shimDir string) CheckResult {
+	info, err := os.Stat(shimDir)
+	if err != nil || !info.IsDir() {
+		return CheckResult{
+			Status:  StatusFail,
+			Message: fmt.Sprintf("shim directory not found: %s → run 'pmg setup install'", shimDir),
+		}
+	}
+	return CheckResult{
+		Status:  StatusPass,
+		Message: fmt.Sprintf("shim directory: %s", shimDir),
+	}
+}
+
+func CheckShimInPath(shimDir string, pathEnv string) CheckResult {
+	if slices.Contains(filepath.SplitList(pathEnv), shimDir) {
+		return CheckResult{
+			Status:  StatusPass,
+			Message: fmt.Sprintf("%s is in PATH", shimDir),
+		}
+	}
+	return CheckResult{
+		Status:  StatusFail,
+		Message: fmt.Sprintf("%s not in PATH → restart shell or source config", shimDir),
+	}
+}
+
+func CheckShimScripts(shimDir string, managers []string) (found []string, missing []string) {
+	for _, pm := range managers {
+		shimPath := filepath.Join(shimDir, pm)
+		info, err := os.Stat(shimPath)
+		if err != nil || info.Mode()&0o111 == 0 {
+			missing = append(missing, pm)
+			continue
+		}
+		found = append(found, pm)
+	}
+	return found, missing
 }
 
 func CheckPackageManagers(managers []string) (found []string, notFound []string) {

@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/sandbox/platform"
@@ -86,6 +87,34 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				aliasManager := alias.New(aliasCfg, rcFileManager)
 				installed, err := aliasManager.IsInstalled()
 				return doctor.CheckAliasInstalled(installed, err)
+			},
+		},
+		{
+			Name:     "shim-directory",
+			Category: "Shell Integration",
+			Run: func() doctor.CheckResult {
+				sm, err := shim.NewDefaultShimManager()
+				if err != nil {
+					return doctor.CheckResult{
+						Status:  doctor.StatusWarn,
+						Message: fmt.Sprintf("could not check shims: %v", err),
+					}
+				}
+				return doctor.CheckShimDirectory(sm.GetBinDir())
+			},
+		},
+		{
+			Name:     "shim-in-path",
+			Category: "Shell Integration",
+			Run: func() doctor.CheckResult {
+				sm, err := shim.NewDefaultShimManager()
+				if err != nil {
+					return doctor.CheckResult{
+						Status:  doctor.StatusWarn,
+						Message: fmt.Sprintf("could not check shims: %v", err),
+					}
+				}
+				return doctor.CheckShimInPath(sm.GetBinDir(), os.Getenv("PATH"))
 			},
 		},
 		{

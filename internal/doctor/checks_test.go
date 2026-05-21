@@ -244,6 +244,66 @@ func TestSetupVenv(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCheckShimDirectory(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T) string
+		wantStatus CheckStatus
+	}{
+		{
+			name: "exists",
+			setup: func(t *testing.T) string {
+				d := filepath.Join(t.TempDir(), ".pmg", "bin")
+				require.NoError(t, os.MkdirAll(d, 0o755))
+				return d
+			},
+			wantStatus: StatusPass,
+		},
+		{
+			name:       "missing",
+			setup:      func(t *testing.T) string { return "/nonexistent/.pmg/bin" },
+			wantStatus: StatusFail,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CheckShimDirectory(tt.setup(t))
+			assert.Equal(t, tt.wantStatus, result.Status)
+		})
+	}
+}
+
+func TestCheckShimInPath(t *testing.T) {
+	tests := []struct {
+		name       string
+		shimDir    string
+		pathEnv    string
+		wantStatus CheckStatus
+	}{
+		{name: "present", shimDir: "/home/user/.pmg/bin", pathEnv: "/home/user/.pmg/bin:/usr/bin", wantStatus: StatusPass},
+		{name: "missing", shimDir: "/home/user/.pmg/bin", pathEnv: "/usr/bin:/bin", wantStatus: StatusFail},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CheckShimInPath(tt.shimDir, tt.pathEnv)
+			assert.Equal(t, tt.wantStatus, result.Status)
+		})
+	}
+}
+
+func TestCheckShimScripts(t *testing.T) {
+	tmpDir := t.TempDir()
+	shimDir := filepath.Join(tmpDir, ".pmg", "bin")
+	require.NoError(t, os.MkdirAll(shimDir, 0o755))
+
+	shimPath := filepath.Join(shimDir, "npm")
+	require.NoError(t, os.WriteFile(shimPath, []byte("#!/bin/sh\nexec pmg npm \"$@\""), 0o755))
+
+	found, missing := CheckShimScripts(shimDir, []string{"npm", "pip"})
+	assert.Equal(t, []string{"npm"}, found)
+	assert.Equal(t, []string{"pip"}, missing)
+}
+
 func TestCheckPackageManagers(t *testing.T) {
 	tests := []struct {
 		name      string
