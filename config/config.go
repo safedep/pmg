@@ -1,17 +1,19 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
+	"time"
 
 	_ "embed"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/viper"
 )
 
@@ -97,8 +99,19 @@ type Config struct {
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
 type CloudConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	EndpointID string `mapstructure:"endpoint_id"`
+	Enabled    bool                `mapstructure:"enabled"`
+	EndpointID string              `mapstructure:"endpoint_id"`
+	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
+}
+
+// CloudAutoSyncConfig controls opportunistic background sync of the cloud
+// audit WAL. When Enabled, PMG spawns a detached `pmg cloud sync-background`
+// child at the end of each invocation, gated by a per-host cooldown so the
+// sync does not fire on every command.
+type CloudAutoSyncConfig struct {
+	Enabled     bool          `mapstructure:"enabled"`
+	MinInterval time.Duration `mapstructure:"min_interval"`
+	Timeout     time.Duration `mapstructure:"timeout"`
 }
 
 type ProxyConfig struct {
@@ -186,7 +199,9 @@ type RuntimeConfig struct {
 
 	// Internal config values computed at runtime and must be accessed via. API
 	configDir                string
-	configFilePath           string
+	configFilePath           string // active config: globally managed file if present, else per-user
+	userConfigFilePath       string // per-user config file, used for writes and removal
+	configLocked             bool   // global file present and opted into lockdown (global_lockdown: true)
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxViolationCacheDir string
@@ -198,9 +213,45 @@ func (r *RuntimeConfig) CloudSyncDBPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.db")
 }
 
-// ConfigFilePath returns the path to the config file.
+// CloudSyncLockPath returns the path to the cross-process lock file that
+// serializes manual `pmg cloud sync` and the auto-sync background child.
+func (r *RuntimeConfig) CloudSyncLockPath() string {
+	return filepath.Join(r.configDir, "cloud-sync.lock")
+}
+
+// CloudSyncLastRunPath returns the path to the timestamp file recording the
+// last sync attempt (success or failure) in Unix epoch seconds.
+func (r *RuntimeConfig) CloudSyncLastRunPath() string {
+	return filepath.Join(r.configDir, "cloud-sync.lastrun")
+}
+
+// ConfigFilePath returns the path to the active config file (the globally
+// managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
+}
+
+// UserConfigFilePath returns the per-user config file path, regardless of
+// whether a globally managed config is active.
+func (r *RuntimeConfig) UserConfigFilePath() string {
+	return r.userConfigFilePath
+}
+
+// IsManaged reports whether the active config is the globally managed file.
+// When true, the per-user file is ignored and config writes are refused. It is
+// derived: the active path differs from the per-user path only when the global
+// file was chosen.
+func (r *RuntimeConfig) IsManaged() bool {
+	return r.configFilePath != r.userConfigFilePath
+}
+
+// IsLocked reports whether a globally managed config opted into lockdown via
+// global_lockdown: true. When locked, env and CLI overrides of config are
+// refused. An unlocked managed config is an overridable baseline: it stays the
+// authoritative file (the per-user file is still ignored), but env and CLI args
+// can override its values at runtime.
+func (r *RuntimeConfig) IsLocked() bool {
+	return r.configLocked
 }
 
 // EventLogDir returns the path to the event log directory.
@@ -254,12 +305,7 @@ type SandboxAllowOverride struct {
 // The config package return an appropriate RuntimeConfig based on the environment and the configuration.
 func DefaultConfig() RuntimeConfig {
 	// Backward compatibility for the insecure installation flag before config was introduced.
-	insecureInstallation := false
-	if val := os.Getenv(pmgInsecureInstallationEnvKey); val != "" {
-		if boolVal, err := strconv.ParseBool(val); err == nil {
-			insecureInstallation = boolVal
-		}
-	}
+	insecureInstallation := utils.EnvBool(pmgInsecureInstallationEnvKey, false)
 
 	return RuntimeConfig{
 		Config: Config{
@@ -283,6 +329,11 @@ func DefaultConfig() RuntimeConfig {
 			},
 			Cloud: CloudConfig{
 				Enabled: false,
+				AutoSync: CloudAutoSyncConfig{
+					Enabled:     true,
+					MinInterval: 15 * time.Minute,
+					Timeout:     5 * time.Minute,
+				},
 			},
 			Proxy: ProxyConfig{
 				Enabled:     true,
@@ -303,6 +354,14 @@ func init() {
 	initConfig()
 }
 
+// Reload re-runs the initialization that runs at package init. Tests that
+// mutate PMG_CONFIG_DIR via t.Setenv must call this so the resolved config
+// directory reflects the new env, instead of the value computed when the
+// package was first loaded.
+func Reload() {
+	initConfig()
+}
+
 // initConfig should be idempotent and can be called multiple times.
 // This is required for testing purposes.
 func initConfig() {
@@ -314,9 +373,14 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get config directory: %w", err))
 	}
 
-	configFilePath, err := configFilePath()
+	activeConfigPath, err := resolveConfigFile()
 	if err != nil {
-		panic(fmt.Errorf("failed to get config file path: %w", err))
+		panic(fmt.Errorf("failed to resolve config file path: %w", err))
+	}
+
+	userConfigPath, err := userConfigFilePath()
+	if err != nil {
+		panic(fmt.Errorf("failed to get user config file path: %w", err))
 	}
 
 	eventLogDir, err := eventLogDir()
@@ -335,10 +399,22 @@ func initConfig() {
 	}
 
 	globalConfig.configDir = configDir
-	globalConfig.configFilePath = configFilePath
+	globalConfig.configFilePath = activeConfigPath
+	globalConfig.userConfigFilePath = userConfigPath
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
+
+	// A globally managed config enforces lockdown only when it opts in via
+	// global_lockdown, read straight from the file so it cannot be flipped by
+	// env or CLI.
+	globalConfig.configLocked = globalConfig.IsManaged() && globalConfigEnablesLockdown(globalConfigFilePath())
+
+	// When locked, env cannot bypass the config, including the
+	// PMG_INSECURE_INSTALLATION malicious-package block bypass.
+	if globalConfig.IsLocked() {
+		globalConfig.InsecureInstallation = false
+	}
 
 	loadConfig()
 
@@ -372,14 +448,69 @@ func configDir() (string, error) {
 	return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
 }
 
-// configFilePath computes the path to the config file.
-func configFilePath() (string, error) {
+// userConfigFilePath computes the path to the per-user config file.
+func userConfigFilePath() (string, error) {
 	configDir, err := configDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get config directory: %w", err)
 	}
 
 	return filepath.Join(configDir, pmgConfigFileName), nil
+}
+
+// globalConfigDirOverride replaces the OS-level managed config directory. It
+// exists only for tests within this package. There is intentionally no env var
+// or flag for it, so a user cannot point the "managed" config at their own file
+// and bypass the globally managed config.
+var globalConfigDirOverride string
+
+// globalConfigDir returns the OS-level directory for a globally managed config
+// file, or "" when the platform has no such location.
+func globalConfigDir() string {
+	if globalConfigDirOverride != "" {
+		return globalConfigDirOverride
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		return "/Library/Application Support/safedep/pmg"
+	case "linux":
+		return "/etc/safedep/pmg"
+	case "windows":
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		return filepath.Join(programData, "safedep", "pmg")
+	}
+
+	return ""
+}
+
+// globalConfigFilePath returns the path to the globally managed config file, or
+// "" when the platform has no global config location.
+func globalConfigFilePath() string {
+	dir := globalConfigDir()
+	if dir == "" {
+		return ""
+	}
+
+	return filepath.Join(dir, pmgConfigFileName)
+}
+
+// resolveConfigFile picks the active config file. The globally managed file,
+// when present, is authoritative and the per-user file is ignored entirely.
+func resolveConfigFile() (string, error) {
+	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
+		return global, nil
+	}
+
+	return userConfigFilePath()
+}
+
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // eventLogDir computes the path to the event log directory.
@@ -478,7 +609,14 @@ func ConfigureSandbox(mayDownloadPackages bool) {
 // If the config file does not exist, the full template is written.
 // If it already exists, missing keys from the template are merged
 // into the existing config while preserving all user values and comments.
+//
+// When a globally managed config is active, this is a no-op: the per-user
+// file is ignored at load time, so creating it would only mislead.
 func WriteTemplateConfig() error {
+	if globalConfig.IsManaged() {
+		return nil
+	}
+
 	configDir, err := configDir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
@@ -488,7 +626,7 @@ func WriteTemplateConfig() error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	configFilePath, err := configFilePath()
+	configFilePath, err := userConfigFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}
@@ -511,4 +649,36 @@ func WriteTemplateConfig() error {
 	}
 
 	return nil
+}
+
+// RemoveUserConfigFile deletes the per-user config file. It never touches the
+// globally managed file. A missing file is not an error.
+func RemoveUserConfigFile() error {
+	path, err := userConfigFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove config file %q: %w", path, err)
+	}
+
+	return nil
+}
+
+// NewManagedConfigError returns the error shown when a user tries to change a
+// globally managed configuration. It carries a useful error code and help text
+// so the CLI presents it as an expected, actionable failure rather than a bug.
+func NewManagedConfigError() error {
+	return managedError(fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath))
+}
+
+// managedError builds the standard "globally managed" CLI error with a useful
+// code and actionable help.
+func managedError(message string) error {
+	return usefulerror.Useful().
+		WithCode(usefulerror.ErrCodePermissionDenied).
+		WithHumanError(message).
+		WithHelp("This machine's PMG configuration is centrally managed. Contact your administrator to change it.").
+		Wrap(errors.New(message))
 }

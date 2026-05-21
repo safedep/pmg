@@ -83,6 +83,13 @@ func main() {
 
 			log.InitZapLogger("pmg", "cli")
 
+			// Refuse flags that would override a globally managed config before any
+			// config-dependent initialization (event logging, audit) runs, so a
+			// managed flag like --skip-event-log cannot take effect first.
+			if err := config.RejectManagedFlagOverrides(cmd); err != nil {
+				ui.ErrorExit(err)
+			}
+
 			// Initialize event logging (silently fail if it can't be initialized)
 			var eventlogErr error
 			if logFile != "" {
@@ -160,11 +167,16 @@ func main() {
 		fmt.Println(command.UsageString())
 	})
 
-	defer analytics.Close()
 	defer func() {
 		if err := eventlog.Close(); err != nil {
 			log.Warnf("failed to close eventlog: %v", err)
 		}
+	}()
+	// Defers run LIFO. The spawn must observe the parent's released SQLite
+	// handle, so we declare it BEFORE audit.Close's defer (it then runs AFTER
+	// audit.Close at exit time).
+	defer func() {
+		audit.MaybeSpawnBackgroundSync(config.Get())
 	}()
 	defer func() {
 		if err := audit.Close(); err != nil {
@@ -172,6 +184,8 @@ func main() {
 		}
 	}()
 
+	// Analytics are best-effort. Do not flush on exit because the PostHog
+	// client can block the CLI while draining its queue.
 	analytics.TrackCommandRun()
 	analytics.TrackCI()
 

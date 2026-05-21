@@ -1,8 +1,6 @@
 package shim
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,19 +89,19 @@ func (m *ShimManager) Remove() error {
 
 func (m *ShimManager) IsInstalled() (bool, error) {
 	for _, shell := range m.config.Shells {
-		configPath := filepath.Join(m.config.HomeDir, shell.Path())
-
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
+		for _, configPath := range shell.CandidateRcFiles(m.config.HomeDir) {
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				log.Warnf("Warning: could not read %s (%s)", configPath, err)
 				continue
 			}
-			log.Warnf("Warning: could not read %s (%s)", shell.Name(), err)
-			continue
-		}
 
-		if strings.Contains(string(data), shimMarker) {
-			return true, nil
+			if strings.Contains(string(data), shimMarker) {
+				return true, nil
+			}
 		}
 	}
 
@@ -151,93 +149,62 @@ func shellQuote(value string) string {
 }
 
 func (m *ShimManager) addPathToShells() error {
+	primary := alias.PrimaryShellName()
 	for _, shell := range m.config.Shells {
-		configPath := filepath.Join(m.config.HomeDir, shell.Path())
-
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
-			continue
-		}
-
-		if strings.Contains(string(data), shimMarker) {
-			continue
-		}
-
-		f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0o644)
+		files, err := shell.InstallRcFiles(m.config.HomeDir, shell.Name() == primary)
 		if err != nil {
 			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
 			continue
 		}
 
-		_, err = fmt.Fprintf(f, "\n%s", shell.PathExport(m.config.BinDir))
-		if closeErr := f.Close(); closeErr != nil {
-			log.Warnf("Warning: failed to close %s: %s", shell.Name(), closeErr)
-		}
-		if err != nil {
-			log.Warnf("Warning: failed to write PATH export to %s: %s", shell.Name(), err)
+		for _, configPath := range files {
+			m.addPathToFile(configPath, shell)
 		}
 	}
 
 	return nil
 }
 
+// addPathToFile appends the shell's PATH export to a single config file unless
+// it is already present. A missing file is a no-op.
+func (m *ShimManager) addPathToFile(configPath string, shell alias.Shell) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warnf("Warning: skipping %s (%s)", configPath, err)
+		}
+		return
+	}
+
+	if strings.Contains(string(data), shimMarker) {
+		return
+	}
+
+	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Warnf("Warning: skipping %s (%s)", configPath, err)
+		return
+	}
+
+	_, err = fmt.Fprintf(f, "\n%s", shell.PathExport(m.config.BinDir))
+	if closeErr := f.Close(); closeErr != nil {
+		log.Warnf("Warning: failed to close %s: %s", configPath, closeErr)
+	}
+	if err != nil {
+		log.Warnf("Warning: failed to write PATH export to %s: %s", configPath, err)
+	}
+}
+
 func (m *ShimManager) removePathFromShells() error {
+	drop := func(line string) bool {
+		return strings.Contains(line, shimMarker)
+	}
+
 	for _, shell := range m.config.Shells {
-		configPath := filepath.Join(m.config.HomeDir, shell.Path())
-
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
+		for _, configPath := range shell.CandidateRcFiles(m.config.HomeDir) {
+			if err := alias.RewriteFileDroppingLines(configPath, drop); err != nil {
+				log.Warnf("Warning: failed to update %s: %s", configPath, err)
 			}
-			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
-			continue
-		}
-
-		info, err := os.Stat(configPath)
-		if err != nil {
-			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
-			continue
-		}
-
-		tempFile, err := os.CreateTemp(filepath.Dir(configPath), ".tmp-"+filepath.Base(configPath))
-		if err != nil {
-			log.Warnf("Warning: failed to create temporary file for %s: %s", configPath, err)
-			continue
-		}
-		tempPath := tempFile.Name()
-
-		scanner := bufio.NewScanner(bytes.NewReader(data))
-		writer := bufio.NewWriter(tempFile)
-
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, shimMarker) {
-				continue
-			}
-			if _, err := writer.WriteString(line + "\n"); err != nil {
-				log.Warnf("Warning: failed to write to temporary file: %s", err)
-			}
-		}
-
-		if err := writer.Flush(); err != nil {
-			log.Warnf("Warning: failed to flush temporary file: %s", err)
-		}
-		if err := tempFile.Close(); err != nil {
-			log.Warnf("Warning: failed to close temporary file: %s", err)
-		}
-
-		if err := os.Chmod(tempPath, info.Mode()); err != nil {
-			log.Warnf("Warning: failed to set permissions on temporary file: %s", err)
-		}
-
-		if err := os.Rename(tempPath, configPath); err != nil {
-			_ = os.Remove(tempPath)
-			log.Warnf("Warning: failed to update %s: %s", configPath, err)
 		}
 	}
 

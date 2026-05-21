@@ -44,12 +44,12 @@ PMG intercepts every package install and checks it for malware **before** code e
 
 ## How PMG Works
 
-PMG takes a defense in depth approach. Each install passes through three independent layers before code runs, plus an audit trail after.
+PMG takes a defense in depth approach. Each install passes through the enabled protection layers before code runs, plus an audit trail after.
 
 - **Transparent Interception** - PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands. No workflow changes.
 - **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages never reach disk.
 - **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so freshly compromised versions cannot land before the ecosystem has had time to flag them.
-- **Layer 3: Sandbox** - PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Bubblewrap), so install scripts cannot touch the system even if a threat slips past the first two layers.
+- **Layer 3: Optional Sandbox** - When sandboxing is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
 - **Audit Logging** - PMG logs every install (what, when, from where) for a verifiable audit trail.
 
 ## Quick Start
@@ -192,8 +192,9 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 - run: npm ci
 ```
 
-By default you get malware blocking and dependency cooldown. Tune behavior
-via inputs (`paranoid`, `sandbox`, `cooldown-days`, ...) or point
+By default you get malware blocking and dependency cooldown. Sandbox isolation
+is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
+`sandbox`, `cooldown-days`, ...) or point
 `config-file` at a YAML in the repo. See
 [docs/github-action.md](docs/github-action.md) for the full reference.
 

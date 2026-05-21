@@ -13,6 +13,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// manualSyncLockTimeout caps how long `pmg cloud sync` waits to acquire the
+// shared sync lock when an auto-sync child is already running. Long enough to
+// let a normal background drain complete, short enough that a stuck process
+// surfaces as a usefulerror rather than an indefinite hang.
+const manualSyncLockTimeout = 30 * time.Second
+
 var syncTimeout time.Duration
 
 func newSyncCommand() *cobra.Command {
@@ -42,6 +48,30 @@ func runSync(cmd *cobra.Command, args []string) error {
 			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
 	}
 
+	lock := audit.NewSyncLock(cfg.CloudSyncLockPath())
+	lockCtx, lockCancel := context.WithTimeout(cmd.Context(), manualSyncLockTimeout)
+	defer lockCancel()
+
+	locked, err := lock.TryLockContext(lockCtx, 250*time.Millisecond)
+	if err != nil {
+		ui.ErrorExit(usefulerror.Useful().
+			Wrap(err).
+			WithCode(usefulerror.ErrCodeLifecycle).
+			WithHumanError("Failed to acquire cloud sync lock").
+			WithHelp("Another sync may be in progress; try again shortly"))
+	}
+	if !locked {
+		ui.ErrorExit(usefulerror.Useful().
+			WithCode(usefulerror.ErrCodeLifecycle).
+			WithHumanError("Another cloud sync is already in progress").
+			WithHelp("Wait for the in-progress sync to finish, then try again"))
+	}
+	defer func() {
+		if err := lock.Unlock(); err != nil {
+			log.Warnf("failed to release cloud sync lock: %v", err)
+		}
+	}()
+
 	ctx, cancel := context.WithTimeout(cmd.Context(), syncTimeout)
 	defer cancel()
 
@@ -60,6 +90,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}()
 
 	synced, err := bundle.Sync(ctx)
+	recordLastSyncAttempt(cfg)
 	if err != nil {
 		ui.ErrorExit(usefulerror.Useful().
 			Wrap(err).

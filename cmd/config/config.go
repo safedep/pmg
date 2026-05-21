@@ -86,6 +86,10 @@ If the config file does not exist, a template is created first.`,
 
 func runEdit() error {
 	cfg := appConfig.Get()
+	if cfg.IsManaged() {
+		return appConfig.NewManagedConfigError()
+	}
+
 	path := cfg.ConfigFilePath()
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {

@@ -16,6 +16,8 @@ const (
 	postHogEventEndpoint = "https://us.i.posthog.com"
 
 	telemetryDisableEnvKey = "PMG_DISABLE_TELEMETRY"
+
+	analyticsFlushInterval = 2 * time.Second
 )
 
 var (
@@ -32,6 +34,7 @@ func init() {
 
 	client, err := posthog.NewWithConfig(postHogApiKey, posthog.Config{
 		Endpoint: postHogEventEndpoint,
+		Interval: analyticsFlushInterval,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize posthog client: %v", err)

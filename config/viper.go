@@ -5,27 +5,35 @@ import (
 	"os"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
 // loadViperConfig loads the configuration using Viper.
 // Precedence (highest to lowest): cobra flags > env vars > config file > defaults.
+// When a globally managed config is active, env overrides are disabled and
+// managed flags are rejected, so the managed file is authoritative.
 // Cobra flags write directly to the config struct after this function runs.
 func loadViperConfig() error {
-	configPath, err := configFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config file path: %w", err)
-	}
+	// Use the active config path resolved by initConfig (globally managed file
+	// when present, otherwise the per-user file).
+	configPath := globalConfig.configFilePath
 
 	v := viper.New()
 	v.SetConfigType("yaml")
-	v.SetEnvPrefix("PMG")
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+
+	// A locked global config must not be bypassable via PMG_* env vars, so
+	// AutomaticEnv is enabled unless lockdown is in force. An unlocked managed
+	// config stays an overridable baseline.
+	if !globalConfig.IsLocked() {
+		v.SetEnvPrefix("PMG")
+		v.AutomaticEnv()
+		v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	}
 
 	// Load the embedded template as the base so Viper knows all keys and their
-	// defaults. This is required for AutomaticEnv to resolve PMG_* env vars for
+	// defaults, and (when env overrides are enabled) can resolve PMG_* vars for
 	// keys that are absent from or newer than the user's config file.
 	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
 		return fmt.Errorf("failed to load default config: %w", err)
@@ -57,17 +65,26 @@ func loadViperConfig() error {
 	return nil
 }
 
-// hasProxySectionInFile checks whether the user's config file contains a
-// top-level "proxy" key. Returns false if the file doesn't exist or can't
-// be parsed.
-func hasProxySectionInFile(path string) bool {
+// readConfigFileKeys reads path and returns its top-level YAML mapping.
+func readConfigFileKeys(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return nil, err
 	}
 
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+
+	return raw, nil
+}
+
+// hasProxySectionInFile checks whether the config file at path contains a
+// top-level "proxy" key. A missing or unparseable file reports false.
+func hasProxySectionInFile(path string) bool {
+	raw, err := readConfigFileKeys(path)
+	if err != nil {
 		return false
 	}
 
@@ -75,18 +92,47 @@ func hasProxySectionInFile(path string) bool {
 	return ok
 }
 
+// globalConfigEnablesLockdown reports whether the global config file at path
+// enables lockdown. It is only called when a global config is present, so a read
+// or parse failure means a managed file we cannot interpret: fail closed
+// (locked) rather than silently dropping policy. global_lockdown is read directly
+// from the file, so it cannot be flipped via env or CLI.
+func globalConfigEnablesLockdown(path string) bool {
+	raw, err := readConfigFileKeys(path)
+	if err != nil {
+		log.Warnf("could not read global config %q to determine lockdown (%v); defaulting to locked", path, err)
+		return true
+	}
+
+	value, ok := raw["global_lockdown"]
+	if !ok {
+		return false
+	}
+
+	enabled, isBool := value.(bool)
+	if !isBool {
+		log.Warnf("config %q sets global_lockdown to a non-boolean value (%v); treating as disabled", path, value)
+		return false
+	}
+
+	return enabled
+}
+
 // applyProxyLegacyFallback populates the new Proxy struct from deprecated
 // flat keys when the user's config file does not have a proxy: section.
 // New env vars (PMG_PROXY_ENABLED, PMG_PROXY_INSTALL_ONLY) take precedence
 // over legacy config file keys to respect the documented precedence order.
 func applyProxyLegacyFallback(v *viper.Viper) {
-	if os.Getenv("PMG_PROXY_ENABLED") == "" && v.IsSet("proxy_mode") {
+	// A locked config ignores env, so env must not suppress the legacy migration.
+	envIgnored := globalConfig.IsLocked()
+
+	if (envIgnored || os.Getenv("PMG_PROXY_ENABLED") == "") && v.IsSet("proxy_mode") {
 		val := v.GetBool("proxy_mode")
 		globalConfig.Config.Proxy.Enabled = val
 		v.Set("proxy.enabled", val)
 	}
 
-	if os.Getenv("PMG_PROXY_INSTALL_ONLY") == "" && v.IsSet("proxy_install_only") {
+	if (envIgnored || os.Getenv("PMG_PROXY_INSTALL_ONLY") == "") && v.IsSet("proxy_install_only") {
 		val := v.GetBool("proxy_install_only")
 		globalConfig.Config.Proxy.InstallOnly = val
 		v.Set("proxy.install_only", val)

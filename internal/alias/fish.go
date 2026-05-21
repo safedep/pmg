@@ -1,6 +1,9 @@
 package alias
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+)
 
 type fishShell struct{}
 
@@ -22,6 +25,14 @@ func (f fishShell) Name() string {
 	return "fish"
 }
 
-func (f fishShell) Path() string {
-	return ".config/fish/config.fish"
+func (f fishShell) configPath(homeDir string) string {
+	return filepath.Join(homeDir, ".config", "fish", "config.fish")
+}
+
+func (f fishShell) CandidateRcFiles(homeDir string) []string {
+	return []string{f.configPath(homeDir)}
+}
+
+func (f fishShell) InstallRcFiles(homeDir string, create bool) ([]string, error) {
+	return singleRcFile(f.configPath(homeDir), create)
 }

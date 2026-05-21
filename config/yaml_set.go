@@ -15,7 +15,11 @@ import (
 // It does not update the in-memory config or viper state. Callers that need
 // the updated value must re-initialize the config after calling this function.
 func SetConfigValue(key, value string) error {
-	configPath, err := configFilePath()
+	if globalConfig.IsManaged() {
+		return NewManagedConfigError()
+	}
+
+	configPath, err := userConfigFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
 	}

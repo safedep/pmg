@@ -258,6 +258,13 @@ runs:
           export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
           export_var PMG_CLOUD_ENABLED "true"
 
+          # PMG's opportunistic background auto-sync is designed for long-lived
+          # workstations. On an ephemeral runner the detached child can be
+          # torn down before it drains the WAL, and the WAL goes with it. Turn
+          # it off and rely on an explicit `pmg cloud sync` at job-end if the
+          # user wants events delivered.
+          export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+
           if [ -n "$IN_ENDPOINT_ID" ]; then
             export_var PMG_CLOUD_ENDPOINT_ID "$IN_ENDPOINT_ID"
           else
