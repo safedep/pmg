@@ -68,7 +68,7 @@ func bashInstallRcFiles(homeDir string, create bool, goos string) ([]string, err
 
 	// Skip the login file when it already sources .bashrc, to avoid loading the
 	// lines twice.
-	if login != "" && !(bashrcExists && referencesBashrc(login)) {
+	if login != "" && (!bashrcExists || !referencesBashrc(login)) {
 		files = append(files, login)
 	}
 
