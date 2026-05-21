@@ -154,20 +154,20 @@ func (a *AliasManager) IsInstalled() (bool, error) {
 	}
 
 	for _, shell := range a.config.Shells {
-		configPath := filepath.Join(homeDir, shell.Path())
+		for _, configPath := range shell.CandidateRcFiles(homeDir) {
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
 
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
+				log.Warnf("Warning: could not read %s (%s)", configPath, err)
 				continue
 			}
 
-			log.Warnf("Warning: could not read %s (%s)", shell.Name(), err)
-			continue
-		}
-
-		if strings.Contains(string(data), a.config.RcFileName) {
-			return true, nil
+			if strings.Contains(string(data), a.config.RcFileName) {
+				return true, nil
+			}
 		}
 	}
 
@@ -190,10 +190,18 @@ func (a *AliasManager) sourceRcFile() error {
 		return err
 	}
 
+	primary := PrimaryShellName()
 	for _, shell := range a.config.Shells {
-		configPath := filepath.Join(homeDir, shell.Path())
-		if err := a.addSourceLine(configPath, shell.Source(a.rcFileManager.GetRcPath())); err != nil {
+		files, err := shell.InstallRcFiles(homeDir, shell.Name() == primary)
+		if err != nil {
 			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
+			continue
+		}
+
+		for _, configPath := range files {
+			if err := a.addSourceLine(configPath, shell.Source(a.rcFileManager.GetRcPath())); err != nil {
+				log.Warnf("Warning: skipping %s (%s)", configPath, err)
+			}
 		}
 	}
 
@@ -208,73 +216,71 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 	}
 
 	for _, shell := range a.config.Shells {
-		configPath := filepath.Join(homeDir, shell.Path())
-
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-
-			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
-			continue
-		}
-
-		// Get original file permissions
-		info, err := os.Stat(configPath)
-		if err != nil {
-			log.Warnf("Warning: skipping %s (%s)", shell.Name(), err)
-			continue
-		}
-
-		// Create temp file
-		tempFile, err := os.CreateTemp(filepath.Dir(configPath), ".tmp-"+filepath.Base(configPath))
-		if err != nil {
-			log.Warnf("Warning: failed to create temporary file for %s: %s", configPath, err)
-			continue
-		}
-
-		tempPath := tempFile.Name()
-
-		// Write filtered content
-		scanner := bufio.NewScanner(bytes.NewReader(data))
-		writer := bufio.NewWriter(tempFile)
-
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			// Skip source lines and comment
-			if strings.Contains(line, a.config.RcFileName) ||
-				strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource) {
-				continue
-			}
-
-			if _, err := writer.WriteString(line + "\n"); err != nil {
-				log.Warnf("Warning: failed to write to temporary file: %s", err)
-			}
-		}
-
-		if err := writer.Flush(); err != nil {
-			log.Warnf("Warning: failed to flush temporary file: %s", err)
-		}
-
-		if err := tempFile.Close(); err != nil {
-			log.Warnf("Warning: failed to close temporary file: %s", err)
-		}
-
-		// Set permissions on temporary file to match original file.
-		if err := os.Chmod(tempPath, info.Mode()); err != nil {
-			log.Warnf("Warning: failed to set permissions on temporary file for %s: %s", configPath, err)
-		}
-
-		// Replace original file
-		if err := os.Rename(tempPath, configPath); err != nil {
-			_ = os.Remove(tempPath)
-			log.Warnf("Warning: failed to update %s: %s", configPath, err)
+		for _, configPath := range shell.CandidateRcFiles(homeDir) {
+			a.removeSourceLinesFromFile(configPath)
 		}
 	}
 
 	return nil
+}
+
+// removeSourceLinesFromFile strips PMG source lines and their comment from a
+// single shell configuration file. A missing file is a no-op.
+func (a *AliasManager) removeSourceLinesFromFile(configPath string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warnf("Warning: skipping %s (%s)", configPath, err)
+		}
+		return
+	}
+
+	info, err := os.Stat(configPath)
+	if err != nil {
+		log.Warnf("Warning: skipping %s (%s)", configPath, err)
+		return
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(configPath), ".tmp-"+filepath.Base(configPath))
+	if err != nil {
+		log.Warnf("Warning: failed to create temporary file for %s: %s", configPath, err)
+		return
+	}
+
+	tempPath := tempFile.Name()
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	writer := bufio.NewWriter(tempFile)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.Contains(line, a.config.RcFileName) ||
+			strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource) {
+			continue
+		}
+
+		if _, err := writer.WriteString(line + "\n"); err != nil {
+			log.Warnf("Warning: failed to write to temporary file: %s", err)
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		log.Warnf("Warning: failed to flush temporary file: %s", err)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		log.Warnf("Warning: failed to close temporary file: %s", err)
+	}
+
+	if err := os.Chmod(tempPath, info.Mode()); err != nil {
+		log.Warnf("Warning: failed to set permissions on temporary file for %s: %s", configPath, err)
+	}
+
+	if err := os.Rename(tempPath, configPath); err != nil {
+		_ = os.Remove(tempPath)
+		log.Warnf("Warning: failed to update %s: %s", configPath, err)
+	}
 }
 
 // addSourceLine adds a source line to the specified shell configuration file.

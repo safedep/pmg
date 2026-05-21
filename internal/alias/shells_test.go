@@ -2,9 +2,13 @@ package alias
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestShellPathExport(t *testing.T) {
@@ -48,6 +52,121 @@ func TestShellPathExport(t *testing.T) {
 			result := tc.shell.PathExport(tc.binDir)
 			for _, s := range tc.contains {
 				assert.Contains(t, result, s)
+			}
+		})
+	}
+}
+
+func TestPrimaryShellName(t *testing.T) {
+	t.Run("from SHELL", func(t *testing.T) {
+		t.Setenv("SHELL", "/usr/bin/fish")
+		assert.Equal(t, "fish", PrimaryShellName())
+	})
+
+	t.Run("falls back to OS default when unset", func(t *testing.T) {
+		t.Setenv("SHELL", "")
+		want := "bash"
+		if runtime.GOOS == "darwin" {
+			want = "zsh"
+		}
+		assert.Equal(t, want, PrimaryShellName())
+	})
+}
+
+func TestBashInstallRcFiles(t *testing.T) {
+	const (
+		bashrc      = ".bashrc"
+		bashProfile = ".bash_profile"
+		profile     = ".profile"
+	)
+
+	tests := []struct {
+		name     string
+		goos     string
+		create   bool
+		existing map[string]string
+		wantRel  []string
+		wantMade []string
+	}{
+		{
+			name:     "darwin bashrc only, primary also creates bash_profile",
+			goos:     "darwin",
+			create:   true,
+			existing: map[string]string{bashrc: "# bashrc\n"},
+			wantRel:  []string{bashrc, bashProfile},
+			wantMade: []string{bashProfile},
+		},
+		{
+			name:     "darwin login already sources bashrc is skipped",
+			goos:     "darwin",
+			create:   true,
+			existing: map[string]string{bashrc: "# bashrc\n", bashProfile: "source ~/.bashrc\n"},
+			wantRel:  []string{bashrc},
+		},
+		{
+			name:     "darwin login not sourcing bashrc gets both",
+			goos:     "darwin",
+			create:   true,
+			existing: map[string]string{bashrc: "# bashrc\n", bashProfile: "# profile\n"},
+			wantRel:  []string{bashrc, bashProfile},
+		},
+		{
+			name:     "darwin nothing exists, primary creates bash_profile",
+			goos:     "darwin",
+			create:   true,
+			existing: map[string]string{},
+			wantRel:  []string{bashProfile},
+			wantMade: []string{bashProfile},
+		},
+		{
+			name:     "darwin nothing exists, non-primary creates nothing",
+			goos:     "darwin",
+			create:   false,
+			existing: map[string]string{},
+			wantRel:  nil,
+		},
+		{
+			name:     "linux bashrc only does not create bash_profile",
+			goos:     "linux",
+			create:   true,
+			existing: map[string]string{bashrc: "# bashrc\n"},
+			wantRel:  []string{bashrc},
+		},
+		{
+			name:     "linux nothing exists, primary creates bashrc",
+			goos:     "linux",
+			create:   true,
+			existing: map[string]string{},
+			wantRel:  []string{bashrc},
+			wantMade: []string{bashrc},
+		},
+		{
+			name:     "existing login file wired even when non-primary",
+			goos:     "linux",
+			create:   false,
+			existing: map[string]string{profile: "# profile\n"},
+			wantRel:  []string{profile},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			for name, content := range tc.existing {
+				require.NoError(t, os.WriteFile(filepath.Join(home, name), []byte(content), 0o644))
+			}
+
+			got, err := bashInstallRcFiles(home, tc.create, tc.goos)
+			require.NoError(t, err)
+
+			want := make([]string, 0, len(tc.wantRel))
+			for _, rel := range tc.wantRel {
+				want = append(want, filepath.Join(home, rel))
+			}
+			assert.ElementsMatch(t, want, got)
+
+			for _, rel := range tc.wantMade {
+				assert.FileExists(t, filepath.Join(home, rel))
 			}
 		})
 	}

@@ -1,5 +1,7 @@
 package alias
 
+import "path/filepath"
+
 type zshShell struct{}
 
 var _ Shell = &zshShell{}
@@ -20,6 +22,11 @@ func (z zshShell) Name() string {
 	return "zsh"
 }
 
-func (z zshShell) Path() string {
-	return ".zshrc"
+// zsh reads .zshrc for every interactive shell, login or not, so one file covers it.
+func (z zshShell) CandidateRcFiles(homeDir string) []string {
+	return []string{filepath.Join(homeDir, ".zshrc")}
+}
+
+func (z zshShell) InstallRcFiles(homeDir string, create bool) ([]string, error) {
+	return singleRcFile(filepath.Join(homeDir, ".zshrc"), create)
 }

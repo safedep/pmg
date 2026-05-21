@@ -197,4 +197,31 @@ func (s *stubShell) PathExport(binDir string) string {
 }
 
 func (s *stubShell) Name() string { return s.name }
-func (s *stubShell) Path() string { return s.path }
+
+func (s *stubShell) CandidateRcFiles(homeDir string) []string {
+	return []string{filepath.Join(homeDir, s.path)}
+}
+
+func (s *stubShell) InstallRcFiles(homeDir string, create bool) ([]string, error) {
+	path := filepath.Join(homeDir, s.path)
+	if _, err := os.Stat(path); err == nil {
+		return []string{path}, nil
+	}
+
+	if !create {
+		return nil, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+
+	return []string{path}, nil
+}
