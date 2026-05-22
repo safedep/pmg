@@ -11,7 +11,8 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +68,7 @@ func (e *explainFailError) ExitCode() int { return ExitCodeExplainFail }
 
 func newExplainFailError(code, msg, help string) *explainFailError {
 	return &explainFailError{
-		UsefulError: usefulerror.Useful().
+		UsefulError: usefulerror.NewUsefulError().
 			WithCode(code).
 			WithHumanError(msg).
 			WithHelp(help).
@@ -80,7 +81,7 @@ func runExplain(out io.Writer, in io.Reader, args []string, opts *explainOptions
 
 	if len(args) == 1 && !stdinMode {
 		return newExplainFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			fmt.Sprintf("unexpected argument %q (use --last or pipe JSON with `-`)", args[0]),
 			explainUsageHelp(),
 		)
@@ -88,7 +89,7 @@ func runExplain(out io.Writer, in io.Reader, args []string, opts *explainOptions
 
 	if opts.last && stdinMode {
 		return newExplainFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			"--last and `-` are mutually exclusive",
 			explainUsageHelp(),
 		)
@@ -96,7 +97,7 @@ func runExplain(out io.Writer, in io.Reader, args []string, opts *explainOptions
 
 	if !opts.last && !stdinMode {
 		return newExplainFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			"no input: pass --last to read the most recent cached violation, or pipe a violation record JSON on stdin with `-`",
 			explainUsageHelp(),
 		)
@@ -128,14 +129,14 @@ func readLatestFromCache(factory cacheFactory) (*pmgsandbox.ViolationCacheRecord
 	entry, err := cache.Latest()
 	if err != nil {
 		return nil, newExplainFailError(
-			usefulerror.ErrCodeUnknown,
+			errcodes.Unknown,
 			fmt.Sprintf("read cache: %v", err),
 			"Check the sandbox violation cache directory and retry.",
 		)
 	}
 	if entry == nil {
 		return nil, newExplainFailError(
-			usefulerror.ErrCodeNotFound,
+			errcodes.NotFound,
 			"no violations cached yet — run a sandboxed command first",
 			"Run a sandboxed package manager command first, then retry `pmg sandbox explain --last`.",
 		)
@@ -151,7 +152,7 @@ func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error)
 	data, err := io.ReadAll(in)
 	if err != nil {
 		return nil, newExplainFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			fmt.Sprintf("read stdin: %v", err),
 			explainUsageHelp(),
 		)
@@ -159,7 +160,7 @@ func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error)
 
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, newExplainFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			"stdin is empty: pipe a ViolationCacheRecord JSON document",
 			explainUsageHelp(),
 		)
@@ -168,7 +169,7 @@ func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error)
 	var rec pmgsandbox.ViolationCacheRecord
 	if err := json.Unmarshal(data, &rec); err != nil {
 		return nil, newExplainFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			fmt.Sprintf("parse stdin JSON: %v", err),
 			"Pipe a valid ViolationCacheRecord JSON document to `pmg sandbox explain -`.",
 		)
@@ -183,16 +184,16 @@ func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error)
 
 func validateViolationCacheRecord(rec *pmgsandbox.ViolationCacheRecord, source string) error {
 	if rec == nil {
-		return newExplainFailError(usefulerror.ErrCodeInvalidArgument, fmt.Sprintf("%s is empty", source), explainUsageHelp())
+		return newExplainFailError(errcodes.InvalidArgument, fmt.Sprintf("%s is empty", source), explainUsageHelp())
 	}
 	if rec.SchemaVersion == 0 {
-		return newExplainFailError(usefulerror.ErrCodeInvalidArgument, fmt.Sprintf("%s is missing schema_version", source), explainUsageHelp())
+		return newExplainFailError(errcodes.InvalidArgument, fmt.Sprintf("%s is missing schema_version", source), explainUsageHelp())
 	}
 	if rec.SchemaVersion != pmgsandbox.ViolationCacheSchemaVersion {
-		return newExplainFailError(usefulerror.ErrCodeInvalidArgument, fmt.Sprintf("unknown schema_version %d (expected %d)", rec.SchemaVersion, pmgsandbox.ViolationCacheSchemaVersion), explainUsageHelp())
+		return newExplainFailError(errcodes.InvalidArgument, fmt.Sprintf("unknown schema_version %d (expected %d)", rec.SchemaVersion, pmgsandbox.ViolationCacheSchemaVersion), explainUsageHelp())
 	}
 	if rec.Report == nil {
-		return newExplainFailError(usefulerror.ErrCodeInvalidArgument, fmt.Sprintf("%s is missing report", source), explainUsageHelp())
+		return newExplainFailError(errcodes.InvalidArgument, fmt.Sprintf("%s is missing report", source), explainUsageHelp())
 	}
 
 	return nil

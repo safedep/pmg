@@ -12,7 +12,8 @@ import (
 
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 )
 
 // stubProbe is a minimal probe used by tests.
@@ -169,7 +170,7 @@ func TestRunDoctor_UnknownDriver(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown driver")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 }
 
 func TestDoctorCommandRejectsUnexpectedArgsWithUsage(t *testing.T) {

@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 )
 
 func writeUserProfileLint(t *testing.T, dir, name, body string) string {
@@ -178,7 +179,7 @@ func TestProfileLint_UnknownProfile(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeNotFound, usefulErr.Code())
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
 }
 
 func TestProfileLintMissingTargetShowsUsage(t *testing.T) {
@@ -211,7 +212,7 @@ func TestProfileLint_InvalidYAMLReturnsInvalidArgument(t *testing.T) {
 	require.Error(t, err)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 }
 
 func TestProfileLint_LiteralPath(t *testing.T) {

@@ -4,7 +4,8 @@ import (
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/ui"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -19,9 +20,9 @@ func newLogoutCommand() *cobra.Command {
 func runLogout(cmd *cobra.Command, args []string) error {
 	store, err := cloud.NewKeychainCredentialStore()
 	if err != nil {
-		ui.ErrorExit(usefulerror.Useful().
+		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
-			WithCode(usefulerror.ErrCodeLifecycle).
+			WithCode(errcodes.Lifecycle).
 			WithHumanError("Failed to initialize credential store").
 			WithHelp("Your system may not support secure credential storage"))
 	}
@@ -32,9 +33,9 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	}()
 
 	if err := store.Clear(); err != nil {
-		ui.ErrorExit(usefulerror.Useful().
+		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
-			WithCode(usefulerror.ErrCodeLifecycle).
+			WithCode(errcodes.Lifecycle).
 			WithHumanError("Failed to clear credentials"))
 	}
 

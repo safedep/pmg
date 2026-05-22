@@ -7,7 +7,8 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +62,7 @@ func TestWrapCommandExecutionErrorDoesNotAttributeFailureToSandbox(t *testing.T)
 
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodePackageManagerExecutionFailed, usefulErr.Code())
+	assert.Equal(t, errcodes.PackageManagerExecutionFailed, usefulErr.Code())
 	assert.Equal(t, "Package manager command exited with code: 1", usefulErr.HumanError())
 	assert.NotContains(t, usefulErr.Help(), "./.env")
 	assert.Contains(t, usefulErr.AdditionalHelp(), "pmg sandbox violations list")
@@ -76,7 +77,7 @@ func TestWrapCommandExecutionErrorOmitsBreadcrumbWhenNoViolations(t *testing.T) 
 
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodePackageManagerExecutionFailed, usefulErr.Code())
+	assert.Equal(t, errcodes.PackageManagerExecutionFailed, usefulErr.Code())
 	assert.NotContains(t, usefulErr.AdditionalHelp(), "pmg sandbox violations list")
 }
 

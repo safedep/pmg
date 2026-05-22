@@ -14,7 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 )
 
 func newTestRegistry(t *testing.T, userDir string) registryFactory {
@@ -119,7 +120,7 @@ func TestProfileListRegistryFailureReturnsUseful(t *testing.T) {
 	require.Error(t, err)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeUnknown, usefulErr.Code())
+	assert.Equal(t, errcodes.Unknown, usefulErr.Code())
 	assert.Contains(t, err.Error(), "boom")
 }
 
@@ -138,7 +139,7 @@ func TestProfileListRegistryPermissionErrorReturnsPermissionDenied(t *testing.T)
 	require.Error(t, err)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodePermissionDenied, usefulErr.Code())
+	assert.Equal(t, errcodes.PermissionDenied, usefulErr.Code())
 }
 
 func TestProfileListRejectsUnexpectedArgs(t *testing.T) {

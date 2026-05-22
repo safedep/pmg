@@ -9,7 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,51 +25,51 @@ func Test_convertToUsefulError(t *testing.T) {
 	}{
 		{
 			name: "AlreadyUseful",
-			inputError: usefulerror.Useful().
+			inputError: usefulerror.NewUsefulError().
 				WithCode("CUSTOM").
 				WithHumanError("Already useful").
-				Msg("test"),
+				WithMsg("test"),
 			wantCode:       "CUSTOM",
 			wantHumanError: "Already useful",
 		},
 		{
 			name:         "FileNotExist",
 			inputError:   &fs.PathError{Op: "open", Path: "/nonexistent/file.txt", Err: os.ErrNotExist},
-			wantCode:     usefulerror.ErrCodeNotFound,
+			wantCode:     errcodes.NotFound,
 			wantContains: "/nonexistent/file.txt",
 		},
 		{
 			name:         "PermissionDenied",
 			inputError:   &fs.PathError{Op: "open", Path: "/root/secret", Err: os.ErrPermission},
-			wantCode:     usefulerror.ErrCodePermissionDenied,
+			wantCode:     errcodes.PermissionDenied,
 			wantContains: "/root/secret",
 		},
 		{
 			name:         "ContextTimeout",
 			inputError:   context.DeadlineExceeded,
-			wantCode:     usefulerror.ErrCodeTimeout,
+			wantCode:     errcodes.Timeout,
 			wantContains: "timed out",
 		},
 		{
 			name:         "ContextCanceled",
 			inputError:   context.Canceled,
-			wantCode:     usefulerror.ErrCodeCanceled,
+			wantCode:     errcodes.Canceled,
 			wantContains: "canceled",
 		},
 		{
 			name:       "UnexpectedEOF",
 			inputError: io.ErrUnexpectedEOF,
-			wantCode:   usefulerror.ErrCodeUnexpectedEOF,
+			wantCode:   errcodes.UnexpectedEOF,
 		},
 		{
 			name:       "WrappedError",
 			inputError: fmt.Errorf("failed to read config: %w", os.ErrNotExist),
-			wantCode:   usefulerror.ErrCodeNotFound,
+			wantCode:   errcodes.NotFound,
 		},
 		{
 			name:           "UnknownError",
 			inputError:     errors.New("some unknown error"),
-			wantCode:       usefulerror.ErrCodeUnknown,
+			wantCode:       errcodes.Unknown,
 			wantHumanError: "some unknown error",
 		},
 		{
@@ -76,7 +77,7 @@ func Test_convertToUsefulError(t *testing.T) {
 			inputError: fmt.Errorf("more context: %w",
 				fmt.Errorf("outer context: %w",
 					errors.New("root cause error"))),
-			wantCode:       usefulerror.ErrCodeUnknown,
+			wantCode:       errcodes.Unknown,
 			wantHumanError: "root cause error",
 		},
 		{
@@ -87,7 +88,7 @@ func Test_convertToUsefulError(t *testing.T) {
 		{
 			name:       "NetworkErrorMessage",
 			inputError: errors.New("connection refused"),
-			wantCode:   usefulerror.ErrCodeNetwork,
+			wantCode:   errcodes.Network,
 		},
 	}
 

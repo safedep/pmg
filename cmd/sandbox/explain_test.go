@@ -13,7 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/internal/errcodes"
 )
 
 func sampleReport() *pmgsandbox.ViolationReport {
@@ -67,7 +68,7 @@ func TestExplainLastEmptyCache(t *testing.T) {
 	assert.Equal(t, ExitCodeExplainFail, fe.ExitCode())
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeNotFound, usefulErr.Code())
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
 	assert.Empty(t, stdout)
 	assert.Contains(t, err.Error(), "no violations cached")
 }
@@ -221,7 +222,7 @@ func TestExplainNoMode(t *testing.T) {
 	require.Error(t, err)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 	assert.Contains(t, err.Error(), "no input")
 	assert.Contains(t, err.Error(), "--last")
 }
