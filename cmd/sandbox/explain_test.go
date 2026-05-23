@@ -14,7 +14,7 @@ import (
 
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 func sampleReport() *pmgsandbox.ViolationReport {

@@ -9,8 +9,9 @@ import (
 	"os/exec"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/sandbox"
 )
 
 // bubblewrapSandbox implements the Sandbox interface using Bubblewrap (bwrap) on Linux.
@@ -46,7 +47,7 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
 		return nil, usefulerror.NewUsefulError().
-			WithCode("bubblewrap_not_found").
+			WithCode(errcodes.BubblewrapNotFound).
 			WithHumanError("Bubblewrap binary not found").
 			WithHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
 			Wrap(fmt.Errorf("bubblewrap binary not found: %w", err))

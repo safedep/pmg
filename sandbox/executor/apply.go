@@ -13,7 +13,7 @@ import (
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 type applySandboxConfig struct {

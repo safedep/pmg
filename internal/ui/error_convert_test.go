@@ -10,11 +10,11 @@ import (
 	"testing"
 
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_convertToUsefulError(t *testing.T) {
+func Test_ErrorConverters(t *testing.T) {
 	tests := []struct {
 		name           string
 		inputError     error
@@ -67,18 +67,16 @@ func Test_convertToUsefulError(t *testing.T) {
 			wantCode:   errcodes.NotFound,
 		},
 		{
-			name:           "UnknownError",
-			inputError:     errors.New("some unknown error"),
-			wantCode:       errcodes.Unknown,
-			wantHumanError: "some unknown error",
+			name:       "UnknownError",
+			inputError: errors.New("some unknown error"),
+			wantNil:    true,
 		},
 		{
 			name: "UnknownWrappedError",
 			inputError: fmt.Errorf("more context: %w",
 				fmt.Errorf("outer context: %w",
 					errors.New("root cause error"))),
-			wantCode:       errcodes.Unknown,
-			wantHumanError: "root cause error",
+			wantNil:    true,
 		},
 		{
 			name:       "Nil",
@@ -94,13 +92,14 @@ func Test_convertToUsefulError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convertToUsefulError(tt.inputError)
+			result, ok := usefulerror.AsUsefulError(tt.inputError)
 
 			if tt.wantNil {
-				assert.Nil(t, result)
+				assert.False(t, ok)
 				return
 			}
 
+			assert.True(t, ok)
 			assert.NotNil(t, result)
 			assert.Equal(t, tt.wantCode, result.Code())
 

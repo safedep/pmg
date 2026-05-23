@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 // ErrorExit prints a minimal, clean error message and exits with a non-zero status code.

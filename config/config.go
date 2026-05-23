@@ -14,7 +14,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/viper"
 )
 

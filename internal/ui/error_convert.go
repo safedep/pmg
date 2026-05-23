@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 // errorMatcher defines how to detect and convert a specific error type

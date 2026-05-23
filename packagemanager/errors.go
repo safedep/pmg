@@ -2,7 +2,7 @@ package packagemanager
 
 import (
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 const (

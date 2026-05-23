@@ -1,9 +1,5 @@
 package errcodes
 
-import (
-
-)
-
 const (
 	InvalidArgument               = "InvalidArgument"
 	PermissionDenied              = "PermissionDenied"
@@ -16,4 +12,5 @@ const (
 	Network                       = "Network"
 	SandboxViolation              = "SandboxViolation"
 	PackageManagerExecutionFailed = "PackageManagerExecutionFailed"
+	BubblewrapNotFound            = "bubblewrap_not_found"
 )

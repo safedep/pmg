@@ -15,7 +15,7 @@ import (
 
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 func newTestRegistry(t *testing.T, userDir string) registryFactory {

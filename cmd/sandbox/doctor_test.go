@@ -13,7 +13,7 @@ import (
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 )
 
 // stubProbe is a minimal probe used by tests.

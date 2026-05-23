@@ -12,7 +12,7 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/internal/errcodes"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/cobra"
 )
 
