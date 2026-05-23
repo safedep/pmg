@@ -153,6 +153,17 @@ var errorMatchers = []errorMatcher{
 	},
 }
 
+func init() {
+	usefulerror.RegisterErrorConverter("pmg-ui-converter", func(err error) (usefulerror.UsefulError, bool) {
+		for _, matcher := range errorMatchers {
+			if matcher.match(err) {
+				return matcher.convert(err), true
+			}
+		}
+		return nil, false
+	})
+}
+
 // convertToUsefulError attempts to convert a regular error to a UsefulError
 // by analyzing the error chain for known error types.
 // Returns the original error wrapped in a generic UsefulError if no specific match is found.
@@ -163,12 +174,6 @@ func convertToUsefulError(err error) usefulerror.UsefulError {
 
 	if ue, ok := usefulerror.AsUsefulError(err); ok {
 		return ue
-	}
-
-	for _, matcher := range errorMatchers {
-		if matcher.match(err) {
-			return matcher.convert(err)
-		}
 	}
 
 	return usefulerror.NewUsefulError().

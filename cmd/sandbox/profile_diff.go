@@ -9,7 +9,6 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
-	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/internal/errcodes"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
