@@ -60,7 +60,7 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	case "fmt", "fix", "version", "env", "vet":
 		return &ParsedCommand{
 			Command:                   command,
-			IsKnownNonDownloadCommand: isFirstNonFlagArgInList(args, g.Config.NonDownloadCommands),
+			IsKnownNonDownloadCommand: IsFirstNonFlagArgInList(args, g.Config.NonDownloadCommands),
 		}, nil
 	case "install":
 		return g.parseGoInstall(command, args[subcmdIndex+1:])
