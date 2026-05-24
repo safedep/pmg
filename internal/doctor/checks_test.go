@@ -304,28 +304,3 @@ func TestCheckShimScripts(t *testing.T) {
 	assert.Equal(t, []string{"pip"}, missing)
 }
 
-func TestCheckPackageManagers(t *testing.T) {
-	tests := []struct {
-		name      string
-		managers  []string
-		wantFound int
-	}{
-		{
-			name:      "some found some not",
-			managers:  []string{"go", "nonexistent-pm-xyz"},
-			wantFound: 1,
-		},
-		{
-			name:      "none found",
-			managers:  []string{"nonexistent-pm-1", "nonexistent-pm-2"},
-			wantFound: 0,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			found, notFound := CheckPackageManagers(tt.managers)
-			assert.Len(t, found, tt.wantFound)
-			assert.Len(t, notFound, len(tt.managers)-tt.wantFound)
-		})
-	}
-}

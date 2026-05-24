@@ -269,13 +269,3 @@ func CheckShimScripts(shimDir string, managers []string) (found []string, missin
 	return found, missing
 }
 
-func CheckPackageManagers(managers []string) (found []string, notFound []string) {
-	for _, pm := range managers {
-		if _, err := exec.LookPath(pm); err != nil {
-			notFound = append(notFound, pm)
-		} else {
-			found = append(found, pm)
-		}
-	}
-	return found, notFound
-}

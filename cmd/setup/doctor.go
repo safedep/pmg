@@ -3,7 +3,6 @@ package setup
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -41,11 +40,8 @@ func executeDoctorChecks() error {
 
 	coreResults := runCoreChecks(cfg)
 	protectionResults := runProtectionChecks()
-	pmFound, pmNotFound := doctor.CheckPackageManagers(
-		[]string{"npm", "pip", "pip3", "pnpm", "bun", "uv", "yarn", "poetry"},
-	)
 
-	printCompactResults(coreResults, protectionResults, pmFound, pmNotFound)
+	printCompactResults(coreResults, protectionResults)
 
 	if doctor.HasFailures(coreResults) || doctor.HasFailures(protectionResults) {
 		return &doctorFailError{}
@@ -168,7 +164,7 @@ func runProtectionChecks() []doctor.CheckResult {
 	return results
 }
 
-func printCompactResults(coreResults []doctor.CheckResult, protectionResults []doctor.CheckResult, pmFound []string, pmNotFound []string) {
+func printCompactResults(coreResults []doctor.CheckResult, protectionResults []doctor.CheckResult) {
 	allResults := append(coreResults, protectionResults...)
 	categorySummary := doctor.CategorySummary(coreResults)
 
@@ -199,16 +195,8 @@ func printCompactResults(coreResults []doctor.CheckResult, protectionResults []d
 		printCheckLine(r)
 	}
 
-	fmt.Println("Package Managers")
-	if len(pmFound) > 0 {
-		fmt.Printf("  %s %d found: %s\n", ui.Colors.Green("✓"), len(pmFound), strings.Join(pmFound, ", "))
-	}
-	if len(pmNotFound) > 0 {
-		fmt.Printf("  %s %d not found: %s\n", ui.Colors.Yellow("!"), len(pmNotFound), strings.Join(pmNotFound, ", "))
-	}
-
 	fmt.Println()
-	printSummaryLine(allResults, pmFound, pmNotFound)
+	printSummaryLine(allResults)
 }
 
 func printCheckLine(r doctor.CheckResult) {
@@ -249,7 +237,7 @@ func filterByCategory(results []doctor.CheckResult, category string) []doctor.Ch
 	return filtered
 }
 
-func printSummaryLine(results []doctor.CheckResult, pmFound []string, pmNotFound []string) {
+func printSummaryLine(results []doctor.CheckResult) {
 	passCount, warnCount, failCount := 0, 0, 0
 	for _, r := range results {
 		switch r.Status {
@@ -261,8 +249,6 @@ func printSummaryLine(results []doctor.CheckResult, pmFound []string, pmNotFound
 			failCount++
 		}
 	}
-	passCount += len(pmFound)
-	warnCount += len(pmNotFound)
 
 	summary := fmt.Sprintf("%d passed", passCount)
 	if warnCount > 0 {
