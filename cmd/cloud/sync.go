@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
-	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/cobra"
 )
 

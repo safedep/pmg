@@ -3,9 +3,9 @@ package cloud
 import (
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
 

@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
-	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/errcodes"
 )
 
 type applySandboxConfig struct {

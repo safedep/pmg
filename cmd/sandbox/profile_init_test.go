@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

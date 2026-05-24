@@ -7,10 +7,19 @@ const (
 	Timeout                       = "Timeout"
 	Canceled                      = "Canceled"
 	UnexpectedEOF                 = "UnexpectedEOF"
-	Unknown                       = "Unknown"
 	Lifecycle                     = "Lifecycle"
 	Network                       = "Network"
-	SandboxViolation              = "SandboxViolation"
 	PackageManagerExecutionFailed = "PackageManagerExecutionFailed"
-	BubblewrapNotFound            = "bubblewrap_not_found"
+	BubblewrapNotFound            = "BubblewrapNotFound"
+
+	// Package manager error codes.
+	DependencyResolutionFailed = "DependencyResolutionFailed"
+	PackageParseFailed         = "PackageParseFailed"
+	PackageAuthorNotFound      = "PackageAuthorNotFound"
+	GitHubRateLimitExceeded    = "GitHubRateLimitExceeded"
+
+	// Unknown mirrors the default code that dry/usefulerror returns for errors
+	// created without an explicit code, so unset and explicitly-unknown errors
+	// classify identically (e.g. the bug-report hint in ui.ErrorExit).
+	Unknown = "unknown"
 )

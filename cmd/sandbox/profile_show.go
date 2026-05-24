@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/errcodes"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
-	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )

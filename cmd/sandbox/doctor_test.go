@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	pmgsandbox "github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/platform"
 )
 
 // stubProbe is a minimal probe used by tests.

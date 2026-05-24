@@ -76,7 +76,7 @@ func Test_ErrorConverters(t *testing.T) {
 			inputError: fmt.Errorf("more context: %w",
 				fmt.Errorf("outer context: %w",
 					errors.New("root cause error"))),
-			wantNil:    true,
+			wantNil: true,
 		},
 		{
 			name:       "Nil",
@@ -110,6 +110,65 @@ func Test_ErrorConverters(t *testing.T) {
 			if tt.wantContains != "" {
 				assert.Contains(t, result.HumanError(), tt.wantContains)
 			}
+		})
+	}
+}
+
+func Test_convertToUsefulError(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputError     error
+		wantCode       string
+		wantHumanError string
+		wantNil        bool
+	}{
+		{
+			name:       "Nil",
+			inputError: nil,
+			wantNil:    true,
+		},
+		{
+			name: "AlreadyUseful",
+			inputError: usefulerror.NewUsefulError().
+				WithCode("CUSTOM").
+				WithHumanError("Already useful"),
+			wantCode:       "CUSTOM",
+			wantHumanError: "Already useful",
+		},
+		{
+			name:           "Converted",
+			inputError:     &fs.PathError{Op: "open", Path: "/nonexistent/file.txt", Err: os.ErrNotExist},
+			wantCode:       errcodes.NotFound,
+			wantHumanError: "File or directory not found: /nonexistent/file.txt",
+		},
+		{
+			name:           "UnknownFallsBackToRootCause",
+			inputError:     errors.New("some unknown error"),
+			wantCode:       errcodes.Unknown,
+			wantHumanError: "some unknown error",
+		},
+		{
+			name: "UnknownWrappedExtractsRootCause",
+			inputError: fmt.Errorf("more context: %w",
+				fmt.Errorf("outer context: %w",
+					errors.New("root cause error"))),
+			wantCode:       errcodes.Unknown,
+			wantHumanError: "root cause error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertToUsefulError(tt.inputError)
+
+			if tt.wantNil {
+				assert.Nil(t, result)
+				return
+			}
+
+			assert.NotNil(t, result)
+			assert.Equal(t, tt.wantCode, result.Code())
+			assert.Equal(t, tt.wantHumanError, result.HumanError())
 		})
 	}
 }

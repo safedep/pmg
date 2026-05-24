@@ -5,13 +5,6 @@ import (
 	"github.com/safedep/pmg/errcodes"
 )
 
-const (
-	errDependencyResolutionFailed = "DependencyResolutionFailed"
-	errPackageParseFailed         = "PackageParseFailed"
-	errPackageAuthorNotFound      = "PackageAuthorNotFound"
-	errGitHubRateLimitExceeded    = "GitHubRateLimitExceeded"
-)
-
 var (
 	ErrPackageNotFound = usefulerror.NewUsefulError().
 				WithCode(errcodes.NotFound).
@@ -31,25 +24,25 @@ var (
 					WithMsg("failed to resolve package version")
 
 	ErrFailedToResolveDependencies = usefulerror.NewUsefulError().
-					WithCode(errDependencyResolutionFailed).
+					WithCode(errcodes.DependencyResolutionFailed).
 					WithHumanError("Failed to resolve dependencies.").
 					WithHelp("Check your network connection and try again.").
 					WithMsg("failed to resolve dependencies")
 
 	ErrFailedToParsePackage = usefulerror.NewUsefulError().
-				WithCode(errPackageParseFailed).
+				WithCode(errcodes.PackageParseFailed).
 				WithHumanError("The package data could not be processed.").
 				WithHelp("The package may be corrupted or in an unsupported format.").
 				WithMsg("failed to parse package")
 
 	ErrAuthorNotFound = usefulerror.NewUsefulError().
-				WithCode(errPackageAuthorNotFound).
+				WithCode(errcodes.PackageAuthorNotFound).
 				WithHumanError("The package author information could not be found.").
 				WithHelp("This may be due to incomplete package metadata or network issues.").
 				WithMsg("author not found")
 
 	ErrGitHubRateLimitExceeded = usefulerror.NewUsefulError().
-					WithCode(errGitHubRateLimitExceeded).
+					WithCode(errcodes.GitHubRateLimitExceeded).
 					WithHumanError("GitHub API rate limit has been exceeded.").
 					WithHelp("Wait for the rate limit to reset or configure authentication to increase your rate limit.").
 					WithMsg("github api rate limit exceeded")

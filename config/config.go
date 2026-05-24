@@ -12,8 +12,8 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
-	"github.com/safedep/dry/utils"
 	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/viper"
 )
@@ -337,8 +337,8 @@ func DefaultConfig() RuntimeConfig {
 				},
 			},
 			Proxy: ProxyConfig{
-				Enabled:     true,
-				InstallOnly: false,
+				Enabled:      true,
+				InstallOnly:  false,
 				SkipCommands: map[string][]string{},
 			},
 		},
