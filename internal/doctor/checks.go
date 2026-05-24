@@ -14,12 +14,12 @@ func CheckConfigFile(path string) CheckResult {
 	if err != nil {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: "config file not found → run 'pmg setup install'",
+			Message: "Config file not found → run 'pmg setup install'",
 		}
 	}
 	return CheckResult{
 		Status:  StatusPass,
-		Message: fmt.Sprintf("config file: %s", path),
+		Message: fmt.Sprintf("Config file: %s", path),
 	}
 }
 
@@ -28,12 +28,12 @@ func CheckBinaryInPath(name string) CheckResult {
 	if err != nil {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: fmt.Sprintf("%s not found in PATH", name),
+			Message: fmt.Sprintf("Binary %s not found in PATH", name),
 		}
 	}
 	return CheckResult{
 		Status:  StatusPass,
-		Message: fmt.Sprintf("%s found: %s", name, path),
+		Message: fmt.Sprintf("Binary %s found: %s", name, path),
 	}
 }
 
@@ -61,18 +61,18 @@ func CheckSandbox(enabled bool, available bool, driverName string) CheckResult {
 	if !enabled {
 		return CheckResult{
 			Status:  StatusWarn,
-			Message: "sandbox disabled → enable in config for defense-in-depth",
+			Message: "Sandbox disabled → enable in config for defense-in-depth",
 		}
 	}
 	if !available {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: "sandbox enabled but no driver available on this platform",
+			Message: "Sandbox enabled but no driver available on this platform",
 		}
 	}
 	return CheckResult{
 		Status:  StatusPass,
-		Message: fmt.Sprintf("sandbox enabled (%s)", driverName),
+		Message: fmt.Sprintf("Sandbox enabled (%s)", driverName),
 	}
 }
 
@@ -106,18 +106,18 @@ func CheckAliasInstalled(installed bool, err error) CheckResult {
 	if err != nil {
 		return CheckResult{
 			Status:  StatusWarn,
-			Message: fmt.Sprintf("could not determine alias status: %v", err),
+			Message: fmt.Sprintf("Could not determine alias status: %v", err),
 		}
 	}
 	if !installed {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: "aliases not installed → run 'pmg setup install'",
+			Message: "Aliases not installed → run 'pmg setup install'",
 		}
 	}
 	return CheckResult{
 		Status:  StatusPass,
-		Message: "shell aliases installed",
+		Message: "Shell aliases installed",
 	}
 }
 
@@ -148,7 +148,7 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 	if _, err := exec.LookPath(tc.PackageManager); err != nil {
 		return CheckResult{
 			Status:  StatusWarn,
-			Message: fmt.Sprintf("%s not available, skipping protection test for %s", tc.PackageManager, tc.Package),
+			Message: fmt.Sprintf("%s not available — skipping protection test for %s", tc.PackageManager, tc.Package),
 		}
 	}
 
@@ -156,7 +156,7 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 	if err != nil {
 		return CheckResult{
 			Status:  StatusWarn,
-			Message: fmt.Sprintf("could not create temp dir for %s test: %v", tc.PackageManager, err),
+			Message: fmt.Sprintf("Could not create temp dir for %s test: %v", tc.PackageManager, err),
 		}
 	}
 	defer os.RemoveAll(tmpDir)
@@ -168,7 +168,7 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 		if venvErr != nil {
 			return CheckResult{
 				Status:  StatusWarn,
-				Message: fmt.Sprintf("could not create venv for %s test: %v", tc.PackageManager, venvErr),
+				Message: fmt.Sprintf("Could not create venv for %s test: %v", tc.PackageManager, venvErr),
 			}
 		}
 		venvBin := filepath.Join(venvDir, "bin")
@@ -208,17 +208,17 @@ func evaluateProtectionResult(pm string, pkg string, err error) CheckResult {
 		if isExecutableNotFound(err) {
 			return CheckResult{
 				Status:  StatusWarn,
-				Message: fmt.Sprintf("%s not available, skipping protection test for %s", pm, pkg),
+				Message: fmt.Sprintf("%s not available — skipping protection test for %s", pm, pkg),
 			}
 		}
 		return CheckResult{
 			Status:  StatusPass,
-			Message: fmt.Sprintf("malicious package blocked (%s/%s)", pm, pkg),
+			Message: fmt.Sprintf("Malicious package blocked (%s/%s)", pm, pkg),
 		}
 	}
 	return CheckResult{
 		Status:  StatusFail,
-		Message: fmt.Sprintf("failed to block %s/%s — package should have been blocked but was not", pm, pkg),
+		Message: fmt.Sprintf("Failed to block %s/%s — package was installed instead of blocked", pm, pkg),
 	}
 }
 
@@ -234,12 +234,12 @@ func CheckShimDirectory(shimDir string) CheckResult {
 	if err != nil || !info.IsDir() {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: fmt.Sprintf("shim directory not found: %s → run 'pmg setup install'", shimDir),
+			Message: fmt.Sprintf("Shim directory not found: %s → run 'pmg setup install'", shimDir),
 		}
 	}
 	return CheckResult{
 		Status:  StatusPass,
-		Message: fmt.Sprintf("shim directory: %s", shimDir),
+		Message: fmt.Sprintf("Shim directory: %s", shimDir),
 	}
 }
 

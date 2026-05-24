@@ -22,7 +22,11 @@ func NewDoctorCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-			return executeDoctorChecks()
+			err := executeDoctorChecks()
+			if _, ok := err.(*doctorFailError); ok {
+				cmd.SilenceErrors = true
+			}
+			return err
 		},
 	}
 }
@@ -56,13 +60,6 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
 				return doctor.CheckConfigFile(cfg.ConfigFilePath())
-			},
-		},
-		{
-			Name:     "pmg-binary",
-			Category: "Configuration",
-			Run: func() doctor.CheckResult {
-				return doctor.CheckBinaryInPath("pmg")
 			},
 		},
 		{
@@ -215,16 +212,14 @@ func printCompactResults(coreResults []doctor.CheckResult, protectionResults []d
 }
 
 func printCheckLine(r doctor.CheckResult) {
-	var icon string
 	switch r.Status {
 	case doctor.StatusPass:
-		icon = ui.Colors.Green("✓")
+		fmt.Printf("  %s %s\n", ui.Colors.Green("✓"), ui.Colors.Dim(r.Message))
 	case doctor.StatusWarn:
-		icon = ui.Colors.Yellow("!")
+		fmt.Printf("  %s %s\n", ui.Colors.Yellow("!"), ui.Colors.Yellow(r.Message))
 	case doctor.StatusFail:
-		icon = ui.Colors.Red("✗")
+		fmt.Printf("  %s %s\n", ui.Colors.Red("✗"), ui.Colors.Red(r.Message))
 	}
-	fmt.Printf("  %s %s\n", icon, r.Message)
 }
 
 func categoryIcon(results []doctor.CheckResult) string {
