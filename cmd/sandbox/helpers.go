@@ -70,7 +70,7 @@ func wrapUseful(err error, code, help string) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := usefulerror.AsUsefulError(err); ok {
+	if hasUsefulError(err) {
 		return err
 	}
 	return usefulerror.NewUsefulError().
@@ -84,7 +84,7 @@ func profileLoadError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if _, ok := usefulerror.AsUsefulError(err); ok {
+	if hasUsefulError(err) {
 		return err
 	}
 	switch {
@@ -97,6 +97,14 @@ func profileLoadError(err error) error {
 	}
 	return wrapUseful(err, errcodes.Unknown,
 		"Failed to load the sandbox profile. Run with --verbose for the underlying cause.")
+}
+
+func hasUsefulError(err error) bool {
+	// AsUsefulError also runs global converters for plain errors like
+	// fs.ErrPermission. Contextual wrappers must only skip errors that already
+	// carry UsefulError details, otherwise generic converters hide command help.
+	var usefulErr usefulerror.UsefulError
+	return errors.As(err, &usefulErr)
 }
 
 func registryInitError(err error) error {
