@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/safedep/dry/log"
 )
 
 func CheckConfigFile(path string) CheckResult {
@@ -159,7 +161,11 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 			Message: fmt.Sprintf("Could not create temp dir for %s test: %v", tc.PackageManager, err),
 		}
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Warnf("failed to clean up temp dir %s: %v", tmpDir, err)
+		}
+	}()
 
 	env := os.Environ()
 
