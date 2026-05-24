@@ -1,13 +1,13 @@
 package analytics
 
 import (
-	"log"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/posthog/posthog-go"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 )
 
@@ -32,23 +32,44 @@ func init() {
 		return
 	}
 
+	// Telemetry is best-effort. Any failure here must degrade gracefully and
+	// never abort the actual command (e.g. a package manager install).
+	// Generate the distinct ID before creating the client so a UUID failure
+	// does not leak the client's background flush goroutine.
+	randomUUID, err := uuid.NewRandom()
+	if err != nil {
+		log.Warnf("failed to generate telemetry id, disabling telemetry: %v", err)
+		return
+	}
+
 	client, err := posthog.NewWithConfig(postHogApiKey, posthog.Config{
 		Endpoint: postHogEventEndpoint,
 		Interval: analyticsFlushInterval,
+		Logger:   quietPosthogLogger{},
 	})
 	if err != nil {
-		log.Fatalf("Failed to initialize posthog client: %v", err)
+		log.Warnf("failed to initialize posthog client, disabling telemetry: %v", err)
+		return
 	}
 
 	globalPosthogClient = client
-
-	randomUUID, err := uuid.NewRandom()
-	if err != nil {
-		log.Fatalf("Failed to generate random UUID: %v", err)
-	}
-
 	globalDistinctId = randomUUID.String()
 }
+
+// quietPosthogLogger routes posthog-go's background logs through the dry logger
+// at debug level. Left unset, posthog defaults to a logger that writes INFO and
+// ERROR lines to os.Stderr from its flush goroutine, which surfaces as noisy
+// (and sometimes "bad file descriptor") output during package manager
+// execution. Telemetry is best-effort, so we keep it quiet by default while
+// still preserving the logs at debug verbosity.
+type quietPosthogLogger struct{}
+
+var _ posthog.Logger = quietPosthogLogger{}
+
+func (quietPosthogLogger) Debugf(format string, args ...any) { log.Debugf(format, args...) }
+func (quietPosthogLogger) Logf(format string, args ...any)   { log.Debugf(format, args...) }
+func (quietPosthogLogger) Warnf(format string, args ...any)  { log.Debugf(format, args...) }
+func (quietPosthogLogger) Errorf(format string, args ...any) { log.Debugf(format, args...) }
 
 func isTelemetryDisabled() bool {
 	if config.Get().Config.DisableTelemetry {
