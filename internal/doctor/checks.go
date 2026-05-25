@@ -11,17 +11,17 @@ import (
 	"github.com/safedep/dry/log"
 )
 
-func CheckConfigFile(path string) CheckResult {
+func CheckFileExists(path string, label string) CheckResult {
 	_, err := os.Stat(path)
 	if err != nil {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: "Config file not found → run 'pmg setup install'",
+			Message: fmt.Sprintf("%s not found: %s", label, path),
 		}
 	}
 	return CheckResult{
 		Status:  StatusPass,
-		Message: fmt.Sprintf("Config file: %s", path),
+		Message: fmt.Sprintf("%s: %s", label, path),
 	}
 }
 
@@ -39,12 +39,12 @@ func CheckBinaryInPath(name string) CheckResult {
 	}
 }
 
-func CheckDirectoryWritable(dir string, label string) CheckResult {
+func CheckDirectoryExists(dir string, label string) CheckResult {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return CheckResult{
 			Status:  StatusFail,
-			Message: fmt.Sprintf("%s directory not found: %s → run 'pmg setup install'", label, dir),
+			Message: fmt.Sprintf("%s directory not found: %s", label, dir),
 		}
 	}
 	if !info.IsDir() {
@@ -56,51 +56,6 @@ func CheckDirectoryWritable(dir string, label string) CheckResult {
 	return CheckResult{
 		Status:  StatusPass,
 		Message: fmt.Sprintf("%s directory: %s", label, dir),
-	}
-}
-
-func CheckSandbox(enabled bool, available bool, driverName string) CheckResult {
-	if !enabled {
-		return CheckResult{
-			Status:  StatusWarn,
-			Message: "Sandbox disabled → enable in config for defense-in-depth",
-		}
-	}
-	if !available {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: "Sandbox enabled but no driver available on this platform",
-		}
-	}
-	return CheckResult{
-		Status:  StatusPass,
-		Message: fmt.Sprintf("Sandbox enabled (%s)", driverName),
-	}
-}
-
-func CheckSecurityFeature(feature string, enabled bool) CheckResult {
-	if enabled {
-		return CheckResult{
-			Status:  StatusPass,
-			Message: fmt.Sprintf("%s is enabled", feature),
-		}
-	}
-	return CheckResult{
-		Status:  StatusWarn,
-		Message: fmt.Sprintf("%s is disabled", feature),
-	}
-}
-
-func CheckProxyMode(enabled bool) CheckResult {
-	if enabled {
-		return CheckResult{
-			Status:  StatusPass,
-			Message: "Proxy Mode is enabled",
-		}
-	}
-	return CheckResult{
-		Status:  StatusFail,
-		Message: "Proxy Mode is disabled → required for package interception",
 	}
 }
 
@@ -274,4 +229,3 @@ func CheckShimScripts(shimDir string, managers []string) (found []string, missin
 	}
 	return found, missing
 }
-

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheckConfigFile(t *testing.T) {
+func TestCheckFileExists(t *testing.T) {
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T) string
@@ -35,7 +35,7 @@ func TestCheckConfigFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CheckConfigFile(tt.setup(t))
+			result := CheckFileExists(tt.setup(t), "Config file")
 			assert.Equal(t, tt.wantStatus, result.Status)
 		})
 	}
@@ -58,7 +58,7 @@ func TestCheckBinaryInPath(t *testing.T) {
 	}
 }
 
-func TestCheckDirectoryWritable(t *testing.T) {
+func TestCheckDirectoryExists(t *testing.T) {
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T) string
@@ -77,63 +77,7 @@ func TestCheckDirectoryWritable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CheckDirectoryWritable(tt.setup(t), "Event Log")
-			assert.Equal(t, tt.wantStatus, result.Status)
-		})
-	}
-}
-
-func TestCheckSandbox(t *testing.T) {
-	tests := []struct {
-		name       string
-		enabled    bool
-		available  bool
-		driver     string
-		wantStatus CheckStatus
-	}{
-		{name: "enabled and available", enabled: true, available: true, driver: "seatbelt", wantStatus: StatusPass},
-		{name: "enabled but unavailable", enabled: true, available: false, wantStatus: StatusFail},
-		{name: "disabled", enabled: false, available: false, wantStatus: StatusWarn},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CheckSandbox(tt.enabled, tt.available, tt.driver)
-			assert.Equal(t, tt.wantStatus, result.Status)
-		})
-	}
-}
-
-func TestCheckSecurityFeature(t *testing.T) {
-	tests := []struct {
-		name       string
-		feature    string
-		enabled    bool
-		wantStatus CheckStatus
-	}{
-		{name: "enabled", feature: "Dependency Cooldown", enabled: true, wantStatus: StatusPass},
-		{name: "disabled", feature: "Dependency Cooldown", enabled: false, wantStatus: StatusWarn},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CheckSecurityFeature(tt.feature, tt.enabled)
-			assert.Equal(t, tt.wantStatus, result.Status)
-			assert.Contains(t, result.Message, tt.feature)
-		})
-	}
-}
-
-func TestCheckProxyMode(t *testing.T) {
-	tests := []struct {
-		name       string
-		enabled    bool
-		wantStatus CheckStatus
-	}{
-		{name: "enabled", enabled: true, wantStatus: StatusPass},
-		{name: "disabled is fail", enabled: false, wantStatus: StatusFail},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CheckProxyMode(tt.enabled)
+			result := CheckDirectoryExists(tt.setup(t), "Event log")
 			assert.Equal(t, tt.wantStatus, result.Status)
 		})
 	}
@@ -303,4 +247,3 @@ func TestCheckShimScripts(t *testing.T) {
 	assert.Equal(t, []string{"npm"}, found)
 	assert.Equal(t, []string{"pip"}, missing)
 }
-

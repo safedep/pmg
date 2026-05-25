@@ -14,6 +14,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	checkConfigFile         = "config-file"
+	checkEventLogDir        = "event-log-dir"
+	checkShellAliases       = "shell-aliases"
+	checkShimDirectory      = "shim-directory"
+	checkShimInPath         = "shim-in-path"
+	checkProxyMode          = "proxy-mode"
+	checkDependencyCooldown = "dependency-cooldown"
+	checkEventLogging       = "event-logging"
+	checkSandbox            = "sandbox"
+	checkProtectionNpm      = "protection-npm"
+	checkProtectionPip      = "protection-pip"
+)
+
 func NewDoctorCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:          "doctor",
@@ -53,21 +67,21 @@ func executeDoctorChecks() error {
 func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 	checks := []doctor.Check{
 		{
-			Name:     "config-file",
+			Name:     checkConfigFile,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckConfigFile(cfg.ConfigFilePath())
+				return doctor.CheckFileExists(cfg.ConfigFilePath(), "Config file")
 			},
 		},
 		{
-			Name:     "event-log-dir",
+			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckDirectoryWritable(cfg.EventLogDir(), "Event Log")
+				return doctor.CheckDirectoryExists(cfg.EventLogDir(), "Event log")
 			},
 		},
 		{
-			Name:     "shell-aliases",
+			Name:     checkShellAliases,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
 				aliasCfg := alias.DefaultConfig()
@@ -75,7 +89,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,
-						Message: fmt.Sprintf("could not check aliases: %v", err),
+						Message: fmt.Sprintf("Could not check aliases: %v", err),
 					}
 				}
 				aliasManager := alias.New(aliasCfg, rcFileManager)
@@ -84,65 +98,103 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			},
 		},
 		{
-			Name:     "shim-directory",
+			Name:     checkShimDirectory,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
 				sm, err := shim.NewDefaultShimManager()
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,
-						Message: fmt.Sprintf("could not check shims: %v", err),
+						Message: fmt.Sprintf("Could not check shims: %v", err),
 					}
 				}
 				return doctor.CheckShimDirectory(sm.GetBinDir())
 			},
 		},
 		{
-			Name:     "shim-in-path",
+			Name:     checkShimInPath,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
 				sm, err := shim.NewDefaultShimManager()
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,
-						Message: fmt.Sprintf("could not check shims: %v", err),
+						Message: fmt.Sprintf("Could not check shims: %v", err),
 					}
 				}
 				return doctor.CheckShimInPath(sm.GetBinDir(), os.Getenv("PATH"))
 			},
 		},
 		{
-			Name:     "proxy-mode",
+			Name:     checkProxyMode,
 			Category: "Security",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckProxyMode(cfg.IsProxyModeEnabled())
+				if cfg.IsProxyModeEnabled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: "Proxy mode is enabled",
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusFail,
+					Message: "Proxy mode is disabled → required for package interception",
+				}
 			},
 		},
 		{
-			Name:     "dependency-cooldown",
+			Name:     checkDependencyCooldown,
 			Category: "Security",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckSecurityFeature("Dependency Cooldown", cfg.Config.DependencyCooldown.Enabled)
+				if cfg.Config.DependencyCooldown.Enabled {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: "Dependency cooldown is enabled",
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusWarn,
+					Message: "Dependency cooldown is disabled",
+				}
 			},
 		},
 		{
-			Name:     "event-logging",
+			Name:     checkEventLogging,
 			Category: "Security",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckSecurityFeature("Event Logging", !cfg.Config.SkipEventLogging)
+				if !cfg.Config.SkipEventLogging {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: "Event logging is enabled",
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusWarn,
+					Message: "Event logging is disabled",
+				}
 			},
 		},
 		{
-			Name:     "sandbox",
+			Name:     checkSandbox,
 			Category: "Security",
 			Run: func() doctor.CheckResult {
 				sb, err := platform.NewSandbox()
 				available := err == nil && sb != nil && sb.IsAvailable()
-				driverName := ""
-				if available {
-					driverName = string(sb.Name())
+				if !cfg.Config.Sandbox.Enabled {
+					return doctor.CheckResult{
+						Status:  doctor.StatusWarn,
+						Message: "Sandbox disabled → enable in config for defense-in-depth",
+					}
 				}
-				return doctor.CheckSandbox(cfg.Config.Sandbox.Enabled, available, driverName)
+				if !available {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: "Sandbox enabled but no driver available on this platform",
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusPass,
+					Message: fmt.Sprintf("Sandbox enabled (%s)", sb.Name()),
+				}
 			},
 		},
 	}
@@ -166,24 +218,31 @@ func runProtectionChecks() []doctor.CheckResult {
 }
 
 var checkDisplayNames = map[string]string{
-	"config-file":       "Config file",
-	"event-log-dir":     "Event log directory",
-	"shell-aliases":     "Shell aliases",
-	"shim-directory":    "Shim directory",
-	"shim-in-path":      "Shim in PATH",
-	"proxy-mode":        "Proxy mode",
-	"dependency-cooldown": "Dependency cooldown",
-	"event-logging":     "Event logging",
-	"sandbox":           "Sandbox",
-	"protection-npm":    "npm protection",
-	"protection-pip":    "pip protection",
+	checkConfigFile:         "Config file",
+	checkEventLogDir:        "Event log directory",
+	checkShellAliases:       "Shell aliases",
+	checkShimDirectory:      "Shim directory",
+	checkShimInPath:         "Shim in PATH",
+	checkProxyMode:          "Proxy mode",
+	checkDependencyCooldown: "Dependency cooldown",
+	checkEventLogging:       "Event logging",
+	checkSandbox:            "Sandbox",
+	checkProtectionNpm:      "npm protection",
+	checkProtectionPip:      "pip protection",
 }
 
 var checkFixes = map[string]string{
-	"config-file":    "pmg setup install",
-	"shell-aliases":  "pmg setup install",
-	"shim-directory": "pmg setup install",
-	"shim-in-path":   "Restart shell or source config",
+	checkConfigFile:         "pmg setup install",
+	checkEventLogDir:        "pmg setup install",
+	checkShellAliases:       "pmg setup install",
+	checkShimDirectory:      "pmg setup install",
+	checkShimInPath:         "Restart shell or source config",
+	checkProxyMode:          "Set proxy.enabled: true in config",
+	checkSandbox:            "Set sandbox.enabled: true in config",
+	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
+	checkEventLogging:       "Set skip_event_logging: false in config",
+	checkProtectionNpm:      "Ensure proxy mode is enabled",
+	checkProtectionPip:      "Ensure proxy mode is enabled",
 }
 
 func printResults(results []doctor.CheckResult) {
