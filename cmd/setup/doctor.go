@@ -40,10 +40,11 @@ func executeDoctorChecks() error {
 
 	coreResults := runCoreChecks(cfg)
 	protectionResults := runProtectionChecks()
+	allResults := append(coreResults, protectionResults...)
 
-	printCompactResults(coreResults, protectionResults)
+	printResults(allResults)
 
-	if doctor.HasFailures(coreResults) || doctor.HasFailures(protectionResults) {
+	if doctor.HasFailures(allResults) {
 		return &doctorFailError{}
 	}
 	return nil
@@ -164,77 +165,84 @@ func runProtectionChecks() []doctor.CheckResult {
 	return results
 }
 
-func printCompactResults(coreResults []doctor.CheckResult, protectionResults []doctor.CheckResult) {
-	allResults := append(coreResults, protectionResults...)
-	categorySummary := doctor.CategorySummary(coreResults)
+var checkDisplayNames = map[string]string{
+	"config-file":       "Config file",
+	"event-log-dir":     "Event log directory",
+	"shell-aliases":     "Shell aliases",
+	"shim-directory":    "Shim directory",
+	"shim-in-path":      "Shim in PATH",
+	"proxy-mode":        "Proxy mode",
+	"dependency-cooldown": "Dependency cooldown",
+	"event-logging":     "Event logging",
+	"sandbox":           "Sandbox",
+	"protection-npm":    "npm protection",
+	"protection-pip":    "pip protection",
+}
 
-	categoryOrder := []string{"Configuration", "Shell Integration", "Security"}
-	for _, cat := range categoryOrder {
-		status, exists := categorySummary[cat]
-		if !exists {
-			continue
-		}
+var checkFixes = map[string]string{
+	"config-file":    "pmg setup install",
+	"shell-aliases":  "pmg setup install",
+	"shim-directory": "pmg setup install",
+	"shim-in-path":   "Restart shell or source config",
+}
 
-		catResults := filterByCategory(coreResults, cat)
-		if status == doctor.StatusPass {
-			fmt.Printf("%s %s\n", cat, ui.Colors.Green("✓"))
-		} else {
-			icon := ui.Colors.Yellow("!")
-			if status == doctor.StatusFail {
-				icon = ui.Colors.Red("✗")
-			}
-			fmt.Printf("%s %s\n", cat, icon)
-			for _, r := range catResults {
-				printCheckLine(r)
-			}
+func printResults(results []doctor.CheckResult) {
+	fmt.Println()
+	fmt.Println(ui.Colors.Cyan("Setup Diagnostics"))
+	fmt.Println(ui.Colors.Normal("--------------------"))
+
+	rows := [][]string{{
+		ui.Colors.Bold("STATUS"),
+		ui.Colors.Bold("CHECK"),
+		ui.Colors.Bold("SUMMARY"),
+		ui.Colors.Bold("FIX"),
+	}}
+	for _, r := range results {
+		fix := ui.Colors.Dim("—")
+		if r.Status != doctor.StatusPass {
+			fix = fixHint(r.Name)
 		}
+		rows = append(rows, []string{
+			statusBadge(r.Status),
+			displayName(r.Name),
+			ui.Truncate(r.Message, 60),
+			fix,
+		})
 	}
 
-	fmt.Printf("Protection %s\n", categoryIcon(protectionResults))
-	for _, r := range protectionResults {
-		printCheckLine(r)
+	if err := ui.RenderTable(os.Stdout, rows, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "render error: %v\n", err)
 	}
 
 	fmt.Println()
-	printSummaryLine(allResults)
+	printSummaryLine(results)
 }
 
-func printCheckLine(r doctor.CheckResult) {
-	switch r.Status {
+func statusBadge(s doctor.CheckStatus) string {
+	switch s {
 	case doctor.StatusPass:
-		fmt.Printf("  %s %s\n", ui.Colors.Green("✓"), ui.Colors.Dim(r.Message))
+		return ui.Colors.Green("OK")
 	case doctor.StatusWarn:
-		fmt.Printf("  %s %s\n", ui.Colors.Yellow("!"), ui.Colors.Yellow(r.Message))
+		return ui.Colors.Yellow("WARN")
 	case doctor.StatusFail:
-		fmt.Printf("  %s %s\n", ui.Colors.Red("✗"), ui.Colors.Red(r.Message))
-	}
-}
-
-func categoryIcon(results []doctor.CheckResult) string {
-	worst := doctor.StatusPass
-	for _, r := range results {
-		if r.Status > worst {
-			worst = r.Status
-		}
-	}
-	switch worst {
-	case doctor.StatusPass:
-		return ui.Colors.Green("✓")
-	case doctor.StatusWarn:
-		return ui.Colors.Yellow("!")
+		return ui.Colors.Red("FAIL")
 	default:
-		return ui.Colors.Red("✗")
+		return "?"
 	}
 }
 
-func filterByCategory(results []doctor.CheckResult, category string) []doctor.CheckResult {
-	var filtered []doctor.CheckResult
-	for _, r := range results {
-		if r.Category == category {
-			filtered = append(filtered, r)
-		}
+func displayName(name string) string {
+	if dn, ok := checkDisplayNames[name]; ok {
+		return dn
 	}
-	return filtered
+	return name
+}
+
+func fixHint(name string) string {
+	if fix, ok := checkFixes[name]; ok {
+		return fix
+	}
+	return ui.Colors.Dim("—")
 }
 
 func printSummaryLine(results []doctor.CheckResult) {
@@ -256,10 +264,10 @@ func printSummaryLine(results []doctor.CheckResult) {
 	}
 	if failCount > 0 {
 		summary += fmt.Sprintf(", %d failed", failCount)
-		fmt.Printf("%s  %s\n", ui.Colors.Red("✗"), ui.Colors.Red(summary))
+		fmt.Printf("%s  %s\n", ui.Colors.Red("FAIL"), ui.Colors.Red(summary))
 	} else if warnCount > 0 {
-		fmt.Printf("%s  %s\n", ui.Colors.Yellow("!"), ui.Colors.Yellow(summary))
+		fmt.Printf("%s  %s\n", ui.Colors.Yellow("WARN"), ui.Colors.Yellow(summary))
 	} else {
-		fmt.Printf("%s  %s\n", ui.Colors.Green("✓"), ui.Colors.Green(summary))
+		fmt.Printf("%s  %s\n", ui.Colors.Green("OK"), ui.Colors.Green(summary))
 	}
 }
