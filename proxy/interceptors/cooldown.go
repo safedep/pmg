@@ -4,6 +4,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/Masterminds/semver"
 	"github.com/safedep/pmg/internal/audit"
 )
 
@@ -70,17 +71,25 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 	}
 }
 
-// cooldownLatestEligibleVersion returns the most recently published version not in tooNew.
-func cooldownLatestEligibleVersion(dates map[string]time.Time, tooNew map[string]bool) string {
+// cooldownHighestStableVersion returns the highest stable (non-prerelease) version
+// among candidates, ordered by semver. This mirrors what npm treats as the "latest"
+// dist-tag. Prerelease versions are excluded — semver classifies both alpha builds
+// (e.g. 1.2.0-alpha.1) and platform-specific builds (e.g. 1.2.0-win32-arm64) as
+// prereleases, so neither can be promoted to latest. Unparseable versions are skipped.
+func cooldownHighestStableVersion(candidates []string) string {
 	var latest string
-	var latestTime time.Time
-	for version, publishDate := range dates {
-		if tooNew[version] {
+	var latestVer *semver.Version
+	for _, version := range candidates {
+		ver, err := semver.NewVersion(version)
+		if err != nil {
 			continue
 		}
-		if publishDate.After(latestTime) {
+		if ver.Prerelease() != "" {
+			continue
+		}
+		if latestVer == nil || ver.GreaterThan(latestVer) {
 			latest = version
-			latestTime = publishDate
+			latestVer = ver
 		}
 	}
 	return latest

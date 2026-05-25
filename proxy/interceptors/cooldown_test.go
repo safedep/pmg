@@ -131,34 +131,47 @@ func TestCooldownOldestVersion(t *testing.T) {
 	})
 }
 
-func TestCooldownLatestEligibleVersion(t *testing.T) {
-	now := time.Now()
-	day := 24 * time.Hour
+func TestCooldownHighestStableVersion(t *testing.T) {
+	tests := []struct {
+		name       string
+		candidates []string
+		want       string
+	}{
+		{
+			name:       "highest stable by semver, not lexical",
+			candidates: []string{"0.9.0", "0.10.0", "0.2.0"},
+			want:       "0.10.0",
+		},
+		{
+			name:       "excludes prerelease and platform builds",
+			candidates: []string{"0.132.0", "0.132.5-win32-arm64", "0.133.0-alpha.3", "0.131.0"},
+			want:       "0.132.0",
+		},
+		{
+			name:       "no stable version returns empty",
+			candidates: []string{"1.0.0-alpha.1", "1.0.0-win32-arm64"},
+			want:       "",
+		},
+		{
+			name:       "unparseable versions skipped",
+			candidates: []string{"latest", "not-a-version", "1.2.3"},
+			want:       "1.2.3",
+		},
+		{
+			name:       "single stable",
+			candidates: []string{"2.0.0"},
+			want:       "2.0.0",
+		},
+		{
+			name:       "empty input",
+			candidates: []string{},
+			want:       "",
+		},
+	}
 
-	t.Run("returns most recently published non-blocked version", func(t *testing.T) {
-		dates := map[string]time.Time{
-			"1.0.0": now.Add(-30 * day),
-			"2.0.0": now.Add(-10 * day),
-			"3.0.0": now.Add(-1 * day),
-		}
-		tooNew := map[string]bool{"3.0.0": true}
-		ver := cooldownLatestEligibleVersion(dates, tooNew)
-		assert.Equal(t, "2.0.0", ver)
-	})
-
-	t.Run("all versions blocked returns empty string", func(t *testing.T) {
-		dates := map[string]time.Time{"1.0.0": now, "2.0.0": now.Add(-1 * day)}
-		tooNew := map[string]bool{"1.0.0": true, "2.0.0": true}
-		ver := cooldownLatestEligibleVersion(dates, tooNew)
-		assert.Empty(t, ver)
-	})
-
-	t.Run("empty tooNew returns latest version", func(t *testing.T) {
-		dates := map[string]time.Time{
-			"1.0.0": now.Add(-30 * day),
-			"2.0.0": now.Add(-10 * day),
-		}
-		ver := cooldownLatestEligibleVersion(dates, map[string]bool{})
-		assert.Equal(t, "2.0.0", ver)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cooldownHighestStableVersion(tt.candidates))
+		})
+	}
 }

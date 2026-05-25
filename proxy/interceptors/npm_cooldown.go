@@ -143,6 +143,13 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 		return body, 0, remaining
 	}
 
+	// survivingVersions holds the version keys still present in the "versions" object
+	// after stripping. It is nil if the field is missing or unparseable, in which case
+	// dist-tag repair falls back to the publish-date set. When non-nil it bounds the
+	// repair candidates so a repaired dist-tag never points to a version absent from
+	// the packument (e.g. an unpublished version whose "time" entry lingers).
+	var survivingVersions map[string]bool
+
 	if raw, ok := metadata["versions"]; ok {
 		var versions map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &versions); err != nil {
@@ -150,6 +157,10 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 		} else {
 			for v := range tooNew {
 				delete(versions, v)
+			}
+			survivingVersions = make(map[string]bool, len(versions))
+			for v := range versions {
+				survivingVersions[v] = true
 			}
 			if updated, err := json.Marshal(versions); err != nil {
 				log.Warnf("Cooldown: failed to marshal updated versions: %v", err)
@@ -180,17 +191,43 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 		if err := json.Unmarshal(raw, &distTags); err != nil {
 			log.Warnf("Cooldown: failed to unmarshal dist-tags field: %v", err)
 		} else {
+			eligible := make([]string, 0, len(dates))
+			for v := range dates {
+				if tooNew[v] {
+					continue
+				}
+				if survivingVersions != nil && !survivingVersions[v] {
+					continue // not in the packument's versions — would dangle
+				}
+				eligible = append(eligible, v)
+			}
+			latestStable := cooldownHighestStableVersion(eligible)
+
 			changed := false
 			for tag, version := range distTags {
-				if tooNew[version] {
-					latest := cooldownLatestEligibleVersion(dates, tooNew)
-					if latest != "" {
-						distTags[tag] = latest
+				if !tooNew[version] {
+					continue
+				}
+				if tag == "latest" {
+					// Repair latest to the highest stable eligible version so
+					// `npm install <pkg>` resolves a real release — never a
+					// more-recently-published prerelease or platform-specific
+					// build (see #275). Drop it when no stable version survives,
+					// so npm fails cleanly instead of mis-resolving.
+					if latestStable != "" {
+						log.Infof("Cooldown: repaired dist-tag latest %s -> %s for stripped version", version, latestStable)
+						distTags[tag] = latestStable
 					} else {
+						log.Infof("Cooldown: removed dist-tag latest (was %s, no eligible stable version remains)", version)
 						delete(distTags, tag)
 					}
-					changed = true
+				} else {
+					// Non-latest tags (beta, next, platform tags) are dropped when
+					// stripped: an explicit `pkg@<tag>` request for a version in
+					// cooldown should fail cleanly, not resolve to an unrelated version.
+					delete(distTags, tag)
 				}
+				changed = true
 			}
 			if changed {
 				if updated, err := json.Marshal(distTags); err != nil {
