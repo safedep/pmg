@@ -953,6 +953,27 @@ func TestPypiProxyBehavior(t *testing.T) {
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
+		{
+			name:                  "pipx install — proxy runs",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipxPackageManagerConfig()) },
+			command:               "pipx install black",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "pipx run — proxy runs",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipxPackageManagerConfig()) },
+			command:               "pipx run cowsay moo",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "pipx list — proxy skipped",
+			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipxPackageManagerConfig()) },
+			command:               "pipx list",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -968,3 +989,80 @@ func TestPypiProxyBehavior(t *testing.T) {
 		})
 	}
 }
+
+func TestPipxParseCommand(t *testing.T) {
+	pm, err := NewPypiPackageManager(DefaultPipxPackageManagerConfig())
+	assert.NoError(t, err)
+
+	cases := []struct {
+		name             string
+		args             []string
+		expectedManifest bool
+		expectedTargets  int
+		expectedPackages []string
+		wantErr          bool
+	}{
+		{
+			name:             "pipx install simple package",
+			args:             []string{"install", "black"},
+			expectedManifest: false,
+			expectedTargets:  1,
+			expectedPackages: []string{"black"},
+			wantErr:          false,
+		},
+		{
+			name:             "pipx run simple package",
+			args:             []string{"run", "cowsay", "hello"},
+			expectedManifest: false,
+			expectedTargets:  1,
+			expectedPackages: []string{"cowsay"},
+			wantErr:          false,
+		},
+		{
+			name:             "pipx inject",
+			args:             []string{"inject", "poetry", "poetry-plugin-export"},
+			expectedManifest: false,
+			expectedTargets:  2,
+			expectedPackages: []string{"poetry", "poetry-plugin-export"},
+			wantErr:          false,
+		},
+		{
+			name:             "pipx list",
+			args:             []string{"list"},
+			expectedManifest: false,
+			expectedTargets:  0,
+			expectedPackages: []string{},
+			wantErr:          false,
+		},
+		{
+			name:             "pipx install with specific version",
+			args:             []string{"install", "black==22.3.0"},
+			expectedManifest: false,
+			expectedTargets:  1,
+			expectedPackages: []string{"black"},
+			wantErr:          false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := pm.ParseCommand(tc.args)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+
+			assert.Equal(t, tc.expectedManifest, result.HasManifestInstall(), "HasManifestInstall mismatch")
+			assert.Equal(t, len(tc.expectedPackages), len(result.InstallTargets), "Number of install targets mismatch")
+
+			for i, expectedPkg := range tc.expectedPackages {
+				if i < len(result.InstallTargets) {
+					target := result.InstallTargets[i]
+					assert.Equal(t, expectedPkg, target.PackageVersion.Package.Name, "Package name mismatch for package %d", i)
+				}
+			}
+		})
+	}
+}
+

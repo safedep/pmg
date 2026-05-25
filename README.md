@@ -125,6 +125,7 @@ PMG supports the tools you already use:
 |             | `npx`    | `npx <pkg>`         |
 |             | `pnpx`   | `pnpx <pkg>`        |
 | **Python**  | `pip`    | `pip install <pkg>` |
+|             | `pipx`   | `pipx install <pkg>`|
 |             | `poetry` | `poetry add <pkg>`  |
 |             | `uv`     | `uv add <pkg>`      |
 

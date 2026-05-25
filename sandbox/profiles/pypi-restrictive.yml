@@ -5,6 +5,7 @@ package_managers:
   - pip3
   - poetry
   - uv
+  - pipx
 
 # Optional security settings (uncomment to enable)
 # allow_git_config: false  # Allow package managers to modify .git/config (default: false, blocks for security)

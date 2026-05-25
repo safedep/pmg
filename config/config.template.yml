@@ -145,6 +145,10 @@ sandbox:
       enabled: true
       profile: pypi-restrictive
 
+    pipx:
+      enabled: true
+      profile: pypi-restrictive
+
     poetry:
       enabled: true
       profile: pypi-restrictive
