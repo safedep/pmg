@@ -135,6 +135,7 @@ func TestCooldownHighestStableVersion(t *testing.T) {
 	tests := []struct {
 		name       string
 		candidates []string
+		upperBound string
 		want       string
 	}{
 		{
@@ -167,11 +168,35 @@ func TestCooldownHighestStableVersion(t *testing.T) {
 			candidates: []string{},
 			want:       "",
 		},
+		{
+			name:       "upper bound excludes higher major from another channel",
+			candidates: []string{"1.4.0", "2.0.0"},
+			upperBound: "1.5.0",
+			want:       "1.4.0",
+		},
+		{
+			name:       "upper bound allows versions at or below it",
+			candidates: []string{"1.4.0", "1.5.0", "2.0.0"},
+			upperBound: "1.5.0",
+			want:       "1.5.0",
+		},
+		{
+			name:       "unparseable upper bound applies no bound",
+			candidates: []string{"1.4.0", "2.0.0"},
+			upperBound: "not-a-version",
+			want:       "2.0.0",
+		},
+		{
+			name:       "prerelease upper bound does not exclude its stable counterpart",
+			candidates: []string{"1.0.0", "0.9.0"},
+			upperBound: "1.0.0-win32-arm64",
+			want:       "1.0.0",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, cooldownHighestStableVersion(tt.candidates))
+			assert.Equal(t, tt.want, cooldownHighestStableVersion(tt.candidates, tt.upperBound))
 		})
 	}
 }

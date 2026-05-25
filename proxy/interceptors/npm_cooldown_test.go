@@ -205,6 +205,9 @@ func TestStripCooldownVersions_MixedVersions(t *testing.T) {
 	require.NoError(t, json.Unmarshal(result["time"], &resultTime))
 	assert.Contains(t, resultTime, "created")
 	assert.Contains(t, resultTime, "modified")
+	assert.NotContains(t, resultTime, "1.0.2")
+	assert.Contains(t, resultTime, "1.0.0")
+	assert.Contains(t, resultTime, "1.0.1")
 }
 
 func TestStripCooldownVersions_AllVersionsTooNew(t *testing.T) {
@@ -374,6 +377,37 @@ func TestStripCooldownVersions_LatestRepairSkipsVersionsMissingFromPackument(t *
 	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
 	assert.Equal(t, "1.0.1", resultDistTags["latest"],
 		"latest must come from versions present in the packument, not a time-only entry")
+}
+
+// Repairing latest must respect the maintainer's dist-tag lineage: when latest is
+// pinned to an older line while a higher stable major lives under another channel
+// (e.g. next), stripping the fresh latest must fall back within the blessed line,
+// not promote the unrelated higher major.
+func TestStripCooldownVersions_LatestRepairStaysWithinBlessedLineage(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.4.0": now.Add(-40 * day), // eligible — previous blessed release
+		"1.5.0": now.Add(-1 * day),  // fresh — current latest, stripped
+		"2.0.0": now.Add(-30 * day), // eligible higher major, published under `next`
+	}
+	distTags := map[string]string{"latest": "1.5.0", "next": "2.0.0"}
+	body := buildTestPackument(versions, distTags)
+
+	dates, err := handler.parseMetadataTime(body)
+	require.NoError(t, err)
+
+	newBody, _, _ := handler.stripCooldownVersions(body, dates, 5)
+
+	var result map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(newBody, &result))
+
+	var resultDistTags map[string]string
+	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
+	assert.Equal(t, "1.4.0", resultDistTags["latest"],
+		"latest must stay within the lineage it was pinned to, not jump to a higher major")
+	assert.Equal(t, "2.0.0", resultDistTags["next"], "eligible non-latest tag should be untouched")
 }
 
 func makeTestRequestContext(rawURL string) *proxy.RequestContext {

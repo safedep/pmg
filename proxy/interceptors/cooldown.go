@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"fmt"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -72,11 +73,34 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 }
 
 // cooldownHighestStableVersion returns the highest stable (non-prerelease) version
-// among candidates, ordered by semver. This mirrors what npm treats as the "latest"
-// dist-tag. Prerelease versions are excluded — semver classifies both alpha builds
+// among candidates that does not exceed upperBound, ordered by semver. This mirrors
+// what npm treats as the "latest" dist-tag.
+//
+// Prerelease versions are excluded — semver classifies both alpha builds
 // (e.g. 1.2.0-alpha.1) and platform-specific builds (e.g. 1.2.0-win32-arm64) as
 // prereleases, so neither can be promoted to latest. Unparseable versions are skipped.
-func cooldownHighestStableVersion(candidates []string) string {
+//
+// upperBound is the version dist-tags.latest currently points to. Bounding by it keeps
+// a repaired latest on the lineage the maintainer marked as latest, rather than
+// promoting a higher major/minor published under a different channel (e.g. `next`).
+// An empty or unparseable upperBound applies no upper bound.
+func cooldownHighestStableVersion(candidates []string, upperBound string) string {
+	var bound *semver.Version
+	if upperBound != "" {
+		if b, err := semver.NewVersion(upperBound); err == nil {
+			// If latest itself points to a prerelease/platform build (e.g.
+			// 1.0.0-win32-arm64), bound to its base release. The bound represents a
+			// release line, and semver ranks 1.0.0 > 1.0.0-win32-arm64, so without
+			// this the stable counterpart on the same line would be wrongly excluded.
+			if b.Prerelease() != "" {
+				if base, err := semver.NewVersion(fmt.Sprintf("%d.%d.%d", b.Major(), b.Minor(), b.Patch())); err == nil {
+					b = base
+				}
+			}
+			bound = b
+		}
+	}
+
 	var latest string
 	var latestVer *semver.Version
 	for _, version := range candidates {
@@ -85,6 +109,9 @@ func cooldownHighestStableVersion(candidates []string) string {
 			continue
 		}
 		if ver.Prerelease() != "" {
+			continue
+		}
+		if bound != nil && ver.GreaterThan(bound) {
 			continue
 		}
 		if latestVer == nil || ver.GreaterThan(latestVer) {
