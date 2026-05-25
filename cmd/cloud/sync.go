@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
-	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 )
 
@@ -42,8 +43,8 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	if !cfg.Config.Cloud.Enabled {
-		ui.ErrorExit(usefulerror.Useful().
-			WithCode(usefulerror.ErrCodeLifecycle).
+		ui.ErrorExit(usefulerror.NewUsefulError().
+			WithCode(errcodes.Lifecycle).
 			WithHumanError("Cloud sync is not enabled").
 			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
 	}
@@ -54,15 +55,15 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	locked, err := lock.TryLockContext(lockCtx, 250*time.Millisecond)
 	if err != nil {
-		ui.ErrorExit(usefulerror.Useful().
+		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
-			WithCode(usefulerror.ErrCodeLifecycle).
+			WithCode(errcodes.Lifecycle).
 			WithHumanError("Failed to acquire cloud sync lock").
 			WithHelp("Another sync may be in progress; try again shortly"))
 	}
 	if !locked {
-		ui.ErrorExit(usefulerror.Useful().
-			WithCode(usefulerror.ErrCodeLifecycle).
+		ui.ErrorExit(usefulerror.NewUsefulError().
+			WithCode(errcodes.Lifecycle).
 			WithHumanError("Another cloud sync is already in progress").
 			WithHelp("Wait for the in-progress sync to finish, then try again"))
 	}
@@ -77,9 +78,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	bundle, err := audit.NewSyncClientBundle(cfg)
 	if err != nil {
-		ui.ErrorExit(usefulerror.Useful().
+		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
-			WithCode(usefulerror.ErrCodeLifecycle).
+			WithCode(errcodes.Lifecycle).
 			WithHumanError("Failed to initialize cloud sync client").
 			WithHelp("Run 'pmg cloud login' to store credentials, or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables"))
 	}
@@ -92,9 +93,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	synced, err := bundle.Sync(ctx)
 	recordLastSyncAttempt(cfg)
 	if err != nil {
-		ui.ErrorExit(usefulerror.Useful().
+		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
-			WithCode(usefulerror.ErrCodeNetwork).
+			WithCode(errcodes.Network).
 			WithHumanError("Failed to sync events to SafeDep Cloud").
 			WithHelp("Check your network connectivity and ensure SafeDep Cloud is reachable").
 			WithAdditionalHelp("Override the cloud endpoint with SAFEDEP_CLOUD_DATA_ADDR if needed"))

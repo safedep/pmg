@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -95,13 +95,13 @@ func runProfileInit(out io.Writer, name string, opts *profileInitOptions, factor
 		)
 	} else if !os.IsNotExist(err) {
 		return wrapUseful(fmt.Errorf("failed to stat %s: %w", target, err),
-			ioErrorCode(err, usefulerror.ErrCodeUnknown),
+			ioErrorCode(err, errcodes.Unknown),
 			"Could not stat the target profile path. Check the user profile directory permissions.")
 	}
 
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		return wrapUseful(fmt.Errorf("failed to create user profile directory %s: %w", userDir, err),
-			ioErrorCode(err, usefulerror.ErrCodePermissionDenied),
+			ioErrorCode(err, errcodes.PermissionDenied),
 			"Could not create the user profile directory. Check filesystem permissions for "+userDir+".")
 	}
 
@@ -109,7 +109,7 @@ func runProfileInit(out io.Writer, name string, opts *profileInitOptions, factor
 
 	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
 		return wrapUseful(fmt.Errorf("failed to write %s: %w", target, err),
-			ioErrorCode(err, usefulerror.ErrCodePermissionDenied),
+			ioErrorCode(err, errcodes.PermissionDenied),
 			"Could not write the scaffolded profile. Check filesystem permissions for "+target+".")
 	}
 

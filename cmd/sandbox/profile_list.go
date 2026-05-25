@@ -5,9 +5,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +45,7 @@ func runProfileList(out io.Writer, opts *profileListOptions, factory registryFac
 
 	summaries, err := registry.ListProfiles()
 	if err != nil {
-		return wrapUseful(err, ioErrorCode(err, usefulerror.ErrCodeUnknown),
+		return wrapUseful(err, ioErrorCode(err, errcodes.Unknown),
 			"Failed to enumerate sandbox profiles. Check the user profile directory permissions.")
 	}
 

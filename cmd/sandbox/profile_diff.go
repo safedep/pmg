@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
+	"github.com/safedep/pmg/errcodes"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
-	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -83,7 +83,7 @@ func runProfileDiff(out io.Writer, errOut io.Writer, nameA, nameB string, opts *
 
 	if bytes.Equal(dataA, dataB) {
 		if _, err := fmt.Fprintln(errOut, "profiles are identical"); err != nil {
-			return &diffOpError{err: wrapUseful(err, usefulerror.ErrCodeUnknown,
+			return &diffOpError{err: wrapUseful(err, errcodes.Unknown,
 				"Failed to write diff output. Check that stderr is writable.")}
 		}
 		return nil
@@ -99,18 +99,18 @@ func runProfileDiff(out io.Writer, errOut io.Writer, nameA, nameB string, opts *
 	text, err := difflib.GetUnifiedDiffString(diff)
 	if err != nil {
 		return &diffOpError{err: wrapUseful(fmt.Errorf("failed to render diff: %w", err),
-			usefulerror.ErrCodeUnknown,
+			errcodes.Unknown,
 			"Could not render the unified diff. Re-run with --verbose for the underlying cause.")}
 	}
 
 	if _, err := io.WriteString(out, text); err != nil {
-		return &diffOpError{err: wrapUseful(err, usefulerror.ErrCodeUnknown,
+		return &diffOpError{err: wrapUseful(err, errcodes.Unknown,
 			"Failed to write diff output. Check that stdout is writable.")}
 	}
 
 	if !strings.HasSuffix(text, "\n") {
 		if _, err := fmt.Fprintln(out); err != nil {
-			return &diffOpError{err: wrapUseful(err, usefulerror.ErrCodeUnknown,
+			return &diffOpError{err: wrapUseful(err, errcodes.Unknown,
 				"Failed to write diff output. Check that stdout is writable.")}
 		}
 	}
@@ -130,7 +130,7 @@ func materialize(registry pmgsandbox.ProfileRegistry, name string, opts *profile
 	if opts.driver != "" {
 		rendered, err := platform.Render(pmgsandbox.DriverName(opts.driver), policy)
 		if err != nil {
-			return nil, wrapUseful(err, usefulerror.ErrCodeInvalidArgument,
+			return nil, wrapUseful(err, errcodes.InvalidArgument,
 				"Could not render the policy for the requested driver. Verify the driver is supported on this host.")
 		}
 		return rendered, nil
@@ -142,7 +142,7 @@ func materialize(registry pmgsandbox.ProfileRegistry, name string, opts *profile
 	data, err := yaml.Marshal(policy)
 	if err != nil {
 		return nil, wrapUseful(fmt.Errorf("failed to marshal resolved policy %s: %w", name, err),
-			usefulerror.ErrCodeUnknown,
+			errcodes.Unknown,
 			"Failed to marshal the resolved policy to YAML. Re-run with --verbose for the underlying cause.")
 	}
 	return data, nil

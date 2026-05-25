@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,7 +98,7 @@ func TestProfileInit_RefuseOverwrite(t *testing.T) {
 	assert.Contains(t, err.Error(), target)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 
 	data, err := os.ReadFile(target)
 	require.NoError(t, err)
@@ -153,7 +154,7 @@ func TestProfileInit_InvalidName(t *testing.T) {
 			assert.Contains(t, err.Error(), "invalid profile name")
 			usefulErr, ok := usefulerror.AsUsefulError(err)
 			require.True(t, ok)
-			assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+			assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 		})
 	}
 }
@@ -166,7 +167,7 @@ func TestProfileInit_UnknownBuiltin(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown built-in profile")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeNotFound, usefulErr.Code())
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
 }
 
 func TestProfileInit_StdoutIsExactlyThePath(t *testing.T) {

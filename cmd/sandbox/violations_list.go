@@ -6,9 +6,10 @@ import (
 	"io"
 	"time"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +28,7 @@ func (e *violationsListFailError) ExitCode() int { return ExitCodeViolationsList
 
 func newViolationsListFailError(code, msg, help string) *violationsListFailError {
 	return &violationsListFailError{
-		UsefulError: usefulerror.Useful().
+		UsefulError: usefulerror.NewUsefulError().
 			WithCode(code).
 			WithHumanError(msg).
 			WithHelp(help).
@@ -61,7 +62,7 @@ func newViolationsListCommand(factory cacheFactory) *cobra.Command {
 func runViolationsList(out, errOut io.Writer, opts *violationsListOptions, factory cacheFactory) error {
 	if opts.limit < 0 {
 		return newViolationsListFailError(
-			usefulerror.ErrCodeInvalidArgument,
+			errcodes.InvalidArgument,
 			fmt.Sprintf("invalid --limit %d (must be >= 0)", opts.limit),
 			"Pass --limit 0 to show all entries, or a positive limit.",
 		)
@@ -71,7 +72,7 @@ func runViolationsList(out, errOut io.Writer, opts *violationsListOptions, facto
 	entries, err := cache.List()
 	if err != nil {
 		return newViolationsListFailError(
-			usefulerror.ErrCodeUnknown,
+			errcodes.Unknown,
 			fmt.Sprintf("read cache: %v", err),
 			"Check the sandbox violation cache directory and retry.",
 		)

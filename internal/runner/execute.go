@@ -10,12 +10,13 @@ import (
 	"sync"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/pty"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
-	"github.com/safedep/pmg/usefulerror"
 )
 
 type ExecutionMode int
@@ -139,8 +140,9 @@ func runPTY(
 	beforeWait func(*PTYRuntime) error,
 ) error {
 	if !result.ShouldRun() {
-		return usefulerror.Useful().
+		return usefulerror.NewUsefulError().
 			Wrap(fmt.Errorf("sandbox not supported for PTY sessions")).
+			WithCode(errcodes.InvalidArgument).
 			WithHumanError("Sandbox executed command cannot be used with PTY session. Please use non-interactive TTY mode instead.")
 	}
 

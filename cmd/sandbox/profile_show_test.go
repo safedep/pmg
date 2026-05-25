@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +72,7 @@ func TestProfileShowUnknownDriver(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown driver")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 }
 
 func TestProfileShowUnknownProfileReturnsNotFound(t *testing.T) {
@@ -88,7 +89,7 @@ func TestProfileShowUnknownProfileReturnsNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, usefulerror.ErrCodeNotFound, usefulErr.Code())
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
 }
 
 func TestProfileShowMissingNameShowsUsage(t *testing.T) {
@@ -150,5 +151,5 @@ func TestProfileShowDriverNonNativeErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "not available")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok, "non-native driver error should be reported as a UsefulError")
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 }

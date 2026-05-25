@@ -11,7 +11,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 )
 
 // errorMatcher defines how to detect and convert a specific error type
@@ -35,8 +36,8 @@ var errorMatchers = []errorMatcher{
 				humanError = fmt.Sprintf("File or directory not found: %s", path)
 			}
 
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodeNotFound).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.NotFound).
 				WithHumanError(humanError).
 				WithHelp("Check if the path exists").
 				WithAdditionalHelp("Use 'ls' to check directory contents").
@@ -54,8 +55,8 @@ var errorMatchers = []errorMatcher{
 			if path != "" {
 				humanError = fmt.Sprintf("Permission denied: %s", path)
 			}
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodePermissionDenied).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.PermissionDenied).
 				WithHumanError(humanError).
 				WithHelp("Check permissions or use sudo").
 				WithAdditionalHelp("Use 'ls -la' to check permissions").
@@ -72,8 +73,8 @@ var errorMatchers = []errorMatcher{
 			var exitErr *exec.ExitError
 			errors.As(err, &exitErr)
 			exitCode := exitErr.ExitCode()
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodeLifecycle).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.Lifecycle).
 				WithHumanError(fmt.Sprintf("Command failed with exit code %d", exitCode)).
 				WithHelp("Check command output above").
 				Wrap(err)
@@ -85,8 +86,8 @@ var errorMatchers = []errorMatcher{
 			return errors.Is(err, context.DeadlineExceeded)
 		},
 		convert: func(err error) usefulerror.UsefulError {
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodeTimeout).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.Timeout).
 				WithHumanError("Operation timed out").
 				WithHelp("Try again or check your network").
 				WithAdditionalHelp("Consider increasing timeout or retry later").
@@ -99,8 +100,8 @@ var errorMatchers = []errorMatcher{
 			return errors.Is(err, context.Canceled)
 		},
 		convert: func(err error) usefulerror.UsefulError {
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodeCanceled).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.Canceled).
 				WithHumanError("Operation was canceled").
 				Wrap(err)
 		},
@@ -121,15 +122,15 @@ var errorMatchers = []errorMatcher{
 		convert: func(err error) usefulerror.UsefulError {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
-				return usefulerror.Useful().
-					WithCode(usefulerror.ErrCodeTimeout).
+				return usefulerror.NewUsefulError().
+					WithCode(errcodes.Timeout).
 					WithHumanError("Network request timed out").
 					WithHelp("Check your internet connection").
 					WithAdditionalHelp("Consider increasing timeout or retry later").
 					Wrap(err)
 			}
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodeNetwork).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.Network).
 				WithHumanError("Network error occurred").
 				WithHelp("Check your internet connection").
 				WithAdditionalHelp("The package registry may be temporarily unavailable").
@@ -142,14 +143,25 @@ var errorMatchers = []errorMatcher{
 			return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 		},
 		convert: func(err error) usefulerror.UsefulError {
-			return usefulerror.Useful().
-				WithCode(usefulerror.ErrCodeUnexpectedEOF).
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.UnexpectedEOF).
 				WithHumanError("Unexpected end of data").
 				WithHelp("Retry the download").
 				WithAdditionalHelp("This may indicate network instability").
 				Wrap(err)
 		},
 	},
+}
+
+func init() {
+	usefulerror.RegisterErrorConverter("pmg-ui-converter", func(err error) (usefulerror.UsefulError, bool) {
+		for _, matcher := range errorMatchers {
+			if matcher.match(err) {
+				return matcher.convert(err), true
+			}
+		}
+		return nil, false
+	})
 }
 
 // convertToUsefulError attempts to convert a regular error to a UsefulError
@@ -164,14 +176,8 @@ func convertToUsefulError(err error) usefulerror.UsefulError {
 		return ue
 	}
 
-	for _, matcher := range errorMatchers {
-		if matcher.match(err) {
-			return matcher.convert(err)
-		}
-	}
-
-	return usefulerror.Useful().
-		WithCode(usefulerror.ErrCodeUnknown).
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.Unknown).
 		WithHumanError(extractRootCause(err)).
 		WithHelp("An unexpected error occurred.").
 		Wrap(err)

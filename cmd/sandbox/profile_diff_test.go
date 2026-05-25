@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,7 +100,7 @@ func TestProfileDiffUnknownProfile(t *testing.T) {
 	assert.Contains(t, err.Error(), "no-such-profile-xyz")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok, "diff error should expose a UsefulError through Unwrap")
-	assert.Equal(t, usefulerror.ErrCodeNotFound, usefulErr.Code())
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
 }
 
 func TestProfileDiffUnknownDriver(t *testing.T) {
@@ -113,7 +114,7 @@ func TestProfileDiffUnknownDriver(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown driver")
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok, "diff error should expose a UsefulError through Unwrap")
-	assert.Equal(t, usefulerror.ErrCodeInvalidArgument, usefulErr.Code())
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
 }
 
 func TestProfileDiffMissingProfileShowsUsage(t *testing.T) {

@@ -12,8 +12,9 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/dry/utils"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/spf13/viper"
 )
 
@@ -336,8 +337,8 @@ func DefaultConfig() RuntimeConfig {
 				},
 			},
 			Proxy: ProxyConfig{
-				Enabled:     true,
-				InstallOnly: false,
+				Enabled:      true,
+				InstallOnly:  false,
 				SkipCommands: map[string][]string{},
 			},
 		},
@@ -676,8 +677,8 @@ func NewManagedConfigError() error {
 // managedError builds the standard "globally managed" CLI error with a useful
 // code and actionable help.
 func managedError(message string) error {
-	return usefulerror.Useful().
-		WithCode(usefulerror.ErrCodePermissionDenied).
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
 		WithHumanError(message).
 		WithHelp("This machine's PMG configuration is centrally managed. Contact your administrator to change it.").
 		Wrap(errors.New(message))

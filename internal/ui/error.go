@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 )
 
 // ErrorExit prints a minimal, clean error message and exits with a non-zero status code.
@@ -23,7 +23,7 @@ func ErrorExitWithCode(err error, code int) {
 
 	// Use help as hint, but for unknown errors show bug report link
 	hint := usefulErr.Help()
-	if usefulErr.Code() == usefulerror.ErrCodeUnknown {
+	if usefulErr.Code() == errcodes.Unknown {
 		hint = "Report this issue: https://github.com/safedep/pmg/issues/new?labels=bug"
 	}
 

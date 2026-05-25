@@ -4,9 +4,10 @@ import (
 	"fmt"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/usefulerror"
 )
 
 // WrapCommandExecutionError converts a package manager execution error into a
@@ -28,8 +29,8 @@ func WrapCommandExecutionError(err error, result *sandbox.ExecutionResult, exitC
 	}
 
 	help := "Check the package manager command and its arguments"
-	builder := usefulerror.Useful().
-		WithCode(usefulerror.ErrCodePackageManagerExecutionFailed).
+	builder := usefulerror.NewUsefulError().
+		WithCode(errcodes.PackageManagerExecutionFailed).
 		WithHumanError(humanError).
 		WithHelp(help)
 
