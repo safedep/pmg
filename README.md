@@ -73,6 +73,12 @@ pmg setup install
 
 > **Tip:** Re-run `pmg setup install` after upgrading PMG to pick up new configuration options.
 
+Validate your installation and verify protection is working:
+
+```bash
+pmg setup doctor
+```
+
 ### 3. Use
 
 Run your package managers as usual, or let your AI coding agent run them. PMG sits in the path.
@@ -82,26 +88,6 @@ npm install express
 # or
 pip install requests
 ```
-
-Verify PMG works by installing `safedep-test-pkg`. It's harmless, but SafeDep flags it as malicious so you can confirm the block path:
-
-```bash
-npm --prefer-online --no-cache i safedep-test-pkg@0.1.3
-```
-
-<details>
-<summary>Expected output</summary>
-
-```
-✗ Malicious package blocked
-
-  - safedep-test-pkg@0.1.3
-    Reference: https://app.safedep.io/community/malysis/01KF5JYDND9XR94WNEJ2G74KY2
-
-✗ PMG: 1 packages analyzed, 1 blocked
-```
-
-</details>
 
 ## Features
 
