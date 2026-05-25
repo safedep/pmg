@@ -5,78 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/safedep/dry/log"
 )
-
-func CheckFileExists(path string, label string) CheckResult {
-	_, err := os.Stat(path)
-	if err != nil {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: fmt.Sprintf("%s not found: %s", label, path),
-		}
-	}
-	return CheckResult{
-		Status:  StatusPass,
-		Message: fmt.Sprintf("%s: %s", label, path),
-	}
-}
-
-func CheckBinaryInPath(name string) CheckResult {
-	path, err := exec.LookPath(name)
-	if err != nil {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: fmt.Sprintf("Binary %s not found in PATH", name),
-		}
-	}
-	return CheckResult{
-		Status:  StatusPass,
-		Message: fmt.Sprintf("Binary %s found: %s", name, path),
-	}
-}
-
-func CheckDirectoryExists(dir string, label string) CheckResult {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: fmt.Sprintf("%s directory not found: %s", label, dir),
-		}
-	}
-	if !info.IsDir() {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: fmt.Sprintf("%s path is not a directory: %s", label, dir),
-		}
-	}
-	return CheckResult{
-		Status:  StatusPass,
-		Message: fmt.Sprintf("%s directory: %s", label, dir),
-	}
-}
-
-func CheckAliasInstalled(installed bool, err error) CheckResult {
-	if err != nil {
-		return CheckResult{
-			Status:  StatusWarn,
-			Message: fmt.Sprintf("Could not determine alias status: %v", err),
-		}
-	}
-	if !installed {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: "Aliases not installed → run 'pmg setup install'",
-		}
-	}
-	return CheckResult{
-		Status:  StatusPass,
-		Message: "Shell aliases installed",
-	}
-}
 
 type ProtectionTestCase struct {
 	PackageManager string
@@ -188,33 +120,6 @@ func isExecutableNotFound(err error) bool {
 		return execErr.Err == exec.ErrNotFound
 	}
 	return false
-}
-
-func CheckShimDirectory(shimDir string) CheckResult {
-	info, err := os.Stat(shimDir)
-	if err != nil || !info.IsDir() {
-		return CheckResult{
-			Status:  StatusFail,
-			Message: fmt.Sprintf("Shim directory not found: %s → run 'pmg setup install'", shimDir),
-		}
-	}
-	return CheckResult{
-		Status:  StatusPass,
-		Message: fmt.Sprintf("Shim directory: %s", shimDir),
-	}
-}
-
-func CheckShimInPath(shimDir string, pathEnv string) CheckResult {
-	if slices.Contains(filepath.SplitList(pathEnv), shimDir) {
-		return CheckResult{
-			Status:  StatusPass,
-			Message: fmt.Sprintf("%s is in PATH", shimDir),
-		}
-	}
-	return CheckResult{
-		Status:  StatusFail,
-		Message: fmt.Sprintf("%s not in PATH → restart shell or source config", shimDir),
-	}
 }
 
 func CheckShimScripts(shimDir string, managers []string) (found []string, missing []string) {

@@ -3,6 +3,8 @@ package setup
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -70,14 +72,41 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkConfigFile,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckFileExists(cfg.ConfigFilePath(), "Config file")
+				path := cfg.ConfigFilePath()
+				if _, err := os.Stat(path); err != nil {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: fmt.Sprintf("Config file not found: %s", path),
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusPass,
+					Message: fmt.Sprintf("Config file: %s", path),
+				}
 			},
 		},
 		{
 			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				return doctor.CheckDirectoryExists(cfg.EventLogDir(), "Event log")
+				dir := cfg.EventLogDir()
+				info, err := os.Stat(dir)
+				if err != nil {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: fmt.Sprintf("Event log directory not found: %s", dir),
+					}
+				}
+				if !info.IsDir() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: fmt.Sprintf("Event log path is not a directory: %s", dir),
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusPass,
+					Message: fmt.Sprintf("Event log directory: %s", dir),
+				}
 			},
 		},
 		{
@@ -94,7 +123,22 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				}
 				aliasManager := alias.New(aliasCfg, rcFileManager)
 				installed, err := aliasManager.IsInstalled()
-				return doctor.CheckAliasInstalled(installed, err)
+				if err != nil {
+					return doctor.CheckResult{
+						Status:  doctor.StatusWarn,
+						Message: fmt.Sprintf("Could not determine alias status: %v", err),
+					}
+				}
+				if !installed {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: "Aliases not installed → run 'pmg setup install'",
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusPass,
+					Message: "Shell aliases installed",
+				}
 			},
 		},
 		{
@@ -108,7 +152,18 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: fmt.Sprintf("Could not check shims: %v", err),
 					}
 				}
-				return doctor.CheckShimDirectory(sm.GetBinDir())
+				shimDir := sm.GetBinDir()
+				info, err := os.Stat(shimDir)
+				if err != nil || !info.IsDir() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: fmt.Sprintf("Shim directory not found: %s → run 'pmg setup install'", shimDir),
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusPass,
+					Message: fmt.Sprintf("Shim directory: %s", shimDir),
+				}
 			},
 		},
 		{
@@ -122,7 +177,17 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: fmt.Sprintf("Could not check shims: %v", err),
 					}
 				}
-				return doctor.CheckShimInPath(sm.GetBinDir(), os.Getenv("PATH"))
+				shimDir := sm.GetBinDir()
+				if slices.Contains(filepath.SplitList(os.Getenv("PATH")), shimDir) {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: fmt.Sprintf("%s is in PATH", shimDir),
+					}
+				}
+				return doctor.CheckResult{
+					Status:  doctor.StatusFail,
+					Message: fmt.Sprintf("%s not in PATH → restart shell or source config", shimDir),
+				}
 			},
 		},
 		{
