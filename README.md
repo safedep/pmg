@@ -18,6 +18,7 @@
 [![Docs](https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
 [![Website](https://img.shields.io/badge/Website-safedep.io-3b82f6?style=flat-square)](https://safedep.io)
 [![Discord](https://img.shields.io/discord/1090352019379851304?style=flat-square)](https://discord.gg/kAGEj25dCn)
+[![Featured in tl;dr sec](https://img.shields.io/badge/Featured%20in-tl%3Bdr%20sec-FF6B35?style=flat-square)](https://tldrsec.com/p/tldr-sec-316)
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
 ![License](https://img.shields.io/github/license/safedep/pmg)
@@ -39,8 +40,6 @@ Recent compromises in popular ecosystems:
 - [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
 
 **PMG is free, open source (Apache 2.0), and requires no account or API key.** It intercepts every package install and checks it against [SafeDep's free community API](https://safedep.io) for known malware **before** code executes. Install it once, and it covers every `npm install`, `pip install`, and `poetry add` after that.
-
-> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316).
 
 ## How PMG Works
 
