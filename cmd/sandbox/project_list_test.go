@@ -26,9 +26,9 @@ func execProjectList(t *testing.T, overlayDir string, args ...string) (string, s
 
 func TestProjectList_Empty(t *testing.T) {
 	dir := t.TempDir()
-	_, stderr, err := execProjectList(t, dir)
+	stdout, _, err := execProjectList(t, dir)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "no project overlays")
+	assert.Contains(t, stdout, "No project overlays")
 }
 
 func TestProjectList_Human(t *testing.T) {

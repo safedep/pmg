@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -127,15 +128,15 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 		return err
 	}
 
-	added := 0
+	addedEntries := make([]pmgsandbox.OverlayAllow, 0, len(pending))
 	for _, entry := range pending {
 		if overlay.Add(entry) {
-			added++
+			addedEntries = append(addedEntries, entry)
 		}
 	}
 
-	if added == 0 {
-		_, err := fmt.Fprintf(out, "no new allowances (%d already present)\n", len(pending))
+	if len(addedEntries) == 0 {
+		_, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No new allowances (%d already present).", len(pending))))
 		return err
 	}
 
@@ -145,7 +146,15 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 			"Could not write the project overlay file. Check filesystem permissions for the overlay directory.")
 	}
 
-	_, err = fmt.Fprintf(out, "saved %d allowance(s) for %s\noverlay: %s\n", added, repoRoot, path)
+	if _, err := fmt.Fprintf(out, "%s Saved %d allowance(s) for %s\n", ui.Colors.Green("✓"), len(addedEntries), repoRoot); err != nil {
+		return err
+	}
+	for _, e := range addedEntries {
+		if _, err := fmt.Fprintf(out, "  %s %s=%s\n", ui.Colors.Dim("•"), e.Type, e.Value); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintf(out, "  %s %s\n", ui.Colors.Dim("overlay:"), ui.Colors.Dim(path))
 	return err
 }
 

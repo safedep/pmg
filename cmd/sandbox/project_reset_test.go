@@ -52,7 +52,7 @@ func TestProjectReset_WithYesDeletes(t *testing.T) {
 	stdout, _, err := execProjectReset(t, dir, repo, "--yes")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, repo)
-	assert.Contains(t, stdout, "deleted")
+	assert.Contains(t, stdout, "Deleted")
 
 	overlay, _, err := pmgsandbox.LoadOverlayForRepo(dir, repo)
 	require.NoError(t, err)
@@ -64,5 +64,5 @@ func TestProjectReset_MissingIsNoop(t *testing.T) {
 	repo := filepath.Clean(t.TempDir())
 	stdout, _, err := execProjectReset(t, dir, repo, "--yes")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "no project overlay")
+	assert.Contains(t, stdout, "No project overlay")
 }

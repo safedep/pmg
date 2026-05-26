@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -49,12 +50,15 @@ func runProjectReset(out io.Writer, opts *projectResetOptions, deps projectDeps)
 		return wrapUseful(err, errcodes.Unknown, "Could not read the project overlay file.")
 	}
 	if overlay == nil {
-		_, err := fmt.Fprintf(out, "no project overlay for %s\n", repoRoot)
+		_, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No project overlay for %s", repoRoot)))
 		return err
 	}
 	if err := pmgsandbox.DeleteOverlayForRepo(deps.overlayDir(), repoRoot); err != nil {
 		return wrapUseful(err, errcodes.Unknown, "Could not delete the project overlay file.")
 	}
-	_, err = fmt.Fprintf(out, "deleted overlay for %s\n  %s\n", repoRoot, path)
+	if _, err := fmt.Fprintf(out, "%s Deleted overlay for %s\n", ui.Colors.Green("✓"), repoRoot); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "  %s\n", ui.Colors.Dim(path))
 	return err
 }

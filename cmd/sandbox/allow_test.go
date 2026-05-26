@@ -45,7 +45,7 @@ func TestAllow_PositionalSaved(t *testing.T) {
 	deps := newAllowDeps(t)
 	stdout, stderr, err := runAllowCmd(t, deps, "net-bind=localhost:4321")
 	require.NoError(t, err, "stderr: %s", stderr)
-	assert.Contains(t, stdout, "saved 1 allowance")
+	assert.Contains(t, stdout, "Saved 1 allowance")
 
 	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestAllow_Dedupes(t *testing.T) {
 	require.NoError(t, err)
 	stdout, _, err := runAllowCmd(t, deps, "exec=/usr/bin/sh")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "no new allowances")
+	assert.Contains(t, stdout, "No new allowances")
 
 	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
 	require.NoError(t, err)

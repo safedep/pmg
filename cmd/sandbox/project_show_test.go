@@ -32,7 +32,7 @@ func TestProjectShow_Empty(t *testing.T) {
 	stdout, _, err := execProjectShow(t, dir, repo)
 	require.NoError(t, err)
 	assert.Contains(t, stdout, repo)
-	assert.Contains(t, stdout, "no project overlay")
+	assert.Contains(t, stdout, "No project overlay")
 }
 
 func TestProjectShow_WithEntries(t *testing.T) {
@@ -46,7 +46,8 @@ func TestProjectShow_WithEntries(t *testing.T) {
 	stdout, _, err := execProjectShow(t, dir, repo)
 	require.NoError(t, err)
 	assert.Contains(t, stdout, repo)
-	assert.Contains(t, stdout, "write=/repo/.astro")
+	assert.Contains(t, stdout, "write")
+	assert.Contains(t, stdout, "/repo/.astro")
 }
 
 func TestProjectShow_JSON(t *testing.T) {

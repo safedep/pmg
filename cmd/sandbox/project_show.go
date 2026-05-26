@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/ui"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 	"github.com/spf13/cobra"
 )
@@ -68,24 +69,37 @@ func runProjectShow(out io.Writer, opts *projectShowOptions, deps projectDeps) e
 		return writeJSONIndent(out, payload)
 	}
 
-	if overlay == nil || len(overlay.Allow) == 0 {
-		_, err := fmt.Fprintf(out, "no project overlay for %s\n", repoRoot)
+	if err := renderProjectSection(out, "Project Overlay"); err != nil {
 		return err
 	}
 
-	if _, err := fmt.Fprintf(out, "repo: %s\n", repoRoot); err != nil {
+	if overlay == nil || len(overlay.Allow) == 0 {
+		_, err := fmt.Fprintf(out, "%s\n", ui.Colors.Dim(fmt.Sprintf("No project overlay for %s", repoRoot)))
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "overlay: %s\n", path); err != nil {
+
+	updated := ""
+	if !overlay.UpdatedAt.IsZero() {
+		updated = overlay.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	if err := renderKeyValueBlock(out, [][2]string{
+		{"Repo", repoRoot},
+		{"Overlay", path},
+		{"Updated", updated},
+	}); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(out, "allow:"); err != nil {
+	if _, err := fmt.Fprintln(out); err != nil {
 		return err
 	}
+
+	rows := make([][]string, 0, len(overlay.Allow)+1)
+	rows = append(rows, []string{
+		ui.Colors.Bold("TYPE"),
+		ui.Colors.Bold("VALUE"),
+	})
 	for _, a := range overlay.Allow {
-		if _, err := fmt.Fprintf(out, "  - %s=%s\n", a.Type, a.Value); err != nil {
-			return err
-		}
+		rows = append(rows, []string{string(a.Type), a.Value})
 	}
-	return nil
+	return renderTable(out, rows, nil)
 }

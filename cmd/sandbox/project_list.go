@@ -45,7 +45,7 @@ type projectListJSONOutput struct {
 	Entries []projectListJSONEntry `json:"entries"`
 }
 
-func runProjectList(out, errOut io.Writer, opts *projectListOptions, deps projectDeps) error {
+func runProjectList(out, _ io.Writer, opts *projectListOptions, deps projectDeps) error {
 	overlays, err := pmgsandbox.ListOverlays(deps.overlayDir())
 	if err != nil {
 		return wrapUseful(err, errcodes.Unknown, "Could not list project overlays.")
@@ -67,8 +67,12 @@ func runProjectList(out, errOut io.Writer, opts *projectListOptions, deps projec
 		return writeJSONIndent(out, payload)
 	}
 
+	if err := renderProjectSection(out, "Project Overlays"); err != nil {
+		return err
+	}
+
 	if len(overlays) == 0 {
-		_, err := fmt.Fprintln(errOut, "no project overlays")
+		_, err := fmt.Fprintln(out, ui.Colors.Dim("No project overlays."))
 		return err
 	}
 
@@ -77,8 +81,9 @@ func runProjectList(out, errOut io.Writer, opts *projectListOptions, deps projec
 		ui.Colors.Bold("ENTRIES"),
 		ui.Colors.Bold("UPDATED"),
 	}}
+	dash := ui.Colors.Dim("—")
 	for _, e := range overlays {
-		updated := ""
+		updated := dash
 		if !e.Overlay.UpdatedAt.IsZero() {
 			updated = e.Overlay.UpdatedAt.UTC().Format(time.RFC3339)
 		}
