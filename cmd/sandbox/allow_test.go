@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -163,4 +164,51 @@ func TestAllow_InvalidPositionalRejected(t *testing.T) {
 	deps := newAllowDeps(t)
 	_, _, err := runAllowCmd(t, deps, "garbage")
 	require.Error(t, err)
+}
+
+func TestAllow_RefusedUnderLockdown(t *testing.T) {
+	deps := newAllowDeps(t)
+	cmd := newAllowCommand(allowFactory{
+		overlayDir: func() string { return deps.overlayDir },
+		repoRoot:   func() (string, error) { return deps.repoRoot, nil },
+		cache:      func() *pmgsandbox.ViolationCache { return deps.cache },
+		locked:     func() bool { return true },
+	})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"exec=/usr/bin/sh"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "global_lockdown")
+
+	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	assert.Nil(t, overlay)
+}
+
+func TestAllow_LastNormalizesRelativeTargets(t *testing.T) {
+	deps := newAllowDeps(t)
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	relTarget := "./.astro"
+	wantAbs := filepath.Join(cwd, ".astro")
+
+	report := &pmgsandbox.ViolationReport{
+		SandboxName: pmgsandbox.DriverSeatbelt,
+		Violations: []pmgsandbox.Violation{
+			{Kind: pmgsandbox.ViolationKindFSWrite, Target: relTarget},
+		},
+	}
+	_, err = deps.cache.Write(report)
+	require.NoError(t, err)
+
+	_, _, err = runAllowCmd(t, deps, "--last")
+	require.NoError(t, err)
+
+	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	require.NotNil(t, overlay)
+	require.Len(t, overlay.Allow, 1)
+	assert.Equal(t, wantAbs, overlay.Allow[0].Value, "cache-derived target should be normalized to absolute")
 }

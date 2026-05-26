@@ -19,6 +19,7 @@ type allowFactory struct {
 	overlayDir func() string
 	repoRoot   func() (string, error)
 	cache      func() *pmgsandbox.ViolationCache
+	locked     func() bool
 }
 
 func defaultAllowFactory() allowFactory {
@@ -28,6 +29,7 @@ func defaultAllowFactory() allowFactory {
 		cache: func() *pmgsandbox.ViolationCache {
 			return pmgsandbox.NewViolationCache(config.Get().SandboxViolationCacheDir())
 		},
+		locked: func() bool { return config.Get().IsLocked() },
 	}
 }
 
@@ -70,6 +72,16 @@ func newAllowCommand(factory allowFactory) *cobra.Command {
 }
 
 func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFactory) error {
+	// ApplySandbox ignores overlays under global_lockdown, so refuse up-front
+	// instead of letting the user think their allowances took effect.
+	if factory.locked != nil && factory.locked() {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError("sandbox overlays are disabled while global_lockdown is in force").
+			WithHelp("This machine's PMG configuration is locked. Contact your administrator to change sandbox policy.").
+			Wrap(errors.New("sandbox overlay refused under global_lockdown"))
+	}
+
 	if !opts.last && len(args) == 0 {
 		return invalidArgumentError(
 			"nothing to save: pass type=value arguments or --last",
@@ -181,9 +193,18 @@ func collectAllowEntries(args []string, opts *allowOptions, factory allowFactory
 		return nil, err
 	}
 	for _, sugg := range suggestions {
-		if typ := overrideTypeForKind(sugg.Kind); typ != "" {
-			out = append(out, pmgsandbox.OverlayAllow{Type: typ, Value: sugg.Target})
+		typ := overrideTypeForKind(sugg.Kind)
+		if typ == "" {
+			continue
 		}
+		// Normalize through the manual-entry validator so stored values match
+		// how applyRuntimeOverrides resolves them against the policy. Skip on
+		// rejection so one bad target does not block the rest of the report.
+		normalized, err := config.ParseSingleOverride(fmt.Sprintf("%s=%s", typ, sugg.Target))
+		if err != nil {
+			continue
+		}
+		out = append(out, pmgsandbox.OverlayAllow{Type: normalized.Type, Value: normalized.Value})
 	}
 	return out, nil
 }

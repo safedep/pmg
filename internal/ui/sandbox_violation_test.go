@@ -155,3 +155,26 @@ func TestRenderSandboxViolationOmitsRememberHintWithoutOverride(t *testing.T) {
 	require.NoError(t, RenderSandboxViolation(&buf, rec))
 	assert.NotContains(t, buf.String(), "pmg sandbox allow --last --all")
 }
+
+func TestRenderSandboxViolationOmitsRememberHintForSensitiveTarget(t *testing.T) {
+	var buf bytes.Buffer
+	rec := &pmgsandbox.ViolationCacheRecord{
+		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+		Report: &pmgsandbox.ViolationReport{
+			SandboxName: pmgsandbox.DriverSeatbelt,
+			PolicyName:  "npm-restrictive",
+			Violations: []pmgsandbox.Violation{{
+				Kind:      pmgsandbox.ViolationKindFSRead,
+				Target:    "/repo/.env",
+				RuleLabel: "deny read",
+			}},
+		},
+	}
+	require.NoError(t, RenderSandboxViolation(&buf, rec))
+	out := buf.String()
+	// The "Suggested override" line still shows so users see the manual fix.
+	assert.Contains(t, out, "--sandbox-allow read=")
+	// But the persistent-save hint is suppressed because `pmg sandbox allow`
+	// would refuse this target without --force.
+	assert.NotContains(t, out, "pmg sandbox allow --last --all")
+}
