@@ -55,7 +55,7 @@ func executeDoctorChecks() error {
 	cfg := config.Get()
 
 	coreResults := runCoreChecks(cfg)
-	protectionResults := runProtectionChecks()
+	protectionResults := runProtectionChecks(coreResults)
 	allResults := append(coreResults, protectionResults...)
 
 	printResults(allResults)
@@ -72,16 +72,15 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkConfigFile,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				path := cfg.ConfigFilePath()
-				if _, err := os.Stat(path); err != nil {
+				if _, err := os.Stat(cfg.ConfigFilePath()); err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusFail,
-						Message: fmt.Sprintf("Config file not found: %s", path),
+						Message: "Config file not found",
 					}
 				}
 				return doctor.CheckResult{
 					Status:  doctor.StatusPass,
-					Message: fmt.Sprintf("Config file: %s", path),
+					Message: "Config file found",
 				}
 			},
 		},
@@ -89,23 +88,22 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				dir := cfg.EventLogDir()
-				info, err := os.Stat(dir)
+				info, err := os.Stat(cfg.EventLogDir())
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusFail,
-						Message: fmt.Sprintf("Event log directory not found: %s", dir),
+						Message: "Event log directory not found",
 					}
 				}
 				if !info.IsDir() {
 					return doctor.CheckResult{
 						Status:  doctor.StatusFail,
-						Message: fmt.Sprintf("Event log path is not a directory: %s", dir),
+						Message: "Event log path is not a directory",
 					}
 				}
 				return doctor.CheckResult{
 					Status:  doctor.StatusPass,
-					Message: fmt.Sprintf("Event log directory: %s", dir),
+					Message: "Event log directory found",
 				}
 			},
 		},
@@ -132,7 +130,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if !installed {
 					return doctor.CheckResult{
 						Status:  doctor.StatusFail,
-						Message: "Aliases not installed → run 'pmg setup install'",
+						Message: "Aliases not installed",
 					}
 				}
 				return doctor.CheckResult{
@@ -157,12 +155,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if err != nil || !info.IsDir() {
 					return doctor.CheckResult{
 						Status:  doctor.StatusFail,
-						Message: fmt.Sprintf("Shim directory not found: %s → run 'pmg setup install'", shimDir),
+						Message: "Shim directory not found",
 					}
 				}
 				return doctor.CheckResult{
 					Status:  doctor.StatusPass,
-					Message: fmt.Sprintf("Shim directory: %s", shimDir),
+					Message: "Shim directory found",
 				}
 			},
 		},
@@ -181,12 +179,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if slices.Contains(filepath.SplitList(os.Getenv("PATH")), shimDir) {
 					return doctor.CheckResult{
 						Status:  doctor.StatusPass,
-						Message: fmt.Sprintf("%s is in PATH", shimDir),
+						Message: "Shim directory is in PATH",
 					}
 				}
 				return doctor.CheckResult{
 					Status:  doctor.StatusFail,
-					Message: fmt.Sprintf("%s not in PATH → restart shell or source config", shimDir),
+					Message: "Shim directory not in PATH",
 				}
 			},
 		},
@@ -202,7 +200,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				}
 				return doctor.CheckResult{
 					Status:  doctor.StatusFail,
-					Message: "Proxy mode is disabled → required for package interception",
+					Message: "Proxy mode is disabled",
 				}
 			},
 		},
@@ -247,7 +245,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if !cfg.Config.Sandbox.Enabled {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,
-						Message: "Sandbox disabled → enable in config for defense-in-depth",
+						Message: "Sandbox is disabled",
 					}
 				}
 				if !available {
@@ -266,7 +264,20 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 	return doctor.RunChecks(checks)
 }
 
-func runProtectionChecks() []doctor.CheckResult {
+func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {
+	if !isInterceptionActive(coreResults) {
+		var results []doctor.CheckResult
+		for _, tc := range doctor.ProtectionTestCases() {
+			results = append(results, doctor.CheckResult{
+				Name:     fmt.Sprintf("protection-%s", tc.PackageManager),
+				Category: "Protection",
+				Status:   doctor.StatusFail,
+				Message:  "Aliases and shims not active",
+			})
+		}
+		return results
+	}
+
 	pmgBinary, err := os.Executable()
 	if err != nil {
 		pmgBinary = "pmg"
@@ -280,6 +291,18 @@ func runProtectionChecks() []doctor.CheckResult {
 		results = append(results, result)
 	}
 	return results
+}
+
+func isInterceptionActive(coreResults []doctor.CheckResult) bool {
+	for _, r := range coreResults {
+		if r.Name == checkShellAliases && r.Status == doctor.StatusPass {
+			return true
+		}
+		if r.Name == checkShimInPath && r.Status == doctor.StatusPass {
+			return true
+		}
+	}
+	return false
 }
 
 var checkDisplayNames = map[string]string{
@@ -306,8 +329,8 @@ var checkFixes = map[string]string{
 	checkSandbox:            "Set sandbox.enabled: true in config",
 	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
 	checkEventLogging:       "Set skip_event_logging: false in config",
-	checkProtectionNpm:      "Ensure proxy mode is enabled",
-	checkProtectionPip:      "Ensure proxy mode is enabled",
+	checkProtectionNpm:      "pmg setup install",
+	checkProtectionPip:      "pmg setup install",
 }
 
 func printResults(results []doctor.CheckResult) {
