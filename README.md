@@ -73,7 +73,7 @@ PMG is the only free, open-source, install-time package firewall that covers dev
 | No account or API key                   | ✓   | ✗       | ✗    | ✗          |
 | Install-time malicious package blocking | ✓   | ✓       | ✗    | ✗          |
 | Dependency cooldown policy              | ✓   | ✗       | ✗    | ✗          |
-| Install sandbox                         | ✓   | ✗       | ✗    | ✗          |
+| Runtime sandboxing                         | ✓   | ✗       | ✗    | ✗          |
 | Protects AI coding agents transparently | ✓   | ✗       | ✗    | ✗          |
 | Local audit logs                        | ✓   | ✗       | ✗    | ✗          |
 | Known-CVE remediation PRs               | ✗   | ✗       | ✓    | ✓          |
