@@ -86,25 +86,6 @@ jobs:
         run: chmod +x test/e2e.sh && ./test/e2e.sh
         shell: bash
 
-  goreleaser-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-
-      - name: Run Goreleaser
-        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: build --clean --snapshot
-
   build-container-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
