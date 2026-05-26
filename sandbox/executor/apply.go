@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 
@@ -117,6 +118,21 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 	log.Debugf("Loaded sandbox policy %s", policy.Name)
 
+	// Apply the per-repo project overlay (saved via `pmg sandbox allow`). When
+	// global_lockdown is set, overlays are ignored so the locked baseline is
+	// authoritative. An empty cwd is tolerated by ResolveRepoRoot's callers
+	// downstream, so swallow a Getwd error here.
+	cwd, _ := os.Getwd()
+	if repoRoot, repoErr := sandbox.ResolveRepoRoot(cwd); repoErr != nil {
+		log.Warnf("Project overlay: resolve repo root: %v", repoErr)
+	} else if _, err := applyProjectOverlay(policy, cfg.SandboxOverlayDir(), repoRoot, cfg.IsLocked()); err != nil {
+		log.Warnf("Project overlay: apply: %v", err)
+		// A failed overlay load means the user's saved allowances were silently
+		// dropped. Echo to stderr so users at normal verbosity see why their
+		// sandbox is more restrictive than expected.
+		fmt.Fprintf(os.Stderr, "pmg: warning: project overlay could not be applied: %v\n", err)
+	}
+
 	// Apply runtime --sandbox-allow overrides to the policy before execution
 	if len(cfg.SandboxAllowOverrides) > 0 {
 		applyRuntimeOverrides(policy, cfg.SandboxAllowOverrides)
@@ -208,6 +224,32 @@ func removeExactMatch(slice []string, value string) []string {
 	}
 
 	return result
+}
+
+// applyProjectOverlay loads the per-repo overlay (when one exists) and feeds
+// its entries through applyRuntimeOverrides. Returns the number of entries
+// applied. A nil/missing overlay is a clean no-op. When locked, the overlay
+// is ignored entirely.
+func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot string, locked bool) (int, error) {
+	if locked {
+		log.Debugf("Project overlay: skipping under global_lockdown")
+		return 0, nil
+	}
+
+	overlay, _, err := sandbox.LoadOverlayForRepo(overlayDir, repoRoot)
+	if err != nil {
+		return 0, fmt.Errorf("project overlay: load: %w", err)
+	}
+	if overlay == nil || len(overlay.Allow) == 0 {
+		return 0, nil
+	}
+
+	entries := overlay.ToAllowOverrides()
+	applyRuntimeOverrides(policy, entries)
+	// The "+overlay" suffix tags audit events as overlay-sourced.
+	logSandboxOverrides(policy.Name+"+overlay", entries)
+	log.Infof("Project overlay: applied %d saved allowance(s) for %s", len(entries), repoRoot)
+	return len(entries), nil
 }
 
 // logSandboxOverrides records sandbox allow overrides in the audit event log.

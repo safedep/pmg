@@ -160,6 +160,13 @@ func isProjectPath(target, cwd string) bool {
 	return cleanTarget == cleanCwd || strings.HasPrefix(cleanTarget, cleanCwd+string(filepath.Separator))
 }
 
+// IsSensitiveProjectTarget reports whether target points to a known sensitive
+// file or directory (credential stores, dotfiles like .env/.npmrc). Used by
+// the overlay save-time guard to refuse implicit credential allowances.
+func IsSensitiveProjectTarget(target string) bool {
+	return isSensitiveProjectFile(target)
+}
+
 func isSensitiveProjectFile(target string) bool {
 	if target == "" || isParentRelativePath(target) {
 		return false
@@ -176,7 +183,8 @@ func isSensitiveProjectFile(target string) bool {
 	default:
 		return strings.Contains(target, string(filepath.Separator)+".ssh") ||
 			strings.Contains(target, string(filepath.Separator)+".aws") ||
-			strings.Contains(target, string(filepath.Separator)+".kube")
+			strings.Contains(target, string(filepath.Separator)+".kube") ||
+			strings.Contains(target, string(filepath.Separator)+".gnupg")
 	}
 }
 

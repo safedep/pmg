@@ -179,6 +179,48 @@ mandatory deny for that credential file. PMG treats both channels as explicit us
 Suppression is exact-match only; broad paths or globs do not opt out. `.git/hooks` does not accept
 opt-outs.
 
+### Project Overlays
+
+A project overlay is a per-repository allow-set that PMG applies automatically on every run in
+that repo, so you do not have to retype the same `--sandbox-allow` flags. The overlay is local
+only, keyed by the repo's git toplevel (CWD when not a git repo), and stored under
+`<config_dir>/sandbox/overlays/`. It is purely additive on top of the resolved policy, never
+weakens mandatory denies, and is ignored when `global_lockdown` is set.
+
+```bash
+# Save manual allowances for the current repo
+pmg sandbox allow write=./.astro net-bind=localhost:4321
+
+# Promote the primary violation from the most recent cached report
+pmg sandbox allow --last
+
+# Promote every safe FS/exec violation from that report
+pmg sandbox allow --last --all
+
+# Allow a sensitive path (e.g. .env, .npmrc) explicitly
+pmg sandbox allow --force read=./.env
+
+# Inspect the current repo's overlay
+pmg sandbox project show
+pmg sandbox project show --json
+
+# List overlays across all known repos
+pmg sandbox project list
+
+# Delete the current repo's overlay
+pmg sandbox project reset --yes
+```
+
+Notes:
+
+- `--last`/`--last --all` only auto-promotes filesystem and exec denials. Network allowances
+  (`net-connect`, `net-bind`) must be passed manually as `type=value` because drivers do not
+  classify network denials yet.
+- `pmg sandbox allow` refuses sensitive targets (`.env*`, `.npmrc`, `.ssh`, `.aws`, `.kube`,
+  `.gnupg`, ...) unless `--force` is given.
+- Applied overlay entries are recorded in the audit event log with a `+overlay` source tag so
+  they can be distinguished from `--sandbox-allow` flags.
+
 <details>
 <summary>Custom policy overrides using Policy Templates</summary>
 

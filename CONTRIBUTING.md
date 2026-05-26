@@ -1,34 +1,18 @@
-
 # Contributing Guide
 
-You can contribute to `pmg` and help make it better. Apart from bug fixes,
-features, we particularly value contributions in the form of:
+Thanks for your interest in improving `pmg`. Beyond bug fixes and features, we particularly value:
 
 - Documentation improvements
 - Bug reports
-- Using `pmg` in your projects and providing feedback
+- Using `pmg` in your projects and sharing feedback
 
-## How to contribute
+## Reporting a bug
 
-1. Fork the repository
-2. Add your changes
-3. Submit a pull request
+Open a new issue with the `bug` label.
 
-## How to report a bug
+## Suggesting a feature
 
-Create a new issue and add the label `bug`.
-
-## How to suggest a new feature
-
-Create a new issue and add the label `enhancement`.
-
-## Development workflow
-
-When contributing changes to repository, follow these steps:
-
-1. Ensure tests are passing
-2. Ensure you write test cases for new code
-3. `Signed-off-by` line is required in commit message (use `-s` flag while committing)
+Open a new issue with the `enhancement` label.
 
 ## Developer Setup
 
@@ -38,49 +22,41 @@ When contributing changes to repository, follow these steps:
 - Git
 - Make
 
-### Getting Started
+### Getting started
 
-1. Clone your fork:
+Clone your fork and build:
 
 ```shell
 git clone https://github.com/YOUR_USERNAME/pmg.git
 cd pmg
-```
-
-2. Install dependencies:
-
-```shell
 go mod tidy
-```
-
-3. Build the project:
-
-```shell
 make all
 ```
 
-### Development Workflow
+## Development Workflow
 
 1. Create a branch:
 
-```shell
-git checkout -b feature/your-feature
-```
+   ```shell
+   git checkout -b feature/your-feature
+   ```
 
-2. Make your changes and test:
+2. Make your changes. Add tests for new code.
 
-```shell
-make test
-```
+3. Run the test suite:
 
-3. Commit with sign-off:
+   ```shell
+   make test
+   ```
 
-```shell
-git commit -s -m "feat: add new feature"
-```
+4. Commit with a [DCO](https://developercertificate.org/) sign-off (the `-s` flag is required):
 
-4. Push and create PR:
+   ```shell
+   git commit -s -m "feat: add new feature"
+   ```
 
-```shell
-git push origin feature/your-feature
-```
+5. Push and open a pull request:
+
+   ```shell
+   git push origin feature/your-feature
+   ```
