@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -26,8 +27,20 @@ func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldow
 
 // HandleMetadataRequest overrides the Accept header to force a PEP 691 JSON response,
 // then registers a response modifier that strips files for versions within the cooldown window.
+// If the client does not support PEP 691 (pip < 22.3), cooldown is skipped to avoid
+// returning a content type the client cannot parse.
 func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
+
+	originalAccept := ctx.Headers.Get("Accept")
+	clientSupportsPEP691 := strings.Contains(originalAccept, pypiSimpleAPIContentType)
+
+	if !clientSupportsPEP691 {
+		log.Warnf("[%s] Cooldown: client does not support PEP 691 JSON (Accept: %s), "+
+			"cooldown cannot be enforced for %s. Upgrade pip to 22.3+ for cooldown support.",
+			ctx.RequestID, originalAccept, packageName)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
 
 	// Force PEP 691 JSON so we receive upload-time per file entry.
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)

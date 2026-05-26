@@ -38,7 +38,8 @@ Recent compromises in popular ecosystems:
 - [**telnyx 4.87.2**](https://safedep.io/malicious-telnyx-pypi-compromise/) - a legitimate telecom SDK hijacked on PyPI
 - [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
 
-PMG intercepts every package install and checks it for malware **before** code executes. Install it once, and PMG covers every `npm install`, `pip install`, and `poetry add` after that.
+
+**PMG is free, open source (Apache 2.0), and requires no account or API key.** It intercepts every package install and checks it against [SafeDep's free community API](https://safedep.io) for known malware **before** code executes. Install it once, and it covers every `npm install`, `pip install`, and `poetry add` after that. 
 
 > Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316).
 
