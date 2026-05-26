@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApplyRuntimeOverrides_Read(t *testing.T) {
@@ -249,3 +250,57 @@ func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testi
 	assert.Equal(t, []string{"${CWD}/blocked.txt"}, policy.Filesystem.DenyWrite)
 }
 
+
+func TestApplyProjectOverlayAppendsEntries(t *testing.T) {
+	dir := t.TempDir()
+	repo := "/repo/example"
+	_, err := sandbox.SaveOverlay(dir, repo, &sandbox.Overlay{
+		Allow: []sandbox.OverlayAllow{
+			{Type: config.SandboxAllowWrite, Value: "/repo/example/.astro"},
+			{Type: config.SandboxAllowNetBind, Value: "localhost:4321"},
+		},
+	})
+	require.NoError(t, err)
+
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+	applied, err := applyProjectOverlay(policy, dir, repo, false)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, applied)
+	assert.Contains(t, policy.Filesystem.AllowWrite, "/repo/example/.astro")
+	assert.Contains(t, policy.Network.AllowBind, "localhost:4321")
+	if assert.NotNil(t, policy.AllowNetworkBind) {
+		assert.True(t, *policy.AllowNetworkBind)
+	}
+}
+
+func TestApplyProjectOverlaySkippedWhenLocked(t *testing.T) {
+	dir := t.TempDir()
+	repo := "/repo/example"
+	_, err := sandbox.SaveOverlay(dir, repo, &sandbox.Overlay{
+		Allow: []sandbox.OverlayAllow{{Type: config.SandboxAllowWrite, Value: "/repo/example/.astro"}},
+	})
+	require.NoError(t, err)
+
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+	applied, err := applyProjectOverlay(policy, dir, repo, true)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, applied)
+	assert.Empty(t, policy.Filesystem.AllowWrite)
+}
+
+func TestApplyProjectOverlayMissingFileIsNoop(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "no-such")
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+	applied, err := applyProjectOverlay(policy, dir, "/repo/example", false)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, applied)
+	_, statErr := os.Stat(dir)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestApplyProjectOverlayEmptyArgsNoop(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+	applied, err := applyProjectOverlay(policy, "", "", false)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, applied)
+}

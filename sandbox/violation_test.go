@@ -184,3 +184,15 @@ func TestBuildExplanationEmptyReport(t *testing.T) {
 	assert.Nil(t, exp.Override)
 	assert.Equal(t, 0, exp.AdditionalDenials)
 }
+
+func TestIsSensitiveProjectTargetExported(t *testing.T) {
+	assert.True(t, IsSensitiveProjectTarget("./.env"))
+	assert.True(t, IsSensitiveProjectTarget(filepath.Join("/repo", ".npmrc")))
+	assert.False(t, IsSensitiveProjectTarget(filepath.Join("/repo", ".astro")))
+	assert.False(t, IsSensitiveProjectTarget("../.env"))
+}
+
+func TestIsSensitiveProjectTargetGNUPGFiles(t *testing.T) {
+	assert.True(t, IsSensitiveProjectTarget("/home/user/.gnupg/pubring.kbx"))
+	assert.True(t, IsSensitiveProjectTarget("/home/user/.gnupg/private-keys-v1.d/abc.key"))
+}
