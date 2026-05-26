@@ -271,7 +271,7 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test
 Thank you to all contributors ❤️
 
 <a href="https://github.com/safedep/pmg/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=safedep/pmg" />
+  <img src="https://contrib.rocks/image?repo=safedep/pmg" alt="Contributors to PMG" />
 </a>
 
 ## Telemetry
