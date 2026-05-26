@@ -46,11 +46,23 @@ Recent compromises in popular ecosystems:
 
 PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish, and each install passes through the enabled protection layers before code runs, plus an audit trail after.
 
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/how-pmg-works-dark.svg">
+    <img alt="PMG defense in depth: install command intercepted by PMG, passed through Layer 1 Threat Intel, Layer 2 Cooldown, Layer 3 Sandbox, then run with an audit log entry" src="./docs/assets/how-pmg-works-light.svg" width="820">
+  </picture>
+</div>
+
+<details>
+<summary><strong>Layer details</strong></summary>
+
 - **Transparent Interception** - PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands. No workflow changes.
 - **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages are blocked. No key, no login required.
 - **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so recently compromised versions are skipped during the window.
 - **Layer 3: Opt-in Sandbox** - When sandboxing is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
 - **Audit Logging** - PMG logs every install (what, when, from where) for a verifiable audit trail.
+
+</details>
 
 ## How PMG Compares
 
@@ -65,7 +77,7 @@ PMG is the only free, open-source, install-time package firewall that covers dev
 | Install sandbox                         | ✓   | ✗       | ✗    | ✗          |
 | Protects AI coding agents transparently | ✓   | ✗       | ✗    | ✗          |
 | Local audit logs                        | ✓   | ✗       | ✗    | ✗          |
-| Known-CVE remediation PRs               | ✗   | partial | ✓    | ✓          |
+| Known-CVE remediation PRs               | ✗   | ✗       | ✓    | ✓          |
 
 ## Quick Start
 

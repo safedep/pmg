@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+
+  <text x="460" y="28" text-anchor="middle" font-size="14" font-weight="600" fill="#f9fafb">PMG Defense in Depth</text>
+
+  <rect x="20" y="70" width="120" height="60" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="80" y="94" text-anchor="middle" font-size="12" fill="#f9fafb">Dev or AI agent</text>
+  <text x="80" y="113" text-anchor="middle" font-size="11" fill="#9ca3af">npm / pip install</text>
+
+  <line x1="142" y1="100" x2="168" y2="100" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="170" y="70" width="110" height="60" rx="8" fill="#4ade80" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="225" y="98" text-anchor="middle" font-size="13" font-weight="700" fill="#052e16">PMG</text>
+  <text x="225" y="116" text-anchor="middle" font-size="10" fill="#052e16">Interception</text>
+
+  <line x1="282" y1="100" x2="308" y2="100" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="310" y="70" width="120" height="60" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="370" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="#f9fafb">Layer 1</text>
+  <text x="370" y="107" text-anchor="middle" font-size="11" fill="#f9fafb">Threat Intel</text>
+  <text x="370" y="122" text-anchor="middle" font-size="10" fill="#9ca3af">block known malware</text>
+
+  <line x1="432" y1="100" x2="458" y2="100" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="460" y="70" width="120" height="60" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="520" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="#f9fafb">Layer 2</text>
+  <text x="520" y="107" text-anchor="middle" font-size="11" fill="#f9fafb">Cooldown</text>
+  <text x="520" y="122" text-anchor="middle" font-size="10" fill="#9ca3af">block fresh versions</text>
+
+  <line x1="582" y1="100" x2="608" y2="100" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="610" y="70" width="120" height="60" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="670" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="#f9fafb">Layer 3</text>
+  <text x="670" y="107" text-anchor="middle" font-size="11" fill="#f9fafb">Sandbox (opt-in)</text>
+  <text x="670" y="122" text-anchor="middle" font-size="10" fill="#9ca3af">restrict install scripts</text>
+
+  <line x1="732" y1="100" x2="758" y2="100" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="760" y="70" width="120" height="60" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="820" y="98" text-anchor="middle" font-size="12" fill="#f9fafb">Install runs</text>
+  <text x="820" y="118" text-anchor="middle" font-size="14" font-weight="700" fill="#4ade80">✓</text>
+
+  <line x1="820" y1="132" x2="820" y2="218" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="760" y="220" width="120" height="60" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="820" y="246" text-anchor="middle" font-size="12" fill="#f9fafb">Audit Log</text>
+  <text x="820" y="264" text-anchor="middle" font-size="10" fill="#9ca3af">what / when / from</text>
+</svg>
