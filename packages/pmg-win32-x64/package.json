@@ -1,0 +1,28 @@
+{
+  "name": "@safedep/pmg-win32-x64",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "homepage": "https://safedep.io",
+  "bugs": {
+    "url": "https://github.com/safedep/pmg/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/safedep/pmg.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/**"
+  ],
+  "bin": {
+    "pmg": "bin/pmg.exe"
+  }
+}

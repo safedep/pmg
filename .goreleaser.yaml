@@ -11,6 +11,16 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/safedep/pmg/internal/version.Version={{.Version}}
+      - -X github.com/safedep/pmg/internal/version.Commit={{.Commit}}
 
 archives:
   - formats: [tar.gz]

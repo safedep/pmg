@@ -11,18 +11,14 @@ permissions:
   contents: read
 
 jobs:
-  goreleaser:
+  release:
     timeout-minutes: 60
     environment: npm-release
-    outputs:
-      hashes: ${{ steps.hash.outputs.hashes }}
-    permissions:
-      contents: write # for goreleaser/goreleaser-action to create a GitHub release
-      packages: write # for goreleaser/goreleaser-action to publish docker images
     runs-on: ubuntu-latest
-    env:
-      # Required for buildx on docker 19.x
-      DOCKER_CLI_EXPERIMENTAL: "enabled"
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -33,39 +29,80 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
+          cache: true
 
-      - name: Run GoReleaser
-        id: run-goreleaser
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7
         with:
-          distribution: goreleaser
+          install-only: true
           version: "~> v2"
-          args: release --clean
+
+      - name: Build release (goreleaser via Nx)
+        run: pnpm nx run pmg:build-release
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
 
-      - name: Upload dist Folder
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: dist-artifacts
-          path: dist/
-
-  provenance:
-    needs: [goreleaser]
-    permissions:
-      actions: read # To read the workflow path.
-      id-token: write # To sign the provenance.
-      attestations: write # To write attestations
-      artifact-metadata: write # To write artifact metadata
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download dist folder
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: dist-artifacts
-          path: dist/
-
-      - name: Attest build provenance (checksums)
+      - name: Attest Go binary provenance
         uses: actions/attest-build-provenance@b3e506e8c389afc651c5bacf2b8f2a1ea0557215 # v4
         with:
           subject-checksums: dist/checksums.txt
+
+      - name: Publish npm packages (sync + build + publish via Nx)
+        run: pnpm nx run pmg:publish-npm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  test-installation:
+    needs: release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["18", "20", "22", "24"]
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for package on registry
+        shell: bash
+        run: |
+          for i in $(seq 1 20); do
+            npm view "@safedep/pmg@${{ steps.version.outputs.version }}" version > /dev/null 2>&1 && break
+            [ "$i" -eq 20 ] && echo "Package not available after 10 minutes" && exit 1
+            echo "Waiting... ($i/20)"
+            sleep 30
+          done
+
+      - name: Install
+        run: npm install -g "@safedep/pmg@${{ steps.version.outputs.version }}"
+
+      - name: Smoke test
+        run: pmg version
