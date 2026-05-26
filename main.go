@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/cmd/cloud"
 	configCmd "github.com/safedep/pmg/cmd/config"
 	"github.com/safedep/pmg/cmd/executors"
+	go_cmd "github.com/safedep/pmg/cmd/go"
 	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
 	"github.com/safedep/pmg/cmd/pypi"
@@ -147,6 +148,7 @@ func main() {
 	cmd.AddCommand(pypi.NewPip3Command())
 	cmd.AddCommand(pypi.NewUvCommand())
 	cmd.AddCommand(pypi.NewPoetryCommand())
+	cmd.AddCommand(go_cmd.NewGoCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())

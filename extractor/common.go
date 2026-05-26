@@ -16,7 +16,9 @@ import (
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/poetrylock"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/requirements"
 	"github.com/google/osv-scalibr/extractor/filesystem/language/python/uvlock"
+	"github.com/google/osv-scalibr/extractor/filesystem/language/golang/gomod"
 	"github.com/google/osv-scalibr/fs"
+
 	"github.com/safedep/dry/log"
 )
 
@@ -41,6 +43,8 @@ func getExtractorForFile(filename string) (filesystem.Extractor, error) {
 		return uvlock.New(), nil
 	case filename == "poetry.lock":
 		return poetrylock.New(), nil
+	case filename == "go.mod":
+		return gomod.New(), nil
 	default:
 		return nil, fmt.Errorf("unsupported lockfile type: %s", filename)
 	}
