@@ -11,35 +11,27 @@ var prRefPattern = regexp.MustCompile(`^refs/pull/(\d+)/merge$`)
 
 type githubActionsEnvResolver struct{}
 
-func GithubActionsCloudSinkEnvResolver() CloudSinkEnvResolver {
+func GithubActionsCloudSinkCIResolver() CloudSinkCIResolver {
 	return &githubActionsEnvResolver{}
 }
 
-func (r *githubActionsEnvResolver) Resolve(command string, workingDirectory string) *controltowerv1.EndpointInvocationContext {
-	ci := &controltowerv1.EndpointCIContext{}
-	ci.SetProvider(controltowerv1.EndpointCIProvider_ENDPOINT_CI_PROVIDER_GITHUB_ACTIONS)
-	ci.SetRunId(os.Getenv("GITHUB_RUN_ID"))
-	ci.SetRepository(os.Getenv("GITHUB_REPOSITORY"))
-	ci.SetBranch(r.resolveBranch())
-	ci.SetCommitSha(os.Getenv("GITHUB_SHA"))
-	ci.SetActor(os.Getenv("GITHUB_ACTOR"))
-	ci.SetPrNumber(r.extractPRNumber())
-
-	ctx := &controltowerv1.EndpointInvocationContext{}
-	ctx.SetCommand(command)
-	ctx.SetWorkingDirectory(workingDirectory)
-	ctx.SetCi(ci)
-	return ctx
+func (r *githubActionsEnvResolver) Provider() controltowerv1.EndpointCIProvider {
+	return controltowerv1.EndpointCIProvider_ENDPOINT_CI_PROVIDER_GITHUB_ACTIONS
 }
 
-func (r *githubActionsEnvResolver) resolveBranch() string {
+func (r *githubActionsEnvResolver) RunId() string      { return os.Getenv("GITHUB_RUN_ID") }
+func (r *githubActionsEnvResolver) Repository() string  { return os.Getenv("GITHUB_REPOSITORY") }
+func (r *githubActionsEnvResolver) CommitSha() string   { return os.Getenv("GITHUB_SHA") }
+func (r *githubActionsEnvResolver) Actor() string       { return os.Getenv("GITHUB_ACTOR") }
+
+func (r *githubActionsEnvResolver) Branch() string {
 	if headRef := os.Getenv("GITHUB_HEAD_REF"); headRef != "" {
 		return headRef
 	}
 	return os.Getenv("GITHUB_REF_NAME")
 }
 
-func (r *githubActionsEnvResolver) extractPRNumber() string {
+func (r *githubActionsEnvResolver) PrNumber() string {
 	matches := prRefPattern.FindStringSubmatch(os.Getenv("GITHUB_REF"))
 	if len(matches) == 2 {
 		return matches[1]

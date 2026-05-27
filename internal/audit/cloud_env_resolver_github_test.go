@@ -5,7 +5,6 @@ import (
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGithubActionsResolverBasicFields(t *testing.T) {
@@ -17,22 +16,15 @@ func TestGithubActionsResolverBasicFields(t *testing.T) {
 	t.Setenv("GITHUB_ACTOR", "octocat")
 	t.Setenv("GITHUB_REF", "refs/heads/feature/cool")
 
-	resolver := GithubActionsCloudSinkEnvResolver()
-	ctx := resolver.Resolve("npm install express", "/home/runner/work/pmg/pmg")
+	resolver := GithubActionsCloudSinkCIResolver()
 
-	require.NotNil(t, ctx)
-	assert.Equal(t, "npm install express", ctx.GetCommand())
-	assert.Equal(t, "/home/runner/work/pmg/pmg", ctx.GetWorkingDirectory())
-
-	ci := ctx.GetCi()
-	require.NotNil(t, ci)
-	assert.Equal(t, controltowerv1.EndpointCIProvider_ENDPOINT_CI_PROVIDER_GITHUB_ACTIONS, ci.GetProvider())
-	assert.Equal(t, "9876543210", ci.GetRunId())
-	assert.Equal(t, "safedep/pmg", ci.GetRepository())
-	assert.Equal(t, "feature/cool", ci.GetBranch())
-	assert.Equal(t, "deadbeef1234567890", ci.GetCommitSha())
-	assert.Equal(t, "octocat", ci.GetActor())
-	assert.Equal(t, "", ci.GetPrNumber())
+	assert.Equal(t, controltowerv1.EndpointCIProvider_ENDPOINT_CI_PROVIDER_GITHUB_ACTIONS, resolver.Provider())
+	assert.Equal(t, "9876543210", resolver.RunId())
+	assert.Equal(t, "safedep/pmg", resolver.Repository())
+	assert.Equal(t, "feature/cool", resolver.Branch())
+	assert.Equal(t, "deadbeef1234567890", resolver.CommitSha())
+	assert.Equal(t, "octocat", resolver.Actor())
+	assert.Equal(t, "", resolver.PrNumber())
 }
 
 func TestGithubActionsResolverPRBranch(t *testing.T) {
@@ -44,13 +36,10 @@ func TestGithubActionsResolverPRBranch(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "abc")
 	t.Setenv("GITHUB_ACTOR", "user")
 
-	resolver := GithubActionsCloudSinkEnvResolver()
-	ctx := resolver.Resolve("pip install requests", "/workspace")
+	resolver := GithubActionsCloudSinkCIResolver()
 
-	ci := ctx.GetCi()
-	require.NotNil(t, ci)
-	assert.Equal(t, "fix/security-patch", ci.GetBranch(), "should prefer GITHUB_HEAD_REF for PRs")
-	assert.Equal(t, "42", ci.GetPrNumber(), "should extract PR number from GITHUB_REF")
+	assert.Equal(t, "fix/security-patch", resolver.Branch(), "should prefer GITHUB_HEAD_REF for PRs")
+	assert.Equal(t, "42", resolver.PrNumber(), "should extract PR number from GITHUB_REF")
 }
 
 func TestGithubActionsResolverNonPRRef(t *testing.T) {
@@ -62,11 +51,8 @@ func TestGithubActionsResolverNonPRRef(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "def")
 	t.Setenv("GITHUB_ACTOR", "bot")
 
-	resolver := GithubActionsCloudSinkEnvResolver()
-	ctx := resolver.Resolve("yarn add lodash", "/app")
+	resolver := GithubActionsCloudSinkCIResolver()
 
-	ci := ctx.GetCi()
-	require.NotNil(t, ci)
-	assert.Equal(t, "main", ci.GetBranch(), "should use GITHUB_REF_NAME when GITHUB_HEAD_REF is empty")
-	assert.Equal(t, "", ci.GetPrNumber(), "should be empty for non-PR ref")
+	assert.Equal(t, "main", resolver.Branch(), "should use GITHUB_REF_NAME when GITHUB_HEAD_REF is empty")
+	assert.Equal(t, "", resolver.PrNumber(), "should be empty for non-PR ref")
 }

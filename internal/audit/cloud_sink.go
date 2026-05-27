@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	"github.com/google/uuid"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/log"
@@ -16,7 +17,7 @@ import (
 type cloudSink struct {
 	*SyncClientBundle
 	invocationID string
-	envResolver  CloudSinkEnvResolver
+	ciResolver  CloudSinkCIResolver
 	command      string
 	workingDir   string
 }
@@ -40,7 +41,7 @@ func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
 	return &cloudSink{
 		SyncClientBundle: bundle,
 		invocationID:     invocationID.String(),
-		envResolver:      NewCloudSinkEnvResolver(),
+		ciResolver:      NewCloudSinkCIResolver(),
 		workingDir:       wd,
 	}, nil
 }
@@ -56,7 +57,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 		return nil
 	}
 
-	invocationContext := s.envResolver.Resolve(s.command, s.workingDir)
+	invocationContext := s.buildInvocationContext()
 
 	for _, pmgEvent := range pmgEvents {
 		toolEvent, err := s.syncClient.NewEvent()
@@ -78,6 +79,26 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 	}
 
 	return nil
+}
+
+func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationContext {
+	ctx := &controltowerv1.EndpointInvocationContext{}
+	ctx.SetCommand(s.command)
+	ctx.SetWorkingDirectory(s.workingDir)
+
+	if s.ciResolver != nil {
+		ci := &controltowerv1.EndpointCIContext{}
+		ci.SetProvider(s.ciResolver.Provider())
+		ci.SetRunId(s.ciResolver.RunId())
+		ci.SetRepository(s.ciResolver.Repository())
+		ci.SetBranch(s.ciResolver.Branch())
+		ci.SetCommitSha(s.ciResolver.CommitSha())
+		ci.SetActor(s.ciResolver.Actor())
+		ci.SetPrNumber(s.ciResolver.PrNumber())
+		ctx.SetCi(ci)
+	}
+
+	return ctx
 }
 
 func buildCommand(packageManager string, args []string) string {

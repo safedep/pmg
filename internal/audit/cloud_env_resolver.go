@@ -6,34 +6,38 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 )
 
+// CloudSinkCIResolver resolves CI/CD environment context for the cloud
+// sink. Implementations detect CI providers from environment variables
+// and expose individual fields. The cloudSink assembles the
+// EndpointCIContext proto from these.
+type CloudSinkCIResolver interface {
+	// Provider returns the detected CI provider.
+	Provider() controltowerv1.EndpointCIProvider
 
-// CloudSinkEnvResolver resolves the runtime environment into an
-// EndpointInvocationContext for the cloud sink. Implementations detect
-// CI providers, AI agents, or other runtime context from environment
-// variables and build the appropriate proto message.
-type CloudSinkEnvResolver interface {
-	Resolve(command string, workingDirectory string) *controltowerv1.EndpointInvocationContext
+	// RunId returns the CI run identifier.
+	RunId() string
+
+	// Repository returns the repository being built.
+	Repository() string
+
+	// Branch returns the branch being built.
+	Branch() string
+
+	// CommitSha returns the commit SHA being built.
+	CommitSha() string
+
+	// Actor returns the user or bot that triggered the build.
+	Actor() string
+
+	// PrNumber returns the pull request number, if applicable.
+	PrNumber() string
 }
 
-type defaultEnvResolver struct{}
-
-func DefaultCloudSinkEnvResolver() CloudSinkEnvResolver {
-	return &defaultEnvResolver{}
-}
-
-func (r *defaultEnvResolver) Resolve(command string, workingDirectory string) *controltowerv1.EndpointInvocationContext {
-	ctx := &controltowerv1.EndpointInvocationContext{}
-	ctx.SetCommand(command)
-	ctx.SetWorkingDirectory(workingDirectory)
-	return ctx
-}
-
-// NewCloudSinkEnvResolver detects the runtime environment and returns
-// the appropriate resolver. Falls back to the default resolver when
-// no CI provider is detected.
-func NewCloudSinkEnvResolver() CloudSinkEnvResolver {
+// NewCloudSinkCIResolver detects the CI environment and returns the
+// appropriate resolver. Returns nil when no CI provider is detected.
+func NewCloudSinkCIResolver() CloudSinkCIResolver {
 	if os.Getenv("GITHUB_ACTIONS") != "" {
-		return GithubActionsCloudSinkEnvResolver()
+		return GithubActionsCloudSinkCIResolver()
 	}
-	return DefaultCloudSinkEnvResolver()
+	return nil
 }

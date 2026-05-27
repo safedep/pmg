@@ -40,8 +40,7 @@ func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *clou
 	return &cloudSink{
 		SyncClientBundle: &SyncClientBundle{syncClient: syncClient},
 		invocationID:     "test-invocation",
-		envResolver:      DefaultCloudSinkEnvResolver(),
-		workingDir:       t.TempDir(),
+		workingDir: t.TempDir(),
 	}
 }
 
