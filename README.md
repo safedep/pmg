@@ -70,7 +70,7 @@ PMG is the only free, open-source, install-time package firewall that covers dev
 | Capability                              | PMG | Socket  | Snyk | Dependabot |
 | --------------------------------------- | --- | ------- | ---- | ---------- |
 | OSS / built in public                   | ✓   | ✗       | ✗    | ✗          |
-| No account or API key                   | ✓   | ✗       | ✗    | ✗          |
+| No account or API key                   | ✓   | ✓       | ✗    | ✗          |
 | Install-time malicious package blocking | ✓   | ✓       | ✗    | ✗          |
 | Dependency cooldown policy              | ✓   | ✗       | ✗    | ✗          |
 | Runtime sandboxing                         | ✓   | ✗       | ✗    | ✗          |
