@@ -21,6 +21,18 @@
       "outputs": ["{workspaceRoot}/dist"],
       "cache": false
     },
+    "build-dev": {
+      "executor": "nx:noop",
+      "dependsOn": [{"projects": "@safedep/pmg", "target": "build"}]
+    },
+    "verify": {
+      "executor": "nx:run-commands",
+      "dependsOn": [{"projects": "pmg", "target": "build-dev"}],
+      "options": {
+        "command": "node packages/pmg/dist/bin.cjs version",
+        "cwd": "{workspaceRoot}"
+      }
+    },
     "publish-npm": {
       "executor": "nx:run-commands",
       "dependsOn": [{"projects": "@safedep/pmg", "target": "build-release"}],
@@ -32,7 +44,7 @@
     },
     "release-preflight": {
       "executor": "nx:run-commands",
-      "dependsOn": [{"projects": "@safedep/pmg", "target": "build"}],
+      "dependsOn": [{"projects": "pmg", "target": "verify"}],
       "options": {
         "command": "pnpm publish -r --dry-run --no-git-checks",
         "cwd": "{workspaceRoot}"
