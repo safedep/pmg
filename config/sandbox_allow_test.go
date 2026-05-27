@@ -254,3 +254,16 @@ func TestParseSandboxAllowOverrides_FirstErrorStops(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing '=' separator")
 }
+
+func TestParseSingleOverride_Exported(t *testing.T) {
+	got, err := ParseSingleOverride("net-bind=localhost:4321")
+	require.NoError(t, err)
+	assert.Equal(t, SandboxAllowNetBind, got.Type)
+	assert.Equal(t, "localhost:4321", got.Value)
+	assert.Equal(t, "net-bind=localhost:4321", got.Raw)
+}
+
+func TestParseSingleOverride_ExportedRejectsInvalid(t *testing.T) {
+	_, err := ParseSingleOverride("garbage")
+	assert.Error(t, err)
+}

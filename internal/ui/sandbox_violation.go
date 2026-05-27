@@ -150,6 +150,16 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		if _, err := fmt.Fprintln(out); err != nil {
 			return err
 		}
+		// `pmg sandbox allow` refuses sensitive targets without --force, so
+		// do not suggest a command that would immediately fail.
+		if !pmgsandbox.IsSensitiveProjectTarget(exp.Override.Target) {
+			if _, err := fmt.Fprintln(out, Colors.Dim("Remember for this project: pmg sandbox allow --last --all")); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(out); err != nil {
+				return err
+			}
+		}
 	}
 
 	if exp.Primary != nil {

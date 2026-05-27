@@ -35,6 +35,13 @@ func parseSandboxAllowOverrides(raw []string) ([]SandboxAllowOverride, error) {
 	return overrides, nil
 }
 
+// ParseSingleOverride is the exported entry point for callers outside this
+// package (e.g. cmd handlers persisting overlay entries). It mirrors the
+// validation used for --sandbox-allow flag values.
+func ParseSingleOverride(raw string) (SandboxAllowOverride, error) {
+	return parseSingleOverride(raw)
+}
+
 // parseSingleOverride parses and validates a single "type=value" string.
 func parseSingleOverride(raw string) (SandboxAllowOverride, error) {
 	// Split on first '=' only to handle values containing '='
