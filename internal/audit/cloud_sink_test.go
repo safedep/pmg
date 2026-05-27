@@ -40,6 +40,8 @@ func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *clou
 	return &cloudSink{
 		SyncClientBundle: &SyncClientBundle{syncClient: syncClient},
 		invocationID:     "test-invocation",
+		envResolver:      DefaultCloudSinkEnvResolver(),
+		workingDir:       t.TempDir(),
 	}
 }
 
@@ -97,4 +99,38 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 
 	assert.Equal(t, 1, synced)
 	assert.Equal(t, 1, len(transport.requests))
+}
+
+func TestCloudSinkSetsInvocationContext(t *testing.T) {
+	transport := &mockTransport{}
+
+	sink := newTestCloudSink(t, transport)
+	defer func() {
+		require.NoError(t, sink.Close())
+	}()
+
+	sink.Handle(context.Background(), AuditEvent{
+		Type:           EventTypeInstallStarted,
+		Timestamp:      time.Now(),
+		PackageManager: "npm",
+		Args:           []string{"install", "express"},
+	})
+
+	err := sink.Handle(context.Background(), AuditEvent{
+		Type:      EventTypeMalwareBlocked,
+		Timestamp: time.Now(),
+		Message:   "blocked malware package",
+	})
+	require.NoError(t, err)
+
+	synced, err := sink.syncClient.Sync(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, synced)
+	require.Equal(t, 1, len(transport.requests))
+
+	event := transport.requests[0].GetEvents()[0]
+	ctx := event.GetInvocationContext()
+	require.NotNil(t, ctx, "invocation context must be set on every emitted ToolEvent")
+	assert.Contains(t, ctx.GetCommand(), "npm")
+	assert.NotEmpty(t, ctx.GetWorkingDirectory())
 }

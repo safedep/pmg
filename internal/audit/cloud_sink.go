@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/safedep/dry/cloud/endpointsync"
@@ -14,6 +16,9 @@ import (
 type cloudSink struct {
 	*SyncClientBundle
 	invocationID string
+	envResolver  CloudSinkEnvResolver
+	command      string
+	workingDir   string
 }
 
 func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
@@ -30,17 +35,28 @@ func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
 		return nil, fmt.Errorf("failed to generate invocation ID: %w", err)
 	}
 
+	wd, _ := os.Getwd()
+
 	return &cloudSink{
 		SyncClientBundle: bundle,
 		invocationID:     invocationID.String(),
+		envResolver:      NewCloudSinkEnvResolver(),
+		workingDir:       wd,
 	}, nil
 }
 
 func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
+	if event.Type == EventTypeInstallStarted {
+		s.command = buildCommand(event.PackageManager, event.Args)
+		return nil
+	}
+
 	pmgEvents := s.translateToPmgEvents(event)
 	if len(pmgEvents) == 0 {
 		return nil
 	}
+
+	invocationContext := s.envResolver.Resolve(s.command, s.workingDir)
 
 	for _, pmgEvent := range pmgEvents {
 		toolEvent, err := s.syncClient.NewEvent()
@@ -50,6 +66,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 
 		toolEvent.SetPmgEvent(pmgEvent)
 		toolEvent.SetInvocationId(s.invocationID)
+		toolEvent.SetInvocationContext(invocationContext)
 
 		if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
 			if errors.Is(err, endpointsync.ErrWALFull) {
@@ -61,6 +78,16 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 	}
 
 	return nil
+}
+
+func buildCommand(packageManager string, args []string) string {
+	if packageManager == "" {
+		return ""
+	}
+	if len(args) == 0 {
+		return packageManager
+	}
+	return packageManager + " " + strings.Join(args, " ")
 }
 
 // Close delegates to the embedded SyncClientBundle.Close().
