@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +18,7 @@ func TestDefaultCloudSinkEnvResolver(t *testing.T) {
 }
 
 func TestNewCloudSinkEnvResolverReturnsDefault(t *testing.T) {
-	os.Unsetenv("GITHUB_ACTIONS")
+	t.Setenv("GITHUB_ACTIONS", "")
 
 	resolver := NewCloudSinkEnvResolver()
 	ctx := resolver.Resolve("pip install requests", "/tmp")

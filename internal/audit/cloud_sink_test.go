@@ -109,14 +109,15 @@ func TestCloudSinkSetsInvocationContext(t *testing.T) {
 		require.NoError(t, sink.Close())
 	}()
 
-	sink.Handle(context.Background(), AuditEvent{
+	err := sink.Handle(context.Background(), AuditEvent{
 		Type:           EventTypeInstallStarted,
 		Timestamp:      time.Now(),
 		PackageManager: "npm",
 		Args:           []string{"install", "express"},
 	})
+	require.NoError(t, err)
 
-	err := sink.Handle(context.Background(), AuditEvent{
+	err = sink.Handle(context.Background(), AuditEvent{
 		Type:      EventTypeMalwareBlocked,
 		Timestamp: time.Now(),
 		Message:   "blocked malware package",
