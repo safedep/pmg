@@ -7,6 +7,9 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
+// goRegistryDomains lists standard Go module traffic seen in proxy mode.
+// proxy.golang.org is MITM'd and analyzed; sum.golang.org is tunneled (not MITM'd)
+// for checksum verification but still observed for telemetry on CONNECT and requests.
 var goRegistryDomains = registryConfigMap{
 	"proxy.golang.org": {
 		Host:                 "proxy.golang.org",
@@ -16,7 +19,7 @@ var goRegistryDomains = registryConfigMap{
 	"sum.golang.org": {
 		Host:                 "sum.golang.org",
 		SupportedForAnalysis: false,
-		Parser:               goProxyParser{},
+		Parser:               sumdbParser{},
 	},
 }
 
@@ -68,11 +71,9 @@ func (i *GoRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool 
 	return goRegistryDomains.ContainsHostname(ctx.Hostname)
 }
 
-// HandleRequest processes the request and returns response action
+// HandleRequest processes the request and returns response action.
 // We take a fail-open approach here, allowing requests that we can't parse the package information from the URL.
 func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
-	log.Debugf("[%s] Handling Go registry request: %s", ctx.RequestID, ctx.URL.Path)
-
 	config := goRegistryDomains.GetConfigForHostname(ctx.Hostname)
 	if config == nil {
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
@@ -80,10 +81,10 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 	}
 
 	if !config.SupportedForAnalysis {
-		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
-			ctx.RequestID, config.Host, ctx.URL.String())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return i.handleObservedGoTraffic(ctx, config)
 	}
+
+	log.Debugf("[%s] Handling Go module proxy request: %s", ctx.RequestID, ctx.URL.Path)
 
 	pkgInfo, err := config.Parser.ParseURL(ctx.URL.Path)
 	if err != nil {
@@ -92,9 +93,19 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if !pkgInfo.IsFileDownload() {
-		log.Debugf("[%s] Skipping analysis for non-zip request: %s", ctx.RequestID, pkgInfo.GetName())
+	if !goModuleShouldAnalyze(pkgInfo) {
+		if info, ok := pkgInfo.(*goModuleInfo); ok {
+			log.Debugf("[%s] Go proxy metadata only (%s); analysis runs on versioned requests (.info/.mod/.zip): %s",
+				ctx.RequestID, info.requestType, pkgInfo.GetName())
+		} else {
+			log.Debugf("[%s] Skipping analysis for Go proxy request without version: %s", ctx.RequestID, pkgInfo.GetName())
+		}
+
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	if info, ok := pkgInfo.(*goModuleInfo); ok {
+		log.Debugf("[%s] Analyzing Go module %s@%s (%s)", ctx.RequestID, info.GetName(), info.GetVersion(), info.requestType)
 	}
 
 	result, err := i.analyzePackage(
@@ -109,4 +120,55 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 	}
 
 	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
+}
+
+func (i *GoRegistryInterceptor) handleObservedGoTraffic(
+	ctx *proxy.RequestContext,
+	config *registryConfig,
+) (*proxy.InterceptorResponse, error) {
+	path := ""
+	if ctx.URL != nil {
+		path = ctx.URL.Path
+	}
+
+	log.Debugf("[%s] Go checksum database traffic (observability): host=%s method=%s path=%s",
+		ctx.RequestID, config.Host, ctx.Method, path)
+
+	if path == "" || path == "/" {
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	pkgInfo, err := config.Parser.ParseURL(path)
+	if err != nil {
+		log.Debugf("[%s] Go checksum database URL not parsed (allowed): %s: %v",
+			ctx.RequestID, path, err)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	if info, ok := pkgInfo.(*sumdbModuleInfo); ok {
+		switch info.requestType {
+		case "lookup", "latest":
+			if info.GetName() != "" {
+				log.Debugf("[%s] Go sumdb %s: %s@%s", ctx.RequestID, info.requestType, info.GetName(), info.GetVersion())
+			}
+		case "supported":
+			log.Debugf("[%s] Go sumdb capability check", ctx.RequestID)
+		case "tile":
+			log.Debugf("[%s] Go sumdb tile fetch: %s", ctx.RequestID, path)
+		}
+	}
+
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+}
+
+// goModuleShouldAnalyze reports whether the proxy request has a resolved module version.
+// Malysis analyzes by module@version, so @v/list and @latest are skipped; .info, .mod, and
+// .zip are analyzed (cache dedupes repeats within one pmg invocation).
+func goModuleShouldAnalyze(pkgInfo packageInfo) bool {
+	info, ok := pkgInfo.(*goModuleInfo)
+	if !ok {
+		return false
+	}
+
+	return info.GetVersion() != ""
 }
