@@ -31,6 +31,9 @@ type CloudSinkCIResolver interface {
 
 	// PrNumber returns the pull request number, if applicable.
 	PrNumber() string
+
+	// Metadata returns provider-specific key-value pairs.
+	Metadata() map[string]string
 }
 
 // NewCloudSinkCIResolver detects the CI environment and returns the

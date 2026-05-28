@@ -38,3 +38,27 @@ func (r *githubActionsEnvResolver) PrNumber() string {
 	}
 	return ""
 }
+
+func (r *githubActionsEnvResolver) Metadata() map[string]string {
+	entries := []struct {
+		key    string
+		envVar string
+	}{
+		{"workflow", "GITHUB_WORKFLOW"},
+		{"job", "GITHUB_JOB"},
+		{"run_attempt", "GITHUB_RUN_ATTEMPT"},
+		{"server_url", "GITHUB_SERVER_URL"},
+	}
+
+	metadata := make(map[string]string)
+	for _, e := range entries {
+		if val := os.Getenv(e.envVar); val != "" {
+			metadata[e.key] = val
+		}
+	}
+
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
+}

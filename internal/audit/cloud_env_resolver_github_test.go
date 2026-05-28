@@ -42,6 +42,31 @@ func TestGithubActionsResolverPRBranch(t *testing.T) {
 	assert.Equal(t, "42", resolver.PrNumber(), "should extract PR number from GITHUB_REF")
 }
 
+func TestGithubActionsResolverMetadata(t *testing.T) {
+	t.Setenv("GITHUB_WORKFLOW", "CI")
+	t.Setenv("GITHUB_JOB", "build")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "1")
+	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
+
+	resolver := GithubActionsCloudSinkCIResolver()
+	metadata := resolver.Metadata()
+
+	assert.Equal(t, "CI", metadata["workflow"])
+	assert.Equal(t, "build", metadata["job"])
+	assert.Equal(t, "1", metadata["run_attempt"])
+	assert.Equal(t, "https://github.com", metadata["server_url"])
+}
+
+func TestGithubActionsResolverMetadataEmpty(t *testing.T) {
+	t.Setenv("GITHUB_WORKFLOW", "")
+	t.Setenv("GITHUB_JOB", "")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "")
+	t.Setenv("GITHUB_SERVER_URL", "")
+
+	resolver := GithubActionsCloudSinkCIResolver()
+	assert.Nil(t, resolver.Metadata())
+}
+
 func TestGithubActionsResolverNonPRRef(t *testing.T) {
 	t.Setenv("GITHUB_HEAD_REF", "")
 	t.Setenv("GITHUB_REF_NAME", "main")

@@ -95,6 +95,9 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 		ci.SetCommitSha(s.ciResolver.CommitSha())
 		ci.SetActor(s.ciResolver.Actor())
 		ci.SetPrNumber(s.ciResolver.PrNumber())
+		if metadata := s.ciResolver.Metadata(); len(metadata) > 0 {
+			ci.SetMetadata(metadata)
+		}
 		ctx.SetCi(ci)
 	}
 
