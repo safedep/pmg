@@ -36,7 +36,13 @@ func newCloudSink(cfg *config.RuntimeConfig, ciResolver CloudSinkCIResolver) (*c
 		return nil, fmt.Errorf("failed to generate invocation ID: %w", err)
 	}
 
-	wd, _ := os.Getwd()
+	wd, err := os.Getwd()
+	if err != nil {
+		if closeErr := bundle.Close(); closeErr != nil {
+			log.Warnf("failed to close sync client bundle after getwd failure: %v", closeErr)
+		}
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
 
 	return &cloudSink{
 		SyncClientBundle: bundle,
