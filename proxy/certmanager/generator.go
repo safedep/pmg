@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/safedep/dry/log"
+    "github.com/safedep/dry/log"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -301,12 +301,21 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		return nil, fmt.Errorf("failed to generate CA: %w", err)
 	}
 
+	return mergeSystemCABundle(caCert)
+}
+
+// mergeSystemCABundle appends the platform CA bundle to the PMG root CA PEM so
+// child processes that honor SSL_CERT_FILE still trust public CAs.
+func mergeSystemCABundle(caCert *Certificate) (*Certificate, error) {
+	if caCert == nil {
+		return nil, fmt.Errorf("CA certificate cannot be nil")
+	}
+
 	caCertPEM := caCert.Certificate
 	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
 
-	// No system CA found. Continue using only PMG cert.
 	if systemBundlePath == "" {
-		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
+		log.Warnf("Skipping cystem CA bundle merge: no system CA bundle found")
 		return caCert, nil
 	}
 
@@ -315,11 +324,9 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		return nil, fmt.Errorf("failed to stat system CA bundle %s: %w", systemBundlePath, err)
 	}
 
-	// We make sure there is a boundary on the size of CA bundle loaded
-	// from the system. Beyond that, we just skip it and return PMG cert.
 	if info.Size() > maxSystemCABundleBytes {
 		log.Errorf(
-			"Skipping system CA bundle merge: %s is too large (%d bytes > %d bytes)",
+			"skipping system CA bundle merge: %s is too large (%d bytes > %d bytes)",
 			systemBundlePath,
 			info.Size(),
 			maxSystemCABundleBytes,
@@ -330,9 +337,24 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 
 	systemBundle, err := os.ReadFile(systemBundlePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
+		return nil, fmt.Errorf("failed to read system CA bundle %s : %w", systemBundle, err)
 	}
 
+	merged, ok := mergeWithSystemBundle(caCertPEM, systemBundle)
+	if !ok {
+		return caCert, nil
+	}
+
+	return &Certificate{
+		Certificate: merged,
+		PrivateKey: caCert.PrivateKey,
+		X509Cert: caCert.X509Cert,
+		PrivKey: caCert.PrivKey,
+	}, nil
+
+}
+
+func mergeWithSystemBundle(caCertPEM, systemBundle []byte) ([]byte, bool) {
 	caLen := int64(len(caCertPEM))
 	sysLen := int64(len(systemBundle))
 	const extra = int64(2)
@@ -345,7 +367,7 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 			maxSystemCABundleBytes,
 		)
 
-		return caCert, nil
+		return nil, false
 	}
 
 	merged := make([]byte, 0, int(totalCap))
@@ -360,14 +382,8 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		merged = append(merged, '\n')
 	}
 
-	return &Certificate{
-		Certificate: merged,
-		PrivateKey:  caCert.PrivateKey,
-		X509Cert:    caCert.X509Cert,
-		PrivKey:     caCert.PrivKey,
-	}, nil
+	return merged, true
 }
-
 func firstReadablePath(paths ...string) string {
 	for _, path := range paths {
 		if path == "" {
