@@ -136,12 +136,7 @@ func currentExecutable() (string, error) {
 		return "", fmt.Errorf("failed to resolve pmg executable: %w", err)
 	}
 
-	resolved, err := filepath.EvalSymlinks(exe)
-	if err != nil {
-		return filepath.Abs(exe)
-	}
-
-	return resolved, nil
+	return filepath.Abs(exe)
 }
 
 func shellQuote(value string) string {

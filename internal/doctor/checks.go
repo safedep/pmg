@@ -26,8 +26,8 @@ func ProtectionTestCases() []ProtectionTestCase {
 		},
 		{
 			PackageManager: "pip",
-			Package:        "safedep-test-pkg==0.1.4",
-			InstallArgs:    []string{"pip", "install", "--no-cache-dir", "safedep-test-pkg==0.1.4"},
+			Package:        "safedep-test-pkg==0.0.4",
+			InstallArgs:    []string{"pip", "install", "--no-cache-dir", "safedep-test-pkg==0.0.4"},
 			NeedsVenv:      true,
 		},
 	}
