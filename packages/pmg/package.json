@@ -32,8 +32,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "tsdown": "latest",
-    "typescript": "latest"
+    "@types/node": "25.9.1",
+    "tsdown": "0.22.0",
+    "typescript": "6.0.3"
   }
 }
