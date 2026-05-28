@@ -10,7 +10,15 @@ import (
 func TestNewCloudSinkCIResolverReturnsNilWhenNoCI(t *testing.T) {
 	t.Setenv("GITHUB_ACTIONS", "")
 
-	resolver := NewCloudSinkCIResolver()
+	resolver := newCloudSinkCIResolver()
+	assert.Nil(t, resolver)
+}
+
+func TestNewCloudSinkCIResolverReturnsNilWhenPartialEnv(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_RUN_ID", "")
+
+	resolver := newCloudSinkCIResolver()
 	assert.Nil(t, resolver)
 }
 
@@ -22,7 +30,7 @@ func TestNewCloudSinkCIResolverReturnsGitHub(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_ACTOR", "dependabot[bot]")
 
-	resolver := NewCloudSinkCIResolver()
+	resolver := newCloudSinkCIResolver()
 	require.NotNil(t, resolver)
 	assert.Equal(t, "safedep/pmg", resolver.Repository())
 }

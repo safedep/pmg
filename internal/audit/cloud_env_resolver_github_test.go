@@ -16,7 +16,7 @@ func TestGithubActionsResolverBasicFields(t *testing.T) {
 	t.Setenv("GITHUB_ACTOR", "octocat")
 	t.Setenv("GITHUB_REF", "refs/heads/feature/cool")
 
-	resolver := GithubActionsCloudSinkCIResolver()
+	resolver := newGithubActionsCIResolver()
 
 	assert.Equal(t, controltowerv1.EndpointCIProvider_ENDPOINT_CI_PROVIDER_GITHUB_ACTIONS, resolver.Provider())
 	assert.Equal(t, "9876543210", resolver.RunId())
@@ -36,7 +36,7 @@ func TestGithubActionsResolverPRBranch(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "abc")
 	t.Setenv("GITHUB_ACTOR", "user")
 
-	resolver := GithubActionsCloudSinkCIResolver()
+	resolver := newGithubActionsCIResolver()
 
 	assert.Equal(t, "fix/security-patch", resolver.Branch(), "should prefer GITHUB_HEAD_REF for PRs")
 	assert.Equal(t, "42", resolver.PrNumber(), "should extract PR number from GITHUB_REF")
@@ -48,7 +48,7 @@ func TestGithubActionsResolverMetadata(t *testing.T) {
 	t.Setenv("GITHUB_RUN_ATTEMPT", "1")
 	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
 
-	resolver := GithubActionsCloudSinkCIResolver()
+	resolver := newGithubActionsCIResolver()
 	metadata := resolver.Metadata()
 
 	assert.Equal(t, "CI", metadata["workflow"])
@@ -63,7 +63,7 @@ func TestGithubActionsResolverMetadataEmpty(t *testing.T) {
 	t.Setenv("GITHUB_RUN_ATTEMPT", "")
 	t.Setenv("GITHUB_SERVER_URL", "")
 
-	resolver := GithubActionsCloudSinkCIResolver()
+	resolver := newGithubActionsCIResolver()
 	assert.Nil(t, resolver.Metadata())
 }
 
@@ -76,7 +76,7 @@ func TestGithubActionsResolverNonPRRef(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "def")
 	t.Setenv("GITHUB_ACTOR", "bot")
 
-	resolver := GithubActionsCloudSinkCIResolver()
+	resolver := newGithubActionsCIResolver()
 
 	assert.Equal(t, "main", resolver.Branch(), "should use GITHUB_REF_NAME when GITHUB_HEAD_REF is empty")
 	assert.Equal(t, "", resolver.PrNumber(), "should be empty for non-PR ref")

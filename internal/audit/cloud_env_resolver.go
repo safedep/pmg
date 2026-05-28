@@ -36,11 +36,11 @@ type CloudSinkCIResolver interface {
 	Metadata() map[string]string
 }
 
-// NewCloudSinkCIResolver detects the CI environment and returns the
+// newCloudSinkCIResolver detects the CI environment and returns the
 // appropriate resolver. Returns nil when no CI provider is detected.
-func NewCloudSinkCIResolver() CloudSinkCIResolver {
-	if os.Getenv("GITHUB_ACTIONS") != "" {
-		return GithubActionsCloudSinkCIResolver()
+func newCloudSinkCIResolver() CloudSinkCIResolver {
+	if os.Getenv("GITHUB_ACTIONS") != "" && os.Getenv("GITHUB_RUN_ID") != "" {
+		return newGithubActionsCIResolver()
 	}
 	return nil
 }

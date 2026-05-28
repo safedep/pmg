@@ -28,7 +28,7 @@ func Initialize(cfg *config.RuntimeConfig) error {
 	sinks = append(sinks, newEventlogSink())
 
 	if cfg.Config.Cloud.Enabled && !analytics.IsDisabled() {
-		cs, err := newCloudSink(cfg)
+		cs, err := newCloudSink(cfg, newCloudSinkCIResolver())
 		if err != nil {
 			log.Warnf("Cloud sync initialization failed: %v", err)
 		} else {

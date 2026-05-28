@@ -100,7 +100,7 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 	assert.Equal(t, 1, len(transport.requests))
 }
 
-func TestCloudSinkSetsInvocationContext(t *testing.T) {
+func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	transport := &mockTransport{}
 
 	sink := newTestCloudSink(t, transport)
@@ -108,7 +108,9 @@ func TestCloudSinkSetsInvocationContext(t *testing.T) {
 		require.NoError(t, sink.Close())
 	}()
 
-	err := sink.Handle(context.Background(), AuditEvent{
+	ctx := context.Background()
+
+	err := sink.Handle(ctx, AuditEvent{
 		Type:           EventTypeInstallStarted,
 		Timestamp:      time.Now(),
 		PackageManager: "npm",
@@ -116,21 +118,40 @@ func TestCloudSinkSetsInvocationContext(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = sink.Handle(context.Background(), AuditEvent{
+	err = sink.Handle(ctx, AuditEvent{
 		Type:      EventTypeMalwareBlocked,
 		Timestamp: time.Now(),
 		Message:   "blocked malware package",
 	})
 	require.NoError(t, err)
 
-	synced, err := sink.syncClient.Sync(context.Background())
+	err = sink.Handle(ctx, AuditEvent{
+		Type:      EventTypeSessionComplete,
+		Timestamp: time.Now(),
+		SessionData: &SessionData{
+			PackageManager: "npm",
+			FlowType:       FlowTypeGuard,
+			Outcome:        OutcomeSuccess,
+			TotalAnalyzed:  1,
+			AllowedCount:   1,
+		},
+	})
 	require.NoError(t, err)
-	assert.Equal(t, 1, synced)
+
+	synced, err := sink.syncClient.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, synced)
 	require.Equal(t, 1, len(transport.requests))
 
-	event := transport.requests[0].GetEvents()[0]
-	ctx := event.GetInvocationContext()
-	require.NotNil(t, ctx, "invocation context must be set on every emitted ToolEvent")
-	assert.Contains(t, ctx.GetCommand(), "npm")
-	assert.NotEmpty(t, ctx.GetWorkingDirectory())
+	events := transport.requests[0].GetEvents()
+	require.Equal(t, 2, len(events))
+
+	malwareEvent := events[0]
+	assert.Nil(t, malwareEvent.GetInvocationContext(), "non-session events should not have invocation context")
+
+	sessionEvent := events[1]
+	invCtx := sessionEvent.GetInvocationContext()
+	require.NotNil(t, invCtx, "session complete event must have invocation context")
+	assert.Contains(t, invCtx.GetCommand(), "npm")
+	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
 }

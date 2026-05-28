@@ -22,7 +22,7 @@ type cloudSink struct {
 	workingDir   string
 }
 
-func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
+func newCloudSink(cfg *config.RuntimeConfig, ciResolver CloudSinkCIResolver) (*cloudSink, error) {
 	bundle, err := NewSyncClientBundle(cfg)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func newCloudSink(cfg *config.RuntimeConfig) (*cloudSink, error) {
 	return &cloudSink{
 		SyncClientBundle: bundle,
 		invocationID:     invocationID.String(),
-		ciResolver:      NewCloudSinkCIResolver(),
+		ciResolver:       ciResolver,
 		workingDir:       wd,
 	}, nil
 }
@@ -57,8 +57,6 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 		return nil
 	}
 
-	invocationContext := s.buildInvocationContext()
-
 	for _, pmgEvent := range pmgEvents {
 		toolEvent, err := s.syncClient.NewEvent()
 		if err != nil {
@@ -67,7 +65,11 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 
 		toolEvent.SetPmgEvent(pmgEvent)
 		toolEvent.SetInvocationId(s.invocationID)
-		toolEvent.SetInvocationContext(invocationContext)
+		// Invocation context (CI, command, working dir) is set once per
+		// execution on the session summary event to avoid redundancy.
+		if event.Type == EventTypeSessionComplete {
+			toolEvent.SetInvocationContext(s.buildInvocationContext())
+		}
 
 		if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
 			if errors.Is(err, endpointsync.ErrWALFull) {

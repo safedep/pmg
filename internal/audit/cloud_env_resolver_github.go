@@ -11,7 +11,7 @@ var prRefPattern = regexp.MustCompile(`^refs/pull/(\d+)/merge$`)
 
 type githubActionsEnvResolver struct{}
 
-func GithubActionsCloudSinkCIResolver() CloudSinkCIResolver {
+func newGithubActionsCIResolver() CloudSinkCIResolver {
 	return &githubActionsEnvResolver{}
 }
 
