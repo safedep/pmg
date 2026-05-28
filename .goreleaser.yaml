@@ -11,6 +11,16 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/safedep/pmg/internal/version.Version={{.Version}}
+      - -X github.com/safedep/pmg/internal/version.Commit={{.Commit}}
 
 archives:
   - formats: [tar.gz]
@@ -39,11 +49,22 @@ checksum:
 universal_binaries:
   - replace: true
 
-brews:
+homebrew_casks:
   - name: pmg
+    directory: Casks
     homepage: https://github.com/safedep/pmg
     description: "PMG protects developers from malicious packages"
     license: "Apache-2.0"
+    binaries:
+      - pmg
+    url:
+      verified: github.com/safedep/pmg
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pmg"]
+          end
     repository:
       owner: safedep
       name: homebrew-tap

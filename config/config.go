@@ -43,6 +43,10 @@ const (
 	// Default sandbox profile directory is relative to the config directory.
 	pmgDefaultSandboxProfileDir = "sandbox/profiles"
 
+	// Default sandbox overlay directory is relative to the config directory.
+	// Per-repo overlays persisted by `pmg sandbox allow` live here.
+	pmgDefaultSandboxOverlayDir = "sandbox/overlays"
+
 	// Default sandbox violation cache directory is relative to the cache root.
 	pmgDefaultSandboxViolationCacheDir = "sandbox/violations"
 
@@ -205,6 +209,7 @@ type RuntimeConfig struct {
 	configLocked             bool   // global file present and opted into lockdown (global_lockdown: true)
 	eventLogDir              string
 	sandboxProfileDir        string
+	sandboxOverlayDir        string
 	sandboxViolationCacheDir string
 	viper                    *viper.Viper
 }
@@ -268,6 +273,11 @@ func (r *RuntimeConfig) ConfigDir() string {
 // SandboxProfileDir returns the path to the user sandbox profile directory.
 func (r *RuntimeConfig) SandboxProfileDir() string {
 	return r.sandboxProfileDir
+}
+
+// SandboxOverlayDir returns the path to the per-repo sandbox overlay directory.
+func (r *RuntimeConfig) SandboxOverlayDir() string {
+	return r.sandboxOverlayDir
 }
 
 // SandboxViolationCacheDir returns the path to the sandbox violation cache directory.
@@ -399,11 +409,17 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get sandbox violation cache directory: %w", err))
 	}
 
+	sandboxOverlayDir, err := sandboxOverlayDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get sandbox overlay directory: %w", err))
+	}
+
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
+	globalConfig.sandboxOverlayDir = sandboxOverlayDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
 
 	// A globally managed config enforces lockdown only when it opts in via
@@ -579,6 +595,16 @@ func sandboxProfileDir() (string, error) {
 	}
 
 	return filepath.Join(configDir, pmgDefaultSandboxProfileDir), nil
+}
+
+// sandboxOverlayDir computes the path to the per-repo sandbox overlay directory.
+func sandboxOverlayDir() (string, error) {
+	configDir, err := configDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	return filepath.Join(configDir, pmgDefaultSandboxOverlayDir), nil
 }
 
 // sandboxViolationCacheDir computes the path to the sandbox violation cache directory.

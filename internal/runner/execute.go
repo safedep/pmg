@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -26,6 +26,10 @@ const (
 	ExecutionModePTY
 	ExecutionModeAuto
 )
+
+// outputDrainGrace bounds how long we wait for the PTY output reader to finish
+// after the child exits before forcing it to stop.
+const outputDrainGrace = 2 * time.Second
 
 type ExecuteOptions struct {
 	PackageManagerName string
@@ -167,12 +171,20 @@ func runPTY(
 		return fmt.Errorf("failed to create output router: %w", err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		if _, err := io.Copy(outputRouter, sess.PtyReader()); err != nil {
+	// The output reader normally ends on its own when the PTY master reports
+	// EOF after the child exits. copyCtx lets us stop it otherwise: on parent
+	// cancellation (Ctrl+C) and on the drain-grace path below, which guards
+	// against a lingering descendant keeping the slave open (no EOF).
+	copyCtx, stopCopy := context.WithCancel(ctx)
+	defer stopCopy()
+
+	copyDone := make(chan struct{})
+	go func() {
+		defer close(copyDone)
+		if err := sess.CopyOutputContext(copyCtx, outputRouter); err != nil {
 			log.Errorf("failed to copy output: %v", err)
 		}
-	})
+	}()
 
 	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
 	if err != nil {
@@ -217,7 +229,16 @@ func runPTY(
 	}
 
 	sessionError := sess.Wait()
-	wg.Wait()
+
+	// Child has exited. Let the reader drain to EOF, but bound the wait so a
+	// lingering descendant holding the slave open cannot block teardown.
+	select {
+	case <-copyDone:
+	case <-time.After(outputDrainGrace):
+		log.Debugf("output drain grace exceeded, stopping pty reader")
+		stopCopy()
+		<-copyDone
+	}
 
 	if sessionError != nil {
 		return wrapCommandExecutionError(sessionError, result)

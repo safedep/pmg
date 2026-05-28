@@ -198,13 +198,16 @@ func TestStripCooldownVersions_MixedVersions(t *testing.T) {
 
 	var resultDistTags map[string]string
 	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
-	// latest should be updated to an older eligible version
-	assert.NotEqual(t, "1.0.2", resultDistTags["latest"])
+	// latest should be repaired to the highest stable eligible version
+	assert.Equal(t, "1.0.1", resultDistTags["latest"])
 
 	var resultTime map[string]string
 	require.NoError(t, json.Unmarshal(result["time"], &resultTime))
 	assert.Contains(t, resultTime, "created")
 	assert.Contains(t, resultTime, "modified")
+	assert.NotContains(t, resultTime, "1.0.2")
+	assert.Contains(t, resultTime, "1.0.0")
+	assert.Contains(t, resultTime, "1.0.1")
 }
 
 func TestStripCooldownVersions_AllVersionsTooNew(t *testing.T) {
@@ -277,6 +280,134 @@ func TestStripCooldownVersions_MalformedJSON(t *testing.T) {
 	newBody, stripped, _ := handler.stripCooldownVersions(body, dates, 5)
 	assert.Equal(t, 0, stripped)
 	assert.Equal(t, body, newBody)
+}
+
+// Regression for #275: when the stable version that dist-tags.latest points to is
+// stripped, latest must be repaired to the highest *stable* eligible version — never
+// a more-recently-published prerelease or platform-specific build (e.g. -win32-arm64).
+func TestStripCooldownVersions_LatestRepairedToStableNotPlatform(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"0.131.0":             now.Add(-40 * day), // old stable
+		"0.132.0":             now.Add(-30 * day), // old stable — expected latest after repair
+		"0.132.5-win32-arm64": now.Add(-6 * day),  // eligible platform build, newer than 0.132.0
+		"0.133.0":             now.Add(-1 * day),  // too new stable (current latest)
+		"0.133.0-win32-arm64": now.Add(-1 * day),  // too new platform build
+	}
+	distTags := map[string]string{"latest": "0.133.0"}
+	body := buildTestPackument(versions, distTags)
+
+	dates, err := handler.parseMetadataTime(body)
+	require.NoError(t, err)
+
+	newBody, _, _ := handler.stripCooldownVersions(body, dates, 5)
+
+	var result map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(newBody, &result))
+
+	var resultDistTags map[string]string
+	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
+	assert.Equal(t, "0.132.0", resultDistTags["latest"],
+		"latest must be the highest stable eligible version, not a platform/prerelease build")
+}
+
+// Non-latest dist-tags whose target is stripped should be removed, not rewritten to
+// an unrelated version.
+func TestStripCooldownVersions_NonLatestTagRemovedWhenStripped(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.0.0":        now.Add(-30 * day), // eligible stable
+		"2.0.0-beta.1": now.Add(-1 * day),  // too new prerelease
+	}
+	distTags := map[string]string{"latest": "1.0.0", "next": "2.0.0-beta.1"}
+	body := buildTestPackument(versions, distTags)
+
+	dates, err := handler.parseMetadataTime(body)
+	require.NoError(t, err)
+
+	newBody, _, _ := handler.stripCooldownVersions(body, dates, 5)
+
+	var result map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(newBody, &result))
+
+	var resultDistTags map[string]string
+	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
+	assert.Equal(t, "1.0.0", resultDistTags["latest"], "eligible latest tag should be untouched")
+	assert.NotContains(t, resultDistTags, "next", "stripped non-latest tag should be removed")
+}
+
+// A repaired latest must point to a version that still exists in the "versions"
+// object. A version present only in "time" (e.g. an unpublished version whose
+// timestamp lingers) must not be promoted to latest, or npm would get a dangling tag.
+func TestStripCooldownVersions_LatestRepairSkipsVersionsMissingFromPackument(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+	old := time.Now().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	tooNew := time.Now().Add(-1 * 24 * time.Hour).Format(time.RFC3339)
+
+	// "9.9.9" appears in time but NOT in versions; "2.0.0" (latest) is in cooldown.
+	body := []byte(`{
+		"name": "testpkg",
+		"dist-tags": {"latest": "2.0.0"},
+		"versions": {
+			"1.0.0": {"version": "1.0.0"},
+			"1.0.1": {"version": "1.0.1"},
+			"2.0.0": {"version": "2.0.0"}
+		},
+		"time": {
+			"1.0.0": "` + old + `",
+			"1.0.1": "` + old + `",
+			"9.9.9": "` + old + `",
+			"2.0.0": "` + tooNew + `"
+		}
+	}`)
+
+	dates, err := handler.parseMetadataTime(body)
+	require.NoError(t, err)
+
+	newBody, _, _ := handler.stripCooldownVersions(body, dates, 5)
+
+	var result map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(newBody, &result))
+
+	var resultDistTags map[string]string
+	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
+	assert.Equal(t, "1.0.1", resultDistTags["latest"],
+		"latest must come from versions present in the packument, not a time-only entry")
+}
+
+// Repairing latest must respect the maintainer's dist-tag lineage: when latest is
+// pinned to an older line while a higher stable major lives under another channel
+// (e.g. next), stripping the fresh latest must fall back within the blessed line,
+// not promote the unrelated higher major.
+func TestStripCooldownVersions_LatestRepairStaysWithinBlessedLineage(t *testing.T) {
+	handler := newNpmCooldownHandler(nil)
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.4.0": now.Add(-40 * day), // eligible — previous blessed release
+		"1.5.0": now.Add(-1 * day),  // fresh — current latest, stripped
+		"2.0.0": now.Add(-30 * day), // eligible higher major, published under `next`
+	}
+	distTags := map[string]string{"latest": "1.5.0", "next": "2.0.0"}
+	body := buildTestPackument(versions, distTags)
+
+	dates, err := handler.parseMetadataTime(body)
+	require.NoError(t, err)
+
+	newBody, _, _ := handler.stripCooldownVersions(body, dates, 5)
+
+	var result map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(newBody, &result))
+
+	var resultDistTags map[string]string
+	require.NoError(t, json.Unmarshal(result["dist-tags"], &resultDistTags))
+	assert.Equal(t, "1.4.0", resultDistTags["latest"],
+		"latest must stay within the lineage it was pinned to, not jump to a higher major")
+	assert.Equal(t, "2.0.0", resultDistTags["next"], "eligible non-latest tag should be untouched")
 }
 
 func makeTestRequestContext(rawURL string) *proxy.RequestContext {

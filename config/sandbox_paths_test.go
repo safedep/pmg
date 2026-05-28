@@ -61,6 +61,43 @@ func TestSandboxProfileDirRespectsXDGConfigHome(t *testing.T) {
 	assert.Equal(t, expected, Get().SandboxProfileDir())
 }
 
+func TestSandboxOverlayDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		envKey   string
+		envVal   string
+		expected func(t *testing.T) string
+	}{
+		{
+			name:   "default under user config dir",
+			envKey: "PMG_CONFIG_DIR",
+			envVal: "",
+			expected: func(t *testing.T) string {
+				userConfigDir, err := os.UserConfigDir()
+				require.NoError(t, err)
+				return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath, pmgDefaultSandboxOverlayDir)
+			},
+		},
+		{
+			name:   "honors PMG_CONFIG_DIR override",
+			envKey: "PMG_CONFIG_DIR",
+			envVal: "/tmp/pmg-test/custom-config",
+			expected: func(t *testing.T) string {
+				return filepath.Join("/tmp/pmg-test/custom-config", pmgDefaultSandboxOverlayDir)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.envKey, tc.envVal)
+			initConfig()
+
+			assert.Equal(t, tc.expected(t), Get().SandboxOverlayDir())
+		})
+	}
+}
+
 func TestSandboxViolationCacheDir(t *testing.T) {
 	tests := []struct {
 		name     string
