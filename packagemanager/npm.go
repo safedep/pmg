@@ -25,7 +25,7 @@ func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 			// Removal — uninstalls local packages, no registry download
 			"uninstall", "remove", "rm", "r", "un", "unlink",
 			// Local operations — no registry contact
-			"rebuild", "prune", "link", "cache",
+			"rebuild", "prune", "link", "cache", "pack",
 			// Inspection / read-only registry queries
 			"ls", "list", "outdated", "view", "info", "show", "search",
 			"config", "ping", "whoami", "version", "help",
@@ -146,7 +146,8 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}
 
 		return &ParsedCommand{
-			Command: command,
+			Command:                   command,
+			IsKnownNonDownloadCommand: true,
 		}, nil
 	}
 
@@ -163,23 +164,13 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}
 
 		if !ambiguousCommand && (firstCommandArg == "exec" || firstCommandArg == "x" || firstCommandArg == "dlx") {
-			var cmdIndex = -1
-			for idx, arg := range args {
-				if arg == firstCommandArg {
-					cmdIndex = idx
-					break
-				}
-			}
-
-			if cmdIndex != -1 {
-				subArgs := args[cmdIndex+1:]
-				installTargets, err := parseFetchAndRunTargets(npm.Config.CommandName, firstCommandArg, subArgs)
-				if err == nil && len(installTargets) > 0 {
-					return &ParsedCommand{
-						Command:        command,
-						InstallTargets: installTargets,
-					}, nil
-				}
+			subArgs := args[commandArgIndex+1:]
+			installTargets, err := parseFetchAndRunTargets(npm.Config.CommandName, firstCommandArg, subArgs)
+			if err == nil && len(installTargets) > 0 {
+				return &ParsedCommand{
+					Command:        command,
+					InstallTargets: installTargets,
+				}, nil
 			}
 		}
 
@@ -389,8 +380,11 @@ func getFirstCommandArgIndex(args []string) (int, bool) {
 
 func isKnownNpmNonDownloadCommand(args []string, nonDownloadCommands []string) bool {
 	firstNonFlagIndex, ambiguousCommand := getFirstCommandArgIndex(args)
-	if firstNonFlagIndex == -1 || ambiguousCommand {
+	if ambiguousCommand {
 		return false
+	}
+	if firstNonFlagIndex == -1 {
+		return true
 	}
 
 	firstNonFlag := args[firstNonFlagIndex]
@@ -400,6 +394,15 @@ func isKnownNpmNonDownloadCommand(args []string, nonDownloadCommands []string) b
 			return false
 		}
 		if cacheCommandIndex != -1 && args[firstNonFlagIndex+1:][cacheCommandIndex] == "add" {
+			return false
+		}
+	}
+	if firstNonFlag == "pack" {
+		packArgIndex, ambiguousPackArgs := getFirstCommandArgIndex(args[firstNonFlagIndex+1:])
+		if ambiguousPackArgs {
+			return false
+		}
+		if packArgIndex != -1 {
 			return false
 		}
 	}

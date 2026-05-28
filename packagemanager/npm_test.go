@@ -101,6 +101,36 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "bare npm is a known non-download command",
+			command: "npm",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.True(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.False(t, parsedCommand.MayDownloadPackages())
+				assert.False(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "flags-only version command is a known non-download command",
+			command: "npm --version",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.True(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.False(t, parsedCommand.MayDownloadPackages())
+				assert.False(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "flags-only list command is a known non-download command",
+			command: "npm -l",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.True(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.False(t, parsedCommand.MayDownloadPackages())
+				assert.False(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
 			name:    "exec with package flag extracts target",
 			command: "npm exec --package typescript tsc",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
@@ -147,6 +177,16 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.Empty(t, parsedCommand.InstallTargets)
 				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "pack without package stays local and non-download",
+			command: "npm pack",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.False(t, parsedCommand.MayDownloadPackages())
 			},
 		},
 		{
@@ -226,6 +266,15 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
 				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "flag value matching dlx does not replace actual dlx target",
+			command: "npm --tag dlx dlx create-react-app",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "create-react-app", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
 		{

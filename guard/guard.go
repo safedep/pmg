@@ -50,6 +50,10 @@ type PackageManagerGuardInteraction struct {
 	// inputReader is the reader to use for user input during confirmations.
 	// If nil, os.Stdin is used. This is set via SetInput to allow PTY input routing.
 	inputReader io.Reader
+
+	// outputWriter is the writer to use for user-visible prompts and notices.
+	// If nil, os.Stderr is used.
+	outputWriter io.Writer
 }
 
 // SetInput sets the input reader for user confirmations.
@@ -58,12 +62,25 @@ func (i *PackageManagerGuardInteraction) SetInput(r io.Reader) {
 	i.inputReader = r
 }
 
+// SetOutput sets the output writer for user prompts and notices.
+func (i *PackageManagerGuardInteraction) SetOutput(w io.Writer) {
+	i.outputWriter = w
+}
+
 // Reader returns the configured input reader, or os.Stdin if none is set.
 func (i *PackageManagerGuardInteraction) Reader() io.Reader {
 	if i.inputReader != nil {
 		return i.inputReader
 	}
 	return os.Stdin
+}
+
+// Writer returns the configured output writer, or os.Stderr if none is set.
+func (i *PackageManagerGuardInteraction) Writer() io.Writer {
+	if i.outputWriter != nil {
+		return i.outputWriter
+	}
+	return os.Stderr
 }
 
 type PackageManagerGuardConfig struct {
@@ -600,20 +617,24 @@ func (g *packageManagerGuard) checkUnsafeDownloadOptIn(pc *packagemanager.Parsed
 	}
 
 	if isTerminal {
-		fmt.Fprintf(os.Stderr, "\nDo you want to continue execution anyway (risky)? (y/N): ")
+		fmt.Fprintf(g.interaction.Writer(), "\nDo you want to continue execution anyway (risky)? (y/N): ")
 		reader := bufio.NewReader(g.interaction.Reader())
 		response, err := reader.ReadString('\n')
 		if err != nil {
 			return false, nil
 		}
 		response = strings.ToLower(strings.TrimSpace(response))
-		if response == "y" || response == "yes" || (len(response) > 0 && response[0] == 'y') {
+		if isExplicitUnsafeDownloadOptIn(response) {
 			g.showWarning(fmt.Sprintf("PMG: User explicitly opted in to run download-capable command: %s", cmdStr))
 			return true, nil
 		}
 	} else {
-		fmt.Fprintln(os.Stderr, "\nError: PMG is running without an interactive terminal and cannot prompt for opt-in.")
+		g.showWarning("Running without an interactive terminal and unable to prompt for explicit opt-in.")
 	}
 
 	return false, nil
+}
+
+func isExplicitUnsafeDownloadOptIn(response string) bool {
+	return response == "y" || response == "yes"
 }

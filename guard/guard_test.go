@@ -433,4 +433,56 @@ func TestGuardUnsafeDownloadOptIn(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("allows harmless npm commands without requiring unsafe download opt-in", func(t *testing.T) {
+		pm, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultNpmPackageManagerConfig())
+		require.NoError(t, err)
+
+		for _, command := range []string{
+			"npm",
+			"npm --version",
+			"npm -l",
+			"npm pack",
+		} {
+			t.Run(command, func(t *testing.T) {
+				parsedCommand, err := pm.ParseCommand(strings.Split(command, " "))
+				require.NoError(t, err)
+				require.True(t, parsedCommand.IsKnownNonDownloadCommand)
+				require.False(t, parsedCommand.MayDownloadPackages())
+
+				pg := newGuard(t, baseConfig(), nil)
+				_, err = pg.Run(context.Background(), commandArgs(parsedCommand), parsedCommand)
+
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("shows non-interactive opt-in notice through warning callback", func(t *testing.T) {
+		var warnings []string
+		interaction := PackageManagerGuardInteraction{
+			ShowWarning: func(message string) {
+				warnings = append(warnings, message)
+			},
+		}
+		interaction.SetInput(strings.NewReader(""))
+
+		pg, err := NewPackageManagerGuard(baseConfig(), nil, nil, analyzers, interaction, noopExecutor)
+		require.NoError(t, err)
+
+		parsedCommand := noTargetCommand("npm", "ci")
+		_, err = pg.Run(context.Background(), commandArgs(parsedCommand), parsedCommand)
+
+		require.Error(t, err)
+		require.Len(t, warnings, 2)
+		assert.Contains(t, warnings[1], "unable to prompt for explicit opt-in")
+	})
+}
+
+func TestIsExplicitUnsafeDownloadOptIn(t *testing.T) {
+	assert.True(t, isExplicitUnsafeDownloadOptIn("y"))
+	assert.True(t, isExplicitUnsafeDownloadOptIn("yes"))
+	assert.False(t, isExplicitUnsafeDownloadOptIn("yikes"))
+	assert.False(t, isExplicitUnsafeDownloadOptIn("yolo"))
+	assert.False(t, isExplicitUnsafeDownloadOptIn("n"))
 }
