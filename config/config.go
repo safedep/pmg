@@ -192,6 +192,9 @@ type RuntimeConfig struct {
 	// InsecureInstallation allows bypassing install blocking on malicious packages
 	InsecureInstallation bool
 
+	// AllowUnsafeDownload allows bypassing the safety gate for download-capable commands without targets under Guard Mode.
+	AllowUnsafeDownload bool
+
 	// SandboxProfileOverride is a runtime override for the sandbox policy profile.
 	// When set, this profile path is used instead of the configured policy for all package managers.
 	// This is a CLI-only flag (--sandbox-profile) and is not persisted to config.yml.
@@ -317,6 +320,7 @@ type SandboxAllowOverride struct {
 func DefaultConfig() RuntimeConfig {
 	// Backward compatibility for the insecure installation flag before config was introduced.
 	insecureInstallation := utils.EnvBool(pmgInsecureInstallationEnvKey, false)
+	allowUnsafeDownload := utils.EnvBool("PMG_ALLOW_UNSAFE_DOWNLOAD", false)
 
 	return RuntimeConfig{
 		Config: Config{
@@ -354,6 +358,7 @@ func DefaultConfig() RuntimeConfig {
 		},
 		DryRun:               false,
 		InsecureInstallation: insecureInstallation,
+		AllowUnsafeDownload:  allowUnsafeDownload,
 	}
 }
 
@@ -431,6 +436,7 @@ func initConfig() {
 	// PMG_INSECURE_INSTALLATION malicious-package block bypass.
 	if globalConfig.IsLocked() {
 		globalConfig.InsecureInstallation = false
+		globalConfig.AllowUnsafeDownload = false
 	}
 
 	loadConfig()

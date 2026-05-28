@@ -101,6 +101,94 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "exec with package flag extracts target",
+			command: "npm exec --package typescript tsc",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Empty(t, parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "exec with package flag does not add scoped command argument",
+			command: "npm exec --package typescript @scope/cli",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "exec with unscoped positional target stays ambiguous",
+			command: "npm exec create-react-app",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "exec with scoped positional target extracts target",
+			command: "npm exec @scope/cli@1.2.3",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "@scope/cli", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "pack with package is download-capable",
+			command: "npm pack react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "cache add is download-capable",
+			command: "npm cache add react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "cache add after location flag is download-capable",
+			command: "npm cache --location global add react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "cache command with ambiguous flag value fails safe",
+			command: "npm cache --future-flag global verify",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "cache verify is non-download",
+			command: "npm cache verify",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.True(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.False(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
 			name:    "ls is a known non-download command (proxy skipped)",
 			command: "npm ls",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
@@ -127,6 +215,59 @@ func TestNpmParseCommand(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "global flag value does not hide install command",
+			command: "npm --cache config install react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "short call flag value does not hide install command",
+			command: "npm -c config install react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "short message flag value does not hide install command",
+			command: "npm -m config install react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "unknown leading flag with value fails safe",
+			command: "npm --future-flag config install react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+		{
+			name:    "unknown leading short flag with value fails safe",
+			command: "npm -z config install react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
 			},
 		},
 		{
@@ -300,6 +441,16 @@ func TestYarnParseCommand(t *testing.T) {
 				assert.Equal(t, []string{"npm", "login"}, parsedCommand.Command.Args)
 			},
 		},
+		{
+			name:    "dlx extracts positional target",
+			command: "yarn dlx create-vite@1.2.3",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "create-vite", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.2.3", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -364,6 +515,34 @@ func TestPnpmParseCommand(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "dlx extracts positional target",
+			command: "pnpm dlx create-react-app",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "create-react-app", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "exec with package flag extracts target",
+			command: "pnpm exec --package typescript tsc",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "exec with unscoped positional target stays ambiguous",
+			command: "pnpm exec tsc",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
 			},
 		},
 	}
@@ -452,6 +631,16 @@ func TestBunParseCommand(t *testing.T) {
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
+		{
+			name:    "x with unscoped positional target stays ambiguous",
+			command: "bun x create-vite",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -467,11 +656,11 @@ func TestBunParseCommand(t *testing.T) {
 
 func TestNpmProxyBehavior(t *testing.T) {
 	cases := []struct {
-		name                     string
-		pm                       func() (*npmPackageManager, error)
-		command                  string
-		isKnownNonDownloadCmd    bool // proxy skipped when proxy_install_only=true
-		isInstallationCommand    bool
+		name                  string
+		pm                    func() (*npmPackageManager, error)
+		command               string
+		isKnownNonDownloadCmd bool // proxy skipped when proxy_install_only=true
+		isInstallationCommand bool
 	}{
 		// Commands that proxy MUST run for (not known-safe)
 		{
@@ -514,7 +703,7 @@ func TestNpmProxyBehavior(t *testing.T) {
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultPnpmPackageManagerConfig()) },
 			command:               "pnpm dlx create-react-app",
 			isKnownNonDownloadCmd: false,
-			isInstallationCommand: false,
+			isInstallationCommand: true,
 		},
 		{
 			name:                  "pnpm exec — proxy runs (may resolve packages)",
@@ -528,12 +717,26 @@ func TestNpmProxyBehavior(t *testing.T) {
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultYarnPackageManagerConfig()) },
 			command:               "yarn dlx create-react-app",
 			isKnownNonDownloadCmd: false,
-			isInstallationCommand: false,
+			isInstallationCommand: true,
 		},
 		{
 			name:                  "bun x — proxy runs (bun's npx equivalent)",
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultBunPackageManagerConfig()) },
 			command:               "bun x create-vite",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "npm pack package — proxy runs (may download tarball)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm pack react",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "npm cache add package — proxy runs (downloads into cache)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
+			command:               "npm cache add react",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},

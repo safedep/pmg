@@ -1,22 +1,27 @@
 package guard
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
+	"golang.org/x/term"
 )
 
 // CommandExecutor executes a parsed package manager command directly.
@@ -67,6 +72,8 @@ type PackageManagerGuardConfig struct {
 	AnalysisTimeout       time.Duration
 	DryRun                bool
 	InsecureInstallation  bool
+	AllowUnsafeDownload   bool
+	IsConfigLocked        bool
 }
 
 func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
@@ -76,6 +83,8 @@ func DefaultPackageManagerGuardConfig() PackageManagerGuardConfig {
 		AnalysisTimeout:       5 * time.Minute,
 		DryRun:                false,
 		InsecureInstallation:  false,
+		AllowUnsafeDownload:   false,
+		IsConfigLocked:        false,
 	}
 }
 
@@ -130,7 +139,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		audit.LogInstallStarted(g.packageManager.Name(), args)
 	}
 
-	if g.config.InsecureInstallation {
+	if g.config.InsecureInstallation && !g.config.IsConfigLocked {
 		log.Debugf("Bypassing block for unconfirmed malicious packages due to PMG_INSECURE_INSTALLATION")
 		g.showWarning("INSECURE INSTALLATION MODE - Malware protection bypassed!")
 		return result, g.continueExecution(ctx, parsedCommand)
@@ -141,6 +150,12 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		if parsedCommand.ShouldExtractFromManifest() {
 			log.Debugf("Detected manifest-based installation, extracting packages from manifest files")
 			return g.handleManifestInstallation(ctx, parsedCommand)
+		}
+
+		if parsedCommand.MayDownloadPackages() {
+			if err := g.requireUnsafeDownloadOptIn(parsedCommand); err != nil {
+				return result, err
+			}
 		}
 
 		log.Debugf("No install target found, continuing execution")
@@ -260,6 +275,42 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
 	return g.executor(ctx, pc)
+}
+
+func (g *packageManagerGuard) requireUnsafeDownloadOptIn(pc *packagemanager.ParsedCommand) error {
+	optedIn, err := g.checkUnsafeDownloadOptIn(pc)
+	if err != nil {
+		return err
+	}
+
+	if optedIn {
+		return nil
+	}
+
+	return g.unsafeDownloadError(pc)
+}
+
+func (g *packageManagerGuard) unsafeDownloadError(pc *packagemanager.ParsedCommand) error {
+	cmdStr := commandString(pc)
+	helpMsg := "Enable Proxy Mode for runtime verification, or set the environment variable PMG_ALLOW_UNSAFE_DOWNLOAD=true to bypass this safety gate if allowed by policy."
+	if g.config.IsConfigLocked {
+		helpMsg = "Enable Proxy Mode for runtime verification. This command is blocked by the locked global configuration."
+	}
+
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(fmt.Sprintf("Blocked execution of download-capable command '%s' due to lack of explicit opt-in under Guard Mode", cmdStr)).
+		WithHelp(helpMsg).
+		WithMsg(fmt.Sprintf("Blocked execution of download-capable command '%s' due to lack of explicit opt-in under Guard Mode", cmdStr))
+}
+
+func commandString(pc *packagemanager.ParsedCommand) string {
+	cmdStr := pc.Command.Exe
+	if len(pc.Command.Args) > 0 {
+		cmdStr += " " + strings.Join(pc.Command.Args, " ")
+	}
+
+	return cmdStr
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
@@ -384,7 +435,13 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	blockConfig := ui.NewDefaultBlockConfig()
 
 	if len(packages) == 0 {
-		log.Debugf("No packages found in manifest files, continuing execution")
+		if parsedCommand.MayDownloadPackages() {
+			if err := g.requireUnsafeDownloadOptIn(parsedCommand); err != nil {
+				return result, err
+			}
+		}
+
+		log.Debugf("No packages found in manifest files after opt-in check, continuing execution")
 		return result, g.continueExecution(ctx, parsedCommand)
 	}
 
@@ -508,4 +565,55 @@ func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersio
 	} else {
 		audit.LogMalwareConfirmed(result.PackageVersion, result.AnalysisID, result.IsMalware, result.IsVerified)
 	}
+}
+
+func (g *packageManagerGuard) checkUnsafeDownloadOptIn(pc *packagemanager.ParsedCommand) (bool, error) {
+	if g.config.IsConfigLocked {
+		return false, nil
+	}
+
+	if g.config.InsecureInstallation {
+		log.Debugf("Bypassing safety gate for download-capable command due to PMG_INSECURE_INSTALLATION")
+		return true, nil
+	}
+
+	cmdStr := commandString(pc)
+
+	if g.config.AllowUnsafeDownload {
+		g.showWarning(fmt.Sprintf("PMG: Bypassing safety gate for download-capable command '%s' via PMG_ALLOW_UNSAFE_DOWNLOAD environment variable", cmdStr))
+		return true, nil
+	}
+
+	warnMsg := fmt.Sprintf("\n"+
+		"PMG WARNING: Download-capable command requires opt-in under Guard Mode\n"+
+		"Command: %s\n\n"+
+		"This command is download-capable and may fetch unanalyzed packages from the registry.\n"+
+		"Since PMG Guard Mode is active (and Proxy Mode is disabled), PMG cannot intercept\n"+
+		"or statically analyze these dynamic downloads at runtime.\n\n"+
+		"Enable Proxy Mode for runtime verification.", cmdStr)
+
+	g.showWarning(warnMsg)
+
+	isTerminal := false
+	if f, ok := g.interaction.Reader().(*os.File); ok {
+		isTerminal = term.IsTerminal(int(f.Fd()))
+	}
+
+	if isTerminal {
+		fmt.Fprintf(os.Stderr, "\nDo you want to continue execution anyway (risky)? (y/N): ")
+		reader := bufio.NewReader(g.interaction.Reader())
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return false, nil
+		}
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response == "y" || response == "yes" || (len(response) > 0 && response[0] == 'y') {
+			g.showWarning(fmt.Sprintf("PMG: User explicitly opted in to run download-capable command: %s", cmdStr))
+			return true, nil
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "\nError: PMG is running without an interactive terminal and cannot prompt for opt-in.")
+	}
+
+	return false, nil
 }

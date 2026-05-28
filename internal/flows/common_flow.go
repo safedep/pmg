@@ -77,6 +77,8 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	guardConfig := guard.DefaultPackageManagerGuardConfig()
 	guardConfig.DryRun = cfg.DryRun
 	guardConfig.InsecureInstallation = cfg.InsecureInstallation
+	guardConfig.AllowUnsafeDownload = cfg.AllowUnsafeDownload
+	guardConfig.IsConfigLocked = cfg.IsLocked()
 
 	pmName := f.pm.Name()
 	executor := func(ctx context.Context, pc *packagemanager.ParsedCommand) error {

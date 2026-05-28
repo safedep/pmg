@@ -2,6 +2,7 @@ package guard
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -9,12 +10,30 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // noopExecutor is a no-op executor for use in tests that set DryRun=true
 // or otherwise don't reach actual command execution.
 var noopExecutor CommandExecutor = func(_ context.Context, _ *packagemanager.ParsedCommand) error {
 	return nil
+}
+
+type testPackageManager struct {
+	name      string
+	ecosystem packagev1.Ecosystem
+}
+
+func (pm testPackageManager) Name() string {
+	return pm.name
+}
+
+func (pm testPackageManager) ParseCommand(_ []string) (*packagemanager.ParsedCommand, error) {
+	return nil, nil
+}
+
+func (pm testPackageManager) Ecosystem() packagev1.Ecosystem {
+	return pm.ecosystem
 }
 
 func TestGuardConcurrentlyAnalyzePackagesMalwareQueryService(t *testing.T) {
@@ -261,5 +280,157 @@ func TestGuardInsecureInstallation(t *testing.T) {
 
 		// Verify that InsecureInstallation defaults to false
 		assert.False(t, config.InsecureInstallation, "InsecureInstallation should default to false")
+	})
+}
+
+func TestGuardUnsafeDownloadOptIn(t *testing.T) {
+	mq, err := analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	require.NoError(t, err)
+
+	analyzers := []analyzer.PackageVersionAnalyzer{mq}
+	baseConfig := func() PackageManagerGuardConfig {
+		config := DefaultPackageManagerGuardConfig()
+		config.DryRun = true
+		config.ResolveDependencies = false
+		return config
+	}
+
+	newGuard := func(t *testing.T, config PackageManagerGuardConfig, pm packagemanager.PackageManager) *packageManagerGuard {
+		t.Helper()
+		pg, err := NewPackageManagerGuard(config, pm, nil, analyzers, PackageManagerGuardInteraction{
+			ShowWarning: func(message string) {},
+		}, noopExecutor)
+		require.NoError(t, err)
+		return pg
+	}
+
+	commandArgs := func(pc *packagemanager.ParsedCommand) []string {
+		return append([]string{pc.Command.Exe}, pc.Command.Args...)
+	}
+
+	noTargetCommand := func(exe string, args ...string) *packagemanager.ParsedCommand {
+		return &packagemanager.ParsedCommand{
+			Command: packagemanager.Command{
+				Exe:  exe,
+				Args: args,
+			},
+			InstallTargets:            []*packagemanager.PackageInstallTarget{},
+			IsKnownNonDownloadCommand: false,
+		}
+	}
+
+	manifestNoPackageCommand := &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{
+			Exe:  "npm",
+			Args: []string{"install"},
+		},
+		InstallTargets:            []*packagemanager.PackageInstallTarget{},
+		IsManifestInstall:         true,
+		ManifestFiles:             []string{"pmg-test-missing-package-lock.json"},
+		IsKnownNonDownloadCommand: false,
+	}
+
+	cases := []struct {
+		name           string
+		configure      func(*PackageManagerGuardConfig)
+		packageManager packagemanager.PackageManager
+		parsedCommand  *packagemanager.ParsedCommand
+		wantErr        bool
+		wantLockedHelp bool
+	}{
+		{
+			name:          "fails closed for download-capable command without install targets and no opt-in",
+			parsedCommand: noTargetCommand("npm", "ci"),
+			wantErr:       true,
+		},
+		{
+			name: "bypasses safety check when AllowUnsafeDownload is enabled in config",
+			configure: func(config *PackageManagerGuardConfig) {
+				config.AllowUnsafeDownload = true
+			},
+			parsedCommand: noTargetCommand("npm", "ci"),
+			wantErr:       false,
+		},
+		{
+			name: "bypasses safety check when InsecureInstallation is enabled",
+			configure: func(config *PackageManagerGuardConfig) {
+				config.InsecureInstallation = true
+			},
+			parsedCommand: noTargetCommand("npm", "ci"),
+			wantErr:       false,
+		},
+		{
+			name: "fails closed and does not prompt when global config is locked",
+			configure: func(config *PackageManagerGuardConfig) {
+				config.IsConfigLocked = true
+			},
+			parsedCommand:  noTargetCommand("npm", "ci"),
+			wantErr:        true,
+			wantLockedHelp: true,
+		},
+		{
+			name: "keeps locked config authoritative over InsecureInstallation",
+			configure: func(config *PackageManagerGuardConfig) {
+				config.InsecureInstallation = true
+				config.IsConfigLocked = true
+			},
+			parsedCommand: noTargetCommand("npm", "ci"),
+			wantErr:       true,
+		},
+		{
+			name:           "applies opt-in gate when manifest extraction yields no packages",
+			packageManager: testPackageManager{name: "npm", ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
+			parsedCommand:  manifestNoPackageCommand,
+			wantErr:        true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := baseConfig()
+			if tc.configure != nil {
+				tc.configure(&config)
+			}
+
+			pg := newGuard(t, config, tc.packageManager)
+			_, err := pg.Run(context.Background(), commandArgs(tc.parsedCommand), tc.parsedCommand)
+
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "Blocked execution of download-capable command")
+			} else {
+				require.NoError(t, err)
+			}
+
+			if tc.wantLockedHelp {
+				uerr, ok := err.(interface{ Help() string })
+				require.True(t, ok)
+				assert.Contains(t, uerr.Help(), "blocked by the locked global configuration")
+			}
+		})
+	}
+
+	t.Run("fails closed for npm commands that can download without install targets", func(t *testing.T) {
+		pm, err := packagemanager.NewNpmPackageManager(packagemanager.DefaultNpmPackageManagerConfig())
+		require.NoError(t, err)
+
+		for _, command := range []string{
+			"npm pack react",
+			"npm cache add react",
+		} {
+			t.Run(command, func(t *testing.T) {
+				parsedCommand, err := pm.ParseCommand(strings.Split(command, " "))
+				require.NoError(t, err)
+				require.False(t, parsedCommand.IsKnownNonDownloadCommand)
+				require.True(t, parsedCommand.MayDownloadPackages())
+				require.Empty(t, parsedCommand.InstallTargets)
+
+				pg := newGuard(t, baseConfig(), nil)
+				_, err = pg.Run(context.Background(), commandArgs(parsedCommand), parsedCommand)
+
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "Blocked execution of download-capable command")
+			})
+		}
 	})
 }

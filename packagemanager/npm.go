@@ -25,7 +25,7 @@ func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 			// Removal — uninstalls local packages, no registry download
 			"uninstall", "remove", "rm", "r", "un", "unlink",
 			// Local operations — no registry contact
-			"rebuild", "prune", "link", "cache", "pack",
+			"rebuild", "prune", "link", "cache",
 			// Inspection / read-only registry queries
 			"ls", "list", "outdated", "view", "info", "show", "search",
 			"config", "ping", "whoami", "version", "help",
@@ -72,6 +72,45 @@ type npmPackageManager struct {
 	Config NpmPackageManagerConfig
 }
 
+// These flag sets are intentionally narrow. Known value flags are consumed so
+// command detection is stable; unknown leading flag/value pairs fail safe.
+var npmGlobalFlagsWithValues = map[string]struct{}{
+	"cache":        {},
+	"cafile":       {},
+	"cert":         {},
+	"globalconfig": {},
+	"https-proxy":  {},
+	"key":          {},
+	"loglevel":     {},
+	"location":     {},
+	"node-options": {},
+	"noproxy":      {},
+	"otp":          {},
+	"prefix":       {},
+	"proxy":        {},
+	"registry":     {},
+	"script-shell": {},
+	"tag":          {},
+	"user-agent":   {},
+	"userconfig":   {},
+	"workspace":    {},
+}
+
+var npmShortFlagsWithValues = map[byte]struct{}{
+	'C': {},
+	'L': {},
+	'c': {},
+	'm': {},
+	'w': {},
+}
+
+var npmShortBooleanFlags = map[byte]struct{}{
+	'f': {},
+	'g': {},
+	's': {},
+	'y': {},
+}
+
 func NewNpmPackageManager(config NpmPackageManagerConfig) (*npmPackageManager, error) {
 	return &npmPackageManager{
 		Config: config,
@@ -111,17 +150,40 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		}, nil
 	}
 
-	// Find the install command position
-	var installCmdIndex = -1
-	for idx, arg := range args {
-		if slices.Contains(npm.Config.InstallCommands, arg) {
-			installCmdIndex = idx
-			break
-		}
+	commandArgIndex, ambiguousCommand := getFirstCommandArgIndex(args)
+	installCmdIndex := -1
+	if commandArgIndex != -1 && !ambiguousCommand && slices.Contains(npm.Config.InstallCommands, args[commandArgIndex]) {
+		installCmdIndex = commandArgIndex
 	}
 
 	if installCmdIndex == -1 {
-		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: IsFirstNonFlagArgInList(args, npm.Config.NonDownloadCommands)}, nil
+		firstCommandArg := ""
+		if commandArgIndex != -1 {
+			firstCommandArg = args[commandArgIndex]
+		}
+
+		if !ambiguousCommand && (firstCommandArg == "exec" || firstCommandArg == "x" || firstCommandArg == "dlx") {
+			var cmdIndex = -1
+			for idx, arg := range args {
+				if arg == firstCommandArg {
+					cmdIndex = idx
+					break
+				}
+			}
+
+			if cmdIndex != -1 {
+				subArgs := args[cmdIndex+1:]
+				installTargets, err := parseFetchAndRunTargets(npm.Config.CommandName, firstCommandArg, subArgs)
+				if err == nil && len(installTargets) > 0 {
+					return &ParsedCommand{
+						Command:        command,
+						InstallTargets: installTargets,
+					}, nil
+				}
+			}
+		}
+
+		return &ParsedCommand{Command: command, IsKnownNonDownloadCommand: isKnownNpmNonDownloadCommand(args, npm.Config.NonDownloadCommands)}, nil
 	}
 
 	// Extract arguments after the install command
@@ -253,4 +315,155 @@ func npmCleanVersion(version string) string {
 	}
 
 	return version
+}
+
+func getFirstNonFlagArg(args []string) string {
+	index, _ := getFirstCommandArgIndex(args)
+	if index == -1 {
+		return ""
+	}
+
+	return args[index]
+}
+
+func getFirstCommandArgIndex(args []string) (int, bool) {
+	ambiguous := false
+	for idx := 0; idx < len(args); idx++ {
+		arg := args[idx]
+		if arg == "--" {
+			if idx+1 < len(args) {
+				return idx + 1, ambiguous
+			}
+			return -1, ambiguous
+		}
+
+		if strings.HasPrefix(arg, "--") {
+			flagName := strings.TrimPrefix(arg, "--")
+			if strings.Contains(flagName, "=") {
+				continue
+			}
+			if _, ok := npmGlobalFlagsWithValues[flagName]; ok {
+				if idx+1 < len(args) {
+					idx++
+				}
+				continue
+			}
+			if idx+1 < len(args) && !strings.HasPrefix(args[idx+1], "-") {
+				ambiguous = true
+			}
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			flagName := strings.TrimPrefix(arg, "-")
+			if len(flagName) > 0 {
+				if _, ok := npmShortFlagsWithValues[flagName[0]]; ok && len(flagName) == 1 {
+					if idx+1 < len(args) {
+						idx++
+					}
+					continue
+				}
+
+				if _, ok := npmShortFlagsWithValues[flagName[0]]; ok {
+					continue
+				}
+
+				allBoolean := true
+				for flagIdx := 0; flagIdx < len(flagName); flagIdx++ {
+					if _, ok := npmShortBooleanFlags[flagName[flagIdx]]; !ok {
+						allBoolean = false
+						break
+					}
+				}
+
+				if !allBoolean && idx+1 < len(args) && !strings.HasPrefix(args[idx+1], "-") {
+					ambiguous = true
+				}
+			}
+			continue
+		}
+		return idx, ambiguous
+	}
+	return -1, ambiguous
+}
+
+func isKnownNpmNonDownloadCommand(args []string, nonDownloadCommands []string) bool {
+	firstNonFlagIndex, ambiguousCommand := getFirstCommandArgIndex(args)
+	if firstNonFlagIndex == -1 || ambiguousCommand {
+		return false
+	}
+
+	firstNonFlag := args[firstNonFlagIndex]
+	if firstNonFlag == "cache" {
+		cacheCommandIndex, ambiguousCacheCommand := getFirstCommandArgIndex(args[firstNonFlagIndex+1:])
+		if ambiguousCacheCommand {
+			return false
+		}
+		if cacheCommandIndex != -1 && args[firstNonFlagIndex+1:][cacheCommandIndex] == "add" {
+			return false
+		}
+	}
+
+	return slices.Contains(nonDownloadCommands, firstNonFlag)
+}
+
+func parseFetchAndRunTargets(cmdName string, subCmd string, args []string) ([]*PackageInstallTarget, error) {
+	flagSet := pflag.NewFlagSet(cmdName, pflag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
+
+	var packages []string
+	flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
+
+	err := flagSet.Parse(args)
+	if err != nil {
+		return nil, nil
+	}
+
+	if len(packages) == 0 {
+		for _, arg := range flagSet.Args() {
+			if strings.HasPrefix(arg, "@") && !slices.Contains(packages, arg) {
+				packages = append(packages, arg)
+			}
+		}
+	}
+
+	// Fall back to the first positional argument for non-ambiguous download runners
+	// like "dlx". Ambiguous runners ("exec", "x") are skipped to avoid false positive
+	// package resolution on local binaries.
+	if len(flagSet.Args()) > 0 && len(packages) == 0 {
+		if subCmd == "dlx" {
+			pkg := flagSet.Args()[0]
+			if !slices.Contains(packages, pkg) {
+				packages = append(packages, pkg)
+			}
+		}
+	}
+
+	var installTargets []*PackageInstallTarget
+	for _, pkg := range packages {
+		packageName, version, err := npmParsePackageInfo(pkg)
+		if err != nil {
+			return nil, ErrFailedToParsePackage.Wrap(err)
+		}
+
+		if version != "" {
+			version = npmCleanVersion(version)
+		}
+
+		installTarget := &PackageInstallTarget{
+			IsExplicitVersion: version != "",
+			PackageVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+					Name:      packageName,
+				},
+				Version: version,
+			},
+		}
+
+		installTargets = append(installTargets, installTarget)
+	}
+
+	return installTargets, nil
 }

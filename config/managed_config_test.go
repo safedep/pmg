@@ -188,3 +188,38 @@ func TestRemoveUserConfigFileNeverTouchesGlobal(t *testing.T) {
 	assert.NoFileExists(t, userFile, "per-user file should be removed")
 	assert.FileExists(t, globalFile, "globally managed file must be left intact")
 }
+
+func TestAllowUnsafeDownloadEnvIgnoredWhenLocked(t *testing.T) {
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("global_lockdown: true\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	t.Setenv("PMG_ALLOW_UNSAFE_DOWNLOAD", "true")
+	initConfig()
+
+	require.True(t, Get().IsLocked())
+	assert.False(t, Get().AllowUnsafeDownload, "PMG_ALLOW_UNSAFE_DOWNLOAD must not bypass a locked config")
+}
+
+func TestAllowUnsafeDownloadEnvHonoredWhenManagedNotLocked(t *testing.T) {
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
+
+	useManagedConfigDir(t, globalDir)
+	t.Setenv("PMG_ALLOW_UNSAFE_DOWNLOAD", "true")
+	initConfig()
+
+	require.True(t, Get().IsManaged())
+	require.False(t, Get().IsLocked())
+	assert.True(t, Get().AllowUnsafeDownload, "without lockdown, PMG_ALLOW_UNSAFE_DOWNLOAD is honored")
+}
+
+func TestAllowUnsafeDownloadEnvHonoredWhenNotManaged(t *testing.T) {
+	useManagedConfigDir(t, t.TempDir()) // empty global dir -> not managed
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	t.Setenv("PMG_ALLOW_UNSAFE_DOWNLOAD", "true")
+	initConfig()
+
+	require.False(t, Get().IsManaged())
+	assert.True(t, Get().AllowUnsafeDownload)
+}
