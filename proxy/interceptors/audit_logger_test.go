@@ -19,14 +19,27 @@ func TestAuditLoggerInterceptor_Behavior(t *testing.T) {
 func TestAuditLoggerInterceptor_KnownRegistryHost(t *testing.T) {
 	i := NewAuditLoggerInterceptor()
 
-	resp, err := i.HandleRequest(&proxy.RequestContext{
-		Hostname: "registry.npmjs.org",
-		Method:   http.MethodConnect,
-	})
+	tests := []struct {
+		name     string
+		hostname string
+	}{
+		{"npm registry", "registry.npmjs.org"},
+		{"go module proxy", "proxy.golang.org"},
+		{"go checksum database", "sum.golang.org"},
+	}
 
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := i.HandleRequest(&proxy.RequestContext{
+				Hostname: tt.hostname,
+				Method:   http.MethodConnect,
+			})
+
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+			assert.Equal(t, proxy.ActionAllow, resp.Action)
+		})
+	}
 }
 
 func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {

@@ -47,5 +47,7 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 }
 
 func (i *AuditLoggerInterceptor) isKnownRegistryHost(hostname string) bool {
-	return npmRegistryDomains.ContainsHostname(hostname) || pypiRegistryDomains.ContainsHostname(hostname)
+	return npmRegistryDomains.ContainsHostname(hostname) ||
+		pypiRegistryDomains.ContainsHostname(hostname) ||
+		goRegistryDomains.ContainsHostname(hostname)
 }
