@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"runtime"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/runner"
+	"github.com/safedep/pmg/internal/trustca"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy"
@@ -113,20 +115,15 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return nil
 	}
 
+	if err := f.warnIfGoProxyCANotTrusted(); err != nil {
+		return err
+	}
+
 	// Setup CA certificate for MITM
 	caCert, caCertPath, err := f.setupCACertificate()
 	if err != nil {
 		return fmt.Errorf("failed to setup CA certificate for proxy mode: %w", err)
 	}
-
-	defer func() {
-		// Clean up temporary CA certificate file
-		if caCertPath != "" {
-			if err := os.Remove(caCertPath); err != nil {
-				log.Errorf("Failed to remove CA certificate file: %v", err)
-			}
-		}
-	}()
 
 	// Create certificate manager
 	certMgr, err := f.createCertificateManager(caCert)
@@ -303,28 +300,39 @@ func handleExecutionResultError(err error) error {
 	return fmt.Errorf("failed to execute command: %w", err)
 }
 
-// setupCACertificate generates CA for MITM and writes proxy bundle for child package managers.
+// setupCACertificate loads or creates the persisted proxy root CA and writes the
+// merged bundle used by child package managers (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, etc.).
 func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, error) {
-	log.Debugf("Generating CA certificate for proxy MITM")
+	configDir := config.Get().ConfigDir()
 
-	// Generate CA certificate
-	caConfig := certmanager.DefaultCertManagerConfig()
-	caCert, err := certmanager.GenerateCAWithSystemCA(caConfig)
+	caCert, err := certmanager.LoadOrCreatePersistedCA(configDir)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate CA certificate: %w", err)
+		return nil, "", fmt.Errorf("failed to load proxy CA certificate: %w", err)
 	}
 
-	// Write CA certificate to temporary file for package managers to trust
-	tempDir := os.TempDir()
-	caCertPath := filepath.Join(tempDir, fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
-
-	if err := os.WriteFile(caCertPath, caCert.Certificate, 0o600); err != nil {
-		return nil, "", fmt.Errorf("failed to write CA certificate to %s: %w", caCertPath, err)
+	bundlePath, err := certmanager.WriteProxyCABundle(configDir, caCert)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to write proxy CA bundle: %w", err)
 	}
 
-	log.Debugf("CA certificate written to %s", caCertPath)
+	log.Debugf("Proxy CA bundle written to %s", bundlePath)
 
-	return caCert, caCertPath, nil
+	return caCert, bundlePath, nil
+}
+
+func (f *proxyFlow) warnIfGoProxyCANotTrusted() error {
+	if runtime.GOOS != "darwin" || f.pm.Ecosystem() != packagev1.Ecosystem_ECOSYSTEM_GO {
+		return nil
+	}
+
+	if trustca.UserTrustInstalled() {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"Go uses the macOS system trust store and does not honor SSL_CERT_FILE for module downloads. " +
+			"Trust the PMG proxy root CA with: pmg setup install --proxy-ca",
+	)
 }
 
 // createCertificateManager creates a certificate manager with the given CA certificate
@@ -389,5 +397,9 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 		fmt.Sprintf("PIP_CERT=%s", caCertPath),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
 		"PIP_RETRIES=0",
+		// Go module proxy protocol (GOPROXY) is not PMG's HTTP MITM proxy. Module
+		// traffic reaches PMG via HTTPS_PROXY; sumdb stays on sum.golang.org (not MITM'd).
+		"GOPROXY=https://proxy.golang.org,direct",
+		"GOSUMDB=sum.golang.org",
 	}
 }

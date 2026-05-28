@@ -19,5 +19,5 @@ func TestSetupEnvForProxy_SetsGoProxy(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, "GOPROXY=https://proxy.golang.org,http://127.0.0.1:8080,direct", goProxy)
+	assert.Equal(t, "GOPROXY=https://proxy.golang.org,direct", goProxy)
 }

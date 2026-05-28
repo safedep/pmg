@@ -55,10 +55,31 @@ Use `--proxy-mode` to override `proxy.enabled` at runtime.
 
 Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat config keys) are still supported when the `proxy:` section does not exist in the config file.
 
+## Go (`go`)
+
+Go is supported only through **proxy flow** (`pmg go …`). PMG routes module downloads to `proxy.golang.org` via `HTTPS_PROXY` (MITM + malware analysis) and tunnels `sum.golang.org` checksum-database traffic without MITM for observability only.
+
+For architecture, file layout, and diagrams, see [Go proxy approach](approach.md).
+
+Go uses the macOS system trust store for HTTPS module downloads. PMG does not install per-host leaf certificates in Keychain — only the **PMG Proxy CA** root must be trusted.
+
+On macOS, after `pmg setup install`, trust the proxy root CA once:
+
+```bash
+pmg setup install --proxy-ca
+```
+
+To remove trust on uninstall:
+
+```bash
+pmg setup remove --proxy-ca
+```
+
 ## Supported Package Managers
 
 | Package Manager | Status |
 | --------------- | ------ |
+| `go`            | ✅ (macOS: requires `--proxy-ca`) |
 | `npm`           | ✅      |
 | `npx`           | ✅      |
 | `pnpm`          | ✅      |
