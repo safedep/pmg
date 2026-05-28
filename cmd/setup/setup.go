@@ -7,12 +7,17 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/shim"
+	"github.com/safedep/pmg/internal/trustca"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
 )
 
-var setupRemoveConfigFile = false
+var (
+	setupRemoveConfigFile = false
+	setupInstallProxyCA   = false
+	setupRemoveProxyCA    = false
+)
 
 func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
@@ -32,7 +37,7 @@ func NewSetupCommand() *cobra.Command {
 }
 
 func NewInstallCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:          "install",
 		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
@@ -41,6 +46,11 @@ func NewInstallCommand() *cobra.Command {
 			return install()
 		},
 	}
+
+	cmd.Flags().BoolVar(&setupInstallProxyCA, "proxy-ca", false,
+		"Trust the PMG proxy root CA in the macOS login keychain (required for Go module proxy MITM)")
+
+	return cmd
 }
 
 func install() error {
@@ -51,6 +61,18 @@ func install() error {
 	if config.Get().IsManaged() {
 		fmt.Printf("%s %s\n", ui.Colors.Dim("ℹ"),
 			fmt.Sprintf("Using globally managed config: %s", config.Get().ConfigFilePath()))
+	}
+
+	if setupInstallProxyCA {
+		if runtime.GOOS != "darwin" {
+			return fmt.Errorf("--proxy-ca is only supported on macOS")
+		}
+
+		if err := trustca.InstallProxyCA(); err != nil {
+			return fmt.Errorf("failed to install proxy CA trust: %w", err)
+		}
+
+		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG proxy root CA trusted in login keychain")
 	}
 
 	if runtime.GOOS == "windows" {
@@ -126,11 +148,21 @@ func NewRemoveCommand() *cobra.Command {
 				return fmt.Errorf("failed to remove shims: %w", err)
 			}
 
+			if setupRemoveProxyCA {
+				if err := trustca.RemoveProxyCA(); err != nil {
+					return fmt.Errorf("failed to remove proxy CA trust: %w", err)
+				}
+
+				fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG proxy root CA removed from login keychain and config")
+			}
+
 			fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases and shims removed. Restart your terminal for changes to take effect")
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&setupRemoveConfigFile, "config-file", false, "Remove the config file")
+	cmd.Flags().BoolVar(&setupRemoveProxyCA, "proxy-ca", false,
+		"Remove the PMG proxy root CA from the macOS login keychain and delete persisted CA files")
 	return cmd
 }
