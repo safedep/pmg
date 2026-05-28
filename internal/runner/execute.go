@@ -27,6 +27,10 @@ const (
 	ExecutionModeAuto
 )
 
+// outputDrainGrace bounds how long we wait for the PTY output reader to finish
+// after the child exits before forcing it to stop.
+const outputDrainGrace = 2 * time.Second
+
 type ExecuteOptions struct {
 	PackageManagerName string
 	DryRun             bool
@@ -242,10 +246,6 @@ func runPTY(
 
 	return nil
 }
-
-// outputDrainGrace bounds how long we wait for the PTY output reader to finish
-// after the child exits before forcing it to stop.
-const outputDrainGrace = 2 * time.Second
 
 func executionMode(opts ExecuteOptions) ExecutionMode {
 	if opts.Mode != ExecutionModeAuto {
