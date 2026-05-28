@@ -22,8 +22,12 @@ func copyWithContext(ctx context.Context, dst io.Writer, src io.Reader) error {
 
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			if _, werr := dst.Write(buf[:nr]); werr != nil {
+			nw, werr := dst.Write(buf[:nr])
+			if werr != nil {
 				return werr
+			}
+			if nw < nr {
+				return io.ErrShortWrite
 			}
 		}
 		if err != nil {

@@ -64,8 +64,12 @@ func copyPTYOutput(ctx context.Context, dst io.Writer, src io.Reader) error {
 		if revents&unix.POLLIN != 0 {
 			nr, rerr := file.Read(buf)
 			if nr > 0 {
-				if _, werr := dst.Write(buf[:nr]); werr != nil {
+				nw, werr := dst.Write(buf[:nr])
+				if werr != nil {
 					return werr
+				}
+				if nw < nr {
+					return io.ErrShortWrite
 				}
 			}
 			if rerr != nil {
