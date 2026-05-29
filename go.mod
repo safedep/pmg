@@ -17,7 +17,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/posthog/posthog-go v1.5.12
 	github.com/safedep/dry v0.0.0-20260524092302-4815730a17cf
-	github.com/safedep/ptyx v0.2.1-0.20260119085117-f667570c2d12
+	github.com/safedep/ptyx v0.2.1-0.20260529140457-d1f745842a6a
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.10
