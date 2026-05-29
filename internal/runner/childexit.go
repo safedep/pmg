@@ -9,8 +9,6 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/proc"
 	"github.com/safedep/pmg/internal/pty"
-	"github.com/safedep/pmg/sandbox"
-	"github.com/safedep/pmg/sandbox/executor"
 )
 
 // ChildExitError marks a transparent passthrough: the wrapped package manager
@@ -29,20 +27,16 @@ func (e *ChildExitError) ExitCode() int     { return e.Code }
 func (e *ChildExitError) Transparent() bool { return true }
 func (e *ChildExitError) IsSignaled() bool  { return e.Signaled }
 
-// classify decides between a transparent child exit and a visible PMG error,
-// and is the only place the fork lives.
-//
-// Any sandbox denials are persisted for forensic review (`pmg sandbox
-// violations list`) but deliberately do NOT make a child's own non-zero exit
-// loud: a restrictive policy routinely denies benign operations, and causation
-// cannot be inferred from a denial. Only a failure on PMG's side of the boundary
-// (the tool never produced an exit status) is surfaced loudly.
-func classify(err error, result *sandbox.ExecutionResult, pmName string) error {
+// classify turns a package-manager execution error into either a transparent
+// child exit or a visible PMG error, and is the only place the fork lives. It is
+// pure: sandbox denials are persisted separately by the caller and never make a
+// child's own non-zero exit loud — a restrictive policy routinely denies benign
+// operations and causation cannot be inferred from a denial. Only a failure on
+// PMG's side of the boundary (the tool never produced an exit status) is loud.
+func classify(err error, pmName string) error {
 	if err == nil {
 		return nil
 	}
-
-	executor.ObserveViolations(result, err)
 
 	code, signaled, resolved := extractExit(err)
 	return decideExit(err, code, signaled, resolved, pmName)
@@ -69,9 +63,6 @@ func extractExit(err error) (code int, signaled bool, resolved bool) {
 	return -1, false, false
 }
 
-// decideExit applies the fork. A child that produced its own exit status is a
-// transparent passthrough that mirrors the code; only an unresolved status (the
-// tool never ran) keeps the loud, useful error.
 func decideExit(err error, code int, signaled, resolved bool, pmName string) error {
 	if !resolved {
 		return visibleExecError(err)
@@ -79,9 +70,8 @@ func decideExit(err error, code int, signaled, resolved bool, pmName string) err
 	return &ChildExitError{Code: code, Signaled: signaled, PMName: pmName}
 }
 
-// visibleExecError builds the loud, user-facing error for a genuine PMG-side
-// failure: the package manager never produced an exit status (e.g. the binary
-// could not be launched). It never attributes the failure to the sandbox.
+// visibleExecError is the loud error for a genuine PMG-side failure: the package
+// manager never produced an exit status (e.g. the binary could not be launched).
 func visibleExecError(err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.PackageManagerExecutionFailed).

@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"errors"
 	"os/exec"
 	"testing"
@@ -9,7 +8,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/pty"
-	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,41 +87,17 @@ func TestDecideExit(t *testing.T) {
 	})
 }
 
-// A restrictive sandbox routinely denies benign operations, so observed
-// violations must NOT make a child's own non-zero exit loud. They are persisted
-// for forensic review but the exit stays transparent (issue #309).
-func TestClassifyStaysTransparentDespiteViolations(t *testing.T) {
-	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(&fakeViolationSandbox{
-		report: &sandbox.ViolationReport{
-			SandboxName: sandbox.DriverSeatbelt,
-			PolicyName:  "npm-restrictive",
-			Violations: []sandbox.Violation{
-				{Kind: sandbox.ViolationKindFSRead, Target: "./.npmrc"},
-				{Kind: sandbox.ViolationKindFSRead, Target: "./.env"},
-			},
-		},
-	}))
-
+// classify is pure: a child that produced its own exit status is always a
+// transparent passthrough. Sandbox denials are persisted by the caller and
+// never reach classify, so they cannot make the exit loud (issue #309).
+func TestClassifyTransparentChildExit(t *testing.T) {
 	childErr := exec.Command("sh", "-c", "exit 1").Run()
 	require.Error(t, childErr)
 
-	err := classify(childErr, result, "npm")
+	err := classify(childErr, "npm")
 
 	var ce *ChildExitError
-	require.True(t, errors.As(err, &ce), "non-zero exit under sandbox must stay transparent")
+	require.True(t, errors.As(err, &ce))
 	assert.Equal(t, 1, ce.ExitCode())
-}
-
-type fakeViolationSandbox struct {
-	report *sandbox.ViolationReport
-}
-
-func (f *fakeViolationSandbox) Execute(context.Context, *exec.Cmd, *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
-	return sandbox.NewExecutionResult(), nil
-}
-func (f *fakeViolationSandbox) Name() sandbox.DriverName { return sandbox.DriverSeatbelt }
-func (f *fakeViolationSandbox) IsAvailable() bool        { return true }
-func (f *fakeViolationSandbox) Close() error             { return nil }
-func (f *fakeViolationSandbox) BestEffortViolation(error) (*sandbox.ViolationReport, error) {
-	return f.report, nil
+	assert.Equal(t, "npm", ce.PMName)
 }

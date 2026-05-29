@@ -129,7 +129,8 @@ func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult, pmName string) er
 	log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
 
 	if err := cmd.Run(); err != nil {
-		return classify(err, result, pmName)
+		executor.ObserveViolations(result, err)
+		return classify(err, pmName)
 	}
 
 	log.Debugf("Command completed successfully")
@@ -242,7 +243,8 @@ func runPTY(
 	}
 
 	if sessionError != nil {
-		return classify(sessionError, result, pmName)
+		executor.ObserveViolations(result, sessionError)
+		return classify(sessionError, pmName)
 	}
 
 	return nil
@@ -310,4 +312,3 @@ func mergeEnv(base, overrides []string) []string {
 
 	return env
 }
-
