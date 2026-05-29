@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/proc"
 	"github.com/safedep/ptyx"
 	"golang.org/x/term"
 )
@@ -152,9 +153,9 @@ func (s *session) Wait() error {
 	err := s.spawn.Wait()
 	if err != nil {
 		if exitErr, ok := err.(*ptyx.ExitError); ok {
-			return &ExitError{Code: exitErr.ExitCode, Err: err}
+			return newExitError(exitErr.ExitCode, exitErr.Sys(), err)
 		}
-		return &ExitError{Code: -1, Err: err}
+		return newExitError(-1, nil, err)
 	}
 	return nil
 }
@@ -178,8 +179,19 @@ func (s *session) Close() error {
 
 // ExitError is returned when the child process exits with non-zero code
 type ExitError struct {
-	Code int
-	Err  error // Underlying error from ptyx
+	Code     int
+	Signaled bool  // true if the child was terminated by a signal (Ctrl+C, SIGTERM, …)
+	Err      error // Underlying error from ptyx
+}
+
+// newExitError resolves the child's termination into an ExitError. When the
+// process was signal-terminated, Code is the conventional 128+signum and
+// Signaled is set; otherwise the raw exit code is preserved.
+func newExitError(code int, sys any, err error) *ExitError {
+	if signum, signaled := proc.SignalInfo(sys); signaled {
+		return &ExitError{Code: 128 + signum, Signaled: true, Err: err}
+	}
+	return &ExitError{Code: code, Err: err}
 }
 
 func (e *ExitError) Error() string {
