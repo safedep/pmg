@@ -499,7 +499,6 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	return result, g.continueExecution(ctx, parsedCommand)
 }
 
-// logMalwareDetection logs malware detection events
 // warnIfExcluded surfaces a security-relevant notice when a flagged package was
 // allowed only because of a tenant-specific exclusion, so it is never silently
 // trusted.

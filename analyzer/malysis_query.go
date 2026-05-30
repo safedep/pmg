@@ -108,7 +108,8 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 		}
 	}
 
-	// This is a confirmed malicious package, we must always block it
+	// A confirmed malicious package is blocked here, unless a tenant exclusion
+	// downgrades it to allow in applyExclusion below.
 	if res.GetVerificationRecord().GetIsMalware() {
 		analysisResult.IsMalware = true
 		analysisResult.IsVerified = true

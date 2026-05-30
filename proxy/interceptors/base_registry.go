@@ -229,7 +229,14 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			b.statsCollector.RecordAllowed(result)
 		}
 
-		log.Debugf("[%s] Package %s/%s@%s is safe, allowing request", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+		// A flagged package allowed only because of a tenant-specific exclusion is
+		// a security-relevant trust decision; surface it so it is never silent.
+		if result.IsExcluded {
+			log.Warnf("[%s] Allowing flagged package %s/%s@%s due to tenant exclusion (%s)",
+				ctx.RequestID, ecosystem.String(), packageName, packageVersion, result.ExclusionReason)
+		} else {
+			log.Debugf("[%s] Package %s/%s@%s is safe, allowing request", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+		}
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:
