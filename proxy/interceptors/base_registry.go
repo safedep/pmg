@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 	gobreaker "github.com/sony/gobreaker/v2"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,6 +27,13 @@ type baseRegistryInterceptor struct {
 	confirmationChan chan *ConfirmationRequest
 	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
 	execContext      InterceptorContext
+
+	// inflight collapses concurrent analyses of the same package version into a
+	// single upstream call. During a large install the same transitive
+	// dependency is frequently requested across several connections at once;
+	// without de-duplication each would issue its own gRPC call to the external
+	// analysis service, amplifying load and latency (head-of-line blocking).
+	inflight singleflight.Group
 }
 
 func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
@@ -110,31 +118,49 @@ func (b *baseRegistryInterceptor) analyzePackage(
 
 	log.Debugf("[%s] Analyzing package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-	result, err := b.circuitBreaker.Execute(func() (*analyzer.PackageVersionAnalysisResult, error) {
-		analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
-		if err != nil {
-			// NotFound means the package is not in the analysis DB — this is expected
-			// and should not count as a circuit breaker failure.
-			// Since gRPC v1.75.0, status.FromError unwraps error chains via errors.As.
-			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-				log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
-				return &analyzer.PackageVersionAnalysisResult{
-					PackageVersion: pkgVersion,
-					Action:         analyzer.ActionAllow,
-				}, nil
-			}
+	// Collapse concurrent analyses of the same package version into one upstream
+	// call. Waiters share the single result so a burst of identical requests
+	// does not fan out into a burst of gRPC calls against the external service.
+	key := ecosystem.String() + ":" + packageName + ":" + packageVersion
+	resultAny, err, _ := b.inflight.Do(key, func() (interface{}, error) {
+		// Re-check the cache: a previous in-flight analysis for this key may
+		// have populated it after our own cache miss above.
+		if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {
+			return cached, nil
 		}
 
-		return res, err
+		result, err := b.circuitBreaker.Execute(func() (*analyzer.PackageVersionAnalysisResult, error) {
+			analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
+			if err != nil {
+				// NotFound means the package is not in the analysis DB — this is expected
+				// and should not count as a circuit breaker failure.
+				// Since gRPC v1.75.0, status.FromError unwraps error chains via errors.As.
+				if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+					log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
+					return &analyzer.PackageVersionAnalysisResult{
+						PackageVersion: pkgVersion,
+						Action:         analyzer.ActionAllow,
+					}, nil
+				}
+			}
+
+			return res, err
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		b.cache.Set(ecosystem.String(), packageName, packageVersion, result)
+		return result, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("analyzer failed: %w", err)
 	}
 
-	b.cache.Set(ecosystem.String(), packageName, packageVersion, result)
+	result := resultAny.(*analyzer.PackageVersionAnalysisResult)
 
 	log.Debugf("[%s] Analysis complete for %s@%s: action=%d", ctx.RequestID, packageName, packageVersion, result.Action)
 
