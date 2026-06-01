@@ -67,16 +67,16 @@ PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and 
 
 PMG is the only free, open-source, install-time package firewall that covers developers and AI agents alike and ships with sandboxing and cooldown out of the box.
 
-| Capability                              | PMG | Socket  | Snyk | Dependabot |
-| --------------------------------------- | --- | ------- | ---- | ---------- |
-| OSS / built in public                   | ✓   | ✗       | ✗    | ✗          |
-| No account or API key                   | ✓   | ✓       | ✗    | ✗          |
-| Install-time malicious package blocking | ✓   | ✓       | ✗    | ✗          |
-| Dependency cooldown policy              | ✓   | ✗       | ✗    | ✗          |
-| Runtime sandboxing                         | ✓   | ✗       | ✗    | ✗          |
-| Protects AI coding agents transparently | ✓   | ✗       | ✗    | ✗          |
-| Local audit logs                        | ✓   | ✗       | ✗    | ✗          |
-| Known-CVE remediation PRs               | ✗   | ✗       | ✓    | ✓          |
+| Capability                              | PMG | Socket | safe-chain | Snyk | Dependabot |
+| --------------------------------------- | --- | ------ | ---------- | ---- | ---------- |
+| OSS / built in public                   | ✓   | ✗      | ✓          | ✗    | ✗          |
+| No account or API key                   | ✓   | ✓      | ✓          | ✗    | ✗          |
+| Install-time malicious package blocking | ✓   | ✓      | ✓          | ✗    | ✗          |
+| Dependency cooldown policy              | ✓   | ✗      | ✓          | ✗    | ✗          |
+| Runtime sandboxing                      | ✓   | ✗      | ✗          | ✗    | ✗          |
+| Protects AI coding agents transparently | ✓   | ✗      | ✗          | ✗    | ✗          |
+| Local audit logs                        | ✓   | ✗      | ✗          | ✗    | ✗          |
+| Known-CVE remediation PRs               | ✗   | ✗      | ✗          | ✓    | ✓          |
 
 ## Quick Start
 
