@@ -20,7 +20,7 @@ func NewUvCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executeUvFlow(cmd.Context(), args)
 			if err != nil {
-				ui.ErrorExit(err)
+				ui.ExitFromCommandError(err)
 			}
 
 			return nil

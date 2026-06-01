@@ -6,11 +6,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type fakeViolationSandbox struct {
@@ -37,10 +34,7 @@ func (f *fakeViolationSandbox) BestEffortViolation(error) (*sandbox.ViolationRep
 	return f.report, nil
 }
 
-// WrapCommandExecutionError must never claim the sandbox blocked a command.
-// Even when violations were observed, the user-facing error stays the package
-// manager's native exit; a neutral breadcrumb points at the forensic command.
-func TestWrapCommandExecutionErrorDoesNotAttributeFailureToSandbox(t *testing.T) {
+func TestObserveViolationsCountsObservedViolations(t *testing.T) {
 	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(&fakeViolationSandbox{
 		report: &sandbox.ViolationReport{
 			SandboxName:   sandbox.DriverSeatbelt,
@@ -58,29 +52,17 @@ func TestWrapCommandExecutionErrorDoesNotAttributeFailureToSandbox(t *testing.T)
 		},
 	}))
 
-	err := WrapCommandExecutionError(errors.New("npm failed"), result, 1)
-
-	usefulErr, ok := usefulerror.AsUsefulError(err)
-	require.True(t, ok)
-	assert.Equal(t, errcodes.PackageManagerExecutionFailed, usefulErr.Code())
-	assert.Equal(t, "Package manager command exited with code: 1", usefulErr.HumanError())
-	assert.NotContains(t, usefulErr.Help(), "./.env")
-	assert.Contains(t, usefulErr.AdditionalHelp(), "pmg sandbox violations list")
+	assert.Equal(t, 1, ObserveViolations(result, errors.New("npm failed")))
 }
 
-func TestWrapCommandExecutionErrorOmitsBreadcrumbWhenNoViolations(t *testing.T) {
+func TestObserveViolationsReturnsZeroWhenNoReport(t *testing.T) {
 	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(&fakeViolationSandbox{
 		report: nil,
 	}))
 
-	err := WrapCommandExecutionError(errors.New("npm failed"), result, 1)
-
-	usefulErr, ok := usefulerror.AsUsefulError(err)
-	require.True(t, ok)
-	assert.Equal(t, errcodes.PackageManagerExecutionFailed, usefulErr.Code())
-	assert.NotContains(t, usefulErr.AdditionalHelp(), "pmg sandbox violations list")
+	assert.Equal(t, 0, ObserveViolations(result, errors.New("npm failed")))
 }
 
-func TestWrapCommandExecutionErrorReturnsNilOnNilError(t *testing.T) {
-	assert.NoError(t, WrapCommandExecutionError(nil, nil, 0))
+func TestObserveViolationsReturnsZeroOnNilResult(t *testing.T) {
+	assert.Equal(t, 0, ObserveViolations(nil, errors.New("npm failed")))
 }

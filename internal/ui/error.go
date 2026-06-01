@@ -37,29 +37,28 @@ func ErrorExitWithCode(err error, code int) {
 	os.Exit(code)
 }
 
-// printMinimalError prints error in minimal two-line format:
+// Error output goes to stderr so the wrapped package manager's stdout passes
+// through clean (e.g. `pmg npm view --json` stays parseable).
 func printMinimalError(code, message, hint string) {
-	fmt.Printf("%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
+	fmt.Fprintf(os.Stderr, "%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
 
 	if hint != "" && hint != "No additional help is available for this error." {
-		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
+		fmt.Fprintf(os.Stderr, " %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
 	}
 }
 
-// printVerboseError prints detailed error for debugging (--verbose mode)
-// Includes additional help and original error chain for troubleshooting
 func printVerboseError(code, message, hint, additionalHelp, originalError string) {
-	fmt.Printf("%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
+	fmt.Fprintf(os.Stderr, "%s  %s\n", Colors.ErrorCode(" %s ", code), Colors.Red(message))
 
 	if hint != "" && hint != "No additional help is available for this error." {
-		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
+		fmt.Fprintf(os.Stderr, " %s %s\n", Colors.Dim("→"), Colors.Dim(hint))
 	}
 
 	if additionalHelp != "" && additionalHelp != "No additional help is available for this error." {
-		fmt.Printf(" %s %s\n", Colors.Dim("→"), Colors.Dim(additionalHelp))
+		fmt.Fprintf(os.Stderr, " %s %s\n", Colors.Dim("→"), Colors.Dim(additionalHelp))
 	}
 
 	if originalError != "" && originalError != message {
-		fmt.Printf(" %s %s\n", Colors.Dim("┄"), Colors.Dim(originalError))
+		fmt.Fprintf(os.Stderr, " %s %s\n", Colors.Dim("┄"), Colors.Dim(originalError))
 	}
 }
