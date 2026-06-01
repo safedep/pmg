@@ -315,7 +315,7 @@ func mergeSystemCABundle(caCert *Certificate) (*Certificate, error) {
 	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
 
 	if systemBundlePath == "" {
-		log.Warnf("Skipping cystem CA bundle merge: no system CA bundle found")
+		log.Warnf("Skipping system CA bundle merge: no system CA bundle found")
 		return caCert, nil
 	}
 
