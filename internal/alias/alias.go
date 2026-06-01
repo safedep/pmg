@@ -163,8 +163,14 @@ func (a *AliasManager) IsInstalled() (bool, error) {
 				continue
 			}
 
-			if strings.Contains(string(data), a.config.RcFileName) {
-				return true, nil
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+				if strings.Contains(trimmed, a.config.RcFileName) {
+					return true, nil
+				}
 			}
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -290,14 +289,14 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	return handleExecutionResultError(executionError)
 }
 
-// handleExecutionResultError handles the error from the execution result.
+// handleExecutionResultError returns the execution error so RunE can route it
+// through ui.ExitFromCommandError, the single exit point. A transparent
+// *runner.ChildExitError survives the %w wrap (errors.As unwraps it) and is
+// passed through with the child's exit code; everything else keeps the visible
+// PMG error framing.
 func handleExecutionResultError(err error) error {
 	if err == nil {
 		return nil
-	}
-
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		os.Exit(exitErr.ExitCode())
 	}
 
 	return fmt.Errorf("failed to execute command: %w", err)

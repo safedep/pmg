@@ -18,6 +18,7 @@
 [![Docs](https://img.shields.io/badge/Docs-docs.safedep.io-2b9246?style=flat-square)](https://docs.safedep.io/pmg/quickstart)
 [![Website](https://img.shields.io/badge/Website-safedep.io-3b82f6?style=flat-square)](https://safedep.io)
 [![Discord](https://img.shields.io/discord/1090352019379851304?style=flat-square)](https://discord.gg/kAGEj25dCn)
+[![Featured in tl;dr sec](https://img.shields.io/badge/Featured%20in-tl%3Bdr%20sec-FF6B35?style=flat-square)](https://tldrsec.com/p/tldr-sec-316)
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/safedep/pmg)](https://goreportcard.com/report/github.com/safedep/pmg)
 ![License](https://img.shields.io/github/license/safedep/pmg)
@@ -38,19 +39,44 @@ Recent compromises in popular ecosystems:
 - [**telnyx 4.87.2**](https://safedep.io/malicious-telnyx-pypi-compromise/) - a legitimate telecom SDK hijacked on PyPI
 - [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
 
-PMG intercepts every package install and checks it for malware **before** code executes. Install it once, and PMG covers every `npm install`, `pip install`, and `poetry add` after that.
-
-> Featured in [tl;dr sec](https://tldrsec.com/p/tldr-sec-316).
+**PMG is free, open source (Apache 2.0), and requires no account or API key.** It intercepts every package install and checks it against [SafeDep's free community API](https://safedep.io) for known malware **before** code executes. Install it once, and it covers every `npm install`, `pip install`, and `poetry add` after that.
 
 ## How PMG Works
 
-PMG takes a defense in depth approach. Each install passes through the enabled protection layers before code runs, plus an audit trail after.
+PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish, and each install passes through the enabled protection layers before code runs, plus an audit trail after.
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/how-pmg-works-dark.svg">
+    <img alt="PMG defense in depth: install command intercepted by PMG, passed through Layer 1 Threat Intel, Layer 2 Cooldown, Layer 3 Sandbox, then run with an audit log entry" src="./docs/assets/how-pmg-works-light.svg" width="820">
+  </picture>
+</div>
+
+<details>
+<summary><strong>Layer details</strong></summary>
 
 - **Transparent Interception** - PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands. No workflow changes.
-- **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages never reach disk.
-- **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so freshly compromised versions cannot land before the ecosystem has had time to flag them.
-- **Layer 3: Optional Sandbox** - When sandboxing is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
+- **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages are blocked. No key, no login required.
+- **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so recently compromised versions are skipped during the window.
+- **Layer 3: Opt-in Sandbox** - When sandboxing is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
 - **Audit Logging** - PMG logs every install (what, when, from where) for a verifiable audit trail.
+
+</details>
+
+## How PMG Compares
+
+PMG is the only free, open-source, install-time package firewall that covers developers and AI agents alike and ships with sandboxing and cooldown out of the box.
+
+| Capability                              | PMG | Socket  | Snyk | Dependabot |
+| --------------------------------------- | --- | ------- | ---- | ---------- |
+| OSS / built in public                   | ✓   | ✗       | ✗    | ✗          |
+| No account or API key                   | ✓   | ✓       | ✗    | ✗          |
+| Install-time malicious package blocking | ✓   | ✓       | ✗    | ✗          |
+| Dependency cooldown policy              | ✓   | ✗       | ✗    | ✗          |
+| Runtime sandboxing                         | ✓   | ✗       | ✗    | ✗          |
+| Protects AI coding agents transparently | ✓   | ✗       | ✗    | ✗          |
+| Local audit logs                        | ✓   | ✗       | ✗    | ✗          |
+| Known-CVE remediation PRs               | ✗   | ✗       | ✓    | ✓          |
 
 ## Quick Start
 
@@ -73,44 +99,30 @@ pmg setup install
 
 > **Tip:** Re-run `pmg setup install` after upgrading PMG to pick up new configuration options.
 
+Validate your installation and verify protection is working:
+
+```bash
+pmg setup doctor
+```
+
 ### 3. Use
 
-Run your package managers as usual, or let your AI coding agent run them. PMG sits in the path.
+See PMG blocking threats.
+
+```bash
+npm install --no-cache --prefer-online safedep-test-pkg@0.1.3
+```
+
+> **Note:** `safedep-test-pkg` is a benign test package flagged as malicious in SafeDep's database for
+> testing and verification purposes.
+
+Continue using your package managers as usual, or let your AI coding agent run them. PMG sits in the path, blocking malicious packages.
 
 ```bash
 npm install express
 # or
 pip install requests
 ```
-
-Verify PMG works by installing `safedep-test-pkg`. It's harmless, but SafeDep flags it as malicious so you can confirm the block path:
-
-```bash
-npm --prefer-online --no-cache i safedep-test-pkg@0.1.3
-```
-
-<details>
-<summary>Expected output</summary>
-
-```
-✗ Malicious package blocked
-
-  - safedep-test-pkg@0.1.3
-    Reference: https://app.safedep.io/community/malysis/01KF5JYDND9XR94WNEJ2G74KY2
-
-✗ PMG: 1 packages analyzed, 1 blocked
-```
-
-</details>
-
-## Features
-
-| Feature                  | Description                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| **AI Agent Safety Net**  | Catches malicious packages installed by AI coding agents (Claude Code, Cursor, Copilot, Windsurf).           |
-| **Dependency Cooldown**  | Blocks package versions published within a configurable time window, reducing exposure to supply chain attacks. |
-| **Zero Config**          | Works out of the box with sensible security defaults.                                                        |
-| **Cross-Shell**          | Integrates with Zsh, Bash, Fish, and more.                                                                   |
 
 ## Supported Package Managers
 
@@ -233,18 +245,35 @@ PMG builds are reproducible and signed.
 
 ## User Guide
 
+- [Configuration](docs/config.md)
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
-- [Sandboxing Details](docs/sandbox.md)
+- [Sandboxing](docs/sandbox.md)
 
 ## Support
 
 If PMG saved you from a bad package, [star this repo](https://github.com/safedep/pmg). It helps others find it.
 
+## Star History
+
+<a href="https://star-history.com/#safedep/pmg&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=safedep/pmg&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=safedep/pmg&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=safedep/pmg&type=Date" />
+  </picture>
+</a>
+
 ## Contributing
 
 Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test instructions.
+
+Thank you to all contributors ❤️
+
+<a href="https://github.com/safedep/pmg/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=safedep/pmg" alt="Contributors to PMG" />
+</a>
 
 ## Telemetry
 

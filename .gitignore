@@ -17,9 +17,6 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
-go.work.sum
 bin/
 
 # env file
@@ -27,3 +24,14 @@ bin/
 
 dist/
 .DS_Store
+
+# Nx
+.nx/
+node_modules/
+
+# Platform package binaries (populated by sync-binaries at build time)
+packages/*/bin/
+
+# Build artifacts in wrapper package
+packages/pmg/dist/
+packages/pmg/README.md

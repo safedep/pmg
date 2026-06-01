@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -26,6 +26,10 @@ const (
 	ExecutionModePTY
 	ExecutionModeAuto
 )
+
+// outputDrainGrace bounds how long we wait for the PTY output reader to finish
+// after the child exits before forcing it to stop.
+const outputDrainGrace = 2 * time.Second
 
 type ExecuteOptions struct {
 	PackageManagerName string
@@ -111,13 +115,13 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	switch mode {
 	case ExecutionModePTY:
-		return runPTY(ctx, cmd, cmd.Env, result, opts.PreparePTYSession)
+		return runPTY(ctx, cmd, cmd.Env, result, opts.PackageManagerName, opts.PreparePTYSession)
 	default:
-		return runDirect(cmd, result)
+		return runDirect(cmd, result, opts.PackageManagerName)
 	}
 }
 
-func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult) error {
+func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult, pmName string) error {
 	if !result.ShouldRun() {
 		return nil
 	}
@@ -125,7 +129,8 @@ func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult) error {
 	log.Debugf("Running command with args: %s: %v", cmd.Path, cmd.Args[1:])
 
 	if err := cmd.Run(); err != nil {
-		return wrapCommandExecutionError(err, result)
+		executor.ObserveViolations(result, err)
+		return classify(err, pmName)
 	}
 
 	log.Debugf("Command completed successfully")
@@ -137,6 +142,7 @@ func runPTY(
 	cmd *exec.Cmd,
 	env []string,
 	result *sandbox.ExecutionResult,
+	pmName string,
 	beforeWait func(*PTYRuntime) error,
 ) error {
 	if !result.ShouldRun() {
@@ -167,12 +173,20 @@ func runPTY(
 		return fmt.Errorf("failed to create output router: %w", err)
 	}
 
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		if _, err := io.Copy(outputRouter, sess.PtyReader()); err != nil {
+	// The output reader normally ends on its own when the PTY master reports
+	// EOF after the child exits. copyCtx lets us stop it otherwise: on parent
+	// cancellation (Ctrl+C) and on the drain-grace path below, which guards
+	// against a lingering descendant keeping the slave open (no EOF).
+	copyCtx, stopCopy := context.WithCancel(ctx)
+	defer stopCopy()
+
+	copyDone := make(chan struct{})
+	go func() {
+		defer close(copyDone)
+		if err := sess.CopyOutputContext(copyCtx, outputRouter); err != nil {
 			log.Errorf("failed to copy output: %v", err)
 		}
-	})
+	}()
 
 	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
 	if err != nil {
@@ -217,10 +231,20 @@ func runPTY(
 	}
 
 	sessionError := sess.Wait()
-	wg.Wait()
+
+	// Child has exited. Let the reader drain to EOF, but bound the wait so a
+	// lingering descendant holding the slave open cannot block teardown.
+	select {
+	case <-copyDone:
+	case <-time.After(outputDrainGrace):
+		log.Debugf("output drain grace exceeded, stopping pty reader")
+		stopCopy()
+		<-copyDone
+	}
 
 	if sessionError != nil {
-		return wrapCommandExecutionError(sessionError, result)
+		executor.ObserveViolations(result, sessionError)
+		return classify(sessionError, pmName)
 	}
 
 	return nil
@@ -287,16 +311,4 @@ func mergeEnv(base, overrides []string) []string {
 	}
 
 	return env
-}
-
-func wrapCommandExecutionError(err error, result *sandbox.ExecutionResult) error {
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return executor.WrapCommandExecutionError(err, result, exitErr.ExitCode())
-	}
-
-	if sessionError, ok := err.(*pty.ExitError); ok {
-		return executor.WrapCommandExecutionError(sessionError, result, sessionError.Code)
-	}
-
-	return executor.WrapCommandExecutionError(err, result, -1)
 }

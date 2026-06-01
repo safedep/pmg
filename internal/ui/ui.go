@@ -184,7 +184,7 @@ func PromptSecret(label string) (string, error) {
 func Fatalf(msg string, args ...interface{}) {
 	ClearStatus()
 
-	fmt.Println(Colors.Red(fmt.Sprintf(msg, args...)))
+	fmt.Fprintln(os.Stderr, Colors.Red(fmt.Sprintf(msg, args...)))
 	os.Exit(1)
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/proc"
 	"github.com/safedep/ptyx"
 	"golang.org/x/term"
 )
@@ -20,6 +21,12 @@ type InteractiveSession interface {
 
 	// PtyReader returns the reader to receive output from the child process
 	PtyReader() io.Reader
+
+	// CopyOutputContext copies child output to dst until the child exits (EOF)
+	// or ctx is cancelled. On unix it drives the read with a poll(2) loop so it
+	// works even when the Go netpoller cannot manage the PTY master, and so it
+	// can be cancelled without leaking a goroutine blocked in read().
+	CopyOutputContext(ctx context.Context, dst io.Writer) error
 
 	// SetRawMode puts terminal in raw mode (for PTY passthrough)
 	SetRawMode() error
@@ -129,6 +136,10 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 func (s *session) PtyWriter() io.Writer { return s.spawn.PtyWriter() }
 func (s *session) PtyReader() io.Reader { return s.spawn.PtyReader() }
 
+func (s *session) CopyOutputContext(ctx context.Context, dst io.Writer) error {
+	return copyPTYOutput(ctx, dst, s.spawn.PtyReader())
+}
+
 func (s *session) SetRawMode() error {
 	_, err := s.console.MakeRaw()
 	return err
@@ -142,9 +153,9 @@ func (s *session) Wait() error {
 	err := s.spawn.Wait()
 	if err != nil {
 		if exitErr, ok := err.(*ptyx.ExitError); ok {
-			return &ExitError{Code: exitErr.ExitCode, Err: err}
+			return newExitError(exitErr.ExitCode, exitErr.Sys(), err)
 		}
-		return &ExitError{Code: -1, Err: err}
+		return newExitError(-1, nil, err)
 	}
 	return nil
 }
@@ -168,8 +179,19 @@ func (s *session) Close() error {
 
 // ExitError is returned when the child process exits with non-zero code
 type ExitError struct {
-	Code int
-	Err  error // Underlying error from ptyx
+	Code     int
+	Signaled bool  // true if the child was terminated by a signal (Ctrl+C, SIGTERM, …)
+	Err      error // Underlying error from ptyx
+}
+
+// newExitError resolves the child's termination into an ExitError. When the
+// process was signal-terminated, Code is the conventional 128+signum and
+// Signaled is set; otherwise the raw exit code is preserved.
+func newExitError(code int, sys any, err error) *ExitError {
+	if signum, signaled := proc.SignalInfo(sys); signaled {
+		return &ExitError{Code: 128 + signum, Signaled: true, Err: err}
+	}
+	return &ExitError{Code: code, Err: err}
 }
 
 func (e *ExitError) Error() string {

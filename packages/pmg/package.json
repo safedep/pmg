@@ -1,0 +1,39 @@
+{
+  "name": "@safedep/pmg",
+  "version": "0.0.0",
+  "description": "PMG - Package Manager Guard: protect developers from malicious packages",
+  "license": "Apache-2.0",
+  "keywords": ["security", "supply-chain", "packages", "safedep", "pmg"],
+  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/safedep/pmg.git"
+  },
+  "homepage": "https://safedep.io",
+  "bugs": { "url": "https://github.com/safedep/pmg/issues" },
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "bin": {
+    "pmg": "dist/bin.cjs"
+  },
+  "files": [
+    "dist/**"
+  ],
+  "optionalDependencies": {
+    "@safedep/pmg-linux-x64":    "workspace:*",
+    "@safedep/pmg-linux-arm64":  "workspace:*",
+    "@safedep/pmg-darwin-x64":   "workspace:*",
+    "@safedep/pmg-darwin-arm64": "workspace:*",
+    "@safedep/pmg-win32-x64":    "workspace:*"
+  },
+  "scripts": {
+    "prepack": "cp ../../README.md README.md",
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.1",
+    "tsdown": "0.22.0",
+    "typescript": "6.0.3"
+  }
+}

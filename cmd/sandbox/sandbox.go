@@ -22,5 +22,7 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(NewProfileCommand())
 	cmd.AddCommand(NewExplainCommand())
 	cmd.AddCommand(NewViolationsCommand())
+	cmd.AddCommand(NewAllowCommand())
+	cmd.AddCommand(NewProjectCommand())
 	return cmd
 }
