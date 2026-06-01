@@ -337,7 +337,7 @@ func mergeSystemCABundle(caCert *Certificate) (*Certificate, error) {
 
 	systemBundle, err := os.ReadFile(systemBundlePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read system CA bundle %s : %w", systemBundle, err)
+		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
 	}
 
 	merged, ok := mergeWithSystemBundle(caCertPEM, systemBundle)
