@@ -41,6 +41,14 @@ type PackageVersionAnalysisResult struct {
 	// Whether the malware verdict has been verified (confirmed by a human or verification system)
 	IsVerified bool
 
+	// Whether a tenant-specific exclusion caused this package to be trusted
+	// despite a malware verdict. Only set by authenticated analyzers.
+	IsExcluded bool
+
+	// The tenant-specific exclusion that trusted this package, when IsExcluded is true
+	ExclusionID     string
+	ExclusionReason string
+
 	// Analyzer specific data
 	Data any
 }

@@ -340,7 +340,7 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 // createAnalyzer creates the malysis query analyzer
 func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
 	log.Debugf("Creating malysis query analyzer")
-	return analyzer.NewMalysisQueryAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	return analyzer.NewMalysisAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor
