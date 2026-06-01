@@ -116,7 +116,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return nil
 	}
 
-	if err := f.warnIfGoProxyCANotTrusted(); err != nil {
+	if err := f.requireGoProxyCATrust(); err != nil {
 		return err
 	}
 
@@ -321,9 +321,21 @@ func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, erro
 	return caCert, bundlePath, nil
 }
 
-func (f *proxyFlow) warnIfGoProxyCANotTrusted() error {
-	if runtime.GOOS != "darwin" || f.pm.Ecosystem() != packagev1.Ecosystem_ECOSYSTEM_GO {
+func (f *proxyFlow) requireGoProxyCATrust() error {
+	return f.requireGoProxyCATrustForOS(runtime.GOOS)
+}
+
+func (f *proxyFlow) requireGoProxyCATrustForOS(goos string) error {
+	if f.pm.Ecosystem() != packagev1.Ecosystem_ECOSYSTEM_GO {
 		return nil
+	}
+
+	if goos != "darwin" {
+		return fmt.Errorf(
+			"Go proxy mode requires trusting the PMG proxy root CA, which is currently only supported on macOS. "+
+				"Current OS: %s",
+			goos,
+		)
 	}
 
 	if trustca.UserTrustInstalled() {
