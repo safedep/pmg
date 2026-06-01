@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/safedep/dry/log"
 )
 
 const (
@@ -41,12 +43,27 @@ func LoadOrCreatePersistedCA(configDir string) (*Certificate, error) {
 			return nil, fmt.Errorf("read proxy CA private key %s: %w", keyPath, err)
 		}
 
-		return parseCertificate(&Certificate{
+		caCert, err := parseCertificate(&Certificate{
 			Certificate: certPEM,
 			PrivateKey:  keyPEM,
 		})
+		if err != nil {
+			return nil, err
+		}
+
+		if !caCert.IsExpired(certExpiryThreshold) {
+			return caCert, nil
+		}
+
+		log.Warnf(
+			"Persisted proxy CA expired and was regenerated; trust the new CA with: pmg setup install --proxy-ca",
+		)
 	}
 
+	return generateAndWritePersistedCA(configDir, certPath, keyPath)
+}
+
+func generateAndWritePersistedCA(configDir, certPath, keyPath string) (*Certificate, error) {
 	caCert, err := GenerateCA(DefaultCertManagerConfig())
 	if err != nil {
 		return nil, fmt.Errorf("generate proxy CA: %w", err)
@@ -73,7 +90,10 @@ func WriteProxyCABundle(configDir string, rootCA *Certificate) (string, error) {
 		return "", fmt.Errorf("root CA cannot be nil")
 	}
 
-	_, _, bundlePath := ProxyCAPaths(configDir)
+	certPath, _, bundlePath := ProxyCAPaths(configDir)
+	if proxyCABundleFresh(bundlePath, certPath) {
+		return bundlePath, nil
+	}
 
 	bundle, err := mergeSystemCABundle(rootCA)
 	if err != nil {
@@ -85,6 +105,20 @@ func WriteProxyCABundle(configDir string, rootCA *Certificate) (string, error) {
 	}
 
 	return bundlePath, nil
+}
+
+func proxyCABundleFresh(bundlePath, certPath string) bool {
+	bundleInfo, err := os.Stat(bundlePath)
+	if err != nil || bundleInfo.IsDir() {
+		return false
+	}
+
+	certInfo, err := os.Stat(certPath)
+	if err != nil || certInfo.IsDir() {
+		return false
+	}
+
+	return bundleInfo.ModTime().After(certInfo.ModTime())
 }
 
 // RemovePersistedCA deletes persisted proxy CA files from configDir.
