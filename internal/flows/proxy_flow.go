@@ -2,6 +2,7 @@ package flows
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/truststore"
 )
 
 type proxyFlow struct {
@@ -302,28 +304,69 @@ func handleExecutionResultError(err error) error {
 	return fmt.Errorf("failed to execute command: %w", err)
 }
 
-// setupCACertificate generates CA for MITM and writes proxy bundle for child package managers.
+// setupCACertificate prefers the persisted CA (created by `pmg setup cert install`)
+// so the proxy signs leaves with the same CA that is in the OS trust store. When no
+// persisted CA exists it falls back to an ephemeral per-run CA, preserving original
+// behavior. The temp file always carries the pure CA merged with the system bundle so
+// env-var trust injection works on every platform.
 func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, error) {
-	log.Debugf("Generating CA certificate for proxy MITM")
+	dir := config.Get().ConfigDir()
 
-	// Generate CA certificate
-	caConfig := certmanager.DefaultCertManagerConfig()
-	caCert, err := certmanager.GenerateCAWithSystemCA(caConfig)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate CA certificate: %w", err)
+	caCert, persisted := loadPersistedCA(dir)
+	if persisted {
+		log.Debugf("Using persisted CA certificate from %s", dir)
+		warnIfCANotTrusted()
+	} else {
+		log.Debugf("Generating ephemeral CA certificate for proxy MITM")
+		generated, err := certmanager.GenerateCA(certmanager.DefaultCertManagerConfig())
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to generate CA certificate: %w", err)
+		}
+		caCert = generated
 	}
 
-	// Write CA certificate to temporary file for package managers to trust
+	mergedPEM := certmanager.MergeWithSystemCA(caCert.Certificate)
+
 	tempDir := os.TempDir()
 	caCertPath := filepath.Join(tempDir, fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
-
-	if err := os.WriteFile(caCertPath, caCert.Certificate, 0o600); err != nil {
+	if err := os.WriteFile(caCertPath, mergedPEM, 0o600); err != nil {
 		return nil, "", fmt.Errorf("failed to write CA certificate to %s: %w", caCertPath, err)
 	}
 
 	log.Debugf("CA certificate written to %s", caCertPath)
-
 	return caCert, caCertPath, nil
+}
+
+// loadPersistedCA returns the on-disk CA when present and not expired.
+func loadPersistedCA(dir string) (*certmanager.Certificate, bool) {
+	caCert, err := certmanager.LoadCA(dir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Warnf("Failed to load persisted CA, using ephemeral: %v", err)
+		}
+		return nil, false
+	}
+
+	if caCert.IsExpired(time.Hour) {
+		log.Warnf("Persisted CA is expired; using ephemeral. Re-run `pmg setup cert install`")
+		return nil, false
+	}
+
+	return caCert, true
+}
+
+// warnIfCANotTrusted logs a hint when the persisted CA is not in any OS store,
+// which matters for native tools (e.g. Go on macOS/Windows) that ignore the
+// injected env vars. Best-effort; never blocks the run.
+func warnIfCANotTrusted() {
+	user, system, err := truststore.Status(certmanager.CACommonName)
+	if err != nil {
+		log.Debugf("Could not determine CA trust status: %v", err)
+		return
+	}
+	if !user && !system {
+		log.Warnf("Persisted CA is not trusted in the OS store; native tools may reject TLS. Run `pmg setup cert install`.")
+	}
 }
 
 // createCertificateManager creates a certificate manager with the given CA certificate

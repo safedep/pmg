@@ -26,6 +26,11 @@ const (
 	goosWindows                          = "windows"
 )
 
+// CACommonName is the subject CN of the PMG CA. It is the single source of truth
+// for the CA's identity: GenerateCA stamps it onto the certificate and the
+// truststore package matches on it to find/remove the cert in OS trust stores.
+const CACommonName = "SafeDep PMG Proxy CA"
+
 // certManager implements the CertificateManager interface
 type certManager struct {
 	ca     *Certificate
@@ -207,7 +212,7 @@ func GenerateCA(config CertManagerConfig) (*Certificate, error) {
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			CommonName:   "PMG Proxy CA",
+			CommonName:   CACommonName,
 			Organization: []string{"SafeDep PMG"},
 		},
 		NotBefore: notBefore,
@@ -292,76 +297,68 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 	return tlsCert, nil
 }
 
-// GenerateCAWithSystemCA generates a self-signed certificate and appends system CA bundle
-// content to the certificate bytes. If the system bundle is unavailable or too large to merge,
-// it falls back to the PMG CA so proxy startup remains functional.
+// MergeWithSystemCA appends the system CA bundle to certPEM so env-var trust
+// injection (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, ...) covers both the PMG CA and
+// the real world. It is best-effort: any problem locating, sizing, or reading the
+// system bundle results in certPEM being returned unchanged, so proxy startup is
+// never blocked by an optional enhancement.
+func MergeWithSystemCA(certPEM []byte) []byte {
+	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
+	if systemBundlePath == "" {
+		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
+		return certPEM
+	}
+
+	info, err := os.Stat(systemBundlePath)
+	if err != nil {
+		log.Errorf("Skipping system CA bundle merge: failed to stat %s: %v", systemBundlePath, err)
+		return certPEM
+	}
+
+	if info.Size() > maxSystemCABundleBytes {
+		log.Errorf("Skipping system CA bundle merge: %s is too large (%d bytes > %d bytes)",
+			systemBundlePath, info.Size(), maxSystemCABundleBytes)
+		return certPEM
+	}
+
+	systemBundle, err := os.ReadFile(systemBundlePath)
+	if err != nil {
+		log.Errorf("Skipping system CA bundle merge: failed to read %s: %v", systemBundlePath, err)
+		return certPEM
+	}
+
+	const extra = int64(2)
+	totalCap := int64(len(certPEM)) + int64(len(systemBundle)) + extra
+	if totalCap > maxSystemCABundleBytes {
+		log.Errorf("Skipping system CA bundle merge: merged CA would be too large (%d bytes > %d bytes)",
+			totalCap, maxSystemCABundleBytes)
+		return certPEM
+	}
+
+	merged := make([]byte, 0, int(totalCap))
+	merged = append(merged, certPEM...)
+	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
+		merged = append(merged, '\n')
+	}
+	merged = append(merged, systemBundle...)
+	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
+		merged = append(merged, '\n')
+	}
+
+	return merged
+}
+
+// GenerateCAWithSystemCA generates a self-signed CA and merges the system CA
+// bundle into the certificate bytes (for env-var trust injection). Signing
+// always uses the pure CA via X509Cert/PrivKey.
 func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 	caCert, err := GenerateCA(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate CA: %w", err)
 	}
 
-	caCertPEM := caCert.Certificate
-	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
-
-	// No system CA found. Continue using only PMG cert.
-	if systemBundlePath == "" {
-		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
-		return caCert, nil
-	}
-
-	info, err := os.Stat(systemBundlePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat system CA bundle %s: %w", systemBundlePath, err)
-	}
-
-	// We make sure there is a boundary on the size of CA bundle loaded
-	// from the system. Beyond that, we just skip it and return PMG cert.
-	if info.Size() > maxSystemCABundleBytes {
-		log.Errorf(
-			"Skipping system CA bundle merge: %s is too large (%d bytes > %d bytes)",
-			systemBundlePath,
-			info.Size(),
-			maxSystemCABundleBytes,
-		)
-
-		return caCert, nil
-	}
-
-	systemBundle, err := os.ReadFile(systemBundlePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read system CA bundle %s: %w", systemBundlePath, err)
-	}
-
-	caLen := int64(len(caCertPEM))
-	sysLen := int64(len(systemBundle))
-	const extra = int64(2)
-
-	totalCap := caLen + sysLen + extra
-	if totalCap > maxSystemCABundleBytes {
-		log.Errorf(
-			"Skipping system CA bundle merge: merged CA would be too large (%d bytes > %d bytes)",
-			totalCap,
-			maxSystemCABundleBytes,
-		)
-
-		return caCert, nil
-	}
-
-	merged := make([]byte, 0, int(totalCap))
-	merged = append(merged, caCertPEM...)
-
-	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
-		merged = append(merged, '\n')
-	}
-	merged = append(merged, systemBundle...)
-
-	if len(merged) > 0 && merged[len(merged)-1] != '\n' {
-		merged = append(merged, '\n')
-	}
-
 	return &Certificate{
-		Certificate: merged,
+		Certificate: MergeWithSystemCA(caCert.Certificate),
 		PrivateKey:  caCert.PrivateKey,
 		X509Cert:    caCert.X509Cert,
 		PrivKey:     caCert.PrivKey,

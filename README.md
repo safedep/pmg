@@ -105,6 +105,18 @@ Validate your installation and verify protection is working:
 pmg setup doctor
 ```
 
+> **Optional:** PMG inspects HTTPS traffic with an on-the-fly CA that it injects into package
+> managers per run. To persist a single CA across runs and trust it in your OS trust store
+> (needed for tools that ignore CA environment variables, such as Go on macOS and Windows),
+> install it once:
+>
+> ```bash
+> pmg setup cert install          # user scope, no sudo
+> pmg setup cert status           # check trust state and expiry
+> ```
+>
+> See [Certificate Authority](docs/cert.md) for scopes, rotation, and removal.
+
 ### 3. Use
 
 See PMG blocking threats.
@@ -248,6 +260,7 @@ PMG builds are reproducible and signed.
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
+- [Certificate Authority](docs/cert.md)
 - [Sandboxing](docs/sandbox.md)
 
 ## Support

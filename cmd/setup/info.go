@@ -15,7 +15,9 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
+	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/sandbox/platform"
+	"github.com/safedep/pmg/truststore"
 	"github.com/spf13/cobra"
 )
 
@@ -142,6 +144,26 @@ func executeSetupInfo() error {
 	}
 
 	ui.PrintInfoSection("Sandbox", sandboxEntries)
+
+	// Certificate Authority section
+	caStatus, _ := certmanager.InspectCA(cfg.ConfigDir())
+	caUser, caSystem, _ := truststore.Status(certmanager.CACommonName)
+	caStatus.UserTrusted, caStatus.SystemTrusted = caUser, caSystem
+
+	caEntries := make(map[string]string)
+	caEntries["Installed"] = strconv.FormatBool(caStatus.KeyPresent && caStatus.CertPresent)
+	caScope := "none"
+	if caStatus.SystemTrusted {
+		caScope = "system"
+	} else if caStatus.UserTrusted {
+		caScope = "user"
+	}
+	caEntries["Trust Scope"] = caScope
+	if caStatus.CertPresent {
+		caEntries["Expires"] = caStatus.NotAfter.Format("2006-01-02")
+		caEntries["Fingerprint"] = caStatus.Fingerprint
+	}
+	ui.PrintInfoSection("Certificate Authority", caEntries)
 
 	if cfg.Config.Cloud.Enabled {
 		cloudEntries := make(map[string]string)
