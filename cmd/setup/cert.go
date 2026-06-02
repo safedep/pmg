@@ -115,8 +115,22 @@ func newCertStatusCommand() *cobra.Command {
 func runCertInstall(dir string, scope truststore.Scope, force bool, store trustStore, out io.Writer) error {
 	caCert, loadErr := certmanager.LoadCA(dir)
 	exists := loadErr == nil
+	// A failed load with files still on disk means a corrupt or partial CA (e.g.
+	// the cert is present/trusted but ca-key.pem is missing or unparseable).
+	// Treat it like a rotation so the old trusted root is cleaned up rather than
+	// left behind alongside a freshly generated one. (A missing key surfaces as
+	// os.ErrNotExist from LoadCA, so checking on-disk remnants is what tells a
+	// partial state apart from a truly fresh install.)
+	diskState, inspectErr := certmanager.InspectCA(dir)
+	if inspectErr != nil {
+		log.Debugf("inspecting on-disk CA during install: %v", inspectErr)
+	}
+	corrupted := loadErr != nil && (diskState.KeyPresent || diskState.CertPresent)
 	expired := exists && caCert.IsExpired(time.Hour)
-	rotate := force || expired
+	rotate := force || expired || corrupted
+	if corrupted {
+		log.Debugf("replacing unreadable persisted CA: %v", loadErr)
+	}
 
 	if exists && !rotate {
 		user, system, _ := store.Status(certmanager.CACommonName)
@@ -129,9 +143,12 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 	}
 
 	if !exists || rotate {
-		// Rotation uninstalls first so no duplicate CNs remain in the OS store.
-		if rotate && exists {
-			if _, err := fmt.Fprintf(out, "%s Rotating existing CA\n", ui.Colors.Dim("ℹ")); err != nil {
+		if rotate && (exists || corrupted) {
+			msg := "Rotating existing CA"
+			if corrupted {
+				msg = "Persisted CA is incomplete or unreadable; replacing it"
+			}
+			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"), msg); err != nil {
 				return err
 			}
 			if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, truststore.ErrUserScopeUnsupported) {
@@ -165,18 +182,17 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 		}
 	}
 
-	if _, err := fmt.Fprintf(out, "%s Installing a system-trusted MITM CA (%s scope). This lets PMG inspect HTTPS package traffic.\n",
+	if _, err := fmt.Fprintf(out, "%s Installing an OS-trusted MITM CA (%s scope). This lets PMG inspect HTTPS package traffic.\n",
 		ui.Colors.Yellow("⚠"), scope.String()); err != nil {
 		return err
 	}
 
 	if err := store.Install(caCert.Certificate, scope); err != nil {
 		if errors.Is(err, truststore.ErrUserScopeUnsupported) {
-			// Linux has no per-user trust store; the persisted CA is still useful via
-			// SSL_CERT_FILE injection. Treat as a friendly no-op rather than an error.
+			// Linux has no per-user trust store; treat as a friendly no-op.
 			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"),
-				"This platform has no per-user trust store. The CA keypair is persisted and Go on Linux honors "+
-					"SSL_CERT_FILE (injected by PMG). Re-run with --system for machine-wide trust (requires sudo)."); err != nil {
+				"This platform has no per-user trust store. The CA keypair is persisted. "+
+					"Re-run with --system for machine-wide trust (requires sudo)."); err != nil {
 				return err
 			}
 			return nil
@@ -191,11 +207,17 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 }
 
 func runCertUninstall(dir string, scope truststore.Scope, purge bool, store trustStore, out io.Writer) error {
-	if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, truststore.ErrUserScopeUnsupported) {
+	switch err := store.Uninstall(certmanager.CACommonName, scope); {
+	case errors.Is(err, truststore.ErrUserScopeUnsupported):
+		if _, e := fmt.Fprintf(out, "%s This platform has no per-user trust store; nothing to remove. Use --system for machine-wide.\n", ui.Colors.Dim("ℹ")); e != nil {
+			return e
+		}
+	case err != nil:
 		return newCertCommandError(errcodes.CertTrustStore, "failed to remove CA from trust store", trustHelp(scope), err)
-	}
-	if _, err := fmt.Fprintf(out, "%s CA removed from %s trust store\n", ui.Colors.Green("✓"), scope.String()); err != nil {
-		return err
+	default:
+		if _, e := fmt.Fprintf(out, "%s CA removed from %s trust store\n", ui.Colors.Green("✓"), scope.String()); e != nil {
+			return e
+		}
 	}
 
 	if purge {

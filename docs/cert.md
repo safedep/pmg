@@ -16,7 +16,7 @@ This requires no setup and covers the common cases: npm, pip, and Go on Linux.
 
 ## When you need a persistent, OS-trusted CA
 
-Environment-variable injection does not reach tools that consult only the operating system
+Environment variable injection does not reach tools that consult only the operating system
 trust store. The most important case is Go on macOS and Windows. Go's TLS stack on those
 platforms ignores `SSL_CERT_FILE` and validates against the platform verifier
 (Security.framework on macOS, CryptoAPI on Windows). On Linux, Go honors `SSL_CERT_FILE`, so

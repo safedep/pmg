@@ -38,6 +38,12 @@ func SaveCA(dir string, ca *Certificate) error {
 		return fmt.Errorf("failed to write CA certificate: %w", err)
 	}
 
+	// Remove any pre-existing key first so the new file is created fresh with
+	// 0600. os.WriteFile preserves an existing file's mode, which could otherwise
+	// leave a group/world-readable private key behind on a --force re-install.
+	if err := os.Remove(CAKeyPath(dir)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to reset CA private key file: %w", err)
+	}
 	if err := os.WriteFile(CAKeyPath(dir), ca.PrivateKey, 0o600); err != nil {
 		return fmt.Errorf("failed to write CA private key: %w", err)
 	}

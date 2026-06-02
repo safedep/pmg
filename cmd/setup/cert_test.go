@@ -79,6 +79,27 @@ func TestCertInstallForceRotates(t *testing.T) {
 	assert.True(t, store.installed)
 }
 
+func TestCertInstallReplacesCorruptedCA(t *testing.T) {
+	dir := t.TempDir()
+	ca, err := certmanager.GenerateCA(certmanager.PersistentCACertManagerConfig())
+	require.NoError(t, err)
+	require.NoError(t, certmanager.SaveCA(dir, ca))
+
+	// Simulate a partial/corrupt state: cert still on disk (and possibly trusted)
+	// but the private key is gone. Install must clean up the old root, not stack a
+	// second one alongside a freshly generated keypair.
+	require.NoError(t, os.Remove(certmanager.CAKeyPath(dir)))
+
+	store := &fakeStore{userSupported: true}
+	var out bytes.Buffer
+	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
+
+	assert.True(t, store.uninstalled, "old trusted root should be cleaned up")
+	assert.True(t, store.installed)
+	_, err = certmanager.LoadCA(dir)
+	require.NoError(t, err) // a complete keypair is regenerated
+}
+
 func TestCertUninstallPurgeDeletesFiles(t *testing.T) {
 	dir := t.TempDir()
 	ca, err := certmanager.GenerateCA(certmanager.PersistentCACertManagerConfig())

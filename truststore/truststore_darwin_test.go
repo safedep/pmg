@@ -54,6 +54,20 @@ func TestDarwinUninstallStopsWhenNotFound(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
+func TestDarwinUninstallSystemTargetsSystemKeychain(t *testing.T) {
+	var gotArgs []string
+	orig := commandRunner
+	commandRunner = func(_ string, args ...string) ([]byte, error) {
+		gotArgs = args
+		return []byte("Could not find"), assert.AnError
+	}
+	t.Cleanup(func() { commandRunner = orig })
+
+	require.NoError(t, Uninstall("Test CA", ScopeSystem))
+	assert.Contains(t, gotArgs, systemKeychainPath)
+	assert.Contains(t, gotArgs, "-t")
+}
+
 func TestDarwinUserScopeSupported(t *testing.T) {
 	assert.True(t, UserScopeSupported())
 }

@@ -55,7 +55,10 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	for i := 0; i < 16; i++ {
 		args := []string{"delete-certificate", "-c", commonName}
 		if scope == ScopeSystem {
-			args = append(args, "-t")
+			// -t also clears trust settings; the keychain is a positional argument
+			// for delete-certificate (it has no -k flag, unlike add-trusted-cert),
+			// so we target the System keychain to match the system-scope install.
+			args = append(args, "-t", systemKeychainPath)
 		}
 
 		out, err := commandRunner("security", args...)
