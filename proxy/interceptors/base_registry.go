@@ -30,8 +30,8 @@ type baseRegistryInterceptor struct {
 
 	// inflight collapses concurrent analyses of the same package version into a
 	// single upstream call. During a large install the same transitive
-	// dependency is frequently requested across several connections at once;
-	// without de-duplication each would issue its own gRPC call to the external
+	// dependency is frequently requested across several connections at once.
+	// Without de-duplication each would issue its own gRPC call to the external
 	// analysis service, amplifying load and latency (head-of-line blocking).
 	inflight singleflight.Group
 }
@@ -118,9 +118,6 @@ func (b *baseRegistryInterceptor) analyzePackage(
 
 	log.Debugf("[%s] Analyzing package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-	// Collapse concurrent analyses of the same package version into one upstream
-	// call. Waiters share the single result so a burst of identical requests
-	// does not fan out into a burst of gRPC calls against the external service.
 	key := ecosystem.String() + ":" + packageName + ":" + packageVersion
 	resultAny, err, _ := b.inflight.Do(key, func() (interface{}, error) {
 		// Re-check the cache: a previous in-flight analysis for this key may
@@ -160,7 +157,12 @@ func (b *baseRegistryInterceptor) analyzePackage(
 		return nil, fmt.Errorf("analyzer failed: %w", err)
 	}
 
-	result := resultAny.(*analyzer.PackageVersionAnalysisResult)
+	// Fail loudly rather than panic in the proxy hot path if a future change to
+	// the singleflight closure ever returns a different type or a nil result.
+	result, ok := resultAny.(*analyzer.PackageVersionAnalysisResult)
+	if !ok || result == nil {
+		return nil, fmt.Errorf("analyzer returned unexpected result type %T for %s@%s", resultAny, packageName, packageVersion)
+	}
 
 	log.Debugf("[%s] Analysis complete for %s@%s: action=%d", ctx.RequestID, packageName, packageVersion, result.Action)
 

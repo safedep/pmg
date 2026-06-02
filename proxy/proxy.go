@@ -79,11 +79,8 @@ type ProxyConfig struct {
 	// If zero, defaults to 30 minutes.
 	ServerReadWriteTimeout time.Duration
 
-	// UpstreamRetries is the number of times an idempotent upstream request
-	// (GET/HEAD/OPTIONS with no body) is retried when the round-trip fails
-	// before any response byte is received. This makes the proxy resilient to
-	// transient upstream connection resets that would otherwise drop the
-	// client's keep-alive tunnel. Zero disables retries.
+	// UpstreamRetries bounds retries of idempotent upstream requests on
+	// transient round-trip failures. Zero disables retries.
 	UpstreamRetries int
 }
 
@@ -162,9 +159,6 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		interceptors: make(map[string]Interceptor),
 	}
 
-	// Route every upstream round-trip through our resilient round tripper so
-	// transient upstream failures are retried instead of tearing down the
-	// client's keep-alive tunnel.
 	ps.roundTripper = goproxy.RoundTripperFunc(func(req *http.Request, _ *goproxy.ProxyCtx) (*http.Response, error) {
 		return ps.upstreamRoundTrip(req)
 	})
@@ -504,8 +498,6 @@ func (ps *proxyServer) registerHandlers() {
 		// We detect and fix this before processing.
 		normalizeRequestURL(req)
 
-		// Use the resilient round tripper for the upstream request so transient
-		// upstream errors are retried rather than dropping the client tunnel.
 		ctx.RoundTripper = ps.roundTripper
 
 		reqCtx, err := newRequestContext(req)
