@@ -41,4 +41,10 @@ clean:
 	$(RM_RF)
 
 test:
-	go test ./...
+	$(GO) test ./...
+
+fmt:
+	$(GO) fmt ./...
+
+lint:
+	golangci-lint run

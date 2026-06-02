@@ -6,12 +6,7 @@ package truststore
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"os/exec"
-
-	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/pmg/errcodes"
 )
 
 // Scope selects which trust store to operate on.
@@ -55,35 +50,3 @@ func Status(commonName string) (user bool, system bool, err error) {
 // UserScopeSupported reports whether the platform has a per-user trust store
 // (false on Linux). Consumers use it to interpret "not trusted" correctly.
 func UserScopeSupported() bool { return userScopeSupportedPlatform() }
-
-func unsupportedPlatformError() error {
-	return usefulerror.NewUsefulError().
-		WithCode(errcodes.UnsupportedPlatform).
-		WithHumanError("trust store operations are not supported on this platform").
-		WithHelp("Use PMG's default env-var trust injection, or install the CA manually").
-		Wrap(errors.New("unsupported platform"))
-}
-
-// writeTempCert writes certPEM to a temp file and returns its path and a cleanup
-// func. OS trust tools (security, certutil) require a file path argument.
-func writeTempCert(certPEM []byte) (string, func(), error) {
-	noop := func() {}
-
-	f, err := os.CreateTemp("", "pmg-ca-*.pem")
-	if err != nil {
-		return "", noop, fmt.Errorf("failed to create temp cert file: %w", err)
-	}
-
-	if _, err := f.Write(certPEM); err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		return "", noop, fmt.Errorf("failed to write temp cert file: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
-		return "", noop, fmt.Errorf("failed to close temp cert file: %w", err)
-	}
-
-	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
-}

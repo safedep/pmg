@@ -121,7 +121,9 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 	if exists && !rotate {
 		user, system, _ := store.Status(certmanager.CACommonName)
 		if (scope == truststore.ScopeUser && user) || (scope == truststore.ScopeSystem && system) {
-			fmt.Fprintf(out, "%s CA already installed and trusted (%s scope)\n", ui.Colors.Green("✓"), scope.String())
+			if _, err := fmt.Fprintf(out, "%s CA already installed and trusted (%s scope)\n", ui.Colors.Green("✓"), scope.String()); err != nil {
+				return err
+			}
 			return nil
 		}
 	}
@@ -129,7 +131,9 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 	if !exists || rotate {
 		// Rotation uninstalls first so no duplicate CNs remain in the OS store.
 		if rotate && exists {
-			fmt.Fprintf(out, "%s Rotating existing CA\n", ui.Colors.Dim("ℹ"))
+			if _, err := fmt.Fprintf(out, "%s Rotating existing CA\n", ui.Colors.Dim("ℹ")); err != nil {
+				return err
+			}
 			if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, truststore.ErrUserScopeUnsupported) {
 				return newCertCommandError(errcodes.CertTrustStore, "failed to remove old CA before rotation", trustHelp(scope), err)
 			}
@@ -152,27 +156,37 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 				fmt.Sprintf("Check write permissions for %s", dir), err)
 		}
 		caCert = generated
-		fmt.Fprintf(out, "%s CA keypair written to %s\n", ui.Colors.Green("✓"), certmanager.CACertPath(dir))
+		if _, err := fmt.Fprintf(out, "%s CA keypair written to %s\n", ui.Colors.Green("✓"), certmanager.CACertPath(dir)); err != nil {
+			return err
+		}
 	} else {
-		fmt.Fprintf(out, "%s Reusing existing CA keypair at %s\n", ui.Colors.Dim("ℹ"), certmanager.CACertPath(dir))
+		if _, err := fmt.Fprintf(out, "%s Reusing existing CA keypair at %s\n", ui.Colors.Dim("ℹ"), certmanager.CACertPath(dir)); err != nil {
+			return err
+		}
 	}
 
-	fmt.Fprintf(out, "%s Installing a system-trusted MITM CA (%s scope). This lets PMG inspect HTTPS package traffic.\n",
-		ui.Colors.Yellow("⚠"), scope.String())
+	if _, err := fmt.Fprintf(out, "%s Installing a system-trusted MITM CA (%s scope). This lets PMG inspect HTTPS package traffic.\n",
+		ui.Colors.Yellow("⚠"), scope.String()); err != nil {
+		return err
+	}
 
 	if err := store.Install(caCert.Certificate, scope); err != nil {
 		if errors.Is(err, truststore.ErrUserScopeUnsupported) {
 			// Linux has no per-user trust store; the persisted CA is still useful via
 			// SSL_CERT_FILE injection. Treat as a friendly no-op rather than an error.
-			fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"),
+			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"),
 				"This platform has no per-user trust store. The CA keypair is persisted and Go on Linux honors "+
-					"SSL_CERT_FILE (injected by PMG). Re-run with --system for machine-wide trust (requires sudo).")
+					"SSL_CERT_FILE (injected by PMG). Re-run with --system for machine-wide trust (requires sudo)."); err != nil {
+				return err
+			}
 			return nil
 		}
 		return newCertCommandError(errcodes.CertTrustStore, "failed to install CA into trust store", trustHelp(scope), err)
 	}
 
-	fmt.Fprintf(out, "%s CA installed and trusted (%s scope)\n", ui.Colors.Green("✓"), scope.String())
+	if _, err := fmt.Fprintf(out, "%s CA installed and trusted (%s scope)\n", ui.Colors.Green("✓"), scope.String()); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -180,7 +194,9 @@ func runCertUninstall(dir string, scope truststore.Scope, purge bool, store trus
 	if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, truststore.ErrUserScopeUnsupported) {
 		return newCertCommandError(errcodes.CertTrustStore, "failed to remove CA from trust store", trustHelp(scope), err)
 	}
-	fmt.Fprintf(out, "%s CA removed from %s trust store\n", ui.Colors.Green("✓"), scope.String())
+	if _, err := fmt.Fprintf(out, "%s CA removed from %s trust store\n", ui.Colors.Green("✓"), scope.String()); err != nil {
+		return err
+	}
 
 	if purge {
 		removed := false
@@ -195,7 +211,9 @@ func runCertUninstall(dir string, scope truststore.Scope, purge bool, store trus
 			removed = true
 		}
 		if removed {
-			fmt.Fprintf(out, "%s CA keypair deleted from disk\n", ui.Colors.Green("✓"))
+			if _, err := fmt.Fprintf(out, "%s CA keypair deleted from disk\n", ui.Colors.Green("✓")); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -226,17 +244,25 @@ func runCertStatus(dir string, store trustStore, out io.Writer) error {
 	drift, reason := st.Drift()
 	switch {
 	case drift:
-		fmt.Fprintf(out, "\n%s %s\n", ui.Colors.Red("drift:"), reason)
+		if _, err := fmt.Fprintf(out, "\n%s %s\n", ui.Colors.Red("drift:"), reason); err != nil {
+			return err
+		}
 	case st.ExpiringSoon:
-		fmt.Fprintf(out, "\n%s CA expires within 30 days (%s). Run `pmg setup cert install --force` to rotate.\n",
-			ui.Colors.Yellow("⚠"), st.NotAfter.Format("2006-01-02"))
+		if _, err := fmt.Fprintf(out, "\n%s CA expires within 30 days (%s). Run `pmg setup cert install --force` to rotate.\n",
+			ui.Colors.Yellow("⚠"), st.NotAfter.Format("2006-01-02")); err != nil {
+			return err
+		}
 	case st.KeyPresent && st.CertPresent && !st.Trusted():
 		// "not trusted" is expected on Linux (Go honors SSL_CERT_FILE) but a
 		// real problem where a per-user store exists (macOS/Windows).
 		if store.UserScopeSupported() {
-			fmt.Fprintf(out, "\n%s CA on disk but not trusted in the OS store. Run `pmg setup cert install`.\n", ui.Colors.Yellow("⚠"))
+			if _, err := fmt.Fprintf(out, "\n%s CA on disk but not trusted in the OS store. Run `pmg setup cert install`.\n", ui.Colors.Yellow("⚠")); err != nil {
+				return err
+			}
 		} else {
-			fmt.Fprintf(out, "\n%s CA on disk; not in OS store. Expected on Linux (Go honors SSL_CERT_FILE); use --system for store trust.\n", ui.Colors.Dim("ℹ"))
+			if _, err := fmt.Fprintf(out, "\n%s CA on disk; not in OS store. Expected on Linux (Go honors SSL_CERT_FILE); use --system for store trust.\n", ui.Colors.Dim("ℹ")); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
