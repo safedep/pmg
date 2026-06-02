@@ -215,6 +215,7 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 			confirmableMalwarePackages = append(confirmableMalwarePackages, analysisResult)
 		} else {
 			result.AllowedCount++
+			g.warnIfExcluded(analysisResult)
 		}
 	}
 
@@ -453,6 +454,7 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 			confirmableMalwarePackages = append(confirmableMalwarePackages, analysisResult)
 		} else {
 			result.AllowedCount++
+			g.warnIfExcluded(analysisResult)
 		}
 	}
 
@@ -497,7 +499,19 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 	return result, g.continueExecution(ctx, parsedCommand)
 }
 
-// logMalwareDetection logs malware detection events
+// warnIfExcluded surfaces a security-relevant notice when a flagged package was
+// allowed only because of a tenant-specific exclusion, so it is never silently
+// trusted.
+func (g *packageManagerGuard) warnIfExcluded(result *analyzer.PackageVersionAnalysisResult) {
+	if result == nil || !result.IsExcluded || result.PackageVersion == nil {
+		return
+	}
+
+	pkg := result.PackageVersion
+	g.showWarning(fmt.Sprintf("Allowing flagged package %s@%s due to tenant exclusion (%s)",
+		pkg.GetPackage().GetName(), pkg.GetVersion(), result.ExclusionReason))
+}
+
 func (g *packageManagerGuard) logMalwareDetection(result *analyzer.PackageVersionAnalysisResult, blocked bool) {
 	if result == nil || result.PackageVersion == nil {
 		return
