@@ -45,7 +45,6 @@ func detectLinuxTrustTool() (linuxTrustTool, error) {
 
 func installPlatform(certPEM []byte, scope Scope) error {
 	if scope == ScopeUser {
-		// Linux has no per-user trust store; env-var injection covers Go on Linux.
 		return ErrUserScopeUnsupported
 	}
 
@@ -55,11 +54,19 @@ func installPlatform(certPEM []byte, scope Scope) error {
 	}
 
 	dest := filepath.Join(tool.anchorDir, tool.anchorName)
-	if err := os.WriteFile(dest, certPEM, 0o644); err != nil {
-		return fmt.Errorf("failed to write CA anchor to %s (run with sudo?): %w", dest, err)
+
+	tmp, cleanup, err := writeTempCert(certPEM)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	// install(1) sets an explicit 0644 mode and creates the anchor dir if missing.
+	if out, err := runElevated("install", "-m", "0644", "-D", tmp, dest); err != nil {
+		return fmt.Errorf("failed to install CA anchor to %s: %w: %s", dest, err, strings.TrimSpace(string(out)))
 	}
 
-	if out, err := commandRunner(tool.updateCmd); err != nil {
+	if out, err := runElevated(tool.updateCmd); err != nil {
 		return fmt.Errorf("%s failed: %w: %s", tool.updateCmd, err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -76,14 +83,18 @@ func uninstallPlatform(_ string, scope Scope) error {
 	}
 
 	dest := filepath.Join(tool.anchorDir, tool.anchorName)
-	if err := os.Remove(dest); err != nil {
+	if _, err := os.Stat(dest); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to remove CA anchor %s (run with sudo?): %w", dest, err)
+		return fmt.Errorf("failed to stat CA anchor %s: %w", dest, err)
 	}
 
-	if out, err := commandRunner(tool.updateCmd); err != nil {
+	if out, err := runElevated("rm", "-f", dest); err != nil {
+		return fmt.Errorf("failed to remove CA anchor %s: %w: %s", dest, err, strings.TrimSpace(string(out)))
+	}
+
+	if out, err := runElevated(tool.updateCmd); err != nil {
 		return fmt.Errorf("%s failed: %w: %s", tool.updateCmd, err, strings.TrimSpace(string(out)))
 	}
 	return nil

@@ -29,9 +29,10 @@ avoids regenerating a CA on every run.
 # User scope (no sudo). macOS login keychain / Windows CurrentUser\Root.
 pmg setup cert install
 
-# System scope (all users). Needs elevation.
-sudo pmg setup cert install --system   # macOS / Linux
-# Windows: run from an elevated prompt: pmg setup cert install --system
+# System scope (all users). Run as your normal user, NOT with sudo.
+# PMG prompts for sudo only for the trust-store write (macOS / Linux).
+# Windows: run from an elevated prompt.
+pmg setup cert install --system
 
 # Inspect presence, trust scope, expiry, and drift.
 pmg setup cert status
@@ -46,8 +47,11 @@ pmg setup cert uninstall [--system] [--purge]
 ## Trust scopes
 
 `pmg setup cert install` installs at user scope by default, which needs no elevation. Pass
-`--system` to install machine-wide, which requires sudo (macOS, Linux) or an elevated prompt
-(Windows).
+`--system` to install machine-wide. Always run the command as your normal user (not under
+sudo) — PMG generates a per-user keypair and elevates only the trust-store write, prompting
+for sudo on macOS/Linux. On Windows, run it from an elevated prompt. Running the whole
+command under sudo is refused, because the keypair would be persisted in root's config dir
+where the unprivileged proxy never looks.
 
 | Platform | User scope (default) | System scope (`--system`) |
 | --- | --- | --- |
@@ -64,6 +68,10 @@ on Linux. Use `--system` for machine-wide trust.
 The CA keypair is stored under PMG's config directory as `ca-cert.pem` (`0644`) and
 `ca-key.pem` (`0600`). The private key never leaves disk. Only the public certificate is
 installed into the OS trust store, since the trust store cannot hold or return a private key.
+
+The keypair is always per-user: the unprivileged proxy must read the private key it signs
+with, so the command runs as the normal user and writes to that user's config directory.
+`--system` only widens where the public certificate is trusted, not where the key lives.
 
 A persistent, OS-trusted MITM CA is sensitive. Anyone who can read `ca-key.pem` can intercept
 your TLS traffic for tools that trust the CA. PMG mitigates this with restrictive file

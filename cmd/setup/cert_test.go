@@ -79,6 +79,25 @@ func TestCertInstallForceRotates(t *testing.T) {
 	assert.True(t, store.installed)
 }
 
+func TestErrIfRunningUnderSudo(t *testing.T) {
+	orig := geteuid
+	t.Cleanup(func() { geteuid = orig })
+
+	// root + SUDO_USER set → refused (sudo from a normal user).
+	geteuid = func() int { return 0 }
+	t.Setenv("SUDO_USER", "alice")
+	assert.Error(t, errIfRunningUnderSudo())
+
+	// root without SUDO_USER → genuine root, allowed.
+	t.Setenv("SUDO_USER", "")
+	assert.NoError(t, errIfRunningUnderSudo())
+
+	// non-root → allowed even if SUDO_USER somehow set.
+	geteuid = func() int { return 1000 }
+	t.Setenv("SUDO_USER", "alice")
+	assert.NoError(t, errIfRunningUnderSudo())
+}
+
 func TestCertInstallReplacesCorruptedCA(t *testing.T) {
 	dir := t.TempDir()
 	ca, err := certmanager.GenerateCA(certmanager.PersistentCACertManagerConfig())

@@ -18,26 +18,52 @@ func TestLinuxUserScopeUnsupported(t *testing.T) {
 	assert.ErrorIs(t, Uninstall("Test CA", ScopeUser), ErrUserScopeUnsupported)
 }
 
-func TestLinuxSystemInstallWritesAnchorAndUpdates(t *testing.T) {
+func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "pmg-proxy-ca.crt")
+
+	origDetect := detectTrustTool
+	detectTrustTool = func() (linuxTrustTool, error) {
+		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
+	}
+	origEUID := euid
+	euid = func() int { return 0 } // run as root so no sudo prefix is added
+	var calls [][]string
+	origRunner := commandRunner
+	commandRunner = func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		return nil, nil
+	}
+	t.Cleanup(func() { detectTrustTool = origDetect; euid = origEUID; commandRunner = origRunner })
+
+	require.NoError(t, Install([]byte("PEM-BYTES"), ScopeSystem))
+
+	require.Len(t, calls, 2)
+	assert.Equal(t, "install", calls[0][0])
+	assert.Contains(t, calls[0], dest)
+	assert.Equal(t, "update-ca-certificates", calls[1][0])
+}
+
+func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 	dir := t.TempDir()
 	origDetect := detectTrustTool
 	detectTrustTool = func() (linuxTrustTool, error) {
 		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
-	var ranUpdate string
+	origEUID := euid
+	euid = func() int { return 1000 }
+	var firstName string
 	origRunner := commandRunner
 	commandRunner = func(name string, _ ...string) ([]byte, error) {
-		ranUpdate = name
+		if firstName == "" {
+			firstName = name
+		}
 		return nil, nil
 	}
-	t.Cleanup(func() { detectTrustTool = origDetect; commandRunner = origRunner })
+	t.Cleanup(func() { detectTrustTool = origDetect; euid = origEUID; commandRunner = origRunner })
 
-	require.NoError(t, Install([]byte("PEM-BYTES"), ScopeSystem))
-
-	got, err := os.ReadFile(filepath.Join(dir, "pmg-proxy-ca.crt"))
-	require.NoError(t, err)
-	assert.Equal(t, "PEM-BYTES", string(got))
-	assert.Equal(t, "update-ca-certificates", ranUpdate)
+	require.NoError(t, Install([]byte("PEM"), ScopeSystem))
+	assert.Equal(t, "sudo", firstName)
 }
 
 func TestLinuxStatusReflectsAnchorFile(t *testing.T) {

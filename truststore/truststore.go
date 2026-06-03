@@ -6,7 +6,11 @@ package truststore
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"runtime"
+
+	"github.com/safedep/dry/log"
 )
 
 // Scope selects which trust store to operate on.
@@ -15,7 +19,7 @@ type Scope int
 const (
 	// ScopeUser is the per-user trust store (no elevation). Unsupported on Linux.
 	ScopeUser Scope = iota
-	// ScopeSystem is the machine-wide trust store (requires sudo/admin).
+	// ScopeSystem is the machine-wide trust store (PMG elevates the write).
 	ScopeSystem
 )
 
@@ -33,6 +37,19 @@ var ErrUserScopeUnsupported = errors.New("user-scope trust store is not supporte
 // commandRunner runs an external trust-store tool. Overridable in tests.
 var commandRunner = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
+}
+
+var euid = os.Geteuid
+
+// runElevated prefixes sudo on Unix (unless already root) so only the privileged
+// system-store write is elevated. Windows has no sudo and relies on an elevated
+// prompt, so the command runs as-is.
+func runElevated(name string, args ...string) ([]byte, error) {
+	if runtime.GOOS != "windows" && euid() != 0 {
+		log.Infof("Elevating via sudo to modify the system trust store")
+		return commandRunner("sudo", append([]string{name}, args...)...)
+	}
+	return commandRunner(name, args...)
 }
 
 // Install adds certPEM (a PEM-encoded CA certificate) to the OS trust store.

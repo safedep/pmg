@@ -78,10 +78,13 @@ func newCertInstallCommand() *cobra.Command {
 		Short:        "Generate, persist, and trust PMG's MITM CA",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := errIfRunningUnderSudo(); err != nil {
+				return err
+			}
 			return runCertInstall(config.Get().ConfigDir(), scopeFromFlag(system), force, defaultTrustStore{}, os.Stdout)
 		},
 	}
-	cmd.Flags().BoolVar(&system, "system", false, "Install into the system (all-users) trust store; requires sudo/admin")
+	cmd.Flags().BoolVar(&system, "system", false, "Install into the system (all-users) trust store (PMG prompts for elevation; on Windows run from an elevated prompt)")
 	cmd.Flags().BoolVar(&force, "force", false, "Regenerate and re-trust the CA even if one already exists")
 	return cmd
 }
@@ -93,10 +96,13 @@ func newCertUninstallCommand() *cobra.Command {
 		Short:        "Remove PMG's MITM CA from the OS trust store",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := errIfRunningUnderSudo(); err != nil {
+				return err
+			}
 			return runCertUninstall(config.Get().ConfigDir(), scopeFromFlag(system), purge, defaultTrustStore{}, os.Stdout)
 		},
 	}
-	cmd.Flags().BoolVar(&system, "system", false, "Remove from the system (all-users) trust store; requires sudo/admin")
+	cmd.Flags().BoolVar(&system, "system", false, "Remove from the system (all-users) trust store (PMG prompts for elevation; on Windows run from an elevated prompt)")
 	cmd.Flags().BoolVar(&purge, "purge", false, "Also delete the on-disk CA keypair")
 	return cmd
 }
@@ -107,6 +113,9 @@ func newCertStatusCommand() *cobra.Command {
 		Short:        "Show PMG MITM CA presence, trust scope, and expiry",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := errIfRunningUnderSudo(); err != nil {
+				return err
+			}
 			return runCertStatus(config.Get().ConfigDir(), defaultTrustStore{}, os.Stdout)
 		},
 	}
@@ -192,7 +201,7 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 			// Linux has no per-user trust store; treat as a friendly no-op.
 			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"),
 				"This platform has no per-user trust store. The CA keypair is persisted. "+
-					"Re-run with --system for machine-wide trust (requires sudo)."); err != nil {
+					"Re-run with --system for machine-wide trust (PMG prompts for elevation)."); err != nil {
 				return err
 			}
 			return nil
@@ -297,9 +306,21 @@ func otherScope(s truststore.Scope) truststore.Scope {
 	return truststore.ScopeSystem
 }
 
+var geteuid = os.Geteuid
+
+func errIfRunningUnderSudo() error {
+	if geteuid() == 0 && os.Getenv("SUDO_USER") != "" {
+		return newCertCommandError(errcodes.PermissionDenied,
+			"run `pmg setup cert` as your normal user, not with sudo",
+			"PMG generates a per-user CA keypair and elevates only the system trust step. Re-run without sudo (use --system for machine-wide trust).",
+			errors.New("invoked under sudo"))
+	}
+	return nil
+}
+
 func trustHelp(scope truststore.Scope) string {
 	if scope == truststore.ScopeSystem {
-		return "System scope needs elevation: re-run with sudo (macOS/Linux) or an elevated prompt (Windows)"
+		return "Approve the elevation prompt when asked (macOS/Linux), or run from an elevated prompt (Windows)"
 	}
 	return "Approve the keychain prompt if shown; on Linux use --system (no per-user store)"
 }

@@ -1,5 +1,5 @@
-//go:build darwin || windows
-// +build darwin windows
+//go:build darwin || linux || windows
+// +build darwin linux windows
 
 package truststore
 
@@ -9,8 +9,9 @@ import (
 )
 
 // writeTempCert writes certPEM to a temp file and returns its path and a cleanup
-// func. The macOS (security) and Windows (certutil) trust tools require a file
-// path argument. Linux writes the anchor directly, so it does not need this.
+// func. The OS trust tools (macOS security, Windows certutil, Linux install)
+// take a file path argument, so the cert is staged in a user-owned temp file
+// before the elevated store write.
 func writeTempCert(certPEM []byte) (string, func(), error) {
 	noop := func() {}
 

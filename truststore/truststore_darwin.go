@@ -32,9 +32,10 @@ func installPlatform(certPEM []byte, scope Scope) error {
 	defer cleanup()
 
 	var args []string
+	runner := commandRunner
 	if scope == ScopeSystem {
-		// Requires the process to run under sudo to write the System keychain.
 		args = []string{"add-trusted-cert", "-d", "-r", "trustRoot", "-k", systemKeychainPath, path}
+		runner = runElevated
 	} else {
 		kc, err := loginKeychainPath()
 		if err != nil {
@@ -43,7 +44,7 @@ func installPlatform(certPEM []byte, scope Scope) error {
 		args = []string{"add-trusted-cert", "-r", "trustRoot", "-k", kc, path}
 	}
 
-	if out, err := commandRunner("security", args...); err != nil {
+	if out, err := runner("security", args...); err != nil {
 		return fmt.Errorf("security add-trusted-cert failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -54,14 +55,15 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	// so a --force rotation that left two same-CN certs is fully cleaned.
 	for i := 0; i < 16; i++ {
 		args := []string{"delete-certificate", "-c", commonName}
+		runner := commandRunner
 		if scope == ScopeSystem {
-			// -t also clears trust settings; the keychain is a positional argument
-			// for delete-certificate (it has no -k flag, unlike add-trusted-cert),
-			// so we target the System keychain to match the system-scope install.
+			// -t clears trust settings; the keychain is a positional argument for
+			// delete-certificate (it has no -k flag, unlike add-trusted-cert).
 			args = append(args, "-t", systemKeychainPath)
+			runner = runElevated
 		}
 
-		out, err := commandRunner("security", args...)
+		out, err := runner("security", args...)
 		if err == nil {
 			continue
 		}
