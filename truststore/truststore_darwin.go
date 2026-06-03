@@ -68,8 +68,11 @@ func uninstallPlatform(commonName string, scope Scope) error {
 			continue
 		}
 
+		// security reports no remaining match with "Unable to delete certificate
+		// matching ..." (older/other paths use "Could not find"). Either marks the
+		// terminal "nothing left to delete" case, so the loop ends successfully.
 		msg := strings.TrimSpace(string(out))
-		if strings.Contains(msg, "Could not find") {
+		if strings.Contains(msg, "Unable to delete certificate matching") || strings.Contains(msg, "Could not find") {
 			return nil
 		}
 		return fmt.Errorf("security delete-certificate failed: %w: %s", err, msg)

@@ -46,12 +46,28 @@ func TestDarwinUninstallStopsWhenNotFound(t *testing.T) {
 	orig := commandRunner
 	commandRunner = func(_ string, _ ...string) ([]byte, error) {
 		calls++
-		return []byte("SecKeychainSearchCopyNext: Could not find"), assert.AnError
+		return []byte(`Unable to delete certificate matching "Test CA"`), assert.AnError
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
 	require.NoError(t, Uninstall("Test CA", ScopeUser))
 	assert.Equal(t, 1, calls)
+}
+
+func TestDarwinUninstallStopsAfterDeletingMatches(t *testing.T) {
+	calls := 0
+	orig := commandRunner
+	commandRunner = func(_ string, _ ...string) ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return nil, nil // first match deleted
+		}
+		return []byte(`Unable to delete certificate matching "Test CA"`), assert.AnError
+	}
+	t.Cleanup(func() { commandRunner = orig })
+
+	require.NoError(t, Uninstall("Test CA", ScopeUser))
+	assert.Equal(t, 2, calls) // delete one, then terminal not-found
 }
 
 func TestDarwinUninstallSystemTargetsSystemKeychain(t *testing.T) {
