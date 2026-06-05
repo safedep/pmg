@@ -287,14 +287,19 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
           YARN_NODE_LINKER: node-modules
           YARN_ENABLE_HARDENED_MODE: "0"
+          # CI=true makes Yarn Berry enable immutable installs, which forbids
+          # creating/modifying the lockfile and would fail the install for the
+          # wrong reason before the proxy can block it.
+          YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
         run: |
           echo "Testing that safedep-test-pkg is blocked with Yarn Berry in proxy mode..."
           YARN_BERRY_TESTDIR=$(mktemp -d) && cd "$YARN_BERRY_TESTDIR"
           npm init -y
 
-          # Provision and pin Yarn Berry via corepack outside pmg, so corepack's own
-          # one-time download is not part of the proxied run.
-          corepack use yarn@4.16.0
+          # Pin Yarn Berry for this project and provision it via corepack without
+          # running an install (corepack use would trigger one). npm pkg set only
+          # writes the packageManager field; yarn --version downloads the binary.
+          npm pkg set packageManager=yarn@4.16.0
           yarn --version
 
           # Attempt to install safedep-test-pkg via pmg proxy mode - should be blocked.
