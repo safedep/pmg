@@ -108,3 +108,19 @@ func extractGlobParentDir(pattern string) string {
 	}
 	return pattern
 }
+
+// extractGlobstarWriteBaseDir returns the directory to bind read-write for an
+// allow_write globstar pattern. It uses the path before the first "/**" so
+// suffix-only profiles (${CWD}/.venv/**) and in-pattern globstars (/a/b/**/d/**/e)
+// both bind the intended tree root (/a/b for the latter). Falls back to
+// extractGlobParentDir when the pattern has ** but no "/**" segment.
+func extractGlobstarWriteBaseDir(pattern string) string {
+	if i := strings.Index(pattern, "/**"); i >= 0 {
+		base := strings.TrimSuffix(pattern[:i], string(filepath.Separator))
+		if base == "" {
+			return string(filepath.Separator)
+		}
+		return base
+	}
+	return extractGlobParentDir(pattern)
+}

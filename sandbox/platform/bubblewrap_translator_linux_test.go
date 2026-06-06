@@ -937,6 +937,57 @@ func TestExtractParentDir(t *testing.T) {
 	}
 }
 
+func TestExtractGlobstarWriteBaseDir(t *testing.T) {
+	cases := []struct {
+		name     string
+		pattern  string
+		expected string
+	}{
+		{
+			name:     "suffix globstar (profiles)",
+			pattern:  "/home/user/.venv/**",
+			expected: "/home/user/.venv",
+		},
+		{
+			name:     "in-pattern globstars",
+			pattern:  "/a/b/**/d/**/e",
+			expected: "/a/b",
+		},
+		{
+			name:     "middle globstar with file suffix",
+			pattern:  "/usr/lib/**/*.so",
+			expected: "/usr/lib",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, extractGlobstarWriteBaseDir(tt.pattern))
+		})
+	}
+}
+
+func TestBubblewrapGlobstarWriteMultiSegmentBind(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseDir := filepath.Join(tmpDir, "a", "b")
+	require.NoError(t, os.MkdirAll(baseDir, 0755))
+
+	pattern := filepath.Join(tmpDir, "a", "b", "**", "d", "**", "e")
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-multi-globstar-write",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowWrite: []string{pattern},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+	assertWriteBind(t, args, baseDir)
+}
+
 // Helper function to convert arg slice to string for easier assertion
 func argSliceToString(args []string) string {
 	result := ""

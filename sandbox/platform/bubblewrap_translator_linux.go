@@ -534,7 +534,9 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 		// Globstar write rules always bind the parent directory read-write. Per-path
 		// binds interact badly with earlier read-only parent mounts (e.g. ${CWD}/**)
 		// and miss files beyond maxGlobDepth — see https://github.com/safedep/pmg/issues/315.
+		// Base dir is the path prefix before the first "/**" (see extractGlobstarWriteBaseDir).
 		if strings.Contains(path, "**") {
+			baseDir = extractGlobstarWriteBaseDir(path)
 			args = append(args, "--bind-try", baseDir, baseDir)
 			boundPaths[baseDir] = true
 			log.Debugf("Globstar allow_write: bound parent directory '%s' (read-write)", baseDir)
@@ -556,9 +558,13 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 		if useFallback {
 			// Coarse-grained: bind parent directory
 			for _, parentDir := range paths {
-				args = append(args, "--bind-try", parentDir, parentDir)
-				boundPaths[parentDir] = true
-				log.Debugf("Coarse-grained fallback: bound parent directory '%s' (read-write)", parentDir)
+				if !boundPaths[parentDir] {
+					args = append(args, "--bind-try", parentDir, parentDir)
+					boundPaths[parentDir] = true
+					log.Debugf("Coarse-grained fallback: bound parent directory '%s' (read-write)", parentDir)
+				} else {
+					log.Debugf("Parent directory '%s' already bound for write, skipping duplicate bind", parentDir)
+				}
 			}
 		} else {
 			// Fine-grained: bind individual paths
