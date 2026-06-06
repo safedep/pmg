@@ -775,6 +775,42 @@ func TestGlobFallbackThresholdGlobstar(t *testing.T) {
 	assert.Less(t, len(args), 300, "Coarse-grained fallback should prevent argument explosion")
 }
 
+// TestBubblewrapAllowWriteGlobstarBindsParentOnly verifies globstar allow_write rules
+// bind the parent tree (e.g. .venv) instead of per-file mounts that break pip in-project venvs.
+// See https://github.com/safedep/pmg/issues/315
+func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	venvDir := filepath.Join(tmpDir, ".venv")
+	binDir := filepath.Join(venvDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0755))
+	pythonPath := filepath.Join(binDir, "python")
+	require.NoError(t, os.Symlink("/usr/bin/python3", pythonPath))
+
+	// Populate enough shallow files that old logic would fine-grain bind without hitting fallback.
+	for i := 0; i < 30; i++ {
+		path := filepath.Join(venvDir, fmt.Sprintf("file%d.txt", i))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0644))
+	}
+
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-venv-write",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{tmpDir + "/**"},
+			AllowWrite: []string{venvDir + "/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	argsStr := argSliceToString(args)
+	assert.Contains(t, argsStr, venvDir)
+	assert.NotContains(t, argsStr, pythonPath)
+}
+
 // TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback
 func TestGlobNoFallbackSmallPattern(t *testing.T) {
 	tmpDir := t.TempDir()
