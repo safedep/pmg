@@ -274,13 +274,9 @@ func TestBubblewrapTranslatorGlobPatterns(t *testing.T) {
 			},
 			assert: func(t *testing.T, args []string, err error) {
 				require.NoError(t, err)
-				argsStr := argSliceToString(args)
-
-				// Should include the base directory
-				assert.Contains(t, argsStr, tmpDir)
-				// Should include subdirectories
-				assert.Contains(t, argsStr, "subdir1")
-				assert.Contains(t, argsStr, "subdir2")
+				assertWriteBind(t, args, tmpDir)
+				assertNoWriteBind(t, args, filepath.Join(tmpDir, "subdir1"))
+				assertNoWriteBind(t, args, filepath.Join(tmpDir, "subdir2"))
 			},
 		},
 		{
