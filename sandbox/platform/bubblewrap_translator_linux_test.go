@@ -806,9 +806,9 @@ func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
 	args, err := translator.translate(policy)
 	require.NoError(t, err)
 
-	argsStr := argSliceToString(args)
-	assert.Contains(t, argsStr, venvDir)
-	assert.NotContains(t, argsStr, pythonPath)
+	assertWriteBind(t, args, venvDir)
+	assertNoWriteBind(t, args, pythonPath)
+	assertReadBind(t, args, pythonPath)
 }
 
 // TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback
@@ -1088,6 +1088,25 @@ func assertReadBind(t *testing.T, args []string, path string) {
 		}
 	}
 	t.Fatalf("expected --ro-bind %q %q, not found in args: %v", path, path, args)
+}
+
+func assertWriteBind(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == path && args[i+2] == path {
+			return
+		}
+	}
+	t.Fatalf("expected --bind-try %q %q, not found in args: %v", path, path, args)
+}
+
+func assertNoWriteBind(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == path && args[i+2] == path {
+			t.Fatalf("unexpected writable bind at %q in args: %v", path, args)
+		}
+	}
 }
 
 func assertReadOnlyBindAfterWritableBind(t *testing.T, args []string, readOnlyPath string, writablePath string) {

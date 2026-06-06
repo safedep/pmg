@@ -47,6 +47,12 @@ function cleanup(dir) {
   }
 }
 
+// npm-restrictive allow_write includes ~/.npm/**. On Linux (bubblewrap), --bind-try
+// skips paths that do not exist yet, so create the cache dir before sandboxed installs.
+function ensureSandboxWriteDirs() {
+  fs.mkdirSync(path.join(os.homedir(), '.npm'), { recursive: true });
+}
+
 function testPackageManager(pm) {
   const testDir = createTempDir(`pmg-e2e-${pm}-`);
   console.log(`\n  Test directory: ${testDir}`);
@@ -149,6 +155,8 @@ function testPackageManager(pm) {
 // Main
 console.log('=== PMG Package Manager E2E Tests ===\n');
 console.log('This script tests basic npm/pnpm flows to ensure sandbox compatibility.\n');
+
+ensureSandboxWriteDirs();
 
 for (const pm of PACKAGE_MANAGERS) {
   // Check if package manager is available
