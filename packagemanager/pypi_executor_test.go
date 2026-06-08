@@ -164,7 +164,7 @@ func TestPipxExecutorParseCommand(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.Equal(t, tc.expectedManifest, result.HasManifestInstall(), "HasManifestInstall mismatch")
-			assert.Equal(t, len(tc.expectedPackages), len(result.InstallTargets), "Number of install targets mismatch")
+			assert.Equal(t, tc.expectedTargets, len(result.InstallTargets), "Number of install targets mismatch")
 
 			for i, expectedPkg := range tc.expectedPackages {
 				if i < len(result.InstallTargets) {

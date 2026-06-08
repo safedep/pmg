@@ -87,10 +87,7 @@ func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error
 
 	// Define known pipx install flags that take values to prevent
 	// their values from being misidentified as package names.
-	var pipArgs, pythonPath, specPkg string
-	flagSet.StringVar(&pipArgs, "pip-args", "", "")
-	flagSet.StringVar(&pythonPath, "python", "", "")
-	flagSet.StringVar(&specPkg, "spec", "", "")
+	setupCommonPipxFlags(flagSet)
 	flagSet.Bool("force", false, "")
 	flagSet.Bool("include-deps", false, "")
 	flagSet.Bool("system-site-packages", false, "")
@@ -117,17 +114,14 @@ func (p *pypiPackageExecutor) parseRunCommand(command Command, runArgs []string)
 	flagSet.SetOutput(io.Discard)
 
 	// Define known pipx run flags that take values
-	var specPkg, pipArgs, pythonPath string
-	flagSet.StringVar(&specPkg, "spec", "", "")
-	flagSet.StringVar(&pipArgs, "pip-args", "", "")
-	flagSet.StringVar(&pythonPath, "python", "", "")
+	_, _, specPkg := setupCommonPipxFlags(flagSet)
 	flagSet.Bool("no-cache", false, "")
 
 	_ = flagSet.Parse(runArgs)
 
 	// If --spec is provided, that's the package to audit, not the positional arg
-	if specPkg != "" {
-		return p.buildInstallTargets(command, []string{specPkg})
+	if *specPkg != "" {
+		return p.buildInstallTargets(command, []string{*specPkg})
 	}
 
 	packages := flagSet.Args()
@@ -152,9 +146,7 @@ func (p *pypiPackageExecutor) parseInjectCommand(command Command, injectArgs []s
 	flagSet.SetOutput(io.Discard)
 
 	// Define known pipx inject flags that take values
-	var pipArgs, pythonPath string
-	flagSet.StringVar(&pipArgs, "pip-args", "", "")
-	flagSet.StringVar(&pythonPath, "python", "", "")
+	setupCommonPipxFlags(flagSet)
 	flagSet.Bool("force", false, "")
 	flagSet.Bool("include-apps", false, "")
 	flagSet.Bool("include-deps", false, "")
@@ -206,3 +198,11 @@ func (p *pypiPackageExecutor) buildInstallTargets(command Command, packages []st
 		IsManifestInstall: false,
 	}, nil
 }
+
+func setupCommonPipxFlags(flagSet *pflag.FlagSet) (pipArgs, pythonPath, specPkg *string) {
+	pipArgs = flagSet.String("pip-args", "", "")
+	pythonPath = flagSet.String("python", "", "")
+	specPkg = flagSet.String("spec", "", "")
+	return
+}
+
