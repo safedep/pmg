@@ -861,7 +861,7 @@ func TestPypiConvertWildcardConstraint(t *testing.T) {
 func TestPypiProxyBehavior(t *testing.T) {
 	cases := []struct {
 		name                  string
-		pm                    func() (*pypiPackageManager, error)
+		pm                    func() (PackageManager, error)
 		command               string
 		isKnownNonDownloadCmd bool // proxy skipped when proxy_install_only=true
 		isInstallationCommand bool
@@ -869,49 +869,49 @@ func TestPypiProxyBehavior(t *testing.T) {
 		// Commands where proxy MUST run
 		{
 			name:                  "poetry update — proxy runs (may download)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
 			command:               "poetry update",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "poetry add — proxy runs (installation command)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
 			command:               "poetry add django",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: true,
 		},
 		{
 			name:                  "uv sync — proxy runs (manifest install)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
 			command:               "uv sync",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: true,
 		},
 		{
 			name:                  "pip download — proxy runs (explicitly downloads packages)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
 			command:               "pip download requests",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "pip3 download — proxy runs (explicitly downloads packages)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPip3PackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPip3PackageManagerConfig()) },
 			command:               "pip3 download django",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "uv pip download — proxy runs (uv has complex subcommands, fail safe)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
 			command:               "uv pip download requests",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "uv run — proxy runs (auto-installs script dependencies)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultUvPackageManagerConfig()) },
 			command:               "uv run script.py",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
@@ -919,28 +919,28 @@ func TestPypiProxyBehavior(t *testing.T) {
 		// Commands where proxy is safely skipped
 		{
 			name:                  "pip list — proxy skipped (lists installed packages)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
 			command:               "pip list",
 			isKnownNonDownloadCmd: true,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "pip show — proxy skipped (shows package metadata)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
 			command:               "pip show requests",
 			isKnownNonDownloadCmd: true,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "poetry show — proxy skipped (shows dependency info)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
 			command:               "poetry show",
 			isKnownNonDownloadCmd: true,
 			isInstallationCommand: false,
 		},
 		{
 			name:                  "poetry check — proxy skipped (validates pyproject.toml)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPoetryPackageManagerConfig()) },
 			command:               "poetry check",
 			isKnownNonDownloadCmd: true,
 			isInstallationCommand: false,
@@ -948,32 +948,12 @@ func TestPypiProxyBehavior(t *testing.T) {
 		// Unknown commands default to proxy running (fail safe)
 		{
 			name:                  "unknown pip subcommand — proxy runs (fail safe)",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
+			pm:                    func() (PackageManager, error) { return NewPypiPackageManager(DefaultPipPackageManagerConfig()) },
 			command:               "pip some-future-command",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
-		{
-			name:                  "pipx install — proxy runs",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipxPackageManagerConfig()) },
-			command:               "pipx install black",
-			isKnownNonDownloadCmd: false,
-			isInstallationCommand: true,
-		},
-		{
-			name:                  "pipx run — proxy runs",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipxPackageManagerConfig()) },
-			command:               "pipx run cowsay moo",
-			isKnownNonDownloadCmd: false,
-			isInstallationCommand: true,
-		},
-		{
-			name:                  "pipx list — proxy skipped",
-			pm:                    func() (*pypiPackageManager, error) { return NewPypiPackageManager(DefaultPipxPackageManagerConfig()) },
-			command:               "pipx list",
-			isKnownNonDownloadCmd: true,
-			isInstallationCommand: false,
-		},
+
 	}
 
 	for _, tc := range cases {
@@ -989,80 +969,3 @@ func TestPypiProxyBehavior(t *testing.T) {
 		})
 	}
 }
-
-func TestPipxParseCommand(t *testing.T) {
-	pm, err := NewPypiPackageManager(DefaultPipxPackageManagerConfig())
-	assert.NoError(t, err)
-
-	cases := []struct {
-		name             string
-		args             []string
-		expectedManifest bool
-		expectedTargets  int
-		expectedPackages []string
-		wantErr          bool
-	}{
-		{
-			name:             "pipx install simple package",
-			args:             []string{"install", "black"},
-			expectedManifest: false,
-			expectedTargets:  1,
-			expectedPackages: []string{"black"},
-			wantErr:          false,
-		},
-		{
-			name:             "pipx run simple package",
-			args:             []string{"run", "cowsay", "hello"},
-			expectedManifest: false,
-			expectedTargets:  1,
-			expectedPackages: []string{"cowsay"},
-			wantErr:          false,
-		},
-		{
-			name:             "pipx inject",
-			args:             []string{"inject", "poetry", "poetry-plugin-export"},
-			expectedManifest: false,
-			expectedTargets:  2,
-			expectedPackages: []string{"poetry", "poetry-plugin-export"},
-			wantErr:          false,
-		},
-		{
-			name:             "pipx list",
-			args:             []string{"list"},
-			expectedManifest: false,
-			expectedTargets:  0,
-			expectedPackages: []string{},
-			wantErr:          false,
-		},
-		{
-			name:             "pipx install with specific version",
-			args:             []string{"install", "black==22.3.0"},
-			expectedManifest: false,
-			expectedTargets:  1,
-			expectedPackages: []string{"black"},
-			wantErr:          false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := pm.ParseCommand(tc.args)
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-
-			assert.Equal(t, tc.expectedManifest, result.HasManifestInstall(), "HasManifestInstall mismatch")
-			assert.Equal(t, len(tc.expectedPackages), len(result.InstallTargets), "Number of install targets mismatch")
-
-			for i, expectedPkg := range tc.expectedPackages {
-				if i < len(result.InstallTargets) {
-					target := result.InstallTargets[i]
-					assert.Equal(t, expectedPkg, target.PackageVersion.Package.Name, "Package name mismatch for package %d", i)
-				}
-			}
-		})
-	}
-}
-

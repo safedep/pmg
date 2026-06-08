@@ -1,4 +1,4 @@
-package pypi
+package executors
 
 import (
 	"context"
@@ -15,12 +15,12 @@ import (
 func NewPipxCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:                "pipx [action] [package]",
-		Short:              "Guard pipx package manager",
+		Short:              "Guard pipx package executor",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := executePipxFlow(cmd.Context(), args)
 			if err != nil {
-				ui.ErrorExit(err)
+				ui.ExitFromCommandError(err)
 			}
 
 			return nil
@@ -31,13 +31,13 @@ func NewPipxCommand() *cobra.Command {
 func executePipxFlow(ctx context.Context, args []string) error {
 	analytics.TrackCommandPipx()
 
-	packageManager, err := packagemanager.NewPypiPackageManager(packagemanager.DefaultPipxPackageManagerConfig())
+	packageExecutor, err := packagemanager.NewPypiPackageExecutor(packagemanager.DefaultPipxPackageExecutorConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create pipx package manager proxy: %w", err)
+		return fmt.Errorf("failed to create pipx package executor proxy: %w", err)
 	}
 
 	config := config.Get()
-	parsedCommand, err := packageManager.ParseCommand(args)
+	parsedCommand, err := packageExecutor.ParseCommand(args)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
@@ -53,9 +53,9 @@ func executePipxFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create dependency resolver: %w", err)
 	}
 
-	if config.IsProxyModeEnabled() {
-		return flows.ProxyFlow(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	if !config.IsProxyModeEnabled() {
+		return flows.Common(packageExecutor, packageResolver).Run(ctx, args, parsedCommand)
 	}
 
-	return flows.Common(packageManager, packageResolver).Run(ctx, args, parsedCommand)
+	return flows.ProxyFlow(packageExecutor, packageResolver).Run(ctx, args, parsedCommand)
 }

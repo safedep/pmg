@@ -147,7 +147,7 @@ func main() {
 	cmd.AddCommand(pypi.NewPip3Command())
 	cmd.AddCommand(pypi.NewUvCommand())
 	cmd.AddCommand(pypi.NewPoetryCommand())
-	cmd.AddCommand(pypi.NewPipxCommand())
+	cmd.AddCommand(executors.NewPipxCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
