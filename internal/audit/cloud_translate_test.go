@@ -207,6 +207,7 @@ func TestMapPackageManager(t *testing.T) {
 		{"bun", "bun", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_BUN},
 		{"pip", "pip", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP},
 		{"pip3", "pip3", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP},
+		{"pipx", "pipx", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP},
 		{"poetry", "poetry", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_POETRY},
 		{"uv", "uv", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UV},
 		{"unknown", "cargo", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED},

@@ -19,7 +19,7 @@ func DefaultPipxPackageExecutorConfig() PypiPackageExecutorConfig {
 		CommandName:     "pipx",
 		InstallCommands: []string{"install", "inject", "run"},
 		NonDownloadCommands: []string{
-			"list", "uninstall", "uninstall-all", "upgrade", "upgrade-all", "completions",
+			"list", "uninstall", "uninstall-all", "completions",
 		},
 	}
 }
@@ -57,49 +57,14 @@ func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error
 	// pipx run <pkg> downloads and executes a package without globally installing it.
 	// We extract the package name so it can be audited before execution.
 	if args[0] == "run" {
-		if len(args) < 2 {
-			return &ParsedCommand{Command: command}, nil
-		}
+		return p.parseRunCommand(command, args[1:])
+	}
 
-		// Set up flag parsing for pipx run to skip flags before the package
-		flagSet := pflag.NewFlagSet("pipx run", pflag.ContinueOnError)
-		flagSet.ParseErrorsAllowlist.UnknownFlags = true
-		flagSet.SetOutput(io.Discard)
-		_ = flagSet.Parse(args[1:])
-
-		packages := flagSet.Args()
-		if len(packages) == 0 {
-			return &ParsedCommand{Command: command}, nil
-		}
-
-		packageName, version, extras, err := pypiParsePackageInfo(packages[0])
-		if err != nil {
-			return nil, ErrFailedToParsePackage.Wrap(err)
-		}
-
-		isExplicit := version != ""
-		version, err = pypiGetMatchingVersion(packageName, version)
-		if err != nil {
-			return nil, ErrFailedToResolveVersion.Wrap(err)
-		}
-
-		return &ParsedCommand{
-			Command: command,
-			InstallTargets: []*PackageInstallTarget{
-				{
-					PackageVersion: &packagev1.PackageVersion{
-						Package: &packagev1.Package{
-							Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI,
-							Name:      packageName,
-						},
-						Version: version,
-					},
-					Extras:            extras,
-					IsExplicitVersion: isExplicit,
-				},
-			},
-			IsManifestInstall: false,
-		}, nil
+	// pipx inject <target-venv> <pkg1> [<pkg2> ...] injects packages into an
+	// existing venv. The first positional arg is the target venv (already installed),
+	// not a package to audit — we skip it and only audit the injected packages.
+	if args[0] == "inject" {
+		return p.parseInjectCommand(command, args[1:])
 	}
 
 	var installCmdIndex = -1
@@ -116,9 +81,19 @@ func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error
 
 	installArgs := args[installCmdIndex+1:]
 
-	flagSet := pflag.NewFlagSet("pipx", pflag.ContinueOnError)
+	flagSet := pflag.NewFlagSet("pipx install", pflag.ContinueOnError)
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
+
+	// Define known pipx install flags that take values to prevent
+	// their values from being misidentified as package names.
+	var pipArgs, pythonPath, specPkg string
+	flagSet.StringVar(&pipArgs, "pip-args", "", "")
+	flagSet.StringVar(&pythonPath, "python", "", "")
+	flagSet.StringVar(&specPkg, "spec", "", "")
+	flagSet.Bool("force", false, "")
+	flagSet.Bool("include-deps", false, "")
+	flagSet.Bool("system-site-packages", false, "")
 
 	err := flagSet.Parse(installArgs)
 	if err != nil {
@@ -126,6 +101,78 @@ func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error
 	}
 
 	packages := flagSet.Args()
+	return p.buildInstallTargets(command, packages)
+}
+
+// parseRunCommand handles `pipx run [flags] <package> [args...]`.
+// Only the first positional argument is the package; the rest are arguments
+// to the executed program.
+func (p *pypiPackageExecutor) parseRunCommand(command Command, runArgs []string) (*ParsedCommand, error) {
+	if len(runArgs) == 0 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	flagSet := pflag.NewFlagSet("pipx run", pflag.ContinueOnError)
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
+	flagSet.SetOutput(io.Discard)
+
+	// Define known pipx run flags that take values
+	var specPkg, pipArgs, pythonPath string
+	flagSet.StringVar(&specPkg, "spec", "", "")
+	flagSet.StringVar(&pipArgs, "pip-args", "", "")
+	flagSet.StringVar(&pythonPath, "python", "", "")
+	flagSet.Bool("no-cache", false, "")
+
+	_ = flagSet.Parse(runArgs)
+
+	// If --spec is provided, that's the package to audit, not the positional arg
+	if specPkg != "" {
+		return p.buildInstallTargets(command, []string{specPkg})
+	}
+
+	packages := flagSet.Args()
+	if len(packages) == 0 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Only the first positional arg is the package
+	return p.buildInstallTargets(command, []string{packages[0]})
+}
+
+// parseInjectCommand handles `pipx inject [flags] <target-venv> <pkg1> [<pkg2> ...]`.
+// The first positional argument is the target venv (already installed, not audited).
+// Subsequent positional arguments are the packages being injected.
+func (p *pypiPackageExecutor) parseInjectCommand(command Command, injectArgs []string) (*ParsedCommand, error) {
+	if len(injectArgs) == 0 {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	flagSet := pflag.NewFlagSet("pipx inject", pflag.ContinueOnError)
+	flagSet.ParseErrorsAllowlist.UnknownFlags = true
+	flagSet.SetOutput(io.Discard)
+
+	// Define known pipx inject flags that take values
+	var pipArgs, pythonPath string
+	flagSet.StringVar(&pipArgs, "pip-args", "", "")
+	flagSet.StringVar(&pythonPath, "python", "", "")
+	flagSet.Bool("force", false, "")
+	flagSet.Bool("include-apps", false, "")
+	flagSet.Bool("include-deps", false, "")
+
+	_ = flagSet.Parse(injectArgs)
+
+	packages := flagSet.Args()
+	if len(packages) < 2 {
+		// Need at least target-venv + one package to inject
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	// Skip the first positional arg (target venv), audit the rest
+	return p.buildInstallTargets(command, packages[1:])
+}
+
+// buildInstallTargets creates install targets from a list of package specifiers.
+func (p *pypiPackageExecutor) buildInstallTargets(command Command, packages []string) (*ParsedCommand, error) {
 	var installTargets []*PackageInstallTarget
 
 	for _, pkg := range packages {
