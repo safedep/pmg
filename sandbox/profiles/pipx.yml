@@ -1,0 +1,33 @@
+name: pipx
+description: Profile for pipx executor with write access to current directory
+inherits: pypi-restrictive
+
+package_managers:
+  - pipx
+
+# pipx requires PTY access to work, especially for commands like:
+# pipx run cowsay hello
+#
+# Explicitly setting this so that it is enabled even if we decide to turn this off
+# in parent profiles in the future.
+allow_pty: true
+
+# pipx-executed tools may need to bind to localhost ports (e.g., dev servers)
+allow_network_bind: true
+
+filesystem:
+  allow_read:
+    # pipx installs and manages packages in ~/.local/pipx
+    - ${HOME}/.local/pipx/**
+    - ${HOME}/.local/bin/**
+
+  # Add write permissions for pipx-specific paths
+  allow_write:
+    - ${CWD}/**
+    - ${HOME}/.local/pipx/**
+    - ${HOME}/.local/bin/**
+
+  # Additional deny rules for extra security
+  deny_write:
+    - ${CWD}/.env
+    - ${CWD}/.env.*
