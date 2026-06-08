@@ -73,3 +73,8 @@ model consists of the following layers:
 2. Policy as Code (Planned CEL policy based guardrails to prevent known bad practices)
 3. Sandbox for enforcing least privilege and defense in depth protection
 
+## Certificate Authority
+
+PMG uses a MITM CA to inspect HTTPS package downloads. See [Certificate Authority](cert.md)
+for how it works and how to optionally persist and OS-trust the CA.
+

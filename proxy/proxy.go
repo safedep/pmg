@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,15 @@ import (
 // ReadTimeout and WriteTimeout. These deadlines persist on hijacked CONNECT
 // tunnel connections, so this must be large enough for a full bulk install.
 const defaultServerReadWriteTimeout = 30 * time.Minute
+
+// defaultUpstreamRetries is the number of times an idempotent upstream
+// request is retried when the round-trip fails before any response is
+// received. Registries fronted by CDNs (e.g. Cloudflare for
+// registry.npmjs.org) intermittently reset connections under the connection
+// burst of a large "npm install". Retrying transparently here prevents a
+// single transient reset from tearing down the whole keep-alive MITM tunnel
+// (which surfaces to the client as a "socket hang up"/ECONNRESET).
+const defaultUpstreamRetries = 2
 
 // ProxyServer manages the proxy lifecycle
 type ProxyServer interface {
@@ -68,6 +78,10 @@ type ProxyConfig struct {
 	//
 	// If zero, defaults to 30 minutes.
 	ServerReadWriteTimeout time.Duration
+
+	// UpstreamRetries bounds retries of idempotent upstream requests on
+	// transient round-trip failures. Zero disables retries.
+	UpstreamRetries int
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -78,14 +92,16 @@ func DefaultProxyConfig() *ProxyConfig {
 		ConnectTimeout:         30 * time.Second,
 		RequestTimeout:         5 * time.Minute,
 		ServerReadWriteTimeout: defaultServerReadWriteTimeout,
+		UpstreamRetries:        defaultUpstreamRetries,
 		Interceptors:           []Interceptor{},
 	}
 }
 
 type proxyServer struct {
-	config *ProxyConfig
-	proxy  *goproxy.ProxyHttpServer
-	server *http.Server
+	config       *ProxyConfig
+	proxy        *goproxy.ProxyHttpServer
+	server       *http.Server
+	roundTripper goproxy.RoundTripper
 
 	listener     net.Listener
 	interceptors map[string]Interceptor
@@ -120,9 +136,13 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	proxy.Logger = &goproxyLoggerWrapper{}
 	proxy.Tr = newUpstreamTransport(config)
 
-	// Set verbose to true for verbose logging.
-	// Logging is handled by our own logger which has log level controls.
-	proxy.Verbose = true
+	// goproxy emits several log lines per request when Verbose is set. During a
+	// large install (5000+ packages) that is a substantial amount of per-request
+	// formatting and allocation on the hot path, even though dry/log discards
+	// the lines below the debug level. Only enable goproxy's verbose logging
+	// when PMG itself is running at debug level so the cost is paid only when
+	// the output is actually wanted.
+	proxy.Verbose = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
 
 	// Configure connection timeout for upstream connections during CONNECT requests
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
@@ -138,6 +158,10 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		proxy:        proxy,
 		interceptors: make(map[string]Interceptor),
 	}
+
+	ps.roundTripper = goproxy.RoundTripperFunc(func(req *http.Request, _ *goproxy.ProxyCtx) (*http.Response, error) {
+		return ps.upstreamRoundTrip(req)
+	})
 
 	for _, interceptor := range config.Interceptors {
 		if err := ps.AddInterceptor(interceptor); err != nil {
@@ -406,6 +430,65 @@ func (ps *proxyServer) configureMITM() {
 	}))
 }
 
+// upstreamRoundTrip executes the upstream round-trip with bounded retries for
+// idempotent requests. goproxy tears down the entire client MITM tunnel when a
+// single round-trip returns an error (see handleHttps in goproxy), so a lone
+// transient upstream reset would otherwise drop a pooled keep-alive connection
+// and surface as a "socket hang up"/ECONNRESET to the package manager. Retrying
+// here absorbs those transient failures and keeps the tunnel alive.
+//
+// Only requests that can be safely replayed are retried: idempotent methods
+// with no request body, and only while the client request context is live.
+func (ps *proxyServer) upstreamRoundTrip(req *http.Request) (*http.Response, error) {
+	maxRetries := ps.config.UpstreamRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+
+	var resp *http.Response
+	var err error
+
+	for attempt := 0; ; attempt++ {
+		resp, err = ps.proxy.Tr.RoundTrip(req)
+		if err == nil {
+			return resp, nil
+		}
+
+		if attempt >= maxRetries || !isReplayableRequest(req) || req.Context().Err() != nil {
+			return resp, err
+		}
+
+		// Linear backoff capped at 500ms to avoid adding meaningful latency
+		// while still spacing out retries against a struggling upstream.
+		backoff := time.Duration(attempt+1) * 50 * time.Millisecond
+		if backoff > 500*time.Millisecond {
+			backoff = 500 * time.Millisecond
+		}
+
+		log.Debugf("Retrying upstream %s %s after transient error (attempt %d/%d): %v",
+			req.Method, req.URL.Host, attempt+1, maxRetries, err)
+
+		select {
+		case <-time.After(backoff):
+		case <-req.Context().Done():
+			return resp, err
+		}
+	}
+}
+
+// isReplayableRequest reports whether a request can be safely retried after an
+// upstream failure. Only idempotent methods without a body qualify, which
+// covers registry metadata reads and tarball downloads.
+func isReplayableRequest(req *http.Request) bool {
+	switch req.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	default:
+		return false
+	}
+
+	return req.Body == nil || req.Body == http.NoBody
+}
+
 func (ps *proxyServer) registerHandlers() {
 	ps.proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		// Fix malformed URLs produced by goproxy's MITM URL reconstruction.
@@ -414,6 +497,8 @@ func (ps *proxyServer) registerHandlers() {
 		// full URI, producing malformed URLs like https://host:443http://host:443/path.
 		// We detect and fix this before processing.
 		normalizeRequestURL(req)
+
+		ctx.RoundTripper = ps.roundTripper
 
 		reqCtx, err := newRequestContext(req)
 		if err != nil {

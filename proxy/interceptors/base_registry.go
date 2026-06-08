@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 	gobreaker "github.com/sony/gobreaker/v2"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,6 +27,13 @@ type baseRegistryInterceptor struct {
 	confirmationChan chan *ConfirmationRequest
 	circuitBreaker   *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult]
 	execContext      InterceptorContext
+
+	// inflight collapses concurrent analyses of the same package version into a
+	// single upstream call. During a large install the same transitive
+	// dependency is frequently requested across several connections at once.
+	// Without de-duplication each would issue its own gRPC call to the external
+	// analysis service, amplifying load and latency (head-of-line blocking).
+	inflight singleflight.Group
 }
 
 func newAnalyzerCircuitBreaker(name string) *gobreaker.CircuitBreaker[*analyzer.PackageVersionAnalysisResult] {
@@ -110,31 +118,51 @@ func (b *baseRegistryInterceptor) analyzePackage(
 
 	log.Debugf("[%s] Analyzing package %s@%s", ctx.RequestID, packageName, packageVersion)
 
-	result, err := b.circuitBreaker.Execute(func() (*analyzer.PackageVersionAnalysisResult, error) {
-		analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
-		if err != nil {
-			// NotFound means the package is not in the analysis DB — this is expected
-			// and should not count as a circuit breaker failure.
-			// Since gRPC v1.75.0, status.FromError unwraps error chains via errors.As.
-			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-				log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
-				return &analyzer.PackageVersionAnalysisResult{
-					PackageVersion: pkgVersion,
-					Action:         analyzer.ActionAllow,
-				}, nil
-			}
+	key := ecosystem.String() + ":" + packageName + ":" + packageVersion
+	resultAny, err, _ := b.inflight.Do(key, func() (interface{}, error) {
+		// Re-check the cache: a previous in-flight analysis for this key may
+		// have populated it after our own cache miss above.
+		if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {
+			return cached, nil
 		}
 
-		return res, err
+		result, err := b.circuitBreaker.Execute(func() (*analyzer.PackageVersionAnalysisResult, error) {
+			analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
+			if err != nil {
+				// NotFound means the package is not in the analysis DB — this is expected
+				// and should not count as a circuit breaker failure.
+				// Since gRPC v1.75.0, status.FromError unwraps error chains via errors.As.
+				if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+					log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
+					return &analyzer.PackageVersionAnalysisResult{
+						PackageVersion: pkgVersion,
+						Action:         analyzer.ActionAllow,
+					}, nil
+				}
+			}
+
+			return res, err
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		b.cache.Set(ecosystem.String(), packageName, packageVersion, result)
+		return result, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("analyzer failed: %w", err)
 	}
 
-	b.cache.Set(ecosystem.String(), packageName, packageVersion, result)
+	// Fail loudly rather than panic in the proxy hot path if a future change to
+	// the singleflight closure ever returns a different type or a nil result.
+	result, ok := resultAny.(*analyzer.PackageVersionAnalysisResult)
+	if !ok || result == nil {
+		return nil, fmt.Errorf("analyzer returned unexpected result type %T for %s@%s", resultAny, packageName, packageVersion)
+	}
 
 	log.Debugf("[%s] Analysis complete for %s@%s: action=%d", ctx.RequestID, packageName, packageVersion, result.Action)
 
@@ -229,7 +257,14 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			b.statsCollector.RecordAllowed(result)
 		}
 
-		log.Debugf("[%s] Package %s/%s@%s is safe, allowing request", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+		// A flagged package allowed only because of a tenant-specific exclusion is
+		// a security-relevant trust decision; surface it so it is never silent.
+		if result.IsExcluded {
+			log.Warnf("[%s] Allowing flagged package %s/%s@%s due to tenant exclusion (%s)",
+				ctx.RequestID, ecosystem.String(), packageName, packageVersion, result.ExclusionReason)
+		} else {
+			log.Debugf("[%s] Package %s/%s@%s is safe, allowing request", ctx.RequestID, ecosystem.String(), packageName, packageVersion)
+		}
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:

@@ -35,7 +35,7 @@ func TestGenerateCA(t *testing.T) {
 
 	assert.True(t, ca.X509Cert.IsCA, "Certificate should be marked as CA")
 
-	assert.Equal(t, "PMG Proxy CA", ca.X509Cert.Subject.CommonName, "Common name should be PMG Proxy CA")
+	assert.Equal(t, "SafeDep PMG Proxy CA", ca.X509Cert.Subject.CommonName, "Common name should be SafeDep PMG Proxy CA")
 
 	assert.Greater(t, ca.X509Cert.NotAfter.Sub(ca.X509Cert.NotBefore).Hours(),
 		float64(config.CAValidityDays*24-1), "CA certificate validity period should be greater than the configured validity days")

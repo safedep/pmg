@@ -274,13 +274,9 @@ func TestBubblewrapTranslatorGlobPatterns(t *testing.T) {
 			},
 			assert: func(t *testing.T, args []string, err error) {
 				require.NoError(t, err)
-				argsStr := argSliceToString(args)
-
-				// Should include the base directory
-				assert.Contains(t, argsStr, tmpDir)
-				// Should include subdirectories
-				assert.Contains(t, argsStr, "subdir1")
-				assert.Contains(t, argsStr, "subdir2")
+				assertWriteBind(t, args, tmpDir)
+				assertNoWriteBind(t, args, filepath.Join(tmpDir, "subdir1"))
+				assertNoWriteBind(t, args, filepath.Join(tmpDir, "subdir2"))
 			},
 		},
 		{
@@ -775,6 +771,42 @@ func TestGlobFallbackThresholdGlobstar(t *testing.T) {
 	assert.Less(t, len(args), 300, "Coarse-grained fallback should prevent argument explosion")
 }
 
+// TestBubblewrapAllowWriteGlobstarBindsParentOnly verifies globstar allow_write rules
+// bind the parent tree (e.g. .venv) instead of per-file mounts that break pip in-project venvs.
+// See https://github.com/safedep/pmg/issues/315
+func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	venvDir := filepath.Join(tmpDir, ".venv")
+	binDir := filepath.Join(venvDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0755))
+	pythonPath := filepath.Join(binDir, "python")
+	require.NoError(t, os.Symlink("/usr/bin/python3", pythonPath))
+
+	// Populate enough shallow files that old logic would fine-grain bind without hitting fallback.
+	for i := 0; i < 30; i++ {
+		path := filepath.Join(venvDir, fmt.Sprintf("file%d.txt", i))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0644))
+	}
+
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-venv-write",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{tmpDir + "/**"},
+			AllowWrite: []string{venvDir + "/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assertWriteBind(t, args, venvDir)
+	assertNoWriteBind(t, args, pythonPath)
+	assertReadBind(t, args, pythonPath)
+}
+
 // TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback
 func TestGlobNoFallbackSmallPattern(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -903,6 +935,57 @@ func TestExtractParentDir(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestExtractGlobstarWriteBaseDir(t *testing.T) {
+	cases := []struct {
+		name     string
+		pattern  string
+		expected string
+	}{
+		{
+			name:     "suffix globstar (profiles)",
+			pattern:  "/home/user/.venv/**",
+			expected: "/home/user/.venv",
+		},
+		{
+			name:     "in-pattern globstars",
+			pattern:  "/a/b/**/d/**/e",
+			expected: "/a/b",
+		},
+		{
+			name:     "middle globstar with file suffix",
+			pattern:  "/usr/lib/**/*.so",
+			expected: "/usr/lib",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, extractGlobstarWriteBaseDir(tt.pattern))
+		})
+	}
+}
+
+func TestBubblewrapGlobstarWriteMultiSegmentBind(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseDir := filepath.Join(tmpDir, "a", "b")
+	require.NoError(t, os.MkdirAll(baseDir, 0755))
+
+	pattern := filepath.Join(tmpDir, "a", "b", "**", "d", "**", "e")
+	config := newDefaultBubblewrapConfig()
+	translator := newBubblewrapPolicyTranslator(config)
+
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-multi-globstar-write",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowWrite: []string{pattern},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+	assertWriteBind(t, args, baseDir)
 }
 
 // Helper function to convert arg slice to string for easier assertion
@@ -1052,6 +1135,25 @@ func assertReadBind(t *testing.T, args []string, path string) {
 		}
 	}
 	t.Fatalf("expected --ro-bind %q %q, not found in args: %v", path, path, args)
+}
+
+func assertWriteBind(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == path && args[i+2] == path {
+			return
+		}
+	}
+	t.Fatalf("expected --bind-try %q %q, not found in args: %v", path, path, args)
+}
+
+func assertNoWriteBind(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == path && args[i+2] == path {
+			t.Fatalf("unexpected writable bind at %q in args: %v", path, args)
+		}
+	}
 }
 
 func assertReadOnlyBindAfterWritableBind(t *testing.T, args []string, readOnlyPath string, writablePath string) {

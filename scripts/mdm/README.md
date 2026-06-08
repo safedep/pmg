@@ -93,6 +93,7 @@ SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" ./pmg_setup_install_macos.sh
 
 ## Limitations
 
+- Installing PMG's MITM CA into the trust store (`pmg setup cert install`) is not supported via MDM on macOS. Adding a trusted root to the login keychain requires interactive authorization from the user's GUI session, which an MDM deployment cannot supply. Have each user run `pmg setup cert install` in their own session when they need it (only needed for tools that ignore the proxy's CA environment variables, such as Go on macOS).
 - The scripts can't read or write the Keychain for a user who isn't logged in, since no session exists to reach. They report and skip those users; configure them in their session when they log in. After an uninstall, their credentials clear on next login.
 - Machine-scope steps under a non-root invocation need `sudo`. Without passwordless sudo in a non-interactive context, they fail with an error instead of hanging.
 - macOS only. The scripts exit on other platforms.

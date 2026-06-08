@@ -277,6 +277,47 @@ jobs:
           test -d node_modules/lodash
           cd .. && rm -rf bun-test
 
+      # Runs before the classic-yarn step so corepack's Berry shim stays the `yarn`
+      # on PATH (the later `npm install -g yarn@1.22.22` would shadow it).
+      - name: Test safedep-test-pkg is Blocked using Yarn (Berry) Proxy mode
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+          YARN_NODE_LINKER: node-modules
+          YARN_ENABLE_HARDENED_MODE: "0"
+          # CI=true would enable immutable installs and fail before the proxy can block.
+          YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
+        run: |
+          echo "Testing that safedep-test-pkg is blocked with Yarn Berry in proxy mode..."
+          YARN_BERRY_TESTDIR=$(mktemp -d) && cd "$YARN_BERRY_TESTDIR"
+          npm init -y
+
+          # Pin Yarn Berry without running an install (corepack use would trigger one).
+          npm pkg set packageManager=yarn@4.16.0
+          yarn --version
+
+          # A non-zero exit alone is not enough — yarn could fail for unrelated
+          # reasons (setup, network, CA trust) and falsely pass. Require PMG's
+          # malware block signal in the output.
+          if output=$(pmg yarn add safedep-test-pkg@0.1.3 2>&1); then
+            echo "$output"
+            echo "ERROR: safedep-test-pkg was not blocked with Yarn Berry!"
+            exit 1
+          fi
+          echo "$output"
+          if ! echo "$output" | grep -q "Malicious package blocked"; then
+            echo "ERROR: yarn add failed, but not due to a PMG malware block"
+            exit 1
+          fi
+          echo "SUCCESS: safedep-test-pkg correctly blocked with Yarn Berry"
+
+          if [ -d "node_modules/safedep-test-pkg" ]; then
+            echo "ERROR: safedep-test-pkg found in node_modules!"
+            exit 1
+          else
+            echo "SUCCESS: safedep-test-pkg not present in node_modules"
+          fi
+          cd - && rm -rf "$YARN_BERRY_TESTDIR"
+
       - name: Test Yarn - Single Package & Manifest
         run: |
           echo "Testing Yarn single package installation..."

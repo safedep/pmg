@@ -67,16 +67,16 @@ PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and 
 
 PMG is the only free, open-source, install-time package firewall that covers developers and AI agents alike and ships with sandboxing and cooldown out of the box.
 
-| Capability                              | PMG | Socket  | Snyk | Dependabot |
-| --------------------------------------- | --- | ------- | ---- | ---------- |
-| OSS / built in public                   | ✓   | ✗       | ✗    | ✗          |
-| No account or API key                   | ✓   | ✓       | ✗    | ✗          |
-| Install-time malicious package blocking | ✓   | ✓       | ✗    | ✗          |
-| Dependency cooldown policy              | ✓   | ✗       | ✗    | ✗          |
-| Runtime sandboxing                         | ✓   | ✗       | ✗    | ✗          |
-| Protects AI coding agents transparently | ✓   | ✗       | ✗    | ✗          |
-| Local audit logs                        | ✓   | ✗       | ✗    | ✗          |
-| Known-CVE remediation PRs               | ✗   | ✗       | ✓    | ✓          |
+| Capability                              | PMG | Socket | safe-chain | Snyk | Dependabot |
+| --------------------------------------- | --- | ------ | ---------- | ---- | ---------- |
+| OSS / built in public                   | ✓   | ✗      | ✓          | ✗    | ✗          |
+| No account or API key                   | ✓   | ✓      | ✓          | ✗    | ✗          |
+| Install-time malicious package blocking | ✓   | ✓      | ✓          | ✗    | ✗          |
+| Dependency cooldown policy              | ✓   | ✗      | ✓          | ✗    | ✗          |
+| Runtime sandboxing                      | ✓   | ✗      | ✗          | ✗    | ✗          |
+| Protects AI coding agents transparently | ✓   | ✗      | ✗          | ✗    | ✗          |
+| Local audit logs                        | ✓   | ✗      | ✗          | ✗    | ✗          |
+| Known-CVE remediation PRs               | ✗   | ✗      | ✗          | ✓    | ✓          |
 
 ## Quick Start
 
@@ -104,6 +104,18 @@ Validate your installation and verify protection is working:
 ```bash
 pmg setup doctor
 ```
+
+> **Optional:** PMG inspects HTTPS traffic with an on-the-fly CA that it injects into package
+> managers per run. To persist a single CA across runs and trust it in your OS trust store
+> (needed for tools that ignore CA environment variables, such as Go on macOS and Windows),
+> install it once:
+>
+> ```bash
+> pmg setup cert install          # user scope, no sudo
+> pmg setup cert status           # check trust state and expiry
+> ```
+>
+> See [Certificate Authority](docs/cert.md) for scopes, rotation, and removal.
 
 ### 3. Use
 
@@ -249,6 +261,7 @@ PMG builds are reproducible and signed.
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
+- [Certificate Authority](docs/cert.md)
 - [Sandboxing](docs/sandbox.md)
 
 ## Support

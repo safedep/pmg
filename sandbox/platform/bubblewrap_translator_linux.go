@@ -529,8 +529,21 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 
 	// Check if path contains glob pattern
 	if util.ContainsGlob(path) {
-		// Check if the base directory is already bound (e.g., /tmp already bound, skip /tmp/**)
 		baseDir := t.extractParentDir(path)
+
+		// Globstar write rules always bind the parent directory read-write. Per-path
+		// binds interact badly with earlier read-only parent mounts (e.g. ${CWD}/**)
+		// and miss files beyond maxGlobDepth — see https://github.com/safedep/pmg/issues/315.
+		// Base dir is the path prefix before the first "/**" (see extractGlobstarWriteBaseDir).
+		if strings.Contains(path, "**") {
+			baseDir = extractGlobstarWriteBaseDir(path)
+			args = append(args, "--bind-try", baseDir, baseDir)
+			boundPaths[baseDir] = true
+			log.Debugf("Globstar allow_write: bound parent directory '%s' (read-write)", baseDir)
+			return args, nil
+		}
+
+		// Check if the base directory is already bound (e.g., /tmp already bound, skip /tmp/**)
 		if boundPaths[baseDir] {
 			log.Debugf("Skipping pattern '%s' - base directory '%s' already bound", path, baseDir)
 			return args, nil
@@ -550,8 +563,7 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 					boundPaths[parentDir] = true
 					log.Debugf("Coarse-grained fallback: bound parent directory '%s' (read-write)", parentDir)
 				} else {
-					// Path already bound, skip (likely already bound as read-only from essential paths)
-					log.Debugf("Parent directory '%s' already bound, skipping duplicate bind", parentDir)
+					log.Debugf("Parent directory '%s' already bound for write, skipping duplicate bind", parentDir)
 				}
 			}
 		} else {

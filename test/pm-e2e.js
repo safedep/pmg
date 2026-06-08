@@ -47,15 +47,37 @@ function cleanup(dir) {
   }
 }
 
+// npm-restrictive allow_write includes /tmp/**. Use cache/store paths under /tmp so
+// bubblewrap can bind /tmp read-write without pre-creating ~/.npm or ~/.cache/pnpm.
+function pmEnv(pm) {
+  const base = path.join(os.tmpdir(), 'pmg-e2e');
+  fs.mkdirSync(base, { recursive: true });
+
+  const env = { ...process.env };
+  env.npm_config_cache = path.join(base, 'npm-cache');
+  fs.mkdirSync(env.npm_config_cache, { recursive: true });
+
+  if (pm === 'pnpm') {
+    env.PNPM_HOME = path.join(base, 'pnpm-home');
+    env.npm_config_store_dir = path.join(base, 'pnpm-store');
+    fs.mkdirSync(env.PNPM_HOME, { recursive: true });
+    fs.mkdirSync(env.npm_config_store_dir, { recursive: true });
+    env.PATH = `${env.PNPM_HOME}${path.delimiter}${env.PATH}`;
+  }
+
+  return env;
+}
+
 function testPackageManager(pm) {
   const testDir = createTempDir(`pmg-e2e-${pm}-`);
+  const env = pmEnv(pm);
   console.log(`\n  Test directory: ${testDir}`);
 
   try {
     // Initialize project
     test(`${pm}: Initialize project`, () => {
       const initCmd = pm === 'npm' ? 'npm init -y' : 'pnpm init';
-      const result = exec(initCmd, { cwd: testDir });
+      const result = exec(initCmd, { cwd: testDir, env });
       if (!result.success) {
         console.log(`    ❌ FAIL: ${result.error}`);
         return false;
@@ -77,7 +99,7 @@ function testPackageManager(pm) {
       const addCmd = pm === 'npm'
         ? `npm install ${depsList}`
         : `pnpm add ${depsList}`;
-      const result = exec(addCmd, { cwd: testDir });
+      const result = exec(addCmd, { cwd: testDir, env });
       if (!result.success) {
         console.log(`    ❌ FAIL: ${result.error}`);
         return false;
@@ -122,7 +144,7 @@ function testPackageManager(pm) {
 
       // Reinstall
       const installCmd = pm === 'npm' ? 'npm install' : 'pnpm install';
-      const result = exec(installCmd, { cwd: testDir });
+      const result = exec(installCmd, { cwd: testDir, env });
       if (!result.success) {
         console.log(`    ❌ FAIL: ${result.error}`);
         return false;

@@ -12,7 +12,9 @@ import (
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
+	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/sandbox/platform"
+	"github.com/safedep/pmg/truststore"
 	"github.com/spf13/cobra"
 )
 
@@ -28,6 +30,7 @@ const (
 	checkSandbox            = "sandbox"
 	checkProtectionNpm      = "protection-npm"
 	checkProtectionPip      = "protection-pip"
+	checkCA                 = "ca-cert"
 )
 
 func NewDoctorCommand() *cobra.Command {
@@ -260,6 +263,14 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				}
 			},
 		},
+		{
+			Name:     checkCA,
+			Category: "Security",
+			Run: func() doctor.CheckResult {
+				user, system, _ := truststore.Status(certmanager.CACommonName)
+				return evaluateCACheck(cfg.ConfigDir(), user, system, truststore.UserScopeSupported())
+			},
+		},
 	}
 	return doctor.RunChecks(checks)
 }
@@ -317,6 +328,7 @@ var checkDisplayNames = map[string]string{
 	checkSandbox:            "Sandbox",
 	checkProtectionNpm:      "npm protection",
 	checkProtectionPip:      "pip protection",
+	checkCA:                 "MITM CA",
 }
 
 var checkFixes = map[string]string{
@@ -331,6 +343,41 @@ var checkFixes = map[string]string{
 	checkEventLogging:       "Set skip_event_logging: false in config",
 	checkProtectionNpm:      "pmg setup install",
 	checkProtectionPip:      "pmg setup install",
+	checkCA:                 "pmg setup cert install",
+}
+
+// evaluateCACheck is the testable core of the CA doctor check. Trust booleans
+// and userScopeSupported are injected so the check is hermetic; the live check
+// fills them from truststore.
+func evaluateCACheck(dir string, userTrusted, systemTrusted, userScopeSupported bool) doctor.CheckResult {
+	st, err := certmanager.InspectCA(dir)
+	if err != nil {
+		return doctor.CheckResult{Status: doctor.StatusFail, Message: "CA files present but unreadable"}
+	}
+
+	if !st.KeyPresent && !st.CertPresent {
+		return doctor.CheckResult{Status: doctor.StatusWarn, Message: "MITM CA not installed (optional; run pmg setup cert install)"}
+	}
+
+	st.UserTrusted, st.SystemTrusted = userTrusted, systemTrusted
+
+	if drift, reason := st.Drift(); drift {
+		return doctor.CheckResult{Status: doctor.StatusFail, Message: reason}
+	}
+
+	if st.Trusted() {
+		if st.ExpiringSoon {
+			return doctor.CheckResult{Status: doctor.StatusWarn, Message: "CA trusted but expiring within 30 days"}
+		}
+		return doctor.CheckResult{Status: doctor.StatusPass, Message: "MITM CA installed and trusted"}
+	}
+
+	// On disk but not trusted in any store.
+	if !userScopeSupported {
+		// Linux: env-var injection (SSL_CERT_FILE) already covers Go; store trust optional.
+		return doctor.CheckResult{Status: doctor.StatusWarn, Message: "CA on disk; not in OS store (Linux uses SSL_CERT_FILE; --system for store trust)"}
+	}
+	return doctor.CheckResult{Status: doctor.StatusFail, Message: "CA on disk but not trusted; run pmg setup cert install"}
 }
 
 func printResults(results []doctor.CheckResult) {
