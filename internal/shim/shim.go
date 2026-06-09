@@ -124,6 +124,8 @@ if [ ! -x "$PMG_BIN" ]; then
   echo "[pmg] error: run 'pmg setup install' again or remove shims with 'pmg setup remove'" >&2
   exit 127
 fi
+PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
+export PMG_SHIM_PATH
 exec "$PMG_BIN" %s "$@"
 `, pmgBin, pm)
 
