@@ -22,6 +22,11 @@ const (
 	// lets FilterPMGFromPath strip exactly the dir the shim lives in — no
 	// matter where it was placed (`~/.pmg/bin`, `/usr/local/lib/pmg/bin`, a
 	// custom location, etc.).
+	//
+	// Internal: set by the shim script, consumed by pmg in the same process
+	// tree. Setting it manually from a user shell is unsupported — it would
+	// cause FilterPMGFromPath to strip the wrong directory from PATH lookup
+	// and could prevent pmg from resolving the real package manager.
 	pmgShimPathEnv = "PMG_SHIM_PATH"
 )
 
