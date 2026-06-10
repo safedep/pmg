@@ -55,7 +55,7 @@ func TestDecideExit(t *testing.T) {
 	runErr := errors.New("npm failed")
 
 	t.Run("plain child exit becomes a transparent ChildExitError", func(t *testing.T) {
-		err := decideExit(runErr, 1, false, true, "npm")
+		err := decideExit(runErr, 1, false, true, "npm", 0)
 
 		var ce *ChildExitError
 		require.True(t, errors.As(err, &ce))
@@ -63,10 +63,19 @@ func TestDecideExit(t *testing.T) {
 		assert.True(t, ce.Transparent())
 		assert.False(t, ce.IsSignaled())
 		assert.Equal(t, "npm", ce.PMName)
+		assert.Equal(t, 0, ce.ScrubbedEnvCount())
+	})
+
+	t.Run("scrubbed env count is carried for the exit hint", func(t *testing.T) {
+		err := decideExit(runErr, 1, false, true, "npm", 3)
+
+		var ce *ChildExitError
+		require.True(t, errors.As(err, &ce))
+		assert.Equal(t, 3, ce.ScrubbedEnvCount())
 	})
 
 	t.Run("signaled child exit is transparent and signaled", func(t *testing.T) {
-		err := decideExit(runErr, 130, true, true, "npm")
+		err := decideExit(runErr, 130, true, true, "npm", 0)
 
 		var ce *ChildExitError
 		require.True(t, errors.As(err, &ce))
@@ -75,7 +84,7 @@ func TestDecideExit(t *testing.T) {
 	})
 
 	t.Run("unresolved exit is a visible launch failure", func(t *testing.T) {
-		err := decideExit(runErr, -1, false, false, "npm")
+		err := decideExit(runErr, -1, false, false, "npm", 0)
 
 		usefulErr, ok := usefulerror.AsUsefulError(err)
 		require.True(t, ok)
@@ -94,7 +103,7 @@ func TestClassifyTransparentChildExit(t *testing.T) {
 	childErr := exec.Command("sh", "-c", "exit 1").Run()
 	require.Error(t, childErr)
 
-	err := classify(childErr, "npm")
+	err := classify(childErr, "npm", 0)
 
 	var ce *ChildExitError
 	require.True(t, errors.As(err, &ce))

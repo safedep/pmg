@@ -88,8 +88,9 @@ func TestScrubEnv_RemovesDeniedKeepsAllowed(t *testing.T) {
 		"GITHUB_TOKEN=scrub-me-too",
 	}}
 
-	scrubEnv(cmd, policy)
+	scrubbed := scrubEnv(cmd, policy)
 
+	assert.Equal(t, 2, scrubbed)
 	assert.Contains(t, cmd.Env, "PATH=/usr/bin")
 	assert.Contains(t, cmd.Env, "NPM_TOKEN=keep-me")
 	assert.NotContains(t, cmd.Env, "AWS_SECRET_ACCESS_KEY=scrub-me")
@@ -99,14 +100,15 @@ func TestScrubEnv_RemovesDeniedKeepsAllowed(t *testing.T) {
 func TestScrubEnv_AllowOverrideUnscrubs(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{Name: "test"}
 
-	// Simulate a --sandbox-allow env=AWS_PROFILE override having been merged.
+	// Simulate a --sandbox-allow env=AWS_SESSION_TOKEN override having been merged.
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowEnv, Value: "AWS_SESSION_TOKEN", Raw: "env=AWS_SESSION_TOKEN"},
 	})
 
 	cmd := &exec.Cmd{Env: []string{"AWS_SESSION_TOKEN=kept"}}
-	scrubEnv(cmd, policy)
+	scrubbed := scrubEnv(cmd, policy)
 
+	assert.Equal(t, 0, scrubbed)
 	assert.Contains(t, cmd.Env, "AWS_SESSION_TOKEN=kept")
 }
 

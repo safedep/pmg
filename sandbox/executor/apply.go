@@ -170,12 +170,14 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 	// runs after overlay and runtime overrides are merged into the policy so
 	// user allowances are honored, and is platform-independent (it filters the
 	// env slice regardless of the OS sandbox driver).
-	scrubEnv(cmd, policy)
+	scrubbed := scrubEnv(cmd, policy)
 
 	result, err := sb.Execute(ctx, cmd, policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup sandbox: %w", err)
 	}
+
+	result.SetScrubbedEnvCount(scrubbed)
 
 	return result, nil
 }
@@ -226,11 +228,12 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 }
 
 // scrubEnv removes sensitive environment variables from cmd.Env per the
-// resolved policy's environment section. It runs after project overlay and
-// runtime overrides are merged into the policy, so user allowances take effect.
-// A nil cmd.Env would mean "inherit the parent environment", which would defeat
-// scrubbing, so it is populated from os.Environ() first.
-func scrubEnv(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) {
+// resolved policy's environment section and returns how many were removed.
+// It runs after project overlay and runtime overrides are merged into the
+// policy, so user allowances take effect. A nil cmd.Env would mean "inherit
+// the parent environment", which would defeat scrubbing, so it is populated
+// from os.Environ() first.
+func scrubEnv(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) int {
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
@@ -245,6 +248,8 @@ func scrubEnv(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) {
 		log.Infof("Sandbox: scrubbed %d sensitive environment variable(s) from %s: %s",
 			len(result.Removed), policy.Name, strings.Join(result.Removed, ", "))
 	}
+
+	return len(result.Removed)
 }
 
 // removeExactMatch removes entries from the slice that exactly match the given value.

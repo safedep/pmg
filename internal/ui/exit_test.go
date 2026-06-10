@@ -14,12 +14,16 @@ type fakeChildExit struct {
 	code     int
 	signaled bool
 	pmName   string
+	scrubbed int
 }
 
-func (e *fakeChildExit) Error() string    { return fmt.Sprintf("%s exited with code %d", e.pmName, e.code) }
-func (e *fakeChildExit) ExitCode() int    { return e.code }
-func (e *fakeChildExit) Transparent() bool { return true }
-func (e *fakeChildExit) IsSignaled() bool { return e.signaled }
+func (e *fakeChildExit) Error() string {
+	return fmt.Sprintf("%s exited with code %d", e.pmName, e.code)
+}
+func (e *fakeChildExit) ExitCode() int         { return e.code }
+func (e *fakeChildExit) Transparent() bool     { return true }
+func (e *fakeChildExit) IsSignaled() bool      { return e.signaled }
+func (e *fakeChildExit) ScrubbedEnvCount() int { return e.scrubbed }
 
 func withVerbosity(t *testing.T, level VerbosityLevel) {
 	t.Helper()
@@ -49,6 +53,44 @@ func TestClassifyExit(t *testing.T) {
 		assert.True(t, d.transparent)
 		assert.Equal(t, 2, d.code)
 		assert.True(t, d.notice)
+	})
+
+	t.Run("scrubbed env vars append a dim hint line", func(t *testing.T) {
+		withVerbosity(t, VerbosityLevelNormal)
+
+		d := classifyExit(&fakeChildExit{code: 1, pmName: "npm", scrubbed: 3})
+
+		assert.True(t, d.notice)
+		assert.Contains(t, d.message, "↳ pmg: npm exited with code 1\n")
+		assert.Contains(t, d.message, "sandbox scrubbed 3 env var(s)")
+		assert.Contains(t, d.message, "--sandbox-allow env=NAME")
+	})
+
+	t.Run("zero scrubbed env vars keep the notice to one line", func(t *testing.T) {
+		withVerbosity(t, VerbosityLevelNormal)
+
+		d := classifyExit(&fakeChildExit{code: 1, pmName: "npm"})
+
+		assert.NotContains(t, d.message, "scrubbed")
+		assert.NotContains(t, d.message, "\n")
+	})
+
+	t.Run("scrubbed hint is suppressed on signal exits", func(t *testing.T) {
+		withVerbosity(t, VerbosityLevelNormal)
+
+		d := classifyExit(&fakeChildExit{code: 130, signaled: true, pmName: "npm", scrubbed: 3})
+
+		assert.False(t, d.notice)
+		assert.Empty(t, d.message)
+	})
+
+	t.Run("scrubbed hint is suppressed in silent mode", func(t *testing.T) {
+		withVerbosity(t, VerbosityLevelSilent)
+
+		d := classifyExit(&fakeChildExit{code: 1, pmName: "npm", scrubbed: 3})
+
+		assert.False(t, d.notice)
+		assert.Empty(t, d.message)
 	})
 
 	t.Run("signal termination is silent but still mirrors the code", func(t *testing.T) {

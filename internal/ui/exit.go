@@ -14,6 +14,14 @@ type transparentExit interface {
 	IsSignaled() bool
 }
 
+// scrubbedEnvReporter is optionally satisfied by a transparent exit error to
+// surface how many environment variables the sandbox scrubbed from the failed
+// run. Kept separate from transparentExit so older implementations still
+// classify as transparent.
+type scrubbedEnvReporter interface {
+	ScrubbedEnvCount() int
+}
+
 type exitDecision struct {
 	transparent bool
 	notice      bool
@@ -34,6 +42,15 @@ func classifyExit(err error) exitDecision {
 	if !te.IsSignaled() && verbosityLevel != VerbosityLevelSilent {
 		d.notice = true
 		d.message = "↳ pmg: " + te.Error()
+
+		// Env scrubbing produces no sandbox violation and the child's own
+		// error (e.g. a registry 401) does not point at the cause, so hint at
+		// it here. Names are not printed; they are at info level via --debug.
+		if sr, ok := te.(scrubbedEnvReporter); ok && sr.ScrubbedEnvCount() > 0 {
+			d.message += fmt.Sprintf(
+				"\n↳ pmg: sandbox scrubbed %d env var(s) (names via --debug, re-allow with --sandbox-allow env=NAME)",
+				sr.ScrubbedEnvCount())
+		}
 	}
 	return d
 }

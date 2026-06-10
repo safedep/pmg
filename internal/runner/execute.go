@@ -130,7 +130,7 @@ func runDirect(cmd *exec.Cmd, result *sandbox.ExecutionResult, pmName string) er
 
 	if err := cmd.Run(); err != nil {
 		executor.ObserveViolations(result, err)
-		return classify(err, pmName)
+		return classify(err, pmName, result.ScrubbedEnvCount())
 	}
 
 	log.Debugf("Command completed successfully")
@@ -244,7 +244,7 @@ func runPTY(
 
 	if sessionError != nil {
 		executor.ObserveViolations(result, sessionError)
-		return classify(sessionError, pmName)
+		return classify(sessionError, pmName, result.ScrubbedEnvCount())
 	}
 
 	return nil

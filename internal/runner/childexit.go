@@ -18,14 +18,16 @@ type ChildExitError struct {
 	Code     int    // child's exit code (or 128+signum for signal termination)
 	Signaled bool   // true if terminated by a signal (Ctrl+C, SIGTERM, …)
 	PMName   string // package manager name, for the dim one-liner
+	Scrubbed int    // env vars scrubbed by the sandbox, for the dim hint
 }
 
 func (e *ChildExitError) Error() string {
 	return fmt.Sprintf("%s exited with code %d", e.PMName, e.Code)
 }
-func (e *ChildExitError) ExitCode() int     { return e.Code }
-func (e *ChildExitError) Transparent() bool { return true }
-func (e *ChildExitError) IsSignaled() bool  { return e.Signaled }
+func (e *ChildExitError) ExitCode() int         { return e.Code }
+func (e *ChildExitError) Transparent() bool     { return true }
+func (e *ChildExitError) IsSignaled() bool      { return e.Signaled }
+func (e *ChildExitError) ScrubbedEnvCount() int { return e.Scrubbed }
 
 // classify turns a package-manager execution error into either a transparent
 // child exit or a visible PMG error, and is the only place the fork lives. It is
@@ -33,13 +35,13 @@ func (e *ChildExitError) IsSignaled() bool  { return e.Signaled }
 // child's own non-zero exit loud — a restrictive policy routinely denies benign
 // operations and causation cannot be inferred from a denial. Only a failure on
 // PMG's side of the boundary (the tool never produced an exit status) is loud.
-func classify(err error, pmName string) error {
+func classify(err error, pmName string, scrubbedEnv int) error {
 	if err == nil {
 		return nil
 	}
 
 	code, signaled, resolved := extractExit(err)
-	return decideExit(err, code, signaled, resolved, pmName)
+	return decideExit(err, code, signaled, resolved, pmName, scrubbedEnv)
 }
 
 // extractExit pulls the exit code and signal status from a process error.
@@ -63,11 +65,11 @@ func extractExit(err error) (code int, signaled bool, resolved bool) {
 	return -1, false, false
 }
 
-func decideExit(err error, code int, signaled, resolved bool, pmName string) error {
+func decideExit(err error, code int, signaled, resolved bool, pmName string, scrubbedEnv int) error {
 	if !resolved {
 		return visibleExecError(err)
 	}
-	return &ChildExitError{Code: code, Signaled: signaled, PMName: pmName}
+	return &ChildExitError{Code: code, Signaled: signaled, PMName: pmName, Scrubbed: scrubbedEnv}
 }
 
 // visibleExecError is the loud error for a genuine PMG-side failure: the package

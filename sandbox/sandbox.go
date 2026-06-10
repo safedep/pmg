@@ -57,8 +57,9 @@ type violationReporter interface {
 // additional metadata (e.g., exit codes, resource usage, violation events).
 // Callers must call Close() after cmd.Run() completes to clean up resources.
 type ExecutionResult struct {
-	executed bool
-	sandbox  Sandbox
+	executed         bool
+	sandbox          Sandbox
+	scrubbedEnvCount int
 }
 
 // ExecutionResultOpt is a function that can be used to configure an ExecutionResult.
@@ -91,6 +92,23 @@ func NewExecutionResult(opts ...ExecutionResultOpt) *ExecutionResult {
 // ShouldRun returns true if the caller should execute cmd.Run().
 func (r *ExecutionResult) ShouldRun() bool {
 	return !r.executed
+}
+
+// SetScrubbedEnvCount records how many environment variables were scrubbed
+// from the child process per the resolved environment policy.
+func (r *ExecutionResult) SetScrubbedEnvCount(count int) {
+	r.scrubbedEnvCount = count
+}
+
+// ScrubbedEnvCount returns how many environment variables were scrubbed from
+// the child process. Used to hint at scrubbing as a possible cause when the
+// child fails.
+func (r *ExecutionResult) ScrubbedEnvCount() int {
+	if r == nil {
+		return 0
+	}
+
+	return r.scrubbedEnvCount
 }
 
 // BestEffortViolation returns sandbox-specific best-effort violation details.
