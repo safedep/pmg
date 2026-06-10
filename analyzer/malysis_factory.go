@@ -1,20 +1,34 @@
 package analyzer
 
 import (
+	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/cloudauth"
 )
 
+type credentialsResolver func() (*cloud.Credentials, func() error, error)
+
 // NewMalysisAnalyzer creates the malysis query analyzer best suited for the
 // current environment. When SafeDep Cloud credentials are available (via
 // keychain or environment), it returns an authenticated analyzer that queries
-// api.safedep.io and honors tenant-specific package exclusions. Otherwise it
-// falls back to the unauthenticated community analyzer.
+// api.safedep.io and honors tenant-specific package exclusions, degrading to
+// the unauthenticated community analyzer if the API rejects the credentials.
+// When no credentials are available, it returns the community analyzer.
 func NewMalysisAnalyzer(config MalysisQueryAnalyzerConfig) (PackageVersionAnalyzer, error) {
-	creds, closeResolver, err := cloudauth.ResolveCredentials()
+	return newMalysisAnalyzer(config, cloudauth.ResolveCredentials)
+}
+
+func newMalysisAnalyzer(config MalysisQueryAnalyzerConfig,
+	resolveCredentials credentialsResolver) (PackageVersionAnalyzer, error) {
+	community, err := NewMalysisQueryAnalyzer(config)
+	if err != nil {
+		return nil, err
+	}
+
+	creds, closeResolver, err := resolveCredentials()
 	if err != nil {
 		log.Debugf("SafeDep Cloud credentials unavailable, using community malysis analyzer: %v", err)
-		return NewMalysisQueryAnalyzer(config)
+		return community, nil
 	}
 	defer func() {
 		if closeErr := closeResolver(); closeErr != nil {
@@ -22,6 +36,11 @@ func NewMalysisAnalyzer(config MalysisQueryAnalyzerConfig) (PackageVersionAnalyz
 		}
 	}()
 
-	log.Debugf("SafeDep Cloud credentials found, using authenticated malysis analyzer")
-	return NewMalysisAuthenticatedQueryAnalyzer(config, creds)
+	authenticated, err := NewMalysisAuthenticatedQueryAnalyzer(config, creds)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debugf("SafeDep Cloud credentials found, using authenticated malysis analyzer with community fallback")
+	return newMalysisFallbackAnalyzer(authenticated, community), nil
 }
