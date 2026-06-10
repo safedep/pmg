@@ -3,6 +3,7 @@ description: Restrictive sandbox policy for PyPI ecosystem (pip, poetry, uv)
 package_managers:
   - pip
   - pip3
+  - pipx
   - poetry
   - uv
 

@@ -72,6 +72,13 @@ func TestSandboxConfigPolicyFor(t *testing.T) {
 			wantExists:  true,
 		},
 		{
+			name:        "legacy pypi-restrictive re-mapped for pipx",
+			policies:    map[string]SandboxPolicyRef{"pipx": {Enabled: true, Profile: "pypi-restrictive"}},
+			pmName:      "pipx",
+			wantProfile: "pipx",
+			wantExists:  true,
+		},
+		{
 			name:        "legacy pypi-restrictive re-mapped for poetry",
 			policies:    map[string]SandboxPolicyRef{"poetry": {Enabled: true, Profile: "pypi-restrictive"}},
 			pmName:      "poetry",

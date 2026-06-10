@@ -78,6 +78,11 @@ func TestProfileEnvContract(t *testing.T) {
 			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
 		},
 		{
+			profile:      "pipx",
+			wantKept:     []string{},
+			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		},
+		{
 			profile:      "uv",
 			wantKept:     []string{"UV_PUBLISH_TOKEN"},
 			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},

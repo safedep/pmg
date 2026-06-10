@@ -168,6 +168,7 @@ var legacyProfileAliases = map[string]map[string]string{
 	"pypi-restrictive": {
 		"pip":    "pip",
 		"pip3":   "pip",
+		"pipx":   "pipx",
 		"poetry": "poetry",
 		"uv":     "uv",
 	},

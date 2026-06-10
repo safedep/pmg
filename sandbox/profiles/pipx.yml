@@ -15,17 +15,38 @@ allow_pty: true
 # pipx-executed tools may need to bind to localhost ports (e.g., dev servers)
 allow_network_bind: true
 
+environment:
+  # The pypi-restrictive base allows no environment variables. pipx delegates
+  # to pip inside its venvs, so it needs the pip config namespace for index
+  # auth and TLS. Sibling tool credentials (UV_PUBLISH_TOKEN, POETRY_*) and
+  # TWINE_* stay scrubbed.
+  allow:
+    - PIP_*
+
 filesystem:
   allow_read:
-    # pipx installs and manages packages in ~/.local/pipx
+    # pipx venv homes: ~/.local/pipx is the legacy default. pipx >= 1.5
+    # defaults PIPX_HOME to platformdirs locations when the legacy dir does
+    # not exist: ~/.local/share/pipx on Linux, ~/Library/Application Support/pipx
+    # on macOS.
     - ${HOME}/.local/pipx/**
+    - ${HOME}/.local/share/pipx/**
+    - ${HOME}/Library/Application Support/pipx/**
     - ${HOME}/.local/bin/**
+
+    # pipx run caches ephemeral venvs here
+    - ${HOME}/.cache/pipx/**
+    - ${HOME}/Library/Caches/pipx/**
 
   # Add write permissions for pipx-specific paths
   allow_write:
     - ${CWD}/**
     - ${HOME}/.local/pipx/**
+    - ${HOME}/.local/share/pipx/**
+    - ${HOME}/Library/Application Support/pipx/**
     - ${HOME}/.local/bin/**
+    - ${HOME}/.cache/pipx/**
+    - ${HOME}/Library/Caches/pipx/**
 
   # Additional deny rules for extra security
   deny_write:
