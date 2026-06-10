@@ -1,0 +1,17 @@
+name: uv
+description: Profile for uv, extending pypi-restrictive with uv environment variables
+inherits: pypi-restrictive
+
+package_managers:
+  - uv
+
+environment:
+  # The pypi-restrictive base allows no environment variables. uv needs its
+  # own config namespace and honors pip env conventions via the uv pip
+  # interface. Sibling tool credentials (POETRY_*) and TWINE_* stay scrubbed.
+  #
+  # Accepted trade-off: UV_* re-allows UV_PUBLISH_TOKEN, uv's own publishing
+  # credential.
+  allow:
+    - UV_*
+    - PIP_*

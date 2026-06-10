@@ -129,7 +129,7 @@ func executeSetupInfo() error {
 
 		policyParts := make([]string, 0, len(pmNames))
 		for _, name := range pmNames {
-			ref := sandboxCfg.Policies[name]
+			ref, _ := sandboxCfg.PolicyFor(name)
 			status := "disabled"
 			if ref.Enabled {
 				status = ref.Profile

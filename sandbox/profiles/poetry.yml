@@ -1,0 +1,17 @@
+name: poetry
+description: Profile for poetry, extending pypi-restrictive with poetry environment variables
+inherits: pypi-restrictive
+
+package_managers:
+  - poetry
+
+environment:
+  # The pypi-restrictive base allows no environment variables. poetry needs
+  # its own config namespace and can delegate to pip. Sibling tool credentials
+  # (UV_PUBLISH_TOKEN) and TWINE_* stay scrubbed.
+  #
+  # Accepted trade-off: POETRY_* re-allows POETRY_PYPI_TOKEN_PYPI and
+  # POETRY_HTTP_BASIC_PYPI_PASSWORD, poetry's own publishing credentials.
+  allow:
+    - POETRY_*
+    - PIP_*

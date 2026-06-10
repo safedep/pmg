@@ -111,14 +111,16 @@ sandbox:
   # Per-package-manager sandbox policies
   # Each package manager can have its own policy to account for unique security characteristics
   policies:
-    # npm ecosystem. npm-restrictive is a built-in profile.
+    # npm ecosystem. npm-restrictive is the shared base profile; each package
+    # manager maps to a leaf profile that re-allows only its own environment
+    # variables.
     npm:
       enabled: true
-      profile: npm-restrictive # Built-in profile, template name, or path to custom YAML
+      profile: npm # Built-in profile, template name, or path to custom YAML
 
     pnpm:
       enabled: true
-      profile: pnpm-restrictive
+      profile: pnpm
 
     npx:
       enabled: true
@@ -130,28 +132,30 @@ sandbox:
 
     yarn:
       enabled: true
-      profile: npm-restrictive
+      profile: yarn
 
     bun:
       enabled: true
-      profile: npm-restrictive
+      profile: bun
 
-    # PyPI ecosystem. pypi-restrictive is a built-in profile.
+    # PyPI ecosystem. pypi-restrictive is the shared base profile; each
+    # package manager maps to a leaf profile that re-allows only its own
+    # environment variables.
     pip:
       enabled: true
-      profile: pypi-restrictive
+      profile: pip
 
     pip3:
       enabled: true
-      profile: pypi-restrictive
+      profile: pip
 
     poetry:
       enabled: true
-      profile: pypi-restrictive
+      profile: poetry
 
     uv:
       enabled: true
-      profile: pypi-restrictive
+      profile: uv
 
 # Dependency cooldown blocks installation of package versions published within
 # a configurable time window.

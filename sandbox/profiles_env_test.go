@@ -8,9 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestProfileEnvContract pins the §2 accepted-risk trade-off as a regression
-// test: each ecosystem profile re-allows its own publishing token but keeps
-// other ecosystems' and cloud credentials scrubbed.
+// TestProfileEnvContract pins the env protection contract as a regression
+// test: npm-restrictive and pypi-restrictive are pure bases that allow
+// nothing, each package manager's leaf profile re-allows only its own auth
+// variables (plus the shared config conventions of its ecosystem), and
+// sibling tokens stay scrubbed alongside other ecosystems' and cloud
+// credentials.
 func TestProfileEnvContract(t *testing.T) {
 	r, err := newDefaultProfileRegistry()
 	require.NoError(t, err)
@@ -21,6 +24,8 @@ func TestProfileEnvContract(t *testing.T) {
 		"YARN_NPM_AUTH_TOKEN=x",
 		"BUN_AUTH_TOKEN=x",
 		"TWINE_PASSWORD=x",
+		"UV_PUBLISH_TOKEN=x",
+		"POETRY_PYPI_TOKEN_PYPI=x",
 		"AWS_SECRET_ACCESS_KEY=x",
 		"GITHUB_TOKEN=x",
 		"OP_SERVICE_ACCOUNT_TOKEN=x",
@@ -34,13 +39,53 @@ func TestProfileEnvContract(t *testing.T) {
 	}{
 		{
 			profile:      "npm-restrictive",
-			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN"},
-			wantScrubbed: []string{"TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
+			wantKept:     []string{},
+			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
+		},
+		{
+			profile:      "npm",
+			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
+			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
+		},
+		{
+			profile:      "yarn",
+			wantKept:     []string{"YARN_NPM_AUTH_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN"},
+			wantScrubbed: []string{"BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		},
+		{
+			profile:      "bun",
+			wantKept:     []string{"BUN_AUTH_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN"},
+			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		},
+		{
+			profile:      "pnpm",
+			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
+			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		},
+		{
+			profile:      "npx",
+			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
+			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
 		},
 		{
 			profile:      "pypi-restrictive",
-			wantKept:     []string{"TWINE_PASSWORD"},
-			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
+			wantKept:     []string{},
+			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
+		},
+		{
+			profile:      "pip",
+			wantKept:     []string{},
+			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		},
+		{
+			profile:      "uv",
+			wantKept:     []string{"UV_PUBLISH_TOKEN"},
+			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		},
+		{
+			profile:      "poetry",
+			wantKept:     []string{"POETRY_PYPI_TOKEN_PYPI"},
+			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
 		},
 	}
 

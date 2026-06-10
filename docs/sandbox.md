@@ -61,13 +61,15 @@ and runs as the last step before launch, after project overlays and `--sandbox-a
 merged. Scrubbed variable **names** (never values) are logged at info level. Run with `--debug` to
 see what was removed.
 
-Each profile re-allows the variables its ecosystem legitimately needs via an `environment.allow`
+The shared base profiles (`npm-restrictive`, `pypi-restrictive`) allow no environment variables.
+Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `npx`, `pip`, `uv`, `poetry`)
+re-allows only the variables that package manager legitimately needs via an `environment.allow`
 block, so package managers keep working:
 
 ```yaml
 environment:
-  # Re-permit only what this ecosystem needs; everything else in the default
-  # deny list stays scrubbed. allow always wins over deny.
+  # Re-permit only what this package manager needs; everything else in the
+  # default deny list stays scrubbed. allow always wins over deny.
   allow:
     - NPM_TOKEN
     - npm_config_*
@@ -78,10 +80,16 @@ environment:
     - "*_TOKEN"
 ```
 
-**Accepted trade-off**: a profile re-allows its own ecosystem's publishing token, so a malicious
-package executed during `npm install` can read `NPM_TOKEN`, but not a PyPI token, AWS key, or other
-cloud/secret-manager credential, which stay scrubbed. The reverse holds for the PyPI profile. This is
-deliberate: the package manager needs its own auth token to function.
+**Accepted trade-off**: a leaf profile re-allows its own package manager's auth token, so a
+malicious package executed during `npm install` can read `NPM_TOKEN`, but not a yarn or bun token, a
+PyPI token, AWS key, or other cloud/secret-manager credential, which stay scrubbed. The reverse
+holds for the other profiles. This is deliberate: the package manager needs its own auth token to
+function.
+
+Configs written before the profile split may still map npm, yarn, or bun to `npm-restrictive`, pnpm
+to `pnpm-restrictive`, or pip, pip3, poetry, or uv to `pypi-restrictive`. PMG re-maps these legacy
+defaults to the per-package-manager leaf profile at load time, unless a custom policy template
+overrides the legacy name, in which case the template wins as before.
 
 Matching is on the variable name, case-insensitive, and supports the same glob syntax as filesystem
 rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is never scrubbed.

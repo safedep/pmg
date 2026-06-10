@@ -1,9 +1,22 @@
-name: pnpm-restrictive
-description: Profile for pnpm with write access to current directory
+name: pnpm
+description: Profile for pnpm, extending npm-restrictive with pnpm write paths and environment variables
 inherits: npm-restrictive
 
 package_managers:
   - pnpm
+
+environment:
+  # The npm-restrictive base allows no environment variables. pnpm uses the
+  # npm auth and config conventions (.npmrc with env interpolation,
+  # npm_config_*). Sibling tokens (YARN_NPM_AUTH_*, BUN_AUTH_TOKEN) stay
+  # scrubbed.
+  allow:
+    - NPM_TOKEN
+    - NPM_AUTH_TOKEN
+    - NODE_AUTH_TOKEN
+    - npm_config_*
+    - NPM_CONFIG_*
+    - NODE_EXTRA_CA_CERTS
 
 filesystem:
   allow_write:

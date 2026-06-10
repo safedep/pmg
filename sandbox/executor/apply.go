@@ -76,7 +76,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		// This is to avoid running the command without sandbox protection.
 		// To bypass sandbox for a specific package manager, users should explicitly
 		// disable for the package manager in the config.
-		policyRef, exists := cfg.Config.Sandbox.Policies[pmName]
+		policyRef, exists := cfg.Config.Sandbox.PolicyFor(pmName)
 		if !exists {
 			return nil, usefulerror.NewUsefulError().
 				WithCode(errcodes.NotFound).

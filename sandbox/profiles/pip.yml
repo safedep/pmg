@@ -1,0 +1,15 @@
+name: pip
+description: Profile for pip and pip3, extending pypi-restrictive with pip environment variables
+inherits: pypi-restrictive
+
+package_managers:
+  - pip
+  - pip3
+
+environment:
+  # The pypi-restrictive base allows no environment variables. pip needs its
+  # own config namespace for index auth, mirrors, and TLS (e.g. PIP_INDEX_URL,
+  # PIP_CERT). Sibling tool credentials (UV_PUBLISH_TOKEN, POETRY_*) and
+  # TWINE_* stay scrubbed.
+  allow:
+    - PIP_*

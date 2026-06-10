@@ -72,20 +72,13 @@ network:
     - "*:*"
 
 environment:
-  # Credential-bearing variables are scrubbed by default (see the built-in
-  # DANGEROUS_ENV_VARS list). Re-allow only the variables the PyPI ecosystem
-  # legitimately needs for index auth, publishing, and TLS.
-  #
-  # Accepted trade-off: a malicious Python package executed during install can
-  # read the PyPI publishing credentials below, but NOT npm tokens, AWS keys, or
-  # other cloud/secret-manager credentials, which remain scrubbed.
-  allow:
-    - TWINE_USERNAME
-    - TWINE_PASSWORD
-    - TWINE_REPOSITORY*
-    - PIP_*
-    - UV_*
-    - POETRY_*
+  # This profile is the shared base for the PyPI ecosystem and deliberately
+  # allows no environment variables: everything in the built-in
+  # DANGEROUS_ENV_VARS list is scrubbed. Each package manager's leaf profile
+  # (pip, uv, poetry) re-allows only the variables that package manager needs.
+  # TWINE_* is allowed nowhere: twine is not a package manager PMG wraps, so
+  # its publishing credentials stay scrubbed during installs.
+  allow: []
 
 process:
   allow_exec:

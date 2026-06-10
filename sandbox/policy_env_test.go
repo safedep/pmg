@@ -30,13 +30,13 @@ func TestResolveProfile_DeepCopiesEnvironment(t *testing.T) {
 	r, err := newDefaultProfileRegistry()
 	assert.NoError(t, err)
 
-	resolved, err := r.ResolveProfile("npm-restrictive", ResolveOptions{})
+	resolved, err := r.ResolveProfile("npm", ResolveOptions{})
 	assert.NoError(t, err)
 
 	// Mutating the resolved copy must not corrupt the registry-cached policy.
 	resolved.Environment.Allow = append(resolved.Environment.Allow, "MUTATED")
 
-	again, err := r.ResolveProfile("npm-restrictive", ResolveOptions{})
+	again, err := r.ResolveProfile("npm", ResolveOptions{})
 	assert.NoError(t, err)
 	assert.NotContains(t, again.Environment.Allow, "MUTATED")
 }

@@ -49,7 +49,7 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
 
 	if cfg.Config.Sandbox.Enabled {
-		if policyRef, exists := cfg.Config.Sandbox.Policies[f.pm.Name()]; exists {
+		if policyRef, exists := cfg.Config.Sandbox.PolicyFor(f.pm.Name()); exists {
 			reportData.SandboxProfile = policyRef.Profile
 		}
 	}

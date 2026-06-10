@@ -150,6 +150,51 @@ type DependencyCooldownConfig struct {
 	Days    int  `mapstructure:"days"`
 }
 
+// legacyProfileAliases maps old default profile names, keyed by package
+// manager, to their per-PM leaf profiles. When npm-restrictive and
+// pypi-restrictive became pure bases with no environment allows (and
+// pnpm-restrictive was renamed to pnpm), existing config files kept the old
+// mappings (config merge preserves user values), so the old defaults are
+// re-mapped at read time.
+var legacyProfileAliases = map[string]map[string]string{
+	"npm-restrictive": {
+		"npm":  "npm",
+		"yarn": "yarn",
+		"bun":  "bun",
+	},
+	"pnpm-restrictive": {
+		"pnpm": "pnpm",
+	},
+	"pypi-restrictive": {
+		"pip":    "pip",
+		"pip3":   "pip",
+		"poetry": "poetry",
+		"uv":     "uv",
+	},
+}
+
+// PolicyFor returns the sandbox policy reference for a package manager,
+// re-mapping legacy default profiles to their per-PM leaf profiles. The
+// re-mapping is skipped when a policy template overrides the legacy name,
+// since the user's custom template must keep winning as it did before the
+// profile split.
+func (s *SandboxConfig) PolicyFor(pmName string) (SandboxPolicyRef, bool) {
+	ref, exists := s.Policies[pmName]
+	if !exists {
+		return SandboxPolicyRef{}, false
+	}
+
+	if leaves, legacy := legacyProfileAliases[ref.Profile]; legacy {
+		if _, overridden := s.PolicyTemplates[ref.Profile]; !overridden {
+			if leaf, ok := leaves[pmName]; ok {
+				ref.Profile = leaf
+			}
+		}
+	}
+
+	return ref, true
+}
+
 // SandboxPolicyTemplate defines a template for a sandbox policy, used to map
 // a profile name to a path.
 type SandboxPolicyTemplate struct {
