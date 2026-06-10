@@ -17,9 +17,9 @@ type PypiPackageExecutorConfig struct {
 func DefaultPipxPackageExecutorConfig() PypiPackageExecutorConfig {
 	return PypiPackageExecutorConfig{
 		CommandName:     "pipx",
-		InstallCommands: []string{"install", "inject", "run"},
+		InstallCommands: []string{"install", "inject", "run", "upgrade", "upgrade-all", "reinstall", "reinstall-all"},
 		NonDownloadCommands: []string{
-			"list", "uninstall", "uninstall-all", "completions",
+			"list", "uninstall", "uninstall-all", "completions", "uninject", "ensurepath", "environment",
 		},
 	}
 }
@@ -85,8 +85,10 @@ func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
 
-	// Define known pipx install flags that take values to prevent
-	// their values from being misidentified as package names.
+	// Define known pipx install flags. We register flags that take values to prevent
+	// their values from being misidentified as package names, and boolean flags
+	// to prevent the flag itself from being treated as an unknown argument.
+	// registers --pip-args, --python, --spec so their values aren't picked up as packages
 	setupCommonPipxFlags(flagSet)
 	flagSet.Bool("force", false, "")
 	flagSet.Bool("include-deps", false, "")
@@ -117,7 +119,10 @@ func (p *pypiPackageExecutor) parseRunCommand(command Command, runArgs []string)
 	_, _, specPkg := setupCommonPipxFlags(flagSet)
 	flagSet.Bool("no-cache", false, "")
 
-	_ = flagSet.Parse(runArgs)
+	err := flagSet.Parse(runArgs)
+	if err != nil {
+		return &ParsedCommand{Command: command}, nil
+	}
 
 	// If --spec is provided, that's the package to audit, not the positional arg
 	if *specPkg != "" {
@@ -151,7 +156,10 @@ func (p *pypiPackageExecutor) parseInjectCommand(command Command, injectArgs []s
 	flagSet.Bool("include-apps", false, "")
 	flagSet.Bool("include-deps", false, "")
 
-	_ = flagSet.Parse(injectArgs)
+	err := flagSet.Parse(injectArgs)
+	if err != nil {
+		return &ParsedCommand{Command: command}, nil
+	}
 
 	packages := flagSet.Args()
 	if len(packages) < 2 {

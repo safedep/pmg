@@ -205,7 +205,7 @@ func TestPipxExecutorProxyBehavior(t *testing.T) {
 			name:                  "pipx upgrade — proxy runs (downloads newer version)",
 			command:               "pipx upgrade black",
 			isKnownNonDownloadCmd: false,
-			isInstallationCommand: false,
+			isInstallationCommand: true,
 		},
 		{
 			name:                  "pipx upgrade-all — proxy runs (downloads newer versions)",

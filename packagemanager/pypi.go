@@ -58,7 +58,6 @@ func DefaultUvPackageManagerConfig() PypiPackageManagerConfig {
 	}
 }
 
-
 func DefaultPoetryPackageManagerConfig() PypiPackageManagerConfig {
 	return PypiPackageManagerConfig{
 		InstallCommands: []string{"add"},
