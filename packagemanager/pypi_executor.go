@@ -115,7 +115,10 @@ func (p *pypiPackageExecutor) parseRunCommand(command Command, runArgs []string)
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
 
-	// Define known pipx run flags that take values
+	// Define known pipx run flags. We register flags that take values to prevent
+	// their values from being misidentified as package names, and boolean flags
+	// to prevent the flag itself from being treated as an unknown argument.
+	// registers --pip-args, --python, --spec so their values aren't picked up as packages
 	_, _, specPkg := setupCommonPipxFlags(flagSet)
 	flagSet.Bool("no-cache", false, "")
 
@@ -150,7 +153,10 @@ func (p *pypiPackageExecutor) parseInjectCommand(command Command, injectArgs []s
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
 
-	// Define known pipx inject flags that take values
+	// Define known pipx inject flags. We register flags that take values to prevent
+	// their values from being misidentified as package names, and boolean flags
+	// to prevent the flag itself from being treated as an unknown argument.
+	// registers --pip-args, --python, --spec so their values aren't picked up as packages
 	setupCommonPipxFlags(flagSet)
 	flagSet.Bool("force", false, "")
 	flagSet.Bool("include-apps", false, "")
