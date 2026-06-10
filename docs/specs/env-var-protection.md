@@ -77,12 +77,14 @@ Two layers, exactly mirroring the `DANGEROUS_FILES` model:
    profile denies (allow always wins), letting each ecosystem re-permit the
    variables its package manager legitimately needs.
 
-Enforcement is a single chokepoint: after the sandbox policy is resolved in
-`executor.ApplySandbox`, the resolved environment policy is applied to
-`cmd.Env`, removing denied variables before the child process is spawned.
-`ApplySandbox` is already the shared entry point for both the guard and proxy
-flows and runs before the direct and PTY launch paths, so one integration point
-covers every package-manager child PMG spawns.
+Enforcement is a single chokepoint: in `executor.ApplySandbox`, after the
+sandbox policy is resolved **and after the project overlay and runtime
+`--sandbox-allow` overrides have been merged into it**, the resolved environment
+policy is applied to `cmd.Env`, removing denied variables before the child
+process is spawned. `ApplySandbox` is already the shared entry point for both
+the guard and proxy flows and runs before the direct and PTY launch paths, so
+one integration point covers every package-manager child PMG spawns — and it
+sits downstream of overlays and CLI overrides, so those compose for free.
 
 ```
 os.Environ()
@@ -90,8 +92,10 @@ os.Environ()
   -> mergeEnv(overrides)            (existing)
   -> [cmd.Env set in runner]
   -> executor.ApplySandbox():
-        resolve policy
-        cmd.Env = util.ScrubEnv(cmd.Env, allow, deny)   <-- NEW
+        resolve policy                                   (includes environment:)
+        applyProjectOverlay(policy, ...)                 (existing; now also env allow)
+        applyRuntimeOverrides(policy, --sandbox-allow)   (existing; now also env allow)
+        cmd.Env = util.ScrubEnv(cmd.Env, policy.Environment)   <-- NEW, last step
         apply OS sandbox
   -> exec child (direct / PTY / proxy)
 ```
@@ -272,7 +276,82 @@ the accepted-risk trade-off in §2.
 Each profile's allow list should be reviewed so it grants the **minimum** set of
 variables the package manager needs for auth, registry config, and TLS.
 
-## 7. Matching semantics
+## 7. Runtime overrides (`--sandbox-allow`) and project overlays
+
+Every other resource type (read, write, exec, net-connect, net-bind) is tunable
+three ways that all converge on the resolved policy: the profile YAML, a
+one-off CLI `--sandbox-allow type=value`, and a persisted per-repo overlay
+(`pmg sandbox allow`, stored under `SandboxOverlayDir()`). Environment
+protection must be consistent with this model, otherwise a developer who hits a
+scrubbed variable would have no escape hatch short of editing a profile file.
+
+### 7.1 New allow type: `env`
+
+Add `SandboxAllowEnv SandboxAllowType = "env"` to the existing enum in
+`config/config.go`, so users can write:
+
+```bash
+pmg --sandbox-allow env=NPM_TOKEN npm install      # one-off
+pmg sandbox allow env=NPM_TOKEN                     # persist for this repo
+```
+
+- `config/sandbox_allow.go` (`parseSingleOverride`) accepts the `env` type.
+  **Crucially, the value is taken literally as a variable-name pattern and is
+  NOT path-resolved or host:port-parsed** the way `read`/`write`/`net-*` values
+  are. An `env` value is a name or glob (e.g. `NPM_TOKEN`, `npm_config_*`).
+- `sandbox/executor/apply.go` (`applyRuntimeOverrides`) gains an `env` case that
+  appends the value to `policy.Environment.Allow`:
+
+  ```go
+  case config.SandboxAllowEnv:
+      log.Infof("Sandbox override: allowing environment variable %s", override.Value)
+      policy.Environment.Allow = append(policy.Environment.Allow, override.Value)
+  ```
+
+  Unlike the filesystem cases, there is **no `removeExactMatch` on a deny
+  list**: env uses allow-wins semantics (§8), so appending to `Allow` is
+  sufficient to un-scrub a variable regardless of whether it was denied by the
+  built-in list or a profile `deny` glob. This is simpler than — and
+  intentionally different from — the filesystem model, where deny shadows allow
+  and so an exact deny entry must be removed.
+
+### 7.2 Overlays
+
+Overlays already persist generic `OverlayAllow{Type, Value}` entries and replay
+them through `applyRuntimeOverrides` via `ToAllowOverrides()`. Once `env` is a
+valid allow type, overlays carry env allowances with **no overlay schema
+change** (`OverlaySchemaVersion` stays 1) — `pmg sandbox allow env=NPM_TOKEN`
+writes an `env` entry that is applied on every run in that repo. The overlay
+`Value` is stored and replayed verbatim, which is correct here precisely because
+env values are not path-normalized.
+
+### 7.3 Allow-only, and governed by lockdown
+
+- Overrides and overlays are **allow-only** by design (they widen access). There
+  is deliberately no `--sandbox-allow`/overlay form that *adds* a deny; tightening
+  is done in the profile `environment.deny`. This matches every existing type.
+- The `env` allow override is **security-sensitive** (it re-exposes a
+  credential), so it inherits the existing governance unchanged: `--sandbox-allow`
+  is already a managed/governed flag, so under `global_lockdown` a CLI `env=`
+  allow is refused, and `applyProjectOverlay` already ignores overlays when
+  `cfg.IsLocked()`. A locked managed baseline can therefore **forbid
+  un-scrubbing** a variable, which is the desired property for centrally managed
+  fleets. No additional governance code is needed; the spec only requires that
+  the new type flow through these existing checks (covered by tests in §10).
+
+### 7.4 No violation-driven auto-suggestion
+
+The `read`/`write`/`exec` flows can suggest an override after a sandbox
+*violation* (`BuildAllOverrides` / `overrideSuggestion`). Env scrubbing produces
+**no such violation**: the variable is simply absent, and the child may later
+fail for an unrelated-looking reason (e.g. "npm ERR! 401 Unauthorized"). We do
+**not** fabricate a synthetic violation for env. Instead, discoverability comes
+from audit logging (§9): the scrubbed variable **names** are logged, so a user
+who sees an auth failure can find the "scrubbed NPM_TOKEN" line and run
+`--sandbox-allow env=NPM_TOKEN`. The docs (`docs/sandbox.md`) must spell out this
+remediation explicitly since there is no automatic suggestion.
+
+## 8. Matching semantics
 
 - Matching is on the variable **name** (the substring left of the first `=` in
   each `KEY=VALUE` entry).
@@ -282,8 +361,13 @@ variables the package manager needs for auth, registry config, and TLS.
   `npm_config_*`).
 - An entry is **scrubbed** (removed entirely, not blanked) iff:
   `matches(effectiveDeny) AND NOT matches(allow) AND NOT isProtectedEssential`.
-- `effectiveDeny = DANGEROUS_ENV_VARS ∪ profile.environment.deny`.
-- `allow = profile.environment.allow`. Allow wins over deny.
+- `effectiveDeny = DANGEROUS_ENV_VARS ∪ policy.Environment.Deny` (the latter
+  already merged from inheritance; deny is profile-only — overlays/CLI cannot add
+  denies, see §7.3).
+- `allow = policy.Environment.Allow`, which by the time `ScrubEnv` runs already
+  includes profile allows **plus** any overlay and `--sandbox-allow env=` entries
+  merged in by `applyProjectOverlay` / `applyRuntimeOverrides`. **Allow wins over
+  deny** (built-in or profile).
 - Removal (vs. setting empty) is intentional: absence is the cleanest "not set"
   signal and avoids tools that treat empty-string specially.
 
@@ -309,7 +393,7 @@ This parallels `GetMandatoryDenyPatterns` and keeps all matching logic in
 `sandbox/util` where `DANGEROUS_FILES` already lives, so the linter and tests
 have a single source of truth.
 
-## 8. Audit and observability
+## 9. Audit and observability
 
 - `ScrubEnv` returns the **names** of removed variables (never values).
 - `executor.ApplySandbox` logs the scrubbed count at info and the names at
@@ -319,11 +403,11 @@ have a single source of truth.
   eventlog gives defenders a signal that a package run had access to (and was
   denied) sensitive variables — useful even when nothing malicious is observed.
 
-## 9. Testing
+## 10. Testing
 
 - `sandbox/util`: table-driven tests for `ScrubEnv` covering deny match, allow
-  suppression, protected-essential preservation, case-insensitivity, glob
-  catch-alls, and removal-vs-blank. Use `testify` `assert`/`require` per repo
+  suppression, protected-essential preservation, case-insensitivity, profile
+  glob denies, and removal-vs-blank. Use `testify` `assert`/`require` per repo
   conventions.
 - `sandbox/policy_test.go`: `Environment` merge under inheritance (union of
   allow/deny, parent + child).
@@ -332,20 +416,33 @@ have a single source of truth.
 - Profile fixtures: assert npm profile keeps `NPM_TOKEN` and drops `AWS_*` /
   `TWINE_PASSWORD`; pypi profile keeps `TWINE_*` and drops `NPM_TOKEN` / `AWS_*`
   (encodes the §2 accepted-risk contract as a regression test).
+- **Override parsing** (`config/sandbox_allow_test.go`): `env=NPM_TOKEN` parses
+  to `SandboxAllowEnv` with the value kept verbatim (no path resolution); a glob
+  value like `env=npm_config_*` is preserved.
+- **Override application** (`sandbox/executor`): `--sandbox-allow env=AWS_PROFILE`
+  un-scrubs an otherwise-denied variable; allow-wins holds even against a
+  profile `deny` glob.
+- **Overlay round-trip**: an `env` allow saved to an overlay is replayed on the
+  next run and un-scrubs the variable, with `OverlaySchemaVersion` unchanged.
+- **Governance**: under `global_lockdown`, a CLI `--sandbox-allow env=` is
+  refused and an overlay `env` entry is ignored, so a locked baseline keeps the
+  variable scrubbed.
 
-## 10. Rollout / compatibility
+## 11. Rollout / compatibility
 
 - Backward compatible: profiles without an `environment:` block still get the
   built-in `DANGEROUS_ENV_VARS` default deny once sandbox is enabled. Existing
   configs need no change.
-- The built-in deny list is conservative for the package-manager context, but
-  the broad catch-alls (`*_TOKEN`, etc.) may scrub a variable a niche build
-  step relied on. Mitigation: the per-PM `environment.allow` escape hatch and
-  clear audit logging of scrubbed names so the cause is obvious.
+- The built-in deny list is literal known names only, so false positives are
+  unlikely. If a niche build step relied on one of those exact names, the escape
+  hatches are the per-PM `environment.allow`, a one-off `--sandbox-allow
+  env=NAME`, or a persisted overlay — all surfaced by the audit log of scrubbed
+  names so the cause is obvious.
 - Document in `docs/sandbox.md`: the default deny list, the per-profile allow
-  mechanism, and the accepted-risk trade-off.
+  mechanism, the `--sandbox-allow env=` / `pmg sandbox allow env=` escape hatch
+  and its remediation message, and the accepted-risk trade-off.
 
-## 11. Future enhancements
+## 12. Future enhancements
 
 Captured from the broader analysis; out of scope for v1 but natural follow-ups.
 
