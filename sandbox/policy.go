@@ -19,9 +19,10 @@ type SandboxPolicy struct {
 
 	// These fields are affected by inheritance and are merged with the parent policy.
 	// Any new values added here should be handled in the MergeWithParent method.
-	Filesystem FilesystemPolicy `yaml:"filesystem" json:"filesystem"`
-	Network    NetworkPolicy    `yaml:"network" json:"network"`
-	Process    ProcessPolicy    `yaml:"process" json:"process"`
+	Filesystem  FilesystemPolicy  `yaml:"filesystem" json:"filesystem"`
+	Network     NetworkPolicy     `yaml:"network" json:"network"`
+	Process     ProcessPolicy     `yaml:"process" json:"process"`
+	Environment EnvironmentPolicy `yaml:"environment" json:"environment"`
 
 	// The boolean fields are pointers to allow for nil values so that the YAML parser
 	// can set the values from the child policy if present. We can differentiate between
@@ -61,6 +62,15 @@ type NetworkPolicy struct {
 type ProcessPolicy struct {
 	AllowExec []string `yaml:"allow_exec" json:"allow_exec"`
 	DenyExec  []string `yaml:"deny_exec" json:"deny_exec"`
+}
+
+// EnvironmentPolicy controls which environment variables are scrubbed from the
+// child process. Deny extends the built-in util.DANGEROUS_ENV_VARS list; Allow
+// suppresses matching denies (allow wins). Patterns are case-insensitive name
+// globs. Enforcement happens in sandbox/util.ScrubEnv at process spawn.
+type EnvironmentPolicy struct {
+	Allow []string `yaml:"allow" json:"allow"`
+	Deny  []string `yaml:"deny" json:"deny"`
 }
 
 // Validate validates the sandbox policy for correctness before inheritance resolution.
@@ -133,6 +143,10 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	// Union process lists
 	child.Process.AllowExec = unionStringSlices(parent.Process.AllowExec, child.Process.AllowExec)
 	child.Process.DenyExec = unionStringSlices(parent.Process.DenyExec, child.Process.DenyExec)
+
+	// Union environment lists
+	child.Environment.Allow = unionStringSlices(parent.Environment.Allow, child.Environment.Allow)
+	child.Environment.Deny = unionStringSlices(parent.Environment.Deny, child.Environment.Deny)
 
 	// Set boolean fields by duplicating the parent value if not present in the child.
 	if child.AllowPTY == nil {

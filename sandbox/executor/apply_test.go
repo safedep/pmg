@@ -2,6 +2,7 @@ package executor
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -55,6 +56,72 @@ func TestApplyRuntimeOverrides_Exec(t *testing.T) {
 
 	assert.Contains(t, policy.Process.AllowExec, "/usr/bin/node")
 	assert.Contains(t, policy.Process.AllowExec, "/usr/bin/curl")
+}
+
+func TestApplyRuntimeOverrides_Env(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Environment: sandbox.EnvironmentPolicy{
+			Allow: []string{"NPM_TOKEN"},
+		},
+	}
+
+	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowEnv, Value: "AWS_PROFILE", Raw: "env=AWS_PROFILE"},
+	})
+
+	assert.Contains(t, policy.Environment.Allow, "NPM_TOKEN")
+	assert.Contains(t, policy.Environment.Allow, "AWS_PROFILE")
+}
+
+func TestScrubEnv_RemovesDeniedKeepsAllowed(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Name: "test",
+		Environment: sandbox.EnvironmentPolicy{
+			Allow: []string{"NPM_TOKEN"},
+		},
+	}
+
+	cmd := &exec.Cmd{Env: []string{
+		"PATH=/usr/bin",
+		"NPM_TOKEN=keep-me",
+		"AWS_SECRET_ACCESS_KEY=scrub-me",
+		"GITHUB_TOKEN=scrub-me-too",
+	}}
+
+	scrubEnv(cmd, policy)
+
+	assert.Contains(t, cmd.Env, "PATH=/usr/bin")
+	assert.Contains(t, cmd.Env, "NPM_TOKEN=keep-me")
+	assert.NotContains(t, cmd.Env, "AWS_SECRET_ACCESS_KEY=scrub-me")
+	assert.NotContains(t, cmd.Env, "GITHUB_TOKEN=scrub-me-too")
+}
+
+func TestScrubEnv_AllowOverrideUnscrubs(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+
+	// Simulate a --sandbox-allow env=AWS_PROFILE override having been merged.
+	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowEnv, Value: "AWS_SESSION_TOKEN", Raw: "env=AWS_SESSION_TOKEN"},
+	})
+
+	cmd := &exec.Cmd{Env: []string{"AWS_SESSION_TOKEN=kept"}}
+	scrubEnv(cmd, policy)
+
+	assert.Contains(t, cmd.Env, "AWS_SESSION_TOKEN=kept")
+}
+
+func TestScrubEnv_NilEnvPopulatedThenScrubbed(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "should-be-scrubbed")
+	t.Setenv("PMG_ENV_SCRUB_MARKER", "kept")
+
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+	cmd := &exec.Cmd{Env: nil}
+
+	scrubEnv(cmd, policy)
+
+	require.NotNil(t, cmd.Env)
+	assert.Contains(t, cmd.Env, "PMG_ENV_SCRUB_MARKER=kept")
+	assert.NotContains(t, cmd.Env, "GITHUB_TOKEN=should-be-scrubbed")
 }
 
 func TestApplyRuntimeOverrides_NetConnect(t *testing.T) {
@@ -249,7 +316,6 @@ func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testi
 	// This means the deny rule will still shadow the allow after variable expansion.
 	assert.Equal(t, []string{"${CWD}/blocked.txt"}, policy.Filesystem.DenyWrite)
 }
-
 
 func TestApplyProjectOverlayAppendsEntries(t *testing.T) {
 	dir := t.TempDir()

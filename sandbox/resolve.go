@@ -81,6 +81,13 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 		AllowBind:     append([]string(nil), p.Network.AllowBind...),
 	}
 
+	// Environment entries are variable-name globs, not paths, so they are
+	// deep-copied without expansion so the caller can safely mutate the result.
+	out.Environment = EnvironmentPolicy{
+		Allow: append([]string(nil), p.Environment.Allow...),
+		Deny:  append([]string(nil), p.Environment.Deny...),
+	}
+
 	out.PackageManagers = append([]string(nil), p.PackageManagers...)
 
 	return &out, nil

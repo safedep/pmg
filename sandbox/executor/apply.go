@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -15,6 +16,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
+	"github.com/safedep/pmg/sandbox/util"
 )
 
 type applySandboxConfig struct {
@@ -164,6 +166,12 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 	log.Debugf("Running %s in %s sandbox with policy %s", pmName, sb.Name(), policy.Name)
 
+	// Scrub sensitive environment variables before the child is spawned. This
+	// runs after overlay and runtime overrides are merged into the policy so
+	// user allowances are honored, and is platform-independent (it filters the
+	// env slice regardless of the OS sandbox driver).
+	scrubEnv(cmd, policy)
+
 	result, err := sb.Execute(ctx, cmd, policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup sandbox: %w", err)
@@ -205,7 +213,37 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 			// Enable AllowNetworkBind so the translator emits bind rules.
 			// Without this, AllowBind entries would be ignored on some platforms.
 			policy.AllowNetworkBind = utils.PtrTo(true)
+
+		case config.SandboxAllowEnv:
+			// Allow-wins: appending to Allow un-scrubs the variable regardless
+			// of whether it was denied by the built-in list or a profile deny
+			// glob, so (unlike the filesystem cases) there is no deny list to
+			// remove an exact match from.
+			log.Infof("Sandbox override: allowing environment variable %s", override.Value)
+			policy.Environment.Allow = append(policy.Environment.Allow, override.Value)
 		}
+	}
+}
+
+// scrubEnv removes sensitive environment variables from cmd.Env per the
+// resolved policy's environment section. It runs after project overlay and
+// runtime overrides are merged into the policy, so user allowances take effect.
+// A nil cmd.Env would mean "inherit the parent environment", which would defeat
+// scrubbing, so it is populated from os.Environ() first.
+func scrubEnv(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) {
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+
+	result := util.ScrubEnv(cmd.Env, util.EnvScrubOptions{
+		Allow: policy.Environment.Allow,
+		Deny:  policy.Environment.Deny,
+	})
+	cmd.Env = result.Env
+
+	if len(result.Removed) > 0 {
+		log.Infof("Sandbox: scrubbed %d sensitive environment variable(s) from %s: %s",
+			len(result.Removed), policy.Name, strings.Join(result.Removed, ", "))
 	}
 }
 
