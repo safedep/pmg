@@ -193,7 +193,7 @@ func mapPackageManager(name string) controltowerv1.PmgPackageManager {
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_YARN
 	case "bun":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_BUN
-	case "pip", "pip3":
+	case "pip", "pip3", "pipx":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP
 	case "poetry":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_POETRY
