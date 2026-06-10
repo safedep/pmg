@@ -27,7 +27,7 @@ VERSION := "$(shell git describe --tags --abbrev=0)-$(shell git rev-parse --shor
 GO_CFLAGS=-X 'github.com/safedep/pmg/internal/version.Commit=$(GITCOMMIT)' -X 'github.com/safedep/pmg/internal/version.Version=$(VERSION)'
 GO_LDFLAGS=-ldflags "-w $(GO_CFLAGS)"
 
-.PHONY: all pmg create_bin clean test
+.PHONY: all pmg create_bin clean test sandbox-e2e
 
 all: pmg
 
@@ -42,6 +42,21 @@ clean:
 
 test:
 	$(GO) test ./...
+
+# Runs the sandbox E2E tests with seeded env canaries, mirroring the
+# pmg-e2e.yml sandbox jobs. Requires node and a supported sandbox driver
+# (Seatbelt on macOS, Bubblewrap or Landlock on Linux).
+sandbox-e2e: pmg
+	E2E_ENV_SEEDED=1 \
+	GITHUB_TOKEN=pmg-e2e-canary \
+	gh_token=pmg-e2e-canary \
+	AWS_SECRET_ACCESS_KEY=pmg-e2e-canary \
+	OP_SERVICE_ACCOUNT_TOKEN=pmg-e2e-canary \
+	CLOUDFLARE_API_TOKEN=pmg-e2e-canary \
+	TWINE_PASSWORD=pmg-e2e-canary \
+	NPM_TOKEN=pmg-e2e-keep \
+	NODE_AUTH_TOKEN=pmg-e2e-keep \
+	./$(BIN) --sandbox --sandbox-enforce npm exec -- node ./test/sandbox-e2e.js
 
 fmt:
 	$(GO) fmt ./...

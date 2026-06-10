@@ -328,6 +328,76 @@ test('ALLOW: Network DNS resolution', () => {
 });
 
 // ============================================
+// ENVIRONMENT PROTECTION (ENV SCRUBBING)
+// ============================================
+// The sandbox scrubs deny-listed credential env vars from the child process
+// (see sandbox/util/dangerous.go) while the npm leaf profile re-allows npm's
+// own auth vars. CI seeds canary values before invoking pmg and sets
+// E2E_ENV_SEEDED=1. Without seeding (e.g. a plain local run), scrub tests
+// still assert absence and keep tests are skipped. To run fully seeded
+// locally:
+//
+//   E2E_ENV_SEEDED=1 GITHUB_TOKEN=pmg-e2e-canary gh_token=pmg-e2e-canary \
+//   AWS_SECRET_ACCESS_KEY=pmg-e2e-canary OP_SERVICE_ACCOUNT_TOKEN=pmg-e2e-canary \
+//   CLOUDFLARE_API_TOKEN=pmg-e2e-canary TWINE_PASSWORD=pmg-e2e-canary \
+//   NPM_TOKEN=pmg-e2e-keep NODE_AUTH_TOKEN=pmg-e2e-keep \
+//   pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
+console.log('\n--- Environment protection tests ---\n');
+
+const envSeeded = process.env.E2E_ENV_SEEDED === '1';
+
+// Deny-listed credential variables that must never reach the sandboxed child.
+// gh_token (lowercase) pins case-insensitive matching.
+const scrubbedVars = [
+  'GITHUB_TOKEN',
+  'gh_token',
+  'AWS_SECRET_ACCESS_KEY',
+  'OP_SERVICE_ACCOUNT_TOKEN',
+  'CLOUDFLARE_API_TOKEN',
+  'TWINE_PASSWORD',
+];
+
+for (const name of scrubbedVars) {
+  test(`BLOCK: env var ${name} is scrubbed`, () => {
+    if (process.env[name] !== undefined) {
+      console.log(`  ❌ FAIL: ${name} is present in the sandboxed environment`);
+      return false;
+    }
+    const note = envSeeded ? 'seeded value scrubbed' : 'not present';
+    console.log(`  ✅ PASS: ${name} absent (${note})`);
+    return true;
+  });
+}
+
+// npm's own auth tokens are re-allowed by the npm leaf profile.
+for (const name of ['NPM_TOKEN', 'NODE_AUTH_TOKEN']) {
+  test(`ALLOW: env var ${name} is kept`, () => {
+    if (!envSeeded) {
+      console.log(`  ⚠️  SKIP: ${name} not seeded (run with E2E_ENV_SEEDED=1, see header)`);
+      return true;
+    }
+    if (process.env[name] === 'pmg-e2e-keep') {
+      console.log(`  ✅ PASS: ${name} kept`);
+      return true;
+    }
+    console.log(`  ❌ FAIL: ${name} missing or altered (got: ${process.env[name]})`);
+    return false;
+  });
+}
+
+// Core process variables are protected and never scrubbed.
+for (const name of ['PATH', 'HOME']) {
+  test(`ALLOW: protected env var ${name} is present`, () => {
+    if (process.env[name]) {
+      console.log(`  ✅ PASS: ${name} present`);
+      return true;
+    }
+    console.log(`  ❌ FAIL: ${name} missing`);
+    return false;
+  });
+}
+
+// ============================================
 // SUMMARY
 // ============================================
 console.log('\n=== SUMMARY ===');

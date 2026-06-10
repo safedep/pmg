@@ -598,6 +598,16 @@ jobs:
           touch ./.env
 
       - name: Run Sandbox E2E Test
+        env:
+          E2E_ENV_SEEDED: "1"
+          GITHUB_TOKEN: pmg-e2e-canary
+          gh_token: pmg-e2e-canary
+          AWS_SECRET_ACCESS_KEY: pmg-e2e-canary
+          OP_SERVICE_ACCOUNT_TOKEN: pmg-e2e-canary
+          CLOUDFLARE_API_TOKEN: pmg-e2e-canary
+          TWINE_PASSWORD: pmg-e2e-canary
+          NPM_TOKEN: pmg-e2e-keep
+          NODE_AUTH_TOKEN: pmg-e2e-keep
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
 
       - name: Run Package Manager E2E Test
@@ -668,10 +678,20 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Run Sandbox E2E Test
-        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+        env:
+          E2E_ENV_SEEDED: "1"
+          GITHUB_TOKEN: pmg-e2e-canary
+          gh_token: pmg-e2e-canary
+          AWS_SECRET_ACCESS_KEY: pmg-e2e-canary
+          OP_SERVICE_ACCOUNT_TOKEN: pmg-e2e-canary
+          CLOUDFLARE_API_TOKEN: pmg-e2e-canary
+          TWINE_PASSWORD: pmg-e2e-canary
+          NPM_TOKEN: pmg-e2e-keep
+          NODE_AUTH_TOKEN: pmg-e2e-keep
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
 
       - name: Run Package Manager E2E Test
-        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/pm-e2e.js
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
 
   sandbox-e2e-linux-landlock:
     name: Sandbox E2E - Linux (Landlock)
@@ -747,8 +767,20 @@ jobs:
       - name: Run Landlock Helper E2E Tests (Go)
         run: go test -count=1 -v -run TestLandlockHelper ./sandbox/platform/...
 
+      # The npm leaf profile's npm_config_* env allow is what keeps the
+      # job-level npm_config_cache redirect alive.
       - name: Run Sandbox E2E Test
-        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/sandbox-e2e.js
+        env:
+          E2E_ENV_SEEDED: "1"
+          GITHUB_TOKEN: pmg-e2e-canary
+          gh_token: pmg-e2e-canary
+          AWS_SECRET_ACCESS_KEY: pmg-e2e-canary
+          OP_SERVICE_ACCOUNT_TOKEN: pmg-e2e-canary
+          CLOUDFLARE_API_TOKEN: pmg-e2e-canary
+          TWINE_PASSWORD: pmg-e2e-canary
+          NPM_TOKEN: pmg-e2e-keep
+          NODE_AUTH_TOKEN: pmg-e2e-keep
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/sandbox-e2e.js
 
       - name: Run Package Manager E2E Test
-        run: pmg --sandbox --sandbox-enforce --sandbox-profile npm-restrictive npm exec -- node test/pm-e2e.js
+        run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
