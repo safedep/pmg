@@ -63,15 +63,19 @@ same default-deny philosophy to **environment variables**.
 Two layers, exactly mirroring the `DANGEROUS_FILES` model:
 
 1. **Built-in default deny list** — `DANGEROUS_ENV_VARS` in `sandbox/util`,
-   a list of case-insensitive name glob patterns covering known credential
-   variables plus broad catch-alls (`*_TOKEN`, `*_SECRET`, ...). The catch-alls
-   are what defend against the *scrambled / novel variable name* technique: we
-   match on the shape of secret-bearing names, not a fixed enumeration.
+   an explicit, curated list of **known** credential variable names (e.g.
+   `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, `TWINE_PASSWORD`). No generic
+   `*_TOKEN` / `*_SECRET` catch-alls live in the default — they would clip
+   legitimate build variables for every user. The list is a precise enumeration
+   that grows one literal name at a time.
 
 2. **Per-profile `environment:` section** — each sandbox policy may declare
-   additional `deny` patterns and `allow` patterns. `allow` suppresses matching
-   built-in or profile denies (allow always wins), letting each ecosystem
-   re-permit the variables its package manager legitimately needs.
+   additional `deny` patterns and `allow` patterns. The **matching engine
+   supports glob wildcards**, so a profile that wants aggressive coverage can
+   opt into it explicitly (e.g. `deny: ["*_TOKEN", "AWS_*"]`) without that risk
+   being imposed on everyone by default. `allow` suppresses matching built-in or
+   profile denies (allow always wins), letting each ecosystem re-permit the
+   variables its package manager legitimately needs.
 
 Enforcement is a single chokepoint: after the sandbox policy is resolved in
 `executor.ApplySandbox`, the resolved environment policy is applied to
@@ -112,9 +116,12 @@ A new optional top-level `environment:` block on `SandboxPolicy`:
 ```yaml
 environment:
   # Extra variable-name patterns to scrub, in addition to the built-in
-  # DANGEROUS_ENV_VARS default deny list. Case-insensitive globs.
+  # DANGEROUS_ENV_VARS default deny list. Case-insensitive globs are supported,
+  # so a profile can opt into broad matching that the default list omits.
   deny:
     - MY_CUSTOM_SECRET
+    - "*_TOKEN"        # opt-in wildcard: not in the built-in default
+    - "AWS_*"
 
   # Variable-name patterns to keep even if a built-in or profile deny would
   # otherwise scrub them. Allow always wins. Case-insensitive globs.
@@ -155,56 +162,75 @@ key is required — env protection is part of the per-PM sandbox policy.
 
 ## 5. Built-in default deny list (`DANGEROUS_ENV_VARS`)
 
-Lives next to `DANGEROUS_FILES` in `sandbox/util/dangerous.go`. Case-insensitive
-name globs. Indicative starting set (to be finalized in implementation review):
+Lives next to `DANGEROUS_FILES` in `sandbox/util/dangerous.go`.
+
+**The built-in list contains only explicit, known secret-bearing variable
+names — no generic `*_TOKEN` / `*_SECRET` style catch-alls.** Generic wildcards
+in the default list carry too much risk of silently clipping a legitimate build
+variable, and the false-positive blast radius would land on every user. We
+prefer a precise, auditable enumeration that we curate as new credential
+variables become known.
+
+Wildcards are intentionally **not** in the default list, but the **matching
+engine fully supports glob patterns** (see §7). Users who want broader, more
+aggressive coverage opt into it explicitly per profile via
+`environment.deny` (e.g. add `"*_TOKEN"` or `"AWS_*"` to a profile). This keeps
+the default safe and predictable while leaving aggressive matching one config
+line away for those who want it.
+
+Indicative starting set (curated; finalized in implementation review):
 
 ```go
 var DANGEROUS_ENV_VARS = []string{
     // Cloud providers
     "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-    "AWS_SECURITY_TOKEN", "AWS_*",
-    "AZURE_*", "ARM_*",
-    "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_*", "GCP_*", "GCLOUD_*",
+    "AWS_SECURITY_TOKEN",
+    "AZURE_CLIENT_SECRET", "AZURE_CLIENT_ID", "AZURE_TENANT_ID",
+    "ARM_CLIENT_SECRET",
+    "GOOGLE_APPLICATION_CREDENTIALS", "GCP_SERVICE_ACCOUNT_KEY",
+    "CLOUDSDK_AUTH_ACCESS_TOKEN",
+    "DIGITALOCEAN_ACCESS_TOKEN",
 
     // Package registry / publishing tokens
-    "NPM_TOKEN", "NPM_AUTH_TOKEN", "NODE_AUTH_TOKEN",
-    "TWINE_USERNAME", "TWINE_PASSWORD", "TWINE_*",
-    "PYPI_*", "UV_PUBLISH_TOKEN", "FLIT_PASSWORD",
-    "POETRY_PYPI_TOKEN_*", "POETRY_HTTP_BASIC_*",
-    "GEM_HOST_API_KEY", "RUBYGEMS_*",
-    "CARGO_REGISTRY_TOKEN", "CARGO_REGISTRIES_*",
+    "NPM_TOKEN", "NPM_AUTH_TOKEN", "NODE_AUTH_TOKEN", "NPM_CONFIG__AUTH",
+    "TWINE_USERNAME", "TWINE_PASSWORD",
+    "PYPI_TOKEN", "UV_PUBLISH_TOKEN", "FLIT_PASSWORD",
+    "POETRY_PYPI_TOKEN_PYPI", "POETRY_HTTP_BASIC_PYPI_PASSWORD",
+    "GEM_HOST_API_KEY",
+    "CARGO_REGISTRY_TOKEN",
 
     // VCS / CI
     "GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN",
     "GITLAB_TOKEN", "CI_JOB_TOKEN",
 
     // Secrets managers
-    "VAULT_TOKEN", "VAULT_*",
+    "VAULT_TOKEN",
 
     // Misc high-value
     "DOCKER_PASSWORD", "DOCKER_AUTH_CONFIG",
-    "SNYK_TOKEN", "CODECOV_TOKEN", "NPM_CONFIG__AUTH",
+    "SNYK_TOKEN", "CODECOV_TOKEN",
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HUGGING_FACE_HUB_TOKEN",
-
-    // Broad catch-alls — defend against scrambled / novel secret names
-    "*_TOKEN", "*_SECRET", "*_PASSWORD", "*_API_KEY", "*_APIKEY",
-    "*_ACCESS_KEY", "*_PRIVATE_KEY", "*_CREDENTIALS",
 }
 ```
 
+This list is deliberately a denylist of literal names. Adding a new known
+credential variable is a one-line change here; broadening to pattern matching is
+a per-profile opt-in, not a default.
+
 ### Protected essential variables (never scrubbed)
 
-A small hardcoded allowlist guards core process variables so a careless or
-broad profile `deny` cannot break execution. These are never scrubbed
-regardless of deny patterns:
+A small hardcoded allowlist guards core process variables so a profile that
+opts into broad `deny` globs cannot accidentally break execution. These are
+never scrubbed regardless of deny patterns:
 
 ```
 PATH, HOME, USER, LOGNAME, SHELL, PWD, OLDPWD, TERM, TMPDIR, TEMP, TMP,
 LANG, LC_*, TZ, DISPLAY, HOSTNAME, NODE_ENV
 ```
 
-(The broad catch-alls above do not match these names today; the protected set
-is a safety net against future or profile-supplied deny patterns.)
+The built-in literal deny list does not touch these names; the protected set is
+the safety net for the moment a user adds a wildcard deny like `"*_TOKEN"` to a
+profile.
 
 ## 6. Per-profile allow lists (avoiding developer friction)
 
