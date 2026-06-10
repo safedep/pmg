@@ -71,6 +71,22 @@ network:
   deny_outbound:
     - "*:*"
 
+environment:
+  # Credential-bearing variables are scrubbed by default (see the built-in
+  # DANGEROUS_ENV_VARS list). Re-allow only the variables the PyPI ecosystem
+  # legitimately needs for index auth, publishing, and TLS.
+  #
+  # Accepted trade-off: a malicious Python package executed during install can
+  # read the PyPI publishing credentials below, but NOT npm tokens, AWS keys, or
+  # other cloud/secret-manager credentials, which remain scrubbed.
+  allow:
+    - TWINE_USERNAME
+    - TWINE_PASSWORD
+    - TWINE_REPOSITORY*
+    - PIP_*
+    - UV_*
+    - POETRY_*
+
 process:
   allow_exec:
     - /usr/bin/python*

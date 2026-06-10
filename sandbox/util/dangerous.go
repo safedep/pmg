@@ -24,6 +24,92 @@ var DANGEROUS_FILES = []string{
 	".config/gh",
 }
 
+// DANGEROUS_ENV_VARS are credential-bearing environment variables scrubbed from
+// the child process by default when the sandbox is enabled (see ScrubEnv). This
+// is an explicit, curated list of known secret names — there are deliberately
+// no generic "*_TOKEN" / "*_SECRET" catch-alls here, because broad wildcards in
+// the default would risk clipping legitimate build variables for every user.
+// The matcher (ScrubEnv) does support glob patterns, so users who want broader
+// coverage opt into it per profile via environment.deny.
+//
+// Matching is case-insensitive (see ScrubEnv). A package manager's own
+// publishing token is intentionally left scrubbable here and re-allowed per
+// ecosystem in the profile's environment.allow (e.g. npm re-allows NPM_TOKEN).
+var DANGEROUS_ENV_VARS = []string{
+	// Cloud providers
+	"AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY",
+	"AWS_SESSION_TOKEN",
+	"AWS_SECURITY_TOKEN",
+	"AZURE_CLIENT_SECRET",
+	"AZURE_CLIENT_ID",
+	"AZURE_TENANT_ID",
+	"ARM_CLIENT_SECRET",
+	"GOOGLE_APPLICATION_CREDENTIALS",
+	"GCP_SERVICE_ACCOUNT_KEY",
+	"CLOUDSDK_AUTH_ACCESS_TOKEN",
+	"DIGITALOCEAN_ACCESS_TOKEN",
+
+	// Package registry / publishing tokens
+	"NPM_TOKEN",
+	"NPM_AUTH_TOKEN",
+	"NODE_AUTH_TOKEN",
+	"NPM_CONFIG__AUTH",
+	"TWINE_USERNAME",
+	"TWINE_PASSWORD",
+	"PYPI_TOKEN",
+	"UV_PUBLISH_TOKEN",
+	"FLIT_PASSWORD",
+	"POETRY_PYPI_TOKEN_PYPI",
+	"POETRY_HTTP_BASIC_PYPI_PASSWORD",
+	"GEM_HOST_API_KEY",
+	"CARGO_REGISTRY_TOKEN",
+
+	// VCS / CI
+	"GITHUB_TOKEN",
+	"GH_TOKEN",
+	"GH_ENTERPRISE_TOKEN",
+	"GITLAB_TOKEN",
+	"CI_JOB_TOKEN",
+
+	// Secrets managers
+	"VAULT_TOKEN",
+
+	// Misc high-value
+	"DOCKER_PASSWORD",
+	"DOCKER_AUTH_CONFIG",
+	"SNYK_TOKEN",
+	"CODECOV_TOKEN",
+	"OPENAI_API_KEY",
+	"ANTHROPIC_API_KEY",
+	"HUGGING_FACE_HUB_TOKEN",
+}
+
+// ProtectedEnvVars are core process variables never scrubbed, regardless of
+// deny patterns. They are matched case-insensitively as globs (see ScrubEnv),
+// so "LC_*" covers the whole locale family. This is a safety net so that a
+// profile opting into a broad deny glob (e.g. "*_TOKEN") cannot break process
+// startup. The built-in DANGEROUS_ENV_VARS list never touches these names.
+var ProtectedEnvVars = []string{
+	"PATH",
+	"HOME",
+	"USER",
+	"LOGNAME",
+	"SHELL",
+	"PWD",
+	"OLDPWD",
+	"TERM",
+	"TMPDIR",
+	"TEMP",
+	"TMP",
+	"LANG",
+	"LC_*",
+	"TZ",
+	"DISPLAY",
+	"HOSTNAME",
+	"NODE_ENV",
+}
+
 // MandatoryDenyOptions configures GetMandatoryDenyPatterns. AllowRead and
 // AllowWrite must be already expanded (post-ExpandVariables); the function
 // does not call ExpandVariables itself.

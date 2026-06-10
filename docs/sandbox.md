@@ -46,6 +46,46 @@ read=./.env` is enough to read `${CWD}/.env`. Suppression is exact post-expansio
 like `${HOME}/**` do not opt out of `${HOME}/.aws`. The unnamed absolute form stays denied.
 `.git/hooks` does not accept opt-outs because hooks can execute arbitrary code.
 
+### Environment Variable Protection
+
+Many supply chain attacks steal credentials from the **process environment** rather than from files
+(e.g. `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, `NPM_TOKEN`, `TWINE_PASSWORD`). When the sandbox is
+enabled, PMG scrubs a default-deny list of credential-bearing variables from the package manager
+child process before it is spawned. The built-in list is an explicit, curated set of **known** secret
+names — see [`DANGEROUS_ENV_VARS`](../sandbox/util/dangerous.go). There are deliberately no generic
+`*_TOKEN` / `*_SECRET` catch-alls in the default, because broad wildcards there would risk clipping
+legitimate build variables.
+
+Scrubbing is platform-independent (it filters the environment regardless of the OS sandbox driver)
+and runs as the last step before launch, after project overlays and `--sandbox-allow` overrides are
+merged. Scrubbed variable **names** (never values) are written to the event log so you can see what
+was removed.
+
+Each profile re-allows the variables its ecosystem legitimately needs via an `environment.allow`
+block, so package managers keep working:
+
+```yaml
+environment:
+  # Re-permit only what this ecosystem needs; everything else in the default
+  # deny list stays scrubbed. allow always wins over deny.
+  allow:
+    - NPM_TOKEN
+    - npm_config_*
+  # Optionally scrub more than the default. Glob patterns are supported here
+  # (they are intentionally not in the built-in default).
+  deny:
+    - MY_CUSTOM_SECRET
+    - "*_TOKEN"
+```
+
+**Accepted trade-off**: a profile re-allows its own ecosystem's publishing token, so a malicious
+package executed during `npm install` can read `NPM_TOKEN` — but not a PyPI token, AWS key, or other
+cloud/secret-manager credential, which stay scrubbed. The reverse holds for the PyPI profile. This is
+deliberate: the package manager needs its own auth token to function.
+
+Matching is on the variable name, case-insensitive, and supports the same glob syntax as filesystem
+rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is never scrubbed.
+
 ## Requirements
 
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
@@ -162,6 +202,9 @@ pmg --sandbox-allow net-connect=npm.internal.corp:443 npm install @corp/private-
 # Allow a dev server to bind to a local port
 pmg --sandbox-allow net-bind=127.0.0.1:3000 npx some-dev-tool
 
+# Re-allow a sensitive environment variable that the profile scrubs by default
+pmg --sandbox-allow env=AWS_PROFILE aws-cdk-using-package install
+
 # Multiple overrides
 pmg \
   --sandbox-allow write=./.gitignore \
@@ -169,7 +212,13 @@ pmg \
   npm install some-package
 ```
 
-Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`.
+Supported types: `read`, `write`, `exec`, `net-connect`, `net-bind`, `env`.
+
+For `env`, the value is an environment variable **name** or name glob (e.g. `NPM_TOKEN`,
+`npm_config_*`) and is kept verbatim — it is not path-resolved. It is an allow-only override that
+re-permits a variable the profile would otherwise scrub; allow always wins, so there is no deny list
+to edit. If a command fails with an auth error, check the event log for a "scrubbed" line naming the
+variable, then re-allow it with `--sandbox-allow env=NAME`.
 
 Overrides are non-persistent (apply to current invocation only) and logged in the event log for
 auditing. An override adds the path to the allow list and removes an exact match entry from the

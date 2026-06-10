@@ -298,6 +298,7 @@ const (
 	SandboxAllowExec       SandboxAllowType = "exec"
 	SandboxAllowNetConnect SandboxAllowType = "net-connect"
 	SandboxAllowNetBind    SandboxAllowType = "net-bind"
+	SandboxAllowEnv        SandboxAllowType = "env"
 )
 
 // SandboxAllowOverride represents a single --sandbox-allow flag value.

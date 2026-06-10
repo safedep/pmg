@@ -94,6 +94,37 @@ func TestParseSandboxAllowOverrides_ValidFormats(t *testing.T) {
 	}
 }
 
+func TestParseSandboxAllowOverrides_Env(t *testing.T) {
+	tests := []struct {
+		name          string
+		raw           string
+		expectedValue string
+	}{
+		{name: "exact name", raw: "env=NPM_TOKEN", expectedValue: "NPM_TOKEN"},
+		{name: "glob name kept verbatim", raw: "env=npm_config_*", expectedValue: "npm_config_*"},
+		{name: "not path resolved", raw: "env=AWS_PROFILE", expectedValue: "AWS_PROFILE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			overrides, err := parseSandboxAllowOverrides([]string{tt.raw})
+			require.NoError(t, err)
+			require.Len(t, overrides, 1)
+
+			assert.Equal(t, SandboxAllowEnv, overrides[0].Type)
+			// Value is kept verbatim — no CWD/path resolution.
+			assert.Equal(t, tt.expectedValue, overrides[0].Value)
+		})
+	}
+}
+
+func TestParseSandboxAllowOverrides_EnvInvalid(t *testing.T) {
+	for _, raw := range []string{"env=NPM/TOKEN", "env=FOO=BAR", "env=HAS SPACE"} {
+		_, err := parseSandboxAllowOverrides([]string{raw})
+		assert.Error(t, err, "expected error for %q", raw)
+	}
+}
+
 func TestParseSandboxAllowOverrides_MultipleValues(t *testing.T) {
 	raw := []string{
 		"write=./.gitignore",
