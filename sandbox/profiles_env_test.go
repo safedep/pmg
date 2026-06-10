@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/safedep/pmg/sandbox/util"
@@ -13,7 +14,9 @@ import (
 // nothing, each package manager's leaf profile re-allows only its own auth
 // variables (plus the shared config conventions of its ecosystem), and
 // sibling tokens stay scrubbed alongside other ecosystems' and cloud
-// credentials.
+// credentials. Every probe entry is on the built-in deny list, so anything
+// not explicitly expected as kept must be scrubbed. This catches accidental
+// over-broad environment.allow entries.
 func TestProfileEnvContract(t *testing.T) {
 	r, err := newDefaultProfileRegistry()
 	require.NoError(t, err)
@@ -33,65 +36,20 @@ func TestProfileEnvContract(t *testing.T) {
 	}
 
 	tests := []struct {
-		profile      string
-		wantKept     []string
-		wantScrubbed []string
+		profile  string
+		wantKept []string
 	}{
-		{
-			profile:      "npm-restrictive",
-			wantKept:     []string{},
-			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
-		},
-		{
-			profile:      "npm",
-			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
-			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
-		},
-		{
-			profile:      "yarn",
-			wantKept:     []string{"YARN_NPM_AUTH_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN"},
-			wantScrubbed: []string{"BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "bun",
-			wantKept:     []string{"BUN_AUTH_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN"},
-			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "pnpm",
-			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
-			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "npx",
-			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
-			wantScrubbed: []string{"YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "pypi-restrictive",
-			wantKept:     []string{},
-			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
-		},
-		{
-			profile:      "pip",
-			wantKept:     []string{},
-			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "pipx",
-			wantKept:     []string{},
-			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "uv",
-			wantKept:     []string{"UV_PUBLISH_TOKEN"},
-			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "POETRY_PYPI_TOKEN_PYPI", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
-		{
-			profile:      "poetry",
-			wantKept:     []string{"POETRY_PYPI_TOKEN_PYPI"},
-			wantScrubbed: []string{"NPM_TOKEN", "TWINE_PASSWORD", "UV_PUBLISH_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-		},
+		{profile: "npm-restrictive", wantKept: []string{}},
+		{profile: "pypi-restrictive", wantKept: []string{}},
+		{profile: "npm", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
+		{profile: "yarn", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN"}},
+		{profile: "bun", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "BUN_AUTH_TOKEN"}},
+		{profile: "pnpm", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
+		{profile: "npx", wantKept: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"}},
+		{profile: "pip", wantKept: []string{}},
+		{profile: "pipx", wantKept: []string{}},
+		{profile: "uv", wantKept: []string{"UV_PUBLISH_TOKEN"}},
+		{profile: "poetry", wantKept: []string{"POETRY_PYPI_TOKEN_PYPI"}},
 	}
 
 	for _, tt := range tests {
@@ -104,11 +62,18 @@ func TestProfileEnvContract(t *testing.T) {
 				Deny:  policy.Environment.Deny,
 			})
 
+			kept := map[string]bool{}
 			for _, name := range tt.wantKept {
-				assert.Contains(t, result.Env, name+"=x", "%s should keep %s", tt.profile, name)
+				kept[name] = true
 			}
-			for _, name := range tt.wantScrubbed {
-				assert.Contains(t, result.Removed, name, "%s should scrub %s", tt.profile, name)
+
+			for _, entry := range env {
+				name, _, _ := strings.Cut(entry, "=")
+				if kept[name] {
+					assert.Contains(t, result.Env, entry, "%s should keep %s", tt.profile, name)
+				} else {
+					assert.Contains(t, result.Removed, name, "%s should scrub %s", tt.profile, name)
+				}
 			}
 		})
 	}

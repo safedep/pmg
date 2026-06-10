@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/safedep/dry/log"
 )
@@ -108,8 +109,15 @@ func validateAndResolveValue(typ SandboxAllowType, value string) (string, error)
 // verbatim. Unlike filesystem/exec values it is NOT path-resolved, since it
 // matches a variable name and not a filesystem location. Matching is
 // case-insensitive at scrub time, so the value is not normalized here.
+// Whitespace and control characters are rejected because the value is echoed
+// back in logs and audit events, and backslash and separators because they
+// have no place in a variable name or glob.
 func validateEnvName(value string) (string, error) {
-	if strings.ContainsAny(value, "=/") || strings.ContainsAny(value, " \t") {
+	invalid := strings.ContainsAny(value, "=/\\") ||
+		strings.ContainsFunc(value, func(r rune) bool {
+			return unicode.IsSpace(r) || unicode.IsControl(r)
+		})
+	if invalid {
 		return "", fmt.Errorf("invalid env variable name %q (expected a name or name glob, e.g. NPM_TOKEN or npm_config_*)", value)
 	}
 

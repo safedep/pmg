@@ -104,7 +104,9 @@ func (p *SandboxPolicy) ValidateResolved() error {
 		len(p.Network.AllowOutbound) > 0 ||
 		len(p.Network.DenyOutbound) > 0 ||
 		len(p.Process.AllowExec) > 0 ||
-		len(p.Process.DenyExec) > 0
+		len(p.Process.DenyExec) > 0 ||
+		len(p.Environment.Allow) > 0 ||
+		len(p.Environment.Deny) > 0
 
 	if !hasRules {
 		return fmt.Errorf("policy must define at least one access rule (after inheritance resolution)")

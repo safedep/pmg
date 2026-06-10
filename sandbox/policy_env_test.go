@@ -26,6 +26,19 @@ func TestMergeWithParent_Environment(t *testing.T) {
 	assert.Equal(t, []string{"PARENT_SECRET", "CHILD_SECRET"}, child.Environment.Deny)
 }
 
+// An environment-only policy is a valid policy: EnvironmentPolicy is an
+// enforceable section, so it counts toward the "at least one access rule"
+// check.
+func TestValidateResolved_EnvironmentOnlyPolicy(t *testing.T) {
+	p := &SandboxPolicy{
+		Name:            "env-only",
+		PackageManagers: []string{"npm"},
+		Environment:     EnvironmentPolicy{Deny: []string{"*_TOKEN"}},
+	}
+
+	assert.NoError(t, p.ValidateResolved())
+}
+
 func TestResolveProfile_DeepCopiesEnvironment(t *testing.T) {
 	r, err := newDefaultProfileRegistry()
 	assert.NoError(t, err)

@@ -119,7 +119,18 @@ func TestParseSandboxAllowOverrides_Env(t *testing.T) {
 }
 
 func TestParseSandboxAllowOverrides_EnvInvalid(t *testing.T) {
-	for _, raw := range []string{"env=NPM/TOKEN", "env=FOO=BAR", "env=HAS SPACE"} {
+	invalid := []string{
+		"env=NPM/TOKEN",
+		"env=FOO=BAR",
+		"env=HAS SPACE",
+		"env=HAS\tTAB",
+		"env=HAS\nNEWLINE",
+		"env=HAS\rRETURN",
+		"env=BACK\\SLASH",
+		"env=CTRL\x07CHAR",
+	}
+
+	for _, raw := range invalid {
 		_, err := parseSandboxAllowOverrides([]string{raw})
 		assert.Error(t, err, "expected error for %q", raw)
 	}
