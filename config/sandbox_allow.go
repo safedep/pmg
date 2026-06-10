@@ -105,7 +105,7 @@ func validateAndResolveValue(typ SandboxAllowType, value string) (string, error)
 
 // validateEnvName validates an env allow value. The value is an environment
 // variable name or name glob (e.g. NPM_TOKEN, npm_config_*) and is kept
-// verbatim — unlike filesystem/exec values it is NOT path-resolved, since it
+// verbatim. Unlike filesystem/exec values it is NOT path-resolved, since it
 // matches a variable name and not a filesystem location. Matching is
 // case-insensitive at scrub time, so the value is not normalized here.
 func validateEnvName(value string) (string, error) {

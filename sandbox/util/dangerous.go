@@ -26,7 +26,7 @@ var DANGEROUS_FILES = []string{
 
 // DANGEROUS_ENV_VARS are credential-bearing environment variables scrubbed from
 // the child process by default when the sandbox is enabled (see ScrubEnv). This
-// is an explicit, curated list of known secret names — there are deliberately
+// is an explicit, curated list of known secret names. There are deliberately
 // no generic "*_TOKEN" / "*_SECRET" catch-alls here, because broad wildcards in
 // the default would risk clipping legitimate build variables for every user.
 // The matcher (ScrubEnv) does support glob patterns, so users who want broader
@@ -46,15 +46,28 @@ var DANGEROUS_ENV_VARS = []string{
 	"AZURE_TENANT_ID",
 	"ARM_CLIENT_SECRET",
 	"GOOGLE_APPLICATION_CREDENTIALS",
+	"GOOGLE_CREDENTIALS",
+	"GOOGLE_OAUTH_ACCESS_TOKEN",
 	"GCP_SERVICE_ACCOUNT_KEY",
 	"CLOUDSDK_AUTH_ACCESS_TOKEN",
 	"DIGITALOCEAN_ACCESS_TOKEN",
+	"DIGITALOCEAN_TOKEN",
+	"CLOUDFLARE_API_TOKEN",
+	"CLOUDFLARE_API_KEY",
+	"HEROKU_API_KEY",
+	"FLY_API_TOKEN",
+	"RAILWAY_TOKEN",
+	"VERCEL_TOKEN",
+	"NETLIFY_AUTH_TOKEN",
 
 	// Package registry / publishing tokens
 	"NPM_TOKEN",
 	"NPM_AUTH_TOKEN",
 	"NODE_AUTH_TOKEN",
 	"NPM_CONFIG__AUTH",
+	"YARN_NPM_AUTH_TOKEN",
+	"YARN_NPM_AUTH_IDENT",
+	"BUN_AUTH_TOKEN",
 	"TWINE_USERNAME",
 	"TWINE_PASSWORD",
 	"PYPI_TOKEN",
@@ -62,8 +75,21 @@ var DANGEROUS_ENV_VARS = []string{
 	"FLIT_PASSWORD",
 	"POETRY_PYPI_TOKEN_PYPI",
 	"POETRY_HTTP_BASIC_PYPI_PASSWORD",
+	"ANACONDA_API_TOKEN",
 	"GEM_HOST_API_KEY",
+	"RUBYGEMS_API_KEY",
 	"CARGO_REGISTRY_TOKEN",
+	"COMPOSER_AUTH",
+	"HEX_API_KEY",
+	"NUGET_API_KEY",
+	"CONAN_LOGIN_PASSWORD",
+	"CONAN_PASSWORD",
+	"DENO_AUTH_TOKENS",
+	"EXPO_TOKEN",
+	"JFROG_ACCESS_TOKEN",
+	"ARTIFACTORY_ACCESS_TOKEN",
+	"ARTIFACTORY_API_KEY",
+	"ARTIFACTORY_PASSWORD",
 
 	// VCS / CI
 	"GITHUB_TOKEN",
@@ -71,18 +97,62 @@ var DANGEROUS_ENV_VARS = []string{
 	"GH_ENTERPRISE_TOKEN",
 	"GITLAB_TOKEN",
 	"CI_JOB_TOKEN",
+	"CIRCLE_TOKEN",
+	"BUILDKITE_AGENT_TOKEN",
+	"BUILDKITE_API_TOKEN",
+	"AZURE_DEVOPS_EXT_PAT",
+	"SYSTEM_ACCESSTOKEN",
 
 	// Secrets managers
 	"VAULT_TOKEN",
+	"CONSUL_HTTP_TOKEN",
+	"NOMAD_TOKEN",
+	"OP_SERVICE_ACCOUNT_TOKEN",
+	"OP_CONNECT_TOKEN",
+	"BW_SESSION",
+	"BWS_ACCESS_TOKEN",
+	"DOPPLER_TOKEN",
+	"INFISICAL_TOKEN",
+
+	// Infrastructure as code
+	"TFE_TOKEN",
+	"TF_API_TOKEN",
+	"PULUMI_ACCESS_TOKEN",
 
 	// Misc high-value
 	"DOCKER_PASSWORD",
 	"DOCKER_AUTH_CONFIG",
 	"SNYK_TOKEN",
 	"CODECOV_TOKEN",
+	"SONAR_TOKEN",
+	"SENTRY_AUTH_TOKEN",
+	"DATADOG_API_KEY",
+	"DD_API_KEY",
+	"DD_APP_KEY",
+	"NEW_RELIC_API_KEY",
+	"SLACK_BOT_TOKEN",
+	"STRIPE_SECRET_KEY",
+	"STRIPE_API_KEY",
+	"TWILIO_AUTH_TOKEN",
+	"SENDGRID_API_KEY",
+	"FIREBASE_TOKEN",
+	"SUPABASE_SERVICE_ROLE_KEY",
+	"SUPABASE_ACCESS_TOKEN",
+
+	// AI providers
 	"OPENAI_API_KEY",
 	"ANTHROPIC_API_KEY",
+	"AZURE_OPENAI_API_KEY",
 	"HUGGING_FACE_HUB_TOKEN",
+	"HF_TOKEN",
+	"GEMINI_API_KEY",
+	"GOOGLE_API_KEY",
+	"COHERE_API_KEY",
+	"MISTRAL_API_KEY",
+	"GROQ_API_KEY",
+	"OPENROUTER_API_KEY",
+	"DEEPSEEK_API_KEY",
+	"XAI_API_KEY",
 }
 
 // ProtectedEnvVars are core process variables never scrubbed, regardless of

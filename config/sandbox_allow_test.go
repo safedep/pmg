@@ -112,7 +112,7 @@ func TestParseSandboxAllowOverrides_Env(t *testing.T) {
 			require.Len(t, overrides, 1)
 
 			assert.Equal(t, SandboxAllowEnv, overrides[0].Type)
-			// Value is kept verbatim — no CWD/path resolution.
+			// Value is kept verbatim, with no CWD/path resolution.
 			assert.Equal(t, tt.expectedValue, overrides[0].Value)
 		})
 	}

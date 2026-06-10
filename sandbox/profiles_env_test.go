@@ -18,9 +18,13 @@ func TestProfileEnvContract(t *testing.T) {
 	env := []string{
 		"NPM_TOKEN=x",
 		"NODE_AUTH_TOKEN=x",
+		"YARN_NPM_AUTH_TOKEN=x",
+		"BUN_AUTH_TOKEN=x",
 		"TWINE_PASSWORD=x",
 		"AWS_SECRET_ACCESS_KEY=x",
 		"GITHUB_TOKEN=x",
+		"OP_SERVICE_ACCOUNT_TOKEN=x",
+		"CLOUDFLARE_API_TOKEN=x",
 	}
 
 	tests := []struct {
@@ -30,13 +34,13 @@ func TestProfileEnvContract(t *testing.T) {
 	}{
 		{
 			profile:      "npm-restrictive",
-			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN"},
-			wantScrubbed: []string{"TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+			wantKept:     []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN"},
+			wantScrubbed: []string{"TWINE_PASSWORD", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
 		},
 		{
 			profile:      "pypi-restrictive",
 			wantKept:     []string{"TWINE_PASSWORD"},
-			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+			wantScrubbed: []string{"NPM_TOKEN", "NODE_AUTH_TOKEN", "YARN_NPM_AUTH_TOKEN", "BUN_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "CLOUDFLARE_API_TOKEN"},
 		},
 	}
 
