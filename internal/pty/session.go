@@ -44,7 +44,7 @@ type InteractiveSession interface {
 
 // IsInteractiveTerminal returns true if stdin is a real terminal (TTY) and
 // the process can safely drive it. Returns false in CI environments (when the
-// "CI" env var set to "true"), when input or output is piped, in
+// "CI" env var is set to "true"), when input or output is piped, in
 // non-interactive shells, or when running as a background job (where putting
 // the terminal into raw mode would stop the process with SIGTTOU).
 func IsInteractiveTerminal() bool {

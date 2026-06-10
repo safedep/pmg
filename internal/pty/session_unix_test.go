@@ -58,9 +58,12 @@ func TestIsInteractiveTerminalBackgroundJob(t *testing.T) {
 
 	waitErr := sess.Wait()
 
+	// The buffer must not be read until the copy goroutine is done, both to
+	// avoid a data race and to ensure all helper output has been captured.
 	select {
 	case <-copyDone:
 	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for pty output copy to finish")
 	}
 
 	out := output.String()
