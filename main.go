@@ -90,7 +90,7 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
-			// Initialize event logging (silently fail if it can't be initialized)
+			// Initialize event logging
 			var eventlogErr error
 			if logFile != "" {
 				// If a custom log file is specified, use it for event logging too

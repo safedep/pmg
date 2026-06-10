@@ -14,6 +14,7 @@ func TestFilterPMGFromPath(t *testing.T) {
 	tests := []struct {
 		name     string
 		path     string
+		shimEnv  string
 		expected string
 	}{
 		{
@@ -51,10 +52,45 @@ func TestFilterPMGFromPath(t *testing.T) {
 			path:     "/usr/local/bin:/home/user/.pmg/binaries:/usr/bin",
 			expected: "/usr/local/bin:/home/user/.pmg/binaries:/usr/bin",
 		},
+		{
+			name:     "env var strips non-legacy shim dir",
+			path:     "/usr/local/lib/pmg/bin:/usr/local/bin:/usr/bin",
+			shimEnv:  "/usr/local/lib/pmg/bin/npm",
+			expected: "/usr/local/bin:/usr/bin",
+		},
+		{
+			name:     "env var strips arbitrary shim dir",
+			path:     "/shims:/usr/local/bin:/usr/bin",
+			shimEnv:  "/shims/npm",
+			expected: "/usr/local/bin:/usr/bin",
+		},
+		{
+			name:     "env var and legacy suffix both strip",
+			path:     "/shims:/home/user/.pmg/bin:/usr/bin",
+			shimEnv:  "/shims/npm",
+			expected: "/usr/bin",
+		},
+		{
+			name:     "env var matches even with trailing slash in PATH entry",
+			path:     "/shims/:/usr/bin",
+			shimEnv:  "/shims/npm",
+			expected: "/usr/bin",
+		},
+		{
+			name:     "env var unset falls back to legacy suffix only",
+			path:     "/shims:/home/user/.pmg/bin:/usr/bin",
+			shimEnv:  "",
+			expected: "/shims:/usr/bin",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.shimEnv != "" {
+				t.Setenv(pmgShimPathEnv, tc.shimEnv)
+			} else {
+				t.Setenv(pmgShimPathEnv, "")
+			}
 			result := FilterPMGFromPath(tc.path)
 			assert.Equal(t, tc.expected, result)
 		})
@@ -244,6 +280,18 @@ func TestFilterPMGFromEnv(t *testing.T) {
 			name:     "empty env",
 			env:      []string{},
 			expected: []string{},
+		},
+		{
+			name: "drops PMG_SHIM_PATH from child env",
+			env: []string{
+				"HOME=/home/user",
+				"PMG_SHIM_PATH=/home/user/.pmg/bin/npm",
+				"PATH=/home/user/.pmg/bin:/usr/bin",
+			},
+			expected: []string{
+				"HOME=/home/user",
+				"PATH=/usr/bin",
+			},
 		},
 	}
 

@@ -42,9 +42,11 @@ type InteractiveSession interface {
 	Close() error
 }
 
-// IsInteractiveTerminal returns true if stdin is a real terminal (TTY).
-// Returns false in CI environments (when the "CI" env var set to "true"),
-// when input or output is piped, or in non-interactive shells.
+// IsInteractiveTerminal returns true if stdin is a real terminal (TTY) and
+// the process can safely drive it. Returns false in CI environments (when the
+// "CI" env var is set to "true"), when input or output is piped, in
+// non-interactive shells, or when running as a background job (where putting
+// the terminal into raw mode would stop the process with SIGTTOU).
 func IsInteractiveTerminal() bool {
 	if ci := os.Getenv("CI"); ci != "" && strings.ToLower(ci) == "true" {
 		return false
@@ -58,7 +60,7 @@ func IsInteractiveTerminal() bool {
 		return false
 	}
 
-	return true
+	return isForegroundProcess(os.Stdin.Fd())
 }
 
 var _ InteractiveSession = &session{}

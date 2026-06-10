@@ -52,6 +52,8 @@ func TestShimManagerInstall(t *testing.T) {
 		assert.Contains(t, string(content), "#!/bin/sh")
 		assert.Contains(t, string(content), "PMG_BIN='"+pmgBin+"'")
 		assert.Contains(t, string(content), `exec "$PMG_BIN" `+pm+` "$@"`)
+		assert.Contains(t, string(content), `PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")`)
+		assert.Contains(t, string(content), "export PMG_SHIM_PATH")
 		assert.NotContains(t, string(content), "command -v pmg")
 		assert.NotContains(t, string(content), "exec pmg")
 		assert.NotContains(t, string(content), "falling back to native")
