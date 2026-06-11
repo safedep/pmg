@@ -108,6 +108,22 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 			},
 		},
 		{
+			name: "glob pattern with /** and glob parent",
+			policy: &sandbox.SandboxPolicy{
+				Filesystem: sandbox.FilesystemPolicy{
+					AllowWrite: []string{"/project/**/node_modules/**"},
+				},
+			},
+			assert: func(t *testing.T, actual string, err error) {
+				assert.NoError(t, err)
+				// Parent still contains a glob, so the auto-allow must be a
+				// regex rule — a literal with ** can never match a real path.
+				assert.Contains(t, actual, `(allow file-write* (regex #"^/project/(.*/)?node_modules$"))`)
+				assert.Contains(t, actual, `^/project/(.*/)?node_modules/.*$`)
+				assert.NotContains(t, actual, `(literal "/project/**/node_modules")`)
+			},
+		},
+		{
 			name: "glob pattern with *.txt",
 			policy: &sandbox.SandboxPolicy{
 				Filesystem: sandbox.FilesystemPolicy{

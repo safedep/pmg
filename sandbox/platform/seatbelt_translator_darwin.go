@@ -109,8 +109,16 @@ func getAncestorDirectories(pathStr string) []string {
 	return ancestors
 }
 
-// globDoubleStarAutoAllowParentDirIfNeeded checks if a pattern ends with /** and emits a literal rule for the parent directory.
+// globDoubleStarAutoAllowParentDirIfNeeded checks if a pattern ends with /** and emits a rule for the parent directory.
 // This ensures operations like mkdir('dir') or stat('dir') succeed before accessing dir/** contents.
+//
+// When the parent itself still contains glob characters (e.g. ${CWD}/**/node_modules),
+// a literal rule can never match a real path, so a regex rule is emitted instead.
+// This grants access only to directories matching the parent pattern — strictly
+// narrower than the Linux drivers, which bind the prefix before the first /**
+// (Bubblewrap) or the glob's expansion/parent (Landlock) read-write. Deny rules
+// are emitted after allows and override them, so mandatory credential denies
+// are unaffected.
 func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern string, expanded string, operation string) {
 	if !strings.HasSuffix(expanded, "/**") {
 		return
@@ -127,6 +135,12 @@ func globDoubleStarAutoAllowParentDirIfNeeded(sb *strings.Builder, pattern strin
 	sb.WriteString("\n")
 	sb.WriteString("(allow ")
 	sb.WriteString(operation)
+	if util.ContainsGlob(parentDir) {
+		sb.WriteString(" (regex #\"")
+		sb.WriteString(util.GlobToRegex(parentDir))
+		sb.WriteString("\"))\n")
+		return
+	}
 	sb.WriteString(" (literal \"")
 	sb.WriteString(parentDir)
 	sb.WriteString("\"))\n")
