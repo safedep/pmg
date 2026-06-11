@@ -19,10 +19,16 @@ environment:
     - NODE_EXTRA_CA_CERTS
 
 filesystem:
+  allow_read:
+    # pnpm cache on macOS lives under ~/Library/Caches (lockfile verification,
+    # metadata). The base profile only covers the XDG path ~/.cache/pnpm.
+    - ${HOME}/Library/Caches/pnpm/**
+
   allow_write:
     # pnpm needs write access here
     - ${HOME}/Library/pnpm/.tools/**
     - ${HOME}/.pnpm-store/**
+    - ${HOME}/Library/Caches/pnpm/**
 
     # `pnpm i` creates the tmp files in local dir, at least on MacOS
     - ${CWD}/_tmp_*
@@ -38,5 +44,14 @@ filesystem:
 
     # Need access for dependency resolution
     - ${CWD}/.pnpm-store
+
+    # Workspaces (monorepos): pnpm creates a node_modules inside every
+    # workspace package to symlink its direct dependencies. The bare
+    # **/node_modules form is required in addition to **/node_modules/**:
+    # the automatic parent-directory allowance only works for literal
+    # parents, and this parent contains a glob, so mkdir of the directory
+    # itself must be matched explicitly.
+    - ${CWD}/**/node_modules
+    - ${CWD}/**/node_modules/**
 
 
