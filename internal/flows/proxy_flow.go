@@ -141,8 +141,21 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
 
-	// Create analysis cache and stats collector
-	cache := interceptors.NewInMemoryAnalysisCache()
+	// Create analysis cache and stats collector. The default cache is in-memory
+	// and lives only for this invocation; when the persistent cache is enabled,
+	// clean (ALLOW) verdicts are reused across runs so repeat installs of an
+	// unchanged graph skip re-screening.
+	var cache interceptors.AnalysisCache = interceptors.NewInMemoryAnalysisCache()
+	if cfg.Config.AnalysisCache.Enabled {
+		cacheDir := filepath.Join(cfg.ConfigDir(), "analysis-cache")
+		persistentCache, err := interceptors.NewPersistentAnalysisCache(cacheDir, cfg.Config.AnalysisCache.TTL)
+		if err != nil {
+			log.Warnf("Failed to initialize persistent analysis cache, falling back to in-memory: %v", err)
+		} else {
+			cache = persistentCache
+			log.Debugf("Persistent analysis cache enabled at %s (ttl=%s)", cacheDir, cfg.Config.AnalysisCache.TTL)
+		}
+	}
 	statsCollector := interceptors.NewAnalysisStatsCollector()
 
 	// Create confirmation channel and start confirmation handler

@@ -97,9 +97,36 @@ type Config struct {
 
 	DependencyCooldown DependencyCooldownConfig `mapstructure:"dependency_cooldown"`
 
+	// AnalysisCache configures the optional cross-run cache of malware-analysis
+	// verdicts, so repeat installs of an already-screened dependency graph skip
+	// the per-package analysis round-trip.
+	AnalysisCache AnalysisCacheConfig `mapstructure:"analysis_cache"`
+
 	Cloud CloudConfig `mapstructure:"cloud"`
 
 	Proxy ProxyConfig `mapstructure:"proxy"`
+}
+
+// AnalysisCacheConfig configures a persistent, cross-run cache of package
+// malware-analysis verdicts.
+//
+// By default PMG keeps an in-memory analysis cache that lives only for the
+// duration of a single invocation, so every install re-screens the whole
+// resolved graph against the analysis backend. When Enabled, clean (ALLOW)
+// verdicts are additionally persisted on disk and reused across runs, which
+// makes repeat installs of an unchanged graph fast.
+//
+// Security trade-off: a version that was clean when first screened but is later
+// flagged as malicious is served from cache (and thus allowed) until its entry
+// expires; TTL bounds that exposure window. Only ALLOW verdicts are cached —
+// suspicious, malicious, and tenant-excluded verdicts are always re-evaluated.
+// Disabled by default.
+type AnalysisCacheConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+
+	// TTL is how long a cached verdict remains valid. A non-positive TTL
+	// disables persistence (entries are always treated as a miss).
+	TTL time.Duration `mapstructure:"ttl"`
 }
 
 // CloudConfig configures audit event sync to SafeDep Cloud.
@@ -384,6 +411,10 @@ func DefaultConfig() RuntimeConfig {
 			DependencyCooldown: DependencyCooldownConfig{
 				Enabled: true,
 				Days:    5,
+			},
+			AnalysisCache: AnalysisCacheConfig{
+				Enabled: false,
+				TTL:     24 * time.Hour,
 			},
 			Cloud: CloudConfig{
 				Enabled: false,

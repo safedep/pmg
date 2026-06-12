@@ -167,6 +167,20 @@ dependency_cooldown:
   enabled: true
   days: 5
 
+# Persistent analysis cache (opt-in).
+# By default PMG re-screens the whole resolved graph against the analysis
+# backend on every install. When enabled, clean (ALLOW) verdicts are cached on
+# disk and reused across runs, so repeat installs of an unchanged graph are
+# fast. Only ALLOW verdicts are cached — suspicious, malicious, and
+# tenant-excluded verdicts are always re-evaluated.
+#
+# Trade-off: a version that was clean when first screened but is later flagged
+# malicious is served from cache until its entry expires; `ttl` bounds that
+# window. Keep `ttl` short if you prefer freshness over speed.
+analysis_cache:
+  enabled: false
+  ttl: 24h
+
 # Cloud sync configuration.
 # When enabled, PMG audit events are synced to SafeDep Cloud for centralized visibility.
 # Requires SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables for authentication.
