@@ -46,8 +46,13 @@ func TestSetupEnvForProxyConfiguresYarn(t *testing.T) {
 // explicitly (e.g. CI=false on a build server).
 func TestCIEnvOverride(t *testing.T) {
 	t.Run("sets CI=true when unset", func(t *testing.T) {
-		t.Setenv("CI", "true")
+		original, hadCI := os.LookupEnv("CI")
 		require.NoError(t, os.Unsetenv("CI"))
+		t.Cleanup(func() {
+			if hadCI {
+				require.NoError(t, os.Setenv("CI", original))
+			}
+		})
 
 		assert.Equal(t, []string{"CI=true"}, ciEnvOverride())
 	})
