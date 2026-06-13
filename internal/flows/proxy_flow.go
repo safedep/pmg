@@ -207,7 +207,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		DryRun:             cfg.DryRun,
 		Mode:               runner.ExecutionModeAuto,
 		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath),
-		DirectEnvOverrides: []string{"CI=true"},
+		DirectEnvOverrides: ciEnvOverride(),
 		BeforeDirectRun: func() error {
 			log.Debugf("Executing proxy for non interactive TTY")
 
@@ -410,6 +410,16 @@ func (f *proxyFlow) createAndStartProxyServer(
 	}
 
 	return proxyServer, proxyAddr, nil
+}
+
+// ciEnvOverride forces CI=true for non-interactive runs so package managers
+// behave non-interactively. It respects an explicitly set CI value (including
+// CI=false) so we don't clobber the user's intent. See issue #335.
+func ciEnvOverride() []string {
+	if _, ok := os.LookupEnv("CI"); ok {
+		return nil
+	}
+	return []string{"CI=true"}
 }
 
 func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
