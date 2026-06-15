@@ -211,6 +211,27 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 	}
 }
 
+// LogCooldownSkipped records that a package was exempted from the dependency
+// cooldown window. The reason identifies which configuration list granted the
+// exemption (e.g. "trusted_packages" or "dependency_cooldown.skip") so
+// operators auditing PMG behavior can tell apart the broad waiver from the
+// cooldown-only one.
+//
+// ecosystem and packageName are passed explicitly because the skip decision
+// happens at metadata time, before a specific version has been resolved.
+func LogCooldownSkipped(ecosystem, packageName, reason string) {
+	logEvent(AuditEvent{
+		Type:    EventTypeCooldownSkipped,
+		Message: fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecosystem, packageName, reason),
+		Reason:  reason,
+		Details: map[string]interface{}{
+			"ecosystem":    ecosystem,
+			"package_name": packageName,
+			"reason":       reason,
+		},
+	})
+}
+
 // LogSandboxOverride records that runtime sandbox policy overrides were applied.
 func LogSandboxOverride(sandboxProfile string, overrides []map[string]string) {
 	logEvent(AuditEvent{
