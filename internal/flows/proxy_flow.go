@@ -10,6 +10,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
@@ -139,6 +140,26 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	malysisAnalyzer, err := f.createAnalyzer()
 	if err != nil {
 		return fmt.Errorf("failed to create analyzer: %w", err)
+	}
+
+	// Wrap the analyzer with a persistent cache when enabled, so repeat installs
+	// of an unchanged graph reuse clean verdicts instead of re-screening. The
+	// cache is best-effort: any setup failure degrades to the uncached analyzer.
+	if cfg.Config.AnalysisCache.Enabled {
+		cacheDBPath := filepath.Join(cfg.CacheDir(), "analysis-cache.db")
+		if err := os.MkdirAll(cfg.CacheDir(), 0o700); err != nil {
+			log.Warnf("Failed to create cache directory, continuing without analysis cache: %v", err)
+		} else if malysisCache, err := malysiscache.NewSQLiteCache(cacheDBPath, cfg.Config.AnalysisCache.TTL); err != nil {
+			log.Warnf("Failed to open analysis cache, continuing without it: %v", err)
+		} else {
+			defer func() {
+				if err := malysisCache.Close(); err != nil {
+					log.Warnf("Failed to close analysis cache: %v", err)
+				}
+			}()
+			malysisAnalyzer = analyzer.NewMalysisCacheAnalyzer(malysisAnalyzer, malysisCache)
+			log.Debugf("Analysis cache enabled at %s (ttl=%s)", cacheDBPath, cfg.Config.AnalysisCache.TTL)
+		}
 	}
 
 	// Create analysis cache and stats collector
