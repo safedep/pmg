@@ -425,8 +425,11 @@ func ciEnvOverride() []string {
 func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
-	// IPv6 loopback must be bare ::1; bracketed [::1] is URL syntax that crashes
-	// Python's urllib/httpx (#339).
+	// IPv6 loopback uses the bare ::1: the bracketed [::1] is URL syntax that
+	// crashes Python's urllib/httpx (#339). Trade-off: Node's NODE_USE_ENV_PROXY
+	// (undici) only bypasses the bracketed form, so a literal http://[::1] from
+	// Node still gets proxied. localhost/127.0.0.1 cover the common cases; the
+	// IPv6 literal is a rare edge we accept since NO_PROXY can't be set per-client.
 	noProxyList := "localhost,127.0.0.1,::1"
 
 	return []string{
