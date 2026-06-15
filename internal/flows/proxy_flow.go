@@ -425,7 +425,11 @@ func ciEnvOverride() []string {
 func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
-	noProxyList := "localhost,127.0.0.1,[::1]"
+	// IPv6 loopback must be bare (::1), not bracketed ([::1]). Brackets are URL
+	// authority syntax (e.g. http://[::1]:8080), not valid NO_PROXY syntax.
+	// Python's urllib/httpx parses bracketed entries as a URL and crashes with
+	// "Invalid port: ':1]'". See issue #339.
+	noProxyList := "localhost,127.0.0.1,::1"
 
 	return []string{
 		"NODE_USE_ENV_PROXY=1",
