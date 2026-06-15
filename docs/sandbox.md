@@ -63,7 +63,7 @@ see what was removed.
 
 The shared base profiles (`npm-restrictive`, `pypi-restrictive`) allow no environment variables.
 Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `npx`, `pip`, `pipx`, `uv`,
-`poetry`) re-allows only the variables that package manager legitimately needs via an
+`uvx`, `poetry`) re-allows only the variables that package manager legitimately needs via an
 `environment.allow` block, so package managers keep working:
 
 ```yaml

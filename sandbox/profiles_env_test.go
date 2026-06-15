@@ -49,6 +49,7 @@ func TestProfileEnvContract(t *testing.T) {
 		{profile: "pip", wantKept: []string{}},
 		{profile: "pipx", wantKept: []string{}},
 		{profile: "uv", wantKept: []string{"UV_PUBLISH_TOKEN"}},
+		{profile: "uvx", wantKept: []string{"UV_PUBLISH_TOKEN"}},
 		{profile: "poetry", wantKept: []string{"POETRY_PYPI_TOKEN_PYPI"}},
 	}
 
