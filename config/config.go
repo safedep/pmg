@@ -107,8 +107,17 @@ type Config struct {
 	Proxy ProxyConfig `mapstructure:"proxy"`
 }
 
-// AnalysisCacheConfig configures a persistent, cross-run cache of package
-// malware-analysis verdicts.
+// AnalysisCacheConfig is the umbrella for per-analyzer cross-run caches. Caching
+// is analyzer-specific — each analyzer decides what is safe to cache — so config
+// is nested per analyzer rather than shared. Today only the Malysis (malware)
+// analyzer has a cache; future analyzers can add their own sub-config here.
+type AnalysisCacheConfig struct {
+	// Malysis configures the cross-run cache for the Malysis malware analyzer.
+	Malysis MalysisCacheConfig `mapstructure:"malysis"`
+}
+
+// MalysisCacheConfig configures a persistent, cross-run cache of package
+// malware-analysis verdicts produced by the Malysis analyzer.
 //
 // By default PMG keeps an in-memory analysis cache that lives only for the
 // duration of a single invocation, so every install re-screens the whole
@@ -121,7 +130,7 @@ type Config struct {
 // expires; TTL bounds that exposure window. Only ALLOW verdicts are cached —
 // suspicious, malicious, and tenant-excluded verdicts are always re-evaluated.
 // Disabled by default.
-type AnalysisCacheConfig struct {
+type MalysisCacheConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 
 	// TTL is how long a cached verdict remains valid. A non-positive TTL
@@ -423,8 +432,10 @@ func DefaultConfig() RuntimeConfig {
 				Days:    5,
 			},
 			AnalysisCache: AnalysisCacheConfig{
-				Enabled: false,
-				TTL:     24 * time.Hour,
+				Malysis: MalysisCacheConfig{
+					Enabled: false,
+					TTL:     24 * time.Hour,
+				},
 			},
 			Cloud: CloudConfig{
 				Enabled: false,

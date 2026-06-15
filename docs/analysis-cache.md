@@ -30,12 +30,15 @@ round-trip.
 
 ## Configuration
 
-Disabled by default. Enable it in `config.yml`:
+Disabled by default. Caching is analyzer-specific, so it is configured per
+analyzer under `analysis_cache`; today only the Malysis (malware) analyzer has a
+cache. Enable it in `config.yml`:
 
 ```yaml
 analysis_cache:
-  enabled: true
-  ttl: 24h
+  malysis:
+    enabled: true
+    ttl: 24h
 ```
 
 - `enabled` — turn the persistent cache on/off.
