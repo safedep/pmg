@@ -41,6 +41,22 @@ func TestSetupEnvForProxyConfiguresYarn(t *testing.T) {
 		"yarn ignores NODE_EXTRA_CA_CERTS; YARN_HTTPS_CA_FILE_PATH is required to trust the MITM CA")
 }
 
+// TestSetupEnvForProxyNoProxyIPv6 proves the fix for #339: the IPv6 loopback in
+// NO_PROXY must be bare (::1), not bracketed ([::1]). Brackets are URL syntax,
+// not NO_PROXY syntax, and Python's urllib/httpx crashes parsing them with
+// "Invalid port: ':1]'".
+func TestSetupEnvForProxyNoProxyIPv6(t *testing.T) {
+	f := &proxyFlow{}
+	env := envToMap(f.setupEnvForProxy("127.0.0.1:54321", "/tmp/pmg-ca-cert.pem"))
+
+	for _, key := range []string{"NO_PROXY", "no_proxy"} {
+		assert.Equal(t, "localhost,127.0.0.1,::1", env[key],
+			"%s must use bare ::1; bracketed [::1] is invalid NO_PROXY syntax and crashes httpx", key)
+		assert.NotContains(t, env[key], "[::1]",
+			"%s must not contain bracketed IPv6 loopback", key)
+	}
+}
+
 // TestCIEnvOverride proves the fix for #335: pmg forces CI=true for
 // non-interactive runs but must not clobber a CI value the user set
 // explicitly (e.g. CI=false on a build server).

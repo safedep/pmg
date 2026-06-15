@@ -222,6 +222,27 @@ jobs:
 
           cd .. && rm -rf pypi-proxy-test
 
+      - name: Test PyPI - httpx NO_PROXY Regression (#339)
+        run: |
+          echo "Testing that proxy-mode NO_PROXY does not crash Python httpx (#339)..."
+          HTTPX_TESTDIR=$(mktemp -d) && cd "$HTTPX_TESTDIR"
+          pmg uv init --no-readme
+          pmg uv add httpx==0.28.1
+
+          # Run under proxy mode (default). PMG injects NO_PROXY into the child env;
+          # the bracketed [::1] it used to inject made urllib/httpx raise
+          # "InvalidURL: Invalid port: ':1]'" when constructing a client.
+          pmg uv run python -c '
+          import os, httpx
+          np = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+          assert "::1" in np, "proxy-mode NO_PROXY not set, test is not exercising the fix: %r" % np
+          assert "[::1]" not in np, "NO_PROXY still contains bracketed loopback: %r" % np
+          httpx.Client().close()
+          print("httpx ok; NO_PROXY=" + np)
+          '
+
+          cd - && rm -rf "$HTTPX_TESTDIR"
+
       - name: Test PNPM - Single Package & Manifest
         run: |
           echo "Testing PNPM single package installation..."
