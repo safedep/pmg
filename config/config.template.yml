@@ -167,6 +167,21 @@ dependency_cooldown:
   enabled: true
   days: 5
 
+  # Per-control skip list of packages exempt from the cooldown window. This is
+  # independent of the top-level trusted_packages above (which waives malware
+  # analysis): packages here are STILL malware-scanned — only the cooldown wait
+  # is waived. Use it for first-party / internal packages that must be installed
+  # immediately on release (e.g. to sanity-test a freshly published version).
+  #
+  # A PURL without a version skips cooldown for ALL versions of the package; a
+  # PURL with a version skips cooldown for that version only. Example:
+  #   skip:
+  #     - purl: pkg:npm/my-internal-sdk             # all versions
+  #       reason: "First-party SDK; sanity-tested immediately on release"
+  #     - purl: pkg:npm/another-internal-pkg@1.2.3  # only 1.2.3
+  #       reason: "Pin a specific just-published build"
+  skip: []
+
 # Cloud sync configuration.
 # When enabled, PMG audit events are synced to SafeDep Cloud for centralized visibility.
 # Requires SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables for authentication.

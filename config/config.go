@@ -148,6 +148,17 @@ type SandboxConfig struct {
 type DependencyCooldownConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 	Days    int  `mapstructure:"days"`
+
+	// Skip is a per-control skip list of packages exempt from the cooldown
+	// window. It is independent of the top-level trusted_packages: it waives ONLY
+	// the cooldown wait, never malware analysis, so a fast-tracked package is
+	// still scanned. Intended for first-party / internal packages that must be
+	// installed immediately on release.
+	//
+	// Matching: a PURL without a version skips cooldown for ALL versions of the
+	// package (package-level); a PURL with a version skips cooldown for that
+	// version only (version-level).
+	Skip []TrustedPackage `mapstructure:"skip"`
 }
 
 // legacyProfileAliases maps old default profile names, keyed by package
