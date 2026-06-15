@@ -6,19 +6,27 @@ it is empty at the start of each `install`, so every install re-screens the whol
 graph — even when the package store is warm and nothing changed. For large or
 frequently re-installed graphs this dominates wall-clock time.
 
-The persistent analysis cache stores clean verdicts on disk and reuses them
-across runs, so a repeat install of an unchanged graph skips the per-package
-analysis round-trip.
+The persistent analysis cache stores clean verdicts across runs and reuses them,
+so a repeat install of an unchanged graph skips the per-package analysis
+round-trip.
+
+> **Status:** this page describes the analysis-cache contract and configuration.
+> The caching layer is defined as the `analyzer.MalysisCache` interface so it can
+> be backed by different stores; a concrete persistent implementation (sqlite)
+> lands in a follow-up. Until then, `enabled` is inert.
 
 ## How It Works
 
-- Verdicts are cached under `<config-dir>/analysis-cache/`, one record per
-  package version, written atomically.
-- On lookup, PMG checks the in-memory tier first, then the on-disk tier; a disk
-  hit repopulates the in-memory tier for the rest of the run.
+- The cache is modeled as the `analyzer.MalysisCache` interface — a pluggable
+  contract the analyzer layer reads through. A concrete backend (e.g. sqlite) is
+  injected by the caller, so the abstraction is decoupled from any single store.
+- Persistent verdicts live under the platform **cache** directory (`config.CacheDir()`
+  — XDG cache dir on Linux, `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on
+  Windows; overridable via `PMG_CACHE_DIR`), not the config directory, since they
+  are regenerable.
 - **Only clean (`ALLOW`) verdicts are cached.** Suspicious, malicious, and
   tenant-excluded verdicts are never persisted and are always re-evaluated.
-- Each record carries a timestamp and expires after `ttl`.
+- Each entry expires after `ttl`.
 
 ## Configuration
 

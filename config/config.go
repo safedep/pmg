@@ -284,6 +284,7 @@ type RuntimeConfig struct {
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
 	sandboxViolationCacheDir string
+	cacheDir                 string
 	viper                    *viper.Viper
 }
 
@@ -356,6 +357,15 @@ func (r *RuntimeConfig) SandboxOverlayDir() string {
 // SandboxViolationCacheDir returns the path to the sandbox violation cache directory.
 func (r *RuntimeConfig) SandboxViolationCacheDir() string {
 	return r.sandboxViolationCacheDir
+}
+
+// CacheDir returns the path to the PMG cache root directory. This follows the
+// platform cache convention (XDG cache dir on Linux, ~/Library/Caches on macOS,
+// %LOCALAPPDATA% on Windows) and is overridable via PMG_CACHE_DIR. Caching
+// layers (e.g. the analysis cache) should store regenerable data here rather
+// than under the config directory.
+func (r *RuntimeConfig) CacheDir() string {
+	return r.cacheDir
 }
 
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
@@ -492,6 +502,11 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get sandbox overlay directory: %w", err))
 	}
 
+	cacheRootDir, err := cacheDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get cache directory: %w", err))
+	}
+
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
@@ -499,6 +514,7 @@ func initConfig() {
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxOverlayDir = sandboxOverlayDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
+	globalConfig.cacheDir = cacheRootDir
 
 	// A globally managed config enforces lockdown only when it opts in via
 	// global_lockdown, read straight from the file so it cannot be flipped by
