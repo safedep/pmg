@@ -167,11 +167,15 @@ dependency_cooldown:
   enabled: true
   days: 5
 
-  # Per-control skip list of packages exempt from the cooldown window. This is
-  # independent of the top-level trusted_packages above (which waives malware
-  # analysis): packages here are STILL malware-scanned — only the cooldown wait
-  # is waived. Use it for first-party / internal packages that must be installed
-  # immediately on release (e.g. to sanity-test a freshly published version).
+  # Per-control skip list of packages exempt from the cooldown window.
+  # Packages here are STILL malware-scanned — only the cooldown wait is waived.
+  # Use it for first-party / internal packages that must be installed immediately
+  # on release (e.g. to sanity-test a freshly published version).
+  #
+  # To bypass every PMG control (malware analysis, cooldown, and any future
+  # controls) for a package, add it to the top-level trusted_packages list
+  # above instead. Trusted packages are automatically cooldown-exempt; you do
+  # not need to repeat them here.
   #
   # A PURL without a version skips cooldown for ALL versions of the package; a
   # PURL with a version skips cooldown for that version only. Example:

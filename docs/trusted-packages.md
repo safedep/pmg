@@ -1,6 +1,15 @@
 # Trusted Packages
 
-`pmg` allows you to trust a package. Trusted packages are not scanned and always allowed to be installed.
+`pmg` allows you to trust a package. A trusted package bypasses **every**
+control PMG enforces: it is not scanned for malware, it is exempt from the
+[dependency cooldown](dependency-cooldown.md) window, and it will be exempted
+from any future controls PMG adds. Use this list for packages you fully vouch
+for — typically first-party packages or vendored internal dependencies.
+
+If you only want to waive a single control (for example, install a package
+immediately without waiting out the cooldown, but still have it analyzed for
+malware), use the per-control skip list for that control instead — e.g.
+[`dependency_cooldown.skip`](dependency-cooldown.md#exempting-specific-packages).
 
 ## Configuration
 

@@ -186,9 +186,11 @@ type DependencyCooldownConfig struct {
 	Days    int  `mapstructure:"days"`
 
 	// Skip is a per-control skip list of packages exempt from the cooldown
-	// window. It is independent of the top-level trusted_packages: it waives ONLY
-	// the cooldown wait, never malware analysis, so a fast-tracked package is
-	// still scanned. Intended for first-party / internal packages that must be
+	// window. Unlike the top-level trusted_packages (which waives every PMG
+	// control — malware analysis, cooldown, and any future controls — and is
+	// already honored here), an entry on this list waives ONLY the cooldown
+	// wait, never malware analysis, so a fast-tracked package is still
+	// scanned. Intended for first-party / internal packages that must be
 	// installed immediately on release.
 	//
 	// Matching: a PURL without a version skips cooldown for ALL versions of the

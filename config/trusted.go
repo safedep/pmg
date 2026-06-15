@@ -33,35 +33,43 @@ func (s CooldownSkipInfo) ExemptsVersion(version string) bool {
 }
 
 // CooldownSkip returns how a package (by ecosystem and name) is exempted from
-// the dependency cooldown window via dependency_cooldown.skip.
+// the dependency cooldown window.
 //
-// The skip list waives ONLY the cooldown wait — exempt packages are still
-// subject to malware analysis. A skip entry without a version exempts every
-// version of the package; an entry with a version exempts only that version.
+// A package is exempt if it appears in either:
+//   - the top-level trusted_packages list (which waives every control,
+//     including malware analysis and cooldown), or
+//   - the dependency_cooldown.skip list (which waives ONLY cooldown; exempt
+//     packages are still subject to malware analysis).
+//
+// In both lists, an entry without a version exempts every version of the
+// package; an entry with a version exempts only that version.
 func CooldownSkip(ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
-	return cooldownSkip(Get().Config.DependencyCooldown.Skip, ecosystem, name)
+	cfg := Get().Config
+	return cooldownSkip(cfg.TrustedPackages, cfg.DependencyCooldown.Skip, ecosystem, name)
 }
 
-func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
+func cooldownSkip(trusted, skip []TrustedPackage, ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
 	info := CooldownSkipInfo{}
 	if name == "" {
 		return info
 	}
 
-	for _, v := range skip {
-		if !v.parsed || v.ecosystem != ecosystem || v.name != name {
-			continue
-		}
+	for _, list := range [][]TrustedPackage{trusted, skip} {
+		for _, v := range list {
+			if !v.parsed || v.ecosystem != ecosystem || v.name != name {
+				continue
+			}
 
-		if v.version == "" {
-			info.SkipAll = true
-			continue
-		}
+			if v.version == "" {
+				info.SkipAll = true
+				continue
+			}
 
-		if info.Versions == nil {
-			info.Versions = make(map[string]bool)
+			if info.Versions == nil {
+				info.Versions = make(map[string]bool)
+			}
+			info.Versions[v.version] = true
 		}
-		info.Versions[v.version] = true
 	}
 
 	// A version-less entry skips every version, so per-version entries are

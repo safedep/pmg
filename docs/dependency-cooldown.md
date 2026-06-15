@@ -37,15 +37,19 @@ dependency_cooldown:
 ```
 
 The skip list is a **per-control exemption**: packages on it **skip only the
-cooldown window — they are still analyzed for malware.** It is independent of the
-top-level [`trusted_packages`](trusted-packages.md), which waives malware
-analysis. There is a single definition of a trusted package (the top-level list);
-this is just a cooldown skip list.
+cooldown window — they are still analyzed for malware.** Use it when you want a
+package to bypass cooldown but still go through every other security control.
 
-| List | Waives malware analysis | Waives cooldown |
-| --- | --- | --- |
-| `trusted_packages` (top level) | yes | no |
-| `dependency_cooldown.skip` | no | yes |
+If you want a package to bypass **every** control PMG enforces — malware
+analysis, dependency cooldown, and any future policies — add it to the
+top-level [`trusted_packages`](trusted-packages.md) list instead. A globally
+trusted package is automatically exempted from the cooldown window without
+needing a separate entry here.
+
+| List | Waives malware analysis | Waives cooldown | Waives future controls |
+| --- | --- | --- | --- |
+| `trusted_packages` (top level) | yes | yes | yes |
+| `dependency_cooldown.skip` | no | yes | no |
 
 Matching:
 
