@@ -1,10 +1,12 @@
 package flows
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func envToMap(env []string) map[string]string {
@@ -37,4 +39,31 @@ func TestSetupEnvForProxyConfiguresYarn(t *testing.T) {
 		"yarn ignores HTTPS_PROXY; YARN_HTTPS_PROXY is required to route yarn through the proxy")
 	assert.Equal(t, caCertPath, env["YARN_HTTPS_CA_FILE_PATH"],
 		"yarn ignores NODE_EXTRA_CA_CERTS; YARN_HTTPS_CA_FILE_PATH is required to trust the MITM CA")
+}
+
+// TestCIEnvOverride proves the fix for #335: pmg forces CI=true for
+// non-interactive runs but must not clobber a CI value the user set
+// explicitly (e.g. CI=false on a build server).
+func TestCIEnvOverride(t *testing.T) {
+	t.Run("sets CI=true when unset", func(t *testing.T) {
+		original, hadCI := os.LookupEnv("CI")
+		require.NoError(t, os.Unsetenv("CI"))
+		t.Cleanup(func() {
+			if hadCI {
+				require.NoError(t, os.Setenv("CI", original))
+			}
+		})
+
+		assert.Equal(t, []string{"CI=true"}, ciEnvOverride())
+	})
+
+	t.Run("does not override explicitly set CI", func(t *testing.T) {
+		t.Setenv("CI", "false")
+		assert.Nil(t, ciEnvOverride())
+	})
+
+	t.Run("does not override CI set to empty", func(t *testing.T) {
+		t.Setenv("CI", "")
+		assert.Nil(t, ciEnvOverride())
+	})
 }
