@@ -167,7 +167,9 @@ dependency_cooldown:
   enabled: true
   days: 5
 
-# Persistent analysis cache (opt-in).
+# Persistent analysis cache (opt-in). Caching is analyzer-specific, so config is
+# nested per analyzer; today only the Malysis (malware) analyzer has a cache.
+#
 # By default PMG re-screens the whole resolved graph against the analysis
 # backend on every install. When enabled, clean (ALLOW) verdicts are cached on
 # disk and reused across runs, so repeat installs of an unchanged graph are
@@ -178,8 +180,9 @@ dependency_cooldown:
 # malicious is served from cache until its entry expires; `ttl` bounds that
 # window. Keep `ttl` short if you prefer freshness over speed.
 analysis_cache:
-  enabled: false
-  ttl: 24h
+  malysis:
+    enabled: false
+    ttl: 24h
 
 # Cloud sync configuration.
 # When enabled, PMG audit events are synced to SafeDep Cloud for centralized visibility.
