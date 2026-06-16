@@ -7,7 +7,6 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	pmgconfig "github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -131,14 +130,12 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 			// the same canonical form used for pinned-version lookups, so a PURL
 			// like pkg:pypi/My_Pkg reliably matches the resolved request name.
 			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName()))
+			auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, pkgInfo.GetName(), skip)
 			if skip.SkipAll {
 				// Whole package is exempt from cooldown: pass metadata through
 				// unmodified. The tarball download still hits analyzePackage, so
 				// malware analysis is preserved (unless the package is also in
 				// trusted_packages, which is the broader waiver).
-				reason := skip.SkipAllReason.String()
-				log.Infof("[%s] Cooldown: package %s is exempt (source: %s)", ctx.RequestID, pkgInfo.GetName(), reason)
-				audit.LogCooldownSkipped(packagev1.Ecosystem_ECOSYSTEM_PYPI.String(), pkgInfo.GetName(), reason)
 				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 			}
 

@@ -6,8 +6,32 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/Masterminds/semver"
+	"github.com/safedep/dry/log"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 )
+
+// auditCooldownSkip emits an audit event for every cooldown exemption that
+// applies to the given package, tagged with the source list. It is a no-op
+// when nothing matched. The package-wide case (SkipAll) emits one event with
+// an empty version; the version-pinned case emits one event per matched
+// version. An info log line mirrors each event so it shows up in the regular
+// proxy log alongside other cooldown messages.
+func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo) {
+	ecoStr := ecosystem.String()
+	if skip.SkipAll {
+		reason := skip.SkipReason.String()
+		log.Infof("[%s] Cooldown: package %s is exempt (source: %s)", requestID, name, reason)
+		audit.LogCooldownSkipped(ecoStr, name, "", reason)
+		return
+	}
+
+	for version, src := range skip.Versions {
+		reason := src.String()
+		log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
+		audit.LogCooldownSkipped(ecoStr, name, version, reason)
+	}
+}
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still
 // within the cooldown window of cooldownDays. Returns withinCooldown, daysSincePublish,

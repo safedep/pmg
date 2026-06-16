@@ -211,22 +211,27 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 	}
 }
 
-// LogCooldownSkipped records that a package was exempted from the dependency
-// cooldown window. The reason identifies which configuration list granted the
-// exemption (e.g. "trusted_packages" or "dependency_cooldown.skip") so
-// operators auditing PMG behavior can tell apart the broad waiver from the
-// cooldown-only one.
+// LogCooldownSkipped records that a package — or a specific version of one —
+// was exempted from the dependency cooldown window. The reason identifies
+// which configuration list granted the exemption (e.g. "trusted_packages" or
+// "dependency_cooldown.skip") so operators auditing PMG behavior can tell
+// apart the broad waiver from the cooldown-only one.
 //
-// ecosystem and packageName are passed explicitly because the skip decision
-// happens at metadata time, before a specific version has been resolved.
-func LogCooldownSkipped(ecosystem, packageName, reason string) {
+// version may be empty when the exemption is package-wide (a version-less
+// entry in either list).
+func LogCooldownSkipped(ecosystem, packageName, version, reason string) {
+	scope := packageName
+	if version != "" {
+		scope = fmt.Sprintf("%s@%s", packageName, version)
+	}
 	logEvent(AuditEvent{
 		Type:    EventTypeCooldownSkipped,
-		Message: fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecosystem, packageName, reason),
+		Message: fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecosystem, scope, reason),
 		Reason:  reason,
 		Details: map[string]interface{}{
 			"ecosystem":    ecosystem,
 			"package_name": packageName,
+			"version":      version,
 			"reason":       reason,
 		},
 	})

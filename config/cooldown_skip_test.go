@@ -13,6 +13,7 @@ func TestCooldownSkip(t *testing.T) {
 		skip        []TrustedPackage
 		ecosystem   packagev1.Ecosystem
 		pkgName     string
+		reason      CooldownSkipReason
 		wantSkipAll bool
 		wantVers    map[string]bool
 	}{
@@ -21,18 +22,21 @@ func TestCooldownSkip(t *testing.T) {
 			skip:      []TrustedPackage{},
 			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:   "internal-sdk",
+			reason:    CooldownSkipReasonCooldownSkipList,
 		},
 		{
 			name:      "empty package name",
 			skip:      []TrustedPackage{{Purl: "pkg:npm/internal-sdk"}},
 			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:   "",
+			reason:    CooldownSkipReasonCooldownSkipList,
 		},
 		{
 			name:        "version-less entry skips all versions",
 			skip:        []TrustedPackage{{Purl: "pkg:npm/internal-sdk", Reason: "first-party"}},
 			ecosystem:   packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:     "internal-sdk",
+			reason:      CooldownSkipReasonCooldownSkipList,
 			wantSkipAll: true,
 		},
 		{
@@ -40,6 +44,7 @@ func TestCooldownSkip(t *testing.T) {
 			skip:      []TrustedPackage{{Purl: "pkg:npm/internal-sdk@1.2.3", Reason: "first-party"}},
 			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:   "internal-sdk",
+			reason:    CooldownSkipReasonCooldownSkipList,
 			wantVers:  map[string]bool{"1.2.3": true},
 		},
 		{
@@ -50,6 +55,7 @@ func TestCooldownSkip(t *testing.T) {
 			},
 			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:   "internal-sdk",
+			reason:    CooldownSkipReasonCooldownSkipList,
 			wantVers:  map[string]bool{"1.2.3": true, "1.3.0": true},
 		},
 		{
@@ -60,6 +66,7 @@ func TestCooldownSkip(t *testing.T) {
 			},
 			ecosystem:   packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:     "internal-sdk",
+			reason:      CooldownSkipReasonCooldownSkipList,
 			wantSkipAll: true,
 		},
 		{
@@ -67,18 +74,21 @@ func TestCooldownSkip(t *testing.T) {
 			skip:      []TrustedPackage{{Purl: "pkg:npm/internal-sdk"}},
 			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:   "express",
+			reason:    CooldownSkipReasonCooldownSkipList,
 		},
 		{
 			name:      "ecosystem mismatch",
 			skip:      []TrustedPackage{{Purl: "pkg:pypi/internal-tool"}},
 			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:   "internal-tool",
+			reason:    CooldownSkipReasonCooldownSkipList,
 		},
 		{
 			name:        "pypi version-less entry",
 			skip:        []TrustedPackage{{Purl: "pkg:pypi/internal-tool"}},
 			ecosystem:   packagev1.Ecosystem_ECOSYSTEM_PYPI,
 			pkgName:     "internal-tool",
+			reason:      CooldownSkipReasonCooldownSkipList,
 			wantSkipAll: true,
 		},
 		{
@@ -89,7 +99,24 @@ func TestCooldownSkip(t *testing.T) {
 			},
 			ecosystem:   packagev1.Ecosystem_ECOSYSTEM_NPM,
 			pkgName:     "internal-sdk",
+			reason:      CooldownSkipReasonCooldownSkipList,
 			wantSkipAll: true,
+		},
+		{
+			name:        "trusted-packages reason tags SkipAll",
+			skip:        []TrustedPackage{{Purl: "pkg:npm/fully-trusted"}},
+			ecosystem:   packagev1.Ecosystem_ECOSYSTEM_NPM,
+			pkgName:     "fully-trusted",
+			reason:      CooldownSkipReasonTrustedPackage,
+			wantSkipAll: true,
+		},
+		{
+			name:      "trusted-packages reason tags per-version entry",
+			skip:      []TrustedPackage{{Purl: "pkg:npm/trusted-pinned@2.0.0"}},
+			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+			pkgName:   "trusted-pinned",
+			reason:    CooldownSkipReasonTrustedPackage,
+			wantVers:  map[string]bool{"2.0.0": true},
 		},
 	}
 
@@ -98,9 +125,17 @@ func TestCooldownSkip(t *testing.T) {
 			cfg := &Config{DependencyCooldown: DependencyCooldownConfig{Skip: tt.skip}}
 			_ = preprocessTrustedPackages(cfg)
 
-			got := cooldownSkip(cfg.DependencyCooldown.Skip, tt.ecosystem, tt.pkgName)
+			got := CooldownSkipInfo{}
+			cooldownSkip(&got, cfg.DependencyCooldown.Skip, tt.ecosystem, tt.pkgName, tt.reason)
 			assert.Equal(t, tt.wantSkipAll, got.SkipAll)
 			assert.Equal(t, tt.wantVers, got.VersionSet())
+
+			if tt.wantSkipAll {
+				assert.Equal(t, tt.reason, got.SkipReason, "SkipAll match must carry the passed-in reason")
+			}
+			for v, r := range got.Versions {
+				assert.Equal(t, tt.reason, r, "version %q must carry the passed-in reason", v)
+			}
 		})
 	}
 }
@@ -120,28 +155,31 @@ func TestCooldownSkipInfo_ExemptsVersion(t *testing.T) {
 // TestCooldownSkipRespectsTrustedPackages verifies that the top-level
 // trusted_packages list is a superset waiver: a trusted package waives both
 // malware analysis AND the cooldown window, and the resulting skip info is
-// tagged with the trusted_packages reason so the interceptor can audit-log it
-// correctly. The dependency_cooldown.skip list remains the narrower,
-// cooldown-only waiver.
+// tagged with the trusted_packages reason. trusted_packages takes precedence
+// over the cooldown skip list whenever both cover the same package or version.
 func TestCooldownSkipRespectsTrustedPackages(t *testing.T) {
 	cfg := &Config{
 		TrustedPackages: []TrustedPackage{
 			{Purl: "pkg:npm/fully-trusted", Reason: "waives everything"},
 			{Purl: "pkg:npm/trusted-pinned@2.0.0", Reason: "waives everything for 2.0.0"},
+			{Purl: "pkg:npm/overlap-pkg", Reason: "trusted; broader waiver"},
+			{Purl: "pkg:npm/overlap-version@3.0.0", Reason: "trusted; broader waiver"},
 		},
 		DependencyCooldown: DependencyCooldownConfig{
 			Skip: []TrustedPackage{
 				{Purl: "pkg:npm/cooldown-skipped", Reason: "waives cooldown only"},
+				{Purl: "pkg:npm/overlap-pkg", Reason: "also on cooldown skip list"},
+				{Purl: "pkg:npm/overlap-version@3.0.0", Reason: "also on cooldown skip list"},
 			},
 		},
 	}
 	_ = preprocessTrustedPackages(cfg)
 
-	merge := func(name string) CooldownSkipInfo {
-		return mergeCooldownSkip(
-			cooldownSkip(cfg.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, name),
-			cooldownSkip(cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, name),
-		)
+	skipFor := func(name string) CooldownSkipInfo {
+		info := CooldownSkipInfo{}
+		cooldownSkip(&info, cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, name, CooldownSkipReasonCooldownSkipList)
+		cooldownSkip(&info, cfg.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, name, CooldownSkipReasonTrustedPackage)
+		return info
 	}
 
 	cooldownSkipped := &packagev1.PackageVersion{
@@ -157,66 +195,47 @@ func TestCooldownSkipRespectsTrustedPackages(t *testing.T) {
 	// and its skip info is tagged with the cooldown-skip-list reason.
 	assert.False(t, isTrustedPackageVersion(cfg.TrustedPackages, cooldownSkipped),
 		"cooldown-skipped package must NOT waive malware analysis")
-	gotSkip := merge("cooldown-skipped")
+	gotSkip := skipFor("cooldown-skipped")
 	assert.True(t, gotSkip.SkipAll, "cooldown-skipped package must skip the cooldown window")
-	assert.Equal(t, CooldownSkipReasonCooldownSkipList, gotSkip.SkipAllReason)
+	assert.Equal(t, CooldownSkipReasonCooldownSkipList, gotSkip.SkipReason)
 
 	// Globally-trusted package waives malware analysis AND cooldown.
 	assert.True(t, isTrustedPackageVersion(cfg.TrustedPackages, fullyTrusted),
 		"trusted package must waive malware analysis")
-	gotTrusted := merge("fully-trusted")
+	gotTrusted := skipFor("fully-trusted")
 	assert.True(t, gotTrusted.SkipAll, "trusted package must also skip the cooldown window")
-	assert.Equal(t, CooldownSkipReasonTrustedPackage, gotTrusted.SkipAllReason)
+	assert.Equal(t, CooldownSkipReasonTrustedPackage, gotTrusted.SkipReason)
 
 	// Version-pinned trusted entry skips cooldown only for that exact version,
 	// and the version carries the trusted_packages reason.
-	pinned := merge("trusted-pinned")
+	pinned := skipFor("trusted-pinned")
 	assert.False(t, pinned.SkipAll)
 	assert.True(t, pinned.ExemptsVersion("2.0.0"))
 	assert.False(t, pinned.ExemptsVersion("2.0.1"))
 	assert.Equal(t, CooldownSkipReasonTrustedPackage, pinned.Versions["2.0.0"])
-}
 
-// TestMergeCooldownSkipPrefersTrusted verifies trusted_packages always wins
-// when both lists exempt the same package or version.
-func TestMergeCooldownSkipPrefersTrusted(t *testing.T) {
-	t.Run("SkipAll in both: trusted wins", func(t *testing.T) {
-		trusted := CooldownSkipInfo{SkipAll: true}
-		other := CooldownSkipInfo{SkipAll: true}
-		got := mergeCooldownSkip(trusted, other)
-		assert.True(t, got.SkipAll)
-		assert.Equal(t, CooldownSkipReasonTrustedPackage, got.SkipAllReason)
-	})
+	// Package is in both lists with no version: trusted_packages reason wins.
+	overlap := skipFor("overlap-pkg")
+	assert.True(t, overlap.SkipAll)
+	assert.Equal(t, CooldownSkipReasonTrustedPackage, overlap.SkipReason)
 
-	t.Run("SkipAll only in cooldown list", func(t *testing.T) {
-		got := mergeCooldownSkip(CooldownSkipInfo{}, CooldownSkipInfo{SkipAll: true})
-		assert.True(t, got.SkipAll)
-		assert.Equal(t, CooldownSkipReasonCooldownSkipList, got.SkipAllReason)
-	})
+	// Same version is in both lists: trusted_packages reason wins.
+	overlapVer := skipFor("overlap-version")
+	assert.False(t, overlapVer.SkipAll)
+	assert.Equal(t, CooldownSkipReasonTrustedPackage, overlapVer.Versions["3.0.0"])
 
-	t.Run("trusted SkipAll shadows pinned cooldown entries", func(t *testing.T) {
-		trusted := CooldownSkipInfo{SkipAll: true}
-		other := CooldownSkipInfo{Versions: map[string]CooldownSkipReason{"1.0.0": CooldownSkipReasonNone}}
-		got := mergeCooldownSkip(trusted, other)
-		assert.True(t, got.SkipAll)
-		assert.Equal(t, CooldownSkipReasonTrustedPackage, got.SkipAllReason)
-		assert.Nil(t, got.Versions)
-	})
-
-	t.Run("same version in both: trusted wins", func(t *testing.T) {
-		trusted := CooldownSkipInfo{Versions: map[string]CooldownSkipReason{"1.2.3": CooldownSkipReasonNone}}
-		other := CooldownSkipInfo{Versions: map[string]CooldownSkipReason{"1.2.3": CooldownSkipReasonNone}}
-		got := mergeCooldownSkip(trusted, other)
-		assert.Equal(t, CooldownSkipReasonTrustedPackage, got.Versions["1.2.3"])
-	})
-
-	t.Run("disjoint versions tagged per source list", func(t *testing.T) {
-		trusted := CooldownSkipInfo{Versions: map[string]CooldownSkipReason{"1.0.0": CooldownSkipReasonNone}}
-		other := CooldownSkipInfo{Versions: map[string]CooldownSkipReason{"2.0.0": CooldownSkipReasonNone}}
-		got := mergeCooldownSkip(trusted, other)
-		assert.Equal(t, CooldownSkipReasonTrustedPackage, got.Versions["1.0.0"])
-		assert.Equal(t, CooldownSkipReasonCooldownSkipList, got.Versions["2.0.0"])
-	})
+	// Trusted version-less entry shadows a per-version entry from the other list.
+	cfg2 := &Config{
+		TrustedPackages:    []TrustedPackage{{Purl: "pkg:npm/shadow-pkg"}},
+		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/shadow-pkg@1.0.0"}}},
+	}
+	_ = preprocessTrustedPackages(cfg2)
+	shadowed := CooldownSkipInfo{}
+	cooldownSkip(&shadowed, cfg2.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "shadow-pkg", CooldownSkipReasonCooldownSkipList)
+	cooldownSkip(&shadowed, cfg2.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, "shadow-pkg", CooldownSkipReasonTrustedPackage)
+	assert.True(t, shadowed.SkipAll)
+	assert.Equal(t, CooldownSkipReasonTrustedPackage, shadowed.SkipReason)
+	assert.Nil(t, shadowed.Versions, "version-less SkipAll must clear per-version entries")
 }
 
 func TestCooldownSkipReasonString(t *testing.T) {

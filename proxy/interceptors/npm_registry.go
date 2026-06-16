@@ -5,7 +5,6 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	pmgconfig "github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -115,14 +114,12 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	if !pkgInfo.IsFileDownload() {
 		if depCooldownConfig.Enabled {
 			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
+			auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), skip)
 			if skip.SkipAll {
 				// Whole package is exempt from cooldown: let the metadata pass
 				// through unmodified. The tarball download still hits analyzePackage,
 				// so malware analysis is preserved (unless the package is also in
 				// trusted_packages, which is the broader waiver).
-				reason := skip.SkipAllReason.String()
-				log.Infof("[%s] Cooldown: package %s is exempt (source: %s)", ctx.RequestID, pkgInfo.GetName(), reason)
-				audit.LogCooldownSkipped(packagev1.Ecosystem_ECOSYSTEM_NPM.String(), pkgInfo.GetName(), reason)
 				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 			}
 
