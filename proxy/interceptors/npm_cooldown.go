@@ -33,7 +33,7 @@ func newNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *npmCooldownH
 // HandleMetadataRequest overrides the Accept header to force the registry to return
 // a full packument (which includes publish dates in the "time" field), then registers
 // a response modifier that strips versions within the cooldown window.
-func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string, exemptVersions map[string]bool) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
 	// Force full packument so the response always contains the "time" field.
@@ -62,7 +62,7 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 
 		log.Debugf("[%s] Cooldown: parsed %d publish dates for %s", ctx.RequestID, len(dates), packageName)
 
-		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays)
+		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays, exemptVersions)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
@@ -123,9 +123,13 @@ func (h *npmCooldownHandler) parseMetadataTime(body []byte) (map[string]time.Tim
 
 // stripCooldownVersions removes versions published within the cooldown window from the
 // NPM metadata response. It strips entries from "versions", "time", and updates "dist-tags".
-func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
+func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, int, int) {
 	tooNew := make(map[string]bool)
 	for version, publishDate := range dates {
+		// Version-pinned skip entries are never stripped, even inside the window.
+		if exemptVersions[version] {
+			continue
+		}
 		if withinCooldown, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); withinCooldown {
 			tooNew[version] = true
 		}
