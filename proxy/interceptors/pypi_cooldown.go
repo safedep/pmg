@@ -29,7 +29,7 @@ func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldow
 // then registers a response modifier that strips files for versions within the cooldown window.
 // If the client does not support PEP 691 (pip < 22.3), cooldown is skipped to avoid
 // returning a content type the client cannot parse.
-func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string, exemptVersions map[string]bool) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
 	originalAccept := ctx.Headers.Get("Accept")
@@ -62,7 +62,7 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 
 		log.Debugf("[%s] Cooldown: parsed %d versions for %s", ctx.RequestID, len(dates), packageName)
 
-		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays)
+		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exemptVersions)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
@@ -133,9 +133,13 @@ func (h *pypiCooldownHandler) parsePEP691Files(body []byte) (map[string]time.Tim
 // stripCooldownFiles removes all file entries for versions within the cooldown window
 // from a PEP 691 JSON body. Returns the modified body, number of versions stripped,
 // and number of versions remaining.
-func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]time.Time, cooldownDays int) ([]byte, int, int) {
+func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, int, int) {
 	tooNew := make(map[string]bool)
 	for version, uploadDate := range dates {
+		// Version-pinned skip entries are never stripped, even inside the window.
+		if exemptVersions[version] {
+			continue
+		}
 		if within, _, _ := cooldownIsWithinWindow(uploadDate, cooldownDays); within {
 			tooNew[version] = true
 		}

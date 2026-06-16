@@ -18,6 +18,46 @@ dependency_cooldown:
   days: 5
 ```
 
+## Exempting Specific Packages
+
+Some packages — typically first-party or internal — need to be installed as soon
+as they are published (for example, to sanity-test a freshly released version)
+and cannot wait out the cooldown window. List them under the
+`dependency_cooldown.skip` list:
+
+```yaml
+dependency_cooldown:
+  enabled: true
+  days: 5
+  skip:
+    - purl: pkg:npm/my-internal-sdk             # all versions
+      reason: "First-party SDK; sanity-tested immediately on release"
+    - purl: pkg:npm/another-internal-pkg@1.2.3  # only this version
+      reason: "Pin a specific just-published build"
+```
+
+The skip list is a **per-control exemption**: packages on it **skip only the
+cooldown window — they are still analyzed for malware.** It is independent of the
+top-level [`trusted_packages`](trusted-packages.md), which waives malware
+analysis. There is a single definition of a trusted package (the top-level list);
+this is just a cooldown skip list.
+
+| List | Waives malware analysis | Waives cooldown |
+| --- | --- | --- |
+| `trusted_packages` (top level) | yes | no |
+| `dependency_cooldown.skip` | no | yes |
+
+Matching:
+
+- A PURL **without a version** skips cooldown for **all versions** of the package.
+- A PURL **with a version** skips cooldown for **that version only** (the version
+  stays installable; other recent versions are still held).
+
+PyPI names are matched in their normalized form (lowercase, `_`/`.` → `-`).
+
+To skip cooldown for a single command instead of configuring a package
+permanently, use the CLI override below.
+
 ## CLI Override
 
 Use `--skip-dependency-cooldown` to disable cooldown enforcement for a single invocation without changing the config file:
