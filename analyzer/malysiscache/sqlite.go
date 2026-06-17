@@ -57,21 +57,35 @@ func NewSQLiteCache(path string, ttl time.Duration) (*SQLiteCache, error) {
 	return c, nil
 }
 
+// migrations returns the ordered list of schema statements applied on open.
+// Each statement MUST be idempotent (safe to run on every open) and statements
+// MUST only ever be appended — never reordered or edited — so older databases
+// converge to the current schema by replaying any steps they are missing. This
+// is the lightweight migration path for additive schema evolution; the
+// schemaVersion table suffix remains the escape hatch for an incompatible
+// rewrite that cannot be expressed as an additive migration.
+func (c *SQLiteCache) migrations() []string {
+	return []string{
+		fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				ecosystem     TEXT NOT NULL,
+				name          TEXT NOT NULL,
+				version       TEXT NOT NULL,
+				cached_at     INTEGER NOT NULL,
+				action        INTEGER NOT NULL,
+				analysis_id   TEXT,
+				reference_url TEXT,
+				summary       TEXT,
+				PRIMARY KEY (ecosystem, name, version)
+			)`, c.table),
+	}
+}
+
 func (c *SQLiteCache) init(ctx context.Context) error {
-	_, err := c.db.ExecContext(ctx, fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			ecosystem     TEXT NOT NULL,
-			name          TEXT NOT NULL,
-			version       TEXT NOT NULL,
-			cached_at     INTEGER NOT NULL,
-			action        INTEGER NOT NULL,
-			analysis_id   TEXT,
-			reference_url TEXT,
-			summary       TEXT,
-			PRIMARY KEY (ecosystem, name, version)
-		)`, c.table))
-	if err != nil {
-		return fmt.Errorf("failed to initialize analysis cache schema: %w", err)
+	for i, stmt := range c.migrations() {
+		if _, err := c.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to apply analysis cache migration %d: %w", i+1, err)
+		}
 	}
 	return nil
 }
