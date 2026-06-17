@@ -94,6 +94,73 @@ func TestParseSandboxAllowOverrides_ValidFormats(t *testing.T) {
 	}
 }
 
+func TestParseSingleOverride_ExpandsSandboxVariables(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	tmpDir := os.TempDir()
+
+	tests := []struct {
+		name          string
+		raw           string
+		expectedType  SandboxAllowType
+		expectedValue string
+		notContains   string
+	}{
+		{
+			name:          "write expands CWD glob",
+			raw:           "write=${CWD}/**",
+			expectedType:  SandboxAllowWrite,
+			expectedValue: filepath.Clean(filepath.Join(cwd, "**")),
+			notContains:   "${CWD}",
+		},
+		{
+			name:          "read expands HOME",
+			raw:           "read=${HOME}/x",
+			expectedType:  SandboxAllowRead,
+			expectedValue: filepath.Clean(filepath.Join(home, "x")),
+			notContains:   "${HOME}",
+		},
+		{
+			name:          "write expands TMPDIR",
+			raw:           "write=${TMPDIR}/pmg-cache",
+			expectedType:  SandboxAllowWrite,
+			expectedValue: filepath.Clean(filepath.Join(tmpDir, "pmg-cache")),
+			notContains:   "${TMPDIR}",
+		},
+		{
+			name:          "exec expands CWD",
+			raw:           "exec=${CWD}/bin/tool",
+			expectedType:  SandboxAllowExec,
+			expectedValue: filepath.Clean(filepath.Join(cwd, "bin", "tool")),
+			notContains:   "${CWD}",
+		},
+		{
+			name:          "absolute path without variables is unchanged",
+			raw:           "write=/tmp/pmg-output",
+			expectedType:  SandboxAllowWrite,
+			expectedValue: filepath.Clean("/tmp/pmg-output"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSingleOverride(tt.raw)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedType, got.Type)
+			assert.Equal(t, tt.expectedValue, got.Value)
+			assert.Equal(t, tt.raw, got.Raw)
+			if tt.notContains != "" {
+				assert.NotContains(t, got.Value, tt.notContains)
+			}
+		})
+	}
+}
+
 func TestParseSandboxAllowOverrides_Env(t *testing.T) {
 	tests := []struct {
 		name          string
