@@ -5,7 +5,6 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/spf13/cobra"
 )
@@ -29,11 +28,6 @@ func runSyncBackground(cmd *cobra.Command, args []string) error {
 	audit.MarkBackgroundSyncChild()
 
 	cfg := config.Get()
-
-	if analytics.IsDisabled() {
-		log.Debugf("Auto-sync: telemetry disabled; exiting")
-		return nil
-	}
 
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
 		log.Debugf("Auto-sync: cloud or auto_sync disabled; exiting")

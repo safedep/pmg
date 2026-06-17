@@ -8,7 +8,6 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/analytics"
 )
 
 var global *auditor
@@ -27,17 +26,13 @@ func Initialize(cfg *config.RuntimeConfig) error {
 	var sinks []Sink
 	sinks = append(sinks, newEventlogSink())
 
-	if cfg.Config.Cloud.Enabled && !analytics.IsDisabled() {
+	if cfg.Config.Cloud.Enabled {
 		cs, err := newCloudSink(cfg, newCloudSinkCIResolver())
 		if err != nil {
 			log.Warnf("Cloud sync initialization failed: %v", err)
 		} else {
 			sinks = append(sinks, cs)
 		}
-	}
-
-	if cfg.Config.Cloud.Enabled && analytics.IsDisabled() {
-		log.Warnf("Cloud sync is disabled because telemetry is disabled")
 	}
 
 	setGlobal(newAuditor(sinks...))

@@ -8,7 +8,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
-	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
@@ -36,11 +35,6 @@ func newSyncCommand() *cobra.Command {
 
 func runSync(cmd *cobra.Command, args []string) error {
 	cfg := config.Get()
-
-	if analytics.IsDisabled() {
-		ui.Infof("Cloud sync is disabled because telemetry is disabled (disable_telemetry or PMG_DISABLE_TELEMETRY)")
-		return nil
-	}
 
 	if !cfg.Config.Cloud.Enabled {
 		ui.ErrorExit(usefulerror.NewUsefulError().

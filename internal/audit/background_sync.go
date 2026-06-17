@@ -6,7 +6,6 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/analytics"
 )
 
 // SyncBackgroundSubcommand is the cobra `Use` of the hidden child command
@@ -46,9 +45,6 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 		return
 	}
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
-		return
-	}
-	if analytics.IsDisabled() {
 		return
 	}
 
