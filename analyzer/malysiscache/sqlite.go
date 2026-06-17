@@ -60,12 +60,15 @@ func NewSQLiteCache(path string, ttl time.Duration) (*SQLiteCache, error) {
 func (c *SQLiteCache) init(ctx context.Context) error {
 	_, err := c.db.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			key          TEXT PRIMARY KEY,
-			cached_at    INTEGER NOT NULL,
-			action       INTEGER NOT NULL,
-			analysis_id  TEXT,
+			ecosystem     TEXT NOT NULL,
+			name          TEXT NOT NULL,
+			version       TEXT NOT NULL,
+			cached_at     INTEGER NOT NULL,
+			action        INTEGER NOT NULL,
+			analysis_id   TEXT,
 			reference_url TEXT,
-			summary      TEXT
+			summary       TEXT,
+			PRIMARY KEY (ecosystem, name, version)
 		)`, c.table))
 	if err != nil {
 		return fmt.Errorf("failed to initialize analysis cache schema: %w", err)
@@ -78,12 +81,13 @@ func (c *SQLiteCache) Close() error {
 	return c.db.Close()
 }
 
-// key derives a stable cache key from a package version. The ecosystem enum
-// name is used (not the numeric value) so keys remain stable across proto
-// regenerations.
-func key(pkg *packagev1.PackageVersion) string {
-	return pkg.GetPackage().GetEcosystem().String() + ":" +
-		pkg.GetPackage().GetName() + ":" + pkg.GetVersion()
+// fields decomposes a package version into the columns used to identify a cache
+// row. The ecosystem enum name is used (not the numeric value) so rows remain
+// stable across proto regenerations.
+func fields(pkg *packagev1.PackageVersion) (ecosystem, name, version string) {
+	return pkg.GetPackage().GetEcosystem().String(),
+		pkg.GetPackage().GetName(),
+		pkg.GetVersion()
 }
 
 // Get returns a cached verdict for pkg if present and not expired. The returned
@@ -104,9 +108,10 @@ func (c *SQLiteCache) Get(ctx context.Context, pkg *packagev1.PackageVersion) (*
 		summary      sql.NullString
 	)
 
+	ecosystem, name, version := fields(pkg)
 	row := c.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT cached_at, action, analysis_id, reference_url, summary FROM %s WHERE key = ?", c.table),
-		key(pkg))
+		fmt.Sprintf("SELECT cached_at, action, analysis_id, reference_url, summary FROM %s WHERE ecosystem = ? AND name = ? AND version = ?", c.table),
+		ecosystem, name, version)
 	switch err := row.Scan(&cachedAt, &action, &analysisID, &referenceURL, &summary); err {
 	case nil:
 		// found
@@ -118,7 +123,7 @@ func (c *SQLiteCache) Get(ctx context.Context, pkg *packagev1.PackageVersion) (*
 
 	if time.Since(time.Unix(cachedAt, 0)) > c.ttl {
 		// Expired. Best-effort delete; ignore failure.
-		_, _ = c.db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE key = ?", c.table), key(pkg))
+		_, _ = c.db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE ecosystem = ? AND name = ? AND version = ?", c.table), ecosystem, name, version)
 		return nil, false, nil
 	}
 
@@ -140,16 +145,17 @@ func (c *SQLiteCache) Set(ctx context.Context, pkg *packagev1.PackageVersion, re
 		return nil
 	}
 
+	ecosystem, name, version := fields(pkg)
 	_, err := c.db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (key, cached_at, action, analysis_id, reference_url, summary)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(key) DO UPDATE SET
+		INSERT INTO %s (ecosystem, name, version, cached_at, action, analysis_id, reference_url, summary)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(ecosystem, name, version) DO UPDATE SET
 			cached_at = excluded.cached_at,
 			action = excluded.action,
 			analysis_id = excluded.analysis_id,
 			reference_url = excluded.reference_url,
 			summary = excluded.summary`, c.table),
-		key(pkg), time.Now().Unix(), int(result.Action),
+		ecosystem, name, version, time.Now().Unix(), int(result.Action),
 		result.AnalysisID, result.ReferenceURL, result.Summary)
 	if err != nil {
 		return fmt.Errorf("failed to write analysis cache: %w", err)
