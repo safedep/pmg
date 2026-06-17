@@ -83,6 +83,15 @@ func TestMaybeSpawnBackgroundSyncSpawnsByDefault(t *testing.T) {
 	assert.NotEmpty(t, rec.calls[0].name, "spawned name should be a resolved binary path")
 }
 
+func TestMaybeSpawnBackgroundSyncIgnoresTelemetryDisabled(t *testing.T) {
+	rec := withMockSpawner(t)
+	cfg := newAutoSyncConfig(t)
+	cfg.Config.DisableTelemetry = true
+
+	MaybeSpawnBackgroundSync(cfg)
+	assert.Equal(t, 1, rec.callCount())
+}
+
 func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 	t.Run("nil config", func(t *testing.T) {
 		rec := withMockSpawner(t)
@@ -103,15 +112,6 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)
 		cfg.Config.Cloud.AutoSync.Enabled = false
-
-		MaybeSpawnBackgroundSync(cfg)
-		assert.Equal(t, 0, rec.callCount())
-	})
-
-	t.Run("telemetry disabled via config", func(t *testing.T) {
-		rec := withMockSpawner(t)
-		cfg := newAutoSyncConfig(t)
-		cfg.Config.DisableTelemetry = true
 
 		MaybeSpawnBackgroundSync(cfg)
 		assert.Equal(t, 0, rec.callCount())
