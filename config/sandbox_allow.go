@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/safedep/dry/log"
+	sandboxutil "github.com/safedep/pmg/sandbox/util"
 )
 
 // validSandboxAllowTypes is the set of recognized --sandbox-allow type prefixes.
@@ -217,6 +218,11 @@ func isLocalhostAddress(host string) bool {
 // resolveToAbsolute resolves a path to an absolute path relative to CWD.
 // Glob characters are preserved. The path is cleaned via filepath.Clean().
 func resolveToAbsolute(value string) (string, error) {
+	value, err := sandboxutil.ExpandVariables(value)
+	if err != nil {
+		return "", err
+	}
+
 	if filepath.IsAbs(value) {
 		return filepath.Clean(value), nil
 	}
