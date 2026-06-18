@@ -12,7 +12,7 @@ That's it. Out of the box you get:
 
 - malware blocking against [SafeDep's real-time threat intelligence](https://docs.safedep.io/cloud/malware-analysis)
 - a 5-day dependency cooldown (blocks freshly-published versions)
-- proxy-based interception of npm/pip/pnpm/yarn/bun/poetry/uv/npx/pnpx
+- proxy-based interception of npm/pip/pnpm/yarn/bun/poetry/uv/uvx/npx/pnpx
 
 ## Quick start
 

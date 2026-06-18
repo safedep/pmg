@@ -62,7 +62,7 @@ merged. Scrubbed variable **names** (never values) are logged at info level. Run
 see what was removed.
 
 The shared base profiles (`npm-restrictive`, `pypi-restrictive`) allow no environment variables.
-Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `npx`, `pip`, `pipx`, `uv`,
+Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `npx`, `pip`, `pipx`, `uv`, `uvx`,
 `poetry`) re-allows only the variables that package manager legitimately needs via an
 `environment.allow` block, so package managers keep working:
 
@@ -87,7 +87,7 @@ holds for the other profiles. This is deliberate: the package manager needs its 
 function.
 
 Configs written before the profile split may still map npm, yarn, or bun to `npm-restrictive`, pnpm
-to `pnpm-restrictive`, or pip, pip3, poetry, or uv to `pypi-restrictive`. PMG re-maps these legacy
+to `pnpm-restrictive`, or pip, pip3, poetry, uv, or uvx to `pypi-restrictive`. PMG re-maps these legacy
 defaults to the per-package-manager leaf profile at load time, unless a custom policy template
 overrides the legacy name, in which case the template wins as before.
 

@@ -240,6 +240,7 @@ var legacyProfileAliases = map[string]map[string]string{
 		"pipx":   "pipx",
 		"poetry": "poetry",
 		"uv":     "uv",
+		"uvx":    "uvx",
 	},
 }
 

@@ -252,3 +252,122 @@ func TestPipxExecutorProxyBehavior(t *testing.T) {
 		})
 	}
 }
+
+func TestPypiExecutorUnsupportedCommandName(t *testing.T) {
+	pm, err := NewPypiPackageExecutor(PypiPackageExecutorConfig{CommandName: "pipz"})
+	assert.NoError(t, err)
+
+	_, err = pm.ParseCommand([]string{"install", "black"})
+	assert.ErrorContains(t, err, "unsupported package executor: pipz")
+}
+
+func TestUvxExecutorParseCommand(t *testing.T) {
+	pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
+	assert.NoError(t, err)
+
+	cases := []struct {
+		name             string
+		command          string
+		expectedPackages []string
+		expectedVersions []string
+	}{
+		{
+			name:             "uvx package as first positional arg",
+			command:          "uvx ruff@0.3.0 check",
+			expectedPackages: []string{"ruff"},
+			expectedVersions: []string{"0.3.0"},
+		},
+		{
+			name:             "uvx package from --from flag",
+			command:          "uvx --from httpie==3.2.2 http",
+			expectedPackages: []string{"httpie"},
+			expectedVersions: []string{"3.2.2"},
+		},
+		{
+			name:             "uvx package from --from equals flag",
+			command:          "uvx --from=mypy[faster-cache,reports]==1.13.0 mypy --xml-report report",
+			expectedPackages: []string{"mypy"},
+			expectedVersions: []string{"1.13.0"},
+		},
+		{
+			name:             "uvx ignores --from after end of options delimiter",
+			command:          "uvx ruff@0.3.0 -- --from httpie==3.2.2",
+			expectedPackages: []string{"ruff"},
+			expectedVersions: []string{"0.3.0"},
+		},
+		{
+			name:             "uvx skips option values before positional package",
+			command:          "uvx --python 3.10 ruff@0.3.0",
+			expectedPackages: []string{"ruff"},
+			expectedVersions: []string{"0.3.0"},
+		},
+		{
+			name:             "bare uvx invocation",
+			command:          "uvx",
+			expectedPackages: []string{},
+			expectedVersions: []string{},
+		},
+		{
+			name:             "uvx skips non pypi source from --from flag",
+			command:          "uvx --from git+https://github.com/httpie/cli httpie",
+			expectedPackages: []string{},
+			expectedVersions: []string{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := pm.ParseCommand(strings.Split(tc.command, " "))
+			assert.NoError(t, err)
+			assert.Equal(t, len(tc.expectedPackages), len(result.InstallTargets), "Number of install targets mismatch")
+
+			for i, expectedPkg := range tc.expectedPackages {
+				target := result.InstallTargets[i]
+				assert.Equal(t, expectedPkg, target.PackageVersion.Package.Name, "Package name mismatch for package %d", i)
+				assert.Equal(t, tc.expectedVersions[i], target.PackageVersion.Version, "Package version mismatch for package %d", i)
+				assert.True(t, target.IsExplicitVersion, "Expected explicit version for package %d", i)
+			}
+		})
+	}
+}
+
+func TestUvxExecutorProxyBehavior(t *testing.T) {
+	cases := []struct {
+		name                  string
+		command               string
+		isKnownNonDownloadCmd bool
+		isInstallationCommand bool
+	}{
+		{
+			name:                  "uvx positional package — proxy runs",
+			command:               "uvx ruff@0.3.0 check",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "uvx --from package — proxy runs",
+			command:               "uvx --from httpie==3.2.2 http",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "bare uvx — proxy runs fail safe",
+			command:               "uvx",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
+			assert.NoError(t, err)
+
+			parsed, err := pm.ParseCommand(strings.Split(tc.command, " "))
+			assert.NoError(t, err)
+			assert.Equal(t, tc.isKnownNonDownloadCmd, parsed.IsKnownNonDownloadCommand)
+			assert.Equal(t, tc.isInstallationCommand, parsed.IsInstallationCommand())
+			assert.Equal(t, !tc.isKnownNonDownloadCmd, parsed.MayDownloadPackages())
+		})
+	}
+}

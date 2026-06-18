@@ -1,0 +1,13 @@
+name: uvx
+description: Profile for uvx tool executor, extending pypi-restrictive with uv environment variables
+inherits: pypi-restrictive
+
+package_managers:
+  - uvx
+
+environment:
+  # uvx is an alias for `uv tool run`, so it needs the same uv and pip
+  # environment conventions as uv while sibling tool credentials stay scrubbed.
+  allow:
+    - UV_*
+    - PIP_*

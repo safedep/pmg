@@ -201,7 +201,7 @@ func mapPackageManager(name string) controltowerv1.PmgPackageManager {
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_PIP
 	case "poetry":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_POETRY
-	case "uv":
+	case "uv", "uvx":
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UV
 	default:
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED

@@ -1,8 +1,10 @@
 package packagemanager
 
 import (
+	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/spf13/pflag"
@@ -21,6 +23,12 @@ func DefaultPipxPackageExecutorConfig() PypiPackageExecutorConfig {
 		NonDownloadCommands: []string{
 			"list", "uninstall", "uninstall-all", "completions", "uninject", "ensurepath", "environment",
 		},
+	}
+}
+
+func DefaultUvxPackageExecutorConfig() PypiPackageExecutorConfig {
+	return PypiPackageExecutorConfig{
+		CommandName: "uvx",
 	}
 }
 
@@ -45,11 +53,23 @@ func (p *pypiPackageExecutor) Ecosystem() packagev1.Ecosystem {
 }
 
 func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && args[0] == "pipx" {
+	if len(args) > 0 && args[0] == p.Config.CommandName {
 		args = args[1:]
 	}
 
 	command := Command{Exe: p.Config.CommandName, Args: args}
+
+	switch p.Config.CommandName {
+	case "pipx":
+		return p.parsePipxCommand(command, args)
+	case "uvx":
+		return p.parseUvxCommand(command, args)
+	default:
+		return nil, fmt.Errorf("unsupported package executor: %s", p.Config.CommandName)
+	}
+}
+
+func (p *pypiPackageExecutor) parsePipxCommand(command Command, args []string) (*ParsedCommand, error) {
 	if len(args) < 1 {
 		return &ParsedCommand{Command: command}, nil
 	}
@@ -177,6 +197,123 @@ func (p *pypiPackageExecutor) parseInjectCommand(command Command, injectArgs []s
 	return p.buildInstallTargets(command, packages[1:])
 }
 
+func (p *pypiPackageExecutor) parseUvxCommand(command Command, args []string) (*ParsedCommand, error) {
+	packageSpec, ok := uvxPackageSpec(args)
+	if !ok {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	normalizedSpec, ok := normalizeUvxPackageSpec(packageSpec)
+	if !ok {
+		return &ParsedCommand{Command: command}, nil
+	}
+
+	return p.buildInstallTargets(command, []string{normalizedSpec})
+}
+
+func uvxPackageSpec(args []string) (string, bool) {
+	for idx, arg := range args {
+		if arg == "--" {
+			break
+		}
+
+		if strings.HasPrefix(arg, "--from=") {
+			return strings.TrimPrefix(arg, "--from="), true
+		}
+
+		if arg == "--from" && idx+1 < len(args) {
+			return args[idx+1], true
+		}
+	}
+
+	for idx := 0; idx < len(args); idx++ {
+		arg := args[idx]
+		if arg == "--" {
+			if idx+1 < len(args) {
+				return args[idx+1], true
+			}
+			return "", false
+		}
+
+		if strings.HasPrefix(arg, "--") {
+			name, _, hasValue := strings.Cut(arg, "=")
+			if !hasValue && uvxLongFlagTakesValue(name) {
+				idx++
+			}
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			if uvxShortFlagTakesValue(arg) {
+				idx++
+			}
+			continue
+		}
+
+		return arg, true
+	}
+
+	return "", false
+}
+
+func uvxLongFlagTakesValue(flag string) bool {
+	switch flag {
+	case
+		"--cache-dir",
+		"--config-file",
+		"--default-index",
+		"--directory",
+		"--exclude-newer",
+		"--find-links",
+		"--from",
+		"--index",
+		"--index-strategy",
+		"--index-url",
+		"--keyring-provider",
+		"--link-mode",
+		"--prerelease",
+		"--project",
+		"--python",
+		"--python-fetch",
+		"--python-preference",
+		"--refresh-package",
+		"--resolution",
+		"--with",
+		"--with-editable",
+		"--with-requirements":
+		return true
+	default:
+		return false
+	}
+}
+
+func uvxShortFlagTakesValue(flag string) bool {
+	switch flag {
+	case "-c", "-p", "-r":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeUvxPackageSpec(packageSpec string) (string, bool) {
+	packageSpec = strings.TrimSpace(packageSpec)
+	if packageSpec == "" || strings.Contains(packageSpec, "://") {
+		return "", false
+	}
+
+	packageName, version, found := strings.Cut(packageSpec, "@")
+	if !found || packageName == "" || version == "" {
+		return packageSpec, true
+	}
+
+	if version == "latest" {
+		return packageName, true
+	}
+
+	return packageName + "==" + version, true
+}
+
 // buildInstallTargets creates install targets from a list of package specifiers.
 func (p *pypiPackageExecutor) buildInstallTargets(command Command, packages []string) (*ParsedCommand, error) {
 	var installTargets []*PackageInstallTarget
@@ -219,4 +356,3 @@ func setupCommonPipxFlags(flagSet *pflag.FlagSet) (pipArgs, pythonPath, specPkg 
 	specPkg = flagSet.String("spec", "", "")
 	return
 }
-

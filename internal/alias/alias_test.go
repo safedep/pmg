@@ -38,6 +38,7 @@ func TestAliasInstallCreatesPrimaryShellRcFile(t *testing.T) {
 	zdata, err := os.ReadFile(zshrc)
 	require.NoError(t, err)
 	assert.Contains(t, string(zdata), ".pmg.rc")
+	assert.Contains(t, string(data), "alias uvx='pmg uvx'")
 
 	// Shells the user does not use are left untouched.
 	assert.NoFileExists(t, filepath.Join(home, ".bashrc"))

@@ -9,6 +9,7 @@ const (
 	eventCommandPip    = "pmg_command_pip"
 	eventCommandPip3   = "pmg_command_pip3"
 	eventCommandUv     = "pmg_command_uv"
+	eventCommandUvx    = "pmg_command_uvx"
 	eventCommandPoetry = "pmg_command_poetry"
 	eventCommandPipx   = "pmg_command_pipx"
 
@@ -58,6 +59,10 @@ func TrackCommandPip3() {
 
 func TrackCommandUv() {
 	TrackEvent(eventCommandUv)
+}
+
+func TrackCommandUvx() {
+	TrackEvent(eventCommandUvx)
 }
 
 func TrackCommandPoetry() {
