@@ -12,14 +12,18 @@ import (
 )
 
 // auditCooldownSkip emits an audit event for every cooldown exemption that
-// applies to the given package, tagged with the source list. It is a no-op
-// when nothing matched. The package-wide case (SkipAll) emits one event with
-// an empty version; the version-pinned case emits one event per matched
-// version. An info log line mirrors each event so it shows up in the regular
-// proxy log alongside other cooldown messages.
+// came from the dependency_cooldown.skip list. Trusted-package exemptions are
+// intentionally skipped here: those packages get a separate
+// EventTypeInstallTrustedAllowed event at tarball-download time
+// (proxy/interceptors/base_registry.go), so emitting a cooldown event for them
+// too would double-count the same waiver. An info log line mirrors each event
+// so it shows up in the regular proxy log alongside other cooldown messages.
 func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo) {
 	ecoStr := ecosystem.String()
 	if skip.SkipAll {
+		if skip.SkipReason != pmgconfig.CooldownSkipReasonCooldownSkipList {
+			return
+		}
 		reason := skip.SkipReason.String()
 		log.Infof("[%s] Cooldown: package %s is exempt (source: %s)", requestID, name, reason)
 		audit.LogCooldownSkipped(ecoStr, name, "", reason)
@@ -27,6 +31,9 @@ func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name str
 	}
 
 	for version, src := range skip.Versions {
+		if src != pmgconfig.CooldownSkipReasonCooldownSkipList {
+			continue
+		}
 		reason := src.String()
 		log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
 		audit.LogCooldownSkipped(ecoStr, name, version, reason)
