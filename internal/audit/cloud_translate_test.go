@@ -181,7 +181,6 @@ func TestTranslateUnsupportedEventReturnsEmpty(t *testing.T) {
 		EventTypeDependencyResolved,
 		EventTypeInstallStarted,
 		EventTypeInstallAllowed,
-		EventTypeInstallTrustedAllowed,
 		EventTypeInstallInsecureBypass,
 	}
 
