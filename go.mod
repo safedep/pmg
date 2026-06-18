@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260528074646-b9e182189444.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260528074646-b9e182189444.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260618082119-01127207dee4.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0
@@ -34,6 +34,7 @@ require (
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1 // indirect
+	buf.build/gen/go/safedep/api/connectrpc/go v1.20.0-20260618082119-01127207dee4.1 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/caarlos0/env/v11 v11.3.1 // indirect

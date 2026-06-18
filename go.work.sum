@@ -1,3 +1,4 @@
+buf.build/gen/go/bufbuild/protovalidate/connectrpc/go v1.20.0-20240508200655-46a4cf4ba109.1/go.mod h1:hR/w+cb6VNC4j0Rf91uvB2CMAcwIJ1cYxnGFwsP/w4k=
 buf.build/gen/go/bufbuild/protovalidate/grpc/go v1.6.1-20240508200655-46a4cf4ba109.1/go.mod h1:12iIaR0LjReZQXXxBXMzWTMUIN6n4Y3HuSTwPpUQYSg=
 buf.build/gen/go/bufbuild/protovalidate/grpc/go v1.6.2-20240508200655-46a4cf4ba109.1/go.mod h1:cz5A7G0AEk7z2kciJ1jK72u/8kRVlcfAhi2B9jYoMZw=
 cel.dev/expr v0.25.1/go.mod h1:hrXvqGP6G6gyx8UAHSHJ5RGk//1Oj5nXQ2NI02Nrsg4=
@@ -9,6 +10,7 @@ cloud.google.com/go/iam v1.5.2/go.mod h1:SE1vg0N81zQqLzQEwxL2WI6yhetBdbNQuTvIKCS
 cloud.google.com/go/monitoring v1.24.2/go.mod h1:x7yzPWcgDRnPEv3sI+jJGBkwl5qINf+6qY4eq0I9B4U=
 cloud.google.com/go/profiler v0.4.3/go.mod h1:3xFodugWfPIQZWFcXdUmfa+yTiiyQ8fWrdT+d2Sg4J0=
 cloud.google.com/go/storage v1.55.0/go.mod h1:ztSmTTwzsdXe5syLVS0YsbFxXuvEmEyZj7v7zChEmuY=
+connectrpc.com/connect v1.20.0/go.mod h1:A2ygJrukXwWy32vkCAAHNVguZrqZ+jeZ9rGRnGR4dN4=
 dario.cat/mergo v1.0.0/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
 deps.dev/api/v3 v3.0.0-20250307021655-d811e36f9cad/go.mod h1:o6PwfRErnKxbT8Sdij64ZMiTqMNxPsYwfymiyjXPh7A=
 deps.dev/api/v3alpha v0.0.0-20250429014815-ac0aa6a085fa/go.mod h1:qL3BV/n9j5WptUB9hWZrWM6yISapPTUYIQmHMWrGEmk=

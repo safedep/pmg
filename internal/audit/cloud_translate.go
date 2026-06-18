@@ -14,6 +14,10 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED)}
 	case EventTypeMalwareConfirmed:
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED)}
+	case EventTypeCooldownSkipped:
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_SKIPPED)}
+	case EventTypeInstallTrustedAllowed:
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_TRUSTED)}
 	case EventTypeInstallInsecureBypass:
 		// PmgInsecureBypass is a session-level aggregate (package manager + total bypassed count),
 		// not a per-package event. It is emitted as part of EventTypeSessionComplete when

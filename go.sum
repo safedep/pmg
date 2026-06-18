@@ -2,10 +2,14 @@ al.essio.dev/pkg/shellescape v1.5.1 h1:86HrALUujYS/h+GtqoB26SBEdkWfmMI6FubjXlsXy
 al.essio.dev/pkg/shellescape v1.5.1/go.mod h1:6sIqp7X2P6mThCQ7twERpZTuigpr6KbZWtls1U8I890=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1 h1:NXwdBG3BiC6xWH4iG3csbT+JHF9u1jl5ThDhumCnKnk=
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1/go.mod h1:tvtbpgaVXZX4g6Pn+AnzFycuRK3MOz5HJfEGeEllXYM=
+buf.build/gen/go/safedep/api/connectrpc/go v1.20.0-20260618082119-01127207dee4.1 h1:STdkWBeTnT9TT8TjN/DhUhe3Uf0ZovSNEOm0X19VgXY=
+buf.build/gen/go/safedep/api/connectrpc/go v1.20.0-20260618082119-01127207dee4.1/go.mod h1:PHhPcNWKDHnL53n/Ycqg1eURXs/JFMk1SVdFRBrqYwo=
 buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260528074646-b9e182189444.1 h1:zpjFPeuPS4AdzfOMlwDSVWwxrRBrkL0ul0gV65RYzh8=
 buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260528074646-b9e182189444.1/go.mod h1:8pVZh4owzo4YXcKvFvdWEYGr4k/1VHGR0h39XHsuHD4=
 buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260528074646-b9e182189444.1 h1:2Ws+lb98zkYNJ4dwRbjJYviSY5mI80eA+GJc3NyY+rc=
 buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260528074646-b9e182189444.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260618082119-01127207dee4.1 h1:8Fuiw/QnwIcOjzRk3cA7lHRX/d9utFDPEgi7OSsPg0E=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260618082119-01127207dee4.1/go.mod h1:I8E+sZXJNqzWBtSlRGCoiEorLSRiix50h2R/66aBzME=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.5.0 h1:W5quZX/G/csjUnuI8SUYlsHs9M38FC7znL0lIO+DvMg=
