@@ -230,8 +230,7 @@ func LogCooldownSkipped(ecosystem packagev1.Ecosystem, packageName, version, rea
 	pv.SetVersion(version)
 
 	ecoStr := ecosystem.String()
-	scope := packageName
-	scope = fmt.Sprintf("%s@%s", packageName, version)
+	scope := fmt.Sprintf("%s@%s", packageName, version)
 	logEvent(AuditEvent{
 		Type:           EventTypeCooldownSkipped,
 		Message:        fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecoStr, scope, reason),
