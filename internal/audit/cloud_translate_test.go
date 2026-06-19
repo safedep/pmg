@@ -61,6 +61,46 @@ func TestTranslateMalwareConfirmed(t *testing.T) {
 	assert.False(t, decision.GetIsVerified())
 }
 
+func TestTranslateCooldownSkipped(t *testing.T) {
+	event := AuditEvent{
+		Type:           EventTypeCooldownSkipped,
+		PackageVersion: testPackageVersion("exempt-pkg", "1.0.0", "npm"),
+		Reason:         "dependency_cooldown.skip",
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION, result.GetEventType())
+	require.True(t, result.HasPackageDecision())
+
+	decision := result.GetPackageDecision()
+	assert.Equal(t, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_COOLDOWN_SKIPPED, decision.GetAction())
+	require.NotNil(t, decision.GetPackageVersion(), "package_version must be propagated to the cloud sink")
+	assert.Equal(t, "exempt-pkg", decision.GetPackageVersion().GetPackage().GetName())
+	assert.Equal(t, "1.0.0", decision.GetPackageVersion().GetVersion())
+}
+
+func TestTranslateInstallTrustedAllowed(t *testing.T) {
+	event := AuditEvent{
+		Type:           EventTypeInstallTrustedAllowed,
+		PackageVersion: testPackageVersion("trusted-pkg", "2.0.0", "npm"),
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION, result.GetEventType())
+	require.True(t, result.HasPackageDecision())
+
+	decision := result.GetPackageDecision()
+	assert.Equal(t, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_TRUSTED, decision.GetAction())
+	require.NotNil(t, decision.GetPackageVersion())
+	assert.Equal(t, "trusted-pkg", decision.GetPackageVersion().GetPackage().GetName())
+}
+
 func TestTranslateInsecureBypassReturnsEmpty(t *testing.T) {
 	event := AuditEvent{
 		Type: EventTypeInstallInsecureBypass,

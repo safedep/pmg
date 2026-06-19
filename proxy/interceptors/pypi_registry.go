@@ -129,8 +129,9 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 			// Match the skip list against the normalized name (lowercase, _/. → -),
 			// the same canonical form used for pinned-version lookups, so a PURL
 			// like pkg:pypi/My_Pkg reliably matches the resolved request name.
-			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName()))
-			auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, pkgInfo.GetName(), skip)
+			canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName)
+			auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, skip)
 			if skip.SkipAll {
 				// Whole package is exempt from cooldown: pass metadata through
 				// unmodified. The tarball download still hits analyzePackage, so

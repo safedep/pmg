@@ -21,6 +21,8 @@ func TestEventlogSinkTranslatesAllEventTypes(t *testing.T) {
 		{"dependency_resolved", EventTypeDependencyResolved, eventlog.EventTypeDependencyResolved},
 		{"install_insecure_bypass", EventTypeInstallInsecureBypass, eventlog.EventTypeInstallInsecureBypass},
 		{"proxy_host_observed", EventTypeProxyHostObserved, eventlog.EventTypeProxyHostObserved},
+		{"dependency_cooldown", EventTypeDependencyCooldown, eventlog.EventTypeDependencyCooldown},
+		{"dependency_cooldown_skipped", EventTypeCooldownSkipped, eventlog.EventTypeCooldownSkipped},
 		{"sandbox_override", EventTypeSandboxOverride, eventlog.EventTypeSandboxOverride},
 		{"error", EventTypeError, eventlog.EventTypeError},
 		{"session_complete", EventTypeSessionComplete, eventlog.EventType("session_complete")},

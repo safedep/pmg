@@ -69,6 +69,8 @@ func mapEventType(t EventType) eventlog.EventType {
 		return eventlog.EventTypeProxyHostObserved
 	case EventTypeDependencyCooldown:
 		return eventlog.EventTypeDependencyCooldown
+	case EventTypeCooldownSkipped:
+		return eventlog.EventTypeCooldownSkipped
 	case EventTypeSandboxOverride:
 		return eventlog.EventTypeSandboxOverride
 	case EventTypeError:

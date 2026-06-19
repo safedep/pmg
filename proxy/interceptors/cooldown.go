@@ -19,24 +19,25 @@ import (
 // too would double-count the same waiver. An info log line mirrors each event
 // so it shows up in the regular proxy log alongside other cooldown messages.
 func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo) {
-	ecoStr := ecosystem.String()
 	if skip.SkipAll {
 		if skip.SkipReason != pmgconfig.CooldownSkipReasonCooldownSkipList {
 			return
 		}
 		reason := skip.SkipReason.String()
 		log.Infof("[%s] Cooldown: package %s is exempt (source: %s)", requestID, name, reason)
-		audit.LogCooldownSkipped(ecoStr, name, "", reason)
+		audit.LogCooldownSkipped(ecosystem, name, "", reason)
 		return
 	}
 
+	// Emitted at metadata time for every pinned exemption, so this can over-count
+	// relative to actual installs. Treat it as a config-driven exemption record.
 	for version, src := range skip.Versions {
 		if src != pmgconfig.CooldownSkipReasonCooldownSkipList {
 			continue
 		}
 		reason := src.String()
 		log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
-		audit.LogCooldownSkipped(ecoStr, name, version, reason)
+		audit.LogCooldownSkipped(ecosystem, name, version, reason)
 	}
 }
 

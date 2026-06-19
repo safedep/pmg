@@ -219,17 +219,27 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 //
 // version may be empty when the exemption is package-wide (a version-less
 // entry in either list).
-func LogCooldownSkipped(ecosystem, packageName, version, reason string) {
+func LogCooldownSkipped(ecosystem packagev1.Ecosystem, packageName, version, reason string) {
+	pv := &packagev1.PackageVersion{}
+	pv.SetPackage(&packagev1.Package{})
+	pv.GetPackage().SetName(packageName)
+	pv.GetPackage().SetEcosystem(ecosystem)
+	if version != "" {
+		pv.SetVersion(version)
+	}
+
+	ecoStr := ecosystem.String()
 	scope := packageName
 	if version != "" {
 		scope = fmt.Sprintf("%s@%s", packageName, version)
 	}
 	logEvent(AuditEvent{
-		Type:    EventTypeCooldownSkipped,
-		Message: fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecosystem, scope, reason),
-		Reason:  reason,
+		Type:           EventTypeCooldownSkipped,
+		Message:        fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecoStr, scope, reason),
+		PackageVersion: pv,
+		Reason:         reason,
 		Details: map[string]interface{}{
-			"ecosystem":    ecosystem,
+			"ecosystem":    ecoStr,
 			"package_name": packageName,
 			"version":      version,
 			"reason":       reason,
