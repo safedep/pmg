@@ -97,25 +97,30 @@ func (s CooldownSkipInfo) VersionSet() map[string]bool {
 //     packages are still subject to malware analysis).
 //
 // In both lists, an entry without a version exempts every version of the
-// package; an entry with a version exempts only that version. When both lists
-// match the same package, trusted_packages takes precedence in the returned
-// reason — it is the broader waiver.
+// package; an entry with a version exempts only that version. trusted_packages
+// is the broader waiver, so it is consulted first: if it grants a package-wide
+// exemption, the cooldown-skip list is not even scanned. For overlapping
+// version-pinned entries, trusted_packages also takes precedence in the
+// returned reason.
 func CooldownSkip(ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
 	cfg := Get().Config
-	info := CooldownSkipInfo{}
-	// Apply the cooldown-skip list first, then trusted_packages on top so that
-	// trusted entries override the reason for any overlapping package/version.
-	cooldownSkip(&info, cfg.DependencyCooldown.Skip, ecosystem, name, CooldownSkipReasonCooldownSkipList)
-	cooldownSkip(&info, cfg.TrustedPackages, ecosystem, name, CooldownSkipReasonTrustedPackage)
-	return info
+
+	trusted := collectCooldownSkip(cfg.TrustedPackages, ecosystem, name, CooldownSkipReasonTrustedPackage)
+	if trusted.SkipAll {
+		return trusted
+	}
+
+	dc := collectCooldownSkip(cfg.DependencyCooldown.Skip, ecosystem, name, CooldownSkipReasonCooldownSkipList)
+	return mergeCooldownSkip(trusted, dc)
 }
 
-// cooldownSkip scans a single list and records every match into info, tagging
-// the source via reason. A version-less match sets SkipAll and clears any
-// per-version entries that became redundant.
-func cooldownSkip(info *CooldownSkipInfo, list []TrustedPackage, ecosystem packagev1.Ecosystem, name string, reason CooldownSkipReason) {
+// collectCooldownSkip scans a single list and returns every match, tagging the
+// source via reason. A version-less match yields SkipAll (and the function
+// stops accumulating per-version entries, which would be redundant).
+func collectCooldownSkip(list []TrustedPackage, ecosystem packagev1.Ecosystem, name string, reason CooldownSkipReason) CooldownSkipInfo {
+	info := CooldownSkipInfo{}
 	if name == "" {
-		return
+		return info
 	}
 
 	for _, v := range list {
@@ -130,8 +135,6 @@ func cooldownSkip(info *CooldownSkipInfo, list []TrustedPackage, ecosystem packa
 			continue
 		}
 
-		// A version-less match (from this list or a previous one) already
-		// covers every version, so per-version entries would be redundant.
 		if info.SkipAll {
 			continue
 		}
@@ -141,6 +144,38 @@ func cooldownSkip(info *CooldownSkipInfo, list []TrustedPackage, ecosystem packa
 		}
 		info.Versions[v.version] = reason
 	}
+
+	return info
+}
+
+// mergeCooldownSkip combines two per-list results. primary wins for any
+// overlap; fallback only contributes versions primary did not already cover.
+// If either side grants a package-wide exemption, that wins outright.
+func mergeCooldownSkip(primary, fallback CooldownSkipInfo) CooldownSkipInfo {
+	if primary.SkipAll {
+		return primary
+	}
+	if fallback.SkipAll {
+		return fallback
+	}
+
+	out := CooldownSkipInfo{}
+	for v, r := range primary.Versions {
+		if out.Versions == nil {
+			out.Versions = make(map[string]CooldownSkipReason)
+		}
+		out.Versions[v] = r
+	}
+	for v, r := range fallback.Versions {
+		if _, ok := out.Versions[v]; ok {
+			continue
+		}
+		if out.Versions == nil {
+			out.Versions = make(map[string]CooldownSkipReason)
+		}
+		out.Versions[v] = r
+	}
+	return out
 }
 
 // preprocessTrustedPackages pre-parses all PURL strings in the trusted package

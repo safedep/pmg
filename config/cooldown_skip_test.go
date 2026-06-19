@@ -125,8 +125,7 @@ func TestCooldownSkip(t *testing.T) {
 			cfg := &Config{DependencyCooldown: DependencyCooldownConfig{Skip: tt.skip}}
 			_ = preprocessTrustedPackages(cfg)
 
-			got := CooldownSkipInfo{}
-			cooldownSkip(&got, cfg.DependencyCooldown.Skip, tt.ecosystem, tt.pkgName, tt.reason)
+			got := collectCooldownSkip(cfg.DependencyCooldown.Skip, tt.ecosystem, tt.pkgName, tt.reason)
 			assert.Equal(t, tt.wantSkipAll, got.SkipAll)
 			assert.Equal(t, tt.wantVers, got.VersionSet())
 
@@ -176,10 +175,12 @@ func TestCooldownSkipRespectsTrustedPackages(t *testing.T) {
 	_ = preprocessTrustedPackages(cfg)
 
 	skipFor := func(name string) CooldownSkipInfo {
-		info := CooldownSkipInfo{}
-		cooldownSkip(&info, cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, name, CooldownSkipReasonCooldownSkipList)
-		cooldownSkip(&info, cfg.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, name, CooldownSkipReasonTrustedPackage)
-		return info
+		trusted := collectCooldownSkip(cfg.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, name, CooldownSkipReasonTrustedPackage)
+		if trusted.SkipAll {
+			return trusted
+		}
+		dc := collectCooldownSkip(cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, name, CooldownSkipReasonCooldownSkipList)
+		return mergeCooldownSkip(trusted, dc)
 	}
 
 	cooldownSkipped := &packagev1.PackageVersion{
@@ -224,15 +225,45 @@ func TestCooldownSkipRespectsTrustedPackages(t *testing.T) {
 	assert.False(t, overlapVer.SkipAll)
 	assert.Equal(t, CooldownSkipReasonTrustedPackage, overlapVer.Versions["3.0.0"])
 
+	// Disjoint pinned entries from both lists must both survive the merge,
+	// each carrying the reason of the list it came from.
+	cfgDisjoint := &Config{
+		TrustedPackages:    []TrustedPackage{{Purl: "pkg:npm/disjoint-pkg@1.0.0"}},
+		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/disjoint-pkg@2.0.0"}}},
+	}
+	_ = preprocessTrustedPackages(cfgDisjoint)
+	trustedDis := collectCooldownSkip(cfgDisjoint.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, "disjoint-pkg", CooldownSkipReasonTrustedPackage)
+	dcDis := collectCooldownSkip(cfgDisjoint.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "disjoint-pkg", CooldownSkipReasonCooldownSkipList)
+	disjoint := mergeCooldownSkip(trustedDis, dcDis)
+	assert.False(t, disjoint.SkipAll)
+	assert.True(t, disjoint.ExemptsVersion("1.0.0"))
+	assert.True(t, disjoint.ExemptsVersion("2.0.0"))
+	assert.False(t, disjoint.ExemptsVersion("3.0.0"))
+	assert.Equal(t, CooldownSkipReasonTrustedPackage, disjoint.Versions["1.0.0"])
+	assert.Equal(t, CooldownSkipReasonCooldownSkipList, disjoint.Versions["2.0.0"])
+
+	// DC version-less covers every version, so the trusted pinned entry is
+	// subsumed; SkipAll wins and carries the DC reason.
+	cfgDcAll := &Config{
+		TrustedPackages:    []TrustedPackage{{Purl: "pkg:npm/dc-all-pkg@1.0.0"}},
+		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/dc-all-pkg"}}},
+	}
+	_ = preprocessTrustedPackages(cfgDcAll)
+	trustedDcAll := collectCooldownSkip(cfgDcAll.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, "dc-all-pkg", CooldownSkipReasonTrustedPackage)
+	dcAll := collectCooldownSkip(cfgDcAll.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "dc-all-pkg", CooldownSkipReasonCooldownSkipList)
+	dcAllMerged := mergeCooldownSkip(trustedDcAll, dcAll)
+	assert.True(t, dcAllMerged.SkipAll)
+	assert.Equal(t, CooldownSkipReasonCooldownSkipList, dcAllMerged.SkipReason)
+
 	// Trusted version-less entry shadows a per-version entry from the other list.
 	cfg2 := &Config{
 		TrustedPackages:    []TrustedPackage{{Purl: "pkg:npm/shadow-pkg"}},
 		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/shadow-pkg@1.0.0"}}},
 	}
 	_ = preprocessTrustedPackages(cfg2)
-	shadowed := CooldownSkipInfo{}
-	cooldownSkip(&shadowed, cfg2.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "shadow-pkg", CooldownSkipReasonCooldownSkipList)
-	cooldownSkip(&shadowed, cfg2.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, "shadow-pkg", CooldownSkipReasonTrustedPackage)
+	trustedShadow := collectCooldownSkip(cfg2.TrustedPackages, packagev1.Ecosystem_ECOSYSTEM_NPM, "shadow-pkg", CooldownSkipReasonTrustedPackage)
+	dcShadow := collectCooldownSkip(cfg2.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "shadow-pkg", CooldownSkipReasonCooldownSkipList)
+	shadowed := mergeCooldownSkip(trustedShadow, dcShadow)
 	assert.True(t, shadowed.SkipAll)
 	assert.Equal(t, CooldownSkipReasonTrustedPackage, shadowed.SkipReason)
 	assert.Nil(t, shadowed.Versions, "version-less SkipAll must clear per-version entries")
