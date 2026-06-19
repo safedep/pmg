@@ -232,6 +232,17 @@ func TestLogInstallTrustedAllowedIncrementsSession(t *testing.T) {
 	assert.Equal(t, uint32(1), sess.totalAnalyzed)
 }
 
+func TestLogCooldownSkippedRequiresVersion(t *testing.T) {
+	s := &mockSink{}
+	a := newAuditor(s)
+	setGlobal(a)
+	defer resetGlobal()
+
+	LogCooldownSkipped(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", "", "dependency_cooldown.skip")
+
+	assert.Empty(t, s.getEvents())
+}
+
 func TestLogSessionCompleteDispatchesEvent(t *testing.T) {
 	s := &mockSink{}
 	a := newAuditor(s)

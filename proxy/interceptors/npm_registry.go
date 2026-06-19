@@ -114,7 +114,6 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	if !pkgInfo.IsFileDownload() {
 		if depCooldownConfig.Enabled {
 			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
-			auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), skip)
 			if skip.SkipAll {
 				// Whole package is exempt from cooldown: let the metadata pass
 				// through unmodified. The tarball download still hits analyzePackage,
@@ -129,6 +128,11 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	if depCooldownConfig.Enabled {
+		skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
+		auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), skip)
 	}
 
 	result, err := i.analyzePackage(

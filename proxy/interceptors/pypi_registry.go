@@ -131,7 +131,6 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 			// like pkg:pypi/My_Pkg reliably matches the resolved request name.
 			canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
 			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName)
-			auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, skip)
 			if skip.SkipAll {
 				// Whole package is exempt from cooldown: pass metadata through
 				// unmodified. The tarball download still hits analyzePackage, so
@@ -162,6 +161,13 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	}
 	log.Debugf("[%s] Analyzing PyPI package: %s@%s (type: %s)",
 		ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), fileType)
+
+	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+	if depCooldownConfig.Enabled {
+		canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+		skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName)
+		auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion(), skip)
+	}
 
 	result, err := i.analyzePackage(
 		ctx,

@@ -11,34 +11,38 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 )
 
-// auditCooldownSkip emits an audit event for every cooldown exemption that
-// came from the dependency_cooldown.skip list. Trusted-package exemptions are
-// intentionally skipped here: those packages get a separate
-// EventTypeInstallTrustedAllowed event at tarball-download time
-// (proxy/interceptors/base_registry.go), so emitting a cooldown event for them
-// too would double-count the same waiver. An info log line mirrors each event
-// so it shows up in the regular proxy log alongside other cooldown messages.
-func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo) {
+// cooldownSkipAuditReasonForVersion reports whether a concrete package version
+// should emit a cooldown-skipped audit event. Only dependency_cooldown.skip
+// entries qualify; trusted_packages is surfaced separately as a trusted event.
+func cooldownSkipAuditReasonForVersion(skip pmgconfig.CooldownSkipInfo, version string) (string, bool) {
+	if version == "" {
+		return "", false
+	}
 	if skip.SkipAll {
 		if skip.SkipReason != pmgconfig.CooldownSkipReasonCooldownSkipList {
-			return
+			return "", false
 		}
-		reason := skip.SkipReason.String()
-		log.Infof("[%s] Cooldown: package %s is exempt (source: %s)", requestID, name, reason)
-		audit.LogCooldownSkipped(ecosystem, name, "", reason)
+		return skip.SkipReason.String(), true
+	}
+
+	reason, ok := skip.Versions[version]
+	if !ok || reason != pmgconfig.CooldownSkipReasonCooldownSkipList {
+		return "", false
+	}
+	return reason.String(), true
+}
+
+// auditCooldownSkip emits an audit event for a concrete package version that
+// was exempted by dependency_cooldown.skip. Trusted-package exemptions are
+// intentionally skipped here because they surface as trusted-package events.
+func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name, version string, skip pmgconfig.CooldownSkipInfo) {
+	reason, ok := cooldownSkipAuditReasonForVersion(skip, version)
+	if !ok {
 		return
 	}
 
-	// Emitted at metadata time for every pinned exemption, so this can over-count
-	// relative to actual installs. Treat it as a config-driven exemption record.
-	for version, src := range skip.Versions {
-		if src != pmgconfig.CooldownSkipReasonCooldownSkipList {
-			continue
-		}
-		reason := src.String()
-		log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
-		audit.LogCooldownSkipped(ecosystem, name, version, reason)
-	}
+	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
+	audit.LogCooldownSkipped(ecosystem, name, version, reason)
 }
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still
