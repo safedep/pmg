@@ -211,26 +211,20 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 	}
 }
 
-// LogCooldownSkipped records that a package — or a specific version of one —
-// was exempted from the dependency cooldown window. The reason identifies
-// which configuration list granted the exemption (e.g. "trusted_packages" or
+// LogCooldownSkipped records that a specific package version was exempted
+// from the dependency cooldown window. The reason identifies which
+// configuration list granted the exemption (e.g. "trusted_packages" or
 // "dependency_cooldown.skip") so operators auditing PMG behavior can tell
-// apart the broad waiver from the cooldown-only one. version must identify the
-// concrete package version that was exempted.
-func LogCooldownSkipped(ecosystem packagev1.Ecosystem, packageName, version, reason string) {
-	if version == "" {
-		log.Warnf("skipping cooldown-skipped audit event without concrete version for %s/%s", ecosystem.String(), packageName)
+// apart the broad waiver from the cooldown-only one. pv must carry a concrete
+// version — the backend rejects PackageVersion messages without one.
+func LogCooldownSkipped(pv *packagev1.PackageVersion, reason string) {
+	if pkgVersion(pv) == "" {
+		log.Warnf("skipping cooldown-skipped audit event without concrete version for %s/%s", pkgEcosystem(pv), pkgName(pv))
 		return
 	}
 
-	pv := &packagev1.PackageVersion{}
-	pv.SetPackage(&packagev1.Package{})
-	pv.GetPackage().SetName(packageName)
-	pv.GetPackage().SetEcosystem(ecosystem)
-	pv.SetVersion(version)
-
-	ecoStr := ecosystem.String()
-	scope := fmt.Sprintf("%s@%s", packageName, version)
+	ecoStr := pkgEcosystem(pv)
+	scope := fmt.Sprintf("%s@%s", pkgName(pv), pkgVersion(pv))
 	logEvent(AuditEvent{
 		Type:           EventTypeCooldownSkipped,
 		Message:        fmt.Sprintf("Cooldown skipped for %s/%s (reason: %s)", ecoStr, scope, reason),
@@ -238,8 +232,8 @@ func LogCooldownSkipped(ecosystem packagev1.Ecosystem, packageName, version, rea
 		Reason:         reason,
 		Details: map[string]interface{}{
 			"ecosystem":    ecoStr,
-			"package_name": packageName,
-			"version":      version,
+			"package_name": pkgName(pv),
+			"version":      pkgVersion(pv),
 			"reason":       reason,
 		},
 	})

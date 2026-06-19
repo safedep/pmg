@@ -126,21 +126,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		// for version resolution. JSON API requests (/pypi/{pkg}/json) are allowed through;
 		// they have a different response structure and pip does not use them for installs.
 		if depCooldownConfig.Enabled && strings.HasPrefix(ctx.URL.Path, "/simple/") {
-			// Match the skip list against the normalized name (lowercase, _/. → -),
-			// the same canonical form used for pinned-version lookups, so a PURL
-			// like pkg:pypi/My_Pkg reliably matches the resolved request name.
-			canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
-			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName)
-			if skip.SkipAll {
-				// Whole package is exempt from cooldown: pass metadata through
-				// unmodified. The tarball download still hits analyzePackage, so
-				// malware analysis is preserved (unless the package is also in
-				// trusted_packages, which is the broader waiver).
-				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-			}
-
-			// Version-pinned exemptions (if any) are preserved during stripping.
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()], skip.VersionSet())
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())

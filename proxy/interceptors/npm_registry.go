@@ -113,17 +113,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 
 	if !pkgInfo.IsFileDownload() {
 		if depCooldownConfig.Enabled {
-			skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
-			if skip.SkipAll {
-				// Whole package is exempt from cooldown: let the metadata pass
-				// through unmodified. The tarball download still hits analyzePackage,
-				// so malware analysis is preserved (unless the package is also in
-				// trusted_packages, which is the broader waiver).
-				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-			}
-
-			// Version-pinned exemptions (if any) are preserved during stripping.
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()], skip.VersionSet())
+			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())

@@ -42,7 +42,13 @@ func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name, ve
 	}
 
 	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
-	audit.LogCooldownSkipped(ecosystem, name, version, reason)
+
+	pv := &packagev1.PackageVersion{}
+	pv.SetPackage(&packagev1.Package{})
+	pv.GetPackage().SetName(name)
+	pv.GetPackage().SetEcosystem(ecosystem)
+	pv.SetVersion(version)
+	audit.LogCooldownSkipped(pv, reason)
 }
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still

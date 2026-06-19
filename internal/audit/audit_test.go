@@ -238,7 +238,11 @@ func TestLogCooldownSkippedRequiresVersion(t *testing.T) {
 	setGlobal(a)
 	defer resetGlobal()
 
-	LogCooldownSkipped(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", "", "dependency_cooldown.skip")
+	pv := &packagev1.PackageVersion{}
+	pv.SetPackage(&packagev1.Package{})
+	pv.GetPackage().SetName("pkg")
+	pv.GetPackage().SetEcosystem(packagev1.Ecosystem_ECOSYSTEM_NPM)
+	LogCooldownSkipped(pv, "dependency_cooldown.skip")
 
 	assert.Empty(t, s.getEvents())
 }

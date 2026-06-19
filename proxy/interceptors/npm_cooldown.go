@@ -8,6 +8,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -32,8 +33,18 @@ func newNpmCooldownHandler(statsCollector *AnalysisStatsCollector) *npmCooldownH
 
 // HandleMetadataRequest overrides the Accept header to force the registry to return
 // a full packument (which includes publish dates in the "time" field), then registers
-// a response modifier that strips versions within the cooldown window.
-func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string, exemptVersions map[string]bool) (*proxy.InterceptorResponse, error) {
+// a response modifier that strips versions within the cooldown window. Skip-list
+// semantics are handled here so callers do not need to consult the config.
+func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName)
+	if skip.SkipAll {
+		// Whole package is exempt: pass metadata through unmodified. The tarball
+		// download still hits analyzePackage, so malware analysis is preserved
+		// (unless the package is also in trusted_packages, the broader waiver).
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+	exemptVersions := skip.VersionSet()
+
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
 	// Force full packument so the response always contains the "time" field.

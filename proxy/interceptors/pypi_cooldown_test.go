@@ -357,7 +357,7 @@ func TestPyPICooldown_HandleMetadataRequest_OverridesHeaders(t *testing.T) {
 	ctx.Headers.Set("If-None-Match", `"abc123"`)
 	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	assert.Equal(t, "application/vnd.pypi.simple.v1+json", ctx.Headers.Get("Accept"))
@@ -371,7 +371,7 @@ func TestPyPICooldown_HandleMetadataRequest_ClientWithoutPEP691_SkipsCooldown(t 
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Headers.Set("Accept", "text/html")
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 	assert.Nil(t, resp.ResponseModifier)
@@ -383,7 +383,7 @@ func TestPyPICooldown_HandleMetadataRequest_NonJSONResponse_FailOpen(t *testing.
 	ctx := makeTestRequestContext("https://pypi.org/simple/requests/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "requests", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -410,7 +410,7 @@ func TestPyPICooldown_HandleMetadataRequest_StripsRecentVersions(t *testing.T) {
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -448,7 +448,7 @@ func TestPyPICooldown_HandleMetadataRequest_AllVersionsInCooldown_RecordsStats(t
 	ctx := makeTestRequestContext("https://pypi.org/simple/newpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "newpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -482,7 +482,7 @@ func TestPyPICooldown_HandleMetadataRequest_NoVersionsInCooldown_BodyUnchanged(t
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -499,7 +499,7 @@ func TestPyPICooldown_HandleMetadataRequest_MalformedJSON_FailOpen(t *testing.T)
 	ctx := makeTestRequestContext("https://pypi.org/simple/badpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "badpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -526,7 +526,7 @@ func TestPyPICooldown_HandleMetadataRequest_PinnedVersionInCooldown_RecordsStats
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "2.0.0")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -561,7 +561,7 @@ func TestPyPICooldown_HandleMetadataRequest_PinnedVersionNotInCooldown_NoBlock(t
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "1.0.0")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
@@ -589,7 +589,7 @@ func TestPyPICooldown_HandleMetadataRequest_UnpinnedWithRemainingVersions_NoBloc
 	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
 
-	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "", nil)
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
 	require.NoError(t, err)
 	require.NotNil(t, resp.ResponseModifier)
 
