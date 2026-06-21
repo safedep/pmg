@@ -73,7 +73,8 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 		log.Debugf("[%s] Cooldown: parsed %d publish dates for %s", ctx.RequestID, len(dates), packageName)
 
 		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, skip, dates, cooldownDays)
-		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays, exempt)
+		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, exempt)
+		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays, exempt.all)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
@@ -95,13 +96,6 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 		Action:           proxy.ActionModifyResponse,
 		ResponseModifier: modifier,
 	}, nil
-}
-
-// AuditCooldownExemption emits a cooldown-skip audit event for a concrete
-// downloaded version, keeping skip-list resolution inside the cooldown handler.
-func (h *npmCooldownHandler) AuditCooldownExemption(ctx *proxy.RequestContext, name, version string) {
-	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, name)
-	auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, skip)
 }
 
 // parseMetadataTime extracts version publish dates from an NPM package metadata body.

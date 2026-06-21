@@ -159,11 +159,6 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	log.Debugf("[%s] Analyzing PyPI package: %s@%s (type: %s)",
 		ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), fileType)
 
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-	if depCooldownConfig.Enabled && len(depCooldownConfig.Skip) > 0 {
-		i.cooldownHandler.AuditCooldownExemption(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
-	}
-
 	result, err := i.analyzePackage(
 		ctx,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,

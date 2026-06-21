@@ -127,10 +127,6 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return resp, nil
 	}
 
-	if depCooldownConfig.Enabled && len(depCooldownConfig.Skip) > 0 {
-		i.cooldownHandler.AuditCooldownExemption(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
-	}
-
 	result, err := i.analyzePackage(
 		ctx,
 		packagev1.Ecosystem_ECOSYSTEM_NPM,

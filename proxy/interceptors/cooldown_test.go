@@ -4,8 +4,84 @@ import (
 	"testing"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestCooldownExemptVersions(t *testing.T) {
+	setTrustedPackagesForTest(t, []pmgconfig.TrustedPackage{
+		{Purl: "pkg:npm/pkg@2.0.0"},
+		{Purl: "pkg:npm/pkg@3.0.0"}, // both trusted and skip-listed below
+	})
+
+	now := time.Now()
+	day := 24 * time.Hour
+	dates := map[string]time.Time{
+		"1.0.0": now.Add(-1 * day),   // in window, skip-listed -> audited
+		"2.0.0": now.Add(-1 * day),   // in window, trusted -> exempt, not audited
+		"3.0.0": now.Add(-1 * day),   // in window, trusted + skip-listed -> trusted wins
+		"4.0.0": now.Add(-100 * day), // skip-listed but out of window -> not exempt
+		"5.0.0": now.Add(-1 * day),   // in window, neither -> stripped
+	}
+	skip := pmgconfig.CooldownSkipInfo{Versions: map[string]bool{
+		"1.0.0": true,
+		"3.0.0": true,
+		"4.0.0": true,
+	}}
+
+	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
+
+	assert.ElementsMatch(t, []string{"1.0.0", "2.0.0", "3.0.0"}, keysOf(exempt.all))
+	// Only the in-window, skip-listed, non-trusted version is audited.
+	assert.Equal(t, []string{"1.0.0"}, exempt.skipListed)
+}
+
+// An out-of-window skip-listed version, or a zero-day cooldown, must not be
+// reported as a cooldown bypass: nothing was actually within an active window.
+func TestCooldownExemptVersions_NoActiveWindow(t *testing.T) {
+	setTrustedPackagesForTest(t, nil)
+
+	now := time.Now()
+	day := 24 * time.Hour
+	dates := map[string]time.Time{"1.0.0": now.Add(-100 * day)}
+	skip := pmgconfig.CooldownSkipInfo{Versions: map[string]bool{"1.0.0": true}}
+
+	oldVersion := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
+	assert.Empty(t, oldVersion.skipListed)
+	assert.Empty(t, oldVersion.all)
+
+	freshDates := map[string]time.Time{"1.0.0": now.Add(-1 * day)}
+	zeroDay := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, freshDates, 0)
+	assert.Empty(t, zeroDay.skipListed)
+	assert.Empty(t, zeroDay.all)
+}
+
+// A whole-package skip (version-less entry) exempts every version but must not
+// produce per-version audit events — it is a single package-level waiver.
+func TestCooldownExemptVersions_SkipAll(t *testing.T) {
+	setTrustedPackagesForTest(t, nil)
+
+	now := time.Now()
+	day := 24 * time.Hour
+	dates := map[string]time.Time{
+		"1.0.0": now.Add(-1 * day),
+		"2.0.0": now.Add(-1 * day),
+	}
+	skip := pmgconfig.CooldownSkipInfo{SkipAll: true}
+
+	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
+	assert.ElementsMatch(t, []string{"1.0.0", "2.0.0"}, keysOf(exempt.all))
+	assert.Empty(t, exempt.skipListed, "whole-package skip must not emit per-version events")
+}
+
+func keysOf(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
 
 func TestCooldownIsWithinWindow(t *testing.T) {
 	now := time.Now()

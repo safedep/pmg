@@ -11,41 +11,60 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 )
 
-// auditCooldownSkip emits an audit event for a concrete package version that was
-// exempted by dependency_cooldown.skip. Trusted-package exemptions never reach
-// here: the proxy fast-allow gate handles them upstream and surfaces them as
-// trusted-package events.
-func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name, version string, skip pmgconfig.CooldownSkipInfo) {
-	if version == "" || !skip.ExemptsVersion(version) {
-		return
-	}
-
-	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, audit.CooldownSkipReason)
-
-	pv := &packagev1.PackageVersion{}
-	pv.SetPackage(&packagev1.Package{})
-	pv.GetPackage().SetName(name)
-	pv.GetPackage().SetEcosystem(ecosystem)
-	pv.SetVersion(version)
-	audit.LogCooldownSkipped(pv)
+// cooldownExemptions describes the in-window versions that survive cooldown
+// stripping and why. all is the full exempt set; skipListed is the subset
+// attributable to dependency_cooldown.skip and is the only set that produces an
+// audit event — trusted versions surface as install_trusted_allowed via the
+// proxy fast-allow gate at download time.
+type cooldownExemptions struct {
+	all        map[string]bool
+	skipListed []string
 }
 
-// cooldownExemptVersions returns the versions that must survive stripping even
-// though they fall within the cooldown window: those on the
-// dependency_cooldown.skip list or trusted via trusted_packages. Only in-window
-// versions are checked, bounding the per-version trusted lookup to recent
-// releases rather than the full (potentially large) version history.
-func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time, cooldownDays int) map[string]bool {
-	exempt := make(map[string]bool)
+// cooldownExemptVersions classifies the versions that must survive stripping
+// even though they fall within the cooldown window: those trusted via
+// trusted_packages or on the dependency_cooldown.skip list. Only in-window
+// versions are examined, bounding the per-version trusted lookup to recent
+// releases rather than the full (potentially large) version history. A version
+// that is both trusted and skip-listed is attributed to trusted, mirroring the
+// download-path precedence where the fast-allow gate wins.
+func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time, cooldownDays int) cooldownExemptions {
+	exempt := cooldownExemptions{all: make(map[string]bool)}
 	for v, publishDate := range dates {
 		if within, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); !within {
 			continue
 		}
-		if skip.ExemptsVersion(v) || pmgconfig.IsTrustedPackageRef(ecosystem, name, v) {
-			exempt[v] = true
+		switch {
+		case pmgconfig.IsTrustedPackageRef(ecosystem, name, v):
+			exempt.all[v] = true
+		case skip.SkipAll:
+			// A whole-package skip is one waiver, not a per-version exemption:
+			// keep the version but never emit per-version audit events.
+			// HandleMetadataRequest also short-circuits this case upstream.
+			exempt.all[v] = true
+		case skip.ExemptsVersion(v):
+			exempt.all[v] = true
+			exempt.skipListed = append(exempt.skipListed, v)
 		}
 	}
 	return exempt
+}
+
+// auditCooldownSkips emits one dependency_cooldown_skipped audit event per
+// version that the skip list exempted from an active cooldown window. It is
+// called from the metadata modifier, where publish dates are known, so the
+// event only fires for versions a live cooldown would otherwise have stripped.
+func auditCooldownSkips(requestID string, ecosystem packagev1.Ecosystem, name string, exempt cooldownExemptions) {
+	for _, version := range exempt.skipListed {
+		log.Infof("[%s] Cooldown: %s@%s exempt by %s", requestID, name, version, audit.CooldownSkipReason)
+
+		pv := &packagev1.PackageVersion{}
+		pv.SetPackage(&packagev1.Package{})
+		pv.GetPackage().SetName(name)
+		pv.GetPackage().SetEcosystem(ecosystem)
+		pv.SetVersion(version)
+		audit.LogCooldownSkipped(pv)
+	}
 }
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still
