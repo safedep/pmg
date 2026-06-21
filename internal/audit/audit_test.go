@@ -238,12 +238,13 @@ func TestLogCooldownSkippedEmitsEventWithReason(t *testing.T) {
 	setGlobal(a)
 	defer resetGlobal()
 
-	LogCooldownSkipped(testPackageVersion("pkg", "1.0", "npm"), "dependency_cooldown.skip")
+	LogCooldownSkipped(testPackageVersion("pkg", "1.0", "npm"))
 
 	events := s.getEvents()
 	require.Len(t, events, 1)
 	assert.Equal(t, EventTypeCooldownSkipped, events[0].Type)
 	assert.Equal(t, "dependency_cooldown.skip", events[0].Reason)
+	assert.Equal(t, "dependency_cooldown.skip", events[0].Details["reason"])
 }
 
 func TestLogSessionCompleteDispatchesEvent(t *testing.T) {

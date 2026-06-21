@@ -8,9 +8,57 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
+	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func setTrustedPackagesForTest(t *testing.T, pkgs []pmgconfig.TrustedPackage) {
+	t.Helper()
+	orig := pmgconfig.Get().Config.TrustedPackages
+	pmgconfig.Get().Config.TrustedPackages = pkgs
+	require.NoError(t, pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config), "setTrustedPackagesForTest: preprocess")
+	t.Cleanup(func() {
+		pmgconfig.Get().Config.TrustedPackages = orig
+		_ = pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config)
+	})
+}
+
+func TestFastAllow_TrustedReturnsAllow(t *testing.T) {
+	setTrustedPackagesForTest(t, []pmgconfig.TrustedPackage{{Purl: "pkg:npm/trusted-pkg"}})
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/trusted-pkg/-/trusted-pkg-1.0.0.tgz")
+
+	resp, ok := b.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "trusted-pkg", "1.0.0")
+	require.True(t, ok)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+}
+
+func TestFastAllow_UntrustedReturnsFalse(t *testing.T) {
+	setTrustedPackagesForTest(t, nil)
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/x/-/x-1.0.0.tgz")
+
+	resp, ok := b.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "x", "1.0.0")
+	assert.False(t, ok)
+	assert.Nil(t, resp)
+}
+
+func TestFastAllow_InsecureReturnsAllow(t *testing.T) {
+	orig := pmgconfig.Get().InsecureInstallation
+	pmgconfig.Get().InsecureInstallation = true
+	t.Cleanup(func() { pmgconfig.Get().InsecureInstallation = orig })
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/any-pkg/-/any-pkg-1.0.0.tgz")
+
+	resp, ok := b.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "any-pkg", "1.0.0")
+	require.True(t, ok)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+}
 
 func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 	tests := []struct {

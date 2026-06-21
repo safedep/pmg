@@ -11,44 +11,39 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 )
 
-// cooldownSkipAuditReasonForVersion reports whether a concrete package version
-// should emit a cooldown-skipped audit event. Only dependency_cooldown.skip
-// entries qualify; trusted_packages is surfaced separately as a trusted event.
-func cooldownSkipAuditReasonForVersion(skip pmgconfig.CooldownSkipInfo, version string) (string, bool) {
-	if version == "" {
-		return "", false
-	}
-	if skip.SkipAll {
-		if skip.SkipReason != pmgconfig.CooldownSkipReasonCooldownSkipList {
-			return "", false
-		}
-		return skip.SkipReason.String(), true
-	}
+const cooldownSkipAuditSource = "dependency_cooldown.skip"
 
-	reason, ok := skip.Versions[version]
-	if !ok || reason != pmgconfig.CooldownSkipReasonCooldownSkipList {
-		return "", false
-	}
-	return reason.String(), true
-}
-
-// auditCooldownSkip emits an audit event for a concrete package version that
-// was exempted by dependency_cooldown.skip. Trusted-package exemptions are
-// intentionally skipped here because they surface as trusted-package events.
+// auditCooldownSkip emits an audit event for a concrete package version that was
+// exempted by dependency_cooldown.skip. Trusted-package exemptions never reach
+// here: the proxy fast-allow gate handles them upstream and surfaces them as
+// trusted-package events.
 func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name, version string, skip pmgconfig.CooldownSkipInfo) {
-	reason, ok := cooldownSkipAuditReasonForVersion(skip, version)
-	if !ok {
+	if version == "" || !skip.ExemptsVersion(version) {
 		return
 	}
 
-	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, reason)
+	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, cooldownSkipAuditSource)
 
 	pv := &packagev1.PackageVersion{}
 	pv.SetPackage(&packagev1.Package{})
 	pv.GetPackage().SetName(name)
 	pv.GetPackage().SetEcosystem(ecosystem)
 	pv.SetVersion(version)
-	audit.LogCooldownSkipped(pv, reason)
+	audit.LogCooldownSkipped(pv)
+}
+
+// cooldownExemptVersions returns the set of candidate versions that must not be
+// stripped: those exempted by the dependency_cooldown.skip list OR trusted via
+// trusted_packages. The trusted list is small, so a per-version lookup over the
+// observed publish dates is acceptable.
+func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time) map[string]bool {
+	exempt := make(map[string]bool)
+	for v := range dates {
+		if skip.ExemptsVersion(v) || pmgconfig.IsTrustedPackageRef(ecosystem, name, v) {
+			exempt[v] = true
+		}
+	}
+	return exempt
 }
 
 // cooldownIsWithinWindow reports whether a version published at publishDate is still

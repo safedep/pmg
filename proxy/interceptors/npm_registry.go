@@ -113,6 +113,9 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 
 	if !pkgInfo.IsFileDownload() {
 		if depCooldownConfig.Enabled {
+			if pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName()) {
+				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+			}
 			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
@@ -120,9 +123,12 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion()); ok {
+		return resp, nil
+	}
+
 	if depCooldownConfig.Enabled {
-		skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
-		auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), skip)
+		i.cooldownHandler.AuditCooldownExemption(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	result, err := i.analyzePackage(

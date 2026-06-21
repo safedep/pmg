@@ -126,6 +126,9 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		// for version resolution. JSON API requests (/pypi/{pkg}/json) are allowed through;
 		// they have a different response structure and pip does not use them for installs.
 		if depCooldownConfig.Enabled && strings.HasPrefix(ctx.URL.Path, "/simple/") {
+			if pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName())) {
+				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+			}
 			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
 		}
 
@@ -140,6 +143,14 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	// Canonical name is used for identity checks (trusted, cooldown); raw name
+	// is kept for analyzePackage so malware analysis sees the original form.
+	canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion()); ok {
+		return resp, nil
+	}
+
 	// Get file type for logging if available
 	fileType := ""
 	if pypiInfo, ok := pkgInfo.(*pypiPackageInfo); ok {
@@ -150,9 +161,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
 	if depCooldownConfig.Enabled {
-		canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
-		skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName)
-		auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion(), skip)
+		i.cooldownHandler.AuditCooldownExemption(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	result, err := i.analyzePackage(

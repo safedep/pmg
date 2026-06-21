@@ -211,19 +211,20 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 	}
 }
 
-// LogCooldownSkipped records that a specific package version was exempted
-// from the dependency cooldown window. The reason identifies which
-// configuration list granted the exemption (e.g. "trusted_packages" or
-// "dependency_cooldown.skip") so operators auditing PMG behavior can tell
-// apart the broad waiver from the cooldown-only one.
-func LogCooldownSkipped(pv *packagev1.PackageVersion, reason string) {
+// cooldownSkipReason is the only source that produces a dependency_cooldown_skipped
+// event; trusted-package exemptions surface as install_trusted_allowed instead.
+const cooldownSkipReason = "dependency_cooldown.skip"
+
+// LogCooldownSkipped records that a specific package version was exempted from
+// the dependency cooldown window by the dependency_cooldown.skip list.
+func LogCooldownSkipped(pv *packagev1.PackageVersion) {
 	logEvent(AuditEvent{
 		Type:           EventTypeCooldownSkipped,
 		Message:        fmt.Sprintf("Cooldown skipped for %s@%s", pkgName(pv), pkgVersion(pv)),
 		PackageVersion: pv,
-		Reason:         reason,
+		Reason:         cooldownSkipReason,
 		Details: map[string]any{
-			"reason": reason,
+			"reason": cooldownSkipReason,
 		},
 	})
 }

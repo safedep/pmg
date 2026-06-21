@@ -13,124 +13,60 @@ func IsTrustedPackage(pkgVersion *packagev1.PackageVersion) bool {
 	return isTrustedPackageVersion(Get().Config.TrustedPackages, pkgVersion)
 }
 
-// CooldownSkipReason identifies which configuration list caused a package to
-// be exempted from the dependency cooldown window. The interceptor uses this
-// for audit logging so operators can tell apart a globally trusted package
-// (broad waiver) from a cooldown-only skip entry.
-type CooldownSkipReason int
+// IsTrustedPackageRef reports whether a specific package version is trusted.
+func IsTrustedPackageRef(ecosystem packagev1.Ecosystem, name, version string) bool {
+	return isTrustedPackageVersion(Get().Config.TrustedPackages, &packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
+		Version: version,
+	})
+}
 
-const (
-	// CooldownSkipReasonNone means the package is not exempt.
-	CooldownSkipReasonNone CooldownSkipReason = iota
-
-	// CooldownSkipReasonTrustedPackage means the exemption comes from the
-	// top-level trusted_packages list (waives every control PMG enforces).
-	CooldownSkipReasonTrustedPackage
-
-	// CooldownSkipReasonCooldownSkipList means the exemption comes from the
-	// dependency_cooldown.skip list (waives only the cooldown wait).
-	CooldownSkipReasonCooldownSkipList
-)
-
-// String returns a stable identifier for the reason, suitable for log lines
-// and audit event details.
-func (r CooldownSkipReason) String() string {
-	switch r {
-	case CooldownSkipReasonTrustedPackage:
-		return "trusted_packages"
-	case CooldownSkipReasonCooldownSkipList:
-		return "dependency_cooldown.skip"
-	default:
-		return "none"
-	}
+// IsTrustedPackageAllVersions reports whether every version of a package is
+// trusted. It checks with an empty version, which matches only a version-less
+// trusted entry — never a version-pinned one.
+func IsTrustedPackageAllVersions(ecosystem packagev1.Ecosystem, name string) bool {
+	return IsTrustedPackageRef(ecosystem, name, "")
 }
 
 // CooldownSkipInfo describes how a package is exempted from the dependency
-// cooldown window, and via which configuration list the exemption was granted.
+// cooldown window by the dependency_cooldown.skip list. It is independent of
+// trusted_packages, which is honored separately as a global waiver.
 type CooldownSkipInfo struct {
 	// SkipAll is true when a version-less entry matches: every version of the
 	// package is exempt from the cooldown window.
 	SkipAll bool
 
-	// SkipReason identifies which list granted the package-wide exemption.
-	// Only meaningful when SkipAll is true. When the same package appears in
-	// both lists, trusted_packages wins because it is the broader waiver.
-	SkipReason CooldownSkipReason
-
-	// Versions holds the specific versions exempted by version-pinned entries
-	// along with which list each came from. Only meaningful when SkipAll is
-	// false; nil when there are none.
-	Versions map[string]CooldownSkipReason
+	// Versions holds the specific versions exempted by version-pinned entries.
+	// Only meaningful when SkipAll is false; nil when there are none.
+	Versions map[string]bool
 }
 
-// ExemptsVersion reports whether the given version is exempt from cooldown,
-// either because the whole package is skipped or because that specific version
-// is listed.
+// ExemptsVersion reports whether the given version is exempt from cooldown.
 func (s CooldownSkipInfo) ExemptsVersion(version string) bool {
-	if s.SkipAll {
-		return true
-	}
-	_, ok := s.Versions[version]
-	return ok
+	return s.SkipAll || s.Versions[version]
 }
 
-// VersionSet returns the exempted versions as a plain set, for callers (such
-// as the cooldown stripping code) that only need the keys.
-func (s CooldownSkipInfo) VersionSet() map[string]bool {
-	if len(s.Versions) == 0 {
-		return nil
-	}
-	out := make(map[string]bool, len(s.Versions))
-	for v := range s.Versions {
-		out[v] = true
-	}
-	return out
-}
-
-// CooldownSkip returns how a package (by ecosystem and name) is exempted from
-// the dependency cooldown window.
-//
-// A package is exempt if it appears in either:
-//   - the top-level trusted_packages list (which waives every control,
-//     including malware analysis and cooldown), or
-//   - the dependency_cooldown.skip list (which waives ONLY cooldown; exempt
-//     packages are still subject to malware analysis).
-//
-// In both lists, an entry without a version exempts every version of the
-// package; an entry with a version exempts only that version. trusted_packages
-// is the broader waiver, so it is consulted first: if it grants a package-wide
-// exemption, the cooldown-skip list is not even scanned. For overlapping
-// version-pinned entries, trusted_packages also takes precedence in the
-// returned reason.
+// CooldownSkip returns how a package is exempted from the dependency cooldown
+// window via dependency_cooldown.skip. A version-less entry exempts every
+// version; a version-pinned entry exempts only that version. The skip list
+// waives ONLY the cooldown wait — exempt packages are still malware-analyzed.
 func CooldownSkip(ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
-	cfg := Get().Config
-
-	trusted := collectCooldownSkip(cfg.TrustedPackages, ecosystem, name, CooldownSkipReasonTrustedPackage)
-	if trusted.SkipAll {
-		return trusted
-	}
-
-	dc := collectCooldownSkip(cfg.DependencyCooldown.Skip, ecosystem, name, CooldownSkipReasonCooldownSkipList)
-	return mergeCooldownSkip(trusted, dc)
+	return cooldownSkip(Get().Config.DependencyCooldown.Skip, ecosystem, name)
 }
 
-// collectCooldownSkip scans a single list and returns every match, tagging the
-// source via reason. A version-less match yields SkipAll (and the function
-// stops accumulating per-version entries, which would be redundant).
-func collectCooldownSkip(list []TrustedPackage, ecosystem packagev1.Ecosystem, name string, reason CooldownSkipReason) CooldownSkipInfo {
+func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
 	info := CooldownSkipInfo{}
 	if name == "" {
 		return info
 	}
 
-	for _, v := range list {
+	for _, v := range skip {
 		if !v.parsed || v.ecosystem != ecosystem || v.name != name {
 			continue
 		}
 
 		if v.version == "" {
 			info.SkipAll = true
-			info.SkipReason = reason
 			info.Versions = nil
 			continue
 		}
@@ -140,42 +76,19 @@ func collectCooldownSkip(list []TrustedPackage, ecosystem packagev1.Ecosystem, n
 		}
 
 		if info.Versions == nil {
-			info.Versions = make(map[string]CooldownSkipReason)
+			info.Versions = make(map[string]bool)
 		}
-		info.Versions[v.version] = reason
+		info.Versions[v.version] = true
 	}
 
 	return info
 }
 
-// mergeCooldownSkip combines two per-list results. primary wins for any
-// overlap; fallback only contributes versions primary did not already cover.
-// If either side grants a package-wide exemption, that wins outright.
-func mergeCooldownSkip(primary, fallback CooldownSkipInfo) CooldownSkipInfo {
-	if primary.SkipAll {
-		return primary
-	}
-	if fallback.SkipAll {
-		return fallback
-	}
-
-	out := CooldownSkipInfo{}
-	for v, r := range primary.Versions {
-		if out.Versions == nil {
-			out.Versions = make(map[string]CooldownSkipReason)
-		}
-		out.Versions[v] = r
-	}
-	for v, r := range fallback.Versions {
-		if _, ok := out.Versions[v]; ok {
-			continue
-		}
-		if out.Versions == nil {
-			out.Versions = make(map[string]CooldownSkipReason)
-		}
-		out.Versions[v] = r
-	}
-	return out
+// PreprocessTrustedPackages pre-parses all PURL strings in the trusted package
+// lists. Exported for use in cross-package tests that install synthetic configs
+// without going through Load.
+func PreprocessTrustedPackages(cfg *Config) error {
+	return preprocessTrustedPackages(cfg)
 }
 
 // preprocessTrustedPackages pre-parses all PURL strings in the trusted package

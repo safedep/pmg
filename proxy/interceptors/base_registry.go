@@ -71,6 +71,36 @@ func (b *baseRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
 
+// fastAllow short-circuits the request when no security control should run for
+// this concrete version: insecure-installation mode (analysis globally off) or a
+// trusted package (waives every control). It returns (response, true) when it
+// handled the request; (nil, false) otherwise. Insecure is checked first to
+// preserve the previous ordering inside analyzePackage.
+func (b *baseRegistryInterceptor) fastAllow(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+) (*proxy.InterceptorResponse, bool) {
+	pkgVersion := &packagev1.PackageVersion{
+		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
+		Version: version,
+	}
+
+	if config.Get().InsecureInstallation {
+		log.Debugf("[%s] Skipping insecure installation", ctx.RequestID)
+		audit.LogInstallInsecureBypass(pkgVersion)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, true
+	}
+
+	if config.IsTrustedPackageRef(ecosystem, name, version) {
+		log.Debugf("[%s] Skipping trusted package: %s/%s@%s", ctx.RequestID, ecosystem.String(), name, version)
+		audit.LogInstallTrustedAllowed(pkgVersion)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, true
+	}
+
+	return nil, false
+}
+
 // analyzePackage analyzes a package using the configured analyzer with caching
 // This method is ecosystem-agnostic and can be used by any registry interceptor
 func (b *baseRegistryInterceptor) analyzePackage(
@@ -79,36 +109,12 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	packageName string,
 	packageVersion string,
 ) (*analyzer.PackageVersionAnalysisResult, error) {
-	// Check if package is trusted before analyzing
 	pkgVersion := &packagev1.PackageVersion{
 		Package: &packagev1.Package{
 			Ecosystem: ecosystem,
 			Name:      packageName,
 		},
 		Version: packageVersion,
-	}
-
-	if cfg := config.Get(); cfg.InsecureInstallation {
-		log.Debugf("[%s] Skipping insecure installation", ctx.RequestID)
-
-		audit.LogInstallInsecureBypass(pkgVersion)
-
-		return &analyzer.PackageVersionAnalysisResult{
-			PackageVersion: pkgVersion,
-			Action:         analyzer.ActionAllow,
-		}, nil
-	}
-
-	if config.IsTrustedPackage(pkgVersion) {
-		log.Debugf("[%s] Skipping trusted package: %s/%s@%s",
-			ctx.RequestID, ecosystem.String(), packageName, packageVersion)
-
-		audit.LogInstallTrustedAllowed(pkgVersion)
-
-		return &analyzer.PackageVersionAnalysisResult{
-			PackageVersion: pkgVersion,
-			Action:         analyzer.ActionAllow,
-		}, nil
 	}
 
 	if cached, ok := b.cache.Get(ecosystem.String(), packageName, packageVersion); ok {

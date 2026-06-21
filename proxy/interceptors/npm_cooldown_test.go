@@ -678,6 +678,38 @@ func TestNpmCooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 	assert.Equal(t, "application/vnd.npm.install-v1+json", ctx.Headers.Get("Accept"))
 }
 
+func TestNpmCooldown_HandleMetadataRequest_PreservesTrustedVersion(t *testing.T) {
+	setTrustedPackagesForTest(t, []config.TrustedPackage{{Purl: "pkg:npm/testpkg@2.0.0"}})
+
+	now := time.Now()
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * 24 * time.Hour), // old — eligible
+		"2.0.0": now.Add(-1 * 24 * time.Hour),  // fresh, trusted — must be preserved
+		"2.1.0": now.Add(-1 * 24 * time.Hour),  // fresh, untrusted — must be stripped
+	}
+	distTags := map[string]string{"latest": "2.1.0"}
+	body := buildTestPackument(versions, distTags)
+
+	collector := NewAnalysisStatsCollector()
+	handler := newNpmCooldownHandler(collector)
+	ctx := makeTestRequestContext("https://registry.npmjs.org/testpkg")
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	_, _, newBody, err := resp.ResponseModifier(200, http.Header{}, body)
+	require.NoError(t, err)
+
+	var meta struct {
+		Versions map[string]json.RawMessage `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(newBody, &meta))
+	assert.Contains(t, meta.Versions, "2.0.0", "trusted fresh version must be preserved")
+	assert.NotContains(t, meta.Versions, "2.1.0", "untrusted fresh version must be stripped")
+	assert.Contains(t, meta.Versions, "1.0.0", "old version must be preserved")
+}
+
 func TestNpmCooldown_TarballRequestBypassesCooldown(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 

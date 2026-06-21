@@ -663,6 +663,49 @@ func TestPyPICooldown_JSONAPIRequest_NotIntercepted(t *testing.T) {
 	assert.Equal(t, "application/json", ctx.Headers.Get("Accept"))
 }
 
+func TestPyPICooldown_HandleMetadataRequest_PreservesTrustedVersion(t *testing.T) {
+	// testpkg@2.0.0 is trusted; 2.1.0 is not. Both are fresh (in cooldown).
+	setTrustedPackagesForTest(t, []config.TrustedPackage{{Purl: "pkg:pypi/testpkg@2.0.0"}})
+
+	now := time.Now()
+	day := 24 * time.Hour
+	versions := map[string]time.Time{
+		"1.0.0": now.Add(-30 * day), // old — eligible
+		"2.0.0": now.Add(-1 * day),  // fresh, trusted — must be preserved
+		"2.1.0": now.Add(-1 * day),  // fresh, untrusted — must be stripped
+	}
+	body := buildTestPEP691Response(versions)
+
+	handler := newPypiCooldownHandler(NewAnalysisStatsCollector())
+	ctx := makeTestRequestContext("https://pypi.org/simple/testpkg/")
+	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
+
+	resp, err := handler.HandleMetadataRequest(ctx, "testpkg", 5, "")
+	require.NoError(t, err)
+	require.NotNil(t, resp.ResponseModifier)
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/vnd.pypi.simple.v1+json")
+
+	_, _, retBody, err := resp.ResponseModifier(200, headers, body)
+	require.NoError(t, err)
+
+	var result struct {
+		Files []struct {
+			Filename string `json:"filename"`
+		} `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(retBody, &result))
+
+	filenames := make([]string, 0, len(result.Files))
+	for _, f := range result.Files {
+		filenames = append(filenames, f.Filename)
+	}
+	assert.Contains(t, filenames, "testpkg-2.0.0.tar.gz", "trusted fresh version must be preserved")
+	assert.NotContains(t, filenames, "testpkg-2.1.0.tar.gz", "untrusted fresh version must be stripped")
+	assert.Contains(t, filenames, "testpkg-1.0.0.tar.gz", "old version must be preserved")
+}
+
 func TestPyPICooldown_FileDownloadBypassesCooldown(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 

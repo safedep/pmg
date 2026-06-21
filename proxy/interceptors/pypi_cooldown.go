@@ -34,14 +34,14 @@ func newPypiCooldownHandler(statsCollector *AnalysisStatsCollector) *pypiCooldow
 func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, packageName string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
 	// Skip-list entries use the canonical (lowercase, _/. → -) name to match
 	// the same form used for pinned-version lookups.
-	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(packageName))
+	canonical := denormalizePyPIPackageName(packageName)
+	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical)
 	if skip.SkipAll {
-		// Whole package is exempt: pass metadata through unmodified. The file
-		// download still hits analyzePackage, so malware analysis is preserved
-		// (unless the package is also in trusted_packages, the broader waiver).
+		// Whole package is on the cooldown skip list: pass metadata through
+		// unmodified. The file download still hits analyzePackage, so malware
+		// analysis is preserved.
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
-	exemptVersions := skip.VersionSet()
 
 	log.Debugf("[%s] Cooldown: registering metadata modifier for %s", ctx.RequestID, packageName)
 
@@ -75,7 +75,8 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 
 		log.Debugf("[%s] Cooldown: parsed %d versions for %s", ctx.RequestID, len(dates), packageName)
 
-		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exemptVersions)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, dates)
+		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exempt)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
 				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
@@ -93,6 +94,14 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 		Action:           proxy.ActionModifyResponse,
 		ResponseModifier: modifier,
 	}, nil
+}
+
+// AuditCooldownExemption emits a cooldown-skip audit event for a concrete
+// downloaded version. The name is canonicalized to match skip-list identity.
+func (h *pypiCooldownHandler) AuditCooldownExemption(ctx *proxy.RequestContext, name, version string) {
+	canonical := denormalizePyPIPackageName(name)
+	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical)
+	auditCooldownSkip(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, version, skip)
 }
 
 // parsePEP691Files extracts the earliest upload-time per version from a PEP 691 JSON body.
