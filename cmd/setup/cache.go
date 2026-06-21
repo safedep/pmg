@@ -54,8 +54,11 @@ func newCacheClearCommand() *cobra.Command {
 // to report that without creating the file.
 func openCache(ctx context.Context, cfg *config.RuntimeConfig) (cache *malysiscache.Cache, closeFn func(), exists bool, err error) {
 	dbPath := filepath.Join(cfg.LocalDBDir(), cfg.LocalDBFileName())
-	if _, statErr := os.Stat(dbPath); errors.Is(statErr, os.ErrNotExist) {
-		return nil, func() {}, false, nil
+	if _, statErr := os.Stat(dbPath); statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil, func() {}, false, nil
+		}
+		return nil, func() {}, false, statErr
 	}
 
 	mgr := localdb.New(localdb.Config{Dir: cfg.LocalDBDir(), FileName: cfg.LocalDBFileName()})

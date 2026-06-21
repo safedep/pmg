@@ -8,7 +8,6 @@ import (
 )
 
 // malysisCachingAnalyzer is a read-through cache decorator over a PackageVersionAnalyzer.
-// Embedding the wrapped analyzer forwards Name(); only Analyze is overridden.
 type malysisCachingAnalyzer struct {
 	PackageVersionAnalyzer
 	cache MalysisCache

@@ -56,6 +56,22 @@ func TestSetGetRoundTrip(t *testing.T) {
 	assert.Equal(t, "left-pad", got.PackageVersion.GetPackage().GetName())
 }
 
+func TestSetSkipsWriteWhenTTLNonPositive(t *testing.T) {
+	mgr := localdb.New(localdb.Config{Dir: t.TempDir(), FileName: "pmg.db"})
+	t.Cleanup(func() { require.NoError(t, mgr.Close()) })
+	store, err := mgr.Store(context.Background(), Descriptor())
+	require.NoError(t, err)
+	c := New(store, config.MalysisCacheConfig{TTL: 0})
+
+	ctx := context.Background()
+	p := pkg(packagev1.Ecosystem_ECOSYSTEM_NPM, "left-pad", "1.0.0")
+	require.NoError(t, c.Set(ctx, p, allow("left-pad", "1.0.0")))
+
+	s, err := c.Stats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, s.Count, "non-positive TTL disables persistence: nothing written")
+}
+
 func TestSetSkipsNonCacheable(t *testing.T) {
 	c := newTestCache(t)
 	ctx := context.Background()

@@ -1,5 +1,9 @@
 # PMG - Development Guide
 
+**DO NOT USE UNNECESSARY CODE COMMENTS** - The code is read and written by humans who are proficient
+in Go programming language. Write idiomatic Go code following DRY and SOLID principles. DO NOT SHY
+AWAY FROM PROPOSING REFACTORING THAT IMPROVES THE CODE BASE.
+
 ## Build & Test
 
 ```bash

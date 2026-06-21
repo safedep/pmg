@@ -137,10 +137,11 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create certificate manager: %w", err)
 	}
 
-	// Build the optional persistent analysis cache. It is disposable: any
-	// failure degrades to running uncached, never blocks the install.
+	// Optional persistent analysis cache. Disposable: any failure degrades to
+	// running uncached, never blocks the install.
 	var malysisCache analyzer.MalysisCache
-	if cfg.Config.AnalysisCache.Malysis.Enabled {
+	cacheCfg := cfg.Config.AnalysisCache.Malysis
+	if cacheCfg.Enabled && cacheCfg.TTL > 0 {
 		mgr := localdb.New(localdb.Config{
 			Dir:      cfg.LocalDBDir(),
 			FileName: cfg.LocalDBFileName(),
@@ -155,7 +156,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		if serr != nil {
 			log.Warnf("analysis cache unavailable, continuing without it: %v", serr)
 		} else {
-			malysisCache = malysiscache.New(store, cfg.Config.AnalysisCache.Malysis)
+			malysisCache = malysiscache.New(store, cacheCfg)
 		}
 	}
 

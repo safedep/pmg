@@ -17,7 +17,6 @@ import (
 	"github.com/safedep/pmg/config"
 )
 
-// compile-time check that Cache satisfies the interface.
 var _ analyzer.MalysisCache = (*Cache)(nil)
 
 const moduleName = "malysis_cache"
@@ -43,22 +42,16 @@ func Descriptor() localdb.Descriptor {
 	}
 }
 
-// Cache is a localdb-backed analyzer.MalysisCache.
 type Cache struct {
 	db  *sql.DB
 	cfg config.MalysisCacheConfig
 	now func() time.Time
 }
 
-// New builds a Cache over an already-opened localdb store. It takes the cache
-// config struct (not a bare TTL) so future cache options extend the constructor
-// without a signature change. cfg.TTL is the client-side expiry window anchored
-// to fetch time.
 func New(store *localdb.Store, cfg config.MalysisCacheConfig) *Cache {
 	return &Cache{db: store.DB(), cfg: cfg, now: time.Now}
 }
 
-// Stats summarizes the cache for the status command.
 type Stats struct {
 	Count  int
 	Oldest time.Time
@@ -83,7 +76,6 @@ func (c *Cache) Stats(ctx context.Context) (Stats, error) {
 	return s, nil
 }
 
-// Clear removes every cached verdict.
 func (c *Cache) Clear(ctx context.Context) error {
 	_, err := c.db.ExecContext(ctx, `DELETE FROM malysis_cache_verdicts`)
 	return err
@@ -127,6 +119,10 @@ func (c *Cache) Set(ctx context.Context, pkg *packagev1.PackageVersion, result *
 	if !cacheable(result) {
 		return nil
 	}
+	// Non-positive TTL disables persistence (MalysisCacheConfig.TTL contract).
+	if c.cfg.TTL <= 0 {
+		return nil
+	}
 	eco, name, version := packageKey(pkg)
 
 	// expires_at stays NULL in v1; a future backend hint populates it.
@@ -144,8 +140,6 @@ func (c *Cache) Set(ctx context.Context, pkg *packagev1.PackageVersion, result *
 	return err
 }
 
-// expired anchors to a server-provided expires_at when present, else to
-// created_at + the client TTL.
 func (c *Cache) expired(createdAt int64, expiresAt sql.NullInt64) bool {
 	exp := createdAt + int64(c.cfg.TTL.Seconds())
 	if expiresAt.Valid {
