@@ -211,9 +211,9 @@ func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, 
 	}
 }
 
-// cooldownSkipReason is the only source that produces a dependency_cooldown_skipped
+// CooldownSkipReason is the only source that produces a dependency_cooldown_skipped
 // event; trusted-package exemptions surface as install_trusted_allowed instead.
-const cooldownSkipReason = "dependency_cooldown.skip"
+const CooldownSkipReason = "dependency_cooldown.skip"
 
 // LogCooldownSkipped records that a specific package version was exempted from
 // the dependency cooldown window by the dependency_cooldown.skip list.
@@ -222,9 +222,9 @@ func LogCooldownSkipped(pv *packagev1.PackageVersion) {
 		Type:           EventTypeCooldownSkipped,
 		Message:        fmt.Sprintf("Cooldown skipped for %s@%s", pkgName(pv), pkgVersion(pv)),
 		PackageVersion: pv,
-		Reason:         cooldownSkipReason,
+		Reason:         CooldownSkipReason,
 		Details: map[string]any{
-			"reason": cooldownSkipReason,
+			"reason": CooldownSkipReason,
 		},
 	})
 }

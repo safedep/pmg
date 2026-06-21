@@ -72,7 +72,7 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 
 		log.Debugf("[%s] Cooldown: parsed %d publish dates for %s", ctx.RequestID, len(dates), packageName)
 
-		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, skip, dates)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, skip, dates, cooldownDays)
 		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays, exempt)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",

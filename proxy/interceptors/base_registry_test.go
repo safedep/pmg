@@ -21,7 +21,7 @@ func setTrustedPackagesForTest(t *testing.T, pkgs []pmgconfig.TrustedPackage) {
 	require.NoError(t, pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config), "setTrustedPackagesForTest: preprocess")
 	t.Cleanup(func() {
 		pmgconfig.Get().Config.TrustedPackages = orig
-		_ = pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config)
+		assert.NoError(t, pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config))
 	})
 }
 

@@ -160,7 +160,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), fileType)
 
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-	if depCooldownConfig.Enabled {
+	if depCooldownConfig.Enabled && len(depCooldownConfig.Skip) > 0 {
 		i.cooldownHandler.AuditCooldownExemption(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 

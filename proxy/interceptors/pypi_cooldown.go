@@ -75,7 +75,7 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 
 		log.Debugf("[%s] Cooldown: parsed %d versions for %s", ctx.RequestID, len(dates), packageName)
 
-		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, dates)
+		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, dates, cooldownDays)
 		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exempt)
 		if stripped > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",

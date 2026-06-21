@@ -11,8 +11,6 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 )
 
-const cooldownSkipAuditSource = "dependency_cooldown.skip"
-
 // auditCooldownSkip emits an audit event for a concrete package version that was
 // exempted by dependency_cooldown.skip. Trusted-package exemptions never reach
 // here: the proxy fast-allow gate handles them upstream and surfaces them as
@@ -22,7 +20,7 @@ func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name, ve
 		return
 	}
 
-	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, cooldownSkipAuditSource)
+	log.Infof("[%s] Cooldown: %s@%s is exempt (source: %s)", requestID, name, version, audit.CooldownSkipReason)
 
 	pv := &packagev1.PackageVersion{}
 	pv.SetPackage(&packagev1.Package{})
@@ -32,13 +30,17 @@ func auditCooldownSkip(requestID string, ecosystem packagev1.Ecosystem, name, ve
 	audit.LogCooldownSkipped(pv)
 }
 
-// cooldownExemptVersions returns the set of candidate versions that must not be
-// stripped: those exempted by the dependency_cooldown.skip list OR trusted via
-// trusted_packages. The trusted list is small, so a per-version lookup over the
-// observed publish dates is acceptable.
-func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time) map[string]bool {
+// cooldownExemptVersions returns the versions that must survive stripping even
+// though they fall within the cooldown window: those on the
+// dependency_cooldown.skip list or trusted via trusted_packages. Only in-window
+// versions are checked, bounding the per-version trusted lookup to recent
+// releases rather than the full (potentially large) version history.
+func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmgconfig.CooldownSkipInfo, dates map[string]time.Time, cooldownDays int) map[string]bool {
 	exempt := make(map[string]bool)
-	for v := range dates {
+	for v, publishDate := range dates {
+		if within, _, _ := cooldownIsWithinWindow(publishDate, cooldownDays); !within {
+			continue
+		}
 		if skip.ExemptsVersion(v) || pmgconfig.IsTrustedPackageRef(ecosystem, name, v) {
 			exempt[v] = true
 		}

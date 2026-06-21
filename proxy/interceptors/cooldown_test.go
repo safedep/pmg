@@ -200,4 +200,3 @@ func TestCooldownHighestStableVersion(t *testing.T) {
 		})
 	}
 }
-
