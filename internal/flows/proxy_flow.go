@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/safedep/dry/localdb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
@@ -135,8 +137,30 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create certificate manager: %w", err)
 	}
 
+	// Build the optional persistent analysis cache. It is disposable: any
+	// failure degrades to running uncached, never blocks the install.
+	var malysisCache analyzer.MalysisCache
+	if cfg.Config.AnalysisCache.Malysis.Enabled {
+		mgr := localdb.New(localdb.Config{
+			Dir:      cfg.LocalDBDir(),
+			FileName: cfg.LocalDBFileName(),
+		})
+		defer func() {
+			if cerr := mgr.Close(); cerr != nil {
+				log.Warnf("failed to close localdb: %v", cerr)
+			}
+		}()
+
+		store, serr := mgr.Store(ctx, malysiscache.Descriptor())
+		if serr != nil {
+			log.Warnf("analysis cache unavailable, continuing without it: %v", serr)
+		} else {
+			malysisCache = malysiscache.New(store, cfg.Config.AnalysisCache.Malysis)
+		}
+	}
+
 	// Create analyzer
-	malysisAnalyzer, err := f.createAnalyzer()
+	malysisAnalyzer, err := f.createAnalyzer(malysisCache)
 	if err != nil {
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
@@ -381,9 +405,9 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 }
 
 // createAnalyzer creates the malysis query analyzer
-func (f *proxyFlow) createAnalyzer() (analyzer.PackageVersionAnalyzer, error) {
+func (f *proxyFlow) createAnalyzer(cache analyzer.MalysisCache) (analyzer.PackageVersionAnalyzer, error) {
 	log.Debugf("Creating malysis query analyzer")
-	return analyzer.NewMalysisAnalyzer(analyzer.MalysisQueryAnalyzerConfig{})
+	return analyzer.NewMalysisAnalyzer(analyzer.MalysisQueryAnalyzerConfig{Cache: cache})
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor

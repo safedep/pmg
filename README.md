@@ -260,6 +260,7 @@ PMG builds are reproducible and signed.
 - [Configuration](docs/config.md)
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
+- [Caching](docs/caching.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
 - [Certificate Authority](docs/cert.md)
 - [Sandboxing](docs/sandbox.md)

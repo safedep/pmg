@@ -21,7 +21,11 @@ const (
 	communityMalysisPort = "443"
 )
 
-type MalysisQueryAnalyzerConfig struct{}
+type MalysisQueryAnalyzerConfig struct {
+	// Cache, when non-nil, enables a persistent read-through verdict cache
+	// applied as a decorator by newMalysisAnalyzer. nil = no caching.
+	Cache MalysisCache
+}
 
 type malysisQueryAnalyzer struct {
 	client malysisv1grpc.MalwareAnalysisServiceClient

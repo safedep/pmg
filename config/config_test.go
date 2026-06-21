@@ -266,6 +266,16 @@ func TestConfigureSandbox(t *testing.T) {
 	}
 }
 
+func TestLocalDBLocation(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PMG_CACHE_DIR", dir)
+	initConfig()
+
+	cfg := Get()
+	assert.Equal(t, filepath.Join(dir, "localdb"), cfg.LocalDBDir())
+	assert.Equal(t, "pmg.db", cfg.LocalDBFileName())
+}
+
 func TestWriteTemplateConfigMergesExistingConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)

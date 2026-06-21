@@ -50,6 +50,12 @@ const (
 	// Default sandbox violation cache directory is relative to the cache root.
 	pmgDefaultSandboxViolationCacheDir = "sandbox/violations"
 
+	// Default localdb directory is relative to the cache root.
+	pmgDefaultLocalDBDir = "localdb"
+
+	// Default localdb file name for PMG's shared SQLite database.
+	pmgDefaultLocalDBFileName = "pmg.db"
+
 	// Config file name.
 	// Important: The config file path and the schema should be backward compatible. In case of breaking config
 	// changes, we must introduce a new file name and a migration path.
@@ -306,6 +312,7 @@ type RuntimeConfig struct {
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
 	sandboxViolationCacheDir string
+	localDBDir               string
 	cacheDir                 string
 	viper                    *viper.Viper
 }
@@ -388,6 +395,18 @@ func (r *RuntimeConfig) SandboxViolationCacheDir() string {
 // than under the config directory.
 func (r *RuntimeConfig) CacheDir() string {
 	return r.cacheDir
+}
+
+// LocalDBDir returns the directory holding PMG's shared localdb SQLite file.
+// localdb writes sibling -wal/-shm files here, so the Dir and FileName are
+// exposed separately to match localdb.Config rather than as a joined path.
+func (r *RuntimeConfig) LocalDBDir() string {
+	return r.localDBDir
+}
+
+// LocalDBFileName returns the file name of PMG's shared localdb SQLite file.
+func (r *RuntimeConfig) LocalDBFileName() string {
+	return pmgDefaultLocalDBFileName
 }
 
 func (r *RuntimeConfig) IsProxyModeEnabled() bool {
@@ -531,6 +550,11 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get cache directory: %w", err))
 	}
 
+	localDBDir, err := localDBDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get localdb directory: %w", err))
+	}
+
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
@@ -538,6 +562,7 @@ func initConfig() {
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxOverlayDir = sandboxOverlayDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
+	globalConfig.localDBDir = localDBDir
 	globalConfig.cacheDir = cacheRootDir
 
 	// A globally managed config enforces lockdown only when it opts in via
@@ -733,6 +758,17 @@ func sandboxViolationCacheDir() (string, error) {
 	}
 
 	return filepath.Join(cacheDir, pmgDefaultSandboxViolationCacheDir), nil
+}
+
+// localDBDir computes the directory holding PMG's shared localdb SQLite file
+// and its WAL/shm siblings.
+func localDBDir() (string, error) {
+	cacheDir, err := cacheDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get cache directory: %w", err)
+	}
+
+	return filepath.Join(cacheDir, pmgDefaultLocalDBDir), nil
 }
 
 // Get returns the global configuration.

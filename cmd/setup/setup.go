@@ -29,6 +29,7 @@ func NewSetupCommand() *cobra.Command {
 	setupCmd.AddCommand(NewInfoCommand())
 	setupCmd.AddCommand(NewDoctorCommand())
 	setupCmd.AddCommand(NewCertCommand())
+	setupCmd.AddCommand(NewCacheCommand())
 
 	return setupCmd
 }

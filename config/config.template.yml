@@ -199,6 +199,9 @@ dependency_cooldown:
 # malicious is served from cache until its entry expires; `ttl` bounds that
 # window. Keep `ttl` short if you prefer freshness over speed.
 analysis_cache:
+  # Malysis is SafeDep's threat intelligence feed.
+  # Set cache TTL to be lower than dependency cooldown period to have a compensating
+  # control in place for newly published packages whose verdict is cached.
   malysis:
     enabled: false
     ttl: 24h

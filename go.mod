@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260528074646-b9e182189444.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260618082119-01127207dee4.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260620084912-77c7bb923ddb.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0
@@ -16,13 +16,14 @@ require (
 	github.com/landlock-lsm/go-landlock v0.7.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/posthog/posthog-go v1.5.12
-	github.com/safedep/dry v0.0.0-20260524092302-4815730a17cf
+	github.com/safedep/dry v0.0.0-20260620130340-2af76e505537
 	github.com/safedep/ptyx v0.2.1-0.20260529140457-d1f745842a6a
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/net v0.51.0
 	golang.org/x/sync v0.20.0
 	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.42.0
@@ -33,8 +34,7 @@ require (
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20240508200655-46a4cf4ba109.1 // indirect
-	buf.build/gen/go/safedep/api/connectrpc/go v1.20.0-20260618082119-01127207dee4.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/caarlos0/env/v11 v11.3.1 // indirect
@@ -84,7 +84,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
