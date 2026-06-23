@@ -1,0 +1,102 @@
+name: Persistent Proxy E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'cmd/proxy/**'
+      - 'internal/proxystate/**'
+      - 'internal/flows/cert.go'
+
+permissions:
+  contents: read
+
+jobs:
+  persistent-proxy-e2e:
+    name: Persistent Proxy E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Build PMG
+        run: make
+
+      - name: Add pmg to PATH
+        run: echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+
+      - name: Setup PMG
+        run: pmg setup install
+
+      - name: Start persistent proxy
+        run: |
+          pmg proxy start &
+          # Poll until proxy writes its state file (up to 10s)
+          for i in $(seq 1 10); do
+            pmg proxy status && break
+            sleep 1
+          done
+
+      - name: Inject proxy env vars into workflow environment
+        run: pmg proxy env --gha
+
+      - name: Verify proxy env vars are set
+        run: |
+          echo "HTTP_PROXY=$HTTP_PROXY"
+          echo "NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS"
+          test -n "$HTTP_PROXY"
+          test -n "$NODE_EXTRA_CA_CERTS"
+          test -f "$NODE_EXTRA_CA_CERTS"
+
+      - name: Test: benign package installs successfully
+        run: |
+          mkdir benign-test && cd benign-test
+          npm init -y
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+          echo "SUCCESS: lodash installed through proxy"
+          cd .. && rm -rf benign-test
+
+      - name: Test: malicious package is blocked
+        run: |
+          mkdir malicious-test && cd malicious-test
+          npm init -y
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "ERROR: safedep-test-pkg was not blocked!"
+            exit 1
+          fi
+          if [ -d "node_modules/safedep-test-pkg" ]; then
+            echo "ERROR: safedep-test-pkg found in node_modules!"
+            exit 1
+          fi
+          echo "SUCCESS: safedep-test-pkg blocked by persistent proxy"
+          cd .. && rm -rf malicious-test
+
+      - name: Test: pip installs through proxy
+        run: |
+          python -m venv venv && source venv/bin/activate
+          pip install requests==2.32.4
+          python -c "import requests; print('pip ok:', requests.__version__)"
+          deactivate && rm -rf venv
+
+      - name: Stop proxy
+        if: always()
+        run: pmg proxy stop || true
