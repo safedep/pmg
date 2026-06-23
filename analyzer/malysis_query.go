@@ -49,9 +49,24 @@ func NewMalysisQueryAnalyzer(config MalysisQueryAnalyzerConfig) (*malysisQueryAn
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
+	return NewMalysisQueryAnalyzerWithClient(malysisv1grpc.NewMalwareAnalysisServiceClient(client), config, false)
+}
+
+// NewMalysisQueryAnalyzerWithClient builds an analyzer over a caller-supplied
+// gRPC client. It is the shared constructor behind the community and
+// authenticated variants, and the injection seam used by tests to drive the
+// real verdict-mapping path over a stub client. honorExclusions mirrors the
+// authenticated analyzer's tenant-exclusion behavior.
+func NewMalysisQueryAnalyzerWithClient(client malysisv1grpc.MalwareAnalysisServiceClient,
+	config MalysisQueryAnalyzerConfig, honorExclusions bool) (*malysisQueryAnalyzer, error) {
+	if client == nil {
+		return nil, fmt.Errorf("malysis client must not be nil")
+	}
+
 	return &malysisQueryAnalyzer{
-		client: malysisv1grpc.NewMalwareAnalysisServiceClient(client),
-		Config: config,
+		client:          client,
+		Config:          config,
+		honorExclusions: honorExclusions,
 	}, nil
 }
 
@@ -67,11 +82,8 @@ func NewMalysisAuthenticatedQueryAnalyzer(config MalysisQueryAnalyzerConfig,
 		return nil, fmt.Errorf("failed to create authenticated gRPC client: %w", err)
 	}
 
-	return &malysisQueryAnalyzer{
-		client:          malysisv1grpc.NewMalwareAnalysisServiceClient(cloudClient.Connection()),
-		Config:          config,
-		honorExclusions: true,
-	}, nil
+	return NewMalysisQueryAnalyzerWithClient(
+		malysisv1grpc.NewMalwareAnalysisServiceClient(cloudClient.Connection()), config, true)
 }
 
 func (a *malysisQueryAnalyzer) Name() string {

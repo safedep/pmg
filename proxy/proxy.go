@@ -82,6 +82,16 @@ type ProxyConfig struct {
 	// UpstreamRetries bounds retries of idempotent upstream requests on
 	// transient round-trip failures. Zero disables retries.
 	UpstreamRetries int
+
+	// UpstreamDialContext, when set, replaces the default dialer used to connect
+	// to upstream registries. Tests use it to redirect registry hostnames to a
+	// mock server; production leaves it nil.
+	UpstreamDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+
+	// UpstreamTLSClientConfig, when set, overrides the TLS config used for
+	// upstream connections (e.g. to trust a mock registry's certificate). nil
+	// keeps the production default.
+	UpstreamTLSClientConfig *tls.Config
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -192,6 +202,19 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		Timeout: config.ConnectTimeout,
 	}
 
+	dialContext := dialer.DialContext
+	if config.UpstreamDialContext != nil {
+		dialContext = config.UpstreamDialContext
+	}
+
+	tlsClientConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: false,
+	}
+	if config.UpstreamTLSClientConfig != nil {
+		tlsClientConfig = config.UpstreamTLSClientConfig
+	}
+
 	// Proxy honours the environment (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) so
 	// that PMG works in enterprise environments that require a corporate
 	// upstream proxy to reach the internet. Loopback addresses are always
@@ -213,7 +236,7 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 	// connection reuse.
 	return &http.Transport{
 		Proxy:                 proxyWithLoopbackBypass,
-		DialContext:           dialer.DialContext,
+		DialContext:           dialContext,
 		ForceAttemptHTTP2:     true,
 		MaxConnsPerHost:       100,
 		MaxIdleConns:          200,
@@ -221,10 +244,7 @@ func newUpstreamTransport(config *ProxyConfig) *http.Transport {
 		IdleConnTimeout:       120 * time.Second,
 		TLSHandshakeTimeout:   config.ConnectTimeout,
 		ResponseHeaderTimeout: config.RequestTimeout,
-		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: false,
-		},
+		TLSClientConfig:       tlsClientConfig,
 	}
 }
 

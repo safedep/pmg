@@ -22,6 +22,16 @@ go test ./config/ -v -count=1  # Run specific package tests
 - `analyzer/` — Package security analysis
 - `internal/` — Internal utilities (analytics, eventlog, flows, ui)
 
+## Proxy E2E Tests
+
+- `test/proxye2e/` is a hermetic (no network) table-driven framework for the proxy flow. It
+  runs the real proxy, interceptors, cooldown handlers and analyzer verdict-mapping against an
+  in-process mock registry and a stub malysis gRPC client.
+- Any security-sensitive change to the proxy flow (interceptors, cooldown, malware
+  allow/confirm/block, trusted/insecure bypass, new controls) MUST add or extend an E2E case
+  in `test/proxye2e/`. Add a `TestCase` with `Config`/`Setup`/`Exec`/`Assert`; do not build new
+  scaffolding.
+
 ## Code Style
 
 - Keep things short and simple
