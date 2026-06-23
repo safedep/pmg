@@ -11,9 +11,10 @@ import (
 const stateFileName = "proxy-state.json"
 
 type State struct {
-	PID        int    `json:"pid"`
-	Addr       string `json:"addr"`
-	CACertPath string `json:"ca_cert_path"`
+	PID          int    `json:"pid"`
+	Addr         string `json:"addr"`
+	CACertPath   string `json:"ca_cert_path"`
+	BlockedCount int    `json:"blocked_count"`
 }
 
 func StatePath(configDir string) string {

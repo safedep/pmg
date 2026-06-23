@@ -106,7 +106,13 @@ func runStart(_ *cobra.Command, _ []string) error {
 	<-sigCh
 
 	close(confirmationChan)
-	_ = proxystate.Remove(statePath)
+
+	// Write final blocked count before exiting so `pmg proxy stop` can read it.
+	// stop is responsible for removing the state file.
+	state.BlockedCount = stats.GetStats().BlockedCount
+	if werr := proxystate.Write(statePath, state); werr != nil {
+		log.Warnf("failed to write final proxy state: %v", werr)
+	}
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

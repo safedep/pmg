@@ -4,10 +4,18 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+	"time"
 
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/proxystate"
 	"github.com/spf13/cobra"
+)
+
+const (
+	stopPollInterval = 200 * time.Millisecond
+	stopPollTimeout  = 10 * time.Second
 )
 
 func newStopCommand() *cobra.Command {
@@ -41,8 +49,36 @@ func runStop(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("send SIGTERM to proxy (pid %d): %w", state.PID, err)
 	}
 
-	if _, err := fmt.Fprintf(os.Stdout, "Sent SIGTERM to PMG proxy (pid %d, addr %s)\n", state.PID, state.Addr); err != nil {
-		return fmt.Errorf("write stop message: %w", err)
+	// Wait for the process to exit so we can read the final blocked count it writes.
+	deadline := time.Now().Add(stopPollTimeout)
+	for time.Now().Before(deadline) {
+		if !state.IsRunning() {
+			break
+		}
+		time.Sleep(stopPollInterval)
+	}
+
+	// Read the final state the proxy wrote on shutdown (has BlockedCount).
+	final, rerr := proxystate.Read(statePath)
+	_ = proxystate.Remove(statePath)
+
+	if rerr != nil {
+		// Proxy exited but didn't write final state (e.g. crash). Treat as clean.
+		if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy (pid %d) stopped\n", state.PID); werr != nil {
+			return werr
+		}
+		return nil
+	}
+
+	if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy stopped — analyzed packages, %d blocked\n", final.BlockedCount); werr != nil {
+		return werr
+	}
+
+	if final.BlockedCount > 0 {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.ProxyPackagesBlocked).
+			WithMsg(fmt.Sprintf("%d package(s) were blocked by the proxy", final.BlockedCount)).
+			WithHelp("Review the proxy logs for details on blocked packages")
 	}
 
 	return nil
