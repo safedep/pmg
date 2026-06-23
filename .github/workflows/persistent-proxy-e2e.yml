@@ -6,9 +6,9 @@ on:
     branches:
       - main
     paths:
-      - 'cmd/proxy/**'
-      - 'internal/proxystate/**'
-      - 'internal/flows/cert.go'
+      - "cmd/proxy/**"
+      - "internal/proxystate/**"
+      - "internal/flows/cert.go"
 
 permissions:
   contents: read
@@ -66,7 +66,7 @@ jobs:
           test -n "$NODE_EXTRA_CA_CERTS"
           test -f "$NODE_EXTRA_CA_CERTS"
 
-      - name: Test: benign package installs successfully
+      - name: Benign package installs successfully
         run: |
           mkdir benign-test && cd benign-test
           npm init -y
@@ -75,7 +75,7 @@ jobs:
           echo "SUCCESS: lodash installed through proxy"
           cd .. && rm -rf benign-test
 
-      - name: Test: malicious package is blocked
+      - name: Malicious package is blocked
         run: |
           mkdir malicious-test && cd malicious-test
           npm init -y
@@ -90,7 +90,7 @@ jobs:
           echo "SUCCESS: safedep-test-pkg blocked by persistent proxy"
           cd .. && rm -rf malicious-test
 
-      - name: Test: pip installs through proxy
+      - name: pip installs through proxy
         run: |
           python -m venv venv && source venv/bin/activate
           pip install requests==2.32.4
