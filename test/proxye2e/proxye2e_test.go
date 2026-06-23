@@ -172,6 +172,54 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 		},
 		{
+			Name: "cooldown skip fast-tracks a clean in-window version",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{
+					Enabled: true, Days: 7,
+					Skip: []config.TrustedPackage{{Purl: "pkg:npm/left-pad@2.0.0"}},
+				}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+				h.Analyzer.SetNpm("left-pad", "2.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				meta := h.Npm().FetchMetadata("left-pad")
+				assert.True(t, meta.HasVersion("2.0.0"), "skip-listed in-window version must survive cooldown")
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "2.0.0"))
+				assert.GreaterOrEqual(t, h.Analyzer.AnalyzedCount("left-pad", "2.0.0"), 1, "skip waives cooldown only, not malware analysis")
+			},
+		},
+		{
+			Name: "cooldown whole-package skip keeps every version",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{
+					Enabled: true, Days: 7,
+					Skip: []config.TrustedPackage{{Purl: "pkg:npm/left-pad"}},
+				}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: recent()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+				h.Analyzer.SetNpm("left-pad", "2.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				meta := h.Npm().FetchMetadata("left-pad")
+				assert.True(t, meta.HasVersion("1.0.0"), "version-less skip must keep all in-window versions")
+				assert.True(t, meta.HasVersion("2.0.0"), "version-less skip must keep all in-window versions")
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "2.0.0"))
+			},
+		},
+		{
 			Name: "trusted package skips analysis entirely",
 			Config: func(rc *config.RuntimeConfig) {
 				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:npm/left-pad"}}
@@ -185,6 +233,26 @@ func TestProxyFlow_Npm(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.False(t, res.Blocked())
 				assert.Equal(t, 0, h.Analyzer.AnalyzedCount("left-pad", "1.0.0"))
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
+			},
+		},
+		{
+			Name: "trusted package waives both cooldown and malware analysis",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:npm/left-pad"}}
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: recent()}}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				meta := h.Npm().FetchMetadata("left-pad")
+				assert.True(t, meta.HasVersion("1.0.0"), "trusted package must bypass an active cooldown window")
+				assert.Equal(t, 0, h.Analyzer.AnalyzedCount("left-pad", "1.0.0"), "trusted package must bypass malware analysis")
 				assert.True(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
 			},
 		},
