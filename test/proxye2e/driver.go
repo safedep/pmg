@@ -50,7 +50,9 @@ func (d NpmDriver) FetchMetadata(name string) NpmMetadata {
 
 	meta := NpmMetadata{Outcome: out}
 	if out.Err == nil && out.StatusCode == 200 {
-		_ = json.Unmarshal([]byte(out.Body), &meta)
+		if err := json.Unmarshal([]byte(out.Body), &meta); err != nil {
+			meta.Outcome.Err = fmt.Errorf("failed to decode npm metadata for %s: %w", name, err)
+		}
 	}
 	return meta
 }
@@ -116,7 +118,9 @@ func (d PypiDriver) FetchSimple(name string) PypiSimple {
 
 	simple := PypiSimple{Outcome: out}
 	if out.Err == nil && out.StatusCode == 200 {
-		_ = json.Unmarshal([]byte(out.Body), &simple)
+		if err := json.Unmarshal([]byte(out.Body), &simple); err != nil {
+			simple.Outcome.Err = fmt.Errorf("failed to decode PyPI simple index for %s: %w", name, err)
+		}
 	}
 	return simple
 }

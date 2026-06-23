@@ -83,9 +83,10 @@ type ProxyConfig struct {
 	// transient round-trip failures. Zero disables retries.
 	UpstreamRetries int
 
-	// UpstreamDialContext, when set, replaces the default dialer used to connect
-	// to upstream registries. Tests use it to redirect registry hostnames to a
-	// mock server; production leaves it nil.
+	// UpstreamDialContext, when set, replaces the default dialer for all upstream
+	// connections — both MITM'd round-trips and the CONNECT tunnels used for
+	// non-MITM hosts. Tests use it to redirect every hostname to a mock server so
+	// no path reaches the network; production leaves it nil.
 	UpstreamDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// UpstreamTLSClientConfig, when set, overrides the TLS config used for
@@ -154,8 +155,14 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	// the output is actually wanted.
 	proxy.Verbose = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
 
-	// Configure connection timeout for upstream connections during CONNECT requests
+	// Configure connection timeout for upstream connections during CONNECT requests.
+	// A custom UpstreamDialContext also governs CONNECT tunnels so non-MITM hosts
+	// are dialed through the same override (tests rely on this for hermeticity).
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
+		if config.UpstreamDialContext != nil {
+			return config.UpstreamDialContext(context.Background(), network, addr)
+		}
+
 		dialer := &net.Dialer{
 			Timeout: config.ConnectTimeout,
 		}

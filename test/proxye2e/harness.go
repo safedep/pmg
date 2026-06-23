@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,9 @@ type Harness struct {
 	proxy    proxy.ProxyServer
 	client   *http.Client
 	confChan chan *interceptors.ConfirmationRequest
+
+	dialMu      sync.Mutex
+	dialedAddrs []string
 }
 
 type options struct {
@@ -89,15 +93,24 @@ func New(t *testing.T, opts ...Option) *Harness {
 		interceptorList = append(interceptorList, ic)
 	}
 
-	proxyServer := buildProxy(t, certMgr, registry.addr(), interceptorList)
+	h := &Harness{
+		t:        t,
+		Registry: registry,
+		Analyzer: rec,
+		Confirm:  confirm,
+		stats:    stats,
+		confChan: confChan,
+	}
+
+	h.proxy = buildProxy(t, certMgr, registry.addr(), interceptorList, h.recordDial)
 
 	caPool := x509.NewCertPool()
 	caPool.AddCert(caCert.X509Cert)
 
-	proxyURL, err := url.Parse("http://" + proxyServer.Address())
+	proxyURL, err := url.Parse("http://" + h.proxy.Address())
 	require.NoError(t, err)
 
-	client := &http.Client{
+	h.client = &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			Proxy:           http.ProxyURL(proxyURL),
@@ -105,28 +118,21 @@ func New(t *testing.T, opts ...Option) *Harness {
 		},
 	}
 
-	return &Harness{
-		t:        t,
-		Registry: registry,
-		Analyzer: rec,
-		Confirm:  confirm,
-		stats:    stats,
-		proxy:    proxyServer,
-		client:   client,
-		confChan: confChan,
-	}
+	return h
 }
 
-func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, upstreamAddr string, interceptorList []proxy.Interceptor) proxy.ProxyServer {
+func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, upstreamAddr string, interceptorList []proxy.Interceptor, recordDial func(string)) proxy.ProxyServer {
 	t.Helper()
 
 	cfg := proxy.DefaultProxyConfig()
 	cfg.CertManager = certMgr
 	cfg.Interceptors = interceptorList
 
-	// All upstream connections terminate at the mock registry, so no test ever
-	// reaches the network regardless of the registry hostname being proxied.
-	cfg.UpstreamDialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+	// All upstream connections — MITM'd round-trips and CONNECT tunnels for
+	// non-MITM hosts alike — terminate at the mock registry, so no test reaches
+	// the network regardless of the hostname being proxied.
+	cfg.UpstreamDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		recordDial(addr)
 		return (&net.Dialer{}).DialContext(ctx, network, upstreamAddr)
 	}
 	// Test-only: the mock's self-signed cert cannot match the real registry SNIs
@@ -160,6 +166,23 @@ func (h *Harness) BlockedPackages() []*analyzer.PackageVersionAnalysisResult {
 }
 
 func (h *Harness) CooldownBlocks() []models.CooldownBlock { return h.stats.GetCooldownBlocks() }
+
+func (h *Harness) recordDial(addr string) {
+	h.dialMu.Lock()
+	defer h.dialMu.Unlock()
+	h.dialedAddrs = append(h.dialedAddrs, addr)
+}
+
+// DialedAddrs returns the upstream addresses the proxy was asked to connect to,
+// before redirection to the mock. A non-MITM host appearing here proves its
+// CONNECT tunnel went through the override rather than the real network.
+func (h *Harness) DialedAddrs() []string {
+	h.dialMu.Lock()
+	defer h.dialMu.Unlock()
+	out := make([]string, len(h.dialedAddrs))
+	copy(out, h.dialedAddrs)
+	return out
+}
 
 // RawClient returns an HTTP client wired through the proxy and trusting the MITM
 // CA, for edge cases the install drivers do not model.

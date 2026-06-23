@@ -231,6 +231,21 @@ func TestProxyFlow_Npm(t *testing.T) {
 	})
 }
 
+// A host the interceptors observe but never MITM (test.pypi.org) is tunneled via
+// CONNECT. The override must route that tunnel to the mock so no proxy path
+// escapes to the real network.
+func TestProxyFlow_NonMitmHostStaysHermetic(t *testing.T) {
+	applyConfig(t, nil)
+
+	h := New(t)
+	defer h.Close()
+
+	_, _ = h.RawClient().Get("https://test.pypi.org/simple/requests/")
+
+	assert.Contains(t, h.DialedAddrs(), "test.pypi.org:443",
+		"non-MITM CONNECT tunnel must be dialed through the mock override")
+}
+
 func TestProxyFlow_Pypi(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
