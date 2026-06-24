@@ -109,6 +109,15 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
+			// The persistent proxy manages cloud delivery itself (the daemon
+			// flushes synchronously on shutdown), so disable the detached
+			// background auto-sync for proxy invocations. Otherwise it would
+			// spawn a redundant child that contends for the sync lock and, from
+			// `pmg proxy stop`, routes through the now-stopped proxy.
+			if isProxyCommand(cmd) {
+				config.Get().Config.Cloud.AutoSync.Enabled = false
+			}
+
 			config.FinalizeDependencyCooldownOverride()
 
 			// Parse and validate --sandbox-allow flags after all flags are resolved
@@ -215,4 +224,14 @@ func logDebugContext() {
 	log.Debugf("Cloud sync enabled: %t, telemetry disabled: %t", cfg.Config.Cloud.Enabled, cfg.Config.DisableTelemetry)
 	log.Debugf("Dry run: %t, insecure installation: %t, trusted packages: %d",
 		cfg.DryRun, cfg.InsecureInstallation, len(cfg.Config.TrustedPackages))
+}
+
+// isProxyCommand reports whether cmd is `pmg proxy` or one of its subcommands.
+func isProxyCommand(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "proxy" {
+			return true
+		}
+	}
+	return false
 }

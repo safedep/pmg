@@ -8,7 +8,7 @@ on:
       - main
     paths:
       - "cmd/proxy/**"
-      - "internal/proxystate/**"
+      - "internal/proxyserver/**"
       - "internal/flows/cert.go"
       - "action.yml"
 
@@ -20,6 +20,11 @@ jobs:
     name: Persistent Proxy E2E
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_API_KEY }}
+      SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_TENANT_ID }}
+      PMG_CLOUD_ENABLED: "true"
+      PMG_CLOUD_ENDPOINT_ID: github-actions/${{ github.repository }}
     defaults:
       run:
         shell: bash
@@ -48,9 +53,6 @@ jobs:
 
       - name: Add pmg to PATH
         run: echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
-
-      - name: Setup PMG CA
-        run: pmg setup cert install
 
       - name: Start proxy daemon
         run: pmg proxy start --daemon
