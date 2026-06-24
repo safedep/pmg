@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/safedep/pmg/config"
 )
 
 const stateFileName = "proxy-state.json"
@@ -60,4 +62,13 @@ func (s State) IsRunning() bool {
 		return false
 	}
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// ResolveStatePath returns the effective state file path: the flag override
+// when set, otherwise <cacheDir>/proxy-state.json.
+func ResolveStatePath(flag string, cfg *config.RuntimeConfig) string {
+	if flag != "" {
+		return flag
+	}
+	return stateFilePath(cfg.CacheDir())
 }

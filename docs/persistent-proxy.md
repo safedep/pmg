@@ -206,14 +206,9 @@ Daemonization is **Unix only**. On Windows, `--daemon` returns a clear
 
 ## Usage
 
-Local shell:
-
-```bash
-pmg proxy start --daemon
-export $(pmg proxy env | xargs)
-npm install            # routed through the proxy, no pmg wrapper
-pmg proxy stop --fail-on-violation
-```
+The persistent server targets non-interactive CI/CD. For local development use
+the default proxy mode (`pmg npm install`), which keeps the interactive malware
+confirmation prompt; the persistent server auto-blocks without prompting.
 
 GitHub Actions (raw commands):
 
