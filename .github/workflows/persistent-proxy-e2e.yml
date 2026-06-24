@@ -89,6 +89,9 @@ jobs:
           python -m pip install safedep-test-pkg
           deactivate && rm -rf venv
 
+      - name: Install Dependencies from composite
+        uses: ./.github/actions/install
+
       - name: Stop proxy
         if: always()
         run: pmg proxy stop

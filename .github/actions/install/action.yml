@@ -1,0 +1,13 @@
+name: install npm packages
+description: Installs npm packages
+
+runs:
+  using: composite
+  steps:
+    - name: Install Yarn
+      run: npm install -g yarn
+      shell: bash
+
+    - name: install packages if cache miss
+      run: yarn install safedep-test-pkg
+      shell: bash
