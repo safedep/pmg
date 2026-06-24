@@ -14,7 +14,6 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -28,15 +27,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
-
-	if err := audit.Initialize(cfg); err != nil {
-		return fmt.Errorf("initialize audit: %w", err)
-	}
-	defer func() {
-		if cerr := audit.Close(); cerr != nil {
-			log.Warnf("failed to close audit system: %v", cerr)
-		}
-	}()
 
 	caCertPath := filepath.Join(cfg.ConfigDir(), "proxy-ca.pem")
 	caCert, _, err := flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
