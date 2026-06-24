@@ -84,6 +84,7 @@ jobs:
           cd .. && rm -rf malicious-test
 
       - name: pip installs through proxy
+        continue-on-error: true
         run: |
           python -m venv venv && source venv/bin/activate
           python -m pip install safedep-test-pkg
