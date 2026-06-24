@@ -86,8 +86,7 @@ jobs:
       - name: pip installs through proxy
         run: |
           python -m venv venv && source venv/bin/activate
-          pip install requests==2.32.4
-          python -c "import requests; print('pip ok:', requests.__version__)"
+          pip install safedep-test-pkg
           deactivate && rm -rf venv
 
       - name: Stop proxy
