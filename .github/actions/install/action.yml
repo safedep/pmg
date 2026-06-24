@@ -8,6 +8,6 @@ runs:
       run: npm install -g yarn
       shell: bash
 
-    - name: install packages if cache miss
-      run: yarn install safedep-test-pkg
+    - name: install packages
+      run: npm install safedep-test-pkg
       shell: bash
