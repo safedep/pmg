@@ -13,28 +13,11 @@ import (
 	"github.com/safedep/pmg/config"
 )
 
-// EventType represents the type of event being logged
-type EventType string
-
-const (
-	EventTypeMalwareBlocked        EventType = "malware_blocked"
-	EventTypeMalwareConfirmed      EventType = "malware_confirmed"
-	EventTypeInstallAllowed        EventType = "install_allowed"
-	EventTypeInstallTrustedAllowed EventType = "install_trusted_allowed"
-	EventTypeInstallStarted        EventType = "install_started"
-	EventTypeDependencyResolved    EventType = "dependency_resolved"
-	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
-	EventTypeProxyHostObserved     EventType = "proxy_host_observed"
-	EventTypeDependencyCooldown    EventType = "dependency_cooldown"
-	EventTypeCooldownSkipped       EventType = "dependency_cooldown_skipped"
-	EventTypeSandboxOverride       EventType = "sandbox_override"
-	EventTypeError                 EventType = "error"
-)
-
-// Event represents a security event
+// Event is the on-disk DTO for a logged security event. The event vocabulary is
+// owned by the audit package; here event_type is just a JSON string column.
 type Event struct {
 	Timestamp   time.Time              `json:"timestamp"`
-	EventType   EventType              `json:"event_type"`
+	EventType   string                 `json:"event_type"`
 	Message     string                 `json:"message"`
 	PackageName string                 `json:"package_name,omitempty"`
 	Version     string                 `json:"version,omitempty"`

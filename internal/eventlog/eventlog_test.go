@@ -57,7 +57,7 @@ func TestLogEvent(t *testing.T) {
 
 	// Log an event
 	event := Event{
-		EventType:   EventTypeMalwareBlocked,
+		EventType:   "malware_blocked",
 		Message:     "Test malware blocked",
 		PackageName: "evil-package",
 		Version:     "1.0.0",
@@ -81,7 +81,7 @@ func TestLogEvent(t *testing.T) {
 	assert.NoError(t, err, "Failed to parse logged event")
 
 	// Verify the event
-	assert.Equal(t, EventTypeMalwareBlocked, loggedEvent.EventType)
+	assert.Equal(t, "malware_blocked", loggedEvent.EventType)
 	assert.Equal(t, "evil-package", loggedEvent.PackageName)
 }
 
@@ -97,7 +97,7 @@ func TestLogEventMalwareBlocked(t *testing.T) {
 	}()
 
 	err = LogEvent(Event{
-		EventType:   EventTypeMalwareBlocked,
+		EventType:   "malware_blocked",
 		Message:     "Blocked installation of malicious package: malicious-pkg@2.0.0",
 		PackageName: "malicious-pkg",
 		Version:     "2.0.0",
@@ -114,7 +114,7 @@ func TestLogEventMalwareBlocked(t *testing.T) {
 	err = json.Unmarshal(data, &event)
 	assert.NoError(t, err, "Failed to parse event")
 
-	assert.Equal(t, EventTypeMalwareBlocked, event.EventType)
+	assert.Equal(t, "malware_blocked", event.EventType)
 	assert.Equal(t, "malicious-pkg", event.PackageName)
 	assert.Equal(t, "pypi", event.Ecosystem)
 }
@@ -131,7 +131,7 @@ func TestLogEventProxyHostObserved(t *testing.T) {
 	}()
 
 	err = LogEvent(Event{
-		EventType: EventTypeProxyHostObserved,
+		EventType: "proxy_host_observed",
 		Message:   "Proxy observed outbound host: example.com",
 		Details: map[string]interface{}{
 			"hostname":   "example.com",
@@ -150,7 +150,7 @@ func TestLogEventProxyHostObserved(t *testing.T) {
 	err = json.Unmarshal(data, &event)
 	assert.NoError(t, err, "Failed to parse event")
 
-	assert.Equal(t, EventTypeProxyHostObserved, event.EventType)
+	assert.Equal(t, "proxy_host_observed", event.EventType)
 	assert.Equal(t, "example.com", event.Details["hostname"])
 	assert.Equal(t, "CONNECT", event.Details["method"])
 	assert.Equal(t, "connect_tunnel_no_interceptor", event.Details["reason"])
@@ -179,7 +179,7 @@ func TestInitializeWithFile(t *testing.T) {
 
 	// Log an event
 	event := Event{
-		EventType:   EventTypeMalwareBlocked,
+		EventType:   "malware_blocked",
 		Message:     "Test custom file logging",
 		PackageName: "test-package",
 		Version:     "1.0.0",
