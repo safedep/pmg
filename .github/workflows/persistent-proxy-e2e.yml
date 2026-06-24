@@ -86,7 +86,7 @@ jobs:
       - name: pip installs through proxy
         run: |
           python -m venv venv && source venv/bin/activate
-          pip install safedep-test-pkg
+          python -m pip install safedep-test-pkg
           deactivate && rm -rf venv
 
       - name: Stop proxy
