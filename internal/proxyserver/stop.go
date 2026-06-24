@@ -1,19 +1,22 @@
 package proxyserver
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/config"
 )
 
 const (
 	stopPollInterval = 200 * time.Millisecond
-	stopPollTimeout  = 10 * time.Second
+
+	// stopWaitTimeout must exceed the daemon's worst-case shutdown (drain + cloud
+	// flush), so we never read stale state or delete the state file while the
+	// daemon is still flushing. Derived from the daemon's budget so the two can't
+	// drift apart.
+	stopWaitTimeout = daemonShutdownBudget + 15*time.Second
 )
 
 // StopResult carries the outcome of stopping the proxy so the caller can render
@@ -24,13 +27,17 @@ type StopResult struct {
 	// StateVerified is false when the final state could not be read after
 	// shutdown (e.g. the proxy crashed), which callers may treat as fail-closed.
 	StateVerified bool
+	// CloudSync is the daemon's shutdown flush outcome (nil when cloud sync is
+	// disabled), surfaced so the caller can report it.
+	CloudSync *CloudSyncResult
 }
 
-// Stop signals the running proxy to terminate, waits for it to exit, flushes
-// pending audit events to the cloud, and removes the state file. It returns a
-// StopResult describing the run. Operational failures (no proxy running, signal
-// errors) are returned as errors.
-func Stop(ctx context.Context, cfg *config.RuntimeConfig, statePath string) (StopResult, error) {
+// Stop signals the running proxy to terminate, waits for it to exit, and
+// removes the state file. It returns a StopResult describing the run. The
+// daemon flushes audit events to the cloud itself during shutdown (it, unlike
+// this process, has no proxy env vars). Operational failures (no proxy running,
+// signal errors) are returned as errors.
+func Stop(statePath string) (StopResult, error) {
 	state, err := readState(statePath)
 	if err != nil {
 		return StopResult{}, fmt.Errorf("no proxy state found — is the proxy running? (%w)", err)
@@ -51,12 +58,22 @@ func Stop(ctx context.Context, cfg *config.RuntimeConfig, statePath string) (Sto
 		return StopResult{}, fmt.Errorf("send SIGTERM to proxy (pid %d): %w", state.PID, err)
 	}
 
-	deadline := time.Now().Add(stopPollTimeout)
+	deadline := time.Now().Add(stopWaitTimeout)
+	exited := false
 	for time.Now().Before(deadline) {
 		if !state.IsRunning() {
+			exited = true
 			break
 		}
 		time.Sleep(stopPollInterval)
+	}
+
+	// If the daemon is still alive it is likely mid-flush. Do not read the state
+	// (it is not final yet) or remove the file (the daemon still owns it).
+	// Return an error so --fail-on-violation fails closed rather than reporting
+	// a stale "0 blocked".
+	if !exited {
+		return StopResult{}, fmt.Errorf("proxy (pid %d) did not shut down within %s; leaving state file in place", state.PID, stopWaitTimeout)
 	}
 
 	final, readErr := readState(statePath)
@@ -64,14 +81,10 @@ func Stop(ctx context.Context, cfg *config.RuntimeConfig, statePath string) (Sto
 		log.Warnf("failed to remove proxy state file: %v", rerr)
 	}
 
-	// Flush events to cloud before the (potentially ephemeral) host goes away.
-	if ferr := flushCloudEvents(ctx, cfg); ferr != nil {
-		log.Warnf("cloud event flush failed: %v", ferr)
-	}
-
 	return StopResult{
 		PID:           state.PID,
 		BlockedCount:  final.BlockedCount,
 		StateVerified: readErr == nil,
+		CloudSync:     final.CloudSync,
 	}, nil
 }

@@ -15,10 +15,22 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+)
+
+const (
+	serverStopTimeout     = 5 * time.Second
+	cloudFlushLockTimeout = 30 * time.Second
+	cloudFlushTimeout     = 2 * time.Minute
+
+	// daemonShutdownBudget is the worst-case time the daemon needs to shut down
+	// (drain in-flight requests, then flush to cloud). `pmg proxy stop` waits at
+	// least this long for the daemon to exit; see stopWaitTimeout.
+	daemonShutdownBudget = serverStopTimeout + cloudFlushLockTimeout + cloudFlushTimeout
 )
 
 type ProxyDaemonConfig struct {
@@ -94,7 +106,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 		CACertPath: caCertPath,
 	}
 	if err := writeState(statePath, state); err != nil {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
 		defer cancel()
 		if serr := server.Stop(stopCtx); serr != nil {
 			log.Warnf("failed to stop proxy after state write failure: %v", serr)
@@ -113,17 +125,41 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 
 	// Drain in-flight requests before closing the confirmation channel, so no
 	// request handler can send on a closed channel (panic) during shutdown.
-	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
 	defer cancel()
 	stopErr := server.Stop(stopCtx)
 
 	close(confirmationChan)
 
 	// Count is read after drain so a package analyzed at shutdown is not missed.
-	// Stop (the command) is responsible for removing the state file.
+	// Persist it BEFORE the (possibly slow) cloud flush so the blocked count
+	// survives even if the flush hangs or the daemon is killed mid-flush, which
+	// keeps `stop --fail-on-violation` correct in those cases.
 	state.BlockedCount = stats.GetStats().BlockedCount
 	if werr := writeState(statePath, state); werr != nil {
 		log.Warnf("failed to write final proxy state: %v", werr)
+	}
+
+	// Flush audit events to SafeDep Cloud from the daemon. Unlike `pmg proxy
+	// stop`, the daemon has no proxy env vars (it started before `pmg proxy env`
+	// injected them), so its cloud client dials SafeDep directly instead of
+	// routing through the proxy that is now shutting down. The result is
+	// recorded in the state file so `stop` can report it (the daemon's own logs
+	// are not visible to the stop process). Uses a fresh context because the
+	// caller's may already be cancelled at shutdown.
+	if cfg.Config.Cloud.Enabled {
+		synced, ferr := audit.DrainToCloud(context.Background(), cfg, cloudFlushLockTimeout, cloudFlushTimeout)
+		state.CloudSync = &CloudSyncResult{Synced: synced}
+		if ferr != nil {
+			state.CloudSync.Error = ferr.Error()
+			log.Warnf("cloud event flush failed: %v", ferr)
+		} else {
+			log.Infof("Flushed %d events to SafeDep Cloud", synced)
+		}
+
+		if werr := writeState(statePath, state); werr != nil {
+			log.Warnf("failed to write final proxy state: %v", werr)
+		}
 	}
 
 	return stopErr

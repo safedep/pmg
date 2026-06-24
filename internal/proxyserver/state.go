@@ -19,6 +19,18 @@ type State struct {
 	Addr         string `json:"addr"`
 	CACertPath   string `json:"ca_cert_path"`
 	BlockedCount int    `json:"blocked_count"`
+
+	// CloudSync records the daemon's shutdown cloud flush so `pmg proxy stop`
+	// can report the outcome. The daemon's own logs go to proxy.log (and are
+	// suppressed without --debug), so the state file is how the result reaches
+	// the stop process. nil when cloud sync is disabled.
+	CloudSync *CloudSyncResult `json:"cloud_sync,omitempty"`
+}
+
+// CloudSyncResult is the outcome of the daemon's shutdown flush to SafeDep Cloud.
+type CloudSyncResult struct {
+	Synced int    `json:"synced"`
+	Error  string `json:"error,omitempty"`
 }
 
 func stateFilePath(dir string) string {

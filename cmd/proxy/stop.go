@@ -27,17 +27,30 @@ func newStopCommand() *cobra.Command {
 	return cmd
 }
 
-func runStop(cmd *cobra.Command, _ []string) error {
+func runStop(_ *cobra.Command, _ []string) error {
 	cfg := config.Get()
 	statePath := proxyserver.ResolveStatePath(stateFlag, cfg)
 
-	res, err := proxyserver.Stop(cmd.Context(), cfg, statePath)
+	res, err := proxyserver.Stop(statePath)
 	if err != nil {
 		ui.ErrorExit(err)
 	}
 
-	// On a policy violation the framed error carries the message; return before
-	// printing the plain summary so the blocked count is not stated twice.
+	// Surface the daemon's cloud flush outcome before the violation gate, so it
+	// shows on both the success and the failure path (the daemon's own logs are
+	// not visible to this process). nil means cloud sync is disabled.
+	if res.CloudSync != nil {
+		line := fmt.Sprintf("Synced %d event(s) to SafeDep Cloud\n", res.CloudSync.Synced)
+		if res.CloudSync.Error != "" {
+			line = fmt.Sprintf("Cloud sync failed: %s\n", res.CloudSync.Error)
+		}
+		if _, werr := fmt.Fprint(os.Stdout, line); werr != nil {
+			ui.ErrorExit(werr)
+		}
+	}
+
+	// On a policy violation the framed error states the blocked count, so exit
+	// here before the plain summary to avoid stating the count twice.
 	if verr := stopExitError(res, failOnViolation); verr != nil {
 		ui.ErrorExit(verr)
 	}
