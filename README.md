@@ -223,6 +223,29 @@ is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
 `config-file` at a YAML in the repo. See
 [docs/github-action.md](docs/github-action.md) for the full reference.
 
+### Persistent proxy mode (GitHub Actions)
+
+Run PMG as a background proxy that intercepts every package manager in the job
+via environment variables — no shims, no `pmg` wrapper on each command.
+
+```yaml
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    api-key: ${{ secrets.SAFEDEP_API_KEY }}
+    tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
+
+- run: npm ci          # intercepted via HTTP_PROXY automatically
+
+- name: Enforce PMG policy
+  if: always()
+  run: pmg proxy stop --fail-on-violation   # drains, flushes cloud, fails on block
+```
+
+The final `pmg proxy stop --fail-on-violation` step is required: it stops the
+proxy, flushes audit events to SafeDep Cloud, and fails the job if any package
+was blocked. (Composite actions cannot run an automatic cleanup step.)
+
 ## Uninstallation
 
 Remove shell integration:
