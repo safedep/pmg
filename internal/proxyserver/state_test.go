@@ -23,6 +23,15 @@ func TestWriteAndReadState(t *testing.T) {
 	assert.Equal(t, s.CACertPath, got.CACertPath)
 }
 
+func TestWriteStateCreatesMissingDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "dir", "proxy-state.json")
+	require.NoError(t, writeState(path, State{PID: 1, Addr: "127.0.0.1:1"}))
+
+	got, err := readState(path)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.PID)
+}
+
 func TestReadStateMissingFile(t *testing.T) {
 	_, err := readState(filepath.Join(t.TempDir(), "nonexistent.json"))
 	assert.Error(t, err)

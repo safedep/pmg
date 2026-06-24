@@ -28,6 +28,9 @@ func writeState(path string, s State) error {
 	if err != nil {
 		return fmt.Errorf("marshal proxy state: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create proxy state dir: %w", err)
+	}
 	return os.WriteFile(path, data, 0o600)
 }
 

@@ -24,6 +24,9 @@ func Daemonize(cfg *config.RuntimeConfig, statePath string, args []string) (Stat
 	}
 
 	logPath := filepath.Join(cfg.CacheDir(), "proxy.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		return State{}, fmt.Errorf("create daemon log dir: %w", err)
+	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return State{}, fmt.Errorf("open daemon log %s: %w", logPath, err)
