@@ -73,6 +73,11 @@ inputs:
     required: false
     default: "false"
 
+  server-mode:
+    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job. Requires a job-end "pmg proxy stop --fail-on-violation" step.
+    required: false
+    default: "false"
+
 runs:
   using: composite
   steps:
@@ -292,13 +297,24 @@ runs:
         export_var PMG_DISABLE_TELEMETRY            "$IN_DISABLE_TELEMETRY"
         export_var PMG_SKIP_EVENT_LOGGING           "$IN_SKIP_EVENT_LOGGING"
 
-    - name: Run pmg setup install
+    - name: Run pmg setup install (shim mode)
+      if: inputs.server-mode != 'true'
       shell: bash
       run: pmg setup install
 
-    - name: Add PMG shims to PATH
+    - name: Add PMG shims to PATH (shim mode)
+      if: inputs.server-mode != 'true'
       shell: bash
       run: echo "$HOME/.pmg/bin" >> "$GITHUB_PATH"
+
+    - name: Start PMG proxy server (server mode)
+      if: inputs.server-mode == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        pmg setup cert install
+        pmg proxy start --daemon
+        pmg proxy env >> "$GITHUB_ENV"
 
     - name: Verify PMG
       shell: bash
