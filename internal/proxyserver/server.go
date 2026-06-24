@@ -3,9 +3,10 @@ package proxyserver
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -20,6 +21,11 @@ import (
 	"github.com/safedep/pmg/proxy/interceptors"
 )
 
+type ProxyDaemonConfig struct {
+	LogPath  string
+	CacheDir string
+}
+
 // Run starts the persistent proxy server in the foreground and blocks until it
 // receives SIGINT/SIGTERM. It writes the state file on startup, auto-blocks
 // suspicious packages, and records the final blocked count on shutdown.
@@ -28,7 +34,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
 
-	caCertPath := filepath.Join(cfg.ConfigDir(), "proxy-ca.pem")
+	caCertPath := certmanager.ProxyCABundlePath(cfg.ConfigDir())
 	caCert, _, err := flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
 	if err != nil {
 		return fmt.Errorf("setup CA certificate: %w", err)
@@ -69,9 +75,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 	interceptorList = append(interceptorList, interceptors.NewAuditLoggerInterceptor())
 
 	proxyConfig := pmgproxy.DefaultProxyConfig()
-	if port != 0 {
-		proxyConfig.ListenAddr = fmt.Sprintf("127.0.0.1:%d", port)
-	}
+	proxyConfig.ListenAddr = listenAddr(cfg, port)
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 
@@ -123,6 +127,17 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 	}
 
 	return stopErr
+}
+
+// listenAddr resolves the proxy's bind address from config (host) and the
+// --port flag. Host defaults to loopback.
+func listenAddr(cfg *config.RuntimeConfig, port int) string {
+	host := cfg.Config.Proxy.Server.ListenHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // autoBlockConfirmations drains the confirmation channel and always denies,

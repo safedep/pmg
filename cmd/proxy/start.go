@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -41,14 +42,27 @@ func runStart(cmd *cobra.Command, _ []string) error {
 			args = append(args, "--port", strconv.Itoa(portFlag))
 		}
 
-		state, err := proxyserver.Daemonize(cfg, statePath, args)
+		exe, err := os.Executable()
 		if err != nil {
-			return err
+			ui.ErrorExit(fmt.Errorf("resolve executable: %w", err))
 		}
 
-		_, werr := fmt.Fprintf(os.Stdout, "PMG proxy daemon started on %s (pid %d)\n", state.Addr, state.PID)
-		return werr
+		config := proxyserver.ProxyDaemonConfig{LogPath: "proxy.log", CacheDir: cfg.CacheDir()}
+		state, err := proxyserver.Daemonize(config, statePath, exe, args)
+		if err != nil {
+			ui.ErrorExit(err)
+		}
+
+		if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy daemon started on %s (pid %d)\n", state.Addr, state.PID); werr != nil {
+			ui.ErrorExit(werr)
+		}
+
+		return nil
 	}
 
-	return proxyserver.Run(cmd.Context(), cfg, statePath, portFlag)
+	if err := proxyserver.Run(cmd.Context(), cfg, statePath, portFlag); err != nil {
+		ui.ErrorExit(err)
+	}
+
+	return nil
 }

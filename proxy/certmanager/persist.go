@@ -9,10 +9,28 @@ import (
 const (
 	caCertFileName = "ca-cert.pem"
 	caKeyFileName  = "ca-key.pem"
+
+	// proxyCABundleFileName is the merged CA bundle (PMG CA + system roots) that
+	// proxy clients trust via SSL_CERT_FILE/NODE_EXTRA_CA_CERTS. It is distinct
+	// from caCertFileName, which is just the PMG CA. Owned here so callers don't
+	// invent their own names.
+	proxyCABundleFileName = "proxy-ca.pem"
 )
 
 func CACertPath(dir string) string { return filepath.Join(dir, caCertFileName) }
 func CAKeyPath(dir string) string  { return filepath.Join(dir, caKeyFileName) }
+
+// ProxyCABundlePath returns the stable, machine-local path of the merged CA
+// bundle. Used by the persistent proxy, whose daemon/env/stop processes all
+// reference the same file for the proxy's lifetime.
+func ProxyCABundlePath(dir string) string { return filepath.Join(dir, proxyCABundleFileName) }
+
+// EphemeralProxyCABundlePath returns a per-process temp path for the merged CA
+// bundle. Used by the per-command flow, which writes a throwaway bundle and
+// removes it on exit; the pid keeps concurrent runs from colliding.
+func EphemeralProxyCABundlePath() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("pmg-%d-%s", os.Getpid(), proxyCABundleFileName))
+}
 
 // PersistentCACertManagerConfig returns the config for the on-disk,
 // system-trusted CA. The root is long-lived (10 years) because rotating an

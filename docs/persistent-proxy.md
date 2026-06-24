@@ -102,8 +102,9 @@ pmg proxy status [--state PATH]
 
 - **`start`** starts the server. `--daemon`/`-D` detaches into a background
   process (Unix only); without it the server runs in the foreground. `--port`
-  binds a fixed loopback port (default: random). It refuses to start if a live
-  proxy is already recorded in the state file.
+  binds a fixed port (default: random). The bind host is `127.0.0.1` by default
+  and configurable via `proxy.server.listen_host` (see [Bind address](#bind-address)).
+  It refuses to start if a live proxy is already recorded in the state file.
 - **`stop`** signals the running proxy, drains it, flushes events to the cloud,
   and removes the state file. `--fail-on-violation` makes the command exit
   non-zero when one or more packages were blocked (see
@@ -114,6 +115,20 @@ pmg proxy status [--state PATH]
   present.
 
 `--state` is shared by all subcommands and overrides the state file location.
+
+## Bind address
+
+The proxy binds `127.0.0.1` by default, so it is reachable only from the host
+(the right choice for CI and local use). The host is configurable via
+`proxy.server.listen_host` (or the `PMG_PROXY_SERVER_LISTEN_HOST` environment
+variable); `--port` selects the port. The effective address is
+`<listen_host>:<port>`.
+
+Set `listen_host` to `0.0.0.0` or a specific interface **only** for a
+deliberately hosted deployment. A non-loopback bind exposes the MITM proxy to
+the network: any client routed through it has its HTTPS intercepted and must
+trust the PMG CA. Keep it loopback unless you are intentionally running a shared
+proxy service.
 
 ## State file
 
@@ -146,19 +161,46 @@ The daemon also writes a log to `<cache-dir>/proxy.log` when run with `--daemon`
 
 ## Certificate trust
 
-The proxy performs TLS MITM, so clients must trust its CA. The CA is set up the
-same way as the default proxy flow (`SetupCACertificate`). It prefers the
-persisted CA created by `pmg setup cert install`, falling back to an ephemeral
-CA merged with the system bundle, written to `<config-dir>/proxy-ca.pem`.
+The proxy performs TLS MITM, so clients must trust its CA. On start the proxy
+sets up the CA (`SetupCACertificate`): it reuses the persisted CA from
+`pmg setup cert install` if present, otherwise generates an ephemeral one, and
+writes it merged with the system bundle to `<config-dir>/proxy-ca.pem`.
 
-`pmg proxy env` adapts its output to how the CA is trusted.
+### Trust comes from environment variables, not the OS trust store
 
-- **CA in the OS trust store** (user or system): `env` emits only the proxy URL
-  variables and omits the cert-path variables, because native TLS stacks already
-  trust the CA.
-- **CA not in the OS trust store:** `env` additionally emits per-tool CA
-  variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-  `PIP_CERT`, `YARN_HTTPS_CA_FILE_PATH`) pointing at `ca_cert_path`.
+`pmg proxy env` always emits the cert-path variables pointing at that bundle:
+`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`,
+`YARN_HTTPS_CA_FILE_PATH`. Package managers pick these up from the job
+environment and trust the proxy's CA, with no OS trust-store install required.
+
+This is deliberate: whether a tool consults the OS trust store varies by tool,
+version, and config (npm/Node ignore it by default; modern pip can read it;
+`requests`/`certifi` ship their own bundle). The cert-path vars work across all
+of them, and are harmlessly ignored by tools that do read the OS store. They are
+always emitted, never skipped based on OS-trust status, so a tool on a bundled
+CA store is never silently left untrusted.
+
+### Why `pmg setup cert install` is not needed here
+
+Because trust is env-var based, the persistent proxy does not require the CA in
+the OS trust store. In particular, on Linux `pmg setup cert install` (without
+`--system`) is a no-op for trust: Linux has no per-user trust store, so it only
+persists the keypair. The proxy works regardless: with no persisted CA it just
+generates an ephemeral one, and `pmg proxy env` carries the trust.
+
+OS trust-store install (`pmg setup cert install --system`) is intentionally
+not used. It is a poor default because it:
+
+- needs root, so it breaks on container jobs and locked-down self-hosted
+  runners where the env-var approach works fine;
+- persistently installs a MITM-capable CA into the machine trust store, which
+  lingers after the run on non-ephemeral (self-hosted) runners;
+- does not even remove the need for the env vars, since npm/Node ignore the OS
+  store by default and still require `NODE_EXTRA_CA_CERTS`.
+
+It only pays off for tools that ignore the cert env vars, or for a future
+network-level enforcement model where env vars don't apply (see Limitations).
+When that's needed it belongs behind an explicit opt-in, not the default.
 
 Loopback addresses are always excluded from proxying via `NO_PROXY`
 (`localhost,127.0.0.1,::1`).
@@ -243,8 +285,10 @@ the proxy, flushes events to the cloud, and fails the job on a block.
 
 ## Security model
 
-- **Loopback only.** The proxy binds `127.0.0.1` (random or `--port`), never a
-  routable interface, so it is not exposed to the network.
+- **Loopback by default.** The proxy binds `127.0.0.1` unless
+  `proxy.server.listen_host` is changed, so by default it is not exposed to the
+  network. Binding a non-loopback address (for a hosted deployment) is a
+  deliberate choice that exposes the MITM proxy; see [Bind address](#bind-address).
 - **Auto-block, fail-closed.** Suspicious packages are denied without an
   interactive prompt (appropriate for non-interactive CI), and the optional gate
   fails closed on an unverifiable shutdown.

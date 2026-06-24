@@ -1,10 +1,9 @@
 package cloud
 
 import (
-	"context"
+	"errors"
 	"time"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
@@ -43,50 +42,14 @@ func runSync(cmd *cobra.Command, args []string) error {
 			WithHelp("Set 'cloud.enabled: true' in PMG config to enable cloud sync"))
 	}
 
-	lock := audit.NewSyncLock(cfg.CloudSyncLockPath())
-	lockCtx, lockCancel := context.WithTimeout(cmd.Context(), manualSyncLockTimeout)
-	defer lockCancel()
-
-	locked, err := lock.TryLockContext(lockCtx, 250*time.Millisecond)
+	synced, err := audit.DrainToCloud(cmd.Context(), cfg, manualSyncLockTimeout, syncTimeout)
 	if err != nil {
-		ui.ErrorExit(usefulerror.NewUsefulError().
-			Wrap(err).
-			WithCode(errcodes.Lifecycle).
-			WithHumanError("Failed to acquire cloud sync lock").
-			WithHelp("Another sync may be in progress; try again shortly"))
-	}
-	if !locked {
-		ui.ErrorExit(usefulerror.NewUsefulError().
-			WithCode(errcodes.Lifecycle).
-			WithHumanError("Another cloud sync is already in progress").
-			WithHelp("Wait for the in-progress sync to finish, then try again"))
-	}
-	defer func() {
-		if err := lock.Unlock(); err != nil {
-			log.Warnf("failed to release cloud sync lock: %v", err)
+		if errors.Is(err, audit.ErrSyncInProgress) {
+			ui.ErrorExit(usefulerror.NewUsefulError().
+				WithCode(errcodes.Lifecycle).
+				WithHumanError("Another cloud sync is already in progress").
+				WithHelp("Wait for the in-progress sync to finish, then try again"))
 		}
-	}()
-
-	ctx, cancel := context.WithTimeout(cmd.Context(), syncTimeout)
-	defer cancel()
-
-	bundle, err := audit.NewSyncClientBundle(cfg)
-	if err != nil {
-		ui.ErrorExit(usefulerror.NewUsefulError().
-			Wrap(err).
-			WithCode(errcodes.Lifecycle).
-			WithHumanError("Failed to initialize cloud sync client").
-			WithHelp("Run 'pmg cloud login' to store credentials, or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables"))
-	}
-	defer func() {
-		if err := bundle.Close(); err != nil {
-			log.Warnf("failed to close sync client: %v", err)
-		}
-	}()
-
-	synced, err := bundle.Sync(ctx)
-	recordLastSyncAttempt(cfg)
-	if err != nil {
 		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
 			WithCode(errcodes.Network).

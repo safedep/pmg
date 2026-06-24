@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -27,14 +28,19 @@ func runEnv(_ *cobra.Command, _ []string) error {
 
 	vars, err := proxyserver.EnvVars(cfg, statePath)
 	if err != nil {
-		return err
+		ui.ErrorExit(err)
 	}
 
 	w := bufio.NewWriter(os.Stdout)
 	for _, v := range vars {
 		if _, werr := fmt.Fprintln(w, v); werr != nil {
-			return fmt.Errorf("write env var: %w", werr)
+			ui.ErrorExit(fmt.Errorf("write env var: %w", werr))
 		}
 	}
-	return w.Flush()
+
+	if err := w.Flush(); err != nil {
+		ui.ErrorExit(err)
+	}
+
+	return nil
 }

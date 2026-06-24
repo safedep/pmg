@@ -51,6 +51,15 @@ proxy:
   skip_commands:
     npm: []
 
+  # Persistent proxy server (`pmg proxy start`) settings.
+  server:
+    # Address the persistent proxy binds to. Defaults to 127.0.0.1 (loopback),
+    # which keeps the MITM proxy private to the host (the right choice for CI
+    # and local use). Set to 0.0.0.0 or a specific interface ONLY for a
+    # deliberately hosted deployment: a non-loopback bind exposes the proxy,
+    # and every client must trust the PMG CA.
+    listen_host: 127.0.0.1
+
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
 # Example:

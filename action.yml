@@ -312,7 +312,9 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        pmg setup cert install
+        # No cert install needed: `pmg proxy env` exports the CA path via
+        # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
+        # the proxy without touching the OS trust store.
         pmg proxy start --daemon
         pmg proxy env >> "$GITHUB_ENV"
 

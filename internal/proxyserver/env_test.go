@@ -4,12 +4,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildEnvVars(t *testing.T) {
 	state := State{Addr: "127.0.0.1:9000", CACertPath: "/tmp/ca.pem"}
-	s := strings.Join(buildEnvVars(state), "\n")
+	s := strings.Join(buildEnvVars(state, config.Get()), "\n")
 
 	// Proxy URL vars are always present.
 	assert.Contains(t, s, "HTTP_PROXY=http://127.0.0.1:9000")

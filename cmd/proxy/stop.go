@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -32,20 +33,24 @@ func runStop(cmd *cobra.Command, _ []string) error {
 
 	res, err := proxyserver.Stop(cmd.Context(), cfg, statePath)
 	if err != nil {
-		return err
+		ui.ErrorExit(err)
 	}
 
 	if res.StateVerified {
 		if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy stopped — %d package(s) blocked\n", res.BlockedCount); werr != nil {
-			return werr
+			ui.ErrorExit(werr)
 		}
 	} else {
 		if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy (pid %d) stopped (final state unavailable)\n", res.PID); werr != nil {
-			return werr
+			ui.ErrorExit(werr)
 		}
 	}
 
-	return stopExitError(res, failOnViolation)
+	if verr := stopExitError(res, failOnViolation); verr != nil {
+		ui.ErrorExit(verr)
+	}
+
+	return nil
 }
 
 // stopExitError maps a stop result to the command's exit status. With
@@ -59,14 +64,14 @@ func stopExitError(res proxyserver.StopResult, failOnViolation bool) error {
 
 	if !res.StateVerified {
 		return usefulerror.NewUsefulError().
-			WithCode(errcodes.ProxyPackagesBlocked).
+			WithCode(errcodes.ProxyPolicyViolation).
 			WithMsg("proxy shut down but the blocked-package count could not be verified").
 			WithHelp("The proxy may have crashed; treat this run as failed and re-run")
 	}
 
 	if res.BlockedCount > 0 {
 		return usefulerror.NewUsefulError().
-			WithCode(errcodes.ProxyPackagesBlocked).
+			WithCode(errcodes.ProxyPolicyViolation).
 			WithMsg(fmt.Sprintf("%d package(s) were blocked by the proxy", res.BlockedCount)).
 			WithHelp("Review the proxy logs for details on blocked packages")
 	}

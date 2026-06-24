@@ -9,28 +9,24 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
-
-	"github.com/safedep/pmg/config"
 )
 
 // Daemonize re-execs the current binary with args (which must run the proxy in
 // foreground mode), detached into its own session (Setsid), with child stdio
 // redirected to a log file. It waits until the child writes the state file and
 // returns the running state.
-func Daemonize(cfg *config.RuntimeConfig, statePath string, args []string) (State, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return State{}, fmt.Errorf("resolve executable: %w", err)
-	}
+func Daemonize(cfg ProxyDaemonConfig, statePath, exe string, args []string) (State, error) {
+	logPath := filepath.Join(cfg.CacheDir, cfg.LogPath)
 
-	logPath := filepath.Join(cfg.CacheDir(), "proxy.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return State{}, fmt.Errorf("create daemon log dir: %w", err)
 	}
+
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return State{}, fmt.Errorf("open daemon log %s: %w", logPath, err)
 	}
+
 	defer func() { _ = logFile.Close() }()
 
 	cmd := exec.Command(exe, args...)

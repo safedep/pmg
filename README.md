@@ -209,31 +209,9 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 `pip install`, etc. in the job.
 
 ```yaml
-# Consider pinning third-party Actions to a full commit SHA
-- uses: actions/setup-node@v6
-  with:
-    node-version: 24
-- uses: safedep/pmg@v1
-- run: npm ci
-```
-
-By default you get malware blocking and dependency cooldown. Sandbox isolation
-is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
-`sandbox`, `cooldown-days`, ...) or point
-`config-file` at a YAML in the repo. See
-[docs/github-action.md](docs/github-action.md) for the full reference.
-
-### Persistent proxy mode (GitHub Actions)
-
-Run PMG as a background proxy that intercepts every package manager in the job
-via environment variables — no shims, no `pmg` wrapper on each command.
-
-```yaml
 - uses: safedep/pmg@v1
   with:
     server-mode: true
-    api-key: ${{ secrets.SAFEDEP_API_KEY }}
-    tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
 
 - run: npm ci          # intercepted via HTTP_PROXY automatically
 
@@ -242,9 +220,11 @@ via environment variables — no shims, no `pmg` wrapper on each command.
   run: pmg proxy stop --fail-on-violation   # drains, flushes cloud, fails on block
 ```
 
-The final `pmg proxy stop --fail-on-violation` step is required: it stops the
-proxy, flushes audit events to SafeDep Cloud, and fails the job if any package
-was blocked. (Composite actions cannot run an automatic cleanup step.)
+By default you get malware blocking and dependency cooldown. Sandbox isolation
+is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
+`sandbox`, `cooldown-days`, ...) or point
+`config-file` at a YAML in the repo. See
+[docs/github-action.md](docs/github-action.md) for the full reference.
 
 ## Uninstallation
 
@@ -285,6 +265,7 @@ PMG builds are reproducible and signed.
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Caching](docs/caching.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
+- [Persistent Proxy Server](docs/persistent-proxy.md)
 - [Certificate Authority](docs/cert.md)
 - [Sandboxing](docs/sandbox.md)
 

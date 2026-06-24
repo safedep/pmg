@@ -68,3 +68,7 @@ Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat
 | `pip`           | ✅      |
 | `uv`            | ✅      |
 | `poetry`        | ✅      |
+
+## References
+
+- [Persistent Proxy Mode](./persistent-proxy.md)

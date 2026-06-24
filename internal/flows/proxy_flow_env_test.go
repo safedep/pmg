@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func TestSetupEnvForProxyConfiguresYarn(t *testing.T) {
 	const proxyAddr = "127.0.0.1:54321"
 	const caCertPath = "/tmp/pmg-ca-cert.pem"
 
-	env := envToMap(f.setupEnvForProxy(proxyAddr, caCertPath))
+	env := envToMap(f.setupEnvForProxy(proxyAddr, caCertPath, config.Get()))
 
 	proxyURL := "http://" + proxyAddr
 
@@ -47,7 +48,7 @@ func TestSetupEnvForProxyConfiguresYarn(t *testing.T) {
 // "Invalid port: ':1]'".
 func TestSetupEnvForProxyNoProxyIPv6(t *testing.T) {
 	f := &proxyFlow{}
-	env := envToMap(f.setupEnvForProxy("127.0.0.1:54321", "/tmp/pmg-ca-cert.pem"))
+	env := envToMap(f.setupEnvForProxy("127.0.0.1:54321", "/tmp/pmg-ca-cert.pem", config.Get()))
 
 	for _, key := range []string{"NO_PROXY", "no_proxy"} {
 		assert.Equal(t, "localhost,127.0.0.1,::1", env[key],

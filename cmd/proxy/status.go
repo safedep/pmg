@@ -6,6 +6,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +34,9 @@ func runStatus(_ *cobra.Command, _ []string) error {
 		line = fmt.Sprintf("PMG proxy: stopped (stale state for pid %d — run 'pmg proxy stop' to clean up)\n", st.PID)
 	}
 
-	_, err := fmt.Fprint(os.Stdout, line)
-	return err
+	if _, err := fmt.Fprint(os.Stdout, line); err != nil {
+		ui.ErrorExit(err)
+	}
+
+	return nil
 }

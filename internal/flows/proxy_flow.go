@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/safedep/dry/localdb"
@@ -229,7 +228,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		Mode:               runner.ExecutionModeAuto,
-		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath),
+		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath, cfg),
 		DirectEnvOverrides: ciEnvOverride(),
 		BeforeDirectRun: func() error {
 			log.Debugf("Executing proxy for non interactive TTY")
@@ -329,7 +328,7 @@ func handleExecutionResultError(err error) error {
 
 func (f *proxyFlow) setupCACertificate() (*certmanager.Certificate, string, error) {
 	dir := config.Get().ConfigDir()
-	outputPath := filepath.Join(os.TempDir(), fmt.Sprintf("pmg-ca-cert-%d.pem", os.Getpid()))
+	outputPath := certmanager.EphemeralProxyCABundlePath()
 	cert, _, err := SetupCACertificate(dir, outputPath)
 	return cert, outputPath, err
 }
@@ -387,7 +386,7 @@ func ciEnvOverride() []string {
 	return []string{"CI=true"}
 }
 
-func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
+func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string, cfg *config.RuntimeConfig) []string {
 	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
 
 	// IPv6 loopback uses the bare ::1: the bracketed [::1] is URL syntax that
@@ -397,22 +396,5 @@ func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string) []string {
 	// IPv6 literal is a rare edge we accept since NO_PROXY can't be set per-client.
 	noProxyList := "localhost,127.0.0.1,::1"
 
-	return []string{
-		"NODE_USE_ENV_PROXY=1",
-		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("NO_PROXY=%s", noProxyList),
-		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", caCertPath),
-		fmt.Sprintf("YARN_HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("YARN_HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("YARN_HTTPS_CA_FILE_PATH=%s", caCertPath),
-		fmt.Sprintf("http_proxy=%s", proxyURL),
-		fmt.Sprintf("https_proxy=%s", proxyURL),
-		fmt.Sprintf("no_proxy=%s", noProxyList),
-		fmt.Sprintf("SSL_CERT_FILE=%s", caCertPath),
-		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", caCertPath),
-		fmt.Sprintf("PIP_CERT=%s", caCertPath),
-		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
-		"PIP_RETRIES=0",
-	}
+	return cfg.EnvVarForProxy(proxyURL, caCertPath, noProxyList)
 }
