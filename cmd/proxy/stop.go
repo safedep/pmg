@@ -36,18 +36,18 @@ func runStop(cmd *cobra.Command, _ []string) error {
 		ui.ErrorExit(err)
 	}
 
-	if res.StateVerified {
-		if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy stopped — %d package(s) blocked\n", res.BlockedCount); werr != nil {
-			ui.ErrorExit(werr)
-		}
-	} else {
-		if _, werr := fmt.Fprintf(os.Stdout, "PMG proxy (pid %d) stopped (final state unavailable)\n", res.PID); werr != nil {
-			ui.ErrorExit(werr)
-		}
-	}
-
+	// On a policy violation the framed error carries the message; return before
+	// printing the plain summary so the blocked count is not stated twice.
 	if verr := stopExitError(res, failOnViolation); verr != nil {
 		ui.ErrorExit(verr)
+	}
+
+	summary := fmt.Sprintf("PMG proxy stopped — %d package(s) blocked\n", res.BlockedCount)
+	if !res.StateVerified {
+		summary = fmt.Sprintf("PMG proxy (pid %d) stopped (final state unavailable)\n", res.PID)
+	}
+	if _, werr := fmt.Fprint(os.Stdout, summary); werr != nil {
+		ui.ErrorExit(werr)
 	}
 
 	return nil
@@ -62,17 +62,24 @@ func stopExitError(res proxyserver.StopResult, failOnViolation bool) error {
 		return nil
 	}
 
+	// HumanError drives the displayed message; Msg drives Error()/logs and the
+	// --verbose tail. Set both from one string so verbose shows the real
+	// message instead of usefulerror's "unknown error" fallback.
 	if !res.StateVerified {
+		msg := "Proxy shut down but the blocked-package count could not be verified"
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.ProxyPolicyViolation).
-			WithMsg("proxy shut down but the blocked-package count could not be verified").
+			WithHumanError(msg).
+			WithMsg(msg).
 			WithHelp("The proxy may have crashed; treat this run as failed and re-run")
 	}
 
 	if res.BlockedCount > 0 {
+		msg := fmt.Sprintf("%d package(s) were blocked by the proxy", res.BlockedCount)
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.ProxyPolicyViolation).
-			WithMsg(fmt.Sprintf("%d package(s) were blocked by the proxy", res.BlockedCount)).
+			WithHumanError(msg).
+			WithMsg(msg).
 			WithHelp("Review the proxy logs for details on blocked packages")
 	}
 
