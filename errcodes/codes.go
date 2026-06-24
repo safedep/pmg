@@ -24,6 +24,9 @@ const (
 	CertTrustStore      = "CertTrustStore"
 	UnsupportedPlatform = "UnsupportedPlatform"
 
+	// Proxy error codes.
+	ProxyPackagesBlocked = "ProxyPackagesBlocked"
+
 	// Unknown mirrors the default code that dry/usefulerror returns for errors
 	// created without an explicit code, so unset and explicitly-unknown errors
 	// classify identically (e.g. the bug-report hint in ui.ErrorExit).

@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/cmd/executors"
 	landlockCmd "github.com/safedep/pmg/cmd/landlock"
 	"github.com/safedep/pmg/cmd/npm"
+	proxyCmd "github.com/safedep/pmg/cmd/proxy"
 	"github.com/safedep/pmg/cmd/pypi"
 	sandboxCmd "github.com/safedep/pmg/cmd/sandbox"
 	"github.com/safedep/pmg/cmd/setup"
@@ -148,6 +149,7 @@ func main() {
 	cmd.AddCommand(pypi.NewUvCommand())
 	cmd.AddCommand(pypi.NewPoetryCommand())
 	cmd.AddCommand(executors.NewPipxCommand())
+	cmd.AddCommand(proxyCmd.NewProxyCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())
 	cmd.AddCommand(setup.NewRemoveCommand())
