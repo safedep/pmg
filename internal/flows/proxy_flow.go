@@ -228,7 +228,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		Mode:               runner.ExecutionModeAuto,
-		EnvOverrides:       f.setupEnvForProxy(proxyAddr, caCertPath, cfg),
+		EnvOverrides:       packagemanager.EnvVarForProxy(proxyAddr, caCertPath),
 		DirectEnvOverrides: ciEnvOverride(),
 		BeforeDirectRun: func() error {
 			log.Debugf("Executing proxy for non interactive TTY")
@@ -384,17 +384,4 @@ func ciEnvOverride() []string {
 		return nil
 	}
 	return []string{"CI=true"}
-}
-
-func (f *proxyFlow) setupEnvForProxy(proxyAddr, caCertPath string, cfg *config.RuntimeConfig) []string {
-	proxyURL := fmt.Sprintf("http://%s", proxyAddr)
-
-	// IPv6 loopback uses the bare ::1: the bracketed [::1] is URL syntax that
-	// crashes Python's urllib/httpx (#339). Trade-off: Node's NODE_USE_ENV_PROXY
-	// (undici) only bypasses the bracketed form, so a literal http://[::1] from
-	// Node still gets proxied. localhost/127.0.0.1 cover the common cases; the
-	// IPv6 literal is a rare edge we accept since NO_PROXY can't be set per-client.
-	noProxyList := "localhost,127.0.0.1,::1"
-
-	return cfg.EnvVarForProxy(proxyURL, caCertPath, noProxyList)
 }

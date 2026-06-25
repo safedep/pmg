@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_API_KEY }}
-      SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_TENANT_ID }}
+      SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+      SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN}}
       PMG_CLOUD_ENABLED: "true"
       PMG_CLOUD_ENDPOINT_ID: github-actions/${{ github.repository }}
     defaults:

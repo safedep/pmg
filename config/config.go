@@ -423,27 +423,6 @@ func (r *RuntimeConfig) IsProxyModeEnabled() bool {
 	return r.Config.Proxy.Enabled
 }
 
-func (r *RuntimeConfig) EnvVarForProxy(proxyURL, certPath, noProxy string) []string {
-	return []string{
-		"PIP_RETRIES=0",
-		"NODE_USE_ENV_PROXY=1",
-		fmt.Sprintf("HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("http_proxy=%s", proxyURL),
-		fmt.Sprintf("https_proxy=%s", proxyURL),
-		fmt.Sprintf("NO_PROXY=%s", noProxy),
-		fmt.Sprintf("no_proxy=%s", noProxy),
-		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
-		fmt.Sprintf("YARN_HTTP_PROXY=%s", proxyURL),
-		fmt.Sprintf("YARN_HTTPS_PROXY=%s", proxyURL),
-		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", certPath),
-		fmt.Sprintf("SSL_CERT_FILE=%s", certPath),
-		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", certPath),
-		fmt.Sprintf("PIP_CERT=%s", certPath),
-		fmt.Sprintf("YARN_HTTPS_CA_FILE_PATH=%s", certPath),
-	}
-}
-
 // SandboxAllowType represents the type of a sandbox allow override.
 type SandboxAllowType string
 

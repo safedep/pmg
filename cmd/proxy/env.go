@@ -26,7 +26,7 @@ func runEnv(_ *cobra.Command, _ []string) error {
 	cfg := config.Get()
 	statePath := proxyserver.ResolveStatePath(stateFlag, cfg)
 
-	vars, err := proxyserver.EnvVars(cfg, statePath)
+	vars, err := proxyserver.EnvVars(statePath)
 	if err != nil {
 		ui.ErrorExit(err)
 	}
