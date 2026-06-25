@@ -34,8 +34,8 @@ const (
 	cloudSyncTickTimeout  = 30 * time.Second
 
 	// Final flush at shutdown, when the daemon drains whatever the ticker left.
-	cloudFlushLockTimeout = 30 * time.Second
-	cloudFlushTimeout     = 2 * time.Minute
+	cloudFlushLockWait = 30 * time.Second
+	cloudFlushTimeout  = 2 * time.Minute
 
 	// daemonShutdownBudget is the worst-case time the daemon needs to shut down:
 	// drain in-flight requests, wait for an in-flight periodic tick to finish,
@@ -43,7 +43,7 @@ const (
 	// daemon to exit; see stopWaitTimeout.
 	daemonShutdownBudget = serverStopTimeout +
 		cloudSyncTickLockWait + cloudSyncTickTimeout +
-		cloudFlushLockTimeout + cloudFlushTimeout
+		cloudFlushLockWait + cloudFlushTimeout
 )
 
 type ProxyDaemonConfig struct {
@@ -171,7 +171,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 	// logs are not visible to the stop process). Uses a fresh context because the
 	// caller's may already be cancelled at shutdown.
 	if cfg.Config.Cloud.Enabled {
-		synced, ferr := audit.DrainToCloud(context.Background(), cfg, cloudFlushLockTimeout, cloudFlushTimeout)
+		synced, ferr := audit.DrainToCloud(context.Background(), cfg, cloudFlushLockWait, cloudFlushTimeout)
 		state.CloudSync = &CloudSyncResult{Synced: periodicSynced + synced}
 		if ferr != nil {
 			state.CloudSync.Error = ferr.Error()
