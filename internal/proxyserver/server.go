@@ -179,13 +179,15 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 }
 
 // cloudFlush drains whatever the periodic sync left and returns the outcome
-// (total delivered, including periodicSynced). Returns nil when cloud sync is
-// disabled. The daemon does this itself rather than `pmg proxy stop` because,
-// unlike stop, it has no proxy env vars and so dials SafeDep directly instead of
-// routing through the proxy that is now shutting down. Uses a fresh context
-// since the caller's may already be cancelled at shutdown.
+// (total delivered, including periodicSynced). Returns nil when automatic cloud
+// delivery is off (cloud or auto-sync disabled) — same gate as the periodic
+// ticker, so auto_sync consistently controls all daemon-driven cloud delivery.
+// The daemon does this itself rather than `pmg proxy stop` because, unlike stop,
+// it has no proxy env vars and so dials SafeDep directly instead of routing
+// through the proxy that is now shutting down. Uses a fresh context since the
+// caller's may already be cancelled at shutdown.
 func cloudFlush(cfg *config.RuntimeConfig, periodicSynced int) *CloudSyncResult {
-	if !cfg.Config.Cloud.Enabled {
+	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
 		return nil
 	}
 
@@ -205,8 +207,8 @@ func cloudFlush(cfg *config.RuntimeConfig, periodicSynced int) *CloudSyncResult 
 // for any in-flight drain to finish, and returns the running total of events
 // delivered. The stop function must be called before the daemon's final flush so
 // the two never hold the sync lock at once. A no-op when cloud sync or auto-sync
-// is disabled (the periodic sync is the daemon's auto-sync mechanism, so it
-// honors the auto_sync flag; the shutdown flush still runs when cloud is on).
+// is disabled; the daemon's automatic cloud delivery (periodic ticker and
+// shutdown flush alike) honors the auto_sync flag.
 func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
 		return func() int { return 0 }

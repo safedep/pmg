@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,14 +63,11 @@ func TestStateFilePath(t *testing.T) {
 }
 
 func TestResolveStatePath(t *testing.T) {
-	cfg := config.Get()
-
 	t.Run("flag override wins", func(t *testing.T) {
-		assert.Equal(t, "/custom/proxy.json", ResolveStatePath("/custom/proxy.json", cfg))
+		assert.Equal(t, "/custom/proxy.json", ResolveStatePath("/custom/proxy.json", "/cache"))
 	})
 
 	t.Run("defaults to cacheDir", func(t *testing.T) {
-		want := filepath.Join(cfg.CacheDir(), "proxy-state.json")
-		assert.Equal(t, want, ResolveStatePath("", cfg))
+		assert.Equal(t, filepath.Join("/cache", "proxy-state.json"), ResolveStatePath("", "/cache"))
 	})
 }

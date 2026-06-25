@@ -29,7 +29,7 @@ func newStopCommand() *cobra.Command {
 
 func runStop(_ *cobra.Command, _ []string) error {
 	cfg := config.Get()
-	statePath := proxyserver.ResolveStatePath(stateFlag, cfg)
+	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
 
 	res, err := proxyserver.Stop(statePath)
 	if err != nil {
