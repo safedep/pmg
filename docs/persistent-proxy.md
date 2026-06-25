@@ -55,6 +55,44 @@ sequenceDiagram
     Proxy-->>CI: exit non-zero if anything was blocked
 ```
 
+## Usage
+
+The persistent server targets non-interactive CI/CD. For local development use
+the default proxy mode (`pmg npm install`), which keeps the interactive malware
+confirmation prompt; the persistent server auto-blocks without prompting.
+
+GitHub Actions (raw commands):
+
+```yaml
+- run: pmg proxy start --daemon
+- run: pmg proxy env >> "$GITHUB_ENV"
+- run: npm ci
+- run: pmg proxy stop --fail-on-violation
+  if: always()
+```
+
+GitHub Actions (via the [safedep/pmg action](../action.yml) `server-mode`):
+
+```yaml
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    api-key: ${{ secrets.SAFEDEP_API_KEY }}
+    tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
+
+- run: npm ci          # intercepted automatically
+
+- name: Enforce PMG policy
+  if: always()
+  run: pmg proxy stop --fail-on-violation
+```
+
+In `server-mode`, the action starts the daemon and injects env vars instead of
+installing shims. Because composite actions cannot run an automatic cleanup
+step, the final `pmg proxy stop --fail-on-violation` step is required. It stops
+the proxy (the daemon flushes events to the cloud during shutdown) and fails the
+job on a block.
+
 ## Architecture
 
 The code is split into two layers, mirroring the rest of PMG's `cmd/*` to
@@ -260,44 +298,6 @@ child runs the server directly and does not recurse into daemonization.
 
 Daemonization is **Unix only**. On Windows, `--daemon` returns a clear
 "not supported" error; the foreground `pmg proxy start` still works.
-
-## Usage
-
-The persistent server targets non-interactive CI/CD. For local development use
-the default proxy mode (`pmg npm install`), which keeps the interactive malware
-confirmation prompt; the persistent server auto-blocks without prompting.
-
-GitHub Actions (raw commands):
-
-```yaml
-- run: pmg proxy start --daemon
-- run: pmg proxy env >> "$GITHUB_ENV"
-- run: npm ci
-- run: pmg proxy stop --fail-on-violation
-  if: always()
-```
-
-GitHub Actions (via the [safedep/pmg action](../action.yml) `server-mode`):
-
-```yaml
-- uses: safedep/pmg@v1
-  with:
-    server-mode: true
-    api-key: ${{ secrets.SAFEDEP_API_KEY }}
-    tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
-
-- run: npm ci          # intercepted automatically
-
-- name: Enforce PMG policy
-  if: always()
-  run: pmg proxy stop --fail-on-violation
-```
-
-In `server-mode`, the action starts the daemon and injects env vars instead of
-installing shims. Because composite actions cannot run an automatic cleanup
-step, the final `pmg proxy stop --fail-on-violation` step is required. It stops
-the proxy (the daemon flushes events to the cloud during shutdown) and fails the
-job on a block.
 
 ## Security model
 
