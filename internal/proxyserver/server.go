@@ -132,9 +132,8 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 		log.Warnf("failed to write startup message: %v", err)
 	}
 
-	// Periodically drain audit events to the cloud while serving, so the shutdown
-	// flush has little left to do. stopSyncLoop halts the ticker and waits for any
-	// in-flight drain, so the final flush below never contends with it.
+	// Periodically flush events to the cloud while serving so the shutdown flush
+	// stays small. See startCloudSyncLoop for the stop-function contract.
 	stopSyncLoop := startCloudSyncLoop(cfg)
 
 	sigCh := make(chan os.Signal, 1)
@@ -158,34 +157,40 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 		log.Warnf("failed to write final proxy state: %v", werr)
 	}
 
-	// Stop the periodic sync and wait for any in-flight drain so the final flush
-	// below cannot contend with it for the sync lock. periodicSynced is the
-	// running total delivered by the ticker during the daemon's life.
+	// Halt the periodic sync (waits for any in-flight drain) before the final
+	// flush, so the two never hold the sync lock at once.
 	periodicSynced := stopSyncLoop()
 
-	// Final flush of whatever the ticker left. Unlike `pmg proxy stop`, the
-	// daemon has no proxy env vars (it started before `pmg proxy env` injected
-	// them), so its cloud client dials SafeDep directly instead of routing
-	// through the proxy that is now shutting down. The result (total delivered)
-	// is recorded in the state file so `stop` can report it (the daemon's own
-	// logs are not visible to the stop process). Uses a fresh context because the
-	// caller's may already be cancelled at shutdown.
-	if cfg.Config.Cloud.Enabled {
-		synced, ferr := audit.DrainToCloud(context.Background(), cfg, cloudFlushLockWait, cloudFlushTimeout)
-		state.CloudSync = &CloudSyncResult{Synced: periodicSynced + synced}
-		if ferr != nil {
-			state.CloudSync.Error = ferr.Error()
-			log.Warnf("cloud event flush failed: %v", ferr)
-		} else {
-			log.Infof("Flushed %d events to SafeDep Cloud (%d during the run)", state.CloudSync.Synced, periodicSynced)
-		}
-
+	if cs := cloudFlush(cfg, periodicSynced); cs != nil {
+		state.CloudSync = cs
 		if werr := writeState(statePath, state); werr != nil {
 			log.Warnf("failed to write final proxy state: %v", werr)
 		}
 	}
 
 	return stopErr
+}
+
+// cloudFlush drains whatever the periodic sync left and returns the outcome
+// (total delivered, including periodicSynced). Returns nil when cloud sync is
+// disabled. The daemon does this itself rather than `pmg proxy stop` because,
+// unlike stop, it has no proxy env vars and so dials SafeDep directly instead of
+// routing through the proxy that is now shutting down. Uses a fresh context
+// since the caller's may already be cancelled at shutdown.
+func cloudFlush(cfg *config.RuntimeConfig, periodicSynced int) *CloudSyncResult {
+	if !cfg.Config.Cloud.Enabled {
+		return nil
+	}
+
+	synced, err := audit.DrainToCloud(context.Background(), cfg, cloudFlushLockWait, cloudFlushTimeout)
+	res := &CloudSyncResult{Synced: periodicSynced + synced}
+	if err != nil {
+		res.Error = err.Error()
+		log.Warnf("cloud event flush failed: %v", err)
+	} else {
+		log.Infof("Flushed %d events to SafeDep Cloud (%d during the run)", res.Synced, periodicSynced)
+	}
+	return res
 }
 
 // startCloudSyncLoop periodically drains pending audit events to SafeDep Cloud
