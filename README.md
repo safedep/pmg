@@ -217,7 +217,7 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 
 - name: Enforce PMG policy
   if: always()
-  run: pmg proxy stop --fail-on-violation   # drains, flushes cloud, fails on block
+  run: pmg proxy stop --fail-on-violation   # stops the daemon, fails the job on a block
 ```
 
 By default you get malware blocking and dependency cooldown. Sandbox isolation

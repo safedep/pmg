@@ -49,8 +49,9 @@ sequenceDiagram
     PM->>Proxy: package download (via HTTP_PROXY)
     Proxy->>Proxy: analyze package
     Proxy-->>PM: allow, or 403 block + record event
+    Proxy->>Cloud: periodic sync of events (while serving)
     CI->>Proxy: pmg proxy stop --fail-on-violation
-    Proxy->>Cloud: flush block events
+    Proxy->>Cloud: final flush of remaining events
     Proxy-->>CI: exit non-zero if anything was blocked
 ```
 
@@ -68,8 +69,8 @@ The code is split into two layers, mirroring the rest of PMG's `cmd/*` to
 
 The proxy itself is the same `proxy.ProxyServer` from [proxy.md](./proxy.md).
 The persistent server adds a state file for cross-process coordination, a daemon
-mode, an auto-block confirmation handler, audit-pipeline initialization, and a
-synchronous cloud flush on shutdown.
+mode, an auto-block confirmation handler, audit-pipeline initialization, and
+periodic plus shutdown cloud syncing from the daemon.
 
 ## Lifecycle
 
@@ -86,9 +87,10 @@ A typical CI run has four steps.
    via `HTTP_PROXY`/`HTTPS_PROXY`. Each downloaded package is analyzed.
    Malicious packages are auto-blocked (the client receives a `403` and fails)
    and a durable audit event is recorded.
-4. **Stop.** `pmg proxy stop` signals the daemon, waits for it to drain
-   in-flight requests and write the final blocked count, flushes audit events to
-   the cloud, and removes the state file. With `--fail-on-violation` it exits
+4. **Stop.** `pmg proxy stop` signals the daemon and waits for it to shut down
+   (drain in-flight requests, write the final blocked count, and flush remaining
+   audit events to the cloud). It then reads the final state, reports the
+   outcome, and removes the state file. With `--fail-on-violation` it exits
    non-zero if any package was blocked.
 
 ## Commands
@@ -105,9 +107,10 @@ pmg proxy status [--state PATH]
   binds a fixed port (default: random). The bind host is `127.0.0.1` by default
   and configurable via `proxy.server.listen_host` (see [Bind address](#bind-address)).
   It refuses to start if a live proxy is already recorded in the state file.
-- **`stop`** signals the running proxy, drains it, flushes events to the cloud,
-  and removes the state file. `--fail-on-violation` makes the command exit
-  non-zero when one or more packages were blocked (see
+- **`stop`** signals the running proxy, waits for it to shut down (the daemon
+  flushes remaining events to the cloud during shutdown), then reports the
+  outcome and removes the state file. `--fail-on-violation` makes the command
+  exit non-zero when one or more packages were blocked (see
   [Fail on violation](#fail-on-violation)).
 - **`env`** prints proxy environment variables as `KEY=VALUE` lines. See
   [Usage](#usage) for how to consume them.
@@ -146,7 +149,8 @@ is the only shared state between the `start` process and the `stop`, `env`, and
     "pid": 12345,
     "addr": "127.0.0.1:54321",
     "ca_cert_path": "/home/user/.config/safedep/pmg/proxy-ca.pem",
-    "blocked_count": 0
+    "blocked_count": 0,
+    "cloud_sync": { "synced": 0 }
   }
   ```
 
@@ -156,6 +160,7 @@ is the only shared state between the `start` process and the `stop`, `env`, and
 | `addr` | `env` (builds `HTTP_PROXY=http://<addr>`) |
 | `ca_cert_path` | `env` (cert trust vars) |
 | `blocked_count` | written after drain on shutdown; read by `stop` |
+| `cloud_sync` | daemon's shutdown flush outcome (omitted when cloud sync is disabled); read by `stop` to report |
 
 The daemon also writes a log to `<cache-dir>/proxy.log` when run with `--daemon`.
 
@@ -208,18 +213,28 @@ Loopback addresses are always excluded from proxying via `NO_PROXY`
 ## Cloud event sync
 
 When SafeDep Cloud is enabled, malware-block events must reach the cloud even on
-ephemeral CI runners that are destroyed immediately after the job. The
-persistent server handles this in two layers.
+ephemeral CI runners that are destroyed immediately after the job. The **daemon**
+owns delivery (not `pmg proxy stop`), in three layers.
 
-1. **Durable, as it happens.** The daemon initializes the audit pipeline on
-   start, so the existing interceptors record each blocked package to the audit
-   event log immediately. Events survive a crash.
-2. **Synchronous flush on stop.** `pmg proxy stop` performs a blocking cloud
-   sync (acquiring the shared sync lock, bounded by a timeout) before returning.
-   This guarantees events are delivered before the runner is torn down, rather
-   than relying on the interval-based background sync used for long-lived
-   workstations. A flush failure is logged but does not mask the
-   fail-on-violation exit code.
+1. **Durable, as it happens.** The daemon records each blocked package to the
+   local audit event log immediately, so events survive a crash.
+2. **Periodic sync while serving.** A background ticker in the daemon drains the
+   pending events to SafeDep Cloud on an interval, so most are delivered during
+   the run and the shutdown flush stays small (which keeps `stop` fast). A tick
+   that cannot promptly acquire the shared sync lock is skipped and the next retries.
+3. **Final flush on shutdown.** When `stop` signals it, the daemon halts the
+   ticker, drains whatever remains, and records the result (total delivered, or
+   the error) in the state file before exiting.
+
+The daemon does the cloud I/O because, unlike `stop`, it has no proxy
+environment variables (it started before `pmg proxy env` injected them), so its
+cloud client dials SafeDep directly rather than routing through the proxy it is
+shutting down. `stop` reads the recorded result and prints it (`Synced N
+event(s) to SafeDep Cloud`, or a `Cloud sync failed` line); a flush failure is
+surfaced but does not mask the fail-on-violation exit code.
+
+The detached background auto-sync used on long-lived workstations is disabled for
+all `pmg proxy` commands, since the daemon owns delivery here.
 
 ## Fail on violation
 
@@ -281,7 +296,8 @@ GitHub Actions (via the [safedep/pmg action](../action.yml) `server-mode`):
 In `server-mode`, the action starts the daemon and injects env vars instead of
 installing shims. Because composite actions cannot run an automatic cleanup
 step, the final `pmg proxy stop --fail-on-violation` step is required. It stops
-the proxy, flushes events to the cloud, and fails the job on a block.
+the proxy (the daemon flushes events to the cloud during shutdown) and fails the
+job on a block.
 
 ## Security model
 
