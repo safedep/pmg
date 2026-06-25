@@ -6,10 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/safedep/dry/localdb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
@@ -134,34 +132,17 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create certificate manager: %w", err)
 	}
 
-	// Optional persistent analysis cache. Disposable: any failure degrades to
-	// running uncached, never blocks the install.
-	var malysisCache analyzer.MalysisCache
-	cacheCfg := cfg.Config.AnalysisCache.Malysis
-	if cacheCfg.Enabled && cacheCfg.TTL > 0 {
-		mgr := localdb.New(localdb.Config{
-			Dir:      cfg.LocalDBDir(),
-			FileName: cfg.LocalDBFileName(),
-		})
-		defer func() {
-			if cerr := mgr.Close(); cerr != nil {
-				log.Warnf("failed to close localdb: %v", cerr)
-			}
-		}()
-
-		store, serr := mgr.Store(ctx, malysiscache.Descriptor())
-		if serr != nil {
-			log.Warnf("analysis cache unavailable, continuing without it: %v", serr)
-		} else {
-			malysisCache = malysiscache.New(store, cacheCfg)
-		}
-	}
-
-	// Create analyzer
-	malysisAnalyzer, err := f.createAnalyzer(malysisCache)
+	// Analyzer with an optional persistent cache (disposable: any cache failure
+	// degrades to running uncached, never blocks the install).
+	malysisAnalyzer, closeAnalyzer, err := BuildCachedMalysisAnalyzer(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
+	defer func() {
+		if cerr := closeAnalyzer(); cerr != nil {
+			log.Warnf("failed to close analyzer cache: %v", cerr)
+		}
+	}()
 
 	// Create analysis cache and stats collector
 	cache := interceptors.NewInMemoryAnalysisCache()
@@ -342,12 +323,6 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 	}
 
 	return certMgr, nil
-}
-
-// createAnalyzer creates the malysis query analyzer
-func (f *proxyFlow) createAnalyzer(cache analyzer.MalysisCache) (analyzer.PackageVersionAnalyzer, error) {
-	log.Debugf("Creating malysis query analyzer")
-	return analyzer.NewMalysisAnalyzer(analyzer.MalysisQueryAnalyzerConfig{Cache: cache})
 }
 
 // createAndStartProxyServer creates and starts the proxy server with the given interceptor

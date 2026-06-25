@@ -109,13 +109,15 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
-			// The persistent proxy manages cloud delivery itself (the daemon
-			// flushes synchronously on shutdown), so disable the detached
-			// background auto-sync for proxy invocations. Otherwise it would
-			// spawn a redundant child that contends for the sync lock and, from
-			// `pmg proxy stop`, routes through the now-stopped proxy.
+			// The proxy daemon delivers events itself (periodic sync + shutdown
+			// flush), so suppress the detached background auto-sync for proxy
+			// commands. It would otherwise spawn a redundant child that contends
+			// for the sync lock and, from `pmg proxy stop`, routes through the
+			// now-stopped proxy. We suppress the spawn directly rather than
+			// flipping AutoSync.Enabled, because the daemon's periodic sync
+			// honors that flag.
 			if isProxyCommand(cmd) {
-				config.Get().Config.Cloud.AutoSync.Enabled = false
+				audit.SuppressBackgroundSync()
 			}
 
 			config.FinalizeDependencyCooldownOverride()

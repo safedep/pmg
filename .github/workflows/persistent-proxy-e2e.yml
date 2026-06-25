@@ -74,19 +74,37 @@ jobs:
           cd .. && rm -rf benign-test
 
       - name: Malicious npm install is blocked
-        continue-on-error: true
         run: |
           mkdir mal-npm && cd mal-npm
           npm init -y
-          npm --no-cache --prefer-online install safedep-test-pkg@0.1.3
+          # The install MUST fail (proxy blocks it). Assert that, instead of
+          # continue-on-error which would hide a regression where it succeeds.
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "ERROR: malicious npm install succeeded but should have been blocked"
+            exit 1
+          fi
+          echo "OK: malicious npm install was blocked"
           cd .. && rm -rf mal-npm
 
       - name: Malicious pip install is blocked (python3 -m pip)
-        continue-on-error: true
         run: |
           python3 -m venv venv && source venv/bin/activate
-          python3 -m pip install safedep-test-pkg
+          if python3 -m pip install safedep-test-pkg; then
+            echo "ERROR: malicious pip install succeeded but should have been blocked"
+            deactivate
+            exit 1
+          fi
+          echo "OK: malicious pip install was blocked"
           deactivate && rm -rf venv
 
-      - name: Stop proxy and enforce policy
-        run: pmg proxy stop --fail-on-violation
+      - name: Stop proxy and verify it fails on the blocks
+        if: always()
+        run: |
+          # We blocked packages above, so --fail-on-violation must exit non-zero.
+          # Assert that (a green test means the gate works), and always run so the
+          # daemon is stopped even if an earlier step failed.
+          if pmg proxy stop --fail-on-violation; then
+            echo "ERROR: stop should have exited non-zero (packages were blocked)"
+            exit 1
+          fi
+          echo "OK: stop correctly failed on the policy violation"

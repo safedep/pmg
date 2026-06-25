@@ -6,25 +6,20 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 	"time"
 )
 
 // Daemonize re-execs the current binary with args (which must run the proxy in
 // foreground mode), detached into its own session (Setsid), with child stdio
-// redirected to a log file. It waits until the child writes the state file and
-// returns the running state.
+// redirected to cfg.LogPath. It waits up to cfg.ReadyTimeout for the child to
+// write the state file and returns the running state. The caller owns the log
+// path (its parent directory must exist); Daemonize fails if it cannot be
+// opened.
 func Daemonize(cfg ProxyDaemonConfig, statePath, exe string, args []string) (State, error) {
-	logPath := filepath.Join(cfg.CacheDir, cfg.LogPath)
-
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
-		return State{}, fmt.Errorf("create daemon log dir: %w", err)
-	}
-
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logFile, err := os.OpenFile(cfg.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return State{}, fmt.Errorf("open daemon log %s: %w", logPath, err)
+		return State{}, fmt.Errorf("open daemon log %s: %w", cfg.LogPath, err)
 	}
 
 	defer func() { _ = logFile.Close() }()
@@ -42,7 +37,7 @@ func Daemonize(cfg ProxyDaemonConfig, statePath, exe string, args []string) (Sta
 		return State{}, fmt.Errorf("release daemon process: %w", err)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(cfg.ReadyTimeout)
 	for time.Now().Before(deadline) {
 		if state, rerr := readState(statePath); rerr == nil && state.IsRunning() {
 			return state, nil
@@ -50,5 +45,5 @@ func Daemonize(cfg ProxyDaemonConfig, statePath, exe string, args []string) (Sta
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	return State{}, fmt.Errorf("daemon did not become ready within timeout; see %s", logPath)
+	return State{}, fmt.Errorf("daemon did not become ready within %s; see %s", cfg.ReadyTimeout, cfg.LogPath)
 }

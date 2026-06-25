@@ -22,6 +22,19 @@ func MarkBackgroundSyncChild() {
 	isBackgroundSyncChild = true
 }
 
+// backgroundSyncSuppressed lets a command opt out of the detached auto-sync
+// spawn for its process. The proxy daemon uses this: it delivers events itself
+// (periodic sync + shutdown flush), so the detached child would be redundant
+// and, from `pmg proxy stop`, would route cloud traffic through the now-stopped
+// proxy.
+var backgroundSyncSuppressed bool
+
+// SuppressBackgroundSync disables MaybeSpawnBackgroundSync for the current
+// process.
+func SuppressBackgroundSync() {
+	backgroundSyncSuppressed = true
+}
+
 // detachedSpawner forks a detached child running `name` with `args`. Pulled
 // behind a package var so tests can intercept without actually forking the
 // test binary into the background.
@@ -41,7 +54,7 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if cfg == nil {
 		return
 	}
-	if isBackgroundSyncChild {
+	if isBackgroundSyncChild || backgroundSyncSuppressed {
 		return
 	}
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {

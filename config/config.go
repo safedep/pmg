@@ -170,11 +170,15 @@ type ProxyConfig struct {
 
 // ProxyServerConfig configures the persistent proxy server (`pmg proxy start`).
 type ProxyServerConfig struct {
-	// ListenHost is the address the persistent proxy binds to. Defaults to
+	// ListenHost is the host the persistent proxy binds to. Defaults to
 	// 127.0.0.1 (loopback). Set to 0.0.0.0 or a specific interface only for a
 	// deliberately hosted deployment: a non-loopback bind exposes the MITM
-	// proxy to the network.
+	// proxy to the network. The --host flag overrides this.
 	ListenHost string `mapstructure:"listen_host"`
+
+	// ListenPort is the port the persistent proxy binds to. 0 (default) means a
+	// random free port. The --port flag overrides this.
+	ListenPort int `mapstructure:"listen_port"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.

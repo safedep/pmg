@@ -11,10 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/safedep/dry/localdb"
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
@@ -46,15 +43,25 @@ const (
 		cloudFlushLockWait + cloudFlushTimeout
 )
 
+// DefaultDaemonReadyTimeout is how long the parent waits for the daemon to
+// become ready before giving up, when ProxyDaemonConfig.ReadyTimeout is unset.
+const DefaultDaemonReadyTimeout = 10 * time.Second
+
+// ProxyDaemonConfig carries the daemon-launch parameters the caller decides, so
+// daemonization stays free of config and path-policy concerns.
 type ProxyDaemonConfig struct {
-	LogPath  string
-	CacheDir string
+	// LogPath is the file the detached daemon's stdout/stderr is redirected to.
+	// The caller owns this path (its parent directory must exist).
+	LogPath string
+	// ReadyTimeout bounds how long to wait for the daemon to write its state
+	// file and become live.
+	ReadyTimeout time.Duration
 }
 
 // Run starts the persistent proxy server in the foreground and blocks until it
 // receives SIGINT/SIGTERM. It writes the state file on startup, auto-blocks
 // suspicious packages, and records the final blocked count on shutdown.
-func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port int) error {
+func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string, port int) error {
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
@@ -70,7 +77,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 		return fmt.Errorf("create certificate manager: %w", err)
 	}
 
-	malysisAnalyzer, closeAnalyzer, err := buildAnalyzer(ctx, cfg)
+	malysisAnalyzer, closeAnalyzer, err := flows.BuildCachedMalysisAnalyzer(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("create analyzer: %w", err)
 	}
@@ -100,7 +107,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath string, port 
 	interceptorList = append(interceptorList, interceptors.NewAuditLoggerInterceptor())
 
 	proxyConfig := pmgproxy.DefaultProxyConfig()
-	proxyConfig.ListenAddr = listenAddr(cfg, port)
+	proxyConfig.ListenAddr = listenAddr(host, port)
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 
@@ -197,9 +204,11 @@ func cloudFlush(cfg *config.RuntimeConfig, periodicSynced int) *CloudSyncResult 
 // while the daemon runs. It returns a stop function that halts the ticker, waits
 // for any in-flight drain to finish, and returns the running total of events
 // delivered. The stop function must be called before the daemon's final flush so
-// the two never hold the sync lock at once. A no-op when cloud sync is disabled.
+// the two never hold the sync lock at once. A no-op when cloud sync or auto-sync
+// is disabled (the periodic sync is the daemon's auto-sync mechanism, so it
+// honors the auto_sync flag; the shutdown flush still runs when cloud is on).
 func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
-	if !cfg.Config.Cloud.Enabled {
+	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
 		return func() int { return 0 }
 	}
 
@@ -243,8 +252,7 @@ func startCloudSyncLoop(cfg *config.RuntimeConfig) func() int {
 
 // listenAddr resolves the proxy's bind address from config (host) and the
 // --port flag. Host defaults to loopback.
-func listenAddr(cfg *config.RuntimeConfig, port int) string {
-	host := cfg.Config.Proxy.Server.ListenHost
+func listenAddr(host string, port int) string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
@@ -260,43 +268,4 @@ func autoBlockConfirmations(ch chan *interceptors.ConfirmationRequest) {
 		req.ResponseChan <- false
 		close(req.ResponseChan)
 	}
-}
-
-// buildAnalyzer constructs the malysis analyzer with the persistent analysis
-// cache when enabled. The returned closer releases the localdb handle (no-op
-// when the cache is disabled or unavailable). Cache failures degrade to an
-// uncached analyzer and never abort.
-func buildAnalyzer(ctx context.Context, cfg *config.RuntimeConfig) (analyzer.PackageVersionAnalyzer, func() error, error) {
-	noop := func() error { return nil }
-
-	var malysisCache analyzer.MalysisCache
-	closer := noop
-
-	cacheCfg := cfg.Config.AnalysisCache.Malysis
-	if cacheCfg.Enabled && cacheCfg.TTL > 0 {
-		mgr := localdb.New(localdb.Config{
-			Dir:      cfg.LocalDBDir(),
-			FileName: cfg.LocalDBFileName(),
-		})
-		store, serr := mgr.Store(ctx, malysiscache.Descriptor())
-		if serr != nil {
-			log.Warnf("analysis cache unavailable, continuing without it: %v", serr)
-			if cerr := mgr.Close(); cerr != nil {
-				log.Warnf("failed to close localdb: %v", cerr)
-			}
-		} else {
-			malysisCache = malysiscache.New(store, cacheCfg)
-			closer = mgr.Close
-		}
-	}
-
-	a, err := analyzer.NewMalysisAnalyzer(analyzer.MalysisQueryAnalyzerConfig{Cache: malysisCache})
-	if err != nil {
-		if cerr := closer(); cerr != nil {
-			log.Warnf("failed to close localdb: %v", cerr)
-		}
-		return nil, noop, err
-	}
-
-	return a, closer, nil
 }

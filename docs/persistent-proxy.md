@@ -134,73 +134,33 @@ A typical CI run has four steps.
 ## Commands
 
 ```bash
-pmg proxy start [--daemon|-D] [--state PATH] [--port N]
-pmg proxy stop  [--fail-on-violation] [--state PATH]
-pmg proxy env   [--state PATH]
-pmg proxy status [--state PATH]
+pmg proxy start    # start the proxy (foreground, or detached with --daemon)
+pmg proxy stop     # stop the proxy and report the outcome
+pmg proxy env      # print env vars that route package managers through it
+pmg proxy status   # report whether a proxy is running
 ```
 
-- **`start`** starts the server. `--daemon`/`-D` detaches into a background
-  process (Unix only); without it the server runs in the foreground. `--port`
-  binds a fixed port (default: random). The bind host is `127.0.0.1` by default
-  and configurable via `proxy.server.listen_host` (see [Bind address](#bind-address)).
-  It refuses to start if a live proxy is already recorded in the state file.
-- **`stop`** signals the running proxy, waits for it to shut down (the daemon
-  flushes remaining events to the cloud during shutdown), then reports the
-  outcome and removes the state file. `--fail-on-violation` makes the command
-  exit non-zero when one or more packages were blocked (see
-  [Fail on violation](#fail-on-violation)).
-- **`env`** prints proxy environment variables as `KEY=VALUE` lines. See
-  [Usage](#usage) for how to consume them.
-- **`status`** reports whether a proxy is running, stopped (stale state), or not
-  present.
-
-`--state` is shared by all subcommands and overrides the state file location.
+Run `pmg proxy <command> --help` for flags. The behaviors that aren't obvious
+from the flags are covered below: [Bind address](#bind-address),
+[Fail on violation](#fail-on-violation), and [Cloud event sync](#cloud-event-sync).
 
 ## Bind address
 
-The proxy binds `127.0.0.1` by default, so it is reachable only from the host
-(the right choice for CI and local use). The host is configurable via
-`proxy.server.listen_host` (or the `PMG_PROXY_SERVER_LISTEN_HOST` environment
-variable); `--port` selects the port. The effective address is
-`<listen_host>:<port>`.
+The proxy binds `127.0.0.1` on a random port by default, reachable only from the
+host (the right choice for CI and local use). Override with `--host`/`--port`, or
+the `proxy.server.listen_host`/`listen_port` config (flags take precedence).
 
-Set `listen_host` to `0.0.0.0` or a specific interface **only** for a
-deliberately hosted deployment. A non-loopback bind exposes the MITM proxy to
-the network: any client routed through it has its HTTPS intercepted and must
-trust the PMG CA. Keep it loopback unless you are intentionally running a shared
-proxy service.
+Bind a non-loopback address (e.g. `--host 0.0.0.0`) **only** for a deliberately
+hosted deployment: it exposes the MITM proxy to the network, and every client
+routed through it has its HTTPS intercepted and must trust the PMG CA.
 
 ## State file
 
-The state file is how separate `pmg` invocations discover the running daemon. It
-is the only shared state between the `start` process and the `stop`, `env`, and
-`status` processes.
-
-- **Location:** `<cache-dir>/proxy-state.json` by default, overridable with
-  `--state`. The cache directory follows `PMG_CACHE_DIR` or the OS cache dir
-  (`~/.cache/safedep/pmg` on Linux). Parent directories are created on write.
-- **Contents:**
-
-  ```json
-  {
-    "pid": 12345,
-    "addr": "127.0.0.1:54321",
-    "ca_cert_path": "/home/user/.config/safedep/pmg/proxy-ca.pem",
-    "blocked_count": 0,
-    "cloud_sync": { "synced": 0 }
-  }
-  ```
-
-| Field | Used by |
-| --- | --- |
-| `pid` | `stop` (SIGTERM), `status` (liveness via signal 0) |
-| `addr` | `env` (builds `HTTP_PROXY=http://<addr>`) |
-| `ca_cert_path` | `env` (cert trust vars) |
-| `blocked_count` | written after drain on shutdown; read by `stop` |
-| `cloud_sync` | daemon's shutdown flush outcome (omitted when cloud sync is disabled); read by `stop` to report |
-
-The daemon also writes a log to `<cache-dir>/proxy.log` when run with `--daemon`.
+The `pmg proxy` commands coordinate through a state file: the daemon writes it,
+and `stop`/`env`/`status` read it to find the running proxy. It lives at
+`<cache-dir>/proxy-state.json` by default; override the location with `--state`.
+To run multiple independent proxies on one host, give each a distinct `--state`
+path (and a distinct `--port`).
 
 ## Certificate trust
 
