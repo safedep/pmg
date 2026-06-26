@@ -9,9 +9,10 @@ once for the whole job.
 
 It builds on the generic MITM proxy described in [proxy.md](./proxy.md), reusing
 the same interceptor chain, malware analyzer, and certificate manager. The
-difference is the **lifecycle**. Instead of PMG starting an ephemeral proxy
-around a single subprocess, the proxy is started once, advertises itself through
-a state file, and serves many package manager processes until it is stopped.
+difference is the **lifecycle**: instead of PMG starting an ephemeral proxy
+around a single subprocess, the proxy is started once, advertises itself to the
+other `pmg proxy` commands, and serves many package manager processes until it
+is stopped.
 
 ## Default proxy mode vs. persistent proxy server
 
@@ -32,9 +33,9 @@ these steps.
 
 ## How it works
 
-The diagram below shows the order of events in a CI job. Each `pmg proxy`
-command talks to the daemon only through the state file, so the steps stay
-independent and can run in separate workflow steps.
+The diagram below shows the order of events in a CI job. The `pmg proxy`
+commands run in separate workflow steps and coordinate through the running
+daemon.
 
 ```mermaid
 sequenceDiagram
@@ -44,7 +45,7 @@ sequenceDiagram
     participant Cloud as SafeDep Cloud
 
     CI->>Proxy: pmg proxy start --daemon
-    Proxy-->>CI: write state file (addr, pid, ca path)
+    Proxy-->>CI: ready (addr, ca path)
     CI->>CI: pmg proxy env  (set HTTP_PROXY + CA vars)
     PM->>Proxy: package download (via HTTP_PROXY)
     Proxy->>Proxy: analyze package
@@ -59,7 +60,7 @@ sequenceDiagram
 
 The persistent server targets non-interactive CI/CD. For local development use
 the default proxy mode (`pmg npm install`), which keeps the interactive malware
-confirmation prompt; the persistent server auto-blocks without prompting.
+confirmation prompt. The persistent server auto-blocks without prompting.
 
 GitHub Actions (raw commands):
 
@@ -93,44 +94,6 @@ step, the final `pmg proxy stop --fail-on-violation` step is required. It stops
 the proxy (the daemon flushes events to the cloud during shutdown) and fails the
 job on a block.
 
-## Architecture
-
-The code is split into two layers, mirroring the rest of PMG's `cmd/*` to
-`internal/*` structure.
-
-- **`cmd/proxy/`** is thin Cobra command wrappers (`start`, `stop`, `env`,
-  `status`). They bind flags and render output only, holding no business logic.
-- **`internal/proxyserver/`** holds all lifecycle and analysis logic: the
-  foreground server loop (`Run`), daemonization (`Daemonize`), shutdown
-  (`Stop`), env-var construction (`EnvVars`), status (`GetStatus`), the on-disk
-  `State`, the analyzer and cache wiring, and the cloud flush.
-
-The proxy itself is the same `proxy.ProxyServer` from [proxy.md](./proxy.md).
-The persistent server adds a state file for cross-process coordination, a daemon
-mode, an auto-block confirmation handler, audit-pipeline initialization, and
-periodic plus shutdown cloud syncing from the daemon.
-
-## Lifecycle
-
-A typical CI run has four steps.
-
-1. **Start.** `pmg proxy start --daemon` resolves a free loopback port, sets up
-   the CA, builds the interceptors for every supported ecosystem, starts the
-   proxy server, and writes the state file. With `--daemon` it detaches and
-   returns immediately; otherwise it runs in the foreground and blocks.
-2. **Configure env.** `pmg proxy env` reads the state file and prints the proxy
-   environment variables. In CI these are appended to the job environment so all
-   subsequent steps inherit them.
-3. **Install.** Bare `npm install`, `pip install`, etc. route through the proxy
-   via `HTTP_PROXY`/`HTTPS_PROXY`. Each downloaded package is analyzed.
-   Malicious packages are auto-blocked (the client receives a `403` and fails)
-   and a durable audit event is recorded.
-4. **Stop.** `pmg proxy stop` signals the daemon and waits for it to shut down
-   (drain in-flight requests, write the final blocked count, and flush remaining
-   audit events to the cloud). It then reads the final state, reports the
-   outcome, and removes the state file. With `--fail-on-violation` it exits
-   non-zero if any package was blocked.
-
 ## Commands
 
 ```bash
@@ -140,9 +103,10 @@ pmg proxy env      # print env vars that route package managers through it
 pmg proxy status   # report whether a proxy is running
 ```
 
-Run `pmg proxy <command> --help` for flags. The behaviors that aren't obvious
-from the flags are covered below: [Bind address](#bind-address),
-[Fail on violation](#fail-on-violation), and [Cloud event sync](#cloud-event-sync).
+Run `pmg proxy <command> --help` for flags. `--daemon` is **Unix only**: on
+Windows it returns a clear "not supported" error, and the foreground
+`pmg proxy start` still works. To run multiple independent proxies on one host,
+give each a distinct `--state` path and `--port`.
 
 ## Bind address
 
@@ -154,24 +118,11 @@ Bind a non-loopback address (e.g. `--host 0.0.0.0`) **only** for a deliberately
 hosted deployment: it exposes the MITM proxy to the network, and every client
 routed through it has its HTTPS intercepted and must trust the PMG CA.
 
-## State file
-
-The `pmg proxy` commands coordinate through a state file: the daemon writes it,
-and `stop`/`env`/`status` read it to find the running proxy. It lives at
-`<cache-dir>/proxy-state.json` by default; override the location with `--state`.
-To run multiple independent proxies on one host, give each a distinct `--state`
-path (and a distinct `--port`).
-
 ## Certificate trust
 
-The proxy performs TLS MITM, so clients must trust its CA. On start the proxy
-sets up the CA (`SetupCACertificate`): it reuses the persisted CA from
-`pmg setup cert install` if present, otherwise generates an ephemeral one, and
-writes it merged with the system bundle to `<config-dir>/proxy-ca.pem`.
-
-### Trust comes from environment variables, not the OS trust store
-
-`pmg proxy env` always emits the cert-path variables pointing at that bundle:
+The proxy performs TLS MITM, so clients must trust its CA. Trust is delivered
+through **environment variables, not the OS trust store**. `pmg proxy env`
+always emits the cert-path variables pointing at the proxy's CA bundle:
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`,
 `YARN_HTTPS_CA_FILE_PATH`. Package managers pick these up from the job
 environment and trust the proxy's CA, with no OS trust-store install required.
@@ -179,31 +130,15 @@ environment and trust the proxy's CA, with no OS trust-store install required.
 This is deliberate: whether a tool consults the OS trust store varies by tool,
 version, and config (npm/Node ignore it by default; modern pip can read it;
 `requests`/`certifi` ship their own bundle). The cert-path vars work across all
-of them, and are harmlessly ignored by tools that do read the OS store. They are
-always emitted, never skipped based on OS-trust status, so a tool on a bundled
-CA store is never silently left untrusted.
+of them, and are harmlessly ignored by tools that do read the OS store.
 
-### Why `pmg setup cert install` is not needed here
-
-Because trust is env-var based, the persistent proxy does not require the CA in
-the OS trust store. In particular, on Linux `pmg setup cert install` (without
-`--system`) is a no-op for trust: Linux has no per-user trust store, so it only
-persists the keypair. The proxy works regardless: with no persisted CA it just
-generates an ephemeral one, and `pmg proxy env` carries the trust.
-
-OS trust-store install (`pmg setup cert install --system`) is intentionally
-not used. It is a poor default because it:
-
-- needs root, so it breaks on container jobs and locked-down self-hosted
-  runners where the env-var approach works fine;
-- persistently installs a MITM-capable CA into the machine trust store, which
-  lingers after the run on non-ephemeral (self-hosted) runners;
-- does not even remove the need for the env vars, since npm/Node ignore the OS
-  store by default and still require `NODE_EXTRA_CA_CERTS`.
-
-It only pays off for tools that ignore the cert env vars, or for a future
-network-level enforcement model where env vars don't apply (see Limitations).
-When that's needed it belongs behind an explicit opt-in, not the default.
+As a result `pmg setup cert install` is **not** needed for the persistent proxy.
+If a persisted CA from `pmg setup cert install` exists the proxy reuses it,
+otherwise it generates an ephemeral one. Either way `pmg proxy env` carries the
+trust. OS trust-store install (`pmg setup cert install --system`) is
+intentionally not used: it needs root (breaking container and locked-down
+runners), persistently installs a MITM-capable CA into the machine trust store,
+and still does not remove the need for the env vars.
 
 Loopback addresses are always excluded from proxying via `NO_PROXY`
 (`localhost,127.0.0.1,::1`).
@@ -211,35 +146,21 @@ Loopback addresses are always excluded from proxying via `NO_PROXY`
 ## Cloud event sync
 
 When SafeDep Cloud is enabled, malware-block events must reach the cloud even on
-ephemeral CI runners that are destroyed immediately after the job. The **daemon**
-owns delivery (not `pmg proxy stop`), in three layers.
+ephemeral CI runners that are destroyed immediately after the job. The daemon
+owns delivery: it records each blocked package to a durable local event log as
+it happens, syncs pending events to SafeDep Cloud periodically while serving, and
+flushes whatever remains on shutdown.
 
-1. **Durable, as it happens.** The daemon records each blocked package to the
-   local audit event log immediately, so events survive a crash.
-2. **Periodic sync while serving.** A background ticker in the daemon drains the
-   pending events to SafeDep Cloud on an interval, so most are delivered during
-   the run and the shutdown flush stays small (which keeps `stop` fast). A tick
-   that cannot promptly acquire the shared sync lock is skipped and the next retries.
-3. **Final flush on shutdown.** When `stop` signals it, the daemon halts the
-   ticker, drains whatever remains, and records the result (total delivered, or
-   the error) in the state file before exiting.
-
-The daemon does the cloud I/O because, unlike `stop`, it has no proxy
-environment variables (it started before `pmg proxy env` injected them), so its
-cloud client dials SafeDep directly rather than routing through the proxy it is
-shutting down. `stop` reads the recorded result and prints it (`Synced N
-event(s) to SafeDep Cloud`, or a `Cloud sync failed` line); a flush failure is
-surfaced but does not mask the fail-on-violation exit code.
-
-The detached background auto-sync used on long-lived workstations is disabled for
-all `pmg proxy` commands, since the daemon owns delivery here.
+`pmg proxy stop` reports the recorded result (`Synced N event(s) to SafeDep
+Cloud`, or a `Cloud sync failed` line). A flush failure is surfaced but does not
+mask the fail-on-violation exit code.
 
 ## Fail on violation
 
 By default `pmg proxy stop` just stops the proxy and exits `0`. Failing the CI
 job on a policy violation is opt-in via `--fail-on-violation`.
 
-- It exits non-zero when `blocked_count > 0`.
+- It exits non-zero when any package was blocked.
 - It **fails closed**. If the daemon shut down without writing a verifiable
   final state (e.g. it crashed), `--fail-on-violation` also fails, because a
   security gate must not pass on an unverifiable run.
@@ -247,32 +168,6 @@ job on a policy violation is opt-in via `--fail-on-violation`.
 The package manager's own non-zero exit (from the `403` on a blocked download)
 is a separate signal. `--fail-on-violation` gives an authoritative gate from the
 proxy regardless of how the package manager reported the failure.
-
-## Daemonization
-
-`--daemon` re-execs the PMG binary as a foreground server detached into its own
-session (`setsid`), with the child's stdio redirected to
-`<cache-dir>/proxy.log`. The parent polls the state file until the child is
-ready, prints the address, and exits. The re-exec passes an internal flag so the
-child runs the server directly and does not recurse into daemonization.
-
-Daemonization is **Unix only**. On Windows, `--daemon` returns a clear
-"not supported" error; the foreground `pmg proxy start` still works.
-
-## Security model
-
-- **Loopback by default.** The proxy binds `127.0.0.1` unless
-  `proxy.server.listen_host` is changed, so by default it is not exposed to the
-  network. Binding a non-loopback address (for a hosted deployment) is a
-  deliberate choice that exposes the MITM proxy; see [Bind address](#bind-address).
-- **Auto-block, fail-closed.** Suspicious packages are denied without an
-  interactive prompt (appropriate for non-interactive CI), and the optional gate
-  fails closed on an unverifiable shutdown.
-- **File permissions.** The state file, daemon log, and CA bundle are written
-  with `0600`/`0700`.
-- **No self-proxy loop.** The daemon starts before any proxy env vars are
-  injected into the job, so the daemon's own analyzer and cloud calls go direct,
-  and `NO_PROXY` covers loopback.
 
 ## Limitations
 

@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -132,17 +133,19 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return fmt.Errorf("failed to create certificate manager: %w", err)
 	}
 
-	// Analyzer with an optional persistent cache (disposable: any cache failure
-	// degrades to running uncached, never blocks the install).
-	malysisAnalyzer, closeAnalyzer, err := BuildCachedMalysisAnalyzer(ctx, cfg)
+	localDB := localstore.NewManager(cfg)
+	defer func() {
+		if cerr := localDB.Close(); cerr != nil {
+			log.Warnf("failed to close localdb: %v", cerr)
+		}
+	}()
+
+	// Analyzer with an optional persistent cache. Cache failures degrade to
+	// running uncached and never block the install.
+	malysisAnalyzer, err := BuildMalysisAnalyzer(ctx, cfg, localDB)
 	if err != nil {
 		return fmt.Errorf("failed to create analyzer: %w", err)
 	}
-	defer func() {
-		if cerr := closeAnalyzer(); cerr != nil {
-			log.Warnf("failed to close analyzer cache: %v", cerr)
-		}
-	}()
 
 	// Create analysis cache and stats collector
 	cache := interceptors.NewInMemoryAnalysisCache()

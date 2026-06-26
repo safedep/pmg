@@ -3,6 +3,7 @@ package flows
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -31,6 +32,9 @@ func SetupCACertificate(configDir, outputPath string) (*certmanager.Certificate,
 	}
 
 	merged := certmanager.MergeWithSystemCA(caCert.Certificate)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+		return nil, false, fmt.Errorf("create CA certificate directory: %w", err)
+	}
 	if err := os.WriteFile(outputPath, merged, 0o600); err != nil {
 		return nil, false, fmt.Errorf("write CA certificate to %s: %w", outputPath, err)
 	}

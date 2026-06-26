@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/safedep/dry/localdb"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer/malysiscache"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/localstore"
 	"github.com/spf13/cobra"
 )
 
@@ -61,7 +61,7 @@ func openCache(ctx context.Context, cfg *config.RuntimeConfig) (cache *malysisca
 		return nil, func() {}, false, statErr
 	}
 
-	mgr := localdb.New(localdb.Config{Dir: cfg.LocalDBDir(), FileName: cfg.LocalDBFileName()})
+	mgr := localstore.NewManager(cfg)
 	store, serr := mgr.Store(ctx, malysiscache.Descriptor())
 	if serr != nil {
 		if cerr := mgr.Close(); cerr != nil {

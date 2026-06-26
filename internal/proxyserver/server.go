@@ -15,6 +15,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
+	"github.com/safedep/pmg/internal/localstore"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -77,15 +78,17 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 		return fmt.Errorf("create certificate manager: %w", err)
 	}
 
-	malysisAnalyzer, closeAnalyzer, err := flows.BuildCachedMalysisAnalyzer(ctx, cfg)
+	localDB := localstore.NewManager(cfg)
+	defer func() {
+		if cerr := localDB.Close(); cerr != nil {
+			log.Warnf("failed to close localdb: %v", cerr)
+		}
+	}()
+
+	malysisAnalyzer, err := flows.BuildMalysisAnalyzer(ctx, cfg, localDB)
 	if err != nil {
 		return fmt.Errorf("create analyzer: %w", err)
 	}
-	defer func() {
-		if cerr := closeAnalyzer(); cerr != nil {
-			log.Warnf("failed to close analyzer cache: %v", cerr)
-		}
-	}()
 
 	cache := interceptors.NewInMemoryAnalysisCache()
 	stats := interceptors.NewAnalysisStatsCollector()

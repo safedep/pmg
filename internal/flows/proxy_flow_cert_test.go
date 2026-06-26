@@ -2,6 +2,7 @@ package flows
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -40,4 +41,17 @@ func TestSetupCACertificateWritesMergedTempFile(t *testing.T) {
 	merged, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, caCert.Certificate, merged[:len(caCert.Certificate)])
+}
+
+func TestSetupCACertificateCreatesMissingOutputDir(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	outputPath := filepath.Join(configDir, "proxy-ca.pem")
+
+	caCert, ephemeral, err := SetupCACertificate(configDir, outputPath)
+	require.NoError(t, err)
+
+	require.NotNil(t, caCert)
+	assert.True(t, ephemeral)
+	assert.FileExists(t, outputPath)
 }
