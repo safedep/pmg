@@ -276,25 +276,37 @@ func LogSessionComplete(outcome Outcome, flowType FlowType) {
 
 	cfg := config.Get()
 
+	LogSessionSummary(SessionData{
+		PackageManager:       s.packageManager,
+		FlowType:             flowType,
+		Outcome:              outcome,
+		TotalAnalyzed:        s.totalAnalyzed,
+		AllowedCount:         s.allowedCount,
+		BlockedCount:         s.blockedCount,
+		ConfirmedCount:       s.confirmedCount,
+		TrustedSkipped:       s.trustedSkipped,
+		InsecureBypassed:     s.insecureBypassed,
+		CooldownBlockedCount: s.cooldownBlockedCount,
+		Duration:             time.Since(s.startTime),
+		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
+		ParanoidMode:         cfg.Config.Paranoid,
+		TransitiveEnabled:    cfg.Config.Transitive,
+	})
+}
+
+// LogSessionSummary emits a session-complete audit event from explicit session
+// data. The persistent proxy daemon uses this because it aggregates run stats in
+// a stats collector rather than the per-invocation audit session that
+// LogSessionComplete reads from.
+func LogSessionSummary(data SessionData) {
+	if global == nil {
+		return
+	}
+
 	logEvent(AuditEvent{
-		Type:    EventTypeSessionComplete,
-		Message: fmt.Sprintf("Session complete: %s", outcome),
-		SessionData: &SessionData{
-			PackageManager:       s.packageManager,
-			FlowType:             flowType,
-			Outcome:              outcome,
-			TotalAnalyzed:        s.totalAnalyzed,
-			AllowedCount:         s.allowedCount,
-			BlockedCount:         s.blockedCount,
-			ConfirmedCount:       s.confirmedCount,
-			TrustedSkipped:       s.trustedSkipped,
-			InsecureBypassed:     s.insecureBypassed,
-			CooldownBlockedCount: s.cooldownBlockedCount,
-			Duration:             time.Since(s.startTime),
-			SandboxEnabled:       cfg.Config.Sandbox.Enabled,
-			ParanoidMode:         cfg.Config.Paranoid,
-			TransitiveEnabled:    cfg.Config.Transitive,
-		},
+		Type:        EventTypeSessionComplete,
+		Message:     fmt.Sprintf("Session complete: %s", data.Outcome),
+		SessionData: &data,
 	})
 }
 

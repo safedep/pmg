@@ -273,6 +273,37 @@ func TestLogSessionCompleteSilentWhenNotInitialized(t *testing.T) {
 	LogSessionComplete(OutcomeSuccess, FlowTypeGuard)
 }
 
+func TestLogSessionSummaryDispatchesEvent(t *testing.T) {
+	s := &mockSink{}
+	setGlobal(newAuditor(s))
+	defer resetGlobal()
+
+	// The persistent proxy daemon serves every package manager, so the summary
+	// carries no single one.
+	LogSessionSummary(SessionData{
+		FlowType:      FlowTypeProxy,
+		Outcome:       OutcomeBlocked,
+		TotalAnalyzed: 3,
+		BlockedCount:  1,
+		AllowedCount:  2,
+	})
+
+	events := s.getEvents()
+	require.Len(t, events, 1)
+	assert.Equal(t, EventTypeSessionComplete, events[0].Type)
+	require.NotNil(t, events[0].SessionData)
+	assert.Empty(t, events[0].SessionData.PackageManager)
+	assert.Equal(t, FlowTypeProxy, events[0].SessionData.FlowType)
+	assert.Equal(t, OutcomeBlocked, events[0].SessionData.Outcome)
+	assert.Equal(t, uint32(1), events[0].SessionData.BlockedCount)
+}
+
+func TestLogSessionSummarySilentWhenNotInitialized(t *testing.T) {
+	resetGlobal()
+	// Should not panic
+	LogSessionSummary(SessionData{Outcome: OutcomeSuccess})
+}
+
 // TestUIOutcomesMappToAuditOutcomes ensures every ui.ExecutionOutcome has a
 // corresponding audit.Outcome constant. If someone adds a new outcome to the
 // UI layer without updating the audit package, this test will fail.

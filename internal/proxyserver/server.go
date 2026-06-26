@@ -67,6 +67,8 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
 
+	startTime := time.Now()
+
 	caCertPath := certmanager.ProxyCABundlePath(cfg.ConfigDir())
 	caCert, _, err := flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
 	if err != nil {
@@ -91,12 +93,12 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	}
 
 	cache := interceptors.NewInMemoryAnalysisCache()
-	stats := interceptors.NewAnalysisStatsCollector()
+	statsCollector := interceptors.NewAnalysisStatsCollector()
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 100)
 	go autoBlockConfirmations(confirmationChan)
 
 	factory := interceptors.NewInterceptorFactory(
-		malysisAnalyzer, cache, stats, confirmationChan, interceptors.InterceptorContext{},
+		malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{},
 	)
 
 	var interceptorList []pmgproxy.Interceptor
@@ -158,14 +160,21 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 
 	close(confirmationChan)
 
-	// Count is read after drain so a package analyzed at shutdown is not missed.
-	// Persist it BEFORE the (possibly slow) cloud flush so the blocked count
+	// Stats are read after drain so a package analyzed at shutdown is not missed.
+	// Persist the blocked count BEFORE the (possibly slow) cloud flush so it
 	// survives even if the flush hangs or the daemon is killed mid-flush, which
 	// keeps `stop --fail-on-violation` correct in those cases.
-	state.BlockedCount = stats.GetStats().BlockedCount
+	stats := statsCollector.GetStats()
+	state.BlockedCount = stats.BlockedCount
 	if werr := writeState(statePath, state); werr != nil {
 		log.Warnf("failed to write final proxy state: %v", werr)
 	}
+
+	// Emit the daemon-lifetime session summary before the final flush so it is
+	// delivered alongside the run's other events. Unlike the per-invocation flow,
+	// the daemon serves every package manager, so the summary carries no single
+	// package manager.
+	logSessionSummary(cfg, stats, time.Since(startTime))
 
 	// Halt the periodic sync (waits for any in-flight drain) before the final
 	// flush, so the two never hold the sync lock at once.
@@ -179,6 +188,30 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	}
 
 	return stopErr
+}
+
+// logSessionSummary emits an aggregate session-complete audit event for the
+// daemon's lifetime, mapping the proxy stats collector onto SessionData. The
+// outcome is blocked when anything was blocked, otherwise success.
+func logSessionSummary(cfg *config.RuntimeConfig, stats interceptors.AnalysisStats, duration time.Duration) {
+	outcome := audit.OutcomeSuccess
+	if stats.BlockedCount > 0 {
+		outcome = audit.OutcomeBlocked
+	}
+
+	audit.LogSessionSummary(audit.SessionData{
+		FlowType:             audit.FlowTypeProxy,
+		Outcome:              outcome,
+		TotalAnalyzed:        uint32(stats.TotalAnalyzed),
+		AllowedCount:         uint32(stats.AllowedCount),
+		BlockedCount:         uint32(stats.BlockedCount),
+		ConfirmedCount:       uint32(stats.ConfirmedCount),
+		CooldownBlockedCount: uint32(stats.CooldownBlockedCount),
+		Duration:             duration,
+		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
+		ParanoidMode:         cfg.Config.Paranoid,
+		TransitiveEnabled:    cfg.Config.Transitive,
+	})
 }
 
 // cloudFlush drains whatever the periodic sync left and returns the outcome
