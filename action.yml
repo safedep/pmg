@@ -283,7 +283,7 @@ runs:
             # Stable per-repo identifier; the runner hostname is ephemeral
             # so PMG's hostname fallback would create a new "machine" entry
             # in SafeDep Cloud for every job.
-            export_var PMG_CLOUD_ENDPOINT_ID "github-actions/${GH_REPOSITORY}"
+            export_var PMG_CLOUD_ENDPOINT_ID "gha/${GH_REPOSITORY}"
           fi
         fi
 
