@@ -49,7 +49,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	port := cfg.Config.Proxy.Server.ListenPort
 
 	if daemonFlag && !foregroundInternalFlag {
-		if err := startDaemon(cfg, statePath, host, port); err != nil {
+		if err := startDaemon(cmd, cfg, statePath, host, port); err != nil {
 			ui.ErrorExit(err)
 		}
 		return nil
@@ -61,7 +61,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func startDaemon(cfg *config.RuntimeConfig, statePath, host string, port int) error {
+func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host string, port int) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
@@ -77,12 +77,7 @@ func startDaemon(cfg *config.RuntimeConfig, statePath, host string, port int) er
 		return fmt.Errorf("create daemon log dir: %w", err)
 	}
 
-	args := []string{
-		"proxy", "start", "--foreground-internal",
-		"--state", statePath,
-		"--host", host,
-		"--port", strconv.Itoa(port),
-	}
+	args := daemonArgs(cmd, statePath, host, port)
 
 	daemonCfg := proxyserver.ProxyDaemonConfig{
 		LogPath:      logPath,
@@ -95,4 +90,14 @@ func startDaemon(cfg *config.RuntimeConfig, statePath, host string, port int) er
 
 	_, werr := fmt.Fprintf(os.Stdout, "PMG proxy daemon started on %s (pid %d)\n", state.Addr, state.PID)
 	return werr
+}
+
+func daemonArgs(cmd *cobra.Command, statePath, host string, port int) []string {
+	args := append([]string{}, config.ChangedConfigFlagArgs(cmd)...)
+	return append(args,
+		"proxy", "start", "--foreground-internal",
+		"--state", statePath,
+		"--host", host,
+		"--port", strconv.Itoa(port),
+	)
 }

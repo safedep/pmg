@@ -113,6 +113,36 @@ func ApplyCobraFlags(cmd *cobra.Command) {
 	}
 }
 
+// ChangedConfigFlagArgs returns the explicitly supplied root config flags in a
+// form that can be passed to a re-execed PMG process.
+func ChangedConfigFlagArgs(cmd *cobra.Command) []string {
+	var args []string
+	for _, spec := range configFlagSpecs {
+		flag := cmd.Flags().Lookup(spec.name)
+		if flag == nil || !flag.Changed {
+			continue
+		}
+
+		name := "--" + spec.name
+		if flag.Value.Type() == "bool" {
+			args = append(args, name+"="+flag.Value.String())
+			continue
+		}
+
+		for _, value := range changedFlagValues(flag) {
+			args = append(args, name, value)
+		}
+	}
+	return args
+}
+
+func changedFlagValues(flag *pflag.Flag) []string {
+	if value, ok := flag.Value.(pflag.SliceValue); ok {
+		return value.GetSlice()
+	}
+	return []string{flag.Value.String()}
+}
+
 // RejectManagedFlagOverrides fails when the active config is a locked global
 // config and the user explicitly set a flag whose value that config governs.
 // Operational flags (managed == false) are unaffected, and an unlocked managed

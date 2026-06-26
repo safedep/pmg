@@ -83,6 +83,41 @@ func TestRejectManagedFlagOverridesDetectsInheritedFlag(t *testing.T) {
 	assert.Contains(t, err.Error(), "globally managed")
 }
 
+func TestChangedConfigFlagArgs(t *testing.T) {
+	withLockedState(t, false)
+
+	root := &cobra.Command{Use: "pmg"}
+	ApplyCobraFlags(root)
+
+	var got []string
+	child := &cobra.Command{
+		Use: "proxy",
+		Run: func(cmd *cobra.Command, _ []string) {
+			got = ChangedConfigFlagArgs(cmd)
+		},
+	}
+	root.AddCommand(child)
+	root.SetArgs([]string{
+		"--paranoid=false",
+		"--transitive-depth", "7",
+		"--sandbox-profile", "strict",
+		"--sandbox-allow", "read=/tmp",
+		"--sandbox-allow", "net-connect=registry.npmjs.org:443",
+		"--skip-dependency-cooldown",
+		"proxy",
+	})
+
+	require.NoError(t, root.Execute())
+	assert.Equal(t, []string{
+		"--transitive-depth", "7",
+		"--paranoid=false",
+		"--sandbox-profile", "strict",
+		"--sandbox-allow", "read=/tmp",
+		"--sandbox-allow", "net-connect=registry.npmjs.org:443",
+		"--skip-dependency-cooldown=true",
+	}, got)
+}
+
 // Proves the SSOT table is internally consistent: every spec actually binds a
 // flag, every registered flag traces back to a spec (no out-of-band flags), and
 // the managed classification matches intent. Catches accidental managed flips
