@@ -1,5 +1,5 @@
-# .github/workflows/persistent-proxy-e2e.yml
-name: Persistent Proxy E2E
+# .github/workflows/pmg-action-e2e.yml
+name: PMG Server Action E2E
 
 on:
   workflow_dispatch:
@@ -7,35 +7,25 @@ on:
     branches:
       - main
     paths:
+      - "action.yml"
       - "cmd/proxy/**"
       - "internal/proxyserver/**"
       - "internal/flows/cert.go"
-      - "action.yml"
 
 permissions:
   contents: read
 
 jobs:
-  persistent-proxy-e2e:
-    name: Persistent Proxy E2E
+  pmg-action-server-e2e:
+    name: PMG Server Action E2E
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
-      SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN}}
-      PMG_CLOUD_ENABLED: "true"
     defaults:
       run:
         shell: bash
     steps:
       - name: Checkout Source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -47,17 +37,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build PMG
-        run: make
-
-      - name: Add pmg to PATH
-        run: echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
-
-      - name: Start proxy daemon
-        run: pmg proxy start --daemon
-
-      - name: Inject proxy env
-        run: pmg proxy env >> "$GITHUB_ENV"
+      - name: Run PMG action in server mode
+        uses: ./ # action.yml
+        with:
+          server-mode: true
+          api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+          tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
 
       - name: Run proxy E2E assertions
         uses: ./.github/actions/proxy-e2e-assertions
