@@ -213,7 +213,8 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
   with:
     server-mode: true
 
-- run: npm ci          # intercepted via HTTP_PROXY automatically
+# intercepted via HTTP_PROXY automatically
+- run: npm ci
 
 - name: Enforce PMG policy
   if: always()
