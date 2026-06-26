@@ -240,6 +240,7 @@ runs:
         IN_VERBOSITY: ${{ inputs.verbosity }}
         IN_DISABLE_TELEMETRY: ${{ inputs.disable-telemetry }}
         IN_SKIP_EVENT_LOGGING: ${{ inputs.skip-event-logging }}
+        IN_SERVER_MODE: ${{ inputs.server-mode }}
         GH_REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
@@ -263,12 +264,18 @@ runs:
           export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
           export_var PMG_CLOUD_ENABLED "true"
 
-          # PMG's opportunistic background auto-sync is designed for long-lived
-          # workstations. On an ephemeral runner the detached child can be
-          # torn down before it drains the WAL, and the WAL goes with it. Turn
-          # it off and rely on an explicit `pmg cloud sync` at job-end if the
-          # user wants events delivered.
-          export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+          if [ "$IN_SERVER_MODE" = "true" ]; then
+            # In server mode the proxy daemon owns delivery and uses auto_sync
+            # to gate both periodic sync and the shutdown flush.
+            export_var PMG_CLOUD_AUTO_SYNC_ENABLED "true"
+          else
+            # PMG's opportunistic background auto-sync is designed for
+            # long-lived workstations. On an ephemeral runner the detached child
+            # can be torn down before it drains the WAL, and the WAL goes with
+            # it. Turn it off and rely on an explicit `pmg cloud sync` at
+            # job-end if the user wants events delivered.
+            export_var PMG_CLOUD_AUTO_SYNC_ENABLED "false"
+          fi
 
           if [ -n "$IN_ENDPOINT_ID" ]; then
             export_var PMG_CLOUD_ENDPOINT_ID "$IN_ENDPOINT_ID"
