@@ -1,0 +1,50 @@
+name: Proxy E2E Assertions
+description: >
+  Shared assertions for a running PMG persistent proxy. Assumes the proxy is
+  already started and HTTP_PROXY + CA env vars are exported into the job env.
+  Runs benign + malicious installs. The caller owns stopping the proxy (e.g.
+  pmg proxy stop --fail-on-violation) since teardown differs per setup.
+
+runs:
+  using: composite
+  steps:
+    - name: Verify proxy env is set
+      shell: bash
+      run: |
+        echo "HTTP_PROXY=$HTTP_PROXY"
+        test -n "$HTTP_PROXY"
+
+    - name: Benign npm install succeeds
+      shell: bash
+      run: |
+        mkdir benign-test && cd benign-test
+        npm init -y
+        npm install lodash@4.17.21
+        test -d node_modules/lodash
+        cd .. && rm -rf benign-test
+
+    - name: Malicious npm install is blocked
+      shell: bash
+      run: |
+        mkdir mal-npm && cd mal-npm
+        npm init -y
+        # The install MUST fail (proxy blocks it). Assert that, instead of
+        # continue-on-error which would hide a regression where it succeeds.
+        if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+          echo "ERROR: malicious npm install succeeded but should have been blocked"
+          exit 1
+        fi
+        echo "OK: malicious npm install was blocked"
+        cd .. && rm -rf mal-npm
+
+    - name: Malicious pip install is blocked (python3 -m pip)
+      shell: bash
+      run: |
+        python3 -m venv venv && source venv/bin/activate
+        if python3 -m pip install safedep-test-pkg; then
+          echo "ERROR: malicious pip install succeeded but should have been blocked"
+          deactivate
+          exit 1
+        fi
+        echo "OK: malicious pip install was blocked"
+        deactivate && rm -rf venv

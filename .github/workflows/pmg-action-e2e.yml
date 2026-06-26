@@ -44,43 +44,12 @@ jobs:
           api-key: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
           tenant-id: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
 
-      - name: Verify proxy env is set by the action
-        run: |
-          echo "HTTP_PROXY=$HTTP_PROXY"
-          test -n "$HTTP_PROXY"
-
-      - name: Benign npm install succeeds
-        run: |
-          mkdir benign-test && cd benign-test
-          npm init -y
-          npm install lodash@4.17.21
-          test -d node_modules/lodash
-          cd .. && rm -rf benign-test
-
-      - name: Malicious npm install is blocked
-        run: |
-          mkdir mal-npm && cd mal-npm
-          npm init -y
-          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
-            echo "ERROR: malicious npm install succeeded but should have been blocked"
-            exit 1
-          fi
-          echo "OK: malicious npm install was blocked"
-          cd .. && rm -rf mal-npm
-
-      - name: Malicious pip install is blocked (python3 -m pip)
-        run: |
-          python3 -m venv venv && source venv/bin/activate
-          if python3 -m pip install safedep-test-pkg; then
-            echo "ERROR: malicious pip install succeeded but should have been blocked"
-            deactivate
-            exit 1
-          fi
-          echo "OK: malicious pip install was blocked"
-          deactivate && rm -rf venv
+      - name: Run proxy E2E assertions
+        uses: ./.github/actions/proxy-e2e-assertions
 
       - name: Stop proxy and verify it fails on the blocks
         if: always()
+        shell: bash
         run: |
           if pmg proxy stop --fail-on-violation; then
             echo "ERROR: stop should have exited non-zero (packages were blocked)"
