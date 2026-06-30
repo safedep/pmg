@@ -7,6 +7,10 @@
     Defense in depth for the package managers you already use.
 </p>
 
+<p align="center">
+<a href="https://trendshift.io/repositories/18640?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-18640" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/18640" alt="safedep%2Fpmg | Trendshift" width="250" height="55"/></a>
+</p>
+
 <div align="center">
   <img src="./docs/demo/pmg-intro.gif" width="800" alt="pmg in action">
 </div>
