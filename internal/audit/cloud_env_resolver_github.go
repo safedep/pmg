@@ -20,9 +20,9 @@ func (r *githubActionsEnvResolver) Provider() controltowerv1.EndpointCIProvider 
 }
 
 func (r *githubActionsEnvResolver) RunId() string      { return os.Getenv("GITHUB_RUN_ID") }
-func (r *githubActionsEnvResolver) Repository() string  { return os.Getenv("GITHUB_REPOSITORY") }
-func (r *githubActionsEnvResolver) CommitSha() string   { return os.Getenv("GITHUB_SHA") }
-func (r *githubActionsEnvResolver) Actor() string       { return os.Getenv("GITHUB_ACTOR") }
+func (r *githubActionsEnvResolver) Repository() string { return os.Getenv("GITHUB_REPOSITORY") }
+func (r *githubActionsEnvResolver) CommitSha() string  { return os.Getenv("GITHUB_SHA") }
+func (r *githubActionsEnvResolver) Actor() string      { return os.Getenv("GITHUB_ACTOR") }
 
 func (r *githubActionsEnvResolver) Branch() string {
 	if headRef := os.Getenv("GITHUB_HEAD_REF"); headRef != "" {
@@ -55,6 +55,10 @@ func (r *githubActionsEnvResolver) Metadata() map[string]string {
 		if val := os.Getenv(e.envVar); val != "" {
 			metadata[e.key] = val
 		}
+	}
+
+	if hostname, err := os.Hostname(); err == nil && hostname != "" {
+		metadata["hostname"] = hostname
 	}
 
 	if len(metadata) == 0 {

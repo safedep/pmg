@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"os"
 	"testing"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -55,6 +56,11 @@ func TestGithubActionsResolverMetadata(t *testing.T) {
 	assert.Equal(t, "build", metadata["job"])
 	assert.Equal(t, "1", metadata["run_attempt"])
 	assert.Equal(t, "https://github.com", metadata["server_url"])
+
+	hostname, err := os.Hostname()
+	if err == nil && hostname != "" {
+		assert.Equal(t, hostname, metadata["hostname"])
+	}
 }
 
 func TestGithubActionsResolverMetadataEmpty(t *testing.T) {
@@ -64,7 +70,14 @@ func TestGithubActionsResolverMetadataEmpty(t *testing.T) {
 	t.Setenv("GITHUB_SERVER_URL", "")
 
 	resolver := newGithubActionsCIResolver()
-	assert.Nil(t, resolver.Metadata())
+	metadata := resolver.Metadata()
+
+	hostname, err := os.Hostname()
+	if err == nil && hostname != "" {
+		assert.Equal(t, map[string]string{"hostname": hostname}, metadata)
+	} else {
+		assert.Nil(t, metadata)
+	}
 }
 
 func TestGithubActionsResolverNonPRRef(t *testing.T) {
