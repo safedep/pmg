@@ -42,6 +42,12 @@ func (p *pypiPackageExecutor) parseUvxCommand(command Command, args []string) (*
 	}
 
 	flagSet := pflag.NewFlagSet("uvx", pflag.ContinueOnError)
+	// Tolerate unknown flags (fail open) rather than refusing to run, matching
+	// the pipx/pip/uv executors. uv adds flags frequently; failing closed on an
+	// unrecognized flag would break otherwise-valid uvx invocations after a uv
+	// upgrade. The residual gap — a future value-taking flag consuming the tool
+	// positional and yielding no audit target — only affects non-proxy guard
+	// mode; the default proxy flow still intercepts every registry download.
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
 
@@ -153,6 +159,14 @@ func uvxIsAuditableSpec(spec string) bool {
 // it does not greedily consume the following argument (pflag treats an unknown
 // flag's next token as its value). The set mirrors `uvx --help`; unrecognized
 // future flags are tolerated via the UnknownFlags allowlist.
+//
+// Known limitation: --with-requirements / --with-editable pull additional
+// packages from a file or path. We register them only so their values are not
+// read as the tool positional; their contents are not expanded into audit
+// targets. In guard mode those packages are therefore not pre-screened; the
+// default proxy flow still intercepts their downloads. Expanding requirements
+// files needs the manifest extractor (which has no uvx entry) and a guard that
+// audits manifests alongside a direct target — tracked as follow-up.
 func setupUvxFlags(flagSet *pflag.FlagSet) (fromSpec *string, withSpecs *[]string) {
 	fromSpec = flagSet.String("from", "", "")
 	withSpecs = flagSet.StringArrayP("with", "w", nil, "")
