@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUvxExecutorParseCommand(t *testing.T) {
 	pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	cases := []struct {
 		name             string
@@ -147,6 +148,33 @@ func TestUvxExecutorParseCommand(t *testing.T) {
 			expectedTargets: 0,
 		},
 		{
+			name:            "python interpreter request is not audited",
+			args:            []string{"python", "-c", "print(1)"},
+			expectedTargets: 0,
+		},
+		{
+			name:            "versioned python interpreter request is not audited",
+			args:            []string{"python@3.12", "script.py"},
+			expectedTargets: 0,
+		},
+		{
+			name:            "pythonX.Y interpreter request is not audited",
+			args:            []string{"python3.11"},
+			expectedTargets: 0,
+		},
+		{
+			name:             "python interpreter with --with still audits the extra package",
+			args:             []string{"--with", "rich", "python"},
+			expectedTargets:  1,
+			expectedPackages: []string{"rich"},
+		},
+		{
+			name:             "tool with python-like prefix is still audited",
+			args:             []string{"python-dotenv"},
+			expectedTargets:  1,
+			expectedPackages: []string{"python-dotenv"},
+		},
+		{
 			name:            "bare uvx invocation",
 			args:            []string{},
 			expectedTargets: 0,
@@ -161,7 +189,7 @@ func TestUvxExecutorParseCommand(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := pm.ParseCommand(tc.args)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tc.expectedTargets, len(result.InstallTargets), "number of install targets mismatch")
 
 			for i, expectedPkg := range tc.expectedPackages {
@@ -178,7 +206,7 @@ func TestUvxExecutorParseCommand(t *testing.T) {
 // registry lookup is needed.
 func TestUvxExecutorParseCommandVersions(t *testing.T) {
 	pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	cases := []struct {
 		name            string
@@ -215,8 +243,8 @@ func TestUvxExecutorParseCommandVersions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := pm.ParseCommand(tc.args)
-			assert.NoError(t, err)
-			assert.Len(t, result.InstallTargets, 1)
+			require.NoError(t, err)
+			require.Len(t, result.InstallTargets, 1)
 
 			target := result.InstallTargets[0]
 			assert.Equal(t, tc.expectedName, target.PackageVersion.Package.Name)
@@ -228,7 +256,7 @@ func TestUvxExecutorParseCommandVersions(t *testing.T) {
 
 func TestUvxExecutorProxyBehavior(t *testing.T) {
 	pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	cases := []struct {
 		name    string
@@ -241,7 +269,7 @@ func TestUvxExecutorProxyBehavior(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			parsed, err := pm.ParseCommand(strings.Split(tc.command, " "))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			// uvx always runs a tool, so it always may download packages and is
 			// never a known non-download command.

@@ -2,11 +2,18 @@ package packagemanager
 
 import (
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/safedep/dry/log"
 	"github.com/spf13/pflag"
 )
+
+// uvxInterpreterRequestRe matches the interpreter requests uv understands as a
+// tool command (python, python3, python3.12, pypy, cpython, graalpy, ...). uv
+// launches an isolated interpreter for these instead of installing a PyPI
+// package, so there is nothing to audit.
+var uvxInterpreterRequestRe = regexp.MustCompile(`^(python|cpython|pypy|graalpy)(\d+(\.\d+)?)?$`)
 
 // DefaultUvxPackageExecutorConfig returns the config for the uvx executor.
 // uvx is an alias for `uv tool run`: it installs a tool into an ephemeral
@@ -53,7 +60,10 @@ func (p *pypiPackageExecutor) parseUvxCommand(command Command, args []string) (*
 	var specs []string
 	if *fromSpec != "" {
 		specs = append(specs, *fromSpec)
-	} else if positional := flagSet.Args(); len(positional) > 0 {
+	} else if positional := flagSet.Args(); len(positional) > 0 && !uvxIsInterpreterRequest(positional[0]) {
+		// `uvx python`, `uvx python@3.12`, `uvx pypy` etc. launch an isolated
+		// interpreter rather than installing a PyPI tool, so there is nothing to
+		// audit for the positional. --with packages are still audited below.
 		specs = append(specs, positional[0])
 	}
 	specs = append(specs, *withSpecs...)
@@ -98,6 +108,18 @@ func uvxNormalizeSpec(spec string) string {
 	}
 
 	return name + "==" + version
+}
+
+// uvxIsInterpreterRequest reports whether a uvx positional command is an
+// interpreter request (e.g. `python`, `python@3.12`, `python3.11`, `pypy`)
+// rather than a PyPI tool. The version suffix (`@...`) is ignored for matching.
+func uvxIsInterpreterRequest(spec string) bool {
+	name := spec
+	if at := strings.Index(name, "@"); at != -1 {
+		name = name[:at]
+	}
+
+	return uvxInterpreterRequestRe.MatchString(name)
 }
 
 // uvxIsAuditableSpec reports whether a uvx specifier can be resolved against the
