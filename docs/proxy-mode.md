@@ -67,6 +67,7 @@ Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat
 | `yarn`          | ✅      |
 | `pip`           | ✅      |
 | `uv`            | ✅      |
+| `uvx`           | ✅      |
 | `poetry`        | ✅      |
 
 ## References

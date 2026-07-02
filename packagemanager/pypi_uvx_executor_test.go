@@ -173,6 +173,59 @@ func TestUvxExecutorParseCommand(t *testing.T) {
 	}
 }
 
+// TestUvxExecutorParseCommandVersions pins the resolved name/version and the
+// explicit-version flag for pinned specs. These cases use exact versions so no
+// registry lookup is needed.
+func TestUvxExecutorParseCommandVersions(t *testing.T) {
+	pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
+	assert.NoError(t, err)
+
+	cases := []struct {
+		name            string
+		args            []string
+		expectedName    string
+		expectedVersion string
+	}{
+		{
+			name:            "positional @ version",
+			args:            []string{"ruff@0.3.0", "check"},
+			expectedName:    "ruff",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:            "positional == version",
+			args:            []string{"ruff==0.3.0"},
+			expectedName:    "ruff",
+			expectedVersion: "0.3.0",
+		},
+		{
+			name:            "--from with == version",
+			args:            []string{"--from", "httpie==3.2.2", "http"},
+			expectedName:    "httpie",
+			expectedVersion: "3.2.2",
+		},
+		{
+			name:            "--from= with extras and version",
+			args:            []string{"--from=mypy[faster-cache,reports]==1.13.0", "mypy", "--xml-report", "report"},
+			expectedName:    "mypy",
+			expectedVersion: "1.13.0",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := pm.ParseCommand(tc.args)
+			assert.NoError(t, err)
+			assert.Len(t, result.InstallTargets, 1)
+
+			target := result.InstallTargets[0]
+			assert.Equal(t, tc.expectedName, target.PackageVersion.Package.Name)
+			assert.Equal(t, tc.expectedVersion, target.PackageVersion.Version)
+			assert.True(t, target.IsExplicitVersion, "pinned spec should be marked as explicit version")
+		})
+	}
+}
+
 func TestUvxExecutorProxyBehavior(t *testing.T) {
 	pm, err := NewPypiPackageExecutor(DefaultUvxPackageExecutorConfig())
 	assert.NoError(t, err)
