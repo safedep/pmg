@@ -154,19 +154,12 @@ func uvxIsAuditableSpec(spec string) bool {
 }
 
 // setupUvxFlags registers uvx's options on flagSet and returns the --from and
-// --with values. Every value-taking option is registered so its value is never
-// mistaken for the tool positional, and every boolean option is registered so
-// it does not greedily consume the following argument (pflag treats an unknown
-// flag's next token as its value). The set mirrors `uvx --help`; unrecognized
-// future flags are tolerated via the UnknownFlags allowlist.
-//
-// Known limitation: --with-requirements / --with-editable pull additional
-// packages from a file or path. We register them only so their values are not
-// read as the tool positional; their contents are not expanded into audit
-// targets. In guard mode those packages are therefore not pre-screened; the
-// default proxy flow still intercepts their downloads. Expanding requirements
-// files needs the manifest extractor (which has no uvx entry) and a guard that
-// audits manifests alongside a direct target — tracked as follow-up.
+// --with values. Every value-taking option (e.g. --with-requirements,
+// --with-editable, --python) is registered so its value is never mistaken for
+// the tool positional, and every boolean option is registered so it does not
+// greedily consume the following argument (pflag treats an unknown flag's next
+// token as its value). The set mirrors `uvx --help`; unrecognized future flags
+// are tolerated via the UnknownFlags allowlist.
 func setupUvxFlags(flagSet *pflag.FlagSet) (fromSpec *string, withSpecs *[]string) {
 	fromSpec = flagSet.String("from", "", "")
 	withSpecs = flagSet.StringArrayP("with", "w", nil, "")
