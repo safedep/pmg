@@ -93,6 +93,13 @@ func TestSandboxConfigPolicyFor(t *testing.T) {
 			wantExists:  true,
 		},
 		{
+			name:        "legacy pypi-restrictive re-mapped for uvx",
+			policies:    map[string]SandboxPolicyRef{"uvx": {Enabled: true, Profile: "pypi-restrictive"}},
+			pmName:      "uvx",
+			wantProfile: "uvx",
+			wantExists:  true,
+		},
+		{
 			name:     "template override disables re-mapping",
 			policies: map[string]SandboxPolicyRef{"npm": {Enabled: true, Profile: "npm-restrictive"}},
 			policyTemplates: map[string]SandboxPolicyTemplate{

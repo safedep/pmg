@@ -12,6 +12,11 @@ type PypiPackageExecutorConfig struct {
 	CommandName         string
 	InstallCommands     []string
 	NonDownloadCommands []string
+
+	// ImplicitRun marks executors that always run a tool with no install
+	// subcommand (uvx, i.e. `uv tool run`). For these the first positional
+	// argument (or --from) is the package to audit. See parseUvxCommand.
+	ImplicitRun bool
 }
 
 func DefaultPipxPackageExecutorConfig() PypiPackageExecutorConfig {
@@ -45,11 +50,17 @@ func (p *pypiPackageExecutor) Ecosystem() packagev1.Ecosystem {
 }
 
 func (p *pypiPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && args[0] == "pipx" {
+	if len(args) > 0 && args[0] == p.Config.CommandName {
 		args = args[1:]
 	}
 
 	command := Command{Exe: p.Config.CommandName, Args: args}
+
+	// uvx (uv tool run) has no install subcommand; the tool is always run.
+	if p.Config.ImplicitRun {
+		return p.parseUvxCommand(command, args)
+	}
+
 	if len(args) < 1 {
 		return &ParsedCommand{Command: command}, nil
 	}

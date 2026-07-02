@@ -156,6 +156,7 @@ PMG supports the tools you already use:
 |             | `pipx`   | `pipx run <pkg>`    |
 |             | `poetry` | `poetry add <pkg>`  |
 |             | `uv`     | `uv add <pkg>`      |
+|             | `uvx`    | `uvx <pkg>`         |
 
 ## Installation
 

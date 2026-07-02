@@ -160,6 +160,7 @@ func main() {
 	cmd.AddCommand(pypi.NewUvCommand())
 	cmd.AddCommand(pypi.NewPoetryCommand())
 	cmd.AddCommand(executors.NewPipxCommand())
+	cmd.AddCommand(executors.NewUvxCommand())
 	cmd.AddCommand(proxyCmd.NewProxyCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())

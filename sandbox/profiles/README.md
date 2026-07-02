@@ -10,7 +10,7 @@ Restrictive policy for the npm ecosystem (npm, pnpm, yarn, bun).
 
 ### pypi-restrictive
 
-Restrictive policy for the PyPI ecosystem (pip, pip3, poetry, uv).
+Restrictive policy for the PyPI ecosystem (pip, pip3, pipx, poetry, uv, uvx).
 
 ## Custom Policies
 

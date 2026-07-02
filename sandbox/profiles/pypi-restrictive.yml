@@ -6,6 +6,7 @@ package_managers:
   - pipx
   - poetry
   - uv
+  - uvx
 
 # Optional security settings (uncomment to enable)
 # allow_git_config: false  # Allow package managers to modify .git/config (default: false, blocks for security)

@@ -1,0 +1,55 @@
+name: uvx
+description: Profile for uvx executor (uv tool run) with write access to current directory
+inherits: pypi-restrictive
+
+package_managers:
+  - uvx
+
+# uvx runs tools in ephemeral environments and often needs PTY access, e.g.
+# `uvx cowsay -t hello`. Set explicitly so it stays enabled even if a parent
+# profile turns it off in the future.
+allow_pty: true
+
+# uvx-executed tools may need to bind to localhost ports (e.g. dev servers).
+allow_network_bind: true
+
+environment:
+  # The pypi-restrictive base allows no environment variables. uvx is driven by
+  # uv, so it needs uv's own config namespace (UV_*) and honors pip's index/TLS
+  # conventions (PIP_*). Sibling tool credentials (POETRY_*) and TWINE_* stay
+  # scrubbed.
+  #
+  # Accepted trade-off: UV_* re-allows UV_PUBLISH_TOKEN, uv's publishing
+  # credential, even though uvx does not publish.
+  allow:
+    - UV_*
+    - PIP_*
+
+filesystem:
+  allow_read:
+    # uv cache: ephemeral tool environments are created here. ~/.cache/uv is the
+    # Linux default; uv honors UV_CACHE_DIR / XDG_CACHE_HOME otherwise.
+    - ${HOME}/.cache/uv/**
+    - ${HOME}/Library/Caches/uv/**
+
+    # uv data dir: managed Python interpreters and installed tools.
+    - ${HOME}/.local/share/uv/**
+    - ${HOME}/Library/Application Support/uv/**
+
+    # uv config and the tool bin directory.
+    - ${HOME}/.config/uv/**
+    - ${HOME}/.local/bin/**
+
+  allow_write:
+    - ${CWD}/**
+    - ${HOME}/.cache/uv/**
+    - ${HOME}/Library/Caches/uv/**
+    - ${HOME}/.local/share/uv/**
+    - ${HOME}/Library/Application Support/uv/**
+    - ${HOME}/.config/uv/**
+    - ${HOME}/.local/bin/**
+
+  # Additional deny rules for extra security
+  deny_write:
+    - ${CWD}/.env
+    - ${CWD}/.env.*

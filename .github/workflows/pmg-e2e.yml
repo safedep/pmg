@@ -83,7 +83,7 @@ jobs:
         run: |
           test -f $HOME/.pmg.rc
           test -d $HOME/.pmg/bin
-          for shim in npm pip pip3 pnpm bun uv yarn poetry npx pnpx; do
+          for shim in npm pip pip3 pnpm bun uv uvx yarn poetry npx pnpx; do
             test -x $HOME/.pmg/bin/$shim || { echo "Missing shim: $shim"; exit 1; }
           done
 
@@ -415,6 +415,33 @@ jobs:
           ! grep -q '\^__\^' pnpx-dry-output.txt
 
           cd - && rm -rf "$PNPX_TESTDIR"
+
+      - name: Test UVX - Package Execution
+        run: |
+          echo "Testing UVX package execution (uv tool run)..."
+          UVX_TESTDIR=$(mktemp -d) && cd "$UVX_TESTDIR"
+
+          echo "Testing uvx with a simple tool in proxy mode (default)..."
+          pmg uvx ruff@0.6.9 --version | tee uvx-output.txt
+          # Verification: pinned version is resolved and executed via the proxy
+          grep -q "0.6.9" uvx-output.txt
+
+          echo "Testing uvx version pin via @ syntax (non-proxy)..."
+          pmg --proxy-mode=false uvx ruff@0.6.9 --version | tee uvx-pin-output.txt
+          grep -q "0.6.9" uvx-pin-output.txt
+
+          echo "Testing uvx with --from (command name differs from package)..."
+          pmg --proxy-mode=false uvx --from cowsay cowsay -t "Hello from pmg uvx" | tee uvx-from-output.txt
+          # Verification: cowsay output contains our message and cow art
+          grep -q "Hello from pmg uvx" uvx-from-output.txt
+          grep -q '\^__\^' uvx-from-output.txt
+
+          echo "Testing uvx dry-run mode..."
+          pmg --proxy-mode=false --dry-run uvx --from cowsay cowsay -t "This should not execute" | tee uvx-dry-output.txt
+          # Verification: dry-run should NOT produce cowsay ASCII art (cow face ^__^)
+          ! grep -q '\^__\^' uvx-dry-output.txt
+
+          cd - && rm -rf "$UVX_TESTDIR"
 
       - name: Test Pip - Single Package & Manifest
         run: |
