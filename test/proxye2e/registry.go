@@ -6,9 +6,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/mod/module"
 )
 
 type NpmVersion struct {
@@ -34,6 +37,16 @@ type PypiPackage struct {
 	Versions []PypiVersion
 }
 
+type GoVersion struct {
+	Version     string
+	PublishedAt time.Time
+}
+
+type GoModule struct {
+	Path     string
+	Versions []GoVersion
+}
+
 type RecordedRequest struct {
 	Host   string
 	Method string
@@ -47,14 +60,16 @@ type Registry struct {
 	mu       sync.Mutex
 	npm      map[string]NpmPackage
 	pypi     map[string]PypiPackage
+	gomod    map[string]GoModule
 	requests []RecordedRequest
 	server   *httptest.Server
 }
 
 func newRegistry() *Registry {
 	r := &Registry{
-		npm:  map[string]NpmPackage{},
-		pypi: map[string]PypiPackage{},
+		npm:   map[string]NpmPackage{},
+		pypi:  map[string]PypiPackage{},
+		gomod: map[string]GoModule{},
 	}
 	r.server = httptest.NewTLSServer(http.HandlerFunc(r.serve))
 	return r
@@ -74,6 +89,12 @@ func (r *Registry) AddPypi(pkg PypiPackage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.pypi[normalizePypiName(pkg.Name)] = pkg
+}
+
+func (r *Registry) AddGoModule(mod GoModule) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gomod[mod.Path] = mod
 }
 
 // Requests returns every request the proxy forwarded upstream, in order.
@@ -111,9 +132,109 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		r.servePypiSimple(w, req)
 	case "files.pythonhosted.org":
 		r.servePypiFile(w, req)
+	case "proxy.golang.org":
+		r.serveGo(w, req)
 	default:
 		http.NotFound(w, req)
 	}
+}
+
+// DownloadedGoZip reports whether the module zip for the given path and
+// version was fetched from the registry.
+func (r *Registry) DownloadedGoZip(modulePath, version string) bool {
+	want := "/" + goEscapePath(modulePath) + "/@v/" + goEscapeVersion(version) + ".zip"
+	for _, req := range r.Requests() {
+		if req.Path == want {
+			return true
+		}
+	}
+	return false
+}
+
+// serveGo implements a minimal GOPROXY protocol endpoint: .info (with publish
+// time), .mod and .zip per registered module version, plus /sumdb/* which the
+// real proxy serves for checksum-database lookups.
+func (r *Registry) serveGo(w http.ResponseWriter, req *http.Request) {
+	p := strings.TrimPrefix(req.URL.Path, "/")
+
+	if strings.HasPrefix(p, "sumdb/") {
+		_, _ = w.Write([]byte("e2e-sumdb"))
+		return
+	}
+
+	escapedPath, versionPart, found := strings.Cut(p, "/@v/")
+	if !found {
+		http.NotFound(w, req)
+		return
+	}
+
+	modulePath, err := module.UnescapePath(escapedPath)
+	if err != nil {
+		http.NotFound(w, req)
+		return
+	}
+
+	r.mu.Lock()
+	mod, ok := r.gomod[modulePath]
+	r.mu.Unlock()
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+
+	ext := path.Ext(versionPart)
+	version, err := module.UnescapeVersion(strings.TrimSuffix(versionPart, ext))
+	if err != nil {
+		http.NotFound(w, req)
+		return
+	}
+
+	var published time.Time
+	versionFound := false
+	for _, v := range mod.Versions {
+		if v.Version == version {
+			published = v.PublishedAt
+			versionFound = true
+			break
+		}
+	}
+	if !versionFound {
+		http.NotFound(w, req)
+		return
+	}
+
+	switch ext {
+	case ".info":
+		w.Header().Set("Content-Type", "application/json")
+		body, _ := json.Marshal(map[string]string{
+			"Version": version,
+			"Time":    published.UTC().Format(time.RFC3339),
+		})
+		_, _ = w.Write(body)
+	case ".mod":
+		_, _ = fmt.Fprintf(w, "module %s\n", modulePath)
+	case ".zip":
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write([]byte("e2e-module-zip"))
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+func goEscapePath(p string) string {
+	escaped, err := module.EscapePath(p)
+	if err != nil {
+		return p
+	}
+	return escaped
+}
+
+func goEscapeVersion(v string) string {
+	escaped, err := module.EscapeVersion(v)
+	if err != nil {
+		return v
+	}
+	return escaped
 }
 
 func (r *Registry) serveNpm(w http.ResponseWriter, req *http.Request) {

@@ -13,6 +13,11 @@ import (
 // (analyzer, cache, stats), this holds context specific to the current run.
 type InterceptorContext struct {
 	PinnedVersions map[string]string
+
+	// GoProxyHosts are the module-proxy hostnames from the user's effective
+	// GOPROXY that the Go interceptor must MITM and analyze. Go is the only
+	// ecosystem whose registry hosts are user-configurable rather than fixed.
+	GoProxyHosts []string
 }
 
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy
@@ -63,6 +68,15 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.execContext,
 		), nil
 
+	case packagev1.Ecosystem_ECOSYSTEM_GO:
+		return NewGoRegistryInterceptor(
+			f.analyzer,
+			f.cache,
+			f.statsCollector,
+			f.confirmationChan,
+			f.execContext,
+		), nil
+
 	default:
 		return nil, fmt.Errorf("proxy-based interception not yet supported for ecosystem: %s", ecosystem.String())
 	}
@@ -73,6 +87,7 @@ func SupportedEcosystems() []packagev1.Ecosystem {
 	return []packagev1.Ecosystem{
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,
+		packagev1.Ecosystem_ECOSYSTEM_GO,
 	}
 }
 

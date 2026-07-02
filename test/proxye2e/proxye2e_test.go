@@ -360,3 +360,169 @@ func TestProxyFlow_Pypi(t *testing.T) {
 		},
 	})
 }
+
+func TestProxyFlow_Go(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "clean module is analyzed and allowed",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/m",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/m", "v1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/m", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/m", "v1.0.0"))
+				assert.True(t, h.Registry.DownloadedGoZip("example.com/m", "v1.0.0"))
+				assert.GreaterOrEqual(t, h.Stats().AllowedCount, 1)
+			},
+		},
+		{
+			Name: "verified malware is blocked at the zip download",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/evil", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/evil", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedGoZip("example.com/evil", "v1.0.0"),
+					"blocked module source must never reach the client")
+				assert.Len(t, h.BlockedPackages(), 1)
+			},
+		},
+		{
+			Name: "metadata requests are not analyzed",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/m",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().FetchInfo("example.com/m", "v1.0.0"))
+				res.add(h.Go().FetchMod("example.com/m", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Empty(t, h.Analyzer.Calls(), "info/mod metadata must not trigger analysis")
+			},
+		},
+		{
+			Name: "case-escaped module path is decoded before analysis",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "github.com/BurntSushi/toml",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("github.com/BurntSushi/toml", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("github.com/BurntSushi/toml", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked(), "verdict keyed by decoded module path must match")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("github.com/BurntSushi/toml", "v1.0.0"))
+			},
+		},
+		{
+			Name: "suspicious module blocked when user declines",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/maybe",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/maybe", "v1.0.0", Suspicious())
+				h.Confirm.AutoDeny()
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/maybe", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Len(t, h.Confirm.Prompts(), 1)
+				assert.False(t, h.Registry.DownloadedGoZip("example.com/maybe", "v1.0.0"))
+			},
+		},
+		{
+			Name:   "cooldown blocks in-window version at the zip download",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",
+					Versions: []GoVersion{{Version: "v1.1.0", PublishedAt: recent()}}})
+				h.Analyzer.SetGo("example.com/fresh", "v1.1.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/fresh", "v1.1.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedGoZip("example.com/fresh", "v1.1.0"))
+				assert.GreaterOrEqual(t, h.Stats().CooldownBlockedCount, 1)
+
+				var found bool
+				for _, b := range h.CooldownBlocks() {
+					if b.Name == "example.com/fresh" && b.Version == "v1.1.0" {
+						found = true
+					}
+				}
+				assert.True(t, found, "in-window version should be recorded as a cooldown block")
+			},
+		},
+		{
+			Name:   "cooldown allows out-of-window version",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/m",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/m", "v1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/m", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedGoZip("example.com/m", "v1.0.0"))
+				assert.Equal(t, 0, h.Stats().CooldownBlockedCount)
+			},
+		},
+		{
+			Name:   "cooldown fails open when publish time was never observed",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",
+					Versions: []GoVersion{{Version: "v1.1.0", PublishedAt: recent()}}})
+				h.Analyzer.SetGo("example.com/fresh", "v1.1.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				// Zip fetched without a prior .info (go served .info from its
+				// local cache): cooldown cannot know the publish time.
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/fresh", "v1.1.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked(), "cooldown must fail open without a publish time")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/fresh", "v1.1.0"),
+					"malware analysis still runs when cooldown fails open")
+			},
+		},
+		{
+			Name: "toolchain module is allowed without analysis",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "golang.org/toolchain",
+					Versions: []GoVersion{{Version: "v0.0.1-go1.24.0.linux-amd64", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				return h.Go().Install("golang.org/toolchain", "v0.0.1-go1.24.0.linux-amd64")
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedGoZip("golang.org/toolchain", "v0.0.1-go1.24.0.linux-amd64"))
+				assert.Empty(t, h.Analyzer.Calls(), "toolchain rides on Go's own checksum-db verification")
+			},
+		},
+		{
+			Name: "proxied checksum-database traffic passes through",
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://proxy.golang.org/sumdb/sum.golang.org/supported", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+	})
+}
