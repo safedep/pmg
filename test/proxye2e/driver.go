@@ -89,6 +89,13 @@ func (d GoDriver) goProxyURL(modulePath, version, ext string) string {
 		goEscapePath(modulePath), goEscapeVersion(version), ext)
 }
 
+// DownloadZipVia fetches a module zip from an arbitrary GOPROXY base URL,
+// e.g. a corporate proxy serving under a path prefix.
+func (d GoDriver) DownloadZipVia(baseURL, modulePath, version string) RequestOutcome {
+	return d.h.get(fmt.Sprintf("%s/%s/@v/%s.zip",
+		baseURL, goEscapePath(modulePath), goEscapeVersion(version)), nil)
+}
+
 func (d GoDriver) FetchInfo(modulePath, version string) RequestOutcome {
 	return d.h.get(d.goProxyURL(modulePath, version, ".info"), nil)
 }

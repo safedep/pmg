@@ -14,10 +14,12 @@ import (
 type InterceptorContext struct {
 	PinnedVersions map[string]string
 
-	// GoProxyHosts are the module-proxy hostnames from the user's effective
-	// GOPROXY that the Go interceptor must MITM and analyze. Go is the only
-	// ecosystem whose registry hosts are user-configurable rather than fixed.
-	GoProxyHosts []string
+	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
+	// GOPROXY to their upstream base URL (scheme + host + optional path
+	// prefix). The Go interceptor MITMs and analyzes these hosts; Go is the
+	// only ecosystem whose registry hosts are user-configurable rather than
+	// fixed.
+	GoProxyBaseURLs map[string]string
 }
 
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy

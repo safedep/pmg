@@ -63,6 +63,7 @@ type Registry struct {
 	gomod    map[string]GoModule
 	requests []RecordedRequest
 	server   *httptest.Server
+	goServer *httptest.Server
 }
 
 func newRegistry() *Registry {
@@ -72,12 +73,25 @@ func newRegistry() *Registry {
 		gomod: map[string]GoModule{},
 	}
 	r.server = httptest.NewTLSServer(http.HandlerFunc(r.serve))
+	// Plain-HTTP GOPROXY endpoint for the interceptor's out-of-band .info
+	// fetches, which go straight to the upstream base URL rather than through
+	// the proxy under test. It also serves the /goproxy base path used to
+	// exercise GOPROXY path-prefix handling.
+	r.goServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.record(req)
+		r.serveGoWithOptionalPrefix(w, req)
+	}))
 	return r
 }
 
 func (r *Registry) addr() string { return r.server.Listener.Addr().String() }
 
-func (r *Registry) close() { r.server.Close() }
+func (r *Registry) goBaseURL() string { return r.goServer.URL }
+
+func (r *Registry) close() {
+	r.server.Close()
+	r.goServer.Close()
+}
 
 func (r *Registry) AddNpm(pkg NpmPackage) {
 	r.mu.Lock()
@@ -118,25 +132,38 @@ func (r *Registry) DownloadedTarball(name, version string) bool {
 	return false
 }
 
-func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
-	host := hostOnly(req.Host)
-
+func (r *Registry) record(req *http.Request) {
 	r.mu.Lock()
-	r.requests = append(r.requests, RecordedRequest{Host: host, Method: req.Method, Path: req.URL.Path})
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+	r.requests = append(r.requests, RecordedRequest{Host: hostOnly(req.Host), Method: req.Method, Path: req.URL.Path})
+}
 
-	switch host {
+func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
+	r.record(req)
+
+	switch hostOnly(req.Host) {
 	case "registry.npmjs.org", "registry.yarnpkg.com":
 		r.serveNpm(w, req)
 	case "pypi.org":
 		r.servePypiSimple(w, req)
 	case "files.pythonhosted.org":
 		r.servePypiFile(w, req)
-	case "proxy.golang.org":
-		r.serveGo(w, req)
+	case "proxy.golang.org", "corp.example.com":
+		r.serveGoWithOptionalPrefix(w, req)
 	default:
 		http.NotFound(w, req)
 	}
+}
+
+// serveGoWithOptionalPrefix serves the GOPROXY protocol either at the root
+// (proxy.golang.org) or under the /goproxy base path (corp.example.com and
+// the corp base URL of the plain-HTTP go server).
+func (r *Registry) serveGoWithOptionalPrefix(w http.ResponseWriter, req *http.Request) {
+	if strings.HasPrefix(req.URL.Path, "/goproxy/") {
+		http.StripPrefix("/goproxy", http.HandlerFunc(r.serveGo)).ServeHTTP(w, req)
+		return
+	}
+	r.serveGo(w, req)
 }
 
 // DownloadedGoZip reports whether the module zip for the given path and

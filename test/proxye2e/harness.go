@@ -85,7 +85,13 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan,
 		interceptors.InterceptorContext{
 			PinnedVersions: o.pinnedVersions,
-			GoProxyHosts:   []string{"proxy.golang.org"},
+			// proxy.golang.org serves at the root of the plain-HTTP mock (also
+			// the base for out-of-band .info fetches); corp.example.com serves
+			// under a base path to exercise GOPROXY path-prefix stripping.
+			GoProxyBaseURLs: map[string]string{
+				"proxy.golang.org": registry.goBaseURL(),
+				"corp.example.com": registry.goBaseURL() + "/goproxy",
+			},
 		},
 	)
 

@@ -477,7 +477,7 @@ func TestProxyFlow_Go(t *testing.T) {
 			},
 		},
 		{
-			Name:   "cooldown fails open when publish time was never observed",
+			Name:   "cooldown side-fetches publish time when .info was cached locally",
 			Config: cooldownEnabled(7),
 			Setup: func(h *Harness) {
 				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",
@@ -485,16 +485,57 @@ func TestProxyFlow_Go(t *testing.T) {
 				h.Analyzer.SetGo("example.com/fresh", "v1.1.0", Clean())
 			},
 			Exec: func(h *Harness) ExecResult {
-				// Zip fetched without a prior .info (go served .info from its
-				// local cache): cooldown cannot know the publish time.
+				// Zip fetched without a prior .info through the proxy (go
+				// served .info from its local module cache): the interceptor
+				// must fetch the publish time out-of-band and still block.
 				res := ExecResult{}
 				res.add(h.Go().DownloadZip("example.com/fresh", "v1.1.0"))
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked(), "cooldown must fail open without a publish time")
-				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/fresh", "v1.1.0"),
-					"malware analysis still runs when cooldown fails open")
+				assert.True(t, res.Blocked(), "cooldown must block via the out-of-band .info fetch")
+				assert.GreaterOrEqual(t, h.Stats().CooldownBlockedCount, 1)
+				assert.Empty(t, h.Analyzer.Calls(), "blocked before malware analysis")
+			},
+		},
+		{
+			Name: "module served under a GOPROXY base path is analyzed and blocked",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/prefixed",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/prefixed", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZipVia("https://corp.example.com/goproxy", "example.com/prefixed", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked(), "base path must be stripped so the verdict applies")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/prefixed", "v1.0.0"))
+			},
+		},
+		{
+			Name: "repeated zip request for a blocked module records the verdict once",
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/evil", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				// go re-requests a failed zip during go get's load phase; the
+				// repeat must not double-count stats or re-run analysis.
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/evil", "v1.0.0"))
+				res.add(h.Go().DownloadZip("example.com/evil", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Requests[0].Blocked)
+				assert.True(t, res.Requests[1].Blocked)
+				assert.Len(t, h.BlockedPackages(), 1, "repeat request must not duplicate the blocked record")
+				assert.Equal(t, 1, h.Stats().BlockedCount)
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/evil", "v1.0.0"))
 			},
 		},
 		{

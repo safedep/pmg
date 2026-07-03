@@ -38,6 +38,14 @@ func TestGoPackageManagerParseCommand(t *testing.T) {
 			args: []string{"go", "vet", "./..."},
 		},
 		{
+			name: "go fmt is not non-download (runs go list, can fetch on cold cache)",
+			args: []string{"go", "fmt", "./..."},
+		},
+		{
+			name: "go clean is not non-download (loads packages, can fetch on cold cache)",
+			args: []string{"go", "clean", "./..."},
+		},
+		{
 			name: "go build runs with proxy",
 			args: []string{"go", "build", "./..."},
 		},

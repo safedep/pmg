@@ -9,7 +9,10 @@ import (
 
 func TestGoRegistryInterceptorHostMatching(t *testing.T) {
 	interceptor := NewGoRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{
-		GoProxyHosts: []string{"proxy.golang.org", "corp.example.com"},
+		GoProxyBaseURLs: map[string]string{
+			"proxy.golang.org": "https://proxy.golang.org",
+			"corp.example.com": "https://corp.example.com/goproxy",
+		},
 	})
 
 	cases := []struct {

@@ -1,7 +1,9 @@
 package interceptors
 
 import (
+	"net/url"
 	"strings"
+	"sync"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -20,12 +22,20 @@ const goToolchainModule = "golang.org/toolchain"
 // GoRegistryInterceptor intercepts Go module proxy requests and analyzes
 // module zips for malware. Unlike npm/PyPI, the registry hosts are not fixed:
 // they come from the user's effective GOPROXY via
-// InterceptorContext.GoProxyHosts. sum.golang.org is never in that set, so
+// InterceptorContext.GoProxyBaseURLs. sum.golang.org is never in that set, so
 // checksum-database traffic is tunneled, not MITM'd.
 type GoRegistryInterceptor struct {
 	baseRegistryInterceptor
 	domains         registryConfigMap
+	baseURLs        map[string]string
 	cooldownHandler *goCooldownHandler
+
+	// zipVerdicts memoizes the final response per module zip. go re-requests
+	// a failed zip (once more during go get's load phase), and without this
+	// the repeat would double-record stats — the report would show the same
+	// blocked module twice — and re-prompt the user on a Confirm verdict.
+	zipVerdictsMu sync.Mutex
+	zipVerdicts   map[string]*proxy.InterceptorResponse
 }
 
 var _ proxy.Interceptor = (*GoRegistryInterceptor)(nil)
@@ -39,12 +49,19 @@ func NewGoRegistryInterceptor(
 	execContext InterceptorContext,
 ) *GoRegistryInterceptor {
 	domains := registryConfigMap{}
-	for _, host := range execContext.GoProxyHosts {
+	baseURLs := map[string]string{}
+	for host, baseURL := range execContext.GoProxyBaseURLs {
+		basePath := ""
+		if u, err := url.Parse(baseURL); err == nil {
+			basePath = strings.TrimSuffix(u.Path, "/")
+		}
+
 		domains[host] = &registryConfig{
 			Host:                 host,
 			SupportedForAnalysis: true,
-			Parser:               goProxyParser{},
+			Parser:               goProxyParser{basePath: basePath},
 		}
+		baseURLs[host] = baseURL
 	}
 
 	return &GoRegistryInterceptor{
@@ -57,7 +74,9 @@ func NewGoRegistryInterceptor(
 			execContext:      execContext,
 		},
 		domains:         domains,
+		baseURLs:        baseURLs,
 		cooldownHandler: newGoCooldownHandler(statsCollector),
+		zipVerdicts:     map[string]*proxy.InterceptorResponse{},
 	}
 }
 
@@ -131,21 +150,56 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	key := goModuleVersionKey(info.name, info.version)
+
+	i.zipVerdictsMu.Lock()
+	memo := i.zipVerdicts[key]
+	i.zipVerdictsMu.Unlock()
+	if memo != nil {
+		log.Debugf("[%s] Reusing verdict for repeated zip request: %s", ctx.RequestID, key)
+		return memo, nil
+	}
+
+	resp, memoize, err := i.handleZipDownload(ctx, config, info, depCooldownConfig)
+	if err != nil {
+		return resp, err
+	}
+
+	if memoize {
+		i.zipVerdictsMu.Lock()
+		i.zipVerdicts[key] = resp
+		i.zipVerdictsMu.Unlock()
+	}
+
+	return resp, nil
+}
+
+// handleZipDownload runs the security controls for a module source download:
+// dependency cooldown, then trusted/insecure fast-allow, then malware
+// analysis. memoize is false only when the outcome is a fail-open allow after
+// an analyzer error, so a retried request gets another chance to be analyzed.
+func (i *GoRegistryInterceptor) handleZipDownload(
+	ctx *proxy.RequestContext,
+	config *registryConfig,
+	info *goModuleInfo,
+	depCooldownConfig pmgconfig.DependencyCooldownConfig,
+) (*proxy.InterceptorResponse, bool, error) {
 	if depCooldownConfig.Enabled {
-		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, info.name, info.version, depCooldownConfig.Days); handled {
-			return resp, nil
+		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, i.baseURLs[config.Host], info.name, info.version, depCooldownConfig.Days); handled {
+			return resp, true, nil
 		}
 	}
 
 	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version); ok {
-		return resp, nil
+		return resp, true, nil
 	}
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version)
 	if err != nil {
 		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, info.name, info.version, err)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, false, nil
 	}
 
-	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version, result)
+	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version, result)
+	return resp, err == nil, err
 }

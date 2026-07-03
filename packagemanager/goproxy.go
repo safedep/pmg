@@ -12,13 +12,14 @@ import (
 )
 
 // ProxyRouting is per-run routing a package manager contributes to the proxy
-// flow before the child process launches. ExtraEnv is appended to the standard
-// proxy env injection and MITMHosts are registry hostnames the proxy must
-// intercept dynamically — Go's module proxy is user-configurable via GOPROXY,
-// unlike npm/PyPI's fixed registry hosts.
+// flow before the proxied child process launches. ExtraEnv is appended to the
+// standard proxy env injection. MITMHosts maps registry hostnames the proxy
+// must intercept dynamically to the upstream base URL packages are served
+// under (scheme + host + optional path prefix) — Go's module proxy is
+// user-configurable via GOPROXY, unlike npm/PyPI's fixed registry hosts.
 type ProxyRouting struct {
 	ExtraEnv  []string
-	MITMHosts []string
+	MITMHosts map[string]string
 }
 
 // ProxyRoutingProvider is implemented by package managers that need
@@ -80,22 +81,28 @@ func readEffectiveGoEnv(ctx context.Context, keys ...string) (map[string]string,
 	return values, nil
 }
 
-// normalizeGoProxy rebuilds the child's GOPROXY as a fail-closed proxy list:
+// normalizeGoProxy rebuilds the child's GOPROXY as a fail-closed proxy list
+// and returns the hostnames to MITM mapped to their upstream base URL (used
+// for base-path stripping and out-of-band .info fetches):
 //
 //   - `direct` entries are dropped so a module PMG cannot inspect fails with
 //     an error instead of silently bypassing analysis via a VCS fetch.
 //   - Pipe (|) separators collapse to comma so a PMG block (HTTP 403) is
 //     terminal rather than falling through to the next entry.
 //   - `off` is kept: it is already fail-closed (no network at all).
+//   - Unschemed entries (go treats them as https) are rewritten with an
+//     explicit https:// scheme so they are unambiguous and interceptable.
 //   - file:// proxies are local (no network) and kept verbatim; there is no
 //     host to intercept.
 //
 // If nothing remains (GOPROXY was direct-only), the public Go proxy is
 // injected so module downloads stay analyzable.
-func normalizeGoProxy(goproxy string) (child string, mitmHosts []string) {
+func normalizeGoProxy(goproxy string) (child string, mitmHosts map[string]string) {
 	if strings.TrimSpace(goproxy) == "" {
 		goproxy = defaultGoProxyURL + ",direct"
 	}
+
+	mitmHosts = map[string]string{}
 
 	var kept []string
 	droppedDirect := false
@@ -110,10 +117,14 @@ func normalizeGoProxy(goproxy string) (child string, mitmHosts []string) {
 			continue
 		}
 
+		if entry != "off" && !strings.Contains(entry, "://") {
+			entry = "https://" + entry
+		}
+
 		kept = append(kept, entry)
 
 		if u, err := url.Parse(entry); err == nil && u.Hostname() != "" && (u.Scheme == "https" || u.Scheme == "http") {
-			mitmHosts = append(mitmHosts, u.Hostname())
+			mitmHosts[u.Hostname()] = strings.TrimSuffix(entry, "/")
 		}
 	}
 
@@ -124,7 +135,7 @@ func normalizeGoProxy(goproxy string) (child string, mitmHosts []string) {
 	if len(kept) == 0 {
 		log.Warnf("GOPROXY=%q has no usable module proxy; PMG routes module downloads via %s for analysis", goproxy, defaultGoProxyURL)
 		kept = append(kept, defaultGoProxyURL)
-		mitmHosts = append(mitmHosts, "proxy.golang.org")
+		mitmHosts["proxy.golang.org"] = defaultGoProxyURL
 	}
 
 	return strings.Join(kept, ","), mitmHosts

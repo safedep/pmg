@@ -3,7 +3,9 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
+	gomodule "golang.org/x/mod/module"
 )
 
 // goCooldownHandler enforces dependency cooldown for Go modules. Unlike npm,
@@ -76,10 +79,11 @@ func (h *goCooldownHandler) HandleInfoRequest(ctx *proxy.RequestContext, module,
 
 // CheckZipDownload blocks the module zip when its publish time is within the
 // cooldown window. handled=false lets the request continue to malware
-// analysis. An unknown publish time (go served .info from its local cache so
-// the proxy never saw it) fails open for cooldown only — malware analysis
-// still runs.
-func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, module, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
+// analysis. When the publish time was not observed on the wire (go served
+// .info from its local module cache, common on machines that used go before
+// PMG), it is fetched out-of-band from the upstream proxy; only if that also
+// fails does cooldown fail open — malware analysis still runs.
+func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL, module, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
 	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_GO, module)
 	if skip.SkipAll || pmgconfig.IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_GO, module, version) {
 		return nil, false
@@ -90,7 +94,11 @@ func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, module, 
 	h.mu.Unlock()
 
 	if !ok {
-		log.Warnf("[%s] Cooldown: no publish time observed for %s@%s; cooldown not enforced for this download", ctx.RequestID, module, version)
+		publishTime, ok = h.fetchPublishTime(ctx, baseURL, module, version)
+	}
+
+	if !ok {
+		log.Warnf("[%s] Cooldown: no publish time available for %s@%s; cooldown not enforced for this download", ctx.RequestID, module, version)
 		return nil, false
 	}
 
@@ -126,4 +134,56 @@ func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, module, 
 		BlockCode:    http.StatusForbidden,
 		BlockMessage: message,
 	}, true
+}
+
+// goInfoFetchClient fetches .info out-of-band, straight to the upstream proxy
+// rather than back through PMG's own in-process proxy (which would
+// re-intercept the request). It honors the process' own proxy environment,
+// not the child's injected one.
+var goInfoFetchClient = &http.Client{Timeout: 10 * time.Second}
+
+// fetchPublishTime performs a one-shot authoritative $base/$module/@v/$version.info
+// fetch and caches the result. Best-effort: any failure means no publish time.
+func (h *goCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, baseURL, module, version string) (time.Time, bool) {
+	if baseURL == "" {
+		return time.Time{}, false
+	}
+
+	escapedPath, err := gomodule.EscapePath(module)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	escapedVersion, err := gomodule.EscapeVersion(version)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	infoURL := fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimSuffix(baseURL, "/"), escapedPath, escapedVersion)
+
+	resp, err := goInfoFetchClient.Get(infoURL)
+	if err != nil {
+		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, infoURL, err)
+		return time.Time{}, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Warnf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, infoURL, resp.StatusCode)
+		return time.Time{}, false
+	}
+
+	var info struct {
+		Time time.Time `json:"Time"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&info); err != nil || info.Time.IsZero() {
+		log.Warnf("[%s] Cooldown: failed to parse publish time from %s", ctx.RequestID, infoURL)
+		return time.Time{}, false
+	}
+
+	h.mu.Lock()
+	h.publishTimes[goModuleVersionKey(module, version)] = info.Time
+	h.mu.Unlock()
+
+	return info.Time, true
 }

@@ -16,9 +16,10 @@ type GoPackageManagerConfig struct {
 	InstallCommands []string
 
 	// NonDownloadCommands never load packages and therefore never fetch
-	// modules. Deliberately minimal: vet/fix/doc/mod-graph load packages and
-	// can download already-required modules on a cold cache even under
-	// -mod=readonly, so they are excluded on purpose and run with the proxy.
+	// modules. Deliberately minimal: fmt/clean/vet/fix/doc/mod-graph load
+	// packages and can download already-required modules on a cold cache even
+	// under -mod=readonly, so they are excluded on purpose and run with the
+	// proxy.
 	NonDownloadCommands []string
 }
 
@@ -26,7 +27,7 @@ func DefaultGoPackageManagerConfig() GoPackageManagerConfig {
 	return GoPackageManagerConfig{
 		CommandName:         "go",
 		InstallCommands:     []string{"get", "install", "run"},
-		NonDownloadCommands: []string{"version", "env", "help", "clean", "fmt"},
+		NonDownloadCommands: []string{"version", "env", "help"},
 	}
 }
 

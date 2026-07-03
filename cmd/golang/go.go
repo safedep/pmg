@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
@@ -57,7 +56,7 @@ func executeGoFlow(ctx context.Context, args []string) error {
 		return err
 	}
 
-	return flows.ProxyFlow(packageManager, noopResolver{}).Run(ctx, args, parsedCommand)
+	return flows.ProxyFlow(packageManager, packagemanager.NewNoopPackageResolver()).Run(ctx, args, parsedCommand)
 }
 
 // requireTrustedCA fails fast when Go cannot trust PMG's MITM CA. Go's
@@ -106,19 +105,4 @@ func errGoCertNotTrusted(cause error) error {
 	}
 
 	return err
-}
-
-// noopResolver satisfies the ProxyFlow signature. The proxy flow never
-// resolves dependencies up front: Go fetches every needed module zip through
-// the proxy, where it is analyzed.
-type noopResolver struct{}
-
-var _ packagemanager.PackageResolver = noopResolver{}
-
-func (noopResolver) ResolveLatestVersion(context.Context, *packagev1.Package) (*packagev1.PackageVersion, error) {
-	return nil, fmt.Errorf("dependency resolution is not supported for go")
-}
-
-func (noopResolver) ResolveDependencies(context.Context, *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error) {
-	return nil, fmt.Errorf("dependency resolution is not supported for go")
 }

@@ -185,8 +185,8 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Create ecosystem-specific interceptor using factory
 	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
-		PinnedVersions: pinnedVersions,
-		GoProxyHosts:   routing.MITMHosts,
+		PinnedVersions:  pinnedVersions,
+		GoProxyBaseURLs: routing.MITMHosts,
 	})
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
