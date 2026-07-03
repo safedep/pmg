@@ -69,6 +69,37 @@ Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat
 | `uv`            | ✅      |
 | `uvx`           | ✅      |
 | `poetry`        | ✅      |
+| `go`            | 🧪 experimental |
+
+### Go (experimental)
+
+`pmg go` guards Go module downloads through the same proxy flow. It is
+experimental and opt-in: it only runs when invoked explicitly as `pmg go ...`
+and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
+
+<details>
+<summary>How it differs from npm/PyPI</summary>
+
+- The module proxy host comes from the effective `GOPROXY` (including
+  `go env -w` values), not a fixed registry. PMG intercepts whatever HTTPS
+  proxies are configured and rewrites the child's `GOPROXY` to a fail-closed,
+  comma-joined list: `direct` is removed (a module PMG cannot inspect fails
+  instead of silently bypassing analysis) and pipe separators collapse to
+  comma so a block is terminal.
+- Malware analysis and dependency cooldown run on the `.zip` source download —
+  the only GOPROXY endpoint that delivers code. `.info`/`.mod` metadata passes
+  through (cooldown reads the publish time from `.info` without modifying it).
+- `sum.golang.org` is never MITM'd and `/sumdb/` requests pass through
+  unmodified, so Go's checksum-database verification stays fully intact.
+  Toolchain downloads (`golang.org/toolchain`) are allowed on Go's own
+  checksum verification.
+- On macOS and Windows, Go only trusts the OS trust store, so
+  `pmg setup cert install` is required first; `pmg go` fails fast with
+  instructions if the PMG CA is not trusted. Linux works out of the box.
+- Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
+  VCS host and are not analyzed; PMG warns when these are set.
+
+</details>
 
 ## References
 

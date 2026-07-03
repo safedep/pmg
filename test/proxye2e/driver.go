@@ -82,6 +82,48 @@ func (d NpmDriver) Install(name, version string) ExecResult {
 	return res
 }
 
+type GoDriver struct{ h *Harness }
+
+func (d GoDriver) goProxyURL(modulePath, version, ext string) string {
+	return fmt.Sprintf("https://proxy.golang.org/%s/@v/%s%s",
+		goEscapePath(modulePath), goEscapeVersion(version), ext)
+}
+
+// DownloadZipVia fetches a module zip from an arbitrary GOPROXY base URL,
+// e.g. a corporate proxy serving under a path prefix.
+func (d GoDriver) DownloadZipVia(baseURL, modulePath, version string) RequestOutcome {
+	return d.h.get(fmt.Sprintf("%s/%s/@v/%s.zip",
+		baseURL, goEscapePath(modulePath), goEscapeVersion(version)), nil)
+}
+
+func (d GoDriver) FetchInfo(modulePath, version string) RequestOutcome {
+	return d.h.get(d.goProxyURL(modulePath, version, ".info"), nil)
+}
+
+func (d GoDriver) FetchMod(modulePath, version string) RequestOutcome {
+	return d.h.get(d.goProxyURL(modulePath, version, ".mod"), nil)
+}
+
+func (d GoDriver) DownloadZip(modulePath, version string) RequestOutcome {
+	return d.h.get(d.goProxyURL(modulePath, version, ".zip"), nil)
+}
+
+// Install replays go's fetch sequence for a resolved module version:
+// .info, then .mod, then the .zip source archive.
+func (d GoDriver) Install(modulePath, version string) ExecResult {
+	res := ExecResult{}
+
+	info := d.FetchInfo(modulePath, version)
+	res.add(info)
+	if info.Err != nil || info.StatusCode != 200 {
+		return res
+	}
+
+	res.add(d.FetchMod(modulePath, version))
+	res.add(d.DownloadZip(modulePath, version))
+	return res
+}
+
 type PypiDriver struct{ h *Harness }
 
 type PypiSimpleFile struct {

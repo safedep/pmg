@@ -173,9 +173,20 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		}
 	}
 
+	// Package managers with run-specific proxy routing (Go's user-configurable
+	// GOPROXY) contribute extra child env vars and dynamic MITM hosts.
+	routing := &packagemanager.ProxyRouting{}
+	if provider, ok := f.pm.(packagemanager.ProxyRoutingProvider); ok {
+		routing, err = provider.ProxyRouting(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to resolve proxy routing for %s: %w", f.pm.Name(), err)
+		}
+	}
+
 	// Create ecosystem-specific interceptor using factory
 	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
-		PinnedVersions: pinnedVersions,
+		PinnedVersions:  pinnedVersions,
+		GoProxyBaseURLs: routing.MITMHosts,
 	})
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
@@ -212,7 +223,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		Mode:               runner.ExecutionModeAuto,
-		EnvOverrides:       packagemanager.EnvVarForProxy(proxyAddr, caCertPath),
+		EnvOverrides:       append(packagemanager.EnvVarForProxy(proxyAddr, caCertPath), routing.ExtraEnv...),
 		DirectEnvOverrides: ciEnvOverride(),
 		BeforeDirectRun: func() error {
 			log.Debugf("Executing proxy for non interactive TTY")

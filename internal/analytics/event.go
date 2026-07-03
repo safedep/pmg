@@ -12,6 +12,7 @@ const (
 	eventCommandPoetry = "pmg_command_poetry"
 	eventCommandPipx   = "pmg_command_pipx"
 	eventCommandUvx    = "pmg_command_uvx"
+	eventCommandGo     = "pmg_command_go"
 
 	eventCommandNpx  = "pmg_command_npx"
 	eventCommandPnpx = "pmg_command_pnpx"
@@ -71,6 +72,10 @@ func TrackCommandPipx() {
 
 func TrackCommandUvx() {
 	TrackEvent(eventCommandUvx)
+}
+
+func TrackCommandGo() {
+	TrackEvent(eventCommandGo)
 }
 
 func TrackCommandGenerateEnvDocker() {

@@ -46,6 +46,16 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
 
+// wellKnownGoHosts are the default Go module-proxy and checksum-database
+// hosts. Custom GOPROXY hosts are dynamic (known only to the Go interceptor's
+// per-run config) and intentionally still surface here as observed hosts.
+var wellKnownGoHosts = map[string]bool{
+	"proxy.golang.org": true,
+	"sum.golang.org":   true,
+}
+
 func (i *AuditLoggerInterceptor) isKnownRegistryHost(hostname string) bool {
-	return npmRegistryDomains.ContainsHostname(hostname) || pypiRegistryDomains.ContainsHostname(hostname)
+	return npmRegistryDomains.ContainsHostname(hostname) ||
+		pypiRegistryDomains.ContainsHostname(hostname) ||
+		wellKnownGoHosts[hostname]
 }

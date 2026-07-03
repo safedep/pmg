@@ -83,11 +83,20 @@ func New(t *testing.T, opts ...Option) *Harness {
 		interceptors.NewInMemoryAnalysisCache(),
 		stats,
 		confChan,
-		interceptors.InterceptorContext{PinnedVersions: o.pinnedVersions},
+		interceptors.InterceptorContext{
+			PinnedVersions: o.pinnedVersions,
+			// proxy.golang.org serves at the root of the plain-HTTP mock (also
+			// the base for out-of-band .info fetches); corp.example.com serves
+			// under a base path to exercise GOPROXY path-prefix stripping.
+			GoProxyBaseURLs: map[string]string{
+				"proxy.golang.org": registry.goBaseURL(),
+				"corp.example.com": registry.goBaseURL() + "/goproxy",
+			},
+		},
 	)
 
 	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor()}
-	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI} {
+	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI, packagev1.Ecosystem_ECOSYSTEM_GO} {
 		ic, ierr := factory.CreateInterceptor(eco)
 		require.NoError(t, ierr)
 		interceptorList = append(interceptorList, ic)
@@ -158,6 +167,7 @@ func (h *Harness) Close() {
 
 func (h *Harness) Npm() NpmDriver   { return NpmDriver{h: h} }
 func (h *Harness) Pypi() PypiDriver { return PypiDriver{h: h} }
+func (h *Harness) Go() GoDriver     { return GoDriver{h: h} }
 
 func (h *Harness) Stats() interceptors.AnalysisStats { return h.stats.GetStats() }
 
