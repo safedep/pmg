@@ -77,7 +77,8 @@ Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat
 experimental and opt-in: it only runs when invoked explicitly as `pmg go ...`
 and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
 
-How it differs from npm/PyPI:
+<details>
+<summary>How it differs from npm/PyPI</summary>
 
 - The module proxy host comes from the effective `GOPROXY` (including
   `go env -w` values), not a fixed registry. PMG intercepts whatever HTTPS
@@ -97,6 +98,8 @@ How it differs from npm/PyPI:
   instructions if the PMG CA is not trusted. Linux works out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
   VCS host and are not analyzed; PMG warns when these are set.
+
+</details>
 
 ## References
 
