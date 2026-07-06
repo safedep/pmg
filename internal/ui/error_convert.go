@@ -37,7 +37,7 @@ var errorMatchers = []errorMatcher{
 			return usefulerror.NewUsefulError().
 				WithCode(errcodes.PackageManagerNotFound).
 				WithHumanError(fmt.Sprintf("%s is not installed", notFound.Name)).
-				WithHelp("Install it first, then retry. PMG forwards to the real package manager, which must be on your PATH.").
+				WithHelp(fmt.Sprintf("Install %s, then retry this command.", notFound.Name)).
 				Wrap(notFound)
 		},
 	},
