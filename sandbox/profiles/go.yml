@@ -6,6 +6,11 @@ package_managers:
 # go run executes the built program in the foreground and may need a TTY.
 allow_pty: true
 
+# Localhost-only listening (same as npx/uvx/pipx): go test commonly binds
+# httptest servers, and go run workloads often serve locally. Non-localhost
+# binds and outbound traffic are unaffected.
+allow_network_bind: true
+
 # .git/config stays blocked (default). go build embeds VCS info by default
 # (-buildvcs=auto) which invokes git; if git fails on the blocked config, build
 # with -buildvcs=false or set allow_git_config: true in a custom profile.

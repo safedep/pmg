@@ -243,6 +243,48 @@ jobs:
 
           cd - && rm -rf "$HTTPX_TESTDIR"
 
+      - name: Test Go Modules - Proxy Mode (Experimental)
+        run: |
+          echo "Testing experimental Go module support via proxy mode..."
+          GO_TESTDIR=$(mktemp -d) && cd "$GO_TESTDIR"
+          go mod init example.com/pmg-go-e2e
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+          	"fmt"
+
+          	"github.com/google/uuid"
+          )
+
+          func main() { fmt.Println(uuid.NewString()) }
+          EOF
+
+          echo "Testing pmg go get with a pinned version..."
+          pmg go get github.com/google/uuid@v1.6.0
+
+          # Verification: module resolved and checksummed through the proxy
+          grep -q 'github.com/google/uuid v1.6.0' go.mod
+          grep -q 'github.com/google/uuid v1.6.0' go.sum
+
+          echo "Testing pmg go mod tidy..."
+          rm go.sum
+          pmg go mod tidy
+
+          # Verification: go.sum regenerated via proxied module fetches
+          grep -q 'github.com/google/uuid v1.6.0' go.sum
+
+          echo "Testing pmg go run..."
+          pmg go run . | grep -Eq '^[0-9a-f-]{36}$'
+
+          cd - && rm -rf "$GO_TESTDIR"
+
+      # Regression: PMG injects HTTP(S)_PROXY into its child, and `go test`
+      # inherits it. The hermetic proxye2e harness must not route its
+      # in-process proxy traffic through the outer PMG proxy.
+      - name: Test Go - Hermetic Proxy Tests Under PMG
+        run: pmg go test -count=1 -run 'TestProxyFlow_Go' ./test/proxye2e/
+
       - name: Test PNPM - Single Package & Manifest
         run: |
           echo "Testing PNPM single package installation..."

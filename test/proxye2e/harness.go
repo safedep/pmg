@@ -55,6 +55,21 @@ func WithPinnedVersions(pinned map[string]string) Option {
 func New(t *testing.T, opts ...Option) *Harness {
 	t.Helper()
 
+	// The proxy's upstream transport honors HTTP(S)_PROXY from the environment
+	// (corporate proxy chaining). Inherited proxy env — a corporate proxy, or
+	// an outer `pmg go test` injecting HTTPS_PROXY into its child — would
+	// route the in-process proxy's upstream traffic out of the harness, so it
+	// is cleared for hermeticity. This must run before the first upstream
+	// request: net/http caches proxy env process-wide on first use.
+	for _, name := range []string{
+		"HTTP_PROXY", "http_proxy",
+		"HTTPS_PROXY", "https_proxy",
+		"ALL_PROXY", "all_proxy",
+		"NO_PROXY", "no_proxy",
+	} {
+		t.Setenv(name, "")
+	}
+
 	var o options
 	for _, opt := range opts {
 		opt(&o)

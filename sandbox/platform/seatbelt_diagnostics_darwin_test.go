@@ -107,9 +107,32 @@ func TestExtractSeatbeltViolationsRecoversTypedKindFromDefaultDeny(t *testing.T)
 	assert.Equal(t, "/Users/dev/project/.astro/types.d.ts", violations[0].Target)
 	assert.Equal(t, "write access denied: /Users/dev/project/.astro/types.d.ts", violations[0].RuleLabel)
 
-	// Unrecognized verb (network-outbound) stays generic — no over-claiming.
-	assert.Equal(t, sandbox.ViolationKindGenericDeny, violations[1].Kind)
+	// Network denial: kind recovered from the verb, and the operand is an
+	// address rather than a path, so it comes from the raw-token fallback.
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[1].Kind)
 	assert.Equal(t, "default", violations[1].RawKind)
+	assert.Equal(t, "1.2.3.4:443", violations[1].Target)
+	assert.Equal(t, "network connect denied: 1.2.3.4:443", violations[1].RuleLabel)
+}
+
+// Regression: a network-bind denial (e.g. httptest listeners under go test)
+// must surface as a typed network violation with the denied address, not as a
+// bare generic deny that loses primary ranking to incidental fs noise.
+func TestExtractSeatbeltViolationsRecoversNetworkBind(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: `Sandbox: scratch(36119) deny(1) network-bind local:*:0 ` +
+				seatbeltLogMessage("run-1", "default", ""),
+			Process: "scratch",
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 1)
+	assert.Equal(t, sandbox.ViolationKindNetworkBind, violations[0].Kind)
+	assert.Equal(t, "default", violations[0].RawKind)
+	assert.Equal(t, "local:*:0", violations[0].Target)
+	assert.Equal(t, "network bind denied: local:*:0", violations[0].RuleLabel)
 }
 
 func TestInferSeatbeltKindFromRawLog(t *testing.T) {
@@ -162,10 +185,18 @@ func TestInferSeatbeltKindFromRawLog(t *testing.T) {
 			wantOK:   false,
 		},
 		{
-			name:     "network verb is not recognized",
-			raw:      `Sandbox: node(1) deny(1) network-outbound 1.2.3.4:443`,
-			wantKind: sandbox.ViolationKindGenericDeny,
-			wantOK:   false,
+			name:      "network-outbound maps to network_connect",
+			raw:       `Sandbox: node(1) deny(1) network-outbound 1.2.3.4:443`,
+			wantKind:  sandbox.ViolationKindNetworkConnect,
+			wantLabel: "network-outbound",
+			wantOK:    true,
+		},
+		{
+			name:      "network-bind maps to network_bind",
+			raw:       `Sandbox: scratch(1) deny(1) network-bind local:*:0`,
+			wantKind:  sandbox.ViolationKindNetworkBind,
+			wantLabel: "network-bind",
+			wantOK:    true,
 		},
 		{
 			name:     "log without deny prefix is not recognized",

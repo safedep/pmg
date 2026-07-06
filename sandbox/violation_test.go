@@ -97,6 +97,34 @@ func TestPrimaryViolationPrefersConcreteProjectPathOverDefaultNoise(t *testing.T
 	assert.Equal(t, filepath.Join(cwd, ".env"), primary.Target)
 }
 
+// Regression: a network-bind denial (e.g. httptest listeners under go test)
+// must outrank incidental fs noise like /dev/dtracehelper so the violations
+// list and failure hint name the network denial, not the noise.
+func TestPrimaryViolationPrefersNetworkDenialOverNoise(t *testing.T) {
+	report := &ViolationReport{
+		SandboxName: DriverSeatbelt,
+		Violations: []Violation{
+			{
+				Kind:      ViolationKindFSWrite,
+				RawKind:   "file-write",
+				Target:    "/dev/dtracehelper",
+				RuleLabel: "write access denied: /dev/dtracehelper",
+			},
+			{
+				Kind:      ViolationKindNetworkBind,
+				RawKind:   "default",
+				Target:    "local:*:0",
+				RuleLabel: "network bind denied: local:*:0",
+			},
+		},
+	}
+
+	primary := primaryViolation(report)
+	require.NotNil(t, primary)
+	assert.Equal(t, ViolationKindNetworkBind, primary.Kind)
+	assert.Equal(t, "local:*:0", primary.Target)
+}
+
 func TestPrimaryViolationPrefersLaterViolationOnScoreTie(t *testing.T) {
 	report := &ViolationReport{
 		SandboxName: DriverSeatbelt,
