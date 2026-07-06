@@ -1,0 +1,112 @@
+name: go
+description: Sandbox policy for the Go module ecosystem (go command)
+package_managers:
+  - go
+
+# go run executes the built program in the foreground and may need a TTY.
+allow_pty: true
+
+# .git/config stays blocked (default). go build embeds VCS info by default
+# (-buildvcs=auto) which invokes git; if git fails on the blocked config, build
+# with -buildvcs=false or set allow_git_config: true in a custom profile.
+
+filesystem:
+  allow_read:
+    # Root read is required for toolchain discovery: GOROOT can live anywhere
+    # (/usr/local/go, Homebrew, distro packages, asdf, golang.org/dl SDKs).
+    # This is safe because deny rules have higher precedence and dangerous
+    # files (.env, .ssh, .aws, .gnupg, etc.) are blocked by mandatory deny
+    # patterns.
+    - /
+    - ${CWD}/**
+    - ${HOME}/go/**
+    - ${HOME}/.config/go/**
+    - ${HOME}/Library/Caches/go-build/**
+    - ${HOME}/.cache/go-build/**
+
+  allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: On macOS, /tmp is a symlink to /private/tmp, so we need both
+    - /tmp/**
+    - /private/tmp/**
+    - /var/tmp/**
+    # go build/test write output binaries and generated files anywhere in the
+    # project (e.g. go build -o bin/app). Unlike npm/PyPI, the Go ecosystem has
+    # no install-time script execution: module code only runs via go run /
+    # go test / go generate, and credential files inside the project stay
+    # blocked by the mandatory deny patterns.
+    - ${CWD}/**
+    # Default GOPATH: module cache and sumdb cache (pkg/mod), go install
+    # target (bin).
+    - ${HOME}/go/**
+    # Default GOCACHE build cache (macOS, Linux)
+    - ${HOME}/Library/Caches/go-build/**
+    - ${HOME}/.cache/go-build/**
+    # Local telemetry counters written by the go tool on every invocation
+    - ${HOME}/Library/Application Support/go/telemetry/**
+    - ${HOME}/.config/go/telemetry/**
+
+  deny_read: []
+
+  deny_write:
+    # Additional system directories to protect
+    - /etc/**
+    - /usr/**
+
+network:
+  # Per-host rules are NOT enforced on any platform. macOS Seatbelt and Linux
+  # Bubblewrap only make a binary decision: any allow_outbound entry enables
+  # ALL outbound traffic, and "*:*" in deny_outbound disables the network
+  # entirely only when allow_outbound is empty. The hosts below document the
+  # default Go module endpoints and keep the network enabled; actual module
+  # traffic control comes from the PMG proxy's fail-closed GOPROXY rewrite.
+  allow_outbound:
+    - proxy.golang.org:443
+    - sum.golang.org:443
+    - index.golang.org:443
+
+  deny_outbound:
+    - "*:*"
+
+environment:
+  # Go toolchain variables (GOPROXY, GOFLAGS, CGO_*, CC, CXX) and the
+  # PMG-injected proxy/cert variables are not on the DANGEROUS_ENV_VARS scrub
+  # list, so they pass through without an allow entry. Deliberately no GO*
+  # re-allow here: that glob would also re-allow GOOGLE_* cloud credentials,
+  # which must stay scrubbed.
+  allow: []
+
+process:
+  allow_exec:
+    # Go toolchain: official installer, distro packages, Homebrew
+    - /usr/local/go/**
+    - /usr/local/bin/go
+    - /usr/bin/go
+    - /usr/lib/go*/**
+    - /opt/homebrew/bin/go
+    - /opt/homebrew/Cellar/go/**
+    # golang.org/dl SDKs and version manager shims
+    - ${HOME}/sdk/go*/**
+    - ${HOME}/.asdf/shims/go
+    # Toolchains downloaded via GOTOOLCHAIN are exec'd from the module cache
+    - ${HOME}/go/pkg/mod/golang.org/toolchain@*/**
+    # go run / go test execute freshly built binaries from the build cache and
+    # the per-build temp work directory
+    - ${HOME}/Library/Caches/go-build/**
+    - ${HOME}/.cache/go-build/**
+    - /tmp/**
+    - ${TMPDIR}/**
+    # cgo toolchain and VCS stamping (-buildvcs)
+    - /usr/bin/gcc
+    - /usr/bin/clang
+    - /usr/bin/cc
+    - /usr/bin/git
+    - /usr/local/bin/git
+    # Required for shims (e.g., asdf) that use #!/usr/bin/env bash
+    - /bin/bash
+    - /bin/sh
+    - /usr/bin/env
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget

@@ -30,6 +30,7 @@ func TestProfileEnvContract(t *testing.T) {
 		"UV_PUBLISH_TOKEN=x",
 		"POETRY_PYPI_TOKEN_PYPI=x",
 		"AWS_SECRET_ACCESS_KEY=x",
+		"GOOGLE_APPLICATION_CREDENTIALS=x",
 		"GITHUB_TOKEN=x",
 		"OP_SERVICE_ACCOUNT_TOKEN=x",
 		"CLOUDFLARE_API_TOKEN=x",
@@ -51,6 +52,7 @@ func TestProfileEnvContract(t *testing.T) {
 		{profile: "uv", wantKept: []string{"UV_PUBLISH_TOKEN"}},
 		{profile: "uvx", wantKept: []string{"UV_PUBLISH_TOKEN"}},
 		{profile: "poetry", wantKept: []string{"POETRY_PYPI_TOKEN_PYPI"}},
+		{profile: "go", wantKept: []string{}},
 	}
 
 	for _, tt := range tests {

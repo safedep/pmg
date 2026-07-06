@@ -178,6 +178,12 @@ sandbox:
       enabled: true
       profile: uvx
 
+    # Go ecosystem (experimental). The go command is opt-in: it runs only when
+    # invoked explicitly as `pmg go ...`.
+    go:
+      enabled: true
+      profile: go
+
 # Dependency cooldown blocks installation of package versions published within
 # a configurable time window.
 dependency_cooldown:
