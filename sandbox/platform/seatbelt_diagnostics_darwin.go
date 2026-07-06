@@ -137,6 +137,12 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			}
 		}
 
+		// Network denial operands are addresses, not paths, so the
+		// path-shaped extraction above rejected them; recover the raw token.
+		if target == "" && (kind == sandbox.ViolationKindNetworkBind || kind == sandbox.ViolationKindNetworkConnect) {
+			target = extractSeatbeltDeniedToken(entry.EventMessage, payload)
+		}
+
 		violations = append(violations, sandbox.Violation{
 			Kind:       kind,
 			RawKind:    payload.Kind,
@@ -170,9 +176,8 @@ func normalizeSeatbeltViolationKind(kind string) sandbox.ViolationKind {
 // sandbox-exec denial verb embedded in raw. It returns the typed kind plus a
 // canonical marker name (the one our own rules would emit for the same kind,
 // suitable for summarizeSeatbeltViolation). Only verbs that map to kinds
-// scoreViolation and suggestOverride already understand are recognized; all
-// others fall back to (generic_deny, "", false) so the caller keeps the
-// original classification.
+// scoreViolation already understands are recognized; all others fall back to
+// (generic_deny, "", false) so the caller keeps the original classification.
 func inferSeatbeltKindFromRawLog(raw string) (sandbox.ViolationKind, string, bool) {
 	m := seatbeltDenyVerbPattern.FindStringSubmatch(raw)
 	if len(m) != 2 {
@@ -189,12 +194,29 @@ func inferSeatbeltKindFromRawLog(raw string) (sandbox.ViolationKind, string, boo
 		return sandbox.ViolationKindFSRead, "file-read", true
 	case strings.HasPrefix(verb, "process-exec"):
 		return sandbox.ViolationKindExec, "process-exec", true
+	case verb == "network-bind":
+		return sandbox.ViolationKindNetworkBind, "network-bind", true
+	case verb == "network-outbound":
+		return sandbox.ViolationKindNetworkConnect, "network-outbound", true
 	}
 
 	return sandbox.ViolationKindGenericDeny, "", false
 }
 
 func extractSeatbeltDeniedPath(raw string, payload *seatbeltLogPayload) string {
+	last := extractSeatbeltDeniedToken(raw, payload)
+	if last == "" || !looksLikeConcretePath(last) {
+		return ""
+	}
+
+	return last
+}
+
+// extractSeatbeltDeniedToken returns the last token of the sandbox-exec
+// preamble before our marker — the denial operand. Unlike
+// extractSeatbeltDeniedPath it does not require a path shape, so it also
+// recovers network addresses such as "local:*:0" or "1.2.3.4:443".
+func extractSeatbeltDeniedToken(raw string, payload *seatbeltLogPayload) string {
 	if payload == nil {
 		return ""
 	}
@@ -216,13 +238,7 @@ func extractSeatbeltDeniedPath(raw string, payload *seatbeltLogPayload) string {
 	}
 
 	last := strings.TrimSpace(fields[len(fields)-1])
-	last = strings.Trim(last, "\"',;:()[]{}")
-
-	if last == "" || !looksLikeConcretePath(last) {
-		return ""
-	}
-
-	return last
+	return strings.Trim(last, "\"',;:()[]{}")
 }
 
 func (s *seatbeltSandbox) queryLogs(start, end time.Time) ([]seatbeltLogEntry, error) {
@@ -302,6 +318,16 @@ func summarizeSeatbeltViolation(kind, target string) string {
 		return fmt.Sprintf("rename or unlink denied: %s", target)
 	case "process-exec":
 		return fmt.Sprintf("process execution denied: %s", target)
+	case "network-bind":
+		if target == "" {
+			return "network bind denied"
+		}
+		return fmt.Sprintf("network bind denied: %s", target)
+	case "network-outbound":
+		if target == "" {
+			return "network connect denied"
+		}
+		return fmt.Sprintf("network connect denied: %s", target)
 	default:
 		if target == "" {
 			return "sandbox denied an operation"

@@ -12,6 +12,11 @@ Restrictive policy for the npm ecosystem (npm, pnpm, yarn, bun).
 
 Restrictive policy for the PyPI ecosystem (pip, pip3, pipx, poetry, uv, uvx).
 
+### go
+
+Policy for the Go module ecosystem (go). Standalone profile: Go has a single
+package manager, so there is no shared base to inherit from.
+
 ## Custom Policies
 
 You can create custom sandbox policies by:
