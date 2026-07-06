@@ -13,6 +13,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/shim"
 )
 
 // errorMatcher defines how to detect and convert a specific error type
@@ -24,6 +25,22 @@ type errorMatcher struct {
 // errorMatchers is an ordered list of error matchers
 // Order matters - more specific matchers should come first
 var errorMatchers = []errorMatcher{
+	// Package manager not installed (PMG shim hit, real binary absent from PATH).
+	{
+		match: func(err error) bool {
+			var notFound *shim.BinaryNotFoundError
+			return errors.As(err, &notFound)
+		},
+		convert: func(err error) usefulerror.UsefulError {
+			var notFound *shim.BinaryNotFoundError
+			errors.As(err, &notFound)
+			return usefulerror.NewUsefulError().
+				WithCode(errcodes.PackageManagerNotFound).
+				WithHumanError(fmt.Sprintf("%s is not installed", notFound.Name)).
+				WithHelp(fmt.Sprintf("Install %s and ensure it is on your PATH, then retry.", notFound.Name)).
+				Wrap(notFound)
+		},
+	},
 	// File not found errors
 	{
 		match: func(err error) bool {

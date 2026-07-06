@@ -6,6 +6,10 @@ import (
 	"os"
 )
 
+type exitCoder interface {
+	ExitCode() int
+}
+
 // transparentExit is satisfied by *runner.ChildExitError without importing it.
 type transparentExit interface {
 	error
@@ -69,6 +73,12 @@ func ExitFromCommandError(err error) {
 			fmt.Fprintln(os.Stderr, Colors.Dim(d.message))
 		}
 		os.Exit(d.code)
+	}
+
+	var ec exitCoder
+	if errors.As(err, &ec) {
+		ErrorExitWithCode(err, ec.ExitCode())
+		return
 	}
 
 	ErrorExit(err)

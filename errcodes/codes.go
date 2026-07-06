@@ -10,6 +10,7 @@ const (
 	Lifecycle                     = "Lifecycle"
 	Network                       = "Network"
 	PackageManagerExecutionFailed = "PackageManagerExecutionFailed"
+	PackageManagerNotFound        = "PackageManagerNotFound"
 	BubblewrapNotFound            = "BubblewrapNotFound"
 
 	// Package manager error codes.
