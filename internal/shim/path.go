@@ -1,6 +1,7 @@
 package shim
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,6 +80,9 @@ func ResolveRealBinary(name string) (string, error) {
 
 	resolved, err := exec.LookPath(name)
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", &BinaryNotFoundError{Name: name}
+		}
 		return "", fmt.Errorf("could not find %s in PATH (excluding pmg shims): %w", name, err)
 	}
 

@@ -3,9 +3,11 @@ package runner
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,4 +94,27 @@ func TestExecuteWithOptionsRunsDirectHookBeforeSandbox(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, hookCalled)
+}
+
+func TestExecuteWithOptionsMissingPackageManager(t *testing.T) {
+	tmpDir := t.TempDir()
+	pmgBin := filepath.Join(tmpDir, ".pmg", "bin")
+	require.NoError(t, os.MkdirAll(pmgBin, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(pmgBin, "bun"), []byte("#!/bin/sh\necho shim"), 0o755))
+
+	t.Setenv("PATH", pmgBin)
+
+	err := ExecuteWithOptions(context.Background(), &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{
+			Exe:  "bun",
+			Args: []string{"--version"},
+		},
+	}, ExecuteOptions{
+		PackageManagerName: "bun",
+	})
+
+	var notFound *shim.BinaryNotFoundError
+	require.ErrorAs(t, err, &notFound)
+	assert.Equal(t, "bun", notFound.Name)
+	assert.Equal(t, 127, notFound.ExitCode())
 }

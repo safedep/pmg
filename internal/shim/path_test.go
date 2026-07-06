@@ -194,6 +194,9 @@ func TestResolveRealBinary(t *testing.T) {
 
 			if tc.wantErr {
 				assert.Error(t, err)
+				var notFound *BinaryNotFoundError
+				assert.ErrorAs(t, err, &notFound)
+				assert.Equal(t, tc.binary, notFound.Name)
 				return
 			}
 

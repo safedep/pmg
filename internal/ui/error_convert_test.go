@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,6 +32,12 @@ func Test_ErrorConverters(t *testing.T) {
 				WithMsg("test"),
 			wantCode:       "CUSTOM",
 			wantHumanError: "Already useful",
+		},
+		{
+			name:         "PackageManagerNotFound",
+			inputError:   &shim.BinaryNotFoundError{Name: "bun"},
+			wantCode:     errcodes.PackageManagerNotFound,
+			wantHumanError: "bun is not installed",
 		},
 		{
 			name:         "FileNotExist",

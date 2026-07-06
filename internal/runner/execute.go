@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -85,6 +86,10 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	realBinary, err := shim.ResolveRealBinary(pc.Command.Exe)
 	if err != nil {
+		var notFound *shim.BinaryNotFoundError
+		if errors.As(err, &notFound) {
+			return notFound
+		}
 		return fmt.Errorf("failed to resolve real %s binary: %w", pc.Command.Exe, err)
 	}
 

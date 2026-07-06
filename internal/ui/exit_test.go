@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -119,5 +120,23 @@ func TestClassifyExit(t *testing.T) {
 
 		assert.False(t, d.transparent)
 		assert.False(t, d.notice)
+	})
+}
+
+func TestExitFromCommandErrorExitCode(t *testing.T) {
+	t.Run("missing package manager uses exit code 127", func(t *testing.T) {
+		err := &shim.BinaryNotFoundError{Name: "bun"}
+
+		var ec exitCoder
+		assert.True(t, errors.As(err, &ec))
+		assert.Equal(t, 127, ec.ExitCode())
+	})
+
+	t.Run("wrapped missing package manager preserves exit code 127", func(t *testing.T) {
+		err := fmt.Errorf("execute: %w", &shim.BinaryNotFoundError{Name: "npm"})
+
+		var ec exitCoder
+		assert.True(t, errors.As(err, &ec))
+		assert.Equal(t, 127, ec.ExitCode())
 	})
 }
