@@ -37,7 +37,7 @@ var errorMatchers = []errorMatcher{
 			return usefulerror.NewUsefulError().
 				WithCode(errcodes.PackageManagerNotFound).
 				WithHumanError(fmt.Sprintf("%s is not installed", notFound.Name)).
-				WithHelp(fmt.Sprintf("Install %s, then retry this command.", notFound.Name)).
+				WithHelp(fmt.Sprintf("Install %s and ensure it is on your PATH, then retry.", notFound.Name)).
 				Wrap(notFound)
 		},
 	},
