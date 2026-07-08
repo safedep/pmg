@@ -232,7 +232,10 @@ func reportNormal(data *ReportData) {
 			fmt.Println()
 		}
 
-		printCustomMessage(data.BlockMessage)
+		if data.BlockMessage != "" {
+			printCustomMessage(data.BlockMessage)
+			fmt.Println()
+		}
 
 		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.BlocklistBlockedPackages) == 0 &&
 			len(data.CooldownBlockedPackages) > 0
@@ -360,7 +363,8 @@ func reportVerbose(data *ReportData) {
 		}
 	}
 
-	if data.Outcome == OutcomeBlocked {
+	if data.Outcome == OutcomeBlocked && data.BlockMessage != "" {
+		fmt.Println()
 		printCustomMessage(data.BlockMessage)
 	}
 

@@ -88,11 +88,14 @@ func TestReportNormalBlocklistSection(t *testing.T) {
 	data.BlockedCount = 1
 	data.Outcome = OutcomeBlocked
 	data.BlocklistBlockedPackages = []models.BlocklistBlock{{Name: "left-pad", Version: "1.3.0", Reason: "deprecated internally"}}
+	data.BlockMessage = "Blocked by ACME security policy"
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Blocked by package policy")
 	assert.Contains(t, out, "left-pad@1.3.0")
 	assert.Contains(t, out, "deprecated internally")
+	assert.Contains(t, out, "ℹ Blocked by ACME security policy")
+	assert.NotContains(t, out, "\n\n\n", "no double blank lines in block output")
 }
 
 func TestReportSilentRendersBlocks(t *testing.T) {

@@ -238,14 +238,14 @@ func printBlocklistPackagesList(packages []models.BlocklistBlock) {
 	}
 }
 
-// printCustomMessage renders an org-configured message appended to a block
-// section. No-op when the message is empty.
+// printCustomMessage renders the org-configured block.message as an info note
+// attached to the block output. Callers are responsible for surrounding blank
+// lines. No-op when the message is empty.
 func printCustomMessage(message string) {
 	if message == "" {
 		return
 	}
-	fmt.Println()
-	fmt.Printf("  %s\n", termWidthFormatText(message, 76))
+	fmt.Printf("  %s %s\n", Colors.Cyan("ℹ"), Colors.Cyan(termWidthFormatText(message, 76)))
 }
 
 func pluralizeDays(n int) string {
