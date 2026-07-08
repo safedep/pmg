@@ -12,6 +12,8 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 	switch event.Type {
 	case EventTypeMalwareBlocked:
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED)}
+	case EventTypeBlocklistBlocked:
+		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED)}
 	case EventTypeMalwareConfirmed:
 		return []*controltowerv1.PmgEvent{newPackageDecisionEvent(event, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_CONFIRMED)}
 	case EventTypeCooldownSkipped:

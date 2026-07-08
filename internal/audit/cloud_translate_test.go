@@ -37,6 +37,25 @@ func TestTranslateMalwareBlocked(t *testing.T) {
 	assert.NotNil(t, decision.GetPackageVersion())
 }
 
+func TestTranslateBlocklistBlocked(t *testing.T) {
+	event := AuditEvent{
+		Type:           EventTypeBlocklistBlocked,
+		PackageVersion: testPackageVersion("left-pad", "1.0.0", "npm"),
+		Details:        map[string]any{"reason": "deprecated internally"},
+	}
+
+	results := testSink.translateToPmgEvents(event)
+	require.Len(t, results, 1)
+	result := results[0]
+
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION, result.GetEventType())
+	require.True(t, result.HasPackageDecision())
+
+	decision := result.GetPackageDecision()
+	assert.Equal(t, controltowerv1.PmgPackageAction_PMG_PACKAGE_ACTION_BLOCKED, decision.GetAction())
+	assert.Equal(t, "left-pad", decision.GetPackageVersion().GetPackage().GetName())
+}
+
 func TestTranslateMalwareConfirmed(t *testing.T) {
 	event := AuditEvent{
 		Type:           EventTypeMalwareConfirmed,

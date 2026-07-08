@@ -99,6 +99,23 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 	}
 }
 
+// LogBlocklistBlocked records that a package was blocked by the
+// blocked_packages policy, independent of any malware verdict.
+func LogBlocklistBlocked(pv *packagev1.PackageVersion, reason string) {
+	logEvent(AuditEvent{
+		Type:           EventTypeBlocklistBlocked,
+		Message:        fmt.Sprintf("Blocked installation of blocklisted package: %s@%s", pkgName(pv), pkgVersion(pv)),
+		PackageVersion: pv,
+		Details: map[string]any{
+			"reason": reason,
+		},
+	})
+
+	if global != nil {
+		global.recordBlocked()
+	}
+}
+
 // LogMalwareConfirmed records that the user confirmed installation of a flagged package.
 func LogMalwareConfirmed(pv *packagev1.PackageVersion, analysisID string, isMalware, isVerified bool) {
 	logEvent(AuditEvent{
