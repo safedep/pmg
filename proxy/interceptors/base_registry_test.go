@@ -25,29 +25,40 @@ func setTrustedPackagesForTest(t *testing.T, pkgs []pmgconfig.TrustedPackage) {
 	})
 }
 
-func TestFastAllow_TrustedReturnsAllow(t *testing.T) {
+func setBlockedPackagesForTest(t *testing.T, pkgs []pmgconfig.BlockedPackage) {
+	t.Helper()
+	orig := pmgconfig.Get().Config.BlockedPackages
+	pmgconfig.Get().Config.BlockedPackages = pkgs
+	require.NoError(t, pmgconfig.PreprocessPackageRefs(&pmgconfig.Get().Config), "setBlockedPackagesForTest: preprocess")
+	t.Cleanup(func() {
+		pmgconfig.Get().Config.BlockedPackages = orig
+		assert.NoError(t, pmgconfig.PreprocessPackageRefs(&pmgconfig.Get().Config))
+	})
+}
+
+func TestPolicyGate_TrustedReturnsAllow(t *testing.T) {
 	setTrustedPackagesForTest(t, []pmgconfig.TrustedPackage{{Purl: "pkg:npm/trusted-pkg"}})
 
 	b := &baseRegistryInterceptor{}
 	ctx := makeTestRequestContext("https://registry.npmjs.org/trusted-pkg/-/trusted-pkg-1.0.0.tgz")
 
-	resp, ok := b.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "trusted-pkg", "1.0.0")
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "trusted-pkg", "1.0.0")
 	require.True(t, ok)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 }
 
-func TestFastAllow_UntrustedReturnsFalse(t *testing.T) {
+func TestPolicyGate_UntrustedReturnsFalse(t *testing.T) {
 	setTrustedPackagesForTest(t, nil)
 
 	b := &baseRegistryInterceptor{}
 	ctx := makeTestRequestContext("https://registry.npmjs.org/x/-/x-1.0.0.tgz")
 
-	resp, ok := b.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "x", "1.0.0")
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "x", "1.0.0")
 	assert.False(t, ok)
 	assert.Nil(t, resp)
 }
 
-func TestFastAllow_InsecureReturnsAllow(t *testing.T) {
+func TestPolicyGate_InsecureReturnsAllow(t *testing.T) {
 	orig := pmgconfig.Get().InsecureInstallation
 	pmgconfig.Get().InsecureInstallation = true
 	t.Cleanup(func() { pmgconfig.Get().InsecureInstallation = orig })
@@ -55,9 +66,69 @@ func TestFastAllow_InsecureReturnsAllow(t *testing.T) {
 	b := &baseRegistryInterceptor{}
 	ctx := makeTestRequestContext("https://registry.npmjs.org/any-pkg/-/any-pkg-1.0.0.tgz")
 
-	resp, ok := b.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "any-pkg", "1.0.0")
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "any-pkg", "1.0.0")
 	require.True(t, ok)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
+}
+
+func TestPolicyGate_BlocklistedReturnsBlock(t *testing.T) {
+	setBlockedPackagesForTest(t, []pmgconfig.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "deprecated internally"}})
+
+	stats := NewAnalysisStatsCollector()
+	b := &baseRegistryInterceptor{statsCollector: stats}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz")
+
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "left-pad", "1.0.0")
+	require.True(t, ok)
+	assert.Equal(t, proxy.ActionBlock, resp.Action)
+	assert.Equal(t, http.StatusForbidden, resp.BlockCode)
+	assert.Contains(t, resp.BlockMessage, "blocked_packages")
+	assert.Contains(t, resp.BlockMessage, "deprecated internally")
+	assert.Equal(t, 1, stats.GetStats().BlocklistBlockedCount)
+
+	blocks := stats.GetBlocklistBlocks()
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "left-pad", blocks[0].Name)
+	assert.Equal(t, "1.0.0", blocks[0].Version)
+	assert.Equal(t, "deprecated internally", blocks[0].Reason)
+}
+
+func TestPolicyGate_BlockWinsOverTrust(t *testing.T) {
+	setTrustedPackagesForTest(t, []pmgconfig.TrustedPackage{{Purl: "pkg:npm/left-pad"}})
+	setBlockedPackagesForTest(t, []pmgconfig.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}})
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz")
+
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "left-pad", "1.0.0")
+	require.True(t, ok)
+	assert.Equal(t, proxy.ActionBlock, resp.Action)
+}
+
+func TestPolicyGate_InsecureWinsOverBlocklist(t *testing.T) {
+	setBlockedPackagesForTest(t, []pmgconfig.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}})
+
+	orig := pmgconfig.Get().InsecureInstallation
+	pmgconfig.Get().InsecureInstallation = true
+	t.Cleanup(func() { pmgconfig.Get().InsecureInstallation = orig })
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz")
+
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "left-pad", "1.0.0")
+	require.True(t, ok)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+}
+
+func TestPolicyGate_BlocklistReasonOmittedWhenEmpty(t *testing.T) {
+	setBlockedPackagesForTest(t, []pmgconfig.BlockedPackage{{Purl: "pkg:npm/left-pad"}})
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz")
+
+	resp, ok := b.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "left-pad", "1.0.0")
+	require.True(t, ok)
+	assert.NotContains(t, resp.BlockMessage, "Reason:")
 }
 
 func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
