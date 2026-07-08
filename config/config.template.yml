@@ -11,7 +11,7 @@ transitive_depth: 5
 include_dev_dependencies: false
 
 # UI verbosity level. Valid values: silent, normal, verbose. Default is normal.
-# silent: PMG is hidden from the user except for errors and malicious package detection
+# silent: PMG is hidden from the user except for errors, malicious package detection, and policy blocks
 # normal: Show minimal status updates
 # verbose: Show verbose status updates and detailed information
 verbosity: normal

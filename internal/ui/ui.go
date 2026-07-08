@@ -18,8 +18,8 @@ import (
 type VerbosityLevel int
 
 const (
-	// PMG is hidden from the user except for errors
-	// and when malicious packages are detected
+	// PMG is hidden from the user except for errors and block decisions
+	// (malicious packages and the blocked_packages policy)
 	VerbosityLevelSilent VerbosityLevel = iota
 
 	// Show minimal status updates
@@ -226,6 +226,26 @@ func printCooldownPackagesList(packages []models.CooldownBlock) {
 			pluralizeDays(pkg.DaysLeft),
 		)))
 	}
+}
+
+func printBlocklistPackagesList(packages []models.BlocklistBlock) {
+	for _, pkg := range packages {
+		fmt.Println()
+		fmt.Printf("  %s %s\n", Colors.Red("⊘"), Colors.Red(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
+		if pkg.Reason != "" {
+			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatText(pkg.Reason, 76)))
+		}
+	}
+}
+
+// printCustomMessage renders an org-configured message appended to a block
+// section. No-op when the message is empty.
+func printCustomMessage(message string) {
+	if message == "" {
+		return
+	}
+	fmt.Println()
+	fmt.Printf("  %s\n", termWidthFormatText(message, 76))
 }
 
 func pluralizeDays(n int) string {

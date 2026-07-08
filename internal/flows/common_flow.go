@@ -100,7 +100,11 @@ func (f *commonFlow) Run(ctx context.Context, args []string, parsedCmd *packagem
 		reportData.BlockedCount = guardResult.BlockedCount
 		reportData.BlockedPackages = guardResult.BlockedPackages
 		reportData.ConfirmedPackages = guardResult.ConfirmedPackages
+		reportData.BlocklistBlockedPackages = guardResult.BlocklistBlocked
 	}
+
+	reportData.CooldownMessage = cfg.Config.DependencyCooldown.Message
+	reportData.MalwareMessage = cfg.Config.Malware.Message
 
 	// Infer outcome from data and config using shared inference logic
 	blockedCount := 0
