@@ -224,8 +224,8 @@ malware:
   message: ""
 
 # Blocked packages are always blocked by PMG, regardless of malware analysis
-# verdicts. Matching mirrors trusted_packages: a PURL without a version blocks
-# ALL versions of the package; a PURL with a version blocks only that version.
+# verdicts. A PURL without a version blocks ALL versions of the package; a PURL
+# with a version blocks only that version.
 #
 # The blocklist wins over trusted_packages: a package on both lists is blocked.
 # The reason is shown to the user when the package is blocked.

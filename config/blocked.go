@@ -5,8 +5,8 @@ import (
 )
 
 // FindBlockedPackage returns the blocked_packages entry matching a package
-// version. Matching mirrors trusted_packages: a version-less entry blocks
-// every version, a version-pinned entry blocks only that version.
+// version. A version-less entry blocks every version; a version-pinned entry
+// blocks only that version.
 func FindBlockedPackage(pkgVersion *packagev1.PackageVersion) (BlockedPackage, bool) {
 	for _, b := range Get().Config.BlockedPackages {
 		if b.matches(pkgVersion) {

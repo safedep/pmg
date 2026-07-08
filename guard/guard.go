@@ -15,7 +15,6 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/extractor"
 	"github.com/safedep/pmg/internal/audit"
-	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 )
@@ -91,8 +90,6 @@ type GuardResult struct {
 	BlockedCount      int
 	BlockedPackages   []*analyzer.PackageVersionAnalysisResult
 	ConfirmedPackages []*analyzer.PackageVersionAnalysisResult
-	// BlocklistBlocked records packages blocked by the blocked_packages policy.
-	BlocklistBlocked []models.BlocklistBlock
 	// WasUserCancelled is true if the user declined to install suspicious packages
 	WasUserCancelled bool
 }
@@ -190,12 +187,6 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 		}
 	}
 
-	if g.checkBlocklistedPackages(packagesToAnalyze, result) {
-		result.TotalAnalyzed = len(packagesToAnalyze)
-		g.clearStatus()
-		return result, nil
-	}
-
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
 
 	g.setStatus(fmt.Sprintf("Analyzing %d dependencies for malware", len(packagesToAnalyze)))
@@ -270,31 +261,6 @@ func (g *packageManagerGuard) Run(ctx context.Context, args []string, parsedComm
 
 func (g *packageManagerGuard) continueExecution(ctx context.Context, pc *packagemanager.ParsedCommand) error {
 	return g.executor(ctx, pc)
-}
-
-// checkBlocklistedPackages scans the resolved set against blocked_packages and
-// records hits on the result. It runs before trusted-package skipping and
-// before any malware analysis: an explicit block beats trust.
-func (g *packageManagerGuard) checkBlocklistedPackages(packages []*packagev1.PackageVersion, result *GuardResult) bool {
-	for _, pkg := range packages {
-		blocked, ok := config.FindBlockedPackage(pkg)
-		if !ok {
-			continue
-		}
-
-		log.Warnf("Blocking blocklisted package %s/%s@%s",
-			pkg.GetPackage().GetEcosystem().String(), pkg.GetPackage().GetName(), pkg.GetVersion())
-		audit.LogBlocklistBlocked(pkg, blocked.Reason)
-
-		result.BlockedCount++
-		result.BlocklistBlocked = append(result.BlocklistBlocked, models.BlocklistBlock{
-			Name:    pkg.GetPackage().GetName(),
-			Version: pkg.GetVersion(),
-			Reason:  blocked.Reason,
-		})
-	}
-
-	return len(result.BlocklistBlocked) > 0
 }
 
 func (g *packageManagerGuard) concurrentAnalyzePackages(ctx context.Context,
@@ -457,12 +423,6 @@ func (g *packageManagerGuard) handleManifestInstallation(ctx context.Context, pa
 
 			packagesToAnalyze = append(packagesToAnalyze, dependencies...)
 		}
-	}
-
-	if g.checkBlocklistedPackages(packagesToAnalyze, result) {
-		result.TotalAnalyzed = len(packagesToAnalyze)
-		g.clearStatus()
-		return result, nil
 	}
 
 	log.Debugf("Checking %d packages for malware", len(packagesToAnalyze))
