@@ -64,7 +64,7 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 		override(rc)
 	}
 
-	if err := config.PreprocessTrustedPackages(&rc.Config); err != nil {
+	if err := config.PreprocessPackageRefs(&rc.Config); err != nil {
 		t.Fatalf("failed to preprocess trusted packages: %v", err)
 	}
 }

@@ -19,7 +19,7 @@ func TestIsTrustedPackageRef(t *testing.T) {
 		{Purl: "pkg:npm/all-versions"},
 		{Purl: "pkg:npm/pinned@1.0.0"},
 	}}
-	_ = preprocessTrustedPackages(cfg)
+	_ = preprocessPackageRefs(cfg)
 	setGlobalForTest(t, cfg)
 
 	assert.True(t, IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_NPM, "all-versions", "9.9.9"))
@@ -33,7 +33,7 @@ func TestIsTrustedPackageAllVersions(t *testing.T) {
 		{Purl: "pkg:npm/all-versions"},
 		{Purl: "pkg:npm/pinned@1.0.0"},
 	}}
-	_ = preprocessTrustedPackages(cfg)
+	_ = preprocessPackageRefs(cfg)
 	setGlobalForTest(t, cfg)
 
 	assert.True(t, IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "all-versions"))
@@ -130,7 +130,7 @@ func TestCooldownSkip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{DependencyCooldown: DependencyCooldownConfig{Skip: tt.skip}}
-			_ = preprocessTrustedPackages(cfg)
+			_ = preprocessPackageRefs(cfg)
 
 			got := cooldownSkip(cfg.DependencyCooldown.Skip, tt.ecosystem, tt.pkgName)
 			assert.Equal(t, tt.wantSkipAll, got.SkipAll)
@@ -156,7 +156,7 @@ func TestCooldownSkipIsSkipListOnly(t *testing.T) {
 		TrustedPackages:    []TrustedPackage{{Purl: "pkg:npm/trusted-only"}},
 		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/cooldown-only"}}},
 	}
-	_ = preprocessTrustedPackages(cfg)
+	_ = preprocessPackageRefs(cfg)
 	setGlobalForTest(t, cfg)
 
 	assert.False(t, CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, "trusted-only").SkipAll, "trusted_packages must not leak into CooldownSkip")

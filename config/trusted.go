@@ -2,8 +2,6 @@ package config
 
 import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	"github.com/safedep/dry/api/pb"
-	"github.com/safedep/dry/log"
 )
 
 // IsTrustedPackage checks if a package version is trusted based on global configuration.
@@ -84,42 +82,27 @@ func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name str
 	return info
 }
 
-// PreprocessTrustedPackages pre-parses all PURL strings in the trusted package
-// lists. Exported for use in cross-package tests that install synthetic configs
-// without going through Load.
-func PreprocessTrustedPackages(cfg *Config) error {
-	return preprocessTrustedPackages(cfg)
+// PreprocessPackageRefs pre-parses all PURL strings in the trusted, cooldown
+// skip, and blocked package lists. Exported for use in cross-package tests that
+// install synthetic configs without going through Load.
+func PreprocessPackageRefs(cfg *Config) error {
+	return preprocessPackageRefs(cfg)
 }
 
-// preprocessTrustedPackages pre-parses all PURL strings in the trusted package
-// lists (both the top-level guardrail list and the cooldown-exemption list).
-// This is called once during config load to avoid repeated parsing during
-// trusted package checks. Invalid PURLs are logged but not fatal.
-func preprocessTrustedPackages(cfg *Config) error {
-	preprocessTrustedPackageList(cfg.TrustedPackages)
-	preprocessTrustedPackageList(cfg.DependencyCooldown.Skip)
-	return nil
-}
-
-// preprocessTrustedPackageList parses the PURL of each entry in place, populating
-// the pre-parsed ecosystem/name/version fields. Entries with an invalid PURL are
-// marked unparsed (and skipped at match time) rather than failing the load.
-func preprocessTrustedPackageList(packages []TrustedPackage) {
-	for i := range packages {
-		tp := &packages[i]
-
-		parsedPurl, err := pb.NewPurlPackageVersion(tp.Purl)
-		if err != nil {
-			log.Warnf("Failed to parse trusted package PURL: %s: %v", tp.Purl, err)
-			tp.parsed = false
-			continue
-		}
-
-		tp.parsed = true
-		tp.ecosystem = parsedPurl.Ecosystem()
-		tp.name = parsedPurl.Name()
-		tp.version = parsedPurl.Version()
+// preprocessPackageRefs parses the PURL of each list entry in place, populating
+// the pre-parsed purlRef. This is called once during config load to avoid
+// repeated parsing at match time. Invalid PURLs are logged but not fatal.
+func preprocessPackageRefs(cfg *Config) error {
+	for i := range cfg.TrustedPackages {
+		cfg.TrustedPackages[i].parseFrom(cfg.TrustedPackages[i].Purl)
 	}
+	for i := range cfg.DependencyCooldown.Skip {
+		cfg.DependencyCooldown.Skip[i].parseFrom(cfg.DependencyCooldown.Skip[i].Purl)
+	}
+	for i := range cfg.BlockedPackages {
+		cfg.BlockedPackages[i].parseFrom(cfg.BlockedPackages[i].Purl)
+	}
+	return nil
 }
 
 // isTrustedPackageVersion checks if a package version is in the trusted packages list.
@@ -128,33 +111,10 @@ func preprocessTrustedPackageList(packages []TrustedPackage) {
 // If the trusted package PURL doesn't specify a version, all versions of that package are trusted.
 // Returns false if pkgVersion is nil or if trustedPackages is empty.
 func isTrustedPackageVersion(trustedPackages []TrustedPackage, pkgVersion *packagev1.PackageVersion) bool {
-	if pkgVersion == nil {
-		return false
-	}
-
-	if len(trustedPackages) == 0 {
-		return false
-	}
-
 	for _, v := range trustedPackages {
-		if !v.parsed {
-			continue
+		if v.matches(pkgVersion) {
+			return true
 		}
-
-		if v.ecosystem != pkgVersion.GetPackage().GetEcosystem() {
-			continue
-		}
-
-		if v.name != pkgVersion.GetPackage().GetName() {
-			continue
-		}
-
-		if v.version != "" && v.version != pkgVersion.GetVersion() {
-			continue
-		}
-
-		return true
 	}
-
 	return false
 }
