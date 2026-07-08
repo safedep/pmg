@@ -226,8 +226,6 @@ block:
   # blocked. The reason is shown to the user when the package is blocked.
   # Example:
   #   packages:
-  #     - purl: pkg:npm/left-pad
-  #       reason: "Deprecated internally; use String.prototype.padStart"
   #     - purl: pkg:npm/lodash@4.17.20
   #       reason: "CVE-2021-23337 - upgrade to >=4.17.21"
   packages: []
