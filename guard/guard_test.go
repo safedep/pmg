@@ -6,9 +6,12 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
+	pmgconfig "github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/models"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // noopExecutor is a no-op executor for use in tests that set DryRun=true
@@ -262,4 +265,65 @@ func TestGuardInsecureInstallation(t *testing.T) {
 		// Verify that InsecureInstallation defaults to false
 		assert.False(t, config.InsecureInstallation, "InsecureInstallation should default to false")
 	})
+}
+
+type recordingAnalyzer struct {
+	calls int
+}
+
+func (a *recordingAnalyzer) Name() string { return "recording" }
+
+func (a *recordingAnalyzer) Analyze(_ context.Context, pv *packagev1.PackageVersion) (*analyzer.PackageVersionAnalysisResult, error) {
+	a.calls++
+	return &analyzer.PackageVersionAnalysisResult{PackageVersion: pv, Action: analyzer.ActionAllow}, nil
+}
+
+func TestGuardBlocklistedPackage(t *testing.T) {
+	rc := pmgconfig.Get()
+	savedBlocked := rc.Config.BlockedPackages
+	savedTrusted := rc.Config.TrustedPackages
+	t.Cleanup(func() {
+		rc.Config.BlockedPackages = savedBlocked
+		rc.Config.TrustedPackages = savedTrusted
+		assert.NoError(t, pmgconfig.PreprocessPackageRefs(&rc.Config))
+	})
+
+	// Trusted AND blocked: block must win, and analysis must never run.
+	rc.Config.BlockedPackages = []pmgconfig.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned by policy"}}
+	rc.Config.TrustedPackages = []pmgconfig.TrustedPackage{{Purl: "pkg:npm/left-pad"}}
+	require.NoError(t, pmgconfig.PreprocessPackageRefs(&rc.Config))
+
+	guardConfig := DefaultPackageManagerGuardConfig()
+	guardConfig.DryRun = true
+	guardConfig.ResolveDependencies = false
+
+	rec := &recordingAnalyzer{}
+	pg, err := NewPackageManagerGuard(guardConfig, nil, nil,
+		[]analyzer.PackageVersionAnalyzer{rec}, PackageManagerGuardInteraction{
+			ShowWarning: func(string) {},
+		}, noopExecutor)
+	require.NoError(t, err)
+
+	parsedCommand := &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{Exe: "npm", Args: []string{"install", "left-pad@1.3.0"}},
+		InstallTargets: []*packagemanager.PackageInstallTarget{
+			{
+				PackageVersion: &packagev1.PackageVersion{
+					Package: &packagev1.Package{
+						Name:      "left-pad",
+						Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
+					},
+					Version: "1.3.0",
+				},
+			},
+		},
+	}
+
+	result, err := pg.Run(context.Background(), []string{"npm", "install", "left-pad@1.3.0"}, parsedCommand)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, rec.calls, "blocklisted package must not be analyzed")
+	assert.Greater(t, result.BlockedCount, 0)
+	require.Len(t, result.BlocklistBlocked, 1)
+	assert.Equal(t, models.BlocklistBlock{Name: "left-pad", Version: "1.3.0", Reason: "banned by policy"}, result.BlocklistBlocked[0])
 }
