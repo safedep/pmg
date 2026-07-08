@@ -117,6 +117,15 @@ func (b *baseRegistryInterceptor) policyGate(
 	return nil, false
 }
 
+// appendCustomMessage appends the org-configured message, when set, to a
+// block message body.
+func appendCustomMessage(message, custom string) string {
+	if custom == "" {
+		return message
+	}
+	return message + "\n\n" + custom
+}
+
 // blocklistBlockMessage builds the 403 body for a blocklist hit. The label is
 // distinct from the malware block message so a policy block is never mistaken
 // for a malware verdict.
@@ -222,11 +231,11 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			b.statsCollector.RecordBlocked(result)
 		}
 
-		message := fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
+		message := appendCustomMessage(fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
 			ecosystem.String(),
 			packageName, packageVersion,
 			result.Summary,
-			result.ReferenceURL)
+			result.ReferenceURL), config.Get().Config.Malware.Message)
 
 		return &proxy.InterceptorResponse{
 			Action:       proxy.ActionBlock,
@@ -261,11 +270,11 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				b.statsCollector.RecordUserCancelled(result)
 			}
 
-			message := fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
+			message := appendCustomMessage(fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
 				ecosystem.String(),
 				packageName, packageVersion,
 				result.Summary,
-				result.ReferenceURL)
+				result.ReferenceURL), config.Get().Config.Malware.Message)
 
 			return &proxy.InterceptorResponse{
 				Action:       proxy.ActionBlock,

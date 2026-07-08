@@ -275,3 +275,31 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 		})
 	}
 }
+
+func TestAppendCustomMessage(t *testing.T) {
+	assert.Equal(t, "base", appendCustomMessage("base", ""))
+	assert.Equal(t, "base\n\ncustom", appendCustomMessage("base", "custom"))
+}
+
+func TestHandleAnalysisResultBlockCarriesMalwareMessage(t *testing.T) {
+	origMsg := pmgconfig.Get().Config.Malware.Message
+	pmgconfig.Get().Config.Malware.Message = "Contact #security-help"
+	t.Cleanup(func() { pmgconfig.Get().Config.Malware.Message = origMsg })
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/evil/-/evil-1.0.0.tgz")
+
+	result := &analyzer.PackageVersionAnalysisResult{
+		PackageVersion: &packagev1.PackageVersion{
+			Package: &packagev1.Package{Name: "evil", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
+			Version: "1.0.0",
+		},
+		Action:  analyzer.ActionBlock,
+		Summary: "verified malware",
+	}
+
+	resp, err := b.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "evil", "1.0.0", result)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionBlock, resp.Action)
+	assert.Contains(t, resp.BlockMessage, "Contact #security-help")
+}
