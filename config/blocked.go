@@ -4,11 +4,11 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
-// FindBlockedPackage returns the blocked_packages entry matching a package
+// FindBlockedPackage returns the block.packages entry matching a package
 // version. A version-less entry blocks every version; a version-pinned entry
 // blocks only that version.
 func FindBlockedPackage(pkgVersion *packagev1.PackageVersion) (BlockedPackage, bool) {
-	for _, b := range Get().Config.BlockedPackages {
+	for _, b := range Get().Config.Block.Packages {
 		if b.matches(pkgVersion) {
 			return b, true
 		}

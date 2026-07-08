@@ -27,11 +27,11 @@ func setTrustedPackagesForTest(t *testing.T, pkgs []pmgconfig.TrustedPackage) {
 
 func setBlockedPackagesForTest(t *testing.T, pkgs []pmgconfig.BlockedPackage) {
 	t.Helper()
-	orig := pmgconfig.Get().Config.BlockedPackages
-	pmgconfig.Get().Config.BlockedPackages = pkgs
+	orig := pmgconfig.Get().Config.Block.Packages
+	pmgconfig.Get().Config.Block.Packages = pkgs
 	require.NoError(t, pmgconfig.PreprocessPackageRefs(&pmgconfig.Get().Config), "setBlockedPackagesForTest: preprocess")
 	t.Cleanup(func() {
-		pmgconfig.Get().Config.BlockedPackages = orig
+		pmgconfig.Get().Config.Block.Packages = orig
 		assert.NoError(t, pmgconfig.PreprocessPackageRefs(&pmgconfig.Get().Config))
 	})
 }
@@ -82,7 +82,7 @@ func TestPolicyGate_BlocklistedReturnsBlock(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, proxy.ActionBlock, resp.Action)
 	assert.Equal(t, http.StatusForbidden, resp.BlockCode)
-	assert.Contains(t, resp.BlockMessage, "blocked_packages")
+	assert.Contains(t, resp.BlockMessage, "block.packages")
 	assert.Contains(t, resp.BlockMessage, "deprecated internally")
 	assert.Equal(t, 1, stats.GetStats().BlocklistBlockedCount)
 
@@ -282,9 +282,9 @@ func TestAppendCustomMessage(t *testing.T) {
 }
 
 func TestHandleAnalysisResultBlockCarriesMalwareMessage(t *testing.T) {
-	origMsg := pmgconfig.Get().Config.Malware.Message
-	pmgconfig.Get().Config.Malware.Message = "Contact #security-help"
-	t.Cleanup(func() { pmgconfig.Get().Config.Malware.Message = origMsg })
+	origMsg := pmgconfig.Get().Config.Block.Message
+	pmgconfig.Get().Config.Block.Message = "Contact #security-help"
+	t.Cleanup(func() { pmgconfig.Get().Config.Block.Message = origMsg })
 
 	b := &baseRegistryInterceptor{}
 	ctx := makeTestRequestContext("https://registry.npmjs.org/evil/-/evil-1.0.0.tgz")

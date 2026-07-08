@@ -143,7 +143,7 @@ func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, pub
 	})
 }
 
-// RecordBlocklistBlocked records a package blocked by the blocked_packages policy.
+// RecordBlocklistBlocked records a package blocked by the block.packages policy.
 func (c *AnalysisStatsCollector) RecordBlocklistBlocked(name, version, reason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -158,7 +158,7 @@ func (c *AnalysisStatsCollector) RecordBlocklistBlocked(name, version, reason st
 	})
 }
 
-// GetBlocklistBlocks returns all packages blocked by the blocked_packages policy.
+// GetBlocklistBlocks returns all packages blocked by the block.packages policy.
 func (c *AnalysisStatsCollector) GetBlocklistBlocks() []models.BlocklistBlock {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

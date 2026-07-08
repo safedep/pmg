@@ -50,7 +50,7 @@ func TestReportNormalMalwareCustomMessage(t *testing.T) {
 	withVerbosity(t, VerbosityLevelNormal)
 
 	data := malwareBlockedData()
-	data.MalwareMessage = "Contact #security-help"
+	data.BlockMessage = "Contact #security-help"
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Malicious package blocked")
@@ -73,7 +73,7 @@ func TestReportNormalCooldownCustomMessage(t *testing.T) {
 	data.BlockedCount = 1
 	data.Outcome = OutcomeBlocked
 	data.CooldownBlockedPackages = []models.CooldownBlock{{Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5}}
-	data.CooldownMessage = "Request an exemption at go/pmg-exceptions"
+	data.BlockMessage = "Request an exemption at go/pmg-exceptions"
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Dependency cooldown")
@@ -99,7 +99,7 @@ func TestReportSilentRendersBlocks(t *testing.T) {
 	withVerbosity(t, VerbosityLevelSilent)
 
 	data := malwareBlockedData()
-	data.MalwareMessage = "Contact #security-help"
+	data.BlockMessage = "Contact #security-help"
 	data.BlocklistBlockedPackages = []models.BlocklistBlock{{Name: "left-pad", Version: "1.3.0", Reason: "banned"}}
 
 	out := captureStdout(t, func() { Report(data) })

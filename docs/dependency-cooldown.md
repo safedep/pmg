@@ -16,12 +16,11 @@ Dependency cooldown is configured in `config.yml`. See [config template](../conf
 dependency_cooldown:
   enabled: true
   days: 5
-
-  # Optional message appended to every cooldown block output. Useful for org
-  # deployments to point developers at internal policy docs or an exemption
-  # process.
-  message: "Blocked by ACME security policy. Request an exemption at go/pmg-exceptions"
 ```
+
+To show an org-specific message whenever PMG blocks an installation (cooldown
+or otherwise), see `block.message` in the
+[config template](../config/config.template.yml).
 
 ## Exempting Specific Packages
 

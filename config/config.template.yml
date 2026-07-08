@@ -190,12 +190,6 @@ dependency_cooldown:
   enabled: true
   days: 5
 
-  # Optional message appended to the block output whenever installation is
-  # blocked by the dependency cooldown. Useful for org deployments to point
-  # developers at internal policy docs or an exemption process. Example:
-  #   message: "Blocked by ACME security policy. Request an exemption at go/pmg-exceptions"
-  message: ""
-
   # Per-control skip list of packages exempt from the cooldown window.
   # Packages here are STILL malware-scanned — only the cooldown wait is waived.
   # Use it for first-party / internal packages that must be installed immediately
@@ -215,27 +209,28 @@ dependency_cooldown:
   #       reason: "Pin a specific just-published build"
   skip: []
 
-# Malicious package control settings.
-malware:
-  # Optional message appended to the block output whenever a malicious package
-  # is blocked. Useful for org deployments to point developers at internal
-  # security contacts. Example:
-  #   message: "Malicious package blocked by ACME SecOps. Report false positives in #security-help"
+# Block settings, applied whenever PMG blocks an installation.
+block:
+  # Optional message appended to every block output, regardless of which
+  # control blocked the installation (malware analysis, dependency cooldown,
+  # or the package blocklist below). Useful for org deployments to point
+  # developers at internal policy docs or a security contact. Example:
+  #   message: "Blocked by ACME security policy. Questions? #security-help"
   message: ""
 
-# Blocked packages are always blocked by PMG, regardless of malware analysis
-# verdicts. A PURL without a version blocks ALL versions of the package; a PURL
-# with a version blocks only that version.
-#
-# The blocklist wins over trusted_packages: a package on both lists is blocked.
-# The reason is shown to the user when the package is blocked.
-# Example:
-#   blocked_packages:
-#     - purl: pkg:npm/left-pad
-#       reason: "Deprecated internally; use String.prototype.padStart"
-#     - purl: pkg:npm/lodash@4.17.20
-#       reason: "CVE-2021-23337 - upgrade to >=4.17.21"
-blocked_packages: []
+  # Packages that are always blocked by PMG, regardless of malware analysis
+  # verdicts. A PURL without a version blocks ALL versions of the package; a
+  # PURL with a version blocks only that version.
+  #
+  # The blocklist wins over trusted_packages: a package on both lists is
+  # blocked. The reason is shown to the user when the package is blocked.
+  # Example:
+  #   packages:
+  #     - purl: pkg:npm/left-pad
+  #       reason: "Deprecated internally; use String.prototype.padStart"
+  #     - purl: pkg:npm/lodash@4.17.20
+  #       reason: "CVE-2021-23337 - upgrade to >=4.17.21"
+  packages: []
 
 # Persistent analysis cache (opt-in). Caching is analyzer-specific, so config is
 # nested per analyzer; today only the Malysis (malware) analyzer has a cache.

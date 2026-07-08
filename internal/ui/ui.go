@@ -19,7 +19,7 @@ type VerbosityLevel int
 
 const (
 	// PMG is hidden from the user except for errors and block decisions
-	// (malicious packages and the blocked_packages policy)
+	// (malicious packages and the block.packages policy)
 	VerbosityLevelSilent VerbosityLevel = iota
 
 	// Show minimal status updates

@@ -99,8 +99,8 @@ func preprocessPackageRefs(cfg *Config) error {
 	for i := range cfg.DependencyCooldown.Skip {
 		cfg.DependencyCooldown.Skip[i].parseFrom(cfg.DependencyCooldown.Skip[i].Purl)
 	}
-	for i := range cfg.BlockedPackages {
-		cfg.BlockedPackages[i].parseFrom(cfg.BlockedPackages[i].Purl)
+	for i := range cfg.Block.Packages {
+		cfg.Block.Packages[i].parseFrom(cfg.Block.Packages[i].Purl)
 	}
 	return nil
 }

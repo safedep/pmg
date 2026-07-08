@@ -73,7 +73,7 @@ func (b *baseRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 
 // policyGate short-circuits the request when a policy decides the outcome
 // before any analysis runs. Precedence: insecure-installation mode (explicit
-// bypass-everything escape hatch), then the blocked_packages blocklist (an
+// bypass-everything escape hatch), then the block.packages blocklist (an
 // explicit block beats trust), then trusted_packages (waives every control).
 // It returns (response, true) when it handled the request; (nil, false) when
 // the request must proceed to analysis.
@@ -130,7 +130,7 @@ func appendCustomMessage(message, custom string) string {
 // distinct from the malware block message so a policy block is never mistaken
 // for a malware verdict.
 func blocklistBlockMessage(ecosystem packagev1.Ecosystem, name, version, reason string) string {
-	message := fmt.Sprintf("Package blocked by PMG policy (blocked_packages): %s/%s@%s",
+	message := fmt.Sprintf("Package blocked by PMG policy (block.packages): %s/%s@%s",
 		ecosystem.String(), name, version)
 	if reason != "" {
 		message += fmt.Sprintf("\n\nReason: %s", reason)
@@ -235,7 +235,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			ecosystem.String(),
 			packageName, packageVersion,
 			result.Summary,
-			result.ReferenceURL), config.Get().Config.Malware.Message)
+			result.ReferenceURL), config.Get().Config.Block.Message)
 
 		return &proxy.InterceptorResponse{
 			Action:       proxy.ActionBlock,
@@ -274,7 +274,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				ecosystem.String(),
 				packageName, packageVersion,
 				result.Summary,
-				result.ReferenceURL), config.Get().Config.Malware.Message)
+				result.ReferenceURL), config.Get().Config.Block.Message)
 
 			return &proxy.InterceptorResponse{
 				Action:       proxy.ActionBlock,

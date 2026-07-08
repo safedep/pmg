@@ -10,11 +10,11 @@ import (
 
 func setBlockedPackagesForTest(t *testing.T, pkgs []BlockedPackage) {
 	t.Helper()
-	orig := Get().Config.BlockedPackages
-	Get().Config.BlockedPackages = pkgs
+	orig := Get().Config.Block.Packages
+	Get().Config.Block.Packages = pkgs
 	require.NoError(t, PreprocessPackageRefs(&Get().Config))
 	t.Cleanup(func() {
-		Get().Config.BlockedPackages = orig
+		Get().Config.Block.Packages = orig
 		assert.NoError(t, PreprocessPackageRefs(&Get().Config))
 	})
 }

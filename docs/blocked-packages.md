@@ -18,11 +18,17 @@ If you don't have a `config.yml` file, you can create one by running `pmg setup 
 ### Example
 
 ```yaml
-blocked_packages:
-  - purl: pkg:npm/left-pad
-    reason: "Deprecated internally; use String.prototype.padStart"
-  - purl: pkg:npm/lodash@4.17.20
-    reason: "CVE-2021-23337 - upgrade to >=4.17.21"
+block:
+  # Optional message appended to every block output, regardless of which
+  # control blocked the installation (malware analysis, dependency cooldown,
+  # or the package blocklist).
+  message: "Blocked by ACME security policy. Questions? #security-help"
+
+  packages:
+    - purl: pkg:npm/left-pad
+      reason: "Deprecated internally; use String.prototype.padStart"
+    - purl: pkg:npm/lodash@4.17.20
+      reason: "CVE-2021-23337 - upgrade to >=4.17.21"
 ```
 
 ## Matching

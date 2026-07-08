@@ -100,7 +100,7 @@ func LogMalwareBlocked(pv *packagev1.PackageVersion, reason, analysisID, referen
 }
 
 // LogBlocklistBlocked records that a package was blocked by the
-// blocked_packages policy, independent of any malware verdict.
+// block.packages policy, independent of any malware verdict.
 func LogBlocklistBlocked(pv *packagev1.PackageVersion, reason string) {
 	logEvent(AuditEvent{
 		Type:           EventTypeBlocklistBlocked,

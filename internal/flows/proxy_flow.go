@@ -292,8 +292,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.BlocklistBlockedPackages = statsCollector.GetBlocklistBlocks()
-	reportData.CooldownMessage = cfg.Config.DependencyCooldown.Message
-	reportData.MalwareMessage = cfg.Config.Malware.Message
+	reportData.BlockMessage = cfg.Config.Block.Message
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)

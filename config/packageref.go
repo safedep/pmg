@@ -7,7 +7,7 @@ import (
 )
 
 // purlRef is the pre-parsed form of a PURL list entry (trusted_packages,
-// dependency_cooldown.skip, blocked_packages). Parsing happens once at config
+// dependency_cooldown.skip, block.packages). Parsing happens once at config
 // load; entries with an invalid PURL are marked unparsed and never match.
 type purlRef struct {
 	parsed    bool

@@ -34,9 +34,8 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
 	assert.Equal(t, 7, cfg.EventLogRetentionDays, "expected EventLogRetentionDays 7")
 	assert.Len(t, cfg.TrustedPackages, 1)
-	assert.Empty(t, cfg.BlockedPackages)
-	assert.Empty(t, cfg.Malware.Message)
-	assert.Empty(t, cfg.DependencyCooldown.Message)
+	assert.Empty(t, cfg.Block.Packages)
+	assert.Empty(t, cfg.Block.Message)
 }
 
 func TestTemplateMatchesDefaults(t *testing.T) {
@@ -69,9 +68,8 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 
 	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
 	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
-	assert.Equal(t, def.DependencyCooldown.Message, parsed.DependencyCooldown.Message, "dependency_cooldown.message mismatch")
-	assert.Equal(t, def.Malware.Message, parsed.Malware.Message, "malware.message mismatch")
-	assert.Equal(t, len(def.BlockedPackages), len(parsed.BlockedPackages), "blocked_packages mismatch")
+	assert.Equal(t, def.Block.Message, parsed.Block.Message, "block.message mismatch")
+	assert.Equal(t, len(def.Block.Packages), len(parsed.Block.Packages), "block.packages mismatch")
 
 	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
 }

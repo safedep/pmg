@@ -129,7 +129,7 @@ func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL,
 	message := appendCustomMessage(
 		fmt.Sprintf("Package blocked by dependency cooldown: GO/%s@%s\n\nPublished %d day(s) ago; cooldown window is %d day(s) (%d remaining).",
 			module, version, daysAgo, cooldownDays, daysLeft),
-		pmgconfig.Get().Config.DependencyCooldown.Message)
+		pmgconfig.Get().Config.Block.Message)
 
 	return &proxy.InterceptorResponse{
 		Action:       proxy.ActionBlock,

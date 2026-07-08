@@ -83,13 +83,12 @@ type ReportData struct {
 	// Packages blocked by the dependency cooldown policy (proxy mode only)
 	CooldownBlockedPackages []models.CooldownBlock
 
-	// Packages blocked by the blocked_packages policy
+	// Packages blocked by the block.packages policy
 	BlocklistBlockedPackages []models.BlocklistBlock
 
-	// Optional org-configured messages appended to block output. Set from
-	// dependency_cooldown.message and malware.message config.
-	CooldownMessage string
-	MalwareMessage  string
+	// BlockMessage is the optional org-configured message appended to block
+	// output regardless of which control blocked. Set from block.message.
+	BlockMessage string
 
 	// Configuration context
 	FlowType          FlowType
@@ -153,7 +152,6 @@ func printMalwareBlockSection(data *ReportData) {
 	fmt.Println()
 	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
 	printMaliciousPackagesList(data.BlockedPackages)
-	printCustomMessage(data.MalwareMessage)
 	fmt.Println()
 }
 
@@ -177,8 +175,13 @@ func reportSilent(data *ReportData) {
 		return
 	}
 
+	if len(data.BlockedPackages) == 0 && len(data.BlocklistBlockedPackages) == 0 {
+		return
+	}
+
 	printMalwareBlockSection(data)
 	printBlocklistBlockSection(data)
+	printCustomMessage(data.BlockMessage)
 }
 
 // reportNormal shows minimal, assuring output
@@ -226,9 +229,10 @@ func reportNormal(data *ReportData) {
 				Colors.Yellow("⊘"),
 				Colors.Yellow(fmt.Sprintf("Dependency cooldown — %s blocked", pluralizePackages(n))))
 			printCooldownPackagesList(data.CooldownBlockedPackages)
-			printCustomMessage(data.CooldownMessage)
 			fmt.Println()
 		}
+
+		printCustomMessage(data.BlockMessage)
 
 		onlyCooldown := len(data.BlockedPackages) == 0 && len(data.BlocklistBlockedPackages) == 0 &&
 			len(data.CooldownBlockedPackages) > 0
@@ -315,7 +319,6 @@ func reportVerbose(data *ReportData) {
 		for _, pkg := range data.BlockedPackages {
 			printPackageDetail(pkg)
 		}
-		printCustomMessage(data.MalwareMessage)
 	}
 
 	if len(data.ConfirmedPackages) > 0 {
@@ -344,7 +347,6 @@ func reportVerbose(data *ReportData) {
 				pluralizeDays(pkg.DaysLeft),
 			)))
 		}
-		printCustomMessage(data.CooldownMessage)
 	}
 
 	if len(data.BlocklistBlockedPackages) > 0 {
@@ -356,6 +358,10 @@ func reportVerbose(data *ReportData) {
 				fmt.Printf("      %s\n", Colors.Dim(termWidthFormatText(pkg.Reason, 76)))
 			}
 		}
+	}
+
+	if data.Outcome == OutcomeBlocked {
+		printCustomMessage(data.BlockMessage)
 	}
 
 	fmt.Println()

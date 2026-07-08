@@ -81,13 +81,10 @@ type Config struct {
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 
-	// BlockedPackages is an explicit blocklist. A matching package version is
-	// always blocked — the blocklist wins over trusted_packages. Only insecure
-	// installation mode bypasses it.
-	BlockedPackages []BlockedPackage `mapstructure:"blocked_packages"`
-
-	// Malware configures the malicious-package control.
-	Malware MalwareConfig `mapstructure:"malware"`
+	// Block configures what happens when PMG blocks an installation: an
+	// optional message appended to every block output and an explicit package
+	// blocklist.
+	Block BlockConfig `mapstructure:"block"`
 
 	// SkipEventLogging allows for skipping event logging.
 	SkipEventLogging bool `mapstructure:"skip_event_logging"`
@@ -224,17 +221,19 @@ type DependencyCooldownConfig struct {
 	// package (package-level); a PURL with a version skips cooldown for that
 	// version only (version-level).
 	Skip []TrustedPackage `mapstructure:"skip"`
-
-	// Message is an optional org-specific message appended to every
-	// cooldown block output.
-	Message string `mapstructure:"message"`
 }
 
-// MalwareConfig configures the malicious-package control.
-type MalwareConfig struct {
-	// Message is an optional org-specific message appended to every
-	// malicious-package block output.
+// BlockConfig configures PMG's block behavior across all controls.
+type BlockConfig struct {
+	// Message is an optional org-specific message appended to every block
+	// output, regardless of which control blocked (malware analysis,
+	// dependency cooldown, or the package blocklist).
 	Message string `mapstructure:"message"`
+
+	// Packages is an explicit blocklist. A matching package version is
+	// always blocked; the blocklist wins over trusted_packages. Only
+	// insecure installation mode bypasses it.
+	Packages []BlockedPackage `mapstructure:"packages"`
 }
 
 // legacyProfileAliases maps old default profile names, keyed by package
@@ -310,7 +309,7 @@ type TrustedPackage struct {
 	purlRef
 }
 
-// BlockedPackage is an entry in the blocked_packages blocklist. A matching
+// BlockedPackage is an entry in the block.packages blocklist. A matching
 // package version is always blocked; the blocklist wins over trusted_packages.
 type BlockedPackage struct {
 	Purl   string `mapstructure:"purl"`
@@ -490,7 +489,7 @@ func DefaultConfig() RuntimeConfig {
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
 			TrustedPackages:        []TrustedPackage{},
-			BlockedPackages:        []BlockedPackage{},
+			Block:                  BlockConfig{Packages: []BlockedPackage{}},
 			ProxyMode:              true,
 			Verbosity:              VerbosityNormal,
 			Sandbox: SandboxConfig{

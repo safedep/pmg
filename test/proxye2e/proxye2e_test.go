@@ -589,7 +589,7 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 		{
 			Name: "blocklisted package blocked without analysis",
 			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "deprecated internally"}}
+				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "deprecated internally"}}
 			},
 			Setup: addLeftPad,
 			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
@@ -607,7 +607,7 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 		{
 			Name: "version-pinned blocklist entry blocks only that version",
 			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad@1.0.0", Reason: "bad build"}}
+				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad@1.0.0", Reason: "bad build"}}
 			},
 			Setup: addLeftPad,
 			Exec: func(h *Harness) ExecResult {
@@ -625,7 +625,7 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 			Name: "blocklist wins over trusted_packages",
 			Config: func(rc *config.RuntimeConfig) {
 				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:npm/left-pad"}}
-				rc.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}}
+				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}}
 			},
 			Setup: addLeftPad,
 			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
@@ -638,7 +638,7 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 			Name: "insecure installation bypasses blocklist",
 			Config: func(rc *config.RuntimeConfig) {
 				rc.InsecureInstallation = true
-				rc.Config.BlockedPackages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}}
+				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}}
 			},
 			Setup: addLeftPad,
 			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
@@ -650,7 +650,7 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 		{
 			Name: "malware block body carries custom malware message",
 			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.Malware = config.MalwareConfig{Message: "Report false positives in #security-help"}
+				rc.Config.Block.Message = "Report false positives in #security-help"
 			},
 			Setup: func(h *Harness) {
 				h.Registry.AddNpm(NpmPackage{Name: "evil", DistTagLatest: "1.0.0",
@@ -664,13 +664,10 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 			},
 		},
 		{
-			Name: "go cooldown block body carries custom cooldown message",
+			Name: "go cooldown block body carries custom block message",
 			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{
-					Enabled: true,
-					Days:    7,
-					Message: "Request an exemption at go/pmg-exceptions",
-				}
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+				rc.Config.Block.Message = "Request an exemption at go/pmg-exceptions"
 			},
 			Setup: func(h *Harness) {
 				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",
