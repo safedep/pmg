@@ -3,6 +3,7 @@ package ui
 import (
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -147,4 +148,14 @@ func TestReportVerboseBlocklistDetails(t *testing.T) {
 	assert.Contains(t, out, "Blocked by package policy")
 	assert.Contains(t, out, "deprecated internally")
 	assert.Contains(t, out, "Installation blocked")
+}
+
+func TestTermWidthFormatTextIndent(t *testing.T) {
+	text := strings.Repeat("word ", 40)
+	out := termWidthFormatTextIndent(text, 20, "    ")
+	lines := strings.Split(out, "\n")
+	require.Greater(t, len(lines), 1)
+	for _, line := range lines[1:] {
+		assert.True(t, strings.HasPrefix(line, "    "), "wrapped line must be indented: %q", line)
+	}
 }

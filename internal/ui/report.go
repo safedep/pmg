@@ -358,7 +358,7 @@ func reportVerbose(data *ReportData) {
 		for _, pkg := range data.BlocklistBlockedPackages {
 			fmt.Printf("    %s %s\n", Colors.Red("⊘"), Colors.Red(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
 			if pkg.Reason != "" {
-				fmt.Printf("      %s\n", Colors.Dim(termWidthFormatText(pkg.Reason, 76)))
+				fmt.Printf("      %s\n", Colors.Dim(termWidthFormatTextIndent(pkg.Reason, 76, "      ")))
 			}
 		}
 	}

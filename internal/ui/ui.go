@@ -196,7 +196,7 @@ func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalys
 				mp.PackageVersion.GetVersion())))
 
 		if verbosityLevel == VerbosityLevelVerbose {
-			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatText(mp.Summary, 76)))
+			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatTextIndent(mp.Summary, 76, "    ")))
 		}
 
 		if mp.ReferenceURL != "" {
@@ -233,7 +233,7 @@ func printBlocklistPackagesList(packages []models.BlocklistBlock) {
 		fmt.Println()
 		fmt.Printf("  %s %s\n", Colors.Red("⊘"), Colors.Red(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
 		if pkg.Reason != "" {
-			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatText(pkg.Reason, 76)))
+			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatTextIndent(pkg.Reason, 76, "    ")))
 		}
 	}
 }
@@ -245,7 +245,7 @@ func printCustomMessage(message string) {
 	if message == "" {
 		return
 	}
-	fmt.Printf("  %s %s\n", Colors.Cyan("ℹ"), Colors.Cyan(termWidthFormatText(message, 76)))
+	fmt.Printf("  %s %s\n", Colors.Cyan("ℹ"), Colors.Cyan(termWidthFormatTextIndent(message, 76, "    ")))
 }
 
 func pluralizeDays(n int) string {
@@ -260,6 +260,12 @@ func pluralizePackages(n int) string {
 		return "1 package"
 	}
 	return fmt.Sprintf("%d packages", n)
+}
+
+// termWidthFormatTextIndent wraps text at maxWidth and indents continuation
+// lines so wrapped output stays aligned with the first line.
+func termWidthFormatTextIndent(text string, maxWidth int, indent string) string {
+	return strings.ReplaceAll(termWidthFormatText(text, maxWidth), "\n", "\n"+indent)
 }
 
 // Format the string to be maximum maxWidth. Use newlines to wrap the text.
