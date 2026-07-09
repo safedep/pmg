@@ -32,6 +32,13 @@ skip_event_logging: false
 # This is the number of days to retain event logs.
 event_log_retention_days: 7
 
+# Optional message appended to every block output, regardless of which control
+# blocked the installation (malware analysis, dependency cooldown, etc.).
+# Useful for org deployments to point developers at internal policy docs or a
+# security contact. Example:
+#   advisory_message: "Blocked by ACME security policy. Questions? #security-help"
+advisory_message: ""
+
 # Proxy configuration.
 # When enabled, PMG uses a proxy-based interception approach instead of the
 # default guard-based analysis. The proxy intercepts package manager requests in real-time
@@ -257,10 +264,3 @@ cloud:
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
-
-# Optional message appended to every block output, regardless of which control
-# blocked the installation (malware analysis, dependency cooldown, etc.).
-# Useful for org deployments to point developers at internal policy docs or a
-# security contact. Example:
-#   advisory_message: "Blocked by ACME security policy. Questions? #security-help"
-advisory_message: ""
