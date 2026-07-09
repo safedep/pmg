@@ -131,7 +131,7 @@ func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL,
 		BlockCode:   http.StatusForbidden,
 		BlockReason: proxy.BlockReasonDependencyCooldown,
 		BlockContext: &proxy.BlockContext{
-			Ecosystem:        packagev1.Ecosystem_ECOSYSTEM_GO.String(),
+			Ecosystem:        packagev1.Ecosystem_ECOSYSTEM_GO,
 			PackageName:      module,
 			PackageVersion:   version,
 			CooldownDays:     cooldownDays,

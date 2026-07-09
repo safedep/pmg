@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
 // ResponseAction determines how the proxy should handle a request
@@ -56,9 +58,7 @@ const (
 // presentation layer can render the user-facing message. Interceptors
 // populate it instead of composing message text themselves.
 type BlockContext struct {
-	// Ecosystem is a display label (e.g. "ECOSYSTEM_NPM"), not a
-	// canonical ecosystem identifier.
-	Ecosystem      string
+	Ecosystem      packagev1.Ecosystem
 	PackageName    string
 	PackageVersion string
 

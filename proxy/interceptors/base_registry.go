@@ -199,7 +199,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			BlockCode:   http.StatusForbidden,
 			BlockReason: proxy.BlockReasonMalware,
 			BlockContext: &proxy.BlockContext{
-				Ecosystem:           ecosystem.String(),
+				Ecosystem:           ecosystem,
 				PackageName:         packageName,
 				PackageVersion:      packageVersion,
 				MalwareSummary:      result.Summary,
@@ -223,7 +223,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				BlockCode:   http.StatusForbidden,
 				BlockReason: proxy.BlockReasonConfirmationFailed,
 				BlockContext: &proxy.BlockContext{
-					Ecosystem:      ecosystem.String(),
+					Ecosystem:      ecosystem,
 					PackageName:    packageName,
 					PackageVersion: packageVersion,
 				},
@@ -244,7 +244,7 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				BlockCode:   http.StatusForbidden,
 				BlockReason: proxy.BlockReasonUserDeclined,
 				BlockContext: &proxy.BlockContext{
-					Ecosystem:           ecosystem.String(),
+					Ecosystem:           ecosystem,
 					PackageName:         packageName,
 					PackageVersion:      packageVersion,
 					MalwareSummary:      result.Summary,

@@ -205,7 +205,7 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 
 			if tt.expectedBlockReason != proxy.BlockReasonNone {
 				require.NotNil(t, response.BlockContext)
-				assert.Equal(t, tt.ecosystem.String(), response.BlockContext.Ecosystem)
+				assert.Equal(t, tt.ecosystem, response.BlockContext.Ecosystem)
 				assert.Equal(t, tt.packageName, response.BlockContext.PackageName)
 				assert.Equal(t, tt.packageVersion, response.BlockContext.PackageVersion)
 				assert.Equal(t, tt.analysisResult.Summary, response.BlockContext.MalwareSummary)
