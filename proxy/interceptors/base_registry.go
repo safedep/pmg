@@ -101,15 +101,6 @@ func (b *baseRegistryInterceptor) fastAllow(
 	return nil, false
 }
 
-// appendAdvisoryMessage appends the org-configured advisory_message, when set,
-// to a block message body.
-func appendAdvisoryMessage(message, advisory string) string {
-	if advisory == "" {
-		return message
-	}
-	return message + "\n\n" + advisory
-}
-
 // analyzePackage analyzes a package using the configured analyzer with caching
 // This method is ecosystem-agnostic and can be used by any registry interceptor
 func (b *baseRegistryInterceptor) analyzePackage(
@@ -203,16 +194,17 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			b.statsCollector.RecordBlocked(result)
 		}
 
-		message := appendAdvisoryMessage(fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
-			ecosystem.String(),
-			packageName, packageVersion,
-			result.Summary,
-			result.ReferenceURL), config.Get().Config.AdvisoryMessage)
-
 		return &proxy.InterceptorResponse{
-			Action:       proxy.ActionBlock,
-			BlockCode:    http.StatusForbidden,
-			BlockMessage: message,
+			Action:      proxy.ActionBlock,
+			BlockCode:   http.StatusForbidden,
+			BlockReason: proxy.BlockReasonMalware,
+			BlockContext: &proxy.BlockContext{
+				Ecosystem:           ecosystem.String(),
+				PackageName:         packageName,
+				PackageVersion:      packageVersion,
+				MalwareSummary:      result.Summary,
+				MalwareReferenceURL: result.ReferenceURL,
+			},
 		}, nil
 
 	case analyzer.ActionConfirm:
@@ -227,9 +219,14 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			}
 
 			return &proxy.InterceptorResponse{
-				Action:       proxy.ActionBlock,
-				BlockCode:    http.StatusForbidden,
-				BlockMessage: fmt.Sprintf("Failed to get user confirmation for suspicious package %s/%s@%s", ecosystem.String(), packageName, packageVersion),
+				Action:      proxy.ActionBlock,
+				BlockCode:   http.StatusForbidden,
+				BlockReason: proxy.BlockReasonConfirmationFailed,
+				BlockContext: &proxy.BlockContext{
+					Ecosystem:      ecosystem.String(),
+					PackageName:    packageName,
+					PackageVersion: packageVersion,
+				},
 			}, nil
 		}
 
@@ -242,16 +239,17 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				b.statsCollector.RecordUserCancelled(result)
 			}
 
-			message := appendAdvisoryMessage(fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
-				ecosystem.String(),
-				packageName, packageVersion,
-				result.Summary,
-				result.ReferenceURL), config.Get().Config.AdvisoryMessage)
-
 			return &proxy.InterceptorResponse{
-				Action:       proxy.ActionBlock,
-				BlockCode:    http.StatusForbidden,
-				BlockMessage: message,
+				Action:      proxy.ActionBlock,
+				BlockCode:   http.StatusForbidden,
+				BlockReason: proxy.BlockReasonUserDeclined,
+				BlockContext: &proxy.BlockContext{
+					Ecosystem:           ecosystem.String(),
+					PackageName:         packageName,
+					PackageVersion:      packageVersion,
+					MalwareSummary:      result.Summary,
+					MalwareReferenceURL: result.ReferenceURL,
+				},
 			}, nil
 		}
 

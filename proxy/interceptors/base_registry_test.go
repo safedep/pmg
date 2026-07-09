@@ -62,15 +62,15 @@ func TestFastAllow_InsecureReturnsAllow(t *testing.T) {
 
 func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 	tests := []struct {
-		name               string
-		ecosystem          packagev1.Ecosystem
-		packageName        string
-		packageVersion     string
-		analysisResult     *analyzer.PackageVersionAnalysisResult
-		userConfirms       bool
-		expectedAction     proxy.ResponseAction
-		expectedBlockCode  int
-		expectBlockMessage bool
+		name                string
+		ecosystem           packagev1.Ecosystem
+		packageName         string
+		packageVersion      string
+		analysisResult      *analyzer.PackageVersionAnalysisResult
+		userConfirms        bool
+		expectedAction      proxy.ResponseAction
+		expectedBlockCode   int
+		expectedBlockReason proxy.BlockReason
 	}{
 		{
 			name:           "ActionBlock - malicious package",
@@ -82,9 +82,9 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Contains known malware",
 				ReferenceURL: "https://example.com/malware-report",
 			},
-			expectedAction:     proxy.ActionBlock,
-			expectedBlockCode:  http.StatusForbidden,
-			expectBlockMessage: true,
+			expectedAction:      proxy.ActionBlock,
+			expectedBlockCode:   http.StatusForbidden,
+			expectedBlockReason: proxy.BlockReasonMalware,
 		},
 		{
 			name:           "ActionConfirm - user confirms installation",
@@ -96,10 +96,10 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Suspicious behavior detected",
 				ReferenceURL: "https://example.com/suspicious-report",
 			},
-			userConfirms:       true,
-			expectedAction:     proxy.ActionAllow,
-			expectedBlockCode:  0,
-			expectBlockMessage: false,
+			userConfirms:        true,
+			expectedAction:      proxy.ActionAllow,
+			expectedBlockCode:   0,
+			expectedBlockReason: proxy.BlockReasonNone,
 		},
 		{
 			name:           "ActionConfirm - user declines installation",
@@ -111,10 +111,10 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Suspicious behavior detected",
 				ReferenceURL: "https://example.com/suspicious-report",
 			},
-			userConfirms:       false,
-			expectedAction:     proxy.ActionBlock,
-			expectedBlockCode:  http.StatusForbidden,
-			expectBlockMessage: true,
+			userConfirms:        false,
+			expectedAction:      proxy.ActionBlock,
+			expectedBlockCode:   http.StatusForbidden,
+			expectedBlockReason: proxy.BlockReasonUserDeclined,
 		},
 		// Note: Timeout test case is skipped as it would require waiting 5 minutes
 		// The timeout behavior is covered by the implementation but not tested here
@@ -129,9 +129,9 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Package is safe",
 				ReferenceURL: "https://example.com/safe-report",
 			},
-			expectedAction:     proxy.ActionAllow,
-			expectedBlockCode:  0,
-			expectBlockMessage: false,
+			expectedAction:      proxy.ActionAllow,
+			expectedBlockCode:   0,
+			expectedBlockReason: proxy.BlockReasonNone,
 		},
 		{
 			name:           "ActionUnknown - default to allow",
@@ -143,9 +143,9 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Unknown action",
 				ReferenceURL: "https://example.com/unknown-report",
 			},
-			expectedAction:     proxy.ActionAllow,
-			expectedBlockCode:  0,
-			expectBlockMessage: false,
+			expectedAction:      proxy.ActionAllow,
+			expectedBlockCode:   0,
+			expectedBlockReason: proxy.BlockReasonNone,
 		},
 		{
 			name:           "ActionBlock - pypi ecosystem",
@@ -157,9 +157,9 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Malicious PyPI package",
 				ReferenceURL: "https://example.com/pypi-malware",
 			},
-			expectedAction:     proxy.ActionBlock,
-			expectedBlockCode:  http.StatusForbidden,
-			expectBlockMessage: true,
+			expectedAction:      proxy.ActionBlock,
+			expectedBlockCode:   http.StatusForbidden,
+			expectedBlockReason: proxy.BlockReasonMalware,
 		},
 	}
 
@@ -200,35 +200,19 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedAction, response.Action)
 			assert.Equal(t, tt.expectedBlockCode, response.BlockCode)
-			assert.Equal(t, tt.expectBlockMessage, response.BlockMessage != "")
+			assert.Equal(t, tt.expectedBlockReason, response.BlockReason)
+			assert.Empty(t, response.BlockMessage)
+
+			if tt.expectedBlockReason != proxy.BlockReasonNone {
+				require.NotNil(t, response.BlockContext)
+				assert.Equal(t, tt.ecosystem.String(), response.BlockContext.Ecosystem)
+				assert.Equal(t, tt.packageName, response.BlockContext.PackageName)
+				assert.Equal(t, tt.packageVersion, response.BlockContext.PackageVersion)
+				assert.Equal(t, tt.analysisResult.Summary, response.BlockContext.MalwareSummary)
+				assert.Equal(t, tt.analysisResult.ReferenceURL, response.BlockContext.MalwareReferenceURL)
+			} else {
+				assert.Nil(t, response.BlockContext)
+			}
 		})
 	}
-}
-
-func TestAppendAdvisoryMessage(t *testing.T) {
-	assert.Equal(t, "base", appendAdvisoryMessage("base", ""))
-	assert.Equal(t, "base\n\ncustom", appendAdvisoryMessage("base", "custom"))
-}
-
-func TestHandleAnalysisResultBlockCarriesAdvisoryMessage(t *testing.T) {
-	origMsg := pmgconfig.Get().Config.AdvisoryMessage
-	pmgconfig.Get().Config.AdvisoryMessage = "Contact #security-help"
-	t.Cleanup(func() { pmgconfig.Get().Config.AdvisoryMessage = origMsg })
-
-	b := &baseRegistryInterceptor{}
-	ctx := makeTestRequestContext("https://registry.npmjs.org/evil/-/evil-1.0.0.tgz")
-
-	result := &analyzer.PackageVersionAnalysisResult{
-		PackageVersion: &packagev1.PackageVersion{
-			Package: &packagev1.Package{Name: "evil", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
-			Version: "1.0.0",
-		},
-		Action:  analyzer.ActionBlock,
-		Summary: "verified malware",
-	}
-
-	resp, err := b.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "evil", "1.0.0", result)
-	require.NoError(t, err)
-	assert.Equal(t, proxy.ActionBlock, resp.Action)
-	assert.Contains(t, resp.BlockMessage, "Contact #security-help")
 }
