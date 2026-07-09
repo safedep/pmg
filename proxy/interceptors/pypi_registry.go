@@ -147,7 +147,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	// is kept for analyzePackage so malware analysis sees the original form.
 	canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
 
-	if resp, ok := i.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion()); ok {
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion()); ok {
 		return resp, nil
 	}
 

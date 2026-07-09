@@ -11,7 +11,7 @@ transitive_depth: 5
 include_dev_dependencies: false
 
 # UI verbosity level. Valid values: silent, normal, verbose. Default is normal.
-# silent: PMG is hidden from the user except for errors, malicious package detection, and policy blocks
+# silent: PMG is hidden from the user except for errors and malicious package detection
 # normal: Show minimal status updates
 # verbose: Show verbose status updates and detailed information
 verbosity: normal
@@ -209,27 +209,6 @@ dependency_cooldown:
   #       reason: "Pin a specific just-published build"
   skip: []
 
-# Block settings, applied whenever PMG blocks an installation.
-block:
-  # Optional message appended to every block output, regardless of which
-  # control blocked the installation (malware analysis, dependency cooldown,
-  # or the package blocklist below). Useful for org deployments to point
-  # developers at internal policy docs or a security contact. Example:
-  #   message: "Blocked by ACME security policy. Questions? #security-help"
-  message: ""
-
-  # Packages that are always blocked by PMG, regardless of malware analysis
-  # verdicts. A PURL without a version blocks ALL versions of the package; a
-  # PURL with a version blocks only that version.
-  #
-  # The blocklist wins over trusted_packages: a package on both lists is
-  # blocked. The reason is shown to the user when the package is blocked.
-  # Example:
-  #   packages:
-  #     - purl: pkg:npm/lodash@4.17.20
-  #       reason: "CVE-2021-23337 - upgrade to >=4.17.21"
-  packages: []
-
 # Persistent analysis cache (opt-in). Caching is analyzer-specific, so config is
 # nested per analyzer; today only the Malysis (malware) analyzer has a cache.
 #
@@ -278,3 +257,10 @@ cloud:
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
+
+# Optional message appended to every block output, regardless of which control
+# blocked the installation (malware analysis, dependency cooldown, etc.).
+# Useful for org deployments to point developers at internal policy docs or a
+# security contact. Example:
+#   advisory_message: "Blocked by ACME security policy. Questions? #security-help"
+advisory_message: ""

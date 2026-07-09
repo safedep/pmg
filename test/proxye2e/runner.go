@@ -59,7 +59,7 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 	rc.Config.Paranoid = false
 	rc.Config.TrustedPackages = nil
 	rc.Config.DependencyCooldown = config.DependencyCooldownConfig{}
-	rc.Config.Block = config.BlockConfig{}
+	rc.Config.AdvisoryMessage = ""
 
 	if override != nil {
 		override(rc)

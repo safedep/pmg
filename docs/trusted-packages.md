@@ -6,9 +6,6 @@ control PMG enforces: it is not scanned for malware, it is exempt from the
 from any future controls PMG adds. Use this list for packages you fully vouch
 for — typically first-party packages or vendored internal dependencies.
 
-The one exception is the [blocked packages](blocked-packages.md) list: an
-explicit block always wins over trust, so a package on both lists is blocked.
-
 If you only want to waive a single control (for example, install a package
 immediately without waiting out the cooldown, but still have it analyzed for
 malware), use the per-control skip list for that control instead — e.g.

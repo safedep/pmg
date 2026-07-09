@@ -18,8 +18,8 @@ import (
 type VerbosityLevel int
 
 const (
-	// PMG is hidden from the user except for errors and block decisions
-	// (malicious packages and the block.packages policy)
+	// PMG is hidden from the user except for errors
+	// and when malicious packages are detected
 	VerbosityLevelSilent VerbosityLevel = iota
 
 	// Show minimal status updates
@@ -228,20 +228,10 @@ func printCooldownPackagesList(packages []models.CooldownBlock) {
 	}
 }
 
-func printBlocklistPackagesList(packages []models.BlocklistBlock) {
-	for _, pkg := range packages {
-		fmt.Println()
-		fmt.Printf("  %s %s\n", Colors.Red("⊘"), Colors.Red(fmt.Sprintf("%s@%s", pkg.Name, pkg.Version)))
-		if pkg.Reason != "" {
-			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatTextIndent(pkg.Reason, 76, "    ")))
-		}
-	}
-}
-
-// printCustomMessage renders the org-configured block.message as an info note
-// attached to the block output. Callers are responsible for surrounding blank
-// lines. No-op when the message is empty.
-func printCustomMessage(message string) {
+// printAdvisoryMessage renders the org-configured advisory_message as an info
+// note attached to the block output. Callers are responsible for surrounding
+// blank lines. No-op when the message is empty.
+func printAdvisoryMessage(message string) {
 	if message == "" {
 		return
 	}

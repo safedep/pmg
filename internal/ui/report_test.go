@@ -47,18 +47,19 @@ func malwareBlockedData() *ReportData {
 	return data
 }
 
-func TestReportNormalMalwareCustomMessage(t *testing.T) {
+func TestReportNormalMalwareAdvisoryMessage(t *testing.T) {
 	withVerbosity(t, VerbosityLevelNormal)
 
 	data := malwareBlockedData()
-	data.BlockMessage = "Contact #security-help"
+	data.AdvisoryMessage = "Contact #security-help"
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Malicious package blocked")
-	assert.Contains(t, out, "Contact #security-help")
+	assert.Contains(t, out, "ℹ Contact #security-help")
+	assert.NotContains(t, out, "\n\n\n", "no double blank lines in block output")
 }
 
-func TestReportNormalNoCustomMessageWhenUnset(t *testing.T) {
+func TestReportNormalNoAdvisoryMessageWhenUnset(t *testing.T) {
 	withVerbosity(t, VerbosityLevelNormal)
 
 	out := captureStdout(t, func() { Report(malwareBlockedData()) })
@@ -66,7 +67,7 @@ func TestReportNormalNoCustomMessageWhenUnset(t *testing.T) {
 	assert.NotContains(t, out, "Contact #security-help")
 }
 
-func TestReportNormalCooldownCustomMessage(t *testing.T) {
+func TestReportNormalCooldownAdvisoryMessage(t *testing.T) {
 	withVerbosity(t, VerbosityLevelNormal)
 
 	data := NewReportData()
@@ -74,42 +75,22 @@ func TestReportNormalCooldownCustomMessage(t *testing.T) {
 	data.BlockedCount = 1
 	data.Outcome = OutcomeBlocked
 	data.CooldownBlockedPackages = []models.CooldownBlock{{Name: "fresh", Version: "2.0.0", DaysAgo: 1, DaysLeft: 4, CooldownDays: 5}}
-	data.BlockMessage = "Request an exemption at go/pmg-exceptions"
+	data.AdvisoryMessage = "Request an exemption at go/pmg-exceptions"
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Dependency cooldown")
 	assert.Contains(t, out, "Request an exemption at go/pmg-exceptions")
 }
 
-func TestReportNormalBlocklistSection(t *testing.T) {
-	withVerbosity(t, VerbosityLevelNormal)
-
-	data := NewReportData()
-	data.TotalAnalyzed = 1
-	data.BlockedCount = 1
-	data.Outcome = OutcomeBlocked
-	data.BlocklistBlockedPackages = []models.BlocklistBlock{{Name: "left-pad", Version: "1.3.0", Reason: "deprecated internally"}}
-	data.BlockMessage = "Blocked by ACME security policy"
-
-	out := captureStdout(t, func() { Report(data) })
-	assert.Contains(t, out, "Blocked by package policy")
-	assert.Contains(t, out, "left-pad@1.3.0")
-	assert.Contains(t, out, "deprecated internally")
-	assert.Contains(t, out, "ℹ Blocked by ACME security policy")
-	assert.NotContains(t, out, "\n\n\n", "no double blank lines in block output")
-}
-
 func TestReportSilentRendersBlocks(t *testing.T) {
 	withVerbosity(t, VerbosityLevelSilent)
 
 	data := malwareBlockedData()
-	data.BlockMessage = "Contact #security-help"
-	data.BlocklistBlockedPackages = []models.BlocklistBlock{{Name: "left-pad", Version: "1.3.0", Reason: "banned"}}
+	data.AdvisoryMessage = "Contact #security-help"
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Malicious package blocked")
 	assert.Contains(t, out, "Contact #security-help")
-	assert.Contains(t, out, "Blocked by package policy")
 }
 
 func TestReportSilentQuietOnSuccess(t *testing.T) {
@@ -135,19 +116,15 @@ func TestReportSilentCooldownOnlyStaysQuiet(t *testing.T) {
 	assert.Empty(t, out)
 }
 
-func TestReportVerboseBlocklistDetails(t *testing.T) {
+func TestReportVerboseAdvisoryMessage(t *testing.T) {
 	withVerbosity(t, VerbosityLevelVerbose)
 
-	data := NewReportData()
-	data.TotalAnalyzed = 1
-	data.BlockedCount = 1
-	data.Outcome = OutcomeBlocked
-	data.BlocklistBlockedPackages = []models.BlocklistBlock{{Name: "left-pad", Version: "1.3.0", Reason: "deprecated internally"}}
+	data := malwareBlockedData()
+	data.AdvisoryMessage = "Contact #security-help"
 
 	out := captureStdout(t, func() { Report(data) })
-	assert.Contains(t, out, "Blocked by package policy")
-	assert.Contains(t, out, "deprecated internally")
 	assert.Contains(t, out, "Installation blocked")
+	assert.Contains(t, out, "ℹ Contact #security-help")
 }
 
 func TestTermWidthFormatTextIndent(t *testing.T) {

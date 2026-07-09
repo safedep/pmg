@@ -81,10 +81,9 @@ type Config struct {
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
 
-	// Block configures what happens when PMG blocks an installation: an
-	// optional message appended to every block output and an explicit package
-	// blocklist.
-	Block BlockConfig `mapstructure:"block"`
+	// AdvisoryMessage is an optional org-specific message appended to every
+	// block output, regardless of which control blocked the installation.
+	AdvisoryMessage string `mapstructure:"advisory_message"`
 
 	// SkipEventLogging allows for skipping event logging.
 	SkipEventLogging bool `mapstructure:"skip_event_logging"`
@@ -223,19 +222,6 @@ type DependencyCooldownConfig struct {
 	Skip []TrustedPackage `mapstructure:"skip"`
 }
 
-// BlockConfig configures PMG's block behavior across all controls.
-type BlockConfig struct {
-	// Message is an optional org-specific message appended to every block
-	// output, regardless of which control blocked (malware analysis,
-	// dependency cooldown, or the package blocklist).
-	Message string `mapstructure:"message"`
-
-	// Packages is an explicit blocklist. A matching package version is
-	// always blocked; the blocklist wins over trusted_packages. Only
-	// insecure installation mode bypasses it.
-	Packages []BlockedPackage `mapstructure:"packages"`
-}
-
 // legacyProfileAliases maps old default profile names, keyed by package
 // manager, to their per-PM leaf profiles. When npm-restrictive and
 // pypi-restrictive became pure bases with no environment allows (and
@@ -303,15 +289,6 @@ type SandboxPolicyRef struct {
 
 // TrustedPackage is a package that is trusted by the user and will be ignored by the security guardrails.
 type TrustedPackage struct {
-	Purl   string `mapstructure:"purl"`
-	Reason string `mapstructure:"reason"`
-
-	purlRef
-}
-
-// BlockedPackage is an entry in the block.packages blocklist. A matching
-// package version is always blocked; the blocklist wins over trusted_packages.
-type BlockedPackage struct {
 	Purl   string `mapstructure:"purl"`
 	Reason string `mapstructure:"reason"`
 
@@ -489,7 +466,7 @@ func DefaultConfig() RuntimeConfig {
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
 			TrustedPackages:        []TrustedPackage{},
-			Block:                  BlockConfig{Packages: []BlockedPackage{}},
+			AdvisoryMessage:        "",
 			ProxyMode:              true,
 			Verbosity:              VerbosityNormal,
 			Sandbox: SandboxConfig{

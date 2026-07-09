@@ -10,13 +10,12 @@ import (
 
 // AnalysisStats contains aggregated statistics from analysis results
 type AnalysisStats struct {
-	TotalAnalyzed         int
-	AllowedCount          int
-	ConfirmedCount        int
-	BlockedCount          int
-	UserCancelledCount    int
-	CooldownBlockedCount  int
-	BlocklistBlockedCount int
+	TotalAnalyzed        int
+	AllowedCount         int
+	ConfirmedCount       int
+	BlockedCount         int
+	UserCancelledCount   int
+	CooldownBlockedCount int
 }
 
 // AnalysisStatsCollector tracks analysis statistics during proxy execution.
@@ -28,7 +27,6 @@ type AnalysisStatsCollector struct {
 	blockedPackages   []*analyzer.PackageVersionAnalysisResult
 	confirmedPackages []*analyzer.PackageVersionAnalysisResult
 	cooldownBlocks    []models.CooldownBlock
-	blocklistBlocks   []models.BlocklistBlock
 }
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -141,31 +139,6 @@ func (c *AnalysisStatsCollector) RecordCooldownBlocked(name, version string, pub
 		DaysLeft:     daysLeft,
 		CooldownDays: cooldownDays,
 	})
-}
-
-// RecordBlocklistBlocked records a package blocked by the block.packages policy.
-func (c *AnalysisStatsCollector) RecordBlocklistBlocked(name, version, reason string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.stats.TotalAnalyzed++
-	c.stats.BlockedCount++
-	c.stats.BlocklistBlockedCount++
-	c.blocklistBlocks = append(c.blocklistBlocks, models.BlocklistBlock{
-		Name:    name,
-		Version: version,
-		Reason:  reason,
-	})
-}
-
-// GetBlocklistBlocks returns all packages blocked by the block.packages policy.
-func (c *AnalysisStatsCollector) GetBlocklistBlocks() []models.BlocklistBlock {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	result := make([]models.BlocklistBlock, len(c.blocklistBlocks))
-	copy(result, c.blocklistBlocks)
-	return result
 }
 
 // GetCooldownBlocks returns all packages blocked by the cooldown policy.

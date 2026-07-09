@@ -71,13 +71,12 @@ func (b *baseRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
 
-// policyGate short-circuits the request when a policy decides the outcome
-// before any analysis runs. Precedence: insecure-installation mode (explicit
-// bypass-everything escape hatch), then the block.packages blocklist (an
-// explicit block beats trust), then trusted_packages (waives every control).
-// It returns (response, true) when it handled the request; (nil, false) when
-// the request must proceed to analysis.
-func (b *baseRegistryInterceptor) policyGate(
+// fastAllow short-circuits the request when no security control should run for
+// this concrete version: insecure-installation mode (analysis globally off) or a
+// trusted package (waives every control). It returns (response, true) when it
+// handled the request; (nil, false) otherwise. Insecure is checked first to
+// preserve the previous ordering inside analyzePackage.
+func (b *baseRegistryInterceptor) fastAllow(
 	ctx *proxy.RequestContext,
 	ecosystem packagev1.Ecosystem,
 	name, version string,
@@ -93,21 +92,6 @@ func (b *baseRegistryInterceptor) policyGate(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, true
 	}
 
-	if blocked, ok := config.FindBlockedPackageRef(ecosystem, name, version); ok {
-		log.Warnf("[%s] Blocking blocklisted package %s/%s@%s", ctx.RequestID, ecosystem.String(), name, version)
-		audit.LogBlocklistBlocked(pkgVersion, blocked.Reason)
-
-		if b.statsCollector != nil {
-			b.statsCollector.RecordBlocklistBlocked(name, version, blocked.Reason)
-		}
-
-		return &proxy.InterceptorResponse{
-			Action:       proxy.ActionBlock,
-			BlockCode:    http.StatusForbidden,
-			BlockMessage: blocklistBlockMessage(ecosystem, name, version, blocked.Reason),
-		}, true
-	}
-
 	if config.IsTrustedPackageRef(ecosystem, name, version) {
 		log.Debugf("[%s] Skipping trusted package: %s/%s@%s", ctx.RequestID, ecosystem.String(), name, version)
 		audit.LogInstallTrustedAllowed(pkgVersion)
@@ -117,25 +101,13 @@ func (b *baseRegistryInterceptor) policyGate(
 	return nil, false
 }
 
-// appendCustomMessage appends the org-configured message, when set, to a
-// block message body.
-func appendCustomMessage(message, custom string) string {
-	if custom == "" {
+// appendAdvisoryMessage appends the org-configured advisory_message, when set,
+// to a block message body.
+func appendAdvisoryMessage(message, advisory string) string {
+	if advisory == "" {
 		return message
 	}
-	return message + "\n\n" + custom
-}
-
-// blocklistBlockMessage builds the 403 body for a blocklist hit. The label is
-// distinct from the malware block message so a policy block is never mistaken
-// for a malware verdict.
-func blocklistBlockMessage(ecosystem packagev1.Ecosystem, name, version, reason string) string {
-	message := fmt.Sprintf("Package blocked by PMG policy (block.packages): %s/%s@%s",
-		ecosystem.String(), name, version)
-	if reason != "" {
-		message += fmt.Sprintf("\n\nReason: %s", reason)
-	}
-	return message
+	return message + "\n\n" + advisory
 }
 
 // analyzePackage analyzes a package using the configured analyzer with caching
@@ -231,11 +203,11 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 			b.statsCollector.RecordBlocked(result)
 		}
 
-		message := appendCustomMessage(fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
+		message := appendAdvisoryMessage(fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
 			ecosystem.String(),
 			packageName, packageVersion,
 			result.Summary,
-			result.ReferenceURL), config.Get().Config.Block.Message)
+			result.ReferenceURL), config.Get().Config.AdvisoryMessage)
 
 		return &proxy.InterceptorResponse{
 			Action:       proxy.ActionBlock,
@@ -270,11 +242,11 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 				b.statsCollector.RecordUserCancelled(result)
 			}
 
-			message := appendCustomMessage(fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
+			message := appendAdvisoryMessage(fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
 				ecosystem.String(),
 				packageName, packageVersion,
 				result.Summary,
-				result.ReferenceURL), config.Get().Config.Block.Message)
+				result.ReferenceURL), config.Get().Config.AdvisoryMessage)
 
 			return &proxy.InterceptorResponse{
 				Action:       proxy.ActionBlock,

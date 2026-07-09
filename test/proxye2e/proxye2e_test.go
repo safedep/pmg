@@ -577,80 +577,12 @@ func blockedBody(res ExecResult) string {
 	return ""
 }
 
-func TestProxyFlow_Blocklist(t *testing.T) {
-	addLeftPad := func(h *Harness) {
-		h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "2.0.0", Versions: []NpmVersion{
-			{Version: "1.0.0", PublishedAt: old()},
-			{Version: "2.0.0", PublishedAt: old()},
-		}})
-	}
-
+func TestProxyFlow_AdvisoryMessage(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
-			Name: "blocklisted package blocked without analysis",
+			Name: "malware block body carries advisory message",
 			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "deprecated internally"}}
-			},
-			Setup: addLeftPad,
-			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
-			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.True(t, res.Blocked())
-				assert.Empty(t, h.Analyzer.Calls(), "blocklisted package must not reach the analyzer")
-				assert.False(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
-				assert.Contains(t, blockedBody(res), "deprecated internally")
-
-				blocks := h.BlocklistBlocks()
-				assert.NotEmpty(t, blocks)
-				assert.Equal(t, "left-pad", blocks[0].Name)
-			},
-		},
-		{
-			Name: "version-pinned blocklist entry blocks only that version",
-			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad@1.0.0", Reason: "bad build"}}
-			},
-			Setup: addLeftPad,
-			Exec: func(h *Harness) ExecResult {
-				res := h.Npm().Install("left-pad", "1.0.0")
-				res.Requests = append(res.Requests, h.Npm().Install("left-pad", "2.0.0").Requests...)
-				return res
-			},
-			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.True(t, res.Blocked())
-				assert.False(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
-				assert.True(t, h.Registry.DownloadedTarball("left-pad", "2.0.0"), "unpinned version must install")
-			},
-		},
-		{
-			Name: "blocklist wins over trusted_packages",
-			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:npm/left-pad"}}
-				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}}
-			},
-			Setup: addLeftPad,
-			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
-			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.True(t, res.Blocked())
-				assert.False(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
-			},
-		},
-		{
-			Name: "insecure installation bypasses blocklist",
-			Config: func(rc *config.RuntimeConfig) {
-				rc.InsecureInstallation = true
-				rc.Config.Block.Packages = []config.BlockedPackage{{Purl: "pkg:npm/left-pad", Reason: "banned"}}
-			},
-			Setup: addLeftPad,
-			Exec:  func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
-			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked())
-				assert.True(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
-			},
-		},
-		{
-			Name: "malware block body carries custom malware message",
-			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.Block.Message = "Report false positives in #security-help"
+				rc.Config.AdvisoryMessage = "Report false positives in #security-help"
 			},
 			Setup: func(h *Harness) {
 				h.Registry.AddNpm(NpmPackage{Name: "evil", DistTagLatest: "1.0.0",
@@ -664,10 +596,10 @@ func TestProxyFlow_Blocklist(t *testing.T) {
 			},
 		},
 		{
-			Name: "go cooldown block body carries custom block message",
+			Name: "go cooldown block body carries advisory message",
 			Config: func(rc *config.RuntimeConfig) {
 				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
-				rc.Config.Block.Message = "Request an exemption at go/pmg-exceptions"
+				rc.Config.AdvisoryMessage = "Request an exemption at go/pmg-exceptions"
 			},
 			Setup: func(h *Harness) {
 				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",

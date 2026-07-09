@@ -192,8 +192,6 @@ func (h *Harness) BlockedPackages() []*analyzer.PackageVersionAnalysisResult {
 
 func (h *Harness) CooldownBlocks() []models.CooldownBlock { return h.stats.GetCooldownBlocks() }
 
-func (h *Harness) BlocklistBlocks() []models.BlocklistBlock { return h.stats.GetBlocklistBlocks() }
-
 func (h *Harness) recordDial(addr string) {
 	h.dialMu.Lock()
 	defer h.dialMu.Unlock()

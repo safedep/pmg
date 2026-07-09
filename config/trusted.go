@@ -82,8 +82,8 @@ func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name str
 	return info
 }
 
-// PreprocessPackageRefs pre-parses all PURL strings in the trusted, cooldown
-// skip, and blocked package lists. Exported for use in cross-package tests that
+// PreprocessPackageRefs pre-parses all PURL strings in the trusted and
+// cooldown skip package lists. Exported for use in cross-package tests that
 // install synthetic configs without going through Load.
 func PreprocessPackageRefs(cfg *Config) error {
 	return preprocessPackageRefs(cfg)
@@ -98,9 +98,6 @@ func preprocessPackageRefs(cfg *Config) error {
 	}
 	for i := range cfg.DependencyCooldown.Skip {
 		cfg.DependencyCooldown.Skip[i].parseFrom(cfg.DependencyCooldown.Skip[i].Purl)
-	}
-	for i := range cfg.Block.Packages {
-		cfg.Block.Packages[i].parseFrom(cfg.Block.Packages[i].Purl)
 	}
 	return nil
 }

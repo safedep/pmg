@@ -190,7 +190,7 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 		}
 	}
 
-	if resp, ok := i.policyGate(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version); ok {
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version); ok {
 		return resp, true, nil
 	}
 
