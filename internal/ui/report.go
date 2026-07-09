@@ -82,6 +82,10 @@ type ReportData struct {
 	// Packages blocked by the dependency cooldown policy (proxy mode only)
 	CooldownBlockedPackages []models.CooldownBlock
 
+	// AdvisoryMessage is the optional org-configured message appended to block
+	// output regardless of which control blocked. Set from advisory_message.
+	AdvisoryMessage string
+
 	// Configuration context
 	FlowType          FlowType
 	DryRun            bool
@@ -135,10 +139,27 @@ func Report(data *ReportData) {
 	}
 }
 
-// reportSilent only shows output on errors or blocks
-// Normal successful execution produces no output
+func printMalwareBlockSection(data *ReportData) {
+	if len(data.BlockedPackages) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+	printMaliciousPackagesList(data.BlockedPackages)
+	fmt.Println()
+}
+
+// reportSilent shows output only when the install was blocked: silent mode
+// hides PMG except for errors and malicious package detection. Cooldown-only
+// blocks stay hidden, matching the documented silent contract.
 func reportSilent(data *ReportData) {
-	// Silent mode: no report output
+	if data.Outcome != OutcomeBlocked || len(data.BlockedPackages) == 0 {
+		return
+	}
+
+	printMalwareBlockSection(data)
+	printAdvisoryMessage(data.AdvisoryMessage)
 }
 
 // reportNormal shows minimal, assuring output
@@ -176,12 +197,7 @@ func reportNormal(data *ReportData) {
 
 	switch data.Outcome {
 	case OutcomeBlocked:
-		if len(data.BlockedPackages) > 0 {
-			fmt.Println()
-			fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
-			printMaliciousPackagesList(data.BlockedPackages)
-			fmt.Println()
-		}
+		printMalwareBlockSection(data)
 
 		if len(data.CooldownBlockedPackages) > 0 {
 			fmt.Println()
@@ -190,6 +206,11 @@ func reportNormal(data *ReportData) {
 				Colors.Yellow("⊘"),
 				Colors.Yellow(fmt.Sprintf("Dependency cooldown — %s blocked", pluralizePackages(n))))
 			printCooldownPackagesList(data.CooldownBlockedPackages)
+			fmt.Println()
+		}
+
+		if data.AdvisoryMessage != "" {
+			printAdvisoryMessage(data.AdvisoryMessage)
 			fmt.Println()
 		}
 
@@ -305,6 +326,11 @@ func reportVerbose(data *ReportData) {
 				pluralizeDays(pkg.DaysLeft),
 			)))
 		}
+	}
+
+	if data.Outcome == OutcomeBlocked && data.AdvisoryMessage != "" {
+		fmt.Println()
+		printAdvisoryMessage(data.AdvisoryMessage)
 	}
 
 	fmt.Println()

@@ -59,12 +59,13 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 	rc.Config.Paranoid = false
 	rc.Config.TrustedPackages = nil
 	rc.Config.DependencyCooldown = config.DependencyCooldownConfig{}
+	rc.Config.AdvisoryMessage = ""
 
 	if override != nil {
 		override(rc)
 	}
 
-	if err := config.PreprocessTrustedPackages(&rc.Config); err != nil {
+	if err := config.PreprocessPackageRefs(&rc.Config); err != nil {
 		t.Fatalf("failed to preprocess trusted packages: %v", err)
 	}
 }

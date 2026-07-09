@@ -10,7 +10,6 @@ import (
 
 	_ "embed"
 
-	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/dry/utils"
@@ -81,6 +80,10 @@ type Config struct {
 
 	// TrustedPackages allows for trusting a suspicious package and ignoring the suspicious behaviour for the package in future installations
 	TrustedPackages []TrustedPackage `mapstructure:"trusted_packages"`
+
+	// AdvisoryMessage is an optional org-specific message appended to every
+	// block output, regardless of which control blocked the installation.
+	AdvisoryMessage string `mapstructure:"advisory_message"`
 
 	// SkipEventLogging allows for skipping event logging.
 	SkipEventLogging bool `mapstructure:"skip_event_logging"`
@@ -289,12 +292,7 @@ type TrustedPackage struct {
 	Purl   string `mapstructure:"purl"`
 	Reason string `mapstructure:"reason"`
 
-	// Pre-parsed PURL components (not serialized, computed at load time)
-	// These fields avoid repeated PURL parsing on every IsTrustedPackage() call
-	parsed    bool
-	ecosystem packagev1.Ecosystem
-	name      string
-	version   string
+	purlRef
 }
 
 // RuntimeConfig is the configuration that is used at runtime. It contains static configuration
@@ -468,6 +466,7 @@ func DefaultConfig() RuntimeConfig {
 			EventLogRetentionDays:  7,
 			SkipEventLogging:       false,
 			TrustedPackages:        []TrustedPackage{},
+			AdvisoryMessage:        "",
 			ProxyMode:              true,
 			Verbosity:              VerbosityNormal,
 			Sandbox: SandboxConfig{
@@ -596,8 +595,8 @@ func initConfig() {
 
 	loadConfig()
 
-	if err := preprocessTrustedPackages(&globalConfig.Config); err != nil {
-		log.Warnf("Failed to preprocess trusted packages: %v", err)
+	if err := preprocessPackageRefs(&globalConfig.Config); err != nil {
+		log.Warnf("Failed to preprocess package refs: %v", err)
 	}
 }
 

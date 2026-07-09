@@ -34,6 +34,7 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
 	assert.Equal(t, 7, cfg.EventLogRetentionDays, "expected EventLogRetentionDays 7")
 	assert.Len(t, cfg.TrustedPackages, 1)
+	assert.Empty(t, cfg.AdvisoryMessage)
 }
 
 func TestTemplateMatchesDefaults(t *testing.T) {
@@ -66,6 +67,7 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 
 	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
 	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
+	assert.Equal(t, def.AdvisoryMessage, parsed.AdvisoryMessage, "advisory_message mismatch")
 
 	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
 }

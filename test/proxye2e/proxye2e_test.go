@@ -567,3 +567,49 @@ func TestProxyFlow_Go(t *testing.T) {
 		},
 	})
 }
+
+func blockedBody(res ExecResult) string {
+	for _, r := range res.Requests {
+		if r.Blocked {
+			return r.Body
+		}
+	}
+	return ""
+}
+
+func TestProxyFlow_AdvisoryMessage(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "malware block body carries advisory message",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.AdvisoryMessage = "Report false positives in #security-help"
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "evil", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("evil", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Contains(t, blockedBody(res), "Report false positives in #security-help")
+			},
+		},
+		{
+			Name: "go cooldown block body carries advisory message",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+				rc.Config.AdvisoryMessage = "Request an exemption at go/pmg-exceptions"
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/fresh",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/fresh", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Contains(t, blockedBody(res), "Request an exemption at go/pmg-exceptions")
+			},
+		},
+	})
+}

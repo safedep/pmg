@@ -18,10 +18,10 @@ func setTrustedPackagesForTest(t *testing.T, pkgs []pmgconfig.TrustedPackage) {
 	t.Helper()
 	orig := pmgconfig.Get().Config.TrustedPackages
 	pmgconfig.Get().Config.TrustedPackages = pkgs
-	require.NoError(t, pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config), "setTrustedPackagesForTest: preprocess")
+	require.NoError(t, pmgconfig.PreprocessPackageRefs(&pmgconfig.Get().Config), "setTrustedPackagesForTest: preprocess")
 	t.Cleanup(func() {
 		pmgconfig.Get().Config.TrustedPackages = orig
-		assert.NoError(t, pmgconfig.PreprocessTrustedPackages(&pmgconfig.Get().Config))
+		assert.NoError(t, pmgconfig.PreprocessPackageRefs(&pmgconfig.Get().Config))
 	})
 }
 
@@ -203,4 +203,32 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 			assert.Equal(t, tt.expectBlockMessage, response.BlockMessage != "")
 		})
 	}
+}
+
+func TestAppendAdvisoryMessage(t *testing.T) {
+	assert.Equal(t, "base", appendAdvisoryMessage("base", ""))
+	assert.Equal(t, "base\n\ncustom", appendAdvisoryMessage("base", "custom"))
+}
+
+func TestHandleAnalysisResultBlockCarriesAdvisoryMessage(t *testing.T) {
+	origMsg := pmgconfig.Get().Config.AdvisoryMessage
+	pmgconfig.Get().Config.AdvisoryMessage = "Contact #security-help"
+	t.Cleanup(func() { pmgconfig.Get().Config.AdvisoryMessage = origMsg })
+
+	b := &baseRegistryInterceptor{}
+	ctx := makeTestRequestContext("https://registry.npmjs.org/evil/-/evil-1.0.0.tgz")
+
+	result := &analyzer.PackageVersionAnalysisResult{
+		PackageVersion: &packagev1.PackageVersion{
+			Package: &packagev1.Package{Name: "evil", Ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM},
+			Version: "1.0.0",
+		},
+		Action:  analyzer.ActionBlock,
+		Summary: "verified malware",
+	}
+
+	resp, err := b.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "evil", "1.0.0", result)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionBlock, resp.Action)
+	assert.Contains(t, resp.BlockMessage, "Contact #security-help")
 }

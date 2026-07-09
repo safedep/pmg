@@ -18,6 +18,10 @@ dependency_cooldown:
   days: 5
 ```
 
+To show an org-specific message whenever PMG blocks an installation (cooldown
+or otherwise), see the top-level `advisory_message` in the
+[config template](../config/config.template.yml).
+
 ## Exempting Specific Packages
 
 Some packages — typically first-party or internal — need to be installed as soon

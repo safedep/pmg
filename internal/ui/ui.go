@@ -196,7 +196,7 @@ func printMaliciousPackagesList(malwarePackages []*analyzer.PackageVersionAnalys
 				mp.PackageVersion.GetVersion())))
 
 		if verbosityLevel == VerbosityLevelVerbose {
-			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatText(mp.Summary, 76)))
+			fmt.Printf("    %s\n", Colors.Dim(termWidthFormatTextIndent(mp.Summary, 76, "    ")))
 		}
 
 		if mp.ReferenceURL != "" {
@@ -228,6 +228,16 @@ func printCooldownPackagesList(packages []models.CooldownBlock) {
 	}
 }
 
+// printAdvisoryMessage renders the org-configured advisory_message as an info
+// note attached to the block output. Callers are responsible for surrounding
+// blank lines. No-op when the message is empty.
+func printAdvisoryMessage(message string) {
+	if message == "" {
+		return
+	}
+	fmt.Printf("  %s %s\n", Colors.Cyan("ℹ"), Colors.Cyan(termWidthFormatTextIndent(message, 76, "    ")))
+}
+
 func pluralizeDays(n int) string {
 	if n == 1 {
 		return "1 day"
@@ -240,6 +250,12 @@ func pluralizePackages(n int) string {
 		return "1 package"
 	}
 	return fmt.Sprintf("%d packages", n)
+}
+
+// termWidthFormatTextIndent wraps text at maxWidth and indents continuation
+// lines so wrapped output stays aligned with the first line.
+func termWidthFormatTextIndent(text string, maxWidth int, indent string) string {
+	return strings.ReplaceAll(termWidthFormatText(text, maxWidth), "\n", "\n"+indent)
 }
 
 // Format the string to be maximum maxWidth. Use newlines to wrap the text.
