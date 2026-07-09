@@ -8,6 +8,26 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestEcosystemLabel(t *testing.T) {
+	tests := []struct {
+		ecosystem packagev1.Ecosystem
+		expected  string
+	}{
+		{packagev1.Ecosystem_ECOSYSTEM_NPM, "npm"},
+		{packagev1.Ecosystem_ECOSYSTEM_PYPI, "pypi"},
+		{packagev1.Ecosystem_ECOSYSTEM_GO, "go"},
+		{packagev1.Ecosystem_ECOSYSTEM_RUBYGEMS, "rubygems"},
+		{packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS, "github_actions"},
+		{packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED, "unspecified"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			assert.Equal(t, tt.expected, ecosystemLabel(tt.ecosystem))
+		})
+	}
+}
+
 func TestProxyPresenterBlockMessage(t *testing.T) {
 	malwareCtx := &proxy.BlockContext{
 		Ecosystem:           packagev1.Ecosystem_ECOSYSTEM_NPM,
