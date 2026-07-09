@@ -3,12 +3,11 @@ package ui
 import (
 	"testing"
 
-	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRenderProxyBlockMessage(t *testing.T) {
+func TestProxyPresenterBlockMessage(t *testing.T) {
 	malwareCtx := &proxy.BlockContext{
 		Ecosystem:           "ECOSYSTEM_NPM",
 		PackageName:         "evil",
@@ -81,21 +80,18 @@ func TestRenderProxyBlockMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, renderProxyBlockMessage(tt.reason, tt.blockCtx, tt.advisory))
+			p := ProxyPresenter{Advisory: func() string { return tt.advisory }}
+			assert.Equal(t, tt.expected, p.BlockMessage(tt.reason, tt.blockCtx))
 		})
 	}
 }
 
-func TestProxyBlockMessageReadsConfiguredAdvisory(t *testing.T) {
-	origMsg := config.Get().Config.AdvisoryMessage
-	config.Get().Config.AdvisoryMessage = "Contact #security-help"
-	t.Cleanup(func() { config.Get().Config.AdvisoryMessage = origMsg })
-
-	message := ProxyBlockMessage(proxy.BlockReasonMalware, &proxy.BlockContext{
+func TestProxyPresenterNilAdvisory(t *testing.T) {
+	message := ProxyPresenter{}.BlockMessage(proxy.BlockReasonMalware, &proxy.BlockContext{
 		Ecosystem:      "ECOSYSTEM_NPM",
 		PackageName:    "evil",
 		PackageVersion: "1.0.0",
 		MalwareSummary: "verified malware",
 	})
-	assert.Contains(t, message, "Contact #security-help")
+	assert.Equal(t, "Malicious package blocked: ECOSYSTEM_NPM/evil@1.0.0\n\nReason: verified malware\n\nReference: ", message)
 }

@@ -116,7 +116,8 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	proxyConfig.ListenAddr = listenAddr(host, port)
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
-	proxyConfig.BlockMessageRenderer = ui.ProxyBlockMessage
+	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
+	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
 
 	server, err := pmgproxy.NewProxyServer(proxyConfig)
 	if err != nil {

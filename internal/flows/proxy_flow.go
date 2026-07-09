@@ -348,7 +348,8 @@ func (f *proxyFlow) createAndStartProxyServer(
 	proxyConfig := proxy.DefaultProxyConfig()
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorsList
-	proxyConfig.BlockMessageRenderer = ui.ProxyBlockMessage
+	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
+	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
 
 	proxyServer, err := proxy.NewProxyServer(proxyConfig)
 	if err != nil {

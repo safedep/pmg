@@ -795,6 +795,12 @@ func Get() *RuntimeConfig {
 	return globalConfig
 }
 
+// AdvisoryMessage returns the org-configured advisory message appended to
+// policy block output. Empty when not configured.
+func AdvisoryMessage() string {
+	return globalConfig.Config.AdvisoryMessage
+}
+
 func ConfigureSandbox(mayDownloadPackages bool) {
 	if globalConfig.Config.Sandbox.Enabled {
 		// Apply sandbox to all commands if EnforceAlways=true, otherwise only to

@@ -3,18 +3,22 @@ package ui
 import (
 	"fmt"
 
-	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
-// ProxyBlockMessage renders the response body for a blocked proxy request
-// from the interceptor's structured block decision. It is the single place
-// where user-facing block message text is composed.
-func ProxyBlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
-	return renderProxyBlockMessage(reason, blockCtx, config.Get().Config.AdvisoryMessage)
+// ProxyPresenter composes all user-facing text authored by the proxy layer.
+// Interceptors return structured decisions; any new proxy-emitted message
+// belongs here, not in the proxy layer.
+type ProxyPresenter struct {
+	// Advisory returns the org-configured advisory message appended to
+	// policy block messages. Read at render time so config changes apply
+	// to subsequent blocks. nil means no advisory.
+	Advisory func() string
 }
 
-func renderProxyBlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockContext, advisory string) string {
+// BlockMessage renders the response body for a blocked proxy request
+// from the interceptor's structured block decision.
+func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockContext) string {
 	if blockCtx == nil {
 		return ""
 	}
@@ -46,8 +50,10 @@ func renderProxyBlockMessage(reason proxy.BlockReason, blockCtx *proxy.BlockCont
 		return ""
 	}
 
-	if advisory != "" {
-		message += "\n\n" + advisory
+	if p.Advisory != nil {
+		if advisory := p.Advisory(); advisory != "" {
+			message += "\n\n" + advisory
+		}
 	}
 	return message
 }
