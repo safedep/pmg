@@ -21,6 +21,7 @@ import (
 
 type applySandboxConfig struct {
 	sb sandbox.Sandbox
+	rt *sandbox.ExecutionContext
 }
 
 type applySandboxOpt func(*applySandboxConfig)
@@ -30,6 +31,14 @@ type applySandboxOpt func(*applySandboxConfig)
 func WithSandbox(sb sandbox.Sandbox) applySandboxOpt {
 	return func(c *applySandboxConfig) {
 		c.sb = sb
+	}
+}
+
+// WithExecutionContext provides runtime data known only at spawn time
+// (e.g. the PMG proxy address) to the sandbox driver.
+func WithExecutionContext(rt *sandbox.ExecutionContext) applySandboxOpt {
+	return func(c *applySandboxConfig) {
+		c.rt = rt
 	}
 }
 
@@ -172,7 +181,11 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 	// env slice regardless of the OS sandbox driver).
 	scrubbed := scrubEnv(cmd, policy)
 
-	result, err := sb.Execute(ctx, cmd, policy)
+	if _, err := sandbox.ValidateLockdown(policy, applyConfig.rt); err != nil {
+		return nil, err
+	}
+
+	result, err := sb.Execute(ctx, cmd, policy, applyConfig.rt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup sandbox: %w", err)
 	}

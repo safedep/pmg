@@ -58,7 +58,7 @@ func TestBubblewrapSandboxExecute(t *testing.T) {
 	cmd := exec.Command("/bin/echo", "hello")
 
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -98,7 +98,7 @@ func TestBubblewrapSandboxExecuteCommandWrapping(t *testing.T) {
 	cmd := exec.Command(originalCmd, originalArgs[1:]...)
 
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
 	// Verify command structure
@@ -148,7 +148,7 @@ func TestBubblewrapSandboxExecuteWithPTY(t *testing.T) {
 
 	cmd := exec.Command("/bin/echo", "test")
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
 	// Should have PTY-related arguments
@@ -186,7 +186,7 @@ func TestBubblewrapSandboxExecuteWithNetworkIsolation(t *testing.T) {
 
 	cmd := exec.Command("/bin/echo", "test")
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
 	// Should have network isolation
@@ -231,7 +231,7 @@ func TestBubblewrapSandboxExecutionResult(t *testing.T) {
 
 	cmd := exec.Command("/bin/echo", "test")
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
 	// Verify ExecutionResult properties
@@ -267,7 +267,7 @@ func TestBubblewrapSandboxTranslationError(t *testing.T) {
 	ctx := context.Background()
 
 	// Should succeed even with complex patterns
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 
@@ -294,7 +294,7 @@ func TestBubblewrapSandboxEssentialBindMounts(t *testing.T) {
 
 	cmd := exec.Command("/bin/echo", "test")
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
 	argsStr := ""

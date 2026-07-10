@@ -63,7 +63,7 @@ func TestLandlockSandbox_Close_CleansUpResources(t *testing.T) {
 
 	cmd := exec.Command("/bin/echo", "hello")
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -101,7 +101,7 @@ func TestLandlockSandbox_Execute_RewiresCmd(t *testing.T) {
 	cmd := exec.Command("/bin/echo", "hello", "world")
 
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -175,7 +175,7 @@ func TestLandlockSandbox_Execute_PolicySerialized(t *testing.T) {
 	cmd := exec.Command("/bin/echo", "test")
 
 	ctx := context.Background()
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

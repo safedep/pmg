@@ -222,6 +222,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	executionError := runner.ExecuteWithOptions(ctx, parsedCmd, runner.ExecuteOptions{
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
+		SandboxProxyAddr:   proxyAddr,
 		Mode:               runner.ExecutionModeAuto,
 		EnvOverrides:       append(packagemanager.EnvVarForProxy(proxyAddr, caCertPath), routing.ExtraEnv...),
 		DirectEnvOverrides: ciEnvOverride(),

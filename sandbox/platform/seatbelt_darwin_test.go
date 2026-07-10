@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSeatbeltDarwin(t *testing.T) {
@@ -38,7 +40,7 @@ func TestSeatbeltDarwin(t *testing.T) {
 	cmd := exec.Command("npm", "install", "lodash")
 	npmResolvedPath := cmd.Path
 
-	result, err := sb.Execute(context.Background(), cmd, policy)
+	result, err := sb.Execute(context.Background(), cmd, policy, nil)
 	assert.NoError(t, err)
 	assert.True(t, result.ShouldRun(), "command should be runnable because seatbelt only patches the command")
 
@@ -49,4 +51,41 @@ func TestSeatbeltDarwin(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.NoFileExists(t, sb.tempProfilePath)
+}
+
+func TestSeatbeltExecuteLockdownValidation(t *testing.T) {
+	lockdownPolicy := &sandbox.SandboxPolicy{
+		Name:            "lockdown",
+		PackageManagers: []string{"npm"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{"/tmp"},
+			AllowWrite: []string{"/tmp"},
+		},
+		NetworkViaProxyOnly: utils.PtrTo(true),
+	}
+
+	tests := []struct {
+		name    string
+		rt      *sandbox.ExecutionContext
+		wantErr string
+	}{
+		{"nil execution context", nil, "requires the PMG proxy"},
+		{"empty proxy address", &sandbox.ExecutionContext{}, "requires the PMG proxy"},
+		{"non-loopback proxy address", &sandbox.ExecutionContext{ProxyAddr: "192.168.1.5:9999"}, "loopback"},
+		{"unparseable proxy address", &sandbox.ExecutionContext{ProxyAddr: "not-an-address"}, "loopback"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sb, err := newSeatbeltSandbox()
+			require.NoError(t, err)
+
+			cmd := exec.Command("/usr/bin/true")
+			result, err := sb.Execute(context.Background(), cmd, lockdownPolicy, tt.rt)
+
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }

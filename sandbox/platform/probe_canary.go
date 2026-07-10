@@ -101,7 +101,7 @@ func runCanary(ctx context.Context, name string, driver sandbox.DriverName, fact
 	}
 	policy := denyAllCanaryPolicy()
 
-	result, err := sb.Execute(ctx, cmd, policy)
+	result, err := sb.Execute(ctx, cmd, policy, nil)
 	if err != nil {
 		return sandbox.ProbeResult{
 			Name:    name,

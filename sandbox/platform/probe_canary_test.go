@@ -20,7 +20,7 @@ type fakeSandbox struct {
 	closed      bool
 }
 
-func (f *fakeSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
+func (f *fakeSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
 	if f.executeErr != nil {
 		return nil, f.executeErr
 	}

@@ -35,7 +35,11 @@ func newSeatbeltSandbox() (*seatbeltSandbox, error) {
 //
 // This implementation modifies the cmd in place and does NOT execute it.
 // Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
-func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
+func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
+	if _, err := sandbox.ValidateLockdown(policy, rt); err != nil {
+		return nil, err
+	}
+
 	sbProfile, err := s.translator.translate(policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate sandbox policy: %w", err)
