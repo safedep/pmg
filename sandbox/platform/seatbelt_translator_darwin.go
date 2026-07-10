@@ -644,11 +644,21 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 			sb.WriteString("\"))\n")
 		}
 
-		// macOS resolves names via the /var/run/mDNSResponder unix socket,
-		// which the deny above covers; the proxy resolves names, so direct
-		// DNS stays closed unless explicitly re-opened.
+		// Empirical (M0.5): the bind rules below do not cover outbound
+		// connects — at connect() time the socket's local address is still
+		// unbound, so (local ip "localhost:*") cannot match. Re-open
+		// loopback outbound explicitly for bind-enabled profiles.
+		if utils.SafelyGetValue(policy.AllowNetworkBind) {
+			sb.WriteString("(allow network-outbound (remote ip \"localhost:*\"))\n")
+		}
+
+		// macOS getaddrinfo resolves via the /var/run/mDNSResponder unix
+		// socket, but res_search-style resolvers (Go net, libresolv) send
+		// UDP directly to the nameserver — direct DNS needs both. The proxy
+		// resolves names, so DNS stays closed unless explicitly re-opened.
 		if utils.SafelyGetValue(policy.AllowDirectDNS) {
 			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
+			sb.WriteString("(allow network-outbound (remote ip \"*:53\"))\n")
 		}
 
 		sb.WriteString("\n")

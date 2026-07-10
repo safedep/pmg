@@ -765,7 +765,9 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 	proxyAllow := `(allow network-outbound (remote ip "localhost:54321"))`
 	blanketAllow := "(allow network-outbound)\n"
 	dnsAllow := `(allow network-outbound (remote unix-socket (path-literal "/var/run/mDNSResponder")))`
+	dnsPortAllow := `(allow network-outbound (remote ip "*:53"))`
 	bindRule := `(allow network* (local ip "localhost:*"))`
+	loopbackOutboundAllow := `(allow network-outbound (remote ip "localhost:*"))`
 
 	tests := []struct {
 		name   string
@@ -785,11 +787,12 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			},
 		},
 		{
-			name:   "allow_direct_dns reopens mDNSResponder",
+			name:   "allow_direct_dns reopens mDNSResponder and port 53",
 			rt:     rt,
 			mutate: func(p *sandbox.SandboxPolicy) { p.AllowDirectDNS = utils.PtrTo(true) },
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, dnsAllow)
+				assert.Contains(t, out, dnsPortAllow)
 			},
 		},
 		{
@@ -799,10 +802,11 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, denyMarker)
 				assert.Contains(t, out, bindRule)
+				assert.Contains(t, out, loopbackOutboundAllow)
 				denyIdx := strings.Index(out, denyMarker)
-				bindIdx := strings.Index(out, bindRule)
 				require.GreaterOrEqual(t, denyIdx, 0)
-				assert.Greater(t, bindIdx, denyIdx, "bind rules must come after the lockdown deny (SBPL last-match-wins)")
+				assert.Greater(t, strings.Index(out, bindRule), denyIdx, "bind rules must come after the lockdown deny (SBPL last-match-wins)")
+				assert.Greater(t, strings.Index(out, loopbackOutboundAllow), denyIdx, "loopback outbound allow must come after the lockdown deny")
 			},
 		},
 		{
