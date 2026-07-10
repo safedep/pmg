@@ -11,6 +11,11 @@ allow_pty: true
 # binds and outbound traffic are unaffected.
 allow_network_bind: true
 
+# All outbound traffic is confined to the PMG proxy (loopback). Per-host
+# control happens at the proxy; direct DNS is disabled (the proxy resolves).
+# Requires the proxy flow; pmg fails closed if the proxy is not running.
+network_via_proxy_only: true
+
 # .git/config stays blocked (default). go build embeds VCS info by default
 # (-buildvcs=auto) which invokes git; if git fails on the blocked config, build
 # with -buildvcs=false or set allow_git_config: true in a custom profile.
@@ -59,12 +64,11 @@ filesystem:
     - /usr/**
 
 network:
-  # Per-host rules are NOT enforced on any platform. macOS Seatbelt and Linux
-  # Bubblewrap only make a binary decision: any allow_outbound entry enables
-  # ALL outbound traffic, and "*:*" in deny_outbound disables the network
-  # entirely only when allow_outbound is empty. The hosts below document the
-  # default Go module endpoints and keep the network enabled; actual module
-  # traffic control comes from the PMG proxy's fail-closed GOPROXY rewrite.
+  # These hosts are documentation of the default Go module endpoints and the
+  # future input to proxy-level per-host policy. They are NOT kernel-enforced:
+  # with network_via_proxy_only, the sandbox only permits loopback traffic to
+  # the PMG proxy, and the proxy (with fail-closed GOPROXY rewrite) controls
+  # module traffic.
   allow_outbound:
     - proxy.golang.org:443
     - sum.golang.org:443

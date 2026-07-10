@@ -438,7 +438,26 @@ does not have this limitation; its `file-read*` and `file-write*` rules are inde
 <details>
 <summary>macOS (Seatbelt)</summary>
 
-**Network filtering is limited**: Seatbelt supports network rules in policies, but fine-grained `host:port` filtering is not enforced.
+**Network lockdown (`network_via_proxy_only`)**: Fine-grained `host:port` filtering is not
+expressible in Seatbelt, so per-host control happens at the PMG proxy instead. With
+`network_via_proxy_only: true`, the sandbox denies all outbound network except the loopback port
+of the running PMG proxy — raw sockets, QUIC, and arbitrary ports are blocked at the kernel.
+Direct DNS is disabled by default (the proxy resolves names); `allow_direct_dns: true` re-opens
+it. The Go profile ships with lockdown enabled.
+
+Lockdown is fail-closed: it requires the proxy flow, and pmg errors out rather than running
+without confinement when no proxy is available — including on Linux, where
+`network_via_proxy_only` is not yet supported (the drivers reject it with a clear error, never a
+silent fallback).
+
+For local development: plain commands like `npm run dev` are not sandboxed unless
+`enforce_always` is set; loopback↔loopback traffic keeps working via `allow_network_bind`; and
+proxy-honoring clients reach any destination through the proxy CONNECT path. What breaks under
+lockdown is direct non-loopback sockets — tools that ignore `HTTP_PROXY`/`HTTPS_PROXY` and
+non-HTTP wire protocols (e.g. Postgres or Redis clients pointed at non-loopback hosts). Such
+denials render as:
+
+> direct network access blocked by network_via_proxy_only — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)
 
 </details>
 
