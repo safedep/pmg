@@ -793,9 +793,11 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			name:   "allow_network_bind rules come after the lockdown deny",
 			mutate: func(p *sandbox.SandboxPolicy) { p.AllowNetworkBind = utils.PtrTo(true) },
 			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, denyMarker)
 				assert.Contains(t, out, bindRule)
 				denyIdx := strings.Index(out, denyMarker)
 				bindIdx := strings.Index(out, bindRule)
+				require.GreaterOrEqual(t, denyIdx, 0)
 				assert.Greater(t, bindIdx, denyIdx, "bind rules must come after the lockdown deny (SBPL last-match-wins)")
 			},
 		},
