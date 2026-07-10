@@ -50,6 +50,9 @@ func FilterPMGFromPath(pathEnv string) string {
 		if strings.HasSuffix(entry, pmgBinSuffix) {
 			continue
 		}
+		if filepath.Clean(entry) == filepath.Clean(SystemBinDir()) {
+			continue
+		}
 		if shimDir != "" && filepath.Clean(entry) == shimDir {
 			continue
 		}

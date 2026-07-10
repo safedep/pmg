@@ -80,10 +80,10 @@ func executeSetupInfo() error {
 	shellEntries["Detected Shell"] = shell
 	shellEntries["Alias Installed"] = strconv.FormatBool(isInstalled)
 	shellEntries["User Shims"] = strconv.FormatBool(shim.UserShimsInstalled())
-	shellEntries["System Shims"] = strconv.FormatBool(shim.SystemShimsInstalled())
-	shellEntries["System Profile"] = strconv.FormatBool(shim.SystemProfileInstalled())
 	if shim.SystemShimsInstalled() {
-		shellEntries["System Shim Dir"] = shim.SystemBinDir()
+		shellEntries["System Shims"] = shim.SystemBinDir()
+	} else {
+		shellEntries["System Shims"] = "not installed"
 	}
 	ui.PrintInfoSection("Shell Integration", shellEntries)
 

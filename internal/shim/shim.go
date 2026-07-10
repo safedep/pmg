@@ -10,7 +10,10 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 )
 
-const shimMarker = "PMG shims"
+const (
+	shimMarker       = "PMG shims"
+	shimScriptMarker = "# PMG shim - do not edit, managed by pmg setup"
+)
 
 type ShimConfig struct {
 	BinDir          string
@@ -91,8 +94,8 @@ func (m *ShimManager) Install() error {
 }
 
 func (m *ShimManager) Remove() error {
-	if err := os.RemoveAll(m.config.BinDir); err != nil && !os.IsNotExist(err) {
-		log.Warnf("Warning: failed to remove shim directory: %v", err)
+	if err := os.RemoveAll(m.config.BinDir); err != nil {
+		return fmt.Errorf("failed to remove shim directory %s: %w", m.config.BinDir, err)
 	}
 
 	if m.config.ManageProfile {
@@ -142,7 +145,7 @@ func (m *ShimManager) writeShimScript(pm string) error {
 	pmgBin := shellQuote(m.config.PMGBin)
 
 	content := fmt.Sprintf(`#!/bin/sh
-# PMG shim - do not edit, managed by pmg setup
+%s
 PMG_BIN=%s
 if [ ! -x "$PMG_BIN" ]; then
   echo "[pmg] error: PMG binary not found or not executable: $PMG_BIN" >&2
@@ -152,7 +155,7 @@ fi
 PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
 export PMG_SHIM_PATH
 exec "$PMG_BIN" %s "$@"
-`, pmgBin, pm)
+`, shimScriptMarker, pmgBin, pm)
 
 	return os.WriteFile(shimPath, []byte(content), 0o755)
 }

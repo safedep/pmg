@@ -68,6 +68,18 @@ func TestShimManagerInstall(t *testing.T) {
 	assert.Contains(t, string(fishContent), ".pmg/bin")
 }
 
+func TestShimManagerRemoveReturnsDirectoryError(t *testing.T) {
+	root := t.TempDir()
+	blocker := filepath.Join(root, "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o644))
+
+	mgr := NewShimManager(ShimConfig{
+		BinDir: filepath.Join(blocker, "bin"),
+	})
+
+	assert.Error(t, mgr.Remove())
+}
+
 func TestShimManagerInstallIdempotent(t *testing.T) {
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, ".pmg", "bin")

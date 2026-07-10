@@ -14,6 +14,7 @@ sudo pmg setup remove --system --config-file   # also remove the system config f
 ```
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
+The PMG executable used during setup must be executable by every user. Install PMG under a system path such as `/usr/local/bin`.
 
 ## Files created
 
@@ -56,7 +57,7 @@ pmg setup doctor
 Docker `RUN` does not load `/etc/profile.d`. After system install you **must** set `ENV PATH` so build steps and the runtime container see the shims:
 
 ```dockerfile
-FROM ubuntu:24.04
+FROM node:22-bookworm
 
 RUN curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh \
  && pmg setup install --system
@@ -65,13 +66,18 @@ RUN curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | s
 ENV PATH="/usr/local/lib/pmg/bin:$PATH"
 
 # Optional: switch user; PATH from ENV still applies
-USER appuser
+RUN mkdir -p /app && chown node:node /app
+WORKDIR /app
+USER node
+COPY --chown=node:node package*.json ./
 RUN npm ci
 ```
 
 Derived images inherit that `ENV`. Later `RUN npm install` / `RUN pip install` go through PMG for any `USER`.
 
 If a child Dockerfile sets `ENV PATH=...` again, keep `/usr/local/lib/pmg/bin` ahead of the real `npm`/`pip` directories. Leaving it out (or behind those toolchains) drops interception.
+
+PMG running on the Docker host cannot inspect package installations inside `docker build`. PMG must be installed in the image as shown above.
 
 ## Configuration
 
@@ -86,8 +92,8 @@ Optional lockdown (`global_lockdown: true`) is documented in [config.md](./confi
 - **Virtualenv.** After `source .venv/bin/activate`, bare `pip` uses the venv binary and skips PMG shims. Call `pmg pip …` explicitly.
 - **No shell aliases.** System install only installs PATH shims. There is no `~/.pmg.rc` alias layer.
 - **Config changes.** `pmg config set` and `pmg config edit` are unavailable while the system config is active. Edit `/etc/safedep/pmg/config.yml` as root, or redeploy the file.
-- **Custom sandbox** `policy_templates`**.** Relative paths in the system config resolve under each user's config directory, not `/etc/safedep/pmg`. Prefer absolute paths.
-- `pmg sandbox allow`**.** Blocked when the system config sets `global_lockdown: true`.
+- **Custom sandbox `policy_templates`.** Relative paths in the system config resolve under each user's config directory, not `/etc/safedep/pmg`. Prefer absolute paths.
+- **`pmg sandbox allow`.** Blocked when the system config sets `global_lockdown: true`.
 
 
 ## User data directories

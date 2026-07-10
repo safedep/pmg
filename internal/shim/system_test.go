@@ -37,6 +37,8 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	content, err := os.ReadFile(npmShim)
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "export PMG_SHIM_PATH")
+	assert.Contains(t, string(content), "pmg setup install")
+	assert.Contains(t, string(content), "pmg setup remove")
 
 	profile, err := os.ReadFile(SystemProfilePath())
 	require.NoError(t, err)
@@ -70,4 +72,49 @@ func TestSystemShimManagerDoesNotTouchUserRc(t *testing.T) {
 	content, err := os.ReadFile(bashrc)
 	require.NoError(t, err)
 	assert.Equal(t, "# user bashrc\n", string(content))
+}
+
+func TestSystemShimsInstalledIgnoresUnmanagedFiles(t *testing.T) {
+	root := t.TempDir()
+	useSystemPaths(t, root)
+	require.NoError(t, os.MkdirAll(SystemBinDir(), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(SystemBinDir(), "README"), []byte("not a shim"), 0o644))
+
+	assert.False(t, SystemShimsInstalled())
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(SystemBinDir(), "npm"),
+		[]byte("#!/bin/sh\n# PMG shim - do not edit, managed by pmg setup\n"),
+		0o755,
+	))
+	assert.True(t, SystemShimsInstalled())
+}
+
+func TestWriteSystemProfileRepairsStalePath(t *testing.T) {
+	root := t.TempDir()
+	useSystemPaths(t, root)
+	require.NoError(t, os.MkdirAll(filepath.Dir(SystemProfilePath()), 0o755))
+	require.NoError(t, os.WriteFile(
+		SystemProfilePath(),
+		[]byte("# PMG system shims\nexport PATH=\"/stale/path:$PATH\"\n"),
+		0o644,
+	))
+
+	require.NoError(t, writeSystemProfile())
+
+	content, err := os.ReadFile(SystemProfilePath())
+	require.NoError(t, err)
+	assert.Contains(t, string(content), SystemBinDir())
+	assert.NotContains(t, string(content), "/stale/path")
+}
+
+func TestValidateSystemExecutableRejectsPrivateBinary(t *testing.T) {
+	privateDir := t.TempDir()
+	privateExecutable := filepath.Join(privateDir, "pmg")
+	require.NoError(t, os.WriteFile(privateExecutable, []byte("binary"), 0o700))
+
+	err := validateSystemExecutable(privateExecutable)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not executable by all users")
 }

@@ -37,30 +37,19 @@ func TestErrIfSystemInstallAllowed(t *testing.T) {
 	}
 }
 
-func TestInstallSystemRequiresLinuxAndRoot(t *testing.T) {
+func TestInstallSystemRequiresRoot(t *testing.T) {
 	orig := setupGeteuid
-	t.Cleanup(func() {
-		setupGeteuid = orig
-		setupInstallSystem = false
-	})
+	t.Cleanup(func() { setupGeteuid = orig })
 
-	setupInstallSystem = true
-	setupGeteuid = func() int { return 0 }
+	setupGeteuid = func() int { return 1000 }
 
-	err := install()
-	if runtime.GOOS == "linux" {
-		if err != nil {
-			usefulErr, ok := usefulerror.AsUsefulError(err)
-			if ok {
-				assert.NotEqual(t, errcodes.UnsupportedPlatform, usefulErr.Code())
-				assert.NotEqual(t, errcodes.PermissionDenied, usefulErr.Code())
-			}
-		}
-		return
-	}
-
+	err := install(true)
 	require.Error(t, err)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)
-	assert.Equal(t, errcodes.UnsupportedPlatform, usefulErr.Code())
+	if runtime.GOOS == "linux" {
+		assert.Equal(t, errcodes.PermissionDenied, usefulErr.Code())
+	} else {
+		assert.Equal(t, errcodes.UnsupportedPlatform, usefulErr.Code())
+	}
 }

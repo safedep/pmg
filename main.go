@@ -103,9 +103,10 @@ func main() {
 			}
 
 			if eventlogErr != nil {
-				// Soft-fail: unusable HOME (e.g. system accounts, some containers)
-				// must not prevent package-manager commands from running.
 				log.Warnf("failed to initialize event logging: %v", eventlogErr)
+				// Soft-fail: unusable HOME must not block package-manager commands.
+				ui.Infof("%s Event logging unavailable (%v); continuing without recording this run",
+					ui.Colors.Yellow("⚠"), eventlogErr)
 			}
 
 			if err := audit.Initialize(config.Get()); err != nil {

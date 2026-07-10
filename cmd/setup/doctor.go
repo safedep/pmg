@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -120,12 +119,6 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkShellAliases,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
-				if shim.SystemShimsInstalled() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusPass,
-						Message: "System shims installed (aliases optional)",
-					}
-				}
 				aliasCfg := alias.DefaultConfig()
 				rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
 				if err != nil {
@@ -142,15 +135,21 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: fmt.Sprintf("Could not determine alias status: %v", err),
 					}
 				}
-				if !installed {
+				if installed {
 					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Aliases not installed",
+						Status:  doctor.StatusPass,
+						Message: "Shell aliases installed",
+					}
+				}
+				if shim.SystemShimsInstalled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusWarn,
+						Message: "Aliases not installed (optional with system shims)",
 					}
 				}
 				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Shell aliases installed",
+					Status:  doctor.StatusFail,
+					Message: "Aliases not installed",
 				}
 			},
 		},
@@ -190,31 +189,27 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
 				pathEntries := filepath.SplitList(os.Getenv("PATH"))
-				if shim.SystemShimsInstalled() {
-					systemDir := shim.SystemBinDir()
-					if slices.Contains(pathEntries, systemDir) {
-						return doctor.CheckResult{
-							Status:  doctor.StatusPass,
-							Message: "System shim directory is in PATH",
-						}
-					}
+				systemDir := shim.SystemBinDir()
+				if shim.SystemShimsInstalled() && pathContainsDir(pathEntries, systemDir) {
 					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: fmt.Sprintf("System shim directory not in PATH (add ENV PATH=\"%s:$PATH\" for Docker RUN)", systemDir),
+						Status:  doctor.StatusPass,
+						Message: "System shim directory is in PATH",
 					}
 				}
-				sm, err := shim.NewDefaultShimManager()
-				if err != nil {
-					return doctor.CheckResult{
-						Status:  doctor.StatusWarn,
-						Message: fmt.Sprintf("Could not check shims: %v", err),
-					}
+				userDir := ""
+				if home, err := os.UserHomeDir(); err == nil {
+					userDir = filepath.Join(home, ".pmg", "bin")
 				}
-				shimDir := sm.GetBinDir()
-				if slices.Contains(pathEntries, shimDir) {
+				if pathContainsDir(pathEntries, userDir) {
 					return doctor.CheckResult{
 						Status:  doctor.StatusPass,
 						Message: "Shim directory is in PATH",
+					}
+				}
+				if shim.SystemShimsInstalled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: "System shim directory not in PATH",
 					}
 				}
 				return doctor.CheckResult{
@@ -307,6 +302,19 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 	return doctor.RunChecks(checks)
 }
 
+func pathContainsDir(pathEntries []string, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	cleanDir := filepath.Clean(dir)
+	for _, entry := range pathEntries {
+		if filepath.Clean(entry) == cleanDir {
+			return true
+		}
+	}
+	return false
+}
+
 func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {
 	if !isInterceptionActive(coreResults) {
 		var results []doctor.CheckResult
@@ -366,15 +374,15 @@ var checkDisplayNames = map[string]string{
 var checkFixes = map[string]string{
 	checkConfigFile:         "pmg setup install",
 	checkEventLogDir:        "pmg setup install",
-	checkShellAliases:       "pmg setup install [--system]",
-	checkShimDirectory:      "pmg setup install [--system]",
-	checkShimInPath:         "Restart shell, source profile, or set ENV PATH for Docker",
+	checkShellAliases:       "pmg setup install",
+	checkShimDirectory:      "pmg setup install",
+	checkShimInPath:         "Restart shell or source profile",
 	checkProxyMode:          "Set proxy.enabled: true in config",
 	checkSandbox:            "Set sandbox.enabled: true in config",
 	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
 	checkEventLogging:       "Set skip_event_logging: false in config",
-	checkProtectionNpm:      "pmg setup install [--system]",
-	checkProtectionPip:      "pmg setup install [--system]",
+	checkProtectionNpm:      "pmg setup install",
+	checkProtectionPip:      "pmg setup install",
 	checkCA:                 "pmg setup cert install",
 }
 

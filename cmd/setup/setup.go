@@ -16,12 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	setupRemoveConfigFile bool
-	setupInstallSystem    bool
-	setupRemoveSystem     bool
-)
-
 var setupGeteuid = os.Geteuid
 
 func NewSetupCommand() *cobra.Command {
@@ -45,21 +39,22 @@ func NewSetupCommand() *cobra.Command {
 }
 
 func NewInstallCommand() *cobra.Command {
+	var system bool
 	cmd := &cobra.Command{
 		Use:          "install",
 		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-			return install()
+			return install(system)
 		},
 	}
-	cmd.Flags().BoolVar(&setupInstallSystem, "system", false, "Install system-wide for all users (Linux, requires root)")
+	cmd.Flags().BoolVar(&system, "system", false, "Install system-wide for all users (Linux, requires root)")
 	return cmd
 }
 
-func install() error {
-	if setupInstallSystem {
+func install(system bool) error {
+	if system {
 		return installSystem()
 	}
 
@@ -114,17 +109,18 @@ func installSystem() error {
 		return err
 	}
 
-	if err := config.WriteSystemTemplateConfig(); err != nil {
-		return fmt.Errorf("failed to write system config: %w", err)
-	}
-
 	shimMgr, err := shim.NewSystemShimManager()
 	if err != nil {
 		return fmt.Errorf("failed to create system shim manager: %w", err)
 	}
 
+	// Shims/profile first so a failed config write does not leave a managed
+	// config active without interception.
 	if err := shimMgr.Install(); err != nil {
 		return fmt.Errorf("failed to install system shims: %w", err)
+	}
+	if err := config.WriteSystemTemplateConfig(); err != nil {
+		return fmt.Errorf("failed to write system config: %w", err)
 	}
 
 	ui.PrintSetupSystemInstallCmdInfo(shimMgr.GetBinDir(), config.SystemConfigDir(), shim.SystemProfilePath())
@@ -132,27 +128,31 @@ func installSystem() error {
 }
 
 func NewRemoveCommand() *cobra.Command {
+	var (
+		removeConfig bool
+		system       bool
+	)
 	cmd := &cobra.Command{
 		Use:          "remove",
 		Short:        "Removes pmg aliases and shims from the user's shell config.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-			return remove()
+			return remove(system, removeConfig)
 		},
 	}
 
-	cmd.Flags().BoolVar(&setupRemoveConfigFile, "config-file", false, "Remove the config file")
-	cmd.Flags().BoolVar(&setupRemoveSystem, "system", false, "Remove system-wide install (Linux, requires root)")
+	cmd.Flags().BoolVar(&removeConfig, "config-file", false, "Remove the config file")
+	cmd.Flags().BoolVar(&system, "system", false, "Remove system-wide install (Linux, requires root)")
 	return cmd
 }
 
-func remove() error {
-	if setupRemoveSystem {
-		return removeSystem()
+func remove(system, removeConfig bool) error {
+	if system {
+		return removeSystem(removeConfig)
 	}
 
-	if setupRemoveConfigFile {
+	if removeConfig {
 		// Only ever remove the per-user file; the globally managed
 		// config is not ours to delete from a per-user uninstall.
 		if err := config.RemoveUserConfigFile(); err != nil {
@@ -189,15 +189,9 @@ func remove() error {
 	return nil
 }
 
-func removeSystem() error {
+func removeSystem(removeConfig bool) error {
 	if err := errIfSystemInstallAllowed(); err != nil {
 		return err
-	}
-
-	if setupRemoveConfigFile {
-		if err := config.RemoveSystemConfigFile(); err != nil {
-			return err
-		}
 	}
 
 	shimMgr, err := shim.NewSystemShimManager()
@@ -207,6 +201,11 @@ func removeSystem() error {
 
 	if err := shimMgr.Remove(); err != nil {
 		return fmt.Errorf("failed to remove system shims: %w", err)
+	}
+	if removeConfig {
+		if err := config.RemoveSystemConfigFile(); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG system install removed")
