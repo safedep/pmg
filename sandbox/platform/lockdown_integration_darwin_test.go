@@ -214,7 +214,7 @@ func TestLockdownEnforcementDarwin(t *testing.T) {
 		assert.NoError(t, err, "DNS must pass with allow_direct_dns")
 	})
 
-	t.Run("allow_direct_dns with network bind (diagnostic)", func(t *testing.T) {
+	t.Run("allow_direct_dns with network bind", func(t *testing.T) {
 		policy := lockdownTestPolicy(t)
 		policy.AllowDirectDNS = utils.PtrTo(true)
 		policy.AllowNetworkBind = utils.PtrTo(true)
