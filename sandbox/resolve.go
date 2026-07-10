@@ -39,6 +39,12 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 	if p.AllowNetworkBind != nil {
 		out.AllowNetworkBind = utils.PtrTo(*p.AllowNetworkBind)
 	}
+	if p.NetworkViaProxyOnly != nil {
+		out.NetworkViaProxyOnly = utils.PtrTo(*p.NetworkViaProxyOnly)
+	}
+	if p.AllowDirectDNS != nil {
+		out.AllowDirectDNS = utils.PtrTo(*p.AllowDirectDNS)
+	}
 
 	allowRead, err := expandSlice(p.Filesystem.AllowRead, opts)
 	if err != nil {

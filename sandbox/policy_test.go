@@ -286,3 +286,83 @@ func TestValidateResolved(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeWithParentNetworkViaProxyOnly(t *testing.T) {
+	tests := []struct {
+		name     string
+		parent   *bool
+		child    *bool
+		expected bool
+	}{
+		{
+			name:     "child overrides parent false with true",
+			parent:   utils.PtrTo(false),
+			child:    utils.PtrTo(true),
+			expected: true,
+		},
+		{
+			name:     "child nil inherits parent true",
+			parent:   utils.PtrTo(true),
+			child:    nil,
+			expected: true,
+		},
+		{
+			name:     "both nil defaults to false",
+			parent:   nil,
+			child:    nil,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := &SandboxPolicy{NetworkViaProxyOnly: tt.parent}
+			child := &SandboxPolicy{NetworkViaProxyOnly: tt.child}
+
+			child.MergeWithParent(parent)
+
+			assert.NotNil(t, child.NetworkViaProxyOnly)
+			assert.Equal(t, tt.expected, *child.NetworkViaProxyOnly)
+		})
+	}
+}
+
+func TestMergeWithParentAllowDirectDNS(t *testing.T) {
+	tests := []struct {
+		name     string
+		parent   *bool
+		child    *bool
+		expected bool
+	}{
+		{
+			name:     "child overrides parent false with true",
+			parent:   utils.PtrTo(false),
+			child:    utils.PtrTo(true),
+			expected: true,
+		},
+		{
+			name:     "child nil inherits parent true",
+			parent:   utils.PtrTo(true),
+			child:    nil,
+			expected: true,
+		},
+		{
+			name:     "both nil defaults to false",
+			parent:   nil,
+			child:    nil,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := &SandboxPolicy{AllowDirectDNS: tt.parent}
+			child := &SandboxPolicy{AllowDirectDNS: tt.child}
+
+			child.MergeWithParent(parent)
+
+			assert.NotNil(t, child.AllowDirectDNS)
+			assert.Equal(t, tt.expected, *child.AllowDirectDNS)
+		})
+	}
+}

@@ -38,6 +38,16 @@ type SandboxPolicy struct {
 
 	// AllowNetworkBind allows binding to localhost (127.0.0.1 / ::1) for listening.
 	AllowNetworkBind *bool `yaml:"allow_network_bind" json:"allow_network_bind"`
+
+	// NetworkViaProxyOnly confines all outbound network access to the PMG
+	// proxy. Requires the proxy flow; drivers fail closed without a running
+	// proxy.
+	NetworkViaProxyOnly *bool `yaml:"network_via_proxy_only" json:"network_via_proxy_only"`
+
+	// AllowDirectDNS re-opens direct DNS (mDNSResponder) under
+	// NetworkViaProxyOnly. No effect otherwise. Default false: the proxy
+	// resolves names and direct DNS is an exfiltration channel.
+	AllowDirectDNS *bool `yaml:"allow_direct_dns" json:"allow_direct_dns"`
 }
 
 // FilesystemPolicy defines allowed and denied filesystem access patterns.
@@ -161,6 +171,14 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 
 	if child.AllowNetworkBind == nil {
 		child.AllowNetworkBind = utils.PtrTo(utils.SafelyGetValue(parent.AllowNetworkBind))
+	}
+
+	if child.NetworkViaProxyOnly == nil {
+		child.NetworkViaProxyOnly = utils.PtrTo(utils.SafelyGetValue(parent.NetworkViaProxyOnly))
+	}
+
+	if child.AllowDirectDNS == nil {
+		child.AllowDirectDNS = utils.PtrTo(utils.SafelyGetValue(parent.AllowDirectDNS))
 	}
 }
 

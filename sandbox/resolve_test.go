@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/dry/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,4 +120,35 @@ func TestResolveProfileDoesNotMutateRegistry(t *testing.T) {
 	after, err := registry.GetProfile("npm-restrictive")
 	require.NoError(t, err)
 	assert.Equal(t, originalAllowRead, after.Filesystem.AllowRead, "registry profile must not be mutated")
+}
+
+func TestExpandPolicyPathsIsolatesBoolPointers(t *testing.T) {
+	source := &SandboxPolicy{
+		Name:                "ptr-isolation",
+		PackageManagers:     []string{"npm"},
+		Filesystem:          FilesystemPolicy{AllowRead: []string{"/tmp"}},
+		AllowGitConfig:      utils.PtrTo(true),
+		AllowPTY:            utils.PtrTo(true),
+		AllowNetworkBind:    utils.PtrTo(true),
+		NetworkViaProxyOnly: utils.PtrTo(true),
+		AllowDirectDNS:      utils.PtrTo(true),
+	}
+
+	resolved, err := expandPolicyPaths(source, ResolveOptions{CWD: "/x", Home: "/y"})
+	require.NoError(t, err)
+
+	fields := []struct {
+		name             string
+		source, resolved *bool
+	}{
+		{"AllowGitConfig", source.AllowGitConfig, resolved.AllowGitConfig},
+		{"AllowPTY", source.AllowPTY, resolved.AllowPTY},
+		{"AllowNetworkBind", source.AllowNetworkBind, resolved.AllowNetworkBind},
+		{"NetworkViaProxyOnly", source.NetworkViaProxyOnly, resolved.NetworkViaProxyOnly},
+		{"AllowDirectDNS", source.AllowDirectDNS, resolved.AllowDirectDNS},
+	}
+	for _, f := range fields {
+		assert.NotSame(t, f.source, f.resolved, f.name)
+		assert.Equal(t, *f.source, *f.resolved, f.name)
+	}
 }
