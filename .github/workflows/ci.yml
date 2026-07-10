@@ -40,6 +40,30 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  # Runs the darwin-tagged tests (sandbox/platform/*_darwin_test.go) that no
+  # other job can execute. Convention for darwin integration tests requiring
+  # sandbox-exec: fail instead of skip when running in CI
+  # (os.Getenv("CI") != "" => t.Fatal) so missing tooling cannot silently
+  # hide security tests.
+  test-macos:
+    timeout-minutes: 15
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and Test
+        run: |
+          go mod tidy
+          go build
+          go test -count=1 -v ./...
+
   test-windows:
     timeout-minutes: 15
     runs-on: windows-latest
