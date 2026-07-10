@@ -644,24 +644,19 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 			sb.WriteString("\"))\n")
 		}
 
-		// Empirical (M0.5): the bind rules below do not cover outbound
-		// connects — at connect() time the socket's local address is still
-		// unbound, so (local ip "localhost:*") cannot match. Re-open
-		// loopback outbound explicitly for bind-enabled profiles.
+		// Bind rules cannot cover outbound connects (the local address is
+		// unbound at connect() time), so loopback outbound is re-opened
+		// explicitly for bind-enabled profiles.
 		if utils.SafelyGetValue(policy.AllowNetworkBind) {
 			sb.WriteString("(allow network-outbound (remote ip \"localhost:*\"))\n")
 		}
 
-		// Empirical (M0.5): modern macOS getaddrinfo reaches mDNSResponder
-		// via the com.apple.dnssd.service XPC endpoint, not only the legacy
-		// /var/run/mDNSResponder unix socket; resolvers that speak DNS
-		// themselves need direct port 53. Direct DNS re-opens all three.
-		// The proxy resolves names, so DNS stays closed unless the profile
-		// explicitly re-opens it.
+		// getaddrinfo resolves via the com.apple.dnssd.service XPC endpoint,
+		// legacy clients use the mDNSResponder socket (both /var and resolved
+		// /private/var paths — Seatbelt matches resolved paths), and
+		// self-resolving clients need direct port 53.
 		if utils.SafelyGetValue(policy.AllowDirectDNS) {
 			sb.WriteString("(allow mach-lookup (global-name \"com.apple.dnssd.service\"))\n")
-			// /var is a symlink to /private/var and Seatbelt matches resolved
-			// paths; emit both literals (same duality as the TMPDIR handling).
 			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
 			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n")
 			sb.WriteString("(allow network-outbound (remote ip \"*:53\"))\n")
