@@ -147,7 +147,7 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 		// human message even when the raw operand is path-shaped (e.g. the
 		// mDNSResponder unix socket); Target keeps the denied operand.
 		labelTarget := target
-		if labelKind == "network-outbound" && payload.Target == "direct" {
+		if labelKind == seatbeltKindNetworkOutbound && payload.Target == seatbeltLockdownTargetDirect {
 			labelTarget = payload.Target
 		}
 
@@ -204,8 +204,8 @@ func inferSeatbeltKindFromRawLog(raw string) (sandbox.ViolationKind, string, boo
 		return sandbox.ViolationKindExec, "process-exec", true
 	case verb == "network-bind":
 		return sandbox.ViolationKindNetworkBind, "network-bind", true
-	case verb == "network-outbound":
-		return sandbox.ViolationKindNetworkConnect, "network-outbound", true
+	case verb == seatbeltKindNetworkOutbound:
+		return sandbox.ViolationKindNetworkConnect, seatbeltKindNetworkOutbound, true
 	}
 
 	return sandbox.ViolationKindGenericDeny, "", false
@@ -331,8 +331,8 @@ func summarizeSeatbeltViolation(kind, target string) string {
 			return "network bind denied"
 		}
 		return fmt.Sprintf("network bind denied: %s", target)
-	case "network-outbound":
-		if target == "direct" {
+	case seatbeltKindNetworkOutbound:
+		if target == seatbeltLockdownTargetDirect {
 			return "direct network access blocked by network_via_proxy_only — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)"
 		}
 		if target == "" {

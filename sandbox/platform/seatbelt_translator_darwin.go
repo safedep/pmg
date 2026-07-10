@@ -29,6 +29,13 @@ func generateLogTag() string {
 	return fmt.Sprintf("PMG_SBX_%s", randomStr[:12])
 }
 
+// Shared vocabulary between rule emission (translator) and violation
+// parsing (diagnostics); a drift between the two breaks message rendering.
+const (
+	seatbeltKindNetworkOutbound  = "network-outbound"
+	seatbeltLockdownTargetDirect = "direct"
+)
+
 func seatbeltLogMessage(runID, kind, target string) string {
 	return fmt.Sprintf("PMG_SBX|run=%s|kind=%s|target=%s", runID, kind, url.QueryEscape(target))
 }
@@ -615,7 +622,7 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	if utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
 		sb.WriteString(";; network_via_proxy_only: all outbound confined to the PMG proxy\n")
 		sb.WriteString("(deny network-outbound (with message \"")
-		sb.WriteString(seatbeltLogMessage(t.logTag, "network-outbound", "direct"))
+		sb.WriteString(seatbeltLogMessage(t.logTag, seatbeltKindNetworkOutbound, seatbeltLockdownTargetDirect))
 		sb.WriteString("\"))\n")
 
 		// Without a running proxy (render/inspection, e.g. `pmg sandbox
