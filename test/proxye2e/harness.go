@@ -14,7 +14,9 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -151,6 +153,8 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, upstreamAd
 	cfg := proxy.DefaultProxyConfig()
 	cfg.CertManager = certMgr
 	cfg.Interceptors = interceptorList
+	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
+	cfg.BlockMessageRenderer = presenter.BlockMessage
 
 	// All upstream connections — MITM'd round-trips and CONNECT tunnels for
 	// non-MITM hosts alike — terminate at the mock registry, so no test reaches

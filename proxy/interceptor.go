@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 )
 
 // ResponseAction determines how the proxy should handle a request
@@ -41,12 +43,46 @@ type RequestContext struct {
 	Data map[string]interface{}
 }
 
+// BlockReason identifies why an interceptor blocked a request
+type BlockReason int
+
+const (
+	BlockReasonNone BlockReason = iota
+	BlockReasonMalware
+	BlockReasonUserDeclined
+	BlockReasonConfirmationFailed
+	BlockReasonDependencyCooldown
+)
+
+// BlockContext carries the structured facts of a block decision so a
+// presentation layer can render the user-facing message. Interceptors
+// populate it instead of composing message text themselves.
+type BlockContext struct {
+	Ecosystem      packagev1.Ecosystem
+	PackageName    string
+	PackageVersion string
+
+	// For BlockReasonMalware and BlockReasonUserDeclined
+	MalwareSummary      string
+	MalwareReferenceURL string
+
+	// For BlockReasonDependencyCooldown
+	CooldownDays     int
+	CooldownDaysAgo  int
+	CooldownDaysLeft int
+}
+
 // InterceptorResponse defines how the proxy should handle the request
 type InterceptorResponse struct {
 	// Action to take
 	Action ResponseAction
 
-	// For Action = Block: error message to return
+	// For Action = Block: why and what was blocked. The proxy renders the
+	// response body from these via ProxyConfig.BlockMessageRenderer.
+	BlockReason  BlockReason
+	BlockContext *BlockContext
+
+	// BlockMessage overrides the rendered message when non-empty
 	BlockMessage string
 	BlockCode    int
 
