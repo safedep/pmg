@@ -3,7 +3,9 @@ package sandbox
 import (
 	"testing"
 
+	"github.com/safedep/dry/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // cleanPolicy returns a minimally-valid policy with no lint issues.
@@ -228,5 +230,52 @@ func TestLintProfile_OrderingErrorsBeforeWarnsBeforeInfo(t *testing.T) {
 		case LintLevelInfo:
 			phase = 2
 		}
+	}
+}
+
+func TestLintProfile_AllowDirectDNSWithoutLockdown(t *testing.T) {
+	tests := []struct {
+		name                string
+		allowDirectDNS      *bool
+		networkViaProxyOnly *bool
+		wantWarn            bool
+	}{
+		{
+			name:           "allow_direct_dns without lockdown warns",
+			allowDirectDNS: utils.PtrTo(true),
+			wantWarn:       true,
+		},
+		{
+			name:                "allow_direct_dns with lockdown is clean",
+			allowDirectDNS:      utils.PtrTo(true),
+			networkViaProxyOnly: utils.PtrTo(true),
+			wantWarn:            false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := cleanPolicy()
+			policy.AllowDirectDNS = tc.allowDirectDNS
+			policy.NetworkViaProxyOnly = tc.networkViaProxyOnly
+
+			var found *LintIssue
+			for _, i := range LintProfile(policy) {
+				if i.Code == "allow-direct-dns-without-lockdown" {
+					found = &i
+					break
+				}
+			}
+
+			if !tc.wantWarn {
+				assert.Nil(t, found)
+				return
+			}
+
+			require.NotNil(t, found)
+			assert.Equal(t, LintLevelWarn, found.Level)
+			assert.Equal(t, "allow_direct_dns", found.Field)
+			assert.Equal(t, "allow_direct_dns has no effect unless network_via_proxy_only is true", found.Message)
+		})
 	}
 }

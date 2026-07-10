@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox/util"
 )
 
@@ -117,6 +118,15 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 				Rule:    rule,
 			})
 		}
+	}
+
+	if utils.SafelyGetValue(policy.AllowDirectDNS) && !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-direct-dns-without-lockdown",
+			Message: "allow_direct_dns has no effect unless network_via_proxy_only is true",
+			Field:   "allow_direct_dns",
+		})
 	}
 
 	conflictPairs := []struct {
