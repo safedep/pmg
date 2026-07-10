@@ -16,6 +16,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
+	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -115,6 +116,8 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	proxyConfig.ListenAddr = listenAddr(host, port)
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
+	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
+	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
 
 	server, err := pmgproxy.NewProxyServer(proxyConfig)
 	if err != nil {

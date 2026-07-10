@@ -62,6 +62,11 @@ type ProxyConfig struct {
 	// Interceptors
 	Interceptors []Interceptor
 
+	// BlockMessageRenderer composes the response body for blocked requests
+	// from the interceptor's structured block decision. nil falls back to
+	// the generic block message.
+	BlockMessageRenderer func(BlockReason, *BlockContext) string
+
 	// Other configuration
 	EnableMITM     bool
 	RequestTimeout time.Duration
@@ -561,6 +566,9 @@ func (ps *proxyServer) registerHandlers() {
 				}
 
 				message := resp.BlockMessage
+				if message == "" && ps.config.BlockMessageRenderer != nil {
+					message = ps.config.BlockMessageRenderer(resp.BlockReason, resp.BlockContext)
+				}
 				if message == "" {
 					message = "Blocked by proxy interceptor"
 				}

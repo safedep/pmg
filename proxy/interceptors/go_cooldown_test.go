@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,15 @@ func TestGoCooldownCheckZipDownloadSideFetch(t *testing.T) {
 		require.True(t, handled)
 		assert.Equal(t, proxy.ActionBlock, resp.Action)
 		assert.Equal(t, http.StatusForbidden, resp.BlockCode)
+		assert.Equal(t, proxy.BlockReasonDependencyCooldown, resp.BlockReason)
+
+		require.NotNil(t, resp.BlockContext)
+		assert.Equal(t, packagev1.Ecosystem_ECOSYSTEM_GO, resp.BlockContext.Ecosystem)
+		assert.Equal(t, "example.com/fresh", resp.BlockContext.PackageName)
+		assert.Equal(t, "v1.1.0", resp.BlockContext.PackageVersion)
+		assert.Equal(t, 7, resp.BlockContext.CooldownDays)
+		assert.Equal(t, 1, resp.BlockContext.CooldownDaysAgo)
+		assert.Equal(t, 6, resp.BlockContext.CooldownDaysLeft)
 	})
 
 	t.Run("fails open when the out-of-band fetch fails", func(t *testing.T) {
