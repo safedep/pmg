@@ -23,7 +23,7 @@ func RenderSeatbelt(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	}
 
 	t := newSeatbeltPolicyTranslator()
-	out, err := t.translate(policy)
+	out, err := t.translate(policy, nil)
 	if err != nil {
 		return nil, err
 	}

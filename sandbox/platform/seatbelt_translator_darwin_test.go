@@ -37,7 +37,7 @@ func TestSeatbeltTranslatorDarwinCommonTranslation(t *testing.T) {
 	}
 
 	translator := newSeatbeltPolicyTranslator()
-	actual, err := translator.translate(policy)
+	actual, err := translator.translate(policy, nil)
 	assert.NoError(t, err)
 
 	// Test common translation
@@ -61,7 +61,7 @@ func TestSeatbeltTranslatorDarwinAlwaysAllowsFSEventsMachLookup(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{}
 
 	translator := newSeatbeltPolicyTranslator()
-	actual, err := translator.translate(policy)
+	actual, err := translator.translate(policy, nil)
 	require.NoError(t, err)
 
 	assert.Contains(t, actual, `(global-name "com.apple.FSEvents")`)
@@ -282,7 +282,7 @@ func TestSeatbeltTranslatorDarwinFilesystemTranslation(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			translator := newSeatbeltPolicyTranslator()
-			actual, err := translator.translate(tt.policy)
+			actual, err := translator.translate(tt.policy, nil)
 			tt.assert(t, actual, err)
 		})
 	}
@@ -341,7 +341,7 @@ func TestSeatbeltTranslatorDarwinProcessTranslation(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			translator := newSeatbeltPolicyTranslator()
-			actual, err := translator.translate(tt.policy)
+			actual, err := translator.translate(tt.policy, nil)
 			tt.assert(t, actual, err)
 		})
 	}
@@ -540,7 +540,7 @@ func TestFilesystemTranslationWithMoveProtection(t *testing.T) {
 	translator := newSeatbeltPolicyTranslator()
 	translator.enableMoveBlockingMitigation = true
 
-	actual, err := translator.translate(policy)
+	actual, err := translator.translate(policy, nil)
 	assert.NoError(t, err)
 
 	// Should contain deny read rule
@@ -571,7 +571,7 @@ func TestPTYSupport(t *testing.T) {
 		}
 
 		translator := newSeatbeltPolicyTranslator()
-		actual, err := translator.translate(policy)
+		actual, err := translator.translate(policy, nil)
 		assert.NoError(t, err)
 
 		// Should NOT contain PTY rules
@@ -588,7 +588,7 @@ func TestPTYSupport(t *testing.T) {
 		}
 
 		translator := newSeatbeltPolicyTranslator()
-		actual, err := translator.translate(policy)
+		actual, err := translator.translate(policy, nil)
 		assert.NoError(t, err)
 
 		// Should contain PTY rules
@@ -611,7 +611,7 @@ func TestNetworkBindSupport(t *testing.T) {
 		}
 
 		translator := newSeatbeltPolicyTranslator()
-		actual, err := translator.translate(policy)
+		actual, err := translator.translate(policy, nil)
 		assert.NoError(t, err)
 
 		assert.Contains(t, actual, ";; Local network bind (localhost only)")
@@ -633,7 +633,7 @@ func TestNetworkBindSupport(t *testing.T) {
 		}
 
 		translator := newSeatbeltPolicyTranslator()
-		actual, err := translator.translate(policy)
+		actual, err := translator.translate(policy, nil)
 		assert.NoError(t, err)
 
 		// Localhost bind from AllowNetworkBind
@@ -654,7 +654,7 @@ func TestNetworkBindSupport(t *testing.T) {
 		}
 
 		translator := newSeatbeltPolicyTranslator()
-		actual, err := translator.translate(policy)
+		actual, err := translator.translate(policy, nil)
 		assert.NoError(t, err)
 
 		// Should NOT contain localhost bind
@@ -672,7 +672,7 @@ func TestNetworkBindSupport(t *testing.T) {
 		}
 
 		translator := newSeatbeltPolicyTranslator()
-		actual, err := translator.translate(policy)
+		actual, err := translator.translate(policy, nil)
 		assert.NoError(t, err)
 
 		assert.NotContains(t, actual, "network-bind")
@@ -742,4 +742,83 @@ func translateFilesystemForTest(t *testing.T, policy *sandbox.SandboxPolicy) str
 	var sb strings.Builder
 	require.NoError(t, tr.translateFilesystem(policy, &sb))
 	return sb.String()
+}
+
+func TestTranslateNetworkLockdown(t *testing.T) {
+	rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}
+	basePolicy := func() *sandbox.SandboxPolicy {
+		return &sandbox.SandboxPolicy{
+			Name:            "lockdown-translate",
+			PackageManagers: []string{"golang"},
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowRead:  []string{"/tmp"},
+				AllowWrite: []string{"/tmp"},
+			},
+			Network: sandbox.NetworkPolicy{
+				AllowOutbound: []string{"proxy.golang.org:443"},
+			},
+			NetworkViaProxyOnly: utils.PtrTo(true),
+		}
+	}
+
+	denyMarker := `|kind=network-outbound|target=direct"))`
+	proxyAllow := `(allow network-outbound (remote ip "localhost:54321"))`
+	blanketAllow := "(allow network-outbound)\n"
+	dnsAllow := `(allow network-outbound (remote unix-socket (path-literal "/var/run/mDNSResponder")))`
+	bindRule := `(allow network* (local ip "localhost:*"))`
+
+	tests := []struct {
+		name   string
+		mutate func(*sandbox.SandboxPolicy)
+		assert func(t *testing.T, out string)
+	}{
+		{
+			name:   "lockdown base",
+			mutate: func(p *sandbox.SandboxPolicy) {},
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, denyMarker)
+				assert.Contains(t, out, proxyAllow)
+				assert.NotContains(t, out, "mDNSResponder")
+				assert.NotContains(t, out, blanketAllow)
+			},
+		},
+		{
+			name:   "allow_direct_dns reopens mDNSResponder",
+			mutate: func(p *sandbox.SandboxPolicy) { p.AllowDirectDNS = utils.PtrTo(true) },
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, dnsAllow)
+			},
+		},
+		{
+			name:   "allow_network_bind rules come after the lockdown deny",
+			mutate: func(p *sandbox.SandboxPolicy) { p.AllowNetworkBind = utils.PtrTo(true) },
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, bindRule)
+				denyIdx := strings.Index(out, denyMarker)
+				bindIdx := strings.Index(out, bindRule)
+				assert.Greater(t, bindIdx, denyIdx, "bind rules must come after the lockdown deny (SBPL last-match-wins)")
+			},
+		},
+		{
+			name:   "lockdown off keeps blanket allow",
+			mutate: func(p *sandbox.SandboxPolicy) { p.NetworkViaProxyOnly = nil },
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, blanketAllow)
+				assert.NotContains(t, out, denyMarker)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := basePolicy()
+			tt.mutate(policy)
+
+			translator := newSeatbeltPolicyTranslator()
+			out, err := translator.translate(policy, rt)
+			require.NoError(t, err)
+
+			tt.assert(t, out)
+		})
+	}
 }

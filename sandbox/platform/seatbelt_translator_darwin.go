@@ -209,7 +209,7 @@ func (t *seatbeltPolicyTranslator) LogTag() string {
 	return t.logTag
 }
 
-func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (string, error) {
+func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (string, error) {
 	var sb strings.Builder
 
 	// Header
@@ -392,7 +392,7 @@ func (t *seatbeltPolicyTranslator) translate(policy *sandbox.SandboxPolicy) (str
 	}
 
 	// Network rules
-	if err := t.translateNetwork(policy, &sb); err != nil {
+	if err := t.translateNetwork(policy, rt, &sb); err != nil {
 		return "", fmt.Errorf("failed to translate network rules: %w", err)
 	}
 
@@ -605,40 +605,67 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	return nil
 }
 
-// translateNetwork translates network access rules.
-func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, sb *strings.Builder) error {
+// translateNetwork translates network access rules. SBPL is last-match-wins,
+// so rule ordering is normative: the lockdown broad deny first, specific
+// allows after, and the AllowNetworkBind rules last so loopback traffic
+// keeps working under lockdown.
+func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext, sb *strings.Builder) error {
 	sb.WriteString(";; Network access\n")
 
-	// Check if deny all is present
-	denyAll := false
-	for _, pattern := range policy.Network.DenyOutbound {
-		if pattern == "*:*" {
-			denyAll = true
-			break
+	if utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		port, err := sandbox.ValidateNetworkLockdown(policy, rt)
+		if err != nil {
+			return err
 		}
+
+		sb.WriteString(";; network_via_proxy_only: all outbound confined to the PMG proxy\n")
+		sb.WriteString("(deny network-outbound (with message \"")
+		sb.WriteString(seatbeltLogMessage(t.logTag, "network-outbound", "direct"))
+		sb.WriteString("\"))\n")
+		sb.WriteString("(allow network-outbound (remote ip \"localhost:")
+		sb.WriteString(port)
+		sb.WriteString("\"))\n")
+
+		// macOS resolves names via the /var/run/mDNSResponder unix socket,
+		// which the deny above covers; the proxy resolves names, so direct
+		// DNS stays closed unless explicitly re-opened.
+		if utils.SafelyGetValue(policy.AllowDirectDNS) {
+			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
+		}
+
+		sb.WriteString("\n")
+	} else {
+		// Check if deny all is present
+		denyAll := false
+		for _, pattern := range policy.Network.DenyOutbound {
+			if pattern == "*:*" {
+				denyAll = true
+				break
+			}
+		}
+
+		// If there are allow outbound rules, allow network-outbound generally
+		// (Seatbelt doesn't support fine-grained host:port filtering in all cases)
+		// Note: This is a limitation of Seatbelt - for more fine-grained control,
+		// consider using a network filtering solution or firewall rules
+		if len(policy.Network.AllowOutbound) > 0 {
+			sb.WriteString(";; Network outbound allowed to specific hosts\n")
+			sb.WriteString(";; Note: Seatbelt has limited host-based filtering, consider using firewall rules for strict control\n")
+			sb.WriteString("(allow network-outbound)\n")
+		} else if denyAll {
+			// If there are no allow rules but deny all is set, explicitly deny network
+			// This handles the case where user wants to completely block network access
+			sb.WriteString(";; Network outbound denied (no allowed hosts specified)\n")
+			sb.WriteString("(deny network-outbound)\n")
+		}
+
+		// Note: We don't add an explicit deny rule when both allow and deny_all are present
+		// because the default (deny default) at the top of the profile handles blocking
+		// everything that isn't explicitly allowed. Adding an explicit deny here would
+		// override the allow rule above, breaking network access entirely.
+
+		sb.WriteString("\n")
 	}
-
-	// If there are allow outbound rules, allow network-outbound generally
-	// (Seatbelt doesn't support fine-grained host:port filtering in all cases)
-	// Note: This is a limitation of Seatbelt - for more fine-grained control,
-	// consider using a network filtering solution or firewall rules
-	if len(policy.Network.AllowOutbound) > 0 {
-		sb.WriteString(";; Network outbound allowed to specific hosts\n")
-		sb.WriteString(";; Note: Seatbelt has limited host-based filtering, consider using firewall rules for strict control\n")
-		sb.WriteString("(allow network-outbound)\n")
-	} else if denyAll {
-		// If there are no allow rules but deny all is set, explicitly deny network
-		// This handles the case where user wants to completely block network access
-		sb.WriteString(";; Network outbound denied (no allowed hosts specified)\n")
-		sb.WriteString("(deny network-outbound)\n")
-	}
-
-	// Note: We don't add an explicit deny rule when both allow and deny_all are present
-	// because the default (deny default) at the top of the profile handles blocking
-	// everything that isn't explicitly allowed. Adding an explicit deny here would
-	// override the allow rule above, breaking network access entirely.
-
-	sb.WriteString("\n")
 
 	// Network bind rules for local listening
 	if utils.SafelyGetValue(policy.AllowNetworkBind) {
