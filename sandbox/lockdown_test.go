@@ -51,6 +51,24 @@ func TestValidateLockdown(t *testing.T) {
 			wantErr: "loopback",
 		},
 		{
+			name:    "service-name proxy port",
+			policy:  lockdownPolicy,
+			rt:      &ExecutionContext{ProxyAddr: "127.0.0.1:http"},
+			wantErr: "non-numeric or out-of-range proxy port",
+		},
+		{
+			name:    "zero proxy port",
+			policy:  lockdownPolicy,
+			rt:      &ExecutionContext{ProxyAddr: "127.0.0.1:0"},
+			wantErr: "non-numeric or out-of-range proxy port",
+		},
+		{
+			name:    "out-of-range proxy port",
+			policy:  lockdownPolicy,
+			rt:      &ExecutionContext{ProxyAddr: "127.0.0.1:70000"},
+			wantErr: "non-numeric or out-of-range proxy port",
+		},
+		{
 			name:     "loopback ipv4 proxy address",
 			policy:   lockdownPolicy,
 			rt:       &ExecutionContext{ProxyAddr: "127.0.0.1:54321"},

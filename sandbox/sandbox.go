@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strconv"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/dry/utils"
@@ -42,6 +43,11 @@ func ValidateLockdown(policy *SandboxPolicy, rt *ExecutionContext) (string, erro
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
 		return "", fmt.Errorf("network_via_proxy_only: refusing non-loopback proxy address %q", rt.ProxyAddr)
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return "", fmt.Errorf("network_via_proxy_only: refusing non-numeric or out-of-range proxy port in %q", rt.ProxyAddr)
 	}
 
 	return port, nil
