@@ -19,10 +19,10 @@ type ExecutionContext struct {
 	ProxyAddr string
 }
 
-// ValidateLockdown enforces the network_via_proxy_only fail-closed contract
+// ValidateNetworkLockdown enforces the network_via_proxy_only fail-closed contract
 // for drivers that support it. Returns the validated proxy port, or "" when
 // lockdown is off.
-func ValidateLockdown(policy *SandboxPolicy, rt *ExecutionContext) (string, error) {
+func ValidateNetworkLockdown(policy *SandboxPolicy, rt *ExecutionContext) (string, error) {
 	if !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
 		return "", nil
 	}

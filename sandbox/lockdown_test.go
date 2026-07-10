@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidateLockdown(t *testing.T) {
+func TestValidateNetworkLockdown(t *testing.T) {
 	lockdownPolicy := &SandboxPolicy{
 		Name:                "lockdown",
 		NetworkViaProxyOnly: utils.PtrTo(true),
@@ -84,7 +84,7 @@ func TestValidateLockdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			port, err := ValidateLockdown(tt.policy, tt.rt)
+			port, err := ValidateNetworkLockdown(tt.policy, tt.rt)
 
 			if tt.wantErr != "" {
 				require.Error(t, err)

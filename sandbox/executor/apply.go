@@ -181,7 +181,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 	// env slice regardless of the OS sandbox driver).
 	scrubbed := scrubEnv(cmd, policy)
 
-	if _, err := sandbox.ValidateLockdown(policy, applyConfig.rt); err != nil {
+	if _, err := sandbox.ValidateNetworkLockdown(policy, applyConfig.rt); err != nil {
 		return nil, err
 	}
 
