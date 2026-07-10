@@ -765,6 +765,7 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 	proxyAllow := `(allow network-outbound (remote ip "localhost:54321"))`
 	blanketAllow := "(allow network-outbound)\n"
 	dnsAllow := `(allow network-outbound (remote unix-socket (path-literal "/var/run/mDNSResponder")))`
+	dnsAllowPrivate := `(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))`
 	dnsMachAllow := `(allow mach-lookup (global-name "com.apple.dnssd.service"))`
 	dnsPortAllow := `(allow network-outbound (remote ip "*:53"))`
 	bindRule := `(allow network* (local ip "localhost:*"))`
@@ -793,6 +794,7 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			mutate: func(p *sandbox.SandboxPolicy) { p.AllowDirectDNS = utils.PtrTo(true) },
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, dnsAllow)
+				assert.Contains(t, out, dnsAllowPrivate)
 				assert.Contains(t, out, dnsMachAllow)
 				assert.Contains(t, out, dnsPortAllow)
 			},

@@ -660,7 +660,10 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		// explicitly re-opens it.
 		if utils.SafelyGetValue(policy.AllowDirectDNS) {
 			sb.WriteString("(allow mach-lookup (global-name \"com.apple.dnssd.service\"))\n")
+			// /var is a symlink to /private/var and Seatbelt matches resolved
+			// paths; emit both literals (same duality as the TMPDIR handling).
 			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
+			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n")
 			sb.WriteString("(allow network-outbound (remote ip \"*:53\"))\n")
 		}
 
