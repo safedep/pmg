@@ -25,6 +25,11 @@ const (
 	CertTrustStore      = "CertTrustStore"
 	UnsupportedPlatform = "UnsupportedPlatform"
 
+	// Sandbox error codes. SandboxRequiresProxy is returned when a sandbox
+	// policy enables network_via_proxy_only but no PMG proxy is running to
+	// confine traffic to.
+	SandboxRequiresProxy = "SandboxRequiresProxy"
+
 	// Proxy error codes. ProxyPolicyViolation is returned when the proxy blocked
 	// one or more packages by policy (malware, dependency cooldown, or a denied
 	// suspicious package) and the run was gated with --fail-on-violation.

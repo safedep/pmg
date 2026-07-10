@@ -14,7 +14,7 @@ type fakeViolationSandbox struct {
 	report *sandbox.ViolationReport
 }
 
-func (f *fakeViolationSandbox) Execute(context.Context, *exec.Cmd, *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
+func (f *fakeViolationSandbox) Execute(context.Context, *exec.Cmd, *sandbox.SandboxPolicy, *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
 	return sandbox.NewExecutionResult(), nil
 }
 

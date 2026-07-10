@@ -35,6 +35,7 @@ const outputDrainGrace = 2 * time.Second
 type ExecuteOptions struct {
 	PackageManagerName string
 	DryRun             bool
+	SandboxProxyAddr   string
 	EnvOverrides       []string
 	DirectEnvOverrides []string
 	PTYEnvOverrides    []string
@@ -107,7 +108,8 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 		}
 	}
 
-	result, err := executor.ApplySandbox(ctx, cmd, opts.PackageManagerName)
+	result, err := executor.ApplySandbox(ctx, cmd, opts.PackageManagerName,
+		executor.WithExecutionContext(&sandbox.ExecutionContext{ProxyAddr: opts.SandboxProxyAddr}))
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}

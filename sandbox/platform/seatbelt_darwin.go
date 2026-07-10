@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/sandbox"
 )
 
@@ -35,7 +38,22 @@ func newSeatbeltSandbox() (*seatbeltSandbox, error) {
 //
 // This implementation modifies the cmd in place and does NOT execute it.
 // Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
-func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy) (*sandbox.ExecutionResult, error) {
+func (s *seatbeltSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
+	if _, err := sandbox.ValidateNetworkLockdown(policy, rt); err != nil {
+		return nil, err
+	}
+
+	// Temporary fail-closed stub until the Seatbelt translator emits the
+	// lockdown profile: without it, a lockdown policy would silently get the
+	// pre-lockdown network rules. Removed when lockdown translation lands.
+	if utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.UnsupportedPlatform).
+			WithHumanError("network_via_proxy_only is not yet enforced by this pmg build").
+			WithHelp("Disable network_via_proxy_only for this profile until lockdown enforcement ships.").
+			Wrap(fmt.Errorf("network_via_proxy_only translation is not yet implemented (%s sandbox)", s.Name()))
+	}
+
 	sbProfile, err := s.translator.translate(policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate sandbox policy: %w", err)

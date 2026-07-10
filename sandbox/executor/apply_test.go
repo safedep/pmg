@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -371,4 +372,52 @@ func TestApplyProjectOverlayEmptyArgsNoop(t *testing.T) {
 	applied, err := applyProjectOverlay(policy, "", "", false)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, applied)
+}
+
+type fakeApplySandbox struct {
+	rt *sandbox.ExecutionContext
+}
+
+func (f *fakeApplySandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
+	f.rt = rt
+	return sandbox.NewExecutionResult(), nil
+}
+
+func (f *fakeApplySandbox) Name() sandbox.DriverName { return "fake" }
+func (f *fakeApplySandbox) IsAvailable() bool        { return true }
+func (f *fakeApplySandbox) Close() error             { return nil }
+
+func TestApplySandboxLockdownRequiresExecutionContext(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "lockdown.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: lockdown-apply-test
+package_managers: ["npm"]
+filesystem:
+  allow_read: ["/tmp"]
+network_via_proxy_only: true
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	fake := &fakeApplySandbox{}
+
+	_, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm", WithSandbox(fake))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires the PMG proxy")
+	assert.Nil(t, fake.rt)
+
+	rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}
+	result, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm",
+		WithSandbox(fake), WithExecutionContext(rt))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, rt, fake.rt)
 }

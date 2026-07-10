@@ -2,8 +2,56 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os/exec"
+	"strconv"
+
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/errcodes"
 )
+
+// ExecutionContext carries runtime data known only at spawn time.
+type ExecutionContext struct {
+	// ProxyAddr is the loopback TCP address of the running PMG proxy
+	// (e.g. "127.0.0.1:54321"). Empty when no proxy flow is active.
+	ProxyAddr string
+}
+
+// ValidateNetworkLockdown enforces the network_via_proxy_only fail-closed contract
+// for drivers that support it. Returns the validated proxy port, or "" when
+// lockdown is off.
+func ValidateNetworkLockdown(policy *SandboxPolicy, rt *ExecutionContext) (string, error) {
+	if !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		return "", nil
+	}
+
+	if rt == nil || rt.ProxyAddr == "" {
+		return "", usefulerror.NewUsefulError().
+			WithCode(errcodes.SandboxRequiresProxy).
+			WithHumanError("network_via_proxy_only requires the PMG proxy flow").
+			WithHelp("This sandbox profile confines all network access to the PMG proxy, but no proxy is running.").
+			Wrap(fmt.Errorf("policy %s requires the PMG proxy flow: network_via_proxy_only is set but no proxy address was provided", policy.Name))
+	}
+
+	host, port, err := net.SplitHostPort(rt.ProxyAddr)
+	if err != nil {
+		return "", fmt.Errorf("network_via_proxy_only: proxy address %q is not host:port and not loopback: %w", rt.ProxyAddr, err)
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return "", fmt.Errorf("network_via_proxy_only: refusing non-loopback proxy address %q", rt.ProxyAddr)
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return "", fmt.Errorf("network_via_proxy_only: refusing non-numeric or out-of-range proxy port in %q", rt.ProxyAddr)
+	}
+
+	return port, nil
+}
 
 // DriverName identifies a sandbox driver implementation. Returned by
 // Sandbox.Name() and used wherever code needs to refer to a specific driver.
@@ -153,8 +201,11 @@ type Sandbox interface {
 	//   - ExecutionResult: Contains execution state and metadata
 	//   - error: Non-nil if sandbox setup or execution failed
 	//
+	// rt carries runtime data known only at spawn time; drivers treat a nil
+	// rt as &ExecutionContext{}.
+	//
 	// Callers must check result.ShouldRun() and only call cmd.Run() if true.
-	Execute(ctx context.Context, cmd *exec.Cmd, policy *SandboxPolicy) (*ExecutionResult, error)
+	Execute(ctx context.Context, cmd *exec.Cmd, policy *SandboxPolicy, rt *ExecutionContext) (*ExecutionResult, error)
 
 	// Name returns the sandbox driver identifier.
 	Name() DriverName
