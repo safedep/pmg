@@ -73,6 +73,7 @@ func TestSeatbeltExecuteLockdownValidation(t *testing.T) {
 		{"empty proxy address", &sandbox.ExecutionContext{}, "requires the PMG proxy"},
 		{"non-loopback proxy address", &sandbox.ExecutionContext{ProxyAddr: "192.168.1.5:9999"}, "loopback"},
 		{"unparseable proxy address", &sandbox.ExecutionContext{ProxyAddr: "not-an-address"}, "loopback"},
+		{"valid proxy address rejected until translation lands", &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}, "not yet implemented"},
 	}
 
 	for _, tt := range tests {
