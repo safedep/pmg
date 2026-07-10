@@ -143,6 +143,14 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			target = extractSeatbeltDeniedToken(entry.EventMessage, payload)
 		}
 
+		// The lockdown deny marker (target=direct) is authoritative for the
+		// human message even when the raw operand is path-shaped (e.g. the
+		// mDNSResponder unix socket); Target keeps the denied operand.
+		labelTarget := target
+		if labelKind == "network-outbound" && payload.Target == "direct" {
+			labelTarget = payload.Target
+		}
+
 		violations = append(violations, sandbox.Violation{
 			Kind:       kind,
 			RawKind:    payload.Kind,
@@ -150,7 +158,7 @@ func extractSeatbeltViolations(entries []seatbeltLogEntry, runID string) []sandb
 			RuleTarget: payload.Target,
 			Process:    process,
 			RawLog:     strings.TrimSpace(entry.EventMessage),
-			RuleLabel:  summarizeSeatbeltViolation(labelKind, target),
+			RuleLabel:  summarizeSeatbeltViolation(labelKind, labelTarget),
 		})
 	}
 
