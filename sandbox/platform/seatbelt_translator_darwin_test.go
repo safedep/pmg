@@ -769,11 +769,13 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 
 	tests := []struct {
 		name   string
+		rt     *sandbox.ExecutionContext
 		mutate func(*sandbox.SandboxPolicy)
 		assert func(t *testing.T, out string)
 	}{
 		{
 			name:   "lockdown base",
+			rt:     rt,
 			mutate: func(p *sandbox.SandboxPolicy) {},
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, denyMarker)
@@ -784,6 +786,7 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 		},
 		{
 			name:   "allow_direct_dns reopens mDNSResponder",
+			rt:     rt,
 			mutate: func(p *sandbox.SandboxPolicy) { p.AllowDirectDNS = utils.PtrTo(true) },
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, dnsAllow)
@@ -791,6 +794,7 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 		},
 		{
 			name:   "allow_network_bind rules come after the lockdown deny",
+			rt:     rt,
 			mutate: func(p *sandbox.SandboxPolicy) { p.AllowNetworkBind = utils.PtrTo(true) },
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, denyMarker)
@@ -802,7 +806,18 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			},
 		},
 		{
+			name:   "render without proxy context stays deny-only and documents the runtime allow",
+			rt:     nil,
+			mutate: func(p *sandbox.SandboxPolicy) {},
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, denyMarker)
+				assert.Contains(t, out, "Rendered without a running PMG proxy")
+				assert.NotContains(t, out, `(allow network-outbound (remote ip`)
+			},
+		},
+		{
 			name:   "lockdown off keeps blanket allow",
+			rt:     rt,
 			mutate: func(p *sandbox.SandboxPolicy) { p.NetworkViaProxyOnly = nil },
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, blanketAllow)
@@ -817,7 +832,7 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			tt.mutate(policy)
 
 			translator := newSeatbeltPolicyTranslator()
-			out, err := translator.translate(policy, rt)
+			out, err := translator.translate(policy, tt.rt)
 			require.NoError(t, err)
 
 			tt.assert(t, out)

@@ -613,18 +613,29 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	sb.WriteString(";; Network access\n")
 
 	if utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
-		port, err := sandbox.ValidateNetworkLockdown(policy, rt)
-		if err != nil {
-			return err
-		}
-
 		sb.WriteString(";; network_via_proxy_only: all outbound confined to the PMG proxy\n")
 		sb.WriteString("(deny network-outbound (with message \"")
 		sb.WriteString(seatbeltLogMessage(t.logTag, "network-outbound", "direct"))
 		sb.WriteString("\"))\n")
-		sb.WriteString("(allow network-outbound (remote ip \"localhost:")
-		sb.WriteString(port)
-		sb.WriteString("\"))\n")
+
+		// Without a running proxy (render/inspection, e.g. `pmg sandbox
+		// profile show`) the profile stays fail-closed: the deny stands and
+		// the runtime-only allow is documented instead of emitted with a
+		// fabricated port.
+		if rt == nil || rt.ProxyAddr == "" {
+			sb.WriteString(";; Rendered without a running PMG proxy. At runtime an\n")
+			sb.WriteString(";; (allow network-outbound (remote ip \"localhost:<pmg-proxy-port>\"))\n")
+			sb.WriteString(";; rule permits traffic to the PMG proxy only.\n")
+		} else {
+			port, err := sandbox.ValidateNetworkLockdown(policy, rt)
+			if err != nil {
+				return err
+			}
+
+			sb.WriteString("(allow network-outbound (remote ip \"localhost:")
+			sb.WriteString(port)
+			sb.WriteString("\"))\n")
+		}
 
 		// macOS resolves names via the /var/run/mDNSResponder unix socket,
 		// which the deny above covers; the proxy resolves names, so direct
