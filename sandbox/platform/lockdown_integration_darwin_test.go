@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -114,27 +113,20 @@ func mustListenLoopback(t *testing.T) net.Listener {
 	return ln
 }
 
+// lockdownTestPolicy mirrors the shipped profiles' filesystem posture
+// (broad read like go.yml, temp-only writes): filesystem breadth is not
+// under test here, network confinement is.
 func lockdownTestPolicy(t *testing.T) *sandbox.SandboxPolicy {
 	t.Helper()
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-	exe, err := os.Executable()
-	require.NoError(t, err)
 
 	return &sandbox.SandboxPolicy{
 		Name:            "lockdown-e2e",
 		PackageManagers: []string{"npm"},
 		Filesystem: sandbox.FilesystemPolicy{
-			AllowRead: []string{
-				cwd + "/**",
-				filepath.Dir(exe) + "/**",
-				os.TempDir() + "/**",
-				"/private/tmp/**",
-				"/usr/lib/**",
-				"/System/**",
-			},
+			AllowRead: []string{"/"},
 			AllowWrite: []string{
 				os.TempDir() + "/**",
+				"/tmp/**",
 				"/private/tmp/**",
 				"/dev/null",
 			},
