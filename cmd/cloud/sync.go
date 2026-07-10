@@ -44,20 +44,34 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	synced, err := audit.DrainToCloud(cmd.Context(), cfg, manualSyncLockTimeout, syncTimeout)
 	if err != nil {
-		if errors.Is(err, audit.ErrSyncInProgress) {
-			ui.ErrorExit(usefulerror.NewUsefulError().
-				WithCode(errcodes.Lifecycle).
-				WithHumanError("Another cloud sync is already in progress").
-				WithHelp("Wait for the in-progress sync to finish, then try again"))
-		}
-		ui.ErrorExit(usefulerror.NewUsefulError().
-			Wrap(err).
-			WithCode(errcodes.Network).
-			WithHumanError("Failed to sync events to SafeDep Cloud").
-			WithHelp("Check your network connectivity and ensure SafeDep Cloud is reachable").
-			WithAdditionalHelp("Override the cloud endpoint with SAFEDEP_CLOUD_DATA_ADDR if needed"))
+		ui.ErrorExit(syncFailureError(err))
 	}
 
 	ui.Successf("Synced %d events to SafeDep Cloud", synced)
 	return nil
+}
+
+// syncFailureError maps a DrainToCloud failure to a user-facing error. Errors
+// the backend already classified (authentication, entitlements, quota — via
+// gRPC status and usefulerror converters) pass through so the real cause is
+// shown; the network-flavored message is only a fallback for errors nothing
+// can classify.
+func syncFailureError(err error) error {
+	if errors.Is(err, audit.ErrSyncInProgress) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.Lifecycle).
+			WithHumanError("Another cloud sync is already in progress").
+			WithHelp("Wait for the in-progress sync to finish, then try again")
+	}
+
+	if usefulErr, ok := usefulerror.AsUsefulError(err); ok {
+		return usefulErr
+	}
+
+	return usefulerror.NewUsefulError().
+		Wrap(err).
+		WithCode(errcodes.Network).
+		WithHumanError("Failed to sync events to SafeDep Cloud").
+		WithHelp("Check your network connectivity and ensure SafeDep Cloud is reachable").
+		WithAdditionalHelp("Override the cloud endpoint with SAFEDEP_CLOUD_DATA_ADDR if needed")
 }
