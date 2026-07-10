@@ -113,6 +113,10 @@ Whenever a global config file is present:
 
 By default a user can still override the global config's values at runtime through `PMG_*` environment variables and CLI flags. Enable lockdown to forbid that.
 
+## System Install (Linux)
+
+See [system-install.md](./system-install.md) for `pmg setup install --system`: artifacts, Docker `ENV PATH`, what works vs what differs (aliases, config edit, logs, cloud, CA, sandbox), and permissions.
+
 ### Lockdown
 
 Add `global_lockdown: true` to the global config to enforce it:

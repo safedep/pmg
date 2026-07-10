@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -78,6 +79,12 @@ func executeSetupInfo() error {
 
 	shellEntries["Detected Shell"] = shell
 	shellEntries["Alias Installed"] = strconv.FormatBool(isInstalled)
+	shellEntries["User Shims"] = strconv.FormatBool(shim.UserShimsInstalled())
+	shellEntries["System Shims"] = strconv.FormatBool(shim.SystemShimsInstalled())
+	shellEntries["System Profile"] = strconv.FormatBool(shim.SystemProfileInstalled())
+	if shim.SystemShimsInstalled() {
+		shellEntries["System Shim Dir"] = shim.SystemBinDir()
+	}
 	ui.PrintInfoSection("Shell Integration", shellEntries)
 
 	// Security section

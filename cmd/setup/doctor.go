@@ -91,11 +91,17 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
+				if cfg.Config.SkipEventLogging {
+					return doctor.CheckResult{
+						Status:  doctor.StatusWarn,
+						Message: "Event logging is disabled",
+					}
+				}
 				info, err := os.Stat(cfg.EventLogDir())
 				if err != nil {
 					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Event log directory not found",
+						Status:  doctor.StatusWarn,
+						Message: "Event log directory not found (PMG still runs without event logs)",
 					}
 				}
 				if !info.IsDir() {
@@ -114,6 +120,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkShellAliases,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
+				if shim.SystemShimsInstalled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: "System shims installed (aliases optional)",
+					}
+				}
 				aliasCfg := alias.DefaultConfig()
 				rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
 				if err != nil {
@@ -146,6 +158,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkShimDirectory,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
+				if shim.SystemShimsInstalled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: fmt.Sprintf("System shim directory found (%s)", shim.SystemBinDir()),
+					}
+				}
 				sm, err := shim.NewDefaultShimManager()
 				if err != nil {
 					return doctor.CheckResult{
@@ -171,6 +189,20 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkShimInPath,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
+				pathEntries := filepath.SplitList(os.Getenv("PATH"))
+				if shim.SystemShimsInstalled() {
+					systemDir := shim.SystemBinDir()
+					if slices.Contains(pathEntries, systemDir) {
+						return doctor.CheckResult{
+							Status:  doctor.StatusPass,
+							Message: "System shim directory is in PATH",
+						}
+					}
+					return doctor.CheckResult{
+						Status:  doctor.StatusFail,
+						Message: fmt.Sprintf("System shim directory not in PATH (add ENV PATH=\"%s:$PATH\" for Docker RUN)", systemDir),
+					}
+				}
 				sm, err := shim.NewDefaultShimManager()
 				if err != nil {
 					return doctor.CheckResult{
@@ -179,7 +211,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 					}
 				}
 				shimDir := sm.GetBinDir()
-				if slices.Contains(filepath.SplitList(os.Getenv("PATH")), shimDir) {
+				if slices.Contains(pathEntries, shimDir) {
 					return doctor.CheckResult{
 						Status:  doctor.StatusPass,
 						Message: "Shim directory is in PATH",
@@ -334,15 +366,15 @@ var checkDisplayNames = map[string]string{
 var checkFixes = map[string]string{
 	checkConfigFile:         "pmg setup install",
 	checkEventLogDir:        "pmg setup install",
-	checkShellAliases:       "pmg setup install",
-	checkShimDirectory:      "pmg setup install",
-	checkShimInPath:         "Restart shell or source config",
+	checkShellAliases:       "pmg setup install [--system]",
+	checkShimDirectory:      "pmg setup install [--system]",
+	checkShimInPath:         "Restart shell, source profile, or set ENV PATH for Docker",
 	checkProxyMode:          "Set proxy.enabled: true in config",
 	checkSandbox:            "Set sandbox.enabled: true in config",
 	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
 	checkEventLogging:       "Set skip_event_logging: false in config",
-	checkProtectionNpm:      "pmg setup install",
-	checkProtectionPip:      "pmg setup install",
+	checkProtectionNpm:      "pmg setup install [--system]",
+	checkProtectionPip:      "pmg setup install [--system]",
 	checkCA:                 "pmg setup cert install",
 }
 

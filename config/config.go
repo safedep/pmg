@@ -821,18 +821,57 @@ func WriteTemplateConfig() error {
 		return nil
 	}
 
-	configDir, err := configDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
 	configFilePath, err := userConfigFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	return writeTemplateConfigFile(configFilePath)
+}
+
+// RemoveUserConfigFile deletes the per-user config file. It never touches the
+// globally managed file. A missing file is not an error.
+func RemoveUserConfigFile() error {
+	path, err := userConfigFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	return removeFileIfExists(path)
+}
+
+// WriteSystemTemplateConfig writes the template configuration to the OS-level
+// managed config path (e.g. /etc/safedep/pmg/config.yml on Linux). Used by
+// `pmg setup install --system`.
+func WriteSystemTemplateConfig() error {
+	path := globalConfigFilePath()
+	if path == "" {
+		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
+	}
+
+	return writeTemplateConfigFile(path)
+}
+
+// RemoveSystemConfigFile deletes the globally managed config file. A missing
+// file is not an error. Returns an error when the platform has no system path.
+func RemoveSystemConfigFile() error {
+	path := globalConfigFilePath()
+	if path == "" {
+		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
+	}
+
+	return removeFileIfExists(path)
+}
+
+// SystemConfigDir returns the OS-level managed config directory, or "" when
+// unsupported.
+func SystemConfigDir() string {
+	return globalConfigDir()
+}
+
+func writeTemplateConfigFile(configFilePath string) error {
+	if err := os.MkdirAll(filepath.Dir(configFilePath), 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	existingConfig, err := os.ReadFile(configFilePath)
@@ -855,14 +894,7 @@ func WriteTemplateConfig() error {
 	return nil
 }
 
-// RemoveUserConfigFile deletes the per-user config file. It never touches the
-// globally managed file. A missing file is not an error.
-func RemoveUserConfigFile() error {
-	path, err := userConfigFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config file path: %w", err)
-	}
-
+func removeFileIfExists(path string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove config file %q: %w", path, err)
 	}

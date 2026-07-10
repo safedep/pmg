@@ -18,6 +18,11 @@ type ShimConfig struct {
 	PMGBin          string
 	PackageManagers []string
 	Shells          []alias.Shell
+	// SkipShellRc skips per-user shell rc PATH edits. Used by system install,
+	// which relies on /etc/profile.d or ENV PATH instead.
+	SkipShellRc bool
+	// ManageProfile writes and removes /etc/profile.d/pmg.sh with Install/Remove.
+	ManageProfile bool
 }
 
 type ShimManager struct {
@@ -68,6 +73,16 @@ func (m *ShimManager) Install() error {
 		}
 	}
 
+	if m.config.ManageProfile {
+		if err := writeSystemProfile(); err != nil {
+			return fmt.Errorf("failed to write system profile: %w", err)
+		}
+	}
+
+	if m.config.SkipShellRc {
+		return nil
+	}
+
 	if err := m.addPathToShells(); err != nil {
 		return fmt.Errorf("failed to update shell configs: %w", err)
 	}
@@ -78,6 +93,16 @@ func (m *ShimManager) Install() error {
 func (m *ShimManager) Remove() error {
 	if err := os.RemoveAll(m.config.BinDir); err != nil && !os.IsNotExist(err) {
 		log.Warnf("Warning: failed to remove shim directory: %v", err)
+	}
+
+	if m.config.ManageProfile {
+		if err := removeSystemProfile(); err != nil {
+			return fmt.Errorf("failed to remove system profile: %w", err)
+		}
+	}
+
+	if m.config.SkipShellRc {
+		return nil
 	}
 
 	if err := m.removePathFromShells(); err != nil {
@@ -206,4 +231,14 @@ func (m *ShimManager) removePathFromShells() error {
 	}
 
 	return nil
+}
+
+// UserShimsInstalled reports whether the per-user shim directory (~/.pmg/bin)
+// contains at least one shim script.
+func UserShimsInstalled() bool {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return shimsPresent(filepath.Join(homeDir, ".pmg", "bin"))
 }

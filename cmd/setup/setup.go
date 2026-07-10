@@ -1,10 +1,14 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"runtime"
 
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
@@ -12,7 +16,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var setupRemoveConfigFile = false
+var (
+	setupRemoveConfigFile bool
+	setupInstallSystem    bool
+	setupRemoveSystem     bool
+)
+
+var setupGeteuid = os.Geteuid
 
 func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
@@ -35,7 +45,7 @@ func NewSetupCommand() *cobra.Command {
 }
 
 func NewInstallCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:          "install",
 		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
@@ -44,9 +54,20 @@ func NewInstallCommand() *cobra.Command {
 			return install()
 		},
 	}
+	cmd.Flags().BoolVar(&setupInstallSystem, "system", false, "Install system-wide for all users (Linux, requires root)")
+	return cmd
 }
 
 func install() error {
+	if setupInstallSystem {
+		return installSystem()
+	}
+
+	if setupGeteuid() == 0 {
+		fmt.Printf("%s %s\n", ui.Colors.Yellow("⚠"),
+			"Running as root without --system configures only root's home. Use `pmg setup install --system` so all users are covered.")
+	}
+
 	if err := config.WriteTemplateConfig(); err != nil {
 		return fmt.Errorf("failed to write template config: %w", err)
 	}
@@ -88,6 +109,28 @@ func install() error {
 	return nil
 }
 
+func installSystem() error {
+	if err := errIfSystemInstallAllowed(); err != nil {
+		return err
+	}
+
+	if err := config.WriteSystemTemplateConfig(); err != nil {
+		return fmt.Errorf("failed to write system config: %w", err)
+	}
+
+	shimMgr, err := shim.NewSystemShimManager()
+	if err != nil {
+		return fmt.Errorf("failed to create system shim manager: %w", err)
+	}
+
+	if err := shimMgr.Install(); err != nil {
+		return fmt.Errorf("failed to install system shims: %w", err)
+	}
+
+	ui.PrintSetupSystemInstallCmdInfo(shimMgr.GetBinDir(), config.SystemConfigDir(), shim.SystemProfilePath())
+	return nil
+}
+
 func NewRemoveCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "remove",
@@ -95,45 +138,95 @@ func NewRemoveCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-
-			if setupRemoveConfigFile {
-				// Only ever remove the per-user file; the globally managed
-				// config is not ours to delete from a per-user uninstall.
-				if err := config.RemoveUserConfigFile(); err != nil {
-					return err
-				}
-			}
-
-			if runtime.GOOS == "windows" {
-				fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. No aliases or shims to clean up on Windows.")
-				return nil
-			}
-
-			cfg := alias.DefaultConfig()
-			rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
-			if err != nil {
-				return err
-			}
-
-			aliasManager := alias.New(cfg, rcFileManager)
-			if err := aliasManager.Remove(); err != nil {
-				return fmt.Errorf("failed to remove aliases: %w", err)
-			}
-
-			shimMgr, err := shim.NewDefaultShimManager()
-			if err != nil {
-				return fmt.Errorf("failed to create shim manager: %w", err)
-			}
-
-			if err := shimMgr.Remove(); err != nil {
-				return fmt.Errorf("failed to remove shims: %w", err)
-			}
-
-			fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases and shims removed. Restart your terminal for changes to take effect")
-			return nil
+			return remove()
 		},
 	}
 
 	cmd.Flags().BoolVar(&setupRemoveConfigFile, "config-file", false, "Remove the config file")
+	cmd.Flags().BoolVar(&setupRemoveSystem, "system", false, "Remove system-wide install (Linux, requires root)")
 	return cmd
+}
+
+func remove() error {
+	if setupRemoveSystem {
+		return removeSystem()
+	}
+
+	if setupRemoveConfigFile {
+		// Only ever remove the per-user file; the globally managed
+		// config is not ours to delete from a per-user uninstall.
+		if err := config.RemoveUserConfigFile(); err != nil {
+			return err
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. No aliases or shims to clean up on Windows.")
+		return nil
+	}
+
+	cfg := alias.DefaultConfig()
+	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
+	if err != nil {
+		return err
+	}
+
+	aliasManager := alias.New(cfg, rcFileManager)
+	if err := aliasManager.Remove(); err != nil {
+		return fmt.Errorf("failed to remove aliases: %w", err)
+	}
+
+	shimMgr, err := shim.NewDefaultShimManager()
+	if err != nil {
+		return fmt.Errorf("failed to create shim manager: %w", err)
+	}
+
+	if err := shimMgr.Remove(); err != nil {
+		return fmt.Errorf("failed to remove shims: %w", err)
+	}
+
+	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases and shims removed. Restart your terminal for changes to take effect")
+	return nil
+}
+
+func removeSystem() error {
+	if err := errIfSystemInstallAllowed(); err != nil {
+		return err
+	}
+
+	if setupRemoveConfigFile {
+		if err := config.RemoveSystemConfigFile(); err != nil {
+			return err
+		}
+	}
+
+	shimMgr, err := shim.NewSystemShimManager()
+	if err != nil {
+		return fmt.Errorf("failed to create system shim manager: %w", err)
+	}
+
+	if err := shimMgr.Remove(); err != nil {
+		return fmt.Errorf("failed to remove system shims: %w", err)
+	}
+
+	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG system install removed")
+	return nil
+}
+
+func errIfSystemInstallAllowed() error {
+	if runtime.GOOS != "linux" {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.UnsupportedPlatform).
+			WithHumanError("system install is only supported on Linux").
+			WithHelp("Use `pmg setup install` without --system for per-user setup, or run on Linux").
+			Wrap(errors.New("unsupported platform for --system"))
+	}
+	if setupGeteuid() != 0 {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError("system install requires root").
+			WithHelp("Re-run as root, e.g. `sudo pmg setup install --system`").
+			Wrap(errors.New("not root"))
+	}
+	return nil
 }
