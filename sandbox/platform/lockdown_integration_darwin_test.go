@@ -17,7 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const lockdownHelperEnv = "PMG_LOCKDOWN_HELPER"
+const (
+	lockdownHelperEnv       = "PMG_LOCKDOWN_HELPER"
+	lockdownSandboxExecPath = "/usr/bin/sandbox-exec"
+)
 
 // TestLockdownHelperProcess is not a test: it is the child process re-executed
 // under sandbox-exec by the lockdown integration test below. It performs the
@@ -81,13 +84,13 @@ func TestLockdownHelperProcess(t *testing.T) {
 	}
 
 	if failed {
-		os.Exit(1)
+		t.Fatal("one or more sandboxed checks disagreed with expectations")
 	}
 }
 
 func requireSandboxExec(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("sandbox-exec"); err != nil {
+	if _, err := os.Stat(lockdownSandboxExecPath); err != nil {
 		// Skips must not hide security tests in CI (see ci.yml).
 		if os.Getenv("CI") != "" {
 			t.Fatal("sandbox-exec required in CI")
@@ -152,7 +155,7 @@ func writeTempProfile(t *testing.T, policy *sandbox.SandboxPolicy, proxyAddr str
 
 func runSandboxedHelper(t *testing.T, profilePath string, env map[string]string) error {
 	t.Helper()
-	cmd := exec.Command("/usr/bin/sandbox-exec", "-f", profilePath,
+	cmd := exec.Command(lockdownSandboxExecPath, "-f", profilePath,
 		os.Args[0], "-test.run", "^TestLockdownHelperProcess$", "-test.v")
 	cmd.Env = append(os.Environ(), lockdownHelperEnv+"=1")
 	for k, v := range env {
