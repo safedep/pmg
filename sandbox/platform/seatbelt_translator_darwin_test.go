@@ -812,7 +812,9 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 			assert: func(t *testing.T, out string) {
 				assert.Contains(t, out, denyMarker)
 				assert.Contains(t, out, "Rendered without a running PMG proxy")
-				assert.NotContains(t, out, `(allow network-outbound (remote ip`)
+				// The runtime allow is documented in an SBPL comment; assert no
+				// actual (non-comment) allow rule is emitted.
+				assert.NotContains(t, out, "\n(allow network-outbound (remote ip")
 			},
 		},
 		{
