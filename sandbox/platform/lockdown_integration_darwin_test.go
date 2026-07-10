@@ -61,6 +61,25 @@ func TestLockdownHelperProcess(t *testing.T) {
 		_, err := net.DefaultResolver.LookupHost(ctx, host)
 		wantPass := os.Getenv("PMG_RESOLVE_MUST_PASS") == "1"
 		report(fmt.Sprintf("resolve %s (wantPass=%v)", host, wantPass), (err == nil) == wantPass, err)
+
+		// Informational probes to localize where resolution is blocked; they
+		// do not affect the pass/fail outcome.
+		goResolver := &net.Resolver{PreferGo: true}
+		_, goErr := goResolver.LookupHost(ctx, host)
+		fmt.Printf("probe prefergo-resolve %s: err=%v\n", host, goErr)
+
+		conn, dialErr := net.DialTimeout("udp", "1.1.1.1:53", 2*time.Second)
+		if dialErr != nil {
+			fmt.Printf("probe udp53-dial: err=%v\n", dialErr)
+		} else {
+			_, writeErr := conn.Write([]byte{0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00, 0x00, 0x01, 0x00, 0x01})
+			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			buf := make([]byte, 512)
+			_, readErr := conn.Read(buf)
+			fmt.Printf("probe udp53 write err=%v read err=%v\n", writeErr, readErr)
+			_ = conn.Close()
+		}
 	}
 
 	if os.Getenv("PMG_SELF_DIAL") == "1" {
@@ -193,6 +212,18 @@ func TestLockdownEnforcementDarwin(t *testing.T) {
 			"PMG_RESOLVE_MUST_PASS": "1",
 		})
 		assert.NoError(t, err, "DNS must pass with allow_direct_dns")
+	})
+
+	t.Run("allow_direct_dns with network bind (diagnostic)", func(t *testing.T) {
+		policy := lockdownTestPolicy(t)
+		policy.AllowDirectDNS = utils.PtrTo(true)
+		policy.AllowNetworkBind = utils.PtrTo(true)
+		profile := writeTempProfile(t, policy, proxyLn.Addr().String())
+		err := runSandboxedHelper(t, profile, map[string]string{
+			"PMG_RESOLVE":           "example.com",
+			"PMG_RESOLVE_MUST_PASS": "1",
+		})
+		assert.NoError(t, err, "DNS with allow_direct_dns and allow_network_bind")
 	})
 
 	// Gating check for the milestone: allow_network_bind's
