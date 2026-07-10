@@ -262,7 +262,8 @@ func TestLintProfile_AllowDirectDNSWithoutLockdown(t *testing.T) {
 			var found *LintIssue
 			for _, i := range LintProfile(policy) {
 				if i.Code == "allow-direct-dns-without-lockdown" {
-					found = &i
+					issue := i
+					found = &issue
 					break
 				}
 			}
