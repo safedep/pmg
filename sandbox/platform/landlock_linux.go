@@ -89,7 +89,7 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.UnsupportedPlatform).
 			WithHumanError("network_via_proxy_only is not yet supported on this platform").
-			WithHelp("Disable network_via_proxy_only for this profile or run on macOS.").
+			WithHelp("Disable network_via_proxy_only for this profile.").
 			Wrap(fmt.Errorf("network_via_proxy_only is not yet supported on this platform (%s sandbox)", s.Name()))
 	}
 

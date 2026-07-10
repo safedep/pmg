@@ -35,10 +35,6 @@ const outputDrainGrace = 2 * time.Second
 type ExecuteOptions struct {
 	PackageManagerName string
 	DryRun             bool
-
-	// SandboxProxyAddr is the loopback address of the running PMG proxy,
-	// consumed by sandbox drivers enforcing network_via_proxy_only. Empty
-	// when no proxy flow is active.
 	SandboxProxyAddr   string
 	EnvOverrides       []string
 	DirectEnvOverrides []string
