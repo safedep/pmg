@@ -217,3 +217,27 @@ func TestInferSeatbeltKindFromRawLog(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractSeatbeltViolationsLockdownDirectDenial(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: `Sandbox: curl(123) deny(1) network-outbound ` +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			Process: "curl",
+		},
+		{
+			EventMessage: `Sandbox: curl(124) deny(1) network-outbound ` +
+				seatbeltLogMessage("run-1", "network-outbound", "1.2.3.4:443"),
+			Process: "curl",
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 2)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Contains(t, violations[0].RuleLabel, "direct network access blocked by network_via_proxy_only")
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[1].Kind)
+	assert.Equal(t, "network connect denied: 1.2.3.4:443", violations[1].RuleLabel)
+}

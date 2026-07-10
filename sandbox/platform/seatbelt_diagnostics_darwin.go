@@ -324,6 +324,9 @@ func summarizeSeatbeltViolation(kind, target string) string {
 		}
 		return fmt.Sprintf("network bind denied: %s", target)
 	case "network-outbound":
+		if target == "direct" {
+			return "direct network access blocked by network_via_proxy_only — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)"
+		}
 		if target == "" {
 			return "network connect denied"
 		}
