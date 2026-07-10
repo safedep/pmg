@@ -32,8 +32,8 @@ func TestLockdownHelperProcess(t *testing.T) {
 	}
 
 	failed := false
-	report := func(name string, ok bool) {
-		fmt.Printf("check %s: ok=%v\n", name, ok)
+	report := func(name string, ok bool, err error) {
+		fmt.Printf("check %s: ok=%v err=%v\n", name, ok, err)
 		if !ok {
 			failed = true
 		}
@@ -41,7 +41,7 @@ func TestLockdownHelperProcess(t *testing.T) {
 
 	if addr := os.Getenv("PMG_DIAL_MUST_PASS"); addr != "" {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-		report("dial-must-pass "+addr, err == nil)
+		report("dial-must-pass "+addr, err == nil, err)
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -49,7 +49,7 @@ func TestLockdownHelperProcess(t *testing.T) {
 
 	if addr := os.Getenv("PMG_DIAL_MUST_FAIL"); addr != "" {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-		report("dial-must-fail "+addr, err != nil)
+		report("dial-must-fail "+addr, err != nil, err)
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -60,13 +60,13 @@ func TestLockdownHelperProcess(t *testing.T) {
 		defer cancel()
 		_, err := net.DefaultResolver.LookupHost(ctx, host)
 		wantPass := os.Getenv("PMG_RESOLVE_MUST_PASS") == "1"
-		report(fmt.Sprintf("resolve %s (wantPass=%v)", host, wantPass), (err == nil) == wantPass)
+		report(fmt.Sprintf("resolve %s (wantPass=%v)", host, wantPass), (err == nil) == wantPass, err)
 	}
 
 	if os.Getenv("PMG_SELF_DIAL") == "1" {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			report("self-dial listen", false)
+			report("self-dial listen", false, err)
 		} else {
 			go func() {
 				conn, aerr := ln.Accept()
@@ -75,7 +75,7 @@ func TestLockdownHelperProcess(t *testing.T) {
 				}
 			}()
 			conn, derr := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
-			report("self-dial "+ln.Addr().String(), derr == nil)
+			report("self-dial "+ln.Addr().String(), derr == nil, derr)
 			if conn != nil {
 				_ = conn.Close()
 			}
