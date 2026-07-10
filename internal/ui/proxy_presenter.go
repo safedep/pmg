@@ -35,15 +35,17 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 
 	var message string
 	switch reason {
-	case proxy.BlockReasonMalware:
-		message = fmt.Sprintf("Malicious package blocked: %s/%s@%s\n\nReason: %s\n\nReference: %s",
-			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
-			blockCtx.MalwareSummary, blockCtx.MalwareReferenceURL)
+	case proxy.BlockReasonMalware, proxy.BlockReasonUserDeclined:
+		prefix := "Malicious package blocked"
+		if reason == proxy.BlockReasonUserDeclined {
+			prefix = "Installation blocked by user"
+		}
 
-	case proxy.BlockReasonUserDeclined:
-		message = fmt.Sprintf("Installation blocked by user: %s/%s@%s\n\nReason: %s\n\nReference: %s",
-			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
-			blockCtx.MalwareSummary, blockCtx.MalwareReferenceURL)
+		message = fmt.Sprintf("%s: %s/%s@%s\n\nReason: %s",
+			prefix, ecosystem, blockCtx.PackageName, blockCtx.PackageVersion, blockCtx.MalwareSummary)
+		if blockCtx.MalwareReferenceURL != "" {
+			message += "\n\nReference: " + blockCtx.MalwareReferenceURL
+		}
 
 	case proxy.BlockReasonConfirmationFailed:
 		// Operational failure rather than a policy decision; the advisory

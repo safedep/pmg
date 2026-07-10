@@ -65,6 +65,18 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 			expected: "Installation blocked by user: npm/evil@1.0.0\n\nReason: Contains known malware\n\nReference: https://example.com/malware-report\n\nContact #security-help",
 		},
 		{
+			name:   "malware without reference URL omits reference line",
+			reason: proxy.BlockReasonMalware,
+			blockCtx: &proxy.BlockContext{
+				Ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
+				PackageName:    "evil",
+				PackageVersion: "1.0.0",
+				MalwareSummary: "Contains known malware",
+			},
+			advisory: "Contact #security-help",
+			expected: "Malicious package blocked: npm/evil@1.0.0\n\nReason: Contains known malware\n\nContact #security-help",
+		},
+		{
 			name:     "confirmation failed carries no advisory",
 			reason:   proxy.BlockReasonConfirmationFailed,
 			blockCtx: malwareCtx,
@@ -114,5 +126,5 @@ func TestProxyPresenterNilAdvisory(t *testing.T) {
 		PackageVersion: "1.0.0",
 		MalwareSummary: "verified malware",
 	})
-	assert.Equal(t, "Malicious package blocked: npm/evil@1.0.0\n\nReason: verified malware\n\nReference: ", message)
+	assert.Equal(t, "Malicious package blocked: npm/evil@1.0.0\n\nReason: verified malware", message)
 }

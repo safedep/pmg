@@ -203,15 +203,21 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 			assert.Equal(t, tt.expectedBlockReason, response.BlockReason)
 			assert.Empty(t, response.BlockMessage)
 
-			if tt.expectedBlockReason != proxy.BlockReasonNone {
+			switch tt.expectedBlockReason {
+			case proxy.BlockReasonNone:
+				assert.Nil(t, response.BlockContext)
+			case proxy.BlockReasonMalware, proxy.BlockReasonUserDeclined:
 				require.NotNil(t, response.BlockContext)
 				assert.Equal(t, tt.ecosystem, response.BlockContext.Ecosystem)
 				assert.Equal(t, tt.packageName, response.BlockContext.PackageName)
 				assert.Equal(t, tt.packageVersion, response.BlockContext.PackageVersion)
 				assert.Equal(t, tt.analysisResult.Summary, response.BlockContext.MalwareSummary)
 				assert.Equal(t, tt.analysisResult.ReferenceURL, response.BlockContext.MalwareReferenceURL)
-			} else {
-				assert.Nil(t, response.BlockContext)
+			default:
+				require.NotNil(t, response.BlockContext)
+				assert.Equal(t, tt.ecosystem, response.BlockContext.Ecosystem)
+				assert.Equal(t, tt.packageName, response.BlockContext.PackageName)
+				assert.Equal(t, tt.packageVersion, response.BlockContext.PackageVersion)
 			}
 		})
 	}
