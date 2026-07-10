@@ -440,8 +440,10 @@ does not have this limitation; its `file-read*` and `file-write*` rules are inde
 
 **Network lockdown (`network_via_proxy_only`)**: Fine-grained `host:port` filtering is not
 expressible in Seatbelt, so per-host control happens at the PMG proxy instead. With
-`network_via_proxy_only: true`, the sandbox denies all outbound network except the loopback port
-of the running PMG proxy — raw sockets, QUIC, and arbitrary ports are blocked at the kernel.
+`network_via_proxy_only: true`, the sandbox denies all non-loopback outbound network; only the
+running PMG proxy's port is reachable, and profiles with `allow_network_bind` additionally keep
+loopback↔loopback connects open. Raw sockets, QUIC, and arbitrary non-loopback ports are blocked
+at the kernel.
 Direct DNS is disabled by default (the proxy resolves names); `allow_direct_dns: true` re-opens
 it. The Go profile ships with lockdown enabled.
 
@@ -451,7 +453,8 @@ without confinement when no proxy is available — including on Linux, where
 silent fallback).
 
 For local development: plain commands like `npm run dev` are not sandboxed unless
-`enforce_always` is set; loopback↔loopback traffic keeps working via `allow_network_bind`; and
+`enforce_always` is set; loopback↔loopback traffic keeps working via `allow_network_bind` (as
+noted above); and
 proxy-honoring clients reach any destination through the proxy CONNECT path. What breaks under
 lockdown is direct non-loopback sockets — tools that ignore `HTTP_PROXY`/`HTTPS_PROXY` and
 non-HTTP wire protocols (e.g. Postgres or Redis clients pointed at non-loopback hosts). Such
