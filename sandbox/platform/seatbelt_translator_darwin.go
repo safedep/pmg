@@ -644,11 +644,22 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 			sb.WriteString("\"))\n")
 		}
 
-		// macOS resolves names via the /var/run/mDNSResponder unix socket,
-		// which the deny above covers; the proxy resolves names, so direct
-		// DNS stays closed unless explicitly re-opened.
+		// Bind rules cannot cover outbound connects (the local address is
+		// unbound at connect() time), so loopback outbound is re-opened
+		// explicitly for bind-enabled profiles.
+		if utils.SafelyGetValue(policy.AllowNetworkBind) {
+			sb.WriteString("(allow network-outbound (remote ip \"localhost:*\"))\n")
+		}
+
+		// getaddrinfo resolves via the com.apple.dnssd.service XPC endpoint,
+		// legacy clients use the mDNSResponder socket (both /var and resolved
+		// /private/var paths — Seatbelt matches resolved paths), and
+		// self-resolving clients need direct port 53.
 		if utils.SafelyGetValue(policy.AllowDirectDNS) {
+			sb.WriteString("(allow mach-lookup (global-name \"com.apple.dnssd.service\"))\n")
 			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
+			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n")
+			sb.WriteString("(allow network-outbound (remote ip \"*:53\"))\n")
 		}
 
 		sb.WriteString("\n")
