@@ -217,3 +217,47 @@ func TestInferSeatbeltKindFromRawLog(t *testing.T) {
 		})
 	}
 }
+
+// Normative copy, quoted by docs (M0.6); changes here are breaking.
+const lockdownDirectDenialMessage = "direct network access blocked by network_via_proxy_only — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)"
+
+func TestExtractSeatbeltViolationsLockdownDirectDenial(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: `Sandbox: curl(123) deny(1) network-outbound ` +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			Process: "curl",
+		},
+		{
+			EventMessage: `Sandbox: curl(124) deny(1) network-outbound ` +
+				seatbeltLogMessage("run-1", "network-outbound", "1.2.3.4:443"),
+			Process: "curl",
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 2)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[1].Kind)
+	assert.Equal(t, "network connect denied: 1.2.3.4:443", violations[1].RuleLabel)
+}
+
+func TestExtractSeatbeltViolationsLockdownDenialWithPathOperand(t *testing.T) {
+	entries := []seatbeltLogEntry{
+		{
+			EventMessage: `Sandbox: node(125) deny(1) network-outbound /private/var/run/mDNSResponder ` +
+				seatbeltLogMessage("run-1", "network-outbound", "direct"),
+			Process: "node",
+		},
+	}
+
+	violations := extractSeatbeltViolations(entries, "run-1")
+	require.Len(t, violations, 1)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, "/private/var/run/mDNSResponder", violations[0].Target)
+	assert.Equal(t, lockdownDirectDenialMessage, violations[0].RuleLabel)
+}
