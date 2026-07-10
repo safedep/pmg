@@ -652,11 +652,14 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 			sb.WriteString("(allow network-outbound (remote ip \"localhost:*\"))\n")
 		}
 
-		// macOS getaddrinfo resolves via the /var/run/mDNSResponder unix
-		// socket, but res_search-style resolvers (Go net, libresolv) send
-		// UDP directly to the nameserver — direct DNS needs both. The proxy
-		// resolves names, so DNS stays closed unless explicitly re-opened.
+		// Empirical (M0.5): modern macOS getaddrinfo reaches mDNSResponder
+		// via the com.apple.dnssd.service XPC endpoint, not only the legacy
+		// /var/run/mDNSResponder unix socket; resolvers that speak DNS
+		// themselves need direct port 53. Direct DNS re-opens all three.
+		// The proxy resolves names, so DNS stays closed unless the profile
+		// explicitly re-opens it.
 		if utils.SafelyGetValue(policy.AllowDirectDNS) {
+			sb.WriteString("(allow mach-lookup (global-name \"com.apple.dnssd.service\"))\n")
 			sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
 			sb.WriteString("(allow network-outbound (remote ip \"*:53\"))\n")
 		}
