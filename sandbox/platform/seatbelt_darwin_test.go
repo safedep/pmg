@@ -5,6 +5,7 @@ package platform
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"testing"
 
@@ -73,7 +74,6 @@ func TestSeatbeltExecuteLockdownValidation(t *testing.T) {
 		{"empty proxy address", &sandbox.ExecutionContext{}, "requires the PMG proxy"},
 		{"non-loopback proxy address", &sandbox.ExecutionContext{ProxyAddr: "192.168.1.5:9999"}, "loopback"},
 		{"unparseable proxy address", &sandbox.ExecutionContext{ProxyAddr: "not-an-address"}, "loopback"},
-		{"valid proxy address rejected until translation lands", &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}, "not yet implemented"},
 	}
 
 	for _, tt := range tests {
@@ -89,4 +89,32 @@ func TestSeatbeltExecuteLockdownValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+func TestSeatbeltExecuteLockdownWrapsCommand(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Name:            "lockdown",
+		PackageManagers: []string{"npm"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{"/tmp"},
+			AllowWrite: []string{"/tmp"},
+		},
+		NetworkViaProxyOnly: utils.PtrTo(true),
+	}
+
+	sb, err := newSeatbeltSandbox()
+	require.NoError(t, err)
+
+	cmd := exec.Command("/usr/bin/true")
+	result, err := sb.Execute(context.Background(), cmd, policy,
+		&sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"})
+	require.NoError(t, err)
+	assert.True(t, result.ShouldRun())
+	assert.Equal(t, "/usr/bin/sandbox-exec", cmd.Path)
+
+	profile, err := os.ReadFile(sb.tempProfilePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(profile), `(allow network-outbound (remote ip "localhost:54321"))`)
+
+	require.NoError(t, result.Close())
 }
