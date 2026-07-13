@@ -947,6 +947,21 @@ jobs:
             test -x "/usr/local/lib/pmg/bin/$shim" || { echo "Missing shim: $shim"; exit 1; }
           done
 
+      - name: Root runs keep per-user state out of the invoking user's home
+        run: |
+          # GitHub runner sudo preserves HOME. Every sudo pmg run above used to
+          # create root-owned ~/.config/safedep for the runner user, which
+          # fail-closes all their later pmg/npm runs. Must run before any
+          # non-root pmg invocation legitimately creates that directory.
+          sudo sh -c 'echo "sudo sees HOME=$HOME"'
+          if [ -e "$HOME/.config/safedep" ]; then
+            echo "ERROR: root-created state leaked into $HOME/.config/safedep"
+            ls -laR "$HOME/.config/safedep"
+            exit 1
+          fi
+          sudo test -d /root/.config/safedep/pmg/logs
+          echo "SUCCESS: root state stayed under /root"
+
       - name: PATH and profile.d activate shims
         run: |
           # Docker-style: non-login shells need PATH (or source profile.d)
@@ -957,14 +972,18 @@ jobs:
 
       - name: Managed config refuses CLI mutation
         run: |
-          if pmg config set dependency_cooldown.days 7; then
+          # Assert the refusal reason: a permission-denied brick (poisoned home)
+          # would also make config set fail and mask a regression.
+          if out=$(pmg config set dependency_cooldown.days 7 2>&1); then
             echo "ERROR: config set should fail under system config"
             exit 1
           fi
-          if sudo pmg config set dependency_cooldown.days 7; then
+          echo "$out" | grep -qi 'globally managed' || { echo "ERROR: failed for the wrong reason:"; echo "$out"; exit 1; }
+          if out=$(sudo pmg config set dependency_cooldown.days 7 2>&1); then
             echo "ERROR: config set should fail under system config even as root"
             exit 1
           fi
+          echo "$out" | grep -qi 'globally managed' || { echo "ERROR: root run failed for the wrong reason:"; echo "$out"; exit 1; }
           echo "SUCCESS: managed config is locked"
 
       - name: Doctor reports system install state

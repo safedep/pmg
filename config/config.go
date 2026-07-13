@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -610,11 +611,65 @@ func loadConfig() {
 	}
 }
 
+// configGeteuid is overridable in tests to exercise root path resolution
+// without running as root.
+var configGeteuid = os.Geteuid
+
+// rootHomeDir returns root's home from the passwd database. Path resolution
+// for root must not consult HOME or XDG_*: sudo and su can preserve the
+// invoking user's environment (GitHub runners, sudo -E, su without -), which
+// would make root create root-owned state inside that user's home and
+// fail-close every later non-root pmg run for them.
+func rootHomeDir() (string, error) {
+	u, err := user.LookupId("0")
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve root home directory: %w", err)
+	}
+	if u.HomeDir == "" {
+		return "", fmt.Errorf("root user has no home directory")
+	}
+	return u.HomeDir, nil
+}
+
+// rootConfigDir mirrors os.UserConfigDir platform conventions for root's
+// passwd home.
+func rootConfigDir() (string, error) {
+	home, err := rootHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support"), nil
+	}
+	return filepath.Join(home, ".config"), nil
+}
+
+// rootCacheDir mirrors os.UserCacheDir platform conventions for root's
+// passwd home.
+func rootCacheDir() (string, error) {
+	home, err := rootHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Caches"), nil
+	}
+	return filepath.Join(home, ".cache"), nil
+}
+
 // configDir computes the path to the config directory.
 func configDir() (string, error) {
 	dir := os.Getenv(pmgConfigDirEnvKey)
 	if dir != "" {
 		return dir, nil
+	}
+
+	if configGeteuid() == 0 {
+		base, err := rootConfigDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 	}
 
 	userConfigDir, err := os.UserConfigDir()
@@ -737,6 +792,14 @@ func cacheDir() (string, error) {
 		}
 		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
 	case "darwin", "linux":
+		if configGeteuid() == 0 {
+			base, err := rootCacheDir()
+			if err != nil {
+				return "", err
+			}
+			return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+		}
+
 		userCacheDir, err := os.UserCacheDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to retrieve user cache directory: %w", err)
