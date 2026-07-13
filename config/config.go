@@ -670,23 +670,28 @@ var realUserHomeDir = func() (string, error) {
 }
 
 // UnwritableConfigDirRemedy returns actionable help for a per-user config or
-// event-log directory the current user cannot write. The wrong remedy is
-// harmful: chown-ing a directory that belongs to another account steals it and
-// bricks that account instead, so chown is only suggested when the directory
-// is inside the current user's real home.
-func UnwritableConfigDirRemedy(dir string) string {
+// event-log directory the current user cannot write: help is the full
+// explanation for fatal CLI errors, fix the terse variant for the doctor
+// table. Prescribing the wrong remedy is harmful: chown-ing a directory that
+// belongs to another account steals it and bricks that account instead, so
+// its is only suggested when the directory is inside the current user's
+// real (passwd) home, which a leaked environment cannot influence.
+func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 	if os.Getenv(pmgConfigDirEnvKey) != "" {
-		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir)
+		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir),
+			"Make PMG_CONFIG_DIR writable"
 	}
 
 	home, err := realUserHomeDir()
 	if err == nil && home != "" && !pathWithinDir(dir, home) {
 		return fmt.Sprintf(
-			"pmg resolved its config directory to %s, outside your home (%s): HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"; do not chown another user's directory",
-			dir, home)
+				"pmg resolved its config directory to %s, outside your home (%s): HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"",
+				dir, home),
+			`Fix leaked env: export XDG_CONFIG_HOME="$HOME/.config"`
 	}
 
-	return fmt.Sprintf("If a root or sudo run created it, restore ownership: sudo chown -R $(id -un) %s", dir)
+	chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
+	return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown
 }
 
 func pathWithinDir(path, dir string) bool {

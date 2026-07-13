@@ -1000,6 +1000,11 @@ jobs:
           # Pass runner PATH so setup-node's npm remains visible after FilterPMGFromPath.
           sudo -u pmgtest env "PATH=/usr/local/lib/pmg/bin:$PATH" HOME=/home/pmgtest bash -lc '
             set -euo pipefail
+            # GH runners export XDG_CONFIG_HOME=/home/runner/.config and it
+            # leaks through sudo -u, so pmg would resolve the runner user
+            # config dir and fail on its runner-owned log file.
+            export XDG_CONFIG_HOME="$HOME/.config"
+            echo "HOME=$HOME XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
             which npm | grep -q /usr/local/lib/pmg/bin/npm
             mkdir -p "$HOME/sys-e2e" && cd "$HOME/sys-e2e"
             npm init -y

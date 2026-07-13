@@ -285,10 +285,11 @@ func checkEventLogDirResult(skipEventLogging bool, logDir, configDir string) doc
 
 	probe, err := os.CreateTemp(logDir, ".pmg-doctor-*")
 	if err != nil {
+		_, fix := config.UnwritableConfigDirRemedy(configDir)
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: "Event log directory not writable",
-			Fix:     config.UnwritableConfigDirRemedy(configDir),
+			Fix:     fix,
 		}
 	}
 	if err := probe.Close(); err != nil {

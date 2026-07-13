@@ -147,6 +147,7 @@ func TestCheckEventLogDirResult(t *testing.T) {
 		result := checkEventLogDirResult(false, dir, configDir)
 		assert.Equal(t, doctor.StatusFail, result.Status)
 		assert.Equal(t, "Event log directory not writable", result.Message)
-		assert.Equal(t, config.UnwritableConfigDirRemedy(configDir), result.Fix)
+		_, expectedFix := config.UnwritableConfigDirRemedy(configDir)
+		assert.Equal(t, expectedFix, result.Fix)
 	})
 }
