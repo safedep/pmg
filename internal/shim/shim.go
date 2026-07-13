@@ -48,8 +48,13 @@ func NewDefaultShimManager() (*ShimManager, error) {
 		return nil, err
 	}
 
+	binDir, err := UserBinDir()
+	if err != nil {
+		return nil, err
+	}
+
 	return &ShimManager{config: ShimConfig{
-		BinDir:          filepath.Join(homeDir, ".pmg", "bin"),
+		BinDir:          binDir,
 		HomeDir:         homeDir,
 		PMGBin:          pmgBin,
 		PackageManagers: aliasCfg.PackageManagers,
@@ -138,6 +143,15 @@ func (m *ShimManager) IsInstalled() (bool, error) {
 
 func (m *ShimManager) GetBinDir() string {
 	return m.config.BinDir
+}
+
+// UserBinDir returns the per-user PMG shim directory (~/.pmg/bin).
+func UserBinDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	return filepath.Join(homeDir, ".pmg", "bin"), nil
 }
 
 func (m *ShimManager) writeShimScript(pm string) error {
@@ -236,12 +250,12 @@ func (m *ShimManager) removePathFromShells() error {
 	return nil
 }
 
-// UserShimsInstalled reports whether the per-user shim directory (~/.pmg/bin)
-// contains at least one shim script.
+// UserShimsInstalled reports whether the per-user shim directory contains at
+// least one shim script.
 func UserShimsInstalled() bool {
-	homeDir, err := os.UserHomeDir()
+	binDir, err := UserBinDir()
 	if err != nil {
 		return false
 	}
-	return shimsPresent(filepath.Join(homeDir, ".pmg", "bin"))
+	return shimsPresent(binDir)
 }

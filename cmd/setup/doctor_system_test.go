@@ -13,11 +13,20 @@ func TestPathContainsDir(t *testing.T) {
 	assert.False(t, pathContainsDir([]string{"/usr/bin"}, ""))
 }
 
-func TestSystemShimsWithoutPathDoNotActivateInterception(t *testing.T) {
+func TestSystemInstallAliasesPassDoesNotActivateInterception(t *testing.T) {
 	results := []doctor.CheckResult{
-		{Name: checkShellAliases, Status: doctor.StatusWarn},
+		{Name: checkShellAliases, Status: doctor.StatusPass, Message: "No aliases (system install)"},
 		{Name: checkShimInPath, Status: doctor.StatusFail},
 	}
 
 	assert.False(t, isInterceptionActive(results))
+}
+
+func TestAliasesInstalledActivatesInterception(t *testing.T) {
+	results := []doctor.CheckResult{
+		{Name: checkShellAliases, Status: doctor.StatusPass, Message: aliasesInstalledMessage},
+		{Name: checkShimInPath, Status: doctor.StatusFail},
+	}
+
+	assert.True(t, isInterceptionActive(results))
 }

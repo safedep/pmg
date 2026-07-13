@@ -30,6 +30,8 @@ const (
 	checkProtectionNpm      = "protection-npm"
 	checkProtectionPip      = "protection-pip"
 	checkCA                 = "ca-cert"
+
+	aliasesInstalledMessage = "Shell aliases installed"
 )
 
 func NewDoctorCommand() *cobra.Command {
@@ -100,7 +102,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,
-						Message: "Event log directory not found (PMG still runs without event logs)",
+						Message: "Event log directory not found",
 					}
 				}
 				if !info.IsDir() {
@@ -138,13 +140,13 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				if installed {
 					return doctor.CheckResult{
 						Status:  doctor.StatusPass,
-						Message: "Shell aliases installed",
+						Message: aliasesInstalledMessage,
 					}
 				}
 				if shim.SystemShimsInstalled() {
 					return doctor.CheckResult{
-						Status:  doctor.StatusWarn,
-						Message: "Aliases not installed (optional with system shims)",
+						Status:  doctor.StatusPass,
+						Message: "No aliases (system install)",
 					}
 				}
 				return doctor.CheckResult{
@@ -196,11 +198,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: "System shim directory is in PATH",
 					}
 				}
-				userDir := ""
-				if home, err := os.UserHomeDir(); err == nil {
-					userDir = filepath.Join(home, ".pmg", "bin")
-				}
-				if pathContainsDir(pathEntries, userDir) {
+				if userDir, err := shim.UserBinDir(); err == nil && pathContainsDir(pathEntries, userDir) {
 					return doctor.CheckResult{
 						Status:  doctor.StatusPass,
 						Message: "Shim directory is in PATH",
@@ -346,10 +344,10 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 
 func isInterceptionActive(coreResults []doctor.CheckResult) bool {
 	for _, r := range coreResults {
-		if r.Name == checkShellAliases && r.Status == doctor.StatusPass {
+		if r.Name == checkShimInPath && r.Status == doctor.StatusPass {
 			return true
 		}
-		if r.Name == checkShimInPath && r.Status == doctor.StatusPass {
+		if r.Name == checkShellAliases && r.Status == doctor.StatusPass && r.Message == aliasesInstalledMessage {
 			return true
 		}
 	}
