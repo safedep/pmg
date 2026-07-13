@@ -49,9 +49,6 @@ jobs:
 
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          # Unpinned pnpm 11.x hit an integrity crash on `pnpm add`
-          version: 11.10.0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
