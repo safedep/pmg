@@ -929,6 +929,12 @@ jobs:
 
       - name: Install PMG system-wide
         run: |
+          # GitHub runners ship /usr/local/bin world-writable; system install
+          # (correctly) requires a root-owned, non-world-writable dir for the
+          # shared binary. Normalize to the standard production perms first.
+          ls -ld /usr/local/bin
+          sudo chown root:root /usr/local/bin
+          sudo chmod 755 /usr/local/bin
           sudo install -m 755 bin/pmg /usr/local/bin/pmg
           sudo pmg setup install --system
 
