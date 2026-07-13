@@ -235,7 +235,7 @@ func eventlogInitError(err error) error {
 	}
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.Lifecycle).
-		WithHumanError("failed to initialize event logging").
+		WithHumanError(fmt.Sprintf("failed to initialize event logging: %v", err)).
 		Wrap(err)
 }
 

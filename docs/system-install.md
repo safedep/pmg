@@ -6,7 +6,9 @@ Use system install when one machine or image should protect every user account: 
 sudo pmg setup install --system
 ```
 
-Requires Linux and root. Because every user's shims execute the PMG binary by its absolute path, `--system` validates it first: the binary must be **root-owned**, world-executable, and not writable by group or others, and it must sit in a **root-owned directory** that is not world-writable. Install PMG as root into a standard path such as `/usr/local/bin`; a user-local build (e.g. `~/go/bin/pmg`) is rejected.
+**Requires Linux and root.** Install PMG as root into a standard system path such as `/usr/local/bin`. A user-local build (e.g. `~/go/bin/pmg`) is rejected.
+
+`--system` enforces this because every user's shims run the PMG binary by absolute path. Before installing, it checks that the binary is **root-owned**, world-executable, not group- or other-writable, and located in a **root-owned directory** that isn't world-writable.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
 
@@ -112,6 +114,8 @@ Shared policy lives under `/etc/safedep/pmg`. Runtime data stays per user:
 | Persistent CA keypair | `~/.config/safedep/pmg/ca-cert.pem`, `ca-key.pem` |
 
 You can relocate these with `PMG_CONFIG_DIR` and `PMG_CACHE_DIR`.
+
+When pmg runs as root (including via sudo), its per-user data goes under `/root`, regardless of any `HOME` preserved by sudo. Root never writes into another user's home.
 
 The invoking user must be able to write their config directory. PMG records an event log there on each run and fails the command if it cannot (unless event logging is disabled in config).
 

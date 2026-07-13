@@ -658,6 +658,12 @@ func rootCacheDir() (string, error) {
 	return filepath.Join(home, ".cache"), nil
 }
 
+// Overridable in tests to exercise the passwd-unavailable fallback.
+var (
+	rootConfigDirResolver = rootConfigDir
+	rootCacheDirResolver  = rootCacheDir
+)
+
 // realUserHomeDir returns the current user's home from the passwd database,
 // ignoring HOME and XDG_* env vars that may be leaked from another account.
 // Overridable in tests.
@@ -707,11 +713,15 @@ func configDir() (string, error) {
 	}
 
 	if configGeteuid() == 0 {
-		base, err := rootConfigDir()
-		if err != nil {
-			return "", err
+		if base, err := rootConfigDirResolver(); err == nil {
+			return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+		} else {
+			// No resolvable root passwd entry (e.g. scratch containers,
+			// minimal chroots). Fall back to env-based resolution: without a
+			// passwd database there is no user switching, so the cross-user
+			// poisoning this branch prevents cannot occur.
+			log.Warnf("failed to resolve root home for config dir, using environment: %v", err)
 		}
-		return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 	}
 
 	userConfigDir, err := os.UserConfigDir()
@@ -835,11 +845,12 @@ func cacheDir() (string, error) {
 		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
 	case "darwin", "linux":
 		if configGeteuid() == 0 {
-			base, err := rootCacheDir()
-			if err != nil {
-				return "", err
+			if base, err := rootCacheDirResolver(); err == nil {
+				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+			} else {
+				// Same fallback rationale as configDir.
+				log.Warnf("failed to resolve root home for cache dir, using environment: %v", err)
 			}
-			return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 		}
 
 		userCacheDir, err := os.UserCacheDir()

@@ -78,3 +78,23 @@ func TestCacheDirAsNonRootUsesEnvHome(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, dir, "/home/victim")
 }
+
+func TestRootDirsFallBackToEnvWhenPasswdUnavailable(t *testing.T) {
+	poisonUserEnv(t)
+	withEuid(t, 0)
+
+	origConfig, origCache := rootConfigDirResolver, rootCacheDirResolver
+	rootConfigDirResolver = func() (string, error) { return "", assert.AnError }
+	rootCacheDirResolver = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() {
+		rootConfigDirResolver, rootCacheDirResolver = origConfig, origCache
+	})
+
+	dir, err := configDir()
+	require.NoError(t, err)
+	assert.Contains(t, dir, "/home/victim")
+
+	dir, err = cacheDir()
+	require.NoError(t, err)
+	assert.Contains(t, dir, "/home/victim")
+}
