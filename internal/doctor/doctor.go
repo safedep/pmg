@@ -14,6 +14,8 @@ type CheckResult struct {
 	Status              CheckStatus
 	Message             string
 	ImpliesInterception bool
+	// Fix overrides the check's static fix hint for this specific result.
+	Fix string
 }
 
 type Check struct {

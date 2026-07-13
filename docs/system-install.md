@@ -6,15 +6,16 @@ Use system install when one machine or image should protect every user account: 
 sudo pmg setup install --system
 ```
 
-Requires Linux and root. To uninstall:
+Requires Linux and root. Because every user's shims execute the PMG binary by its absolute path, `--system` validates it first: the binary must be **root-owned**, world-executable, and not writable by group or others, and it must sit in a **root-owned directory** that is not world-writable. Install PMG as root into a standard path such as `/usr/local/bin`; a user-local build (e.g. `~/go/bin/pmg`) is rejected.
+
+Per-user `pmg setup install` remains available and does not conflict with a system install.
+
+To uninstall:
 
 ```bash
 sudo pmg setup remove --system
 sudo pmg setup remove --system --config-file   # also remove the system config file
 ```
-
-Per-user `pmg setup install` remains available and does not conflict with a system install.
-The PMG executable used during setup must be executable by every user. Install PMG under a system path such as `/usr/local/bin`.
 
 ## Files created
 
@@ -112,9 +113,17 @@ Shared policy lives under `/etc/safedep/pmg`. Runtime data stays per user:
 
 You can relocate these with `PMG_CONFIG_DIR` and `PMG_CACHE_DIR`.
 
-The invoking user must be able to write their config directory.
+The invoking user must be able to write their config directory. PMG records an event log there on each run and fails the command if it cannot (unless event logging is disabled in config).
 
 In Docker images, avoid creating `/home/<user>/.config/safedep` as root during the build. Either fix ownership for the runtime user, or set `PMG_CONFIG_DIR` to a writable location.
+
+If every `pmg` command fails with `permission denied` on the event log, a root run created the per-user directory as root. This happens where `sudo` preserves `HOME` (GitHub-hosted runners, `sudo -E`, `su` without `-`) and in images that set `ENV HOME` before dropping root. Restore ownership:
+
+```bash
+sudo chown -R $(id -un) ~/.config/safedep
+```
+
+`pmg setup doctor` detects an unwritable event log directory and prints the same fix.
 
 For cloud sync, enable cloud in the system config and provide credentials (`SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID`, or a keychain login on developer machines).
 

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"runtime"
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/cmd/cloud"
 	configCmd "github.com/safedep/pmg/cmd/config"
 	"github.com/safedep/pmg/cmd/executors"
@@ -19,6 +22,7 @@ import (
 	"github.com/safedep/pmg/cmd/setup"
 	"github.com/safedep/pmg/cmd/version"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/eventlog"
@@ -103,7 +107,7 @@ func main() {
 			}
 
 			if eventlogErr != nil {
-				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
+				ui.ErrorExit(eventlogInitError(eventlogErr))
 			}
 
 			if err := audit.Initialize(config.Get()); err != nil {
@@ -213,6 +217,25 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+// eventlogInitError classifies event-log init failures. Event logging is
+// mandatory, so init failure stays fatal; the permission case gets an
+// actionable remedy because the common cause is a root or sudo run having
+// created the per-user directory as root (some environments preserve HOME
+// under sudo).
+func eventlogInitError(err error) error {
+	if errors.Is(err, fs.ErrPermission) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError("event logging is required but its directory is not writable").
+			WithHelp(fmt.Sprintf("If a root or sudo run created it, restore ownership: sudo chown -R $(id -un) %s", config.Get().ConfigDir())).
+			Wrap(err)
+	}
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.Lifecycle).
+		WithHumanError("failed to initialize event logging").
+		Wrap(err)
 }
 
 func logDebugContext() {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
@@ -94,29 +95,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				if cfg.Config.SkipEventLogging {
-					return doctor.CheckResult{
-						Status:  doctor.StatusWarn,
-						Message: "Event logging is disabled",
-					}
-				}
-				info, err := os.Stat(cfg.EventLogDir())
-				if err != nil {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Event log directory not found",
-					}
-				}
-				if !info.IsDir() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Event log path is not a directory",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Event log directory found",
-				}
+				return checkEventLogDirResult(cfg.Config.SkipEventLogging, cfg.EventLogDir(), cfg.ConfigDir())
 			},
 		},
 		{
@@ -276,6 +255,52 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		},
 	}
 	return doctor.RunChecks(checks)
+}
+
+// checkEventLogDirResult is the testable core of the event-log dir check.
+// Event logging is mandatory (init failure is fatal), so an unwritable dir
+// fail-closes every pmg command for this user. The common cause is a root or
+// sudo run having created the per-user directory as root, hence the chown fix.
+func checkEventLogDirResult(skipEventLogging bool, logDir, configDir string) doctor.CheckResult {
+	if skipEventLogging {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Event logging is disabled",
+		}
+	}
+	info, err := os.Stat(logDir)
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Event log directory not found",
+		}
+	}
+	if !info.IsDir() {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Event log path is not a directory",
+		}
+	}
+
+	probe, err := os.CreateTemp(logDir, ".pmg-doctor-*")
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Event log directory not writable",
+			Fix:     fmt.Sprintf("sudo chown -R $(id -un) %s", configDir),
+		}
+	}
+	if err := probe.Close(); err != nil {
+		log.Warnf("failed to close doctor probe file: %v", err)
+	}
+	if err := os.Remove(probe.Name()); err != nil {
+		log.Warnf("failed to remove doctor probe file: %v", err)
+	}
+
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: "Event log directory found",
+	}
 }
 
 func pathContainsDir(pathEntries []string, dir string) bool {
@@ -520,6 +545,9 @@ func printResults(results []doctor.CheckResult) {
 		fix := ui.Colors.Dim("—")
 		if r.Status != doctor.StatusPass {
 			fix = fixHint(r.Name)
+			if r.Fix != "" {
+				fix = r.Fix
+			}
 		}
 		rows = append(rows, []string{
 			statusBadge(r.Status),
