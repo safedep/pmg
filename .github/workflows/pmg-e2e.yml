@@ -289,7 +289,11 @@ jobs:
         run: |
           echo "Testing PNPM single package installation..."
           PNPM_TESTDIR=$(mktemp -d) && cd "$PNPM_TESTDIR"
-          pmg --proxy-mode=false pnpm init
+          # Avoid `pnpm init`: it writes devEngines.packageManager with
+          # onFail:download, and the following `pnpm add` then crashes with
+          # "Cannot use 'in' operator to search for 'integrity' in undefined"
+          # (seen on pnpm 11.1.3 and 11.10.0 in this workflow).
+          npm init -y
           pmg --proxy-mode=false pnpm add express@5.2.1
           pmg --proxy-mode=false pnpm add lodash@4.17.21
 
