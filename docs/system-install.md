@@ -90,6 +90,7 @@ Optional lockdown (`global_lockdown: true`) is documented in [config.md](./confi
 ## Limitations
 
 - **Virtualenv.** After `source .venv/bin/activate`, bare `pip` uses the venv binary and skips PMG shims. Call `pmg pip …` explicitly.
+- **Version managers.** Tools like nvm, pyenv, volta, and asdf often prepend their own bin directories from shell rc files that run after `/etc/profile.d`. That can put real `npm`/`pip` ahead of PMG shims even when the shim directory is on `PATH`. Prefer putting `/usr/local/lib/pmg/bin` first in a durable `ENV PATH` / login PATH, or call `pmg npm` / `pmg pip` explicitly. `pmg setup doctor` warns when `npm` resolves outside the shim directory.
 - **No shell aliases.** System install only installs PATH shims. There is no `~/.pmg.rc` alias layer.
 - **Config changes.** `pmg config set` and `pmg config edit` are unavailable while the system config is active. Edit `/etc/safedep/pmg/config.yml` as root, or redeploy the file.
 - **Custom sandbox `policy_templates`.** Relative paths in the system config resolve under each user's config directory, not `/etc/safedep/pmg`. Prefer absolute paths.

@@ -9,10 +9,11 @@ const (
 )
 
 type CheckResult struct {
-	Name     string
-	Category string
-	Status   CheckStatus
-	Message  string
+	Name                string
+	Category            string
+	Status              CheckStatus
+	Message             string
+	ImpliesInterception bool
 }
 
 type Check struct {

@@ -15,7 +15,7 @@ func TestErrIfSystemInstallAllowed(t *testing.T) {
 	t.Cleanup(func() { setupGeteuid = orig })
 
 	setupGeteuid = func() int { return 0 }
-	err := errIfSystemInstallAllowed()
+	err := requireSystemInstallSupported()
 	if runtime.GOOS == "linux" {
 		assert.NoError(t, err)
 	} else {
@@ -26,7 +26,7 @@ func TestErrIfSystemInstallAllowed(t *testing.T) {
 	}
 
 	setupGeteuid = func() int { return 1000 }
-	err = errIfSystemInstallAllowed()
+	err = requireSystemInstallSupported()
 	require.Error(t, err)
 	usefulErr, ok := usefulerror.AsUsefulError(err)
 	require.True(t, ok)

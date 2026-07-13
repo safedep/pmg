@@ -916,6 +916,17 @@ jobs:
           fi
           echo "SUCCESS: private binary rejected"
 
+      - name: Reject user-owned PMG binary for system install
+        run: |
+          mkdir -p "$HOME/pmg-user-writable"
+          cp bin/pmg "$HOME/pmg-user-writable/pmg"
+          chmod 755 "$HOME/pmg-user-writable/pmg"
+          if sudo "$HOME/pmg-user-writable/pmg" setup install --system; then
+            echo "ERROR: system install accepted a user-owned binary"
+            exit 1
+          fi
+          echo "SUCCESS: user-owned binary rejected"
+
       - name: Install PMG system-wide
         run: |
           sudo install -m 755 bin/pmg /usr/local/bin/pmg
@@ -956,7 +967,7 @@ jobs:
           out=$(pmg setup doctor 2>&1 || true)
           echo "$out"
           echo "$out" | grep -q 'No aliases (system install)'
-          echo "$out" | grep -q 'System shim directory is in PATH'
+          echo "$out" | grep -Eq 'npm resolves to system shim|System shim directory is in PATH'
 
       - name: Non-root user interception via system shims
         run: |

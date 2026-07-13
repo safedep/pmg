@@ -20,6 +20,9 @@ const (
 var (
 	systemBinDirOverride      string
 	systemProfilePathOverride string
+	// systemExecutableOwnershipCheck requires root ownership of the binary and
+	// its parent directories. Disabled in tests that cannot create root-owned files.
+	systemExecutableOwnershipCheck = true
 )
 
 // SystemBinDir returns the directory for system-wide PMG shims.
@@ -40,15 +43,29 @@ func SystemProfilePath() string {
 
 // NewSystemShimManager creates a shim manager for system-wide install: shims
 // under SystemBinDir, no per-user rc edits, and /etc/profile.d management.
+// The current executable is validated for multi-user use.
 func NewSystemShimManager() (*ShimManager, error) {
+	return newSystemShimManager(true)
+}
+
+// NewSystemShimManagerForRemove creates a system shim manager without
+// validating the current executable. Uninstall must work even when the binary
+// that originally installed the shims is no longer suitable for install.
+func NewSystemShimManagerForRemove() (*ShimManager, error) {
+	return newSystemShimManager(false)
+}
+
+func newSystemShimManager(validateExecutable bool) (*ShimManager, error) {
 	aliasCfg := alias.DefaultConfig()
 	pmgBin, err := currentExecutable()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateSystemExecutable(pmgBin); err != nil {
-		return nil, err
+	if validateExecutable {
+		if err := validateSystemExecutable(pmgBin); err != nil {
+			return nil, err
+		}
 	}
 
 	return &ShimManager{
@@ -62,17 +79,68 @@ func NewSystemShimManager() (*ShimManager, error) {
 	}, nil
 }
 
-// validateSystemExecutable rejects binaries other users cannot execute. System shims hard-code this path.
+// validateSystemExecutable rejects binaries unsafe for system-wide shims.
+// System shims hard-code this path, so it must be world-executable, not
+// group/other-writable, and (when ownership checks are enabled) root-owned
+// under a root-owned, non-group/other-writable directory chain.
 func validateSystemExecutable(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("failed to inspect pmg executable %s: %w", path, err)
 	}
 
-	if info.Mode().Perm()&0o001 == 0 {
+	perm := info.Mode().Perm()
+	if perm&0o001 == 0 {
 		return fmt.Errorf("pmg executable %s is not executable by all users", path)
 	}
+	if perm&0o022 != 0 {
+		return fmt.Errorf("pmg executable %s is writable by group or others", path)
+	}
+
+	if systemExecutableOwnershipCheck {
+		if err := requireRootOwnedPath(path, info); err != nil {
+			return err
+		}
+		if err := requireSafeAncestorDirs(filepath.Dir(path)); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func requireRootOwnedPath(path string, info os.FileInfo) error {
+	uid, ok := fileOwnerUID(info)
+	if !ok {
+		return fmt.Errorf("cannot determine owner of %s", path)
+	}
+	if uid != 0 {
+		return fmt.Errorf("pmg executable %s must be owned by root", path)
+	}
+	return nil
+}
+
+func requireSafeAncestorDirs(dir string) error {
+	for {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return fmt.Errorf("failed to inspect directory %s: %w", dir, err)
+		}
+		if info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("directory %s on pmg executable path is writable by group or others", dir)
+		}
+		uid, ok := fileOwnerUID(info)
+		if !ok {
+			return fmt.Errorf("cannot determine owner of directory %s", dir)
+		}
+		if uid != 0 {
+			return fmt.Errorf("directory %s on pmg executable path must be owned by root", dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
 }
 
 // SystemShimsInstalled reports whether the system shim directory contains at
@@ -108,8 +176,7 @@ func SystemProfileInstalled() bool {
 	return strings.Contains(string(data), systemProfileMarker)
 }
 
-func writeSystemProfile() error {
-	binDir := SystemBinDir()
+func writeSystemProfile(binDir string) error {
 	path := SystemProfilePath()
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

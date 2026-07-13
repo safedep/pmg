@@ -105,7 +105,7 @@ func install(system bool) error {
 }
 
 func installSystem() error {
-	if err := errIfSystemInstallAllowed(); err != nil {
+	if err := requireSystemInstallSupported(); err != nil {
 		return err
 	}
 
@@ -190,11 +190,11 @@ func remove(system, removeConfig bool) error {
 }
 
 func removeSystem(removeConfig bool) error {
-	if err := errIfSystemInstallAllowed(); err != nil {
+	if err := requireSystemInstallSupported(); err != nil {
 		return err
 	}
 
-	shimMgr, err := shim.NewSystemShimManager()
+	shimMgr, err := shim.NewSystemShimManagerForRemove()
 	if err != nil {
 		return fmt.Errorf("failed to create system shim manager: %w", err)
 	}
@@ -212,7 +212,7 @@ func removeSystem(removeConfig bool) error {
 	return nil
 }
 
-func errIfSystemInstallAllowed() error {
+func requireSystemInstallSupported() error {
 	if runtime.GOOS != "linux" {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.UnsupportedPlatform).

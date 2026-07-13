@@ -3,7 +3,9 @@ package setup
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
@@ -139,8 +141,9 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				}
 				if installed {
 					return doctor.CheckResult{
-						Status:  doctor.StatusPass,
-						Message: aliasesInstalledMessage,
+						Status:              doctor.StatusPass,
+						Message:             aliasesInstalledMessage,
+						ImpliesInterception: true,
 					}
 				}
 				if shim.SystemShimsInstalled() {
@@ -189,32 +192,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		{
 			Name:     checkShimInPath,
 			Category: "Shell Integration",
-			Run: func() doctor.CheckResult {
-				pathEntries := filepath.SplitList(os.Getenv("PATH"))
-				systemDir := shim.SystemBinDir()
-				if shim.SystemShimsInstalled() && pathContainsDir(pathEntries, systemDir) {
-					return doctor.CheckResult{
-						Status:  doctor.StatusPass,
-						Message: "System shim directory is in PATH",
-					}
-				}
-				if userDir, err := shim.UserBinDir(); err == nil && pathContainsDir(pathEntries, userDir) {
-					return doctor.CheckResult{
-						Status:  doctor.StatusPass,
-						Message: "Shim directory is in PATH",
-					}
-				}
-				if shim.SystemShimsInstalled() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "System shim directory not in PATH",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusFail,
-					Message: "Shim directory not in PATH",
-				}
-			},
+			Run:      checkShimInPathResult,
 		},
 		{
 			Name:     checkProxyMode,
@@ -313,6 +291,80 @@ func pathContainsDir(pathEntries []string, dir string) bool {
 	return false
 }
 
+func pathIsUnderDir(path, dir string) bool {
+	if path == "" || dir == "" {
+		return false
+	}
+	cleanPath := filepath.Clean(path)
+	cleanDir := filepath.Clean(dir)
+	if cleanPath == cleanDir {
+		return true
+	}
+	prefix := cleanDir + string(os.PathSeparator)
+	return strings.HasPrefix(cleanPath, prefix)
+}
+
+func checkShimInPathResult() doctor.CheckResult {
+	pathEntries := filepath.SplitList(os.Getenv("PATH"))
+	systemDir := shim.SystemBinDir()
+	userDir, userDirErr := shim.UserBinDir()
+	resolved, lookErr := exec.LookPath("npm")
+
+	if lookErr == nil {
+		if shim.SystemShimsInstalled() && pathIsUnderDir(resolved, systemDir) {
+			return doctor.CheckResult{
+				Status:              doctor.StatusPass,
+				Message:             "npm resolves to system shim",
+				ImpliesInterception: true,
+			}
+		}
+		if userDirErr == nil && pathIsUnderDir(resolved, userDir) {
+			return doctor.CheckResult{
+				Status:              doctor.StatusPass,
+				Message:             "npm resolves to PMG shim",
+				ImpliesInterception: true,
+			}
+		}
+	}
+
+	if shim.SystemShimsInstalled() && pathContainsDir(pathEntries, systemDir) {
+		if lookErr == nil {
+			return doctor.CheckResult{
+				Status:  doctor.StatusWarn,
+				Message: fmt.Sprintf("System shim directory is in PATH, but npm resolves to %s", resolved),
+			}
+		}
+		return doctor.CheckResult{
+			Status:              doctor.StatusPass,
+			Message:             "System shim directory is in PATH",
+			ImpliesInterception: true,
+		}
+	}
+	if userDirErr == nil && pathContainsDir(pathEntries, userDir) {
+		if lookErr == nil {
+			return doctor.CheckResult{
+				Status:  doctor.StatusWarn,
+				Message: fmt.Sprintf("Shim directory is in PATH, but npm resolves to %s", resolved),
+			}
+		}
+		return doctor.CheckResult{
+			Status:              doctor.StatusPass,
+			Message:             "Shim directory is in PATH",
+			ImpliesInterception: true,
+		}
+	}
+	if shim.SystemShimsInstalled() {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "System shim directory not in PATH",
+		}
+	}
+	return doctor.CheckResult{
+		Status:  doctor.StatusFail,
+		Message: "Shim directory not in PATH",
+	}
+}
+
 func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {
 	if !isInterceptionActive(coreResults) {
 		var results []doctor.CheckResult
@@ -344,10 +396,7 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 
 func isInterceptionActive(coreResults []doctor.CheckResult) bool {
 	for _, r := range coreResults {
-		if r.Name == checkShimInPath && r.Status == doctor.StatusPass {
-			return true
-		}
-		if r.Name == checkShellAliases && r.Status == doctor.StatusPass && r.Message == aliasesInstalledMessage {
+		if r.ImpliesInterception {
 			return true
 		}
 	}

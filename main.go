@@ -103,10 +103,7 @@ func main() {
 			}
 
 			if eventlogErr != nil {
-				log.Warnf("failed to initialize event logging: %v", eventlogErr)
-				// Soft-fail: unusable HOME must not block package-manager commands.
-				ui.Infof("%s [pmg] Event logging unavailable (%v)",
-					ui.Colors.Yellow("⚠"), eventlogErr)
+				ui.Fatalf("failed to initialize event logging: %v", eventlogErr)
 			}
 
 			if err := audit.Initialize(config.Get()); err != nil {

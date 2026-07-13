@@ -13,9 +13,11 @@ func useSystemPaths(t *testing.T, dir string) {
 	t.Helper()
 	systemBinDirOverride = filepath.Join(dir, "bin")
 	systemProfilePathOverride = filepath.Join(dir, "profile.d", "pmg.sh")
+	systemExecutableOwnershipCheck = false
 	t.Cleanup(func() {
 		systemBinDirOverride = ""
 		systemProfilePathOverride = ""
+		systemExecutableOwnershipCheck = true
 	})
 }
 
@@ -100,15 +102,20 @@ func TestWriteSystemProfileRepairsStalePath(t *testing.T) {
 		0o644,
 	))
 
-	require.NoError(t, writeSystemProfile())
+	binDir := filepath.Join(root, "custom-bin")
+	require.NoError(t, writeSystemProfile(binDir))
 
 	content, err := os.ReadFile(SystemProfilePath())
 	require.NoError(t, err)
-	assert.Contains(t, string(content), SystemBinDir())
+	assert.Contains(t, string(content), binDir)
 	assert.NotContains(t, string(content), "/stale/path")
+	assert.NotContains(t, string(content), SystemBinDir())
 }
 
 func TestValidateSystemExecutableRejectsPrivateBinary(t *testing.T) {
+	systemExecutableOwnershipCheck = false
+	t.Cleanup(func() { systemExecutableOwnershipCheck = true })
+
 	privateDir := t.TempDir()
 	privateExecutable := filepath.Join(privateDir, "pmg")
 	require.NoError(t, os.WriteFile(privateExecutable, []byte("binary"), 0o700))
@@ -117,4 +124,41 @@ func TestValidateSystemExecutableRejectsPrivateBinary(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not executable by all users")
+}
+
+func TestValidateSystemExecutableRejectsGroupWritable(t *testing.T) {
+	systemExecutableOwnershipCheck = false
+	t.Cleanup(func() { systemExecutableOwnershipCheck = true })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pmg")
+	require.NoError(t, os.WriteFile(path, []byte("binary"), 0o755))
+	require.NoError(t, os.Chmod(path, 0o775))
+
+	err := validateSystemExecutable(path)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "writable by group or others")
+}
+
+func TestValidateSystemExecutableRejectsNonRootOwner(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pmg")
+	require.NoError(t, os.WriteFile(path, []byte("binary"), 0o755))
+
+	err := validateSystemExecutable(path)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be owned by root")
+}
+
+func TestNewSystemShimManagerForRemoveSkipsValidation(t *testing.T) {
+	root := t.TempDir()
+	useSystemPaths(t, root)
+	systemExecutableOwnershipCheck = true
+
+	mgr, err := NewSystemShimManagerForRemove()
+	require.NoError(t, err)
+	require.NoError(t, mgr.Install())
+	require.NoError(t, mgr.Remove())
 }

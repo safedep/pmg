@@ -82,7 +82,7 @@ func (m *ShimManager) Install() error {
 	}
 
 	if m.config.ManageProfile {
-		if err := writeSystemProfile(); err != nil {
+		if err := writeSystemProfile(m.config.BinDir); err != nil {
 			return fmt.Errorf("failed to write system profile: %w", err)
 		}
 	}
