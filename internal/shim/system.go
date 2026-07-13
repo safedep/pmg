@@ -23,6 +23,10 @@ var (
 	// systemExecutableOwnershipCheck requires root ownership of the binary and
 	// its parent directory. Disabled in tests that cannot create root-owned files.
 	systemExecutableOwnershipCheck = true
+	// resolveExecutable resolves the running pmg binary for system install.
+	// Overridable in tests so validation does not run against the go-build test
+	// binary, which is group-writable under a 002 umask.
+	resolveExecutable = currentExecutable
 )
 
 // SystemBinDir returns the directory for system-wide PMG shims.
@@ -57,7 +61,7 @@ func NewSystemShimManagerForRemove() (*ShimManager, error) {
 
 func newSystemShimManager(validateExecutable bool) (*ShimManager, error) {
 	aliasCfg := alias.DefaultConfig()
-	pmgBin, err := currentExecutable()
+	pmgBin, err := resolveExecutable()
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +85,8 @@ func newSystemShimManager(validateExecutable bool) (*ShimManager, error) {
 
 // validateSystemExecutable rejects binaries unsafe for system-wide shims.
 // Shims hard-code this path, so the binary must be executable by all users,
-// not writable by group/others, and owned by root in a root-owned parent
-// directory that is not writable by group/others.
+// not writable by group/others, and owned by root in a root-owned, non-world-
+// writable parent.
 func validateSystemExecutable(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -126,16 +130,24 @@ func requireRootOwnedPath(path string, info os.FileInfo) error {
 	return nil
 }
 
+// requireSafeParentDir validates only the immediate parent of the executable,
+// not the full chain up to /. It requires a root-owned, non-world-writable
+// parent so an unprivileged account cannot swap the shared binary that every
+// user's shims exec; a maliciously writable grandparent is out of scope.
+//
+// Group-writable is allowed deliberately: Debian/Ubuntu ship /usr/local/bin as
+// root:staff mode 2775, so rejecting group-writable would refuse the documented
+// install location out of the box. The tradeoff is that a member of the parent
+// directory's group can replace the binary — harden the directory (chmod g-w)
+// on multi-user hosts where that group is not trusted.
 func requireSafeParentDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("failed to inspect directory %s: %w", dir, err)
 	}
 
-	groupOrOtherWrite := os.FileMode(0o022)
-
-	if info.Mode().Perm()&groupOrOtherWrite != 0 {
-		return fmt.Errorf("directory %s containing pmg executable is writable by group or others", dir)
+	if info.Mode().Perm()&os.FileMode(0o002) != 0 {
+		return fmt.Errorf("directory %s containing pmg executable is writable by others", dir)
 	}
 
 	uid, ok := fileOwnerUID(info)

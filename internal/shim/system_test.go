@@ -14,10 +14,19 @@ func useSystemPaths(t *testing.T, dir string) {
 	systemBinDirOverride = filepath.Join(dir, "bin")
 	systemProfilePathOverride = filepath.Join(dir, "profile.d", "pmg.sh")
 	systemExecutableOwnershipCheck = false
+
+	// The go-build test binary is group-writable under a 002 umask, which the
+	// executable validation rightly rejects. Point resolution at a crafted
+	// 0755 binary so the manager validates a realistic path, not the harness.
+	exe := filepath.Join(dir, "pmg")
+	require.NoError(t, os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755))
+	resolveExecutable = func() (string, error) { return exe, nil }
+
 	t.Cleanup(func() {
 		systemBinDirOverride = ""
 		systemProfilePathOverride = ""
 		systemExecutableOwnershipCheck = true
+		resolveExecutable = currentExecutable
 	})
 }
 
@@ -142,6 +151,10 @@ func TestValidateSystemExecutableRejectsGroupWritable(t *testing.T) {
 }
 
 func TestValidateSystemExecutableRejectsNonRootOwner(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: temp file is root-owned, so the owner check passes")
+	}
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pmg")
 	require.NoError(t, os.WriteFile(path, []byte("binary"), 0o755))

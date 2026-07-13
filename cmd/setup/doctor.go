@@ -103,7 +103,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				info, err := os.Stat(cfg.EventLogDir())
 				if err != nil {
 					return doctor.CheckResult{
-						Status:  doctor.StatusWarn,
+						Status:  doctor.StatusFail,
 						Message: "Event log directory not found",
 					}
 				}
@@ -304,14 +304,18 @@ func pathIsUnderDir(path, dir string) bool {
 	return strings.HasPrefix(cleanPath, prefix)
 }
 
-func classifyPackageManagerResolutions(packageManagers []string, shimDir string, lookPath func(string) (string, error)) (underShim, shadowed []string) {
+// classifyPackageManagerResolutions splits package managers by where they
+// resolve on PATH: underShim means the command runs through a pmg shim (so it
+// is intercepted), shadowed means a real npm/pip sits ahead of the shims (so
+// interception is bypassed and the user should be warned).
+func classifyPackageManagerResolutions(packageManagers []string, shimDirs []string, lookPath func(string) (string, error)) (underShim, shadowed []string) {
 	for _, pm := range packageManagers {
 		resolved, err := lookPath(pm)
 		if err != nil {
 			continue
 		}
 
-		if pathIsUnderDir(resolved, shimDir) {
+		if resolvesUnderAny(resolved, shimDirs) {
 			underShim = append(underShim, pm)
 			continue
 		}
@@ -320,10 +324,30 @@ func classifyPackageManagerResolutions(packageManagers []string, shimDir string,
 	return underShim, shadowed
 }
 
+func resolvesUnderAny(path string, dirs []string) bool {
+	for _, dir := range dirs {
+		if pathIsUnderDir(path, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// shimDirs lists every directory a package manager may legitimately resolve
+// into. System and per-user installs are supported side by side, so resolution
+// into either shim directory counts as intercepted rather than shadowed.
+func shimDirs() []string {
+	dirs := []string{shim.SystemBinDir()}
+	if userDir, err := shim.UserBinDir(); err == nil {
+		dirs = append(dirs, userDir)
+	}
+	return dirs
+}
+
 func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
 	underShim, shadowed := classifyPackageManagerResolutions(
 		alias.DefaultConfig().PackageManagers,
-		shimDir,
+		shimDirs(),
 		exec.LookPath,
 	)
 
@@ -362,18 +386,21 @@ func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doc
 func checkShimInPathResult() doctor.CheckResult {
 	pathEntries := filepath.SplitList(os.Getenv("PATH"))
 
-	if shim.SystemShimsInstalled() {
-		return checkShimDirResolution(shim.SystemBinDir(), "System shim directory", pathEntries)
+	// The primary directory only picks the label and PATH-membership target;
+	// classification accepts resolution into either shim dir regardless.
+	shimDir, pathLabel := shim.SystemBinDir(), "System shim directory"
+	if !shim.SystemShimsInstalled() {
+		userDir, err := shim.UserBinDir()
+		if err != nil {
+			return doctor.CheckResult{
+				Status:  doctor.StatusWarn,
+				Message: fmt.Sprintf("Could not resolve shim directory: %v", err),
+			}
+		}
+		shimDir, pathLabel = userDir, "Shim directory"
 	}
 
-	userDir, err := shim.UserBinDir()
-	if err != nil {
-		return doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: fmt.Sprintf("Could not resolve shim directory: %v", err),
-		}
-	}
-	return checkShimDirResolution(userDir, "Shim directory", pathEntries)
+	return checkShimDirResolution(shimDir, pathLabel, pathEntries)
 }
 
 func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {

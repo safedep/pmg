@@ -112,7 +112,7 @@ Shared policy lives under `/etc/safedep/pmg`. Runtime data stays per user:
 
 You can relocate these with `PMG_CONFIG_DIR` and `PMG_CACHE_DIR`.
 
-The invoking user must be able to write their config directory. If they cannot, PMG skips event logging for that run (and prints a warning) and continues the package-manager command. Cloud sync also needs that directory to store pending events.
+The invoking user must be able to write their config directory.
 
 In Docker images, avoid creating `/home/<user>/.config/safedep` as root during the build. Either fix ownership for the runtime user, or set `PMG_CONFIG_DIR` to a writable location.
 

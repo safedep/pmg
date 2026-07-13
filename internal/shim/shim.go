@@ -1,6 +1,7 @@
 package shim
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -99,25 +100,26 @@ func (m *ShimManager) Install() error {
 }
 
 func (m *ShimManager) Remove() error {
+	// Best-effort: a failure removing the shim directory must not skip profile
+	// and rc cleanup, otherwise a rerun is needed to fully uninstall.
+	var errs []error
 	if err := os.RemoveAll(m.config.BinDir); err != nil {
-		return fmt.Errorf("failed to remove shim directory %s: %w", m.config.BinDir, err)
+		errs = append(errs, fmt.Errorf("failed to remove shim directory %s: %w", m.config.BinDir, err))
 	}
 
 	if m.config.ManageProfile {
 		if err := removeSystemProfile(); err != nil {
-			return fmt.Errorf("failed to remove system profile: %w", err)
+			errs = append(errs, fmt.Errorf("failed to remove system profile: %w", err))
 		}
 	}
 
-	if m.config.SkipShellRc {
-		return nil
+	if !m.config.SkipShellRc {
+		if err := m.removePathFromShells(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to clean shell configs: %w", err))
+		}
 	}
 
-	if err := m.removePathFromShells(); err != nil {
-		return fmt.Errorf("failed to clean shell configs: %w", err)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 func (m *ShimManager) IsInstalled() (bool, error) {

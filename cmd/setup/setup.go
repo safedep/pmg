@@ -152,15 +152,21 @@ func remove(system, removeConfig bool) error {
 		return removeSystem(removeConfig)
 	}
 
+	// Best-effort: attempt every cleanup step so one failure does not strand the
+	// other artifacts and force a rerun.
+	var errs []error
 	if removeConfig {
 		// Only ever remove the per-user file; the globally managed
 		// config is not ours to delete from a per-user uninstall.
 		if err := config.RemoveUserConfigFile(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 
 	if runtime.GOOS == "windows" {
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
 		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. No aliases or shims to clean up on Windows.")
 		return nil
 	}
@@ -168,21 +174,20 @@ func remove(system, removeConfig bool) error {
 	cfg := alias.DefaultConfig()
 	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
 	if err != nil {
-		return err
-	}
-
-	aliasManager := alias.New(cfg, rcFileManager)
-	if err := aliasManager.Remove(); err != nil {
-		return fmt.Errorf("failed to remove aliases: %w", err)
+		errs = append(errs, err)
+	} else if err := alias.New(cfg, rcFileManager).Remove(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to remove aliases: %w", err))
 	}
 
 	shimMgr, err := shim.NewDefaultShimManager()
 	if err != nil {
-		return fmt.Errorf("failed to create shim manager: %w", err)
+		errs = append(errs, fmt.Errorf("failed to create shim manager: %w", err))
+	} else if err := shimMgr.Remove(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to remove shims: %w", err))
 	}
 
-	if err := shimMgr.Remove(); err != nil {
-		return fmt.Errorf("failed to remove shims: %w", err)
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases and shims removed. Restart your terminal for changes to take effect")
@@ -199,13 +204,20 @@ func removeSystem(removeConfig bool) error {
 		return fmt.Errorf("failed to create system shim manager: %w", err)
 	}
 
+	// Best-effort: attempt config removal even if shim removal fails, so one
+	// failed step does not strand the other artifact and force a rerun. Shims
+	// are removed first so interception stops before the managed config goes.
+	var errs []error
 	if err := shimMgr.Remove(); err != nil {
-		return fmt.Errorf("failed to remove system shims: %w", err)
+		errs = append(errs, fmt.Errorf("failed to remove system shims: %w", err))
 	}
 	if removeConfig {
 		if err := config.RemoveSystemConfigFile(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG system install removed")

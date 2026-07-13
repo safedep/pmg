@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestErrIfSystemInstallAllowed(t *testing.T) {
+func TestRequireSystemInstallSupported(t *testing.T) {
 	orig := setupGeteuid
 	t.Cleanup(func() { setupGeteuid = orig })
 

@@ -95,8 +95,7 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	ctx.SetCommand(s.command)
 	ctx.SetWorkingDirectory(s.workingDir)
 
-	u, err := user.Current()
-	if err == nil {
+	if u := invokingUser(); u != nil {
 		ctx.SetUsername(u.Username)
 		ctx.SetUsernameUid(u.Uid)
 	}
@@ -117,6 +116,21 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	}
 
 	return ctx
+}
+
+// invokingUser resolves the human behind the command, preferring SUDO_USER so a
+// `sudo npm ...` is attributed to the operator rather than root.
+func invokingUser() *user.User {
+	if name := os.Getenv("SUDO_USER"); name != "" {
+		if u, err := user.Lookup(name); err == nil {
+			return u
+		}
+	}
+	u, err := user.Current()
+	if err != nil {
+		return nil
+	}
+	return u
 }
 
 func buildCommand(packageManager string, args []string) string {

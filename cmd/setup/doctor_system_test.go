@@ -73,9 +73,32 @@ func TestClassifyPackageManagerResolutions(t *testing.T) {
 
 	under, shadowed := classifyPackageManagerResolutions(
 		[]string{"npm", "pip", "uv"},
-		shimDir,
+		[]string{shimDir},
 		lookPath,
 	)
 	assert.Equal(t, []string{"npm"}, under)
 	assert.Equal(t, []string{"pip"}, shadowed)
+}
+
+func TestClassifyPackageManagerResolutionsAcceptsEitherShimDir(t *testing.T) {
+	systemDir := "/usr/local/lib/pmg/bin"
+	userDir := "/home/dev/.pmg/bin"
+	lookPath := func(name string) (string, error) {
+		switch name {
+		case "npm":
+			return systemDir + "/npm", nil
+		case "pip":
+			return userDir + "/pip", nil
+		default:
+			return "/usr/bin/" + name, nil
+		}
+	}
+
+	under, shadowed := classifyPackageManagerResolutions(
+		[]string{"npm", "pip", "yarn"},
+		[]string{systemDir, userDir},
+		lookPath,
+	)
+	assert.ElementsMatch(t, []string{"npm", "pip"}, under)
+	assert.Equal(t, []string{"yarn"}, shadowed)
 }
