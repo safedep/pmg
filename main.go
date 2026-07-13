@@ -226,10 +226,11 @@ func main() {
 // under sudo).
 func eventlogInitError(err error) error {
 	if errors.Is(err, fs.ErrPermission) {
+		help, _ := config.UnwritableConfigDirRemedy(config.Get().ConfigDir())
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.PermissionDenied).
 			WithHumanError("event logging is required but its directory is not writable").
-			WithHelp(config.UnwritableConfigDirRemedy(config.Get().ConfigDir())).
+			WithHelp(help).
 			Wrap(err)
 	}
 	return usefulerror.NewUsefulError().
