@@ -229,7 +229,7 @@ func eventlogInitError(err error) error {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.PermissionDenied).
 			WithHumanError("event logging is required but its directory is not writable").
-			WithHelp(fmt.Sprintf("If a root or sudo run created it, restore ownership: sudo chown -R $(id -un) %s", config.Get().ConfigDir())).
+			WithHelp(config.UnwritableConfigDirRemedy(config.Get().ConfigDir())).
 			Wrap(err)
 	}
 	return usefulerror.NewUsefulError().

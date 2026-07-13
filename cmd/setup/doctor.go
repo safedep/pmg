@@ -259,8 +259,9 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 
 // checkEventLogDirResult is the testable core of the event-log dir check.
 // Event logging is mandatory (init failure is fatal), so an unwritable dir
-// fail-closes every pmg command for this user. The common cause is a root or
-// sudo run having created the per-user directory as root, hence the chown fix.
+// fail-closes every pmg command for this user. The remedy is triaged: chown
+// when another account created files in this user's home, an environment fix
+// when a leaked HOME/XDG_CONFIG_HOME points at another user's home.
 func checkEventLogDirResult(skipEventLogging bool, logDir, configDir string) doctor.CheckResult {
 	if skipEventLogging {
 		return doctor.CheckResult{
@@ -287,7 +288,7 @@ func checkEventLogDirResult(skipEventLogging bool, logDir, configDir string) doc
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: "Event log directory not writable",
-			Fix:     fmt.Sprintf("sudo chown -R $(id -un) %s", configDir),
+			Fix:     config.UnwritableConfigDirRemedy(configDir),
 		}
 	}
 	if err := probe.Close(); err != nil {

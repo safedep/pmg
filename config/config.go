@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	_ "embed"
@@ -655,6 +656,42 @@ func rootCacheDir() (string, error) {
 		return filepath.Join(home, "Library", "Caches"), nil
 	}
 	return filepath.Join(home, ".cache"), nil
+}
+
+// realUserHomeDir returns the current user's home from the passwd database,
+// ignoring HOME and XDG_* env vars that may be leaked from another account.
+// Overridable in tests.
+var realUserHomeDir = func() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
+
+// UnwritableConfigDirRemedy returns actionable help for a per-user config or
+// event-log directory the current user cannot write. The wrong remedy is
+// harmful: chown-ing a directory that belongs to another account steals it and
+// bricks that account instead, so chown is only suggested when the directory
+// is inside the current user's real home.
+func UnwritableConfigDirRemedy(dir string) string {
+	if os.Getenv(pmgConfigDirEnvKey) != "" {
+		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir)
+	}
+
+	home, err := realUserHomeDir()
+	if err == nil && home != "" && !pathWithinDir(dir, home) {
+		return fmt.Sprintf(
+			"pmg resolved its config directory to %s, outside your home (%s): HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"; do not chown another user's directory",
+			dir, home)
+	}
+
+	return fmt.Sprintf("If a root or sudo run created it, restore ownership: sudo chown -R $(id -un) %s", dir)
+}
+
+func pathWithinDir(path, dir string) bool {
+	cleanPath, cleanDir := filepath.Clean(path), filepath.Clean(dir)
+	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
 }
 
 // configDir computes the path to the config directory.

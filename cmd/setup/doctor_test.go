@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,7 +134,7 @@ func TestCheckEventLogDirResult(t *testing.T) {
 		assert.Equal(t, doctor.StatusPass, result.Status)
 	})
 
-	t.Run("unwritable directory fails with chown fix", func(t *testing.T) {
+	t.Run("unwritable directory fails with triaged remedy", func(t *testing.T) {
 		if os.Geteuid() == 0 {
 			t.Skip("running as root: directory permissions are not enforced")
 		}
@@ -146,7 +147,6 @@ func TestCheckEventLogDirResult(t *testing.T) {
 		result := checkEventLogDirResult(false, dir, configDir)
 		assert.Equal(t, doctor.StatusFail, result.Status)
 		assert.Equal(t, "Event log directory not writable", result.Message)
-		assert.Contains(t, result.Fix, "sudo chown -R")
-		assert.Contains(t, result.Fix, configDir)
+		assert.Equal(t, config.UnwritableConfigDirRemedy(configDir), result.Fix)
 	})
 }

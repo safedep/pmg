@@ -117,13 +117,12 @@ The invoking user must be able to write their config directory. PMG records an e
 
 In Docker images, avoid creating `/home/<user>/.config/safedep` as root during the build. Either fix ownership for the runtime user, or set `PMG_CONFIG_DIR` to a writable location.
 
-If every `pmg` command fails with `permission denied` on the event log, a root run created the per-user directory as root. This happens where `sudo` preserves `HOME` (GitHub-hosted runners, `sudo -E`, `su` without `-`) and in images that set `ENV HOME` before dropping root. Restore ownership:
+If every `pmg` command fails with `permission denied` on the event log, check where the reported path points:
 
-```bash
-sudo chown -R $(id -un) ~/.config/safedep
-```
+- **Inside your own home**: a root run created it as root (preserved `HOME`: `sudo -E`, `su` without `-`, images that set `ENV HOME` before dropping root). Restore ownership: `sudo chown -R $(id -un) ~/.config/safedep`
+- **Inside another user's home**: your environment leaked that user's `HOME` or `XDG_CONFIG_HOME` (e.g. `sudo -u <user>` on GitHub-hosted runners). Fix the environment (`export XDG_CONFIG_HOME="$HOME/.config"`). Do not chown another user's directory; that bricks their pmg instead.
 
-`pmg setup doctor` detects an unwritable event log directory and prints the same fix.
+The error message and `pmg setup doctor` print the fix matching your case.
 
 For cloud sync, enable cloud in the system config and provide credentials (`SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID`, or a keychain login on developer machines).
 
