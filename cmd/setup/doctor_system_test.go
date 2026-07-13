@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"os/exec"
 	"testing"
 
 	"github.com/safedep/pmg/internal/doctor"
@@ -47,10 +48,34 @@ func TestShimInPathImpliesInterception(t *testing.T) {
 		{
 			Name:                checkShimInPath,
 			Status:              doctor.StatusPass,
-			Message:             "npm resolves to system shim",
+			Message:             "Package managers resolve to System shim directory",
 			ImpliesInterception: true,
 		},
 	}
 
 	assert.True(t, isInterceptionActive(results))
+}
+
+func TestClassifyPackageManagerResolutions(t *testing.T) {
+	shimDir := "/usr/local/lib/pmg/bin"
+	lookPath := func(name string) (string, error) {
+		switch name {
+		case "npm":
+			return shimDir + "/npm", nil
+		case "pip":
+			return "/usr/bin/pip", nil
+		case "uv":
+			return "", exec.ErrNotFound
+		default:
+			return "", exec.ErrNotFound
+		}
+	}
+
+	under, shadowed := classifyPackageManagerResolutions(
+		[]string{"npm", "pip", "uv"},
+		shimDir,
+		lookPath,
+	)
+	assert.Equal(t, []string{"npm"}, under)
+	assert.Equal(t, []string{"pip"}, shadowed)
 }

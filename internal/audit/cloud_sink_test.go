@@ -154,4 +154,6 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	require.NotNil(t, invCtx, "session complete event must have invocation context")
 	assert.Contains(t, invCtx.GetCommand(), "npm")
 	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
+	assert.NotEmpty(t, invCtx.GetUsername())
+	assert.NotEmpty(t, invCtx.GetUsernameUid())
 }

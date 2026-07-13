@@ -38,7 +38,7 @@ func PrintSetupSystemInstallCmdInfo(shimBinDir, configDir, profilePath string) {
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Shims:   %s", shimBinDir)))
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Config:  %s", configDir)))
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Profile: %s", profilePath)))
-	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Per-user config files are now ignored; edit %s/config.yml as root.", configDir)))
+	fmt.Printf("   %s\n", Colors.Dim("Per-user config files are now ignored."))
 	fmt.Printf("\n%s For Docker builds (RUN does not source profile.d), add:\n", Colors.Dim("ℹ"))
 	fmt.Printf("   %s\n", Colors.Bold(fmt.Sprintf(`ENV PATH="%s:$PATH"`, shimBinDir)))
 	fmt.Printf("%s Login shells pick up PATH from profile.d. After venv activate, use `pmg pip`.\n", Colors.Dim("ℹ"))

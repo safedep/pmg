@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -17,7 +18,7 @@ import (
 type cloudSink struct {
 	*SyncClientBundle
 	invocationID string
-	ciResolver  CloudSinkCIResolver
+	ciResolver   CloudSinkCIResolver
 	command      string
 	workingDir   string
 }
@@ -93,6 +94,12 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	ctx := &controltowerv1.EndpointInvocationContext{}
 	ctx.SetCommand(s.command)
 	ctx.SetWorkingDirectory(s.workingDir)
+
+	u, err := user.Current()
+	if err == nil {
+		ctx.SetUsername(u.Username)
+		ctx.SetUsernameUid(u.Uid)
+	}
 
 	if s.ciResolver != nil {
 		ci := &controltowerv1.EndpointCIContext{}

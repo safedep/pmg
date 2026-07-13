@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260528074646-b9e182189444.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260620084912-77c7bb923ddb.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.11-20260713161921-716fa3011a21.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0

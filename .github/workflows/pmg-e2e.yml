@@ -967,7 +967,7 @@ jobs:
           out=$(pmg setup doctor 2>&1 || true)
           echo "$out"
           echo "$out" | grep -q 'No aliases (system install)'
-          echo "$out" | grep -Eq 'npm resolves to system shim|System shim directory is in PATH'
+          echo "$out" | grep -Eq 'Package managers resolve to System shim directory|System shim directory is in PATH'
 
       - name: Non-root user interception via system shims
         run: |

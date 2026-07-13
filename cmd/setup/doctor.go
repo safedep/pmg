@@ -304,65 +304,76 @@ func pathIsUnderDir(path, dir string) bool {
 	return strings.HasPrefix(cleanPath, prefix)
 }
 
-func checkShimInPathResult() doctor.CheckResult {
-	pathEntries := filepath.SplitList(os.Getenv("PATH"))
-	systemDir := shim.SystemBinDir()
-	userDir, userDirErr := shim.UserBinDir()
-	resolved, lookErr := exec.LookPath("npm")
+func classifyPackageManagerResolutions(packageManagers []string, shimDir string, lookPath func(string) (string, error)) (underShim, shadowed []string) {
+	for _, pm := range packageManagers {
+		resolved, err := lookPath(pm)
+		if err != nil {
+			continue
+		}
 
-	if lookErr == nil {
-		if shim.SystemShimsInstalled() && pathIsUnderDir(resolved, systemDir) {
-			return doctor.CheckResult{
-				Status:              doctor.StatusPass,
-				Message:             "npm resolves to system shim",
-				ImpliesInterception: true,
-			}
+		if pathIsUnderDir(resolved, shimDir) {
+			underShim = append(underShim, pm)
+			continue
 		}
-		if userDirErr == nil && pathIsUnderDir(resolved, userDir) {
-			return doctor.CheckResult{
-				Status:              doctor.StatusPass,
-				Message:             "npm resolves to PMG shim",
-				ImpliesInterception: true,
-			}
-		}
+		shadowed = append(shadowed, pm)
 	}
+	return underShim, shadowed
+}
 
-	if shim.SystemShimsInstalled() && pathContainsDir(pathEntries, systemDir) {
-		if lookErr == nil {
+func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
+	underShim, shadowed := classifyPackageManagerResolutions(
+		alias.DefaultConfig().PackageManagers,
+		shimDir,
+		exec.LookPath,
+	)
+
+	if len(shadowed) > 0 {
+		if pathContainsDir(pathEntries, shimDir) || len(underShim) > 0 {
 			return doctor.CheckResult{
 				Status:  doctor.StatusWarn,
-				Message: fmt.Sprintf("System shim directory is in PATH, but npm resolves to %s", resolved),
+				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(shadowed, ", "), pathLabel),
 			}
 		}
-		return doctor.CheckResult{
-			Status:              doctor.StatusPass,
-			Message:             "System shim directory is in PATH",
-			ImpliesInterception: true,
-		}
-	}
-	if userDirErr == nil && pathContainsDir(pathEntries, userDir) {
-		if lookErr == nil {
-			return doctor.CheckResult{
-				Status:  doctor.StatusWarn,
-				Message: fmt.Sprintf("Shim directory is in PATH, but npm resolves to %s", resolved),
-			}
-		}
-		return doctor.CheckResult{
-			Status:              doctor.StatusPass,
-			Message:             "Shim directory is in PATH",
-			ImpliesInterception: true,
-		}
-	}
-	if shim.SystemShimsInstalled() {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: "System shim directory not in PATH",
+			Message: fmt.Sprintf("%s not in PATH", pathLabel),
+		}
+	}
+	if len(underShim) > 0 {
+		return doctor.CheckResult{
+			Status:              doctor.StatusPass,
+			Message:             fmt.Sprintf("Package managers resolve to %s", pathLabel),
+			ImpliesInterception: true,
+		}
+	}
+	if pathContainsDir(pathEntries, shimDir) {
+		return doctor.CheckResult{
+			Status:              doctor.StatusPass,
+			Message:             fmt.Sprintf("%s is in PATH", pathLabel),
+			ImpliesInterception: true,
 		}
 	}
 	return doctor.CheckResult{
 		Status:  doctor.StatusFail,
-		Message: "Shim directory not in PATH",
+		Message: fmt.Sprintf("%s not in PATH", pathLabel),
 	}
+}
+
+func checkShimInPathResult() doctor.CheckResult {
+	pathEntries := filepath.SplitList(os.Getenv("PATH"))
+
+	if shim.SystemShimsInstalled() {
+		return checkShimDirResolution(shim.SystemBinDir(), "System shim directory", pathEntries)
+	}
+
+	userDir, err := shim.UserBinDir()
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("Could not resolve shim directory: %v", err),
+		}
+	}
+	return checkShimDirResolution(userDir, "Shim directory", pathEntries)
 }
 
 func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {
