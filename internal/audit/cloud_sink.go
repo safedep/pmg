@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"strconv"
 	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -130,8 +131,15 @@ func invokingUser() *user.User {
 				return u
 			}
 			// No passwd entry for the sudo user (minimal containers): keep
-			// the attribution sudo recorded rather than reporting root.
-			return &user.User{Username: name, Uid: os.Getenv("SUDO_UID")}
+			// the attribution sudo recorded rather than reporting root. When
+			// SUDO_UID is also absent, fall back to the effective uid (0) —
+			// a non-root username with uid 0 is correct and signals the
+			// command ran under sudo.
+			uid := os.Getenv("SUDO_UID")
+			if uid == "" {
+				uid = strconv.Itoa(auditGeteuid())
+			}
+			return &user.User{Username: name, Uid: uid}
 		}
 	}
 	u, err := user.Current()

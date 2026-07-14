@@ -41,7 +41,7 @@ func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *clou
 	return &cloudSink{
 		SyncClientBundle: &SyncClientBundle{syncClient: syncClient},
 		invocationID:     "test-invocation",
-		workingDir: t.TempDir(),
+		workingDir:       t.TempDir(),
 	}
 }
 
@@ -193,4 +193,12 @@ func TestInvokingUserKeepsSudoAttributionWithoutPasswdEntry(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "no-such-user-xyz", got.Username)
 	assert.Equal(t, "4242", got.Uid)
+
+	// Without SUDO_UID, fall back to the effective uid: a non-root username
+	// with uid 0 correctly signals the command ran under sudo.
+	t.Setenv("SUDO_UID", "")
+	got = invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, "no-such-user-xyz", got.Username)
+	assert.Equal(t, "0", got.Uid)
 }

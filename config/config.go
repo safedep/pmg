@@ -7,10 +7,11 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	_ "embed"
+
+	"github.com/safedep/pmg/internal/fsutil"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -703,7 +704,7 @@ func classifyUnwritableDir(dir string) unwritableDirCause {
 	}
 
 	home, err := currentUserHomeDir()
-	if err == nil && !PathWithinDir(dir, home) {
+	if err == nil && !fsutil.PathWithinDir(dir, home) {
 		return causeLeakedHomeEnv
 	}
 
@@ -728,16 +729,6 @@ func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 		chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
 		return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown
 	}
-}
-
-// PathWithinDir reports whether path is dir itself or lexically inside it.
-func PathWithinDir(path, dir string) bool {
-	if path == "" || dir == "" {
-		return false
-	}
-
-	cleanPath, cleanDir := filepath.Clean(path), filepath.Clean(dir)
-	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
 }
 
 // isSudoElevation reports whether pmg is running as root via sudo, i.e. a
@@ -1013,47 +1004,20 @@ func WriteSystemTemplateConfig() error {
 		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
 	}
 
+	// MkdirAll and WriteFile honor the process umask, so a hardened root
+	// umask (e.g. 077) would otherwise leave the managed config unreadable
+	// by non-root users — silently disabling the system-wide policy for
+	// them. Only directories created here and the file we write are touched;
+	// pre-existing directories keep their permissions.
+	if err := fsutil.MkdirAllRootOwned(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
 	if err := writeTemplateConfigFile(path); err != nil {
 		return err
 	}
 
-	return secureSystemConfigArtifacts(path)
-}
-
-// secureSystemConfigArtifacts forces root ownership and world-readable modes
-// on the managed config file and the pmg-owned directories above it. MkdirAll
-// and WriteFile honor the process umask, so a hardened root umask (e.g. 077)
-// would otherwise leave the managed config unreadable by non-root users —
-// silently disabling the system-wide policy for them. No-op when not root.
-func secureSystemConfigArtifacts(configFilePath string) error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-
-	dirs := []string{filepath.Dir(configFilePath)}
-	// The vendor directory (e.g. /etc/safedep) is also pmg-created; its parent
-	// (e.g. /etc) is not ours to touch.
-	if parent := filepath.Dir(dirs[0]); filepath.Base(parent) == "safedep" {
-		dirs = append([]string{parent}, dirs...)
-	}
-
-	for _, dir := range dirs {
-		if err := os.Chown(dir, 0, 0); err != nil {
-			return fmt.Errorf("failed to set root ownership on %s: %w", dir, err)
-		}
-		if err := os.Chmod(dir, 0o755); err != nil {
-			return fmt.Errorf("failed to set permissions on %s: %w", dir, err)
-		}
-	}
-
-	if err := os.Chown(configFilePath, 0, 0); err != nil {
-		return fmt.Errorf("failed to set root ownership on %s: %w", configFilePath, err)
-	}
-	if err := os.Chmod(configFilePath, 0o644); err != nil {
-		return fmt.Errorf("failed to set permissions on %s: %w", configFilePath, err)
-	}
-
-	return nil
+	return fsutil.ForceRootOwned(path, 0o644)
 }
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing

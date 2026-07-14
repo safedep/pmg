@@ -18,14 +18,6 @@ func TestPathContainsDir(t *testing.T) {
 	assert.False(t, pathContainsDir([]string{"/usr/bin"}, ""))
 }
 
-func TestPathWithinDir(t *testing.T) {
-	assert.True(t, config.PathWithinDir("/usr/local/lib/pmg/bin/npm", "/usr/local/lib/pmg/bin"))
-	assert.False(t, config.PathWithinDir("/usr/local/bin/npm", "/usr/local/lib/pmg/bin"))
-	assert.False(t, config.PathWithinDir("/usr/local/lib/pmg/bin-extra/npm", "/usr/local/lib/pmg/bin"))
-	assert.False(t, config.PathWithinDir("/usr/local/bin/npm", ""))
-	assert.False(t, config.PathWithinDir("", "/usr/local/bin"))
-}
-
 func TestSystemInstallAliasesPassDoesNotActivateInterception(t *testing.T) {
 	results := []doctor.CheckResult{
 		{Name: checkShellAliases, Status: doctor.StatusPass, Message: "No aliases (system install)"},

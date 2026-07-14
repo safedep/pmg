@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
+	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -374,7 +375,7 @@ func classifyPackageManagerResolutions(packageManagers []string, shimDirs []stri
 
 func resolvesUnderAny(path string, dirs []string) bool {
 	for _, dir := range dirs {
-		if config.PathWithinDir(path, dir) {
+		if fsutil.PathWithinDir(path, dir) {
 			return true
 		}
 	}

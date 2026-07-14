@@ -9,11 +9,15 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
 const (
 	shimMarker       = "PMG shims"
 	shimScriptMarker = "# PMG shim - do not edit, managed by pmg setup"
+	// shimPMGBinVar is the shell variable in every shim script that holds the
+	// pmg binary path. parseShimPMGBin reads it back, so the name is shared.
+	shimPMGBinVar = "PMG_BIN"
 )
 
 type ShimConfig struct {
@@ -23,10 +27,13 @@ type ShimConfig struct {
 	PackageManagers []string
 	Shells          []alias.Shell
 	// SkipShellRc skips per-user shell rc PATH edits. Used by system install,
-	// which relies on /etc/profile.d or ENV PATH instead.
+	// which relies on the system profile or ENV PATH instead.
 	SkipShellRc bool
-	// ManageProfile writes and removes /etc/profile.d/pmg.sh with Install/Remove.
-	ManageProfile bool
+	// SystemProfile installs and removes the OS login-shell PATH snippet
+	// (Linux: /etc/profile.d/pmg.sh) with Install/Remove, and marks this
+	// manager as a system-wide install: Install then also validates the pmg
+	// binary for multi-user use and forces root ownership on the shim dirs.
+	SystemProfile bool
 }
 
 type ShimManager struct {
@@ -72,13 +79,24 @@ func (m *ShimManager) Install() error {
 		m.config.PMGBin = pmgBin
 	}
 
+	if m.config.SystemProfile {
+		// System shims hard-code this binary path for every user; validating
+		// here (not at construction) keeps Remove usable when the installed
+		// binary is no longer suitable.
+		if err := validateSystemExecutable(m.config.PMGBin); err != nil {
+			return err
+		}
+	}
+
 	if err := os.MkdirAll(m.config.BinDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create shim directory %s: %w", m.config.BinDir, err)
 	}
 
-	if m.config.ManageProfile {
+	if m.config.SystemProfile {
+		// Both directories are pmg's own (…/pmg and …/pmg/bin): force root
+		// ownership even when pre-created, so weaker modes are not inherited.
 		for _, dir := range []string{filepath.Dir(m.config.BinDir), m.config.BinDir} {
-			if err := secureSystemDir(dir); err != nil {
+			if err := fsutil.ForceRootOwned(dir, 0o755); err != nil {
 				return err
 			}
 		}
@@ -90,7 +108,7 @@ func (m *ShimManager) Install() error {
 		}
 	}
 
-	if m.config.ManageProfile {
+	if m.config.SystemProfile {
 		if err := writeSystemProfile(m.config.BinDir); err != nil {
 			return fmt.Errorf("failed to write system profile: %w", err)
 		}
@@ -115,7 +133,7 @@ func (m *ShimManager) Remove() error {
 		errs = append(errs, fmt.Errorf("failed to remove shim directory %s: %w", m.config.BinDir, err))
 	}
 
-	if m.config.ManageProfile {
+	if m.config.SystemProfile {
 		if err := removeSystemProfile(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to remove system profile: %w", err))
 		}
@@ -169,17 +187,17 @@ func (m *ShimManager) writeShimScript(pm string) error {
 	pmgBin := shellQuote(m.config.PMGBin)
 
 	content := fmt.Sprintf(`#!/bin/sh
-%s
-PMG_BIN=%s
-if [ ! -x "$PMG_BIN" ]; then
-  echo "[pmg] error: PMG binary not found or not executable: $PMG_BIN" >&2
+%[1]s
+%[2]s=%[3]s
+if [ ! -x "$%[2]s" ]; then
+  echo "[pmg] error: PMG binary not found or not executable: $%[2]s" >&2
   echo "[pmg] error: run 'pmg setup install' again or remove shims with 'pmg setup remove'" >&2
   exit 127
 fi
 PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
 export PMG_SHIM_PATH
-exec "$PMG_BIN" %s "$@"
-`, shimScriptMarker, pmgBin, pm)
+exec "$%[2]s" %[4]s "$@"
+`, shimScriptMarker, shimPMGBinVar, pmgBin, pm)
 
 	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
 		return err

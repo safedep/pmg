@@ -7,12 +7,16 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
+// System install is Linux-only (enforced in cmd/setup); these are Linux
+// paths. Supporting another OS means adding its own shim dir and login-shell
+// PATH mechanism (macOS has no /etc/profile.d equivalent).
 const (
-	defaultSystemBinDir      = "/usr/local/lib/pmg/bin"
-	defaultSystemProfilePath = "/etc/profile.d/pmg.sh"
-	systemProfileMarker      = "PMG system shims"
+	linuxSystemBinDir      = "/usr/local/lib/pmg/bin"
+	linuxSystemProfilePath = "/etc/profile.d/pmg.sh"
+	systemProfileMarker    = "PMG system shims"
 )
 
 // These overrides replace OS-level system install paths in tests. There is
@@ -34,7 +38,7 @@ func SystemBinDir() string {
 	if systemBinDirOverride != "" {
 		return systemBinDirOverride
 	}
-	return defaultSystemBinDir
+	return linuxSystemBinDir
 }
 
 // SystemProfilePath returns the path of the system profile.d snippet.
@@ -42,34 +46,18 @@ func SystemProfilePath() string {
 	if systemProfilePathOverride != "" {
 		return systemProfilePathOverride
 	}
-	return defaultSystemProfilePath
+	return linuxSystemProfilePath
 }
 
 // NewSystemShimManager creates a shim manager for system-wide install: shims
-// under SystemBinDir, no per-user rc edits, and /etc/profile.d management.
-// The current executable is validated for multi-user use.
+// under SystemBinDir, no per-user rc edits, and system profile management.
+// The executable is validated by Install (not here), so Remove works even
+// when the installed binary is no longer suitable.
 func NewSystemShimManager() (*ShimManager, error) {
-	return newSystemShimManager(true)
-}
-
-// NewSystemShimManagerForRemove creates a system shim manager without
-// validating the current executable. Uninstall must work even when the binary
-// that originally installed the shims is no longer suitable for install.
-func NewSystemShimManagerForRemove() (*ShimManager, error) {
-	return newSystemShimManager(false)
-}
-
-func newSystemShimManager(validateExecutable bool) (*ShimManager, error) {
 	aliasCfg := alias.DefaultConfig()
 	pmgBin, err := resolveExecutable()
 	if err != nil {
 		return nil, err
-	}
-
-	if validateExecutable {
-		if err := validateSystemExecutable(pmgBin); err != nil {
-			return nil, err
-		}
 	}
 
 	return &ShimManager{
@@ -78,7 +66,7 @@ func newSystemShimManager(validateExecutable bool) (*ShimManager, error) {
 			PMGBin:          pmgBin,
 			PackageManagers: aliasCfg.PackageManagers,
 			SkipShellRc:     true,
-			ManageProfile:   true,
+			SystemProfile:   true,
 		},
 	}, nil
 }
@@ -86,7 +74,9 @@ func newSystemShimManager(validateExecutable bool) (*ShimManager, error) {
 // validateSystemExecutable rejects binaries unsafe for system-wide shims.
 // Shims hard-code this path, so the binary must be executable by all users,
 // not writable by group/others, and owned by root in a root-owned, non-world-
-// writable parent.
+// writable parent. Permission-bit and ownership semantics are Unix-specific;
+// on Windows fileOwnerUID reports unavailable so validation fails closed,
+// and --system is Linux-gated at the CLI anyway.
 func validateSystemExecutable(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -199,11 +189,11 @@ func SystemShimBinary() (string, bool) {
 	return parseShimPMGBin(content)
 }
 
-// parseShimPMGBin extracts the PMG_BIN value from a shim script, reversing the
-// shellQuote used by writeShimScript.
+// parseShimPMGBin extracts the shimPMGBinVar value from a shim script,
+// reversing the shellQuote used by writeShimScript.
 func parseShimPMGBin(content string) (string, bool) {
 	for line := range strings.SplitSeq(content, "\n") {
-		if rest, ok := strings.CutPrefix(line, "PMG_BIN="); ok {
+		if rest, ok := strings.CutPrefix(line, shimPMGBinVar+"="); ok {
 			return shellUnquote(rest), true
 		}
 	}
@@ -223,24 +213,6 @@ func shellUnquote(s string) string {
 // installed binary after setup (validation otherwise runs only at install).
 func ValidateSystemBinary(path string) error {
 	return validateSystemExecutable(path)
-}
-
-// secureSystemDir forces root ownership and 0755 on a directory pmg manages
-// system-wide. MkdirAll leaves pre-existing directories untouched, so a dir
-// pre-created with weaker ownership (possible under Debian's group-writable
-// /usr/local/lib) would let a non-root user replace shims; this closes that
-// hole. No-op when not running as root (unit tests, dry contexts).
-func secureSystemDir(path string) error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-	if err := os.Chown(path, 0, 0); err != nil {
-		return fmt.Errorf("failed to set root ownership on %s: %w", path, err)
-	}
-	if err := os.Chmod(path, 0o755); err != nil {
-		return fmt.Errorf("failed to set permissions on %s: %w", path, err)
-	}
-	return nil
 }
 
 func shimsPresent(dir string) bool {
@@ -293,7 +265,7 @@ export PATH="%s:$PATH"
 
 	data, err := os.ReadFile(path)
 	if err == nil && string(data) == content {
-		return secureSystemFile(path)
+		return fsutil.ForceRootOwned(path, 0o644)
 	}
 
 	if err != nil && !os.IsNotExist(err) {
@@ -303,24 +275,10 @@ export PATH="%s:$PATH"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("failed to write system profile %s: %w", path, err)
 	}
-	return secureSystemFile(path)
-}
 
-// secureSystemFile forces root ownership and world-readable 0644 on a file pmg
-// writes system-wide. This keeps the snippet readable by every user's login
-// shell regardless of root's umask, and repairs a pre-existing file's owner
-// without touching the shared directory it lives in.
-func secureSystemFile(path string) error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-	if err := os.Chown(path, 0, 0); err != nil {
-		return fmt.Errorf("failed to set root ownership on %s: %w", path, err)
-	}
-	if err := os.Chmod(path, 0o644); err != nil {
-		return fmt.Errorf("failed to set permissions on %s: %w", path, err)
-	}
-	return nil
+	// The snippet must stay world-readable regardless of root's umask so every
+	// user's login shell can source it.
+	return fsutil.ForceRootOwned(path, 0o644)
 }
 
 func removeSystemProfile() error {

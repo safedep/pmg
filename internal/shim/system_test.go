@@ -38,7 +38,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	mgr, err := NewSystemShimManager()
 	require.NoError(t, err)
 	assert.True(t, mgr.config.SkipShellRc)
-	assert.True(t, mgr.config.ManageProfile)
+	assert.True(t, mgr.config.SystemProfile)
 	assert.Equal(t, SystemBinDir(), mgr.GetBinDir())
 
 	require.NoError(t, mgr.Install())
@@ -226,13 +226,17 @@ func TestRequirePathSearchableByAll(t *testing.T) {
 	})
 }
 
-func TestNewSystemShimManagerForRemoveSkipsValidation(t *testing.T) {
+func TestInstallValidatesExecutableAndRemoveDoesNot(t *testing.T) {
 	root := t.TempDir()
 	useSystemPaths(t, root)
-	systemExecutableOwnershipCheck = true
 
-	mgr, err := NewSystemShimManagerForRemove()
+	exe, err := resolveExecutable()
 	require.NoError(t, err)
-	require.NoError(t, mgr.Install())
-	require.NoError(t, mgr.Remove())
+	require.NoError(t, os.Chmod(exe, 0o700))
+
+	mgr, err := NewSystemShimManager()
+	require.NoError(t, err, "constructor must not validate the executable")
+
+	require.Error(t, mgr.Install(), "install must reject a binary other users cannot execute")
+	require.NoError(t, mgr.Remove(), "remove must work even when the binary fails validation")
 }

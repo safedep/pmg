@@ -199,7 +199,7 @@ func removeSystem(removeConfig bool) error {
 		return err
 	}
 
-	shimMgr, err := shim.NewSystemShimManagerForRemove()
+	shimMgr, err := shim.NewSystemShimManager()
 	if err != nil {
 		return fmt.Errorf("failed to create system shim manager: %w", err)
 	}
