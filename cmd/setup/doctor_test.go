@@ -18,10 +18,12 @@ func TestPathContainsDir(t *testing.T) {
 	assert.False(t, pathContainsDir([]string{"/usr/bin"}, ""))
 }
 
-func TestPathIsUnderDir(t *testing.T) {
-	assert.True(t, pathIsUnderDir("/usr/local/lib/pmg/bin/npm", "/usr/local/lib/pmg/bin"))
-	assert.False(t, pathIsUnderDir("/usr/local/bin/npm", "/usr/local/lib/pmg/bin"))
-	assert.False(t, pathIsUnderDir("/usr/local/lib/pmg/bin-extra/npm", "/usr/local/lib/pmg/bin"))
+func TestPathWithinDir(t *testing.T) {
+	assert.True(t, config.PathWithinDir("/usr/local/lib/pmg/bin/npm", "/usr/local/lib/pmg/bin"))
+	assert.False(t, config.PathWithinDir("/usr/local/bin/npm", "/usr/local/lib/pmg/bin"))
+	assert.False(t, config.PathWithinDir("/usr/local/lib/pmg/bin-extra/npm", "/usr/local/lib/pmg/bin"))
+	assert.False(t, config.PathWithinDir("/usr/local/bin/npm", ""))
+	assert.False(t, config.PathWithinDir("", "/usr/local/bin"))
 }
 
 func TestSystemInstallAliasesPassDoesNotActivateInterception(t *testing.T) {

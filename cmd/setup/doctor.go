@@ -352,19 +352,6 @@ func pathContainsDir(pathEntries []string, dir string) bool {
 	return false
 }
 
-func pathIsUnderDir(path, dir string) bool {
-	if path == "" || dir == "" {
-		return false
-	}
-	cleanPath := filepath.Clean(path)
-	cleanDir := filepath.Clean(dir)
-	if cleanPath == cleanDir {
-		return true
-	}
-	prefix := cleanDir + string(os.PathSeparator)
-	return strings.HasPrefix(cleanPath, prefix)
-}
-
 // classifyPackageManagerResolutions splits package managers by where they
 // resolve on PATH: underShim means the command runs through a pmg shim (so it
 // is intercepted), shadowed means a real npm/pip sits ahead of the shims (so
@@ -387,7 +374,7 @@ func classifyPackageManagerResolutions(packageManagers []string, shimDirs []stri
 
 func resolvesUnderAny(path string, dirs []string) bool {
 	for _, dir := range dirs {
-		if pathIsUnderDir(path, dir) {
+		if config.PathWithinDir(path, dir) {
 			return true
 		}
 	}

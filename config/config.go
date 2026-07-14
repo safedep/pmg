@@ -664,43 +664,78 @@ var (
 	rootCacheDirResolver  = rootCacheDir
 )
 
-// realUserHomeDir returns the current user's home from the passwd database,
-// ignoring HOME and XDG_* env vars that may be leaked from another account.
-// Overridable in tests.
-var realUserHomeDir = func() (string, error) {
+// currentUserHomeDir returns the current user's home from the passwd
+// database, ignoring HOME and XDG_* env vars that may be leaked from another
+// account. Overridable in tests.
+var currentUserHomeDir = func() (string, error) {
 	u, err := user.Current()
 	if err != nil {
 		return "", err
 	}
+	if u.HomeDir == "" {
+		return "", fmt.Errorf("user %s has no home directory in the passwd database", u.Username)
+	}
 	return u.HomeDir, nil
 }
 
-// UnwritableConfigDirRemedy returns actionable help for a per-user config or
-// event-log directory the current user cannot write: help is the full
-// explanation for fatal CLI errors, fix the terse variant for the doctor
-// table. Prescribing the wrong remedy is harmful: chown-ing a directory that
-// belongs to another account steals it and bricks that account instead, so
-// its is only suggested when the directory is inside the current user's
-// real (passwd) home, which a leaked environment cannot influence.
-func UnwritableConfigDirRemedy(dir string) (help, fix string) {
+// unwritableDirCause is why the current user cannot write a per-user
+// directory. The remedy must match the cause: chown-ing a directory that
+// belongs to another account steals it and breaks that account, so chown is
+// only safe for a directory inside the current user's passwd home, which a
+// leaked environment cannot influence.
+type unwritableDirCause int
+
+const (
+	// causeExplicitConfigDir: PMG_CONFIG_DIR selected the directory.
+	causeExplicitConfigDir unwritableDirCause = iota
+	// causeLeakedHomeEnv: the directory is outside the current user's passwd
+	// home, so HOME or XDG_CONFIG_HOME leaked from another account (e.g.
+	// sudo -u on hosts that preserve the environment).
+	causeLeakedHomeEnv
+	// causeRootCreatedDir: the directory is inside the user's own home; a
+	// root or sudo run most likely created it root-owned.
+	causeRootCreatedDir
+)
+
+func classifyUnwritableDir(dir string) unwritableDirCause {
 	if os.Getenv(pmgConfigDirEnvKey) != "" {
-		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir),
-			"Make PMG_CONFIG_DIR writable"
+		return causeExplicitConfigDir
 	}
 
-	home, err := realUserHomeDir()
-	if err == nil && home != "" && !pathWithinDir(dir, home) {
-		return fmt.Sprintf(
-				"pmg resolved its config directory to %s, outside your home (%s): HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"",
-				dir, home),
-			`Fix leaked env: export XDG_CONFIG_HOME="$HOME/.config"`
+	home, err := currentUserHomeDir()
+	if err == nil && !PathWithinDir(dir, home) {
+		return causeLeakedHomeEnv
 	}
 
-	chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
-	return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown
+	return causeRootCreatedDir
 }
 
-func pathWithinDir(path, dir string) bool {
+// UnwritableConfigDirRemedy renders the remedy for a per-user config or
+// event-log directory the current user cannot write: help is the full
+// explanation for fatal CLI errors, fix the terse variant for the doctor
+// table. Cause diagnosis lives in classifyUnwritableDir.
+func UnwritableConfigDirRemedy(dir string) (help, fix string) {
+	switch classifyUnwritableDir(dir) {
+	case causeExplicitConfigDir:
+		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir),
+			"Make PMG_CONFIG_DIR writable"
+	case causeLeakedHomeEnv:
+		return fmt.Sprintf(
+				"pmg resolved its config directory to %s, outside your home: HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"",
+				dir),
+			`Fix leaked env: export XDG_CONFIG_HOME="$HOME/.config"`
+	default:
+		chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
+		return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown
+	}
+}
+
+// PathWithinDir reports whether path is dir itself or lexically inside it.
+func PathWithinDir(path, dir string) bool {
+	if path == "" || dir == "" {
+		return false
+	}
+
 	cleanPath, cleanDir := filepath.Clean(path), filepath.Clean(dir)
 	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
 }
