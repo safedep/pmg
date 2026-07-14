@@ -153,18 +153,11 @@ func requireRootOwnedPath(path string, info os.FileInfo) error {
 	return nil
 }
 
-// requireSafeParentDir validates only the immediate parent of the executable,
-// not the full chain up to /. It requires a root-owned, non-world-writable
-// parent so an unprivileged account cannot swap the shared binary that every
-// user's shims exec; a maliciously writable grandparent is out of scope.
-// (Reachability of the full chain is separately enforced by
-// requirePathSearchableByAll.)
-//
-// Group-writable is allowed deliberately: Debian/Ubuntu ship /usr/local/bin as
-// root:staff mode 2775, so rejecting group-writable would refuse the documented
-// install location out of the box. The tradeoff is that a member of the parent
-// directory's group can replace the binary — harden the directory (chmod g-w)
-// on multi-user hosts where that group is not trusted.
+// requireSafeParentDir requires a root-owned, non-world-writable immediate
+// parent. Group-writable is allowed on purpose so Debian/Ubuntu's default
+// /usr/local/bin (root:staff 2775) is not rejected; the resulting bypass on
+// group-writable non-sticky dirs is covered in docs/system-install.md
+// Limitations.
 func requireSafeParentDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -286,11 +279,11 @@ func SystemProfileInstalled() bool {
 func writeSystemProfile(binDir string) error {
 	path := SystemProfilePath()
 
+	// Do not chown/chmod /etc/profile.d itself: it is a shared system directory
+	// pmg does not own, and other packages drop snippets there. We only secure
+	// the file we write, below.
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("failed to create profile.d directory: %w", err)
-	}
-	if err := secureSystemDir(filepath.Dir(path)); err != nil {
-		return err
 	}
 
 	content := fmt.Sprintf(`# %s - managed by pmg setup install --system
@@ -300,7 +293,7 @@ export PATH="%s:$PATH"
 
 	data, err := os.ReadFile(path)
 	if err == nil && string(data) == content {
-		return nil
+		return secureSystemFile(path)
 	}
 
 	if err != nil && !os.IsNotExist(err) {
@@ -309,6 +302,23 @@ export PATH="%s:$PATH"
 
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("failed to write system profile %s: %w", path, err)
+	}
+	return secureSystemFile(path)
+}
+
+// secureSystemFile forces root ownership and world-readable 0644 on a file pmg
+// writes system-wide. This keeps the snippet readable by every user's login
+// shell regardless of root's umask, and repairs a pre-existing file's owner
+// without touching the shared directory it lives in.
+func secureSystemFile(path string) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	if err := os.Chown(path, 0, 0); err != nil {
+		return fmt.Errorf("failed to set root ownership on %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		return fmt.Errorf("failed to set permissions on %s: %w", path, err)
 	}
 	return nil
 }

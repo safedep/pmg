@@ -98,6 +98,8 @@ Optional lockdown (`global_lockdown: true`) is documented in [config.md](./confi
 - **Config changes.** `pmg config set` and `pmg config edit` are unavailable while the system config is active. Edit `/etc/safedep/pmg/config.yml` as root, or redeploy the file.
 - **Custom sandbox `policy_templates`.** Relative paths in the system config resolve under each user's config directory, not `/etc/safedep/pmg`. Prefer absolute paths.
 - **`pmg sandbox allow`.** Blocked when the system config sets `global_lockdown: true`.
+- **Group-writable install directory.** The binary must be root-owned and non-writable, but if its directory is group-writable without the sticky bit (Debian/Ubuntu ship `/usr/local/bin` as `root:staff` mode `2775`), a group member can delete the root-owned binary and replace it, bypassing the check. `staff` is empty by default, so default exposure is nil; on a multi-user host where the group is not trusted, run `sudo chmod g-w /usr/local/bin` or install into a `root:root` directory.
+- **Elevation only, not impersonation.** Root's per-user data is diverted to `/root` only for `sudo` to root (detected via `SUDO_USER`). `su` without `-` becomes root with no marker, so it can still create root-owned files in the caller's home; the caller sees a clear error and chown fix on their next `pmg` run. `sudo -u <user>` runs with only that user's rights, so it cannot poison another account at all, it just fails. Prefer `sudo` or `su -`, or set `PMG_CONFIG_DIR`.
 
 
 ## User data directories
