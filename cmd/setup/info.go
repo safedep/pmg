@@ -78,13 +78,13 @@ func executeSetupInfo() error {
 	}
 
 	shellEntries["Detected Shell"] = shell
-	shellEntries["Alias Installed"] = strconv.FormatBool(isInstalled)
-	shellEntries["User Shims"] = strconv.FormatBool(shim.UserShimsInstalled())
-	if shim.SystemShimsInstalled() {
-		shellEntries["System Shims"] = shim.SystemBinDir()
-	} else {
-		shellEntries["System Shims"] = "not installed"
+	shellEntries["Aliases"] = installedState(isInstalled, aliasManager.GetRcPath())
+	userBinDir, err := shim.UserBinDir()
+	if err != nil {
+		userBinDir = ""
 	}
+	shellEntries["User Shims"] = installedState(shim.UserShimsInstalled(), userBinDir)
+	shellEntries["System Shims"] = installedState(shim.SystemShimsInstalled(), shim.SystemBinDir())
 	ui.PrintInfoSection("Shell Integration", shellEntries)
 
 	// Security section
@@ -186,6 +186,18 @@ func executeSetupInfo() error {
 	}
 
 	return nil
+}
+
+// installedState renders installation-state rows consistently: the location
+// when installed, "not installed" otherwise.
+func installedState(installed bool, location string) string {
+	if !installed {
+		return "not installed"
+	}
+	if location == "" {
+		return "installed"
+	}
+	return fmt.Sprintf("installed (%s)", location)
 }
 
 func resolveSandboxDriverName() string {

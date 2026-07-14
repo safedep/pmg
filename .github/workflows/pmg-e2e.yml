@@ -927,6 +927,19 @@ jobs:
           fi
           echo "SUCCESS: user-owned binary rejected"
 
+      - name: Reject unreachable PMG binary for system install
+        run: |
+          # Binary is 0755 and root-owned, but sits under a 0700 dir: other
+          # users cannot traverse to it, so every shim would exit 127.
+          sudo mkdir -p /root/pmg-unreachable
+          sudo install -m 755 bin/pmg /root/pmg-unreachable/pmg
+          sudo chmod 700 /root/pmg-unreachable
+          if sudo /root/pmg-unreachable/pmg setup install --system; then
+            echo "ERROR: system install accepted a binary under a non-searchable directory"
+            exit 1
+          fi
+          echo "SUCCESS: unreachable binary rejected"
+
       - name: Install PMG system-wide
         run: |
           # GitHub runners ship /usr/local/bin world-writable; system install

@@ -204,6 +204,28 @@ func TestParseShimPMGBinRoundTripsShellQuote(t *testing.T) {
 	}
 }
 
+func TestRequirePathSearchableByAll(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission semantics")
+	}
+
+	t.Run("standard system path passes", func(t *testing.T) {
+		// Only directories are inspected, so the file itself need not exist.
+		assert.NoError(t, requirePathSearchableByAll("/usr/bin/pmg-does-not-exist"))
+	})
+
+	t.Run("non-searchable ancestor rejects", func(t *testing.T) {
+		base := t.TempDir()
+		require.NoError(t, os.Chmod(base, 0o700))
+		sub := filepath.Join(base, "sub")
+		require.NoError(t, os.MkdirAll(sub, 0o755))
+
+		err := requirePathSearchableByAll(filepath.Join(sub, "pmg"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not searchable by all users")
+	})
+}
+
 func TestNewSystemShimManagerForRemoveSkipsValidation(t *testing.T) {
 	root := t.TempDir()
 	useSystemPaths(t, root)

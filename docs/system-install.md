@@ -8,7 +8,7 @@ sudo pmg setup install --system
 
 **Requires Linux and root.** Install PMG as root into a standard system path such as `/usr/local/bin`. A user-local build (e.g. `~/go/bin/pmg`) is rejected.
 
-`--system` enforces this because every user's shims run the PMG binary by absolute path. Before installing, it checks that the binary is **root-owned**, world-executable, not group- or other-writable, and located in a **root-owned directory** that isn't world-writable.
+`--system` enforces this because every user's shims run the PMG binary by absolute path. Before installing, it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it).
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
 

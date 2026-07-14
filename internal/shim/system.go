@@ -115,8 +115,31 @@ func validateSystemExecutable(path string) error {
 		if err := requireSafeParentDir(filepath.Dir(path)); err != nil {
 			return err
 		}
+		if err := requirePathSearchableByAll(path); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// requirePathSearchableByAll walks every directory from the binary's parent up
+// to the filesystem root and requires the execute (search) bit for others. The
+// shims exec the binary as arbitrary users, so a single non-searchable
+// ancestor (e.g. /root, mode 0700) makes the path unreachable and every shim
+// fail with exit 127 for non-root users, even when the binary itself is 0755.
+func requirePathSearchableByAll(path string) error {
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return fmt.Errorf("failed to inspect directory %s: %w", dir, err)
+		}
+		if info.Mode().Perm()&0o001 == 0 {
+			return fmt.Errorf("directory %s is not searchable by all users, so pmg at %s would be unreachable from other accounts", dir, path)
+		}
+		if dir == filepath.Dir(dir) {
+			return nil
+		}
+	}
 }
 
 func requireRootOwnedPath(path string, info os.FileInfo) error {
@@ -134,6 +157,8 @@ func requireRootOwnedPath(path string, info os.FileInfo) error {
 // not the full chain up to /. It requires a root-owned, non-world-writable
 // parent so an unprivileged account cannot swap the shared binary that every
 // user's shims exec; a maliciously writable grandparent is out of scope.
+// (Reachability of the full chain is separately enforced by
+// requirePathSearchableByAll.)
 //
 // Group-writable is allowed deliberately: Debian/Ubuntu ship /usr/local/bin as
 // root:staff mode 2775, so rejecting group-writable would refuse the documented
