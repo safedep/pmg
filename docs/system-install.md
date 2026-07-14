@@ -115,7 +115,7 @@ Shared policy lives under `/etc/safedep/pmg`. Runtime data stays per user:
 
 You can relocate these with `PMG_CONFIG_DIR` and `PMG_CACHE_DIR`.
 
-When pmg runs as root (including via sudo), its per-user data goes under `/root`, regardless of any `HOME` preserved by sudo. Root never writes into another user's home.
+When pmg runs under `sudo` (a non-root user elevated to root), its per-user data resolves under root's own home (`/root`), not the invoking user's, even if sudo preserved their `HOME`. Running directly as root honors `HOME`/`XDG_CONFIG_HOME` as usual, so golden images that set those on purpose keep working. This detection relies on sudo's `SUDO_USER` marker: `su` without `-` leaks the caller's environment but leaves no marker, so a root shell obtained that way can still write into the caller's home. Prefer `su -` or `sudo`.
 
 The invoking user must be able to write their config directory. PMG records an event log there on each run and fails the command if it cannot (unless event logging is disabled in config).
 
@@ -123,7 +123,7 @@ In Docker images, avoid creating `/home/<user>/.config/safedep` as root during t
 
 If every `pmg` command fails with `permission denied` on the event log, check where the reported path points:
 
-- **Inside your own home**: a root run created it as root (preserved `HOME`: `sudo -E`, `su` without `-`, images that set `ENV HOME` before dropping root). Restore ownership: `sudo chown -R $(id -un) ~/.config/safedep`
+- **Inside your own home**: a root run created it as root (`su` without `-`, images that set `ENV HOME` before dropping root, or an older pmg under `sudo`). Restore ownership: `sudo chown -R $(id -un) ~/.config/safedep`
 - **Inside another user's home**: your environment leaked that user's `HOME` or `XDG_CONFIG_HOME` (e.g. `sudo -u <user>` on GitHub-hosted runners). Fix the environment (`export XDG_CONFIG_HOME="$HOME/.config"`). Do not chown another user's directory; that bricks their pmg instead.
 
 The error message and `pmg setup doctor` print the fix matching your case.

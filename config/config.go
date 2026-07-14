@@ -705,6 +705,19 @@ func pathWithinDir(path, dir string) bool {
 	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
 }
 
+// isSudoElevation reports whether pmg is running as root via sudo, i.e. a
+// non-root user elevated and sudo may have preserved that user's HOME/XDG_*.
+// Only then do per-user paths divert to root's own home, so root does not
+// create state inside the invoking user's home. Running genuinely as root
+// (no sudo) keeps honoring HOME/XDG_*, which is legitimate and intended (e.g.
+// golden Docker images that set HOME/XDG_CONFIG_HOME on purpose). This mirrors
+// the SUDO_USER guard used elsewhere (cmd/setup/cert.go). su without sudo does
+// not set SUDO_USER and is not covered; the unwritable-dir remedy still guides
+// the user if such a run poisons a directory.
+func isSudoElevation() bool {
+	return configGeteuid() == 0 && os.Getenv("SUDO_USER") != ""
+}
+
 // configDir computes the path to the config directory.
 func configDir() (string, error) {
 	dir := os.Getenv(pmgConfigDirEnvKey)
@@ -712,7 +725,7 @@ func configDir() (string, error) {
 		return dir, nil
 	}
 
-	if configGeteuid() == 0 {
+	if isSudoElevation() {
 		if base, err := rootConfigDirResolver(); err == nil {
 			return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 		} else {
@@ -844,7 +857,7 @@ func cacheDir() (string, error) {
 		}
 		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
 	case "darwin", "linux":
-		if configGeteuid() == 0 {
+		if isSudoElevation() {
 			if base, err := rootCacheDirResolver(); err == nil {
 				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 			} else {

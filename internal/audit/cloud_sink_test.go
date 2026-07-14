@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"os/user"
 	"testing"
 	"time"
 
@@ -156,4 +157,26 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
 	assert.NotEmpty(t, invCtx.GetUsername())
 	assert.NotEmpty(t, invCtx.GetUsernameUid())
+}
+
+func TestInvokingUserIgnoresSudoUserWhenNotElevated(t *testing.T) {
+	current, err := user.Current()
+	require.NoError(t, err)
+
+	orig := auditGeteuid
+	t.Cleanup(func() { auditGeteuid = orig })
+
+	// Non-root process: SUDO_USER must be ignored, else attribution is spoofable.
+	auditGeteuid = func() int { return 1000 }
+	t.Setenv("SUDO_USER", "root")
+	got := invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, current.Username, got.Username, "SUDO_USER must not override attribution when not elevated")
+
+	// Elevated (euid 0): SUDO_USER is trusted and used.
+	auditGeteuid = func() int { return 0 }
+	t.Setenv("SUDO_USER", current.Username)
+	got = invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, current.Username, got.Username)
 }

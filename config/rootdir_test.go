@@ -25,9 +25,10 @@ func poisonUserEnv(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "/home/victim/.cache")
 }
 
-func TestConfigDirAsRootIgnoresPreservedHome(t *testing.T) {
+func TestConfigDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 	poisonUserEnv(t)
 	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := configDir()
 	require.NoError(t, err)
@@ -36,6 +37,18 @@ func TestConfigDirAsRootIgnoresPreservedHome(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(dir, rootUser.HomeDir), "expected %s under root home %s", dir, rootUser.HomeDir)
 	assert.NotContains(t, dir, "/home/victim")
+}
+
+func TestConfigDirGenuineRootHonorsEnv(t *testing.T) {
+	// Root without sudo (SUDO_USER unset) is the intended user, e.g. a golden
+	// Docker image that deliberately sets XDG_CONFIG_HOME. It must not divert.
+	poisonUserEnv(t)
+	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "")
+
+	dir, err := configDir()
+	require.NoError(t, err)
+	assert.Contains(t, dir, "/home/victim")
 }
 
 func TestConfigDirAsNonRootUsesEnvHome(t *testing.T) {
@@ -47,19 +60,21 @@ func TestConfigDirAsNonRootUsesEnvHome(t *testing.T) {
 	assert.Contains(t, dir, "/home/victim")
 }
 
-func TestConfigDirEnvOverrideWinsForRoot(t *testing.T) {
+func TestConfigDirEnvOverrideWinsUnderSudo(t *testing.T) {
 	poisonUserEnv(t)
 	t.Setenv("PMG_CONFIG_DIR", "/custom/pmg")
 	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := configDir()
 	require.NoError(t, err)
 	assert.Equal(t, "/custom/pmg", dir)
 }
 
-func TestCacheDirAsRootIgnoresPreservedHome(t *testing.T) {
+func TestCacheDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 	poisonUserEnv(t)
 	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := cacheDir()
 	require.NoError(t, err)
@@ -68,6 +83,16 @@ func TestCacheDirAsRootIgnoresPreservedHome(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(dir, rootUser.HomeDir), "expected %s under root home %s", dir, rootUser.HomeDir)
 	assert.NotContains(t, dir, "/home/victim")
+}
+
+func TestCacheDirGenuineRootHonorsEnv(t *testing.T) {
+	poisonUserEnv(t)
+	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "")
+
+	dir, err := cacheDir()
+	require.NoError(t, err)
+	assert.Contains(t, dir, "/home/victim")
 }
 
 func TestCacheDirAsNonRootUsesEnvHome(t *testing.T) {
@@ -82,6 +107,7 @@ func TestCacheDirAsNonRootUsesEnvHome(t *testing.T) {
 func TestRootDirsFallBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	poisonUserEnv(t)
 	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "victim")
 
 	origConfig, origCache := rootConfigDirResolver, rootCacheDirResolver
 	rootConfigDirResolver = func() (string, error) { return "", assert.AnError }

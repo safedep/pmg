@@ -165,6 +165,41 @@ func TestValidateSystemExecutableRejectsNonRootOwner(t *testing.T) {
 	assert.Contains(t, err.Error(), "must be owned by root")
 }
 
+func TestSystemShimBinaryResolvesInstalledPath(t *testing.T) {
+	root := t.TempDir()
+	useSystemPaths(t, root)
+
+	exe := filepath.Join(root, "pmg")
+	require.NoError(t, os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755))
+	resolveExecutable = func() (string, error) { return exe, nil }
+
+	mgr, err := NewSystemShimManager()
+	require.NoError(t, err)
+	require.NoError(t, mgr.Install())
+
+	got, ok := SystemShimBinary()
+	require.True(t, ok)
+	assert.Equal(t, exe, got)
+}
+
+func TestSystemShimBinaryFalseWhenNoShims(t *testing.T) {
+	root := t.TempDir()
+	useSystemPaths(t, root)
+	require.NoError(t, os.MkdirAll(SystemBinDir(), 0o755))
+
+	_, ok := SystemShimBinary()
+	assert.False(t, ok)
+}
+
+func TestParseShimPMGBinRoundTripsShellQuote(t *testing.T) {
+	for _, path := range []string{"/usr/local/bin/pmg", "/opt/pmg dir/pmg", "/weird/o'brien/pmg"} {
+		content := "#!/bin/sh\n" + shimScriptMarker + "\nPMG_BIN=" + shellQuote(path) + "\n"
+		got, ok := parseShimPMGBin(content)
+		require.True(t, ok, path)
+		assert.Equal(t, path, got)
+	}
+}
+
 func TestNewSystemShimManagerForRemoveSkipsValidation(t *testing.T) {
 	root := t.TempDir()
 	useSystemPaths(t, root)

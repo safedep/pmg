@@ -168,10 +168,55 @@ func SystemShimsInstalled() bool {
 	return shimsPresent(SystemBinDir())
 }
 
+// SystemShimBinary returns the pmg binary path that installed system shims
+// execute (hard-coded as PMG_BIN in every shim). ok is false when no system
+// shim with a resolvable PMG_BIN is present. This is the binary every user's
+// shim runs, so it is the one whose integrity matters after install. All shims
+// are written from the same template in one pass, so reading one suffices.
+func SystemShimBinary() (string, bool) {
+	content, ok := firstShimContent(SystemBinDir())
+	if !ok {
+		return "", false
+	}
+	return parseShimPMGBin(content)
+}
+
+// parseShimPMGBin extracts the PMG_BIN value from a shim script, reversing the
+// shellQuote used by writeShimScript.
+func parseShimPMGBin(content string) (string, bool) {
+	for line := range strings.SplitSeq(content, "\n") {
+		if rest, ok := strings.CutPrefix(line, "PMG_BIN="); ok {
+			return shellUnquote(rest), true
+		}
+	}
+	return "", false
+}
+
+// shellUnquote reverses shellQuote for the single-quoted form it emits.
+func shellUnquote(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "'")
+	s = strings.TrimSuffix(s, "'")
+	return strings.ReplaceAll(s, `'\''`, `'`)
+}
+
+// ValidateSystemBinary re-runs the system-install safety checks against path.
+// Used by `pmg setup doctor` to detect ownership/permission drift of the
+// installed binary after setup (validation otherwise runs only at install).
+func ValidateSystemBinary(path string) error {
+	return validateSystemExecutable(path)
+}
+
 func shimsPresent(dir string) bool {
+	_, ok := firstShimContent(dir)
+	return ok
+}
+
+// firstShimContent returns the content of the first managed shim script in dir.
+func firstShimContent(dir string) (string, bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false
+		return "", false
 	}
 	for _, e := range entries {
 		if e.IsDir() {
@@ -179,10 +224,10 @@ func shimsPresent(dir string) bool {
 		}
 		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err == nil && strings.Contains(string(content), shimScriptMarker) {
-			return true
+			return string(content), true
 		}
 	}
-	return false
+	return "", false
 }
 
 // SystemProfileInstalled reports whether the system profile snippet exists and

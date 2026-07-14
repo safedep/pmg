@@ -118,12 +118,17 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	return ctx
 }
 
-// invokingUser resolves the human behind the command, preferring SUDO_USER so a
-// `sudo npm ...` is attributed to the operator rather than root.
+var auditGeteuid = os.Geteuid
+
+// invokingUser resolves the human behind the command. SUDO_USER is honored
+// only when the process is actually elevated (euid 0); otherwise any user
+// could set SUDO_USER to spoof cloud-audit attribution to another account.
 func invokingUser() *user.User {
-	if name := os.Getenv("SUDO_USER"); name != "" {
-		if u, err := user.Lookup(name); err == nil {
-			return u
+	if auditGeteuid() == 0 {
+		if name := os.Getenv("SUDO_USER"); name != "" {
+			if u, err := user.Lookup(name); err == nil {
+				return u
+			}
 		}
 	}
 	u, err := user.Current()

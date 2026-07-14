@@ -33,6 +33,7 @@ const (
 	checkProtectionNpm      = "protection-npm"
 	checkProtectionPip      = "protection-pip"
 	checkCA                 = "ca-cert"
+	checkSystemBinary       = "system-binary"
 
 	aliasesInstalledMessage = "Shell aliases installed"
 )
@@ -254,7 +255,40 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			},
 		},
 	}
+
+	// System-only: the binary every user's shim execs must stay root-owned and
+	// non-writable. Validation runs at install; re-check it here to catch later
+	// permission/ownership drift (redeploy, chmod, image rebuild).
+	if shim.SystemShimsInstalled() {
+		checks = append(checks, doctor.Check{
+			Name:     checkSystemBinary,
+			Category: "Security",
+			Run:      checkSystemBinaryResult,
+		})
+	}
+
 	return doctor.RunChecks(checks)
+}
+
+func checkSystemBinaryResult() doctor.CheckResult {
+	path, ok := shim.SystemShimBinary()
+	if !ok {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Could not determine system shim binary",
+		}
+	}
+	if err := shim.ValidateSystemBinary(path); err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("System binary unsafe: %v", err),
+			Fix:     "Reinstall with pmg setup install --system, or restore root ownership/permissions",
+		}
+	}
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: fmt.Sprintf("System binary is root-owned and safe (%s)", path),
+	}
 }
 
 // checkEventLogDirResult is the testable core of the event-log dir check.
@@ -371,6 +405,9 @@ func shimDirs() []string {
 	return dirs
 }
 
+// checkShimDirResolution classifies interception against all shim dirs via
+// shimDirs(); shimDir/pathLabel only select the PATH-membership fallback and
+// the display label, not which directories count as intercepting.
 func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
 	underShim, shadowed := classifyPackageManagerResolutions(
 		alias.DefaultConfig().PackageManagers,
@@ -481,6 +518,7 @@ var checkDisplayNames = map[string]string{
 	checkProtectionNpm:      "npm protection",
 	checkProtectionPip:      "pip protection",
 	checkCA:                 "MITM CA",
+	checkSystemBinary:       "System binary",
 }
 
 var checkFixes = map[string]string{

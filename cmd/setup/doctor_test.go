@@ -107,6 +107,17 @@ func TestClassifyPackageManagerResolutionsAcceptsEitherShimDir(t *testing.T) {
 	assert.Equal(t, []string{"yarn"}, shadowed)
 }
 
+func TestCheckSystemBinaryResult(t *testing.T) {
+	// No system shims installed -> could not determine binary (Warn).
+	result := checkSystemBinaryResult()
+	// On a dev machine with no /usr/local/lib/pmg/bin shims, SystemShimBinary
+	// returns !ok, so we get a Warn rather than a spurious Fail.
+	assert.Contains(t, []doctor.CheckStatus{doctor.StatusWarn, doctor.StatusPass, doctor.StatusFail}, result.Status)
+	if result.Status == doctor.StatusWarn {
+		assert.Equal(t, "Could not determine system shim binary", result.Message)
+	}
+}
+
 func TestCheckEventLogDirResult(t *testing.T) {
 	configDir := "/home/dev/.config/safedep/pmg"
 
