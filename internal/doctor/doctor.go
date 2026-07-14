@@ -9,10 +9,13 @@ const (
 )
 
 type CheckResult struct {
-	Name     string
-	Category string
-	Status   CheckStatus
-	Message  string
+	Name                string
+	Category            string
+	Status              CheckStatus
+	Message             string
+	ImpliesInterception bool
+	// Fix overrides the check's static fix hint for this specific result.
+	Fix string
 }
 
 type Check struct {

@@ -179,8 +179,8 @@ proxy regardless of how the package manager reported the failure.
   same state file is refused while one is running.
 - **System-level trust enforcement is out of scope.** The server relies on env
   var propagation. Enforcing interception for `sudo`-scrubbed environments (e.g.
-  via `iptables`) and system-wide install (`pmg setup install --system`) are
-  tracked separately.
+  via `iptables`) is tracked separately. For system-wide shell shims on Linux,
+  see [system-install.md](./system-install.md).
 
 ## References
 

@@ -3,12 +3,15 @@ package setup
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"slices"
+	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
+	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -31,6 +34,9 @@ const (
 	checkProtectionNpm      = "protection-npm"
 	checkProtectionPip      = "protection-pip"
 	checkCA                 = "ca-cert"
+	checkSystemBinary       = "system-binary"
+
+	aliasesInstalledMessage = "Shell aliases installed"
 )
 
 func NewDoctorCommand() *cobra.Command {
@@ -91,23 +97,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkEventLogDir,
 			Category: "Configuration",
 			Run: func() doctor.CheckResult {
-				info, err := os.Stat(cfg.EventLogDir())
-				if err != nil {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Event log directory not found",
-					}
-				}
-				if !info.IsDir() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Event log path is not a directory",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Event log directory found",
-				}
+				return checkEventLogDirResult(cfg.Config.SkipEventLogging, cfg.EventLogDir(), cfg.ConfigDir())
 			},
 		},
 		{
@@ -130,15 +120,22 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: fmt.Sprintf("Could not determine alias status: %v", err),
 					}
 				}
-				if !installed {
+				if installed {
 					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Aliases not installed",
+						Status:              doctor.StatusPass,
+						Message:             aliasesInstalledMessage,
+						ImpliesInterception: true,
+					}
+				}
+				if shim.SystemShimsInstalled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: "No aliases (system install)",
 					}
 				}
 				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Shell aliases installed",
+					Status:  doctor.StatusFail,
+					Message: "Aliases not installed",
 				}
 			},
 		},
@@ -146,6 +143,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkShimDirectory,
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
+				if shim.SystemShimsInstalled() {
+					return doctor.CheckResult{
+						Status:  doctor.StatusPass,
+						Message: fmt.Sprintf("System shim directory found (%s)", shim.SystemBinDir()),
+					}
+				}
 				sm, err := shim.NewDefaultShimManager()
 				if err != nil {
 					return doctor.CheckResult{
@@ -170,26 +173,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		{
 			Name:     checkShimInPath,
 			Category: "Shell Integration",
-			Run: func() doctor.CheckResult {
-				sm, err := shim.NewDefaultShimManager()
-				if err != nil {
-					return doctor.CheckResult{
-						Status:  doctor.StatusWarn,
-						Message: fmt.Sprintf("Could not check shims: %v", err),
-					}
-				}
-				shimDir := sm.GetBinDir()
-				if slices.Contains(filepath.SplitList(os.Getenv("PATH")), shimDir) {
-					return doctor.CheckResult{
-						Status:  doctor.StatusPass,
-						Message: "Shim directory is in PATH",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusFail,
-					Message: "Shim directory not in PATH",
-				}
-			},
+			Run:      checkShimInPathResult,
 		},
 		{
 			Name:     checkProxyMode,
@@ -272,7 +256,203 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			},
 		},
 	}
+
+	// System-only: the binary every user's shim execs must stay root-owned and
+	// non-writable. Validation runs at install; re-check it here to catch later
+	// permission/ownership drift (redeploy, chmod, image rebuild).
+	if shim.SystemShimsInstalled() {
+		checks = append(checks, doctor.Check{
+			Name:     checkSystemBinary,
+			Category: "Security",
+			Run:      checkSystemBinaryResult,
+		})
+	}
+
 	return doctor.RunChecks(checks)
+}
+
+func checkSystemBinaryResult() doctor.CheckResult {
+	path, ok := shim.SystemShimBinary()
+	if !ok {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Could not determine system shim binary",
+		}
+	}
+	if err := shim.ValidateSystemBinary(path); err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("System binary unsafe: %v", err),
+			Fix:     "Reinstall with pmg setup install --system, or restore root ownership/permissions",
+		}
+	}
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: fmt.Sprintf("System binary is root-owned and safe (%s)", path),
+	}
+}
+
+// checkEventLogDirResult is the testable core of the event-log dir check.
+// Event logging is mandatory (init failure is fatal), so an unwritable dir
+// fail-closes every pmg command for this user. The remedy is triaged: chown
+// when another account created files in this user's home, an environment fix
+// when a leaked HOME/XDG_CONFIG_HOME points at another user's home.
+func checkEventLogDirResult(skipEventLogging bool, logDir, configDir string) doctor.CheckResult {
+	if skipEventLogging {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Event logging is disabled",
+		}
+	}
+	info, err := os.Stat(logDir)
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Event log directory not found",
+		}
+	}
+	if !info.IsDir() {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Event log path is not a directory",
+		}
+	}
+
+	probe, err := os.CreateTemp(logDir, ".pmg-doctor-*")
+	if err != nil {
+		_, fix := config.UnwritableConfigDirRemedy(configDir)
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Event log directory not writable",
+			Fix:     fix,
+		}
+	}
+	if err := probe.Close(); err != nil {
+		log.Warnf("failed to close doctor probe file: %v", err)
+	}
+	if err := os.Remove(probe.Name()); err != nil {
+		log.Warnf("failed to remove doctor probe file: %v", err)
+	}
+
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: "Event log directory found",
+	}
+}
+
+func pathContainsDir(pathEntries []string, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	cleanDir := filepath.Clean(dir)
+	for _, entry := range pathEntries {
+		if filepath.Clean(entry) == cleanDir {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyPackageManagerResolutions splits package managers by where they
+// resolve on PATH: underShim means the command runs through a pmg shim (so it
+// is intercepted), shadowed means a real npm/pip sits ahead of the shims (so
+// interception is bypassed and the user should be warned).
+func classifyPackageManagerResolutions(packageManagers []string, shimDirs []string, lookPath func(string) (string, error)) (underShim, shadowed []string) {
+	for _, pm := range packageManagers {
+		resolved, err := lookPath(pm)
+		if err != nil {
+			continue
+		}
+
+		if resolvesUnderAny(resolved, shimDirs) {
+			underShim = append(underShim, pm)
+			continue
+		}
+		shadowed = append(shadowed, pm)
+	}
+	return underShim, shadowed
+}
+
+func resolvesUnderAny(path string, dirs []string) bool {
+	for _, dir := range dirs {
+		if fsutil.PathWithinDir(path, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// shimDirs lists every directory a package manager may legitimately resolve
+// into. System and per-user installs are supported side by side, so resolution
+// into either shim directory counts as intercepted rather than shadowed.
+func shimDirs() []string {
+	dirs := []string{shim.SystemBinDir()}
+	if userDir, err := shim.UserBinDir(); err == nil {
+		dirs = append(dirs, userDir)
+	}
+	return dirs
+}
+
+// checkShimDirResolution classifies interception against all shim dirs via
+// shimDirs(); shimDir/pathLabel only select the PATH-membership fallback and
+// the display label, not which directories count as intercepting.
+func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
+	underShim, shadowed := classifyPackageManagerResolutions(
+		alias.DefaultConfig().PackageManagers,
+		shimDirs(),
+		exec.LookPath,
+	)
+
+	if len(shadowed) > 0 {
+		if pathContainsDir(pathEntries, shimDir) || len(underShim) > 0 {
+			return doctor.CheckResult{
+				Status:  doctor.StatusWarn,
+				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(shadowed, ", "), pathLabel),
+			}
+		}
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("%s not in PATH", pathLabel),
+		}
+	}
+	if len(underShim) > 0 {
+		return doctor.CheckResult{
+			Status:              doctor.StatusPass,
+			Message:             fmt.Sprintf("Package managers resolve to %s", pathLabel),
+			ImpliesInterception: true,
+		}
+	}
+	if pathContainsDir(pathEntries, shimDir) {
+		return doctor.CheckResult{
+			Status:              doctor.StatusPass,
+			Message:             fmt.Sprintf("%s is in PATH", pathLabel),
+			ImpliesInterception: true,
+		}
+	}
+	return doctor.CheckResult{
+		Status:  doctor.StatusFail,
+		Message: fmt.Sprintf("%s not in PATH", pathLabel),
+	}
+}
+
+func checkShimInPathResult() doctor.CheckResult {
+	pathEntries := filepath.SplitList(os.Getenv("PATH"))
+
+	// The primary directory only picks the label and PATH-membership target;
+	// classification accepts resolution into either shim dir regardless.
+	shimDir, pathLabel := shim.SystemBinDir(), "System shim directory"
+	if !shim.SystemShimsInstalled() {
+		userDir, err := shim.UserBinDir()
+		if err != nil {
+			return doctor.CheckResult{
+				Status:  doctor.StatusWarn,
+				Message: fmt.Sprintf("Could not resolve shim directory: %v", err),
+			}
+		}
+		shimDir, pathLabel = userDir, "Shim directory"
+	}
+
+	return checkShimDirResolution(shimDir, pathLabel, pathEntries)
 }
 
 func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {
@@ -306,10 +486,7 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 
 func isInterceptionActive(coreResults []doctor.CheckResult) bool {
 	for _, r := range coreResults {
-		if r.Name == checkShellAliases && r.Status == doctor.StatusPass {
-			return true
-		}
-		if r.Name == checkShimInPath && r.Status == doctor.StatusPass {
+		if r.ImpliesInterception {
 			return true
 		}
 	}
@@ -329,6 +506,7 @@ var checkDisplayNames = map[string]string{
 	checkProtectionNpm:      "npm protection",
 	checkProtectionPip:      "pip protection",
 	checkCA:                 "MITM CA",
+	checkSystemBinary:       "System binary",
 }
 
 var checkFixes = map[string]string{
@@ -336,7 +514,7 @@ var checkFixes = map[string]string{
 	checkEventLogDir:        "pmg setup install",
 	checkShellAliases:       "pmg setup install",
 	checkShimDirectory:      "pmg setup install",
-	checkShimInPath:         "Restart shell or source config",
+	checkShimInPath:         "Restart shell or source profile",
 	checkProxyMode:          "Set proxy.enabled: true in config",
 	checkSandbox:            "Set sandbox.enabled: true in config",
 	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
@@ -395,6 +573,9 @@ func printResults(results []doctor.CheckResult) {
 		fix := ui.Colors.Dim("—")
 		if r.Status != doctor.StatusPass {
 			fix = fixHint(r.Name)
+			if r.Fix != "" {
+				fix = r.Fix
+			}
 		}
 		rows = append(rows, []string{
 			statusBadge(r.Status),

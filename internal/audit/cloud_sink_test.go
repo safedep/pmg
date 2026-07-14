@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"os/user"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *clou
 	return &cloudSink{
 		SyncClientBundle: &SyncClientBundle{syncClient: syncClient},
 		invocationID:     "test-invocation",
-		workingDir: t.TempDir(),
+		workingDir:       t.TempDir(),
 	}
 }
 
@@ -154,4 +155,50 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	require.NotNil(t, invCtx, "session complete event must have invocation context")
 	assert.Contains(t, invCtx.GetCommand(), "npm")
 	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
+	assert.NotEmpty(t, invCtx.GetUsername())
+	assert.NotEmpty(t, invCtx.GetUsernameUid())
+}
+
+func TestInvokingUserIgnoresSudoUserWhenNotElevated(t *testing.T) {
+	current, err := user.Current()
+	require.NoError(t, err)
+
+	orig := auditGeteuid
+	t.Cleanup(func() { auditGeteuid = orig })
+
+	// Non-root process: SUDO_USER must be ignored, else attribution is spoofable.
+	auditGeteuid = func() int { return 1000 }
+	t.Setenv("SUDO_USER", "root")
+	got := invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, current.Username, got.Username, "SUDO_USER must not override attribution when not elevated")
+
+	// Elevated (euid 0): SUDO_USER is trusted and used.
+	auditGeteuid = func() int { return 0 }
+	t.Setenv("SUDO_USER", current.Username)
+	got = invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, current.Username, got.Username)
+}
+
+func TestInvokingUserKeepsSudoAttributionWithoutPasswdEntry(t *testing.T) {
+	orig := auditGeteuid
+	t.Cleanup(func() { auditGeteuid = orig })
+
+	auditGeteuid = func() int { return 0 }
+	t.Setenv("SUDO_USER", "no-such-user-xyz")
+	t.Setenv("SUDO_UID", "4242")
+
+	got := invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, "no-such-user-xyz", got.Username)
+	assert.Equal(t, "4242", got.Uid)
+
+	// Without SUDO_UID, fall back to the effective uid: a non-root username
+	// with uid 0 correctly signals the command ran under sudo.
+	t.Setenv("SUDO_UID", "")
+	got = invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, "no-such-user-xyz", got.Username)
+	assert.Equal(t, "0", got.Uid)
 }

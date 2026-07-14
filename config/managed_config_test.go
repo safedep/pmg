@@ -188,3 +188,19 @@ func TestRemoveUserConfigFileNeverTouchesGlobal(t *testing.T) {
 	assert.NoFileExists(t, userFile, "per-user file should be removed")
 	assert.FileExists(t, globalFile, "globally managed file must be left intact")
 }
+
+func TestWriteAndRemoveSystemTemplateConfig(t *testing.T) {
+	globalDir := t.TempDir()
+	useManagedConfigDir(t, globalDir)
+
+	require.NoError(t, WriteSystemTemplateConfig())
+	assert.FileExists(t, filepath.Join(globalDir, "config.yml"))
+	assert.Equal(t, globalDir, SystemConfigDir())
+	assert.Equal(t, filepath.Join(globalDir, "config.yml"), globalConfigFilePath())
+
+	require.NoError(t, WriteSystemTemplateConfig())
+
+	require.NoError(t, RemoveSystemConfigFile())
+	assert.NoFileExists(t, filepath.Join(globalDir, "config.yml"))
+	require.NoError(t, RemoveSystemConfigFile())
+}

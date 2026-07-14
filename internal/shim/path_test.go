@@ -59,6 +59,11 @@ func TestFilterPMGFromPath(t *testing.T) {
 			expected: "/usr/local/bin:/usr/bin",
 		},
 		{
+			name:     "system shim dir is stripped without env var",
+			path:     "/usr/local/lib/pmg/bin:/usr/local/bin:/usr/bin",
+			expected: "/usr/local/bin:/usr/bin",
+		},
+		{
 			name:     "env var strips arbitrary shim dir",
 			path:     "/shims:/usr/local/bin:/usr/bin",
 			shimEnv:  "/shims/npm",

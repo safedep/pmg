@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	_ "embed"
+
+	"github.com/safedep/pmg/internal/fsutil"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -610,11 +613,154 @@ func loadConfig() {
 	}
 }
 
+// configGeteuid is overridable in tests to exercise root path resolution
+// without running as root.
+var configGeteuid = os.Geteuid
+
+// rootHomeDir returns root's home from the passwd database. Path resolution
+// for root must not consult HOME or XDG_*: sudo and su can preserve the
+// invoking user's environment (GitHub runners, sudo -E, su without -), which
+// would make root create root-owned state inside that user's home and
+// fail-close every later non-root pmg run for them.
+func rootHomeDir() (string, error) {
+	u, err := user.LookupId("0")
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve root home directory: %w", err)
+	}
+	if u.HomeDir == "" {
+		return "", fmt.Errorf("root user has no home directory")
+	}
+	return u.HomeDir, nil
+}
+
+// rootConfigDir mirrors os.UserConfigDir platform conventions for root's
+// passwd home.
+func rootConfigDir() (string, error) {
+	home, err := rootHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support"), nil
+	}
+	return filepath.Join(home, ".config"), nil
+}
+
+// rootCacheDir mirrors os.UserCacheDir platform conventions for root's
+// passwd home.
+func rootCacheDir() (string, error) {
+	home, err := rootHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Caches"), nil
+	}
+	return filepath.Join(home, ".cache"), nil
+}
+
+// Overridable in tests to exercise the passwd-unavailable fallback.
+var (
+	rootConfigDirResolver = rootConfigDir
+	rootCacheDirResolver  = rootCacheDir
+)
+
+// currentUserHomeDir returns the current user's home from the passwd
+// database, ignoring HOME and XDG_* env vars that may be leaked from another
+// account. Overridable in tests.
+var currentUserHomeDir = func() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	if u.HomeDir == "" {
+		return "", fmt.Errorf("user %s has no home directory in the passwd database", u.Username)
+	}
+	return u.HomeDir, nil
+}
+
+// unwritableDirCause is why the current user cannot write a per-user
+// directory. The remedy must match the cause: chown-ing a directory that
+// belongs to another account steals it and breaks that account, so chown is
+// only safe for a directory inside the current user's passwd home, which a
+// leaked environment cannot influence.
+type unwritableDirCause int
+
+const (
+	// causeExplicitConfigDir: PMG_CONFIG_DIR selected the directory.
+	causeExplicitConfigDir unwritableDirCause = iota
+	// causeLeakedHomeEnv: the directory is outside the current user's passwd
+	// home, so HOME or XDG_CONFIG_HOME leaked from another account (e.g.
+	// sudo -u on hosts that preserve the environment).
+	causeLeakedHomeEnv
+	// causeRootCreatedDir: the directory is inside the user's own home; a
+	// root or sudo run most likely created it root-owned.
+	causeRootCreatedDir
+)
+
+func classifyUnwritableDir(dir string) unwritableDirCause {
+	if os.Getenv(pmgConfigDirEnvKey) != "" {
+		return causeExplicitConfigDir
+	}
+
+	home, err := currentUserHomeDir()
+	if err == nil && !fsutil.PathWithinDir(dir, home) {
+		return causeLeakedHomeEnv
+	}
+
+	return causeRootCreatedDir
+}
+
+// UnwritableConfigDirRemedy renders the remedy for a per-user config or
+// event-log directory the current user cannot write: help is the full
+// explanation for fatal CLI errors, fix the terse variant for the doctor
+// table. Cause diagnosis lives in classifyUnwritableDir.
+func UnwritableConfigDirRemedy(dir string) (help, fix string) {
+	switch classifyUnwritableDir(dir) {
+	case causeExplicitConfigDir:
+		return fmt.Sprintf("PMG_CONFIG_DIR points at %s; make it writable by your user", dir),
+			"Make PMG_CONFIG_DIR writable"
+	case causeLeakedHomeEnv:
+		return fmt.Sprintf(
+				"pmg resolved its config directory to %s, outside your home: HOME or XDG_CONFIG_HOME leaked from another account (e.g. sudo -u). Fix the environment, e.g. export XDG_CONFIG_HOME=\"$HOME/.config\"",
+				dir),
+			`Fix leaked env: export XDG_CONFIG_HOME="$HOME/.config"`
+	default:
+		chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
+		return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown
+	}
+}
+
+// isSudoElevation reports whether pmg is running as root via sudo, i.e. a
+// non-root user elevated and sudo may have preserved that user's HOME/XDG_*.
+// Only then do per-user paths divert to root's own home, so root does not
+// create state inside the invoking user's home. Running genuinely as root
+// (no sudo) keeps honoring HOME/XDG_*, which is legitimate and intended (e.g.
+// golden Docker images that set HOME/XDG_CONFIG_HOME on purpose). This mirrors
+// the SUDO_USER guard used elsewhere (cmd/setup/cert.go). su without sudo does
+// not set SUDO_USER and is not covered; the unwritable-dir remedy still guides
+// the user if such a run poisons a directory.
+func isSudoElevation() bool {
+	return configGeteuid() == 0 && os.Getenv("SUDO_USER") != ""
+}
+
 // configDir computes the path to the config directory.
 func configDir() (string, error) {
 	dir := os.Getenv(pmgConfigDirEnvKey)
 	if dir != "" {
 		return dir, nil
+	}
+
+	if isSudoElevation() {
+		if base, err := rootConfigDirResolver(); err == nil {
+			return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+		} else {
+			// No resolvable root passwd entry (e.g. scratch containers,
+			// minimal chroots). Fall back to env-based resolution: without a
+			// passwd database there is no user switching, so the cross-user
+			// poisoning this branch prevents cannot occur.
+			log.Warnf("failed to resolve root home for config dir, using environment: %v", err)
+		}
 	}
 
 	userConfigDir, err := os.UserConfigDir()
@@ -737,6 +883,15 @@ func cacheDir() (string, error) {
 		}
 		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
 	case "darwin", "linux":
+		if isSudoElevation() {
+			if base, err := rootCacheDirResolver(); err == nil {
+				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+			} else {
+				// Same fallback rationale as configDir.
+				log.Warnf("failed to resolve root home for cache dir, using environment: %v", err)
+			}
+		}
+
 		userCacheDir, err := os.UserCacheDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to retrieve user cache directory: %w", err)
@@ -821,18 +976,70 @@ func WriteTemplateConfig() error {
 		return nil
 	}
 
-	configDir, err := configDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
 	configFilePath, err := userConfigFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	return writeTemplateConfigFile(configFilePath)
+}
+
+// RemoveUserConfigFile deletes the per-user config file. It never touches the
+// globally managed file. A missing file is not an error.
+func RemoveUserConfigFile() error {
+	path, err := userConfigFilePath()
+	if err != nil {
+		return fmt.Errorf("failed to get config file path: %w", err)
+	}
+
+	return removeFileIfExists(path)
+}
+
+// WriteSystemTemplateConfig writes the template configuration to the OS-level
+// managed config path (e.g. /etc/safedep/pmg/config.yml on Linux). Used by
+// `pmg setup install --system`.
+func WriteSystemTemplateConfig() error {
+	path := globalConfigFilePath()
+	if path == "" {
+		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
+	}
+
+	// MkdirAll and WriteFile honor the process umask, so a hardened root
+	// umask (e.g. 077) would otherwise leave the managed config unreadable
+	// by non-root users — silently disabling the system-wide policy for
+	// them. Only directories created here and the file we write are touched;
+	// pre-existing directories keep their permissions.
+	if err := fsutil.MkdirAllRootOwned(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	if err := writeTemplateConfigFile(path); err != nil {
+		return err
+	}
+
+	return fsutil.ForceRootOwned(path, 0o644)
+}
+
+// RemoveSystemConfigFile deletes the globally managed config file. A missing
+// file is not an error. Returns an error when the platform has no system path.
+func RemoveSystemConfigFile() error {
+	path := globalConfigFilePath()
+	if path == "" {
+		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
+	}
+
+	return removeFileIfExists(path)
+}
+
+// SystemConfigDir returns the OS-level managed config directory, or "" when
+// unsupported.
+func SystemConfigDir() string {
+	return globalConfigDir()
+}
+
+func writeTemplateConfigFile(configFilePath string) error {
+	if err := os.MkdirAll(filepath.Dir(configFilePath), 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	existingConfig, err := os.ReadFile(configFilePath)
@@ -855,14 +1062,7 @@ func WriteTemplateConfig() error {
 	return nil
 }
 
-// RemoveUserConfigFile deletes the per-user config file. It never touches the
-// globally managed file. A missing file is not an error.
-func RemoveUserConfigFile() error {
-	path, err := userConfigFilePath()
-	if err != nil {
-		return fmt.Errorf("failed to get config file path: %w", err)
-	}
-
+func removeFileIfExists(path string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove config file %q: %w", path, err)
 	}

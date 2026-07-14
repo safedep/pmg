@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
+	"strconv"
 	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -17,7 +19,7 @@ import (
 type cloudSink struct {
 	*SyncClientBundle
 	invocationID string
-	ciResolver  CloudSinkCIResolver
+	ciResolver   CloudSinkCIResolver
 	command      string
 	workingDir   string
 }
@@ -94,6 +96,11 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	ctx.SetCommand(s.command)
 	ctx.SetWorkingDirectory(s.workingDir)
 
+	if u := invokingUser(); u != nil {
+		ctx.SetUsername(u.Username)
+		ctx.SetUsernameUid(u.Uid)
+	}
+
 	if s.ciResolver != nil {
 		ci := &controltowerv1.EndpointCIContext{}
 		ci.SetProvider(s.ciResolver.Provider())
@@ -110,6 +117,36 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	}
 
 	return ctx
+}
+
+var auditGeteuid = os.Geteuid
+
+// invokingUser resolves the human behind the command. SUDO_USER is honored
+// only when the process is actually elevated (euid 0); otherwise any user
+// could set SUDO_USER to spoof cloud-audit attribution to another account.
+func invokingUser() *user.User {
+	if auditGeteuid() == 0 {
+		if name := os.Getenv("SUDO_USER"); name != "" {
+			if u, err := user.Lookup(name); err == nil {
+				return u
+			}
+			// No passwd entry for the sudo user (minimal containers): keep
+			// the attribution sudo recorded rather than reporting root. When
+			// SUDO_UID is also absent, fall back to the effective uid (0) —
+			// a non-root username with uid 0 is correct and signals the
+			// command ran under sudo.
+			uid := os.Getenv("SUDO_UID")
+			if uid == "" {
+				uid = strconv.Itoa(auditGeteuid())
+			}
+			return &user.User{Username: name, Uid: uid}
+		}
+	}
+	u, err := user.Current()
+	if err != nil {
+		return nil
+	}
+	return u
 }
 
 func buildCommand(packageManager string, args []string) string {
