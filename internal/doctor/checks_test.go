@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,13 +18,15 @@ func TestEvaluateProtectionResult(t *testing.T) {
 		name       string
 		pm         string
 		pkg        string
+		output     string
 		err        error
 		wantStatus CheckStatus
 	}{
 		{
-			name:       "blocked",
+			name:       "blocked with headline in output",
 			pm:         "npm",
 			pkg:        "safedep-test-pkg@0.1.3",
+			output:     "✗ " + ui.MalwareBlockedHeadline + "\n  safedep-test-pkg@0.1.3\n",
 			err:        fmt.Errorf("exit status 1"),
 			wantStatus: StatusPass,
 		},
@@ -31,23 +34,53 @@ func TestEvaluateProtectionResult(t *testing.T) {
 			name:       "not blocked",
 			pm:         "npm",
 			pkg:        "safedep-test-pkg@0.1.3",
+			output:     "",
 			err:        nil,
 			wantStatus: StatusFail,
 		},
 		{
-			name:       "pm not found",
+			name:       "pmg binary not found",
 			pm:         "npm",
 			pkg:        "safedep-test-pkg@0.1.3",
-			err:        &exec.Error{Name: "npm", Err: exec.ErrNotFound},
+			err:        &exec.Error{Name: "pmg", Err: exec.ErrNotFound},
+			wantStatus: StatusWarn,
+		},
+		{
+			name:       "non-zero exit without block headline is inconclusive",
+			pm:         "npm",
+			pkg:        "safedep-test-pkg@0.1.3",
+			output:     "npm is not installed\n",
+			err:        fmt.Errorf("exit status 127"),
 			wantStatus: StatusWarn,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := evaluateProtectionResult(tt.pm, tt.pkg, tt.err)
+			result := evaluateProtectionResult(tt.pm, tt.pkg, tt.output, tt.err)
 			assert.Equal(t, tt.wantStatus, result.Status)
 		})
 	}
+}
+
+func TestRunProtectionCheckSkipsWhenOnlyShimOnPath(t *testing.T) {
+	tmp := t.TempDir()
+	// ~/.pmg/bin suffix is stripped by FilterPMGFromPath, so a shim here must
+	// not be mistaken for a real npm binary.
+	shimDir := filepath.Join(tmp, ".pmg", "bin")
+	require.NoError(t, os.MkdirAll(shimDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(shimDir, "npm"), []byte("#!/bin/sh\n"), 0o755))
+
+	t.Setenv("PATH", shimDir)
+
+	tc := ProtectionTestCase{
+		PackageManager: "npm",
+		Package:        "safedep-test-pkg@0.1.3",
+		InstallArgs:    []string{"npm", "install", "safedep-test-pkg@0.1.3"},
+	}
+
+	result := RunProtectionCheck(tc, filepath.Join(tmp, "nonexistent-pmg"))
+	assert.Equal(t, StatusWarn, result.Status)
+	assert.Contains(t, result.Message, "not available")
 }
 
 func TestProtectionTestCases(t *testing.T) {

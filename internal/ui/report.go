@@ -139,13 +139,19 @@ func Report(data *ReportData) {
 	}
 }
 
+// MalwareBlockedHeadline is the headline printed when a malicious package is
+// blocked. Exported so out-of-process consumers (e.g. `pmg setup doctor`) can
+// detect a genuine block from captured output instead of inferring it from a
+// non-zero exit code, which any failure would also produce.
+const MalwareBlockedHeadline = "Malicious package blocked"
+
 func printMalwareBlockSection(data *ReportData) {
 	if len(data.BlockedPackages) == 0 {
 		return
 	}
 
 	fmt.Println()
-	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+	fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red(MalwareBlockedHeadline))
 	printMaliciousPackagesList(data.BlockedPackages)
 	fmt.Println()
 }
