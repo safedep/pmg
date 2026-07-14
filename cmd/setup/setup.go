@@ -60,7 +60,7 @@ func install(system bool) error {
 
 	if setupGeteuid() == 0 {
 		fmt.Printf("%s %s\n", ui.Colors.Yellow("⚠"),
-			"Running as root without --system configures only root's home. Use `pmg setup install --system` so all users are covered.")
+			"Running as root without --system does not protect other users. Use `pmg setup install --system` so all users are covered.")
 	}
 
 	if err := config.WriteTemplateConfig(); err != nil {

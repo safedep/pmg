@@ -3,6 +3,7 @@ package shim
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,6 +152,9 @@ func TestValidateSystemExecutableRejectsGroupWritable(t *testing.T) {
 }
 
 func TestValidateSystemExecutableRejectsNonRootOwner(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file ownership is not resolvable on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: temp file is root-owned, so the owner check passes")
 	}

@@ -207,6 +207,24 @@ func ValidateSystemBinary(path string) error {
 	return validateSystemExecutable(path)
 }
 
+// secureSystemDir forces root ownership and 0755 on a directory pmg manages
+// system-wide. MkdirAll leaves pre-existing directories untouched, so a dir
+// pre-created with weaker ownership (possible under Debian's group-writable
+// /usr/local/lib) would let a non-root user replace shims; this closes that
+// hole. No-op when not running as root (unit tests, dry contexts).
+func secureSystemDir(path string) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	if err := os.Chown(path, 0, 0); err != nil {
+		return fmt.Errorf("failed to set root ownership on %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		return fmt.Errorf("failed to set permissions on %s: %w", path, err)
+	}
+	return nil
+}
+
 func shimsPresent(dir string) bool {
 	_, ok := firstShimContent(dir)
 	return ok
@@ -245,6 +263,9 @@ func writeSystemProfile(binDir string) error {
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("failed to create profile.d directory: %w", err)
+	}
+	if err := secureSystemDir(filepath.Dir(path)); err != nil {
+		return err
 	}
 
 	content := fmt.Sprintf(`# %s - managed by pmg setup install --system

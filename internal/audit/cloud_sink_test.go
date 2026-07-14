@@ -180,3 +180,17 @@ func TestInvokingUserIgnoresSudoUserWhenNotElevated(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, current.Username, got.Username)
 }
+
+func TestInvokingUserKeepsSudoAttributionWithoutPasswdEntry(t *testing.T) {
+	orig := auditGeteuid
+	t.Cleanup(func() { auditGeteuid = orig })
+
+	auditGeteuid = func() int { return 0 }
+	t.Setenv("SUDO_USER", "no-such-user-xyz")
+	t.Setenv("SUDO_UID", "4242")
+
+	got := invokingUser()
+	require.NotNil(t, got)
+	assert.Equal(t, "no-such-user-xyz", got.Username)
+	assert.Equal(t, "4242", got.Uid)
+}

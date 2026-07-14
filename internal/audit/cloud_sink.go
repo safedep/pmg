@@ -129,6 +129,9 @@ func invokingUser() *user.User {
 			if u, err := user.Lookup(name); err == nil {
 				return u
 			}
+			// No passwd entry for the sudo user (minimal containers): keep
+			// the attribution sudo recorded rather than reporting root.
+			return &user.User{Username: name, Uid: os.Getenv("SUDO_UID")}
 		}
 	}
 	u, err := user.Current()

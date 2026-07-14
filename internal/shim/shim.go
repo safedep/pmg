@@ -76,6 +76,14 @@ func (m *ShimManager) Install() error {
 		return fmt.Errorf("failed to create shim directory %s: %w", m.config.BinDir, err)
 	}
 
+	if m.config.ManageProfile {
+		for _, dir := range []string{filepath.Dir(m.config.BinDir), m.config.BinDir} {
+			if err := secureSystemDir(dir); err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, pm := range m.config.PackageManagers {
 		if err := m.writeShimScript(pm); err != nil {
 			return fmt.Errorf("failed to write shim for %s: %w", pm, err)
