@@ -1013,7 +1013,47 @@ func WriteSystemTemplateConfig() error {
 		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
 	}
 
-	return writeTemplateConfigFile(path)
+	if err := writeTemplateConfigFile(path); err != nil {
+		return err
+	}
+
+	return secureSystemConfigArtifacts(path)
+}
+
+// secureSystemConfigArtifacts forces root ownership and world-readable modes
+// on the managed config file and the pmg-owned directories above it. MkdirAll
+// and WriteFile honor the process umask, so a hardened root umask (e.g. 077)
+// would otherwise leave the managed config unreadable by non-root users —
+// silently disabling the system-wide policy for them. No-op when not root.
+func secureSystemConfigArtifacts(configFilePath string) error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+
+	dirs := []string{filepath.Dir(configFilePath)}
+	// The vendor directory (e.g. /etc/safedep) is also pmg-created; its parent
+	// (e.g. /etc) is not ours to touch.
+	if parent := filepath.Dir(dirs[0]); filepath.Base(parent) == "safedep" {
+		dirs = append([]string{parent}, dirs...)
+	}
+
+	for _, dir := range dirs {
+		if err := os.Chown(dir, 0, 0); err != nil {
+			return fmt.Errorf("failed to set root ownership on %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0o755); err != nil {
+			return fmt.Errorf("failed to set permissions on %s: %w", dir, err)
+		}
+	}
+
+	if err := os.Chown(configFilePath, 0, 0); err != nil {
+		return fmt.Errorf("failed to set root ownership on %s: %w", configFilePath, err)
+	}
+	if err := os.Chmod(configFilePath, 0o644); err != nil {
+		return fmt.Errorf("failed to set permissions on %s: %w", configFilePath, err)
+	}
+
+	return nil
 }
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing

@@ -181,7 +181,13 @@ export PMG_SHIM_PATH
 exec "$PMG_BIN" %s "$@"
 `, shimScriptMarker, pmgBin, pm)
 
-	return os.WriteFile(shimPath, []byte(content), 0o755)
+	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
+		return err
+	}
+
+	// WriteFile honors the process umask (e.g. root umask 077 births the shim
+	// as 0700); chmod so the shim stays executable by every user.
+	return os.Chmod(shimPath, 0o755)
 }
 
 func currentExecutable() (string, error) {
