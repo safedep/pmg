@@ -70,7 +70,7 @@ func blockWithExit(config *BlockConfig, exit bool) error {
 	// already shown to the user in verbose mode as part of the reporting.
 	if verbosityLevel != VerbosityLevelVerbose {
 		fmt.Println()
-		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red("Malicious package blocked"))
+		fmt.Printf("%s %s\n", Colors.Red("✗"), Colors.Red(MalwareBlockedHeadline))
 
 		if config.ShowReference {
 			printMaliciousPackagesList(config.MalwarePackages)

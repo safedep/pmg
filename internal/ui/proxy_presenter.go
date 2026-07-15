@@ -36,7 +36,7 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 	var message string
 	switch reason {
 	case proxy.BlockReasonMalware, proxy.BlockReasonUserDeclined:
-		prefix := "Malicious package blocked"
+		prefix := MalwareBlockedHeadline
 		if reason == proxy.BlockReasonUserDeclined {
 			prefix = "Installation blocked by user"
 		}

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/shim"
+	"github.com/safedep/pmg/internal/ui"
 )
 
 type ProtectionTestCase struct {
@@ -34,7 +36,10 @@ func ProtectionTestCases() []ProtectionTestCase {
 }
 
 func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
-	if _, err := exec.LookPath(tc.PackageManager); err != nil {
+	// Resolve the real package manager the same way the runner does — PATH with
+	// PMG shim dirs stripped. A plain exec.LookPath would find the PMG shim on
+	// PATH and report the manager as available even when the real binary is absent
+	if _, err := shim.ResolveRealBinary(tc.PackageManager); err != nil {
 		return CheckResult{
 			Status:  StatusWarn,
 			Message: fmt.Sprintf("%s not available — skipping protection test for %s", tc.PackageManager, tc.Package),
@@ -72,8 +77,8 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 	cmd.Dir = tmpDir
 	cmd.Env = env
 
-	_, runErr := cmd.CombinedOutput()
-	return evaluateProtectionResult(tc.PackageManager, tc.Package, runErr)
+	output, runErr := cmd.CombinedOutput()
+	return evaluateProtectionResult(tc.PackageManager, tc.Package, string(output), runErr)
 }
 
 func setupVenv(baseDir string) (string, error) {
@@ -96,22 +101,35 @@ func prependPath(env []string, dir string) []string {
 	return result
 }
 
-func evaluateProtectionResult(pm string, pkg string, err error) CheckResult {
-	if err != nil {
-		if isExecutableNotFound(err) {
-			return CheckResult{
-				Status:  StatusWarn,
-				Message: fmt.Sprintf("%s not available — skipping protection test for %s", pm, pkg),
-			}
+func evaluateProtectionResult(pm string, pkg string, output string, err error) CheckResult {
+	if err == nil {
+		return CheckResult{
+			Status:  StatusFail,
+			Message: fmt.Sprintf("Failed to block %s/%s — package was installed instead of blocked", pm, pkg),
 		}
+	}
+
+	if isExecutableNotFound(err) {
+		return CheckResult{
+			Status:  StatusWarn,
+			Message: fmt.Sprintf("%s not available — skipping protection test for %s", pm, pkg),
+		}
+	}
+
+	// A non-zero exit alone is not proof of a block: PackageManagerNotFound,
+	// proxy/CA setup failures, and config errors all exit non-zero too. Require
+	// PMG's block headline in the output before declaring protection working.
+	// The headline is emitted only for malware blocks, not cooldown-only blocks.
+	if strings.Contains(output, ui.MalwareBlockedHeadline) {
 		return CheckResult{
 			Status:  StatusPass,
 			Message: fmt.Sprintf("Malicious package blocked (%s/%s)", pm, pkg),
 		}
 	}
+
 	return CheckResult{
-		Status:  StatusFail,
-		Message: fmt.Sprintf("Failed to block %s/%s — package was installed instead of blocked", pm, pkg),
+		Status:  StatusWarn,
+		Message: fmt.Sprintf("Install failed without a malware block (%v)", err),
 	}
 }
 
