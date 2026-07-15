@@ -9,7 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var loginFromEnv bool
+var (
+	loginFromEnv           bool
+	loginInsecureFileStore bool
+)
 
 func newLoginCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -20,6 +23,8 @@ func newLoginCommand() *cobra.Command {
 
 	cmd.Flags().BoolVar(&loginFromEnv, "from-env", false,
 		"Read credentials from SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables")
+	cmd.Flags().BoolVar(&loginInsecureFileStore, "insecure-file-store", false,
+		"Store credentials in a plaintext file when no OS keychain is available (headless Linux, containers)")
 
 	return cmd
 }
@@ -89,13 +94,18 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	store, err := cloud.NewKeychainCredentialStore()
+	var opts []cloud.KeychainOption
+	if loginInsecureFileStore {
+		opts = append(opts, cloud.WithInsecureFileFallback())
+	}
+
+	store, err := cloud.NewKeychainCredentialStore(opts...)
 	if err != nil {
 		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).
 			WithCode(errcodes.Lifecycle).
 			WithHumanError("Failed to initialize credential store").
-			WithHelp("Your system may not support secure credential storage"))
+			WithHelp("No OS keychain is available. Re-run with --insecure-file-store to use plaintext file storage, or set SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables"))
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
@@ -111,6 +121,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			WithHelp("Your system may not support secure credential storage"))
 	}
 
-	ui.Successf("Credentials saved securely")
+	if loginInsecureFileStore {
+		ui.Successf("Credentials saved")
+	} else {
+		ui.Successf("Credentials saved securely")
+	}
 	return nil
 }

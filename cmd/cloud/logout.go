@@ -18,7 +18,7 @@ func newLogoutCommand() *cobra.Command {
 }
 
 func runLogout(cmd *cobra.Command, args []string) error {
-	store, err := cloud.NewKeychainCredentialStore()
+	store, err := cloud.NewKeychainCredentialStore(cloud.WithInsecureFileFallback())
 	if err != nil {
 		ui.ErrorExit(usefulerror.NewUsefulError().
 			Wrap(err).

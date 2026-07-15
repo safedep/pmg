@@ -15,7 +15,9 @@ type credentialsResolver func() (*cloud.Credentials, func() error, error)
 // the unauthenticated community analyzer if the API rejects the credentials.
 // When no credentials are available, it returns the community analyzer.
 func NewMalysisAnalyzer(config MalysisQueryAnalyzerConfig) (PackageVersionAnalyzer, error) {
-	return newMalysisAnalyzer(config, cloudauth.ResolveCredentials)
+	return newMalysisAnalyzer(config, func() (*cloud.Credentials, func() error, error) {
+		return cloudauth.ResolveCredentials()
+	})
 }
 
 func newMalysisAnalyzer(config MalysisQueryAnalyzerConfig,

@@ -227,7 +227,7 @@ func describeCloudCredentials() string {
 }
 
 func tryResolveKeychainCredentials() (string, bool) {
-	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey)
+	resolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, cloud.WithInsecureFileFallback())
 	if err != nil {
 		log.Debugf("keychain credential resolver unavailable: %v", err)
 		return "", false

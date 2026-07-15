@@ -16,13 +16,20 @@ import (
 // credentials and a close function that releases keychain resources. The
 // close function is always non-nil and safe to call regardless of the error.
 //
+// The insecure file fallback is always enabled for reading so credentials
+// stored via `pmg cloud login --insecure-file-store` on systems without an
+// OS keychain (headless Linux, containers) resolve without extra flags. On
+// systems with a working keychain the file provider is never constructed.
+//
 // An error is returned when no credentials are available, which callers can
 // use to decide whether authenticated cloud features should be enabled.
-func ResolveCredentials() (*cloud.Credentials, func() error, error) {
+func ResolveCredentials(opts ...cloud.KeychainOption) (*cloud.Credentials, func() error, error) {
 	var resolvers []cloud.CredentialResolver
 	var keychainResolver cloud.CloseableCredentialResolver
 
-	keychainResolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey)
+	keychainOpts := append([]cloud.KeychainOption{cloud.WithInsecureFileFallback()}, opts...)
+
+	keychainResolver, err := cloud.NewKeychainCredentialResolver(cloud.CredentialTypeAPIKey, keychainOpts...)
 	if err != nil {
 		log.Debugf("Keychain credential resolver not available, skipping: %v", err)
 	} else {
