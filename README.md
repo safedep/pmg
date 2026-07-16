@@ -210,6 +210,21 @@ go install github.com/safedep/pmg@latest
 Download the latest binary for your platform from the [Releases Page](https://github.com/safedep/pmg/releases).
 </details>
 
+<details>
+<summary><strong>Container Image (GHCR)</strong></summary>
+
+Prebuilt multi-arch (`linux/amd64`, `linux/arm64`) images are published to [GitHub Container Registry](https://github.com/safedep/pmg/pkgs/container/pmg) on every release. The image entrypoint is `pmg`.
+
+```bash
+# Pull the latest image (or pin a version tag, e.g. :v1.2.3)
+docker pull ghcr.io/safedep/pmg:latest
+
+# Run any pmg command
+docker run --rm ghcr.io/safedep/pmg:latest version
+```
+
+</details>
+
 ## GitHub Actions
 
 Protect CI workflows with one step. PMG analyzes every `npm install`,
