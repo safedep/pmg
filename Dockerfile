@@ -9,7 +9,9 @@ RUN go mod download
 
 COPY . .
 
-RUN make
+ARG TARGETOS TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make
 
 FROM debian:11-slim@sha256:e4b93db6aad977a95aa103917f3de8a2b16ead91cf255c3ccdb300c5d20f3015
 # Original: debian:11-slim
