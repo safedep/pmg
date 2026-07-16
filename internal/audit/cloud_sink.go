@@ -17,7 +17,7 @@ import (
 )
 
 type cloudSink struct {
-	*SyncClientBundle
+	emitter      *endpointsync.EventEmitterClient
 	invocationID string
 	ciResolver   CloudSinkCIResolver
 	command      string
@@ -25,32 +25,33 @@ type cloudSink struct {
 }
 
 func newCloudSink(cfg *config.RuntimeConfig, ciResolver CloudSinkCIResolver) (*cloudSink, error) {
-	bundle, err := NewSyncClientBundle(cfg)
+	emitter, err := endpointsync.NewEventEmitterClient("pmg", pmgToolVersion(),
+		endpointsync.WithWALPath(cfg.CloudSyncDBPath()))
 	if err != nil {
 		return nil, err
 	}
 
 	invocationID, err := uuid.NewRandom()
 	if err != nil {
-		if closeErr := bundle.Close(); closeErr != nil {
-			log.Warnf("failed to close sync client bundle after invocation ID failure: %v", closeErr)
+		if closeErr := emitter.Close(); closeErr != nil {
+			log.Warnf("failed to close event emitter after invocation ID failure: %v", closeErr)
 		}
 		return nil, fmt.Errorf("failed to generate invocation ID: %w", err)
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		if closeErr := bundle.Close(); closeErr != nil {
-			log.Warnf("failed to close sync client bundle after getwd failure: %v", closeErr)
+		if closeErr := emitter.Close(); closeErr != nil {
+			log.Warnf("failed to close event emitter after getwd failure: %v", closeErr)
 		}
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
 	return &cloudSink{
-		SyncClientBundle: bundle,
-		invocationID:     invocationID.String(),
-		ciResolver:       ciResolver,
-		workingDir:       wd,
+		emitter:      emitter,
+		invocationID: invocationID.String(),
+		ciResolver:   ciResolver,
+		workingDir:   wd,
 	}, nil
 }
 
@@ -66,7 +67,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 	}
 
 	for _, pmgEvent := range pmgEvents {
-		toolEvent, err := s.syncClient.NewEvent()
+		toolEvent, err := s.emitter.NewEvent()
 		if err != nil {
 			return fmt.Errorf("failed to create tool event: %w", err)
 		}
@@ -79,7 +80,7 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 			toolEvent.SetInvocationContext(s.buildInvocationContext())
 		}
 
-		if err := s.syncClient.Emit(ctx, toolEvent); err != nil {
+		if err := s.emitter.Emit(ctx, toolEvent); err != nil {
 			if errors.Is(err, endpointsync.ErrWALFull) {
 				log.Warnf("Cloud sync WAL is full, dropping event: %v", err)
 				return nil
@@ -159,7 +160,7 @@ func buildCommand(packageManager string, args []string) string {
 	return packageManager + " " + strings.Join(args, " ")
 }
 
-// Close delegates to the embedded SyncClientBundle.Close().
+// Close releases the emitter's WAL handle.
 func (s *cloudSink) Close() error {
-	return s.SyncClientBundle.Close()
+	return s.emitter.Close()
 }
