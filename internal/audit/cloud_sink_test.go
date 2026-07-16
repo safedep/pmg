@@ -31,24 +31,38 @@ func (m *mockTransport) Close() error {
 	return nil
 }
 
-func newTestCloudSink(t *testing.T, transport endpointsync.EventTransport) *cloudSink {
+func newTestCloudSink(t *testing.T) (*cloudSink, string) {
 	t.Helper()
 	walPath := t.TempDir() + "/test-sync.db"
-	identity := endpointsync.NewEndpointIdentityResolver()
-	syncClient, err := endpointsync.NewSyncClient("pmg", "test", transport, identity,
+	emitter, err := endpointsync.NewEventEmitterClient("pmg", "test",
 		endpointsync.WithWALPath(walPath))
 	require.NoError(t, err)
 	return &cloudSink{
-		SyncClientBundle: &SyncClientBundle{syncClient: syncClient},
-		invocationID:     "test-invocation",
-		workingDir:       t.TempDir(),
-	}
+		emitter:      emitter,
+		invocationID: "test-invocation",
+		workingDir:   t.TempDir(),
+	}, walPath
+}
+
+// drainWAL closes the sink (mirroring the real lifecycle, where audit.Close()
+// runs before a sync process starts) and syncs the WAL at walPath through a
+// SyncClient backed by transport, returning the number of events synced.
+func drainWAL(t *testing.T, walPath string, transport endpointsync.EventTransport) int {
+	t.Helper()
+	syncClient, err := endpointsync.NewSyncClient("pmg", "test", transport,
+		endpointsync.NewEndpointIdentityResolver(), endpointsync.WithWALPath(walPath))
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, syncClient.Close())
+	}()
+
+	synced, err := syncClient.Sync(context.Background())
+	require.NoError(t, err)
+	return synced
 }
 
 func TestCloudSinkEmitsTranslatableEvents(t *testing.T) {
-	transport := &mockTransport{}
-
-	sink := newTestCloudSink(t, transport)
+	sink, _ := newTestCloudSink(t)
 	defer func() {
 		require.NoError(t, sink.Close())
 	}()
@@ -62,9 +76,7 @@ func TestCloudSinkEmitsTranslatableEvents(t *testing.T) {
 }
 
 func TestCloudSinkSkipsUntranslatableEvents(t *testing.T) {
-	transport := &mockTransport{}
-
-	sink := newTestCloudSink(t, transport)
+	sink, _ := newTestCloudSink(t)
 	defer func() {
 		require.NoError(t, sink.Close())
 	}()
@@ -79,12 +91,7 @@ func TestCloudSinkSkipsUntranslatableEvents(t *testing.T) {
 }
 
 func TestCloudSinkEmitAndSync(t *testing.T) {
-	transport := &mockTransport{}
-
-	sink := newTestCloudSink(t, transport)
-	defer func() {
-		require.NoError(t, sink.Close())
-	}()
+	sink, walPath := newTestCloudSink(t)
 
 	ctx := context.Background()
 	err := sink.Handle(ctx, AuditEvent{
@@ -93,21 +100,17 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 		Message:   "blocked malware package",
 	})
 	require.NoError(t, err)
+	require.NoError(t, sink.Close())
 
-	synced, err := sink.syncClient.Sync(ctx)
-	require.NoError(t, err)
+	transport := &mockTransport{}
+	synced := drainWAL(t, walPath, transport)
 
 	assert.Equal(t, 1, synced)
 	assert.Equal(t, 1, len(transport.requests))
 }
 
 func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
-	transport := &mockTransport{}
-
-	sink := newTestCloudSink(t, transport)
-	defer func() {
-		require.NoError(t, sink.Close())
-	}()
+	sink, walPath := newTestCloudSink(t)
 
 	ctx := context.Background()
 
@@ -139,8 +142,10 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	synced, err := sink.syncClient.Sync(ctx)
-	require.NoError(t, err)
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	synced := drainWAL(t, walPath, transport)
 	assert.Equal(t, 2, synced)
 	require.Equal(t, 1, len(transport.requests))
 

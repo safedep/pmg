@@ -67,4 +67,10 @@ jobs:
             .
         fi
 
+    - name: Verify Image Platform Variants
+      run: |
+        for platform in linux/amd64 linux/arm64; do
+          docker run --rm --platform $platform $REGISTRY/$IMAGE_NAME:latest version
+        done
+
 

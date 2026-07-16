@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testCloudSink returns a cloudSink with no real SyncClient, suitable for testing translation.
-var testSink = &cloudSink{SyncClientBundle: &SyncClientBundle{}, invocationID: "test-invocation"}
+// testSink is a cloudSink with no emitter, suitable for testing translation only.
+var testSink = &cloudSink{invocationID: "test-invocation"}
 
 func TestTranslateMalwareBlocked(t *testing.T) {
 	event := AuditEvent{

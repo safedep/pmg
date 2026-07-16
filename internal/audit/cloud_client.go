@@ -124,12 +124,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 
 	identity := endpointsync.NewEndpointIdentityResolver(identityOpts...)
 
-	toolVersion := appVersion.Version
-	if toolVersion == "" {
-		toolVersion = "dev"
-	}
-
-	syncClient, err := endpointsync.NewSyncClient("pmg", toolVersion, transport, identity,
+	syncClient, err := endpointsync.NewSyncClient("pmg", pmgToolVersion(), transport, identity,
 		endpointsync.WithWALPath(cfg.CloudSyncDBPath()))
 	if err != nil {
 		if closeErr := cloudClient.Close(); closeErr != nil {
@@ -142,4 +137,13 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 		syncClient:  syncClient,
 		cloudClient: cloudClient,
 	}, nil
+}
+
+// pmgToolVersion returns the tool version stamped on cloud events, defaulting
+// to "dev" for local builds.
+func pmgToolVersion() string {
+	if appVersion.Version == "" {
+		return "dev"
+	}
+	return appVersion.Version
 }
