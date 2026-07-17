@@ -1,7 +1,6 @@
 package packagemanager
 
 import (
-	"context"
 	"slices"
 	"strings"
 
@@ -103,14 +102,3 @@ type PackageManager interface {
 	Ecosystem() packagev1.Ecosystem
 }
 
-// PackageResolver is the contract for resolving package info
-type PackageResolver interface {
-	// ResolveLatestVersion resolves the latest version for a given package
-	ResolveLatestVersion(context.Context, *packagev1.Package) (*packagev1.PackageVersion, error)
-
-	// ResolveDependencies resolves the dependencies for a given package version
-	// It returns a flattened list of all the dependencies based on implementation
-	// specific config. The version resolution is based on minimum version selection
-	// for a given version range.
-	ResolveDependencies(context.Context, *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error)
-}

@@ -21,15 +21,13 @@ import (
 )
 
 type proxyFlow struct {
-	pm              packagemanager.PackageManager
-	packageResolver packagemanager.PackageResolver
+	pm packagemanager.PackageManager
 }
 
 // ProxyFlow creates a new proxy-based flow for package manager protection
-func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.PackageResolver) *proxyFlow {
+func ProxyFlow(pm packagemanager.PackageManager) *proxyFlow {
 	return &proxyFlow{
-		pm:              pm,
-		packageResolver: packageResolver,
+		pm: pm,
 	}
 }
 
