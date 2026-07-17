@@ -471,7 +471,7 @@ jobs:
           # Verification: pinned version is resolved and executed via the proxy
           grep -q "0.6.9" uvx-output.txt
 
-          echo "Testing uvx version pin via @ syntax (non-proxy)..."
+          echo "Testing uvx version pin via @ syntax..."
           pmg uvx ruff@0.6.9 --version | tee uvx-pin-output.txt
           grep -q "0.6.9" uvx-pin-output.txt
 

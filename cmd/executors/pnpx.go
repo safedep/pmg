@@ -34,10 +34,5 @@ func executePnpxFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create pnpx package executor proxy: %w", err)
 	}
 
-	parsedCommand, err := packageExecutor.ParseCommand(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-
-	return flows.ProxyFlow(packageExecutor).Run(ctx, args, parsedCommand)
+	return flows.RunProxy(ctx, packageExecutor, args)
 }

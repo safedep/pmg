@@ -31,6 +31,17 @@ func ProxyFlow(pm packagemanager.PackageManager) *proxyFlow {
 	}
 }
 
+// RunProxy parses args with pm and runs the proxy flow on the parsed command.
+// It is the shared entry point for package manager commands.
+func RunProxy(ctx context.Context, pm packagemanager.PackageManager, args []string) error {
+	parsedCommand, err := pm.ParseCommand(args)
+	if err != nil {
+		return fmt.Errorf("failed to parse command: %w", err)
+	}
+
+	return ProxyFlow(pm).Run(ctx, args, parsedCommand)
+}
+
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
 	// Check if we have a supported ecosystem else fail fast

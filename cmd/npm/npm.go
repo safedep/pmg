@@ -34,10 +34,5 @@ func executeNpmFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create npm package manager proxy: %w", err)
 	}
 
-	parsedCommand, err := packageManager.ParseCommand(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-
-	return flows.ProxyFlow(packageManager).Run(ctx, args, parsedCommand)
+	return flows.RunProxy(ctx, packageManager, args)
 }

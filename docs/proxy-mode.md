@@ -53,6 +53,8 @@ The legacy flat config key `proxy_install_only` is still supported when the `pro
 
 Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out — `proxy.enabled: false` or `proxy_mode: false` in the config file, `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment — instead of silently switching to proxy interception. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
 
+Note one trade-off versus the removed guard mode: the proxy analyzes packages as they are downloaded, so installs fully served from a local package manager cache (e.g. npm cache, pnpm store, pip cache, `--offline` installs) do not trigger analysis. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. Packages are analyzed when first fetched through the proxy, which is when they enter those caches.
+
 ## Supported Package Managers
 
 | Package Manager | Status |

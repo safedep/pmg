@@ -46,8 +46,8 @@ func (p *pypiPackageExecutor) parseUvxCommand(command Command, args []string) (*
 	// the pipx/pip/uv executors. uv adds flags frequently; failing closed on an
 	// unrecognized flag would break otherwise-valid uvx invocations after a uv
 	// upgrade. The residual gap — a future value-taking flag consuming the tool
-	// positional and yielding no audit target — only affects non-proxy guard
-	// mode; the default proxy flow still intercepts every registry download.
+	// positional and yielding no audit target — is contained because the proxy
+	// flow still intercepts every registry download.
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 	flagSet.SetOutput(io.Discard)
 
