@@ -75,6 +75,45 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 			env:     map[string]string{"PMG_PROXY_ENABLED": "not-a-bool"},
 			wantErr: false,
 		},
+		{
+			name:       "proxy.enabled numeric 0 in config",
+			configYAML: "proxy:\n  enabled: 0\n",
+			wantErr:    true,
+		},
+		{
+			name:       "legacy proxy_mode numeric 0 in config",
+			configYAML: "proxy_mode: 0\n",
+			wantErr:    true,
+		},
+		{
+			name:       "PMG_PROXY_MODE true does not override proxy.enabled false in file",
+			configYAML: "proxy:\n  enabled: false\n",
+			env:        map[string]string{"PMG_PROXY_MODE": "true"},
+			wantErr:    true,
+		},
+		{
+			name:       "PMG_PROXY_MODE false is inert when proxy section exists",
+			configYAML: "proxy:\n  install_only: true\n",
+			env:        map[string]string{"PMG_PROXY_MODE": "false"},
+			wantErr:    false,
+		},
+		{
+			name:       "null proxy section makes legacy proxy_mode inert",
+			configYAML: "proxy:\nproxy_mode: false\n",
+			wantErr:    false,
+		},
+		{
+			name:       "PMG_PROXY_MODE true wins over flat proxy_mode false in file",
+			configYAML: "proxy_mode: false\n",
+			env:        map[string]string{"PMG_PROXY_MODE": "true"},
+			wantErr:    false,
+		},
+		{
+			name:       "PMG_PROXY_ENABLED true wins over legacy flat proxy_mode false",
+			configYAML: "proxy_mode: false\n",
+			env:        map[string]string{"PMG_PROXY_ENABLED": "true"},
+			wantErr:    false,
+		},
 	}
 
 	for _, tc := range cases {

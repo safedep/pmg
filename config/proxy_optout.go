@@ -13,55 +13,81 @@ import (
 // in effect. Guard mode is removed and proxy interception can no longer be
 // disabled, so a config or environment that explicitly disables it must not be
 // silently ignored: the user opted out of proxy interception and switching
-// them to it without notice would violate that expectation. Precedence mirrors
-// the old resolution order: env vars (ignored under lockdown) win over the
-// nested proxy.enabled key, which wins over the legacy flat proxy_mode key
-// (only honored when no proxy: section exists).
+// them to it without notice would violate that expectation.
+//
+// Resolution mirrors the old order exactly:
+//  1. PMG_PROXY_ENABLED (ignored under lockdown) wins over everything.
+//  2. A proxy: key in the config file (presence, even null) makes the legacy
+//     surfaces inert; only proxy.enabled within it can opt out.
+//  3. Otherwise the legacy tier applies: PMG_PROXY_MODE (ignored under
+//     lockdown) wins over the flat proxy_mode file key.
 func RejectRemovedProxyOptOut() error {
-	if !globalConfig.IsLocked() {
-		for _, key := range []string{"PMG_PROXY_ENABLED", "PMG_PROXY_MODE"} {
-			raw := os.Getenv(key)
-			if raw == "" {
-				continue
-			}
+	locked := globalConfig.IsLocked()
 
-			enabled, ok := parseOptOutBool(raw)
-			if !ok {
-				continue
-			}
+	if !locked {
+		if raw := os.Getenv("PMG_PROXY_ENABLED"); raw != "" {
+			if enabled, ok := parseOptOutBool(raw); ok {
+				if !enabled {
+					return removedProxyOptOutError(fmt.Sprintf("environment variable PMG_PROXY_ENABLED=%s", raw))
+				}
 
-			if enabled {
 				return nil
 			}
-
-			return removedProxyOptOutError(fmt.Sprintf("environment variable %s=%s", key, raw))
 		}
 	}
 
-	raw, err := readConfigFileKeys(globalConfig.configFilePath)
+	fileKeys, err := readConfigFileKeys(globalConfig.configFilePath)
 	if err != nil {
-		return nil
+		fileKeys = nil
 	}
 
-	if proxySection, ok := raw["proxy"].(map[string]any); ok {
-		if enabled, ok := parseOptOutBool(proxySection["enabled"]); ok && !enabled {
-			return removedProxyOptOutError(fmt.Sprintf("proxy.enabled: false in %s", globalConfig.configFilePath))
+	// Key presence alone gates the legacy tier, matching the old
+	// hasProxySectionInFile check: even proxy: null made legacy keys inert.
+	if _, hasProxySection := fileKeys["proxy"]; hasProxySection {
+		if section, ok := fileKeys["proxy"].(map[string]any); ok {
+			if enabled, ok := parseOptOutBool(section["enabled"]); ok && !enabled {
+				return removedProxyOptOutError(fmt.Sprintf("proxy.enabled: false in %s", globalConfig.configFilePath))
+			}
 		}
 
 		return nil
 	}
 
-	if enabled, ok := parseOptOutBool(raw["proxy_mode"]); ok && !enabled {
+	if !locked {
+		if raw := os.Getenv("PMG_PROXY_MODE"); raw != "" {
+			if enabled, ok := parseOptOutBool(raw); ok {
+				if !enabled {
+					return removedProxyOptOutError(fmt.Sprintf("environment variable PMG_PROXY_MODE=%s", raw))
+				}
+
+				return nil
+			}
+		}
+	}
+
+	if enabled, ok := parseOptOutBool(fileKeys["proxy_mode"]); ok && !enabled {
 		return removedProxyOptOutError(fmt.Sprintf("proxy_mode: false in %s", globalConfig.configFilePath))
 	}
 
 	return nil
 }
 
+// parseOptOutBool matches the coercion the old resolution applied: viper's
+// Unmarshal ran with WeaklyTypedInput and the legacy fallback used GetBool
+// (cast.ToBool), both of which accept bools, numbers (0 = false) and
+// ParseBool-compatible strings.
 func parseOptOutBool(v any) (bool, bool) {
 	switch t := v.(type) {
 	case bool:
 		return t, true
+	case int:
+		return t != 0, true
+	case int64:
+		return t != 0, true
+	case uint64:
+		return t != 0, true
+	case float64:
+		return t != 0, true
 	case string:
 		if b, err := strconv.ParseBool(t); err == nil {
 			return b, true
