@@ -23,7 +23,6 @@ func TestConfigHasDefaultValues(t *testing.T) {
 		config := Get()
 		assert.Equal(t, true, config.Config.Transitive)
 		assert.Equal(t, 5, config.Config.TransitiveDepth)
-		assert.Equal(t, false, config.Config.IncludeDevDependencies)
 		assert.Equal(t, false, config.Config.Paranoid)
 		assert.Len(t, config.Config.TrustedPackages, 1)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist", config.configDir)
@@ -69,7 +68,6 @@ func TestPartialConfigFallsBackToDefaults(t *testing.T) {
 	// Missing keys should fall back to DefaultConfig() values, not Go zero values
 	defaults := DefaultConfig().Config
 	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
-	assert.Equal(t, defaults.Proxy.Enabled, config.Config.Proxy.Enabled)
 	assert.Equal(t, defaults.Verbosity, config.Config.Verbosity)
 	assert.Equal(t, defaults.EventLogRetentionDays, config.Config.EventLogRetentionDays)
 	assert.Equal(t, defaults.DependencyCooldown.Enabled, config.Config.DependencyCooldown.Enabled)
@@ -102,7 +100,6 @@ func TestPartialConfigWithNestedOverride(t *testing.T) {
 	// Top-level fields should fall back to defaults
 	assert.Equal(t, defaults.Transitive, config.Config.Transitive)
 	assert.Equal(t, defaults.TransitiveDepth, config.Config.TransitiveDepth)
-	assert.Equal(t, defaults.Proxy.Enabled, config.Config.Proxy.Enabled)
 }
 
 func TestProxyInstallOnlyConfig(t *testing.T) {
@@ -328,12 +325,11 @@ func TestWriteTemplateConfigCreatesNewFile(t *testing.T) {
 }
 
 func TestProxyConfigSection(t *testing.T) {
-	t.Run("defaults to enabled with install_only false", func(t *testing.T) {
+	t.Run("defaults to install_only false", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
 		initConfig()
 
 		cfg := Get()
-		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
 		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly)
 		assert.NotNil(t, cfg.Config.Proxy.SkipCommands)
 	})
@@ -343,7 +339,6 @@ func TestProxyConfigSection(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
 
 		configYAML := `proxy:
-  enabled: true
   install_only: true
   skip_commands:
     npm: ["my-script", "dev"]
@@ -355,7 +350,6 @@ func TestProxyConfigSection(t *testing.T) {
 		initConfig()
 		cfg := Get()
 
-		assert.Equal(t, true, cfg.Config.Proxy.Enabled)
 		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
 		assert.Equal(t, []string{"my-script", "dev"}, cfg.Config.Proxy.SkipCommands["npm"])
 	})
@@ -364,8 +358,7 @@ func TestProxyConfigSection(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
 
-		configYAML := `proxy_mode: false
-proxy_install_only: true
+		configYAML := `proxy_install_only: true
 `
 		configPath := filepath.Join(tmpDir, "config.yml")
 		err := os.WriteFile(configPath, []byte(configYAML), 0o644)
@@ -374,19 +367,16 @@ proxy_install_only: true
 		initConfig()
 		cfg := Get()
 
-		assert.Equal(t, false, cfg.Config.Proxy.Enabled)
 		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly)
 	})
 
 	t.Run("falls back to legacy keys from env vars", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
-		t.Setenv("PMG_PROXY_MODE", "false")
 		t.Setenv("PMG_PROXY_INSTALL_ONLY", "true")
 
 		initConfig()
 		cfg := Get()
 
-		assert.Equal(t, false, cfg.Config.Proxy.Enabled, "PMG_PROXY_MODE=false should set Proxy.Enabled=false")
 		assert.Equal(t, true, cfg.Config.Proxy.InstallOnly, "PMG_PROXY_INSTALL_ONLY=true should set Proxy.InstallOnly=true")
 	})
 
@@ -394,10 +384,8 @@ proxy_install_only: true
 		tmpDir := t.TempDir()
 		t.Setenv("PMG_CONFIG_DIR", tmpDir)
 
-		configYAML := `proxy_mode: false
-proxy_install_only: true
+		configYAML := `proxy_install_only: true
 proxy:
-  enabled: true
   install_only: false
 `
 		configPath := filepath.Join(tmpDir, "config.yml")
@@ -407,7 +395,6 @@ proxy:
 		initConfig()
 		cfg := Get()
 
-		assert.Equal(t, true, cfg.Config.Proxy.Enabled, "new proxy.enabled should win over old proxy_mode")
 		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly, "new proxy.install_only should win over old proxy_install_only")
 	})
 }

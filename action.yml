@@ -36,11 +36,6 @@ inputs:
     description: Cooldown window in days (PMG_DEPENDENCY_COOLDOWN_DAYS). Empty = use PMG default (5).
     required: false
     default: ""
-  proxy-mode:
-    description: Use proxy-based interception (PMG_PROXY_ENABLED). Empty = use PMG default (true). Setting "false" falls back to guard-based analysis.
-    required: false
-    default: ""
-
   sandbox:
     description: Run package managers inside an OS sandbox (PMG_SANDBOX_ENABLED). Empty = use PMG default (false). Enabling will also relax AppArmor user-namespace restrictions on the runner so unprivileged user namespaces work.
     required: false
@@ -234,7 +229,6 @@ runs:
         IN_PARANOID: ${{ inputs.paranoid }}
         IN_COOLDOWN_ENABLED: ${{ inputs.cooldown-enabled }}
         IN_COOLDOWN_DAYS: ${{ inputs.cooldown-days }}
-        IN_PROXY_MODE: ${{ inputs.proxy-mode }}
         IN_SANDBOX: ${{ inputs.sandbox }}
         IN_SANDBOX_DRIVER: ${{ inputs.sandbox-driver }}
         IN_VERBOSITY: ${{ inputs.verbosity }}
@@ -294,7 +288,6 @@ runs:
         export_var PMG_PARANOID                     "$IN_PARANOID"
         export_var PMG_DEPENDENCY_COOLDOWN_ENABLED  "$IN_COOLDOWN_ENABLED"
         export_var PMG_DEPENDENCY_COOLDOWN_DAYS     "$IN_COOLDOWN_DAYS"
-        export_var PMG_PROXY_ENABLED                "$IN_PROXY_MODE"
         export_var PMG_SANDBOX_ENABLED              "$IN_SANDBOX"
         if [ "$IN_SANDBOX" = "true" ]; then
           driver="${IN_SANDBOX_DRIVER:-landlock}"

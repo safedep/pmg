@@ -12,14 +12,11 @@ import (
 type FlowType int
 
 const (
-	FlowTypeGuard FlowType = iota
-	FlowTypeProxy
+	FlowTypeProxy FlowType = iota
 )
 
 func (f FlowType) String() string {
 	switch f {
-	case FlowTypeGuard:
-		return "guard"
 	case FlowTypeProxy:
 		return "proxy"
 	default:
@@ -66,7 +63,7 @@ type ReportData struct {
 	StartTime          time.Time
 	Duration           time.Duration
 
-	// Package statistics (consistent across guard and proxy flows)
+	// Package statistics
 	TotalAnalyzed  int
 	TrustedSkipped int
 

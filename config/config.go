@@ -75,9 +75,8 @@ var templateConfig string
 // Here we only define the configuration that can be persisted or loaded from a given source and
 // not those that we believe should not be persisted (eg. insecure installation, etc.)
 type Config struct {
-	Transitive             bool `mapstructure:"transitive"`
-	TransitiveDepth        int  `mapstructure:"transitive_depth"`
-	IncludeDevDependencies bool `mapstructure:"include_dev_dependencies"`
+	Transitive      bool `mapstructure:"transitive"`
+	TransitiveDepth int  `mapstructure:"transitive_depth"`
 
 	// Paranoid enables high-security defaults (e.g., treating suspicious behavior as malicious).
 	Paranoid bool `mapstructure:"paranoid"`
@@ -97,9 +96,6 @@ type Config struct {
 
 	// EventLogRetentionDays is the number of days to retain event logs.
 	EventLogRetentionDays int `mapstructure:"event_log_retention_days"`
-
-	// Deprecated: Use Proxy.Enabled instead. Kept for backward compatibility with old config files.
-	ProxyMode bool `mapstructure:"proxy_mode"`
 
 	// Deprecated: Use Proxy.InstallOnly instead. Kept for backward compatibility with old config files.
 	ProxyInstallOnly bool `mapstructure:"proxy_install_only"`
@@ -172,7 +168,6 @@ type CloudAutoSyncConfig struct {
 }
 
 type ProxyConfig struct {
-	Enabled      bool                `mapstructure:"enabled"`
 	InstallOnly  bool                `mapstructure:"install_only"`
 	SkipCommands map[string][]string `mapstructure:"skip_commands"`
 	Server       ProxyServerConfig   `mapstructure:"server"`
@@ -435,10 +430,6 @@ func (r *RuntimeConfig) LocalDBFileName() string {
 	return pmgDefaultLocalDBFileName
 }
 
-func (r *RuntimeConfig) IsProxyModeEnabled() bool {
-	return r.Config.Proxy.Enabled
-}
-
 // SandboxAllowType represents the type of a sandbox allow override.
 type SandboxAllowType string
 
@@ -473,17 +464,15 @@ func DefaultConfig() RuntimeConfig {
 
 	return RuntimeConfig{
 		Config: Config{
-			Transitive:             true,
-			TransitiveDepth:        5,
-			IncludeDevDependencies: false,
-			Paranoid:               false,
-			DisableTelemetry:       false,
-			EventLogRetentionDays:  7,
-			SkipEventLogging:       false,
-			TrustedPackages:        []TrustedPackage{},
-			AdvisoryMessage:        "",
-			ProxyMode:              true,
-			Verbosity:              VerbosityNormal,
+			Transitive:            true,
+			TransitiveDepth:       5,
+			Paranoid:              false,
+			DisableTelemetry:      false,
+			EventLogRetentionDays: 7,
+			SkipEventLogging:      false,
+			TrustedPackages:       []TrustedPackage{},
+			AdvisoryMessage:       "",
+			Verbosity:             VerbosityNormal,
 			Sandbox: SandboxConfig{
 				Enabled:       false,
 				EnforceAlways: false,
@@ -507,7 +496,6 @@ func DefaultConfig() RuntimeConfig {
 				},
 			},
 			Proxy: ProxyConfig{
-				Enabled:      true,
 				InstallOnly:  false,
 				SkipCommands: map[string][]string{},
 				Server: ProxyServerConfig{

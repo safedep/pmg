@@ -43,12 +43,6 @@ var configFlagSpecs = []flagSpec{
 		},
 	},
 	{
-		name: "include-dev-dependencies", usage: "Include dev dependencies in the dependency graph (slows down resolution)", managed: true,
-		bind: func(fs *pflag.FlagSet, name, usage string) {
-			fs.BoolVar(&globalConfig.Config.IncludeDevDependencies, name, globalConfig.Config.IncludeDevDependencies, usage)
-		},
-	},
-	{
 		name: "dry-run", usage: "Dry run skips execution of package manager", managed: false,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.DryRun, name, globalConfig.DryRun, usage)
@@ -64,12 +58,6 @@ var configFlagSpecs = []flagSpec{
 		name: "skip-event-log", usage: "Skip event logging", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.Config.SkipEventLogging, name, globalConfig.Config.SkipEventLogging, usage)
-		},
-	},
-	{
-		name: "proxy-mode", usage: "Use proxy based interception", managed: true,
-		bind: func(fs *pflag.FlagSet, name, usage string) {
-			fs.BoolVar(&globalConfig.Config.Proxy.Enabled, name, globalConfig.Config.Proxy.Enabled, usage)
 		},
 	},
 	{

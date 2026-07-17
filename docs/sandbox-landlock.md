@@ -133,8 +133,8 @@ constant tax that maps to most of the decisions above:
 
 - **Unprivileged user namespaces required.** On distros that disable them, `clone()`
   returns EPERM. We don't yet probe and fall back to bubblewrap (TODO).
-- **Network filtering not enforced.** Landlock V4 does TCP ports, not hostnames. Use
-  proxy-mode.
+- **Network filtering not enforced.** Landlock V4 does TCP ports, not hostnames. PMG's
+  proxy interception provides network control.
 - **PID/IPC namespace isolation is best-effort.** Retried without on EPERM.
 - **Audit events are dropped.** Wired but consumed by `io.Discard`.
 - **TOCTOU between path read and deny response.** Microseconds. Adequate for benign

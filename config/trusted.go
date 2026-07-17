@@ -5,7 +5,7 @@ import (
 )
 
 // IsTrustedPackage checks if a package version is trusted based on global configuration.
-// This is the primary API that should be used by guard and proxy flows.
+// This is the primary API that should be used by the proxy flow.
 // It returns true if the package is in the trusted packages list, false otherwise.
 func IsTrustedPackage(pkgVersion *packagev1.PackageVersion) bool {
 	return isTrustedPackageVersion(Get().Config.TrustedPackages, pkgVersion)

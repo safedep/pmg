@@ -52,7 +52,6 @@ type ParsedCommand struct {
 }
 
 // IsInstallationCommand returns true if command installs packages (explicit targets or from manifest).
-// This is used by guard mode where we need to know which packages are being installed.
 func (pc *ParsedCommand) IsInstallationCommand() bool {
 	return pc.HasInstallTarget() || pc.HasManifestInstall()
 }
@@ -101,4 +100,3 @@ type PackageManager interface {
 	// Ecosystem of the package manager
 	Ecosystem() packagev1.Ecosystem
 }
-

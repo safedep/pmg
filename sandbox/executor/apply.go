@@ -43,7 +43,7 @@ func WithExecutionContext(rt *sandbox.ExecutionContext) applySandboxOpt {
 }
 
 // ApplySandbox applies sandbox isolation to the command if sandbox mode is enabled.
-// This is a helper function used by both guard and proxy flows to avoid code duplication.
+// This is a helper function used by the command runner to avoid code duplication.
 //
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.

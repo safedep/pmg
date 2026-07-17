@@ -54,7 +54,6 @@ func executeSetupInfo() error {
 		}
 	}
 	configEntries["Config Source"] = configSource
-	configEntries["Proxy Mode"] = strconv.FormatBool(cfg.IsProxyModeEnabled())
 	configEntries["Proxy Install Only"] = strconv.FormatBool(cfg.Config.Proxy.InstallOnly)
 	ui.PrintInfoSection("Configuration", configEntries)
 

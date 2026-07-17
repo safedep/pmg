@@ -45,7 +45,6 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 |---|---|
 | `transitive` | `PMG_TRANSITIVE` |
 | `paranoid` | `PMG_PARANOID` |
-| `proxy.enabled` | `PMG_PROXY_ENABLED` |
 | `proxy.install_only` | `PMG_PROXY_INSTALL_ONLY` |
 | `verbosity` | `PMG_VERBOSITY` |
 | `skip_event_logging` | `PMG_SKIP_EVENT_LOGGING` |
@@ -53,7 +52,7 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | `dependency_cooldown.enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` |
 | `cloud.enabled` | `PMG_CLOUD_ENABLED` |
 
-Legacy environment variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat keys) are still supported when the `proxy:` section does not exist in the config file.
+The legacy flat key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
 
 **Example:**
 
@@ -128,7 +127,7 @@ global_lockdown: true
 
 When lockdown is on:
 
-- **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--transitive`, `--transitive-depth`, `--include-dev-dependencies`, `--paranoid`, `--skip-event-log`, `--proxy-mode`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
+- **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--transitive`, `--transitive-depth`, `--paranoid`, `--skip-event-log`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
 - **`PMG_*` variables cannot change the config**, including `PMG_INSECURE_INSTALLATION` (which otherwise bypasses malicious-package blocking).
 
 PMG reads `global_lockdown` straight from the global file, so a user cannot flip it through env or CLI. If the global file exists but cannot be read or parsed, PMG fails closed and treats it as locked. `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` still relocate per-user state directories (logs, cache) in any mode, but leave the managed config alone.

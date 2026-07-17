@@ -436,7 +436,7 @@ on Debian/Ubuntu; default on most modern distros). If disabled, the helper fails
 EPERM on `clone()` and the sandbox falls back to Bubblewrap.
 
 **Network filtering**: Not enforced. Landlock supports TCP port filtering only (V4+, no hostname).
-Use `--proxy-mode` for network control.
+PMG's proxy interception provides network control.
 
 **PID/IPC namespace isolation**: Applied best-effort via `CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWNS`.
 If unavailable, a warning is printed and the command continues. Set `PMG_SANDBOX_DRIVER=bubblewrap`

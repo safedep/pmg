@@ -143,8 +143,8 @@ func TestConfigFlagSpecsSSOT(t *testing.T) {
 	})
 
 	wantManaged := map[string]bool{
-		"transitive": true, "transitive-depth": true, "include-dev-dependencies": true,
-		"paranoid": true, "skip-event-log": true, "proxy-mode": true,
+		"transitive": true, "transitive-depth": true,
+		"paranoid": true, "skip-event-log": true,
 		"sandbox": true, "sandbox-enforce": true, "sandbox-profile": true,
 		"sandbox-allow": true, "skip-dependency-cooldown": true,
 	}
