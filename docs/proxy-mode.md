@@ -49,6 +49,10 @@ Commands in `skip_commands` are matched against the first non-flag argument. For
 
 The legacy flat config key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
 
+### Removed: disabling proxy interception
+
+Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out — `proxy.enabled: false` or `proxy_mode: false` in the config file, `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment — instead of silently switching to proxy interception. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
+
 ## Supported Package Managers
 
 | Package Manager | Status |

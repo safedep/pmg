@@ -50,6 +50,7 @@ explicitly to override.
 | `paranoid` | `PMG_PARANOID` | `false` |
 | `cooldown-enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` | `true` |
 | `cooldown-days` | `PMG_DEPENDENCY_COOLDOWN_DAYS` | `5` |
+| `proxy-mode` | REMOVED. Proxy interception can no longer be disabled; `"false"` fails the action, other values warn and are ignored | unset |
 | `sandbox` | `PMG_SANDBOX_ENABLED`. Also relaxes AppArmor user-ns restrictions on the runner | `false` |
 | `sandbox-driver` | `PMG_SANDBOX_DRIVER` — `landlock` or `bubblewrap` | `landlock` when sandbox is enabled |
 | `verbosity` | `PMG_VERBOSITY` — `silent`, `normal`, or `verbose` | `normal` |

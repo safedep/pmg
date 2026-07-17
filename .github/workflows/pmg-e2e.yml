@@ -643,6 +643,20 @@ jobs:
 
           # Mode: --paranoid may require cloud credentials; run non-blocking with dry-run
           pmg --paranoid --dry-run npm install express || true
+
+          # Removed proxy opt-outs must fail loudly, not silently proxy
+          if PMG_PROXY_ENABLED=false pmg --dry-run npm install express; then
+            echo "ERROR: PMG_PROXY_ENABLED=false should fail loudly"
+            exit 1
+          fi
+          if PMG_PROXY_MODE=false pmg --dry-run npm install express; then
+            echo "ERROR: PMG_PROXY_MODE=false should fail loudly"
+            exit 1
+          fi
+          if pmg --proxy-mode=false --dry-run npm install express; then
+            echo "ERROR: --proxy-mode should be an unknown flag"
+            exit 1
+          fi
           cd .. && rm -rf pmg-modes-test
 
   sandbox-e2e-macos:

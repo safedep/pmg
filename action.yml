@@ -36,6 +36,11 @@ inputs:
     description: Cooldown window in days (PMG_DEPENDENCY_COOLDOWN_DAYS). Empty = use PMG default (5).
     required: false
     default: ""
+  proxy-mode:
+    description: REMOVED. PMG always uses proxy-based interception. Setting "false" fails the action; any other value is ignored with a warning.
+    required: false
+    default: ""
+
   sandbox:
     description: Run package managers inside an OS sandbox (PMG_SANDBOX_ENABLED). Empty = use PMG default (false). Enabling will also relax AppArmor user-namespace restrictions on the runner so unprivileged user namespaces work.
     required: false
@@ -229,6 +234,7 @@ runs:
         IN_PARANOID: ${{ inputs.paranoid }}
         IN_COOLDOWN_ENABLED: ${{ inputs.cooldown-enabled }}
         IN_COOLDOWN_DAYS: ${{ inputs.cooldown-days }}
+        IN_PROXY_MODE: ${{ inputs.proxy-mode }}
         IN_SANDBOX: ${{ inputs.sandbox }}
         IN_SANDBOX_DRIVER: ${{ inputs.sandbox-driver }}
         IN_VERBOSITY: ${{ inputs.verbosity }}
@@ -245,6 +251,19 @@ runs:
             printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
           fi
         }
+
+        # Guard mode is removed: fail loudly when a workflow still opts out of
+        # proxy interception instead of silently switching it to proxy mode.
+        case "$(echo "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
+          false|0|f)
+            echo "::error::PMG guard mode has been removed and proxy interception can no longer be disabled. Remove the 'proxy-mode' input." >&2
+            exit 1
+            ;;
+          "") ;;
+          *)
+            echo "::warning::The 'proxy-mode' input is removed and has no effect. Remove it from your workflow." >&2
+            ;;
+        esac
 
         # Cloud credentials. PMG sync reads these directly when no keychain
         # credential is found, so we skip "pmg cloud login" entirely.

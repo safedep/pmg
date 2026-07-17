@@ -96,6 +96,15 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
+			// Guard mode is removed: a config or environment that still disables
+			// proxy interception must fail loudly instead of being silently
+			// switched to proxy mode. `pmg config` stays usable to fix the config.
+			if !isConfigCommand(cmd) {
+				if err := config.RejectRemovedProxyOptOut(); err != nil {
+					ui.ErrorExit(err)
+				}
+			}
+
 			// Initialize event logging
 			var eventlogErr error
 			if logFile != "" {
@@ -257,8 +266,17 @@ func logDebugContext() {
 
 // isProxyCommand reports whether cmd is `pmg proxy` or one of its subcommands.
 func isProxyCommand(cmd *cobra.Command) bool {
+	return commandInSubtree(cmd, "proxy")
+}
+
+// isConfigCommand reports whether cmd is `pmg config` or one of its subcommands.
+func isConfigCommand(cmd *cobra.Command) bool {
+	return commandInSubtree(cmd, "config")
+}
+
+func commandInSubtree(cmd *cobra.Command, name string) bool {
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "proxy" {
+		if c.Name() == name {
 			return true
 		}
 	}

@@ -54,6 +54,8 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 
 The legacy flat key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
 
+Proxy interception can no longer be disabled: PMG fails with an error when the config or environment still contains `proxy.enabled: false`, `proxy_mode: false`, `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false`. See [proxy mode](proxy-mode.md).
+
 **Example:**
 
 ```bash
