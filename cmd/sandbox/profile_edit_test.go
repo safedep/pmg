@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/safedep/dry/usefulerror"
@@ -32,6 +33,9 @@ func writeEditTestProfile(t *testing.T, dir, name string) string {
 
 func writeEditorScript(t *testing.T, body string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("editor scripts require /bin/sh")
+	}
 	path := filepath.Join(t.TempDir(), "editor.sh")
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
 	return path

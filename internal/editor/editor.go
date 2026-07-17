@@ -55,7 +55,7 @@ func Open(path string) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("editor %q exited with error: %w", editor, err)
+		return fmt.Errorf("editor %q failed: %w", editor, err)
 	}
 
 	return nil

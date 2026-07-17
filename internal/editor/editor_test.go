@@ -12,6 +12,9 @@ import (
 
 func writeScript(t *testing.T, dir, body string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("editor scripts require /bin/sh")
+	}
 	path := filepath.Join(dir, "editor.sh")
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
 	return path
