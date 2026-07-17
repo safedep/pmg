@@ -6,7 +6,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/packagemanager"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -93,7 +93,7 @@ func TestHandleConfirmationRequests(t *testing.T) {
 			afterCalled := false
 			var afterConfirmedParam bool
 
-			interaction := guard.PackageManagerGuardInteraction{
+			interaction := packagemanager.PackageManagerInteraction{
 				GetConfirmationOnMalware: func(results []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 					assert.Len(t, results, 1)
 					return tt.confirmationResponse, tt.confirmationError
@@ -150,7 +150,7 @@ func TestHandleConfirmationRequests(t *testing.T) {
 func TestHandleConfirmationRequests_MultipleSequential(t *testing.T) {
 	processedPackages := []string{}
 
-	interaction := guard.PackageManagerGuardInteraction{
+	interaction := packagemanager.PackageManagerInteraction{
 		GetConfirmationOnMalware: func(results []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 			pkgName := results[0].PackageVersion.GetPackage().GetName()
 			processedPackages = append(processedPackages, pkgName)

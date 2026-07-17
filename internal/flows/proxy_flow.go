@@ -9,7 +9,6 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runner"
@@ -166,7 +165,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Create interaction callbacks for user prompts
 	// Note: We use a pointer so we can later inject the input reader via SetInput
-	interaction := &guard.PackageManagerGuardInteraction{
+	interaction := &packagemanager.PackageManagerInteraction{
 		SetStatus:   ui.SetStatus,
 		ClearStatus: ui.ClearStatus,
 		ShowWarning: ui.ShowWarning,
