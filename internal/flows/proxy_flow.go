@@ -165,12 +165,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Create interaction callbacks for user prompts
 	// Note: We use a pointer so we can later inject the input reader via SetInput
-	interaction := &packagemanager.PackageManagerInteraction{
-		SetStatus:   ui.SetStatus,
-		ClearStatus: ui.ClearStatus,
-		ShowWarning: ui.ShowWarning,
-		Block:       ui.BlockNoExit,
-	}
+	interaction := &packagemanager.PackageManagerInteraction{}
 
 	// Extract pinned versions from install targets so cooldown handlers can
 	// report when a user's explicitly requested version was blocked.
