@@ -1,0 +1,22 @@
+schema_version: 1
+kind: preset
+name: vite
+description: Vite dev server and build (vite, vite build, vite preview)
+
+metadata:
+  author: SafeDep
+  labels: [vite, javascript, dev-server, framework]
+
+# Threat notes:
+# - node_modules/.vite is Vite's dep-optimizer cache; dist/** is build
+#   output. Both stay inside the project.
+# - Binds cover the default dev (5173) and preview (4173) ports on loopback.
+filesystem:
+  allow_write:
+    - ${CWD}/node_modules/.vite/**
+    - ${CWD}/dist/**
+
+network:
+  allow_bind:
+    - localhost:5173
+    - localhost:4173

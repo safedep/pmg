@@ -1,0 +1,22 @@
+schema_version: 1
+kind: preset
+name: git
+description: Git repository operations for hooks-driven tools (lint-staged, husky, turbo, changesets)
+
+metadata:
+  author: SafeDep
+  labels: [git, hooks, javascript, python]
+
+# Threat notes:
+# - allow_read on .git/config suppresses the mandatory read deny via exact
+#   match. Config may embed credentials in remote URLs; accept only when the
+#   workload runs git (repo discovery requires reading config).
+# - allow_write on .git/** lets a sandboxed process tamper with refs/objects
+#   (data, not code execution). The mandatory write denies on .git/config and
+#   all .git/hooks rules are NOT suppressed by this glob: hook injection and
+#   config tampering stay blocked.
+filesystem:
+  allow_read:
+    - ${CWD}/.git/config
+  allow_write:
+    - ${CWD}/.git/**

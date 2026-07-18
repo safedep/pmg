@@ -49,6 +49,10 @@ const (
 	// Per-repo overlays persisted by `pmg sandbox allow` live here.
 	pmgDefaultSandboxOverlayDir = "sandbox/overlays"
 
+	// Default sandbox preset directory is relative to the config directory.
+	// User/community preset YAML files live here.
+	pmgDefaultSandboxPresetDir = "sandbox/presets"
+
 	// Default sandbox violation cache directory is relative to the cache root.
 	pmgDefaultSandboxViolationCacheDir = "sandbox/violations"
 
@@ -327,6 +331,7 @@ type RuntimeConfig struct {
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
+	sandboxPresetDir         string
 	sandboxViolationCacheDir string
 	localDBDir               string
 	cacheDir                 string
@@ -399,6 +404,11 @@ func (r *RuntimeConfig) SandboxOverlayDir() string {
 	return r.sandboxOverlayDir
 }
 
+// SandboxPresetDir returns the path to the user sandbox preset directory.
+func (r *RuntimeConfig) SandboxPresetDir() string {
+	return r.sandboxPresetDir
+}
+
 // SandboxViolationCacheDir returns the path to the sandbox violation cache directory.
 func (r *RuntimeConfig) SandboxViolationCacheDir() string {
 	return r.sandboxViolationCacheDir
@@ -439,6 +449,7 @@ const (
 	SandboxAllowNetConnect SandboxAllowType = "net-connect"
 	SandboxAllowNetBind    SandboxAllowType = "net-bind"
 	SandboxAllowEnv        SandboxAllowType = "env"
+	SandboxAllowPreset     SandboxAllowType = "preset"
 )
 
 // SandboxAllowOverride represents a single --sandbox-allow flag value.
@@ -565,6 +576,11 @@ func initConfig() {
 		panic(fmt.Errorf("failed to get sandbox overlay directory: %w", err))
 	}
 
+	sandboxPresetDir, err := sandboxPresetDir()
+	if err != nil {
+		panic(fmt.Errorf("failed to get sandbox preset directory: %w", err))
+	}
+
 	cacheRootDir, err := cacheDir()
 	if err != nil {
 		panic(fmt.Errorf("failed to get cache directory: %w", err))
@@ -581,6 +597,7 @@ func initConfig() {
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxOverlayDir = sandboxOverlayDir
+	globalConfig.sandboxPresetDir = sandboxPresetDir
 	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
 	globalConfig.localDBDir = localDBDir
 	globalConfig.cacheDir = cacheRootDir
@@ -920,6 +937,16 @@ func sandboxOverlayDir() (string, error) {
 	}
 
 	return filepath.Join(configDir, pmgDefaultSandboxOverlayDir), nil
+}
+
+// sandboxPresetDir computes the path to the user sandbox preset directory.
+func sandboxPresetDir() (string, error) {
+	configDir, err := configDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	return filepath.Join(configDir, pmgDefaultSandboxPresetDir), nil
 }
 
 // sandboxViolationCacheDir computes the path to the sandbox violation cache directory.

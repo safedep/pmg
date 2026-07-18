@@ -268,6 +268,21 @@ pmg sandbox project list
 pmg sandbox project reset --yes
 ```
 
+### Presets
+
+A preset is a named, additive-only bundle of allowances for one workload (git hooks tooling,
+an Astro/Vite/Next.js dev server, ...). Instead of discovering allowances one denial at a
+time, apply a curated bundle:
+
+```bash
+pmg sandbox preset list
+pmg sandbox preset show git
+pmg sandbox allow preset=git preset=astro
+```
+
+Presets can also be attached to a profile via a `presets:` list. See
+[sandbox-presets.md](sandbox-presets.md) for usage and how to author your own.
+
 Notes:
 
 - `--last`/`--last --all` only auto-promotes filesystem and exec denials. Network allowances

@@ -95,6 +95,7 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 	}
 
 	out.PackageManagers = append([]string(nil), p.PackageManagers...)
+	out.Presets = append([]string(nil), p.Presets...)
 
 	return &out, nil
 }

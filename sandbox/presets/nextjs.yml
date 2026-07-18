@@ -1,0 +1,19 @@
+schema_version: 1
+kind: preset
+name: nextjs
+description: Next.js dev server and build (next dev, next build)
+
+metadata:
+  author: SafeDep
+  labels: [nextjs, javascript, dev-server, framework]
+
+# Threat notes:
+# - .next/** is Next.js build/dev state and stays inside the project.
+# - The loopback bind covers the default dev port.
+filesystem:
+  allow_write:
+    - ${CWD}/.next/**
+
+network:
+  allow_bind:
+    - localhost:3000

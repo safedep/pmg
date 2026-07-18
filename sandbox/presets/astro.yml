@@ -1,0 +1,22 @@
+schema_version: 1
+kind: preset
+name: astro
+description: Astro dev server and build (astro dev, astro build, astro sync)
+
+metadata:
+  author: SafeDep
+  labels: [astro, javascript, dev-server, framework]
+
+# Threat notes:
+# - .astro/** holds generated types and content-collection state; dist/** is
+#   build output. Writes there cannot escape the project.
+# - The loopback bind covers Astro's default dev port. Seatbelt's
+#   "localhost" ip filter matches both 127.0.0.1 and ::1.
+filesystem:
+  allow_write:
+    - ${CWD}/.astro/**
+    - ${CWD}/dist/**
+
+network:
+  allow_bind:
+    - localhost:4321

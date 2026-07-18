@@ -20,6 +20,7 @@ type allowFactory struct {
 	repoRoot   func() (string, error)
 	cache      func() *pmgsandbox.ViolationCache
 	locked     func() bool
+	presets    func() (pmgsandbox.PresetRegistry, error)
 }
 
 func defaultAllowFactory() allowFactory {
@@ -29,7 +30,8 @@ func defaultAllowFactory() allowFactory {
 		cache: func() *pmgsandbox.ViolationCache {
 			return pmgsandbox.NewViolationCache(config.Get().SandboxViolationCacheDir())
 		},
-		locked: func() bool { return config.Get().IsLocked() },
+		locked:  func() bool { return config.Get().IsLocked() },
+		presets: defaultPresetRegistryFactory,
 	}
 }
 
@@ -134,6 +136,10 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 			"no eligible allowances to save",
 			"Run a sandboxed command first to populate the violation cache, or pass explicit type=value arguments.",
 		)
+	}
+
+	if err := validatePresetEntries(pending, factory); err != nil {
+		return err
 	}
 
 	if err := guardSensitiveEntries(pending, opts.force); err != nil {
@@ -255,12 +261,57 @@ func guardSensitiveEntries(entries []pmgsandbox.OverlayAllow, force bool) error 
 		return nil
 	}
 	for _, e := range entries {
+		// Preset values are names, not paths. Preset content is validated
+		// against sensitive targets when the preset itself is loaded.
+		if e.Type == config.SandboxAllowPreset {
+			continue
+		}
+
 		if pmgsandbox.IsSensitiveProjectTarget(e.Value) {
 			return usefulerror.NewUsefulError().
 				WithCode(errcodes.PermissionDenied).
 				WithHumanError(fmt.Sprintf("refusing to allow sensitive target: %s", e.Value)).
 				WithHelp("Re-run with --force to allow saving this entry, after verifying the path is intentional.").
 				Wrap(errors.New("sensitive target"))
+		}
+	}
+	return nil
+}
+
+// validatePresetEntries resolves preset references at save time so a typo
+// fails immediately with the available names instead of surfacing as a
+// runtime warning on the next sandboxed command.
+func validatePresetEntries(entries []pmgsandbox.OverlayAllow, factory allowFactory) error {
+	var registry pmgsandbox.PresetRegistry
+	for _, e := range entries {
+		if e.Type != config.SandboxAllowPreset {
+			continue
+		}
+
+		if registry == nil {
+			if factory.presets == nil {
+				return invalidArgumentError(
+					"preset entries are not supported here",
+					"Pass concrete type=value allowances instead.",
+				)
+			}
+
+			r, err := factory.presets()
+			if err != nil {
+				return registryInitError(err)
+			}
+			registry = r
+		}
+
+		if _, err := registry.Get(e.Value); err != nil {
+			if errors.Is(err, pmgsandbox.ErrPresetNotFound) {
+				return notFoundError(
+					fmt.Sprintf("unknown preset %q", e.Value),
+					"Use `pmg sandbox preset list` to see available presets.",
+				)
+			}
+			return wrapUseful(err, errcodes.Unknown,
+				"Failed to resolve the preset. Run with --verbose for details.")
 		}
 	}
 	return nil

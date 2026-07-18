@@ -24,5 +24,6 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(NewViolationsCommand())
 	cmd.AddCommand(NewAllowCommand())
 	cmd.AddCommand(NewProjectCommand())
+	cmd.AddCommand(NewPresetCommand())
 	return cmd
 }

@@ -7,4 +7,6 @@ import "errors"
 var (
 	ErrProfileNotFound = errors.New("sandbox profile not found")
 	ErrProfileInvalid  = errors.New("sandbox profile invalid")
+	ErrPresetNotFound  = errors.New("sandbox preset not found")
+	ErrPresetInvalid   = errors.New("sandbox preset invalid")
 )

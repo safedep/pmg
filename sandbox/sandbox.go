@@ -294,6 +294,7 @@ type RegistryOption func(*registryOptions)
 
 type registryOptions struct {
 	userProfileDir string
+	presetRegistry PresetRegistry
 }
 
 // WithUserProfileDir sets the directory the registry uses to discover user
@@ -301,6 +302,14 @@ type registryOptions struct {
 func WithUserProfileDir(dir string) RegistryOption {
 	return func(o *registryOptions) {
 		o.userProfileDir = dir
+	}
+}
+
+// WithPresetRegistry sets the preset registry used to expand `presets:`
+// references in profiles. Defaults to a builtin-only preset registry.
+func WithPresetRegistry(presets PresetRegistry) RegistryOption {
+	return func(o *registryOptions) {
+		o.presetRegistry = presets
 	}
 }
 

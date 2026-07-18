@@ -59,7 +59,15 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		opt(applyConfig)
 	}
 
-	registry, err := sandbox.NewProfileRegistry(sandbox.WithUserProfileDir(cfg.SandboxProfileDir()))
+	presetRegistry, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create preset registry: %w", err)
+	}
+
+	registry, err := sandbox.NewProfileRegistry(
+		sandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
+		sandbox.WithPresetRegistry(presetRegistry),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create profile registry: %w", err)
 	}
@@ -136,7 +144,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 	cwd, _ := os.Getwd()
 	if repoRoot, repoErr := sandbox.ResolveRepoRoot(cwd); repoErr != nil {
 		log.Warnf("Project overlay: resolve repo root: %v", repoErr)
-	} else if _, err := applyProjectOverlay(policy, cfg.SandboxOverlayDir(), repoRoot, cfg.IsLocked()); err != nil {
+	} else if _, err := applyProjectOverlay(policy, cfg.SandboxOverlayDir(), repoRoot, cfg.IsLocked(), presetRegistry); err != nil {
 		log.Warnf("Project overlay: apply: %v", err)
 		// A failed overlay load means the user's saved allowances were silently
 		// dropped. Echo to stderr so users at normal verbosity see why their
@@ -146,7 +154,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 	// Apply runtime --sandbox-allow overrides to the policy before execution
 	if len(cfg.SandboxAllowOverrides) > 0 {
-		applyRuntimeOverrides(policy, cfg.SandboxAllowOverrides)
+		applyRuntimeOverrides(policy, cfg.SandboxAllowOverrides, presetRegistry)
 		logSandboxOverrides(policy.Name, cfg.SandboxAllowOverrides)
 	}
 
@@ -199,9 +207,27 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 // Overrides append to allow lists and remove exact matches from corresponding deny lists
 // so that deny rules don't shadow the explicit override. Only full-path exact matches are
 // removed — glob and wildcard deny patterns are never modified to stay secure by default.
-func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.SandboxAllowOverride) {
+func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.SandboxAllowOverride, presets sandbox.PresetRegistry) {
 	for _, override := range overrides {
 		switch override.Type {
+		case config.SandboxAllowPreset:
+			// A missing preset means fewer allowances (fail closed), so it
+			// must not abort the run, but the user's expectation is broken:
+			// echo to stderr like a failed overlay load.
+			if presets == nil {
+				log.Warnf("Sandbox override: preset %s ignored, no preset registry available", override.Value)
+				continue
+			}
+
+			info, err := presets.Get(override.Value)
+			if err != nil {
+				log.Warnf("Sandbox override: preset %s could not be resolved: %v", override.Value, err)
+				fmt.Fprintf(os.Stderr, "pmg: warning: sandbox preset %q could not be applied: %v\n", override.Value, err)
+				continue
+			}
+
+			log.Infof("Sandbox override: applying preset %s (%s)", override.Value, info.Source)
+			info.Preset.ApplyToPolicy(policy)
 		case config.SandboxAllowRead:
 			log.Infof("Sandbox override: allowing read access to %s", override.Value)
 			policy.Filesystem.AllowRead = append(policy.Filesystem.AllowRead, override.Value)
@@ -286,7 +312,7 @@ func removeExactMatch(slice []string, value string) []string {
 // its entries through applyRuntimeOverrides. Returns the number of entries
 // applied. A nil/missing overlay is a clean no-op. When locked, the overlay
 // is ignored entirely.
-func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot string, locked bool) (int, error) {
+func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot string, locked bool, presets sandbox.PresetRegistry) (int, error) {
 	if locked {
 		log.Debugf("Project overlay: skipping under global_lockdown")
 		return 0, nil
@@ -301,7 +327,7 @@ func applyProjectOverlay(policy *sandbox.SandboxPolicy, overlayDir, repoRoot str
 	}
 
 	entries := overlay.ToAllowOverrides()
-	applyRuntimeOverrides(policy, entries)
+	applyRuntimeOverrides(policy, entries, presets)
 	// The "+overlay" suffix tags audit events as overlay-sourced.
 	logSandboxOverrides(policy.Name+"+overlay", entries)
 	log.Infof("Project overlay: applied %d saved allowance(s) for %s", len(entries), repoRoot)
