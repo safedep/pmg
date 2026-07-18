@@ -76,7 +76,10 @@ function testPackageManager(pm) {
   try {
     // Initialize project
     test(`${pm}: Initialize project`, () => {
-      const initCmd = pm === 'npm' ? 'npm init -y' : 'pnpm init';
+      // npm init even for pnpm: `pnpm init` writes devEngines.packageManager
+      // with onFail:download, and the next `pnpm add` crashes with
+      // "Cannot use 'in' operator to search for 'integrity' in undefined".
+      const initCmd = 'npm init -y';
       const result = exec(initCmd, { cwd: testDir, env });
       if (!result.success) {
         console.log(`    ❌ FAIL: ${result.error}`);

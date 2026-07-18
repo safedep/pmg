@@ -5,12 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
-	"strings"
 
 	appConfig "github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/shellwords"
+	"github.com/safedep/pmg/internal/editor"
 	"github.com/spf13/cobra"
 )
 
@@ -100,46 +97,5 @@ func runEdit() error {
 		return fmt.Errorf("failed to stat config file %q: %w", path, err)
 	}
 
-	editor, err := resolveEditor()
-	if err != nil {
-		return err
-	}
-
-	parts, err := shellwords.Split(editor)
-	if err != nil {
-		return fmt.Errorf("invalid editor command %q: %w", editor, err)
-	}
-	if len(parts) == 0 {
-		return fmt.Errorf("editor command is empty")
-	}
-	parts = append(parts, path)
-
-	c := exec.Command(parts[0], parts[1:]...)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	if err := c.Run(); err != nil {
-		return fmt.Errorf("editor %q exited with error: %w", editor, err)
-	}
-
-	return nil
-}
-
-func resolveEditor() (string, error) {
-	if v := strings.TrimSpace(os.Getenv("VISUAL")); v != "" {
-		return v, nil
-	}
-	if v := strings.TrimSpace(os.Getenv("EDITOR")); v != "" {
-		return v, nil
-	}
-
-	if runtime.GOOS == "windows" {
-		return "notepad", nil
-	}
-
-	if _, err := exec.LookPath("vi"); err == nil {
-		return "vi", nil
-	}
-
-	return "", fmt.Errorf("no editor found: set $VISUAL or $EDITOR")
+	return editor.Open(path)
 }
