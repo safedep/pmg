@@ -91,7 +91,7 @@ var configFlagSpecs = []flagSpec{
 		},
 	},
 	{
-		name: "sandbox-allow", usage: "Add runtime sandbox allow rule (type=value). Types: read, write, exec, net-connect, net-bind", managed: true,
+		name: "sandbox-allow", usage: "Add runtime sandbox allow rule (type=value). Types: read, write, exec, net-connect, net-bind, env, preset", managed: true,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.StringArrayVar(&sandboxAllowRaw, name, nil, usage)
 		},

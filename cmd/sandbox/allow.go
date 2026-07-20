@@ -57,6 +57,8 @@ func newAllowCommand(factory allowFactory) *cobra.Command {
 			"or --last --all to promote every safe FS/exec violation from that report.\n" +
 			"Manual entries (type=value …) accept any allow type and persist as-is.",
 		Example: "  pmg sandbox allow write=./.astro net-bind=localhost:4321\n" +
+			"  pmg sandbox allow env=AWS_PROFILE\n" +
+			"  pmg sandbox allow preset=git preset=astro\n" +
 			"  pmg sandbox allow --last --all",
 		Args:          cobra.ArbitraryArgs,
 		SilenceErrors: false,
@@ -184,7 +186,7 @@ func collectAllowEntries(args []string, opts *allowOptions, factory allowFactory
 		if err != nil {
 			return nil, invalidArgumentError(
 				err.Error(),
-				"Each positional argument must be `type=value` (read, write, exec, net-connect, net-bind).",
+				"Each positional argument must be `type=value` (read, write, exec, net-connect, net-bind, env, preset).",
 			)
 		}
 		out = append(out, pmgsandbox.OverlayAllow{Type: override.Type, Value: override.Value})

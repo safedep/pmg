@@ -454,7 +454,8 @@ const (
 
 // SandboxAllowOverride represents a single --sandbox-allow flag value.
 type SandboxAllowOverride struct {
-	// Type is the resource type (read, write, exec, net-connect, net-bind).
+	// Type is the resource type (read, write, exec, net-connect, net-bind,
+	// env, preset).
 	Type SandboxAllowType
 
 	// Value is the resolved value (absolute path, host:port, etc.).
