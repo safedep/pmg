@@ -301,13 +301,12 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, denyArgs...)
 	}
 
-	// Mandatory write denies for paths the user listed in allow_read must keep
-	// reads working, so they get a read-only re-bind via processDenyWriteRule
-	// instead of the read-blocking processDenyRule (/dev/null or tmpfs
-	// overlay). The re-bind is emitted here, after all allow_write mounts:
-	// an earlier allow_read --ro-bind is NOT sufficient because a later
-	// writable parent bind (e.g. allow_write ${CWD}/.git/** over allow_read
-	// ${CWD}/.git/config) wins in bwrap's last-mount-wins ordering.
+	// Mandatory write denies for paths in allow_read must keep reads working,
+	// so they get a read-only re-bind instead of the read-blocking
+	// processDenyRule overlay. The earlier allow_read --ro-bind is not
+	// sufficient: a later writable parent bind (allow_write ${CWD}/.git/**
+	// over allow_read ${CWD}/.git/config) wins in bwrap's last-mount-wins
+	// ordering, so the re-bind must come after all allow_write mounts.
 	allowReadSet := make(map[string]bool, len(expandedAllowRead))
 	for _, p := range expandedAllowRead {
 		allowReadSet[filepath.Clean(p)] = true

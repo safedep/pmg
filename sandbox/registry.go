@@ -118,9 +118,8 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 	return nil
 }
 
-// applyPresets unions each referenced preset's allowances into the policy.
-// An unknown preset is a hard error: profile authors get immediate feedback
-// instead of a silently under-provisioned sandbox at run time.
+// An unknown preset is a hard error so profile authors get immediate
+// feedback instead of a silently under-provisioned sandbox at run time.
 func (r *defaultProfileRegistry) applyPresets(policy *SandboxPolicy) error {
 	for _, name := range policy.Presets {
 		info, err := r.presets.Get(name)

@@ -108,10 +108,8 @@ func validateAndResolveValue(typ SandboxAllowType, value string) (string, error)
 	}
 }
 
-// validatePresetRef validates a preset reference. The value is a bare preset
-// name kept verbatim: resolution against the preset registry happens where
-// the reference is used (save time in `pmg sandbox allow`, apply time in the
-// sandbox executor) so overlays track preset updates by reference.
+// The value is a bare preset name kept verbatim so overlays track preset
+// updates by reference. Registry resolution happens at the use site.
 func validatePresetRef(value string) (string, error) {
 	for _, r := range value {
 		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-'

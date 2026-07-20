@@ -72,10 +72,8 @@ func shouldScrubEnvVar(name string, deny, allow []string) bool {
 
 // EnvPatternsOverlap reports whether two variable-name glob patterns can
 // match a common name, approximated by matching each pattern against the
-// other's literal text in both directions. Used to keep additive-only
-// allowances (presets) from overriding authored deny patterns: on overlap,
-// the allowance is dropped. Conservative by design — a false positive drops
-// an allowance (fail closed), never widens access.
+// other's literal text. Conservative: a false positive drops an allowance
+// (fail closed), never widens access.
 func EnvPatternsOverlap(a, b string) bool {
 	return envNameRegex(a).MatchString(b) || envNameRegex(b).MatchString(a)
 }

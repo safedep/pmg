@@ -16,32 +16,26 @@ import (
 )
 
 // PresetSchemaVersion is the highest preset schema version this binary
-// understands. Presets declaring a newer version are rejected so that a
-// future registry can ship evolved schemas without old binaries silently
-// misreading them.
+// accepts. Newer versions are rejected instead of being silently misread.
 const PresetSchemaVersion = 1
 
 const presetKind = "preset"
 
-// PresetMetadata carries descriptive, filterable attributes. Metadata never
-// affects enforcement.
+// PresetMetadata is descriptive and filterable, never enforced.
 type PresetMetadata struct {
 	Author string   `yaml:"author,omitempty" json:"author,omitempty"`
 	Labels []string `yaml:"labels,omitempty" json:"labels,omitempty"`
 }
 
-// PresetFilesystem lists filesystem allowances. There are intentionally no
-// deny fields: presets are additive-only.
+// PresetFilesystem lists filesystem allowances.
 type PresetFilesystem struct {
 	AllowRead  []string `yaml:"allow_read,omitempty" json:"allow_read,omitempty"`
 	AllowWrite []string `yaml:"allow_write,omitempty" json:"allow_write,omitempty"`
 }
 
-// PresetNetwork lists network allowances. There is deliberately no
-// allow_outbound: current platform translators are all-or-nothing for
-// outbound (one allow rule means blanket network access on both Seatbelt and
-// Bubblewrap), so a preset outbound entry would silently change the network
-// posture far beyond what its YAML conveys. Strict decoding rejects the key.
+// PresetNetwork lists network allowances. No allow_outbound: platform
+// translators are all-or-nothing for outbound, so one entry would mean
+// blanket network access far beyond what the preset YAML conveys.
 type PresetNetwork struct {
 	AllowBind []string `yaml:"allow_bind,omitempty" json:"allow_bind,omitempty"`
 }
@@ -56,11 +50,9 @@ type PresetEnvironment struct {
 	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"`
 }
 
-// Preset is a named, additive-only bundle of sandbox allowances describing
-// what one workload (git hooks, a dev server, ...) legitimately needs. It is
-// structurally a reusable set of `pmg sandbox allow` entries: same trust
-// model, same enforcement mechanics. Mandatory denies still apply except via
-// the existing exact-match suppression in util.GetMandatoryDenyPatterns.
+// Preset is a named, additive-only bundle of sandbox allowances for one
+// workload. Mandatory denies still apply except via the exact-match
+// suppression in util.GetMandatoryDenyPatterns.
 type Preset struct {
 	SchemaVersion int               `yaml:"schema_version,omitempty" json:"schema_version,omitempty"`
 	Kind          string            `yaml:"kind" json:"kind"`
@@ -75,8 +67,8 @@ type Preset struct {
 
 var presetNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
-// ParsePreset decodes preset YAML strictly: unknown fields (including any
-// deny_* key) are errors, keeping the additive-only contract structural.
+// ParsePreset decodes strictly: unknown fields (including any deny_* key)
+// are errors, keeping the additive-only contract structural.
 func ParsePreset(data []byte) (*Preset, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -89,8 +81,7 @@ func ParsePreset(data []byte) (*Preset, error) {
 	return &preset, nil
 }
 
-// Validate checks the preset against the schema contract described in
-// docs/sandbox-presets.md.
+// Validate enforces the preset schema contract.
 func (p *Preset) Validate() error {
 	if p.Kind != presetKind {
 		return fmt.Errorf("kind must be %q, got %q", presetKind, p.Kind)
@@ -141,9 +132,7 @@ func (p *Preset) Validate() error {
 	return nil
 }
 
-// validatePresetPath enforces anchoring so a preset cannot allow arbitrary
-// host locations: entries must start at ${CWD}, ${HOME} or ${TMPDIR} and
-// cannot traverse out or name known sensitive files.
+// Anchoring keeps a preset from allowing arbitrary host locations.
 func validatePresetPath(entry string) error {
 	anchored := strings.HasPrefix(entry, util.VarCWD+"/") ||
 		strings.HasPrefix(entry, util.VarHome+"/") ||
@@ -213,13 +202,9 @@ func (p *Preset) HasLabel(label string) bool {
 	return false
 }
 
-// ApplyToPolicy unions the preset's allowances into the policy: allow lists
-// are extended with dedupe and bind entries enable AllowNetworkBind so
-// translators emit bind rules. Deny lists are never touched, unlike explicit
-// `pmg sandbox allow` overrides: a deny authored in a profile always wins
-// over a preset allowance (deny has higher priority), keeping presets
-// strictly additive. Mandatory denies computed by the platform translators
-// are unaffected except through the existing exact-match suppression.
+// ApplyToPolicy unions the preset's allowances into the policy. Unlike
+// explicit `pmg sandbox allow` overrides it never touches deny lists, so an
+// authored deny always wins over a preset allowance.
 func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	policy.Filesystem.AllowRead = unionStringSlices(policy.Filesystem.AllowRead, p.Filesystem.AllowRead)
 	policy.Filesystem.AllowWrite = unionStringSlices(policy.Filesystem.AllowWrite, p.Filesystem.AllowWrite)
@@ -233,11 +218,9 @@ func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.filteredEnvAllow(policy))
 }
 
-// filteredEnvAllow drops preset environment allowances that overlap an
-// authored deny in the policy. ScrubEnv is allow-wins, so merging such an
-// entry would let a preset override a deny the profile author wrote —
-// breaking the additive-only contract. Surviving entries still suppress
-// built-in DANGEROUS_ENV_VARS denies, which is the intended preset use.
+// ScrubEnv is allow-wins, so a preset allowance overlapping an authored deny
+// must be dropped here or it would override the profile author's deny.
+// Surviving entries still suppress built-in DANGEROUS_ENV_VARS denies.
 func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
 	if len(p.Environment.Allow) == 0 || len(policy.Environment.Deny) == 0 {
 		return p.Environment.Allow
@@ -261,8 +244,6 @@ func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
 	return kept
 }
 
-// presetFileName reports whether a file name looks like a preset YAML file
-// and returns the bare preset name.
 func presetFileName(fileName string) (string, bool) {
 	ext := filepath.Ext(fileName)
 	if ext != ".yml" && ext != ".yaml" {

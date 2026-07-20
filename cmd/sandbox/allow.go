@@ -280,9 +280,8 @@ func guardSensitiveEntries(entries []pmgsandbox.OverlayAllow, force bool) error 
 	return nil
 }
 
-// validatePresetEntries resolves preset references at save time so a typo
-// fails immediately with the available names instead of surfacing as a
-// runtime warning on the next sandboxed command.
+// Preset references resolve at save time so a typo fails immediately
+// instead of surfacing as a runtime warning on the next sandboxed command.
 func validatePresetEntries(entries []pmgsandbox.OverlayAllow, factory allowFactory) error {
 	var registry pmgsandbox.PresetRegistry
 	for _, e := range entries {

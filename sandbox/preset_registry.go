@@ -15,9 +15,7 @@ import (
 //go:embed presets/*.yml
 var presetsFS embed.FS
 
-// PresetSourceName identifies where a preset was loaded from. Future sources
-// (hosted registry, SafeDep cloud sync) plug in as additional PresetSource
-// implementations without changing resolution mechanics.
+// PresetSourceName identifies where a preset was loaded from.
 type PresetSourceName string
 
 const (
@@ -26,29 +24,29 @@ const (
 )
 
 // PresetSource is a read-only provider of presets. Sources are consulted in
-// registry order; the first source that knows a name wins.
+// registry order; the first source that knows a name wins. Remote sources
+// (hosted registry, cloud sync) plug in here.
 type PresetSource interface {
 	Name() PresetSourceName
 
-	// List returns all valid presets from this source, sorted by name.
-	// Invalid preset files are skipped with a warning, never fatal.
+	// List returns all valid presets sorted by name. Invalid preset files
+	// are skipped with a warning, never fatal.
 	List() ([]PresetInfo, error)
 
-	// Get returns the preset by bare name, or found=false.
 	Get(name string) (*PresetInfo, bool, error)
 }
 
-// PresetInfo pairs a preset with its provenance for listing and display.
+// PresetInfo pairs a preset with its provenance.
 type PresetInfo struct {
 	Preset *Preset
 
 	Source PresetSourceName
 
-	// Path is the on-disk file for user presets; "" for builtins.
+	// Path is the on-disk file for user presets, "" for builtins.
 	Path string
 
-	// Shadowed is true when an earlier source (e.g. builtin) also provides
-	// this name and wins during resolution.
+	// Shadowed is true when an earlier source also provides this name and
+	// wins during resolution.
 	Shadowed bool
 
 	// Raw is the original YAML, preserved so `preset show` can display
@@ -58,7 +56,6 @@ type PresetInfo struct {
 
 // PresetRegistry resolves presets across ordered sources.
 type PresetRegistry interface {
-	// Get resolves a preset by bare name across sources in order.
 	Get(name string) (*PresetInfo, error)
 
 	// List enumerates presets from all sources, builtins first, marking
@@ -116,10 +113,9 @@ func WithUserPresetDir(dir string) PresetRegistryOption {
 	}
 }
 
-// NewPresetRegistry creates a registry over the builtin (embedded) source
-// and, when configured, the user preset directory. Builtins always win name
-// resolution so an official preset cannot be silently replaced by a local
-// file.
+// NewPresetRegistry creates a registry over the embedded builtin source and,
+// when configured, the user preset directory. Builtins win name resolution
+// so an official preset cannot be silently replaced by a local file.
 func NewPresetRegistry(opts ...PresetRegistryOption) (PresetRegistry, error) {
 	options := &presetRegistryOptions{}
 	for _, opt := range opts {
@@ -239,9 +235,6 @@ func (s *builtinPresetSource) Get(name string) (*PresetInfo, bool, error) {
 	return info, true, nil
 }
 
-// dirPresetSource reads presets from a directory of YAML files. Used for
-// user/community presets; a future cloud-synced source is the same shape
-// pointed at a managed directory.
 type dirPresetSource struct {
 	dir string
 }

@@ -211,9 +211,8 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 	for _, override := range overrides {
 		switch override.Type {
 		case config.SandboxAllowPreset:
-			// A missing preset means fewer allowances (fail closed), so it
-			// must not abort the run, but the user's expectation is broken:
-			// echo to stderr like a failed overlay load.
+			// A missing preset means fewer allowances (fail closed), so warn
+			// instead of aborting the run.
 			if presets == nil {
 				log.Warnf("Sandbox override: preset %s ignored, no preset registry available", override.Value)
 				continue
