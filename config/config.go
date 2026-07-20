@@ -75,9 +75,6 @@ var templateConfig string
 // Here we only define the configuration that can be persisted or loaded from a given source and
 // not those that we believe should not be persisted (eg. insecure installation, etc.)
 type Config struct {
-	Transitive      bool `mapstructure:"transitive"`
-	TransitiveDepth int  `mapstructure:"transitive_depth"`
-
 	// Paranoid enables high-security defaults (e.g., treating suspicious behavior as malicious).
 	Paranoid bool `mapstructure:"paranoid"`
 
@@ -464,8 +461,6 @@ func DefaultConfig() RuntimeConfig {
 
 	return RuntimeConfig{
 		Config: Config{
-			Transitive:            true,
-			TransitiveDepth:       5,
 			Paranoid:              false,
 			DisableTelemetry:      false,
 			EventLogRetentionDays: 7,

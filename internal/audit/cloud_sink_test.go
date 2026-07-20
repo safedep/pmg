@@ -134,7 +134,7 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 		Timestamp: time.Now(),
 		SessionData: &SessionData{
 			PackageManager: "npm",
-			FlowType:       FlowTypeGuard,
+			FlowType:       FlowTypeProxy,
 			Outcome:        OutcomeSuccess,
 			TotalAnalyzed:  1,
 			AllowedCount:   1,

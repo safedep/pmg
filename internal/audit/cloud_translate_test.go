@@ -278,7 +278,6 @@ func TestTranslateSessionComplete(t *testing.T) {
 			Duration:             5 * time.Second,
 			SandboxEnabled:       true,
 			ParanoidMode:         false,
-			TransitiveEnabled:    true,
 		},
 	}
 
@@ -297,7 +296,6 @@ func TestTranslateSessionComplete(t *testing.T) {
 	assert.Equal(t, uint32(3), summary.GetCooldownBlockedCount())
 	assert.True(t, summary.GetSandboxEnabled())
 	assert.False(t, summary.GetParanoidMode())
-	assert.True(t, summary.GetTransitiveEnabled())
 	assert.Equal(t, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_SUCCESS, summary.GetOutcome())
 }
 
@@ -306,7 +304,7 @@ func TestTranslateSessionCompleteWithInsecureBypass(t *testing.T) {
 		Type: EventTypeSessionComplete,
 		SessionData: &SessionData{
 			PackageManager:   "pip",
-			FlowType:         FlowTypeGuard,
+			FlowType:         FlowTypeProxy,
 			Outcome:          OutcomeInsecureBypass,
 			InsecureBypassed: 3,
 		},
@@ -340,8 +338,8 @@ func TestMapFlowType(t *testing.T) {
 		input    FlowType
 		expected controltowerv1.PmgFlowType
 	}{
-		{"guard", FlowTypeGuard, controltowerv1.PmgFlowType_PMG_FLOW_TYPE_GUARD},
 		{"proxy", FlowTypeProxy, controltowerv1.PmgFlowType_PMG_FLOW_TYPE_PROXY},
+		{"legacy guard maps to unspecified", FlowType("guard"), controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED},
 		{"unknown", FlowType("other"), controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED},
 		{"empty", FlowType(""), controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED},
 	}

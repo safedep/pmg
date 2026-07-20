@@ -16,12 +16,11 @@ func TestGoPackageManagerParseCommand(t *testing.T) {
 	}
 
 	cases := []struct {
-		name              string
-		args              []string
-		nonDownload       bool
-		manifestInstall   bool
-		targets           []target
-		wantManifestFiles []string
+		name            string
+		args            []string
+		nonDownload     bool
+		manifestInstall bool
+		targets         []target
 	}{
 		{
 			name:        "go version is non-download",
@@ -88,16 +87,14 @@ func TestGoPackageManagerParseCommand(t *testing.T) {
 			targets: []target{{name: "example.com/m", version: "v2.0.0", explicit: true}},
 		},
 		{
-			name:              "go mod tidy is manifest install",
-			args:              []string{"go", "mod", "tidy"},
-			manifestInstall:   true,
-			wantManifestFiles: []string{"go.mod"},
+			name:            "go mod tidy is manifest install",
+			args:            []string{"go", "mod", "tidy"},
+			manifestInstall: true,
 		},
 		{
-			name:              "go mod download without args is manifest install",
-			args:              []string{"go", "mod", "download"},
-			manifestInstall:   true,
-			wantManifestFiles: []string{"go.mod"},
+			name:            "go mod download without args is manifest install",
+			args:            []string{"go", "mod", "download"},
+			manifestInstall: true,
 		},
 		{
 			name:    "go mod download with module",
@@ -123,7 +120,6 @@ func TestGoPackageManagerParseCommand(t *testing.T) {
 
 			assert.Equal(t, tc.nonDownload, parsed.IsKnownNonDownloadCommand)
 			assert.Equal(t, tc.manifestInstall, parsed.IsManifestInstall)
-			assert.Equal(t, tc.wantManifestFiles, parsed.ManifestFiles)
 
 			require.Len(t, parsed.InstallTargets, len(tc.targets))
 			for i, want := range tc.targets {

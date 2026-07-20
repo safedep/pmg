@@ -99,7 +99,6 @@ func TestChangedConfigFlagArgs(t *testing.T) {
 	root.AddCommand(child)
 	root.SetArgs([]string{
 		"--paranoid=false",
-		"--transitive-depth", "7",
 		"--sandbox-profile", "strict",
 		"--sandbox-allow", "read=/tmp",
 		"--sandbox-allow", "net-connect=registry.npmjs.org:443",
@@ -109,7 +108,6 @@ func TestChangedConfigFlagArgs(t *testing.T) {
 
 	require.NoError(t, root.Execute())
 	assert.Equal(t, []string{
-		"--transitive-depth", "7",
 		"--paranoid=false",
 		"--sandbox-profile", "strict",
 		"--sandbox-allow", "read=/tmp",
@@ -143,7 +141,6 @@ func TestConfigFlagSpecsSSOT(t *testing.T) {
 	})
 
 	wantManaged := map[string]bool{
-		"transitive": true, "transitive-depth": true,
 		"paranoid": true, "skip-event-log": true,
 		"sandbox": true, "sandbox-enforce": true, "sandbox-profile": true,
 		"sandbox-allow": true, "skip-dependency-cooldown": true,

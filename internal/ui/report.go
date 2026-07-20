@@ -84,13 +84,12 @@ type ReportData struct {
 	AdvisoryMessage string
 
 	// Configuration context
-	FlowType          FlowType
-	DryRun            bool
-	InsecureMode      bool
-	TransitiveEnabled bool
-	ParanoidMode      bool
-	SandboxEnabled    bool
-	SandboxProfile    string
+	FlowType       FlowType
+	DryRun         bool
+	InsecureMode   bool
+	ParanoidMode   bool
+	SandboxEnabled bool
+	SandboxProfile string
 
 	// Outcome
 	Outcome ExecutionOutcome
@@ -277,11 +276,10 @@ func reportVerbose(data *ReportData) {
 
 	// Configuration section
 	fmt.Println()
-	fmt.Printf("  %s %s | %s flow | transitive: %s | paranoid: %s\n",
+	fmt.Printf("  %s %s | %s flow | paranoid: %s\n",
 		Colors.Bold("Config:"),
 		data.PackageManagerName,
 		data.FlowType.String(),
-		boolToOnOff(data.TransitiveEnabled),
 		boolToOnOff(data.ParanoidMode))
 
 	if data.SandboxEnabled {

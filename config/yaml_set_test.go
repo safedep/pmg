@@ -232,10 +232,10 @@ func TestSetConfigValue(t *testing.T) {
 }
 
 func TestGetConfigValue(t *testing.T) {
-	configYAML := "paranoid: true\ntransitive: false\ntransitive_depth: 10\nverbosity: verbose\n" +
+	configYAML := "paranoid: true\nskip_event_logging: false\nevent_log_retention_days: 10\nverbosity: verbose\n" +
 		"cloud:\n  enabled: true\n  endpoint_id: ep-123\n" +
 		"dependency_cooldown:\n  enabled: true\n  days: 7\n" +
-		"proxy:\n  enabled: false\n  install_only: true\n" +
+		"proxy:\n  install_only: true\n" +
 		"sandbox:\n  enabled: true\n  enforce_always: false\n"
 
 	setupConfig := func(t *testing.T) {
@@ -254,13 +254,12 @@ func TestGetConfigValue(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "top-level bool true", key: "paranoid", expected: true},
-		{name: "top-level bool false", key: "transitive", expected: false},
-		{name: "top-level integer", key: "transitive_depth", expected: 10},
+		{name: "top-level bool false", key: "skip_event_logging", expected: false},
+		{name: "top-level integer", key: "event_log_retention_days", expected: 10},
 		{name: "top-level string", key: "verbosity", expected: "verbose"},
 		{name: "nested bool", key: "cloud.enabled", expected: true},
 		{name: "nested string", key: "cloud.endpoint_id", expected: "ep-123"},
 		{name: "nested integer", key: "dependency_cooldown.days", expected: 7},
-		{name: "nested bool under proxy", key: "proxy.enabled", expected: false},
 		{name: "nested bool under proxy install_only", key: "proxy.install_only", expected: true},
 		{name: "nested bool under sandbox", key: "sandbox.enabled", expected: true},
 		{name: "nested bool under sandbox enforce_always", key: "sandbox.enforce_always", expected: false},
@@ -301,7 +300,7 @@ func TestGetConfigValue(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
 		initConfig()
 
-		val, err := GetConfigValue("transitive")
+		val, err := GetConfigValue("dependency_cooldown.enabled")
 		require.NoError(t, err)
 		assert.Equal(t, true, val)
 
@@ -404,7 +403,7 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)
 
 	configPath := filepath.Join(tmpDir, "config.yml")
-	err := os.WriteFile(configPath, []byte("paranoid: false\ntransitive_depth: 5\nverbosity: normal\n"), 0o644)
+	err := os.WriteFile(configPath, []byte("paranoid: false\nevent_log_retention_days: 5\nverbosity: normal\n"), 0o644)
 	require.NoError(t, err)
 
 	initConfig()
@@ -412,7 +411,7 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	err = SetConfigValue("paranoid", "true")
 	require.NoError(t, err)
 
-	err = SetConfigValue("transitive_depth", "20")
+	err = SetConfigValue("event_log_retention_days", "20")
 	require.NoError(t, err)
 
 	err = SetConfigValue("verbosity", "silent")
@@ -425,7 +424,7 @@ func TestSetThenGetRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, true, val)
 
-	val, err = GetConfigValue("transitive_depth")
+	val, err = GetConfigValue("event_log_retention_days")
 	require.NoError(t, err)
 	assert.Equal(t, 20, val)
 

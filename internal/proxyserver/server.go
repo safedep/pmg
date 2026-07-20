@@ -213,7 +213,6 @@ func logSessionSummary(cfg *config.RuntimeConfig, stats interceptors.AnalysisSta
 		Duration:             duration,
 		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
 		ParanoidMode:         cfg.Config.Paranoid,
-		TransitiveEnabled:    cfg.Config.Transitive,
 	})
 }
 

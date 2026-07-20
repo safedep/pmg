@@ -144,7 +144,7 @@ action input. Set it on the job or the install step:
 - uses: safedep/pmg@v1
 - run: npm ci
   env:
-    PMG_TRANSITIVE_DEPTH: 10
+    PMG_DEPENDENCY_COOLDOWN_DAYS: 10
 ```
 
 See [docs/config.md](./config.md) for the full mapping.

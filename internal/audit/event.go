@@ -21,14 +21,12 @@ type SessionData struct {
 	Duration             time.Duration
 	SandboxEnabled       bool
 	ParanoidMode         bool
-	TransitiveEnabled    bool
 }
 
 // FlowType identifies how PMG intercepted the package installation.
 type FlowType string
 
 const (
-	FlowTypeGuard FlowType = "guard"
 	FlowTypeProxy FlowType = "proxy"
 )
 

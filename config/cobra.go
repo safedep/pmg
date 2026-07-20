@@ -31,18 +31,6 @@ type flagSpec struct {
 
 var configFlagSpecs = []flagSpec{
 	{
-		name: "transitive", usage: "Resolve transitive dependencies", managed: true,
-		bind: func(fs *pflag.FlagSet, name, usage string) {
-			fs.BoolVar(&globalConfig.Config.Transitive, name, globalConfig.Config.Transitive, usage)
-		},
-	},
-	{
-		name: "transitive-depth", usage: "Maximum depth of transitive dependencies to resolve", managed: true,
-		bind: func(fs *pflag.FlagSet, name, usage string) {
-			fs.IntVar(&globalConfig.Config.TransitiveDepth, name, globalConfig.Config.TransitiveDepth, usage)
-		},
-	},
-	{
 		name: "dry-run", usage: "Dry run skips execution of package manager", managed: false,
 		bind: func(fs *pflag.FlagSet, name, usage string) {
 			fs.BoolVar(&globalConfig.DryRun, name, globalConfig.DryRun, usage)

@@ -257,7 +257,7 @@ func logDebugContext() {
 	log.Debugf("Using config file: %s", cfg.ConfigFilePath())
 	log.Debugf("Proxy install only: %t", cfg.Config.Proxy.InstallOnly)
 	log.Debugf("Sandbox enabled: %t, enforce always: %t", cfg.Config.Sandbox.Enabled, cfg.Config.Sandbox.EnforceAlways)
-	log.Debugf("Transitive analysis enabled: %t (depth: %d), paranoid: %t", cfg.Config.Transitive, cfg.Config.TransitiveDepth, cfg.Config.Paranoid)
+	log.Debugf("Paranoid mode enabled: %t", cfg.Config.Paranoid)
 	log.Debugf("Dependency cooldown enabled: %t (days: %d)", cfg.Config.DependencyCooldown.Enabled, cfg.Config.DependencyCooldown.Days)
 	log.Debugf("Cloud sync enabled: %t, telemetry disabled: %t", cfg.Config.Cloud.Enabled, cfg.Config.DisableTelemetry)
 	log.Debugf("Dry run: %t, insecure installation: %t, trusted packages: %d",

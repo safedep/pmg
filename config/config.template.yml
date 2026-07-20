@@ -1,12 +1,6 @@
 # PMG configuration template. Customize this file as needed.
 # https://github.com/safedep/pmg
 
-# Enable transitive dependency resolution. Default is true.
-transitive: true
-
-# Maximum depth of transitive dependencies to resolve. Default is 5.
-transitive_depth: 5
-
 # UI verbosity level. Valid values: silent, normal, verbose. Default is normal.
 # silent: PMG is hidden from the user except for errors and malicious package detection
 # normal: Show minimal status updates

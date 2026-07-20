@@ -172,14 +172,10 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Determine if this is a manifest install
 	isManifestInstall := len(requirementFiles) > 0
 
-	// Combine all manifest files
-	var allManifestFiles []string
-	allManifestFiles = append(allManifestFiles, requirementFiles...)
-
 	// Process packages
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		packageName, version, _, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -199,7 +195,6 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras:            extras,
 			IsExplicitVersion: isExplicit,
 		})
 	}
@@ -208,7 +203,6 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     allManifestFiles,
 	}, nil
 }
 
@@ -239,19 +233,15 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			Command:           command,
 			InstallTargets:    nil,
 			IsManifestInstall: true,
-			ManifestFiles:     []string{"uv.lock"},
 		}, nil
 	}
 
 	// Handles pip sync command (installs from requirements.txt style files)
 	if len(args) >= 3 && args[0] == "pip" && args[1] == "sync" {
-		manifestFile := args[2]
-
 		return &ParsedCommand{
 			Command:           command,
 			InstallTargets:    nil,
 			IsManifestInstall: true,
-			ManifestFiles:     []string{manifestFile},
 		}, nil
 	}
 
@@ -298,7 +288,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		packageName, version, _, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -318,7 +308,6 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras:            extras,
 			IsExplicitVersion: isExplicit,
 		})
 	}
@@ -327,7 +316,6 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     manifestFiles,
 	}, nil
 }
 
@@ -357,7 +345,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			Command:           command,
 			IsManifestInstall: true,
 			InstallTargets:    nil,
-			ManifestFiles:     []string{"poetry.lock"},
 		}, nil
 	}
 
@@ -397,7 +384,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		packageName, version, extras, err := pypiParsePackageInfo(convertedPkg)
+		packageName, version, _, err := pypiParsePackageInfo(convertedPkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -417,7 +404,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 				},
 				Version: version,
 			},
-			Extras:            extras,
 			IsExplicitVersion: isExplicit,
 		})
 	}
@@ -426,7 +412,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: false,
-		ManifestFiles:     nil,
 	}, nil
 }
 

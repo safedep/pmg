@@ -76,7 +76,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.FlowType = ui.FlowTypeProxy
 	reportData.DryRun = cfg.DryRun
 	reportData.InsecureMode = cfg.InsecureInstallation
-	reportData.TransitiveEnabled = cfg.Config.Transitive
 	reportData.ParanoidMode = cfg.Config.Paranoid
 	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
 

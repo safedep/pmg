@@ -18,11 +18,6 @@ type Command struct {
 type PackageInstallTarget struct {
 	PackageVersion *packagev1.PackageVersion
 
-	// Extras specifies additional features to be installed with a Python package
-	// Example: "django[mysql,redis]" has Extras as ["mysql", "redis"]
-	// Currently only specific to Python packages
-	Extras []string
-
 	// IsExplicitVersion indicates the user provided an explicit version constraint
 	// (e.g. ==1.2.3) as opposed to the version being auto-resolved by the resolver.
 	IsExplicitVersion bool
@@ -42,10 +37,6 @@ type ParsedCommand struct {
 	// IsManifestInstall indicates if this is a manifest-based installation
 	// (e.g., npm install, pip install -r requirements.txt)
 	IsManifestInstall bool
-
-	// ManifestFiles contains the list of manifest files to install from
-	// (e.g., ["requirements.txt"] for pip install -r requirements.txt)
-	ManifestFiles []string
 
 	// IsKnownNonDownloadCommand is true for commands that are known to not download packages
 	// (e.g., npm ls, pip list, yarn why). Used by the proxy to decide whether to skip
@@ -72,10 +63,6 @@ func (pc *ParsedCommand) HasInstallTarget() bool {
 
 func (pc *ParsedCommand) HasManifestInstall() bool {
 	return pc.IsManifestInstall
-}
-
-func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
-	return pc.IsManifestInstall && !pc.HasInstallTarget()
 }
 
 // IsFirstNonFlagArgInList checks if the first non-flag argument in args is in the given list.
