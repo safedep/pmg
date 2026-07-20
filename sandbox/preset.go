@@ -179,14 +179,14 @@ func validatePresetBind(entry string) error {
 	return nil
 }
 
+// Preset env allowances are exact variable names, no glob metacharacters.
+// This keeps the authored-deny precedence check exact: a deny pattern (any
+// dialect ScrubEnv supports, including character classes) is evaluated
+// against the literal name with the same matcher used at scrub time, so no
+// glob-vs-glob intersection is ever needed.
 func validatePresetEnv(entry string) error {
-	trimmed := strings.Trim(entry, "*")
-	if trimmed == "" {
-		return fmt.Errorf("entry %q is too broad, name at least part of the variable", entry)
-	}
-
-	if strings.ContainsAny(entry, "=/\\ \t") {
-		return fmt.Errorf("entry %q is not a valid variable name glob", entry)
+	if entry == "" || strings.ContainsAny(entry, "*?[]=/\\ \t") {
+		return fmt.Errorf("entry %q must be an exact variable name (globs are not allowed in presets)", entry)
 	}
 
 	return nil
@@ -218,9 +218,11 @@ func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.filteredEnvAllow(policy))
 }
 
-// ScrubEnv is allow-wins, so a preset allowance overlapping an authored deny
+// ScrubEnv is allow-wins, so a preset allowance covered by an authored deny
 // must be dropped here or it would override the profile author's deny.
-// Surviving entries still suppress built-in DANGEROUS_ENV_VARS denies.
+// Allowances are literal names (enforced by validatePresetEnv), so coverage
+// is decided by the same matcher ScrubEnv uses at runtime. Surviving entries
+// still suppress built-in DANGEROUS_ENV_VARS denies.
 func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
 	if len(p.Environment.Allow) == 0 || len(policy.Environment.Deny) == 0 {
 		return p.Environment.Allow
@@ -228,15 +230,8 @@ func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
 
 	kept := make([]string, 0, len(p.Environment.Allow))
 	for _, allow := range p.Environment.Allow {
-		overlaps := false
-		for _, deny := range policy.Environment.Deny {
-			if util.EnvPatternsOverlap(allow, deny) {
-				overlaps = true
-				break
-			}
-		}
-		if overlaps {
-			log.Warnf("preset %s: environment allowance %q dropped, it overlaps an authored deny in policy %s", p.Name, allow, policy.Name)
+		if util.EnvNameMatchesAny(allow, policy.Environment.Deny) {
+			log.Warnf("preset %s: environment allowance %q dropped, it is covered by an authored deny in policy %s", p.Name, allow, policy.Name)
 			continue
 		}
 		kept = append(kept, allow)

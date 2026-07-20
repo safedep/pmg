@@ -95,30 +95,24 @@ func TestScrubEnv_NoCatchAllsInBuiltinList(t *testing.T) {
 	assert.Empty(t, got.Removed)
 }
 
-func TestEnvPatternsOverlap(t *testing.T) {
+func TestEnvNameMatchesAny(t *testing.T) {
 	cases := []struct {
-		name string
-		a, b string
-		want bool
+		name     string
+		varName  string
+		patterns []string
+		want     bool
 	}{
-		{name: "literal vs matching glob", a: "AWS_SECRET_ACCESS_KEY", b: "AWS_*", want: true},
-		{name: "identical literals case-insensitive", a: "npm_token", b: "NPM_TOKEN", want: true},
-		{name: "disjoint prefixes", a: "NPM_*", b: "AWS_*", want: false},
-		{name: "disjoint literals", a: "NPM_TOKEN", b: "GITHUB_TOKEN", want: false},
-		{name: "infix globs sharing a name", a: "AWS_*_KEY", b: "AWS_SECRET_*", want: true},
-		{name: "suffix glob vs prefix glob", a: "*_TOKEN", b: "NPM_*", want: true},
-		{name: "infix globs disjoint", a: "AWS_*_KEY", b: "GCP_*_KEY", want: false},
-		{name: "question mark wildcard", a: "TOKEN_?", b: "TOKEN_1", want: true},
-		{name: "question mark length mismatch", a: "TOKEN_?", b: "TOKEN_12", want: false},
-		{name: "bare star vs anything", a: "*", b: "AWS_SECRET_ACCESS_KEY", want: true},
-		{name: "star in middle vs literal", a: "A*Z", b: "ABCZ", want: true},
-		{name: "star in middle no common suffix", a: "A*Z", b: "ABCX", want: false},
+		{name: "literal match case-insensitive", varName: "aws_secret_access_key", patterns: []string{"AWS_SECRET_ACCESS_KEY"}, want: true},
+		{name: "prefix glob", varName: "AWS_SECRET_ACCESS_KEY", patterns: []string{"AWS_*"}, want: true},
+		{name: "infix glob", varName: "AWS_SECRET_ACCESS_KEY", patterns: []string{"AWS_SECRET_*"}, want: true},
+		{name: "character class", varName: "AWS_SECRET_ACCESS_KEY", patterns: []string{"AWS_[A-Z]*_KEY"}, want: true},
+		{name: "no match", varName: "NPM_TOKEN", patterns: []string{"AWS_*", "GCP_*"}, want: false},
+		{name: "empty patterns", varName: "NPM_TOKEN", patterns: nil, want: false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, EnvPatternsOverlap(tc.a, tc.b))
-			assert.Equal(t, tc.want, EnvPatternsOverlap(tc.b, tc.a), "overlap must be symmetric")
+			assert.Equal(t, tc.want, EnvNameMatchesAny(tc.varName, tc.patterns))
 		})
 	}
 }

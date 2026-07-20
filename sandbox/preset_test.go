@@ -172,16 +172,23 @@ func TestPresetValidate(t *testing.T) {
 			},
 		},
 		{
-			name: "broad env glob rejected",
-			mutate: func(p *Preset) {
-				p.Environment.Allow = []string{"*"}
-			},
-			wantErr: "too broad",
-		},
-		{
-			name: "scoped env glob ok",
+			name: "env glob rejected",
 			mutate: func(p *Preset) {
 				p.Environment.Allow = []string{"ASTRO_*"}
+			},
+			wantErr: "exact variable name",
+		},
+		{
+			name: "env character class rejected",
+			mutate: func(p *Preset) {
+				p.Environment.Allow = []string{"AWS_[A-Z]*_KEY"}
+			},
+			wantErr: "exact variable name",
+		},
+		{
+			name: "env exact name ok",
+			mutate: func(p *Preset) {
+				p.Environment.Allow = []string{"ASTRO_TELEMETRY_DISABLED"}
 			},
 		},
 	}
@@ -214,7 +221,7 @@ func TestPresetApplyToPolicy(t *testing.T) {
 			AllowBind: []string{"localhost:4321"},
 		},
 		Process:     PresetProcess{AllowExec: []string{"${CWD}/node_modules/.bin/**"}},
-		Environment: PresetEnvironment{Allow: []string{"ASTRO_*"}},
+		Environment: PresetEnvironment{Allow: []string{"ASTRO_TELEMETRY_DISABLED"}},
 	}
 	require.NoError(t, preset.Validate())
 
@@ -239,7 +246,7 @@ func TestPresetApplyToPolicy(t *testing.T) {
 		"bind entries enable AllowNetworkBind for translators")
 	assert.Empty(t, policy.Network.AllowOutbound, "presets cannot contribute outbound rules")
 	assert.Equal(t, []string{"${CWD}/node_modules/.bin/**"}, policy.Process.AllowExec)
-	assert.Equal(t, []string{"ASTRO_*"}, policy.Environment.Allow)
+	assert.Equal(t, []string{"ASTRO_TELEMETRY_DISABLED"}, policy.Environment.Allow)
 }
 
 func TestPresetApplyToPolicyWithoutBindKeepsFlag(t *testing.T) {
@@ -289,7 +296,7 @@ func TestPresetEnvAllowCannotOverrideAuthoredDeny(t *testing.T) {
 		Kind: "preset",
 		Name: "sample",
 		Environment: PresetEnvironment{
-			Allow: []string{"AWS_SECRET_ACCESS_KEY", "NPM_TOKEN", "SECRETIVE_*"},
+			Allow: []string{"AWS_SECRET_ACCESS_KEY", "NPM_TOKEN", "GCP_SERVICE_ACCOUNT_KEY"},
 		},
 	}
 	require.NoError(t, preset.Validate())
@@ -297,32 +304,18 @@ func TestPresetEnvAllowCannotOverrideAuthoredDeny(t *testing.T) {
 	policy := &SandboxPolicy{
 		Name: "test",
 		Environment: EnvironmentPolicy{
-			Deny: []string{"AWS_*", "SECRETIVE_APP_KEY"},
+			Deny: []string{"AWS_*", "GCP_[A-Z]*_KEY"},
 		},
 	}
 
 	preset.ApplyToPolicy(policy)
 
 	assert.Contains(t, policy.Environment.Allow, "NPM_TOKEN",
-		"preset allow with no authored deny overlap is kept and still beats built-in denies")
+		"preset allow with no authored deny coverage is kept and still beats built-in denies")
 	assert.NotContains(t, policy.Environment.Allow, "AWS_SECRET_ACCESS_KEY",
-		"preset allow matching an authored deny glob is dropped")
-	assert.NotContains(t, policy.Environment.Allow, "SECRETIVE_*",
-		"preset allow glob overlapping an authored deny name is dropped")
-
-	infix := &Preset{
-		Kind:        "preset",
-		Name:        "infix",
-		Environment: PresetEnvironment{Allow: []string{"AWS_*_KEY"}},
-	}
-	require.NoError(t, infix.Validate())
-	infixPolicy := &SandboxPolicy{
-		Name:        "test",
-		Environment: EnvironmentPolicy{Deny: []string{"AWS_SECRET_*"}},
-	}
-	infix.ApplyToPolicy(infixPolicy)
-	assert.NotContains(t, infixPolicy.Environment.Allow, "AWS_*_KEY",
-		"infix globs sharing AWS_SECRET_ACCESS_KEY must be detected as overlapping")
-	assert.Equal(t, []string{"AWS_*", "SECRETIVE_APP_KEY"}, policy.Environment.Deny,
+		"preset allow covered by an authored deny glob is dropped")
+	assert.NotContains(t, policy.Environment.Allow, "GCP_SERVICE_ACCOUNT_KEY",
+		"preset allow covered by an authored deny with a character class is dropped")
+	assert.Equal(t, []string{"AWS_*", "GCP_[A-Z]*_KEY"}, policy.Environment.Deny,
 		"authored denies are untouched")
 }

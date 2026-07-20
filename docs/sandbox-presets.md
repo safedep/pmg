@@ -88,13 +88,14 @@ Rules the schema enforces:
 - Paths must be anchored at `${CWD}/`, `${HOME}/` or `${TMPDIR}/`, no `..`,
   and must not name sensitive files (`.env`, `.ssh`, ...).
 - Binds must be loopback (`localhost`, `127.0.0.1`, `::1`).
+- `environment.allow` entries are exact variable names, no globs.
 - No `network.allow_outbound`: current sandbox drivers cannot enforce
   host-granular outbound rules (a single allow means blanket network
   access), so presets are not allowed to change outbound posture at all.
 
 Precedence guarantees, in addition to PMG's mandatory denies:
 
-- A preset environment allowance that overlaps a profile-authored
+- A preset environment allowance covered by a profile-authored
   `environment.deny` pattern is dropped with a warning. Surviving preset
   allowances still opt out of PMG's built-in credential variable scrubbing,
   which is their intended use.
