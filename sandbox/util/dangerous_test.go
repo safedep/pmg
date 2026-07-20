@@ -247,3 +247,32 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 		assert.ElementsMatch(t, []string{cwdEnv, globEnv}, r.SuppressedWrite)
 	})
 }
+
+func TestDangerousFileMatch(t *testing.T) {
+	cases := []struct {
+		rel    string
+		target string
+		found  bool
+	}{
+		{rel: ".git-credentials", target: ".git-credentials", found: true},
+		{rel: ".config/gh/hosts.yml", target: ".config/gh", found: true},
+		{rel: ".ssh/id_rsa", target: ".ssh", found: true},
+		{rel: ".git/config", found: false},
+		{rel: ".myapp/cache", found: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.rel, func(t *testing.T) {
+			target, found := DangerousFileMatch(tc.rel)
+			assert.Equal(t, tc.found, found)
+			assert.Equal(t, tc.target, target)
+		})
+	}
+}
+
+func TestPathCoveredBy(t *testing.T) {
+	assert.True(t, PathCoveredBy(GitHooksPath, GitHooksPath))
+	assert.True(t, PathCoveredBy(".git/hooks/pre-commit", GitHooksPath))
+	assert.False(t, PathCoveredBy(".git/hooksy", GitHooksPath))
+	assert.False(t, PathCoveredBy(".git", GitHooksPath))
+}

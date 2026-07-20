@@ -159,18 +159,16 @@ func validatePresetPath(entry string, read bool) error {
 		return fmt.Errorf("path %q names a sensitive target and cannot be allowed by a preset", entry)
 	}
 
-	for _, dangerous := range util.DANGEROUS_FILES {
-		if rel == dangerous || strings.HasPrefix(rel, dangerous+"/") {
-			return fmt.Errorf("path %q names the protected credential target %q and cannot be allowed by a preset", entry, dangerous)
-		}
+	if dangerous, ok := util.DangerousFileMatch(rel); ok {
+		return fmt.Errorf("path %q names the protected credential target %q and cannot be allowed by a preset", entry, dangerous)
 	}
 
-	if rel == ".git/hooks" || strings.HasPrefix(rel, ".git/hooks/") {
-		return fmt.Errorf("path %q: .git/hooks cannot be allowed by a preset", entry)
+	if util.PathCoveredBy(rel, util.GitHooksPath) {
+		return fmt.Errorf("path %q: %s cannot be allowed by a preset", entry, util.GitHooksPath)
 	}
 
-	if !read && rel == ".git/config" {
-		return fmt.Errorf("path %q: .git/config write access cannot be allowed by a preset", entry)
+	if !read && rel == util.GitConfigPath {
+		return fmt.Errorf("path %q: %s write access cannot be allowed by a preset", entry, util.GitConfigPath)
 	}
 
 	return nil
