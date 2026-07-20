@@ -71,11 +71,42 @@ func shouldScrubEnvVar(name string, deny, allow []string) bool {
 }
 
 // EnvPatternsOverlap reports whether two variable-name glob patterns can
-// match a common name, approximated by matching each pattern against the
-// other's literal text. Conservative: a false positive drops an allowance
-// (fail closed), never widens access.
+// match a common name. Exact intersection for the name glob dialect
+// (case-insensitive, '*' any sequence, '?' single character): matching one
+// pattern against the other's literal text is not sufficient, e.g.
+// AWS_*_KEY and AWS_SECRET_* share AWS_SECRET_ACCESS_KEY but neither
+// matches the other's text.
 func EnvPatternsOverlap(a, b string) bool {
-	return envNameRegex(a).MatchString(b) || envNameRegex(b).MatchString(a)
+	p := []rune(strings.ToLower(a))
+	q := []rune(strings.ToLower(b))
+	memo := make(map[[2]int]bool, len(p)*len(q))
+	return globsIntersect(p, q, 0, 0, memo)
+}
+
+func globsIntersect(p, q []rune, i, j int, memo map[[2]int]bool) bool {
+	if i == len(p) && j == len(q) {
+		return true
+	}
+
+	key := [2]int{i, j}
+	if v, ok := memo[key]; ok {
+		return v
+	}
+
+	var res bool
+	switch {
+	case i < len(p) && p[i] == '*':
+		res = globsIntersect(p, q, i+1, j, memo) || (j < len(q) && globsIntersect(p, q, i, j+1, memo))
+	case j < len(q) && q[j] == '*':
+		res = globsIntersect(p, q, i, j+1, memo) || (i < len(p) && globsIntersect(p, q, i+1, j, memo))
+	case i < len(p) && j < len(q):
+		if p[i] == '?' || q[j] == '?' || p[i] == q[j] {
+			res = globsIntersect(p, q, i+1, j+1, memo)
+		}
+	}
+
+	memo[key] = res
+	return res
 }
 
 func matchAnyEnvPattern(name string, patterns []string) bool {

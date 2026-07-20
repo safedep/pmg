@@ -309,6 +309,20 @@ func TestPresetEnvAllowCannotOverrideAuthoredDeny(t *testing.T) {
 		"preset allow matching an authored deny glob is dropped")
 	assert.NotContains(t, policy.Environment.Allow, "SECRETIVE_*",
 		"preset allow glob overlapping an authored deny name is dropped")
+
+	infix := &Preset{
+		Kind:        "preset",
+		Name:        "infix",
+		Environment: PresetEnvironment{Allow: []string{"AWS_*_KEY"}},
+	}
+	require.NoError(t, infix.Validate())
+	infixPolicy := &SandboxPolicy{
+		Name:        "test",
+		Environment: EnvironmentPolicy{Deny: []string{"AWS_SECRET_*"}},
+	}
+	infix.ApplyToPolicy(infixPolicy)
+	assert.NotContains(t, infixPolicy.Environment.Allow, "AWS_*_KEY",
+		"infix globs sharing AWS_SECRET_ACCESS_KEY must be detected as overlapping")
 	assert.Equal(t, []string{"AWS_*", "SECRETIVE_APP_KEY"}, policy.Environment.Deny,
 		"authored denies are untouched")
 }
