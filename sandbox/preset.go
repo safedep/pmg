@@ -86,7 +86,7 @@ func ParsePreset(data []byte) (*Preset, error) {
 }
 
 // Validate checks the preset against the schema contract described in
-// docs/specs/2026-07-18-sandbox-presets-design.md.
+// docs/sandbox-presets.md.
 func (p *Preset) Validate() error {
 	if p.Kind != presetKind {
 		return fmt.Errorf("kind must be %q, got %q", presetKind, p.Kind)
@@ -231,22 +231,17 @@ func (p *Preset) HasLabel(label string) bool {
 	return false
 }
 
-// ApplyToPolicy unions the preset's allowances into the policy, mirroring the
-// semantics of `pmg sandbox allow` overrides: allow lists are extended with
-// dedupe, exact matches in the policy's own deny lists are removed so a deny
-// cannot shadow the explicit allowance, and bind entries enable
-// AllowNetworkBind so translators emit bind rules. Mandatory denies computed
-// by the platform translators are unaffected except through the existing
-// exact-match suppression.
+// ApplyToPolicy unions the preset's allowances into the policy: allow lists
+// are extended with dedupe and bind entries enable AllowNetworkBind so
+// translators emit bind rules. Deny lists are never touched, unlike explicit
+// `pmg sandbox allow` overrides: a deny authored in a profile always wins
+// over a preset allowance (deny has higher priority), keeping presets
+// strictly additive. Mandatory denies computed by the platform translators
+// are unaffected except through the existing exact-match suppression.
 func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	policy.Filesystem.AllowRead = unionStringSlices(policy.Filesystem.AllowRead, p.Filesystem.AllowRead)
-	policy.Filesystem.DenyRead = removeExactMatches(policy.Filesystem.DenyRead, p.Filesystem.AllowRead)
-
 	policy.Filesystem.AllowWrite = unionStringSlices(policy.Filesystem.AllowWrite, p.Filesystem.AllowWrite)
-	policy.Filesystem.DenyWrite = removeExactMatches(policy.Filesystem.DenyWrite, p.Filesystem.AllowWrite)
-
 	policy.Process.AllowExec = unionStringSlices(policy.Process.AllowExec, p.Process.AllowExec)
-	policy.Process.DenyExec = removeExactMatches(policy.Process.DenyExec, p.Process.AllowExec)
 
 	policy.Network.AllowOutbound = unionStringSlices(policy.Network.AllowOutbound, p.Network.AllowOutbound)
 	policy.Network.AllowBind = unionStringSlices(policy.Network.AllowBind, p.Network.AllowBind)
@@ -255,28 +250,6 @@ func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	}
 
 	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.Environment.Allow)
-}
-
-// removeExactMatches drops deny entries that exactly match any of the given
-// allow values. Glob deny patterns never match and stay intact.
-func removeExactMatches(deny []string, allows []string) []string {
-	if len(deny) == 0 || len(allows) == 0 {
-		return deny
-	}
-
-	allowSet := make(map[string]bool, len(allows))
-	for _, a := range allows {
-		allowSet[a] = true
-	}
-
-	kept := make([]string, 0, len(deny))
-	for _, entry := range deny {
-		if allowSet[entry] {
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	return kept
 }
 
 // presetFileName reports whether a file name looks like a preset YAML file

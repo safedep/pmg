@@ -222,7 +222,9 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 			info, err := presets.Get(override.Value)
 			if err != nil {
 				log.Warnf("Sandbox override: preset %s could not be resolved: %v", override.Value, err)
-				fmt.Fprintf(os.Stderr, "pmg: warning: sandbox preset %q could not be applied: %v\n", override.Value, err)
+				if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: sandbox preset %q could not be applied: %v\n", override.Value, err); werr != nil {
+					log.Warnf("failed to write preset warning to stderr: %v", werr)
+				}
 				continue
 			}
 

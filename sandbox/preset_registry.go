@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -192,7 +193,9 @@ func newBuiltinPresetSource() (*builtinPresetSource, error) {
 			continue
 		}
 
-		data, err := presetsFS.ReadFile(filepath.Join("presets", entry.Name()))
+		// embed.FS paths are always slash-separated, filepath.Join would
+		// break on Windows.
+		data, err := presetsFS.ReadFile(path.Join("presets", entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read preset %s: %w", entry.Name(), err)
 		}

@@ -1,7 +1,8 @@
 # Sandbox Presets
 
-A preset is a named bundle of sandbox allowances for one workload: what
-`lint-staged` needs from git, what `astro dev` needs to write and bind.
+A preset is a named bundle of sandbox allowances for one workload. For
+example: what `lint-staged` needs from git, or what `astro dev` needs to
+write and bind. Any tool with a known sandbox footprint can have a preset.
 Presets are **additive-only** — they can grant allowances on top of your
 sandbox profile but can never remove a deny rule or weaken PMG's built-in
 protections (`.git/hooks`, credential files and other mandatory denies stay

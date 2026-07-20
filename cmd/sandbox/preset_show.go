@@ -81,13 +81,17 @@ func jsonPresetSummaryWithRules(info *pmgsandbox.PresetInfo) jsonPresetDetail {
 // renderPresetShowHuman prints the original YAML: it carries the authored
 // threat notes, which are the point of showing a preset before trusting it.
 func renderPresetShowHuman(out io.Writer, info *pmgsandbox.PresetInfo) error {
-	header := fmt.Sprintf("Preset %s (%s)", info.Preset.Name, info.Source)
+	// The underline length is computed from the plain header, colored
+	// variants embed ANSI escapes that would inflate it.
+	plain := fmt.Sprintf("Preset %s (%s)", info.Preset.Name, info.Source)
+	header := ui.Colors.Cyan(plain)
 	if info.Path != "" {
 		header = fmt.Sprintf("%s %s", header, ui.Colors.Dim(info.Path))
+		plain = fmt.Sprintf("%s %s", plain, info.Path)
 	}
 
-	if _, err := fmt.Fprintf(out, "\n%s\n%s\n\n", ui.Colors.Cyan(header),
-		ui.Colors.Normal(strings.Repeat("-", len(header)))); err != nil {
+	if _, err := fmt.Fprintf(out, "\n%s\n%s\n\n", header,
+		ui.Colors.Normal(strings.Repeat("-", len(plain)))); err != nil {
 		return err
 	}
 

@@ -241,8 +241,8 @@ func TestPresetApplyToPolicy(t *testing.T) {
 	assert.Equal(t, []string{"${CWD}/.git/config"}, policy.Filesystem.AllowRead)
 	assert.Equal(t, []string{"${CWD}/dist/**", "${CWD}/.git/**"}, policy.Filesystem.AllowWrite,
 		"allow entries union with dedupe")
-	assert.Equal(t, []string{"${CWD}/**/*.secret"}, policy.Filesystem.DenyRead,
-		"exact deny match removed, glob deny intact")
+	assert.Equal(t, []string{"${CWD}/.git/config", "${CWD}/**/*.secret"}, policy.Filesystem.DenyRead,
+		"deny lists are never modified by presets, an authored deny wins")
 	assert.Equal(t, []string{"localhost:4321"}, policy.Network.AllowBind)
 	assert.True(t, utils.SafelyGetValue(policy.AllowNetworkBind),
 		"bind entries enable AllowNetworkBind for translators")

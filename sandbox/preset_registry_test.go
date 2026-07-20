@@ -167,6 +167,27 @@ filesystem:
 		assert.ErrorIs(t, err, ErrPresetNotFound)
 	})
 
+	t.Run("profile authored deny survives a preset allowing the same path", func(t *testing.T) {
+		dir := t.TempDir()
+		path := writePresetFile(t, dir, "deny-wins.yml", `
+name: deny-wins
+package_managers: [pnpm]
+presets: [git]
+filesystem:
+  deny_read: ["${CWD}/.git/config"]
+`)
+
+		registry, err := NewProfileRegistry()
+		require.NoError(t, err)
+
+		policy, err := registry.LoadCustomProfile(path)
+		require.NoError(t, err)
+
+		assert.Contains(t, policy.Filesystem.AllowRead, "${CWD}/.git/config")
+		assert.Contains(t, policy.Filesystem.DenyRead, "${CWD}/.git/config",
+			"presets are additive-only, they never remove authored deny rules")
+	})
+
 	t.Run("profile with only presets passes resolved validation", func(t *testing.T) {
 		dir := t.TempDir()
 		path := writePresetFile(t, dir, "presets-only.yml", `
