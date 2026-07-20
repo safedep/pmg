@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox/util"
 	"gopkg.in/yaml.v3"
@@ -36,10 +37,13 @@ type PresetFilesystem struct {
 	AllowWrite []string `yaml:"allow_write,omitempty" json:"allow_write,omitempty"`
 }
 
-// PresetNetwork lists network allowances.
+// PresetNetwork lists network allowances. There is deliberately no
+// allow_outbound: current platform translators are all-or-nothing for
+// outbound (one allow rule means blanket network access on both Seatbelt and
+// Bubblewrap), so a preset outbound entry would silently change the network
+// posture far beyond what its YAML conveys. Strict decoding rejects the key.
 type PresetNetwork struct {
-	AllowOutbound []string `yaml:"allow_outbound,omitempty" json:"allow_outbound,omitempty"`
-	AllowBind     []string `yaml:"allow_bind,omitempty" json:"allow_bind,omitempty"`
+	AllowBind []string `yaml:"allow_bind,omitempty" json:"allow_bind,omitempty"`
 }
 
 // PresetProcess lists process execution allowances.
@@ -102,7 +106,7 @@ func (p *Preset) Validate() error {
 	}
 
 	ruleCount := len(p.Filesystem.AllowRead) + len(p.Filesystem.AllowWrite) +
-		len(p.Network.AllowOutbound) + len(p.Network.AllowBind) +
+		len(p.Network.AllowBind) +
 		len(p.Process.AllowExec) + len(p.Environment.Allow)
 	if ruleCount == 0 {
 		return fmt.Errorf("preset %s must define at least one allowance", p.Name)
@@ -126,11 +130,6 @@ func (p *Preset) Validate() error {
 	for _, entry := range p.Network.AllowBind {
 		if err := validatePresetBind(entry); err != nil {
 			return fmt.Errorf("preset %s allow_bind: %w", p.Name, err)
-		}
-	}
-	for _, entry := range p.Network.AllowOutbound {
-		if err := validatePresetOutbound(entry); err != nil {
-			return fmt.Errorf("preset %s allow_outbound: %w", p.Name, err)
 		}
 	}
 	for _, entry := range p.Environment.Allow {
@@ -191,23 +190,6 @@ func validatePresetBind(entry string) error {
 	return nil
 }
 
-func validatePresetOutbound(entry string) error {
-	host, port, err := net.SplitHostPort(entry)
-	if err != nil {
-		return fmt.Errorf("outbound %q must be host:port: %w", entry, err)
-	}
-
-	if strings.ContainsAny(host, "*?") || host == "" {
-		return fmt.Errorf("outbound host %q must be an exact host, wildcards are not allowed", host)
-	}
-
-	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
-		return fmt.Errorf("outbound port %q must be numeric, wildcards are not allowed", port)
-	}
-
-	return nil
-}
-
 func validatePresetEnv(entry string) error {
 	trimmed := strings.Trim(entry, "*")
 	if trimmed == "" {
@@ -243,13 +225,40 @@ func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	policy.Filesystem.AllowWrite = unionStringSlices(policy.Filesystem.AllowWrite, p.Filesystem.AllowWrite)
 	policy.Process.AllowExec = unionStringSlices(policy.Process.AllowExec, p.Process.AllowExec)
 
-	policy.Network.AllowOutbound = unionStringSlices(policy.Network.AllowOutbound, p.Network.AllowOutbound)
 	policy.Network.AllowBind = unionStringSlices(policy.Network.AllowBind, p.Network.AllowBind)
 	if len(p.Network.AllowBind) > 0 {
 		policy.AllowNetworkBind = utils.PtrTo(true)
 	}
 
-	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.Environment.Allow)
+	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.filteredEnvAllow(policy))
+}
+
+// filteredEnvAllow drops preset environment allowances that overlap an
+// authored deny in the policy. ScrubEnv is allow-wins, so merging such an
+// entry would let a preset override a deny the profile author wrote —
+// breaking the additive-only contract. Surviving entries still suppress
+// built-in DANGEROUS_ENV_VARS denies, which is the intended preset use.
+func (p *Preset) filteredEnvAllow(policy *SandboxPolicy) []string {
+	if len(p.Environment.Allow) == 0 || len(policy.Environment.Deny) == 0 {
+		return p.Environment.Allow
+	}
+
+	kept := make([]string, 0, len(p.Environment.Allow))
+	for _, allow := range p.Environment.Allow {
+		overlaps := false
+		for _, deny := range policy.Environment.Deny {
+			if util.EnvPatternsOverlap(allow, deny) {
+				overlaps = true
+				break
+			}
+		}
+		if overlaps {
+			log.Warnf("preset %s: environment allowance %q dropped, it overlaps an authored deny in policy %s", p.Name, allow, policy.Name)
+			continue
+		}
+		kept = append(kept, allow)
+	}
+	return kept
 }
 
 // presetFileName reports whether a file name looks like a preset YAML file

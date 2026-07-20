@@ -83,12 +83,26 @@ pmg sandbox preset lint ./myapp.yml
 Rules the schema enforces:
 
 - Allow-only sections: `filesystem.allow_read/allow_write`,
-  `process.allow_exec`, `network.allow_bind/allow_outbound`,
-  `environment.allow`. Deny rules and profile booleans are rejected.
+  `process.allow_exec`, `network.allow_bind`, `environment.allow`. Deny
+  rules and profile booleans are rejected.
 - Paths must be anchored at `${CWD}/`, `${HOME}/` or `${TMPDIR}/`, no `..`,
   and must not name sensitive files (`.env`, `.ssh`, ...).
 - Binds must be loopback (`localhost`, `127.0.0.1`, `::1`).
-- Outbound entries must be exact `host:port`, no wildcards.
+- No `network.allow_outbound`: current sandbox drivers cannot enforce
+  host-granular outbound rules (a single allow means blanket network
+  access), so presets are not allowed to change outbound posture at all.
+
+Precedence guarantees, in addition to PMG's mandatory denies:
+
+- A preset environment allowance that overlaps a profile-authored
+  `environment.deny` pattern is dropped with a warning. Surviving preset
+  allowances still opt out of PMG's built-in credential variable scrubbing,
+  which is their intended use.
+- A preset filesystem allowance never removes a deny rule authored in a
+  profile: deny wins over allow on every platform.
+- The `git` preset allows reading `.git/config` and writing under `.git/`,
+  but writes to `.git/config` and everything under `.git/hooks` stay
+  blocked by mandatory denies on all platforms.
 
 A preset name that collides with an official preset is shadowed — the
 official one always wins. To propose an official preset, open a pull request

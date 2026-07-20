@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/safedep/dry/utils"
@@ -1173,4 +1174,42 @@ func assertReadOnlyBindAfterWritableBind(t *testing.T, args []string, readOnlyPa
 	require.NotEqual(t, -1, writableBindIndex, "expected writable bind for %q in args: %v", writablePath, args)
 	require.NotEqual(t, -1, readOnlyBindIndex, "expected read-only bind for %q in args: %v", readOnlyPath, args)
 	assert.Greater(t, readOnlyBindIndex, writableBindIndex, "deny_write read-only bind must override earlier writable parent bind")
+}
+
+func TestBubblewrapMandatoryWriteDenySurvivesWritableParent(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o755))
+	gitConfig := filepath.Join(dir, ".git", "config")
+	require.NoError(t, os.WriteFile(gitConfig, []byte("[core]\n"), 0o644))
+	t.Chdir(dir)
+
+	policy := &sandbox.SandboxPolicy{
+		Name:            "test",
+		PackageManagers: []string{"pnpm"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{gitConfig},
+			AllowWrite: []string{filepath.Join(dir, ".git") + "/**"},
+		},
+	}
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	lastWritableGitBind := -1
+	lastROConfigBind := -1
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && strings.HasPrefix(args[i+1], filepath.Join(dir, ".git")) {
+			lastWritableGitBind = i
+		}
+		if (args[i] == "--ro-bind" || args[i] == "--ro-bind-try") && args[i+1] == gitConfig && args[i+2] == gitConfig {
+			lastROConfigBind = i
+		}
+	}
+
+	require.GreaterOrEqual(t, lastWritableGitBind, 0, "expected a writable bind for the .git tree")
+	require.GreaterOrEqual(t, lastROConfigBind, 0,
+		"mandatory write deny for .git/config must be re-applied even when the path is in allow_read")
+	assert.Greater(t, lastROConfigBind, lastWritableGitBind,
+		"read-only .git/config bind must come after the writable .git bind (bwrap last mount wins)")
 }

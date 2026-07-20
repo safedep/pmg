@@ -50,6 +50,18 @@ filesystem:
 		assert.Contains(t, err.Error(), "deny_read")
 	})
 
+	t.Run("rejects allow_outbound, translators are all-or-nothing for outbound", func(t *testing.T) {
+		yaml := `
+kind: preset
+name: evil
+network:
+  allow_outbound: ["registry.example.com:443"]
+`
+		_, err := ParsePreset([]byte(yaml))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "allow_outbound")
+	})
+
 	t.Run("rejects boolean policy fields", func(t *testing.T) {
 		yaml := `
 kind: preset
@@ -160,26 +172,6 @@ func TestPresetValidate(t *testing.T) {
 			},
 		},
 		{
-			name: "outbound wildcard host rejected",
-			mutate: func(p *Preset) {
-				p.Network.AllowOutbound = []string{"*:443"}
-			},
-			wantErr: "wildcards are not allowed",
-		},
-		{
-			name: "outbound wildcard port rejected",
-			mutate: func(p *Preset) {
-				p.Network.AllowOutbound = []string{"example.com:*"}
-			},
-			wantErr: "wildcards are not allowed",
-		},
-		{
-			name: "outbound exact host ok",
-			mutate: func(p *Preset) {
-				p.Network.AllowOutbound = []string{"registry.npmjs.org:443"}
-			},
-		},
-		{
 			name: "broad env glob rejected",
 			mutate: func(p *Preset) {
 				p.Environment.Allow = []string{"*"}
@@ -219,8 +211,7 @@ func TestPresetApplyToPolicy(t *testing.T) {
 			AllowWrite: []string{"${CWD}/.git/**", "${CWD}/dist/**"},
 		},
 		Network: PresetNetwork{
-			AllowBind:     []string{"localhost:4321"},
-			AllowOutbound: []string{"registry.npmjs.org:443"},
+			AllowBind: []string{"localhost:4321"},
 		},
 		Process:     PresetProcess{AllowExec: []string{"${CWD}/node_modules/.bin/**"}},
 		Environment: PresetEnvironment{Allow: []string{"ASTRO_*"}},
@@ -246,7 +237,7 @@ func TestPresetApplyToPolicy(t *testing.T) {
 	assert.Equal(t, []string{"localhost:4321"}, policy.Network.AllowBind)
 	assert.True(t, utils.SafelyGetValue(policy.AllowNetworkBind),
 		"bind entries enable AllowNetworkBind for translators")
-	assert.Equal(t, []string{"registry.npmjs.org:443"}, policy.Network.AllowOutbound)
+	assert.Empty(t, policy.Network.AllowOutbound, "presets cannot contribute outbound rules")
 	assert.Equal(t, []string{"${CWD}/node_modules/.bin/**"}, policy.Process.AllowExec)
 	assert.Equal(t, []string{"ASTRO_*"}, policy.Environment.Allow)
 }
@@ -291,4 +282,33 @@ func TestPresetFilter(t *testing.T) {
 			assert.Equal(t, tc.want, tc.filter.Matches(preset))
 		})
 	}
+}
+
+func TestPresetEnvAllowCannotOverrideAuthoredDeny(t *testing.T) {
+	preset := &Preset{
+		Kind: "preset",
+		Name: "sample",
+		Environment: PresetEnvironment{
+			Allow: []string{"AWS_SECRET_ACCESS_KEY", "NPM_TOKEN", "SECRETIVE_*"},
+		},
+	}
+	require.NoError(t, preset.Validate())
+
+	policy := &SandboxPolicy{
+		Name: "test",
+		Environment: EnvironmentPolicy{
+			Deny: []string{"AWS_*", "SECRETIVE_APP_KEY"},
+		},
+	}
+
+	preset.ApplyToPolicy(policy)
+
+	assert.Contains(t, policy.Environment.Allow, "NPM_TOKEN",
+		"preset allow with no authored deny overlap is kept and still beats built-in denies")
+	assert.NotContains(t, policy.Environment.Allow, "AWS_SECRET_ACCESS_KEY",
+		"preset allow matching an authored deny glob is dropped")
+	assert.NotContains(t, policy.Environment.Allow, "SECRETIVE_*",
+		"preset allow glob overlapping an authored deny name is dropped")
+	assert.Equal(t, []string{"AWS_*", "SECRETIVE_APP_KEY"}, policy.Environment.Deny,
+		"authored denies are untouched")
 }

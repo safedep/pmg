@@ -591,3 +591,37 @@ func TestLandlockPolicyExplicitlyAllowsProc(t *testing.T) {
 		})
 	}
 }
+
+func TestLandlockTranslatePolicy_GitPresetShapeKeepsConfigWriteDeny(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowRead = []string{filepath.Join(dir, ".git/config")}
+	policy.Filesystem.AllowWrite = []string{filepath.Join(dir, ".git") + "/**"}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var hasWriteDeny, hasReadDeny bool
+	for _, entry := range ep.DenyPaths {
+		if strings.HasSuffix(entry.Path, ".git/config") {
+			if entry.Mode == denyWrite {
+				hasWriteDeny = true
+			}
+			if entry.Mode == denyRead {
+				hasReadDeny = true
+			}
+		}
+	}
+
+	if !hasWriteDeny {
+		t.Error("expected .git/config write deny to survive allow_read + allow_write ${CWD}/.git/** (git preset shape)")
+	}
+	if hasReadDeny {
+		t.Error("expected .git/config read deny to be suppressed by the exact allow_read entry")
+	}
+}
