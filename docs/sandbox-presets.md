@@ -3,10 +3,13 @@
 A preset is a named bundle of sandbox allowances for one workload. For
 example: what `lint-staged` needs from git, or what `astro dev` needs to
 write and bind. Any tool with a known sandbox footprint can have a preset.
-Presets are **additive-only** — they can grant allowances on top of your
-sandbox profile but can never remove a deny rule or weaken PMG's built-in
-protections (`.git/hooks`, credential files and other mandatory denies stay
-enforced).
+Presets are **additive-only**: they grant allowances on top of your sandbox
+profile and can never remove a deny rule. A profile-authored deny always
+beats a preset allowance, and preset validation rejects paths that would
+opt out of PMG's mandatory protections (`.git/hooks`, `.git/config` writes,
+credential files). The two opt-outs a preset can perform, both visible in
+its YAML: read access to `.git/config` (required for git to operate) and
+un-scrubbing specific built-in credential variables by exact name.
 
 ## Using presets
 

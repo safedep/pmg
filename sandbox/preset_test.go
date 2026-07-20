@@ -153,6 +153,61 @@ func TestPresetValidate(t *testing.T) {
 			wantErr: "sensitive",
 		},
 		{
+			name: "mandatory-deny credential target rejected",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowRead = []string{"${CWD}/.git-credentials"}
+			},
+			wantErr: "protected credential target",
+		},
+		{
+			name: "mandatory-deny credential subtree rejected",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowRead = []string{"${HOME}/.config/gh/hosts.yml"}
+			},
+			wantErr: "protected credential target",
+		},
+		{
+			name: "pgpass rejected",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowRead = []string{"${CWD}/.pgpass"}
+			},
+			wantErr: "protected credential target",
+		},
+		{
+			name: "docker config rejected",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowRead = []string{"${HOME}/.docker/config.json"}
+			},
+			wantErr: "protected credential target",
+		},
+		{
+			name: "git hooks rejected in any direction",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowRead = []string{"${CWD}/.git/hooks/**"}
+			},
+			wantErr: ".git/hooks",
+		},
+		{
+			name: "git config write rejected",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowWrite = []string{"${CWD}/.git/config"}
+			},
+			wantErr: ".git/config write",
+		},
+		{
+			name: "git config exec rejected",
+			mutate: func(p *Preset) {
+				p.Process.AllowExec = []string{"${CWD}/.git/config"}
+			},
+			wantErr: ".git/config write",
+		},
+		{
+			name: "git config read allowed for repo discovery",
+			mutate: func(p *Preset) {
+				p.Filesystem.AllowRead = []string{"${CWD}/.git/config"}
+			},
+		},
+		{
 			name: "non-loopback bind",
 			mutate: func(p *Preset) {
 				p.Network.AllowBind = []string{"0.0.0.0:8080"}

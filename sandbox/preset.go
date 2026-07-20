@@ -104,17 +104,17 @@ func (p *Preset) Validate() error {
 	}
 
 	for _, entry := range p.Filesystem.AllowRead {
-		if err := validatePresetPath(entry); err != nil {
+		if err := validatePresetPath(entry, true); err != nil {
 			return fmt.Errorf("preset %s allow_read: %w", p.Name, err)
 		}
 	}
 	for _, entry := range p.Filesystem.AllowWrite {
-		if err := validatePresetPath(entry); err != nil {
+		if err := validatePresetPath(entry, false); err != nil {
 			return fmt.Errorf("preset %s allow_write: %w", p.Name, err)
 		}
 	}
 	for _, entry := range p.Process.AllowExec {
-		if err := validatePresetPath(entry); err != nil {
+		if err := validatePresetPath(entry, false); err != nil {
 			return fmt.Errorf("preset %s allow_exec: %w", p.Name, err)
 		}
 	}
@@ -132,12 +132,20 @@ func (p *Preset) Validate() error {
 	return nil
 }
 
-// Anchoring keeps a preset from allowing arbitrary host locations.
-func validatePresetPath(entry string) error {
-	anchored := strings.HasPrefix(entry, util.VarCWD+"/") ||
-		strings.HasPrefix(entry, util.VarHome+"/") ||
-		strings.HasPrefix(entry, util.VarTMPDir+"/")
-	if !anchored {
+// Anchoring keeps a preset from allowing arbitrary host locations, and
+// naming a mandatory-deny target is rejected because an exact-match entry
+// would suppress that mandatory deny (see util.GetMandatoryDenyPatterns).
+// The one deliberate exception is read access to .git/config, which git
+// repo discovery requires and the built-in git preset uses.
+func validatePresetPath(entry string, read bool) error {
+	var rel string
+	for _, anchor := range []string{util.VarCWD, util.VarHome, util.VarTMPDir} {
+		if strings.HasPrefix(entry, anchor+"/") {
+			rel = strings.TrimPrefix(entry, anchor+"/")
+			break
+		}
+	}
+	if rel == "" {
 		return fmt.Errorf("path %q must be anchored at ${CWD}/, ${HOME}/ or ${TMPDIR}/", entry)
 	}
 
@@ -149,6 +157,20 @@ func validatePresetPath(entry string) error {
 
 	if IsSensitiveProjectTarget(entry) {
 		return fmt.Errorf("path %q names a sensitive target and cannot be allowed by a preset", entry)
+	}
+
+	for _, dangerous := range util.DANGEROUS_FILES {
+		if rel == dangerous || strings.HasPrefix(rel, dangerous+"/") {
+			return fmt.Errorf("path %q names the protected credential target %q and cannot be allowed by a preset", entry, dangerous)
+		}
+	}
+
+	if rel == ".git/hooks" || strings.HasPrefix(rel, ".git/hooks/") {
+		return fmt.Errorf("path %q: .git/hooks cannot be allowed by a preset", entry)
+	}
+
+	if !read && rel == ".git/config" {
+		return fmt.Errorf("path %q: .git/config write access cannot be allowed by a preset", entry)
 	}
 
 	return nil
