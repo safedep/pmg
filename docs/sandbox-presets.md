@@ -56,10 +56,23 @@ updates the allowances everywhere the preset is used.
 | `vite`   | Vite dev server and build              |
 | `nextjs` | Next.js dev server and build           |
 
-## Contributing a preset
+## Creating your own preset
+
+Scaffold, edit and validate:
+
+```bash
+pmg sandbox preset init myapp --author "Your Name" --label myapp
+pmg sandbox preset edit myapp     # opens $VISUAL / $EDITOR, validates on save
+pmg sandbox allow preset=myapp    # apply to the current repo
+```
 
 User presets live in `<config-dir>/sandbox/presets/` (e.g.
-`~/.config/safedep/pmg/sandbox/presets/` on Linux). Drop a YAML file there:
+`~/.config/safedep/pmg/sandbox/presets/` on Linux) — community presets are
+installed by dropping a file there. `pmg sandbox preset list` always shows
+where a preset came from: `builtin` (embedded in the pmg binary,
+maintainer-reviewed) vs the user file path, and a user preset that reuses a
+built-in name is marked `SHADOWED` — the built-in always wins, so an
+official preset cannot be silently replaced. A preset file looks like:
 
 ```yaml
 kind: preset

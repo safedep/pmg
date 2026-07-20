@@ -30,6 +30,8 @@ func NewPresetCommand() *cobra.Command {
 
 	cmd.AddCommand(newPresetListCommand(defaultPresetRegistryFactory))
 	cmd.AddCommand(newPresetShowCommand(defaultPresetRegistryFactory))
+	cmd.AddCommand(newPresetInitCommand(func() string { return config.Get().SandboxPresetDir() }, defaultPresetRegistryFactory))
+	cmd.AddCommand(newPresetEditCommand(defaultPresetRegistryFactory))
 	cmd.AddCommand(newPresetLintCommand())
 	return cmd
 }

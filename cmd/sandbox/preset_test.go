@@ -188,3 +188,114 @@ func TestAllowPresetEntries(t *testing.T) {
 		assert.Equal(t, errcodes.NotFound, useful.Code())
 	})
 }
+
+func TestPresetInit(t *testing.T) {
+	newDeps := func(t *testing.T) (func() string, presetRegistryFactory) {
+		t.Helper()
+		dir := t.TempDir()
+		return func() string { return dir }, newTestPresetRegistry(dir)
+	}
+
+	t.Run("scaffolds a valid preset that loads from the user dir", func(t *testing.T) {
+		dir, factory := newDeps(t)
+		var out bytes.Buffer
+		err := runPresetInit(&out, "myapp", &presetInitOptions{author: "Community", labels: []string{"myapp", "dev-server"}}, dir, factory)
+		require.NoError(t, err)
+
+		target := filepath.Join(dir(), "myapp.yml")
+		assert.Contains(t, out.String(), target)
+		assert.Contains(t, out.String(), "preset lint")
+
+		require.NoError(t, runPresetLint(&bytes.Buffer{}, []string{target}))
+
+		registry, err := factory()
+		require.NoError(t, err)
+		info, err := registry.Get("myapp")
+		require.NoError(t, err)
+		assert.Equal(t, pmgsandbox.PresetSourceUser, info.Source)
+		assert.Equal(t, "Community", info.Preset.Metadata.Author)
+		assert.Equal(t, []string{"myapp", "dev-server"}, info.Preset.Metadata.Labels)
+		assert.Contains(t, info.Preset.Filesystem.AllowWrite, "${CWD}/.myapp/**")
+	})
+
+	t.Run("refuses builtin names", func(t *testing.T) {
+		dir, factory := newDeps(t)
+		err := runPresetInit(&bytes.Buffer{}, "git", &presetInitOptions{}, dir, factory)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "built-in")
+	})
+
+	t.Run("refuses existing files", func(t *testing.T) {
+		dir, factory := newDeps(t)
+		require.NoError(t, runPresetInit(&bytes.Buffer{}, "myapp", &presetInitOptions{}, dir, factory))
+		err := runPresetInit(&bytes.Buffer{}, "myapp", &presetInitOptions{}, dir, factory)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already exists")
+	})
+
+	t.Run("refuses invalid names", func(t *testing.T) {
+		dir, factory := newDeps(t)
+		err := runPresetInit(&bytes.Buffer{}, "My_App", &presetInitOptions{}, dir, factory)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid preset name")
+	})
+}
+
+func TestPresetEdit(t *testing.T) {
+	setup := func(t *testing.T) (string, presetRegistryFactory) {
+		t.Helper()
+		dir := t.TempDir()
+		factory := newTestPresetRegistry(dir)
+		require.NoError(t, runPresetInit(&bytes.Buffer{}, "myapp", &presetInitOptions{}, func() string { return dir }, factory))
+		return dir, factory
+	}
+
+	t.Run("valid edit passes", func(t *testing.T) {
+		_, factory := setup(t)
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", writeEditorScript(t, `exit 0`))
+
+		var out bytes.Buffer
+		require.NoError(t, runPresetEdit(&out, &bytes.Buffer{}, "myapp", factory))
+		assert.Contains(t, out.String(), "✓")
+	})
+
+	t.Run("edit that breaks the preset fails validation", func(t *testing.T) {
+		_, factory := setup(t)
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", writeEditorScript(t, `printf 'kind: preset\nname: myapp\nfilesystem:\n  deny_read: ["x"]\n' > "$1"`))
+
+		err := runPresetEdit(&bytes.Buffer{}, &bytes.Buffer{}, "myapp", factory)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "deny_read")
+	})
+
+	t.Run("builtin preset is not editable", func(t *testing.T) {
+		_, factory := setup(t)
+		err := runPresetEdit(&bytes.Buffer{}, &bytes.Buffer{}, "git", factory)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "built-in")
+	})
+
+	t.Run("unknown preset is not found", func(t *testing.T) {
+		_, factory := setup(t)
+		err := runPresetEdit(&bytes.Buffer{}, &bytes.Buffer{}, "nope", factory)
+		require.Error(t, err)
+
+		var useful usefulerror.UsefulError
+		require.ErrorAs(t, err, &useful)
+		assert.Equal(t, errcodes.NotFound, useful.Code())
+	})
+
+	t.Run("shadowed user preset warns", func(t *testing.T) {
+		dir := t.TempDir()
+		factory := newTestPresetRegistry(dir)
+		writeTestUserPreset(t, dir, "git")
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", writeEditorScript(t, `exit 0`))
+
+		var errOut bytes.Buffer
+		require.NoError(t, runPresetEdit(&bytes.Buffer{}, &errOut, "git", factory))
+		assert.Contains(t, errOut.String(), "shadowed")
+	})
+}
