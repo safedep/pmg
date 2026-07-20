@@ -158,6 +158,9 @@ pmg sandbox profile list
 # Scaffold a user profile that inherits from a built-in
 pmg sandbox profile init my-npm --from npm-restrictive
 
+# Open a user profile in $VISUAL / $EDITOR, then validate and lint it
+pmg sandbox profile edit my-npm
+
 # Show a profile, or its fully resolved policy
 pmg sandbox profile show npm-restrictive
 pmg sandbox profile show npm-restrictive --resolved
@@ -169,6 +172,24 @@ pmg sandbox profile lint ./my-profile.yml --strict
 # Compare two resolved profiles
 pmg sandbox profile diff npm-restrictive pypi-restrictive
 ```
+
+`pmg sandbox profile edit` resolves the profile name to its file under the user profile
+directory, opens it in your editor, and re-validates and lints the result when the editor
+exits. Built-in profiles are embedded in the binary and cannot be edited; create an editable
+copy with `pmg sandbox profile init <new-name> --from <builtin>`.
+
+To activate a user profile for a package manager, reference it by name in `config.yml` — no
+policy template is needed for profiles in the user profile directory:
+
+```yaml
+policies:
+  pnpm:
+    enabled: true
+    profile: my-pnpm
+```
+
+Policy templates (see below) are only needed to override a built-in profile name or to load a
+policy file from outside the user profile directory.
 
 ### Sandbox Debug Commands
 
