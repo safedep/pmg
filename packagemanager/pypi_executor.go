@@ -193,7 +193,7 @@ func (p *pypiPackageExecutor) buildInstallTargets(command Command, packages []st
 	var installTargets []*PackageInstallTarget
 
 	for _, pkg := range packages {
-		packageName, version, _, err := pypiParsePackageInfo(pkg)
+		packageName, version, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}

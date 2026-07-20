@@ -43,16 +43,11 @@ func executeGoFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create go package manager: %w", err)
 	}
 
-	parsedCommand, err := packageManager.ParseCommand(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-
 	if err := requireTrustedCA(); err != nil {
 		return err
 	}
 
-	return flows.ProxyFlow(packageManager).Run(ctx, args, parsedCommand)
+	return flows.RunProxy(ctx, packageManager, args)
 }
 
 // requireTrustedCA fails fast when Go cannot trust PMG's MITM CA. Go's
