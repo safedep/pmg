@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
@@ -41,6 +43,11 @@ func RejectRemovedProxyOptOut() error {
 		fileKeys = nil
 	}
 
+	// Viper resolved file keys case-insensitively and expanded dotted keys, so
+	// spellings like Proxy:, Enabled: or a literal proxy.enabled key selected
+	// guard mode before. Normalize the raw keys the same way before checking.
+	fileKeys = normalizeConfigKeys(fileKeys)
+
 	// Key presence alone gates the legacy tier, matching the old
 	// hasProxySectionInFile check: even proxy: null made legacy keys inert.
 	if _, hasProxySection := fileKeys["proxy"]; hasProxySection {
@@ -70,6 +77,47 @@ func RejectRemovedProxyOptOut() error {
 	}
 
 	return nil
+}
+
+// normalizeConfigKeys lowercases keys recursively and expands dotted keys into
+// nested maps, mirroring viper's key resolution (case-insensitive, "." delim).
+func normalizeConfigKeys(raw map[string]any) map[string]any {
+	if raw == nil {
+		return nil
+	}
+
+	out := map[string]any{}
+	for key, value := range raw {
+		if nested, ok := value.(map[string]any); ok {
+			value = normalizeConfigKeys(nested)
+		}
+
+		insertConfigKeyPath(out, strings.Split(strings.ToLower(key), "."), value)
+	}
+
+	return out
+}
+
+func insertConfigKeyPath(m map[string]any, path []string, value any) {
+	if len(path) == 1 {
+		if existing, ok := m[path[0]].(map[string]any); ok {
+			if incoming, ok := value.(map[string]any); ok {
+				maps.Copy(existing, incoming)
+				return
+			}
+		}
+
+		m[path[0]] = value
+		return
+	}
+
+	child, ok := m[path[0]].(map[string]any)
+	if !ok {
+		child = map[string]any{}
+		m[path[0]] = child
+	}
+
+	insertConfigKeyPath(child, path[1:], value)
 }
 
 // parseOptOutBool matches the coercion the old resolution applied: viper's

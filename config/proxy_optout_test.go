@@ -21,7 +21,7 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 		},
 		{
 			name:       "config without proxy keys",
-			configYAML: "transitive: true\n",
+			configYAML: "paranoid: false\n",
 			wantErr:    false,
 		},
 		{
@@ -112,6 +112,31 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 			name:       "PMG_PROXY_ENABLED true wins over legacy flat proxy_mode false",
 			configYAML: "proxy_mode: false\n",
 			env:        map[string]string{"PMG_PROXY_ENABLED": "true"},
+			wantErr:    false,
+		},
+		{
+			name:       "capitalized Proxy section with enabled false",
+			configYAML: "Proxy:\n  enabled: false\n",
+			wantErr:    true,
+		},
+		{
+			name:       "capitalized Enabled key in proxy section",
+			configYAML: "proxy:\n  Enabled: false\n",
+			wantErr:    true,
+		},
+		{
+			name:       "literal dotted proxy.enabled key",
+			configYAML: "proxy.enabled: false\n",
+			wantErr:    true,
+		},
+		{
+			name:       "capitalized legacy Proxy_Mode key",
+			configYAML: "Proxy_Mode: false\n",
+			wantErr:    true,
+		},
+		{
+			name:       "literal dotted proxy.enabled true is not an opt-out",
+			configYAML: "proxy.enabled: true\n",
 			wantErr:    false,
 		},
 	}
