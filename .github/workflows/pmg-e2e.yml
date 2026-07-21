@@ -653,8 +653,12 @@ jobs:
             echo "ERROR: PMG_PROXY_ENABLED=false should fail loudly"
             exit 1
           fi
-          if PMG_PROXY_MODE=false pmg --dry-run npm install express; then
-            echo "ERROR: PMG_PROXY_MODE=false should fail loudly"
+          # Legacy PMG_PROXY_MODE only selected guard mode when the config has
+          # no proxy: section; with the standard (template) config it was inert
+          # and must keep working.
+          PMG_PROXY_MODE=false pmg --dry-run npm install express
+          if PMG_CONFIG_DIR=$(mktemp -d) PMG_PROXY_MODE=false pmg --dry-run npm install express; then
+            echo "ERROR: PMG_PROXY_MODE=false without a proxy: section should fail loudly"
             exit 1
           fi
           if pmg --proxy-mode=false --dry-run npm install express; then
