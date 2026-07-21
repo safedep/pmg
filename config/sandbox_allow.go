@@ -19,6 +19,7 @@ var validSandboxAllowTypes = map[SandboxAllowType]bool{
 	SandboxAllowNetConnect: true,
 	SandboxAllowNetBind:    true,
 	SandboxAllowEnv:        true,
+	SandboxAllowPreset:     true,
 }
 
 // parseSandboxAllowOverrides parses raw --sandbox-allow flag values into validated overrides.
@@ -72,7 +73,7 @@ func parseSingleOverride(raw string) (SandboxAllowOverride, error) {
 	}
 
 	if !validSandboxAllowTypes[allowType] {
-		return SandboxAllowOverride{}, fmt.Errorf("unknown type %q, valid types: read, write, exec, net-connect, net-bind, env", typStr)
+		return SandboxAllowOverride{}, fmt.Errorf("unknown type %q, valid types: read, write, exec, net-connect, net-bind, env, preset", typStr)
 	}
 
 	resolved, err := validateAndResolveValue(allowType, value)
@@ -100,9 +101,27 @@ func validateAndResolveValue(typ SandboxAllowType, value string) (string, error)
 		return validateNetBind(value)
 	case SandboxAllowEnv:
 		return validateEnvName(value)
+	case SandboxAllowPreset:
+		return validatePresetRef(value)
 	default:
 		return "", fmt.Errorf("unhandled type: %s", typ)
 	}
+}
+
+// The value is a bare preset name kept verbatim so overlays track preset
+// updates by reference. Registry resolution happens at the use site.
+func validatePresetRef(value string) (string, error) {
+	for _, r := range value {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-'
+		if !valid {
+			return "", fmt.Errorf("invalid preset name %q (expected lowercase alphanumeric with dashes, e.g. preset=git)", value)
+		}
+	}
+	if value == "" || value[0] == '-' {
+		return "", fmt.Errorf("invalid preset name %q", value)
+	}
+
+	return value, nil
 }
 
 // validateEnvName validates an env allow value. The value is an environment

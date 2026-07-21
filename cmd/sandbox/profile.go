@@ -10,8 +10,16 @@ import (
 type registryFactory func() (pmgsandbox.ProfileRegistry, error)
 
 func defaultRegistryFactory() (pmgsandbox.ProfileRegistry, error) {
+	// Include user presets so profile inspection agrees with runtime
+	// resolution of custom profiles referencing presets.
+	presets, err := defaultPresetRegistryFactory()
+	if err != nil {
+		return nil, err
+	}
+
 	return pmgsandbox.NewProfileRegistry(
 		pmgsandbox.WithUserProfileDir(config.Get().SandboxProfileDir()),
+		pmgsandbox.WithPresetRegistry(presets),
 	)
 }
 

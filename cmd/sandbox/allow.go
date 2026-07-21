@@ -20,6 +20,7 @@ type allowFactory struct {
 	repoRoot   func() (string, error)
 	cache      func() *pmgsandbox.ViolationCache
 	locked     func() bool
+	presets    func() (pmgsandbox.PresetRegistry, error)
 }
 
 func defaultAllowFactory() allowFactory {
@@ -29,7 +30,8 @@ func defaultAllowFactory() allowFactory {
 		cache: func() *pmgsandbox.ViolationCache {
 			return pmgsandbox.NewViolationCache(config.Get().SandboxViolationCacheDir())
 		},
-		locked: func() bool { return config.Get().IsLocked() },
+		locked:  func() bool { return config.Get().IsLocked() },
+		presets: defaultPresetRegistryFactory,
 	}
 }
 
@@ -55,6 +57,8 @@ func newAllowCommand(factory allowFactory) *cobra.Command {
 			"or --last --all to promote every safe FS/exec violation from that report.\n" +
 			"Manual entries (type=value …) accept any allow type and persist as-is.",
 		Example: "  pmg sandbox allow write=./.astro net-bind=localhost:4321\n" +
+			"  pmg sandbox allow env=AWS_PROFILE\n" +
+			"  pmg sandbox allow preset=git preset=astro\n" +
 			"  pmg sandbox allow --last --all",
 		Args:          cobra.ArbitraryArgs,
 		SilenceErrors: false,
@@ -136,6 +140,10 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 		)
 	}
 
+	if err := validatePresetEntries(pending, factory); err != nil {
+		return err
+	}
+
 	if err := guardSensitiveEntries(pending, opts.force); err != nil {
 		return err
 	}
@@ -178,7 +186,7 @@ func collectAllowEntries(args []string, opts *allowOptions, factory allowFactory
 		if err != nil {
 			return nil, invalidArgumentError(
 				err.Error(),
-				"Each positional argument must be `type=value` (read, write, exec, net-connect, net-bind).",
+				"Each positional argument must be `type=value` (read, write, exec, net-connect, net-bind, env, preset).",
 			)
 		}
 		out = append(out, pmgsandbox.OverlayAllow{Type: override.Type, Value: override.Value})
@@ -255,12 +263,56 @@ func guardSensitiveEntries(entries []pmgsandbox.OverlayAllow, force bool) error 
 		return nil
 	}
 	for _, e := range entries {
+		// Preset values are names, not paths. Preset content is validated
+		// against sensitive targets when the preset itself is loaded.
+		if e.Type == config.SandboxAllowPreset {
+			continue
+		}
+
 		if pmgsandbox.IsSensitiveProjectTarget(e.Value) {
 			return usefulerror.NewUsefulError().
 				WithCode(errcodes.PermissionDenied).
 				WithHumanError(fmt.Sprintf("refusing to allow sensitive target: %s", e.Value)).
 				WithHelp("Re-run with --force to allow saving this entry, after verifying the path is intentional.").
 				Wrap(errors.New("sensitive target"))
+		}
+	}
+	return nil
+}
+
+// Preset references resolve at save time so a typo fails immediately
+// instead of surfacing as a runtime warning on the next sandboxed command.
+func validatePresetEntries(entries []pmgsandbox.OverlayAllow, factory allowFactory) error {
+	var registry pmgsandbox.PresetRegistry
+	for _, e := range entries {
+		if e.Type != config.SandboxAllowPreset {
+			continue
+		}
+
+		if registry == nil {
+			if factory.presets == nil {
+				return invalidArgumentError(
+					"preset entries are not supported here",
+					"Pass concrete type=value allowances instead.",
+				)
+			}
+
+			r, err := factory.presets()
+			if err != nil {
+				return registryInitError(err)
+			}
+			registry = r
+		}
+
+		if _, err := registry.Get(e.Value); err != nil {
+			if errors.Is(err, pmgsandbox.ErrPresetNotFound) {
+				return notFoundError(
+					fmt.Sprintf("unknown preset %q", e.Value),
+					"Use `pmg sandbox preset list` to see available presets.",
+				)
+			}
+			return wrapUseful(err, errcodes.Unknown,
+				"Failed to resolve the preset. Run with --verbose for details.")
 		}
 	}
 	return nil

@@ -269,6 +269,10 @@ weakens mandatory denies, and is ignored when `global_lockdown` is set.
 # Save manual allowances for the current repo
 pmg sandbox allow write=./.astro net-bind=localhost:4321
 
+# Persist an environment variable allowance so the profile stops scrubbing it
+# in this repo (same semantics as --sandbox-allow env=..., but saved)
+pmg sandbox allow env=AWS_PROFILE
+
 # Promote the primary violation from the most recent cached report
 pmg sandbox allow --last
 
@@ -289,11 +293,28 @@ pmg sandbox project list
 pmg sandbox project reset --yes
 ```
 
+### Presets
+
+A preset is a named, additive-only bundle of allowances for one workload (git hooks tooling,
+an Astro/Vite/Next.js dev server, ...). Instead of discovering allowances one denial at a
+time, apply a curated bundle:
+
+```bash
+pmg sandbox preset list
+pmg sandbox preset show git
+pmg sandbox allow preset=git preset=astro
+```
+
+Presets can also be attached to a profile via a `presets:` list. See
+[sandbox-presets.md](sandbox-presets.md) for usage and how to author your own.
+
 Notes:
 
 - `--last`/`--last --all` only auto-promotes filesystem and exec denials. Network allowances
-  (`net-connect`, `net-bind`) must be passed manually as `type=value` because drivers do not
-  classify network denials yet.
+  (`net-connect`, `net-bind`) and environment allowances (`env`) must be passed manually as
+  `type=value` because drivers do not classify network denials yet and environment scrubbing is
+  logged rather than recorded as a violation. Run with `--debug` to see scrubbed variable names,
+  then persist with `pmg sandbox allow env=NAME`.
 - `pmg sandbox allow` refuses sensitive targets (`.env*`, `.npmrc`, `.ssh`, `.aws`, `.kube`,
   `.gnupg`, ...) unless `--force` is given.
 - Applied overlay entries are recorded in the audit event log with a `+overlay` source tag so

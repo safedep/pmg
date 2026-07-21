@@ -3,6 +3,14 @@ package util
 import (
 	"os"
 	"path/filepath"
+	"strings"
+)
+
+// GitConfigPath and GitHooksPath are the git-specific mandatory deny
+// targets, relative to a repository root ($CWD or $HOME).
+const (
+	GitConfigPath = ".git/config"
+	GitHooksPath  = ".git/hooks"
 )
 
 // DANGEROUS_FILES are credential and config files blocked by default.
@@ -255,9 +263,9 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	}
 
 	if !opts.AllowGitConfig {
-		suppressible = append(suppressible, filepath.Join(cwd, ".git/config"))
+		suppressible = append(suppressible, filepath.Join(cwd, GitConfigPath))
 		if home != "" {
-			suppressible = append(suppressible, filepath.Join(home, ".git/config"))
+			suppressible = append(suppressible, filepath.Join(home, GitConfigPath))
 		}
 	}
 
@@ -281,13 +289,13 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 
 	// Git hooks can execute arbitrary code; never suppressible.
 	gitHooks := []string{
-		filepath.Join(cwd, ".git/hooks"),
-		filepath.Join(cwd, ".git/hooks/**"),
+		filepath.Join(cwd, GitHooksPath),
+		filepath.Join(cwd, GitHooksPath, "**"),
 	}
 	if home != "" {
 		gitHooks = append(gitHooks,
-			filepath.Join(home, ".git/hooks"),
-			filepath.Join(home, ".git/hooks/**"),
+			filepath.Join(home, GitHooksPath),
+			filepath.Join(home, GitHooksPath, "**"),
 		)
 	}
 	for _, p := range gitHooks {
@@ -297,6 +305,23 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	}
 
 	return result
+}
+
+// PathCoveredBy reports whether the anchor-relative path rel is base itself
+// or falls beneath it.
+func PathCoveredBy(rel, base string) bool {
+	return rel == base || strings.HasPrefix(rel, base+"/")
+}
+
+// DangerousFileMatch returns the DANGEROUS_FILES entry covering the
+// anchor-relative path rel, if any.
+func DangerousFileMatch(rel string) (string, bool) {
+	for _, dangerous := range DANGEROUS_FILES {
+		if PathCoveredBy(rel, dangerous) {
+			return dangerous, true
+		}
+	}
+	return "", false
 }
 
 func toSet(s []string) map[string]bool {

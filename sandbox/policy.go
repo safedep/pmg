@@ -17,6 +17,10 @@ type SandboxPolicy struct {
 	Inherits        string   `yaml:"inherits,omitempty" json:"inherits,omitempty"`
 	PackageManagers []string `yaml:"package_managers" json:"package_managers"`
 
+	// Presets are expanded by the registry after inheritance resolution.
+	// Names are kept post-expansion for provenance display.
+	Presets []string `yaml:"presets,omitempty" json:"presets,omitempty"`
+
 	// These fields are affected by inheritance and are merged with the parent policy.
 	// Any new values added here should be handled in the MergeWithParent method.
 	Filesystem  FilesystemPolicy  `yaml:"filesystem" json:"filesystem"`
@@ -159,6 +163,9 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	// Union environment lists
 	child.Environment.Allow = unionStringSlices(parent.Environment.Allow, child.Environment.Allow)
 	child.Environment.Deny = unionStringSlices(parent.Environment.Deny, child.Environment.Deny)
+
+	// Union preset references
+	child.Presets = unionStringSlices(parent.Presets, child.Presets)
 
 	// Set boolean fields by duplicating the parent value if not present in the child.
 	if child.AllowPTY == nil {

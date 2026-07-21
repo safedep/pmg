@@ -23,7 +23,7 @@ func TestApplyRuntimeOverrides_Read(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowRead, Value: "/new/path", Raw: "read=/new/path"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Filesystem.AllowRead, "/existing")
 	assert.Contains(t, policy.Filesystem.AllowRead, "/new/path")
@@ -38,7 +38,7 @@ func TestApplyRuntimeOverrides_Write(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowWrite, Value: "/new/file", Raw: "write=/new/file"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Filesystem.AllowWrite, "/existing")
 	assert.Contains(t, policy.Filesystem.AllowWrite, "/new/file")
@@ -53,7 +53,7 @@ func TestApplyRuntimeOverrides_Exec(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowExec, Value: "/usr/bin/curl", Raw: "exec=/usr/bin/curl"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Process.AllowExec, "/usr/bin/node")
 	assert.Contains(t, policy.Process.AllowExec, "/usr/bin/curl")
@@ -68,7 +68,7 @@ func TestApplyRuntimeOverrides_Env(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowEnv, Value: "AWS_PROFILE", Raw: "env=AWS_PROFILE"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Environment.Allow, "NPM_TOKEN")
 	assert.Contains(t, policy.Environment.Allow, "AWS_PROFILE")
@@ -104,7 +104,7 @@ func TestScrubEnv_AllowOverrideUnscrubs(t *testing.T) {
 	// Simulate a --sandbox-allow env=AWS_SESSION_TOKEN override having been merged.
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowEnv, Value: "AWS_SESSION_TOKEN", Raw: "env=AWS_SESSION_TOKEN"},
-	})
+	}, nil)
 
 	cmd := &exec.Cmd{Env: []string{"AWS_SESSION_TOKEN=kept"}}
 	scrubbed := scrubEnv(cmd, policy)
@@ -136,7 +136,7 @@ func TestApplyRuntimeOverrides_NetConnect(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowNetConnect, Value: "example.com:443", Raw: "net-connect=example.com:443"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Network.AllowOutbound, "registry.npmjs.org:443")
 	assert.Contains(t, policy.Network.AllowOutbound, "example.com:443")
@@ -151,7 +151,7 @@ func TestApplyRuntimeOverrides_NetBind(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowNetBind, Value: "127.0.0.1:3000", Raw: "net-bind=127.0.0.1:3000"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Network.AllowBind, "127.0.0.1:3000")
 	assert.NotNil(t, policy.AllowNetworkBind)
@@ -168,7 +168,7 @@ func TestApplyRuntimeOverrides_NetBindPreservesExistingTrue(t *testing.T) {
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowNetBind, Value: "127.0.0.1:3000", Raw: "net-bind=127.0.0.1:3000"},
-	})
+	}, nil)
 
 	assert.Contains(t, policy.Network.AllowBind, "localhost:8080")
 	assert.Contains(t, policy.Network.AllowBind, "127.0.0.1:3000")
@@ -189,7 +189,7 @@ func TestApplyRuntimeOverrides_MultipleOverrides(t *testing.T) {
 		{Type: config.SandboxAllowNetConnect, Value: "example.com:443", Raw: "net-connect=example.com:443"},
 	}
 
-	applyRuntimeOverrides(policy, overrides)
+	applyRuntimeOverrides(policy, overrides, nil)
 
 	assert.Len(t, policy.Filesystem.AllowWrite, 2)
 	assert.Len(t, policy.Process.AllowExec, 1)
@@ -203,7 +203,7 @@ func TestApplyRuntimeOverrides_EmptyOverrides(t *testing.T) {
 		},
 	}
 
-	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{})
+	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{}, nil)
 
 	// Policy should be unchanged
 	assert.Equal(t, []string{"/existing"}, policy.Filesystem.AllowWrite)
@@ -228,7 +228,7 @@ func TestApplyRuntimeOverrides_DenyListsUnmodifiedWhenNoConflict(t *testing.T) {
 		{Type: config.SandboxAllowNetConnect, Value: "example.com:443", Raw: "net-connect=example.com:443"},
 	}
 
-	applyRuntimeOverrides(policy, overrides)
+	applyRuntimeOverrides(policy, overrides, nil)
 
 	// Deny lists should be unchanged when overrides don't conflict
 	assert.Equal(t, []string{"/protected"}, policy.Filesystem.DenyWrite)
@@ -253,7 +253,7 @@ func TestApplyRuntimeOverrides_RemovesExactDenyConflict(t *testing.T) {
 		{Type: config.SandboxAllowExec, Value: "/bin/bash", Raw: "exec=/bin/bash"},
 	}
 
-	applyRuntimeOverrides(policy, overrides)
+	applyRuntimeOverrides(policy, overrides, nil)
 
 	// Exact matches should be removed from deny lists
 	assert.Equal(t, []string{"/other"}, policy.Filesystem.DenyRead)
@@ -283,7 +283,7 @@ func TestApplyRuntimeOverrides_PreservesGlobDenyPatterns(t *testing.T) {
 		{Type: config.SandboxAllowExec, Value: "/usr/bin/git", Raw: "exec=/usr/bin/git"},
 	}
 
-	applyRuntimeOverrides(policy, overrides)
+	applyRuntimeOverrides(policy, overrides, nil)
 
 	// Glob/wildcard deny patterns must NOT be removed — only exact matches are removed
 	assert.Equal(t, []string{"/etc/**"}, policy.Filesystem.DenyRead)
@@ -310,7 +310,7 @@ func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testi
 
 	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
 		{Type: config.SandboxAllowWrite, Value: absolutePath, Raw: "write=./blocked.txt"},
-	})
+	}, nil)
 
 	// The override is added to the allow list
 	assert.Contains(t, policy.Filesystem.AllowWrite, absolutePath)
@@ -332,7 +332,7 @@ func TestApplyProjectOverlayAppendsEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	policy := &sandbox.SandboxPolicy{Name: "test"}
-	applied, err := applyProjectOverlay(policy, dir, repo, false)
+	applied, err := applyProjectOverlay(policy, dir, repo, false, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, applied)
 	assert.Contains(t, policy.Filesystem.AllowWrite, "/repo/example/.astro")
@@ -351,7 +351,7 @@ func TestApplyProjectOverlaySkippedWhenLocked(t *testing.T) {
 	require.NoError(t, err)
 
 	policy := &sandbox.SandboxPolicy{Name: "test"}
-	applied, err := applyProjectOverlay(policy, dir, repo, true)
+	applied, err := applyProjectOverlay(policy, dir, repo, true, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, applied)
 	assert.Empty(t, policy.Filesystem.AllowWrite)
@@ -360,7 +360,7 @@ func TestApplyProjectOverlaySkippedWhenLocked(t *testing.T) {
 func TestApplyProjectOverlayMissingFileIsNoop(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "no-such")
 	policy := &sandbox.SandboxPolicy{Name: "test"}
-	applied, err := applyProjectOverlay(policy, dir, "/repo/example", false)
+	applied, err := applyProjectOverlay(policy, dir, "/repo/example", false, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, applied)
 	_, statErr := os.Stat(dir)
@@ -369,7 +369,7 @@ func TestApplyProjectOverlayMissingFileIsNoop(t *testing.T) {
 
 func TestApplyProjectOverlayEmptyArgsNoop(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{Name: "test"}
-	applied, err := applyProjectOverlay(policy, "", "", false)
+	applied, err := applyProjectOverlay(policy, "", "", false, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, applied)
 }

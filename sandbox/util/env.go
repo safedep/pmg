@@ -70,6 +70,14 @@ func shouldScrubEnvVar(name string, deny, allow []string) bool {
 	return matchAnyEnvPattern(name, deny)
 }
 
+// EnvNameMatchesAny reports whether a literal variable name matches any of
+// the given name glob patterns, using the same matcher ScrubEnv applies at
+// scrub time so precedence decisions made against it cannot diverge from
+// runtime behavior.
+func EnvNameMatchesAny(name string, patterns []string) bool {
+	return matchAnyEnvPattern(name, patterns)
+}
+
 func matchAnyEnvPattern(name string, patterns []string) bool {
 	for _, pattern := range patterns {
 		if envNameRegex(pattern).MatchString(name) {

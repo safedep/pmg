@@ -376,3 +376,32 @@ func TestParseSingleOverride_ExportedRejectsInvalid(t *testing.T) {
 	_, err := ParseSingleOverride("garbage")
 	assert.Error(t, err)
 }
+
+func TestParseSandboxAllowOverrides_Preset(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		value   string
+		wantErr string
+	}{
+		{name: "valid preset name", raw: "preset=git", value: "git"},
+		{name: "dashed preset name", raw: "preset=my-app", value: "my-app"},
+		{name: "uppercase rejected", raw: "preset=Git", wantErr: "invalid preset name"},
+		{name: "path rejected", raw: "preset=./git.yml", wantErr: "invalid preset name"},
+		{name: "leading dash rejected", raw: "preset=-git", wantErr: "invalid preset name"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			override, err := ParseSingleOverride(tc.raw)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, SandboxAllowPreset, override.Type)
+			assert.Equal(t, tc.value, override.Value)
+		})
+	}
+}

@@ -22,6 +22,7 @@ type defaultProfileRegistry struct {
 	builtins       map[string]struct{}
 	builtinYAML    map[string][]byte
 	userProfileDir string
+	presets        PresetRegistry
 }
 
 func newDefaultProfileRegistry(opts ...RegistryOption) (*defaultProfileRegistry, error) {
@@ -30,11 +31,21 @@ func newDefaultProfileRegistry(opts ...RegistryOption) (*defaultProfileRegistry,
 		opt(options)
 	}
 
+	presets := options.presetRegistry
+	if presets == nil {
+		builtinOnly, err := NewPresetRegistry()
+		if err != nil {
+			return nil, err
+		}
+		presets = builtinOnly
+	}
+
 	registry := &defaultProfileRegistry{
 		profiles:       make(map[string]*SandboxPolicy),
 		builtins:       make(map[string]struct{}),
 		builtinYAML:    make(map[string][]byte),
 		userProfileDir: options.userProfileDir,
+		presets:        presets,
 	}
 
 	if err := registry.loadBuiltinProfiles(); err != nil {
@@ -86,16 +97,37 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 	defer r.mu.Unlock()
 
 	for name, policy := range r.profiles {
-		if policy.Inherits != "" {
+		inherited := policy.Inherits != ""
+		if inherited {
 			if err := r.resolveInheritance(policy); err != nil {
 				return fmt.Errorf("failed to resolve inheritance for profile %s: %w", name, err)
 			}
+		}
 
-			// Validate after inheritance resolution
+		if err := r.applyPresets(policy); err != nil {
+			return fmt.Errorf("failed to apply presets for profile %s: %w", name, err)
+		}
+
+		if inherited || len(policy.Presets) > 0 {
 			if err := policy.ValidateResolved(); err != nil {
 				return fmt.Errorf("invalid profile %s after inheritance: %w: %w", name, ErrProfileInvalid, err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// An unknown preset is a hard error so profile authors get immediate
+// feedback instead of a silently under-provisioned sandbox at run time.
+func (r *defaultProfileRegistry) applyPresets(policy *SandboxPolicy) error {
+	for _, name := range policy.Presets {
+		info, err := r.presets.Get(name)
+		if err != nil {
+			return fmt.Errorf("preset %s referenced by profile %s: %w", name, policy.Name, err)
+		}
+
+		info.Preset.ApplyToPolicy(policy)
 	}
 
 	return nil
@@ -247,6 +279,10 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 		// Merge parent into child
 		policy.MergeWithParent(parent)
 		policy.Inherits = ""
+	}
+
+	if err := r.applyPresets(policy); err != nil {
+		return nil, fmt.Errorf("custom profile %s: %w", path, err)
 	}
 
 	// Validate after inheritance resolution

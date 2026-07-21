@@ -301,27 +301,29 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, denyArgs...)
 	}
 
-	// Skip mandatory write denies for paths the user listed in allow_read: the
-	// allow_read --ro-bind already denies writes (EROFS), and overlaying
-	// /dev/null on top would also mask reads, breaking the read-side opt-out.
-	// User-listed deny_write entries above are unaffected — "deny wins" still
-	// applies to explicit user rules.
+	// Mandatory write denies for paths in allow_read must keep reads working,
+	// so they get a read-only re-bind instead of the read-blocking
+	// processDenyRule overlay. The earlier allow_read --ro-bind is not
+	// sufficient: a later writable parent bind (allow_write ${CWD}/.git/**
+	// over allow_read ${CWD}/.git/config) wins in bwrap's last-mount-wins
+	// ordering, so the re-bind must come after all allow_write mounts.
 	allowReadSet := make(map[string]bool, len(expandedAllowRead))
 	for _, p := range expandedAllowRead {
 		allowReadSet[filepath.Clean(p)] = true
 	}
 	for _, pattern := range mandatoryResult.DenyWrite {
-		if allowReadSet[filepath.Clean(pattern)] {
-			continue
-		}
-
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
 			log.Warnf("Failed to expand variables in deny pattern '%s': %v", pattern, err)
 			continue
 		}
 
-		denyArgs, err := t.processDenyRule(expanded)
+		var denyArgs []string
+		if allowReadSet[filepath.Clean(pattern)] {
+			denyArgs, err = t.processDenyWriteRule(expanded)
+		} else {
+			denyArgs, err = t.processDenyRule(expanded)
+		}
 		if err != nil {
 			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
 			continue

@@ -94,3 +94,25 @@ func TestScrubEnv_NoCatchAllsInBuiltinList(t *testing.T) {
 	assert.Equal(t, []string{"SOME_RANDOM_TOKEN=x"}, got.Env)
 	assert.Empty(t, got.Removed)
 }
+
+func TestEnvNameMatchesAny(t *testing.T) {
+	cases := []struct {
+		name     string
+		varName  string
+		patterns []string
+		want     bool
+	}{
+		{name: "literal match case-insensitive", varName: "aws_secret_access_key", patterns: []string{"AWS_SECRET_ACCESS_KEY"}, want: true},
+		{name: "prefix glob", varName: "AWS_SECRET_ACCESS_KEY", patterns: []string{"AWS_*"}, want: true},
+		{name: "infix glob", varName: "AWS_SECRET_ACCESS_KEY", patterns: []string{"AWS_SECRET_*"}, want: true},
+		{name: "character class", varName: "AWS_SECRET_ACCESS_KEY", patterns: []string{"AWS_[A-Z]*_KEY"}, want: true},
+		{name: "no match", varName: "NPM_TOKEN", patterns: []string{"AWS_*", "GCP_*"}, want: false},
+		{name: "empty patterns", varName: "NPM_TOKEN", patterns: nil, want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, EnvNameMatchesAny(tc.varName, tc.patterns))
+		})
+	}
+}
