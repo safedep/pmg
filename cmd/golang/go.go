@@ -43,6 +43,13 @@ func executeGoFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create go package manager: %w", err)
 	}
 
+	// Reject a removed proxy opt-out before the CA trust check: the old code
+	// reported the mode error first, and a config problem must not steer the
+	// user into an unnecessary OS trust store change.
+	if err := config.RejectRemovedProxyOptOut(); err != nil {
+		return err
+	}
+
 	if err := requireTrustedCA(); err != nil {
 		return err
 	}

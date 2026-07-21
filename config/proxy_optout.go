@@ -23,8 +23,9 @@ import (
 // outcome.
 //
 // Resolution mirrors the old order:
-//  1. PMG_PROXY_ENABLED (ignored under lockdown) wins over everything. An
-//     unsupported value previously failed config loading, so it also errors.
+//  1. PMG_PROXY_ENABLED (ignored under lockdown) wins over everything.
+//     Unrecognized values fall back to the default (proxy on), like the old
+//     loader which silently discarded bad config and ran on defaults.
 //  2. The effective proxy.enabled file value, matched like viper resolved it
 //     (keys case-insensitive, literal dotted proxy.enabled key supported).
 //     Defaults to true.
@@ -37,7 +38,7 @@ func RejectRemovedProxyOptOut() error {
 
 	if !locked {
 		if raw := os.Getenv("PMG_PROXY_ENABLED"); raw != "" {
-			if enabled, ok := parseOptOutBool(raw); !ok || !enabled {
+			if enabled, ok := parseOptOutBool(raw); ok && !enabled {
 				return removedProxyOptOutError("Unset the PMG_PROXY_ENABLED environment variable")
 			}
 
@@ -55,14 +56,10 @@ func RejectRemovedProxyOptOut() error {
 
 	enabled, remedy := true, ""
 	if value, present := lookupProxyEnabled(rawKeys); present {
-		remedy = fmt.Sprintf("Remove proxy.enabled from %s", globalConfig.configFilePath)
-
-		parsed, ok := parseOptOutBool(value)
-		if !ok {
-			return removedProxyOptOutError(remedy)
+		if parsed, ok := parseOptOutBool(value); ok {
+			enabled = parsed
+			remedy = fmt.Sprintf("Remove proxy.enabled from %s", globalConfig.configFilePath)
 		}
-
-		enabled = parsed
 	}
 
 	// The legacy fallback only ran when the raw file had no exact "proxy" key,

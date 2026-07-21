@@ -71,9 +71,9 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:    "unsupported PMG_PROXY_ENABLED value previously failed startup",
+			name:    "unrecognized PMG_PROXY_ENABLED value falls back to proxy default",
 			env:     map[string]string{"PMG_PROXY_ENABLED": "off"},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:       "proxy.enabled numeric 0 in config",
@@ -165,9 +165,9 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 			wantErr:    true,
 		},
 		{
-			name:       "unsupported proxy.enabled value previously failed startup",
-			configYAML: "proxy:\n  enabled: banana\n",
-			wantErr:    true,
+			name:       "unrecognized proxy.enabled value falls back to proxy default",
+			configYAML: "proxy:\n  enabled: yes\n",
+			wantErr:    false,
 		},
 	}
 
