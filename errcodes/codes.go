@@ -35,6 +35,11 @@ const (
 	// suspicious package) and the run was gated with --fail-on-violation.
 	ProxyPolicyViolation = "ProxyPolicyViolation"
 
+	// Cloud error codes. CloudCredentialsNotFound is returned when a cloud
+	// operation needs SafeDep Cloud credentials but none are configured in the
+	// keychain or environment.
+	CloudCredentialsNotFound = "CloudCredentialsNotFound"
+
 	// Unknown mirrors the default code that dry/usefulerror returns for errors
 	// created without an explicit code, so unset and explicitly-unknown errors
 	// classify identically (e.g. the bug-report hint in ui.ErrorExit).
