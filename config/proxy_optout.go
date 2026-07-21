@@ -2,11 +2,11 @@ package config
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 )
@@ -17,113 +17,109 @@ import (
 // silently ignored: the user opted out of proxy interception and switching
 // them to it without notice would violate that expectation.
 //
-// Resolution mirrors the old order exactly:
-//  1. PMG_PROXY_ENABLED (ignored under lockdown) wins over everything.
-//  2. A proxy: key in the config file (presence, even null) makes the legacy
-//     surfaces inert; only proxy.enabled within it can opt out.
-//  3. Otherwise the legacy tier applies: PMG_PROXY_MODE (ignored under
-//     lockdown) wins over the flat proxy_mode file key.
+// This is a best-effort migration check covering the common opt-out spellings,
+// not an exhaustive re-implementation of the old resolution; pathological
+// configs are out of scope, and proxy interception runs regardless of its
+// outcome.
+//
+// Resolution mirrors the old order:
+//  1. PMG_PROXY_ENABLED (ignored under lockdown) wins over everything. An
+//     unsupported value previously failed config loading, so it also errors.
+//  2. The effective proxy.enabled file value, matched like viper resolved it
+//     (keys case-insensitive, literal dotted proxy.enabled key supported).
+//     Defaults to true.
+//  3. The legacy fallback overrides it when the raw file has no exact "proxy"
+//     key (the old hasProxySectionInFile gate was case-sensitive):
+//     PMG_PROXY_MODE (ignored under lockdown) wins over the flat proxy_mode
+//     file key, both coerced cast.ToBool-style (unparseable = false).
 func RejectRemovedProxyOptOut() error {
 	locked := globalConfig.IsLocked()
 
 	if !locked {
 		if raw := os.Getenv("PMG_PROXY_ENABLED"); raw != "" {
-			if enabled, ok := parseOptOutBool(raw); ok {
-				if !enabled {
-					return removedProxyOptOutError(fmt.Sprintf("environment variable PMG_PROXY_ENABLED=%s", raw))
-				}
-
-				return nil
+			if enabled, ok := parseOptOutBool(raw); !ok || !enabled {
+				return removedProxyOptOutError("Unset the PMG_PROXY_ENABLED environment variable")
 			}
+
+			return nil
 		}
 	}
 
-	fileKeys, err := readConfigFileKeys(globalConfig.configFilePath)
+	rawKeys, err := readConfigFileKeys(globalConfig.configFilePath)
 	if err != nil {
-		fileKeys = nil
+		if !os.IsNotExist(err) {
+			log.Warnf("skipping removed proxy opt-out check, could not read config file %s: %v", globalConfig.configFilePath, err)
+		}
+		rawKeys = nil
 	}
 
-	// Viper resolved file keys case-insensitively and expanded dotted keys, so
-	// spellings like Proxy:, Enabled: or a literal proxy.enabled key selected
-	// guard mode before. Normalize the raw keys the same way before checking.
-	fileKeys = normalizeConfigKeys(fileKeys)
+	enabled, remedy := true, ""
+	if value, present := lookupProxyEnabled(rawKeys); present {
+		remedy = fmt.Sprintf("Remove proxy.enabled from %s", globalConfig.configFilePath)
 
-	// Key presence alone gates the legacy tier, matching the old
-	// hasProxySectionInFile check: even proxy: null made legacy keys inert.
-	if _, hasProxySection := fileKeys["proxy"]; hasProxySection {
-		if section, ok := fileKeys["proxy"].(map[string]any); ok {
-			if enabled, ok := parseOptOutBool(section["enabled"]); ok && !enabled {
-				return removedProxyOptOutError(fmt.Sprintf("proxy.enabled: false in %s", globalConfig.configFilePath))
-			}
+		parsed, ok := parseOptOutBool(value)
+		if !ok {
+			return removedProxyOptOutError(remedy)
 		}
 
-		return nil
+		enabled = parsed
 	}
 
-	if !locked {
-		if raw := os.Getenv("PMG_PROXY_MODE"); raw != "" {
-			if enabled, ok := parseOptOutBool(raw); ok {
-				if !enabled {
-					return removedProxyOptOutError(fmt.Sprintf("environment variable PMG_PROXY_MODE=%s", raw))
-				}
-
-				return nil
-			}
+	// The legacy fallback only ran when the raw file had no exact "proxy" key,
+	// and within it the env var won over the flat file key with cast.ToBool
+	// coercion (any unparseable value meant false).
+	if _, hasRawProxyKey := rawKeys["proxy"]; !hasRawProxyKey {
+		if envRaw := os.Getenv("PMG_PROXY_MODE"); !locked && envRaw != "" {
+			enabled = legacyBoolValue(envRaw)
+			remedy = "Unset the PMG_PROXY_MODE environment variable"
+		} else if value, present := lookupKeyFold(rawKeys, "proxy_mode"); present {
+			enabled = legacyBoolValue(value)
+			remedy = fmt.Sprintf("Remove proxy_mode from %s", globalConfig.configFilePath)
 		}
 	}
 
-	if enabled, ok := parseOptOutBool(fileKeys["proxy_mode"]); ok && !enabled {
-		return removedProxyOptOutError(fmt.Sprintf("proxy_mode: false in %s", globalConfig.configFilePath))
+	if !enabled {
+		return removedProxyOptOutError(remedy)
 	}
 
 	return nil
 }
 
-// normalizeConfigKeys lowercases keys recursively and expands dotted keys into
-// nested maps, mirroring viper's key resolution (case-insensitive, "." delim).
-func normalizeConfigKeys(raw map[string]any) map[string]any {
-	if raw == nil {
-		return nil
-	}
-
-	out := map[string]any{}
+// lookupProxyEnabled returns the proxy.enabled value viper would have resolved
+// from the raw file keys: an enabled key inside a proxy: section or a literal
+// dotted proxy.enabled key, all matched case-insensitively like viper.
+func lookupProxyEnabled(raw map[string]any) (any, bool) {
 	for key, value := range raw {
-		if nested, ok := value.(map[string]any); ok {
-			value = normalizeConfigKeys(nested)
-		}
-
-		insertConfigKeyPath(out, strings.Split(strings.ToLower(key), "."), value)
-	}
-
-	return out
-}
-
-func insertConfigKeyPath(m map[string]any, path []string, value any) {
-	if len(path) == 1 {
-		if existing, ok := m[path[0]].(map[string]any); ok {
-			if incoming, ok := value.(map[string]any); ok {
-				maps.Copy(existing, incoming)
-				return
+		switch strings.ToLower(key) {
+		case "proxy":
+			if section, ok := value.(map[string]any); ok {
+				if v, present := lookupKeyFold(section, "enabled"); present {
+					return v, true
+				}
 			}
+		case "proxy.enabled":
+			return value, true
 		}
-
-		m[path[0]] = value
-		return
 	}
 
-	child, ok := m[path[0]].(map[string]any)
-	if !ok {
-		child = map[string]any{}
-		m[path[0]] = child
-	}
-
-	insertConfigKeyPath(child, path[1:], value)
+	return nil, false
 }
 
-// parseOptOutBool matches the coercion the old resolution applied: viper's
-// Unmarshal ran with WeaklyTypedInput and the legacy fallback used GetBool
-// (cast.ToBool), both of which accept bools, numbers (0 = false) and
-// ParseBool-compatible strings.
+// lookupKeyFold returns the value for key, matching case-insensitively like
+// viper's key resolution.
+func lookupKeyFold(m map[string]any, key string) (any, bool) {
+	for k, v := range m {
+		if strings.ToLower(k) == key {
+			return v, true
+		}
+	}
+
+	return nil, false
+}
+
+// parseOptOutBool matches the coercion viper's Unmarshal (WeaklyTypedInput)
+// applied to proxy.enabled: bools, numbers (0 = false) and ParseBool-compatible
+// strings. Anything else reports no opinion.
 func parseOptOutBool(v any) (bool, bool) {
 	switch t := v.(type) {
 	case bool:
@@ -145,10 +141,18 @@ func parseOptOutBool(v any) (bool, bool) {
 	return false, false
 }
 
-func removedProxyOptOutError(source string) error {
+// legacyBoolValue matches cast.ToBool, which the old fallback used via
+// v.GetBool: unparseable values (including null) coerce to false instead of
+// being ignored, so PMG_PROXY_MODE=off previously selected guard mode.
+func legacyBoolValue(v any) bool {
+	enabled, ok := parseOptOutBool(v)
+	return ok && enabled
+}
+
+func removedProxyOptOutError(remedy string) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.InvalidArgument).
-		WithHumanError(fmt.Sprintf("guard mode has been removed and proxy interception can no longer be disabled, but it is explicitly disabled by %s", source)).
-		WithHelp("Remove proxy.enabled / proxy_mode from your PMG config file and unset PMG_PROXY_ENABLED / PMG_PROXY_MODE. If proxy interception does not work in your environment, report it at https://github.com/safedep/pmg/issues").
+		WithHumanError("guard mode has been removed and proxy interception can no longer be disabled").
+		WithHelp(fmt.Sprintf("%s. If proxy interception does not work in your environment, report it at https://github.com/safedep/pmg/issues", remedy)).
 		WithMsg("removed proxy opt-out is still configured")
 }

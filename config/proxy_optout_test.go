@@ -71,9 +71,9 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:    "unparseable env value is ignored",
-			env:     map[string]string{"PMG_PROXY_ENABLED": "not-a-bool"},
-			wantErr: false,
+			name:    "unsupported PMG_PROXY_ENABLED value previously failed startup",
+			env:     map[string]string{"PMG_PROXY_ENABLED": "off"},
+			wantErr: true,
 		},
 		{
 			name:       "proxy.enabled numeric 0 in config",
@@ -139,6 +139,36 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 			configYAML: "proxy.enabled: true\n",
 			wantErr:    false,
 		},
+		{
+			name:       "case-variant Proxy section does not gate the legacy flat key",
+			configYAML: "Proxy:\n  install_only: true\nproxy_mode: false\n",
+			wantErr:    true,
+		},
+		{
+			name:       "dotted proxy.enabled false was overridden by legacy proxy_mode true",
+			configYAML: "proxy.enabled: false\nproxy_mode: true\n",
+			wantErr:    false,
+		},
+		{
+			name:       "null proxy key with dotted proxy.enabled false is deterministic",
+			configYAML: "proxy:\nproxy.enabled: false\n",
+			wantErr:    true,
+		},
+		{
+			name:    "PMG_PROXY_MODE unparseable value coerced to false like cast.ToBool",
+			env:     map[string]string{"PMG_PROXY_MODE": "off"},
+			wantErr: true,
+		},
+		{
+			name:       "flat proxy_mode unparseable value coerced to false",
+			configYAML: "proxy_mode: \"off\"\n",
+			wantErr:    true,
+		},
+		{
+			name:       "unsupported proxy.enabled value previously failed startup",
+			configYAML: "proxy:\n  enabled: banana\n",
+			wantErr:    true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -165,5 +195,51 @@ func TestRejectRemovedProxyOptOut(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
+	}
+}
+
+// A locked (managed) config ignored env vars entirely in the old resolution,
+// so under lockdown env opt-outs must not trigger and env enables must not
+// rescue a file opt-out.
+func TestRejectRemovedProxyOptOutLockedIgnoresEnv(t *testing.T) {
+	t.Run("env opt-out is inert under lockdown", func(t *testing.T) {
+		globalDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("global_lockdown: true\n"), 0o644))
+
+		useManagedConfigDir(t, globalDir)
+		t.Setenv("PMG_PROXY_ENABLED", "false")
+		initConfig()
+
+		require.True(t, Get().IsLocked())
+		require.NoError(t, RejectRemovedProxyOptOut())
+	})
+
+	t.Run("env enable cannot rescue a file opt-out under lockdown", func(t *testing.T) {
+		globalDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("global_lockdown: true\nproxy_mode: false\n"), 0o644))
+
+		useManagedConfigDir(t, globalDir)
+		t.Setenv("PMG_PROXY_ENABLED", "true")
+		t.Setenv("PMG_PROXY_MODE", "true")
+		initConfig()
+
+		require.True(t, Get().IsLocked())
+		require.Error(t, RejectRemovedProxyOptOut())
+	})
+}
+
+// Colliding spellings must resolve the same way on every invocation: map
+// iteration order varies per parse, so repeat the check to catch order
+// dependent resolution (this was an observed 42-in-50 flake before).
+func TestRejectRemovedProxyOptOutDeterministic(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PMG_CONFIG_DIR", tmpDir)
+
+	configYAML := "proxy:\nproxy.enabled: false\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte(configYAML), 0o644))
+	initConfig()
+
+	for range 25 {
+		require.Error(t, RejectRemovedProxyOptOut())
 	}
 }
