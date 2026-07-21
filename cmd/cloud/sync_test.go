@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
@@ -50,6 +51,7 @@ func TestSyncFailureError(t *testing.T) {
 		err           error
 		expectedCode  string
 		expectedHuman string
+		expectedHelp  string
 	}{
 		{
 			name:          "sync already in progress",
@@ -58,16 +60,25 @@ func TestSyncFailureError(t *testing.T) {
 			expectedHuman: "Another cloud sync is already in progress",
 		},
 		{
-			name:          "authentication failure passes through",
+			name:          "missing credentials maps to setup guidance",
+			err:           fmt.Errorf("init cloud sync client: failed to resolve cloud credentials: %w", cloud.ErrMissingCredentials),
+			expectedCode:  errcodes.CloudCredentialsNotFound,
+			expectedHuman: "SafeDep Cloud credentials are not configured",
+			expectedHelp:  "Run 'pmg cloud login' to store credentials, or set the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables",
+		},
+		{
+			name:          "authentication failure gets credential guidance",
 			err:           wrap(status.Error(codes.Unauthenticated, "invalid API key")),
 			expectedCode:  usefulerror.ErrAuthenticationFailed,
-			expectedHuman: "Authentication failed",
+			expectedHuman: "SafeDep Cloud rejected your credentials",
+			expectedHelp:  "Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables",
 		},
 		{
 			name:          "entitlement failure passes through",
 			err:           wrap(entitlementStatusErr(t, 0)),
 			expectedCode:  usefulerror.ErrMissingEntitlements,
 			expectedHuman: "Permission denied",
+			expectedHelp:  "Access to this feature requires a SafeDep subscription. See https://safedep.io/pricing",
 		},
 		{
 			name: "entitlement failure with re-wrapped details passes through",
@@ -78,10 +89,11 @@ func TestSyncFailureError(t *testing.T) {
 			expectedHuman: "Permission denied",
 		},
 		{
-			name:          "permission denied without entitlement detail",
+			name:          "permission denied without entitlement detail gets credential guidance",
 			err:           wrap(status.Error(codes.PermissionDenied, "no access")),
 			expectedCode:  usefulerror.ErrAuthorizationFailed,
-			expectedHuman: "Permission denied",
+			expectedHuman: "SafeDep Cloud rejected your credentials",
+			expectedHelp:  "Run 'pmg cloud login' to update credentials, or check the SAFEDEP_API_KEY and SAFEDEP_TENANT_ID environment variables",
 		},
 		{
 			name:          "server internal error passes through",
@@ -107,6 +119,9 @@ func TestSyncFailureError(t *testing.T) {
 
 			assert.Equal(t, tt.expectedCode, usefulErr.Code())
 			assert.Equal(t, tt.expectedHuman, usefulErr.HumanError())
+			if tt.expectedHelp != "" {
+				assert.Equal(t, tt.expectedHelp, usefulErr.Help())
+			}
 		})
 	}
 }
