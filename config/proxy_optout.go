@@ -114,28 +114,12 @@ func lookupKeyFold(m map[string]any, key string) (any, bool) {
 	return nil, false
 }
 
-// parseOptOutBool matches the coercion viper's Unmarshal (WeaklyTypedInput)
-// applied to proxy.enabled: bools, numbers (0 = false) and ParseBool-compatible
-// strings. Anything else reports no opinion.
+// parseOptOutBool reads a boolean out of whatever the YAML parser or the
+// environment produced (bool, 0/1 numbers, ParseBool-compatible strings) by
+// coercing the value through its string form. Anything else reports no opinion.
 func parseOptOutBool(v any) (bool, bool) {
-	switch t := v.(type) {
-	case bool:
-		return t, true
-	case int:
-		return t != 0, true
-	case int64:
-		return t != 0, true
-	case uint64:
-		return t != 0, true
-	case float64:
-		return t != 0, true
-	case string:
-		if b, err := strconv.ParseBool(t); err == nil {
-			return b, true
-		}
-	}
-
-	return false, false
+	b, err := strconv.ParseBool(fmt.Sprintf("%v", v))
+	return b, err == nil
 }
 
 // legacyBoolValue matches cast.ToBool, which the old fallback used via
