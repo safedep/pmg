@@ -93,6 +93,8 @@ type auditEvent struct {
 	Type    auditEventType `json:"type"`
 	Syscall string         `json:"syscall,omitempty"`
 	Path    string         `json:"path,omitempty"`
+	Access  string         `json:"access,omitempty"`
+	Comm    string         `json:"comm,omitempty"`
 	PID     int            `json:"pid,omitempty"`
 	Message string         `json:"message,omitempty"`
 	Error   string         `json:"error,omitempty"`
@@ -306,9 +308,9 @@ type seccompPhase struct {
 	// memFd is the pre-opened /proc/<childPID>/mem fd for the direct child.
 	// Descendants (grandchildren spawned via fork/exec) have their own PIDs;
 	// use memFdFor(pid) to resolve the right fd for any notification.
-	memFd     *os.File
-	denyPaths []denyPathEntry
-	denyExec  []string
+	memFd       *os.File
+	denyPaths   []denyPathEntry
+	denyExec    []string
 	auditWriter io.Writer
 
 	// memFdCache maps descendant PID -> /proc/<pid>/mem fd. Entries live for
@@ -327,7 +329,6 @@ type seccompSupervisor struct {
 	phase    atomic.Pointer[seccompPhase]
 	loopDone chan struct{}
 }
-
 
 // newLandlockSupervisorFromFd wraps an already-created seccomp notify fd
 // (obtained from the shim over a socketpair) in a supervisor. It does NOT
@@ -521,6 +522,7 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 				Type:    auditSeccompDeny,
 				Syscall: syscallName(notif.Data.Nr),
 				Path:    resolved,
+				Comm:    procComm(notif.PID),
 				PID:     int(notif.PID),
 			})
 		}
@@ -568,6 +570,8 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 				Type:    auditSeccompDeny,
 				Syscall: syscallName(notif.Data.Nr),
 				Path:    resolved,
+				Access:  accessModeString(flags),
+				Comm:    procComm(notif.PID),
 				PID:     int(notif.PID),
 			})
 		}
@@ -592,6 +596,26 @@ func syscallName(nr int32) string {
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
 	}
+}
+
+// accessModeString maps an O_ACCMODE value to the audit event access label.
+// O_RDWR counts as write: the denial applies to the stronger access.
+func accessModeString(flags int) string {
+	if flags&unix.O_ACCMODE == unix.O_RDONLY {
+		return "read"
+	}
+	return "write"
+}
+
+// procComm returns the process name from /proc/<pid>/comm, best-effort. The
+// process may already be gone when the denial is recorded, so failures yield
+// an empty name rather than an error.
+func procComm(pid uint32) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // waitForNotif blocks until notifyFd has a notification to read or stopFd is

@@ -5,11 +5,14 @@ package platform
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,14 +80,20 @@ func writePolicyFile(t *testing.T, p *landlockExecPolicy) string {
 }
 
 // runHelper invokes the hidden helper subcommand with the given policy and
-// returns (stdout, stderr, exit-code).
+// returns (stdout, stderr, exit-code). The audit socket points nowhere; use
+// runHelperWithAuditSocket to collect audit events.
 func runHelper(t *testing.T, policyPath string) (string, string, int) {
+	t.Helper()
+	return runHelperWithAuditSocket(t, policyPath, "/tmp/pmg-test-audit.sock.nonexistent")
+}
+
+func runHelperWithAuditSocket(t *testing.T, policyPath, auditSocket string) (string, string, int) {
 	t.Helper()
 	pmg := buildPmgBinary(t)
 	cmd := exec.Command(pmg,
 		"__landlock_sandbox_exec",
 		"--policy-file", policyPath,
-		"--audit-socket", "/tmp/pmg-test-audit.sock.nonexistent",
+		"--audit-socket", auditSocket,
 	)
 	// PMG_KEEP_POLICY ensures test state is visible on failure.
 	cmd.Env = append(os.Environ(), "PMG_KEEP_POLICY=1")
@@ -296,6 +305,79 @@ func TestLandlockHelper_GrandchildDenyBlocksRead(t *testing.T) {
 	assert.True(t,
 		bytesContainsAny(combined, []string{"Permission denied", "EACCES"}),
 		"expected permission-denied from grandchild; got: %q", combined)
+}
+
+// TestLandlockHelper_DenyEmitsAuditViolation closes the loop from a real
+// in-kernel denial to the violation report surfaced by `pmg sandbox
+// violations` / `explain`: the helper's supervisor denies a read, emits the
+// audit event over the socket, and the driver's capture + mapping code must
+// turn it into a typed fs_read violation.
+func TestLandlockHelper_DenyEmitsAuditViolation(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/usr/bin/cat"); err != nil {
+		t.Skip("/usr/bin/cat not found")
+	}
+
+	home := t.TempDir()
+	secretPath := filepath.Join(home, ".ssh", "id_ed25519")
+	require.NoError(t, os.Mkdir(filepath.Join(home, ".ssh"), 0o700))
+	require.NoError(t, os.WriteFile(secretPath, []byte("SECRET"), 0o600))
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: home, Access: landlockRuleReadExec},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: filepath.Join(home, ".ssh"), Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/usr/bin/cat",
+		Args:             []string{secretPath},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	socketPath := filepath.Join(t.TempDir(), "audit.sock")
+	listener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, listener.Close())
+	}()
+
+	s := &landlockSandbox{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		s.captureAuditEvents(conn)
+		_ = conn.Close()
+	}()
+
+	stdout, stderr, exit := runHelperWithAuditSocket(t, policyPath, socketPath)
+	assert.NotEqual(t, 0, exit, "cat should have failed; stdout=%q stderr=%q", stdout, stderr)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("audit reader did not finish after helper exit")
+	}
+
+	violations := extractLandlockViolations(s.auditEvents)
+	require.NotEmpty(t, violations, "expected a captured violation; stdout=%q stderr=%q", stdout, stderr)
+
+	v := violations[0]
+	assert.Equal(t, sandbox.ViolationKindFSRead, v.Kind)
+	assert.Equal(t, secretPath, v.Target)
+	assert.Equal(t, "read access denied: "+secretPath, v.RuleLabel)
+	assert.Equal(t, "cat", v.Process)
 }
 
 // bytesContainsAny reports whether s contains any of the given substrings.

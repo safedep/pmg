@@ -210,8 +210,17 @@ pmg sandbox profile show npm-restrictive --resolved
 ```
 
 `pmg sandbox doctor` runs platform-specific checks for the current host. Cached violation reports
-used by `violations list` and `explain --last` are currently produced by macOS Seatbelt diagnostics;
-on Linux, Bubblewrap and Landlock denials may only appear as command errors such as `EACCES`.
+used by `violations list` and `explain --last` are produced by macOS Seatbelt diagnostics and, on
+Linux, by the Landlock driver's seccomp supervisor.
+
+Coverage differs by platform. Seatbelt logs every denial, including the default-deny allow-list
+boundary. The Landlock driver only reports denials made by its seccomp deny-list layer (reads and
+writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself —
+operations outside the allow-list, delete/rename, network rules — fail in-kernel with `EACCES` and
+produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
+seccomp, so they are likewise not reported. Operational degradation events on the audit socket
+(`namespace_isolation_unavailable`, `memfd_open_failed`) are not included in violation reports
+today; they may be added later. Bubblewrap denials only appear as command errors such as `EACCES`.
 
 ### Runtime Allow Overrides
 
@@ -613,6 +622,10 @@ bwrap --verbose [arguments...] -- npm install express
 ```
 
 **Note**: Unlike macOS, Bubblewrap does not provide real-time violation logging. Policy violations typically manifest as `EACCES` (Permission denied) errors.
+
+With the Landlock driver, denials made by the seccomp deny-list layer on a failed run are captured
+into the violation cache and can be inspected with `pmg sandbox violations list` and
+`pmg sandbox explain --last` (see Sandbox Debug Commands above for coverage limits).
 
 ## References
 
