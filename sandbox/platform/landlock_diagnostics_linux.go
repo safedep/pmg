@@ -55,16 +55,24 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 
 		// Dedupe deny events before the cap: a tight retry loop on one denied
 		// path must not fill the buffer and evict a later distinct denial.
+		// seen is marked only on append so it stays bounded by the cap — the
+		// keys carry attacker-chosen path bytes, so an unbounded map would
+		// reintroduce the memory growth the cap exists to prevent. Once the
+		// buffer is full, new distinct denials hit the drop branch (and its
+		// one-time warning) instead of growing the map.
+		key := ""
 		if evt.Type == auditSeccompDeny {
-			key := landlockDenyKey(evt)
+			key = landlockDenyKey(evt)
 			if seen[key] {
 				continue
 			}
-			seen[key] = true
 		}
 
 		s.auditMu.Lock()
 		if len(s.auditEvents) < landlockAuditEventCap {
+			if key != "" {
+				seen[key] = true
+			}
 			s.auditEvents = append(s.auditEvents, capturedAuditEvent{auditEvent: evt, raw: string(line)})
 		} else if !dropped {
 			dropped = true
