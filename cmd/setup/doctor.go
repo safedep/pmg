@@ -27,7 +27,6 @@ const (
 	checkShellAliases       = "shell-aliases"
 	checkShimDirectory      = "shim-directory"
 	checkShimInPath         = "shim-in-path"
-	checkProxyMode          = "proxy-mode"
 	checkDependencyCooldown = "dependency-cooldown"
 	checkEventLogging       = "event-logging"
 	checkSandbox            = "sandbox"
@@ -174,22 +173,6 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkShimInPath,
 			Category: "Shell Integration",
 			Run:      checkShimInPathResult,
-		},
-		{
-			Name:     checkProxyMode,
-			Category: "Security",
-			Run: func() doctor.CheckResult {
-				if cfg.IsProxyModeEnabled() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusPass,
-						Message: "Proxy mode is enabled",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusFail,
-					Message: "Proxy mode is disabled",
-				}
-			},
 		},
 		{
 			Name:     checkDependencyCooldown,
@@ -499,7 +482,6 @@ var checkDisplayNames = map[string]string{
 	checkShellAliases:       "Shell aliases",
 	checkShimDirectory:      "Shim directory",
 	checkShimInPath:         "Shim in PATH",
-	checkProxyMode:          "Proxy mode",
 	checkDependencyCooldown: "Dependency cooldown",
 	checkEventLogging:       "Event logging",
 	checkSandbox:            "Sandbox",
@@ -515,7 +497,6 @@ var checkFixes = map[string]string{
 	checkShellAliases:       "pmg setup install",
 	checkShimDirectory:      "pmg setup install",
 	checkShimInPath:         "Restart shell or source profile",
-	checkProxyMode:          "Set proxy.enabled: true in config",
 	checkSandbox:            "Set sandbox.enabled: true in config",
 	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
 	checkEventLogging:       "Set skip_event_logging: false in config",

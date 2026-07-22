@@ -290,7 +290,6 @@ func LogSessionComplete(outcome Outcome, flowType FlowType) {
 		Duration:             time.Since(s.startTime),
 		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
 		ParanoidMode:         cfg.Config.Paranoid,
-		TransitiveEnabled:    cfg.Config.Transitive,
 	})
 }
 

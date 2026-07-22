@@ -1,6 +1,6 @@
 # Proxy Mode
 
-PMG supports proxy based interception as an alternative to the current optimistic dependency resolution. When enabled:
+PMG protects package installations through proxy based interception:
 
 - PMG starts a micro-proxy server on a random localhost port
 - Runs `npm` and other supported package managers configured to use the proxy
@@ -19,12 +19,11 @@ Proxy behavior is configured under the `proxy:` section in `config.yml`:
 
 ```yaml
 proxy:
-  enabled: true
+  install_only: false
 ```
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Enable proxy-based interception. When `false`, PMG falls back to guard-based analysis. |
 | `install_only` | `false` | When `true`, only install commands are proxied. Other commands (e.g., `npm ls`, `pip list`) bypass the proxy and execute directly. |
 | `skip_commands` | `{}` | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`. |
 
@@ -42,18 +41,19 @@ proxy:
 
 Commands in `skip_commands` are matched against the first non-flag argument. For example, `npm dev` would match `dev`, but `npm install dev` would not since `install` is the first non-flag argument.
 
-### CLI flags
-
-Use `--proxy-mode` to override `proxy.enabled` at runtime.
-
 ### Environment variables
 
 | Variable | Description |
 |---|---|
-| `PMG_PROXY_ENABLED` | Override `proxy.enabled` |
 | `PMG_PROXY_INSTALL_ONLY` | Override `proxy.install_only` |
 
-Legacy variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat config keys) are still supported when the `proxy:` section does not exist in the config file.
+The legacy flat config key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
+
+### Removed: disabling proxy interception
+
+Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out — `proxy.enabled: false` or `proxy_mode: false` in the config file, `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment — instead of silently switching to proxy interception. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
+
+Note one trade-off versus the removed guard mode: the proxy analyzes packages as they are downloaded, so installs fully served from a local package manager cache (e.g. npm cache, pnpm store, pip cache, `--offline` installs) do not trigger analysis. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. Packages are analyzed when first fetched through the proxy, which is when they enter those caches.
 
 ## Supported Package Managers
 

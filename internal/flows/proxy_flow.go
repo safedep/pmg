@@ -9,7 +9,6 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/guard"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runner"
@@ -21,20 +20,37 @@ import (
 )
 
 type proxyFlow struct {
-	pm              packagemanager.PackageManager
-	packageResolver packagemanager.PackageResolver
+	pm packagemanager.PackageManager
 }
 
 // ProxyFlow creates a new proxy-based flow for package manager protection
-func ProxyFlow(pm packagemanager.PackageManager, packageResolver packagemanager.PackageResolver) *proxyFlow {
+func ProxyFlow(pm packagemanager.PackageManager) *proxyFlow {
 	return &proxyFlow{
-		pm:              pm,
-		packageResolver: packageResolver,
+		pm: pm,
 	}
+}
+
+// RunProxy parses args with pm and runs the proxy flow on the parsed command.
+// It is the shared entry point for package manager commands.
+func RunProxy(ctx context.Context, pm packagemanager.PackageManager, args []string) error {
+	parsedCommand, err := pm.ParseCommand(args)
+	if err != nil {
+		return fmt.Errorf("failed to parse command: %w", err)
+	}
+
+	return ProxyFlow(pm).Run(ctx, args, parsedCommand)
 }
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
+	// Guard mode is removed: a config or environment that still disables proxy
+	// interception must fail loudly instead of being silently switched to proxy
+	// mode. Checked here rather than at CLI startup so non-install commands
+	// (pmg config, setup remove, doctor, ...) stay usable to fix the config.
+	if err := config.RejectRemovedProxyOptOut(); err != nil {
+		return err
+	}
+
 	// Check if we have a supported ecosystem else fail fast
 	ecosystem := f.pm.Ecosystem()
 	if !interceptors.IsSupported(ecosystem) {
@@ -68,7 +84,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.FlowType = ui.FlowTypeProxy
 	reportData.DryRun = cfg.DryRun
 	reportData.InsecureMode = cfg.InsecureInstallation
-	reportData.TransitiveEnabled = cfg.Config.Transitive
 	reportData.ParanoidMode = cfg.Config.Paranoid
 	reportData.SandboxEnabled = cfg.Config.Sandbox.Enabled
 
@@ -157,12 +172,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Create interaction callbacks for user prompts
 	// Note: We use a pointer so we can later inject the input reader via SetInput
-	interaction := &guard.PackageManagerGuardInteraction{
-		SetStatus:   ui.SetStatus,
-		ClearStatus: ui.ClearStatus,
-		ShowWarning: ui.ShowWarning,
-		Block:       ui.BlockNoExit,
-	}
+	interaction := &packagemanager.PackageManagerInteraction{}
 
 	// Extract pinned versions from install targets so cooldown handlers can
 	// report when a user's explicitly requested version was blocked.

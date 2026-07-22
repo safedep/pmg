@@ -102,7 +102,6 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 				Command:           command,
 				InstallTargets:    []*PackageInstallTarget{},
 				IsManifestInstall: true,
-				ManifestFiles:     []string{},
 			}, nil
 		}
 
@@ -205,7 +204,6 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     []string{},
 	}, nil
 }
 

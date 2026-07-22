@@ -43,20 +43,18 @@ func executeGoFlow(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to create go package manager: %w", err)
 	}
 
-	parsedCommand, err := packageManager.ParseCommand(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-
-	if !config.Get().IsProxyModeEnabled() {
-		return errGoRequiresProxyMode()
+	// Reject a removed proxy opt-out before the CA trust check: the old code
+	// reported the mode error first, and a config problem must not steer the
+	// user into an unnecessary OS trust store change.
+	if err := config.RejectRemovedProxyOptOut(); err != nil {
+		return err
 	}
 
 	if err := requireTrustedCA(); err != nil {
 		return err
 	}
 
-	return flows.ProxyFlow(packageManager, packagemanager.NewNoopPackageResolver()).Run(ctx, args, parsedCommand)
+	return flows.RunProxy(ctx, packageManager, args)
 }
 
 // requireTrustedCA fails fast when Go cannot trust PMG's MITM CA. Go's
@@ -83,14 +81,6 @@ func requireTrustedCA() error {
 	}
 
 	return nil
-}
-
-func errGoRequiresProxyMode() error {
-	return usefulerror.NewUsefulError().
-		WithCode(errcodes.InvalidArgument).
-		WithHumanError("Go support requires proxy mode, which is disabled in your configuration.").
-		WithHelp("Enable proxy mode (proxy.enabled: true in the PMG config) and retry.").
-		WithMsg("go requires proxy mode")
 }
 
 func errGoCertNotTrusted(cause error) error {

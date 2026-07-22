@@ -37,7 +37,7 @@ inputs:
     required: false
     default: ""
   proxy-mode:
-    description: Use proxy-based interception (PMG_PROXY_ENABLED). Empty = use PMG default (true). Setting "false" falls back to guard-based analysis.
+    description: REMOVED. PMG always uses proxy-based interception. Setting "false" fails the action; any other value is ignored with a warning.
     required: false
     default: ""
 
@@ -252,6 +252,19 @@ runs:
           fi
         }
 
+        # Guard mode is removed: fail loudly when a workflow still opts out of
+        # proxy interception instead of silently switching it to proxy mode.
+        case "$(echo "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
+          false|0|f)
+            echo "::error::PMG guard mode has been removed and proxy interception can no longer be disabled. Remove the 'proxy-mode' input." >&2
+            exit 1
+            ;;
+          "") ;;
+          *)
+            echo "::warning::The 'proxy-mode' input is removed and has no effect. Remove it from your workflow." >&2
+            ;;
+        esac
+
         # Cloud credentials. PMG sync reads these directly when no keychain
         # credential is found, so we skip "pmg cloud login" entirely.
         if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
@@ -294,7 +307,6 @@ runs:
         export_var PMG_PARANOID                     "$IN_PARANOID"
         export_var PMG_DEPENDENCY_COOLDOWN_ENABLED  "$IN_COOLDOWN_ENABLED"
         export_var PMG_DEPENDENCY_COOLDOWN_DAYS     "$IN_COOLDOWN_DAYS"
-        export_var PMG_PROXY_ENABLED                "$IN_PROXY_MODE"
         export_var PMG_SANDBOX_ENABLED              "$IN_SANDBOX"
         if [ "$IN_SANDBOX" = "true" ]; then
           driver="${IN_SANDBOX_DRIVER:-landlock}"

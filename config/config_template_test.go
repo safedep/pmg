@@ -26,9 +26,6 @@ func TestTemplateParsesAsYAML(t *testing.T) {
 	err = v.Unmarshal(&cfg)
 	assert.NoError(t, err, "expected no error while unmarshalling config")
 
-	assert.True(t, true, cfg.Transitive, "expected Transitive true")
-	assert.Equal(t, 5, cfg.TransitiveDepth, "expected TransitiveDepth 5")
-	assert.False(t, false, cfg.IncludeDevDependencies, "expected IncludeDevDependencies false")
 	assert.False(t, false, cfg.Paranoid, "expected Paranoid false")
 	assert.False(t, cfg.DisableTelemetry, "expected DisableTelemetry false")
 	assert.False(t, false, cfg.SkipEventLogging, "expected SkipEventLogging false")
@@ -50,9 +47,6 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 
 	def := DefaultConfig().Config
 
-	assert.Equal(t, def.Transitive, parsed.Transitive, "transitive mismatch")
-	assert.Equal(t, def.TransitiveDepth, parsed.TransitiveDepth, "transitive_depth mismatch")
-	assert.Equal(t, def.IncludeDevDependencies, parsed.IncludeDevDependencies, "include_dev_dependencies mismatch")
 	assert.Equal(t, def.Paranoid, parsed.Paranoid, "paranoid mismatch")
 	assert.Equal(t, def.DisableTelemetry, parsed.DisableTelemetry, "disable_telemetry mismatch")
 	assert.Equal(t, def.SkipEventLogging, parsed.SkipEventLogging, "skip_event_logging mismatch")

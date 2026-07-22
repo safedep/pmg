@@ -120,17 +120,11 @@ func globalConfigEnablesLockdown(path string) bool {
 
 // applyProxyLegacyFallback populates the new Proxy struct from deprecated
 // flat keys when the user's config file does not have a proxy: section.
-// New env vars (PMG_PROXY_ENABLED, PMG_PROXY_INSTALL_ONLY) take precedence
-// over legacy config file keys to respect the documented precedence order.
+// The new env var (PMG_PROXY_INSTALL_ONLY) takes precedence over legacy
+// config file keys to respect the documented precedence order.
 func applyProxyLegacyFallback(v *viper.Viper) {
 	// A locked config ignores env, so env must not suppress the legacy migration.
 	envIgnored := globalConfig.IsLocked()
-
-	if (envIgnored || os.Getenv("PMG_PROXY_ENABLED") == "") && v.IsSet("proxy_mode") {
-		val := v.GetBool("proxy_mode")
-		globalConfig.Config.Proxy.Enabled = val
-		v.Set("proxy.enabled", val)
-	}
 
 	if (envIgnored || os.Getenv("PMG_PROXY_INSTALL_ONLY") == "") && v.IsSet("proxy_install_only") {
 		val := v.GetBool("proxy_install_only")

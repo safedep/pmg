@@ -60,7 +60,7 @@ in doubt, keep the cache disabled (the default) or use a short `ttl`.
 
 ## Requirements
 
-The analysis cache applies to [proxy mode](proxy-mode.md). It is independent of
+The analysis cache is independent of
 [dependency cooldown](dependency-cooldown.md): cooldown decides which *versions*
 are eligible to install, while the analysis cache remembers malware verdicts for
 versions that were already screened.

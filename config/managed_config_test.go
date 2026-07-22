@@ -25,9 +25,9 @@ func TestManagedConfigTakesPrecedenceAndIgnoresUserFile(t *testing.T) {
 	userDir := t.TempDir()
 
 	// Global file sets paranoid=true (default is false). User file sets
-	// transitive=false (default is true) and must be ignored entirely.
+	// skip_event_logging=true (default is false) and must be ignored entirely.
 	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(userDir, "config.yml"), []byte("transitive: false\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, "config.yml"), []byte("skip_event_logging: true\n"), 0o644))
 
 	useManagedConfigDir(t, globalDir)
 	t.Setenv("PMG_CONFIG_DIR", userDir)
@@ -39,7 +39,7 @@ func TestManagedConfigTakesPrecedenceAndIgnoresUserFile(t *testing.T) {
 	assert.Equal(t, filepath.Join(userDir, "config.yml"), cfg.UserConfigFilePath())
 
 	assert.True(t, cfg.Config.Paranoid, "value should come from the global file")
-	assert.True(t, cfg.Config.Transitive, "user file must be ignored, so this stays at the template default")
+	assert.False(t, cfg.Config.SkipEventLogging, "user file must be ignored, so this stays at the template default")
 }
 
 func TestManagedConfigFallsBackToUserWhenGlobalAbsent(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/packagemanager"
 )
 
 // ConfirmController drives the suspicious-package confirmation prompt. The
@@ -46,8 +46,8 @@ func (c *ConfirmController) Prompts() [][]string {
 	return out
 }
 
-func (c *ConfirmController) interaction() *guard.PackageManagerGuardInteraction {
-	return &guard.PackageManagerGuardInteraction{
+func (c *ConfirmController) interaction() *packagemanager.PackageManagerInteraction {
+	return &packagemanager.PackageManagerInteraction{
 		GetConfirmationOnMalware: func(pkgs []*analyzer.PackageVersionAnalysisResult) (bool, error) {
 			names := make([]string, 0, len(pkgs))
 			for _, p := range pkgs {

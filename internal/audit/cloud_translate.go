@@ -137,7 +137,6 @@ func newSessionSummaryEvent(data *SessionData) *controltowerv1.PmgEvent {
 	summary.SetDuration(durationpb.New(data.Duration))
 	summary.SetSandboxEnabled(data.SandboxEnabled)
 	summary.SetParanoidMode(data.ParanoidMode)
-	summary.SetTransitiveEnabled(data.TransitiveEnabled)
 	summary.SetOutcome(mapSessionOutcome(data.Outcome))
 
 	e := &controltowerv1.PmgEvent{}
@@ -159,11 +158,11 @@ func newInsecureBypassFromSession(data *SessionData) *controltowerv1.PmgEvent {
 
 func mapFlowType(ft FlowType) controltowerv1.PmgFlowType {
 	switch ft {
-	case FlowTypeGuard:
-		return controltowerv1.PmgFlowType_PMG_FLOW_TYPE_GUARD
 	case FlowTypeProxy:
 		return controltowerv1.PmgFlowType_PMG_FLOW_TYPE_PROXY
 	default:
+		// Includes "guard" events recorded by pre-removal PMG versions that may
+		// still be present in an unsynced local WAL.
 		return controltowerv1.PmgFlowType_PMG_FLOW_TYPE_UNSPECIFIED
 	}
 }

@@ -76,7 +76,7 @@ pmg --skip-dependency-cooldown npm install express
 
 ## Requirements
 
-Dependency cooldown requires [proxy mode](proxy-mode.md) to be enabled. It is supported for npm and PyPI packages.
+Dependency cooldown is supported for npm and PyPI packages.
 
 ## Limitations
 

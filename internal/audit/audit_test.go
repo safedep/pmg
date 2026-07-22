@@ -255,14 +255,14 @@ func TestLogSessionCompleteDispatchesEvent(t *testing.T) {
 
 	a.startSession("npm", []string{"install", "express"})
 	LogInstallAllowed(testPackageVersion("express", "4.0.0", "npm"), 1)
-	LogSessionComplete(OutcomeSuccess, FlowTypeGuard)
+	LogSessionComplete(OutcomeSuccess, FlowTypeProxy)
 
 	events := s.getEvents()
 	require.Len(t, events, 2)
 	assert.Equal(t, EventTypeSessionComplete, events[1].Type)
 	require.NotNil(t, events[1].SessionData)
 	assert.Equal(t, "npm", events[1].SessionData.PackageManager)
-	assert.Equal(t, FlowTypeGuard, events[1].SessionData.FlowType)
+	assert.Equal(t, FlowTypeProxy, events[1].SessionData.FlowType)
 	assert.Equal(t, OutcomeSuccess, events[1].SessionData.Outcome)
 	assert.Equal(t, uint32(1), events[1].SessionData.AllowedCount)
 }
@@ -270,7 +270,7 @@ func TestLogSessionCompleteDispatchesEvent(t *testing.T) {
 func TestLogSessionCompleteSilentWhenNotInitialized(t *testing.T) {
 	resetGlobal()
 	// Should not panic
-	LogSessionComplete(OutcomeSuccess, FlowTypeGuard)
+	LogSessionComplete(OutcomeSuccess, FlowTypeProxy)
 }
 
 func TestLogSessionSummaryDispatchesEvent(t *testing.T) {

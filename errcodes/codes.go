@@ -14,10 +14,9 @@ const (
 	BubblewrapNotFound            = "BubblewrapNotFound"
 
 	// Package manager error codes.
-	DependencyResolutionFailed = "DependencyResolutionFailed"
-	PackageParseFailed         = "PackageParseFailed"
-	PackageAuthorNotFound      = "PackageAuthorNotFound"
-	GitHubRateLimitExceeded    = "GitHubRateLimitExceeded"
+	PackageParseFailed      = "PackageParseFailed"
+	PackageAuthorNotFound   = "PackageAuthorNotFound"
+	GitHubRateLimitExceeded = "GitHubRateLimitExceeded"
 
 	// Certificate trust store error codes.
 	CertGeneration      = "CertGeneration"

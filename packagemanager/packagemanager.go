@@ -1,11 +1,13 @@
 package packagemanager
 
 import (
-	"context"
+	"io"
+	"os"
 	"slices"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/analyzer"
 )
 
 type Command struct {
@@ -15,11 +17,6 @@ type Command struct {
 
 type PackageInstallTarget struct {
 	PackageVersion *packagev1.PackageVersion
-
-	// Extras specifies additional features to be installed with a Python package
-	// Example: "django[mysql,redis]" has Extras as ["mysql", "redis"]
-	// Currently only specific to Python packages
-	Extras []string
 
 	// IsExplicitVersion indicates the user provided an explicit version constraint
 	// (e.g. ==1.2.3) as opposed to the version being auto-resolved by the resolver.
@@ -41,10 +38,6 @@ type ParsedCommand struct {
 	// (e.g., npm install, pip install -r requirements.txt)
 	IsManifestInstall bool
 
-	// ManifestFiles contains the list of manifest files to install from
-	// (e.g., ["requirements.txt"] for pip install -r requirements.txt)
-	ManifestFiles []string
-
 	// IsKnownNonDownloadCommand is true for commands that are known to not download packages
 	// (e.g., npm ls, pip list, yarn why). Used by the proxy to decide whether to skip
 	// interception when proxy.install_only is enabled. Unknown commands default to false so
@@ -53,7 +46,6 @@ type ParsedCommand struct {
 }
 
 // IsInstallationCommand returns true if command installs packages (explicit targets or from manifest).
-// This is used by guard mode where we need to know which packages are being installed.
 func (pc *ParsedCommand) IsInstallationCommand() bool {
 	return pc.HasInstallTarget() || pc.HasManifestInstall()
 }
@@ -71,10 +63,6 @@ func (pc *ParsedCommand) HasInstallTarget() bool {
 
 func (pc *ParsedCommand) HasManifestInstall() bool {
 	return pc.IsManifestInstall
-}
-
-func (pc *ParsedCommand) ShouldExtractFromManifest() bool {
-	return pc.IsManifestInstall && !pc.HasInstallTarget()
 }
 
 // IsFirstNonFlagArgInList checks if the first non-flag argument in args is in the given list.
@@ -103,14 +91,27 @@ type PackageManager interface {
 	Ecosystem() packagev1.Ecosystem
 }
 
-// PackageResolver is the contract for resolving package info
-type PackageResolver interface {
-	// ResolveLatestVersion resolves the latest version for a given package
-	ResolveLatestVersion(context.Context, *packagev1.Package) (*packagev1.PackageVersion, error)
+// PackageManagerInteraction carries the confirmation prompt callback and input
+// routing used by proxy-mode malware confirmations.
+type PackageManagerInteraction struct {
+	// GetConfirmationOnMalware is called to get the confirmation of the user on the malware packages
+	GetConfirmationOnMalware func(malwarePackages []*analyzer.PackageVersionAnalysisResult) (bool, error)
 
-	// ResolveDependencies resolves the dependencies for a given package version
-	// It returns a flattened list of all the dependencies based on implementation
-	// specific config. The version resolution is based on minimum version selection
-	// for a given version range.
-	ResolveDependencies(context.Context, *packagev1.PackageVersion) ([]*packagev1.PackageVersion, error)
+	// inputReader is the reader to use for user input during confirmations.
+	// If nil, os.Stdin is used. This is set via SetInput to allow PTY input routing.
+	inputReader io.Reader
+}
+
+// SetInput sets the input reader for user confirmations.
+// This allows the PTY switchboard to route input to the prompt during confirmations.
+func (i *PackageManagerInteraction) SetInput(r io.Reader) {
+	i.inputReader = r
+}
+
+// Reader returns the configured input reader, or os.Stdin if none is set.
+func (i *PackageManagerInteraction) Reader() io.Reader {
+	if i.inputReader != nil {
+		return i.inputReader
+	}
+	return os.Stdin
 }

@@ -6,28 +6,11 @@ import (
 )
 
 var (
-	ErrPackageNotFound = usefulerror.NewUsefulError().
-				WithCode(errcodes.NotFound).
-				WithHumanError("The requested package could not be found.").
-				WithHelp("Please check the package name and try again.")
-
-	ErrFailedToFetchPackage = usefulerror.NewUsefulError().
-				WithCode(errcodes.Network).
-				WithHumanError("Failed to retrieve the requested package.").
-				WithHelp("Check your network connection and try again.").
-				WithMsg("failed to fetch package")
-
 	ErrFailedToResolveVersion = usefulerror.NewUsefulError().
 					WithCode(errcodes.Network).
 					WithHumanError("Failed to resolve the requested package version.").
 					WithHelp("Check your network connection and try again.").
 					WithMsg("failed to resolve package version")
-
-	ErrFailedToResolveDependencies = usefulerror.NewUsefulError().
-					WithCode(errcodes.DependencyResolutionFailed).
-					WithHumanError("Failed to resolve dependencies.").
-					WithHelp("Check your network connection and try again.").
-					WithMsg("failed to resolve dependencies")
 
 	ErrFailedToParsePackage = usefulerror.NewUsefulError().
 				WithCode(errcodes.PackageParseFailed).

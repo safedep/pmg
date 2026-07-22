@@ -13,7 +13,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 		input   string
 		pkgName string
 		version string
-		extras  []string
 		wantErr bool
 	}{
 		{
@@ -21,7 +20,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "fastapi",
 			pkgName: "fastapi",
 			version: "",
-			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -29,7 +27,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "fastapi[all]==0.115.7",
 			pkgName: "fastapi",
 			version: "==0.115.7",
-			extras:  []string{"all"},
 			wantErr: false,
 		},
 		{
@@ -37,7 +34,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "requests>=2.0,<3.0",
 			pkgName: "requests",
 			version: ">=2.0,<3.0",
-			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -52,7 +48,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "django~=3.1.0",
 			pkgName: "django",
 			version: "~=3.1.0",
-			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -60,7 +55,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "numpy[]>1.20.0",
 			pkgName: "numpy",
 			version: ">1.20.0",
-			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -68,7 +62,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "pandas<2.0.0",
 			pkgName: "pandas",
 			version: "<2.0.0",
-			extras:  nil,
 			wantErr: false,
 		},
 		{
@@ -76,7 +69,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "",
 			pkgName: "",
 			version: "",
-			extras:  nil,
 			wantErr: true,
 		},
 		{
@@ -84,7 +76,6 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "==1.0.0",
 			pkgName: "",
 			version: "",
-			extras:  nil,
 			wantErr: true,
 		},
 		{
@@ -92,21 +83,19 @@ func TestPipParsePackageInfo(t *testing.T) {
 			input:   "  requests  ==  2.0.0  ",
 			pkgName: "requests",
 			version: "==  2.0.0",
-			extras:  nil,
 			wantErr: false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pkgName, version, extras, err := pypiParsePackageInfo(tc.input)
+			pkgName, version, err := pypiParsePackageInfo(tc.input)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.pkgName, pkgName)
 				assert.Equal(t, tc.version, version)
-				assert.Equal(t, tc.extras, extras)
 			}
 		})
 	}
@@ -120,70 +109,60 @@ func TestPipParseCommand(t *testing.T) {
 		name             string
 		args             []string
 		expectedManifest bool
-		expectedFiles    []string
 		expectedTargets  int
 	}{
 		{
 			name:             "pip install with -r flag",
 			args:             []string{"install", "-r", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip install with -r flag with different filename",
 			args:             []string{"install", "-r", "requirements-dev.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements-dev.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip install with --requirement flag",
 			args:             []string{"install", "--requirement", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip install with combined -r flag",
 			args:             []string{"install", "-rrequirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip install without args",
 			args:             []string{"install"},
 			expectedManifest: false,
-			expectedFiles:    nil,
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip install with explicit package",
 			args:             []string{"install", "django"},
 			expectedManifest: false,
-			expectedFiles:    nil,
 			expectedTargets:  1,
 		},
 		{
 			name:             "pip install with mixed args",
 			args:             []string{"install", "django", "-r", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  1,
 		},
 		{
 			name:             "pip install with multiple -r flags",
 			args:             []string{"install", "-r", "requirements.txt", "-r", "dev-requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt", "dev-requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "non-install command",
 			args:             []string{"list"},
 			expectedManifest: false,
-			expectedFiles:    nil,
 			expectedTargets:  0,
 		},
 	}
@@ -194,14 +173,10 @@ func TestPipParseCommand(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.Equal(t, tc.expectedManifest, parsed.IsManifestInstall, "IsManifestInstall mismatch")
-			assert.Equal(t, tc.expectedFiles, parsed.ManifestFiles, "ManifestFiles mismatch")
 			assert.Equal(t, tc.expectedTargets, len(parsed.InstallTargets), "InstallTargets count mismatch")
 
 			// Test helper methods
 			assert.Equal(t, tc.expectedManifest, parsed.HasManifestInstall(), "HasManifestInstall mismatch")
-
-			expectedShouldExtract := tc.expectedManifest && tc.expectedTargets == 0
-			assert.Equal(t, expectedShouldExtract, parsed.ShouldExtractFromManifest(), "ShouldExtractFromManifest mismatch")
 		})
 	}
 }
@@ -214,70 +189,60 @@ func TestPip3ParseCommand(t *testing.T) {
 		name             string
 		args             []string
 		expectedManifest bool
-		expectedFiles    []string
 		expectedTargets  int
 	}{
 		{
 			name:             "pip3 install with -r flag",
 			args:             []string{"install", "-r", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip3 install with -r flag with different filename",
 			args:             []string{"install", "-r", "requirements-dev.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements-dev.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip3 install with --requirement flag",
 			args:             []string{"install", "--requirement", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip3 install with combined -r flag",
 			args:             []string{"install", "-rrequirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip3 install without args",
 			args:             []string{"install"},
 			expectedManifest: false,
-			expectedFiles:    nil,
 			expectedTargets:  0,
 		},
 		{
 			name:             "pip3 install with explicit package",
 			args:             []string{"install", "django"},
 			expectedManifest: false,
-			expectedFiles:    nil,
 			expectedTargets:  1,
 		},
 		{
 			name:             "pip3 install with mixed args",
 			args:             []string{"install", "django", "-r", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  1,
 		},
 		{
 			name:             "pip3 install with multiple -r flags",
 			args:             []string{"install", "-r", "requirements.txt", "-r", "dev-requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt", "dev-requirements.txt"},
 			expectedTargets:  0,
 		},
 		{
 			name:             "non-install command",
 			args:             []string{"list"},
 			expectedManifest: false,
-			expectedFiles:    nil,
 			expectedTargets:  0,
 		},
 	}
@@ -288,13 +253,9 @@ func TestPip3ParseCommand(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.Equal(t, tc.expectedManifest, parsed.IsManifestInstall, "IsManifestInstall mismatch")
-			assert.Equal(t, tc.expectedFiles, parsed.ManifestFiles, "ManifestFiles mismatch")
 			assert.Equal(t, tc.expectedTargets, len(parsed.InstallTargets), "InstallTargets count mismatch")
 
 			assert.Equal(t, tc.expectedManifest, parsed.HasManifestInstall(), "HasManifestInstall mismatch")
-
-			expectedShouldExtract := tc.expectedManifest && tc.expectedTargets == 0
-			assert.Equal(t, expectedShouldExtract, parsed.ShouldExtractFromManifest(), "ShouldExtractFromManifest mismatch")
 		})
 	}
 }
@@ -695,7 +656,6 @@ func TestUvParseCommand(t *testing.T) {
 		name             string
 		args             []string
 		expectedManifest bool
-		expectedFiles    []string
 		expectedTargets  int
 		expectedPackages []string
 		wantErr          bool
@@ -704,7 +664,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv add simple package",
 			args:             []string{"add", "flask"},
 			expectedManifest: false,
-			expectedFiles:    []string{""},
 			expectedTargets:  1,
 			expectedPackages: []string{"flask"},
 			wantErr:          false,
@@ -713,7 +672,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv add multiple packages",
 			args:             []string{"add", "flask", "requests"},
 			expectedManifest: false,
-			expectedFiles:    []string{""},
 			expectedTargets:  2,
 			expectedPackages: []string{
 				"flask",
@@ -725,7 +683,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv pip install simple package",
 			args:             []string{"pip", "install", "fastapi"},
 			expectedManifest: false,
-			expectedFiles:    []string{""},
 			expectedTargets:  2,
 			expectedPackages: []string{"fastapi"},
 			wantErr:          false,
@@ -734,7 +691,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv pip install multiple packages",
 			args:             []string{"pip", "install", "flask", "requests"},
 			expectedManifest: false,
-			expectedFiles:    []string{""},
 			expectedTargets:  2,
 			expectedPackages: []string{
 				"flask",
@@ -746,7 +702,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv pip install from manifest file",
 			args:             []string{"pip", "install", "-r", "requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt"},
 			expectedTargets:  0,
 			expectedPackages: []string{},
 			wantErr:          false,
@@ -755,7 +710,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv pip install from multiple manifest files",
 			args:             []string{"pip", "install", "-r", "requirements.txt", "-r", "dev-requirements.txt"},
 			expectedManifest: true,
-			expectedFiles:    []string{"requirements.txt", "dev-requirements.txt"},
 			expectedTargets:  0,
 			expectedPackages: []string{},
 			wantErr:          false,
@@ -764,7 +718,6 @@ func TestUvParseCommand(t *testing.T) {
 			name:             "uv sync",
 			args:             []string{"sync"},
 			expectedManifest: true,
-			expectedFiles:    []string{"uv.lock"},
 			expectedTargets:  0,
 			expectedPackages: []string{},
 			wantErr:          false,
@@ -781,9 +734,6 @@ func TestUvParseCommand(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.Equal(t, tc.expectedManifest, result.HasManifestInstall(), "HasManifestInstall mismatch")
-
-			expectedShouldExtract := tc.expectedManifest && tc.expectedTargets == 0
-			assert.Equal(t, expectedShouldExtract, result.ShouldExtractFromManifest(), "ShouldExtractFromManifest mismatch")
 
 			assert.Equal(t, len(tc.expectedPackages), len(result.InstallTargets), "Number of install targets mismatch")
 

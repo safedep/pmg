@@ -12,14 +12,11 @@ import (
 type FlowType int
 
 const (
-	FlowTypeGuard FlowType = iota
-	FlowTypeProxy
+	FlowTypeProxy FlowType = iota
 )
 
 func (f FlowType) String() string {
 	switch f {
-	case FlowTypeGuard:
-		return "guard"
 	case FlowTypeProxy:
 		return "proxy"
 	default:
@@ -66,7 +63,7 @@ type ReportData struct {
 	StartTime          time.Time
 	Duration           time.Duration
 
-	// Package statistics (consistent across guard and proxy flows)
+	// Package statistics
 	TotalAnalyzed  int
 	TrustedSkipped int
 
@@ -87,13 +84,12 @@ type ReportData struct {
 	AdvisoryMessage string
 
 	// Configuration context
-	FlowType          FlowType
-	DryRun            bool
-	InsecureMode      bool
-	TransitiveEnabled bool
-	ParanoidMode      bool
-	SandboxEnabled    bool
-	SandboxProfile    string
+	FlowType       FlowType
+	DryRun         bool
+	InsecureMode   bool
+	ParanoidMode   bool
+	SandboxEnabled bool
+	SandboxProfile string
 
 	// Outcome
 	Outcome ExecutionOutcome
@@ -280,11 +276,10 @@ func reportVerbose(data *ReportData) {
 
 	// Configuration section
 	fmt.Println()
-	fmt.Printf("  %s %s | %s flow | transitive: %s | paranoid: %s\n",
+	fmt.Printf("  %s %s | %s flow | paranoid: %s\n",
 		Colors.Bold("Config:"),
 		data.PackageManagerName,
 		data.FlowType.String(),
-		boolToOnOff(data.TransitiveEnabled),
 		boolToOnOff(data.ParanoidMode))
 
 	if data.SandboxEnabled {

@@ -4,7 +4,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/guard"
+	"github.com/safedep/pmg/packagemanager"
 )
 
 // ConfirmationRequest represents a request for user confirmation on a suspicious package
@@ -31,7 +31,7 @@ type ConfirmationHook struct {
 //
 // The function will exit when the confirmation channel is closed.
 func HandleConfirmationRequests(confirmationChan chan *ConfirmationRequest,
-	interaction *guard.PackageManagerGuardInteraction, hooks *ConfirmationHook) {
+	interaction *packagemanager.PackageManagerInteraction, hooks *ConfirmationHook) {
 	if hooks == nil {
 		hooks = &ConfirmationHook{}
 	}

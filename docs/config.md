@@ -29,7 +29,7 @@ To set a config value:
 
 ```bash
 pmg config set paranoid true
-pmg config set transitive_depth 10
+pmg config set dependency_cooldown.days 10
 pmg config set cloud.enabled true
 ```
 See [config template](../config/config.template.yml) for the configuration schema.
@@ -43,9 +43,7 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 
 | Config key | Environment variable |
 |---|---|
-| `transitive` | `PMG_TRANSITIVE` |
 | `paranoid` | `PMG_PARANOID` |
-| `proxy.enabled` | `PMG_PROXY_ENABLED` |
 | `proxy.install_only` | `PMG_PROXY_INSTALL_ONLY` |
 | `verbosity` | `PMG_VERBOSITY` |
 | `skip_event_logging` | `PMG_SKIP_EVENT_LOGGING` |
@@ -53,7 +51,9 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | `dependency_cooldown.enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` |
 | `cloud.enabled` | `PMG_CLOUD_ENABLED` |
 
-Legacy environment variables `PMG_PROXY_MODE` and `PMG_PROXY_INSTALL_ONLY` (for the old flat keys) are still supported when the `proxy:` section does not exist in the config file.
+The legacy flat key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
+
+Proxy interception can no longer be disabled: PMG fails with an error when the config or environment still contains `proxy.enabled: false`, `proxy_mode: false`, `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false`. See [proxy mode](proxy-mode.md).
 
 **Example:**
 
@@ -128,7 +128,7 @@ global_lockdown: true
 
 When lockdown is on:
 
-- **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--transitive`, `--transitive-depth`, `--include-dev-dependencies`, `--paranoid`, `--skip-event-log`, `--proxy-mode`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
+- **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--paranoid`, `--skip-event-log`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
 - **`PMG_*` variables cannot change the config**, including `PMG_INSECURE_INSTALLATION` (which otherwise bypasses malicious-package blocking).
 
 PMG reads `global_lockdown` straight from the global file, so a user cannot flip it through env or CLI. If the global file exists but cannot be read or parsed, PMG fails closed and treats it as locked. `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` still relocate per-user state directories (logs, cache) in any mode, but leave the managed config alone.

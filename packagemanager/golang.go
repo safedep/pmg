@@ -76,12 +76,10 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 		switch modCmd {
 		case "tidy":
 			parsed.IsManifestInstall = true
-			parsed.ManifestFiles = []string{"go.mod"}
 		case "download":
 			parsed.InstallTargets = goRemoteModuleTargets(modRest)
 			if len(parsed.InstallTargets) == 0 {
 				parsed.IsManifestInstall = true
-				parsed.ManifestFiles = []string{"go.mod"}
 			}
 		}
 	}

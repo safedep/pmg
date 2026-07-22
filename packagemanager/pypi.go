@@ -172,14 +172,10 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 	// Determine if this is a manifest install
 	isManifestInstall := len(requirementFiles) > 0
 
-	// Combine all manifest files
-	var allManifestFiles []string
-	allManifestFiles = append(allManifestFiles, requirementFiles...)
-
 	// Process packages
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		packageName, version, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -199,7 +195,6 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras:            extras,
 			IsExplicitVersion: isExplicit,
 		})
 	}
@@ -208,7 +203,6 @@ func (p *pipCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     allManifestFiles,
 	}, nil
 }
 
@@ -239,19 +233,15 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 			Command:           command,
 			InstallTargets:    nil,
 			IsManifestInstall: true,
-			ManifestFiles:     []string{"uv.lock"},
 		}, nil
 	}
 
 	// Handles pip sync command (installs from requirements.txt style files)
 	if len(args) >= 3 && args[0] == "pip" && args[1] == "sync" {
-		manifestFile := args[2]
-
 		return &ParsedCommand{
 			Command:           command,
 			InstallTargets:    nil,
 			IsManifestInstall: true,
-			ManifestFiles:     []string{manifestFile},
 		}, nil
 	}
 
@@ -298,7 +288,7 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	var installTargets []*PackageInstallTarget
 	for _, pkg := range packages {
-		packageName, version, extras, err := pypiParsePackageInfo(pkg)
+		packageName, version, err := pypiParsePackageInfo(pkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -318,7 +308,6 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 				},
 				Version: version,
 			},
-			Extras:            extras,
 			IsExplicitVersion: isExplicit,
 		})
 	}
@@ -327,7 +316,6 @@ func (u *uvCommandParser) ParseCommand(args []string) (*ParsedCommand, error) {
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: isManifestInstall,
-		ManifestFiles:     manifestFiles,
 	}, nil
 }
 
@@ -357,7 +345,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			Command:           command,
 			IsManifestInstall: true,
 			InstallTargets:    nil,
-			ManifestFiles:     []string{"poetry.lock"},
 		}, nil
 	}
 
@@ -397,7 +384,7 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
 
-		packageName, version, extras, err := pypiParsePackageInfo(convertedPkg)
+		packageName, version, err := pypiParsePackageInfo(convertedPkg)
 		if err != nil {
 			return nil, ErrFailedToParsePackage.Wrap(err)
 		}
@@ -417,7 +404,6 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 				},
 				Version: version,
 			},
-			Extras:            extras,
 			IsExplicitVersion: isExplicit,
 		})
 	}
@@ -426,38 +412,27 @@ func (p *poetryCommandParser) ParseCommand(args []string) (*ParsedCommand, error
 		Command:           command,
 		InstallTargets:    installTargets,
 		IsManifestInstall: false,
-		ManifestFiles:     nil,
 	}, nil
 }
 
-// pypiParsePackageInfo parses a python package installation specification, separating the package name,
-// version constraints, and any extras (additional features) to be installed.
-// Example: "django[mysql,redis]>=3.0" returns ("django", ">=3.0", ["mysql", "redis"], nil)
-func pypiParsePackageInfo(input string) (packageName, version string, extras []string, err error) {
+// pypiParsePackageInfo parses a python package installation specification,
+// separating the package name from version constraints and stripping extras.
+// Example: "django[mysql,redis]>=3.0" returns ("django", ">=3.0", nil)
+func pypiParsePackageInfo(input string) (packageName, version string, err error) {
 	if input == "" {
-		return "", "", nil, fmt.Errorf("package info cannot be empty")
+		return "", "", fmt.Errorf("package info cannot be empty")
 	}
 
 	input = strings.TrimSpace(input)
 
-	// First extract any extras if present
+	// Strip any extras (e.g. "[all]") so they never leak into the package name
 	openBracket := strings.Index(input, "[")
 	closeBracket := strings.Index(input, "]")
 
 	if openBracket != -1 && closeBracket != -1 && openBracket < closeBracket {
-		extrasStr := strings.TrimSpace(input[openBracket+1 : closeBracket])
-		if extrasStr != "" {
-			// Split extras by comma and trim each extra
-			for _, extra := range strings.Split(extrasStr, ",") {
-				if trimmedExtra := strings.TrimSpace(extra); trimmedExtra != "" {
-					extras = append(extras, trimmedExtra)
-				}
-			}
-		}
-		// Remove the extra part from input for further processing
 		input = input[:openBracket] + input[closeBracket+1:]
 	} else if (openBracket != -1 && closeBracket == -1) || (openBracket == -1 && closeBracket != -1) {
-		return "", "", nil, fmt.Errorf("mismatched brackets in input '%s'", input)
+		return "", "", fmt.Errorf("mismatched brackets in input '%s'", input)
 	}
 
 	// Python package version specifiers are typically separated by one of:
@@ -475,17 +450,17 @@ func pypiParsePackageInfo(input string) (packageName, version string, extras []s
 
 	if index == -1 {
 		// No operator found, whole input is package name, no version
-		return strings.TrimSpace(input), "", extras, nil
+		return strings.TrimSpace(input), "", nil
 	}
 
 	packageName = strings.TrimSpace(input[:index])
 	version = strings.TrimSpace(input[index:])
 
 	if packageName == "" {
-		return "", "", nil, fmt.Errorf("invalid package name in input '%s'", input)
+		return "", "", fmt.Errorf("invalid package name in input '%s'", input)
 	}
 
-	return packageName, version, extras, nil
+	return packageName, version, nil
 }
 
 // pypiConvertPoetryVersionConstraints converts Poetry's caret (^) and tilde (~) version constraints
