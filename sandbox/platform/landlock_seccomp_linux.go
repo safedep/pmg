@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/safedep/dry/log"
@@ -90,15 +91,16 @@ const (
 
 // auditEvent represents a single security audit log entry.
 type auditEvent struct {
-	Type    auditEventType `json:"type"`
-	Syscall string         `json:"syscall,omitempty"`
-	Path    string         `json:"path,omitempty"`
-	Access  string         `json:"access,omitempty"`
-	Comm    string         `json:"comm,omitempty"`
-	PID     int            `json:"pid,omitempty"`
-	Message string         `json:"message,omitempty"`
-	Error   string         `json:"error,omitempty"`
-	Ts      int64          `json:"ts"`
+	Type     auditEventType `json:"type"`
+	Syscall  string         `json:"syscall,omitempty"`
+	Path     string         `json:"path,omitempty"`
+	Access   string         `json:"access,omitempty"`
+	RulePath string         `json:"rule_path,omitempty"`
+	Comm     string         `json:"comm,omitempty"`
+	PID      int            `json:"pid,omitempty"`
+	Message  string         `json:"message,omitempty"`
+	Error    string         `json:"error,omitempty"`
+	Ts       int64          `json:"ts"`
 }
 
 // writeAuditEvent JSON-encodes an audit event and writes it as a single line to w.
@@ -145,15 +147,15 @@ func landlockBuildBPFFilter() (*unix.SockFprog, error) {
 	}, nil
 }
 
-// isPathDenied checks if a path should be denied based on the deny list and open flags.
-// flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY, O_RDWR).
-// Matching rules:
+// matchDeniedPath returns the deny entry that denies opening path with the
+// given flags, if any. flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY,
+// O_RDWR). Matching rules:
 //   - Exact match: /home/user/.env matches deny /home/user/.env
 //   - Directory subtree: /home/user/.ssh/id_rsa matches deny /home/user/.ssh
 //     or deny /home/user/.ssh/ (either with or without trailing slash — a
 //     deny entry without slash is treated as "this path OR anything beneath it")
 //   - Must NOT match partial names: /home/.envrc does NOT match deny /home/.env
-func isPathDenied(path string, flags int, denyPaths []denyPathEntry) bool {
+func matchDeniedPath(path string, flags int, denyPaths []denyPathEntry) (denyPathEntry, bool) {
 	accessMode := flags & unix.O_ACCMODE
 
 	for _, entry := range denyPaths {
@@ -172,36 +174,48 @@ func isPathDenied(path string, flags int, denyPaths []denyPathEntry) bool {
 		switch entry.Mode {
 		case denyRead:
 			if accessMode == unix.O_RDONLY || accessMode == unix.O_RDWR {
-				return true
+				return entry, true
 			}
 		case denyWrite:
 			if accessMode == unix.O_WRONLY || accessMode == unix.O_RDWR {
-				return true
+				return entry, true
 			}
 		case denyBoth:
-			return true
+			return entry, true
 		}
 	}
 
-	return false
+	return denyPathEntry{}, false
 }
 
-// isExecDenied checks if a path matches the deny exec list.
-// Same matching rules as isPathDenied but no flag check.
-func isExecDenied(path string, denyExec []string) bool {
+// isPathDenied reports whether matchDeniedPath finds a deny entry for path.
+func isPathDenied(path string, flags int, denyPaths []denyPathEntry) bool {
+	_, denied := matchDeniedPath(path, flags, denyPaths)
+	return denied
+}
+
+// matchDeniedExec returns the deny exec entry matching path, if any.
+// Same matching rules as matchDeniedPath but no flag check.
+func matchDeniedExec(path string, denyExec []string) (string, bool) {
 	for _, entry := range denyExec {
 		if strings.HasSuffix(entry, "/") {
 			if strings.HasPrefix(path, entry) {
-				return true
+				return entry, true
 			}
 		} else {
 			if path == entry || strings.HasPrefix(path, entry+"/") {
-				return true
+				return entry, true
 			}
 		}
 	}
 
-	return false
+	return "", false
+}
+
+// isExecDenied reports whether matchDeniedExec finds a deny entry for path.
+func isExecDenied(path string, denyExec []string) bool {
+	_, denied := matchDeniedExec(path, denyExec)
+	return denied
 }
 
 // readPathFromMem reads a null-terminated path string from a process's memory
@@ -516,14 +530,16 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 		return
 	}
 
-	if isExecDenied(resolved, phase.denyExec) {
+	if rule, denied := matchDeniedExec(resolved, phase.denyExec); denied {
 		if phase.auditWriter != nil {
 			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
-				Type:    auditSeccompDeny,
-				Syscall: syscallName(notif.Data.Nr),
-				Path:    resolved,
-				Comm:    procComm(notif.PID),
-				PID:     int(notif.PID),
+				Type:     auditSeccompDeny,
+				Syscall:  syscallName(notif.Data.Nr),
+				Path:     resolved,
+				RulePath: rule,
+				Comm:     procComm(notif.PID),
+				PID:      int(notif.PID),
+				Ts:       time.Now().UnixNano(),
 			})
 		}
 		_ = respondDeny(s.notifyFd, notif.ID)
@@ -564,15 +580,17 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 
 	flags := classifyOpenFlags(notif.Data.Nr, notif.Data.Args, memFd)
 
-	if isPathDenied(resolved, flags, phase.denyPaths) {
+	if entry, denied := matchDeniedPath(resolved, flags, phase.denyPaths); denied {
 		if phase.auditWriter != nil {
 			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
-				Type:    auditSeccompDeny,
-				Syscall: syscallName(notif.Data.Nr),
-				Path:    resolved,
-				Access:  accessModeString(flags),
-				Comm:    procComm(notif.PID),
-				PID:     int(notif.PID),
+				Type:     auditSeccompDeny,
+				Syscall:  syscallName(notif.Data.Nr),
+				Path:     resolved,
+				Access:   denyAccessLabel(entry.Mode, flags),
+				RulePath: entry.Path,
+				Comm:     procComm(notif.PID),
+				PID:      int(notif.PID),
+				Ts:       time.Now().UnixNano(),
 			})
 		}
 		_ = respondDeny(s.notifyFd, notif.ID)
@@ -605,6 +623,21 @@ func accessModeString(flags int) string {
 		return "read"
 	}
 	return "write"
+}
+
+// denyAccessLabel reports the direction of the deny rule that fired, not the
+// requested access. An O_RDWR open denied by a read-only rule must surface as
+// a read denial: the write override prunes only deny_write entries, so only a
+// read allowance unblocks it. denyBoth falls back to the requested access.
+func denyAccessLabel(mode denyMode, flags int) string {
+	switch mode {
+	case denyRead:
+		return "read"
+	case denyWrite:
+		return "write"
+	default:
+		return accessModeString(flags)
+	}
 }
 
 // procComm returns the process name from /proc/<pid>/comm, best-effort. The

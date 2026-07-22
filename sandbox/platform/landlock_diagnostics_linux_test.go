@@ -14,6 +14,7 @@ import (
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func denyEvent(syscall, path, access, comm string) capturedAuditEvent {
@@ -109,6 +110,41 @@ func TestExtractLandlockViolations(t *testing.T) {
 			}},
 		},
 		{
+			name: "rule target populated from rule_path",
+			events: []capturedAuditEvent{{
+				auditEvent: auditEvent{
+					Type:     auditSeccompDeny,
+					Syscall:  "openat",
+					Path:     "/home/dev/.ssh/id_rsa",
+					Access:   "read",
+					RulePath: "/home/dev/.ssh",
+					Comm:     "node",
+				},
+				raw: "{}",
+			}},
+			want: []sandbox.Violation{{
+				Kind:       sandbox.ViolationKindFSRead,
+				RawKind:    "openat",
+				Target:     "/home/dev/.ssh/id_rsa",
+				RuleTarget: "/home/dev/.ssh",
+				Process:    "node",
+				RawLog:     "{}",
+				RuleLabel:  "read access denied: /home/dev/.ssh/id_rsa",
+			}},
+		},
+		{
+			name:   "unknown syscall maps to generic_deny",
+			events: []capturedAuditEvent{denyEvent("syscall_999", "/tmp/x", "", "node")},
+			want: []sandbox.Violation{{
+				Kind:      sandbox.ViolationKindGenericDeny,
+				RawKind:   "syscall_999",
+				Target:    "/tmp/x",
+				Process:   "node",
+				RawLog:    `{"type":"seccomp_deny"}`,
+				RuleLabel: "sandbox denied access to /tmp/x",
+			}},
+		},
+		{
 			name: "same target different kind kept",
 			events: []capturedAuditEvent{
 				denyEvent("openat", "/home/dev/.npmrc", "read", "node"),
@@ -189,6 +225,38 @@ func TestCaptureAuditEventsBounded(t *testing.T) {
 	s.captureAuditEvents(strings.NewReader(sb.String()))
 
 	assert.Len(t, s.auditEvents, landlockAuditEventCap)
+}
+
+// A tight retry loop on one denied path must not fill the buffer and evict a
+// later distinct denial (dedupe happens before the cap).
+func TestCaptureAuditEventsDedupesDenials(t *testing.T) {
+	var sb strings.Builder
+	for range landlockAuditEventCap + 10 {
+		sb.WriteString(`{"type":"seccomp_deny","syscall":"openat","path":"/tmp/.env","access":"write","ts":1}` + "\n")
+	}
+	sb.WriteString(`{"type":"seccomp_deny","syscall":"execve","path":"/usr/bin/curl","ts":1}` + "\n")
+
+	s := &landlockSandbox{}
+	s.captureAuditEvents(strings.NewReader(sb.String()))
+
+	require.Len(t, s.auditEvents, 2)
+	assert.Equal(t, "/tmp/.env", s.auditEvents[0].Path)
+	assert.Equal(t, "/usr/bin/curl", s.auditEvents[1].Path)
+}
+
+// An O_RDWR open denied by a read-only rule must be labeled a read denial so
+// the suggested override (--sandbox-allow read=...) actually unblocks it;
+// allowing write would prune only deny_write entries.
+func TestDenyAccessLabelReportsFiredRule(t *testing.T) {
+	deny := []denyPathEntry{{Path: "/home/dev/.npmrc", Mode: denyRead}}
+
+	entry, denied := matchDeniedPath("/home/dev/.npmrc", unix.O_RDWR, deny)
+	require.True(t, denied)
+	assert.Equal(t, "read", denyAccessLabel(entry.Mode, unix.O_RDWR))
+
+	assert.Equal(t, "write", denyAccessLabel(denyWrite, unix.O_RDWR))
+	assert.Equal(t, "read", denyAccessLabel(denyBoth, unix.O_RDONLY))
+	assert.Equal(t, "write", denyAccessLabel(denyBoth, unix.O_RDWR))
 }
 
 func TestBestEffortViolationNilOnSuccess(t *testing.T) {

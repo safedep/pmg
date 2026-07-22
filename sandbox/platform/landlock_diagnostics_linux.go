@@ -14,10 +14,10 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
-// landlockAuditEventCap bounds the per-run audit event buffer so a
-// pathological run (e.g. a tight retry loop on a denied open) cannot grow
-// memory unbounded. Deduplication in extractLandlockViolations makes events
-// beyond this cap unlikely to add signal.
+// landlockAuditEventCap bounds the per-run audit event buffer. Deny events
+// are deduplicated by (kind, path) at capture time, so this caps DISTINCT
+// denials — reaching it means hundreds of different denied targets, itself
+// worth the one-time warning below.
 const landlockAuditEventCap = 512
 
 // landlockAuditDrainWait bounds how long BestEffortViolation waits for the
@@ -39,6 +39,7 @@ type capturedAuditEvent struct {
 // corruption, not version skew.
 func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 	scanner := bufio.NewScanner(r)
+	seen := make(map[string]bool)
 	dropped := false
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -50,6 +51,16 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 		if err := json.Unmarshal(line, &evt); err != nil {
 			log.Debugf("landlock diagnostics: skipping malformed audit event: %v", err)
 			continue
+		}
+
+		// Dedupe deny events before the cap: a tight retry loop on one denied
+		// path must not fill the buffer and evict a later distinct denial.
+		if evt.Type == auditSeccompDeny {
+			key := string(landlockViolationKind(evt)) + "\x00" + evt.Path
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 		}
 
 		s.auditMu.Lock()
@@ -121,12 +132,13 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 		seen[key] = true
 
 		violations = append(violations, sandbox.Violation{
-			Kind:      kind,
-			RawKind:   e.Syscall,
-			Target:    e.Path,
-			Process:   e.Comm,
-			RawLog:    e.raw,
-			RuleLabel: summarizeLandlockViolation(kind, e.Path),
+			Kind:       kind,
+			RawKind:    e.Syscall,
+			Target:     e.Path,
+			RuleTarget: e.RulePath,
+			Process:    e.Comm,
+			RawLog:     e.raw,
+			RuleLabel:  summarizeLandlockViolation(kind, e.Path),
 		})
 	}
 
@@ -137,12 +149,14 @@ func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
 	switch e.Syscall {
 	case "execve", "execveat":
 		return sandbox.ViolationKindExec
+	case "openat", "openat2":
+		if e.Access == "read" {
+			return sandbox.ViolationKindFSRead
+		}
+		return sandbox.ViolationKindFSWrite
+	default:
+		return sandbox.ViolationKindGenericDeny
 	}
-
-	if e.Access == "read" {
-		return sandbox.ViolationKindFSRead
-	}
-	return sandbox.ViolationKindFSWrite
 }
 
 func summarizeLandlockViolation(kind sandbox.ViolationKind, target string) string {

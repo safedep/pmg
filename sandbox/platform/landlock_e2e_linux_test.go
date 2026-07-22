@@ -376,8 +376,10 @@ func TestLandlockHelper_DenyEmitsAuditViolation(t *testing.T) {
 	v := violations[0]
 	assert.Equal(t, sandbox.ViolationKindFSRead, v.Kind)
 	assert.Equal(t, secretPath, v.Target)
+	assert.Equal(t, filepath.Join(home, ".ssh"), v.RuleTarget)
 	assert.Equal(t, "read access denied: "+secretPath, v.RuleLabel)
 	assert.Equal(t, "cat", v.Process)
+	assert.NotContains(t, v.RawLog, `"ts":0`)
 }
 
 // bytesContainsAny reports whether s contains any of the given substrings.
