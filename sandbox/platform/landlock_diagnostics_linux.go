@@ -56,7 +56,7 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 		// Dedupe deny events before the cap: a tight retry loop on one denied
 		// path must not fill the buffer and evict a later distinct denial.
 		if evt.Type == auditSeccompDeny {
-			key := string(landlockViolationKind(evt)) + "\x00" + evt.Path
+			key := landlockDenyKey(evt)
 			if seen[key] {
 				continue
 			}
@@ -124,12 +124,13 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 			continue
 		}
 
-		kind := landlockViolationKind(e.auditEvent)
-		key := string(kind) + "\x00" + e.Path
+		key := landlockDenyKey(e.auditEvent)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
+
+		kind := landlockViolationKind(e.auditEvent)
 
 		violations = append(violations, sandbox.Violation{
 			Kind:       kind,
@@ -143,6 +144,14 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 	}
 
 	return violations
+}
+
+// landlockDenyKey identifies a denial for deduplication: events with the same
+// violation kind and target are the same denial. Capture-time dedupe
+// (captureAuditEvents) and extract-time dedupe (extractLandlockViolations)
+// must agree on this identity, so both use this function.
+func landlockDenyKey(e auditEvent) string {
+	return string(landlockViolationKind(e)) + "\x00" + e.Path
 }
 
 func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
