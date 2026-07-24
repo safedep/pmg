@@ -43,7 +43,9 @@ func TestAppArmorProbe(t *testing.T) {
 			assert.Equal(t, sandbox.ProbeAppArmorUserns, res.Name)
 			assert.Equal(t, tc.want, res.Status)
 			if tc.want == sandbox.ProbeStatusWarn {
-				assert.NotEmpty(t, res.Fixes)
+				assert.Len(t, res.Fixes, 2)
+				assert.Contains(t, res.Fixes[0].Description, "AppArmor profile")
+				assert.Contains(t, res.Detail, "landlock")
 			}
 		})
 	}

@@ -49,11 +49,19 @@ func (p *apparmorProbe) Run(_ context.Context) sandbox.ProbeResult {
 		Name:    sandbox.ProbeAppArmorUserns,
 		Status:  sandbox.ProbeStatusWarn,
 		Summary: "AppArmor restricts unprivileged user namespaces (value=" + value + ")",
-		Detail:  "bwrap may fail with `setting up uid map: Permission denied` until an AppArmor profile permits it or the sysctl is relaxed.",
-		Fixes: []sandbox.ProbeFix{{
-			Description: "Temporarily relax the restriction (until next reboot).",
-			Command:     "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
-			Docs:        "https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces",
-		}},
+		Detail: "landlock fails with `shim: install seccomp: ... permission denied` and bwrap with " +
+			"`setting up uid map: Permission denied` until an AppArmor profile permits pmg or the sysctl is relaxed.",
+		Fixes: []sandbox.ProbeFix{
+			{
+				Description: "Create an AppArmor profile granting pmg the userns permission (recommended), then reload it.",
+				Command:     "sudo apparmor_parser -r /etc/apparmor.d/pmg",
+				Docs:        "https://github.com/safedep/pmg/blob/main/docs/sandbox.md#apparmor-blocks-the-landlock-driver-ubuntu-2310",
+			},
+			{
+				Description: "Temporarily relax the restriction system-wide (until next reboot).",
+				Command:     "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0",
+				Docs:        "https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces",
+			},
+		},
 	}
 }
