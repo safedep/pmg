@@ -99,7 +99,7 @@ rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is neve
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
 - Bubblewrap on Linux (fallback for kernels < 5.13, or when `PMG_SANDBOX_DRIVER=bubblewrap` is set)
 - Seatbelt on MacOS
-- On Ubuntu 23.10+, an AppArmor profile granting pmg unprivileged user namespaces — see
+- On Ubuntu 23.10+, an AppArmor profile granting pmg unprivileged user namespaces. See
   [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 
 <details>
@@ -217,8 +217,8 @@ Linux, by the Landlock driver's seccomp supervisor.
 
 Coverage differs by platform. Seatbelt logs every denial, including the default-deny allow-list
 boundary. The Landlock driver only reports denials made by its seccomp deny-list layer (reads and
-writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself —
-operations outside the allow-list, delete/rename, network rules — fail in-kernel with `EACCES` and
+writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself
+(operations outside the allow-list, delete/rename, network rules) fail in-kernel with `EACCES` and
 produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
 seccomp, so they are likewise not reported. Operational degradation events on the audit socket
 (`namespace_isolation_unavailable`, `memfd_open_failed`) are not included in violation reports
@@ -661,8 +661,8 @@ Load it (persists across reboots; no restart needed):
 sudo apparmor_parser -r /etc/apparmor.d/pmg
 ```
 
-Alternatively, disable the restriction system-wide — simpler but weakens the protection for every
-binary on the host, so prefer the profile:
+Alternatively, disable the restriction system-wide. This is simpler but weakens the protection for
+every binary on the host, so prefer the profile:
 
 ```bash
 sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
