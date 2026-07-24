@@ -19,8 +19,9 @@ type bpfEvent struct {
 	Uid   uint32
 	Daddr uint32
 	Dport uint16
+	Proto uint8
 	Comm  [16]uint8
-	_     [2]byte
+	_     [1]byte
 }
 
 // Names of all BPF objects in the ELF.

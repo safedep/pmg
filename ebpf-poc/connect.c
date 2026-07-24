@@ -10,6 +10,7 @@ struct event {
   __u32 uid;
   __u32 daddr;
   __u16 dport;
+  __u8  proto;
   __u8  comm[16]; // command
 };
 
@@ -30,6 +31,7 @@ int connect4(struct bpf_sock_addr *ctx) {
   e->uid = bpf_get_current_uid_gid();
   e->daddr = ctx->user_ip4;
   e->dport = bpf_ntohs(ctx->user_port);
+  e-> proto = ctx->protocol;
   bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
   bpf_ringbuf_submit(e, 0);
