@@ -99,6 +99,8 @@ rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is neve
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
 - Bubblewrap on Linux (fallback for kernels < 5.13, or when `PMG_SANDBOX_DRIVER=bubblewrap` is set)
 - Seatbelt on MacOS
+- On Ubuntu 23.10+, an AppArmor profile granting pmg unprivileged user namespaces — see
+  [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 
 <details>
 <summary>Bubblewrap Installation on Linux</summary>
@@ -626,6 +628,45 @@ bwrap --verbose [arguments...] -- npm install express
 With the Landlock driver, denials made by the seccomp deny-list layer on a failed run are captured
 into the violation cache and can be inspected with `pmg sandbox violations list` and
 `pmg sandbox explain --last` (see Sandbox Debug Commands above for coverage limits).
+
+### AppArmor blocks the Landlock driver (Ubuntu 23.10+)
+
+Ubuntu restricts unprivileged user namespaces via AppArmor
+(`kernel.apparmor_restrict_unprivileged_userns=1`, default since 23.10). The Landlock driver needs
+one: it re-executes pmg inside a user namespace to install its seccomp filter. With the restriction
+active, sandboxed commands fail with:
+
+```
+Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): permission denied
+```
+
+`pmg sandbox doctor` flags this as the "AppArmor user namespaces" check.
+
+The recommended fix is Ubuntu's own mechanism: an AppArmor profile that grants pmg (and only pmg)
+the `userns` permission. Create `/etc/apparmor.d/pmg` with the pmg binary path (`command -v pmg`):
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile pmg /usr/local/bin/pmg flags=(unconfined) {
+  userns,
+  include if exists <local/pmg>
+}
+```
+
+Load it (persists across reboots; no restart needed):
+
+```bash
+sudo apparmor_parser -r /etc/apparmor.d/pmg
+```
+
+Alternatively, disable the restriction system-wide — simpler but weakens the protection for every
+binary on the host, so prefer the profile:
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
 
 ## References
 
