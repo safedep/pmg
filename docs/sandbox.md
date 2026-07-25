@@ -99,6 +99,8 @@ rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is neve
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)
 - Bubblewrap on Linux (fallback for kernels < 5.13, or when `PMG_SANDBOX_DRIVER=bubblewrap` is set)
 - Seatbelt on MacOS
+- On Ubuntu 23.10+, an AppArmor profile granting pmg unprivileged user namespaces. See
+  [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 
 <details>
 <summary>Bubblewrap Installation on Linux</summary>
@@ -210,8 +212,17 @@ pmg sandbox profile show npm-restrictive --resolved
 ```
 
 `pmg sandbox doctor` runs platform-specific checks for the current host. Cached violation reports
-used by `violations list` and `explain --last` are currently produced by macOS Seatbelt diagnostics;
-on Linux, Bubblewrap and Landlock denials may only appear as command errors such as `EACCES`.
+used by `violations list` and `explain --last` are produced by macOS Seatbelt diagnostics and, on
+Linux, by the Landlock driver's seccomp supervisor.
+
+Coverage differs by platform. Seatbelt logs every denial, including the default-deny allow-list
+boundary. The Landlock driver only reports denials made by its seccomp deny-list layer (reads and
+writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Landlock LSM itself
+(operations outside the allow-list, delete/rename, network rules) fail in-kernel with `EACCES` and
+produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
+seccomp, so they are likewise not reported. Operational degradation events on the audit socket
+(`namespace_isolation_unavailable`, `memfd_open_failed`) are not included in violation reports
+today; they may be added later. Bubblewrap denials only appear as command errors such as `EACCES`.
 
 ### Runtime Allow Overrides
 
@@ -613,6 +624,49 @@ bwrap --verbose [arguments...] -- npm install express
 ```
 
 **Note**: Unlike macOS, Bubblewrap does not provide real-time violation logging. Policy violations typically manifest as `EACCES` (Permission denied) errors.
+
+With the Landlock driver, denials made by the seccomp deny-list layer on a failed run are captured
+into the violation cache and can be inspected with `pmg sandbox violations list` and
+`pmg sandbox explain --last` (see Sandbox Debug Commands above for coverage limits).
+
+### AppArmor blocks the Landlock driver (Ubuntu 23.10+)
+
+Ubuntu restricts unprivileged user namespaces via AppArmor
+(`kernel.apparmor_restrict_unprivileged_userns=1`, default since 23.10). The Landlock driver needs
+one: it re-executes pmg inside a user namespace to install its seccomp filter. With the restriction
+active, sandboxed commands fail with:
+
+```
+Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): permission denied
+```
+
+`pmg sandbox doctor` flags this as the "AppArmor user namespaces" check.
+
+The recommended fix is Ubuntu's own mechanism: an AppArmor profile that grants pmg (and only pmg)
+the `userns` permission. Create `/etc/apparmor.d/pmg` with the pmg binary path (`command -v pmg`):
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile pmg /usr/local/bin/pmg flags=(unconfined) {
+  userns,
+  include if exists <local/pmg>
+}
+```
+
+Load it (persists across reboots; no restart needed):
+
+```bash
+sudo apparmor_parser -r /etc/apparmor.d/pmg
+```
+
+Alternatively, disable the restriction system-wide. This is simpler but weakens the protection for
+every binary on the host, so prefer the profile:
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
 
 ## References
 

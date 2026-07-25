@@ -61,17 +61,23 @@ func FormatSandboxDetails(report *pmgsandbox.ViolationReport, primary *pmgsandbo
 	lines := []string{
 		"Sandbox: " + string(report.SandboxName),
 		"Policy: " + report.PolicyName,
-		"Correlation: " + report.CorrelationID,
-		"Process: " + process,
-		"Violation: " + primary.RuleLabel,
 	}
+
+	if report.CorrelationID != "" {
+		lines = append(lines, "Correlation: "+report.CorrelationID)
+	}
+
+	lines = append(lines,
+		"Process: "+process,
+		"Violation: "+primary.RuleLabel,
+	)
 
 	if primary.RuleTarget != "" && primary.RuleTarget != primary.Target {
 		lines = append(lines, "Matched rule: "+primary.RuleTarget)
 	}
 
 	if primary.RawLog != "" {
-		lines = append(lines, "Seatbelt log: "+primary.RawLog)
+		lines = append(lines, "Raw log: "+primary.RawLog)
 	}
 
 	if len(report.Violations) > 1 {

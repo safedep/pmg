@@ -6,11 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -21,11 +21,12 @@ import (
 
 // landlockSandbox implements the Sandbox interface using Landlock LSM on Linux.
 // This implementation follows the CLI-wrapper pattern (like Bubblewrap):
-// - Modifies the cmd in place by rewiring it to re-exec pmg with __landlock_sandbox_exec
-// - Passes the translated policy via a temp file (--policy-file)
-// - Passes an audit unix socket path (--audit-socket) for future audit event consumption
-// - Returns ExecutionResult with executed=false
-// - Caller must call cmd.Run() to execute the sandboxed command
+//   - Modifies the cmd in place by rewiring it to re-exec pmg with __landlock_sandbox_exec
+//   - Passes the translated policy via a temp file (--policy-file)
+//   - Passes an audit unix socket path (--audit-socket) over which the helper
+//     reports audit events, buffered for BestEffortViolation
+//   - Returns ExecutionResult with executed=false
+//   - Caller must call cmd.Run() to execute the sandboxed command
 type landlockSandbox struct {
 	abi *landlockABI
 
@@ -33,6 +34,13 @@ type landlockSandbox struct {
 	policyFile string
 	socketPath string
 	listener   net.Listener
+
+	// Audit event capture state from last Execute(); consumed by
+	// BestEffortViolation (see landlock_diagnostics_linux.go).
+	policyName  string
+	auditMu     sync.Mutex
+	auditEvents []capturedAuditEvent
+	auditDone   chan struct{}
 }
 
 // newLandlockSandbox creates a new Landlock sandbox instance after verifying
@@ -129,14 +137,20 @@ func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sa
 	s.socketPath = socketPath
 	s.listener = listener
 
+	s.policyName = policy.Name
+	s.auditMu.Lock()
+	s.auditEvents = nil
+	s.auditMu.Unlock()
+	auditDone := make(chan struct{})
+	s.auditDone = auditDone
+
 	go func() {
+		defer close(auditDone)
 		conn, err := listener.Accept()
 		if err != nil {
 			return
 		}
-		if _, err := io.Copy(io.Discard, conn); err != nil {
-			log.Warnf("audit socket drain: %v", err)
-		}
+		s.captureAuditEvents(conn)
 		if err := conn.Close(); err != nil {
 			log.Warnf("close audit conn: %v", err)
 		}
