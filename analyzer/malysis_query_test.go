@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
@@ -12,9 +13,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// stubMalwareAnalysisServiceClient is a minimal stub implementing the Malysis gRPC client interface,
-// returning a preconfigured response for testing.
 type stubMalwareAnalysisServiceClient struct {
+	malysisv1grpc.MalwareAnalysisServiceClient
 	resp *malysisv1.QueryPackageAnalysisResponse
 	err  error
 }
@@ -269,27 +269,4 @@ func TestMalysisQueryAnalyzer_ExclusionDoesNotAffectCleanPackage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, ActionAllow, result.Action)
 	assert.False(t, result.IsExcluded)
-}
-
-// Implement the full client interface surface expected by malysisv1grpc.MalwareAnalysisServiceClient
-func (s *stubMalwareAnalysisServiceClient) AnalyzePackage(ctx context.Context, req *malysisv1.AnalyzePackageRequest, opts ...grpc.CallOption) (*malysisv1.AnalyzePackageResponse, error) {
-	// Not used in these tests; return a nil response with no error
-	return nil, nil
-}
-func (s *stubMalwareAnalysisServiceClient) GetAnalysisReport(ctx context.Context, req *malysisv1.GetAnalysisReportRequest, opts ...grpc.CallOption) (*malysisv1.GetAnalysisReportResponse, error) {
-	// Not used in these tests
-	return nil, nil
-}
-func (s *stubMalwareAnalysisServiceClient) InternalAnalyzePackage(ctx context.Context, req *malysisv1.InternalAnalyzePackageRequest, opts ...grpc.CallOption) (*malysisv1.InternalAnalyzePackageResponse, error) {
-	// Not used in these tests
-	return nil, nil
-}
-func (s *stubMalwareAnalysisServiceClient) ListPackageAnalysisRecords(ctx context.Context, req *malysisv1.ListPackageAnalysisRecordsRequest, opts ...grpc.CallOption) (*malysisv1.ListPackageAnalysisRecordsResponse, error) {
-	return nil, nil
-}
-func (s *stubMalwareAnalysisServiceClient) InternalAgenticAnalyzePackage(ctx context.Context, req *malysisv1.InternalAgenticAnalyzePackageRequest, opts ...grpc.CallOption) (*malysisv1.InternalAgenticAnalyzePackageResponse, error) {
-	return nil, nil
-}
-func (s *stubMalwareAnalysisServiceClient) InternalPublishDomainEvent(ctx context.Context, req *malysisv1.InternalPublishDomainEventRequest, opts ...grpc.CallOption) (*malysisv1.InternalPublishDomainEventResponse, error) {
-	return nil, nil
 }
