@@ -76,8 +76,9 @@ const (
 
 // denyPathEntry pairs a filesystem path with the access mode to deny.
 type denyPathEntry struct {
-	Path string
-	Mode denyMode
+	Path     string
+	RulePath string `json:"rule_path,omitempty"`
+	Mode     denyMode
 }
 
 // auditEventType categorizes security audit events.
@@ -156,36 +157,52 @@ func landlockBuildBPFFilter() (*unix.SockFprog, error) {
 //     deny entry without slash is treated as "this path OR anything beneath it")
 //   - Must NOT match partial names: /home/.envrc does NOT match deny /home/.env
 func matchDeniedPath(path string, flags int, denyPaths []denyPathEntry) (denyPathEntry, bool) {
+	matches := matchingDeniedPaths(path, flags, denyPaths)
+	if len(matches) == 0 {
+		return denyPathEntry{}, false
+	}
+	return matches[0], true
+}
+
+func matchingDeniedPaths(path string, flags int, denyPaths []denyPathEntry) []denyPathEntry {
 	accessMode := flags & unix.O_ACCMODE
+	var readEntry, writeEntry *denyPathEntry
 
 	for _, entry := range denyPaths {
-		matched := false
-		if strings.HasSuffix(entry.Path, "/") {
-			// Directory prefix match: path must start with the deny prefix.
-			matched = strings.HasPrefix(path, entry.Path)
-		} else {
-			// Exact match OR any path under this entry as a directory.
-			matched = path == entry.Path || strings.HasPrefix(path, entry.Path+"/")
-		}
-
-		if !matched {
+		if !matchesDeniedPath(path, entry.Path) {
 			continue
 		}
 		switch entry.Mode {
 		case denyRead:
-			if accessMode == unix.O_RDONLY || accessMode == unix.O_RDWR {
-				return entry, true
+			if (accessMode == unix.O_RDONLY || accessMode == unix.O_RDWR) && readEntry == nil {
+				e := entry
+				readEntry = &e
 			}
 		case denyWrite:
-			if accessMode == unix.O_WRONLY || accessMode == unix.O_RDWR {
-				return entry, true
+			if (accessMode == unix.O_WRONLY || accessMode == unix.O_RDWR) && writeEntry == nil {
+				e := entry
+				writeEntry = &e
 			}
 		case denyBoth:
-			return entry, true
+			return []denyPathEntry{entry}
 		}
 	}
 
-	return denyPathEntry{}, false
+	matches := make([]denyPathEntry, 0, 2)
+	if readEntry != nil {
+		matches = append(matches, *readEntry)
+	}
+	if writeEntry != nil {
+		matches = append(matches, *writeEntry)
+	}
+	return matches
+}
+
+func matchesDeniedPath(path, rulePath string) bool {
+	if strings.HasSuffix(rulePath, "/") {
+		return strings.HasPrefix(path, rulePath)
+	}
+	return path == rulePath || strings.HasPrefix(path, rulePath+"/")
 }
 
 // isPathDenied reports whether matchDeniedPath finds a deny entry for path.
@@ -580,18 +597,25 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 
 	flags := classifyOpenFlags(notif.Data.Nr, notif.Data.Args, memFd)
 
-	if entry, denied := matchDeniedPath(resolved, flags, phase.denyPaths); denied {
+	if entries := matchingDeniedPaths(resolved, flags, phase.denyPaths); len(entries) > 0 {
 		if phase.auditWriter != nil {
-			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
-				Type:     auditSeccompDeny,
-				Syscall:  syscallName(notif.Data.Nr),
-				Path:     resolved,
-				Access:   denyAccessLabel(entry.Mode, flags),
-				RulePath: entry.Path,
-				Comm:     procComm(notif.PID),
-				PID:      int(notif.PID),
-				Ts:       time.Now().UnixNano(),
-			})
+			comm := procComm(notif.PID)
+			for _, entry := range entries {
+				rulePath := entry.RulePath
+				if rulePath == "" {
+					rulePath = entry.Path
+				}
+				_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+					Type:     auditSeccompDeny,
+					Syscall:  syscallName(notif.Data.Nr),
+					Path:     resolved,
+					Access:   denyAccessLabel(entry.Mode, flags),
+					RulePath: rulePath,
+					Comm:     comm,
+					PID:      int(notif.PID),
+					Ts:       time.Now().UnixNano(),
+				})
+			}
 		}
 		_ = respondDeny(s.notifyFd, notif.ID)
 		return
@@ -617,7 +641,6 @@ func syscallName(nr int32) string {
 }
 
 // accessModeString maps an O_ACCMODE value to the audit event access label.
-// O_RDWR counts as write: the denial applies to the stronger access.
 func accessModeString(flags int) string {
 	if flags&unix.O_ACCMODE == unix.O_RDONLY {
 		return "read"
@@ -626,15 +649,19 @@ func accessModeString(flags int) string {
 }
 
 // denyAccessLabel reports the direction of the deny rule that fired, not the
-// requested access. An O_RDWR open denied by a read-only rule must surface as
-// a read denial: the write override prunes only deny_write entries, so only a
-// read allowance unblocks it. denyBoth falls back to the requested access.
+// requested access. An O_RDWR open denied in both directions reports both
+// permissions so diagnostics do not advertise a single ineffective override.
 func denyAccessLabel(mode denyMode, flags int) string {
 	switch mode {
 	case denyRead:
 		return "read"
 	case denyWrite:
 		return "write"
+	case denyBoth:
+		if flags&unix.O_ACCMODE == unix.O_RDWR {
+			return "read_write"
+		}
+		return accessModeString(flags)
 	default:
 		return accessModeString(flags)
 	}

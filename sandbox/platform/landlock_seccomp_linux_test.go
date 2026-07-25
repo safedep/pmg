@@ -10,6 +10,8 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -253,6 +255,20 @@ func TestIsPathDenied_DenyBoth(t *testing.T) {
 	if !isPathDenied("/home/user/.env", unix.O_RDWR, deny) {
 		t.Error("denyBoth should block O_RDWR")
 	}
+}
+
+func TestMatchingDeniedPathsReportsBothDirectionsForReadWrite(t *testing.T) {
+	deny := []denyPathEntry{
+		{Path: "/home/user/.env", RulePath: "*/.env", Mode: denyRead},
+		{Path: "/home/user/.env", RulePath: "/home/user/.env", Mode: denyWrite},
+	}
+
+	matches := matchingDeniedPaths("/home/user/.env", unix.O_RDWR, deny)
+	require.Len(t, matches, 2)
+	assert.Equal(t, denyRead, matches[0].Mode)
+	assert.Equal(t, "*/.env", matches[0].RulePath)
+	assert.Equal(t, denyWrite, matches[1].Mode)
+	assert.Equal(t, "/home/user/.env", matches[1].RulePath)
 }
 
 func TestIsPathDenied_ExactMatch(t *testing.T) {

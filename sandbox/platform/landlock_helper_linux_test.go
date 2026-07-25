@@ -22,7 +22,7 @@ func TestReadLandlockPolicyFromFile(t *testing.T) {
 			{Path: "/tmp", Access: 0xFF},
 		},
 		DenyPaths: []denyPathEntry{
-			{Path: "/home/user/.ssh/", Mode: denyBoth},
+			{Path: "/home/user/.ssh/", RulePath: "$HOME/.ssh/**", Mode: denyBoth},
 		},
 		DenyExecPaths:    []string{"/usr/bin/curl"},
 		AllowPTY:         true,
@@ -54,6 +54,7 @@ func TestReadLandlockPolicyFromFile(t *testing.T) {
 	assert.Equal(t, uint64(0x0C), got.FilesystemRules[0].Access)
 	assert.Len(t, got.DenyPaths, 1)
 	assert.Equal(t, "/home/user/.ssh/", got.DenyPaths[0].Path)
+	assert.Equal(t, "$HOME/.ssh/**", got.DenyPaths[0].RulePath)
 	assert.Equal(t, denyBoth, got.DenyPaths[0].Mode)
 	assert.Equal(t, []string{"/usr/bin/curl"}, got.DenyExecPaths)
 	assert.True(t, got.AllowPTY)

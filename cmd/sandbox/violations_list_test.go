@@ -75,6 +75,18 @@ func TestViolationsList_TwoEntriesNewestFirst(t *testing.T) {
 	assert.Less(t, newerIdx, olderIdx, "newest entry should appear first")
 }
 
+func TestViolationsListEscapesAuditControls(t *testing.T) {
+	factory, cache := newTestCacheFactory(t)
+
+	_, err := cache.Write(sampleViolationsReport("/tmp/bad\npath\x1b[2J"))
+	require.NoError(t, err)
+
+	stdout, _, err := runList(t, factory)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, `bad\npath\x1b[2J`)
+	assert.NotContains(t, stdout, "\x1b")
+}
+
 func TestViolationsList_LimitOne(t *testing.T) {
 	factory, cache := newTestCacheFactory(t)
 

@@ -169,6 +169,28 @@ func TestExtractLandlockViolations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:   "read write denial maps to both permissions",
+			events: []capturedAuditEvent{denyEvent("openat", "/home/dev/.npmrc", "read_write", "node")},
+			want: []sandbox.Violation{
+				{
+					Kind:      sandbox.ViolationKindFSRead,
+					RawKind:   "openat",
+					Target:    "/home/dev/.npmrc",
+					Process:   "node",
+					RawLog:    `{"type":"seccomp_deny"}`,
+					RuleLabel: "read access denied: /home/dev/.npmrc",
+				},
+				{
+					Kind:      sandbox.ViolationKindFSWrite,
+					RawKind:   "openat",
+					Target:    "/home/dev/.npmrc",
+					Process:   "node",
+					RawLog:    `{"type":"seccomp_deny"}`,
+					RuleLabel: "write access denied: /home/dev/.npmrc",
+				},
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -256,7 +278,7 @@ func TestDenyAccessLabelReportsFiredRule(t *testing.T) {
 
 	assert.Equal(t, "write", denyAccessLabel(denyWrite, unix.O_RDWR))
 	assert.Equal(t, "read", denyAccessLabel(denyBoth, unix.O_RDONLY))
-	assert.Equal(t, "write", denyAccessLabel(denyBoth, unix.O_RDWR))
+	assert.Equal(t, "read_write", denyAccessLabel(denyBoth, unix.O_RDWR))
 }
 
 func TestBestEffortViolationNilOnSuccess(t *testing.T) {

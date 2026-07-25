@@ -48,6 +48,16 @@ func TestFormatSandboxHintEmpty(t *testing.T) {
 	assert.Equal(t, "Reason: sandbox denied an operation", FormatSandboxHint(nil, nil))
 }
 
+func TestSandboxViolationForTerminalEscapesControlCharacters(t *testing.T) {
+	violation := &pmgsandbox.Violation{
+		Target: "bad\npath\x1b[2J\tend\x7f",
+	}
+
+	safe := SandboxViolationForTerminal(violation)
+	assert.Equal(t, `bad\npath\x1b[2J\tend\x7f`, safe.Target)
+	assert.Equal(t, "bad\npath\x1b[2J\tend\x7f", violation.Target)
+}
+
 func TestFormatSandboxHintIncludesOverride(t *testing.T) {
 	primary := &pmgsandbox.Violation{
 		Kind:      pmgsandbox.ViolationKindFSRead,
@@ -58,6 +68,30 @@ func TestFormatSandboxHintIncludesOverride(t *testing.T) {
 	hint := FormatSandboxHint(primary, override)
 	assert.Contains(t, hint, "Reason: read access denied: ./.env")
 	assert.Contains(t, hint, "Override: --sandbox-allow read='./.env'")
+}
+
+func TestRenderSandboxViolationEscapesAuditControls(t *testing.T) {
+	rec := &pmgsandbox.ViolationCacheRecord{
+		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+		Report: &pmgsandbox.ViolationReport{
+			SandboxName: pmgsandbox.DriverLandlock,
+			PolicyName:  "test",
+			Violations: []pmgsandbox.Violation{{
+				Kind:       pmgsandbox.ViolationKindFSRead,
+				Target:     "/tmp/bad\npath\x1b[2J",
+				RuleTarget: "/tmp/rule",
+				RuleLabel:  "read access denied: /tmp/bad\npath\x1b[2J",
+				Process:    "bad\nprocess",
+			}},
+		},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, RenderSandboxViolation(&buf, rec))
+	out := buf.String()
+	assert.Contains(t, out, `bad\npath\x1b[2J`)
+	assert.Contains(t, out, `bad\nprocess`)
+	assert.NotContains(t, out, "\x1b")
 }
 
 func TestFormatSandboxDetailsIncludesMatchedRule(t *testing.T) {

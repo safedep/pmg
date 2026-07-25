@@ -11,9 +11,10 @@ func TestBuildAllOverridesMapsAllSafeFSAndExec(t *testing.T) {
 		Violations: []Violation{
 			{Kind: ViolationKindFSWrite, Target: "/repo/.astro"},
 			{Kind: ViolationKindExec, Target: "/usr/bin/sh"},
-			{Kind: ViolationKindFSWrite, Target: "/repo/.astro"},         // duplicate collapsed
-			{Kind: ViolationKindGenericDeny, Target: "/something/else"},  // unsupported kind dropped
-			{Kind: ViolationKindFSRead, Target: "**/*.env"},              // unsafe target dropped
+			{Kind: ViolationKindFSWrite, Target: "/repo/.astro"},        // duplicate collapsed
+			{Kind: ViolationKindGenericDeny, Target: "/something/else"}, // unsupported kind dropped
+			{Kind: ViolationKindFSRead, Target: "**/*.env"},             // unsafe target dropped
+			{Kind: ViolationKindFSRead, Target: "/repo/.env", RuleTarget: "**/.env"},
 		},
 	}
 	got := BuildAllOverrides(report)

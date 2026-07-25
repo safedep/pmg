@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,7 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 	}
 
 	exp := pmgsandbox.BuildExplanation(rec.Report)
+	primary := SandboxViolationForTerminal(exp.Primary)
 
 	recordedAt := ""
 	if !rec.RecordedAt.IsZero() {
@@ -121,7 +123,7 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		return err
 	}
 
-	hint := FormatSandboxHint(exp.Primary, exp.Override)
+	hint := FormatSandboxHint(primary, exp.Override)
 	if hint != "" {
 		if _, err := fmt.Fprintln(out, hint); err != nil {
 			return err
@@ -131,7 +133,7 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		}
 	}
 
-	details := FormatSandboxDetails(rec.Report, exp.Primary)
+	details := FormatSandboxDetails(rec.Report, primary)
 	if details != "" {
 		if _, err := fmt.Fprintln(out, Colors.Bold("Details:")); err != nil {
 			return err
@@ -168,27 +170,46 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		}
 	}
 
-	if exp.Primary != nil {
+	if primary != nil {
 		if _, err := fmt.Fprintln(out, Colors.Bold("Primary violation:")); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "  %s   %s\n", Colors.Dim("Kind:"), string(exp.Primary.Kind)); err != nil {
+		if _, err := fmt.Fprintf(out, "  %s   %s\n", Colors.Dim("Kind:"), string(primary.Kind)); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "  %s %s\n", Colors.Dim("Target:"), exp.Primary.Target); err != nil {
+		if _, err := fmt.Fprintf(out, "  %s %s\n", Colors.Dim("Target:"), primary.Target); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "  %s   %s\n", Colors.Dim("Rule:"), exp.Primary.RuleLabel); err != nil {
+		if _, err := fmt.Fprintf(out, "  %s   %s\n", Colors.Dim("Rule:"), primary.RuleLabel); err != nil {
 			return err
 		}
-		if exp.Primary.Process != "" {
-			if _, err := fmt.Fprintf(out, "  %s %s\n", Colors.Dim("Process:"), exp.Primary.Process); err != nil {
+		if primary.Process != "" {
+			if _, err := fmt.Fprintf(out, "  %s %s\n", Colors.Dim("Process:"), primary.Process); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+// SandboxViolationForTerminal returns a display-only copy with audit-controlled
+// strings escaped. Structured JSON output should continue using the original.
+func SandboxViolationForTerminal(violation *pmgsandbox.Violation) *pmgsandbox.Violation {
+	if violation == nil {
+		return nil
+	}
+
+	safe := *violation
+	safe.Target = quoteTerminalText(safe.Target)
+	safe.Process = quoteTerminalText(safe.Process)
+	safe.RuleLabel = quoteTerminalText(safe.RuleLabel)
+	return &safe
+}
+
+func quoteTerminalText(value string) string {
+	quoted := strconv.QuoteToGraphic(value)
+	return quoted[1 : len(quoted)-1]
 }
 
 // shellQuote wraps value in single quotes, escaping any embedded single

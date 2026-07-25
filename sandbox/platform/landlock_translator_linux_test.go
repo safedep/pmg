@@ -198,6 +198,23 @@ func TestLandlockTranslatePolicy_DenyRead(t *testing.T) {
 	}
 }
 
+func TestLandlockTranslatePolicy_PreservesDenyGlobRulePath(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "secret")
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600))
+
+	pattern := filepath.Join(dir, "**")
+	policy := newTestPolicy()
+	policy.Filesystem.DenyRead = []string{pattern}
+
+	ep, err := landlockTranslatePolicy(policy, newLandlockABI(3))
+	require.NoError(t, err)
+
+	entry := findDenyPath(ep.DenyPaths, secret)
+	require.NotNil(t, entry)
+	assert.Equal(t, pattern, entry.RulePath)
+}
+
 func TestLandlockTranslatePolicy_DenyWrite(t *testing.T) {
 	policy := newTestPolicy()
 	// DenyWrite is only effective within writable areas. Add /etc as writable
@@ -536,10 +553,10 @@ func TestLandlockTranslatePolicy_AllowGitConfig_True(t *testing.T) {
 
 func TestLandlockPolicyExplicitlyAllowsProc(t *testing.T) {
 	tests := []struct {
-		name      string
-		readPaths []string
+		name       string
+		readPaths  []string
 		writePaths []string
-		want      bool
+		want       bool
 	}{
 		{
 			name:      "no proc paths",

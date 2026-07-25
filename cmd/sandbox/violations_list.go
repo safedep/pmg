@@ -113,22 +113,21 @@ func renderViolationsListTable(out io.Writer, entries []pmgsandbox.ViolationCach
 
 		sandboxName := ""
 		profile := ""
+		var primary *pmgsandbox.Violation
 		if e.Record.Report != nil {
 			sandboxName = string(e.Record.Report.SandboxName)
 			profile = e.Record.Report.PolicyName
+			primary = ui.SandboxViolationForTerminal(pmgsandbox.BuildExplanation(e.Record.Report).Primary)
 		}
 
 		kind := dash
 		target := dash
-		if e.Record.Report != nil {
-			primary := pmgsandbox.BuildExplanation(e.Record.Report).Primary
-			if primary != nil {
-				if primary.Kind != "" {
-					kind = string(primary.Kind)
-				}
-				if primary.Target != "" {
-					target = truncate(primary.Target, 60)
-				}
+		if primary != nil {
+			if primary.Kind != "" {
+				kind = string(primary.Kind)
+			}
+			if primary.Target != "" {
+				target = truncate(primary.Target, 60)
 			}
 		}
 

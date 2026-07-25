@@ -10,17 +10,25 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
-const apparmorUsernsSysctlPath = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+const (
+	apparmorUsernsSysctlPath = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+	apparmorCurrentPath      = "/proc/self/attr/apparmor/current"
+)
 
 type apparmorProbe struct {
-	env  probeEnv
-	path string
+	env         probeEnv
+	path        string
+	currentPath string
 }
 
 // NewAppArmorUsernsProbe returns a probe that warns when AppArmor restricts
 // unprivileged user namespaces (which breaks bwrap-based sandboxing).
 func NewAppArmorUsernsProbe() sandbox.Probe {
-	return &apparmorProbe{env: defaultProbeEnv{}, path: apparmorUsernsSysctlPath}
+	return &apparmorProbe{
+		env:         defaultProbeEnv{},
+		path:        apparmorUsernsSysctlPath,
+		currentPath: apparmorCurrentPath,
+	}
 }
 
 func (p *apparmorProbe) Name() string { return sandbox.ProbeAppArmorUserns }
@@ -45,6 +53,19 @@ func (p *apparmorProbe) Run(_ context.Context) sandbox.ProbeResult {
 		}
 	}
 
+	currentPath := p.currentPath
+	if currentPath == "" {
+		currentPath = apparmorCurrentPath
+	}
+	if current, currentErr := p.env.readFile(currentPath); currentErr == nil && isPMGAppArmorProfile(string(current)) {
+		return sandbox.ProbeResult{
+			Name:    sandbox.ProbeAppArmorUserns,
+			Status:  sandbox.ProbeStatusOK,
+			Summary: "AppArmor profile permits pmg to create user namespaces",
+			Detail:  "The system-wide AppArmor restriction remains enabled, with a per-binary exception for pmg.",
+		}
+	}
+
 	return sandbox.ProbeResult{
 		Name:    sandbox.ProbeAppArmorUserns,
 		Status:  sandbox.ProbeStatusWarn,
@@ -64,4 +85,12 @@ func (p *apparmorProbe) Run(_ context.Context) sandbox.ProbeResult {
 			},
 		},
 	}
+}
+
+func isPMGAppArmorProfile(current string) bool {
+	label := strings.TrimSpace(current)
+	if mode := strings.LastIndex(label, " ("); mode >= 0 {
+		label = label[:mode]
+	}
+	return label == "pmg"
 }

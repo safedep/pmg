@@ -132,23 +132,23 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 			continue
 		}
 
-		key := landlockDenyKey(e.auditEvent)
-		if seen[key] {
-			continue
+		for _, kind := range landlockViolationKinds(e.auditEvent) {
+			key := string(kind) + "\x00" + e.Path
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			violations = append(violations, sandbox.Violation{
+				Kind:       kind,
+				RawKind:    e.Syscall,
+				Target:     e.Path,
+				RuleTarget: e.RulePath,
+				Process:    e.Comm,
+				RawLog:     e.raw,
+				RuleLabel:  summarizeLandlockViolation(kind, e.Path),
+			})
 		}
-		seen[key] = true
-
-		kind := landlockViolationKind(e.auditEvent)
-
-		violations = append(violations, sandbox.Violation{
-			Kind:       kind,
-			RawKind:    e.Syscall,
-			Target:     e.Path,
-			RuleTarget: e.RulePath,
-			Process:    e.Comm,
-			RawLog:     e.raw,
-			RuleLabel:  summarizeLandlockViolation(kind, e.Path),
-		})
 	}
 
 	return violations
@@ -159,20 +159,30 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 // (captureAuditEvents) and extract-time dedupe (extractLandlockViolations)
 // must agree on this identity, so both use this function.
 func landlockDenyKey(e auditEvent) string {
-	return string(landlockViolationKind(e)) + "\x00" + e.Path
+	key := ""
+	for _, kind := range landlockViolationKinds(e) {
+		key += string(kind) + "\x00"
+	}
+	return key + e.Path
 }
 
-func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
+func landlockViolationKinds(e auditEvent) []sandbox.ViolationKind {
 	switch e.Syscall {
 	case "execve", "execveat":
-		return sandbox.ViolationKindExec
+		return []sandbox.ViolationKind{sandbox.ViolationKindExec}
 	case "openat", "openat2":
 		if e.Access == "read" {
-			return sandbox.ViolationKindFSRead
+			return []sandbox.ViolationKind{sandbox.ViolationKindFSRead}
 		}
-		return sandbox.ViolationKindFSWrite
+		if e.Access == "read_write" {
+			return []sandbox.ViolationKind{
+				sandbox.ViolationKindFSRead,
+				sandbox.ViolationKindFSWrite,
+			}
+		}
+		return []sandbox.ViolationKind{sandbox.ViolationKindFSWrite}
 	default:
-		return sandbox.ViolationKindGenericDeny
+		return []sandbox.ViolationKind{sandbox.ViolationKindGenericDeny}
 	}
 }
 

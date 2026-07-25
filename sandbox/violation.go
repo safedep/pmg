@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+
+	"github.com/safedep/pmg/sandbox/util"
 )
 
 // Explanation is structured data extracted from a ViolationReport. It carries
@@ -40,7 +43,9 @@ func BuildExplanation(report *ViolationReport) Explanation {
 	primary := primaryViolation(report)
 	exp := Explanation{Primary: primary}
 	if primary != nil {
-		exp.Override = overrideSuggestion(*primary)
+		if !hasCompanionFilesystemDenial(report, *primary) {
+			exp.Override = overrideSuggestion(*primary)
+		}
 		if report != nil && len(report.Violations) > 1 {
 			exp.AdditionalDenials = len(report.Violations) - 1
 		}
@@ -49,7 +54,11 @@ func BuildExplanation(report *ViolationReport) Explanation {
 }
 
 func overrideSuggestion(v Violation) *OverrideSuggestion {
-	if !isSafeOverrideTarget(v.Target) {
+	target := v.Target
+	if v.RuleTarget != "" {
+		target = v.RuleTarget
+	}
+	if !isSafeOverrideTarget(target) || containsRuntimePathVariable(target) {
 		return nil
 	}
 
@@ -58,10 +67,36 @@ func overrideSuggestion(v Violation) *OverrideSuggestion {
 		ViolationKindFSWrite,
 		ViolationKindFSDeleteOrRename,
 		ViolationKindExec:
-		return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
+		return &OverrideSuggestion{Kind: v.Kind, Target: target}
 	default:
 		return nil
 	}
+}
+
+func containsRuntimePathVariable(value string) bool {
+	for _, variable := range util.SupportedVariables {
+		if strings.Contains(value, variable) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCompanionFilesystemDenial(report *ViolationReport, primary Violation) bool {
+	if report == nil || (primary.Kind != ViolationKindFSRead && primary.Kind != ViolationKindFSWrite) {
+		return false
+	}
+
+	companion := ViolationKindFSRead
+	if primary.Kind == ViolationKindFSRead {
+		companion = ViolationKindFSWrite
+	}
+	for _, v := range report.Violations {
+		if v.Kind == companion && v.Target == primary.Target {
+			return true
+		}
+	}
+	return false
 }
 
 func primaryViolation(report *ViolationReport) *Violation {
@@ -139,7 +174,7 @@ func isSafeOverrideTarget(value string) bool {
 	}
 
 	for _, r := range value {
-		if r == 0 || r < 0x20 || r == 0x7f {
+		if unicode.IsControl(r) {
 			return false
 		}
 	}
