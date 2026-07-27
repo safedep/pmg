@@ -496,3 +496,66 @@ Each entry notes what it actually answers, so this stays useful as a lookup rath
 
 - [The Illustrated TLS 1.3 Connection](https://tls13.xargs.org/) and [TLS 1.2](https://tls12.xargs.org/).
   Annotated hex dump of a real handshake. Locate the `server_name` extension inside the ClientHello to see exactly what the proxy's sniffer parses.
+
+
+
+---
+Step 0: Expose the transparent listener through the CLI
+
+EnableTransparent exists on ProxyConfig but nothing sets it. Needs a flag or config key so pmg proxy start can turn it on.
+
+Verify: start the daemon with it on, connect with a bare tls.Client (no CONNECT), see it work. Basically the test we already wrote, but against the real binary.
+
+---
+Step 1: Decision logic in shadow mode
+
+Add the two maps and the full ladder to connect.c, but do not rewrite yet. Instead put a would_redirect flag in the event struct.
+
+- config map: proxy IP + port
+- exempt map: uid
+- ladder: TCP, not loopback, not exempt, port 443
+- Go side: populate both maps, print the decision alongside each event
+
+Verify: run npm i and curl and read the output. Every registry connection should say would redirect, DNS and loopback should say no. If the decisions are wrong here, they'd be wrong destructively in step 2.
+
+This is the cheap safety net: full logic, zero blast radius.
+
+---
+Step 2: Turn on the rewrite, aim at a dummy
+
+Flip would_redirect into an actual ctx->user_ip4 / ctx->user_port write. Target a throwaway listener:
+
+nc -l 127.0.0.1 9999
+
+Verify: curl -k https://<some-ip> should hang in nc showing raw TLS bytes instead of reaching the internet. This isolates the rewrite mechanics: byte order, map lookups, the loopback guard. No PMG involved, so a failure here is unambiguous.
+
+---
+Step 3: Point it at the real proxy
+
+- Create the pmg-proxy identity
+- Start pmg proxy start --daemon under it, transparent enabled
+- Read the daemon's address into the config map, its uid into the exempt map
+- Attach
+
+Verify, two things:
+curl https://example.com          # non-registry → passthrough, real cert
+curl https://registry.npmjs.org/  # registry → PMG cert
+The first proves the tunnel path and, critically, that the exemption stops the loop. If the loop is broken you'll know instantly because the proxy will spin.
+
+---
+Step 4: The demo
+
+unset HTTPS_PROXY HTTP_PROXY     # remove the cooperation path
+# keep NODE_EXTRA_CA_CERTS
+npm i <package>
+
+Verify: the install succeeds and shows up in PMG's analysis. Then repeat with a known-bad package and confirm it's blocked. That's the claim of the whole layer, demonstrated.
+
+---
+Step 5: Coverage gaps
+
+- connect6 for IPv6, which is a live bypass hole until done
+- QUIC: deny UDP 443, and note this needs cgroup/sendmsg4 too, since unconnected UDP never hits connect4
+- Teardown, and what happens when the proxy dies mid-run
+
+---
