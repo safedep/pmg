@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"os/user"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,19 +34,34 @@ var actionNames = map[uint8]string{
 	5: "skip/no-target",
 }
 
+type options struct {
+	proxyAddr string
+	stateFile string
+	exempt    string
+	tcpOnly   bool
+}
+
 func main() {
-	proxyFlag := flag.String("proxy", "", "redirect target as host:port, e.g. 127.0.0.1:8443")
-	exemptFlag := flag.String("exempt-uid", "", "comma separated uids that are never redirected")
-	tcpOnlyFlag := flag.Bool("tcp-only", false, "only print TCP events, hiding DNS and route probe noise")
+	var opts options
+	flag.StringVar(&opts.proxyAddr, "proxy", "", "redirect target as host:port, e.g. 127.0.0.1:8443")
+	flag.StringVar(&opts.stateFile, "proxy-state", "",
+		"PMG proxy state file, used to derive both the redirect target and the uid to exempt")
+	flag.StringVar(&opts.exempt, "exempt-uid", "", "comma separated uids or usernames that are never redirected")
+	flag.BoolVar(&opts.tcpOnly, "tcp-only", false, "only print TCP events, hiding DNS and route probe noise")
 	flag.Parse()
 
-	if err := run(*proxyFlag, *exemptFlag, *tcpOnlyFlag); err != nil {
+	if err := run(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "pmgwatch: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(proxyAddr, exemptUIDs string, tcpOnly bool) error {
+func run(opts options) error {
+	target, exempt, err := resolve(opts)
+	if err != nil {
+		return err
+	}
+
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return fmt.Errorf("remove memlock: %w", err)
 	}
@@ -55,11 +72,11 @@ func run(proxyAddr, exemptUIDs string, tcpOnly bool) error {
 	}
 	defer objs.Close()
 
-	if err := configureTarget(&objs, proxyAddr); err != nil {
+	if err := configureTarget(&objs, target); err != nil {
 		return err
 	}
 
-	if err := configureExempt(&objs, exemptUIDs); err != nil {
+	if err := configureExempt(&objs, exempt); err != nil {
 		return err
 	}
 
@@ -91,7 +108,7 @@ func run(proxyAddr, exemptUIDs string, tcpOnly bool) error {
 	fmt.Println("Attached to /sys/fs/cgroup. Ctrl+C to exit.")
 	fmt.Printf("%-15s %-17s %-7s %-8s %-22s %s\n", "ACTION", "COMMAND", "UID", "PID", "DESTINATION", "PROTO")
 
-	return drain(rd, tcpOnly)
+	return drain(rd, opts.tcpOnly)
 }
 
 func drain(rd *ringbuf.Reader, tcpOnly bool) error {
@@ -195,32 +212,127 @@ func configureTarget(objs *bpfObjects, addr string) error {
 	return nil
 }
 
-func configureExempt(objs *bpfObjects, list string) error {
-	if list == "" {
+func configureExempt(objs *bpfObjects, uids []uint32) error {
+	if len(uids) == 0 {
 		fmt.Println("No exempt uids set, nothing bypasses the ladder")
 		return nil
 	}
 
 	var applied []string
+	for _, uid := range uids {
+		if err := objs.ExemptMap.Put(uid, uint8(1)); err != nil {
+			return fmt.Errorf("write exempt uid %d: %w", uid, err)
+		}
+
+		applied = append(applied, strconv.FormatUint(uint64(uid), 10))
+	}
+
+	fmt.Printf("Exempt uids: %s\n", strings.Join(applied, ", "))
+
+	return nil
+}
+
+// proxyState is the subset of PMG's proxy state file this tool needs.
+type proxyState struct {
+	PID  int    `json:"pid"`
+	Addr string `json:"addr"`
+}
+
+// resolve works out the redirect target and the uids to exempt. Deriving both
+// from the proxy's own state file is the safe path: an exempt uid that does not
+// match the running daemon sends the proxy's upstream fetches back into itself.
+func resolve(opts options) (string, []uint32, error) {
+	target := opts.proxyAddr
+
+	exempt, err := parseUIDs(opts.exempt)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if opts.stateFile == "" {
+		return target, exempt, nil
+	}
+
+	state, err := readProxyState(opts.stateFile)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if target == "" {
+		target = state.Addr
+	}
+
+	uid, err := uidOfPID(state.PID)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve uid of proxy pid %d: %w", state.PID, err)
+	}
+
+	fmt.Printf("Proxy daemon: pid %d, addr %s, uid %d\n", state.PID, state.Addr, uid)
+
+	return target, append(exempt, uid), nil
+}
+
+func readProxyState(path string) (*proxyState, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read proxy state %q: %w", path, err)
+	}
+
+	var state proxyState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return nil, fmt.Errorf("parse proxy state %q: %w", path, err)
+	}
+
+	if state.Addr == "" || state.PID == 0 {
+		return nil, fmt.Errorf("proxy state %q has no addr or pid, is the daemon running", path)
+	}
+
+	return &state, nil
+}
+
+// uidOfPID reads the owner of /proc/<pid>, which is the uid the process runs as.
+func uidOfPID(pid int) (uint32, error) {
+	info, err := os.Stat("/proc/" + strconv.Itoa(pid))
+	if err != nil {
+		return 0, err
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, errors.New("unexpected stat type")
+	}
+
+	return stat.Uid, nil
+}
+
+// parseUIDs accepts numeric uids or usernames, since a dedicated service
+// account is easier to name than to remember the number of.
+func parseUIDs(list string) ([]uint32, error) {
+	var uids []uint32
+
 	for _, field := range strings.Split(list, ",") {
 		field = strings.TrimSpace(field)
 		if field == "" {
 			continue
 		}
 
-		uid, err := strconv.ParseUint(field, 10, 32)
+		if uid, err := strconv.ParseUint(field, 10, 32); err == nil {
+			uids = append(uids, uint32(uid))
+			continue
+		}
+
+		account, err := user.Lookup(field)
 		if err != nil {
-			return fmt.Errorf("parse exempt uid %q: %w", field, err)
+			return nil, fmt.Errorf("resolve exempt user %q: %w", field, err)
 		}
 
-		if err := objs.ExemptMap.Put(uint32(uid), uint8(1)); err != nil {
-			return fmt.Errorf("write exempt uid %d: %w", uid, err)
+		uid, err := strconv.ParseUint(account.Uid, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("parse uid of user %q: %w", field, err)
 		}
 
-		applied = append(applied, field)
+		uids = append(uids, uint32(uid))
 	}
 
-	fmt.Printf("Exempt uids: %s\n", strings.Join(applied, ", "))
-
-	return nil
+	return uids, nil
 }
