@@ -114,6 +114,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 
 	proxyConfig := pmgproxy.DefaultProxyConfig()
 	proxyConfig.ListenAddr = listenAddr(host, port)
+	proxyConfig.EnableTransparent = cfg.Config.Proxy.Server.Transparent
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}

@@ -34,6 +34,8 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().BoolVarP(&daemonFlag, "daemon", "D", false, "Run the proxy as a detached background process")
 	cmd.Flags().StringVar(&srv.ListenHost, "host", srv.ListenHost, "Host to bind")
 	cmd.Flags().IntVar(&srv.ListenPort, "port", srv.ListenPort, "Port to bind (0 = a random free port)")
+	cmd.Flags().BoolVar(&srv.Transparent, "transparent", srv.Transparent,
+		"Also accept connections redirected to the proxy, recovering the destination from the TLS SNI")
 	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log)")
 	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
 	if err := cmd.Flags().MarkHidden("foreground-internal"); err != nil {
@@ -47,9 +49,10 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
 	host := cfg.Config.Proxy.Server.ListenHost
 	port := cfg.Config.Proxy.Server.ListenPort
+	transparent := cfg.Config.Proxy.Server.Transparent
 
 	if daemonFlag && !foregroundInternalFlag {
-		if err := startDaemon(cmd, cfg, statePath, host, port); err != nil {
+		if err := startDaemon(cmd, cfg, statePath, host, port, transparent); err != nil {
 			ui.ErrorExit(err)
 		}
 		return nil
@@ -61,7 +64,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host string, port int) error {
+func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host string, port int, transparent bool) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
@@ -77,7 +80,7 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host 
 		return fmt.Errorf("create daemon log dir: %w", err)
 	}
 
-	args := daemonArgs(cmd, statePath, host, port)
+	args := daemonArgs(cmd, statePath, host, port, transparent)
 
 	daemonCfg := proxyserver.ProxyDaemonConfig{
 		LogPath:      logPath,
@@ -92,12 +95,16 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host 
 	return werr
 }
 
-func daemonArgs(cmd *cobra.Command, statePath, host string, port int) []string {
+// daemonArgs passes the resolved values explicitly rather than relying on the
+// child to re-derive them, since a value supplied by flag is not visible to the
+// child's own config load.
+func daemonArgs(cmd *cobra.Command, statePath, host string, port int, transparent bool) []string {
 	args := append([]string{}, config.ChangedConfigFlagArgs(cmd)...)
 	return append(args,
 		"proxy", "start", "--foreground-internal",
 		"--state", statePath,
 		"--host", host,
 		"--port", strconv.Itoa(port),
+		"--transparent="+strconv.FormatBool(transparent),
 	)
 }

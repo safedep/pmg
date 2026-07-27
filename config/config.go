@@ -181,6 +181,14 @@ type ProxyServerConfig struct {
 	// ListenPort is the port the persistent proxy binds to. 0 (default) means a
 	// random free port. The --port flag overrides this.
 	ListenPort int `mapstructure:"listen_port"`
+
+	// Transparent additionally accepts connections that were redirected to the
+	// proxy rather than addressed to it. A redirected client believes it reached
+	// the real registry, so it speaks TLS immediately instead of sending CONNECT,
+	// and its destination is recovered from the TLS SNI. Off by default: it is
+	// only useful alongside a redirect mechanism such as the Linux eBPF
+	// enforcement layer. The --transparent flag overrides this.
+	Transparent bool `mapstructure:"transparent"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.

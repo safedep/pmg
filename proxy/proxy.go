@@ -72,6 +72,14 @@ type ProxyConfig struct {
 	RequestTimeout time.Duration
 	ConnectTimeout time.Duration
 
+	// EnableTransparent accepts redirected connections on the same listener as
+	// explicit proxy clients. A redirected client (e.g. via an eBPF connect
+	// rewrite) believes it reached the real registry, so it speaks TLS
+	// immediately instead of sending CONNECT. Its destination is recovered from
+	// the ClientHello's SNI. Connections without SNI cannot be routed and are
+	// dropped.
+	EnableTransparent bool
+
 	// ServerReadWriteTimeout is the timeout applied to the http.Server's
 	// ReadTimeout and WriteTimeout. These deadlines are set on the raw TCP
 	// connection and persist after Hijack(), which means they become the
@@ -264,6 +272,10 @@ func (ps *proxyServer) Start() error {
 	listener, err := net.Listen("tcp", ps.config.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
+	}
+
+	if ps.config.EnableTransparent {
+		listener = newTransparentListener(listener, ps.proxy)
 	}
 
 	ps.listener = listener
