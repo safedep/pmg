@@ -14,23 +14,33 @@ import (
 )
 
 type bpfEvent struct {
-	_     structs.HostLayout
-	Pid   uint32
-	Uid   uint32
-	Daddr uint32
-	Dport uint16
-	Proto uint8
-	Comm  [16]uint8
-	_     [1]byte
+	_      structs.HostLayout
+	Pid    uint32
+	Uid    uint32
+	Daddr  uint32
+	Dport  uint16
+	Proto  uint8
+	Action uint8
+	Comm   [16]uint8
+}
+
+type bpfTarget struct {
+	_    structs.HostLayout
+	Ip   uint32
+	Port uint16
+	_    [2]byte
 }
 
 // Names of all BPF objects in the ELF.
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
-	bpfMapEvents      = "events"
-	bpfProgConnect4   = "connect4"
-	bpfVarUnusedEvent = "unused_event"
+	bpfMapEvents       = "events"
+	bpfMapExemptMap    = "exempt_map"
+	bpfMapTargetMap    = "target_map"
+	bpfProgConnect4    = "connect4"
+	bpfVarUnusedEvent  = "unused_event"
+	bpfVarUnusedTarget = "unused_target"
 )
 
 // loadBpf returns the embedded CollectionSpec for bpf.
@@ -82,14 +92,17 @@ type bpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
-	Events *ebpf.MapSpec `ebpf:"events"`
+	Events    *ebpf.MapSpec `ebpf:"events"`
+	ExemptMap *ebpf.MapSpec `ebpf:"exempt_map"`
+	TargetMap *ebpf.MapSpec `ebpf:"target_map"`
 }
 
 // bpfVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfVariableSpecs struct {
-	UnusedEvent *ebpf.VariableSpec `ebpf:"unused_event"`
+	UnusedEvent  *ebpf.VariableSpec `ebpf:"unused_event"`
+	UnusedTarget *ebpf.VariableSpec `ebpf:"unused_target"`
 }
 
 // bpfObjects contains all objects after they have been loaded into the kernel.
@@ -112,12 +125,16 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
-	Events *ebpf.Map `ebpf:"events"`
+	Events    *ebpf.Map `ebpf:"events"`
+	ExemptMap *ebpf.Map `ebpf:"exempt_map"`
+	TargetMap *ebpf.Map `ebpf:"target_map"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
 		m.Events,
+		m.ExemptMap,
+		m.TargetMap,
 	)
 }
 
@@ -125,7 +142,8 @@ func (m *bpfMaps) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfVariables struct {
-	UnusedEvent *ebpf.Variable `ebpf:"unused_event"`
+	UnusedEvent  *ebpf.Variable `ebpf:"unused_event"`
+	UnusedTarget *ebpf.Variable `ebpf:"unused_target"`
 }
 
 // bpfPrograms contains all programs after they have been loaded into the kernel.
