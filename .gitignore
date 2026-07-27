@@ -35,3 +35,7 @@ packages/*/bin/
 # Build artifacts in wrapper package
 packages/pmg/dist/
 packages/pmg/README.md
+
+ebpf-poc/pmgwatch
+go.work.sum
+pmgwatch

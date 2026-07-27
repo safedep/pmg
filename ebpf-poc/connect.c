@@ -12,8 +12,8 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 // steered into a proxy that cannot speak their protocol.
 #define REDIRECT_DPORT 443
 
-// What the hook decided. Recorded on every event so the ladder can be checked
-// against real traffic before any rewrite is switched on.
+// What the hook decided. Recorded on every event so the ladder stays auditable:
+// a connection that was not redirected always reports which check stopped it.
 #define ACTION_REDIRECT      0
 #define ACTION_SKIP_PROTO    1
 #define ACTION_SKIP_LOOPBACK 2
@@ -106,7 +106,19 @@ int connect4(struct bpf_sock_addr *ctx) {
     bpf_ringbuf_submit(e, 0);
   }
 
-  // Shadow mode. The decision is recorded and never acted on. Turning
-  // ACTION_REDIRECT into a rewrite of user_ip4 and user_port is the next step.
+  if (action == ACTION_REDIRECT) {
+    __u32 key = 0;
+    struct target *t = bpf_map_lookup_elem(&target_map, &key);
+    if (!t || t->port == 0) {
+      return 1;
+    }
+
+    // t->ip is already network byte order, the same layout as user_ip4, so it
+    // is copied as is. Byte swapping here would corrupt the address. Only the
+    // port is converted, since it is stored host order for the userspace side.
+    ctx->user_ip4 = t->ip;
+    ctx->user_port = bpf_htons(t->port);
+  }
+
   return 1;
 }

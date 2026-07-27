@@ -88,7 +88,7 @@ func run(proxyAddr, exemptUIDs string, tcpOnly bool) error {
 		rd.Close()
 	}()
 
-	fmt.Println("Shadow mode: decisions are recorded, nothing is redirected. Ctrl+C to exit.")
+	fmt.Println("Attached to /sys/fs/cgroup. Ctrl+C to exit.")
 	fmt.Printf("%-15s %-17s %-7s %-8s %-22s %s\n", "ACTION", "COMMAND", "UID", "PID", "DESTINATION", "PROTO")
 
 	return drain(rd, tcpOnly)
