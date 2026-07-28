@@ -55,11 +55,17 @@ Run this command:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang llvm libbpf-dev git
+sudo apt-get install -y build-essential clang llvm libbpf-dev git
 ```
 
+`build-essential` gives the C standard library headers.
+PMG needs them because it builds a part that uses C.
 `clang` compiles the C code to eBPF bytecode.
 `libbpf-dev` gives the header files that the C code includes.
+
+Do not skip `build-essential`.
+A machine can have `gcc` but not these headers.
+The build then fails with messages such as `fatal error: errno.h: No such file or directory`.
 
 ---
 
@@ -157,6 +163,11 @@ You must see the PMG banner and a version number.
 
 If you see a list of flags such as `-exempt-uid`, you built the wrong program.
 Return to the repository root and build again.
+
+Always check the build before you copy the file.
+A failed build does not create the file.
+The copy then installs an old file, or it fails.
+Run `/tmp/pmg version` first, then copy.
 
 ---
 
@@ -390,6 +401,7 @@ It deletes the certificate files.
 | `./pmgwatch: command not found` | You are in the wrong directory | `cd ~/pmg/ebpf-poc` |
 | `directory prefix . does not contain modules listed in go.work` | The workspace file hides this module | `export GOWORK=off` |
 | `'asm/types.h' file not found` | Wrong architecture path | See Step 6 |
+| `fatal error: errno.h: No such file or directory` | The C library headers are missing | `sudo apt-get install -y build-essential` |
 | `Text file busy` | The proxy is running from that file | Stop the proxy, then copy again |
 | `map create: operation not permitted` | You are not root | Use `sudo` |
 | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | npm does not trust the certificate | Run Step 11 again |
