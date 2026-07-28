@@ -431,6 +431,82 @@ Regenerate after any change to the C struct. The Go struct is generated from it 
 4. Move from observe to rewrite. Redirect one destination to a local port and confirm the client lands there.
 5. Save the original destination into a map so passthrough can recover it.
 
+## CA Trust: Measured Results
+
+Redirect only completes if the captured client trusts the PMG CA. Measured on Ubuntu 24.04 arm64, CA installed with `update-ca-certificates`, no environment variables set anywhere.
+
+### Does the system trust store cover it
+
+| Client | Honours system store | Why |
+|---|---|---|
+| curl, wget, Go | Yes | linked against system OpenSSL |
+| npm, npx (Ubuntu `nodejs` package) | Yes | built with shared OpenSSL |
+| pip (Debian packaged) | Yes | Debian patches it to use system certs |
+| **npm, npx (nodejs.org, nvm, Docker, GHA)** | **No** | roots compiled into the binary |
+| **bun** | **No** | roots compiled in |
+| **uv, uvx** | **No** | rustls with webpki-roots |
+| poetry | No, not measured | vendored certifi |
+| pnpm, yarn | Follows whichever Node runs them | |
+
+The two passing Node and pip rows are distro specific, not tool properties.
+GitHub Actions installs Node from nodejs.org, so npm fails there despite passing here.
+
+### Config files close the gap without environment variables
+
+All verified working with no environment variables set:
+
+| Tool | File | Setting | Scope |
+|---|---|---|---|
+| pip | `/etc/pip.conf` | `cert = <ca>` | system wide |
+| uv | `/etc/uv/uv.toml` | `native-tls = true` | system wide |
+| npm | `$PREFIX/etc/npmrc` | `cafile=<ca>` | per Node installation |
+| bun | `~/.bunfig.toml` | `[install]` then `cafile = "<ca>"` | per user only |
+
+`/etc/bunfig.toml` was tested and is not read.
+
+### Why the config files matter more than they look
+
+`pmg proxy env` emits the CA variables and the proxy variables together.
+They are therefore absent in exactly the case the redirect exists for: a client that was never configured.
+A CA route independent of the job environment is what makes the redirect worth building.
+
+### Conclusion: three layers
+
+1. System trust store. One call, root is already available at setup. Covers Go, curl, git and distro packaged tooling.
+2. Environment variables. Already implemented. Covers everything whenever `pmg proxy env` ran.
+3. Config files. Roughly four writes at setup. The only durable route for npm, bun, uv and pip.
+
+Layer 1 is free, layer 2 exists, layer 3 is what makes the redirect pay off.
+
+### Open
+
+- bun has no system level config, so it cannot survive a uid change under `sudo`.
+- `$PREFIX/etc/npmrc` is tied to the Node installation, so a later `setup-node` lands on a fresh prefix. Resolve the prefix at setup time, or also write `~/.npmrc`.
+- A project level config in the repository overrides all of this. Deliberate act, outside the coverage model, but not closed.
+- Containers fail earlier than trust. See below.
+
+## Container Reachability
+
+The hook reaches containers, the redirect target does not.
+
+Measured with `docker run node:20-slim` while redirecting to `127.0.0.1:<proxy>`:
+
+- The container's `node` was captured 12 times: `REDIRECT node 0 -> 104.16.x.34:443`.
+- The connection then failed with `ECONNREFUSED`.
+
+`127.0.0.1` inside a container is the container's own loopback, which is empty.
+Loopback is network namespaced. The cgroup hook is not.
+
+So "containers included" is half true. Seeing and rewriting work. The rewritten address has to be
+valid in the caller's network namespace, which `127.0.0.1` is not.
+
+Options, none implemented:
+
+- Bind the proxy to the bridge address as well, and redirect containers to the bridge gateway.
+- Use `bpf_get_netns_cookie()` in the hook to pick a different target per namespace.
+
+Container CA trust is a separate and later problem, since traffic never reaches the proxy today.
+
 ## Validate Before Building
 
 1. CA trust inside containers. Redirect's recurring failure mode: images that do not trust the PMG CA fail TLS.

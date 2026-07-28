@@ -1,0 +1,430 @@
+# eBPF Enforcement POC: Setup Guide
+
+This guide sets up the POC on a new Linux machine.
+
+The POC makes package manager traffic go through the PMG proxy.
+It does this in the Linux kernel.
+The package manager does not need any configuration.
+It cannot avoid the proxy.
+
+Follow the steps in order.
+Each step has one task.
+
+---
+
+## Before You Start
+
+You need a Linux machine.
+It must have these things:
+
+| Item | Required value | How to check |
+|---|---|---|
+| Kernel | 5.8 or later | `uname -r` |
+| cgroup v2 | mounted | `stat -fc %T /sys/fs/cgroup` shows `cgroup2fs` |
+| BTF | present | `ls /sys/kernel/btf/vmlinux` |
+| Root access | yes | `sudo -v` |
+
+macOS does not work.
+eBPF runs only in the Linux kernel.
+Use a Linux virtual machine.
+
+---
+
+## Step 1. Check the Machine
+
+Run this command:
+
+```bash
+uname -r
+stat -fc %T /sys/fs/cgroup
+ls /sys/kernel/btf/vmlinux
+```
+
+You must see a kernel of 5.8 or later.
+You must see `cgroup2fs`.
+You must see the BTF file.
+
+If one item is missing, stop.
+The POC does not work on this machine.
+
+---
+
+## Step 2. Install the Build Tools
+
+Run this command:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y clang llvm libbpf-dev git
+```
+
+`clang` compiles the C code to eBPF bytecode.
+`libbpf-dev` gives the header files that the C code includes.
+
+---
+
+## Step 3. Install Go
+
+Check if Go is present:
+
+```bash
+go version
+```
+
+You need Go 1.25 or later.
+
+If Go is missing, install it:
+
+```bash
+sudo apt-get install -y golang-go
+```
+
+If the version is too old, download Go from https://go.dev/dl/ instead.
+
+---
+
+## Step 4. Install Node.js and npm
+
+Run this command:
+
+```bash
+sudo apt-get install -y nodejs npm
+```
+
+You need npm for two reasons.
+The setup command uses npm to write the certificate configuration.
+The test uses npm to install a package.
+
+---
+
+## Step 5. Get the Code
+
+Run this command:
+
+```bash
+git clone https://github.com/safedep/pmg.git
+cd pmg
+git checkout ebpf-poc
+```
+
+---
+
+## Step 6. Set the Architecture Path
+
+This step is only for x86-64 machines.
+Skip this step on ARM64 machines.
+
+Find your architecture:
+
+```bash
+uname -m
+```
+
+If the result is `aarch64`, skip this step.
+
+If the result is `x86_64`, edit `ebpf-poc/main.go`.
+Find the first line.
+Change `aarch64-linux-gnu` to `x86_64-linux-gnu`.
+
+The line must look like this:
+
+```go
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -type event -type target bpf connect.c -- -I/usr/include/x86_64-linux-gnu
+```
+
+The compiler needs this path.
+It cannot find the kernel headers without it.
+
+---
+
+## Step 7. Build PMG
+
+Run these commands from the repository root:
+
+```bash
+cd ~/pmg
+go build -o /tmp/pmg .
+sudo cp /tmp/pmg /usr/local/bin/pmg
+```
+
+Check the result:
+
+```bash
+pmg version
+```
+
+You must see the PMG banner and a version number.
+
+If you see a list of flags such as `-exempt-uid`, you built the wrong program.
+Return to the repository root and build again.
+
+---
+
+## Step 8. Build the Hook Agent
+
+Run these commands:
+
+```bash
+cd ~/pmg/ebpf-poc
+export GOWORK=off
+go generate
+go build -o pmgwatch .
+```
+
+`GOWORK=off` is required.
+The repository has a `go.work` file.
+That file does not list this module.
+Go refuses to build without this setting.
+
+Check the result:
+
+```bash
+./pmgwatch ca --help
+```
+
+You must see the CA usage text.
+
+---
+
+## Step 9. Create the Proxy User
+
+Run these commands:
+
+```bash
+sudo useradd --system --create-home \
+     --home-dir /var/lib/pmg-proxy \
+     --shell /usr/sbin/nologin pmg-proxy
+
+sudo install -d -o pmg-proxy -g pmg-proxy /var/lib/pmg-proxy/state
+```
+
+The proxy runs as this user.
+The kernel hook uses this user as the exemption key.
+The hook does not redirect traffic from this user.
+
+This user must be separate.
+It must not be the user that runs npm.
+If both are the same user, the hook exempts npm as well.
+Then nothing is enforced.
+
+---
+
+## Step 10. Create a Test User
+
+Run this command:
+
+```bash
+sudo useradd -m -s /bin/bash testuser
+```
+
+This user runs npm in the test.
+This user has no special rights.
+
+---
+
+## Step 11. Install the Certificate
+
+Run these commands:
+
+```bash
+cd ~/pmg/ebpf-poc
+sudo ./pmgwatch ca install --npm-user testuser
+sudo ./pmgwatch ca status
+```
+
+The status output must show four `PASS` lines.
+
+The proxy must be stopped during this step.
+The proxy reads the certificate when it starts.
+
+This command does three things.
+It creates a certificate that does not change.
+It gives the private key to the proxy user.
+It tells npm to trust the certificate.
+
+---
+
+## Step 12. Start the Proxy
+
+Run this command:
+
+```bash
+export STATE=/var/lib/pmg-proxy/state/proxy.json
+
+sudo -u pmg-proxy env HOME=/var/lib/pmg-proxy \
+     pmg proxy start --daemon --transparent --state $STATE
+```
+
+The command prints the address and the process number.
+
+`--transparent` is required.
+Without it the proxy refuses redirected connections.
+
+---
+
+## Step 13. Start the Hook
+
+Open a second terminal.
+Run these commands:
+
+```bash
+cd ~/pmg/ebpf-poc
+sudo ./pmgwatch -proxy-state /var/lib/pmg-proxy/state/proxy.json -tcp-only
+```
+
+You must see this output:
+
+```
+Proxy daemon: pid NNNNN, addr 127.0.0.1:NNNNN, uid 999
+Redirect target: 127.0.0.1:NNNNN
+Exempt uids: 999
+Attached to /sys/fs/cgroup. Ctrl+C to exit.
+ACTION          COMMAND    UID    PID    DESTINATION    PROTO
+```
+
+This terminal stays open.
+It shows one line for each connection.
+
+---
+
+## Step 14. Test It
+
+Open a third terminal.
+Log in as the test user:
+
+```bash
+sudo su - testuser
+```
+
+Run these commands:
+
+```bash
+rm -rf ~/.npm/_cacache
+mkdir -p ~/t && cd ~/t
+
+npm i --no-audit --no-fund --fetch-retries=0 is-odd
+npm i --no-audit --no-fund --fetch-retries=0 safedep-test-pkg
+```
+
+The first command must succeed.
+You see `added 2 packages`.
+
+The second command must fail.
+You see `npm ERR! code E403`.
+PMG blocked this package.
+
+In the second terminal you see lines like this:
+
+```
+REDIRECT      npm i is-odd    1001  104.16.1.34:443   TCP
+skip/exempt   pmg              999  104.16.1.34:443   TCP
+```
+
+`REDIRECT` means the hook captured npm.
+`skip/exempt` means the proxy fetched the package.
+The proxy is not redirected. This prevents a loop.
+
+There is no proxy setting in the environment.
+This is the purpose of the POC.
+
+---
+
+## Step 15. See the Block Message
+
+Run this command as the test user:
+
+```bash
+curl -s --cacert /var/lib/pmg-ebpf-poc/npm-ca-bundle.pem \
+  https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
+```
+
+You see the reason for the block:
+
+```
+Malicious package blocked: npm/safedep-test-pkg@0.1.3
+Reason: ...
+Reference: https://app.safedep.io/community/malysis/...
+```
+
+---
+
+## Step 16. Stop Everything
+
+Press `Ctrl+C` in the second terminal.
+This stops the hook.
+
+Then run this command in the first terminal:
+
+```bash
+sudo -u pmg-proxy env HOME=/var/lib/pmg-proxy \
+     pmg proxy stop --state $STATE --fail-on-violation
+echo "exit: $?"
+```
+
+You see the number of blocked packages.
+The exit code is 1 if a package was blocked.
+A build system uses this exit code to fail the job.
+
+---
+
+## Step 17. Remove Everything
+
+Run these commands:
+
+```bash
+cd ~/pmg/ebpf-poc
+sudo pkill -INT -f pmgwatch
+sudo -u pmg-proxy env HOME=/var/lib/pmg-proxy pmg proxy stop --state $STATE
+sudo ./pmgwatch ca remove
+```
+
+`ca remove` restores the previous npm setting.
+It deletes the certificate files.
+
+---
+
+## Problems and Fixes
+
+| Message | Cause | Fix |
+|---|---|---|
+| `./pmgwatch: command not found` | You are in the wrong directory | `cd ~/pmg/ebpf-poc` |
+| `directory prefix . does not contain modules listed in go.work` | The workspace file hides this module | `export GOWORK=off` |
+| `'asm/types.h' file not found` | Wrong architecture path | See Step 6 |
+| `Text file busy` | The proxy is running from that file | Stop the proxy, then copy again |
+| `map create: operation not permitted` | You are not root | Use `sudo` |
+| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | npm does not trust the certificate | Run Step 11 again |
+| `existing CA state was created with different options` | A previous setup used other options | Run `sudo ./pmgwatch ca remove` first |
+| `proxy pid N is still running` | The proxy is running | Stop the proxy, then install the certificate |
+| No events appear | npm used its local cache | `rm -rf ~/.npm/_cacache` |
+| Strange `skip/loopback` lines | Two hooks are attached | `pgrep pmgwatch`, then stop the extra one |
+
+---
+
+## Important Rules
+
+1. Install the certificate before you start the proxy.
+   The proxy reads the certificate at start time.
+
+2. Run only one `pmgwatch` at a time.
+   Two hooks change the same address one after the other.
+   The result is confusing.
+
+3. Clear the npm cache before each test.
+   A cached package does not use the network.
+   The hook sees nothing.
+
+4. The proxy user and the npm user must be different.
+   The hook does not redirect the proxy user.
+
+---
+
+## Current Limits
+
+The POC does not handle these cases:
+
+- **IPv6.** The hook watches IPv4 only. A client that uses IPv6 is not seen.
+- **Containers.** The hook sees container traffic. The container cannot reach
+  the proxy, because `127.0.0.1` in a container is not the host.
+- **QUIC.** The hook does not block UDP port 443.
+- **Other package managers.** The certificate step configures npm only.
+  pip, bun and uv are not configured.
