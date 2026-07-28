@@ -535,6 +535,9 @@ The state file would then hold `0.0.0.0`, which is not a valid destination.
 
 ### Test it
 
+Run this from an account that can use `sudo`.
+The `testuser` account cannot.
+
 ```bash
 sudo docker run --rm curlimages/curl:latest \
      -4 -sS -m 20 -o /dev/null https://registry.npmjs.org/is-odd
@@ -562,16 +565,50 @@ It fails at trust, not at the address.
 
 ### To make a container succeed
 
-The person who starts the container must pass the certificate in:
+The person who starts the container must pass the certificate in.
+Mount the bundle, then tell the program where it is.
+
+For a Node image, such as `node:20-slim`:
 
 ```bash
 sudo docker run --rm \
-     -v /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem:/etc/ssl/certs/ca-certificates.crt:ro \
+     -v /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem:/ca.pem:ro \
+     -e NODE_EXTRA_CA_CERTS=/ca.pem \
+     -w /tmp node:20-slim sh -c "npm i is-odd"
+```
+
+For a curl image:
+
+```bash
+sudo docker run --rm \
+     -v /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem:/ca.pem:ro \
+     -e CURL_CA_BUNDLE=/ca.pem \
      curlimages/curl:latest -4 -sS https://registry.npmjs.org/is-odd
 ```
 
+Mounting the file alone is not enough.
+The program must also be told to read it.
+
+A mount over `/etc/ssl/certs/ca-certificates.crt` does not work for every image.
+It was tested and it failed with `curlimages/curl`.
+That image does not read that file by default, even though the file is there.
+Always set the environment variable, or pass `--cacert`.
+
 There is no way to do this from the host.
 A container cannot be given a certificate it was not started to accept.
+
+### A blocked package inside a container
+
+With the certificate passed in, PMG blocks as it does on the host:
+
+```bash
+sudo docker run --rm \
+     -v /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem:/ca.pem:ro \
+     -e NODE_EXTRA_CA_CERTS=/ca.pem \
+     -w /tmp node:20-slim sh -c "npm i safedep-test-pkg"
+```
+
+This prints `npm ERR! code E403`.
 
 ### Limits
 

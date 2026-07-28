@@ -529,11 +529,19 @@ Do not bind `0.0.0.0`. The state file would record `0.0.0.0`, which is not a val
   properly needs `bpf_get_netns_cookie()` in the hook to select a target per namespace.
 - **A non loopback bind exposes the MITM proxy.** Acceptable on an isolated runner, otherwise it
   needs a firewall rule.
-- **CA trust inside the container is unsolved and may be unsolvable from the host.** A container has
-  its own trust store, and nothing on the host reaches into it. Injecting the CA requires the
-  process that starts the container to mount it. So for containers the guarantee degrades to fail
-  closed: traffic is mediated, the install fails, nothing unanalysed enters. That is the correct
-  security outcome and a poor usability one.
+- **CA trust inside the container cannot be arranged from the host.** A container has its own trust
+  store and nothing on the host reaches into it. With the certificate mounted and the runtime told
+  to read it, the full flow works: `npm i is-odd` succeeded inside `node:20-slim` and
+  `safedep-test-pkg` was blocked with 403. But that requires the process starting the container to
+  cooperate, which is the assumption the whole layer exists to remove. Without it the guarantee
+  degrades to fail closed: traffic is mediated, the install fails, nothing unanalysed enters. That
+  is the correct security outcome and a poor usability one.
+
+  Mounting over the image's CA bundle path is not sufficient on its own. Tested against
+  `curlimages/curl`: the mount lands and the file is correct, but curl does not read
+  `/etc/ssl/certs/ca-certificates.crt` by default and still fails. The runtime has to be pointed at
+  the file explicitly, through `NODE_EXTRA_CA_CERTS`, `CURL_CA_BUNDLE` or `--cacert`. Per runtime
+  again, which is the same shape as the host side problem.
 
 Note `docker pull` was already covered before any of this, since the daemon runs on the host.
 
