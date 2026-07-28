@@ -42,6 +42,13 @@ type options struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "ca" {
+		if err := runCACommand(os.Args[2:], os.Stdout); err != nil {
+			exitWithError("pmgwatch ca", err)
+		}
+		return
+	}
+
 	var opts options
 	flag.StringVar(&opts.proxyAddr, "proxy", "", "redirect target as host:port, e.g. 127.0.0.1:8443")
 	flag.StringVar(&opts.stateFile, "proxy-state", "",
@@ -51,9 +58,15 @@ func main() {
 	flag.Parse()
 
 	if err := run(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "pmgwatch: %v\n", err)
+		exitWithError("pmgwatch", err)
+	}
+}
+
+func exitWithError(name string, err error) {
+	if _, writeErr := fmt.Fprintf(os.Stderr, "%s: %v\n", name, err); writeErr != nil {
 		os.Exit(1)
 	}
+	os.Exit(1)
 }
 
 func run(opts options) error {
