@@ -97,9 +97,11 @@ Run this command:
 sudo apt-get install -y nodejs npm
 ```
 
-You need npm for two reasons.
-The setup command uses npm to write the certificate configuration.
-The test uses npm to install a package.
+npm is needed only for the test in Step 14.
+PMG does not change any npm configuration.
+
+Use the npm from `apt`.
+That build reads the system trust store, so the test needs no extra setup.
 
 ---
 
@@ -108,10 +110,14 @@ The test uses npm to install a package.
 Run this command:
 
 ```bash
+cd ~
 git clone https://github.com/safedep/pmg.git
-cd pmg
+cd ~/pmg
 git checkout ebpf-poc
 ```
+
+Clone into your home directory.
+The later steps use the path `~/pmg`.
 
 ---
 
@@ -147,27 +153,34 @@ It cannot find the kernel headers without it.
 
 Run these commands from the repository root:
 
+Build first:
+
 ```bash
 cd ~/pmg
 go build -o /tmp/pmg .
-sudo cp /tmp/pmg /usr/local/bin/pmg
 ```
 
-Check the result:
+Check the build before you install it:
 
 ```bash
-pmg version
+/tmp/pmg version
 ```
 
 You must see the PMG banner and a version number.
 
 If you see a list of flags such as `-exempt-uid`, you built the wrong program.
-Return to the repository root and build again.
+You were in the `ebpf-poc` directory.
+Run `cd ~/pmg` and build again.
 
-Always check the build before you copy the file.
+Now install it:
+
+```bash
+sudo cp /tmp/pmg /usr/local/bin/pmg
+```
+
+Always check before you copy.
 A failed build does not create the file.
-The copy then installs an old file, or it fails.
-Run `/tmp/pmg version` first, then copy.
+The copy then installs an old file, or it fails with `Text file busy`.
 
 ---
 
@@ -205,9 +218,10 @@ Run these commands:
 sudo useradd --system --create-home \
      --home-dir /var/lib/pmg-proxy \
      --shell /usr/sbin/nologin pmg-proxy
-
-sudo install -d -o pmg-proxy -g pmg-proxy /var/lib/pmg-proxy/state
 ```
+
+This is the only command you need.
+The proxy creates its own state directory on first start.
 
 The proxy runs as this user.
 The kernel hook uses this user as the exemption key.
@@ -325,12 +339,19 @@ sudo ./pmgwatch -proxy-state /var/lib/pmg-proxy/state/proxy.json -tcp-only
 You must see this output:
 
 ```
-Proxy daemon: pid NNNNN, addr 127.0.0.1:NNNNN, uid 999
+Proxy daemon: pid NNNNN, addr 127.0.0.1:NNNNN, uid NNN
 Redirect target: 127.0.0.1:NNNNN
-Exempt uids: 999
+Exempt uids: NNN
 Attached to /sys/fs/cgroup. Ctrl+C to exit.
 ACTION          COMMAND    UID    PID    DESTINATION    PROTO
 ```
+
+The numbers differ on every machine.
+The port is chosen at random.
+The user id depends on what the system assigned to `pmg-proxy`.
+
+The exempt user id must match the proxy.
+The tool reads both from the proxy state file, so they cannot disagree.
 
 This terminal stays open.
 It shows one line for each connection.
@@ -366,9 +387,12 @@ PMG blocked this package.
 In the second terminal you see lines like this:
 
 ```
-REDIRECT      npm i is-odd    1001  104.16.1.34:443   TCP
-skip/exempt   pmg              999  104.16.1.34:443   TCP
+REDIRECT      npm i is-odd    1000  104.16.1.34:443   TCP
+skip/exempt   pmg              500  104.16.1.34:443   TCP
 ```
+
+The user ids and the address differ on your machine.
+The first line is `testuser`. The second line is `pmg-proxy`.
 
 `REDIRECT` means the hook captured npm.
 `skip/exempt` means the proxy fetched the package.
@@ -381,10 +405,11 @@ This is the purpose of the POC.
 
 ## Step 15. See the Block Message
 
-Run this command as the test user:
+Run this command as the test user.
+Note the `-4` flag. It is required. The reason follows below.
 
 ```bash
-curl -s https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
+curl -4 -s https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
 ```
 
 You see the reason for the block:
@@ -394,6 +419,23 @@ Malicious package blocked: npm/safedep-test-pkg@0.1.3
 Reason: ...
 Reference: https://app.safedep.io/community/malysis/...
 ```
+
+### Why `-4` is required
+
+The hook watches IPv4 only.
+On a machine with IPv6, curl prefers IPv6.
+The connection then never reaches the hook.
+
+Without `-4` you get the real package file, not the block message:
+
+```
+curl        remote=2606:4700:91b3:...   no hook event, real file
+curl -4     remote=104.16.7.34          REDIRECT logged, block message
+```
+
+This is a real gap, not a problem with the test.
+Any program that prefers IPv6 avoids the proxy on this machine.
+See Current Limits at the end of this guide.
 
 ---
 
@@ -489,7 +531,11 @@ The `grep` command above is the reliable check.
 
 The POC does not handle these cases:
 
-- **IPv6.** The hook watches IPv4 only. A client that uses IPv6 is not seen.
+- **IPv6.** The hook watches IPv4 only. A client that uses IPv6 is not seen and
+  reaches the registry directly. This was measured on a dual stack machine:
+  `curl` chose IPv6, produced no hook event, and downloaded a package that PMG
+  blocks over IPv4. npm happened to choose IPv4, but that is luck, not design.
+  Use `curl -4` when testing. Closing this needs a `cgroup/connect6` program.
 - **Containers.** The hook sees container traffic. The container cannot reach
   the proxy, because `127.0.0.1` in a container is not the host.
 - **QUIC.** The hook does not block UDP port 443.
