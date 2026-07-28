@@ -239,7 +239,7 @@ Run these commands:
 
 ```bash
 cd ~/pmg/ebpf-poc
-sudo ./pmgwatch ca install --npm-user testuser
+sudo ./pmgwatch ca install
 sudo ./pmgwatch ca status
 ```
 
@@ -250,8 +250,47 @@ The proxy reads the certificate when it starts.
 
 This command does three things.
 It creates a certificate that does not change.
-It gives the private key to the proxy user.
-It tells npm to trust the certificate.
+It gives the private key to the proxy user only.
+It adds the certificate to the system trust store.
+
+The system trust store makes the certificate valid for every user.
+Every program that reads the system trust store now trusts the proxy.
+
+---
+
+## Step 11a. Tools That Ignore the System Trust Store
+
+Some programs do not read the system trust store.
+They carry their own list of certificates inside the program file.
+
+| Program | Reads the system trust store |
+|---|---|
+| curl, wget, git, Go | Yes |
+| npm from `apt install nodejs` | Yes |
+| pip from `apt install python3-pip` | Yes |
+| **npm from nodejs.org, nvm, or Docker** | **No** |
+| **bun** | **No** |
+| **uv** | **No** |
+
+If you use a program from the second group, configure it yourself.
+Point it at the file that Step 11 wrote:
+
+```
+/var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem
+```
+
+Use one of these settings:
+
+| Program | Setting |
+|---|---|
+| npm | `npm config set cafile /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem` |
+| Node, bun | `NODE_EXTRA_CA_CERTS=/var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem` |
+| uv | `native-tls = true` in `/etc/uv/uv.toml` |
+| pip | `cert = /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem` in `/etc/pip.conf` |
+
+On this guide's Ubuntu machine, npm comes from `apt`.
+It reads the system trust store.
+You do not need this step.
 
 ---
 
@@ -345,8 +384,7 @@ This is the purpose of the POC.
 Run this command as the test user:
 
 ```bash
-curl -s --cacert /var/lib/pmg-ebpf-poc/npm-ca-bundle.pem \
-  https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
+curl -s https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
 ```
 
 You see the reason for the block:
@@ -389,8 +427,25 @@ sudo -u pmg-proxy env HOME=/var/lib/pmg-proxy pmg proxy stop --state $STATE
 sudo ./pmgwatch ca remove
 ```
 
-`ca remove` restores the previous npm setting.
-It deletes the certificate files.
+Stop the proxy before you run `ca remove`.
+The command refuses to run while the proxy is running.
+
+`ca remove` takes the certificate out of the system trust store.
+It then deletes the certificate files and the public bundle.
+
+Check that the certificate is gone:
+
+```bash
+grep -c "SafeDep" /etc/ssl/certs/ca-certificates.crt
+```
+
+The result must be `0`.
+
+Do not use `ls /etc/ssl/certs | grep pmg` for this check.
+That command can still show two links after a correct removal.
+The links point to a file that no longer exists.
+They do not grant trust.
+The `grep` command above is the reliable check.
 
 ---
 
@@ -404,7 +459,7 @@ It deletes the certificate files.
 | `fatal error: errno.h: No such file or directory` | The C library headers are missing | `sudo apt-get install -y build-essential` |
 | `Text file busy` | The proxy is running from that file | Stop the proxy, then copy again |
 | `map create: operation not permitted` | You are not root | Use `sudo` |
-| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | npm does not trust the certificate | Run Step 11 again |
+| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | The program does not trust the certificate | Run `sudo ./pmgwatch ca status`. If it passes, the program ignores the system trust store. See Step 11a |
 | `existing CA state was created with different options` | A previous setup used other options | Run `sudo ./pmgwatch ca remove` first |
 | `proxy pid N is still running` | The proxy is running | Stop the proxy, then install the certificate |
 | No events appear | npm used its local cache | `rm -rf ~/.npm/_cacache` |
@@ -438,5 +493,12 @@ The POC does not handle these cases:
 - **Containers.** The hook sees container traffic. The container cannot reach
   the proxy, because `127.0.0.1` in a container is not the host.
 - **QUIC.** The hook does not block UDP port 443.
-- **Other package managers.** The certificate step configures npm only.
-  pip, bun and uv are not configured.
+- **Programs with their own certificate list.** PMG adds the certificate to the
+  system trust store only. It does not change the configuration of any program.
+  Programs that ignore the system trust store need manual setup. See Step 11a.
+
+The last item is a decision, not an oversight.
+PMG owns the one mechanism that works for every user and every program that
+reads it. Per program configuration is documented instead, because each
+program keeps its certificate list in a different place and in a different
+format.

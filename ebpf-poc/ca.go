@@ -17,14 +17,22 @@ import (
 	"syscall"
 
 	"github.com/safedep/pmg/proxy/certmanager"
+	"github.com/safedep/pmg/truststore"
 )
 
 const defaultCAStateDir = "/var/lib/pmg-ebpf-poc"
 
+// systemAccount is the identity the proxy runs as. The CA private key is owned
+// by it and readable by nobody else.
+type systemAccount struct {
+	Name    string
+	UID     uint32
+	GID     uint32
+	HomeDir string
+}
+
 type caCommandOptions struct {
 	proxyUser      string
-	npmUser        string
-	npmBin         string
 	proxyConfigDir string
 	bundlePath     string
 	statePath      string
@@ -33,23 +41,19 @@ type caCommandOptions struct {
 
 type caState struct {
 	ProxyUser      string `json:"proxy_user"`
-	NPMUser        string `json:"npm_user"`
-	NPMBin         string `json:"npm_bin"`
 	ProxyConfigDir string `json:"proxy_config_dir"`
 	BundlePath     string `json:"bundle_path"`
-	PreviousNPMCA  string `json:"previous_npm_ca,omitempty"`
-	PreviousNPMSet bool   `json:"previous_npm_ca_set"`
 	CAFingerprint  string `json:"ca_fingerprint"`
 	CACreated      bool   `json:"ca_created"`
 	ProxyStatePath string `json:"proxy_state_path"`
 }
 
 type caStatus struct {
-	CAValid       bool
-	KeyModeValid  bool
-	BundleValid   bool
-	NPMConfigured bool
-	Fingerprint   string
+	CAValid      bool
+	KeyModeValid bool
+	BundleValid  bool
+	SystemTrust  bool
+	Fingerprint  string
 }
 
 func runCACommand(args []string, out io.Writer) error {
@@ -73,13 +77,11 @@ func runCACommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out,
-			"Persistent CA: %s\nPrivate key owner: %s\nPublic npm bundle: %s\nnpm user: %s\nFingerprint: %s\n",
-			certmanager.CACertPath(state.ProxyConfigDir), state.ProxyUser, state.BundlePath,
-			state.NPMUser, state.CAFingerprint); err != nil {
-			return err
-		}
-		return nil
+		_, err = fmt.Fprintf(out,
+			"Persistent CA: %s\nPrivate key owner: %s\nSystem trust store: installed\nPublic bundle: %s\nFingerprint: %s\n",
+			certmanager.CACertPath(state.ProxyConfigDir), state.ProxyUser,
+			state.BundlePath, state.CAFingerprint)
+		return err
 
 	case "status":
 		opts, err := parseCAOptions("status", args[1:])
@@ -96,7 +98,7 @@ func runCACommand(args []string, out io.Writer) error {
 		if err := printCAStatus(out, status); err != nil {
 			return err
 		}
-		if !status.CAValid || !status.KeyModeValid || !status.BundleValid || !status.NPMConfigured {
+		if !status.CAValid || !status.KeyModeValid || !status.BundleValid || !status.SystemTrust {
 			return errors.New("CA setup is unhealthy")
 		}
 		return nil
@@ -112,10 +114,8 @@ func runCACommand(args []string, out io.Writer) error {
 		if err := removeCA(opts); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(out, "CA setup removed"); err != nil {
-			return err
-		}
-		return nil
+		_, err = fmt.Fprintln(out, "CA removed from the system trust store and deleted")
+		return err
 
 	default:
 		return fmt.Errorf("unknown CA command %q, expected install, status, or remove", args[0])
@@ -124,13 +124,17 @@ func runCACommand(args []string, out io.Writer) error {
 
 func printCAUsage(out io.Writer) error {
 	_, err := fmt.Fprintln(out, `Usage:
-  pmgwatch ca install --npm-user <user> [--proxy-user pmg-proxy]
+  pmgwatch ca install [--proxy-user pmg-proxy]
   pmgwatch ca status
   pmgwatch ca remove
 
-install generates or reuses the proxy CA and configures the selected user's npm cafile.
-status verifies the CA files, ownership, public bundle, and npm configuration.
-remove restores the previous npm cafile and deletes POC-owned CA files.`)
+install generates or reuses the proxy CA and trusts it machine wide.
+status verifies the CA files, key ownership, public bundle, and system trust.
+remove untrusts the CA and deletes the files this command created.
+
+Tools that ignore the system trust store, such as Node from nodejs.org,
+bun and uv, need their own configuration. Point them at the public bundle
+this command writes. See SETUP.md.`)
 	return err
 }
 
@@ -139,20 +143,16 @@ func parseCAOptions(name string, args []string) (caCommandOptions, error) {
 	flags := flag.NewFlagSet("ca "+name, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&opts.proxyUser, "proxy-user", "pmg-proxy", "user running the PMG proxy")
-	flags.StringVar(&opts.npmUser, "npm-user", defaultNPMUser(), "user whose npm configuration PMG manages")
-	flags.StringVar(&opts.npmBin, "npm-bin", "npm", "npm executable used to manage trust")
 	flags.StringVar(&opts.proxyConfigDir, "proxy-config-dir", "", "PMG proxy config directory")
-	flags.StringVar(&opts.bundlePath, "bundle", filepath.Join(defaultCAStateDir, "npm-ca-bundle.pem"), "public CA bundle for npm")
+	flags.StringVar(&opts.bundlePath, "bundle", filepath.Join(defaultCAStateDir, "pmg-ca-bundle.pem"),
+		"public CA bundle for tools that do not read the system trust store")
 	flags.StringVar(&opts.statePath, "state", filepath.Join(defaultCAStateDir, "ca-state.json"), "CA setup state")
-	flags.StringVar(&opts.proxyStatePath, "proxy-state", "", "PMG proxy state file used to guard removal")
+	flags.StringVar(&opts.proxyStatePath, "proxy-state", "", "PMG proxy state file used to guard changes")
 	if err := flags.Parse(args); err != nil {
 		return caCommandOptions{}, err
 	}
 	if flags.NArg() != 0 {
 		return caCommandOptions{}, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
-	}
-	if name == "install" && opts.npmUser == "" {
-		return caCommandOptions{}, errors.New("--npm-user is required when SUDO_USER is not set")
 	}
 	return opts, nil
 }
@@ -162,16 +162,11 @@ func installCA(opts caCommandOptions) (*caState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve proxy user: %w", err)
 	}
-	npmAccount, err := lookupSystemAccount(opts.npmUser)
-	if err != nil {
-		return nil, fmt.Errorf("resolve npm user: %w", err)
-	}
 	resolveCAPaths(&opts, proxyAccount)
 	if err := ensureProxyStopped(opts.proxyStatePath); err != nil {
 		return nil, err
 	}
 
-	npm := npmTrust{binary: opts.npmBin}
 	state, err := loadCAState(opts.statePath)
 	switch {
 	case err == nil:
@@ -179,18 +174,10 @@ func installCA(opts caCommandOptions) (*caState, error) {
 			return nil, err
 		}
 	case errors.Is(err, os.ErrNotExist):
-		previous, present, readErr := npm.Current(npmAccount)
-		if readErr != nil {
-			return nil, readErr
-		}
 		state = &caState{
 			ProxyUser:      opts.proxyUser,
-			NPMUser:        opts.npmUser,
-			NPMBin:         opts.npmBin,
 			ProxyConfigDir: opts.proxyConfigDir,
 			BundlePath:     opts.bundlePath,
-			PreviousNPMCA:  previous,
-			PreviousNPMSet: present,
 			ProxyStatePath: opts.proxyStatePath,
 		}
 	default:
@@ -202,24 +189,26 @@ func installCA(opts caCommandOptions) (*caState, error) {
 		return nil, err
 	}
 	state.CACreated = state.CACreated || created
+
 	if err := writeClientBundle(opts.bundlePath, ca.Certificate); err != nil {
 		return nil, err
 	}
-	if err := npm.Set(npmAccount, opts.bundlePath); err != nil {
-		return nil, errors.Join(err, restoreNPM(npm, npmAccount, state))
+
+	// Only the public certificate reaches the trust store. The private key
+	// never leaves the proxy's config directory.
+	if err := truststore.Install(ca.Certificate, truststore.ScopeSystem); err != nil {
+		return nil, fmt.Errorf("install CA into the system trust store: %w", err)
 	}
-	effective, present, err := npm.Current(npmAccount)
-	if err != nil {
-		return nil, errors.Join(err, restoreNPM(npm, npmAccount, state))
-	}
-	if !present || effective != opts.bundlePath {
-		setupErr := fmt.Errorf("npm cafile is %q after setup, expected %q", effective, opts.bundlePath)
-		return nil, errors.Join(setupErr, restoreNPM(npm, npmAccount, state))
+
+	if _, trusted, err := truststore.Status(certmanager.CACommonName); err != nil {
+		return nil, fmt.Errorf("verify system trust: %w", err)
+	} else if !trusted {
+		return nil, errors.New("CA is not trusted after install")
 	}
 
 	state.CAFingerprint = certificateFingerprint(ca)
 	if err := saveCAState(opts.statePath, state); err != nil {
-		return nil, errors.Join(err, restoreNPM(npm, npmAccount, state))
+		return nil, err
 	}
 
 	return state, nil
@@ -232,10 +221,6 @@ func inspectCA(opts caCommandOptions) (caStatus, error) {
 	}
 	opts = state.options(opts.statePath)
 	proxyAccount, err := lookupSystemAccount(opts.proxyUser)
-	if err != nil {
-		return caStatus{}, err
-	}
-	npmAccount, err := lookupSystemAccount(opts.npmUser)
 	if err != nil {
 		return caStatus{}, err
 	}
@@ -253,16 +238,17 @@ func inspectCA(opts caCommandOptions) (caStatus, error) {
 		status.KeyModeValid = ok && keyInfo.Mode().Perm() == 0o600 &&
 			keyStat.Uid == proxyAccount.UID && keyStat.Gid == proxyAccount.GID
 	}
+
 	if status.CAValid {
 		bundle, bundleErr := os.ReadFile(opts.bundlePath)
 		status.BundleValid = bundleErr == nil && bytes.Contains(bundle, ca.Certificate)
 	}
 
-	effective, present, npmErr := (npmTrust{binary: opts.npmBin}).Current(npmAccount)
-	if npmErr != nil {
-		return caStatus{}, npmErr
+	_, trusted, err := truststore.Status(certmanager.CACommonName)
+	if err != nil {
+		return caStatus{}, fmt.Errorf("read system trust store: %w", err)
 	}
-	status.NPMConfigured = present && effective == opts.bundlePath
+	status.SystemTrust = trusted
 
 	return status, nil
 }
@@ -277,24 +263,11 @@ func removeCA(opts caCommandOptions) error {
 		return err
 	}
 
-	npmAccount, err := lookupSystemAccount(opts.npmUser)
-	if err != nil {
-		return err
-	}
-	npm := npmTrust{binary: opts.npmBin}
-	effective, present, err := npm.Current(npmAccount)
-	if err != nil {
-		return err
-	}
-	if !present || effective != opts.bundlePath {
-		return fmt.Errorf("npm cafile changed to %q after setup; refusing to overwrite it", effective)
-	}
-	if state.PreviousNPMSet {
-		if err := npm.Set(npmAccount, state.PreviousNPMCA); err != nil {
-			return err
-		}
-	} else if err := npm.Remove(npmAccount); err != nil {
-		return err
+	// Untrust first. A CA left in the machine trust store after its files are
+	// gone is worse than one that was never installed: nothing points at it,
+	// but anyone holding the old key can still intercept every user.
+	if err := truststore.Uninstall(certmanager.CACommonName, truststore.ScopeSystem); err != nil {
+		return fmt.Errorf("remove CA from the system trust store: %w", err)
 	}
 
 	paths := []string{opts.bundlePath}
@@ -337,6 +310,8 @@ func ensurePersistentCA(dir string, account systemAccount) (*certmanager.Certifi
 		return nil, false, errors.New("persisted CA is expired")
 	}
 
+	// The private key is the whole security boundary: whoever can read it can
+	// mint a certificate for any domain that the machine now trusts.
 	for _, item := range []struct {
 		path string
 		mode os.FileMode
@@ -355,15 +330,18 @@ func ensurePersistentCA(dir string, account systemAccount) (*certmanager.Certifi
 	return ca, created, nil
 }
 
+// writeClientBundle writes the CA merged with the system roots. Settings such
+// as npm's cafile replace the trust set rather than adding to it, so a client
+// pointed at the bare CA would reject every other site.
 func writeClientBundle(path string, caPEM []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create bundle directory: %w", err)
 	}
 	if err := os.WriteFile(path, certmanager.MergeWithSystemCA(caPEM), 0o644); err != nil {
-		return fmt.Errorf("write npm CA bundle: %w", err)
+		return fmt.Errorf("write CA bundle: %w", err)
 	}
 	if err := os.Chmod(path, 0o644); err != nil {
-		return fmt.Errorf("chmod npm CA bundle: %w", err)
+		return fmt.Errorf("chmod CA bundle: %w", err)
 	}
 	return nil
 }
@@ -398,8 +376,7 @@ func loadCAState(path string) (*caState, error) {
 }
 
 func (s *caState) matches(opts caCommandOptions) error {
-	if s.ProxyUser != opts.proxyUser || s.NPMUser != opts.npmUser ||
-		s.NPMBin != opts.npmBin || s.ProxyConfigDir != opts.proxyConfigDir ||
+	if s.ProxyUser != opts.proxyUser || s.ProxyConfigDir != opts.proxyConfigDir ||
 		s.BundlePath != opts.bundlePath {
 		return errors.New("existing CA state was created with different options; remove it before changing setup")
 	}
@@ -409,8 +386,6 @@ func (s *caState) matches(opts caCommandOptions) error {
 func (s *caState) options(statePath string) caCommandOptions {
 	return caCommandOptions{
 		proxyUser:      s.ProxyUser,
-		npmUser:        s.NPMUser,
-		npmBin:         s.NPMBin,
 		proxyConfigDir: s.ProxyConfigDir,
 		bundlePath:     s.BundlePath,
 		statePath:      statePath,
@@ -427,6 +402,8 @@ func resolveCAPaths(opts *caCommandOptions, proxy systemAccount) {
 	}
 }
 
+// ensureProxyStopped guards changes to the CA. The proxy reads the certificate
+// once at startup, so a running daemon would keep serving the old one.
 func ensureProxyStopped(path string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -458,8 +435,8 @@ func printCAStatus(out io.Writer, status caStatus) error {
 	}{
 		{"Persistent CA", status.CAValid},
 		{"Private key access", status.KeyModeValid},
-		{"Public npm bundle", status.BundleValid},
-		{"npm cafile", status.NPMConfigured},
+		{"Public bundle", status.BundleValid},
+		{"System trust store", status.SystemTrust},
 	}
 	for _, row := range rows {
 		result := "FAIL"
@@ -504,13 +481,6 @@ func lookupSystemAccount(name string) (systemAccount, error) {
 	}, nil
 }
 
-func defaultNPMUser() string {
-	if name := os.Getenv("SUDO_USER"); name != "" && name != "root" {
-		return name
-	}
-	return ""
-}
-
 func requireRoot() error {
 	if os.Geteuid() != 0 {
 		return errors.New("run this command as root")
@@ -523,11 +493,4 @@ func removeFile(path string) error {
 		return fmt.Errorf("remove %s: %w", path, err)
 	}
 	return nil
-}
-
-func restoreNPM(npm npmTrust, account systemAccount, state *caState) error {
-	if state.PreviousNPMSet {
-		return npm.Set(account, state.PreviousNPMCA)
-	}
-	return npm.Remove(account)
 }
