@@ -491,6 +491,101 @@ The `grep` command above is the reliable check.
 
 ---
 
+## Optional: Docker Containers
+
+Skip this section if you do not use Docker.
+
+The hook already sees traffic from containers.
+Container processes belong to a cgroup under the same root.
+The hook applies to them.
+
+The problem is the address.
+`127.0.0.1` inside a container is the container's own loopback.
+The proxy is not there.
+The connection is rewritten and then goes nowhere.
+
+### The change
+
+Bind the proxy to the Docker bridge address instead of loopback.
+
+Find the bridge address:
+
+```bash
+ip -4 addr show docker0 | grep inet
+```
+
+The usual value is `172.17.0.1`.
+
+Start the proxy on that address:
+
+```bash
+sudo -u pmg-proxy env HOME=/var/lib/pmg-proxy \
+     pmg proxy start --daemon --transparent --host 172.17.0.1 --state $STATE
+```
+
+No other change is needed.
+`pmgwatch` reads the address from the proxy state file.
+
+This one address serves both worlds.
+A container reaches the host at `172.17.0.1`.
+The host also owns that address, so host programs still reach the proxy.
+
+Do not use `--host 0.0.0.0`.
+The state file would then hold `0.0.0.0`, which is not a valid destination.
+
+### Test it
+
+```bash
+sudo docker run --rm curlimages/curl:latest \
+     -4 -sS -m 20 -o /dev/null https://registry.npmjs.org/is-odd
+echo "exit: $?"
+```
+
+Expect exit code `60`.
+The hook log shows a `REDIRECT` line for the container.
+
+### Read the result
+
+| Proxy address | curl exit | Meaning |
+|---|---|---|
+| `127.0.0.1` | connection failed | The container never reached the proxy |
+| `172.17.0.1` | `60` | The container reached the proxy and refused the certificate |
+
+Exit code `60` means the certificate was not trusted.
+This is the expected result.
+The container has its own certificate list inside its own file system.
+The system trust store of the host is not visible inside a container.
+
+Exit code `60` is a success for the visibility layer.
+The connection is now mediated.
+It fails at trust, not at the address.
+
+### To make a container succeed
+
+The person who starts the container must pass the certificate in:
+
+```bash
+sudo docker run --rm \
+     -v /var/lib/pmg-ebpf-poc/pmg-ca-bundle.pem:/etc/ssl/certs/ca-certificates.crt:ro \
+     curlimages/curl:latest -4 -sS https://registry.npmjs.org/is-odd
+```
+
+There is no way to do this from the host.
+A container cannot be given a certificate it was not started to accept.
+
+### Limits
+
+- Only the default bridge network works.
+  Docker Compose and custom networks use other addresses such as `172.18.0.1`.
+  One fixed address does not cover them.
+- The proxy is no longer on loopback only.
+  Anything that can reach `172.17.0.1` can use it.
+  Use this on an isolated machine, or add a firewall rule.
+- `docker pull` already worked before this change.
+  The Docker daemon runs on the host, so the hook always saw it.
+
+---
+
 ## Problems and Fixes
 
 | Message | Cause | Fix |
@@ -536,8 +631,11 @@ The POC does not handle these cases:
   `curl` chose IPv6, produced no hook event, and downloaded a package that PMG
   blocks over IPv4. npm happened to choose IPv4, but that is luck, not design.
   Use `curl -4` when testing. Closing this needs a `cgroup/connect6` program.
-- **Containers.** The hook sees container traffic. The container cannot reach
-  the proxy, because `127.0.0.1` in a container is not the host.
+- **Containers.** The hook sees container traffic, and the container can reach
+  the proxy once it is bound to the Docker bridge address. See the Docker
+  section above. The container still does not trust the certificate, so the
+  request fails at TLS. That is accepted for now. Only the default bridge
+  network is covered.
 - **QUIC.** The hook does not block UDP port 443.
 - **Programs with their own certificate list.** PMG adds the certificate to the
   system trust store only. It does not change the configuration of any program.

@@ -500,12 +500,42 @@ Loopback is network namespaced. The cgroup hook is not.
 So "containers included" is half true. Seeing and rewriting work. The rewritten address has to be
 valid in the caller's network namespace, which `127.0.0.1` is not.
 
-Options, none implemented:
+### Reachability is solved by the bind address
 
-- Bind the proxy to the bridge address as well, and redirect containers to the bridge gateway.
-- Use `bpf_get_netns_cookie()` in the hook to pick a different target per namespace.
+Measured afterwards. Binding the proxy to the Docker bridge address rather than loopback is enough,
+and needs no change to the hook or the agent:
 
-Container CA trust is a separate and later problem, since traffic never reaches the proxy today.
+```
+pmg proxy start --transparent --host 172.17.0.1 ...
+```
+
+The agent reads the address from the proxy state file, so the redirect target follows automatically.
+One address serves both worlds, because the bridge gateway is a host interface as well as the
+container's route to the host.
+
+| Proxy bound to | Container result | Meaning |
+|---|---|---|
+| `127.0.0.1` | connection failed | never reached the proxy |
+| `172.17.0.1` | curl exit 60 | reached the proxy, refused the certificate |
+
+Exit 60 is a certificate error, so the connection completed TCP and entered the TLS handshake.
+Host traffic was unaffected in the same run: a host `npm install` still redirected and succeeded.
+
+Do not bind `0.0.0.0`. The state file would record `0.0.0.0`, which is not a valid rewrite target.
+
+### What remains
+
+- **Only the default bridge.** Compose and custom networks use other gateways. Covering them
+  properly needs `bpf_get_netns_cookie()` in the hook to select a target per namespace.
+- **A non loopback bind exposes the MITM proxy.** Acceptable on an isolated runner, otherwise it
+  needs a firewall rule.
+- **CA trust inside the container is unsolved and may be unsolvable from the host.** A container has
+  its own trust store, and nothing on the host reaches into it. Injecting the CA requires the
+  process that starts the container to mount it. So for containers the guarantee degrades to fail
+  closed: traffic is mediated, the install fails, nothing unanalysed enters. That is the correct
+  security outcome and a poor usability one.
+
+Note `docker pull` was already covered before any of this, since the daemon runs on the host.
 
 ## Validate Before Building
 
