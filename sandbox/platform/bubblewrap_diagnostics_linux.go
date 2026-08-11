@@ -3,9 +3,13 @@
 package platform
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
+	"sync"
+	"unicode"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/sandbox"
 )
 
@@ -33,29 +37,39 @@ var bubblewrapErrnoPhrases = []string{
 const bubblewrapMaxTargetLen = 4096
 
 // bubblewrapVerbs maps the verb a program prefixes to a path onto a violation
-// kind. It only classifies: bubblewrapExtractTarget does not consult it, so an
-// unlisted verb costs precision on the kind rather than losing the target.
+// kind. Only verbs that contradict the fallback in bubblewrapViolationKind are
+// listed; a read verb would restate it.
 //
-// Longer prefixes precede the prefixes they contain so the longest match wins.
+// When adding an entry, place it ahead of any prefix it extends so the longer
+// match wins.
 var bubblewrapVerbs = []struct {
 	prefix string
 	kind   sandbox.ViolationKind
 }{
-	{"cannot remove directory ", sandbox.ViolationKindFSDeleteOrRename},
 	{"cannot remove ", sandbox.ViolationKindFSDeleteOrRename},
+	{"failed to remove ", sandbox.ViolationKindFSDeleteOrRename},
 	{"cannot unlink ", sandbox.ViolationKindFSDeleteOrRename},
-	{"cannot rename ", sandbox.ViolationKindFSDeleteOrRename},
 	{"cannot move ", sandbox.ViolationKindFSDeleteOrRename},
 	{"cannot create ", sandbox.ViolationKindFSWrite},
-	{"cannot make directory ", sandbox.ViolationKindFSWrite},
 	{"cannot touch ", sandbox.ViolationKindFSWrite},
-	{"cannot write ", sandbox.ViolationKindFSWrite},
+	{"failed to create symbolic link ", sandbox.ViolationKindFSWrite},
 	{"changing ownership of ", sandbox.ViolationKindFSWrite},
 	{"changing permissions of ", sandbox.ViolationKindFSWrite},
-	{"cannot open ", sandbox.ViolationKindFSRead},
-	{"cannot access ", sandbox.ViolationKindFSRead},
-	{"cannot stat ", sandbox.ViolationKindFSRead},
 	{"execvp ", sandbox.ViolationKindExec},
+}
+
+// bubblewrapQuotePairs are the quoting styles a program may use to delimit a
+// path. Coreutils selects between the ASCII and Unicode forms by locale, so
+// both occur in practice; the backtick form is older GNU output.
+var bubblewrapQuotePairs = []struct {
+	open  string
+	close string
+}{
+	{"‘", "’"},
+	{"“", "”"},
+	{"`", "'"},
+	{"'", "'"},
+	{`"`, `"`},
 }
 
 // bubblewrapDenial is one stderr line reduced to the facts a sandbox.Violation
@@ -77,7 +91,11 @@ type bubblewrapDenial struct {
 // missing path reported by the sandboxed program cannot be told apart from a
 // file that genuinely does not exist.
 func parseBubblewrapDenial(line string) (bubblewrapDenial, bool) {
-	trimmed := strings.TrimRight(strings.TrimSpace(line), ".")
+	raw := strings.TrimSpace(line)
+
+	// Some programs terminate the message with a period. Match without it, but
+	// keep raw as printed.
+	trimmed := strings.TrimRight(raw, ".")
 
 	errno, ok := bubblewrapErrnoSuffix(trimmed)
 	if !ok {
@@ -109,7 +127,7 @@ func parseBubblewrapDenial(line string) (bubblewrapDenial, bool) {
 		target:  target,
 		process: bubblewrapProcess(fields),
 		rawKind: errno,
-		raw:     trimmed,
+		raw:     raw,
 	}, true
 }
 
@@ -143,12 +161,10 @@ func bubblewrapViolationKind(message, errno string) sandbox.ViolationKind {
 }
 
 // bubblewrapExtractTarget recovers the path from a message that may carry
-// arbitrary prose in front of it. Quoting is the only delimiter a program gives
-// for a path containing spaces, so a quoted tail wins; otherwise the path is the
-// final whitespace-separated token.
+// arbitrary prose around it.
 func bubblewrapExtractTarget(message string) string {
-	if inner, ok := bubblewrapQuotedTail(message); ok {
-		return inner
+	if quoted, ok := bubblewrapQuotedTarget(message); ok {
+		return quoted
 	}
 
 	if idx := strings.LastIndexByte(message, ' '); idx >= 0 {
@@ -158,35 +174,40 @@ func bubblewrapExtractTarget(message string) string {
 	return message
 }
 
-// bubblewrapQuotedTail returns the contents of a quoted region closing the
-// message. GNU tools historically render names as `name' rather than 'name'.
-func bubblewrapQuotedTail(message string) (string, bool) {
-	if len(message) < 2 {
+// bubblewrapQuotedTarget returns the innermost quoted region of the message.
+// Quoting is the only delimiter a program gives for a path containing spaces,
+// and some tools follow the path with prose ("cannot open '/x' for reading"),
+// so the search is not anchored to the end. Selecting the latest opening quote
+// keeps an unrelated earlier quote from swallowing the path.
+func bubblewrapQuotedTarget(message string) (string, bool) {
+	bestStart, bestEnd, openLen := -1, -1, 0
+
+	for _, q := range bubblewrapQuotePairs {
+		end := strings.LastIndex(message, q.close)
+		if end <= 0 {
+			continue
+		}
+
+		if start := strings.LastIndex(message[:end], q.open); start > bestStart {
+			bestStart, bestEnd, openLen = start, end, len(q.open)
+		}
+	}
+
+	if bestStart < 0 {
 		return "", false
 	}
 
-	body := message[:len(message)-1]
-
-	var open int
-	switch message[len(message)-1] {
-	case '\'':
-		open = max(strings.LastIndexByte(body, '\''), strings.LastIndexByte(body, '`'))
-	case '"':
-		open = strings.LastIndexByte(body, '"')
-	default:
-		return "", false
-	}
-
-	if open < 0 {
-		return "", false
-	}
-
-	return body[open+1:], true
+	return message[bestStart+openLen : bestEnd], true
 }
 
 // bubblewrapPlausibleTarget rejects anything that does not look like a path.
-// Programs narrate around errno phrases, so without this every "npm ERR! ...
-// Permission denied" line would become a violation.
+// The trailing token of a line is often prose, so "npm ERR! ... Permission
+// denied" would otherwise report "..." as a denied path. A path carries a
+// separator or an extension, and at least one letter or digit.
+//
+// Extensionless bare names in the working directory (Makefile) are consequently
+// missed. That is the deliberate side of the trade: a wrong target produces a
+// misleading override suggestion, while a missed one only costs a report.
 func bubblewrapPlausibleTarget(target string) bool {
 	if target == "" || len(target) > bubblewrapMaxTargetLen {
 		return false
@@ -196,7 +217,13 @@ func bubblewrapPlausibleTarget(target string) bool {
 		return false
 	}
 
-	return strings.Contains(target, "/") || strings.HasPrefix(target, ".")
+	if !strings.Contains(target, "/") && !strings.Contains(target, ".") {
+		return false
+	}
+
+	return strings.ContainsFunc(target, func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsDigit(r)
+	})
 }
 
 // bubblewrapProcess recovers the failing program from the leading field. It is
@@ -212,4 +239,134 @@ func bubblewrapProcess(fields []string) string {
 	}
 
 	return filepath.Base(head)
+}
+
+// bubblewrapDenialCap bounds the per-run denial buffer. Denials are deduplicated
+// before the cap applies, so this caps distinct denials: a process retrying one
+// denied path cannot evict a later, different one.
+const bubblewrapDenialCap = 512
+
+// bubblewrapMaxLineLen bounds an unterminated line. The sandboxed process
+// decides when to emit a newline, so a stream without one must not grow the tap
+// indefinitely.
+const bubblewrapMaxLineLen = 16 * 1024
+
+// bubblewrapStderrTap is an io.Writer spliced into the sandboxed command's
+// stderr. It reassembles lines across writes, since a write carries an arbitrary
+// byte range rather than whole lines, and buffers the denials it finds.
+//
+// Write never reports an error. The tap shares cmd.Stderr with the user's
+// terminal through io.MultiWriter, which stops at the first failing writer, so
+// failing here would silence the command's own output.
+type bubblewrapStderrTap struct {
+	mu       sync.Mutex
+	partial  []byte
+	skipping bool
+	denials  []bubblewrapDenial
+	seen     map[string]bool
+	dropped  bool
+}
+
+func newBubblewrapStderrTap() *bubblewrapStderrTap {
+	return &bubblewrapStderrTap{seen: make(map[string]bool)}
+}
+
+func (t *bubblewrapStderrTap) Write(p []byte) (int, error) {
+	n := len(p)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for len(p) > 0 {
+		idx := bytes.IndexByte(p, '\n')
+		if idx < 0 {
+			t.buffer(p)
+			break
+		}
+
+		t.buffer(p[:idx])
+		t.flushLine()
+		p = p[idx+1:]
+	}
+
+	return n, nil
+}
+
+// buffer accumulates a line fragment. An over-long line is abandoned rather than
+// truncated: a truncated head still ends in the errno phrase and would parse
+// into a plausible but wrong target.
+//
+// Caller must hold t.mu.
+func (t *bubblewrapStderrTap) buffer(chunk []byte) {
+	if t.skipping {
+		return
+	}
+
+	if len(t.partial)+len(chunk) > bubblewrapMaxLineLen {
+		t.skipping = true
+		t.partial = nil
+		return
+	}
+
+	t.partial = append(t.partial, chunk...)
+}
+
+// flushLine records a denial if the accumulated line holds one.
+//
+// Caller must hold t.mu.
+func (t *bubblewrapStderrTap) flushLine() {
+	line := string(t.partial)
+	t.partial = nil
+
+	if t.skipping {
+		t.skipping = false
+		return
+	}
+
+	denial, ok := parseBubblewrapDenial(line)
+	if !ok {
+		return
+	}
+
+	key := bubblewrapDenialKey(denial)
+	if t.seen[key] {
+		return
+	}
+
+	if len(t.denials) >= bubblewrapDenialCap {
+		if !t.dropped {
+			t.dropped = true
+			log.Warnf("bubblewrap diagnostics: denial buffer full (%d), dropping further denials", bubblewrapDenialCap)
+		}
+		return
+	}
+
+	// seen is marked only on append so it stays bounded by the cap. Its keys
+	// carry paths the sandboxed process chose, so growing it unconditionally
+	// would reintroduce the memory growth the cap exists to prevent.
+	t.seen[key] = true
+	t.denials = append(t.denials, denial)
+}
+
+// collect flushes any unterminated trailing line and returns the buffered
+// denials. Callers invoke it after cmd.Run() has returned, when no further
+// writes can race with the flush.
+func (t *bubblewrapStderrTap) collect() []bubblewrapDenial {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(t.partial) > 0 {
+		t.flushLine()
+	}
+
+	out := make([]bubblewrapDenial, len(t.denials))
+	copy(out, t.denials)
+
+	return out
+}
+
+// bubblewrapDenialKey identifies a denial for deduplication: the same kind of
+// block on the same target is one denial, however many times a process retries.
+func bubblewrapDenialKey(d bubblewrapDenial) string {
+	return string(d.kind) + "\x00" + d.target
 }
