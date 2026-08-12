@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
 	"strconv"
@@ -100,6 +101,12 @@ type violationReporter interface {
 	BestEffortViolation(err error) (*ViolationReport, error)
 }
 
+// diagnosticsWriter is implemented by drivers that collect diagnostics from the
+// command's own output rather than from a kernel or platform channel.
+type diagnosticsWriter interface {
+	DiagnosticsWriter() io.Writer
+}
+
 // ExecutionResult represents the result of executing a command in a sandbox.
 // It contains sandbox internal state and allows for future extension with
 // additional metadata (e.g., exit codes, resource usage, violation events).
@@ -173,6 +180,22 @@ func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, erro
 	}
 
 	return reporter.BestEffortViolation(err)
+}
+
+// DiagnosticsWriter returns a writer that execution paths routing command
+// output themselves, such as a PTY session, must tee into for the sandbox to
+// observe denials. Drivers that read a kernel or platform channel return nil.
+func (r *ExecutionResult) DiagnosticsWriter() io.Writer {
+	if r == nil || r.sandbox == nil {
+		return nil
+	}
+
+	writer, ok := r.sandbox.(diagnosticsWriter)
+	if !ok {
+		return nil
+	}
+
+	return writer.DiagnosticsWriter()
 }
 
 // Close cleans up any resources allocated by the sandbox.

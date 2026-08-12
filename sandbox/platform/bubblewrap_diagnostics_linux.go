@@ -4,6 +4,8 @@ package platform
 
 import (
 	"bytes"
+	"io"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -125,9 +127,9 @@ func parseBubblewrapDenial(line string) (bubblewrapDenial, bool) {
 	return bubblewrapDenial{
 		kind:    kind,
 		target:  target,
-		process: bubblewrapProcess(fields),
+		process: bubblewrapStripControl(bubblewrapProcess(fields)),
 		rawKind: errno,
-		raw:     raw,
+		raw:     bubblewrapStripControl(raw),
 	}, true
 }
 
@@ -201,9 +203,9 @@ func bubblewrapQuotedTarget(message string) (string, bool) {
 }
 
 // bubblewrapPlausibleTarget rejects anything that does not look like a path.
-// The trailing token of a line is often prose, so "npm ERR! ... Permission
-// denied" would otherwise report "..." as a denied path. A path carries a
-// separator or an extension, and at least one letter or digit.
+// The trailing token of a line is often prose: without this check the line
+// "npm ERR! ... Permission denied" would report "..." as a denied path. A path
+// carries a separator or an extension, and at least one letter or digit.
 //
 // Extensionless bare names in the working directory (Makefile) are consequently
 // missed. That is the deliberate side of the trade: a wrong target produces a
@@ -213,7 +215,7 @@ func bubblewrapPlausibleTarget(target string) bool {
 		return false
 	}
 
-	if strings.ContainsAny(target, "\x00\n\r") {
+	if strings.ContainsFunc(target, unicode.IsControl) {
 		return false
 	}
 
@@ -239,6 +241,23 @@ func bubblewrapProcess(fields []string) string {
 	}
 
 	return filepath.Base(head)
+}
+
+// bubblewrapStripControl removes control characters from a field bound for a
+// terminal. Unlike the other drivers' evidence, these fields are written by the
+// sandboxed process. Dropping the escape character leaves the rest of any
+// sequence as inert text, so it cannot act on the terminal when
+// `pmg sandbox explain` renders it.
+//
+// A target carrying control characters is rejected outright instead, since it
+// also feeds an override suggestion the user may copy.
+func bubblewrapStripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // bubblewrapDenialCap bounds the per-run denial buffer. Denials are deduplicated
@@ -269,6 +288,12 @@ type bubblewrapStderrTap struct {
 
 func newBubblewrapStderrTap() *bubblewrapStderrTap {
 	return &bubblewrapStderrTap{seen: make(map[string]bool)}
+}
+
+// bubblewrapDenialKey identifies a denial for deduplication: the same kind of
+// block on the same target is one denial, however many times a process retries.
+func bubblewrapDenialKey(d bubblewrapDenial) string {
+	return string(d.kind) + "\x00" + d.target
 }
 
 func (t *bubblewrapStderrTap) Write(p []byte) (int, error) {
@@ -365,8 +390,68 @@ func (t *bubblewrapStderrTap) collect() []bubblewrapDenial {
 	return out
 }
 
-// bubblewrapDenialKey identifies a denial for deduplication: the same kind of
-// block on the same target is one denial, however many times a process retries.
-func bubblewrapDenialKey(d bubblewrapDenial) string {
-	return string(d.kind) + "\x00" + d.target
+// attachDiagnostics splices a stderr tap into cmd for this run. State is
+// replaced on every Execute so a reused driver never reports a previous run's
+// denials.
+//
+// The existing writer is wrapped rather than replaced: the caller has already
+// pointed stderr at the user's terminal, and the command's own output must
+// reach it unchanged.
+func (b *bubblewrapSandbox) attachDiagnostics(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) {
+	tap := newBubblewrapStderrTap()
+
+	b.tap = tap
+	b.policyName = policy.Name
+
+	if cmd.Stderr == nil {
+		cmd.Stderr = tap
+		return
+	}
+
+	cmd.Stderr = io.MultiWriter(cmd.Stderr, tap)
+}
+
+// DiagnosticsWriter exposes this run's tap for execution paths that route the
+// command's output themselves instead of through cmd.Stderr. A PTY session
+// merges stdout and stderr onto the pty master, so the tap sees both; denial
+// lines are still selected by their errno suffix.
+func (b *bubblewrapSandbox) DiagnosticsWriter() io.Writer {
+	if b.tap == nil {
+		return nil
+	}
+
+	return b.tap
+}
+
+// BestEffortViolation reports denials parsed from the sandboxed command's own
+// output during the last Execute. Coverage is bounded by what that command
+// chose to print, since bubblewrap observes nothing itself; see
+// parseBubblewrapDenial for what is and is not recognised.
+func (b *bubblewrapSandbox) BestEffortViolation(err error) (*sandbox.ViolationReport, error) {
+	if err == nil || b.tap == nil {
+		return nil, nil
+	}
+
+	denials := b.tap.collect()
+	if len(denials) == 0 {
+		return nil, nil
+	}
+
+	violations := make([]sandbox.Violation, 0, len(denials))
+	for _, d := range denials {
+		violations = append(violations, sandbox.Violation{
+			Kind:      d.kind,
+			RawKind:   d.rawKind,
+			Target:    d.target,
+			Process:   d.process,
+			RawLog:    d.raw,
+			RuleLabel: summarizeViolation(d.kind, d.target),
+		})
+	}
+
+	return &sandbox.ViolationReport{
+		SandboxName: b.Name(),
+		PolicyName:  b.policyName,
+		Violations:  violations,
+	}, nil
 }

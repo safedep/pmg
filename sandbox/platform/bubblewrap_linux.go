@@ -26,6 +26,11 @@ import (
 type bubblewrapSandbox struct {
 	config     *bubblewrapConfig
 	translator *bubblewrapPolicyTranslator
+
+	// Diagnostics state from the last Execute(), consumed by
+	// BestEffortViolation (see bubblewrap_diagnostics_linux.go).
+	policyName string
+	tap        *bubblewrapStderrTap
 }
 
 // newBubblewrapSandbox creates a new Bubblewrap sandbox instance with default configuration.
@@ -92,6 +97,8 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 	}
 
 	log.Debugf("Sandboxed command: %s %v", cmd.Path, cmd.Args)
+
+	b.attachDiagnostics(cmd, policy)
 
 	return sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(b)), nil
 }

@@ -3,7 +3,10 @@
 package platform
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -271,6 +274,23 @@ func TestParseBubblewrapDenialKeepsRawLineAsPrinted(t *testing.T) {
 	assert.Equal(t, line, got.raw)
 }
 
+// The evidence fields are written by the sandboxed process and are rendered
+// later by `pmg sandbox explain`. Removing the escape character leaves the
+// remaining bytes as inert text, which is what stops the sequence firing.
+func TestParseBubblewrapDenialNeutralisesTerminalEscapes(t *testing.T) {
+	got, ok := parseBubblewrapDenial("\x1b[31mcat\x1b[0m: /work/.env: Permission denied")
+	require.True(t, ok)
+
+	assert.Equal(t, "/work/.env", got.target)
+	assert.NotContains(t, got.raw, "\x1b")
+	assert.NotContains(t, got.process, "\x1b")
+}
+
+func TestParseBubblewrapDenialRejectsControlCharsInTarget(t *testing.T) {
+	_, ok := parseBubblewrapDenial("cat: /work/\x1b[2J.env: Permission denied")
+	assert.False(t, ok)
+}
+
 func TestParseBubblewrapDenialRejectsOversizedTarget(t *testing.T) {
 	long := "/" + strings.Repeat("a", bubblewrapMaxTargetLen)
 	require.Greater(t, len(long), bubblewrapMaxTargetLen)
@@ -335,6 +355,151 @@ func TestBubblewrapStderrTapBoundsDistinctDenials(t *testing.T) {
 
 	assert.Len(t, tap.collect(), bubblewrapDenialCap)
 	assert.Len(t, tap.seen, bubblewrapDenialCap)
+}
+
+func TestAttachDiagnosticsPreservesExistingStderr(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	var userVisible bytes.Buffer
+	cmd := &exec.Cmd{Stderr: &userVisible}
+
+	b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+
+	line := "cat: /work/.env: Permission denied\n"
+	_, err = cmd.Stderr.Write([]byte(line))
+	require.NoError(t, err)
+
+	assert.Equal(t, line, userVisible.String())
+	assert.Len(t, b.tap.collect(), 1)
+}
+
+func TestAttachDiagnosticsHandlesNilStderr(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	cmd := &exec.Cmd{}
+	b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+
+	require.NotNil(t, cmd.Stderr)
+	_, err = cmd.Stderr.Write([]byte("cat: /work/.env: Permission denied\n"))
+	require.NoError(t, err)
+
+	assert.Len(t, b.tap.collect(), 1)
+}
+
+func TestAttachDiagnosticsReplacesPreviousRunState(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	first := &exec.Cmd{}
+	b.attachDiagnostics(first, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+	_, err = first.Stderr.Write([]byte("cat: /work/.env: Permission denied\n"))
+	require.NoError(t, err)
+
+	second := &exec.Cmd{}
+	b.attachDiagnostics(second, &sandbox.SandboxPolicy{Name: "npm-strict"})
+
+	report, err := b.BestEffortViolation(errors.New("exit status 1"))
+	require.NoError(t, err)
+	assert.Nil(t, report)
+}
+
+func TestBestEffortViolation(t *testing.T) {
+	tests := []struct {
+		name    string
+		stderr  string
+		runErr  error
+		attach  bool
+		wantNil bool
+	}{
+		{
+			name:    "successful run reports nothing",
+			stderr:  "cat: /work/.env: Permission denied\n",
+			attach:  true,
+			wantNil: true,
+		},
+		{
+			name:    "execute never ran",
+			runErr:  errors.New("exit status 1"),
+			wantNil: true,
+		},
+		{
+			name:    "output holds no denial",
+			stderr:  "npm WARN deprecated left-pad@1.0.0\n",
+			runErr:  errors.New("exit status 1"),
+			attach:  true,
+			wantNil: true,
+		},
+		{
+			name:   "denial is reported",
+			stderr: "cat: /work/.env: Permission denied\n",
+			runErr: errors.New("exit status 1"),
+			attach: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := newBubblewrapSandbox()
+			require.NoError(t, err)
+
+			if tc.attach {
+				cmd := &exec.Cmd{}
+				b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+				_, err = cmd.Stderr.Write([]byte(tc.stderr))
+				require.NoError(t, err)
+			}
+
+			report, err := b.BestEffortViolation(tc.runErr)
+			require.NoError(t, err)
+
+			if tc.wantNil {
+				assert.Nil(t, report)
+				return
+			}
+
+			require.NotNil(t, report)
+			assert.Equal(t, sandbox.DriverBubblewrap, report.SandboxName)
+			assert.Equal(t, "npm-restrictive", report.PolicyName)
+			assert.Equal(t, []sandbox.Violation{{
+				Kind:      sandbox.ViolationKindFSRead,
+				RawKind:   bubblewrapErrnoEACCES,
+				Target:    "/work/.env",
+				Process:   "cat",
+				RawLog:    "cat: /work/.env: Permission denied",
+				RuleLabel: "read access denied: /work/.env",
+			}}, report.Violations)
+		})
+	}
+}
+
+// ExecutionResult reaches the reporter through an unexported interface
+// assertion, which is what silently yielded no diagnostics for this driver.
+func TestExecutionResultReachesBubblewrapReporter(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	cmd := &exec.Cmd{}
+	b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+	_, err = cmd.Stderr.Write([]byte("cat: /work/.env: Permission denied\n"))
+	require.NoError(t, err)
+
+	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(b))
+
+	report, err := result.BestEffortViolation(errors.New("exit status 1"))
+	require.NoError(t, err)
+	require.NotNil(t, report)
+
+	assert.Equal(t, sandbox.DriverBubblewrap, report.SandboxName)
+	require.Len(t, report.Violations, 1)
+
+	explanation := sandbox.BuildExplanation(report)
+	require.NotNil(t, explanation.Primary)
+	assert.Equal(t, "/work/.env", explanation.Primary.Target)
+	require.NotNil(t, explanation.Override)
+	assert.Equal(t, sandbox.ViolationKindFSRead, explanation.Override.Kind)
+	assert.Equal(t, "/work/.env", explanation.Override.Target)
 }
 
 func TestBubblewrapStderrTapAbandonsOversizedLine(t *testing.T) {
