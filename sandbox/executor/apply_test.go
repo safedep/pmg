@@ -91,7 +91,7 @@ func TestScrubEnv_RemovesDeniedKeepsAllowed(t *testing.T) {
 
 	scrubbed := scrubEnv(cmd, policy)
 
-	assert.Equal(t, 2, scrubbed)
+	assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, scrubbed)
 	assert.Contains(t, cmd.Env, "PATH=/usr/bin")
 	assert.Contains(t, cmd.Env, "NPM_TOKEN=keep-me")
 	assert.NotContains(t, cmd.Env, "AWS_SECRET_ACCESS_KEY=scrub-me")
@@ -109,8 +109,36 @@ func TestScrubEnv_AllowOverrideUnscrubs(t *testing.T) {
 	cmd := &exec.Cmd{Env: []string{"AWS_SESSION_TOKEN=kept"}}
 	scrubbed := scrubEnv(cmd, policy)
 
-	assert.Equal(t, 0, scrubbed)
+	assert.Empty(t, scrubbed)
 	assert.Contains(t, cmd.Env, "AWS_SESSION_TOKEN=kept")
+}
+
+func TestScrubEnv_ReturnsSortedNames(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+
+	tests := []struct {
+		name string
+		env  []string
+	}{
+		{
+			name: "reverse order",
+			env:  []string{"NPM_TOKEN=c", "GITHUB_TOKEN=b", "AWS_SECRET_ACCESS_KEY=a"},
+		},
+		{
+			name: "interleaved with kept entries",
+			env:  []string{"NPM_TOKEN=c", "PATH=/usr/bin", "AWS_SECRET_ACCESS_KEY=a", "HOME=/home/x", "GITHUB_TOKEN=b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &exec.Cmd{Env: tt.env}
+
+			assert.Equal(t,
+				[]string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "NPM_TOKEN"},
+				scrubEnv(cmd, policy))
+		})
+	}
 }
 
 func TestScrubEnv_NilEnvPopulatedThenScrubbed(t *testing.T) {
