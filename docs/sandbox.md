@@ -512,6 +512,15 @@ Not reported:
   Node and Python.
 - A bare name carrying neither a separator nor an extension, such as `Makefile`. The trailing
   token of an error line is often prose, so a target must look like a path to be accepted.
+- A denial on a host that sets `LC_ALL`. libc translates `strerror(3)`, so PMG pins
+  `LC_MESSAGES=C` for the sandboxed command to keep those phrases in English. `LC_ALL` outranks
+  `LC_MESSAGES`, and overriding it would change number formatting and collation for every build
+  script in the install, which is too broad a side effect for a diagnostics feature.
+
+Reports from this driver are marked as derived from the command's output. Because a malicious
+package can print a denial that never happened and name any target it likes, these violations are
+shown by `violations list` and `explain` but never become an override suggestion, and
+`pmg sandbox allow --last` will not persist them.
 
 Landlock and Seatbelt do not share these limits; both read a dedicated kernel or platform channel
 rather than the command's output.

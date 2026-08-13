@@ -3,10 +3,11 @@ package sandbox
 // BuildAllOverrides maps every safe FS/exec violation in report to an
 // OverrideSuggestion. Network violations are intentionally skipped because
 // drivers do not classify network denials yet. Returns nil when the report is
-// empty. Duplicates (same Kind+Target) are collapsed so callers do not have to
-// de-dup against the existing overlay before passing the result through.
+// empty or OutputDerived, since forgeable evidence must not become a persisted
+// allowance. Duplicates (same Kind+Target) are collapsed so callers do not have
+// to de-dup against the existing overlay before passing the result through.
 func BuildAllOverrides(report *ViolationReport) []OverrideSuggestion {
-	if report == nil || len(report.Violations) == 0 {
+	if report == nil || len(report.Violations) == 0 || report.OutputDerived {
 		return nil
 	}
 

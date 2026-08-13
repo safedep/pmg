@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,12 @@ import (
 // resulting denial reaches a violation report. They skip when bwrap is absent
 // rather than being opted into by env var, since bwrap is the only requirement.
 
+// requireBubblewrap skips unless bwrap is present and can actually spawn a
+// sandbox: a host that disables unprivileged user namespaces has bwrap on PATH
+// while every spawn fails, which would fail these tests instead of skipping.
+//
+// The probe succeeds rather than denies, because a denial and a failure to
+// start both exit non-zero.
 func requireBubblewrap(t *testing.T) *bubblewrapSandbox {
 	t.Helper()
 
@@ -26,7 +33,15 @@ func requireBubblewrap(t *testing.T) *bubblewrapSandbox {
 	require.NoError(t, err)
 
 	if !b.IsAvailable() {
-		t.Skip("bwrap not available on this host")
+		t.Skip("bwrap not found on PATH")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	probe := exec.CommandContext(ctx, "bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--", "/bin/true")
+	if out, err := probe.CombinedOutput(); err != nil {
+		t.Skipf("bwrap cannot spawn a sandbox on this host: %v: %s", err, out)
 	}
 
 	return b
@@ -127,9 +142,8 @@ func TestBubblewrapE2EReportsDeniedCredentialRead(t *testing.T) {
 	assert.Equal(t, sandbox.ViolationKindFSRead, explanation.Primary.Kind)
 	assert.Equal(t, "cat", explanation.Primary.Process)
 
-	require.NotNil(t, explanation.Override)
-	assert.Equal(t, sandbox.ViolationKindFSRead, explanation.Override.Kind)
-	assert.Equal(t, secret, explanation.Override.Target)
+	assert.True(t, report.OutputDerived)
+	assert.Nil(t, explanation.Override, "output-derived evidence is not offered as an allowance")
 }
 
 func TestBubblewrapE2EReportsDeniedWrite(t *testing.T) {

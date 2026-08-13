@@ -84,6 +84,13 @@ type ViolationReport struct {
 	PolicyName    string
 	CorrelationID string
 	Violations    []Violation
+
+	// OutputDerived marks a report parsed from the sandboxed command's own
+	// output rather than read from a kernel or platform channel. A malicious
+	// package can print a denial that never happened, naming any target it
+	// likes, so these violations are shown as diagnostics but never converted
+	// into an override suggestion the user could be talked into persisting.
+	OutputDerived bool
 }
 
 // Violation captures one sandbox denial event.

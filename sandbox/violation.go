@@ -35,13 +35,16 @@ type OverrideSuggestion struct {
 	Target string
 }
 
-// BuildExplanation produces an Explanation for the given report.
+// BuildExplanation produces an Explanation for the given report. An
+// OutputDerived report yields no Override, since its evidence is forgeable.
 func BuildExplanation(report *ViolationReport) Explanation {
 	primary := primaryViolation(report)
 	exp := Explanation{Primary: primary}
 	if primary != nil {
-		exp.Override = overrideSuggestion(*primary)
-		if report != nil && len(report.Violations) > 1 {
+		if !report.OutputDerived {
+			exp.Override = overrideSuggestion(*primary)
+		}
+		if len(report.Violations) > 1 {
 			exp.AdditionalDenials = len(report.Violations) - 1
 		}
 	}

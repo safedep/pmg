@@ -5,6 +5,7 @@ package platform
 import (
 	"bytes"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -402,6 +403,7 @@ func (b *bubblewrapSandbox) attachDiagnostics(cmd *exec.Cmd, policy *sandbox.San
 
 	b.tap = tap
 	b.policyName = policy.Name
+	b.pinMessageLocale(cmd)
 
 	if cmd.Stderr == nil {
 		cmd.Stderr = tap
@@ -409,6 +411,19 @@ func (b *bubblewrapSandbox) attachDiagnostics(cmd *exec.Cmd, policy *sandbox.San
 	}
 
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, tap)
+}
+
+// pinMessageLocale asks the child for C-locale diagnostics: denials are
+// recognised by their strerror(3) phrase, which libc translates.
+//
+// LC_ALL outranks this and is deliberately left alone, since overriding it
+// would change number formatting and collation for every build script.
+func (b *bubblewrapSandbox) pinMessageLocale(cmd *exec.Cmd) {
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+
+	cmd.Env = append(cmd.Env, "LC_MESSAGES=C")
 }
 
 // DiagnosticsWriter exposes this run's tap for execution paths that route the
@@ -450,8 +465,9 @@ func (b *bubblewrapSandbox) BestEffortViolation(err error) (*sandbox.ViolationRe
 	}
 
 	return &sandbox.ViolationReport{
-		SandboxName: b.Name(),
-		PolicyName:  b.policyName,
-		Violations:  violations,
+		SandboxName:   b.Name(),
+		PolicyName:    b.policyName,
+		Violations:    violations,
+		OutputDerived: true,
 	}, nil
 }

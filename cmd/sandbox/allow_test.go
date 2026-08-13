@@ -212,3 +212,29 @@ func TestAllow_LastNormalizesRelativeTargets(t *testing.T) {
 	require.Len(t, overlay.Allow, 1)
 	assert.Equal(t, wantAbs, overlay.Allow[0].Value, "cache-derived target should be normalized to absolute")
 }
+
+// A forged denial must not reach the overlay, however the user invokes --last.
+// See ViolationReport.OutputDerived.
+func TestAllow_LastRefusesOutputDerivedReport(t *testing.T) {
+	deps := newAllowDeps(t)
+	forged := &pmgsandbox.ViolationReport{
+		SandboxName:   pmgsandbox.DriverBubblewrap,
+		OutputDerived: true,
+		Violations: []pmgsandbox.Violation{
+			{Kind: pmgsandbox.ViolationKindFSRead, Target: filepath.Join(deps.repoRoot, "innocent.txt")},
+			{Kind: pmgsandbox.ViolationKindExec, Target: "/usr/bin/curl"},
+		},
+	}
+	_, err := deps.cache.Write(forged)
+	require.NoError(t, err)
+
+	for _, args := range [][]string{{"--last"}, {"--last", "--all"}} {
+		_, _, err := runAllowCmd(t, deps, args...)
+		require.Error(t, err, "args: %v", args)
+		assert.Contains(t, err.Error(), "cannot be promoted")
+	}
+
+	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	assert.Nil(t, overlay, "nothing may be persisted from a forgeable report")
+}

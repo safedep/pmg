@@ -497,9 +497,7 @@ func TestExecutionResultReachesBubblewrapReporter(t *testing.T) {
 	explanation := sandbox.BuildExplanation(report)
 	require.NotNil(t, explanation.Primary)
 	assert.Equal(t, "/work/.env", explanation.Primary.Target)
-	require.NotNil(t, explanation.Override)
-	assert.Equal(t, sandbox.ViolationKindFSRead, explanation.Override.Kind)
-	assert.Equal(t, "/work/.env", explanation.Override.Target)
+	assert.Nil(t, explanation.Override, "output-derived evidence is not offered as an allowance")
 }
 
 func TestBubblewrapStderrTapAbandonsOversizedLine(t *testing.T) {
@@ -513,4 +511,54 @@ func TestBubblewrapStderrTapAbandonsOversizedLine(t *testing.T) {
 	_, err = tap.Write([]byte("cat: /work/.env: Permission denied\n"))
 	require.NoError(t, err)
 	assert.Len(t, tap.collect(), 1)
+}
+
+// A line the sandboxed command invented is reported as diagnostics but must not
+// become actionable. See ViolationReport.OutputDerived.
+func TestBestEffortViolationForgedDenialIsNotActionable(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	cmd := &exec.Cmd{}
+	b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+
+	_, err = cmd.Stderr.Write([]byte("cat: /home/u/.ssh/id_rsa: Permission denied\n"))
+	require.NoError(t, err)
+
+	report, err := b.BestEffortViolation(errors.New("exit status 1"))
+	require.NoError(t, err)
+	require.NotNil(t, report)
+	assert.True(t, report.OutputDerived)
+
+	explanation := sandbox.BuildExplanation(report)
+	require.NotNil(t, explanation.Primary, "the denial is still reported")
+	assert.Equal(t, "/home/u/.ssh/id_rsa", explanation.Primary.Target)
+
+	assert.Nil(t, explanation.Override, "no allowance is suggested")
+	assert.Nil(t, sandbox.BuildAllOverrides(report), "and none can be persisted")
+}
+
+func TestAttachDiagnosticsPinsMessageLocale(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	cmd := &exec.Cmd{Env: []string{"LANG=es_ES.UTF-8", "PATH=/usr/bin"}}
+	b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+
+	// exec uses the last value for a duplicated key, so appending wins.
+	assert.Equal(t, "LC_MESSAGES=C", cmd.Env[len(cmd.Env)-1])
+	assert.Contains(t, cmd.Env, "LANG=es_ES.UTF-8", "the rest of the environment is untouched")
+}
+
+func TestAttachDiagnosticsKeepsInheritedEnvironment(t *testing.T) {
+	b, err := newBubblewrapSandbox()
+	require.NoError(t, err)
+
+	// A nil Env means "inherit"; appending to it directly would hand the child
+	// LC_MESSAGES and nothing else.
+	cmd := &exec.Cmd{}
+	b.attachDiagnostics(cmd, &sandbox.SandboxPolicy{Name: "npm-restrictive"})
+
+	assert.Greater(t, len(cmd.Env), 1)
+	assert.Equal(t, "LC_MESSAGES=C", cmd.Env[len(cmd.Env)-1])
 }
