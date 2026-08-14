@@ -1,0 +1,153 @@
+package sandbox
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestMergeEnvScrub(t *testing.T) {
+	driverReport := func() *ViolationReport {
+		return &ViolationReport{
+			SandboxName:   DriverLandlock,
+			PolicyName:    "npm",
+			CorrelationID: "run-1",
+			Violations: []Violation{
+				{Kind: ViolationKindFSRead, Target: "/home/u/.ssh"},
+			},
+		}
+	}
+
+	scrub := EnvScrub{
+		Names:       []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+		SandboxName: DriverLandlock,
+		PolicyName:  "npm",
+		Process:     "npm",
+	}
+
+	t.Run("no driver report", func(t *testing.T) {
+		got := MergeEnvScrub(nil, scrub)
+
+		require.NotNil(t, got)
+		assert.Equal(t, DriverLandlock, got.SandboxName)
+		assert.Equal(t, "npm", got.PolicyName)
+		require.Len(t, got.Violations, 2)
+		assert.Equal(t, ViolationKindEnvScrub, got.Violations[0].Kind)
+		assert.Equal(t, "AWS_SECRET_ACCESS_KEY", got.Violations[0].Target)
+		assert.Equal(t, "GITHUB_TOKEN", got.Violations[1].Target)
+	})
+
+	t.Run("driver report keeps its identity", func(t *testing.T) {
+		got := MergeEnvScrub(driverReport(), scrub)
+
+		require.NotNil(t, got)
+		assert.Equal(t, "run-1", got.CorrelationID)
+		require.Len(t, got.Violations, 3)
+		assert.Equal(t, ViolationKindFSRead, got.Violations[0].Kind)
+		assert.Equal(t, ViolationKindEnvScrub, got.Violations[1].Kind)
+	})
+
+	t.Run("driver report with no violations", func(t *testing.T) {
+		got := MergeEnvScrub(&ViolationReport{SandboxName: DriverLandlock, PolicyName: "npm"}, scrub)
+
+		require.NotNil(t, got)
+		assert.Len(t, got.Violations, 2)
+	})
+
+	t.Run("nothing scrubbed", func(t *testing.T) {
+		report := driverReport()
+
+		got := MergeEnvScrub(report, EnvScrub{})
+
+		assert.Same(t, report, got)
+		assert.Len(t, got.Violations, 1)
+	})
+
+	t.Run("no report and nothing scrubbed", func(t *testing.T) {
+		assert.Nil(t, MergeEnvScrub(nil, EnvScrub{}))
+	})
+
+	t.Run("unnamed entries are skipped", func(t *testing.T) {
+		got := MergeEnvScrub(nil, EnvScrub{Names: []string{"", "NPM_TOKEN", ""}})
+
+		require.NotNil(t, got)
+		require.Len(t, got.Violations, 1)
+		assert.Equal(t, "NPM_TOKEN", got.Violations[0].Target)
+	})
+
+	t.Run("only unnamed entries", func(t *testing.T) {
+		assert.Nil(t, MergeEnvScrub(nil, EnvScrub{Names: []string{"", ""}}))
+	})
+}
+
+func TestEnvScrubViolationCarriesNoValue(t *testing.T) {
+	got := MergeEnvScrub(nil, EnvScrub{
+		Names:   []string{"AWS_SECRET_ACCESS_KEY"},
+		Process: "npm",
+	})
+
+	require.NotNil(t, got)
+	require.Len(t, got.Violations, 1)
+
+	v := got.Violations[0]
+	assert.Equal(t, "AWS_SECRET_ACCESS_KEY", v.Target)
+	assert.Equal(t, "environment variable scrubbed: AWS_SECRET_ACCESS_KEY", v.RuleLabel)
+	assert.Equal(t, "npm", v.Process)
+	assert.Empty(t, v.RawLog)
+	assert.Empty(t, v.RawKind)
+	assert.Empty(t, v.RuleTarget)
+}
+
+func TestEnvScrubRanksBelowObservedDenials(t *testing.T) {
+	scrub := EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY"}, Process: "npm"}
+
+	tests := []struct {
+		name    string
+		denial  Violation
+		primary ViolationKind
+	}{
+		{
+			name:    "file read denial wins",
+			denial:  Violation{Kind: ViolationKindFSRead, Target: "/etc/hosts", RuleTarget: "/etc/hosts"},
+			primary: ViolationKindFSRead,
+		},
+		{
+			name:    "exec denial wins",
+			denial:  Violation{Kind: ViolationKindExec, Target: "/usr/bin/curl", RuleTarget: "/usr/bin/curl"},
+			primary: ViolationKindExec,
+		},
+		{
+			name:    "generic deny loses",
+			denial:  Violation{Kind: ViolationKindGenericDeny},
+			primary: ViolationKindEnvScrub,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := MergeEnvScrub(&ViolationReport{
+				SandboxName: DriverLandlock,
+				Violations:  []Violation{tt.denial},
+			}, scrub)
+
+			primary := BuildExplanation(report).Primary
+
+			require.NotNil(t, primary)
+			assert.Equal(t, tt.primary, primary.Kind)
+		})
+	}
+}
+
+func TestEnvScrubIsPrimaryWhenOnlyViolation(t *testing.T) {
+	report := MergeEnvScrub(nil, EnvScrub{
+		Names:   []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		Process: "pipx",
+	})
+
+	primary := BuildExplanation(report).Primary
+
+	require.NotNil(t, primary)
+	assert.Equal(t, ViolationKindEnvScrub, primary.Kind)
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", primary.Target)
+}

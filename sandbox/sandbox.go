@@ -75,6 +75,7 @@ const (
 	ViolationKindNetworkConnect   ViolationKind = "network_connect"
 	ViolationKindNetworkBind      ViolationKind = "network_bind"
 	ViolationKindGenericDeny      ViolationKind = "generic_deny"
+	ViolationKindEnvScrub         ViolationKind = "env_scrub"
 )
 
 // ViolationReport is a best-effort sandbox violation summary collected from a
@@ -115,11 +116,8 @@ type diagnosticsWriter interface {
 }
 
 // EnvScrub records the environment variables removed from a child process by
-// the resolved environment policy. Scrubbing happens in the executor before the
-// child is spawned, so the driver and policy are captured here: no driver
-// observes the scrub and neither can be recovered from one afterwards.
-//
-// Names holds variable names only; util.ScrubEnv never returns values.
+// the resolved environment policy. The driver and policy are captured here
+// because no driver observes a scrub.
 type EnvScrub struct {
 	Names       []string
 	SandboxName DriverName
@@ -169,8 +167,7 @@ func (r *ExecutionResult) ShouldRun() bool {
 	return !r.executed
 }
 
-// SetEnvScrub records the environment variables scrubbed from the child
-// process per the resolved environment policy.
+// SetEnvScrub records the environment variables scrubbed from the child process.
 func (r *ExecutionResult) SetEnvScrub(scrub EnvScrub) {
 	r.envScrub = scrub
 }

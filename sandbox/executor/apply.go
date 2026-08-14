@@ -290,7 +290,6 @@ func scrubEnv(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) []string {
 	})
 	cmd.Env = result.Env
 
-	// os.Environ() order is the inherited environment block, not a stable one.
 	slices.Sort(result.Removed)
 
 	if len(result.Removed) > 0 {

@@ -99,6 +99,8 @@ func scoreViolation(driver DriverName, v Violation, cwd string) int {
 		score += 105
 	case ViolationKindFSDeleteOrRename:
 		score += 100
+	case ViolationKindEnvScrub:
+		score += 70
 	case ViolationKindGenericDeny:
 		score += 10
 	default:
