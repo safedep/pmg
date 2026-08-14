@@ -117,9 +117,14 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 
 	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
 
+	endpointID := cfg.Config.Cloud.EndpointID
+	if endpointID == "" {
+		endpointID = defaultCIEndpointID()
+	}
+
 	var identityOpts []endpointsync.EndpointIdentityOption
-	if cfg.Config.Cloud.EndpointID != "" {
-		identityOpts = append(identityOpts, endpointsync.WithEndpointID(cfg.Config.Cloud.EndpointID))
+	if endpointID != "" {
+		identityOpts = append(identityOpts, endpointsync.WithEndpointID(endpointID))
 	}
 
 	identity := endpointsync.NewEndpointIdentityResolver(identityOpts...)

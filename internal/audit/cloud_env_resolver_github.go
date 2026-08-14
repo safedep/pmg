@@ -3,6 +3,7 @@ package audit
 import (
 	"os"
 	"regexp"
+	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 )
@@ -19,7 +20,11 @@ func (r *githubActionsEnvResolver) Provider() controltowerv1.EndpointCIProvider 
 	return controltowerv1.EndpointCIProvider_ENDPOINT_CI_PROVIDER_GITHUB_ACTIONS
 }
 
-func (r *githubActionsEnvResolver) RunId() string      { return os.Getenv("GITHUB_RUN_ID") }
+func (r *githubActionsEnvResolver) RunId() string { return os.Getenv("GITHUB_RUN_ID") }
+
+func (r *githubActionsEnvResolver) HostedRunner() bool {
+	return strings.EqualFold(os.Getenv("RUNNER_ENVIRONMENT"), "github-hosted")
+}
 func (r *githubActionsEnvResolver) Repository() string { return os.Getenv("GITHUB_REPOSITORY") }
 func (r *githubActionsEnvResolver) CommitSha() string  { return os.Getenv("GITHUB_SHA") }
 func (r *githubActionsEnvResolver) Actor() string      { return os.Getenv("GITHUB_ACTOR") }

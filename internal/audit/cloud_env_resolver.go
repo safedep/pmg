@@ -34,6 +34,10 @@ type CloudSinkCIResolver interface {
 
 	// Metadata returns provider-specific key-value pairs.
 	Metadata() map[string]string
+
+	// HostedRunner reports whether the job runs on the provider's hosted,
+	// ephemeral infrastructure rather than a self-hosted runner.
+	HostedRunner() bool
 }
 
 // newCloudSinkCIResolver detects the CI environment and returns the
