@@ -17,6 +17,16 @@ func defaultCIEndpointID() string {
 		return ""
 	}
 
+	// Only a hosted, ephemeral runner gets the repository-scoped default. A
+	// self-hosted runner is a persistent machine with a stable machine id,
+	// and its sync WAL is shared across the repositories it builds: a
+	// sync-time repository label could misattribute another repository's
+	// queued events. An ephemeral self-hosted fleet configures
+	// cloud.endpoint_id explicitly.
+	if !resolver.HostedRunner() {
+		return ""
+	}
+
 	prefix := ciProviderIDPrefix(resolver.Provider())
 	repository := resolver.Repository()
 	if prefix == "" || repository == "" {
