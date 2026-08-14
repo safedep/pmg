@@ -252,6 +252,13 @@ func pluralizePackages(n int) string {
 	return fmt.Sprintf("%d packages", n)
 }
 
+func pluralizeVersions(n int) string {
+	if n == 1 {
+		return "1 version"
+	}
+	return fmt.Sprintf("%d versions", n)
+}
+
 // termWidthFormatTextIndent wraps text at maxWidth and indents continuation
 // lines so wrapped output stays aligned with the first line.
 func termWidthFormatTextIndent(text string, maxWidth int, indent string) string {

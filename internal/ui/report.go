@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/safedep/pmg/analyzer"
@@ -78,6 +79,12 @@ type ReportData struct {
 
 	// Packages blocked by the dependency cooldown policy (proxy mode only)
 	CooldownBlockedPackages []models.CooldownBlock
+
+	// Versions stripped by cooldown while eligible versions remained (proxy
+	// mode only). Not blocks: the resolver usually falls back, but an install
+	// can still fail when a dependency requires exactly a withheld version.
+	// Rendered as a hint when the install fails.
+	CooldownWithheldPackages []models.CooldownWithheld
 
 	// AdvisoryMessage is the optional org-configured message appended to block
 	// output regardless of which control blocked. Set from advisory_message.
@@ -171,7 +178,11 @@ func reportNormal(data *ReportData) {
 	}
 
 	if data.Outcome == OutcomeError {
-		return // Error handling done elsewhere
+		// The child's own error output and PMG's exit line render elsewhere.
+		// Withheld versions are the one PMG-side fact that can explain a
+		// resolution failure, so surface them here.
+		printCooldownWithheldHint(data.CooldownWithheldPackages)
+		return
 	}
 
 	if data.Outcome == OutcomeInsecureBypass {
@@ -329,11 +340,69 @@ func reportVerbose(data *ReportData) {
 		}
 	}
 
+	if len(data.CooldownWithheldPackages) > 0 {
+		fmt.Println()
+		fmt.Println(Colors.Yellow("  Versions withheld by dependency cooldown:"))
+		for _, pkg := range data.CooldownWithheldPackages {
+			for _, v := range pkg.Versions {
+				fmt.Printf("    %s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, v.Version)))
+				fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf("Available in %s", pluralizeDays(v.DaysLeft))))
+			}
+		}
+	}
+
 	if data.Outcome == OutcomeBlocked && data.AdvisoryMessage != "" {
 		fmt.Println()
 		printAdvisoryMessage(data.AdvisoryMessage)
 	}
 
+	fmt.Println()
+}
+
+// cooldownWithheldHintMaxVersions bounds how many withheld versions are listed
+// per package in the failure hint. Packages with frequent releases can have
+// many versions inside the window; the hint must stay short.
+const cooldownWithheldHintMaxVersions = 3
+
+// printCooldownWithheldHint explains a failed install that may have been caused
+// by cooldown stripping. PMG cannot know whether the resolver failed because of
+// the withheld versions, so this renders as a hint, not a block report.
+func printCooldownWithheldHint(packages []models.CooldownWithheld) {
+	if len(packages) == 0 {
+		return
+	}
+
+	total := 0
+	for _, pkg := range packages {
+		total += len(pkg.Versions)
+	}
+
+	fmt.Println()
+	fmt.Printf("%s %s\n",
+		Colors.Yellow("⊘"),
+		Colors.Yellow(fmt.Sprintf("Dependency cooldown withheld %s during version resolution", pluralizeVersions(total))))
+
+	for _, pkg := range packages {
+		shown := pkg.Versions
+		hidden := 0
+		if len(shown) > cooldownWithheldHintMaxVersions {
+			hidden = len(shown) - cooldownWithheldHintMaxVersions
+			shown = shown[:cooldownWithheldHintMaxVersions]
+		}
+
+		parts := make([]string, 0, len(shown)+1)
+		for _, v := range shown {
+			parts = append(parts, fmt.Sprintf("%s (available in %s)", v.Version, pluralizeDays(v.DaysLeft)))
+		}
+		if hidden > 0 {
+			parts = append(parts, fmt.Sprintf("and %d more", hidden))
+		}
+
+		fmt.Printf("    %s\n", Colors.Yellow(pkg.Name))
+		fmt.Printf("      %s\n", Colors.Dim(strings.Join(parts, ", ")))
+	}
+
+	fmt.Printf("  %s\n", Colors.Dim("If the install failed because a version was not found, this is the likely cause."))
 	fmt.Println()
 }
 
