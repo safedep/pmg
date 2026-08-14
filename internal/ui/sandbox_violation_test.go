@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,50 @@ func TestFormatSandboxOverrideFlagKinds(t *testing.T) {
 				Target: "./.env",
 			})
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFormatSandboxOverrideFlagEnvScrubIsUnquoted(t *testing.T) {
+	got := FormatSandboxOverrideFlag(&pmgsandbox.OverrideSuggestion{
+		Kind:   pmgsandbox.ViolationKindEnvScrub,
+		Target: "GOOGLE_APPLICATION_CREDENTIALS",
+	})
+	assert.Equal(t, "--sandbox-allow env=GOOGLE_APPLICATION_CREDENTIALS", got)
+}
+
+func TestFormatSandboxAllowCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		sugg *pmgsandbox.OverrideSuggestion
+		want string
+	}{
+		{
+			name: "nil",
+		},
+		{
+			name: "env scrub",
+			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindEnvScrub, Target: "GOOGLE_APPLICATION_CREDENTIALS"},
+			want: "pmg sandbox allow env=GOOGLE_APPLICATION_CREDENTIALS",
+		},
+		{
+			name: "file read",
+			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindFSRead, Target: "/tmp/build"},
+			want: "pmg sandbox allow read='/tmp/build'",
+		},
+		{
+			name: "sensitive target is not suggested",
+			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindFSRead, Target: "./.env"},
+		},
+		{
+			name: "unsupported kind",
+			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindGenericDeny, Target: "/tmp/build"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatSandboxAllowCommand(tt.sugg))
 		})
 	}
 }
@@ -177,4 +222,79 @@ func TestRenderSandboxViolationOmitsRememberHintForSensitiveTarget(t *testing.T)
 	// But the persistent-save hint is suppressed because `pmg sandbox allow`
 	// would refuse this target without --force.
 	assert.NotContains(t, out, "pmg sandbox allow --last --all")
+}
+
+func TestRenderSandboxViolationListsScrubbedEnv(t *testing.T) {
+	rec := &pmgsandbox.ViolationCacheRecord{
+		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+		Report: pmgsandbox.MergeEnvScrub(&pmgsandbox.ViolationReport{
+			SandboxName: "landlock",
+			PolicyName:  "npm",
+			Violations: []pmgsandbox.Violation{
+				{Kind: pmgsandbox.ViolationKindFSRead, Target: "/home/u/.ssh", RuleLabel: "read access denied: /home/u/.ssh"},
+			},
+		}, pmgsandbox.EnvScrub{Names: []string{"GOOGLE_APPLICATION_CREDENTIALS"}}),
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, RenderSandboxViolation(&buf, rec))
+
+	assert.Contains(t, buf.String(), "Environment variables scrubbed:")
+	assert.Contains(t, buf.String(), "GOOGLE_APPLICATION_CREDENTIALS")
+}
+
+func TestRenderSandboxViolationOmitsScrubbedEnvSectionWhenItIsThePrimary(t *testing.T) {
+	rec := &pmgsandbox.ViolationCacheRecord{
+		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+		Report: pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
+			Names:       []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+			SandboxName: pmgsandbox.DriverLandlock,
+			PolicyName:  "npm",
+		}),
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, RenderSandboxViolation(&buf, rec))
+
+	assert.NotContains(t, buf.String(), "Environment variables scrubbed:")
+	assert.Contains(t, buf.String(), "--sandbox-allow env=GOOGLE_APPLICATION_CREDENTIALS")
+}
+
+func TestRenderSandboxViolationListsOtherScrubsWhenOneIsPrimary(t *testing.T) {
+	rec := &pmgsandbox.ViolationCacheRecord{
+		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+		Report: pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
+			Names:       []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+			SandboxName: pmgsandbox.DriverLandlock,
+			PolicyName:  "npm",
+		}),
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, RenderSandboxViolation(&buf, rec))
+	out := buf.String()
+
+	primary := pmgsandbox.BuildExplanation(rec.Report).Primary
+	require.NotNil(t, primary)
+
+	_, after, found := strings.Cut(out, "Environment variables scrubbed:\n")
+	require.True(t, found)
+	section, _, _ := strings.Cut(after, "\n\n")
+
+	assert.Contains(t, section, "AWS_SECRET_ACCESS_KEY")
+	assert.NotContains(t, section, primary.Target)
+}
+
+func TestFormatSandboxDetailsExcludesScrubsFromDenialCount(t *testing.T) {
+	report := pmgsandbox.MergeEnvScrub(&pmgsandbox.ViolationReport{
+		SandboxName: pmgsandbox.DriverLandlock,
+		PolicyName:  "npm",
+		Violations: []pmgsandbox.Violation{
+			{Kind: pmgsandbox.ViolationKindFSRead, Target: "/etc/hosts", RuleLabel: "read denied"},
+		},
+	}, pmgsandbox.EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}})
+
+	details := FormatSandboxDetails(report, &report.Violations[0])
+
+	assert.NotContains(t, details, "Additional denials observed")
 }

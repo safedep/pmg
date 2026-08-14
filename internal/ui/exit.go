@@ -47,9 +47,9 @@ func classifyExit(err error) exitDecision {
 		d.notice = true
 		d.message = "↳ pmg: " + te.Error()
 
-		// Env scrubbing produces no sandbox violation and the child's own
-		// error (e.g. a registry 401) does not point at the cause, so hint at
-		// it here. Names are not printed; they are at info level via --debug.
+		// The child's own error (e.g. a registry 401) does not point at the
+		// scrub, so hint at it here. Names are not printed; they are at info
+		// level via --debug and in `pmg sandbox explain --last`.
 		if sr, ok := te.(scrubbedEnvReporter); ok && sr.ScrubbedEnvCount() > 0 {
 			d.message += fmt.Sprintf(
 				"\n↳ pmg: sandbox scrubbed %d env var(s) (names via --debug, re-allow with --sandbox-allow env=NAME)",

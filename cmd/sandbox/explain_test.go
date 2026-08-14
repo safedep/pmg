@@ -226,3 +226,86 @@ func TestExplainNoMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "no input")
 	assert.Contains(t, err.Error(), "--last")
 }
+
+func TestExplainLastJSONEnvScrubRemediation(t *testing.T) {
+	dir := t.TempDir()
+	cache := pmgsandbox.NewViolationCache(dir)
+	_, err := cache.Write(pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
+		Names:       []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		SandboxName: pmgsandbox.DriverLandlock,
+		PolicyName:  "pipx",
+		Process:     "pipx",
+	}))
+	require.NoError(t, err)
+
+	stdout, _, err := runExplainCmd(t, func() *pmgsandbox.ViolationCache { return cache }, []string{"--last", "--json"}, "")
+	require.NoError(t, err)
+
+	var payload explainJSONOutput
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+
+	assert.Equal(t, "pmg sandbox allow env=GOOGLE_APPLICATION_CREDENTIALS", payload.Explanation.Remediation)
+	assert.Equal(t, "--sandbox-allow env=GOOGLE_APPLICATION_CREDENTIALS", payload.Explanation.SuggestedOverride)
+
+	require.NotNil(t, payload.Explanation.Primary)
+	assert.Equal(t, string(pmgsandbox.ViolationKindEnvScrub), payload.Explanation.Primary.Kind)
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", payload.Explanation.Primary.Target)
+}
+
+func TestExplainLastJSONEnvScrubOddNameHasNoRemediation(t *testing.T) {
+	dir := t.TempDir()
+	cache := pmgsandbox.NewViolationCache(dir)
+	_, err := cache.Write(pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
+		Names:       []string{"WEIRD/NAME"},
+		SandboxName: pmgsandbox.DriverLandlock,
+		PolicyName:  "npm",
+	}))
+	require.NoError(t, err)
+
+	stdout, _, err := runExplainCmd(t, func() *pmgsandbox.ViolationCache { return cache }, []string{"--last", "--json"}, "")
+	require.NoError(t, err)
+
+	var payload explainJSONOutput
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+
+	assert.Empty(t, payload.Explanation.Remediation)
+	assert.Empty(t, payload.Explanation.SuggestedOverride)
+	assert.Equal(t, "WEIRD/NAME", payload.Explanation.Primary.Target)
+}
+
+func TestExplainLastJSONEnvRemediationSurvivesDenialPrimary(t *testing.T) {
+	dir := t.TempDir()
+	cache := pmgsandbox.NewViolationCache(dir)
+	_, err := cache.Write(pmgsandbox.MergeEnvScrub(sampleReport(), pmgsandbox.EnvScrub{
+		Names: []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+	}))
+	require.NoError(t, err)
+
+	stdout, _, err := runExplainCmd(t, func() *pmgsandbox.ViolationCache { return cache }, []string{"--last", "--json"}, "")
+	require.NoError(t, err)
+
+	var payload explainJSONOutput
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+
+	assert.Equal(t, string(pmgsandbox.ViolationKindFSWrite), payload.Explanation.Primary.Kind)
+	assert.Equal(t,
+		[]string{"pmg sandbox allow env=GOOGLE_APPLICATION_CREDENTIALS"},
+		payload.EnvRemediations)
+}
+
+func TestExplainLastJSONEnvRemediationOmitsOddNames(t *testing.T) {
+	dir := t.TempDir()
+	cache := pmgsandbox.NewViolationCache(dir)
+	_, err := cache.Write(pmgsandbox.MergeEnvScrub(sampleReport(), pmgsandbox.EnvScrub{
+		Names: []string{"WEIRD/NAME", "NPM_TOKEN"},
+	}))
+	require.NoError(t, err)
+
+	stdout, _, err := runExplainCmd(t, func() *pmgsandbox.ViolationCache { return cache }, []string{"--last", "--json"}, "")
+	require.NoError(t, err)
+
+	var payload explainJSONOutput
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+
+	assert.Equal(t, []string{"pmg sandbox allow env=NPM_TOKEN"}, payload.EnvRemediations)
+}

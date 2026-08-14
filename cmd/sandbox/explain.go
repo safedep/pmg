@@ -225,13 +225,31 @@ type explainJSONExplanation struct {
 	Hint              string              `json:"hint"`
 	Details           string              `json:"details"`
 	SuggestedOverride string              `json:"suggested_override"`
+	Remediation       string              `json:"remediation"`
 	Primary           *explainJSONPrimary `json:"primary"`
 }
 
 type explainJSONOutput struct {
 	Explanation explainJSONExplanation      `json:"explanation"`
 	Report      *pmgsandbox.ViolationReport `json:"report"`
-	RecordedAt  string                      `json:"recorded_at,omitempty"`
+	// Explanation describes one primary violation, which a denial always
+	// outranks, so scrubs carry their own remediations.
+	EnvRemediations []string `json:"env_remediations,omitempty"`
+	RecordedAt      string   `json:"recorded_at,omitempty"`
+}
+
+func envRemediations(report *pmgsandbox.ViolationReport) []string {
+	var out []string
+	for _, o := range pmgsandbox.BuildAllOverrides(report) {
+		if o.Kind != pmgsandbox.ViolationKindEnvScrub {
+			continue
+		}
+		if cmd := ui.FormatSandboxAllowCommand(&o); cmd != "" {
+			out = append(out, cmd)
+		}
+	}
+
+	return out
 }
 
 func writeExplainJSON(out io.Writer, rec *pmgsandbox.ViolationCacheRecord) error {
@@ -246,8 +264,10 @@ func writeExplainJSON(out io.Writer, rec *pmgsandbox.ViolationCacheRecord) error
 			Hint:              ui.FormatSandboxHint(exp.Primary, exp.Override),
 			Details:           ui.FormatSandboxDetails(rec.Report, exp.Primary),
 			SuggestedOverride: ui.FormatSandboxOverrideFlag(exp.Override),
+			Remediation:       ui.FormatSandboxAllowCommand(exp.Override),
 		},
-		Report: rec.Report,
+		Report:          rec.Report,
+		EnvRemediations: envRemediations(rec.Report),
 	}
 
 	if exp.Primary != nil {

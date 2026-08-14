@@ -118,7 +118,17 @@ func TestEnvScrubRanksBelowObservedDenials(t *testing.T) {
 			primary: ViolationKindExec,
 		},
 		{
-			name:    "generic deny loses",
+			name:    "network denial wins",
+			denial:  Violation{Kind: ViolationKindNetworkConnect, Target: "example.com:443", RuleTarget: "example.com:443"},
+			primary: ViolationKindNetworkConnect,
+		},
+		{
+			name:    "unclassified denial with a target wins",
+			denial:  Violation{Kind: ViolationKindGenericDeny, Target: "/dev/null"},
+			primary: ViolationKindGenericDeny,
+		},
+		{
+			name:    "unclassified denial without a target loses",
 			denial:  Violation{Kind: ViolationKindGenericDeny},
 			primary: ViolationKindEnvScrub,
 		},
@@ -139,6 +149,61 @@ func TestEnvScrubRanksBelowObservedDenials(t *testing.T) {
 	}
 }
 
+func TestEnvScrubOverrideSuggestionNameGate(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"AWS_SECRET_ACCESS_KEY", true},
+		{"GOOGLE_APPLICATION_CREDENTIALS", true},
+		{"npm_config_registry", true},
+		{"_PRIVATE", true},
+		{"PATH2", true},
+		{"2FA_TOKEN", false},
+		{"WEIRD/NAME", false},
+		{"WEIRD NAME", false},
+		{"FOO;ls", false},
+		{"FOO$(id)", false},
+		{"NPM_*", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := overrideSuggestion(Violation{Kind: ViolationKindEnvScrub, Target: tt.name})
+
+			if !tt.want {
+				assert.Nil(t, got)
+				return
+			}
+
+			require.NotNil(t, got)
+			assert.Equal(t, ViolationKindEnvScrub, got.Kind)
+			assert.Equal(t, tt.name, got.Target)
+		})
+	}
+}
+
+func TestEnvScrubNames(t *testing.T) {
+	t.Run("nil report", func(t *testing.T) {
+		assert.Nil(t, EnvScrubNames(nil))
+	})
+
+	t.Run("denials only", func(t *testing.T) {
+		assert.Nil(t, EnvScrubNames(&ViolationReport{
+			Violations: []Violation{{Kind: ViolationKindFSRead, Target: "/etc/hosts"}},
+		}))
+	})
+
+	t.Run("mixed report", func(t *testing.T) {
+		report := MergeEnvScrub(&ViolationReport{
+			Violations: []Violation{{Kind: ViolationKindFSRead, Target: "/etc/hosts"}},
+		}, EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}})
+
+		assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, EnvScrubNames(report))
+	})
+}
+
 func TestEnvScrubIsPrimaryWhenOnlyViolation(t *testing.T) {
 	report := MergeEnvScrub(nil, EnvScrub{
 		Names:   []string{"GOOGLE_APPLICATION_CREDENTIALS"},
@@ -150,4 +215,22 @@ func TestEnvScrubIsPrimaryWhenOnlyViolation(t *testing.T) {
 	require.NotNil(t, primary)
 	assert.Equal(t, ViolationKindEnvScrub, primary.Kind)
 	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", primary.Target)
+}
+
+// An env scrub is recorded by the executor and cannot be forged, but it still
+// inherits the report's OutputDerived flag when merged into one. Suggestions
+// stay suppressed (fail closed); the names remain visible for diagnosis.
+func TestEnvScrubOnOutputDerivedReportSuggestsNothing(t *testing.T) {
+	report := MergeEnvScrub(&ViolationReport{
+		SandboxName:   DriverBubblewrap,
+		PolicyName:    "pipx",
+		OutputDerived: true,
+		Violations: []Violation{
+			{Kind: ViolationKindFSRead, Target: "/tmp/forged"},
+		},
+	}, EnvScrub{Names: []string{"GOOGLE_APPLICATION_CREDENTIALS"}})
+
+	assert.Nil(t, BuildExplanation(report).Override)
+	assert.Empty(t, BuildAllOverrides(report))
+	assert.Equal(t, []string{"GOOGLE_APPLICATION_CREDENTIALS"}, EnvScrubNames(report))
 }

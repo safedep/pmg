@@ -54,7 +54,7 @@ func newAllowCommand(factory allowFactory) *cobra.Command {
 		Short: "Persist sandbox allowances for the current repository",
 		Long: "Save allowances into the current repo's sandbox project overlay so future PMG runs in this repo apply them automatically.\n\n" +
 			"Use --last to promote the primary violation from the most recent cached report,\n" +
-			"or --last --all to promote every safe FS/exec violation from that report.\n" +
+			"or --last --all to promote every safe FS, exec and env violation from that report.\n" +
 			"Manual entries (type=value …) accept any allow type and persist as-is.",
 		Example: "  pmg sandbox allow write=./.astro net-bind=localhost:4321\n" +
 			"  pmg sandbox allow env=AWS_PROFILE\n" +
@@ -70,7 +70,7 @@ func newAllowCommand(factory allowFactory) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.last, "last", false, "Promote allowances from the most recent cached violation report")
-	cmd.Flags().BoolVar(&opts.all, "all", false, "With --last: promote every safe FS/exec violation (default: primary only)")
+	cmd.Flags().BoolVar(&opts.all, "all", false, "With --last: promote every safe FS, exec and env violation (default: primary only)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Allow saving entries that touch sensitive paths (.env, .npmrc, .ssh, ...)")
 	return cmd
 }
@@ -95,7 +95,7 @@ func runAllow(out io.Writer, args []string, opts *allowOptions, factory allowFac
 	if opts.all && !opts.last {
 		return invalidArgumentError(
 			"--all requires --last",
-			"Use `pmg sandbox allow --last --all` to promote every FS/exec violation from the most recent cached report.",
+			"Use `pmg sandbox allow --last --all` to promote every FS, exec and env violation from the most recent cached report.",
 		)
 	}
 
@@ -218,8 +218,8 @@ func collectAllowEntries(args []string, opts *allowOptions, factory allowFactory
 }
 
 // suggestionsFromCache loads the latest cached violation report and returns
-// the override suggestions to promote. When all is true, every safe FS/exec
-// suggestion is returned, otherwise just the primary one (if any).
+// the override suggestions to promote. When all is true, every safe FS, exec
+// and env suggestion is returned, otherwise just the primary one (if any).
 func suggestionsFromCache(cache *pmgsandbox.ViolationCache, all bool) ([]pmgsandbox.OverrideSuggestion, error) {
 	entry, err := cache.Latest()
 	if err != nil {
@@ -254,8 +254,8 @@ func suggestionsFromCache(cache *pmgsandbox.ViolationCache, all bool) ([]pmgsand
 }
 
 // overrideTypeForKind maps a ViolationKind to the matching SandboxAllowType.
-// Only FS + exec are handled; network kinds are not classified by drivers and
-// will never reach this function via BuildAllOverrides.
+// Only FS, exec and env scrubs are handled; network kinds are skipped by
+// BuildAllOverrides and never reach this function.
 func overrideTypeForKind(kind pmgsandbox.ViolationKind) config.SandboxAllowType {
 	switch kind {
 	case pmgsandbox.ViolationKindFSRead:
@@ -264,6 +264,8 @@ func overrideTypeForKind(kind pmgsandbox.ViolationKind) config.SandboxAllowType 
 		return config.SandboxAllowWrite
 	case pmgsandbox.ViolationKindExec:
 		return config.SandboxAllowExec
+	case pmgsandbox.ViolationKindEnvScrub:
+		return config.SandboxAllowEnv
 	default:
 		return ""
 	}

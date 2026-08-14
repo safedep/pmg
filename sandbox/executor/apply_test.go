@@ -449,3 +449,42 @@ network_via_proxy_only: true
 	require.NotNil(t, result)
 	assert.Equal(t, rt, fake.rt)
 }
+
+func TestApplySandboxRecordsEnvScrub(t *testing.T) {
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "scrub-me")
+	t.Setenv("GITHUB_TOKEN", "scrub-me-too")
+	t.Setenv("NPM_TOKEN", "keep-me")
+
+	profile := filepath.Join(t.TempDir(), "envscrub.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: envscrub-apply-test
+package_managers: ["npm"]
+filesystem:
+  allow_read: ["/tmp"]
+environment:
+  allow:
+    - NPM_TOKEN
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	result, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm",
+		WithSandbox(&fakeApplySandbox{}))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	scrub := result.EnvScrub()
+	assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, scrub.Names)
+	assert.Equal(t, sandbox.DriverName("fake"), scrub.SandboxName)
+	assert.Equal(t, "envscrub-apply-test", scrub.PolicyName)
+	assert.Equal(t, "npm", scrub.Process)
+	assert.Equal(t, 2, result.ScrubbedEnvCount())
+}

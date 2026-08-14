@@ -21,6 +21,23 @@ func MergeEnvScrub(report *ViolationReport, scrub EnvScrub) *ViolationReport {
 	return report
 }
 
+// EnvScrubNames returns the names of the variables scrubbed during the run the
+// report describes, for callers that surface only a single primary violation.
+func EnvScrubNames(report *ViolationReport) []string {
+	if report == nil {
+		return nil
+	}
+
+	var names []string
+	for _, v := range report.Violations {
+		if v.Kind == ViolationKindEnvScrub {
+			names = append(names, v.Target)
+		}
+	}
+
+	return names
+}
+
 func envScrubViolations(scrub EnvScrub) []Violation {
 	violations := make([]Violation, 0, len(scrub.Names))
 	for _, name := range scrub.Names {
