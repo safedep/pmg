@@ -99,7 +99,7 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 	}{
 		{"exec always", landlockNetworkPolicy{}, false, execOnly},
 		{"open when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2))},
-		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))},
+		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG), uint32(unix.SYS_IO_URING_SETUP))},
 		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
 	}
 
@@ -550,8 +550,9 @@ func TestAllowOutbound(t *testing.T) {
 		want   bool
 	}{
 		{"lockdown off allows everything", landlockNetworkPolicy{}, unix.AF_INET, remote, 443, true},
-		{"non-INET family allowed under lockdown", proxyOnly, unix.AF_UNIX, netip.Addr{}, 0, true},
+		{"unix family allowed under lockdown", proxyOnly, unix.AF_UNIX, netip.Addr{}, 0, true},
 		{"netlink allowed under lockdown", proxyOnly, unix.AF_NETLINK, netip.Addr{}, 0, true},
+		{"vsock denied under lockdown", proxyOnly, unix.AF_VSOCK, netip.Addr{}, 0, false},
 		{"proxy port on loopback allowed", proxyOnly, unix.AF_INET, loop, 54321, true},
 		{"proxy port on ::1 allowed", proxyOnly, unix.AF_INET6, loop6, 54321, true},
 		{"v4-mapped v6 loopback to proxy allowed", proxyOnly, unix.AF_INET6, mapped4, 54321, true},

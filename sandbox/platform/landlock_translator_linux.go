@@ -480,8 +480,8 @@ func landlockTranslateNetwork(policy *sandbox.SandboxPolicy, rt *sandbox.Executi
 	}
 
 	portNum, err := strconv.Atoi(port)
-	if err != nil {
-		return landlockNetworkPolicy{}, fmt.Errorf("network_via_proxy_only: invalid proxy port %q: %w", port, err)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return landlockNetworkPolicy{}, fmt.Errorf("network_via_proxy_only: invalid proxy port %q", port)
 	}
 
 	nw.ProxyPort = uint16(portNum)

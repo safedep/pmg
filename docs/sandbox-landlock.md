@@ -128,6 +128,16 @@ applies the Seatbelt-parity matrix:
 `sendto`/`sendmsg` with a NULL destination address target an already-connected
 peer (that peer passed the connect check) and continue uninspected.
 
+Only `AF_INET`/`AF_INET6` go through the matrix. `AF_UNIX` and `AF_NETLINK`
+(local IPC and kernel interfaces, no external egress) are allowed; every other
+family is denied, including `AF_VSOCK`, which in a VM can reach host/guest
+services outside the proxy.
+
+`io_uring_setup` is trapped and denied under lockdown. A ring is a side channel
+for `IORING_OP_CONNECT`/`SENDMSG` that never trips the intercepted network
+syscalls; refusing ring creation forces callers back onto the confined path.
+io_uring is always optional, so runtimes fall back to epoll/threadpool.
+
 **Network denials fail closed on ambiguity.** Unlike `openat` (which fails open
 when process memory is unreadable), a connect is *denied* when the supervisor
 cannot verify the destination — under lockdown an unverifiable destination is
