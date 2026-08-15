@@ -25,7 +25,9 @@ PMG reports cooldown in the install summary in three ways:
   version, for example a lockfile entry or a dependency with an exact version
   pin. PMG cannot see that requirement in the metadata, so in this case it
   prints the withheld versions after the package manager error as the likely
-  cause of the failure.
+  cause of the failure. When more than 3 packages had versions withheld, the
+  hint lists package names only; the package manager error above it names the
+  exact version it could not find.
 
 Run PMG with `--verbose` to always list the withheld versions in the execution
 report, including on successful installs.

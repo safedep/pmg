@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -187,6 +188,44 @@ func TestReportNormalWithheldHintCapsVersions(t *testing.T) {
 	assert.Contains(t, out, "1.0.3 (available in 3 days)")
 	assert.NotContains(t, out, "1.0.4")
 	assert.Contains(t, out, "and 2 more")
+}
+
+func manyWithheldPackages(n int) []models.CooldownWithheld {
+	packages := make([]models.CooldownWithheld, 0, n)
+	for i := range n {
+		packages = append(packages, models.CooldownWithheld{
+			Name:     fmt.Sprintf("pkg-%02d", i),
+			Versions: []models.CooldownWithheldVersion{{Version: "1.0.0", DaysLeft: 2}},
+		})
+	}
+	return packages
+}
+
+func TestReportNormalWithheldHintDetailAtThreshold(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+	data.CooldownWithheldPackages = manyWithheldPackages(3)
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Contains(t, out, "withheld 3 versions during version resolution")
+	assert.Contains(t, out, "1.0.0 (available in 2 days)")
+}
+
+func TestReportNormalWithheldHintCollapsesManyPackages(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+	data.CooldownWithheldPackages = manyWithheldPackages(24)
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Contains(t, out, "Dependency cooldown withheld versions of 24 packages during resolution")
+	assert.Contains(t, out, "pkg-00, pkg-01, pkg-02, pkg-03, pkg-04, and 19 more")
+	assert.NotContains(t, out, "pkg-05", "collapsed hint must cap the name list")
+	assert.NotContains(t, out, "available in", "collapsed hint must not list versions")
+	assert.Contains(t, out, "Run with --verbose to list all withheld versions.")
 }
 
 func TestReportSilentWithheldStaysQuiet(t *testing.T) {

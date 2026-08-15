@@ -360,9 +360,20 @@ func reportVerbose(data *ReportData) {
 }
 
 // cooldownWithheldHintMaxVersions bounds how many withheld versions are listed
-// per package in the failure hint. Packages with frequent releases can have
-// many versions inside the window; the hint must stay short.
+// per package in the detailed failure hint. Packages with frequent releases can
+// have many versions inside the window; the hint must stay short.
 const cooldownWithheldHintMaxVersions = 3
+
+// cooldownWithheldHintDetailMaxPackages is the package count up to which the
+// failure hint lists versions per package. Above it, the hint collapses to a
+// name list: a large install can withhold versions of dozens of transitive
+// dependencies, and per-version detail would drown the package manager error
+// the hint annotates.
+const cooldownWithheldHintDetailMaxPackages = 3
+
+// cooldownWithheldHintMaxPackageNames bounds how many package names the
+// collapsed hint lists before "and N more".
+const cooldownWithheldHintMaxPackageNames = 5
 
 // printCooldownWithheldHint explains a failed install that may have been caused
 // by cooldown stripping. PMG cannot know whether the resolver failed because of
@@ -372,12 +383,21 @@ func printCooldownWithheldHint(packages []models.CooldownWithheld) {
 		return
 	}
 
+	fmt.Println()
+	if len(packages) <= cooldownWithheldHintDetailMaxPackages {
+		printCooldownWithheldDetail(packages)
+	} else {
+		printCooldownWithheldSummary(packages)
+	}
+	fmt.Println()
+}
+
+func printCooldownWithheldDetail(packages []models.CooldownWithheld) {
 	total := 0
 	for _, pkg := range packages {
 		total += len(pkg.Versions)
 	}
 
-	fmt.Println()
 	fmt.Printf("%s %s\n",
 		Colors.Yellow("⊘"),
 		Colors.Yellow(fmt.Sprintf("Dependency cooldown withheld %s during version resolution", pluralizeVersions(total))))
@@ -403,7 +423,23 @@ func printCooldownWithheldHint(packages []models.CooldownWithheld) {
 	}
 
 	fmt.Printf("  %s\n", Colors.Dim("If the install failed because a version was not found, this is the likely cause."))
-	fmt.Println()
+}
+
+func printCooldownWithheldSummary(packages []models.CooldownWithheld) {
+	fmt.Printf("%s %s\n",
+		Colors.Yellow("⊘"),
+		Colors.Yellow(fmt.Sprintf("Dependency cooldown withheld versions of %s during resolution", pluralizePackages(len(packages)))))
+
+	names := make([]string, 0, cooldownWithheldHintMaxPackageNames+1)
+	for _, pkg := range packages[:min(len(packages), cooldownWithheldHintMaxPackageNames)] {
+		names = append(names, pkg.Name)
+	}
+	if hidden := len(packages) - len(names); hidden > 0 {
+		names = append(names, fmt.Sprintf("and %d more", hidden))
+	}
+
+	fmt.Printf("    %s\n", Colors.Dim(termWidthFormatTextIndent(strings.Join(names, ", "), 76, "    ")))
+	fmt.Printf("  %s\n", Colors.Dim("If the install failed because a version was not found, this is the likely cause. Run with --verbose to list all withheld versions."))
 }
 
 func printOutcomeLine(data *ReportData) {
