@@ -344,10 +344,8 @@ func reportVerbose(data *ReportData) {
 		fmt.Println()
 		fmt.Println(Colors.Yellow("  Versions withheld by dependency cooldown:"))
 		for _, pkg := range data.CooldownWithheldPackages {
-			for _, v := range pkg.Versions {
-				fmt.Printf("    %s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("%s@%s", pkg.Name, v.Version)))
-				fmt.Printf("      %s\n", Colors.Dim(fmt.Sprintf("Available in %s", pluralizeDays(v.DaysLeft))))
-			}
+			fmt.Printf("    %s %s\n", Colors.Yellow("⊘"), Colors.Yellow(pkg.Name))
+			fmt.Printf("      %s\n", Colors.Dim(termWidthFormatTextIndent(withheldVersionsLine(pkg, 0), 76, "      ")))
 		}
 	}
 
@@ -403,26 +401,32 @@ func printCooldownWithheldDetail(packages []models.CooldownWithheld) {
 		Colors.Yellow(fmt.Sprintf("Dependency cooldown withheld %s during version resolution", pluralizeVersions(total))))
 
 	for _, pkg := range packages {
-		shown := pkg.Versions
-		hidden := 0
-		if len(shown) > cooldownWithheldHintMaxVersions {
-			hidden = len(shown) - cooldownWithheldHintMaxVersions
-			shown = shown[:cooldownWithheldHintMaxVersions]
-		}
-
-		parts := make([]string, 0, len(shown)+1)
-		for _, v := range shown {
-			parts = append(parts, fmt.Sprintf("%s (available in %s)", v.Version, pluralizeDays(v.DaysLeft)))
-		}
-		if hidden > 0 {
-			parts = append(parts, fmt.Sprintf("and %d more", hidden))
-		}
-
 		fmt.Printf("    %s\n", Colors.Yellow(pkg.Name))
-		fmt.Printf("      %s\n", Colors.Dim(strings.Join(parts, ", ")))
+		fmt.Printf("      %s\n", Colors.Dim(withheldVersionsLine(pkg, cooldownWithheldHintMaxVersions)))
 	}
 
 	fmt.Printf("  %s\n", Colors.Dim("If the install failed because a version was not found, this is the likely cause."))
+}
+
+// withheldVersionsLine formats a package's withheld versions as one
+// comma-separated line. maxVersions caps the list ("and N more" for the rest);
+// 0 lists every version.
+func withheldVersionsLine(pkg models.CooldownWithheld, maxVersions int) string {
+	shown := pkg.Versions
+	hidden := 0
+	if maxVersions > 0 && len(shown) > maxVersions {
+		hidden = len(shown) - maxVersions
+		shown = shown[:maxVersions]
+	}
+
+	parts := make([]string, 0, len(shown)+1)
+	for _, v := range shown {
+		parts = append(parts, fmt.Sprintf("%s (available in %s)", v.Version, pluralizeDays(v.DaysLeft)))
+	}
+	if hidden > 0 {
+		parts = append(parts, fmt.Sprintf("and %d more", hidden))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func printCooldownWithheldSummary(packages []models.CooldownWithheld) {

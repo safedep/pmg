@@ -238,10 +238,19 @@ func TestReportSilentWithheldStaysQuiet(t *testing.T) {
 func TestReportVerboseWithheldSection(t *testing.T) {
 	withVerbosity(t, VerbosityLevelVerbose)
 
-	out := captureStdout(t, func() { Report(withheldData(OutcomeError)) })
+	data := withheldData(OutcomeError)
+	data.CooldownWithheldPackages[0].Versions = append(data.CooldownWithheldPackages[0].Versions,
+		models.CooldownWithheldVersion{Version: "1.47.1", DaysLeft: 3},
+		models.CooldownWithheldVersion{Version: "1.48.0", DaysLeft: 4},
+		models.CooldownWithheldVersion{Version: "1.48.1", DaysLeft: 5},
+	)
+
+	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Versions withheld by dependency cooldown:")
-	assert.Contains(t, out, "@posthog/core@1.47.0")
-	assert.Contains(t, out, "Available in 2 days")
+	assert.Contains(t, out, "⊘ @posthog/core")
+	assert.Contains(t, out, "1.47.0 (available in 2 days)")
+	assert.Contains(t, out, "1.48.1 (available in 5 days)", "verbose must list every version, no cap")
+	assert.NotContains(t, out, "and 1 more", "verbose must not truncate the version list")
 }
 
 func TestTermWidthFormatTextIndent(t *testing.T) {
