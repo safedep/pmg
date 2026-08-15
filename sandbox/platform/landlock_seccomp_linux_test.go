@@ -583,7 +583,11 @@ func writeMemImage(t *testing.T, data []byte) *os.File {
 	require.NoError(t, err)
 	_, err = f.Write(data)
 	require.NoError(t, err)
-	t.Cleanup(func() { f.Close() })
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close mem image: %v", err)
+		}
+	})
 	return f
 }
 
