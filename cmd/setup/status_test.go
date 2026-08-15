@@ -15,12 +15,23 @@ func TestDeriveStatus(t *testing.T) {
 	tests := []struct {
 		name          string
 		results       []doctor.CheckResult
+		insecure      bool
 		wantHealth    health
 		wantProtected bool
 	}{
 		{
 			name:          "no interception is unprotected",
 			results:       []doctor.CheckResult{{Name: checkShimInPath, Status: doctor.StatusFail}},
+			wantHealth:    healthUnprotected,
+			wantProtected: false,
+		},
+		{
+			name: "insecure installation forces unprotected despite active interception",
+			results: []doctor.CheckResult{
+				{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+				{Name: checkSandbox, Status: doctor.StatusPass},
+			},
+			insecure:      true,
 			wantHealth:    healthUnprotected,
 			wantProtected: false,
 		},
@@ -70,7 +81,7 @@ func TestDeriveStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotHealth, gotProtected := deriveStatus(tt.results)
+			gotHealth, gotProtected := deriveStatus(tt.results, tt.insecure)
 			assert.Equal(t, tt.wantHealth, gotHealth)
 			assert.Equal(t, tt.wantProtected, gotProtected)
 		})
@@ -94,11 +105,9 @@ func TestToStatusChecks(t *testing.T) {
 	checks := toStatusChecks(results)
 	require.Len(t, checks, 3)
 
-	// Passing checks carry no fix.
 	assert.Equal(t, "pass", checks[0].Status)
 	assert.Empty(t, checks[0].Fix)
 
-	// Non-passing checks fall back to the static fix hint.
 	assert.Equal(t, "fail", checks[1].Status)
 	assert.Equal(t, checkFixes[checkShellAliases], checks[1].Fix)
 	assert.NotEmpty(t, checks[1].Fix)
@@ -157,6 +166,18 @@ func TestBuildDoctorReport(t *testing.T) {
 		report := buildDoctorReport(cfg, results)
 		assert.Equal(t, healthUnprotected, report.Health)
 		assert.False(t, report.Protected)
+	})
+
+	t.Run("insecure installation reports unprotected with threat intel off", func(t *testing.T) {
+		insecure := &config.RuntimeConfig{InsecureInstallation: true}
+		results := []doctor.CheckResult{
+			{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+		}
+
+		report := buildDoctorReport(insecure, results)
+		assert.Equal(t, healthUnprotected, report.Health)
+		assert.False(t, report.Protected)
+		assert.False(t, report.Layers.ThreatIntel)
 	})
 }
 

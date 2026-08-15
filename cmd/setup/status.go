@@ -15,9 +15,7 @@ import (
 	"github.com/safedep/pmg/truststore"
 )
 
-// statusSchemaVersion versions the JSON contract emitted by
-// `pmg setup info --json` and `pmg setup doctor --json` so consumers (the
-// Omarchy plugin, CI gates) can pin behaviour across PMG releases.
+// Bump when the JSON contract changes so consumers (plugins, CI gates) can pin it.
 const statusSchemaVersion = 1
 
 type health string
@@ -28,7 +26,6 @@ const (
 	healthUnprotected health = "unprotected"
 )
 
-// statusCheck is the JSON projection of a doctor.CheckResult.
 type statusCheck struct {
 	Name     string `json:"name"`
 	Category string `json:"category"`
@@ -74,9 +71,6 @@ type protectionLayers struct {
 	Proxy       proxyInfo    `json:"proxy"`
 }
 
-// statusReport is the machine-readable protection status shared by
-// `pmg setup info --json` and `pmg setup doctor --json`: a health/protected
-// verdict, the enabled layers, and the checks it was derived from.
 type statusReport struct {
 	SchemaVersion int              `json:"schema_version"`
 	Version       string           `json:"version"`
@@ -93,20 +87,13 @@ type doctorSummary struct {
 	Failed   int `json:"failed"`
 }
 
-// doctorReport is emitted by `pmg setup doctor --json`: the full status report
-// (with the authoritative interception probes in Checks) plus a pass/warn/fail
-// summary. It is a superset of the info report and is the surface a CI gate
-// should trust.
 type doctorReport struct {
 	statusReport
 	Summary doctorSummary `json:"summary"`
 }
 
-// buildStatusReport rolls a set of checks and the current config into the shared
-// status report. The caller chooses which checks to pass: the cheap core checks
-// for `setup info`, or core plus the authoritative probes for `setup doctor`.
 func buildStatusReport(cfg *config.RuntimeConfig, checks []doctor.CheckResult) statusReport {
-	h, protected := deriveStatus(checks)
+	h, protected := deriveStatus(checks, cfg.InsecureInstallation)
 
 	return statusReport{
 		SchemaVersion: statusSchemaVersion,
@@ -132,14 +119,12 @@ func buildDoctorReport(cfg *config.RuntimeConfig, results []doctor.CheckResult) 
 	}
 }
 
-// deriveStatus rolls a set of checks into a single verdict. Protected is the
-// security-critical signal: are installs actually intercepted. A failing
-// authoritative protection probe (present only in the doctor report) proves
-// interception is bypassed and forces "unprotected", overriding the presence of
-// aliases or shims. Otherwise any non-passing check downgrades an intercepting
-// install to "degraded" without claiming it is unprotected.
-func deriveStatus(results []doctor.CheckResult) (health, bool) {
-	if hasFailingProtectionCheck(results) || !isInterceptionActive(results) {
+// Insecure installation allows every package without analysis, and a failing
+// protection probe proves interception is bypassed: either forces "unprotected"
+// even when aliases or shims are active. Otherwise a non-passing check is only
+// "degraded", never "unprotected".
+func deriveStatus(results []doctor.CheckResult, insecure bool) (health, bool) {
+	if insecure || hasFailingProtectionCheck(results) || !isInterceptionActive(results) {
 		return healthUnprotected, false
 	}
 	for _, r := range results {
@@ -179,7 +164,8 @@ func collectLayers(cfg *config.RuntimeConfig) protectionLayers {
 	driver := resolveSandboxDriverName()
 
 	layers := protectionLayers{
-		ThreatIntel: true,
+		// Insecure installation short-circuits analysis, so threat intel never runs.
+		ThreatIntel: !cfg.InsecureInstallation,
 		Cooldown: cooldownInfo{
 			Enabled: cfg.Config.DependencyCooldown.Enabled,
 			Days:    cfg.Config.DependencyCooldown.Days,
@@ -196,10 +182,8 @@ func collectLayers(cfg *config.RuntimeConfig) protectionLayers {
 }
 
 func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
-	// A present-but-unreadable/malformed cert makes the on-disk metadata
-	// (expiry, trust) untrustworthy; the ca-cert check already reports the
-	// failure, so here we report the layer as untrusted rather than encode
-	// contradictory data.
+	// An unreadable cert makes on-disk expiry/trust untrustworthy; report the
+	// layer as untrusted rather than encode contradictory data.
 	st, err := certmanager.InspectCA(cfg.ConfigDir())
 	if err != nil {
 		log.Debugf("CA inspection failed; reporting CA layer as untrusted: %v", err)
@@ -243,8 +227,6 @@ func toStatusChecks(results []doctor.CheckResult) []statusCheck {
 	return checks
 }
 
-// fixFor returns the actionable fix for a non-passing check, preferring a
-// result-specific override over the static hint. Passing checks have no fix.
 func fixFor(r doctor.CheckResult) string {
 	if r.Status == doctor.StatusPass {
 		return ""
