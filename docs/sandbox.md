@@ -446,8 +446,14 @@ outside-view uid never changes.
 on Debian/Ubuntu; default on most modern distros). If disabled, the helper fails with an
 EPERM on `clone()` and the sandbox falls back to Bubblewrap.
 
-**Network filtering**: Not enforced. Landlock supports TCP port filtering only (V4+, no hostname).
-PMG's proxy interception provides network control.
+**Network filtering**: `network_via_proxy_only` lockdown is enforced by the seccomp
+supervisor, which intercepts `connect`/`sendto`/`sendmsg` and confines outbound traffic
+to the PMG proxy's loopback port (plus loopback when the profile sets `allow_network_bind`,
+and port 53 when it sets `allow_direct_dns`). Denials surface as `network_connect`
+violations. The fail-closed contract is the same as on macOS: no running proxy, no command.
+Known gaps (e.g. `sendmmsg`, unix-socket DNS) are documented in
+[sandbox-landlock.md](./sandbox-landlock.md). Outside lockdown there is no fine-grained
+host filtering; Landlock V4's native port rules are not yet used.
 
 **PID/IPC namespace isolation**: Applied best-effort via `CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWNS`.
 If unavailable, a warning is printed and the command continues. Set `PMG_SANDBOX_DRIVER=bubblewrap`
@@ -501,9 +507,10 @@ Direct DNS is disabled by default (the proxy resolves names); `allow_direct_dns:
 it. The Go profile ships with lockdown enabled.
 
 Lockdown is fail-closed: it requires the proxy flow, and pmg errors out rather than running
-without confinement when no proxy is available — including on Linux, where
-`network_via_proxy_only` is not yet supported (the drivers reject it with a clear error, never a
-silent fallback).
+without confinement when no proxy is available. Linux enforces the same contract with the
+Landlock driver (supervisor-based `connect` interception; see
+[sandbox-landlock.md](./sandbox-landlock.md)); the Bubblewrap fallback driver still rejects
+lockdown profiles with a clear error rather than running unconfined.
 
 For local development: plain commands like `npm run dev` are not sandboxed unless
 `enforce_always` is set; loopback↔loopback traffic keeps working via `allow_network_bind` (as

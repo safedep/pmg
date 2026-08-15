@@ -3,8 +3,10 @@
 package platform
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -19,15 +21,28 @@ import (
 // ready for Landlock enforcement. It contains filesystem rules (allow-list),
 // deny paths (for seccomp-notify enforcement), and execution configuration.
 type landlockExecPolicy struct {
-	FilesystemRules  []landlockPathRule `json:"filesystem_rules"`
-	DenyPaths        []denyPathEntry    `json:"deny_paths"`
-	DenyExecPaths    []string           `json:"deny_exec_paths"`
-	AllowPTY         bool               `json:"allow_pty"`
-	SkipPIDNamespace bool               `json:"skip_pid_namespace"`
-	SkipIPCNamespace bool               `json:"skip_ipc_namespace"`
-	Command          string             `json:"command"`
-	Args             []string           `json:"args"`
-	Env              []string           `json:"env,omitempty"`
+	FilesystemRules  []landlockPathRule    `json:"filesystem_rules"`
+	DenyPaths        []denyPathEntry       `json:"deny_paths"`
+	DenyExecPaths    []string              `json:"deny_exec_paths"`
+	Network          landlockNetworkPolicy `json:"network"`
+	AllowPTY         bool                  `json:"allow_pty"`
+	SkipPIDNamespace bool                  `json:"skip_pid_namespace"`
+	SkipIPCNamespace bool                  `json:"skip_ipc_namespace"`
+	Command          string                `json:"command"`
+	Args             []string              `json:"args"`
+	Env              []string              `json:"env,omitempty"`
+}
+
+// landlockNetworkPolicy carries network_via_proxy_only confinement to the
+// seccomp supervisor. The zero value disables network enforcement entirely —
+// no syscall interception, no behavior change. ProxyPort is 0 when the
+// policy is rendered without a runtime proxy (profile show); the shim then
+// denies every non-loopback destination, which is the fail-closed render.
+type landlockNetworkPolicy struct {
+	Lockdown       bool   `json:"lockdown"`
+	ProxyPort      uint16 `json:"proxy_port,omitempty"`
+	AllowBind      bool   `json:"allow_bind,omitempty"`
+	AllowDirectDNS bool   `json:"allow_direct_dns,omitempty"`
 }
 
 // landlockPathRule represents a single Landlock filesystem rule mapping a path
@@ -169,9 +184,17 @@ const (
 
 // landlockTranslatePolicy converts a SandboxPolicy into a landlockExecPolicy
 // that can be applied by the Landlock driver. It expands variables, resolves
-// glob patterns, maps allow/deny rules, and adds implicit rules.
-func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*landlockExecPolicy, error) {
+// glob patterns, maps allow/deny rules, and adds implicit rules. rt carries
+// runtime data (the PMG proxy address) needed to confine network access; it
+// may be nil for render/inspection paths, which stay fail-closed.
+func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt *sandbox.ExecutionContext) (*landlockExecPolicy, error) {
 	ep := &landlockExecPolicy{}
+
+	network, err := landlockTranslateNetwork(policy, rt)
+	if err != nil {
+		return nil, err
+	}
+	ep.Network = network
 
 	writeAccess := landlockWriteAccessBase
 	if abi.HasRefer {
@@ -429,6 +452,40 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 	}
 
 	return ep, nil
+}
+
+// landlockTranslateNetwork derives the supervisor-side network confinement
+// config from network_via_proxy_only. When the policy requests lockdown but
+// no runtime proxy address exists (render/inspection), the config stays
+// fail-closed with no proxy allowance — same posture as the Seatbelt
+// renderer.
+func landlockTranslateNetwork(policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (landlockNetworkPolicy, error) {
+	if !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		return landlockNetworkPolicy{}, nil
+	}
+
+	nw := landlockNetworkPolicy{
+		Lockdown:       true,
+		AllowBind:      utils.SafelyGetValue(policy.AllowNetworkBind),
+		AllowDirectDNS: utils.SafelyGetValue(policy.AllowDirectDNS),
+	}
+
+	if rt == nil || rt.ProxyAddr == "" {
+		return nw, nil
+	}
+
+	port, err := sandbox.ValidateNetworkLockdown(policy, rt)
+	if err != nil {
+		return landlockNetworkPolicy{}, err
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return landlockNetworkPolicy{}, fmt.Errorf("network_via_proxy_only: invalid proxy port %q: %w", port, err)
+	}
+
+	nw.ProxyPort = uint16(portNum)
+	return nw, nil
 }
 
 // landlockExpandPattern expands variables and glob patterns in a path string,

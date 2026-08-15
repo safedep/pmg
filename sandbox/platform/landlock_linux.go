@@ -13,9 +13,6 @@ import (
 	"sync"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/dry/usefulerror"
-	"github.com/safedep/dry/utils"
-	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/sandbox"
 )
 
@@ -93,15 +90,12 @@ func (s *landlockSandbox) Close() error {
 // This implementation modifies the cmd in place and does NOT execute it.
 // Returns ExecutionResult with executed=false, indicating the caller must run cmd.Run().
 func (s *landlockSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *sandbox.SandboxPolicy, rt *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
-	if utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
-		return nil, usefulerror.NewUsefulError().
-			WithCode(errcodes.UnsupportedPlatform).
-			WithHumanError("network_via_proxy_only is not yet supported on this platform").
-			WithHelp("Disable network_via_proxy_only for this profile.").
-			Wrap(fmt.Errorf("network_via_proxy_only is not yet supported on this platform (%s sandbox)", s.Name()))
+	// network_via_proxy_only fails closed: no running proxy, no command.
+	if _, err := sandbox.ValidateNetworkLockdown(policy, rt); err != nil {
+		return nil, err
 	}
 
-	execPolicy, err := landlockTranslatePolicy(policy, s.abi)
+	execPolicy, err := landlockTranslatePolicy(policy, s.abi, rt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate policy: %w", err)
 	}

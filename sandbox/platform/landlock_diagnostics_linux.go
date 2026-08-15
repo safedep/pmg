@@ -61,7 +61,7 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 		// buffer is full, new distinct denials hit the drop branch (and its
 		// one-time warning) instead of growing the map.
 		key := ""
-		if evt.Type == auditSeccompDeny {
+		if evt.Type == auditSeccompDeny || evt.Type == auditNetworkDeny {
 			key = landlockDenyKey(evt)
 			if seen[key] {
 				continue
@@ -89,10 +89,11 @@ func (s *landlockSandbox) captureAuditEvents(r io.Reader) {
 // BestEffortViolation reports seccomp-layer denials captured over the audit
 // socket during the last Execute. Only the deny-list layer is observable:
 // denials made by the Landlock LSM itself (allow-list boundary, delete or
-// rename, network) fail in-kernel with no userspace signal and never appear
-// here. Operational events (namespace_isolation_unavailable, memfd_open_failed)
-// are deliberately excluded from the report; they are degradation warnings,
-// not denials.
+// rename) fail in-kernel with no userspace signal and never appear here.
+// Network lockdown denials do appear — they are supervisor decisions
+// (auditNetworkDeny), not kernel Landlock denials. Operational events
+// (namespace_isolation_unavailable, memfd_open_failed) are deliberately
+// excluded from the report; they are degradation warnings, not denials.
 func (s *landlockSandbox) BestEffortViolation(err error) (*sandbox.ViolationReport, error) {
 	if err == nil || s.auditDone == nil {
 		return nil, nil
@@ -128,7 +129,7 @@ func extractLandlockViolations(events []capturedAuditEvent) []sandbox.Violation 
 	seen := make(map[string]bool, len(events))
 
 	for _, e := range events {
-		if e.Type != auditSeccompDeny {
+		if e.Type != auditSeccompDeny && e.Type != auditNetworkDeny {
 			continue
 		}
 
@@ -171,6 +172,8 @@ func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
 			return sandbox.ViolationKindFSRead
 		}
 		return sandbox.ViolationKindFSWrite
+	case "connect", "sendto", "sendmsg":
+		return sandbox.ViolationKindNetworkConnect
 	default:
 		return sandbox.ViolationKindGenericDeny
 	}
@@ -184,6 +187,9 @@ func summarizeLandlockViolation(kind sandbox.ViolationKind, target string) strin
 		return fmt.Sprintf("write access denied: %s", target)
 	case sandbox.ViolationKindExec:
 		return fmt.Sprintf("process execution denied: %s", target)
+	case sandbox.ViolationKindNetworkConnect:
+		// Same posture message as the Seatbelt driver (seatbelt_diagnostics_darwin.go).
+		return fmt.Sprintf("direct network access blocked by network_via_proxy_only (%s) — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)", target)
 	default:
 		if target == "" {
 			return "sandbox denied an operation"
