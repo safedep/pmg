@@ -11,8 +11,9 @@ import (
 
 func TestOverrideSuggestionSkipsGlobRuleTarget(t *testing.T) {
 	assert.Nil(t, overrideSuggestion(Violation{
-		Kind:   ViolationKindFSRead,
-		Target: "**/.env",
+		Kind:       ViolationKindFSRead,
+		Target:     "/repo/.env",
+		RuleTarget: "**/.env",
 	}))
 }
 
@@ -24,6 +25,16 @@ func TestOverrideSuggestionUsesConcretePath(t *testing.T) {
 	require.NotNil(t, o)
 	assert.Equal(t, ViolationKindFSRead, o.Kind)
 	assert.Equal(t, "./.env", o.Target)
+}
+
+func TestOverrideSuggestionUsesExactRuleTarget(t *testing.T) {
+	o := overrideSuggestion(Violation{
+		Kind:       ViolationKindFSRead,
+		Target:     "/home/dev/.ssh/id_rsa",
+		RuleTarget: "/home/dev/.ssh",
+	})
+	require.NotNil(t, o)
+	assert.Equal(t, "/home/dev/.ssh", o.Target)
 }
 
 func TestOverrideSuggestionPreservesRawTargetCharacters(t *testing.T) {
@@ -41,6 +52,18 @@ func TestOverrideSuggestionSkipsControlCharacters(t *testing.T) {
 	assert.Nil(t, overrideSuggestion(Violation{
 		Kind:   ViolationKindFSRead,
 		Target: "/tmp/bad\npath",
+	}))
+	assert.Nil(t, overrideSuggestion(Violation{
+		Kind:   ViolationKindFSRead,
+		Target: "/tmp/bad\u009bpath",
+	}))
+}
+
+func TestOverrideSuggestionSkipsVariableRuleTarget(t *testing.T) {
+	assert.Nil(t, overrideSuggestion(Violation{
+		Kind:       ViolationKindFSRead,
+		Target:     "/home/dev/.ssh/id_rsa",
+		RuleTarget: "${HOME}/.ssh",
 	}))
 }
 
@@ -211,6 +234,18 @@ func TestBuildExplanationEmptyReport(t *testing.T) {
 	assert.Nil(t, exp.Primary)
 	assert.Nil(t, exp.Override)
 	assert.Equal(t, 0, exp.AdditionalDenials)
+}
+
+func TestBuildExplanationSkipsSingleOverrideForReadWriteDenial(t *testing.T) {
+	exp := BuildExplanation(&ViolationReport{
+		Violations: []Violation{
+			{Kind: ViolationKindFSRead, Target: "/repo/.env", RuleTarget: "/repo/.env"},
+			{Kind: ViolationKindFSWrite, Target: "/repo/.env", RuleTarget: "/repo/.env"},
+		},
+	})
+
+	require.NotNil(t, exp.Primary)
+	assert.Nil(t, exp.Override)
 }
 
 func TestIsSensitiveProjectTargetExported(t *testing.T) {

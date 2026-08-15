@@ -254,10 +254,10 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 				continue
 			}
 			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: denyRead})
+				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, RulePath: pattern, Mode: denyRead})
 			}
 		} else {
-			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: expanded, Mode: denyRead})
+			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: expanded, RulePath: pattern, Mode: denyRead})
 		}
 	}
 
@@ -285,10 +285,10 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 				continue
 			}
 			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: denyWrite})
+				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, RulePath: pattern, Mode: denyWrite})
 			}
 		} else {
-			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: expanded, Mode: denyWrite})
+			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: expanded, RulePath: pattern, Mode: denyWrite})
 		}
 	}
 
@@ -354,11 +354,11 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI) (*
 				return
 			}
 			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: mode})
+				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, RulePath: pattern, Mode: mode})
 			}
 			return
 		}
-		ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: pattern, Mode: mode})
+		ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: pattern, RulePath: pattern, Mode: mode})
 	}
 
 	for _, p := range mandatoryResult.DenyRead {
