@@ -11,7 +11,8 @@ cannot subtract from a subtree, so we layer seccomp-notify on top:
 - Landlock: kernel-native allow-list, fast, applies to most syscalls.
 - seccomp-notify: intercepts `openat`/`openat2`/`execve`/`execveat`, resolves the path arg
   by reading the trapping process's memory, matches against the deny list, responds
-  `EACCES` or `CONTINUE`.
+  `EACCES` or `CONTINUE`. Under network lockdown (`network_via_proxy_only`) it also
+  intercepts `connect`/`sendto`/`sendmsg` — see "Network lockdown" below.
 
 ## Architecture
 
@@ -107,6 +108,75 @@ reopen via `memFdFor`. Grandchildren get their own entries.
 covers the path itself and anything beneath `entry+"/"`, so `~/.ssh/id_rsa` is caught.
 Trailing-slash entries still prefix-match.
 
+### Network lockdown (`network_via_proxy_only`)
+
+Landlock's own network rules (ABI V4) filter TCP ports only: no destination
+matching, no UDP, and `BindTCP` requires concrete ports so the dynamic loopback
+binds behind `allow_network_bind` are inexpressible. `network_via_proxy_only`
+is a host+port contract, so enforcement lives in the seccomp supervisor:
+`connect(2)`, `sendto(2)`, and `sendmsg(2)` trap when the resolved policy has
+lockdown on, the supervisor parses the `sockaddr` from `/proc/<pid>/mem` and
+applies the Seatbelt-parity matrix:
+
+- loopback to the PMG proxy port: allow
+- any loopback port: allow when the profile sets `allow_network_bind`
+- port 53 (TCP or UDP): allow when the profile sets `allow_direct_dns`
+- everything else non-loopback: deny with `ECONNREFUSED` + a `network_deny`
+  audit event, which `pmg sandbox violations` surfaces as a
+  `network_connect` violation
+
+`sendto`/`sendmsg` with a NULL destination address target an already-connected
+peer (that peer passed the connect check) and continue uninspected.
+
+Only `AF_INET`/`AF_INET6` go through the matrix. `AF_UNIX` and `AF_NETLINK`
+(local IPC and kernel interfaces, no external egress) are allowed; every other
+family is denied, including `AF_VSOCK`, which in a VM can reach host/guest
+services outside the proxy.
+
+`io_uring_setup` is trapped and denied under lockdown. A ring is a side channel
+for `IORING_OP_CONNECT`/`SENDMSG` that never trips the intercepted network
+syscalls; refusing ring creation forces callers back onto the confined path.
+io_uring is always optional, so runtimes fall back to epoll/threadpool.
+
+**Network denials fail closed on ambiguity.** Unlike `openat` (which fails open
+when process memory is unreadable), a connect is *denied* when the supervisor
+cannot verify the destination — under lockdown an unverifiable destination is
+indistinguishable from a hostile one (e.g. `dumpable=0` after a hostile execve).
+
+**The shim's own fd-passing uses `sendmmsg`.** The filter traps `sendmsg`, and
+the shim's fd handoff to the helper (`SCM_RIGHTS`) happens after filter
+install. Only the trapping thread is filtered — but the trapped syscall would
+deadlock the handoff (the reply can only be served by the listener that is
+itself being sent). The shim therefore passes the fd with `sendmmsg(2)`, which
+is outside the trap set.
+
+### Network lockdown gaps
+
+Known holes in the current enforcement, in rough priority order:
+
+- **`sendmmsg(2)` is not intercepted.** Its per-message destinations live in an
+  `mmsghdr[]` array in process memory; we lean on it for the shim's own
+  handshake and accept the exfiltration blind spot. Rarely used by resolvers
+  and runtimes in practice.
+- **`AF_UNIX` connects are always allowed.** glibc NSS resolution on
+  systemd-resolved hosts reaches the resolver over a unix socket
+  (`/run/systemd/resolve/...`), so direct DNS stays reachable even with
+  `allow_direct_dns: false`. Blocking this without breaking legitimate local
+  IPC needs sockaddr-path filtering we do not yet do. Seatbelt has the mirror
+  problem (mDNSResponder) and handles it by allow-listing the exact socket
+  paths — the fix here is analogous.
+- **TOCTOU on the sockaddr.** Between the supervisor's memory read and the
+  kernel executing a `CONTINUE`d syscall, a second thread in the target can
+  rewrite the address. Same class as the existing openat TOCTOU; adequate for
+  benign install scripts, not a hardened defense against determined escapes.
+- **32-bit syscalls are not matched.** The filter compares syscall numbers
+  from the build architecture; an i386 compat process multiplexes through
+  `socketcall` and bypasses net filtering (pre-existing gap, also true for
+  the openat/execve traps).
+- **`bind(2)`/`listen(2)` are unrestricted** (pre-existing, unrelated to
+  lockdown): a sandboxed process can listen on any address. Inbound acceptance
+  is limited by whatever the host exposes.
+
 ## Go-specific nuances
 
 The Landlock+seccomp pattern was designed around the C/Rust threading model. Go pays a
@@ -133,8 +203,10 @@ constant tax that maps to most of the decisions above:
 
 - **Unprivileged user namespaces required.** On distros that disable them, `clone()`
   returns EPERM. We don't yet probe and fall back to bubblewrap (TODO).
-- **Network filtering not enforced.** Landlock V4 does TCP ports, not hostnames. PMG's
-  proxy interception provides network control.
+- **Network lockdown enforcement is supervisor-based.** `network_via_proxy_only`
+  works via seccomp-notify on `connect`/`sendto`/`sendmsg` (see "Network lockdown"
+  above), with the gaps documented there. Landlock-native port rules (V4+) are
+  not used yet; they would be a race-free backstop for the passthrough cases.
 - **PID/IPC namespace isolation is best-effort.** Retried without on EPERM.
 - **Audit events are dropped.** Wired but consumed by `io.Discard`.
 - **TOCTOU between path read and deny response.** Microseconds. Adequate for benign

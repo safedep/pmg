@@ -40,7 +40,7 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 		abiSource = "fallback"
 	}
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +54,13 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	fmt.Fprintf(&sb, "allow_pty: %t\n", ep.AllowPTY)
 	fmt.Fprintf(&sb, "skip_pid_namespace: %t\n", ep.SkipPIDNamespace)
 	fmt.Fprintf(&sb, "skip_ipc_namespace: %t\n", ep.SkipIPCNamespace)
+
+	if ep.Network.Lockdown {
+		fmt.Fprintf(&sb, "network_lockdown: true\n")
+		fmt.Fprintf(&sb, "  proxy_port: %s\n", landlockRenderProxyPort(ep.Network))
+		fmt.Fprintf(&sb, "  allow_bind: %t\n", ep.Network.AllowBind)
+		fmt.Fprintf(&sb, "  allow_direct_dns: %t\n", ep.Network.AllowDirectDNS)
+	}
 
 	fmt.Fprintf(&sb, "\nfilesystem_rules (%d):\n", len(ep.FilesystemRules))
 	for _, r := range ep.FilesystemRules {
@@ -71,6 +78,17 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	}
 
 	return []byte(sb.String()), nil
+}
+
+// landlockRenderProxyPort renders the proxy port for the network_lockdown
+// section. Policies rendered without a runtime proxy (profile show) have no
+// port; the helper fails closed there and denies every non-loopback
+// destination, mirroring the Seatbelt renderer's "runtime-only allow" note.
+func landlockRenderProxyPort(n landlockNetworkPolicy) string {
+	if n.ProxyPort == 0 {
+		return "(runtime PMG proxy port)"
+	}
+	return fmt.Sprintf("%d", n.ProxyPort)
 }
 
 // landlockAccessFlagsString renders a Landlock AccessFs bitmask as a

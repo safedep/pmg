@@ -67,7 +67,7 @@ func TestLandlockTranslatePolicy_AllowRead(t *testing.T) {
 			policy := newTestPolicy()
 			policy.Filesystem.AllowRead = tt.paths
 
-			ep, err := landlockTranslatePolicy(policy, abi)
+			ep, err := landlockTranslatePolicy(policy, abi, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -119,7 +119,7 @@ func TestLandlockTranslatePolicy_AllowWrite(t *testing.T) {
 			policy := newTestPolicy()
 			policy.Filesystem.AllowWrite = []string{"/tmp/test"}
 
-			ep, err := landlockTranslatePolicy(policy, abi)
+			ep, err := landlockTranslatePolicy(policy, abi, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -155,7 +155,7 @@ func TestLandlockTranslatePolicy_AllowExec(t *testing.T) {
 	policy.Process.AllowExec = []string{"/usr/bin/node", "/usr/bin/npm"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestLandlockTranslatePolicy_DenyRead(t *testing.T) {
 	policy.Filesystem.DenyRead = []string{"/etc/shadow", "/etc/passwd"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestLandlockTranslatePolicy_DenyWrite(t *testing.T) {
 	policy.Filesystem.DenyWrite = []string{"/etc/hosts"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestLandlockTranslatePolicy_DenyWriteSkippedWhenNotWritable(t *testing.T) {
 	policy.Filesystem.DenyWrite = []string{"/etc/hosts"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestLandlockTranslatePolicy_DenyExec(t *testing.T) {
 	policy.Process.DenyExec = []string{"/usr/bin/curl", "/usr/bin/wget"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestLandlockTranslatePolicy_MandatoryDenies(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/usr"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestLandlockTranslatePolicy_AllowReadSuppression(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{cwdEnv}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	require.NoError(t, err)
 
 	envEntry := findDenyPath(ep.DenyPaths, cwdEnv)
@@ -324,7 +324,7 @@ func TestLandlockTranslatePolicy_ImplicitRules(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/usr"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestLandlockTranslatePolicy_AllowPTY_True(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/usr"}
 	abi := newLandlockABI(5) // V5 has IoctlDev
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestLandlockTranslatePolicy_AllowPTY_Nil(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/usr"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestLandlockTranslatePolicy_ProcExplicitAllow(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/proc/cpuinfo"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestLandlockTranslatePolicy_ProcSelfOnly(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/proc/self/status", "/proc/self/fd"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestLandlockTranslatePolicy_ProcDenyDropped(t *testing.T) {
 	policy.Filesystem.DenyRead = []string{"/proc/kcore", "/etc/shadow"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestLandlockTranslatePolicy_AllowGitConfig_Nil(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/usr"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -520,7 +520,7 @@ func TestLandlockTranslatePolicy_AllowGitConfig_True(t *testing.T) {
 	policy.Filesystem.AllowRead = []string{"/usr"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -536,10 +536,10 @@ func TestLandlockTranslatePolicy_AllowGitConfig_True(t *testing.T) {
 
 func TestLandlockPolicyExplicitlyAllowsProc(t *testing.T) {
 	tests := []struct {
-		name      string
-		readPaths []string
+		name       string
+		readPaths  []string
 		writePaths []string
-		want      bool
+		want       bool
 	}{
 		{
 			name:      "no proc paths",
@@ -601,7 +601,7 @@ func TestLandlockTranslatePolicy_GitPresetShapeKeepsConfigWriteDeny(t *testing.T
 	policy.Filesystem.AllowWrite = []string{filepath.Join(dir, ".git") + "/**"}
 	abi := newLandlockABI(3)
 
-	ep, err := landlockTranslatePolicy(policy, abi)
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -624,4 +624,95 @@ func TestLandlockTranslatePolicy_GitPresetShapeKeepsConfigWriteDeny(t *testing.T
 	if hasReadDeny {
 		t.Error("expected .git/config read deny to be suppressed by the exact allow_read entry")
 	}
+}
+
+func TestLandlockTranslateNetwork(t *testing.T) {
+	tests := []struct {
+		name             string
+		lockdown         *bool
+		allowBind        *bool
+		allowDNS         *bool
+		rt               *sandbox.ExecutionContext
+		wantNetwork      landlockNetworkPolicy
+		wantErrSubstring string
+	}{
+		{
+			name:        "off without flag",
+			wantNetwork: landlockNetworkPolicy{},
+		},
+		{
+			name:        "off explicitly false",
+			lockdown:    utils.PtrTo(false),
+			rt:          &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"},
+			wantNetwork: landlockNetworkPolicy{},
+		},
+		{
+			name:     "lockdown without runtime stays fail closed",
+			lockdown: utils.PtrTo(true),
+			wantNetwork: landlockNetworkPolicy{
+				Lockdown: true,
+			},
+		},
+		{
+			name:      "lockdown propagates runtime proxy port and flags",
+			lockdown:  utils.PtrTo(true),
+			allowBind: utils.PtrTo(true),
+			allowDNS:  utils.PtrTo(true),
+			rt:        &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"},
+			wantNetwork: landlockNetworkPolicy{
+				Lockdown:       true,
+				ProxyPort:      54321,
+				AllowBind:      true,
+				AllowDirectDNS: true,
+			},
+		},
+		{
+			name:             "lockdown rejects non-loopback proxy",
+			lockdown:         utils.PtrTo(true),
+			rt:               &sandbox.ExecutionContext{ProxyAddr: "203.0.113.9:8080"},
+			wantErrSubstring: "non-loopback",
+		},
+		{
+			name:             "lockdown rejects malformed proxy addr",
+			lockdown:         utils.PtrTo(true),
+			rt:               &sandbox.ExecutionContext{ProxyAddr: "not-an-addr"},
+			wantErrSubstring: "network_via_proxy_only",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := newTestPolicy()
+			policy.NetworkViaProxyOnly = tc.lockdown
+			policy.AllowNetworkBind = tc.allowBind
+			policy.AllowDirectDNS = tc.allowDNS
+
+			got, err := landlockTranslateNetwork(policy, tc.rt)
+			if tc.wantErrSubstring != "" {
+				require.ErrorContains(t, err, tc.wantErrSubstring)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantNetwork, got)
+		})
+	}
+}
+
+// The full-policy translator wires the network section in, including the
+// fail-closed render path where no proxy is running.
+func TestLandlockTranslatePolicy_NetworkLockdown(t *testing.T) {
+	policy := newTestPolicy()
+	policy.Filesystem.AllowRead = []string{"/tmp"}
+	policy.NetworkViaProxyOnly = utils.PtrTo(true)
+
+	ep, err := landlockTranslatePolicy(policy, newLandlockABI(4),
+		&sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"})
+	require.NoError(t, err)
+	assert.True(t, ep.Network.Lockdown)
+	assert.Equal(t, uint16(54321), ep.Network.ProxyPort)
+
+	ep, err = landlockTranslatePolicy(policy, newLandlockABI(4), nil)
+	require.NoError(t, err)
+	assert.True(t, ep.Network.Lockdown)
+	assert.Equal(t, uint16(0), ep.Network.ProxyPort, "render path has no proxy port, must stay fail closed")
 }

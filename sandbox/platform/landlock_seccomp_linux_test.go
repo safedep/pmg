@@ -4,12 +4,16 @@ package platform
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"testing"
 	"unsafe"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,59 +37,76 @@ func TestSeccompStructSizes(t *testing.T) {
 	}
 }
 
-func TestBuildSeccompBPFFilter(t *testing.T) {
-	prog, err := landlockBuildBPFFilter()
-	if err != nil {
-		t.Fatalf("landlockBuildBPFFilter() returned error: %v", err)
+func TestLandlockBuildNotifyFilter(t *testing.T) {
+	tests := []struct {
+		name     string
+		syscalls []uint32
+		wantLen  int
+	}{
+		{"no syscalls", nil, 3},
+		{"exec only", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}, 5},
+		{"exec + open", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2)}, 7},
 	}
 
-	if prog == nil {
-		t.Fatal("landlockBuildBPFFilter() returned nil")
-	}
-
-	if prog.Filter == nil {
-		t.Fatal("landlockBuildBPFFilter() returned nil Filter")
-	}
-
-	// Expect 7 instructions: 1 load + 4 comparisons + 1 allow + 1 notify
-	if prog.Len != 7 {
-		t.Errorf("expected 7 instructions, got %d", prog.Len)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			prog := landlockBuildNotifyFilter(tc.syscalls...)
+			require.NotNil(t, prog)
+			require.NotNil(t, prog.Filter)
+			assert.Equal(t, uint16(tc.wantLen), prog.Len)
+		})
 	}
 }
 
-func TestBuildSeccompBPFFilter_InstructionTypes(t *testing.T) {
-	prog, err := landlockBuildBPFFilter()
-	if err != nil {
-		t.Fatalf("landlockBuildBPFFilter() returned error: %v", err)
-	}
+func TestLandlockBuildNotifyFilter_InstructionTypes(t *testing.T) {
+	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT), uint32(unix.SYS_CONNECT)}
+	prog := landlockBuildNotifyFilter(syscalls...)
 
-	// Access the filter instructions as a slice
 	instructions := unsafe.Slice(prog.Filter, prog.Len)
 
-	// First instruction should be BPF_LD | BPF_W | BPF_ABS
+	// First instruction loads the syscall number.
 	firstCode := instructions[0].Code
 	expectedFirst := uint16(unix.BPF_LD | unix.BPF_W | unix.BPF_ABS)
-	if firstCode != expectedFirst {
-		t.Errorf("first instruction code = 0x%x, want 0x%x (BPF_LD|BPF_W|BPF_ABS)", firstCode, expectedFirst)
+	assert.Equal(t, expectedFirst, firstCode)
+
+	// Each comparison jumps to the final notify instruction on match.
+	for i, sc := range syscalls {
+		cmp := instructions[1+i]
+		assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), cmp.Code, "instruction %d", 1+i)
+		assert.Equal(t, sc, cmp.K, "instruction %d", 1+i)
+		assert.Equal(t, uint8(len(syscalls)-i), cmp.Jt, "instruction %d must land on RET USER_NOTIF", 1+i)
+		assert.Equal(t, uint8(0), cmp.Jf, "instruction %d falls through on mismatch", 1+i)
 	}
 
-	// Second-to-last instruction should be BPF_RET (allow)
+	// Second-to-last allows, last notifies.
 	secondToLast := instructions[prog.Len-2]
-	expectedRet := uint16(unix.BPF_RET | unix.BPF_K)
-	if secondToLast.Code != expectedRet {
-		t.Errorf("second-to-last instruction code = 0x%x, want 0x%x (BPF_RET|BPF_K)", secondToLast.Code, expectedRet)
-	}
-	if secondToLast.K != unix.SECCOMP_RET_ALLOW {
-		t.Errorf("second-to-last instruction K = 0x%x, want 0x%x (SECCOMP_RET_ALLOW)", secondToLast.K, unix.SECCOMP_RET_ALLOW)
+	assert.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), secondToLast.Code)
+	assert.Equal(t, uint32(unix.SECCOMP_RET_ALLOW), secondToLast.K)
+
+	last := instructions[prog.Len-1]
+	assert.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), last.Code)
+	assert.Equal(t, uint32(unix.SECCOMP_RET_USER_NOTIF), last.K)
+}
+
+func TestLandlockNotifySyscalls(t *testing.T) {
+	execOnly := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
+
+	tests := []struct {
+		name          string
+		network       landlockNetworkPolicy
+		interceptOpen bool
+		want          []uint32
+	}{
+		{"exec always", landlockNetworkPolicy{}, false, execOnly},
+		{"open when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2))},
+		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG), uint32(unix.SYS_IO_URING_SETUP))},
+		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
 	}
 
-	// Last instruction should be BPF_RET (notify)
-	last := instructions[prog.Len-1]
-	if last.Code != expectedRet {
-		t.Errorf("last instruction code = 0x%x, want 0x%x (BPF_RET|BPF_K)", last.Code, expectedRet)
-	}
-	if last.K != unix.SECCOMP_RET_USER_NOTIF {
-		t.Errorf("last instruction K = 0x%x, want 0x%x (SECCOMP_RET_USER_NOTIF)", last.K, unix.SECCOMP_RET_USER_NOTIF)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, landlockNotifySyscalls(tc.network, tc.interceptOpen))
+		})
 	}
 }
 
@@ -505,6 +526,215 @@ func TestDirfdFromArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAllowOutbound(t *testing.T) {
+	proxyOnly := landlockNetworkPolicy{Lockdown: true, ProxyPort: 54321}
+	proxyBind := landlockNetworkPolicy{Lockdown: true, ProxyPort: 54321, AllowBind: true}
+	proxyDNS := landlockNetworkPolicy{Lockdown: true, ProxyPort: 54321, AllowDirectDNS: true}
+	render := landlockNetworkPolicy{Lockdown: true} // ProxyPort 0: render path, fail closed
+
+	loop := netip.MustParseAddr("127.0.0.1")
+	loop6 := netip.MustParseAddr("::1")
+	remote := netip.MustParseAddr("203.0.113.9")
+	remote6 := netip.MustParseAddr("2001:db8::1")
+	resolver := netip.MustParseAddr("127.0.0.53") // systemd-resolved stub
+	mapped4 := netip.MustParseAddr("::ffff:127.0.0.1").Unmap()
+
+	tests := []struct {
+		name   string
+		policy landlockNetworkPolicy
+		family uint16
+		addr   netip.Addr
+		port   uint16
+		want   bool
+	}{
+		{"lockdown off allows everything", landlockNetworkPolicy{}, unix.AF_INET, remote, 443, true},
+		{"unix family allowed under lockdown", proxyOnly, unix.AF_UNIX, netip.Addr{}, 0, true},
+		{"netlink allowed under lockdown", proxyOnly, unix.AF_NETLINK, netip.Addr{}, 0, true},
+		{"vsock denied under lockdown", proxyOnly, unix.AF_VSOCK, netip.Addr{}, 0, false},
+		{"proxy port on loopback allowed", proxyOnly, unix.AF_INET, loop, 54321, true},
+		{"proxy port on ::1 allowed", proxyOnly, unix.AF_INET6, loop6, 54321, true},
+		{"v4-mapped v6 loopback to proxy allowed", proxyOnly, unix.AF_INET6, mapped4, 54321, true},
+		{"other loopback port denied without bind", proxyOnly, unix.AF_INET, loop, 8080, false},
+		{"other loopback port allowed with bind", proxyBind, unix.AF_INET, loop, 8080, true},
+		{"loopback dns denied without direct dns", proxyOnly, unix.AF_INET, resolver, 53, false},
+		{"loopback dns allowed with direct dns", proxyDNS, unix.AF_INET, resolver, 53, true},
+		{"remote to proxy port still denied", proxyOnly, unix.AF_INET, remote, 54321, false},
+		{"remote https denied", proxyOnly, unix.AF_INET, remote, 443, false},
+		{"remote v6 denied", proxyOnly, unix.AF_INET6, remote6, 443, false},
+		{"remote dns denied by default", proxyOnly, unix.AF_INET, remote, 53, false},
+		{"remote dns allowed with direct dns", proxyDNS, unix.AF_INET, remote, 53, true},
+		{"render-time policy denies proxy-shaped traffic", render, unix.AF_INET, loop, 443, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.policy.allowOutbound(tc.family, tc.addr, tc.port))
+		})
+	}
+}
+
+// writeMemImage builds a temp file simulating process memory with content at
+// the given offset, returned opened for pread-based reads like /proc/pid/mem.
+func writeMemImage(t *testing.T, data []byte) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "mem-image-*")
+	require.NoError(t, err)
+	_, err = f.Write(data)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Logf("close mem image: %v", err)
+		}
+	})
+	return f
+}
+
+// sockaddrIPv4Bytes builds a sockaddr_in in memory-image form.
+func sockaddrIPv4Bytes(ip string, port uint16) []byte {
+	a4 := netip.MustParseAddr(ip).As4()
+	b := make([]byte, 16)
+	binary.NativeEndian.PutUint16(b[0:2], unix.AF_INET)
+	binary.BigEndian.PutUint16(b[2:4], port)
+	copy(b[4:8], a4[:])
+	return b
+}
+
+// sockaddrIPv6Bytes builds a sockaddr_in6 in memory-image form.
+func sockaddrIPv6Bytes(ip string, port uint16) []byte {
+	a16 := netip.MustParseAddr(ip).As16()
+	b := make([]byte, 28)
+	binary.NativeEndian.PutUint16(b[0:2], unix.AF_INET6)
+	binary.BigEndian.PutUint16(b[2:4], port)
+	copy(b[8:24], a16[:])
+	return b
+}
+
+func TestReadNetPeer(t *testing.T) {
+	tests := []struct {
+		name       string
+		image      []byte
+		addrLen    uint64
+		wantFamily uint16
+		wantAddr   string
+		wantPort   uint16
+		wantErr    bool
+	}{
+		{
+			name: "ipv4 loopback", image: sockaddrIPv4Bytes("127.0.0.1", 54321), addrLen: 16,
+			wantFamily: unix.AF_INET, wantAddr: "127.0.0.1", wantPort: 54321,
+		},
+		{
+			name: "ipv6 remote", image: sockaddrIPv6Bytes("2001:db8::1", 443), addrLen: 28,
+			wantFamily: unix.AF_INET6, wantAddr: "2001:db8::1", wantPort: 443,
+		},
+		{
+			name: "v4-mapped v6 unmapped on read", image: sockaddrIPv6Bytes("::ffff:127.0.0.1", 8080), addrLen: 28,
+			wantFamily: unix.AF_INET6, wantAddr: "127.0.0.1", wantPort: 8080,
+		},
+		{
+			name: "short sockaddr_in fails", image: sockaddrIPv4Bytes("127.0.0.1", 53), addrLen: 8,
+			wantFamily: unix.AF_INET, wantErr: true,
+		},
+		{
+			name: "short sockaddr_in6 fails", image: sockaddrIPv6Bytes("::1", 53), addrLen: 16,
+			wantFamily: unix.AF_INET6, wantErr: true,
+		},
+		{
+			name:  "non-inet family parses family only",
+			image: append([]byte{byte(unix.AF_UNIX), 0}, []byte("/run/resolver.socket")...), addrLen: 22,
+			wantFamily: unix.AF_UNIX,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			memFd := writeMemImage(t, tc.image)
+			peer, err := readNetPeer(memFd, 0, tc.addrLen)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Equal(t, tc.wantFamily, peer.family)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFamily, peer.family)
+			if tc.wantAddr != "" {
+				assert.Equal(t, netip.MustParseAddr(tc.wantAddr), peer.addr)
+			}
+			assert.Equal(t, tc.wantPort, peer.port)
+		})
+	}
+}
+
+func TestReadNetPeer_UnreadableMemFails(t *testing.T) {
+	memFd := writeMemImage(t, nil)
+	_, err := readNetPeer(memFd, 0, 16)
+	assert.Error(t, err, "empty memory image must fail the family read")
+}
+
+func TestNetSockaddrAddr(t *testing.T) {
+	phase := &seccompPhase{
+		memFdCache: map[uint32]*os.File{},
+	}
+
+	t.Run("connect exposes args directly", func(t *testing.T) {
+		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_CONNECT)}}
+		notif.Data.Args[1], notif.Data.Args[2] = 0xdead, 16
+		ptr, length, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		assert.True(t, ok)
+		assert.True(t, hasDest)
+		assert.Equal(t, uint64(0xdead), ptr)
+		assert.Equal(t, uint64(16), length)
+	})
+
+	t.Run("connected sendto has no destination", func(t *testing.T) {
+		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_SENDTO)}}
+		ptr, _, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		assert.True(t, ok)
+		assert.False(t, hasDest)
+		assert.Equal(t, uint64(0), ptr)
+	})
+
+	t.Run("unconnected sendto exposes args", func(t *testing.T) {
+		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_SENDTO)}}
+		notif.Data.Args[4], notif.Data.Args[5] = 0xbeef, 16
+		ptr, length, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		assert.True(t, ok)
+		assert.True(t, hasDest)
+		assert.Equal(t, uint64(0xbeef), ptr)
+		assert.Equal(t, uint64(16), length)
+	})
+
+	t.Run("sendmsg chases msghdr", func(t *testing.T) {
+		hdr := make([]byte, 16)
+		binary.NativeEndian.PutUint64(hdr[0:8], 0xcafe)
+		binary.NativeEndian.PutUint32(hdr[8:12], 16)
+		memFd := writeMemImage(t, hdr)
+
+		phaseWithMem := &seccompPhase{memFdCache: map[uint32]*os.File{7: memFd}}
+		notif := &seccompNotification{PID: 7, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
+		ptr, length, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phaseWithMem)
+		assert.True(t, ok)
+		assert.True(t, hasDest)
+		assert.Equal(t, uint64(0xcafe), ptr)
+		assert.Equal(t, uint64(16), length)
+	})
+
+	t.Run("sendmsg with no name has no destination", func(t *testing.T) {
+		memFd := writeMemImage(t, make([]byte, 16))
+		phaseWithMem := &seccompPhase{memFdCache: map[uint32]*os.File{7: memFd}}
+		notif := &seccompNotification{PID: 7, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
+		_, _, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phaseWithMem)
+		assert.True(t, ok)
+		assert.False(t, hasDest)
+	})
+
+	t.Run("sendmsg with unreadable memory is a policy failure", func(t *testing.T) {
+		notif := &seccompNotification{PID: 1, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
+		_, _, _, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		assert.False(t, ok)
+	})
 }
 
 func TestClassifyOpenFlags_Openat(t *testing.T) {

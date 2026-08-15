@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -85,6 +86,7 @@ type auditEventType string
 
 const (
 	auditSeccompDeny          auditEventType = "seccomp_deny"
+	auditNetworkDeny          auditEventType = "network_deny"
 	auditNamespaceUnavailable auditEventType = "namespace_isolation_unavailable"
 	auditMemFdOpenFailed      auditEventType = "memfd_open_failed"
 )
@@ -120,31 +122,51 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 	return nil
 }
 
-// buildSeccompBPFFilter builds a classic BPF program that intercepts openat, openat2,
-// execve, and execveat syscalls, returning SECCOMP_RET_USER_NOTIF for these and
-// SECCOMP_RET_ALLOW for everything else.
-func landlockBuildBPFFilter() (*unix.SockFprog, error) {
+// landlockBuildNotifyFilter builds a classic BPF program returning
+// SECCOMP_RET_USER_NOTIF for the given syscalls and SECCOMP_RET_ALLOW for
+// everything else. Shared by the shim (which installs it inside the user
+// namespace without NNP) and tests.
+//
+// Layout: [0] load syscall nr, [1..n] JEQ per syscall jumping to RET
+// USER_NOTIF, [n+1] RET ALLOW, [n+2] RET USER_NOTIF. The JEQ at index 1+i
+// therefore jumps (n+2)-(1+i)-1 = n-i instructions forward.
+func landlockBuildNotifyFilter(syscalls ...uint32) *unix.SockFprog {
 	filter := []unix.SockFilter{
-		// [0] Load syscall number: BPF_LD | BPF_W | BPF_ABS, offset 0 (nr field in seccomp_data)
 		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-		// [1] JEQ SYS_OPENAT -> notify (jump to instruction 5)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 4, Jf: 0, K: uint32(unix.SYS_OPENAT)},
-		// [2] JEQ SYS_OPENAT2 -> notify (jump to instruction 5)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 3, Jf: 0, K: uint32(unix.SYS_OPENAT2)},
-		// [3] JEQ SYS_EXECVE -> notify (jump to instruction 5)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
-		// [4] JEQ SYS_EXECVEAT -> notify (jump to instruction 5)
-		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
-		// [5] RET SECCOMP_RET_ALLOW
-		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-		// [6] notify: RET SECCOMP_RET_USER_NOTIF
-		{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
 	}
+	for i, sc := range syscalls {
+		filter = append(filter, unix.SockFilter{
+			Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
+			Jt:   uint8(len(syscalls) - i),
+			K:    sc,
+		})
+	}
+	filter = append(filter, unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW})
+	filter = append(filter, unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF})
 
 	return &unix.SockFprog{
 		Len:    uint16(len(filter)),
 		Filter: &filter[0],
-	}, nil
+	}
+}
+
+// landlockNotifySyscalls computes the syscall set the seccomp filter traps
+// for the given policy. execve/execveat are always trapped (deny-exec
+// enforcement); openat/openat2 only when fs deny rules exist;
+// connect/sendto/sendmsg (and io_uring_setup — see handleIoUringSetup) only
+// under network lockdown. sendmsg covers Go's WriteMsgUDP datagrams; sendmmsg
+// batched destinations are a documented gap (see docs/sandbox-landlock.md).
+func landlockNotifySyscalls(network landlockNetworkPolicy, interceptOpen bool) []uint32 {
+	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
+	if interceptOpen {
+		syscalls = append(syscalls, uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2))
+	}
+	if network.Lockdown {
+		syscalls = append(syscalls,
+			uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG),
+			uint32(unix.SYS_IO_URING_SETUP))
+	}
+	return syscalls
 }
 
 // matchDeniedPath returns the deny entry that denies opening path with the
@@ -325,6 +347,7 @@ type seccompPhase struct {
 	memFd       *os.File
 	denyPaths   []denyPathEntry
 	denyExec    []string
+	network     landlockNetworkPolicy
 	auditWriter io.Writer
 
 	// memFdCache maps descendant PID -> /proc/<pid>/mem fd. Entries live for
@@ -339,8 +362,17 @@ type seccompSupervisor struct {
 	// stopFd is an eventfd written to by Stop() to wake the recv loop.
 	// Closing notifyFd does NOT wake a goroutine blocked in ioctl(NOTIF_RECV),
 	// so we poll on both fds and use stopFd as an interrupt.
-	stopFd   int
-	phase    atomic.Pointer[seccompPhase]
+	stopFd int
+	phase  atomic.Pointer[seccompPhase]
+	// enforceReady is closed by Enforce once the enforcement phase is stored.
+	// The loop holds every notification behind this gate so the shim's setup
+	// syscalls and any early target connect stay trapped in the kernel until
+	// lockdown is actually installed — closing the startup race.
+	enforceReady chan struct{}
+	// stopCh is closed by Stop to release the loop if it is still waiting on
+	// enforceReady (e.g. an error path aborts before Enforce is ever called).
+	stopCh   chan struct{}
+	stopOnce sync.Once
 	loopDone chan struct{}
 }
 
@@ -355,27 +387,32 @@ func newLandlockSupervisorFromFd(notifyFd int) (*seccompSupervisor, error) {
 		return nil, fmt.Errorf("eventfd: %w", err)
 	}
 	s := &seccompSupervisor{
-		notifyFd: notifyFd,
-		stopFd:   stopFd,
-		loopDone: make(chan struct{}),
+		notifyFd:     notifyFd,
+		stopFd:       stopFd,
+		enforceReady: make(chan struct{}),
+		stopCh:       make(chan struct{}),
+		loopDone:     make(chan struct{}),
 	}
 	go s.loop()
 	return s, nil
 }
 
 // Enforce transitions the supervisor to enforcement mode. From this point on,
-// syscalls from childPID and its descendants are checked against the deny lists.
-func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, auditWriter io.Writer) error {
+// syscalls from childPID and its descendants are checked against the deny lists
+// and the network lockdown config.
+func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, network landlockNetworkPolicy, auditWriter io.Writer) error {
 	p := &seccompPhase{
 		enforcing:   true,
 		childPID:    uint32(childPID),
 		memFd:       memFd,
 		denyPaths:   denyPaths,
 		denyExec:    denyExec,
+		network:     network,
 		auditWriter: auditWriter,
 		memFdCache:  map[uint32]*os.File{uint32(childPID): memFd},
 	}
 	s.phase.Store(p)
+	close(s.enforceReady)
 	return nil
 }
 
@@ -429,6 +466,7 @@ func (p *seccompPhase) closeDescendantMemFds() {
 // closes the notification fd. Closing notifyFd alone does NOT wake a
 // goroutine blocked in ioctl(SECCOMP_IOCTL_NOTIF_RECV).
 func (s *seccompSupervisor) Stop() error {
+	s.stopOnce.Do(func() { close(s.stopCh) })
 	var one = [8]byte{1}
 	_, _ = unix.Write(s.stopFd, one[:])
 	<-s.loopDone
@@ -451,6 +489,16 @@ func (s *seccompSupervisor) loop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	// Do not touch a single notification until Enforce installs the phase.
+	// Trapped syscalls stay queued in the kernel until then, so a fast target
+	// cannot slip a connect/exec past lockdown while the helper is still
+	// opening /proc/<pid>/mem.
+	select {
+	case <-s.enforceReady:
+	case <-s.stopCh:
+		return
+	}
+
 	for {
 		ready, err := waitForNotif(s.notifyFd, s.stopFd)
 		if err != nil || !ready {
@@ -469,7 +517,7 @@ func (s *seccompSupervisor) loop() {
 
 		phase := s.phase.Load()
 		if phase == nil || !phase.enforcing {
-			_ = respondContinue(s.notifyFd, notif.ID)
+			s.continueSyscall(notif.ID)
 			continue
 		}
 
@@ -489,8 +537,12 @@ func (s *seccompSupervisor) loop() {
 			phase.invalidateMemFd(notif.PID)
 		case int32(unix.SYS_OPENAT), int32(unix.SYS_OPENAT2):
 			s.handleOpen(notif, phase)
+		case int32(unix.SYS_CONNECT), int32(unix.SYS_SENDTO), int32(unix.SYS_SENDMSG):
+			s.handleConnect(notif, phase)
+		case int32(unix.SYS_IO_URING_SETUP):
+			s.handleIoUringSetup(notif, phase)
 		default:
-			_ = respondContinue(s.notifyFd, notif.ID)
+			s.continueSyscall(notif.ID)
 		}
 	}
 }
@@ -513,20 +565,20 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 	if memFd == nil {
 		// Process gone or /proc/<pid>/mem unreadable — fail-closed would
 		// kill the process; fail-open to avoid breaking legit flows.
-		_ = respondContinue(s.notifyFd, notif.ID)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
 		// Cannot read memory (EIO, ESRCH) — process may have died. Continue.
-		_ = respondContinue(s.notifyFd, notif.ID)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
 	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath)
 	if err != nil {
-		_ = respondContinue(s.notifyFd, notif.ID)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
@@ -542,11 +594,11 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 				Ts:       time.Now().UnixNano(),
 			})
 		}
-		_ = respondDeny(s.notifyFd, notif.ID)
+		s.deny(notif.ID)
 		return
 	}
 
-	_ = respondContinue(s.notifyFd, notif.ID)
+	s.continueSyscall(notif.ID)
 }
 
 func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccompPhase) {
@@ -560,7 +612,7 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 		// only via CAP_SYS_PTRACE (dumpable=0). Fail open rather than deny
 		// every openat from the process, but this is a real enforcement gap
 		// for grandchild processes. See docs/sandbox.md.
-		_ = respondContinue(s.notifyFd, notif.ID)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
@@ -568,13 +620,13 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 	if err != nil {
 		// Same fail-open path as above; memfd exists but read returned EIO
 		// or similar (stale fd after execve).
-		_ = respondContinue(s.notifyFd, notif.ID)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
 	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath)
 	if err != nil {
-		_ = respondContinue(s.notifyFd, notif.ID)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
@@ -593,11 +645,231 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 				Ts:       time.Now().UnixNano(),
 			})
 		}
-		_ = respondDeny(s.notifyFd, notif.ID)
+		s.deny(notif.ID)
 		return
 	}
 
-	_ = respondContinue(s.notifyFd, notif.ID)
+	s.continueSyscall(notif.ID)
+}
+
+// handleIoUringSetup denies io_uring_setup under network lockdown. A ring is a
+// side channel for IORING_OP_CONNECT/SENDMSG that never traps the intercepted
+// network syscalls; refusing ring creation (EPERM) forces callers back onto
+// the confined path. The target is freshly execve'd after filter install, so
+// it holds no ring created before enforcement.
+func (s *seccompSupervisor) handleIoUringSetup(notif *seccompNotification, phase *seccompPhase) {
+	if !phase.network.Lockdown {
+		s.continueSyscall(notif.ID)
+		return
+	}
+	if phase.auditWriter != nil {
+		_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+			Type:    auditNetworkDeny,
+			Syscall: syscallName(notif.Data.Nr),
+			Message: "io_uring_setup denied under network_via_proxy_only",
+			Comm:    procComm(notif.PID),
+			PID:     int(notif.PID),
+			Ts:      time.Now().UnixNano(),
+		})
+	}
+	if err := respondErrno(s.notifyFd, notif.ID, unix.EPERM); err != nil {
+		log.Warnf("seccomp io_uring_setup deny for notif %d failed: %v", notif.ID, err)
+	}
+}
+
+// dnsPort is the well-known DNS port re-opened under allow_direct_dns.
+const dnsPort = 53
+
+// allowOutbound reports whether an outbound connection to addr:port is
+// permitted under the network confinement config. Matches the Seatbelt
+// network_via_proxy_only semantics: loopback traffic reaches the PMG proxy
+// port (and any loopback port when the profile also allows network bind, so
+// dev servers keep working); direct DNS to port 53 only when the profile
+// opts in; everything else non-loopback is denied.
+//
+// Non-INET families are allow-listed, not blanket-allowed: AF_UNIX and
+// AF_NETLINK carry no external egress (local IPC / kernel interfaces) and are
+// needed by systemd-resolved and getaddrinfo interface enumeration. Every
+// other family is denied — notably AF_VSOCK, which in a VM reaches host/guest
+// services entirely outside the proxy. AF_UNIX resolver access is a documented
+// gap in docs/sandbox-landlock.md.
+func (n landlockNetworkPolicy) allowOutbound(family uint16, addr netip.Addr, port uint16) bool {
+	if !n.Lockdown {
+		return true
+	}
+
+	switch family {
+	case unix.AF_INET, unix.AF_INET6:
+		if addr.IsLoopback() {
+			return port == n.ProxyPort || n.AllowBind || (n.AllowDirectDNS && port == dnsPort)
+		}
+		return n.AllowDirectDNS && port == dnsPort
+	case unix.AF_UNIX, unix.AF_NETLINK:
+		return true
+	default:
+		return false
+	}
+}
+
+// netPeer is a parsed outbound destination from a sockaddr.
+type netPeer struct {
+	family uint16
+	addr   netip.Addr
+	port   uint16
+}
+
+func (p netPeer) String() string {
+	if !p.addr.IsValid() {
+		return fmt.Sprintf("family:%d", p.family)
+	}
+	return netip.AddrPortFrom(p.addr, p.port).String()
+}
+
+var errShortSockaddr = errors.New("sockaddr too short for family")
+
+// readNetPeer reads and parses a sockaddr from the trapping process's memory
+// via /proc/<pid>/mem. addrPtr/addrLen are the userspace pointer and length
+// syscall arguments. Only the family is parsed for non-INET sockets; callers
+// decide on family alone for those.
+func readNetPeer(memFd *os.File, addrPtr, addrLen uint64) (netPeer, error) {
+	var famBuf [2]byte
+	if _, err := memFd.ReadAt(famBuf[:], int64(addrPtr)); err != nil {
+		return netPeer{}, fmt.Errorf("read sockaddr family: %w", err)
+	}
+
+	peer := netPeer{family: binary.NativeEndian.Uint16(famBuf[:])}
+
+	switch peer.family {
+	case unix.AF_INET:
+		if addrLen < 16 {
+			return peer, fmt.Errorf("%w: AF_INET needs 16, got %d", errShortSockaddr, addrLen)
+		}
+		buf := make([]byte, 16)
+		if _, err := memFd.ReadAt(buf, int64(addrPtr)); err != nil {
+			return peer, fmt.Errorf("read sockaddr_in: %w", err)
+		}
+		peer.port = binary.BigEndian.Uint16(buf[2:4])
+		peer.addr = netip.AddrFrom4([4]byte{buf[4], buf[5], buf[6], buf[7]})
+	case unix.AF_INET6:
+		if addrLen < 28 {
+			return peer, fmt.Errorf("%w: AF_INET6 needs 28, got %d", errShortSockaddr, addrLen)
+		}
+		buf := make([]byte, 28)
+		if _, err := memFd.ReadAt(buf, int64(addrPtr)); err != nil {
+			return peer, fmt.Errorf("read sockaddr_in6: %w", err)
+		}
+		peer.port = binary.BigEndian.Uint16(buf[2:4])
+		var addr [16]byte
+		copy(addr[:], buf[8:24])
+		// Unmap normalizes v4-mapped v6 (::ffff:127.0.0.1) so the loopback
+		// check below treats dual-stack clients like plain IPv4.
+		peer.addr = netip.AddrFrom16(addr).Unmap()
+	default:
+		// Non-INET family: family-only decision in allowOutbound.
+	}
+
+	return peer, nil
+}
+
+// handleConnect enforces network_via_proxy_only for connect(2), sendto(2),
+// and sendmsg(2). sendto/sendmsg with a NULL destination target the socket's
+// already-connected peer — that peer passed the connect check, so they
+// continue uninspected.
+//
+// Unlike handleOpen, an unreadable sockaddr is NOT fail-open: under lockdown
+// an unverifiable destination is indistinguishable from a hostile one (e.g.
+// dumpable=0 after a hostile execve), so we deny and audit instead.
+func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *seccompPhase) {
+	if !phase.network.Lockdown {
+		s.continueSyscall(notif.ID)
+		return
+	}
+
+	addrPtr, addrLen, hasDest, ok := s.netSockaddrAddr(notif, phase)
+	if !ok {
+		s.denyNetworkConnect(notif, phase, "", "could not resolve destination address")
+		return
+	}
+	if !hasDest {
+		s.continueSyscall(notif.ID)
+		return
+	}
+
+	memFd := phase.memFdFor(notif.PID)
+	if memFd == nil {
+		s.denyNetworkConnect(notif, phase, "", "unreadable process memory")
+		return
+	}
+
+	peer, err := readNetPeer(memFd, addrPtr, addrLen)
+	if err != nil {
+		s.denyNetworkConnect(notif, phase, "", err.Error())
+		return
+	}
+
+	if phase.network.allowOutbound(peer.family, peer.addr, peer.port) {
+		s.continueSyscall(notif.ID)
+		return
+	}
+
+	s.denyNetworkConnect(notif, phase, peer.String(), "network_via_proxy_only")
+}
+
+// netSockaddrAddr extracts the destination sockaddr pointer and length from
+// the intercepted syscall's arguments. hasDest is false when the syscall
+// carries no destination (sendto/sendmsg on a connected socket), in which
+// case the caller continues without a policy decision.
+func (s *seccompSupervisor) netSockaddrAddr(notif *seccompNotification, phase *seccompPhase) (addrPtr, addrLen uint64, hasDest, ok bool) {
+	switch notif.Data.Nr {
+	case int32(unix.SYS_CONNECT):
+		ptr, length := notif.Data.Args[1], notif.Data.Args[2]
+		return ptr, length, ptr != 0 && length > 0, true
+
+	case int32(unix.SYS_SENDTO):
+		ptr, length := notif.Data.Args[4], notif.Data.Args[5]
+		if ptr == 0 {
+			return 0, 0, false, true
+		}
+		return ptr, length, true, true
+
+	case int32(unix.SYS_SENDMSG):
+		// struct msghdr { void *msg_name; socklen_t msg_namelen; ... }:
+		// name pointer at offset 0, namelen (u32) at offset 8.
+		memFd := phase.memFdFor(notif.PID)
+		if memFd == nil {
+			return 0, 0, false, false
+		}
+		var hdr [16]byte
+		if _, err := memFd.ReadAt(hdr[:], int64(notif.Data.Args[1])); err != nil {
+			return 0, 0, false, false
+		}
+		ptr := binary.NativeEndian.Uint64(hdr[0:8])
+		length := uint64(binary.NativeEndian.Uint32(hdr[8:12]))
+		if ptr == 0 {
+			return 0, 0, false, true
+		}
+		return ptr, length, true, true
+	}
+
+	return 0, 0, false, false
+}
+
+// denyNetworkConnect fails the intercepted network syscall and emits an
+// audit event. Errors are surfaced as ECONNREFUSED so tools report the
+// familiar "connection refused" rather than a filesystem-flavored EACCES.
+func (s *seccompSupervisor) denyNetworkConnect(notif *seccompNotification, phase *seccompPhase, target, message string) {
+	if phase.auditWriter != nil {
+		_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+			Type:    auditNetworkDeny,
+			Syscall: syscallName(notif.Data.Nr),
+			Path:    target,
+			Message: message,
+			Comm:    procComm(notif.PID),
+			PID:     int(notif.PID),
+			Ts:      time.Now().UnixNano(),
+		})
+	}
+	s.denyConnRefused(notif.ID)
 }
 
 // syscallName returns a human-readable name for known intercepted syscalls.
@@ -611,6 +883,14 @@ func syscallName(nr int32) string {
 		return "execve"
 	case int32(unix.SYS_EXECVEAT):
 		return "execveat"
+	case int32(unix.SYS_CONNECT):
+		return "connect"
+	case int32(unix.SYS_SENDTO):
+		return "sendto"
+	case int32(unix.SYS_SENDMSG):
+		return "sendmsg"
+	case int32(unix.SYS_IO_URING_SETUP):
+		return "io_uring_setup"
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
 	}
@@ -700,6 +980,26 @@ func recvNotification(fd int) (*seccompNotification, error) {
 	}
 }
 
+// A failed SEND means the notification could not be answered (typically the
+// process already exited) — logged rather than dropped so it stays visible.
+func (s *seccompSupervisor) continueSyscall(id uint64) {
+	if err := respondContinue(s.notifyFd, id); err != nil {
+		log.Warnf("seccomp continue for notif %d failed: %v", id, err)
+	}
+}
+
+func (s *seccompSupervisor) deny(id uint64) {
+	if err := respondDeny(s.notifyFd, id); err != nil {
+		log.Warnf("seccomp deny for notif %d failed: %v", id, err)
+	}
+}
+
+func (s *seccompSupervisor) denyConnRefused(id uint64) {
+	if err := respondDenyConnRefused(s.notifyFd, id); err != nil {
+		log.Warnf("seccomp network deny for notif %d failed: %v", id, err)
+	}
+}
+
 // respondContinue tells the kernel to continue the syscall as if the filter
 // was not installed (SECCOMP_USER_NOTIF_FLAG_CONTINUE).
 func respondContinue(fd int, id uint64) error {
@@ -727,24 +1027,34 @@ func respondContinue(fd int, id uint64) error {
 
 // respondDeny tells the kernel to fail the syscall with EACCES.
 func respondDeny(fd int, id uint64) error {
+	return respondErrno(fd, id, unix.EACCES)
+}
+
+// respondDenyConnRefused tells the kernel to fail the syscall with
+// ECONNREFUSED — the familiar net-stack error for network denials.
+func respondDenyConnRefused(fd int, id uint64) error {
+	return respondErrno(fd, id, unix.ECONNREFUSED)
+}
+
+func respondErrno(fd int, id uint64, errno unix.Errno) error {
 	resp := seccompNotifResp{
 		ID:    id,
-		Error: -int32(unix.EACCES),
+		Error: -int32(errno),
 	}
 
 	for {
-		_, _, errno := unix.Syscall(
+		_, _, sysErrno := unix.Syscall(
 			unix.SYS_IOCTL,
 			uintptr(fd),
 			_SECCOMP_IOCTL_NOTIF_SEND,
 			uintptr(unsafe.Pointer(&resp)),
 		)
-		if errno == 0 {
+		if sysErrno == 0 {
 			return nil
 		}
-		if errno == unix.EINTR {
+		if sysErrno == unix.EINTR {
 			continue
 		}
-		return fmt.Errorf("ioctl SECCOMP_IOCTL_NOTIF_SEND (deny): %w", errno)
+		return fmt.Errorf("ioctl SECCOMP_IOCTL_NOTIF_SEND (deny): %w", sysErrno)
 	}
 }

@@ -133,6 +133,47 @@ func TestExtractLandlockViolations(t *testing.T) {
 			}},
 		},
 		{
+			name: "connect denial maps to network_connect",
+			events: []capturedAuditEvent{{
+				auditEvent: auditEvent{
+					Type:    auditNetworkDeny,
+					Syscall: "connect",
+					Path:    "203.0.113.9:443",
+					Comm:    "node",
+				},
+				raw: `{"type":"network_deny"}`,
+			}},
+			want: []sandbox.Violation{{
+				Kind:      sandbox.ViolationKindNetworkConnect,
+				RawKind:   "connect",
+				Target:    "203.0.113.9:443",
+				Process:   "node",
+				RawLog:    `{"type":"network_deny"}`,
+				RuleLabel: "direct network access blocked by network_via_proxy_only (203.0.113.9:443) — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)",
+			}},
+		},
+		{
+			name: "connect and sendto denials to one target deduplicate",
+			events: []capturedAuditEvent{
+				{
+					auditEvent: auditEvent{Type: auditNetworkDeny, Syscall: "connect", Path: "8.8.8.8:53", Comm: "node"},
+					raw:        "{}",
+				},
+				{
+					auditEvent: auditEvent{Type: auditNetworkDeny, Syscall: "sendto", Path: "8.8.8.8:53", Comm: "node"},
+					raw:        "{}",
+				},
+			},
+			want: []sandbox.Violation{{
+				Kind:      sandbox.ViolationKindNetworkConnect,
+				RawKind:   "connect",
+				Target:    "8.8.8.8:53",
+				Process:   "node",
+				RawLog:    "{}",
+				RuleLabel: "direct network access blocked by network_via_proxy_only (8.8.8.8:53) — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)",
+			}},
+		},
+		{
 			name:   "unknown syscall maps to generic_deny",
 			events: []capturedAuditEvent{denyEvent("syscall_999", "/tmp/x", "", "node")},
 			want: []sandbox.Violation{{
@@ -187,6 +228,7 @@ func TestSummarizeLandlockViolation(t *testing.T) {
 		{sandbox.ViolationKindFSRead, "/tmp/.env", "read access denied: /tmp/.env"},
 		{sandbox.ViolationKindFSWrite, "/tmp/out", "write access denied: /tmp/out"},
 		{sandbox.ViolationKindExec, "/usr/bin/curl", "process execution denied: /usr/bin/curl"},
+		{sandbox.ViolationKindNetworkConnect, "203.0.113.9:443", "direct network access blocked by network_via_proxy_only (203.0.113.9:443) — traffic must flow through the PMG proxy (a tool may have ignored HTTP_PROXY/HTTPS_PROXY)"},
 		{sandbox.ViolationKindGenericDeny, "/tmp/x", "sandbox denied access to /tmp/x"},
 		{sandbox.ViolationKindGenericDeny, "", "sandbox denied an operation"},
 	}

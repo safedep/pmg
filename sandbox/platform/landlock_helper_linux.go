@@ -208,7 +208,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("open /proc/%d/mem (fail-close): %w", childPID, err)
 	}
 
-	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, auditWriter); err != nil {
+	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, policy.Network, auditWriter); err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
 		if cerr := memFd.Close(); cerr != nil {

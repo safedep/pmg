@@ -55,6 +55,7 @@ updates the allowances everywhere the preset is used.
 | `astro`  | Astro dev server and build             |
 | `vite`   | Vite dev server and build              |
 | `nextjs` | Next.js dev server and build           |
+| `asdf`   | asdf version manager tool installs     |
 
 ## Creating your own preset
 

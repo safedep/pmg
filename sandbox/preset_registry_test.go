@@ -36,6 +36,7 @@ func TestPresetRegistryBuiltins(t *testing.T) {
 		assert.Contains(t, names, "astro")
 		assert.Contains(t, names, "vite")
 		assert.Contains(t, names, "nextjs")
+		assert.Contains(t, names, "asdf")
 	})
 
 	t.Run("get by name", func(t *testing.T) {

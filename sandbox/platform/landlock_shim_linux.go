@@ -45,8 +45,8 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: read policy: %w", err)
 	}
 
-	interceptOpen := len(policy.DenyPaths) > 0
-	notifyFd, err := shimInstallSeccomp(interceptOpen)
+	syscalls := landlockNotifySyscalls(policy.Network, len(policy.DenyPaths) > 0)
+	notifyFd, err := shimInstallSeccomp(syscalls)
 	if err != nil {
 		return fmt.Errorf("shim: install seccomp: %w", err)
 	}
@@ -86,64 +86,64 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 // PR_SET_NO_NEW_PRIVS. The kernel accepts this only when the caller has
 // CAP_SYS_ADMIN in its user namespace; the helper arranges that by cloning
 // us with CLONE_NEWUSER + uid/gid mapping that makes us uid 0 in the new ns.
-func shimInstallSeccomp(interceptOpen bool) (int, error) {
-	var filter []unix.SockFilter
-	if interceptOpen {
-		filter = []unix.SockFilter{
-			{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 4, Jf: 0, K: uint32(unix.SYS_OPENAT)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 3, Jf: 0, K: uint32(unix.SYS_OPENAT2)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
-		}
-	} else {
-		filter = []unix.SockFilter{
-			{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, Jf: 0, K: uint32(unix.SYS_EXECVE)},
-			{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, Jf: 0, K: uint32(unix.SYS_EXECVEAT)},
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW},
-			{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF},
-		}
-	}
-	prog := unix.SockFprog{Len: uint16(len(filter)), Filter: &filter[0]}
+func shimInstallSeccomp(syscalls []uint32) (int, error) {
+	prog := landlockBuildNotifyFilter(syscalls...)
 
 	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
 	fd, _, errno := unix.Syscall(
 		unix.SYS_SECCOMP,
 		unix.SECCOMP_SET_MODE_FILTER,
 		flags,
-		uintptr(unsafe.Pointer(&prog)),
+		uintptr(unsafe.Pointer(prog)),
 	)
-	runtime.KeepAlive(&filter)
-	runtime.KeepAlive(&prog)
+	runtime.KeepAlive(prog)
 	if errno != 0 {
 		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): %w", errno)
 	}
 	return int(fd), nil
 }
 
+// shimMmsghdr matches the kernel's `struct mmsghdr` (x/sys/unix does not
+// export one): the msg_hdr followed by the returned message length.
+type shimMmsghdr struct {
+	Hdr unix.Msghdr
+	Len uint32
+	_   [4]byte
+}
+
 // sendFdToSocket sends `fd` over a connected unix-domain socket using
 // SCM_RIGHTS. This transfers the fd to the peer process atomically.
+//
+// The send uses sendmmsg, not sendmsg: under network lockdown the seccomp
+// filter traps sendmsg(2) and is installed BEFORE this handoff, so a sendmsg
+// here would trap the shim's own fd pass. The shim would block waiting for a
+// notification response that only the (not yet received) listener could
+// produce — a self-deadlock. sendmmsg is not in the trap set.
 func sendFdToSocket(sockFd, fd int) error {
 	rights := unix.UnixRights(fd)
 	buf := []byte{0}
 	iov := unix.Iovec{Base: &buf[0], Len: 1}
 	msg := unix.Msghdr{Iov: &iov, Iovlen: 1, Control: &rights[0]}
 	msg.SetControllen(len(rights))
-	_, _, errno := unix.Syscall(
-		unix.SYS_SENDMSG,
+	mmsg := shimMmsghdr{Hdr: msg}
+
+	_, _, errno := unix.Syscall6(
+		unix.SYS_SENDMMSG,
 		uintptr(sockFd),
-		uintptr(unsafe.Pointer(&msg)),
-		0,
+		uintptr(unsafe.Pointer(&mmsg)),
+		1, // vlen
+		0, // flags
+		0, 0,
 	)
 	runtime.KeepAlive(&buf)
 	runtime.KeepAlive(&iov)
 	runtime.KeepAlive(&rights)
-	runtime.KeepAlive(&msg)
+	runtime.KeepAlive(&mmsg)
 	if errno != 0 {
-		return fmt.Errorf("sendmsg: %w", errno)
+		return fmt.Errorf("sendmmsg: %w", errno)
+	}
+	if mmsg.Len != uint32(len(buf)) {
+		return fmt.Errorf("sendmmsg: short write (%d of %d bytes)", mmsg.Len, len(buf))
 	}
 	return nil
 }
