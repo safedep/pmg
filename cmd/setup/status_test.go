@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,6 +56,15 @@ func TestDeriveStatus(t *testing.T) {
 			},
 			wantHealth:    healthDegraded,
 			wantProtected: true,
+		},
+		{
+			name: "failing protection probe overrides active interception",
+			results: []doctor.CheckResult{
+				{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+				{Name: "protection-pip", Category: categoryProtection, Status: doctor.StatusFail},
+			},
+			wantHealth:    healthUnprotected,
+			wantProtected: false,
 		},
 	}
 
@@ -112,17 +122,42 @@ func TestCountStatuses(t *testing.T) {
 }
 
 func TestBuildDoctorReport(t *testing.T) {
-	results := []doctor.CheckResult{
-		{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
-		{Name: checkCA, Status: doctor.StatusWarn, Message: "expiring"},
-	}
+	cfg := &config.RuntimeConfig{}
 
-	report := buildDoctorReport(results)
-	assert.Equal(t, statusSchemaVersion, report.SchemaVersion)
-	assert.Equal(t, healthDegraded, report.Health)
-	assert.True(t, report.Protected)
-	assert.Equal(t, doctorSummary{Passed: 1, Warnings: 1, Failed: 0}, report.Summary)
-	assert.Len(t, report.Checks, 2)
+	t.Run("degraded superset carries layers, shell, and summary", func(t *testing.T) {
+		results := []doctor.CheckResult{
+			{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+			{Name: checkCA, Status: doctor.StatusWarn, Message: "expiring"},
+		}
+
+		report := buildDoctorReport(cfg, results)
+		assert.Equal(t, statusSchemaVersion, report.SchemaVersion)
+		assert.Equal(t, healthDegraded, report.Health)
+		assert.True(t, report.Protected)
+		assert.Equal(t, doctorSummary{Passed: 1, Warnings: 1, Failed: 0}, report.Summary)
+		assert.Len(t, report.Checks, 2)
+
+		// The doctor report is a superset of the info report: layers and shell
+		// integration must be present alongside the summary.
+		var buf bytes.Buffer
+		require.NoError(t, writeStatusJSON(&buf, report))
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+		assert.Contains(t, decoded, "layers")
+		assert.Contains(t, decoded, "shell_integration")
+		assert.Contains(t, decoded, "summary")
+	})
+
+	t.Run("failing protection probe forces unprotected despite active shims", func(t *testing.T) {
+		results := []doctor.CheckResult{
+			{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+			{Name: "protection-npm", Category: categoryProtection, Status: doctor.StatusFail, Message: "installed"},
+		}
+
+		report := buildDoctorReport(cfg, results)
+		assert.Equal(t, healthUnprotected, report.Health)
+		assert.False(t, report.Protected)
+	})
 }
 
 func TestCollectShellIntegration(t *testing.T) {
@@ -163,7 +198,7 @@ func TestFindCheck(t *testing.T) {
 }
 
 func TestWriteStatusJSONSchema(t *testing.T) {
-	report := infoReport{
+	report := statusReport{
 		SchemaVersion: statusSchemaVersion,
 		Version:       "v1.2.3",
 		Health:        healthProtected,

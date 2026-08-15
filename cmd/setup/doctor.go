@@ -37,6 +37,8 @@ const (
 	checkSystemBinary       = "system-binary"
 
 	aliasesInstalledMessage = "Shell aliases installed"
+
+	categoryProtection = "Protection"
 )
 
 func NewDoctorCommand() *cobra.Command {
@@ -72,7 +74,7 @@ func executeDoctorChecks(out io.Writer, jsonOut bool) error {
 	allResults := append(coreResults, protectionResults...)
 
 	if jsonOut {
-		if err := writeStatusJSON(out, buildDoctorReport(allResults)); err != nil {
+		if err := writeStatusJSON(out, buildDoctorReport(cfg, allResults)); err != nil {
 			return err
 		}
 	} else {
@@ -456,7 +458,7 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 		for _, tc := range doctor.ProtectionTestCases() {
 			results = append(results, doctor.CheckResult{
 				Name:     fmt.Sprintf("protection-%s", tc.PackageManager),
-				Category: "Protection",
+				Category: categoryProtection,
 				Status:   doctor.StatusFail,
 				Message:  "Aliases and shims not active",
 			})
@@ -472,7 +474,7 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 	var results []doctor.CheckResult
 	for _, tc := range doctor.ProtectionTestCases() {
 		result := doctor.RunProtectionCheck(tc, pmgBinary)
-		result.Category = "Protection"
+		result.Category = categoryProtection
 		result.Name = fmt.Sprintf("protection-%s", tc.PackageManager)
 		results = append(results, result)
 	}

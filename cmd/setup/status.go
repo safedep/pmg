@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
@@ -73,10 +74,10 @@ type protectionLayers struct {
 	Proxy       proxyInfo    `json:"proxy"`
 }
 
-// infoReport is the machine-readable protection status emitted by
-// `pmg setup info --json`. It is derived only from the cheap core checks and
-// config, so it is safe to poll (no interception probes are executed).
-type infoReport struct {
+// statusReport is the machine-readable protection status shared by
+// `pmg setup info --json` and `pmg setup doctor --json`: a health/protected
+// verdict, the enabled layers, and the checks it was derived from.
+type statusReport struct {
 	SchemaVersion int              `json:"schema_version"`
 	Version       string           `json:"version"`
 	Health        health           `json:"health"`
@@ -92,53 +93,53 @@ type doctorSummary struct {
 	Failed   int `json:"failed"`
 }
 
-// doctorReport is emitted by `pmg setup doctor --json`. Unlike infoReport it
-// includes the authoritative interception probes, so it is the report a CI gate
+// doctorReport is emitted by `pmg setup doctor --json`: the full status report
+// (with the authoritative interception probes in Checks) plus a pass/warn/fail
+// summary. It is a superset of the info report and is the surface a CI gate
 // should trust.
 type doctorReport struct {
-	SchemaVersion int           `json:"schema_version"`
-	Version       string        `json:"version"`
-	Health        health        `json:"health"`
-	Protected     bool          `json:"protected"`
-	Summary       doctorSummary `json:"summary"`
-	Checks        []statusCheck `json:"checks"`
+	statusReport
+	Summary doctorSummary `json:"summary"`
 }
 
-func collectInfoReport(cfg *config.RuntimeConfig) infoReport {
-	core := runCoreChecks(cfg)
-	h, protected := deriveStatus(core)
+// buildStatusReport rolls a set of checks and the current config into the shared
+// status report. The caller chooses which checks to pass: the cheap core checks
+// for `setup info`, or core plus the authoritative probes for `setup doctor`.
+func buildStatusReport(cfg *config.RuntimeConfig, checks []doctor.CheckResult) statusReport {
+	h, protected := deriveStatus(checks)
 
-	return infoReport{
+	return statusReport{
 		SchemaVersion: statusSchemaVersion,
 		Version:       version.Version,
 		Health:        h,
 		Protected:     protected,
-		Shell:         collectShellIntegration(core),
+		Shell:         collectShellIntegration(checks),
 		Layers:        collectLayers(cfg),
-		Checks:        toStatusChecks(core),
+		Checks:        toStatusChecks(checks),
 	}
 }
 
-func buildDoctorReport(results []doctor.CheckResult) doctorReport {
-	h, protected := deriveStatus(results)
+func collectInfoReport(cfg *config.RuntimeConfig) statusReport {
+	return buildStatusReport(cfg, runCoreChecks(cfg))
+}
+
+func buildDoctorReport(cfg *config.RuntimeConfig, results []doctor.CheckResult) doctorReport {
 	passed, warnings, failed := countStatuses(results)
 
 	return doctorReport{
-		SchemaVersion: statusSchemaVersion,
-		Version:       version.Version,
-		Health:        h,
-		Protected:     protected,
-		Summary:       doctorSummary{Passed: passed, Warnings: warnings, Failed: failed},
-		Checks:        toStatusChecks(results),
+		statusReport: buildStatusReport(cfg, results),
+		Summary:      doctorSummary{Passed: passed, Warnings: warnings, Failed: failed},
 	}
 }
 
 // deriveStatus rolls a set of checks into a single verdict. Protected is the
-// security-critical signal: are installs actually intercepted (via aliases or
-// shims on PATH). Health layers on the rest: any non-passing check downgrades an
-// intercepting install to "degraded" without claiming it is unprotected.
+// security-critical signal: are installs actually intercepted. A failing
+// authoritative protection probe (present only in the doctor report) proves
+// interception is bypassed and forces "unprotected", overriding the presence of
+// aliases or shims. Otherwise any non-passing check downgrades an intercepting
+// install to "degraded" without claiming it is unprotected.
 func deriveStatus(results []doctor.CheckResult) (health, bool) {
-	if !isInterceptionActive(results) {
+	if hasFailingProtectionCheck(results) || !isInterceptionActive(results) {
 		return healthUnprotected, false
 	}
 	for _, r := range results {
@@ -147,6 +148,15 @@ func deriveStatus(results []doctor.CheckResult) (health, bool) {
 		}
 	}
 	return healthProtected, true
+}
+
+func hasFailingProtectionCheck(results []doctor.CheckResult) bool {
+	for _, r := range results {
+		if r.Category == categoryProtection && r.Status == doctor.StatusFail {
+			return true
+		}
+	}
+	return false
 }
 
 func collectShellIntegration(core []doctor.CheckResult) shellIntegration {
@@ -186,7 +196,15 @@ func collectLayers(cfg *config.RuntimeConfig) protectionLayers {
 }
 
 func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
-	st, _ := certmanager.InspectCA(cfg.ConfigDir())
+	// A present-but-unreadable/malformed cert makes the on-disk metadata
+	// (expiry, trust) untrustworthy; the ca-cert check already reports the
+	// failure, so here we report the layer as untrusted rather than encode
+	// contradictory data.
+	st, err := certmanager.InspectCA(cfg.ConfigDir())
+	if err != nil {
+		log.Debugf("CA inspection failed; reporting CA layer as untrusted: %v", err)
+		return caInfo{Scope: "none"}
+	}
 	st.UserTrusted, st.SystemTrusted, _ = truststore.Status(certmanager.CACommonName)
 
 	scope := "none"
@@ -197,7 +215,7 @@ func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
 	}
 
 	ca := caInfo{Trusted: st.Trusted(), Scope: scope}
-	if st.CertPresent {
+	if st.CertPresent && !st.NotAfter.IsZero() {
 		ca.Expires = st.NotAfter.Format(time.RFC3339)
 	}
 	return ca
