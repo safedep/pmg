@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,22 +37,28 @@ const (
 	checkSystemBinary       = "system-binary"
 
 	aliasesInstalledMessage = "Shell aliases installed"
+
+	categoryProtection = "Protection"
 )
 
 func NewDoctorCommand() *cobra.Command {
-	return &cobra.Command{
+	var jsonOut bool
+
+	cmd := &cobra.Command{
 		Use:          "doctor",
 		Short:        "Validate PMG installation and protection",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
-			err := executeDoctorChecks()
+			err := executeDoctorChecks(cmd.OutOrStdout(), jsonOut)
 			if _, ok := err.(*doctorFailError); ok {
 				cmd.SilenceErrors = true
 			}
 			return err
 		},
 	}
+
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit diagnostics as JSON")
+	return cmd
 }
 
 type doctorFailError struct{}
@@ -59,14 +66,21 @@ type doctorFailError struct{}
 func (e *doctorFailError) Error() string { return "" }
 func (e *doctorFailError) ExitCode() int { return 1 }
 
-func executeDoctorChecks() error {
+func executeDoctorChecks(out io.Writer, jsonOut bool) error {
 	cfg := config.Get()
 
 	coreResults := runCoreChecks(cfg)
 	protectionResults := runProtectionChecks(coreResults)
 	allResults := append(coreResults, protectionResults...)
 
-	printResults(allResults)
+	if jsonOut {
+		if err := writeStatusJSON(out, buildDoctorReport(cfg, allResults)); err != nil {
+			return err
+		}
+	} else {
+		fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
+		printResults(allResults)
+	}
 
 	if doctor.HasFailures(allResults) {
 		return &doctorFailError{}
@@ -444,7 +458,7 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 		for _, tc := range doctor.ProtectionTestCases() {
 			results = append(results, doctor.CheckResult{
 				Name:     fmt.Sprintf("protection-%s", tc.PackageManager),
-				Category: "Protection",
+				Category: categoryProtection,
 				Status:   doctor.StatusFail,
 				Message:  "Aliases and shims not active",
 			})
@@ -460,7 +474,7 @@ func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult 
 	var results []doctor.CheckResult
 	for _, tc := range doctor.ProtectionTestCases() {
 		result := doctor.RunProtectionCheck(tc, pmgBinary)
-		result.Category = "Protection"
+		result.Category = categoryProtection
 		result.Name = fmt.Sprintf("protection-%s", tc.PackageManager)
 		results = append(results, result)
 	}
@@ -602,17 +616,7 @@ func fixHint(name string) string {
 }
 
 func printSummaryLine(results []doctor.CheckResult) {
-	passCount, warnCount, failCount := 0, 0, 0
-	for _, r := range results {
-		switch r.Status {
-		case doctor.StatusPass:
-			passCount++
-		case doctor.StatusWarn:
-			warnCount++
-		case doctor.StatusFail:
-			failCount++
-		}
-	}
+	passCount, warnCount, failCount := countStatuses(results)
 
 	summary := fmt.Sprintf("%d passed", passCount)
 	if warnCount > 0 {

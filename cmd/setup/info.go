@@ -23,10 +23,16 @@ import (
 )
 
 func NewInfoCommand() *cobra.Command {
+	var jsonOut bool
+
 	cmd := &cobra.Command{
 		Use:   "info",
 		Short: "Show information about PMG setup and configuration.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonOut {
+				return writeStatusJSON(cmd.OutOrStdout(), collectInfoReport(config.Get()))
+			}
+
 			err := executeSetupInfo()
 			if err != nil {
 				ui.ErrorExit(fmt.Errorf("failed to execute setup info: %w", err))
@@ -36,6 +42,7 @@ func NewInfoCommand() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit setup and protection status as JSON")
 	return cmd
 }
 
