@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
 	"strconv"
@@ -83,6 +84,13 @@ type ViolationReport struct {
 	PolicyName    string
 	CorrelationID string
 	Violations    []Violation
+
+	// OutputDerived marks a report parsed from the sandboxed command's own
+	// output rather than read from a kernel or platform channel. A malicious
+	// package can print a denial that never happened, naming any target it
+	// likes, so these violations are shown as diagnostics but never converted
+	// into an override suggestion the user could be talked into persisting.
+	OutputDerived bool
 }
 
 // Violation captures one sandbox denial event.
@@ -98,6 +106,12 @@ type Violation struct {
 
 type violationReporter interface {
 	BestEffortViolation(err error) (*ViolationReport, error)
+}
+
+// diagnosticsWriter is implemented by drivers that collect diagnostics from the
+// command's own output rather than from a kernel or platform channel.
+type diagnosticsWriter interface {
+	DiagnosticsWriter() io.Writer
 }
 
 // ExecutionResult represents the result of executing a command in a sandbox.
@@ -173,6 +187,22 @@ func (r *ExecutionResult) BestEffortViolation(err error) (*ViolationReport, erro
 	}
 
 	return reporter.BestEffortViolation(err)
+}
+
+// DiagnosticsWriter returns a writer that execution paths routing command
+// output themselves, such as a PTY session, must tee into for the sandbox to
+// observe denials. Drivers that read a kernel or platform channel return nil.
+func (r *ExecutionResult) DiagnosticsWriter() io.Writer {
+	if r == nil || r.sandbox == nil {
+		return nil
+	}
+
+	writer, ok := r.sandbox.(diagnosticsWriter)
+	if !ok {
+		return nil
+	}
+
+	return writer.DiagnosticsWriter()
 }
 
 // Close cleans up any resources allocated by the sandbox.

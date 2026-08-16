@@ -1,7 +1,9 @@
 package runner
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -117,4 +120,27 @@ func TestExecuteWithOptionsMissingPackageManager(t *testing.T) {
 	require.ErrorAs(t, err, &notFound)
 	assert.Equal(t, "bun", notFound.Name)
 	assert.Equal(t, 127, notFound.ExitCode())
+}
+
+type stubDiagnosticsSandbox struct {
+	sandbox.Sandbox
+	writer io.Writer
+}
+
+func (s stubDiagnosticsSandbox) DiagnosticsWriter() io.Writer { return s.writer }
+
+func TestPTYOutputTeesToSandboxDiagnostics(t *testing.T) {
+	var tap bytes.Buffer
+
+	result := sandbox.NewExecutionResult(
+		sandbox.WithExecutionResultSandbox(stubDiagnosticsSandbox{writer: &tap}))
+
+	_, err := ptyOutput(result).Write([]byte("cat: /work/.env: Permission denied\n"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "cat: /work/.env: Permission denied\n", tap.String())
+}
+
+func TestPTYOutputIsStdoutWithoutDiagnostics(t *testing.T) {
+	assert.Equal(t, os.Stdout, ptyOutput(sandbox.NewExecutionResult()))
 }
