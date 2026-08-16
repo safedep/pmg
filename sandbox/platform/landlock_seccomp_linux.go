@@ -339,21 +339,12 @@ func dirfdFromArgs(val uint64) int {
 
 // seccompPhase holds the enforcement state for the seccomp supervisor.
 type seccompPhase struct {
-	enforcing bool
-	childPID  uint32
-	// memFd is the pre-opened /proc/<childPID>/mem fd for the direct child.
-	// Descendants (grandchildren spawned via fork/exec) have their own PIDs;
-	// use memFdFor(pid) to resolve the right fd for any notification.
-	memFd       *os.File
+	enforcing   bool
+	childPID    uint32
 	denyPaths   []denyPathEntry
 	denyExec    []string
 	network     landlockNetworkPolicy
 	auditWriter io.Writer
-
-	// memFdCache maps descendant PID -> /proc/<pid>/mem fd. Entries live for
-	// the duration of the enforce phase; fds are closed in (*seccompSupervisor).Stop.
-	memFdMu    sync.Mutex
-	memFdCache map[uint32]*os.File
 }
 
 // seccompSupervisor manages the seccomp notification loop.
@@ -400,66 +391,32 @@ func newLandlockSupervisorFromFd(notifyFd int) (*seccompSupervisor, error) {
 // Enforce transitions the supervisor to enforcement mode. From this point on,
 // syscalls from childPID and its descendants are checked against the deny lists
 // and the network lockdown config.
-func (s *seccompSupervisor) Enforce(childPID int, memFd *os.File, denyPaths []denyPathEntry, denyExec []string, network landlockNetworkPolicy, auditWriter io.Writer) error {
+func (s *seccompSupervisor) Enforce(childPID int, denyPaths []denyPathEntry, denyExec []string, network landlockNetworkPolicy, auditWriter io.Writer) error {
 	p := &seccompPhase{
 		enforcing:   true,
 		childPID:    uint32(childPID),
-		memFd:       memFd,
 		denyPaths:   denyPaths,
 		denyExec:    denyExec,
 		network:     network,
 		auditWriter: auditWriter,
-		memFdCache:  map[uint32]*os.File{uint32(childPID): memFd},
 	}
 	s.phase.Store(p)
 	close(s.enforceReady)
 	return nil
 }
 
-// memFdFor returns an open /proc/<pid>/mem fd for the given PID, caching it.
-// Returns nil if the fd cannot be opened (e.g., dumpable=0 from an execve
-// inside the sandboxed process tree, or the process already exited).
+// memFdFor opens a fresh /proc/<pid>/mem fd for the given PID. The caller
+// must close it. No caching: an open fd pins the task's mm at open() time,
+// so a cached fd silently reads a dead address space once the task execve's
+// (or its tid is recycled). A notifying thread is parked in the kernel and
+// cannot execve until answered, and execve kills all sibling threads, so a
+// fresh open here always pins the live mm.
 func (p *seccompPhase) memFdFor(pid uint32) *os.File {
-	p.memFdMu.Lock()
-	defer p.memFdMu.Unlock()
-	if fd, ok := p.memFdCache[pid]; ok {
-		return fd
-	}
 	fd, err := os.Open(fmt.Sprintf("/proc/%d/mem", pid))
 	if err != nil {
 		return nil
 	}
-	p.memFdCache[pid] = fd
 	return fd
-}
-
-// invalidateMemFd drops the cached /proc/<pid>/mem fd. Call this after an
-// execve on `pid`: execve can change the process's address space layout and
-// (crucially) its dumpable / PTRACE_MODE_ATTACH state, which invalidates
-// reads through the existing mem fd with EIO/EOF. Callers will reopen on
-// the next lookup.
-func (p *seccompPhase) invalidateMemFd(pid uint32) {
-	p.memFdMu.Lock()
-	defer p.memFdMu.Unlock()
-	if fd, ok := p.memFdCache[pid]; ok {
-		_ = fd.Close()
-		delete(p.memFdCache, pid)
-	}
-}
-
-// closeDescendantMemFds closes all cached memfd entries EXCEPT the direct
-// child's. Called on Stop; the direct child's memfd is owned by the helper
-// caller and closed separately.
-func (p *seccompPhase) closeDescendantMemFds() {
-	p.memFdMu.Lock()
-	defer p.memFdMu.Unlock()
-	for pid, fd := range p.memFdCache {
-		if pid == p.childPID {
-			continue
-		}
-		_ = fd.Close()
-		delete(p.memFdCache, pid)
-	}
 }
 
 // Stop signals the recv loop to exit via the eventfd, waits for it, then
@@ -470,9 +427,6 @@ func (s *seccompSupervisor) Stop() error {
 	var one = [8]byte{1}
 	_, _ = unix.Write(s.stopFd, one[:])
 	<-s.loopDone
-	if phase := s.phase.Load(); phase != nil {
-		phase.closeDescendantMemFds()
-	}
 	if err := unix.Close(s.notifyFd); err != nil {
 		log.Warnf("close seccomp notify fd: %v", err)
 	}
@@ -530,11 +484,6 @@ func (s *seccompSupervisor) loop() {
 		switch notif.Data.Nr {
 		case int32(unix.SYS_EXECVE), int32(unix.SYS_EXECVEAT):
 			s.handleExec(notif, phase)
-			// execve reshapes the process's memory layout and may drop
-			// PTRACE-read permission (if the new binary is setuid or
-			// changes dumpable). Drop the cached memfd so the next
-			// openat re-opens /proc/<pid>/mem fresh.
-			phase.invalidateMemFd(notif.PID)
 		case int32(unix.SYS_OPENAT), int32(unix.SYS_OPENAT2):
 			s.handleOpen(notif, phase)
 		case int32(unix.SYS_CONNECT), int32(unix.SYS_SENDTO), int32(unix.SYS_SENDMSG):
@@ -568,6 +517,7 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 		s.continueSyscall(notif.ID)
 		return
 	}
+	defer func() { _ = memFd.Close() }()
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
@@ -594,10 +544,12 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 				Ts:       time.Now().UnixNano(),
 			})
 		}
+		traceSeccompDecision("deny %s pid=%d path=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, rule)
 		s.deny(notif.ID)
 		return
 	}
 
+	traceSeccompDecision("allow %s pid=%d path=%s", syscallName(notif.Data.Nr), notif.PID, resolved)
 	s.continueSyscall(notif.ID)
 }
 
@@ -615,6 +567,7 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 		s.continueSyscall(notif.ID)
 		return
 	}
+	defer func() { _ = memFd.Close() }()
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
@@ -645,6 +598,7 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 				Ts:       time.Now().UnixNano(),
 			})
 		}
+		traceSeccompDecision("deny %s pid=%d path=%s access=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, denyAccessLabel(entry.Mode, flags), entry.Path)
 		s.deny(notif.ID)
 		return
 	}
@@ -771,6 +725,26 @@ func readNetPeer(memFd *os.File, addrPtr, addrLen uint64) (netPeer, error) {
 	return peer, nil
 }
 
+// seccompTracing gates decision-level tracing of the notify supervisor,
+// enabled via PMG_SECCOMP_TRACE=1 (or true/on/yes). Traces go through the
+// helper's logger (APP_LOG_FILE / APP_LOG_LEVEL control destination and
+// verbosity). Use it to debug sandbox enforcement: every intercepted
+// syscall's allow/deny decision is logged with its target and reason.
+var seccompTracing = func() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PMG_SECCOMP_TRACE"))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
+}()
+
+func traceSeccompDecision(format string, args ...any) {
+	if seccompTracing {
+		log.Debugf("seccomp: "+format, args...)
+	}
+}
+
 // handleConnect enforces network_via_proxy_only for connect(2), sendto(2),
 // and sendmsg(2). sendto/sendmsg with a NULL destination target the socket's
 // already-connected peer — that peer passed the connect check, so they
@@ -785,8 +759,17 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 		return
 	}
 
-	addrPtr, addrLen, hasDest, ok := s.netSockaddrAddr(notif, phase)
+	memFd := phase.memFdFor(notif.PID)
+	if memFd == nil {
+		traceSeccompDecision("deny %s pid=%d: unreadable process memory", syscallName(notif.Data.Nr), notif.PID)
+		s.denyNetworkConnect(notif, phase, "", "unreadable process memory")
+		return
+	}
+	defer func() { _ = memFd.Close() }()
+
+	addrPtr, addrLen, hasDest, ok := netSockaddrAddr(notif, memFd)
 	if !ok {
+		traceSeccompDecision("deny %s pid=%d: could not resolve destination address", syscallName(notif.Data.Nr), notif.PID)
 		s.denyNetworkConnect(notif, phase, "", "could not resolve destination address")
 		return
 	}
@@ -795,31 +778,30 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 		return
 	}
 
-	memFd := phase.memFdFor(notif.PID)
-	if memFd == nil {
-		s.denyNetworkConnect(notif, phase, "", "unreadable process memory")
-		return
-	}
-
 	peer, err := readNetPeer(memFd, addrPtr, addrLen)
 	if err != nil {
+		traceSeccompDecision("deny %s pid=%d endpoint=read-failed reason=%q", syscallName(notif.Data.Nr), notif.PID, err)
 		s.denyNetworkConnect(notif, phase, "", err.Error())
 		return
 	}
 
 	if phase.network.allowOutbound(peer.family, peer.addr, peer.port) {
+		traceSeccompDecision("allow %s pid=%d peer=%s", syscallName(notif.Data.Nr), notif.PID, peer)
 		s.continueSyscall(notif.ID)
 		return
 	}
 
+	traceSeccompDecision("deny %s pid=%d peer=%s reason=network_via_proxy_only", syscallName(notif.Data.Nr), notif.PID, peer)
 	s.denyNetworkConnect(notif, phase, peer.String(), "network_via_proxy_only")
 }
 
 // netSockaddrAddr extracts the destination sockaddr pointer and length from
 // the intercepted syscall's arguments. hasDest is false when the syscall
 // carries no destination (sendto/sendmsg on a connected socket), in which
-// case the caller continues without a policy decision.
-func (s *seccompSupervisor) netSockaddrAddr(notif *seccompNotification, phase *seccompPhase) (addrPtr, addrLen uint64, hasDest, ok bool) {
+// case the caller continues without a policy decision. memFd may be nil only
+// when the syscall cannot carry an in-memory destination (connect, sendto);
+// sendmsg needs it to chase the msghdr.
+func netSockaddrAddr(notif *seccompNotification, memFd *os.File) (addrPtr, addrLen uint64, hasDest, ok bool) {
 	switch notif.Data.Nr {
 	case int32(unix.SYS_CONNECT):
 		ptr, length := notif.Data.Args[1], notif.Data.Args[2]
@@ -835,7 +817,6 @@ func (s *seccompSupervisor) netSockaddrAddr(notif *seccompNotification, phase *s
 	case int32(unix.SYS_SENDMSG):
 		// struct msghdr { void *msg_name; socklen_t msg_namelen; ... }:
 		// name pointer at offset 0, namelen (u32) at offset 8.
-		memFd := phase.memFdFor(notif.PID)
 		if memFd == nil {
 			return 0, 0, false, false
 		}
