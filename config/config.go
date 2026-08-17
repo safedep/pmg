@@ -35,6 +35,9 @@ const (
 	// Allow overriding the cache path from the environment
 	pmgCacheDirEnvKey = "PMG_CACHE_DIR"
 
+	// XDG base directory for user-specific data files on Linux
+	xdgDataHomeEnvKey = "XDG_DATA_HOME"
+
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
 	pmgDefaultHomeRelativePath = "safedep/pmg"
@@ -660,10 +663,24 @@ func rootCacheDir() (string, error) {
 	return filepath.Join(home, ".cache"), nil
 }
 
+// rootDataDir mirrors userDataBaseDir platform conventions for root's passwd
+// home.
+func rootDataDir() (string, error) {
+	home, err := rootHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support"), nil
+	}
+	return filepath.Join(home, ".local", "share"), nil
+}
+
 // Overridable in tests to exercise the passwd-unavailable fallback.
 var (
 	rootConfigDirResolver = rootConfigDir
 	rootCacheDirResolver  = rootCacheDir
+	rootDataDirResolver   = rootDataDir
 )
 
 // currentUserHomeDir returns the current user's home from the passwd
@@ -901,6 +918,60 @@ func cacheDir() (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
+}
+
+// UserDataDir returns the per-user directory for pmg data that is neither
+// config nor regenerable cache, such as the shim scripts installed by
+// `pmg setup install`. Linux follows XDG_DATA_HOME; macOS and Windows have no
+// separate data location, so they reuse the config convention.
+func UserDataDir() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		baseDir := os.Getenv("LOCALAPPDATA")
+		if baseDir == "" {
+			baseDir = os.Getenv("USERPROFILE")
+			if baseDir == "" {
+				return "", fmt.Errorf("could not determine Windows user directory for data storage")
+			}
+		}
+		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
+	case "darwin", "linux":
+		if isSudoElevation() {
+			if base, err := rootDataDirResolver(); err == nil {
+				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+			} else {
+				// Same fallback rationale as configDir.
+				log.Warnf("failed to resolve root home for data dir, using environment: %v", err)
+			}
+		}
+
+		return userDataBaseDir()
+	default:
+		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+// userDataBaseDir mirrors os.UserConfigDir for data: XDG_DATA_HOME on Linux,
+// ~/Library/Application Support on macOS.
+func userDataBaseDir() (string, error) {
+	if runtime.GOOS == "darwin" {
+		userConfigDir, err := os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to retrieve user data directory: %w", err)
+		}
+		return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
+	}
+
+	base := os.Getenv(xdgDataHomeEnvKey)
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to retrieve user home directory: %w", err)
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+
+	return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 }
 
 // sandboxProfileDir computes the path to the sandbox profile directory.

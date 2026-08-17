@@ -118,7 +118,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
 				aliasCfg := alias.DefaultConfig()
-				rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+				rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,

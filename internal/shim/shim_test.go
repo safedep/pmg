@@ -239,3 +239,83 @@ func (s *stubShell) InstallRcFiles(homeDir string, create bool) ([]string, error
 
 	return []string{path}, nil
 }
+
+func TestUserBinDirPrefersLegacyDirWithShims(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(homeDir, "xdg-data"))
+
+	legacyDir := filepath.Join(homeDir, legacyUserDirName, "bin")
+	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "npm"),
+		[]byte(shimScriptMarker+"\n"), 0o755))
+
+	binDir, err := UserBinDir()
+	require.NoError(t, err)
+	assert.Equal(t, legacyDir, binDir)
+}
+
+func TestUserBinDirUsesDataDirWhenLegacyEmpty(t *testing.T) {
+	homeDir := t.TempDir()
+	dataHome := filepath.Join(homeDir, "xdg-data")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	// An empty legacy directory is not an install; a fresh setup must not
+	// resurrect it.
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, legacyUserDirName, "bin"), 0o755))
+
+	binDir, err := UserBinDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dataHome, "safedep", "pmg", "bin"), binDir)
+}
+
+func TestShimManagerRemoveClearsLegacyDir(t *testing.T) {
+	homeDir := t.TempDir()
+	binDir := filepath.Join(homeDir, "xdg-data", "safedep", "pmg", "bin")
+	legacyBinDir := filepath.Join(homeDir, legacyUserDirName, "bin")
+
+	require.NoError(t, os.MkdirAll(legacyBinDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyBinDir, "npm"),
+		[]byte(shimScriptMarker+"\n"), 0o755))
+
+	mgr := NewShimManager(ShimConfig{
+		BinDir:          binDir,
+		HomeDir:         homeDir,
+		LegacyBinDir:    legacyBinDir,
+		PMGBin:          filepath.Join(homeDir, "bin", "pmg"),
+		PackageManagers: []string{"npm"},
+		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc"}},
+	})
+
+	require.NoError(t, mgr.Install())
+	require.NoError(t, mgr.Remove())
+
+	assert.NoDirExists(t, binDir)
+	assert.NoDirExists(t, legacyBinDir)
+	assert.NoDirExists(t, filepath.Join(homeDir, legacyUserDirName))
+}
+
+func TestShimManagerRemoveKeepsNonEmptyLegacyParent(t *testing.T) {
+	homeDir := t.TempDir()
+	legacyDir := filepath.Join(homeDir, legacyUserDirName)
+	legacyBinDir := filepath.Join(legacyDir, "bin")
+
+	require.NoError(t, os.MkdirAll(legacyBinDir, 0o755))
+	unrelated := filepath.Join(legacyDir, "keep.txt")
+	require.NoError(t, os.WriteFile(unrelated, []byte("not ours\n"), 0o644))
+
+	mgr := NewShimManager(ShimConfig{
+		BinDir:          legacyBinDir,
+		HomeDir:         homeDir,
+		LegacyBinDir:    legacyBinDir,
+		PMGBin:          filepath.Join(homeDir, "bin", "pmg"),
+		PackageManagers: []string{"npm"},
+		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc"}},
+	})
+
+	require.NoError(t, mgr.Remove())
+
+	assert.NoDirExists(t, legacyBinDir)
+	assert.FileExists(t, unrelated)
+}

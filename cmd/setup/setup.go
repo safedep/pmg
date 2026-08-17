@@ -81,7 +81,7 @@ func install(system bool) error {
 	}
 
 	cfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
+	rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
 	if err != nil {
 		return fmt.Errorf("failed to create alias manager: %w", err)
 	}
@@ -172,7 +172,7 @@ func remove(system, removeConfig bool) error {
 	}
 
 	cfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.RcFileName)
+	rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
 	if err != nil {
 		errs = append(errs, err)
 	} else if err := alias.New(cfg, rcFileManager).Remove(); err != nil {
