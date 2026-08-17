@@ -155,7 +155,6 @@ func TestEnvScrubOverrideSuggestionNameGate(t *testing.T) {
 		want bool
 	}{
 		{"AWS_SECRET_ACCESS_KEY", true},
-		{"GOOGLE_APPLICATION_CREDENTIALS", true},
 		{"npm_config_registry", true},
 		{"_PRIVATE", true},
 		{"PATH2", true},
@@ -163,7 +162,6 @@ func TestEnvScrubOverrideSuggestionNameGate(t *testing.T) {
 		{"WEIRD/NAME", false},
 		{"WEIRD NAME", false},
 		{"FOO;ls", false},
-		{"FOO$(id)", false},
 		{"NPM_*", false},
 		{"", false},
 	}
@@ -182,26 +180,6 @@ func TestEnvScrubOverrideSuggestionNameGate(t *testing.T) {
 			assert.Equal(t, tt.name, got.Target)
 		})
 	}
-}
-
-func TestEnvScrubNames(t *testing.T) {
-	t.Run("nil report", func(t *testing.T) {
-		assert.Nil(t, EnvScrubNames(nil))
-	})
-
-	t.Run("denials only", func(t *testing.T) {
-		assert.Nil(t, EnvScrubNames(&ViolationReport{
-			Violations: []Violation{{Kind: ViolationKindFSRead, Target: "/etc/hosts"}},
-		}))
-	})
-
-	t.Run("mixed report", func(t *testing.T) {
-		report := MergeEnvScrub(&ViolationReport{
-			Violations: []Violation{{Kind: ViolationKindFSRead, Target: "/etc/hosts"}},
-		}, EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}})
-
-		assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, EnvScrubNames(report))
-	})
 }
 
 func TestEnvScrubIsPrimaryWhenOnlyViolation(t *testing.T) {

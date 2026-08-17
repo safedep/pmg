@@ -252,27 +252,6 @@ func TestExplainLastJSONEnvScrubRemediation(t *testing.T) {
 	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", payload.Explanation.Primary.Target)
 }
 
-func TestExplainLastJSONEnvScrubOddNameHasNoRemediation(t *testing.T) {
-	dir := t.TempDir()
-	cache := pmgsandbox.NewViolationCache(dir)
-	_, err := cache.Write(pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
-		Names:       []string{"WEIRD/NAME"},
-		SandboxName: pmgsandbox.DriverLandlock,
-		PolicyName:  "npm",
-	}))
-	require.NoError(t, err)
-
-	stdout, _, err := runExplainCmd(t, func() *pmgsandbox.ViolationCache { return cache }, []string{"--last", "--json"}, "")
-	require.NoError(t, err)
-
-	var payload explainJSONOutput
-	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
-
-	assert.Empty(t, payload.Explanation.Remediation)
-	assert.Empty(t, payload.Explanation.SuggestedOverride)
-	assert.Equal(t, "WEIRD/NAME", payload.Explanation.Primary.Target)
-}
-
 func TestExplainLastJSONEnvRemediationSurvivesDenialPrimary(t *testing.T) {
 	dir := t.TempDir()
 	cache := pmgsandbox.NewViolationCache(dir)

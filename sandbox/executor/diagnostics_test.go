@@ -6,8 +6,10 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeViolationSandbox struct {
@@ -92,4 +94,32 @@ func TestObserveViolationsKeepsEnvScrubsWhenDiagnosticsFail(t *testing.T) {
 	})
 
 	assert.Equal(t, 1, ObserveViolations(result, errors.New("npm failed")))
+}
+
+func TestObserveViolationsPersistsEnvScrubToCache(t *testing.T) {
+	t.Setenv("PMG_CACHE_DIR", t.TempDir())
+	config.Reload()
+	t.Cleanup(config.Reload)
+
+	result := sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(&fakeViolationSandbox{}))
+	result.SetEnvScrub(sandbox.EnvScrub{
+		Names:       []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		SandboxName: sandbox.DriverLandlock,
+		PolicyName:  "pipx",
+		Process:     "pipx",
+	})
+
+	require.Equal(t, 1, ObserveViolations(result, errors.New("pipx failed")))
+
+	entry, err := sandbox.NewViolationCache(config.Get().SandboxViolationCacheDir()).Latest()
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	require.NotNil(t, entry.Record.Report)
+
+	report := entry.Record.Report
+	assert.Equal(t, sandbox.DriverLandlock, report.SandboxName)
+	assert.Equal(t, "pipx", report.PolicyName)
+	require.Len(t, report.Violations, 1)
+	assert.Equal(t, sandbox.ViolationKindEnvScrub, report.Violations[0].Kind)
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", report.Violations[0].Target)
 }

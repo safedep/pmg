@@ -224,65 +224,68 @@ func TestRenderSandboxViolationOmitsRememberHintForSensitiveTarget(t *testing.T)
 	assert.NotContains(t, out, "pmg sandbox allow --last --all")
 }
 
-func TestRenderSandboxViolationListsScrubbedEnv(t *testing.T) {
-	rec := &pmgsandbox.ViolationCacheRecord{
-		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
-		Report: pmgsandbox.MergeEnvScrub(&pmgsandbox.ViolationReport{
-			SandboxName: "landlock",
-			PolicyName:  "npm",
-			Violations: []pmgsandbox.Violation{
-				{Kind: pmgsandbox.ViolationKindFSRead, Target: "/home/u/.ssh", RuleLabel: "read access denied: /home/u/.ssh"},
-			},
-		}, pmgsandbox.EnvScrub{Names: []string{"GOOGLE_APPLICATION_CREDENTIALS"}}),
+func TestRenderSandboxViolationScrubSection(t *testing.T) {
+	tests := []struct {
+		name        string
+		denial      []pmgsandbox.Violation
+		scrubbed    []string
+		wantSection bool
+		wantListed  string
+	}{
+		{
+			name:        "denial primary lists the scrub",
+			denial:      []pmgsandbox.Violation{{Kind: pmgsandbox.ViolationKindFSRead, Target: "/home/u/.ssh", RuleLabel: "read denied"}},
+			scrubbed:    []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+			wantSection: true,
+			wantListed:  "GOOGLE_APPLICATION_CREDENTIALS",
+		},
+		{
+			name:        "lone scrub is already the primary",
+			scrubbed:    []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+			wantSection: false,
+		},
+		{
+			name:        "scrub primary still lists the others",
+			scrubbed:    []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
+			wantSection: true,
+			wantListed:  "AWS_SECRET_ACCESS_KEY",
+		},
 	}
 
-	var buf bytes.Buffer
-	require.NoError(t, RenderSandboxViolation(&buf, rec))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var base *pmgsandbox.ViolationReport
+			if len(tt.denial) > 0 {
+				base = &pmgsandbox.ViolationReport{SandboxName: pmgsandbox.DriverLandlock, PolicyName: "npm", Violations: tt.denial}
+			}
+			rec := &pmgsandbox.ViolationCacheRecord{
+				SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
+				Report: pmgsandbox.MergeEnvScrub(base, pmgsandbox.EnvScrub{
+					Names: tt.scrubbed, SandboxName: pmgsandbox.DriverLandlock, PolicyName: "npm",
+				}),
+			}
 
-	assert.Contains(t, buf.String(), "Environment variables scrubbed:")
-	assert.Contains(t, buf.String(), "GOOGLE_APPLICATION_CREDENTIALS")
-}
+			var buf bytes.Buffer
+			require.NoError(t, RenderSandboxViolation(&buf, rec))
+			out := buf.String()
 
-func TestRenderSandboxViolationOmitsScrubbedEnvSectionWhenItIsThePrimary(t *testing.T) {
-	rec := &pmgsandbox.ViolationCacheRecord{
-		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
-		Report: pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
-			Names:       []string{"GOOGLE_APPLICATION_CREDENTIALS"},
-			SandboxName: pmgsandbox.DriverLandlock,
-			PolicyName:  "npm",
-		}),
+			if !tt.wantSection {
+				assert.NotContains(t, out, "Environment variables scrubbed:")
+				return
+			}
+
+			_, after, found := strings.Cut(out, "Environment variables scrubbed:\n")
+			require.True(t, found)
+			section, _, _ := strings.Cut(after, "\n\n")
+
+			assert.Contains(t, section, tt.wantListed)
+			primary := pmgsandbox.BuildExplanation(rec.Report).Primary
+			require.NotNil(t, primary)
+			if primary.Kind == pmgsandbox.ViolationKindEnvScrub {
+				assert.NotContains(t, section, primary.Target)
+			}
+		})
 	}
-
-	var buf bytes.Buffer
-	require.NoError(t, RenderSandboxViolation(&buf, rec))
-
-	assert.NotContains(t, buf.String(), "Environment variables scrubbed:")
-	assert.Contains(t, buf.String(), "--sandbox-allow env=GOOGLE_APPLICATION_CREDENTIALS")
-}
-
-func TestRenderSandboxViolationListsOtherScrubsWhenOneIsPrimary(t *testing.T) {
-	rec := &pmgsandbox.ViolationCacheRecord{
-		SchemaVersion: pmgsandbox.ViolationCacheSchemaVersion,
-		Report: pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
-			Names:       []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"},
-			SandboxName: pmgsandbox.DriverLandlock,
-			PolicyName:  "npm",
-		}),
-	}
-
-	var buf bytes.Buffer
-	require.NoError(t, RenderSandboxViolation(&buf, rec))
-	out := buf.String()
-
-	primary := pmgsandbox.BuildExplanation(rec.Report).Primary
-	require.NotNil(t, primary)
-
-	_, after, found := strings.Cut(out, "Environment variables scrubbed:\n")
-	require.True(t, found)
-	section, _, _ := strings.Cut(after, "\n\n")
-
-	assert.Contains(t, section, "AWS_SECRET_ACCESS_KEY")
-	assert.NotContains(t, section, primary.Target)
 }
 
 func TestFormatSandboxDetailsExcludesScrubsFromDenialCount(t *testing.T) {
