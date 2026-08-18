@@ -113,9 +113,10 @@ A custom npm endpoint must serve a standard packument, full or abbreviated, the 
 - `versions.*.name`
 - `versions.*.version`
 - `versions.*.dist.tarball`
-- the `time` object, to check a version's publish date against [dependency cooldown](./dependency-cooldown.md)
 
-PMG ignores every other field in the response.
+PMG ignores every other field, except when dependency cooldown changes what it reads and writes.
+
+When [dependency cooldown](./dependency-cooldown.md) is enabled, PMG requests the full packument from the endpoint. It reads the `time` object to check each version's publish date. An endpoint that can only serve abbreviated metadata gets no cooldown protection, because abbreviated metadata omits `time`. When cooldown strips a version, PMG rewrites `versions`, `time`, and `dist-tags` in the response.
 
 ### PyPI registry requirements
 
@@ -184,7 +185,7 @@ npm config get @myscope:registry
 pip config debug
 ```
 
-`npm config get @myscope:registry` reports the registry for one scope; repeat it for every scope you use. `pip config debug` lists the `index-url` from every config file pip found, in the order pip applies them. It does not show the `PIP_INDEX_URL` environment variable; check that separately, since an environment variable overrides every config file.
+`npm config get @myscope:registry` reports the registry for one scope; repeat it for every scope you use. `pip config debug` lists the `index-url` from every config file pip found, in the order pip applies them. It also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
 
 ## Supported Package Managers
 
