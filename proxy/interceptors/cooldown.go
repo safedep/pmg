@@ -13,12 +13,10 @@ import (
 	"github.com/safedep/pmg/internal/models"
 )
 
-// forceUncompressedNonConditionalResponse mutates request headers so the
-// upstream response is always a fresh, uncompressed body: a response
-// modifier receives raw bytes with no decompression, so a compressed
-// response cannot be parsed, and a conditional-GET request can come back as
-// a bodyless 304 with nothing to inspect. Ecosystem- or feature-specific
-// Accept overrides remain each caller's own responsibility.
+// forceUncompressedNonConditionalResponse makes the upstream response
+// always a fresh, uncompressed body: a response modifier gets raw bytes
+// with no decompression, and a conditional GET can otherwise come back as a
+// bodyless 304. Callers still own any Accept override of their own.
 func forceUncompressedNonConditionalResponse(headers http.Header) {
 	headers.Set("Accept-Encoding", "identity")
 	headers.Del("If-None-Match")

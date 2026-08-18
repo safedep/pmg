@@ -431,13 +431,9 @@ func TestPypiCustomParser_JSONAPIIsNotFlaggedAsSimpleAPI(t *testing.T) {
 func TestPypiCustomParser_ProjectNameShapedLikeFilenameUnderSimpleBaseIsMetadata(t *testing.T) {
 	parser := pypiCustomParser{baseEndsInSimple: true}
 
-	// A project literally named "totally-fine-2.0.0.tar.gz" is a
-	// pathological but syntactically legal PyPI name: it happens to parse
-	// cleanly as a distribution filename. Per PEP 503, a bare one-segment
-	// path under a Simple API mount is always that project's index page,
-	// never a download, no matter what the project is named. The
-	// filename-first shortcut must not run at this exact depth on this
-	// exact base shape.
+	// "totally-fine-2.0.0.tar.gz" happens to parse as a filename, but per PEP
+	// 503 a bare one-segment path under a Simple API mount is always the
+	// project's index page, never a download.
 	got, err := parser.ParseURL("/totally-fine-2.0.0.tar.gz/")
 	require.NoError(t, err)
 	assert.False(t, got.IsFileDownload(), "a one-segment path under a /simple base must never be treated as a download")
@@ -449,9 +445,8 @@ func TestPypiCustomParser_ProjectNameShapedLikeFilenameUnderSimpleBaseIsMetadata
 }
 
 func TestPypiCustomParser_BareFilenameStillDownloadUnderNonSimpleBase(t *testing.T) {
-	// The gate on the filename-first shortcut is specific to depth 1 under a
-	// /simple base. A dedicated, non-/simple download-only endpoint must
-	// keep resolving a bare filename as a canonical download.
+	// The shortcut's gate is specific to depth 1 under a /simple base; a
+	// non-/simple endpoint must keep resolving a bare filename as a download.
 	parser := pypiCustomParser{baseEndsInSimple: false}
 
 	got, err := parser.ParseURL("/demo-1.2.3-py3-none-any.whl")

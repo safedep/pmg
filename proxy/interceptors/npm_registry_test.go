@@ -116,8 +116,7 @@ func TestNpmRegistryInterceptor_Custom_TarballCanonicalFallback(t *testing.T) {
 			interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
 
 			// Canonical tarball path under the custom prefix, with no prior
-			// metadata discovery: falls back to the standard npm tarball parser
-			// once the "/npm" base path is stripped.
+			// metadata discovery.
 			ctx := makeTestRequestContext("https://packages.test/npm/demo/-/demo-1.2.3.tgz")
 			resp, err := interceptor.HandleRequest(ctx)
 			require.NoError(t, err)
@@ -139,9 +138,8 @@ func TestNpmRegistryInterceptor_Custom_OpaqueArtifactUsesMetadataIdentity(t *tes
 	require.Equal(t, proxy.ActionModifyResponse, metadataResp.Action)
 	require.NotNil(t, metadataResp.ResponseModifier)
 
-	// The tarball path is opaque: it carries no package name or version and
-	// would not parse under the standard npm tarball convention. Only the
-	// metadata-discovered identity lets it be classified correctly.
+	// The tarball path is opaque, so only the metadata-discovered identity
+	// lets it be classified correctly.
 	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"../../download/opaque?id=42"}}}}`)
 	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
 	require.NoError(t, err)
@@ -168,11 +166,9 @@ func TestNpmRegistryInterceptor_Custom_MetadataDiscoveryChainsBeforeCooldown(t *
 	require.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	require.NotNil(t, resp.ResponseModifier)
 
-	// The tarball is opaque (not a canonical npm tarball path), so it is
-	// still a candidate for indexing after the canonical-identity skip. The
-	// only version is within the cooldown window, so the cooldown modifier
-	// strips it from the response. Discovery must still see it, because it
-	// runs on the upstream body before cooldown rewrites it.
+	// The only version is within the cooldown window, so the cooldown
+	// modifier strips it from the response. Discovery must still see it,
+	// since it runs on the upstream body before cooldown rewrites it.
 	tarballURL := "https://packages.test/download/opaque?id=99"
 	body := []byte(`{"name":"demo","time":{"created":"2020-01-01T00:00:00.000Z","modified":"2024-01-01T00:00:00.000Z","1.2.3":"` +
 		time.Now().Add(-1*24*time.Hour).Format(time.RFC3339) +
@@ -209,9 +205,8 @@ func TestNpmRegistryInterceptor_Custom_SignedQueryParticipatesInArtifactIdentity
 	assert.Equal(t, 1, mock.callCount)
 
 	// Same path, different query: the signed token is part of the artifact's
-	// identity, so this must miss the index and fall back to canonical
-	// parsing (a metadata request for a literal package named "opaque"),
-	// never reusing the verdict for the signed download.
+	// identity, so this must miss the index, never reusing the verdict for
+	// the signed download.
 	unsignedCtx := makeTestRequestContext("https://packages.test/download/opaque")
 	resp, err = interceptor.HandleRequest(unsignedCtx)
 	require.NoError(t, err)
@@ -276,9 +271,8 @@ func TestNpmRegistryInterceptor_Custom_DiscoveredOffHostArtifactStaysUnintercept
 	require.NoError(t, err)
 	require.NotNil(t, metadataResp.ResponseModifier)
 
-	// The registry advertises a tarball on a host PMG was never configured to
-	// protect. Discovery may record it in the index, but that must never
-	// expand which hosts get MITM'd or intercepted.
+	// The registry advertises a tarball on an unconfigured host. Discovery
+	// may index it, but that must never expand which hosts get MITM'd.
 	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"https://cdn.unconfigured.test/demo-1.2.3.tgz"}}}}`)
 	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
 	require.NoError(t, err)
@@ -299,8 +293,7 @@ func TestNpmRegistryInterceptor_Custom_MetadataDiscoveryNormalizesRequestHeaders
 	ctx.Headers.Set("If-None-Match", `"etag-value"`)
 	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
 
-	// Cooldown is disabled and the package isn't trusted, so the cooldown
-	// handler never runs and never gets a chance to normalize headers
+	// Cooldown is disabled, so its handler never runs to normalize headers
 	// itself. Discovery must still see a decompressible, always-fresh body.
 	resp, err := interceptor.HandleRequest(ctx)
 	require.NoError(t, err)

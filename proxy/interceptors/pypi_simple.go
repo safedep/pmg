@@ -18,30 +18,19 @@ import (
 // is also accepted, since that is what most real Simple API servers send.
 const pypiSimpleHTMLContentType = "application/vnd.pypi.simple.v1+html"
 
-// pypiCustomParser parses relative URL paths for custom PyPI registry
-// endpoints. Custom registries can mount their Simple API at any base path,
-// including one that already ends at "/simple": once registry matching
-// strips that base, a request like ".../simple/demo/" is left as the bare
-// relative path "/demo/", which pypiOrgParser (built for the fixed
-// "/simple/..." and "/pypi/..." shapes of pypi.org) cannot parse.
+// pypiCustomParser parses relative paths for a custom PyPI registry, whose
+// Simple API can be mounted at a base already ending in "/simple", leaving
+// pypiOrgParser unable to parse the resulting bare paths (e.g. "/demo/").
 //
-// pypiCustomParser first tries the last path segment as a distribution
-// filename at any depth (see pypiFilenameFromLastSegment), then retains
-// pypiOrgParser's shapes unchanged for a base that sits above them (so
-// "/simple/demo/" and "/pypi/demo/json" still parse once stripped down to
-// those literal prefixes). Only when baseEndsInSimple is set does it also
-// guess a bare project-name segment ("/demo/") as a Simple API index
-// request: that guess is safe only when the endpoint is itself mounted at
-// "/simple", since such an endpoint is presumed to carry nothing but Simple
-// API traffic. Any other custom base leaves an unrecognized path unparsed:
-// PMG never guesses at an arbitrary custom path shape it was not told about.
+// It tries, in order: a distribution filename at any depth, then
+// pypiOrgParser's fixed shapes, then, only when baseEndsInSimple, a bare
+// project-name segment. Any other custom path is left unparsed: PMG never
+// guesses at a path shape it was not told about.
 type pypiCustomParser struct {
-	// baseEndsInSimple is true when the configured endpoint's own base path
-	// ends in a literal "/simple" segment (registryConfig.BasePath, checked
-	// at construction time in the factory). It gates the one/two-segment
-	// project-name guess below: without it, a one-segment path under an
-	// arbitrary custom prefix (a health check, a login endpoint, a search
-	// API) would otherwise be guessed as a Simple API index request.
+	// baseEndsInSimple is true when the endpoint's base path ends in a
+	// literal "/simple" segment (checked once in the factory). Without it, a
+	// one-segment path on an arbitrary custom prefix could be misread as a
+	// Simple API index request.
 	baseEndsInSimple bool
 }
 
@@ -54,27 +43,15 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	}
 	segments := strings.Split(trimmed, "/")
 
-	// A supported distribution filename is always the final path segment,
-	// at any depth: the same convention pypiFilesParser relies on for
-	// files.pythonhosted.org's own hash-directory layout. Checking this
-	// first, before any shape-specific parsing, resolves a real download
-	// canonically regardless of directory depth, so it never depends on a
-	// warm artifact index, and it prevents a literal reserved segment
-	// ("simple", "pypi") from ever shadowing an actual file download into a
-	// misread metadata request. For example, a project literally named
-	// "simple" served as ".../simple/simple/simple-1.0.0.tar.gz" must resolve
-	// as a download, not as a one-segment Simple API index request for a
-	// package named after the filename itself.
+	// A distribution filename is always the final path segment, at any
+	// depth (mirrors pypiFilesParser). Checking this first resolves a real
+	// download without needing a warm artifact index, and stops a literal
+	// reserved segment ("simple", "pypi") from shadowing an actual download.
 	//
-	// This shortcut is skipped at exactly depth 1 on a base ending in
-	// "/simple": per PEP 503, a bare one-segment path under a Simple API
-	// mount is always that project's index page, never a download, even on
-	// the pathological chance the project's own name happens to parse as a
-	// distribution filename (e.g. a project literally named
-	// "totally-fine-2.0.0.tar.gz" is a syntactically legal PyPI name). The
-	// shortcut still applies at depth 1 on any other base (a dedicated,
-	// non-project-scoped download endpoint, where a bare filename really is
-	// a download) and at every depth of 2 or more regardless of base shape.
+	// The shortcut is skipped at depth 1 on a base ending in "/simple": per
+	// PEP 503, a bare one-segment path there is always the project's index
+	// page, never a download, even if the project's own name parses as a
+	// filename.
 	if !(p.baseEndsInSimple && len(segments) == 1) {
 		if info, ok := pypiFilenameFromLastSegment(segments[len(segments)-1]); ok {
 			return info, nil
@@ -115,17 +92,15 @@ func pypiFilenameFromLastSegment(lastSegment string) (packageInfo, bool) {
 }
 
 // pypiBaseEndsInSimple reports whether a registry endpoint's base path ends
-// in a literal "/simple" segment, once normalized. Used at registry-compile
-// time to decide whether pypiCustomParser may guess a bare project-name
-// segment as Simple API metadata for that endpoint.
+// in "/simple", once normalized, gating pypiCustomParser's bare
+// project-name guess for that endpoint.
 func pypiBaseEndsInSimple(basePath string) bool {
 	return strings.HasSuffix(normalizeRegistryBasePath(basePath), "/simple")
 }
 
-// parsePypiSimpleArtifacts extracts artifact URLs advertised by a PyPI
-// Simple API index response, keyed by the response's declared Content-Type:
-// PEP 691 JSON or PEP 503 HTML. Every advertised artifact's identity is
-// derived from its distribution filename via parseFilename, never trusted
+// parsePypiSimpleArtifacts extracts artifact URLs from a Simple API index,
+// dispatching on Content-Type between PEP 691 JSON and PEP 503 HTML. Each
+// identity comes from the filename via parseFilename, never trusted
 // verbatim from the response.
 func parsePypiSimpleArtifacts(base *url.URL, contentType string, body []byte) ([]advertisedArtifact, error) {
 	if base == nil {
@@ -224,11 +199,9 @@ func parsePypiSimpleHTMLArtifacts(base *url.URL, body []byte) ([]advertisedArtif
 	return artifacts, nil
 }
 
-// pypiSimpleArtifactFromHref resolves a PEP 503 anchor href into an
-// advertised artifact. The identity comes from the final decoded path
-// segment of the resolved URL (the distribution filename PEP 503 requires
-// every href to end in), never from the anchor's inner text, which is
-// presentational and not to be trusted for identity.
+// pypiSimpleArtifactFromHref derives an artifact's identity from a PEP 503
+// anchor's href filename, never from the anchor's presentational inner
+// text.
 func pypiSimpleArtifactFromHref(base *url.URL, href string) (advertisedArtifact, bool) {
 	href = strings.TrimSpace(href)
 	if href == "" {
@@ -248,12 +221,8 @@ func pypiSimpleArtifactFromHref(base *url.URL, href string) (advertisedArtifact,
 }
 
 // pypiArtifactIdentityFromFilename parses a distribution filename into an
-// artifact identity. When canonicalName is non-empty, the filename's own
-// name must agree with it: the JSON index's top-level "name" field is the
-// authoritative project this whole response is for, and a file entry whose
-// filename claims a different project is treated as inconsistent metadata,
-// the same way npm discovery rejects a version whose map key disagrees with
-// its own "version" field.
+// identity. When canonicalName is set, a filename claiming a different
+// project is rejected as inconsistent, mirroring npm's version-key check.
 func pypiArtifactIdentityFromFilename(canonicalName, filename string) (artifactIdentity, bool) {
 	info, err := parseFilename(filename)
 	if err != nil {
@@ -278,12 +247,10 @@ func lastPathSegment(path string) string {
 	return path
 }
 
-// pypiMetadataDiscoveryModifier returns a response modifier that indexes the
-// artifact URLs advertised by a custom registry's Simple API index response,
-// so a later request for one of those URLs can be resolved back to its
-// package identity even when the URL itself does not follow a shape
-// pypiCustomParser understands. See artifactDiscoveryModifier for the shared
-// discovery contract every ecosystem follows.
+// pypiMetadataDiscoveryModifier indexes artifact URLs advertised by a
+// Simple API index response so a later request to a non-standard URL still
+// resolves to its package identity. See artifactDiscoveryModifier for the
+// shared discovery contract.
 func pypiMetadataDiscoveryModifier(ctx *proxy.RequestContext, artifacts *artifactIndex, registries registryConfigSet, registryName string, metadataURL *url.URL) proxy.ResponseModifierFunc {
 	return artifactDiscoveryModifier(ctx, artifacts, registries, registryName, metadataURL,
 		func(headers http.Header, body []byte) ([]advertisedArtifact, error) {

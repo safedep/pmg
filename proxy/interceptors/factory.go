@@ -91,9 +91,9 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
 			}
 
-			// pypi's parser depends on this specific endpoint's own base
-			// path (whether it is itself a "/simple" mount), so it is built
-			// per endpoint rather than once per registry.
+			// pypi's parser depends on this endpoint's own base path
+			// (whether it ends in "/simple"), so it is built per endpoint,
+			// not once per registry.
 			var parser registryURLParser
 			switch registry.Ecosystem {
 			case "npm":

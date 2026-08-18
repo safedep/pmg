@@ -605,28 +605,24 @@ func initConfig() {
 	}
 }
 
-// configLoadErr holds the error that made the last loadConfig call fail
-// closed, if any. LoadError exposes it so the CLI can abort before running
-// any command instead of silently continuing on defaults.
+// configLoadErr holds the fail-closed error from the last loadConfig call,
+// if any, exposed via LoadError so the CLI can abort before running.
 var configLoadErr error
 
 // LoadError returns the error that made configuration loading fail closed,
-// or nil. An invalid proxy.registries entry sets this: falling back to
-// defaults would silently drop every custom-registry protection the user
-// configured, so the CLI must abort instead of continuing. Every other
-// config load failure keeps the existing warn-and-continue behavior and
-// never sets this.
+// or nil. Only an invalid proxy.registries entry sets this, since falling
+// back to defaults would silently drop the user's custom-registry
+// protections; every other load failure still warns and continues.
 func LoadError() error {
 	return configLoadErr
 }
 
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
-// Right now we only support loading from a config file using Viper. An invalid
-// proxy.registries entry is returned as a fail-closed error: falling back to
-// defaults would silently drop the custom-registry protection the user
-// configured. Every other load failure falls back to the default
-// configuration and only logs a warning.
+// Right now we only support loading from a config file using Viper. An
+// invalid proxy.registries entry fails closed, since falling back to
+// defaults would silently drop the configured protection. Every other
+// load failure falls back to defaults with a warning.
 func loadConfig() error {
 	err := loadViperConfig()
 	if err == nil {

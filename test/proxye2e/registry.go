@@ -19,10 +19,8 @@ type NpmVersion struct {
 	PublishedAt time.Time
 	Tarball     []byte
 
-	// TarballURL overrides the canonical "/-/name-version.tgz" dist URL a
-	// custom npm mount would otherwise generate, so a test can advertise an
-	// opaque artifact reference (or an off-host one) that only resolves
-	// through metadata discovery rather than URL parsing.
+	// TarballURL overrides the canonical dist URL, so a test can advertise an
+	// opaque or off-host artifact that resolves only through discovery.
 	TarballURL string
 }
 
@@ -47,13 +45,10 @@ type PypiPackage struct {
 	Versions []PypiVersion
 }
 
-// mount is a host+basePath a custom registry test registers with the mock: a
-// npm/PyPI ecosystem interceptor strips this same prefix before parsing, so
-// the registry mirrors that matching to decide how to serve a request. A
-// registry can register more than one mount on the same host (a metadata
-// prefix and a separate download prefix, or two registries sharing a host at
-// different depths); matchMount picks the longest matching basePath, the
-// same longest-base-wins rule the interceptor's own registry matching uses.
+// mount is a host+basePath a custom registry test registers with the mock,
+// mirroring the prefix the real interceptor strips before parsing. Several
+// mounts can share a host; matchMount picks the longest matching basePath,
+// the same rule the interceptor's own registry matching uses.
 type mount struct {
 	host     string
 	basePath string
@@ -163,9 +158,7 @@ func (r *Registry) AddGoModule(mod GoModule) {
 
 // AddCustomNpm registers a custom npm mount point: requests to host under
 // basePath are served packument/tarball style, exactly like the built-in
-// registry.npmjs.org host, using packages registered via AddNpm. A registry
-// can register more than one mount on the same host, e.g. a metadata prefix
-// and a separate download prefix.
+// registry.npmjs.org host, using packages registered via AddNpm.
 func (r *Registry) AddCustomNpm(host, basePath string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -174,8 +167,7 @@ func (r *Registry) AddCustomNpm(host, basePath string) {
 
 // AddCustomPypi registers a custom PyPI Simple API mount point: requests to
 // host under basePath are served project-index style using packages
-// registered via AddPypi, as PEP 691 JSON by default or PEP 503 HTML when the
-// request's Accept header names the HTML media type.
+// registered via AddPypi, as PEP 691 JSON or PEP 503 HTML depending on Accept.
 func (r *Registry) AddCustomPypi(host, basePath string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -204,10 +196,8 @@ func (r *Registry) DownloadedTarball(name, version string) bool {
 }
 
 // Requested reports whether the registry received a request for the exact
-// host and path, regardless of the registry's built-in naming conventions.
-// Custom registry mounts can nest a package under an arbitrary base path, so
-// this is the general-purpose counterpart to DownloadedTarball/DownloadedGoZip
-// for asserting exactly which request did or did not reach the registry.
+// host and path. The general-purpose counterpart to
+// DownloadedTarball/DownloadedGoZip for a custom mount's arbitrary paths.
 func (r *Registry) Requested(host, path string) bool {
 	for _, req := range r.Requests() {
 		if req.Host == host && req.Path == path {
@@ -386,11 +376,9 @@ func (r *Registry) serveNpm(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write(buildPackument(pkg, "https://registry.npmjs.org"))
 }
 
-// serveCustomNpm serves a request under a custom npm mount. It mirrors
-// serveNpm's conventions relative to the mount's own basePath: a canonical
-// "/-/name-version.tgz" path always returns tarball bytes regardless of
-// package registration (matching the interceptor's unconditional canonical
-// parsing), and anything else is looked up as a packument by name.
+// serveCustomNpm serves a request under a custom npm mount, mirroring
+// serveNpm relative to the mount's basePath: a canonical "/-/name-version.tgz"
+// path always returns tarball bytes; anything else is a packument lookup.
 func (r *Registry) serveCustomNpm(w http.ResponseWriter, req *http.Request, m mount) {
 	relative := strings.Trim(strings.TrimPrefix(req.URL.Path, m.basePath), "/")
 
@@ -427,12 +415,10 @@ func (r *Registry) servePypiSimple(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write(buildPypiSimple(pkg, pypiFilesBase))
 }
 
-// serveCustomPypi serves a request under a custom PyPI Simple API mount. A
-// last path segment shaped like a distribution filename always returns file
-// bytes unconditionally, at any depth, mirroring pypiCustomParser's canonical
-// filename-at-any-depth rule; otherwise the first segment is looked up as a
-// project's Simple API index, rendered as PEP 691 JSON or PEP 503 HTML
-// depending on the request's Accept header.
+// serveCustomPypi serves a request under a custom PyPI Simple API mount,
+// mirroring pypiCustomParser's filename-at-any-depth rule: a last segment
+// shaped like a distribution filename always returns file bytes; otherwise
+// the first segment is a project's Simple API index.
 func (r *Registry) serveCustomPypi(w http.ResponseWriter, req *http.Request, m mount) {
 	relative := strings.Trim(strings.TrimPrefix(req.URL.Path, m.basePath), "/")
 	segments := strings.Split(relative, "/")
@@ -549,9 +535,7 @@ func buildPypiSimple(pkg PypiPackage, filesBase string) []byte {
 
 // buildPypiSimpleHTML renders the same project index as buildPypiSimple in
 // PEP 503 HTML shape: one anchor per version, whose href is the file's
-// identity-bearing URL. Discovery derives an artifact's identity from the
-// href's own final path segment, never from the anchor text, so the text
-// content here is only diagnostic.
+// identity-bearing URL. The anchor text itself is only diagnostic.
 func buildPypiSimpleHTML(pkg PypiPackage, filesBase string) []byte {
 	norm := normalizePypiName(pkg.Name)
 	var b strings.Builder
