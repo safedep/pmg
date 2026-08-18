@@ -341,10 +341,14 @@ func buildProxyFlowInterceptors(
 	if err != nil {
 		return nil, err
 	}
+	registryHosts, err := factory.CustomRegistryHosts()
+	if err != nil {
+		return nil, err
+	}
 
 	return []proxy.Interceptor{
 		interceptor,
-		interceptors.NewAuditLoggerInterceptor(interceptors.CustomRegistryHosts(cfg.Config.Proxy.Registries)),
+		interceptors.NewAuditLoggerInterceptor(registryHosts),
 	}, nil
 }
 

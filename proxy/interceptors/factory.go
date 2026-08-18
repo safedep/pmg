@@ -20,6 +20,8 @@ type InterceptorContext struct {
 	PinnedVersions map[string]string
 	Registries     []config.ProxyRegistryConfig
 
+	compiledRegistries *compiledCustomRegistries
+
 	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
 	// GOPROXY to their upstream base URL (scheme + host + optional path
 	// prefix). The Go interceptor MITMs and analyzes these hosts; Go is the
@@ -35,6 +37,7 @@ type InterceptorFactory struct {
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 	execContext      InterceptorContext
+	registryErr      error
 }
 
 // NewInterceptorFactory creates a new interceptor factory with shared dependencies
@@ -45,50 +48,56 @@ func NewInterceptorFactory(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) *InterceptorFactory {
-	warnPlainHTTPRegistryEndpoints(execContext.Registries)
+	compiled, err := compileCustomRegistries(execContext.Registries)
+	if err == nil {
+		execContext.compiledRegistries = compiled
+		warnPlainHTTPRegistryEndpoints(compiled.plainHTTPEndpoints)
+	}
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
 		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
 		execContext:      execContext,
+		registryErr:      err,
 	}
 }
 
-func CustomRegistryHosts(registries []config.ProxyRegistryConfig) []string {
-	set := make(map[string]struct{})
-	for _, registry := range registries {
-		for _, endpoint := range registry.Endpoints {
-			u, err := normalizedRegistryEndpoint(endpoint.URL)
-			if err != nil {
-				log.Warnf("Skipping invalid custom registry endpoint %q: %v", endpoint.URL, err)
-				continue
-			}
-			set[u.Hostname()] = struct{}{}
-		}
+// CustomRegistryHosts returns the validated exact hosts used by the audit interceptor.
+func (f *InterceptorFactory) CustomRegistryHosts() ([]string, error) {
+	if f.registryErr != nil {
+		return nil, f.registryErr
 	}
-
-	hosts := make([]string, 0, len(set))
-	for host := range set {
-		hosts = append(hosts, host)
-	}
-	sort.Strings(hosts)
-	return hosts
+	return append([]string(nil), f.execContext.compiledRegistries.hosts...), nil
 }
 
-func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem string, parser registryURLParser) []*registryConfig {
-	var configs []*registryConfig
+type compiledCustomRegistries struct {
+	configs            map[string][]*registryConfig
+	hosts              []string
+	plainHTTPEndpoints []string
+}
+
+func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiledCustomRegistries, error) {
+	if err := config.ValidateProxyRegistries(registries); err != nil {
+		return nil, fmt.Errorf("invalid custom proxy registries: %w", err)
+	}
+
+	compiled := &compiledCustomRegistries{configs: make(map[string][]*registryConfig)}
+	hosts := make(map[string]struct{})
 	for _, registry := range registries {
-		if registry.Ecosystem != ecosystem {
-			continue
+		var parser registryURLParser
+		switch registry.Ecosystem {
+		case "npm":
+			parser = npmParser{}
+		case "pypi":
+			parser = pypiOrgParser{}
 		}
 		for _, endpoint := range registry.Endpoints {
 			u, err := normalizedRegistryEndpoint(endpoint.URL)
 			if err != nil {
-				log.Warnf("Skipping invalid custom registry endpoint %q: %v", endpoint.URL, err)
-				continue
+				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
 			}
-			configs = append(configs, &registryConfig{
+			compiled.configs[registry.Ecosystem] = append(compiled.configs[registry.Ecosystem], &registryConfig{
 				Name:                 registry.Name,
 				Host:                 u.Hostname(),
 				Scheme:               u.Scheme,
@@ -98,9 +107,18 @@ func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem st
 				SupportedForAnalysis: true,
 				Parser:               parser,
 			})
+			hosts[u.Hostname()] = struct{}{}
+			if u.Scheme == "http" {
+				compiled.plainHTTPEndpoints = append(compiled.plainHTTPEndpoints, u.String())
+			}
 		}
 	}
-	return configs
+
+	for host := range hosts {
+		compiled.hosts = append(compiled.hosts, host)
+	}
+	sort.Strings(compiled.hosts)
+	return compiled, nil
 }
 
 func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {
@@ -111,20 +129,30 @@ func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {
 	return url.Parse(normalized)
 }
 
-func warnPlainHTTPRegistryEndpoints(registries []config.ProxyRegistryConfig) {
-	for _, registry := range registries {
-		for _, endpoint := range registry.Endpoints {
-			u, err := normalizedRegistryEndpoint(endpoint.URL)
-			if err == nil && u.Scheme == "http" {
-				log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", endpoint.URL)
-			}
+func customRegistryConfigs(execContext InterceptorContext, ecosystem string) []*registryConfig {
+	compiled := execContext.compiledRegistries
+	if compiled == nil {
+		var err error
+		compiled, err = compileCustomRegistries(execContext.Registries)
+		if err != nil {
+			return nil
 		}
+	}
+	return compiled.configs[ecosystem]
+}
+
+func warnPlainHTTPRegistryEndpoints(endpoints []string) {
+	for _, endpoint := range endpoints {
+		log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", endpoint)
 	}
 }
 
 // CreateInterceptor creates an interceptor for the specified ecosystem
 // Returns an error if the ecosystem is not supported for proxy-based interception
 func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (proxy.Interceptor, error) {
+	if f.registryErr != nil {
+		return nil, f.registryErr
+	}
 	switch ecosystem {
 	case packagev1.Ecosystem_ECOSYSTEM_NPM:
 		return NewNpmRegistryInterceptor(
