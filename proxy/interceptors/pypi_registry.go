@@ -173,8 +173,8 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 // both to a package metadata request, depending on whether cooldown applies
 // and whether the request targets a custom registry. Discovery runs before
 // cooldown so it always sees the upstream index, never a cooldown-stripped
-// one. Cooldown only ever applies to Simple API requests — pip uses those
-// for version resolution, while JSON API requests have a different response
+// one. Cooldown only ever applies to Simple API requests, since pip uses
+// those for version resolution; JSON API requests have a different response
 // shape and pip does not use them for installs.
 func (i *PypiRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
