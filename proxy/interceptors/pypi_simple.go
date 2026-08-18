@@ -25,48 +25,89 @@ const pypiSimpleHTMLContentType = "application/vnd.pypi.simple.v1+html"
 // relative path "/demo/", which pypiOrgParser (built for the fixed
 // "/simple/..." and "/pypi/..." shapes of pypi.org) cannot parse.
 //
-// pypiCustomParser retains pypiOrgParser's shapes unchanged for a base that
-// sits above them (so "/simple/demo/" and "/pypi/demo/json" still parse once
-// stripped down to those literal prefixes), and falls back to two additional
-// shapes for a base that already IS the Simple API mount point:
-//   - a single project-name segment ("/demo/") is a Simple API index request
-//   - a project-name segment plus a distribution filename ("/demo/demo-1.0.0.tar.gz")
-//     is a file download, resolved the same way as a Simple API redirect
-//   - a single distribution filename on its own ("/demo-1.0.0.tar.gz") is a
-//     file download, for a registry that serves files from a separate,
-//     flat, non-project-scoped prefix
-//
-// Anything else is left unparsed: PMG never guesses at an arbitrary custom
-// path shape it was not told about.
-type pypiCustomParser struct{}
+// pypiCustomParser first tries the last path segment as a distribution
+// filename at any depth (see pypiFilenameFromLastSegment), then retains
+// pypiOrgParser's shapes unchanged for a base that sits above them (so
+// "/simple/demo/" and "/pypi/demo/json" still parse once stripped down to
+// those literal prefixes). Only when baseEndsInSimple is set does it also
+// guess a bare project-name segment ("/demo/") as a Simple API index
+// request: that guess is safe only when the endpoint is itself mounted at
+// "/simple", since such an endpoint is presumed to carry nothing but Simple
+// API traffic. Any other custom base leaves an unrecognized path unparsed:
+// PMG never guesses at an arbitrary custom path shape it was not told about.
+type pypiCustomParser struct {
+	// baseEndsInSimple is true when the configured endpoint's own base path
+	// ends in a literal "/simple" segment (registryConfig.BasePath, checked
+	// at construction time in the factory). It gates the one/two-segment
+	// project-name guess below: without it, a one-segment path under an
+	// arbitrary custom prefix (a health check, a login endpoint, a search
+	// API) would otherwise be guessed as a Simple API index request.
+	baseEndsInSimple bool
+}
 
 var _ registryURLParser = pypiCustomParser{}
 
 func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
-	if info, err := (pypiOrgParser{}).ParseURL(urlPath); err == nil {
-		return info, nil
-	}
-
 	trimmed := strings.Trim(urlPath, "/")
 	if trimmed == "" {
 		return nil, fmt.Errorf("empty URL path")
 	}
 	segments := strings.Split(trimmed, "/")
 
-	switch len(segments) {
-	case 1:
-		if info, err := parseFilename(segments[0]); err == nil {
-			return info, nil
-		}
-		return &pypiPackageInfo{
-			name:        denormalizePyPIPackageName(segments[0]),
-			isSimpleAPI: true,
-		}, nil
-	case 2:
-		return parseSimpleAPIURL(segments)
-	default:
-		return nil, fmt.Errorf("invalid custom PyPI URL format: unexpected number of segments %d", len(segments))
+	// A supported distribution filename is always the final path segment,
+	// at any depth: the same convention pypiFilesParser relies on for
+	// files.pythonhosted.org's own hash-directory layout. Checking this
+	// first, before any shape-specific parsing, resolves a real download
+	// canonically regardless of directory depth, so it never depends on a
+	// warm artifact index, and it prevents a literal reserved segment
+	// ("simple", "pypi") from ever shadowing an actual file download into a
+	// misread metadata request — e.g. a project literally named "simple"
+	// served as ".../simple/simple/simple-1.0.0.tar.gz" must still resolve
+	// as a download, not as a one-segment Simple API index request for a
+	// package named after the filename itself.
+	if info, ok := pypiFilenameFromLastSegment(segments[len(segments)-1]); ok {
+		return info, nil
 	}
+
+	if info, err := (pypiOrgParser{}).ParseURL(urlPath); err == nil {
+		return info, nil
+	}
+
+	if p.baseEndsInSimple {
+		switch len(segments) {
+		case 1:
+			return &pypiPackageInfo{
+				name:        denormalizePyPIPackageName(segments[0]),
+				isSimpleAPI: true,
+			}, nil
+		case 2:
+			return parseSimpleAPIURL(segments)
+		}
+	}
+
+	return nil, fmt.Errorf("invalid custom PyPI URL format: unexpected number of segments %d", len(segments))
+}
+
+// pypiFilenameFromLastSegment tries to parse a URL's final, URL-decoded path
+// segment as a supported distribution filename.
+func pypiFilenameFromLastSegment(lastSegment string) (packageInfo, bool) {
+	decoded, err := url.PathUnescape(lastSegment)
+	if err != nil {
+		decoded = lastSegment
+	}
+	info, err := parseFilename(decoded)
+	if err != nil {
+		return nil, false
+	}
+	return info, true
+}
+
+// pypiBaseEndsInSimple reports whether a registry endpoint's base path ends
+// in a literal "/simple" segment, once normalized. Used at registry-compile
+// time to decide whether pypiCustomParser may guess a bare project-name
+// segment as Simple API metadata for that endpoint.
+func pypiBaseEndsInSimple(basePath string) bool {
+	return strings.HasSuffix(normalizeRegistryBasePath(basePath), "/simple")
 }
 
 // parsePypiSimpleArtifacts extracts artifact URLs advertised by a PyPI

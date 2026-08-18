@@ -85,18 +85,23 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 	compiled := &compiledCustomRegistries{configs: make(map[string][]*registryConfig)}
 	hosts := make(map[string]struct{})
 	for _, registry := range registries {
-		var parser registryURLParser
-		switch registry.Ecosystem {
-		case "npm":
-			parser = npmParser{}
-		case "pypi":
-			parser = pypiCustomParser{}
-		}
 		for _, endpoint := range registry.Endpoints {
 			u, err := normalizedRegistryEndpoint(endpoint.URL)
 			if err != nil {
 				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
 			}
+
+			// pypi's parser depends on this specific endpoint's own base
+			// path (whether it is itself a "/simple" mount), so it is built
+			// per endpoint rather than once per registry.
+			var parser registryURLParser
+			switch registry.Ecosystem {
+			case "npm":
+				parser = npmParser{}
+			case "pypi":
+				parser = pypiCustomParser{baseEndsInSimple: pypiBaseEndsInSimple(u.EscapedPath())}
+			}
+
 			compiled.configs[registry.Ecosystem] = append(compiled.configs[registry.Ecosystem], &registryConfig{
 				Name:                 registry.Name,
 				Host:                 u.Hostname(),

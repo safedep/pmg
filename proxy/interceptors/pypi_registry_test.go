@@ -162,32 +162,22 @@ func TestPypiRegistryInterceptor_Custom_OpaqueArtifactUsesMetadataIdentityFromJS
 	assert.Equal(t, "1.2.3", artifactResp.BlockContext.PackageVersion)
 }
 
-func TestPypiRegistryInterceptor_Custom_OpaqueArtifactUsesMetadataIdentityFromHTML(t *testing.T) {
+func TestPypiRegistryInterceptor_Custom_DeepHashDirectoryFilenameResolvesWithColdIndex(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
 
 	mock := &mockAnalyzer{result: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionBlock}}
 	interceptor := newTestPypiCustomInterceptor(t, mock, "https://python.test/simple", "https://python.test/files")
 
-	metadataCtx := makeTestRequestContext("https://python.test/simple/demo/")
-	metadataResp, err := interceptor.HandleRequest(metadataCtx)
-	require.NoError(t, err)
-	require.NotNil(t, metadataResp.ResponseModifier)
-
-	// A PEP 503 href must end in the distribution filename, so the filename
-	// (and thus the identity) is always recoverable from the href path
-	// itself. What makes this artifact "opaque" to PMG's own routing is the
-	// nested hash-directory layout: pypiCustomParser only understands a bare
-	// filename or a single project-name segment plus filename, so a deeper
-	// path like this falls through to the artifact index that discovery
-	// populates here.
-	body := []byte(`<!DOCTYPE html><html><body>
-		<a href="../../files/ab/cd/demo-1.2.3-py3-none-any.whl">demo-1.2.3-py3-none-any.whl</a>
-	</body></html>`)
-	headers := http.Header{}
-	headers.Set("Content-Type", "text/html")
-	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, headers, body)
-	require.NoError(t, err)
-
+	// A registry may serve files from a hash-directory layout, the same
+	// convention real PyPI itself uses for files.pythonhosted.org. A PEP
+	// 503 href is required to end in the distribution filename, so this
+	// path is self-describing even though pypiCustomParser has no
+	// depth-specific rule for it: the filename-at-any-depth check resolves
+	// it canonically. This request never goes through metadata discovery
+	// first, so the artifact index is cold — proving analysis does not
+	// depend on a prior warm index entry (the regression this test guards
+	// against: a 15-minute TTL, or a client-cached Simple page that never
+	// transits the proxy, previously meant a cold index and no analysis).
 	artifactCtx := makeTestRequestContext("https://python.test/files/ab/cd/demo-1.2.3-py3-none-any.whl")
 	artifactResp, err := interceptor.HandleRequest(artifactCtx)
 	require.NoError(t, err)
@@ -196,6 +186,55 @@ func TestPypiRegistryInterceptor_Custom_OpaqueArtifactUsesMetadataIdentityFromHT
 	require.NotNil(t, artifactResp.BlockContext)
 	assert.Equal(t, "demo", artifactResp.BlockContext.PackageName)
 	assert.Equal(t, "1.2.3", artifactResp.BlockContext.PackageVersion)
+
+	_, ok := interceptor.artifacts.Get("custom-pypi", mustParseURL("https://python.test/files/ab/cd/demo-1.2.3-py3-none-any.whl"))
+	assert.False(t, ok, "resolution must be canonical: the artifact index was never populated")
+}
+
+func TestPypiRegistryInterceptor_Custom_ProjectNamedSimpleIsNotShadowed(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{result: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionBlock}}
+	interceptor := newTestPypiCustomInterceptor(t, mock, "https://python.test/simple")
+
+	// A real project literally named "simple", served under a base that
+	// itself ends in "/simple": the download path is
+	// ".../simple/simple/simple-1.0.0-py3-none-any.whl". Once the base is
+	// stripped, the literal "simple" project-name segment must resolve as
+	// the tarball download it is, never as a one-segment Simple API index
+	// request misreading the filename as a package name.
+	ctx := makeTestRequestContext("https://python.test/simple/simple/simple-1.0.0-py3-none-any.whl")
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionBlock, resp.Action)
+	assert.Equal(t, 1, mock.callCount)
+	require.NotNil(t, resp.BlockContext)
+	assert.Equal(t, "simple", resp.BlockContext.PackageName)
+	assert.Equal(t, "1.0.0", resp.BlockContext.PackageVersion)
+}
+
+func TestPypiRegistryInterceptor_Custom_NonSimpleBaseDoesNotGuessArbitraryPaths(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestPypiCustomInterceptor(t, mock, "https://python.test/mirror")
+
+	ctx := makeTestRequestContext("https://python.test/mirror/health")
+	ctx.Headers.Set("Accept-Encoding", "gzip")
+	ctx.Headers.Set("If-None-Match", `"etag-value"`)
+
+	// "/mirror" is not itself a "/simple" mount, so a one-segment path under
+	// it (a health check, a login endpoint, a search API) must never be
+	// guessed as a Simple API index request: no discovery, no cooldown, and
+	// critically no header mutation — the request is never rewritten into
+	// something that forces an uncompressed, non-conditional response.
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Nil(t, resp.ResponseModifier)
+	assert.Zero(t, mock.callCount)
+	assert.Equal(t, "gzip", ctx.Headers.Get("Accept-Encoding"), "an unrecognized path must never trigger discovery's header normalization")
+	assert.Equal(t, `"etag-value"`, ctx.Headers.Get("If-None-Match"))
 }
 
 func TestPypiRegistryInterceptor_Custom_MetadataDiscoveryChainsBeforeCooldown(t *testing.T) {
@@ -255,13 +294,14 @@ func TestPypiRegistryInterceptor_Custom_SignedQueryParticipatesInArtifactIdentit
 	assert.Equal(t, 1, mock.callCount)
 
 	// Same path, different query: the signed token is part of the artifact's
-	// identity, so this must miss the index and fall back to canonical
-	// parsing (a bare, unparseable filename), never reusing the verdict for
+	// identity, so this must miss the index. "opaque" is not a distribution
+	// filename and "/files" is not a "/simple" mount, so canonical parsing
+	// also rejects it and it passes through, never reusing the verdict for
 	// the signed download.
 	unsignedCtx := makeTestRequestContext("https://python.test/files/opaque")
 	resp, err = interceptor.HandleRequest(unsignedCtx)
 	require.NoError(t, err)
-	assert.Equal(t, proxy.ActionModifyResponse, resp.Action, "a query mismatch must not reuse the indexed artifact's verdict")
+	assert.Equal(t, proxy.ActionAllow, resp.Action, "a query mismatch must not reuse the indexed artifact's verdict")
 	assert.Equal(t, 1, mock.callCount, "the query-mismatched request must not trigger analysis")
 }
 
@@ -282,21 +322,21 @@ func TestPypiRegistryInterceptor_Custom_ArtifactIndexIsolatedAcrossRegistries(t 
 		config.ProxyRegistryConfig{
 			Name:      "registry-a",
 			Ecosystem: "pypi",
-			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/a"}},
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/a/simple"}},
 		},
 		config.ProxyRegistryConfig{
 			Name:      "registry-b",
 			Ecosystem: "pypi",
-			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/b"}},
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/b/simple"}},
 		},
 	)
 
-	metadataCtx := makeTestRequestContext("https://python.test/a/demo/")
+	metadataCtx := makeTestRequestContext("https://python.test/a/simple/demo/")
 	metadataResp, err := interceptor.HandleRequest(metadataCtx)
 	require.NoError(t, err)
 	require.NotNil(t, metadataResp.ResponseModifier)
 
-	artifactURL := "https://python.test/a/opaque?id=1"
+	artifactURL := "https://python.test/a/simple/opaque?id=1"
 	body := []byte(`{"name":"demo","files":[{"filename":"demo-1.2.3-py3-none-any.whl","url":"` + artifactURL + `"}]}`)
 	headers := http.Header{}
 	headers.Set("Content-Type", pypiSimpleAPIContentType)

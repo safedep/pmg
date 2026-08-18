@@ -288,26 +288,29 @@ func TestParsePypiSimpleArtifacts_HTMLVendorContentType(t *testing.T) {
 
 func TestPypiCustomParser_ParseURL(t *testing.T) {
 	tests := []struct {
-		name           string
-		urlPath        string
-		wantErr        bool
-		wantName       string
-		wantVersion    string
-		wantIsDownload bool
+		name             string
+		baseEndsInSimple bool
+		urlPath          string
+		wantErr          bool
+		wantName         string
+		wantVersion      string
+		wantIsDownload   bool
 	}{
 		{
-			name:           "single project segment below a /simple-ending base is Simple metadata",
-			urlPath:        "/demo/",
-			wantName:       "demo",
-			wantVersion:    "",
-			wantIsDownload: false,
+			name:             "single project segment below a /simple-ending base is Simple metadata",
+			baseEndsInSimple: true,
+			urlPath:          "/demo/",
+			wantName:         "demo",
+			wantVersion:      "",
+			wantIsDownload:   false,
 		},
 		{
-			name:           "project segment plus filename below a /simple-ending base is a download",
-			urlPath:        "/demo/demo-1.2.3-py3-none-any.whl",
-			wantName:       "demo",
-			wantVersion:    "1.2.3",
-			wantIsDownload: true,
+			name:             "project segment plus filename below a /simple-ending base is a download",
+			baseEndsInSimple: true,
+			urlPath:          "/demo/demo-1.2.3-py3-none-any.whl",
+			wantName:         "demo",
+			wantVersion:      "1.2.3",
+			wantIsDownload:   true,
 		},
 		{
 			name:           "bare filename below a download-only base is a download",
@@ -315,6 +318,29 @@ func TestPypiCustomParser_ParseURL(t *testing.T) {
 			wantName:       "demo",
 			wantVersion:    "1.2.3",
 			wantIsDownload: true,
+		},
+		{
+			name:           "a self-describing filename at arbitrary depth is a download regardless of base shape",
+			urlPath:        "/ab/cd/demo-1.2.3-py3-none-any.whl",
+			wantName:       "demo",
+			wantVersion:    "1.2.3",
+			wantIsDownload: true,
+		},
+		{
+			name:             "a self-describing filename at arbitrary depth resolves under a /simple-ending base too",
+			baseEndsInSimple: true,
+			urlPath:          "/ab/cd/demo-1.2.3-py3-none-any.whl",
+			wantName:         "demo",
+			wantVersion:      "1.2.3",
+			wantIsDownload:   true,
+		},
+		{
+			name:             "a project literally named simple is not shadowed by the reserved segment",
+			baseEndsInSimple: true,
+			urlPath:          "/simple/simple-1.0.0-py3-none-any.whl",
+			wantName:         "simple",
+			wantVersion:      "1.0.0",
+			wantIsDownload:   true,
 		},
 		{
 			name:           "existing simple API shape is retained when the base sits above it",
@@ -348,15 +374,26 @@ func TestPypiCustomParser_ParseURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "too many segments is an error",
-			urlPath: "/demo/1.2.3/extra/segments",
+			name:             "too many segments is an error",
+			baseEndsInSimple: true,
+			urlPath:          "/demo/1.2.3/extra/segments",
+			wantErr:          true,
+		},
+		{
+			name:    "a single non-filename segment under a non-/simple base is an error, not a guess",
+			urlPath: "/health",
+			wantErr: true,
+		},
+		{
+			name:    "a two-segment non-filename path under a non-/simple base is an error, not a guess",
+			urlPath: "/auth/login",
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser := pypiCustomParser{}
+			parser := pypiCustomParser{baseEndsInSimple: tt.baseEndsInSimple}
 			got, err := parser.ParseURL(tt.urlPath)
 
 			if tt.wantErr {
@@ -372,7 +409,7 @@ func TestPypiCustomParser_ParseURL(t *testing.T) {
 }
 
 func TestPypiCustomParser_SimpleMetadataIsFlaggedAsSimpleAPI(t *testing.T) {
-	parser := pypiCustomParser{}
+	parser := pypiCustomParser{baseEndsInSimple: true}
 
 	got, err := parser.ParseURL("/demo/")
 	require.NoError(t, err)
@@ -389,6 +426,28 @@ func TestPypiCustomParser_JSONAPIIsNotFlaggedAsSimpleAPI(t *testing.T) {
 	info, ok := got.(*pypiPackageInfo)
 	require.True(t, ok)
 	assert.False(t, info.IsSimpleAPI())
+}
+
+func TestPypiBaseEndsInSimple(t *testing.T) {
+	tests := []struct {
+		name     string
+		basePath string
+		want     bool
+	}{
+		{"exact /simple", "/simple", true},
+		{"exact /simple with trailing slash", "/simple/", true},
+		{"mounted below another prefix", "/python/simple", true},
+		{"non-simple base", "/files", false},
+		{"non-simple base mounted below a prefix", "/python/files", false},
+		{"a base merely containing simple as a substring is not a match", "/notsimple", false},
+		{"empty base", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, pypiBaseEndsInSimple(tt.basePath))
+		})
+	}
 }
 
 func TestPypiMetadataDiscoveryModifier_NeverRewritesTheResponse(t *testing.T) {
