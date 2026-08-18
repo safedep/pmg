@@ -434,15 +434,13 @@ func printCooldownWithheldSummary(packages []models.CooldownWithheld) {
 		Colors.Yellow("⊘"),
 		Colors.Yellow(fmt.Sprintf("Dependency cooldown withheld versions of %s during resolution", pluralizePackages(len(packages)))))
 
-	names := make([]string, 0, cooldownWithheldHintMaxPackageNames+1)
-	for _, pkg := range packages[:min(len(packages), cooldownWithheldHintMaxPackageNames)] {
-		names = append(names, pkg.Name)
+	shown := packages[:min(len(packages), cooldownWithheldHintMaxPackageNames)]
+	for _, pkg := range shown {
+		fmt.Printf("    %s\n", Colors.Dim(pkg.Name))
 	}
-	if hidden := len(packages) - len(names); hidden > 0 {
-		names = append(names, fmt.Sprintf("and %d more", hidden))
+	if hidden := len(packages) - len(shown); hidden > 0 {
+		fmt.Printf("    %s\n", Colors.Dim(fmt.Sprintf("and %d more...", hidden)))
 	}
-
-	fmt.Printf("    %s\n", Colors.Dim(termWidthFormatTextIndent(strings.Join(names, ", "), 76, "    ")))
 	fmt.Printf("  %s\n", Colors.Dim("If the install failed because a version was not found, this is the likely cause. Run with --verbose to list all withheld versions."))
 }
 

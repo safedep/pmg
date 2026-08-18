@@ -222,7 +222,8 @@ func TestReportNormalWithheldHintCollapsesManyPackages(t *testing.T) {
 
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Dependency cooldown withheld versions of 24 packages during resolution")
-	assert.Contains(t, out, "pkg-00, pkg-01, pkg-02, pkg-03, pkg-04, and 19 more")
+	assert.Contains(t, out, "    pkg-00\n    pkg-01\n    pkg-02\n    pkg-03\n    pkg-04\n    and 19 more...",
+		"collapsed hint lists one package name per line")
 	assert.NotContains(t, out, "pkg-05", "collapsed hint must cap the name list")
 	assert.NotContains(t, out, "available in", "collapsed hint must not list versions")
 	assert.Contains(t, out, "Run with --verbose to list all withheld versions.")
