@@ -68,6 +68,19 @@ func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) 
 		return nil
 	}
 
+	return configs.MatchURL(registryAbsoluteRequestURL(ctx))
+}
+
+// registryAbsoluteRequestURL absolutizes ctx.URL using ctx.Hostname and ctx.Port,
+// defaulting to HTTPS. The proxy hands interceptors a request URL that is often
+// scheme- and host-less (a plain path), so callers that need a fully qualified
+// URL, such as artifact reference resolution, must go through this rather than
+// using ctx.URL directly.
+func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
+	if ctx == nil || ctx.URL == nil {
+		return nil
+	}
+
 	u := *ctx.URL
 	if u.Hostname() == "" {
 		u.Host = ctx.Hostname
@@ -78,7 +91,7 @@ func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) 
 	if u.Scheme == "" {
 		u.Scheme = "https"
 	}
-	return configs.MatchURL(&u)
+	return &u
 }
 
 // packageInfo represents parsed package information from a registry URL.

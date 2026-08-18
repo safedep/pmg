@@ -1,8 +1,12 @@
 package interceptors
 
 import (
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,4 +58,228 @@ func TestNpmRegistryInterceptor_ShouldIntercept(t *testing.T) {
 			assert.Equal(t, tt.wantIntercept, interceptor.ShouldIntercept(ctx))
 		})
 	}
+}
+
+func newTestNpmCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs ...string) *NpmRegistryInterceptor {
+	t.Helper()
+
+	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
+	for i, endpointURL := range endpointURLs {
+		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
+	}
+
+	execContext := InterceptorContext{
+		Registries: []config.ProxyRegistryConfig{{
+			Name:      "custom-npm",
+			Ecosystem: "npm",
+			Endpoints: endpoints,
+		}},
+	}
+
+	interceptor, err := NewNpmRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), execContext)
+	require.NoError(t, err)
+	return interceptor
+}
+
+func TestNpmRegistryInterceptor_Custom_UnknownPathPassesThrough(t *testing.T) {
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	ctx := makeTestRequestContext("https://packages.test/health")
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Zero(t, mock.callCount)
+}
+
+func TestNpmRegistryInterceptor_Custom_TarballCanonicalFallback(t *testing.T) {
+	tests := []struct {
+		name           string
+		analysisResult *analyzer.PackageVersionAnalysisResult
+		wantAction     proxy.ResponseAction
+	}{
+		{
+			name:           "malicious tarball is blocked",
+			analysisResult: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionBlock},
+			wantAction:     proxy.ActionBlock,
+		},
+		{
+			name:           "safe tarball is allowed",
+			analysisResult: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionAllow},
+			wantAction:     proxy.ActionAllow,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockAnalyzer{result: tt.analysisResult}
+			interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+			// Canonical tarball path under the custom prefix, with no prior
+			// metadata discovery: falls back to the standard npm tarball parser
+			// once the "/npm" base path is stripped.
+			ctx := makeTestRequestContext("https://packages.test/npm/demo/-/demo-1.2.3.tgz")
+			resp, err := interceptor.HandleRequest(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAction, resp.Action)
+			assert.Equal(t, 1, mock.callCount)
+		})
+	}
+}
+
+func TestNpmRegistryInterceptor_Custom_OpaqueArtifactUsesMetadataIdentity(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{result: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionBlock}}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm", "https://packages.test/download")
+
+	metadataCtx := makeTestRequestContext("https://packages.test/npm/demo")
+	metadataResp, err := interceptor.HandleRequest(metadataCtx)
+	require.NoError(t, err)
+	require.Equal(t, proxy.ActionModifyResponse, metadataResp.Action)
+	require.NotNil(t, metadataResp.ResponseModifier)
+
+	// The tarball path is opaque: it carries no package name or version and
+	// would not parse under the standard npm tarball convention. Only the
+	// metadata-discovered identity lets it be classified correctly.
+	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"../../download/opaque?id=42"}}}}`)
+	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
+	require.NoError(t, err)
+
+	artifactCtx := makeTestRequestContext("https://packages.test/download/opaque?id=42")
+	artifactResp, err := interceptor.HandleRequest(artifactCtx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionBlock, artifactResp.Action)
+	assert.Equal(t, 1, mock.callCount)
+	require.NotNil(t, artifactResp.BlockContext)
+	assert.Equal(t, "demo", artifactResp.BlockContext.PackageName)
+	assert.Equal(t, "1.2.3", artifactResp.BlockContext.PackageVersion)
+}
+
+func TestNpmRegistryInterceptor_Custom_MetadataDiscoveryChainsBeforeCooldown(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	ctx := makeTestRequestContext("https://packages.test/npm/demo")
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	require.Equal(t, proxy.ActionModifyResponse, resp.Action)
+	require.NotNil(t, resp.ResponseModifier)
+
+	// The only version is within the cooldown window, so the cooldown
+	// modifier strips it from the response. Discovery must still see it,
+	// because it runs on the upstream body before cooldown rewrites it.
+	tarballURL := "https://packages.test/npm/demo/-/demo-1.2.3.tgz"
+	body := []byte(`{"name":"demo","time":{"created":"2020-01-01T00:00:00.000Z","modified":"2024-01-01T00:00:00.000Z","1.2.3":"` +
+		time.Now().Add(-1*24*time.Hour).Format(time.RFC3339) +
+		`"},"dist-tags":{"latest":"1.2.3"},"versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"` + tarballURL + `"}}}}`)
+
+	_, _, newBody, err := resp.ResponseModifier(http.StatusOK, http.Header{}, body)
+	require.NoError(t, err)
+	assert.NotContains(t, string(newBody), "1.2.3", "cooldown must strip the too-new version from the client-visible response")
+
+	identity, ok := interceptor.artifacts.Get("custom-npm", mustParseURL(tarballURL))
+	require.True(t, ok, "discovery must index the artifact before cooldown strips it from the response")
+	assert.Equal(t, artifactIdentity{Name: "demo", Version: "1.2.3"}, identity)
+}
+
+func TestNpmRegistryInterceptor_Custom_SignedQueryParticipatesInArtifactIdentity(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{result: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionBlock}}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm", "https://packages.test/download")
+
+	metadataCtx := makeTestRequestContext("https://packages.test/npm/demo")
+	metadataResp, err := interceptor.HandleRequest(metadataCtx)
+	require.NoError(t, err)
+	require.NotNil(t, metadataResp.ResponseModifier)
+
+	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"../../download/opaque?sig=abc123&exp=999"}}}}`)
+	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
+	require.NoError(t, err)
+
+	signedCtx := makeTestRequestContext("https://packages.test/download/opaque?sig=abc123&exp=999")
+	resp, err := interceptor.HandleRequest(signedCtx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionBlock, resp.Action, "the exact signed query must resolve through the artifact index")
+	assert.Equal(t, 1, mock.callCount)
+
+	// Same path, different query: the signed token is part of the artifact's
+	// identity, so this must miss the index and fall back to canonical
+	// parsing (a metadata request for a literal package named "opaque"),
+	// never reusing the verdict for the signed download.
+	unsignedCtx := makeTestRequestContext("https://packages.test/download/opaque")
+	resp, err = interceptor.HandleRequest(unsignedCtx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionModifyResponse, resp.Action, "a query mismatch must not reuse the indexed artifact's verdict")
+	assert.Equal(t, 1, mock.callCount, "the query-mismatched request must not trigger analysis")
+}
+
+func newTestNpmMultiRegistryInterceptor(t *testing.T, mock *mockAnalyzer, registries ...config.ProxyRegistryConfig) *NpmRegistryInterceptor {
+	t.Helper()
+
+	execContext := InterceptorContext{Registries: registries}
+	interceptor, err := NewNpmRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), execContext)
+	require.NoError(t, err)
+	return interceptor
+}
+
+func TestNpmRegistryInterceptor_Custom_ArtifactIndexIsolatedAcrossRegistries(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmMultiRegistryInterceptor(t, mock,
+		config.ProxyRegistryConfig{
+			Name:      "registry-a",
+			Ecosystem: "npm",
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/a"}},
+		},
+		config.ProxyRegistryConfig{
+			Name:      "registry-b",
+			Ecosystem: "npm",
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/b"}},
+		},
+	)
+
+	metadataCtx := makeTestRequestContext("https://packages.test/a/demo")
+	metadataResp, err := interceptor.HandleRequest(metadataCtx)
+	require.NoError(t, err)
+	require.NotNil(t, metadataResp.ResponseModifier)
+
+	tarballURL := "https://packages.test/a/demo/-/demo-1.2.3.tgz"
+	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"` + tarballURL + `"}}}}`)
+	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
+	require.NoError(t, err)
+
+	identity, ok := interceptor.artifacts.Get("registry-a", mustParseURL(tarballURL))
+	require.True(t, ok, "discovery must index the artifact under the registry that served the metadata")
+	assert.Equal(t, artifactIdentity{Name: "demo", Version: "1.2.3"}, identity)
+
+	_, ok = interceptor.artifacts.Get("registry-b", mustParseURL(tarballURL))
+	assert.False(t, ok, "a mapping discovered for one registry must never be visible to another")
+}
+
+func TestNpmRegistryInterceptor_Custom_DiscoveredOffHostArtifactStaysUnintercepted(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	metadataCtx := makeTestRequestContext("https://packages.test/npm/demo")
+	metadataResp, err := interceptor.HandleRequest(metadataCtx)
+	require.NoError(t, err)
+	require.NotNil(t, metadataResp.ResponseModifier)
+
+	// The registry advertises a tarball on a host PMG was never configured to
+	// protect. Discovery may record it in the index, but that must never
+	// expand which hosts get MITM'd or intercepted.
+	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"https://cdn.unconfigured.test/demo-1.2.3.tgz"}}}}`)
+	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
+	require.NoError(t, err)
+
+	offHostCtx := &proxy.RequestContext{Hostname: "cdn.unconfigured.test"}
+	assert.False(t, interceptor.ShouldMITM(offHostCtx), "discovery must not dynamically enroll a new MITM host")
+	assert.False(t, interceptor.ShouldIntercept(offHostCtx), "discovery must not dynamically enroll a new intercepted host")
 }
