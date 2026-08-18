@@ -213,7 +213,8 @@ pmg sandbox profile show npm-restrictive --resolved
 
 `pmg sandbox doctor` runs platform-specific checks for the current host. Cached violation reports
 used by `violations list` and `explain --last` are produced by macOS Seatbelt diagnostics and, on
-Linux, by the Landlock driver's seccomp supervisor.
+Linux, by the Landlock driver's seccomp supervisor or the Bubblewrap driver's reader of the
+sandboxed command's output.
 
 Coverage differs by platform. Seatbelt logs every denial, including the default-deny allow-list
 boundary. The Landlock driver only reports denials made by its seccomp deny-list layer (reads and
@@ -222,7 +223,8 @@ writes of `deny_*` paths, blocked `deny_exec` binaries): denials made by the Lan
 produce no report. `deny_write` entries outside writable areas are enforced by Landlock rather than
 seccomp, so they are likewise not reported. Operational degradation events on the audit socket
 (`namespace_isolation_unavailable`, `memfd_open_failed`) are not included in violation reports
-today; they may be added later. Bubblewrap denials only appear as command errors such as `EACCES`.
+today; they may be added later. The Bubblewrap driver reports denials it can recognise in the
+sandboxed command's own error output; see its platform section below for what that covers.
 
 ### Runtime Allow Overrides
 
@@ -491,6 +493,37 @@ while denying reads for the same path. `--bind` exposes both directions; `--tmpf
 in `allow_write` but not `allow_read`), the bind mount also exposes reads, and PMG cannot enforce
 the read-side mandatory deny. PMG warns via `log.Warnf` when it detects this case. macOS Seatbelt
 does not have this limitation; its `file-read*` and `file-write*` rules are independent.
+
+**Violation reporting is best effort**: Bubblewrap isolates with namespaces and mounts rather than
+a security module, so it never observes a denial. The kernel fails the syscall and the sandboxed
+program reports the error itself. PMG reads the command's output and matches the trailing
+`strerror(3)` phrase, which is identical across programs even though the message prefix is not.
+
+Recognised: `Permission denied`, `Operation not permitted`, `Read-only file system`, and exec
+failures bwrap reports itself. Denials from shell install scripts and the coreutils they call are
+covered, including paths that are quoted, contain spaces, or contain a colon.
+
+Not reported:
+
+- A path absent from the sandbox fails with `No such file or directory`, which is
+  indistinguishable from a file that never existed. Reporting it would flag every genuinely
+  missing file, so it is skipped unless bwrap itself reports it for a failed exec.
+- Language runtimes that print the path after the errno phrase rather than before it, such as
+  Node and Python.
+- A bare name carrying neither a separator nor an extension, such as `Makefile`. The trailing
+  token of an error line is often prose, so a target must look like a path to be accepted.
+- A denial on a host that sets `LC_ALL`. libc translates `strerror(3)`, so PMG pins
+  `LC_MESSAGES=C` for the sandboxed command to keep those phrases in English. `LC_ALL` outranks
+  `LC_MESSAGES`, and overriding it would change number formatting and collation for every build
+  script in the install, which is too broad a side effect for a diagnostics feature.
+
+Reports from this driver are marked as derived from the command's output. Because a malicious
+package can print a denial that never happened and name any target it likes, these violations are
+shown by `violations list` and `explain` but never become an override suggestion, and
+`pmg sandbox allow --last` will not persist them.
+
+Landlock and Seatbelt do not share these limits; both read a dedicated kernel or platform channel
+rather than the command's output.
 
 </details>
 

@@ -175,7 +175,10 @@ func runPTY(
 		}
 	}()
 
-	outputRouter, err := pty.NewOutputRouter(os.Stdout)
+	// A PTY session routes the child's output itself and never writes to
+	// cmd.Stderr, so sandbox drivers whose only denial signal is that output
+	// need it teed here to observe anything.
+	outputRouter, err := pty.NewOutputRouter(ptyOutput(result))
 	if err != nil {
 		return fmt.Errorf("failed to create output router: %w", err)
 	}
@@ -255,6 +258,15 @@ func runPTY(
 	}
 
 	return nil
+}
+
+func ptyOutput(result *sandbox.ExecutionResult) io.Writer {
+	tap := result.DiagnosticsWriter()
+	if tap == nil {
+		return os.Stdout
+	}
+
+	return io.MultiWriter(os.Stdout, tap)
 }
 
 func executionMode(opts ExecuteOptions) ExecutionMode {

@@ -224,3 +224,26 @@ func TestIsSensitiveProjectTargetGNUPGFiles(t *testing.T) {
 	assert.True(t, IsSensitiveProjectTarget("/home/user/.gnupg/pubring.kbx"))
 	assert.True(t, IsSensitiveProjectTarget("/home/user/.gnupg/private-keys-v1.d/abc.key"))
 }
+
+// See ViolationReport.OutputDerived: such a report describes the denial but
+// must never offer it as an allowance.
+func TestOutputDerivedReportYieldsNoOverrides(t *testing.T) {
+	report := &ViolationReport{
+		SandboxName:   DriverBubblewrap,
+		OutputDerived: true,
+		Violations: []Violation{{
+			Kind:   ViolationKindFSRead,
+			Target: "/home/dev/.ssh/id_rsa",
+		}},
+	}
+
+	exp := BuildExplanation(report)
+	require.NotNil(t, exp.Primary, "the denial is still reported as diagnostics")
+	assert.Nil(t, exp.Override, "forgeable evidence must not become an allowance")
+	assert.Nil(t, BuildAllOverrides(report), "and must not be persistable via allow --last")
+
+	// The same violation from a driver reading a kernel channel stays actionable.
+	report.OutputDerived = false
+	assert.NotNil(t, BuildExplanation(report).Override)
+	assert.Len(t, BuildAllOverrides(report), 1)
+}

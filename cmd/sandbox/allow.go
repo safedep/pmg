@@ -233,6 +233,17 @@ func suggestionsFromCache(cache *pmgsandbox.ViolationCache, all bool) ([]pmgsand
 		)
 	}
 
+	// Refused here rather than by returning nothing: the caller's generic
+	// "no eligible allowances to save" tells the user to run a sandboxed
+	// command, which they just did and can see in `violations list`.
+	if entry.Record.Report.OutputDerived {
+		return nil, invalidArgumentError(
+			"the latest violation report cannot be promoted to an allowance",
+			"It was parsed from the sandboxed command's own output, which a package can forge to name any target. "+
+				"Review it with `pmg sandbox explain --last`, then add the allowance explicitly with `pmg sandbox allow <type>=<value>`.",
+		)
+	}
+
 	if all {
 		return pmgsandbox.BuildAllOverrides(entry.Record.Report), nil
 	}
