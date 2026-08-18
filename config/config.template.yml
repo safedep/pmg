@@ -45,6 +45,15 @@ proxy:
   skip_commands:
     npm: []
 
+  # Additional npm/PyPI-compatible endpoints serving public packages through
+  # an internal mirror or registry proxy. Private packages are not analyzed.
+  registries: []
+  # registries:
+  #   - name: company-npm
+  #     ecosystem: npm
+  #     endpoints:
+  #       - url: https://packages.example.com/artifactory/api/npm/npm-virtual
+
   # Persistent proxy server (`pmg proxy start`) settings.
   server:
     # Host the persistent proxy binds to. Defaults to 127.0.0.1 (loopback),
