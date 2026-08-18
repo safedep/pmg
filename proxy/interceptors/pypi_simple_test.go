@@ -509,11 +509,15 @@ func TestPypiMetadataDiscoveryModifier_NeverRewritesTheResponse(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Content-Type", tt.contentType)
 			headers.Set("X-Test", "value")
+			wantHeaders := headers.Clone()
+			wantBody := make([]byte, len(tt.body))
+			copy(wantBody, tt.body)
+
 			gotStatus, gotHeaders, gotBody, err := modifier(tt.status, headers, tt.body)
 			require.NoError(t, err)
 			assert.Equal(t, tt.status, gotStatus)
-			assert.Equal(t, headers, gotHeaders)
-			assert.Equal(t, tt.body, gotBody)
+			assert.Equal(t, wantHeaders, gotHeaders)
+			assert.Equal(t, wantBody, gotBody)
 
 			_, ok := index.Get("custom-pypi", base)
 			assert.False(t, ok, "a rejected or unparseable response must add no index mappings")

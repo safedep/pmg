@@ -81,6 +81,12 @@ func TestNpmMetadataArtifacts(t *testing.T) {
 			wantIdentities: nil,
 		},
 		{
+			name:           "version entry name differing from the packument name is skipped",
+			body:           `{"name":"demo","versions":{"1.0.0":{"name":"other","version":"1.0.0","dist":{"tarball":"https://cdn.test/x.tgz"}}}}`,
+			wantURLs:       nil,
+			wantIdentities: nil,
+		},
+		{
 			name:           "malformed individual entry is skipped, valid entries still parsed",
 			body:           `{"name":"demo","versions":{"bad":"not-an-object","1.0.0":{"name":"demo","version":"1.0.0","dist":{"tarball":"https://cdn.test/demo-1.0.0.tgz"}}}}`,
 			wantURLs:       []string{"https://cdn.test/demo-1.0.0.tgz"},
@@ -202,11 +208,15 @@ func TestNpmMetadataDiscoveryModifier_NeverRewritesTheResponse(t *testing.T) {
 			modifier := npmMetadataDiscoveryModifier(ctx, index, registryConfigSet{}, "custom-npm", base)
 
 			headers := http.Header{"X-Test": []string{"value"}}
+			wantHeaders := headers.Clone()
+			wantBody := make([]byte, len(tt.body))
+			copy(wantBody, tt.body)
+
 			gotStatus, gotHeaders, gotBody, err := modifier(tt.status, headers, tt.body)
 			require.NoError(t, err)
 			assert.Equal(t, tt.status, gotStatus)
-			assert.Equal(t, headers, gotHeaders)
-			assert.Equal(t, tt.body, gotBody)
+			assert.Equal(t, wantHeaders, gotHeaders)
+			assert.Equal(t, wantBody, gotBody)
 
 			_, ok := index.Get("custom-npm", base)
 			assert.False(t, ok, "a rejected or unparseable response must add no index mappings")

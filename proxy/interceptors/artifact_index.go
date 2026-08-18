@@ -273,6 +273,10 @@ func artifactDiscoveryModifier(
 	parse func(headers http.Header, body []byte) ([]advertisedArtifact, error),
 ) proxy.ResponseModifierFunc {
 	return func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+		// Only exactly 200 triggers discovery. This is deliberately stricter
+		// than "a non-2xx response adds no mappings": every registry response
+		// this feature targets (npm packument, PyPI Simple API index) is a 200
+		// on success, so no other 2xx status needs to be trusted with identity.
 		if statusCode != http.StatusOK {
 			return statusCode, headers, body, nil
 		}

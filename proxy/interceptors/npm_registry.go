@@ -117,7 +117,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	// Parse URL using registry-specific strategy
 	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
 
-	if parseErr == nil && pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != "" {
+	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
 		// Canonical parsing already resolves this exact URL to a complete
 		// identity. This is authoritative and must never be overridden by a
 		// metadata-discovered mapping: otherwise a compromised registry could

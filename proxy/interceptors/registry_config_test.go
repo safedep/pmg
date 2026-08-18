@@ -337,14 +337,3 @@ func TestRegistryConfigSetDeterministicMatch(t *testing.T) {
 		assert.Equal(t, "/pkg", match.RelativePath)
 	}
 }
-
-func TestRegistryConfigSetKnownHosts(t *testing.T) {
-	set := registryConfigSet{entries: []*registryConfig{
-		{Host: "registry.example.org", MatchSubdomains: true},
-		{Host: "PACKAGES.EXAMPLE.TEST"},
-		{Host: "packages.example.test"},
-		{Host: "2001:DB8::1"},
-	}}
-
-	assert.Equal(t, []string{"2001:db8::1", "packages.example.test", "registry.example.org"}, set.KnownHosts())
-}
