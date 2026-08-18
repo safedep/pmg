@@ -52,7 +52,7 @@ func loadViperConfig() error {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 	if err := ValidateProxyRegistries(merged.Proxy.Registries); err != nil {
-		return fmt.Errorf("invalid proxy registries: %w", err)
+		return &ProxyRegistriesError{err: err}
 	}
 
 	globalConfig.Config = merged

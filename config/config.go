@@ -604,21 +604,52 @@ func initConfig() {
 		globalConfig.InsecureInstallation = false
 	}
 
-	loadConfig()
+	configLoadErr = loadConfig()
 
 	if err := preprocessPackageRefs(&globalConfig.Config); err != nil {
 		log.Warnf("Failed to preprocess package refs: %v", err)
 	}
 }
 
+// configLoadErr holds the error that made the last loadConfig call fail
+// closed, if any. LoadError exposes it so the CLI can abort before running
+// any command instead of silently continuing on defaults.
+var configLoadErr error
+
+// LoadError returns the error that made configuration loading fail closed,
+// or nil. An invalid proxy.registries entry sets this: falling back to
+// defaults would silently drop every custom-registry protection the user
+// configured, so the CLI must abort instead of continuing. Every other
+// config load failure keeps the existing warn-and-continue behavior and
+// never sets this.
+func LoadError() error {
+	return configLoadErr
+}
+
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
-// Right now we only support loading from a config file using Viper. If loading
-// fails, the default configuration is used and a warning is logged.
-func loadConfig() {
-	if err := loadViperConfig(); err != nil {
-		log.Warnf("Failed to load config, using defaults: %v", err)
+// Right now we only support loading from a config file using Viper. An invalid
+// proxy.registries entry is returned as a fail-closed error: falling back to
+// defaults would silently drop the custom-registry protection the user
+// configured. Every other load failure falls back to the default
+// configuration and only logs a warning.
+func loadConfig() error {
+	err := loadViperConfig()
+	if err == nil {
+		return nil
 	}
+
+	var registriesErr *ProxyRegistriesError
+	if errors.As(err, &registriesErr) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.InvalidProxyRegistries).
+			WithHumanError(fmt.Sprintf("invalid proxy registries configuration: %v", registriesErr.Unwrap())).
+			WithHelp("Fix the proxy.registries entries in your PMG configuration file, then retry.").
+			Wrap(err)
+	}
+
+	log.Warnf("Failed to load config, using defaults: %v", err)
+	return nil
 }
 
 // configGeteuid is overridable in tests to exercise root path resolution

@@ -309,6 +309,7 @@ func TestProxyRegistriesLoader(t *testing.T) {
 	originalConfig := globalConfig
 	t.Cleanup(func() {
 		globalConfig = originalConfig
+		configLoadErr = nil
 	})
 
 	tests := []struct {
@@ -316,6 +317,7 @@ func TestProxyRegistriesLoader(t *testing.T) {
 		contents       string
 		wantRegistries []ProxyRegistryConfig
 		wantSkip       map[string][]string
+		wantLoadErr    bool
 	}{
 		{
 			name: "activates valid registries",
@@ -335,7 +337,7 @@ proxy:
 			wantSkip: map[string][]string{"npm": {}},
 		},
 		{
-			name: "invalid registries leave defaults untouched",
+			name: "invalid registries abort config load",
 			contents: `
 proxy:
   skip_commands:
@@ -346,7 +348,8 @@ proxy:
       endpoints:
         - url: https://packages.example.test/npm
 `,
-			wantSkip: map[string][]string{},
+			wantSkip:    map[string][]string{},
+			wantLoadErr: true,
 		},
 	}
 
@@ -360,6 +363,14 @@ proxy:
 
 			assert.Equal(t, tt.wantRegistries, Get().Config.Proxy.Registries)
 			assert.Equal(t, tt.wantSkip, Get().Config.Proxy.SkipCommands)
+
+			if tt.wantLoadErr {
+				require.Error(t, LoadError())
+				var registriesErr *ProxyRegistriesError
+				assert.ErrorAs(t, LoadError(), &registriesErr)
+			} else {
+				assert.NoError(t, LoadError())
+			}
 		})
 	}
 }
