@@ -61,8 +61,8 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	// canonically regardless of directory depth, so it never depends on a
 	// warm artifact index, and it prevents a literal reserved segment
 	// ("simple", "pypi") from ever shadowing an actual file download into a
-	// misread metadata request — e.g. a project literally named "simple"
-	// served as ".../simple/simple/simple-1.0.0.tar.gz" must still resolve
+	// misread metadata request. For example, a project literally named
+	// "simple" served as ".../simple/simple/simple-1.0.0.tar.gz" must resolve
 	// as a download, not as a one-segment Simple API index request for a
 	// package named after the filename itself.
 	if info, ok := pypiFilenameFromLastSegment(segments[len(segments)-1]); ok {

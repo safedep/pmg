@@ -174,7 +174,7 @@ func TestPypiRegistryInterceptor_Custom_DeepHashDirectoryFilenameResolvesWithCol
 	// path is self-describing even though pypiCustomParser has no
 	// depth-specific rule for it: the filename-at-any-depth check resolves
 	// it canonically. This request never goes through metadata discovery
-	// first, so the artifact index is cold — proving analysis does not
+	// first, so the artifact index is cold. This proves analysis does not
 	// depend on a prior warm index entry (the regression this test guards
 	// against: a 15-minute TTL, or a client-cached Simple page that never
 	// transits the proxy, previously meant a cold index and no analysis).
@@ -226,8 +226,8 @@ func TestPypiRegistryInterceptor_Custom_NonSimpleBaseDoesNotGuessArbitraryPaths(
 	// "/mirror" is not itself a "/simple" mount, so a one-segment path under
 	// it (a health check, a login endpoint, a search API) must never be
 	// guessed as a Simple API index request: no discovery, no cooldown, and
-	// critically no header mutation — the request is never rewritten into
-	// something that forces an uncompressed, non-conditional response.
+	// critically no header mutation. The request must never be rewritten
+	// into something that forces an uncompressed, non-conditional response.
 	resp, err := interceptor.HandleRequest(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
