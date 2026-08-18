@@ -5,10 +5,12 @@ import (
 
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPypiRegistryInterceptor_ShouldMITM(t *testing.T) {
-	interceptor := NewPypiRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
+	interceptor, err := NewPypiRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
+	require.NoError(t, err)
 
 	tests := []struct {
 		name     string

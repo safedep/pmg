@@ -129,16 +129,16 @@ func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {
 	return url.Parse(normalized)
 }
 
-func customRegistryConfigs(execContext InterceptorContext, ecosystem string) []*registryConfig {
+func customRegistryConfigs(execContext InterceptorContext, ecosystem string) ([]*registryConfig, error) {
 	compiled := execContext.compiledRegistries
 	if compiled == nil {
 		var err error
 		compiled, err = compileCustomRegistries(execContext.Registries)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 	}
-	return compiled.configs[ecosystem]
+	return compiled.configs[ecosystem], nil
 }
 
 func warnPlainHTTPRegistryEndpoints(endpoints []string) {
@@ -161,7 +161,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
-		), nil
+		)
 
 	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
 		return NewPypiRegistryInterceptor(
@@ -170,7 +170,7 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
-		), nil
+		)
 
 	case packagev1.Ecosystem_ECOSYSTEM_GO:
 		return NewGoRegistryInterceptor(
