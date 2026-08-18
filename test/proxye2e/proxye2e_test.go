@@ -17,6 +17,35 @@ func cooldownEnabled(days int) func(rc *config.RuntimeConfig) {
 	}
 }
 
+// combineConfig runs each mutator in order, letting a case compose a custom
+// registry definition with an unrelated setting such as cooldown.
+func combineConfig(fns ...func(rc *config.RuntimeConfig)) func(rc *config.RuntimeConfig) {
+	return func(rc *config.RuntimeConfig) {
+		for _, fn := range fns {
+			if fn != nil {
+				fn(rc)
+			}
+		}
+	}
+}
+
+// customRegistry appends one proxy.registries entry. Composing several via
+// combineConfig models multiple registries, e.g. two ecosystems sharing a
+// host, or two registries of the same ecosystem at overlapping base paths.
+func customRegistry(name, ecosystem string, endpointURLs ...string) func(rc *config.RuntimeConfig) {
+	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
+	for i, u := range endpointURLs {
+		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: u}
+	}
+	return func(rc *config.RuntimeConfig) {
+		rc.Config.Proxy.Registries = append(rc.Config.Proxy.Registries, config.ProxyRegistryConfig{
+			Name:      name,
+			Ecosystem: ecosystem,
+			Endpoints: endpoints,
+		})
+	}
+}
+
 func TestProxyFlow_Npm(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
@@ -732,6 +761,351 @@ func TestProxyFlow_AdvisoryMessage(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.True(t, res.Blocked())
 				assert.Contains(t, blockedBody(res), "Request an exemption at go/pmg-exceptions")
+			},
+		},
+	})
+}
+
+func TestProxyFlow_CustomNpm(t *testing.T) {
+	const npmHost = "packages.example.test"
+	const npmBase = "https://packages.example.test/npm/team"
+	const downloadBase = "https://packages.example.test/download"
+
+	RunCases(t, []TestCase{
+		{
+			Name:   "clean package via custom npm prefix is allowed",
+			Config: customRegistry("company-npm", "npm", npmBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().InstallFrom(npmBase, "left-pad", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("left-pad", "1.0.0"))
+				assert.True(t, h.Registry.Requested(npmHost, "/npm/team/left-pad/-/left-pad-1.0.0.tgz"))
+			},
+		},
+		{
+			Name:   "custom npm prefix blocks malware",
+			Config: customRegistry("company-npm", "npm", npmBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				h.Registry.AddNpm(NpmPackage{Name: "evil", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().InstallFrom(npmBase, "evil", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("evil", "1.0.0"))
+				assert.False(t, h.Registry.Requested(npmHost, "/npm/team/evil/-/evil-1.0.0.tgz"))
+			},
+		},
+		{
+			Name:   "cooldown strips in-window version on custom npm metadata",
+			Config: combineConfig(customRegistry("company-npm", "npm", npmBase), cooldownEnabled(7)),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().InstallFrom(npmBase, "left-pad", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				meta := h.Npm().FetchMetadataFrom(npmBase, "left-pad")
+				assert.False(t, meta.HasVersion("2.0.0"), "in-window version must be stripped")
+				assert.True(t, meta.HasVersion("1.0.0"), "out-of-window version must survive")
+				assert.False(t, h.Registry.Requested(npmHost, "/npm/team/left-pad/-/left-pad-2.0.0.tgz"))
+			},
+		},
+		{
+			Name:   "opaque npm artifact resolved via metadata discovery is blocked",
+			Config: customRegistry("company-npm", "npm", npmBase, downloadBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				h.Registry.AddCustomNpm(npmHost, "/download")
+				h.Registry.AddNpm(NpmPackage{Name: "demo", DistTagLatest: "1.2.3", Versions: []NpmVersion{
+					{Version: "1.2.3", PublishedAt: old(), TarballURL: downloadBase + "/opaque?id=42"},
+				}})
+				h.Analyzer.SetNpm("demo", "1.2.3", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				meta := h.Npm().FetchMetadataFrom(npmBase, "demo")
+				res.add(meta.Outcome)
+				res.add(h.get(downloadBase+"/opaque?id=42", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked(), "the opaque download must resolve via the discovered identity and be blocked")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
+			},
+		},
+		{
+			Name:   "explicit npm download endpoint receives analysis without metadata",
+			Config: customRegistry("company-npm", "npm", npmBase, downloadBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				h.Registry.AddCustomNpm(npmHost, "/download")
+				h.Analyzer.SetNpm("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Npm().DownloadFrom(downloadBase, "evil", "1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("evil", "1.0.0"))
+			},
+		},
+	})
+}
+
+func TestProxyFlow_CustomPypi(t *testing.T) {
+	const pypiHost = "python.example.test"
+	const simpleBase = "https://python.example.test/simple"
+	const filesBase = "https://python.example.test/files"
+
+	RunCases(t, []TestCase{
+		{
+			Name:   "clean package via custom pypi JSON flow is allowed",
+			Config: customRegistry("company-pypi", "pypi", simpleBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddPypi(PypiPackage{Name: "requests", Versions: []PypiVersion{{Version: "2.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetPypi("requests", "2.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().InstallFrom(simpleBase, "requests", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("requests", "2.0.0"))
+			},
+		},
+		{
+			Name:   "custom pypi JSON flow blocks malware",
+			Config: customRegistry("company-pypi", "pypi", simpleBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddPypi(PypiPackage{Name: "evil", Versions: []PypiVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetPypi("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().InstallFrom(simpleBase, "evil", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("evil", "1.0.0"))
+			},
+		},
+		{
+			// The href sits at depth 1 directly under the "/simple"-ending base,
+			// so request-time parsing reads it as Simple API metadata for a
+			// (fabricated) project literally named after the filename, never as
+			// a download: PEP 503 HTML identity comes only from the href's own
+			// filename shape (never anchor text), so this is the one shape where
+			// HTML discovery's index is actually consulted instead of canonical
+			// parsing resolving the download directly.
+			Name:   "custom pypi HTML flow blocks malware via discovery",
+			Config: customRegistry("company-pypi", "pypi", simpleBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddPypi(PypiPackage{Name: "htmlpkg", Versions: []PypiVersion{
+					{Version: "1.0.0", PublishedAt: old(), FileURL: simpleBase + "/htmlpkg-1.0.0.tar.gz"},
+				}})
+				h.Analyzer.SetPypi("htmlpkg", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get(simpleBase+"/htmlpkg/", map[string]string{"Accept": pypiSimpleHTMLContentType}))
+				res.add(h.get(simpleBase+"/htmlpkg-1.0.0.tar.gz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked(), "the depth-1 filename must resolve via the HTML-discovered identity and be blocked")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("htmlpkg", "1.0.0"))
+			},
+		},
+		{
+			Name:   "custom pypi HTML flow allows a clean package via discovery",
+			Config: customRegistry("company-pypi", "pypi", simpleBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddPypi(PypiPackage{Name: "htmlclean", Versions: []PypiVersion{
+					{Version: "1.0.0", PublishedAt: old(), FileURL: simpleBase + "/htmlclean-1.0.0.tar.gz"},
+				}})
+				h.Analyzer.SetPypi("htmlclean", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get(simpleBase+"/htmlclean/", map[string]string{"Accept": pypiSimpleHTMLContentType}))
+				res.add(h.get(simpleBase+"/htmlclean-1.0.0.tar.gz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("htmlclean", "1.0.0"))
+			},
+		},
+		{
+			Name:   "opaque pypi artifact resolved via JSON metadata discovery is blocked",
+			Config: customRegistry("company-pypi", "pypi", simpleBase, filesBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddCustomPypi(pypiHost, "/files")
+				h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{
+					{Version: "1.2.3", PublishedAt: old(), FileURL: filesBase + "/opaque?id=42"},
+				}})
+				h.Analyzer.SetPypi("demo", "1.2.3", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().InstallFrom(simpleBase, "demo", "1.2.3") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
+			},
+		},
+		{
+			Name:   "explicit pypi download endpoint receives analysis without metadata",
+			Config: customRegistry("company-pypi", "pypi", simpleBase, filesBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddCustomPypi(pypiHost, "/files")
+				h.Analyzer.SetPypi("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Pypi().Download(filesBase + "/evil-1.0.0.tar.gz"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("evil", "1.0.0"))
+			},
+		},
+	})
+}
+
+func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "shared host routes npm and pypi via longest matching base",
+			Config: combineConfig(
+				customRegistry("root-npm", "npm", "https://shared.example.test/npm"),
+				customRegistry("team-npm", "npm", "https://shared.example.test/npm/team"),
+				customRegistry("company-pypi", "pypi", "https://shared.example.test/pypi/simple"),
+			),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm("shared.example.test", "/npm")
+				h.Registry.AddCustomNpm("shared.example.test", "/npm/team")
+				h.Registry.AddCustomPypi("shared.example.test", "/pypi/simple")
+
+				h.Registry.AddNpm(NpmPackage{Name: "root-pkg", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("root-pkg", "1.0.0", Clean())
+
+				h.Registry.AddNpm(NpmPackage{Name: "team-pkg", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("team-pkg", "1.0.0", VerifiedMalware())
+
+				h.Registry.AddPypi(PypiPackage{Name: "pylib", Versions: []PypiVersion{
+					{Version: "1.0.0", PublishedAt: old(), FileURL: "https://shared.example.test/pypi/simple/pylib/pylib-1.0.0.tar.gz"},
+				}})
+				h.Analyzer.SetPypi("pylib", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.Requests = append(res.Requests, h.Npm().InstallFrom("https://shared.example.test/npm", "root-pkg", "1.0.0").Requests...)
+				res.Requests = append(res.Requests, h.Npm().InstallFrom("https://shared.example.test/npm/team", "team-pkg", "1.0.0").Requests...)
+				res.Requests = append(res.Requests, h.Pypi().InstallFrom("https://shared.example.test/pypi/simple", "pylib", "1.0.0").Requests...)
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("root-pkg", "1.0.0"))
+				assert.True(t, h.Registry.Requested("shared.example.test", "/npm/root-pkg/-/root-pkg-1.0.0.tgz"))
+
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("team-pkg", "1.0.0"),
+					"the longer /npm/team base must win so the nested tarball path parses and is analyzed")
+				assert.False(t, h.Registry.Requested("shared.example.test", "/npm/team/team-pkg/-/team-pkg-1.0.0.tgz"),
+					"a malicious tarball behind the longer base must never be downloaded")
+
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("pylib", "1.0.0"))
+				assert.True(t, h.Registry.Requested("shared.example.test", "/pypi/simple/pylib/pylib-1.0.0.tar.gz"))
+			},
+		},
+		{
+			Name:   "unknown path on configured custom host passes through without analysis",
+			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm("packages.example.test", "/npm/team")
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://packages.example.test/health", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
+			Name:   "analyzer NotFound allows a private package on a custom registry",
+			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm("packages.example.test", "/npm/team")
+				h.Registry.AddNpm(NpmPackage{Name: "private-pkg", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("private-pkg", "1.0.0", NotFound())
+			},
+			Exec: func(h *Harness) ExecResult {
+				return h.Npm().InstallFrom("https://packages.example.test/npm/team", "private-pkg", "1.0.0")
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.Requested("packages.example.test", "/npm/team/private-pkg/-/private-pkg-1.0.0.tgz"))
+			},
+		},
+	})
+}
+
+func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name:   "subdomain of a custom registry host is tunneled and observed",
+			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://cdn.packages.example.test/whatever.tgz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Contains(t, h.DialedAddrs(), "cdn.packages.example.test:443",
+					"an unconfigured subdomain must never be MITM'd; the CONNECT tunnel still routes through the mock override")
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
+			Name:   "off-host artifact URL from metadata stays tunneled",
+			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm("packages.example.test", "/npm/team")
+				h.Registry.AddNpm(NpmPackage{Name: "demo", DistTagLatest: "1.2.3", Versions: []NpmVersion{
+					{Version: "1.2.3", PublishedAt: old(), TarballURL: "https://cdn.unconfigured.test/demo-1.2.3.tgz"},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				meta := h.Npm().FetchMetadataFrom("https://packages.example.test/npm/team", "demo")
+				res.add(meta.Outcome)
+				res.add(h.get("https://cdn.unconfigured.test/demo-1.2.3.tgz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Contains(t, h.DialedAddrs(), "cdn.unconfigured.test:443",
+					"discovery must never dynamically enroll a new MITM host; the off-host artifact stays tunneled")
+				assert.Zero(t, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
 			},
 		},
 	})
