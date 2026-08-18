@@ -2,9 +2,14 @@ package interceptors
 
 import (
 	"fmt"
+	"net/url"
+	"sort"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/registryurl"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -13,6 +18,7 @@ import (
 // (analyzer, cache, stats), this holds context specific to the current run.
 type InterceptorContext struct {
 	PinnedVersions map[string]string
+	Registries     []config.ProxyRegistryConfig
 
 	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
 	// GOPROXY to their upstream base URL (scheme + host + optional path
@@ -39,12 +45,80 @@ func NewInterceptorFactory(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) *InterceptorFactory {
+	warnPlainHTTPRegistryEndpoints(execContext.Registries)
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
 		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
 		execContext:      execContext,
+	}
+}
+
+func CustomRegistryHosts(registries []config.ProxyRegistryConfig) []string {
+	set := make(map[string]struct{})
+	for _, registry := range registries {
+		for _, endpoint := range registry.Endpoints {
+			u, err := normalizedRegistryEndpoint(endpoint.URL)
+			if err != nil {
+				log.Warnf("Skipping invalid custom registry endpoint %q: %v", endpoint.URL, err)
+				continue
+			}
+			set[u.Hostname()] = struct{}{}
+		}
+	}
+
+	hosts := make([]string, 0, len(set))
+	for host := range set {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
+func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem string, parser registryURLParser) []*registryConfig {
+	var configs []*registryConfig
+	for _, registry := range registries {
+		if registry.Ecosystem != ecosystem {
+			continue
+		}
+		for _, endpoint := range registry.Endpoints {
+			u, err := normalizedRegistryEndpoint(endpoint.URL)
+			if err != nil {
+				log.Warnf("Skipping invalid custom registry endpoint %q: %v", endpoint.URL, err)
+				continue
+			}
+			configs = append(configs, &registryConfig{
+				Name:                 registry.Name,
+				Host:                 u.Hostname(),
+				Scheme:               u.Scheme,
+				Port:                 u.Port(),
+				BasePath:             u.EscapedPath(),
+				MatchSubdomains:      false,
+				SupportedForAnalysis: true,
+				Parser:               parser,
+			})
+		}
+	}
+	return configs
+}
+
+func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {
+	normalized, err := registryurl.Normalize(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	return url.Parse(normalized)
+}
+
+func warnPlainHTTPRegistryEndpoints(registries []config.ProxyRegistryConfig) {
+	for _, registry := range registries {
+		for _, endpoint := range registry.Endpoints {
+			u, err := normalizedRegistryEndpoint(endpoint.URL)
+			if err == nil && u.Scheme == "http" {
+				log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", endpoint.URL)
+			}
+		}
 	}
 }
 

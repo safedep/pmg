@@ -39,6 +39,7 @@ var pypiRegistryDomains = registryConfigMap{
 type PypiRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *pypiCooldownHandler
+	registries      registryConfigSet
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
@@ -59,6 +60,8 @@ func NewPypiRegistryInterceptor(
 		normalizedPinned[denormalizePyPIPackageName(name)] = version
 	}
 	execContext.PinnedVersions = normalizedPinned
+	registries := registryConfigSet{entries: builtInRegistryConfigs(pypiRegistryDomains)}
+	registries.entries = append(registries.entries, customRegistryConfigs(execContext.Registries, "pypi", pypiOrgParser{})...)
 
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -70,6 +73,7 @@ func NewPypiRegistryInterceptor(
 			execContext:      execContext,
 		},
 		cooldownHandler: newPypiCooldownHandler(statsCollector),
+		registries:      registries,
 	}
 }
 
@@ -79,17 +83,15 @@ func (i *PypiRegistryInterceptor) Name() string {
 }
 
 func (i *PypiRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
-	config := pypiRegistryDomains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
+	if ctx == nil {
 		return false
 	}
-
-	return config.SupportedForAnalysis
+	return registryHostSupportsAnalysis(i.registries, ctx.Hostname)
 }
 
 // ShouldIntercept determines if this interceptor should handle the given request
 func (i *PypiRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	return pypiRegistryDomains.ContainsHostname(ctx.Hostname)
+	return registryRequestMatch(i.registries, ctx) != nil
 }
 
 // HandleRequest processes the request and returns response action
@@ -98,14 +100,15 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	log.Debugf("[%s] Handling PyPI registry request: %s", ctx.RequestID, ctx.URL.Path)
 
 	// Get registry configuration
-	config := pypiRegistryDomains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
+	match := registryRequestMatch(i.registries, ctx)
+	if match == nil {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	// Skip analysis for registries that are not supported for analysis
+	config := match.Config
 	if !config.SupportedForAnalysis {
 		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
 			ctx.RequestID, config.Host, ctx.URL.String())
@@ -113,7 +116,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	}
 
 	// Parse URL using registry-specific strategy
-	pkgInfo, err := config.Parser.ParseURL(ctx.URL.Path)
+	pkgInfo, err := config.Parser.ParseURL(match.RelativePath)
 	if err != nil {
 		log.Warnf("[%s] Failed to parse PyPI registry URL %s for %s: %v",
 			ctx.RequestID, ctx.URL.Path, config.Host, err)

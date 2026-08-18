@@ -112,7 +112,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 		},
 	)
 
-	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor()}
+	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(nil)}
 	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI, packagev1.Ecosystem_ECOSYSTEM_GO} {
 		ic, ierr := factory.CreateInterceptor(eco)
 		require.NoError(t, ierr)

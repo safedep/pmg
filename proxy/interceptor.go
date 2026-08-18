@@ -36,6 +36,7 @@ type RequestContext struct {
 	Body []byte
 
 	Hostname  string
+	Port      string
 	RequestID string
 	StartTime time.Time
 

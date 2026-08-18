@@ -2,12 +2,84 @@ package interceptors
 
 import (
 	"net"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 
 	"github.com/safedep/pmg/internal/registryurl"
+	"github.com/safedep/pmg/proxy"
 )
+
+func builtInRegistryConfigs(configs registryConfigMap) []*registryConfig {
+	entries := make([]*registryConfig, 0, len(configs))
+	for _, config := range configs {
+		clone := *config
+		clone.MatchSubdomains = true
+		entries = append(entries, &clone)
+	}
+	return entries
+}
+
+func registryHostSupportsAnalysis(configs registryConfigSet, hostname string) bool {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	bestHostLength := -1
+	bestExact := false
+	supported := false
+	for _, config := range configs.entries {
+		if config == nil {
+			continue
+		}
+		exact, matches := hostnameMatch(hostname, config)
+		if !matches {
+			continue
+		}
+		hostLength := len(registryurl.NormalizeHostname(config.Host))
+		if exact != bestExact {
+			if exact {
+				bestExact = true
+				bestHostLength = hostLength
+				supported = config.SupportedForAnalysis
+			}
+			continue
+		}
+		if hostLength > bestHostLength {
+			bestHostLength = hostLength
+			supported = config.SupportedForAnalysis
+			continue
+		}
+		if hostLength == bestHostLength && config.SupportedForAnalysis {
+			supported = true
+		}
+	}
+	return supported
+}
+
+func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) *registryMatch {
+	if ctx == nil || ctx.Hostname == "" {
+		return nil
+	}
+	if ctx.Method == http.MethodConnect || ctx.URL == nil {
+		for _, config := range configs.entries {
+			if config != nil && matchesHostname(normalizeHostnameWithOptionalPort(ctx.Hostname), config) {
+				return &registryMatch{Config: config, RelativePath: "/"}
+			}
+		}
+		return nil
+	}
+
+	u := *ctx.URL
+	if u.Hostname() == "" {
+		u.Host = ctx.Hostname
+		if ctx.Port != "" {
+			u.Host = net.JoinHostPort(ctx.Hostname, ctx.Port)
+		}
+	}
+	if u.Scheme == "" {
+		u.Scheme = "https"
+	}
+	return configs.MatchURL(&u)
+}
 
 // packageInfo represents parsed package information from a registry URL.
 // All ecosystem-specific package info types must implement this interface.
@@ -90,12 +162,17 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 		}
 
 		exactHostname, matches := hostnameMatch(hostname, config)
-		if !matches || registryurl.NormalizeScheme(config.Scheme) != scheme {
+		if !matches {
 			continue
 		}
-		configPort, valid := registryurl.EffectivePort(config.Scheme, config.Port)
-		if !valid || configPort != port {
-			continue
+		if config.Scheme != "" {
+			if registryurl.NormalizeScheme(config.Scheme) != scheme {
+				continue
+			}
+			configPort, valid := registryurl.EffectivePort(config.Scheme, config.Port)
+			if !valid || configPort != port {
+				continue
+			}
 		}
 
 		basePath := normalizeRegistryBasePath(config.BasePath)

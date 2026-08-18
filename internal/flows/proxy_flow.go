@@ -197,6 +197,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
 		PinnedVersions:  pinnedVersions,
 		GoProxyBaseURLs: routing.MITMHosts,
+		Registries:      cfg.Config.Proxy.Registries,
 	})
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
@@ -208,7 +209,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, []proxy.Interceptor{
 		interceptor,
-		interceptors.NewAuditLoggerInterceptor(),
+		interceptors.NewAuditLoggerInterceptor(interceptors.CustomRegistryHosts(cfg.Config.Proxy.Registries)),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start proxy server: %w", err)
