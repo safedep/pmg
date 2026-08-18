@@ -302,6 +302,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.BlockedPackages = statsCollector.GetBlockedPackages()
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
+	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 
 	// Set outcome based on execution result using shared inference logic

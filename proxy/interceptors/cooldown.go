@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/dry/log"
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/models"
 )
 
 // cooldownExemptions describes the in-window versions that survive cooldown
@@ -96,11 +97,15 @@ func cooldownOldestVersion(dates map[string]time.Time) (string, time.Time) {
 	return oldest, oldestTime
 }
 
-// recordCooldownStats records a cooldown block event. When all versions are blocked
-// (remaining == 0), it reports the oldest version (closest to exiting cooldown).
-// Otherwise, if a pinned version was stripped, it reports that specific version.
-func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, remaining int, cooldownDays int) {
-	if statsCollector == nil {
+// recordCooldownStats records the outcome of a metadata strip. Two cases are
+// definite blocks: all versions stripped (remaining == 0, reported via the
+// oldest version, closest to exiting cooldown) and a stripped CLI-pinned
+// version. Anything else is recorded as a withheld hint: the resolver had
+// eligible versions to fall back to, but may still fail when a dependency
+// requires exactly a stripped version (a transitive exact pin), so the report
+// can surface the withheld set if the install fails.
+func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packagev1.Ecosystem, packageName string, pinnedVersion string, dates map[string]time.Time, stripped []string, remaining int, cooldownDays int) {
+	if statsCollector == nil || len(stripped) == 0 {
 		return
 	}
 
@@ -121,13 +126,31 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 			_, daysAgo, daysLeft := cooldownIsWithinWindow(oldestDate, cooldownDays)
 			logCooldown(oldestVer, oldestDate, daysAgo, daysLeft)
 		}
-	} else if pinnedVersion != "" {
-		if pinnedDate, ok := dates[pinnedVersion]; ok {
-			if withinCooldown, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays); withinCooldown {
-				logCooldown(pinnedVersion, pinnedDate, daysAgo, daysLeft)
-			}
-		}
+		return
 	}
+
+	// Membership in the stripped set, not window membership, decides the
+	// pinned block: an in-window pinned version that survived stripping via
+	// the skip list or trusted_packages is installable and must not be
+	// reported as blocked.
+	strippedSet := make(map[string]bool, len(stripped))
+	for _, v := range stripped {
+		strippedSet[v] = true
+	}
+
+	if pinnedVersion != "" && strippedSet[pinnedVersion] {
+		pinnedDate := dates[pinnedVersion]
+		_, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays)
+		logCooldown(pinnedVersion, pinnedDate, daysAgo, daysLeft)
+		return
+	}
+
+	withheld := make([]models.CooldownWithheldVersion, 0, len(stripped))
+	for _, v := range stripped {
+		_, _, daysLeft := cooldownIsWithinWindow(dates[v], cooldownDays)
+		withheld = append(withheld, models.CooldownWithheldVersion{Version: v, DaysLeft: daysLeft})
+	}
+	statsCollector.RecordCooldownWithheld(packageName, withheld)
 }
 
 // cooldownHighestStableVersion returns the highest stable (non-prerelease) version
