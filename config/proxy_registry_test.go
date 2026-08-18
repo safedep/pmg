@@ -239,6 +239,16 @@ func TestNormalizeProxyRegistryURL(t *testing.T) {
 			wantURL: "https://packages.example.test",
 		},
 		{
+			name:    "canonicalizes repeated trailing slashes",
+			rawURL:  "https://packages.example.test/npm///",
+			wantURL: "https://packages.example.test/npm",
+		},
+		{
+			name:    "canonicalizes repeated root slashes",
+			rawURL:  "https://packages.example.test///",
+			wantURL: "https://packages.example.test",
+		},
+		{
 			name:    "rejects zero port",
 			rawURL:  "https://packages.example.test:0/simple",
 			wantErr: "URL port must be between 1 and 65535",

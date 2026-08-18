@@ -54,7 +54,7 @@ func Normalize(rawURL string) (string, error) {
 		}
 	}
 
-	path := strings.TrimSuffix(NormalizeEscapedPath(parsed.EscapedPath()), "/")
+	path := NormalizeBasePath(parsed.EscapedPath())
 	return scheme + "://" + host + path, nil
 }
 
@@ -97,6 +97,10 @@ func NormalizeEscapedPath(path string) string {
 	}
 
 	return normalized.String()
+}
+
+func NormalizeBasePath(path string) string {
+	return strings.TrimRight(NormalizeEscapedPath(path), "/")
 }
 
 func defaultPort(scheme string) string {
