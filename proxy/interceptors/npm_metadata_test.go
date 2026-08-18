@@ -199,7 +199,7 @@ func TestNpmMetadataDiscoveryModifier_NeverRewritesTheResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			index := newArtifactIndex()
 			ctx := makeTestRequestContext("https://packages.test/npm/demo")
-			modifier := npmMetadataDiscoveryModifier(ctx, index, "custom-npm", base)
+			modifier := npmMetadataDiscoveryModifier(ctx, index, registryConfigSet{}, "custom-npm", base)
 
 			headers := http.Header{"X-Test": []string{"value"}}
 			gotStatus, gotHeaders, gotBody, err := modifier(tt.status, headers, tt.body)
@@ -212,4 +212,35 @@ func TestNpmMetadataDiscoveryModifier_NeverRewritesTheResponse(t *testing.T) {
 			assert.False(t, ok, "a rejected or unparseable response must add no index mappings")
 		})
 	}
+}
+
+func TestNpmMetadataDiscoveryModifier_SkipsCanonicallyResolvableArtifacts(t *testing.T) {
+	registries := registryConfigSet{entries: []*registryConfig{
+		{
+			Name:                 "custom-npm",
+			Host:                 "packages.test",
+			Scheme:               "https",
+			BasePath:             "/npm",
+			Parser:               npmParser{},
+			SupportedForAnalysis: true,
+		},
+	}}
+	index := newArtifactIndex()
+	base := mustParseURL("https://packages.test/npm/demo")
+	ctx := makeTestRequestContext("https://packages.test/npm/demo")
+	modifier := npmMetadataDiscoveryModifier(ctx, index, registries, "custom-npm", base)
+
+	body := []byte(`{"name":"demo","versions":{
+		"1.0.0":{"name":"demo","version":"1.0.0","dist":{"tarball":"https://packages.test/npm/demo/-/demo-1.0.0.tgz"}},
+		"2.0.0":{"name":"demo","version":"2.0.0","dist":{"tarball":"https://packages.test/npm/opaque-blob?id=7"}}
+	}}`)
+	_, _, _, err := modifier(http.StatusOK, http.Header{}, body)
+	require.NoError(t, err)
+
+	_, ok := index.Get("custom-npm", mustParseURL("https://packages.test/npm/demo/-/demo-1.0.0.tgz"))
+	assert.False(t, ok, "a canonically parseable tarball URL must not be indexed")
+
+	identity, ok := index.Get("custom-npm", mustParseURL("https://packages.test/npm/opaque-blob?id=7"))
+	assert.True(t, ok, "a non-canonical tarball URL must still be indexed")
+	assert.Equal(t, artifactIdentity{Name: "demo", Version: "2.0.0"}, identity)
 }

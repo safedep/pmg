@@ -59,14 +59,7 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 
 	// Force PEP 691 JSON so we receive upload-time per file entry.
 	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
-	// Prevent compression so the response body can be parsed as JSON directly.
-	ctx.Headers.Set("Accept-Encoding", "identity")
-	// Strip conditional-GET headers so PyPI cannot return 304 Not Modified.
-	// A 304 has no body — the modifier would receive an empty body, fail to parse
-	// it as JSON, and fail-open, letting the client use its cached (unfiltered)
-	// response. Removing these forces a full 200 response on every request.
-	ctx.Headers.Del("If-None-Match")
-	ctx.Headers.Del("If-Modified-Since")
+	forceUncompressedNonConditionalResponse(ctx.Headers)
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		dates, err := h.parsePEP691Files(body)

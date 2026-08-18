@@ -94,6 +94,24 @@ func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
 	return &u
 }
 
+// registryURLHasCanonicalIdentity reports whether request-time canonical
+// parsing already resolves u to a complete file-download identity under any
+// configured registry endpoint. Metadata discovery must skip indexing a URL
+// this already answers: canonical parsing is authoritative for it, so an
+// index entry for the same URL would be redundant at best, and a stale or
+// compromised entry must never be able to compete with it.
+func registryURLHasCanonicalIdentity(registries registryConfigSet, u *url.URL) bool {
+	match := registries.MatchURL(u)
+	if match == nil {
+		return false
+	}
+	pkgInfo, err := match.Config.Parser.ParseURL(match.RelativePath)
+	if err != nil {
+		return false
+	}
+	return pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != ""
+}
+
 // packageInfo represents parsed package information from a registry URL.
 // All ecosystem-specific package info types must implement this interface.
 type packageInfo interface {

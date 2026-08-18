@@ -160,7 +160,7 @@ func TestNpmRegistryInterceptor_Custom_MetadataDiscoveryChainsBeforeCooldown(t *
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 
 	mock := &mockAnalyzer{}
-	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm", "https://packages.test/download")
 
 	ctx := makeTestRequestContext("https://packages.test/npm/demo")
 	resp, err := interceptor.HandleRequest(ctx)
@@ -168,10 +168,12 @@ func TestNpmRegistryInterceptor_Custom_MetadataDiscoveryChainsBeforeCooldown(t *
 	require.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	require.NotNil(t, resp.ResponseModifier)
 
-	// The only version is within the cooldown window, so the cooldown
-	// modifier strips it from the response. Discovery must still see it,
-	// because it runs on the upstream body before cooldown rewrites it.
-	tarballURL := "https://packages.test/npm/demo/-/demo-1.2.3.tgz"
+	// The tarball is opaque (not a canonical npm tarball path), so it is
+	// still a candidate for indexing after the canonical-identity skip. The
+	// only version is within the cooldown window, so the cooldown modifier
+	// strips it from the response. Discovery must still see it, because it
+	// runs on the upstream body before cooldown rewrites it.
+	tarballURL := "https://packages.test/download/opaque?id=99"
 	body := []byte(`{"name":"demo","time":{"created":"2020-01-01T00:00:00.000Z","modified":"2024-01-01T00:00:00.000Z","1.2.3":"` +
 		time.Now().Add(-1*24*time.Hour).Format(time.RFC3339) +
 		`"},"dist-tags":{"latest":"1.2.3"},"versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"` + tarballURL + `"}}}}`)
@@ -248,7 +250,9 @@ func TestNpmRegistryInterceptor_Custom_ArtifactIndexIsolatedAcrossRegistries(t *
 	require.NoError(t, err)
 	require.NotNil(t, metadataResp.ResponseModifier)
 
-	tarballURL := "https://packages.test/a/demo/-/demo-1.2.3.tgz"
+	// Opaque, not a canonical npm tarball path, so it stays a candidate for
+	// indexing after the canonical-identity skip.
+	tarballURL := "https://packages.test/a/opaque-blob?id=1"
 	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"` + tarballURL + `"}}}}`)
 	_, _, _, err = metadataResp.ResponseModifier(http.StatusOK, http.Header{}, body)
 	require.NoError(t, err)
@@ -282,4 +286,64 @@ func TestNpmRegistryInterceptor_Custom_DiscoveredOffHostArtifactStaysUnintercept
 	offHostCtx := &proxy.RequestContext{Hostname: "cdn.unconfigured.test"}
 	assert.False(t, interceptor.ShouldMITM(offHostCtx), "discovery must not dynamically enroll a new MITM host")
 	assert.False(t, interceptor.ShouldIntercept(offHostCtx), "discovery must not dynamically enroll a new intercepted host")
+}
+
+func TestNpmRegistryInterceptor_Custom_MetadataDiscoveryNormalizesRequestHeaders(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	ctx := makeTestRequestContext("https://packages.test/npm/demo")
+	ctx.Headers.Set("Accept-Encoding", "gzip")
+	ctx.Headers.Set("If-None-Match", `"etag-value"`)
+	ctx.Headers.Set("If-Modified-Since", "Wed, 01 Jan 2025 00:00:00 GMT")
+
+	// Cooldown is disabled and the package isn't trusted, so the cooldown
+	// handler never runs and never gets a chance to normalize headers
+	// itself. Discovery must still see a decompressible, always-fresh body.
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	require.Equal(t, proxy.ActionModifyResponse, resp.Action)
+
+	assert.Equal(t, "identity", ctx.Headers.Get("Accept-Encoding"), "discovery must force an uncompressed response even with cooldown disabled")
+	assert.Empty(t, ctx.Headers.Get("If-None-Match"), "discovery must prevent a bodyless 304")
+	assert.Empty(t, ctx.Headers.Get("If-Modified-Since"), "discovery must prevent a bodyless 304")
+	assert.Empty(t, ctx.Headers.Get("Accept"), "discovery must not force an Accept override")
+}
+
+func TestNpmRegistryInterceptor_Custom_CanonicalIdentityWinsOverConflictingIndexEntry(t *testing.T) {
+	mock := &mockAnalyzer{result: &analyzer.PackageVersionAnalysisResult{Action: analyzer.ActionBlock}}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	tarballURL := mustParseURL("https://packages.test/npm/real-package/-/real-package-1.0.0.tgz")
+
+	// Simulate a stale or compromised index entry claiming this exact
+	// canonical tarball URL belongs to a different, unrelated package.
+	require.NoError(t, interceptor.artifacts.Add("custom-npm", tarballURL, tarballURL.String(),
+		artifactIdentity{Name: "attacker-package", Version: "9.9.9"}))
+
+	ctx := makeTestRequestContext(tarballURL.String())
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+
+	require.NotNil(t, resp.BlockContext)
+	assert.Equal(t, "real-package", resp.BlockContext.PackageName, "canonical parsing must win over a conflicting index entry")
+	assert.Equal(t, "1.0.0", resp.BlockContext.PackageVersion)
+	assert.Equal(t, 1, mock.callCount)
+}
+
+func TestNpmRegistryInterceptor_Custom_UnparseablePathFallsBackToIndexThenAllows(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	// Too many segments for the unscoped tarball convention: canonical
+	// parsing fails, and nothing was ever indexed for it.
+	ctx := makeTestRequestContext("https://packages.test/npm/pkg/1.0.0/extra/segments")
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Zero(t, mock.callCount)
 }
