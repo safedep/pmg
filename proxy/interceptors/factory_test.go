@@ -128,13 +128,14 @@ func TestInterceptorFactoryWarnsOncePerPlainHTTPEndpoint(t *testing.T) {
 }
 
 func TestCustomRegistryMatchesRelativeMITMURLWithNonDefaultPort(t *testing.T) {
-	interceptor := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{
+	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{
 		Registries: []config.ProxyRegistryConfig{{
 			Name:      "company-npm",
 			Ecosystem: "npm",
 			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test:8443/npm"}},
 		}},
 	})
+	require.NoError(t, err)
 	u, err := url.Parse("/npm/left-pad")
 	require.NoError(t, err)
 
@@ -155,17 +156,35 @@ func TestInterceptorFactoryRejectsMalformedRegistryWithoutLoggingRawURL(t *testi
 		Registries: []config.ProxyRegistryConfig{{
 			Name:      "company-npm",
 			Ecosystem: "npm",
-			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:super-secret@packages.test/npm"}},
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:super-secret@packages.test/%zz"}},
 		}},
 	})
 
 	_, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "company-npm")
-	assert.Contains(t, err.Error(), "must not include credentials")
+	assert.Contains(t, err.Error(), "invalid URL syntax or escaping")
+	assert.NotContains(t, err.Error(), "super-secret")
 	_, hostErr := factory.CustomRegistryHosts()
 	require.EqualError(t, hostErr, err.Error())
 	assert.NotContains(t, logs.String(), "super-secret")
+}
+
+func TestRegistryConstructorsRejectMalformedRegistries(t *testing.T) {
+	ctx := InterceptorContext{Registries: []config.ProxyRegistryConfig{{
+		Name:      "private",
+		Ecosystem: "npm",
+		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:secret@packages.test/%zz"}},
+	}}}
+
+	_, npmErr := NewNpmRegistryInterceptor(nil, nil, nil, nil, ctx)
+	require.Error(t, npmErr)
+	assert.NotContains(t, npmErr.Error(), "secret")
+
+	ctx.Registries[0].Ecosystem = "pypi"
+	_, pypiErr := NewPypiRegistryInterceptor(nil, nil, nil, nil, ctx)
+	require.Error(t, pypiErr)
+	assert.NotContains(t, pypiErr.Error(), "secret")
 }
 
 func registryRequest(t *testing.T, rawURL string) *proxy.RequestContext {

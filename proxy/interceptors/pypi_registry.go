@@ -52,7 +52,7 @@ func NewPypiRegistryInterceptor(
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
-) *PypiRegistryInterceptor {
+) (*PypiRegistryInterceptor, error) {
 	// Re-key pinned versions to the normalized form (lowercase, underscores→hyphens)
 	// so lookups by URL-parsed package name match correctly.
 	normalizedPinned := make(map[string]string, len(execContext.PinnedVersions))
@@ -61,7 +61,11 @@ func NewPypiRegistryInterceptor(
 	}
 	execContext.PinnedVersions = normalizedPinned
 	registries := registryConfigSet{entries: builtInRegistryConfigs(pypiRegistryDomains)}
-	registries.entries = append(registries.entries, customRegistryConfigs(execContext, "pypi")...)
+	customRegistries, err := customRegistryConfigs(execContext, "pypi")
+	if err != nil {
+		return nil, err
+	}
+	registries.entries = append(registries.entries, customRegistries...)
 
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -74,7 +78,7 @@ func NewPypiRegistryInterceptor(
 		},
 		cooldownHandler: newPypiCooldownHandler(statsCollector),
 		registries:      registries,
-	}
+	}, nil
 }
 
 // Name returns the interceptor name for logging

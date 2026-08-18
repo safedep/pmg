@@ -5,10 +5,12 @@ import (
 
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNpmRegistryInterceptor_ShouldMITM(t *testing.T) {
-	interceptor := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
+	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
+	require.NoError(t, err)
 
 	tests := []struct {
 		name     string
@@ -31,7 +33,8 @@ func TestNpmRegistryInterceptor_ShouldMITM(t *testing.T) {
 }
 
 func TestNpmRegistryInterceptor_ShouldIntercept(t *testing.T) {
-	interceptor := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
+	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
+	require.NoError(t, err)
 
 	tests := []struct {
 		name          string

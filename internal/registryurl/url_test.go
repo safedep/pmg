@@ -1,6 +1,7 @@
 package registryurl
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,4 +25,12 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 			assert.Equal(t, once, twice)
 		})
 	}
+}
+
+func TestNormalizeDoesNotExposeMalformedURLCredentials(t *testing.T) {
+	_, err := Normalize("https://user:super-secret@packages.test/%zz")
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "invalid url")
+	assert.NotContains(t, err.Error(), "super-secret")
+	assert.NotContains(t, err.Error(), "user:")
 }

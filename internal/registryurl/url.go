@@ -10,7 +10,7 @@ import (
 func Normalize(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
+		return "", fmt.Errorf("invalid URL syntax or escaping")
 	}
 	if !parsed.IsAbs() {
 		return "", fmt.Errorf("URL must be absolute")

@@ -49,9 +49,13 @@ func NewNpmRegistryInterceptor(
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
-) *NpmRegistryInterceptor {
+) (*NpmRegistryInterceptor, error) {
 	registries := registryConfigSet{entries: builtInRegistryConfigs(npmRegistryDomains)}
-	registries.entries = append(registries.entries, customRegistryConfigs(execContext, "npm")...)
+	customRegistries, err := customRegistryConfigs(execContext, "npm")
+	if err != nil {
+		return nil, err
+	}
+	registries.entries = append(registries.entries, customRegistries...)
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -63,7 +67,7 @@ func NewNpmRegistryInterceptor(
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
 		registries:      registries,
-	}
+	}, nil
 }
 
 // Name returns the interceptor name for logging
