@@ -901,6 +901,25 @@ func TestProxyFlow_CustomPypi(t *testing.T) {
 			},
 		},
 		{
+			Name:   "cooldown strips in-window version on custom pypi metadata",
+			Config: combineConfig(customRegistry("company-pypi", "pypi", simpleBase), cooldownEnabled(7)),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddPypi(PypiPackage{Name: "requests", Versions: []PypiVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().InstallFrom(simpleBase, "requests", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				simple := h.Pypi().FetchSimpleFrom(simpleBase, "requests")
+				assert.False(t, simple.HasVersion("requests", "2.0.0"), "in-window version must be stripped")
+				assert.True(t, simple.HasVersion("requests", "1.0.0"), "out-of-window version must survive")
+				assert.False(t, h.Registry.Requested(pypiHost, "/simple/r/requests/requests-2.0.0.tar.gz"),
+					"the stripped file must never be requested")
+			},
+		},
+		{
 			// The href sits at depth 1 directly under the "/simple"-ending base,
 			// so request-time parsing reads it as Simple API metadata for a
 			// (fabricated) project literally named after the filename, never as
@@ -1084,8 +1103,8 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 // while a MITM'd request does). It does not assert that an unmatched host is
 // recorded as an audit "Host Observation": internal/audit's global sink
 // (internal/audit/audit.go) has no test hook this hermetic harness can observe.
-// That decision — whether a hostname is treated as already known, the precondition
-// for LogProxyHostObserved firing at all — is unit-tested directly instead:
+// Whether a hostname counts as already known decides if LogProxyHostObserved
+// fires at all, and that decision is unit-tested directly instead:
 // proxy/interceptors/audit_logger_test.go:46-52 (TestAuditLoggerInterceptorCustomRegistryHosts)
 // and internal/flows/proxy_flow_interceptors_test.go:33-36
 // (TestBuildProxyFlowInterceptorsWiresCustomRegistries), both of which confirm a

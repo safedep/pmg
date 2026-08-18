@@ -65,8 +65,15 @@ func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact
 		}
 
 		name := entry.Name
-		if !identityFieldValid(name) {
+		switch {
+		case !identityFieldValid(name):
+			// No usable name of its own: fall back to the packument's name.
 			name = packument.Name
+		case identityFieldValid(packument.Name) && name != packument.Name:
+			// A valid name that disagrees with the packument's own name is
+			// inconsistent metadata, the same way a mismatched version key is
+			// rejected above.
+			continue
 		}
 		if !identityFieldValid(name) || !identityFieldValid(entry.Version) || entry.Dist.Tarball == "" {
 			continue

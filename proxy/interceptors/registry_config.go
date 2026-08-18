@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 
 	"github.com/safedep/pmg/internal/registryurl"
@@ -109,7 +108,7 @@ func registryURLHasCanonicalIdentity(registries registryConfigSet, u *url.URL) b
 	if err != nil {
 		return false
 	}
-	return pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != ""
+	return packageInfoHasCompleteIdentity(pkgInfo)
 }
 
 // packageInfo represents parsed package information from a registry URL.
@@ -124,6 +123,14 @@ type packageInfo interface {
 	// IsFileDownload returns true if this is a file download request (tarball, wheel, etc.)
 	// Returns false for metadata requests (package index, version info, etc.)
 	IsFileDownload() bool
+}
+
+// packageInfoHasCompleteIdentity reports whether pkgInfo resolves to a fully
+// identified file download: a file download with both a name and a version.
+// This is the bar every ecosystem interceptor uses to treat parsed URL info
+// as an authoritative package identity, shared so npm and PyPI cannot drift.
+func packageInfoHasCompleteIdentity(pkgInfo packageInfo) bool {
+	return pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != ""
 }
 
 // registryURLParser parses registry-specific URLs to extract package information.
@@ -230,26 +237,6 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 		relativePath = "/"
 	}
 	return &registryMatch{Config: best.config, RelativePath: relativePath}
-}
-
-func (s registryConfigSet) KnownHosts() []string {
-	hosts := make(map[string]struct{}, len(s.entries))
-	for _, config := range s.entries {
-		if config == nil {
-			continue
-		}
-		host := registryurl.NormalizeHostname(config.Host)
-		if host != "" {
-			hosts[host] = struct{}{}
-		}
-	}
-
-	result := make([]string, 0, len(hosts))
-	for host := range hosts {
-		result = append(result, host)
-	}
-	sort.Strings(result)
-	return result
 }
 
 type registryMatchCandidate struct {
