@@ -44,12 +44,7 @@ func goModuleVersionKey(module, version string) string {
 // HandleInfoRequest reads the .info response body without altering it and
 // caches the version's publish time for the upcoming .zip request.
 func (h *goCooldownHandler) HandleInfoRequest(ctx *proxy.RequestContext, module, version string) (*proxy.InterceptorResponse, error) {
-	// Force an uncompressed, non-conditional response so the body is parseable
-	// JSON rather than raw gzip bytes or an empty 304 (same as the npm
-	// metadata modifier).
-	ctx.Headers.Set("Accept-Encoding", "identity")
-	ctx.Headers.Del("If-None-Match")
-	ctx.Headers.Del("If-Modified-Since")
+	forceUncompressedNonConditionalResponse(ctx.Headers)
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		if statusCode != http.StatusOK {

@@ -107,13 +107,21 @@ func npmIdentityFieldValid(s string) bool {
 // identity even when the URL itself does not follow the standard npm tarball
 // convention.
 //
+// An advertised URL that request-time canonical parsing would already
+// resolve to a complete file-download identity is never indexed: canonical
+// parsing is authoritative for it, and it would only be a redundant entry in
+// the bounded index. This also keeps a large packument from flooding the
+// index with mappings for URLs that never needed one, since real npm
+// registries advertise the same canonical tarball URL the parser already
+// understands for every version.
+//
 // It only inspects successful (200) responses and never modifies the
 // response: the returned status, headers, and body are always exactly what
 // was passed in. A parse failure is logged generically and the response
 // passes through unchanged; log output never includes the packument body,
 // tarball references, URLs, or query strings, since those may carry signed
 // download tokens.
-func npmMetadataDiscoveryModifier(ctx *proxy.RequestContext, artifacts *artifactIndex, registryName string, metadataURL *url.URL) proxy.ResponseModifierFunc {
+func npmMetadataDiscoveryModifier(ctx *proxy.RequestContext, artifacts *artifactIndex, registries registryConfigSet, registryName string, metadataURL *url.URL) proxy.ResponseModifierFunc {
 	return func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		if statusCode != http.StatusOK {
 			return statusCode, headers, body, nil
@@ -126,6 +134,9 @@ func npmMetadataDiscoveryModifier(ctx *proxy.RequestContext, artifacts *artifact
 		}
 
 		for _, artifact := range discovered {
+			if registryURLHasCanonicalIdentity(registries, artifact.URL) {
+				continue
+			}
 			if err := artifacts.Add(registryName, metadataURL, artifact.URL.String(), artifact.Identity); err != nil {
 				log.Warnf("[%s] Failed to index npm artifact: %v", ctx.RequestID, err)
 			}
