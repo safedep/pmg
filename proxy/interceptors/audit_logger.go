@@ -39,7 +39,7 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if i.isKnownRegistryHost(ctx.Hostname) {
+	if i.IsKnownRegistryHost(ctx.Hostname) {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -58,7 +58,8 @@ var wellKnownGoHosts = map[string]bool{
 	"sum.golang.org":   true,
 }
 
-func (i *AuditLoggerInterceptor) isKnownRegistryHost(hostname string) bool {
+// IsKnownRegistryHost reports whether host observations should be suppressed.
+func (i *AuditLoggerInterceptor) IsKnownRegistryHost(hostname string) bool {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
 	if _, exists := i.customRegistryHosts[hostname]; exists {
 		return true

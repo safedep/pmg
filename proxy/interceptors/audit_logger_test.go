@@ -46,7 +46,7 @@ func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {
 func TestAuditLoggerInterceptorCustomRegistryHosts(t *testing.T) {
 	i := NewAuditLoggerInterceptor([]string{"Packages.Test"})
 
-	assert.True(t, i.isKnownRegistryHost("packages.test"))
-	assert.False(t, i.isKnownRegistryHost("cdn.packages.test"))
-	assert.False(t, i.isKnownRegistryHost("unrelated.test"))
+	assert.True(t, i.IsKnownRegistryHost("packages.test"))
+	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test"))
+	assert.False(t, i.IsKnownRegistryHost("unrelated.test"))
 }
