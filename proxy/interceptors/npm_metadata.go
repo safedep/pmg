@@ -65,10 +65,10 @@ func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact
 		}
 
 		name := entry.Name
-		if !npmIdentityFieldValid(name) {
+		if !identityFieldValid(name) {
 			name = packument.Name
 		}
-		if !npmIdentityFieldValid(name) || !npmIdentityFieldValid(entry.Version) || entry.Dist.Tarball == "" {
+		if !identityFieldValid(name) || !identityFieldValid(entry.Version) || entry.Dist.Tarball == "" {
 			continue
 		}
 
@@ -87,9 +87,12 @@ func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact
 	return artifacts, nil
 }
 
-// npmIdentityFieldValid reports whether s is usable as a package name or
-// version: non-empty once trimmed, and free of control characters.
-func npmIdentityFieldValid(s string) bool {
+// identityFieldValid reports whether s is usable as a package name or
+// version: non-empty once trimmed, and free of control characters. Shared by
+// every ecosystem's metadata discovery, since the requirement is the same
+// regardless of what the field is called upstream (npm tarball name/version,
+// pypi filename-derived name/version, and so on).
+func identityFieldValid(s string) bool {
 	if strings.TrimSpace(s) == "" {
 		return false
 	}
@@ -105,43 +108,11 @@ func npmIdentityFieldValid(s string) bool {
 // artifact URLs advertised by a custom registry's packument response, so a
 // later request for one of those URLs can be resolved back to its package
 // identity even when the URL itself does not follow the standard npm tarball
-// convention.
-//
-// An advertised URL that request-time canonical parsing would already
-// resolve to a complete file-download identity is never indexed: canonical
-// parsing is authoritative for it, and it would only be a redundant entry in
-// the bounded index. This also keeps a large packument from flooding the
-// index with mappings for URLs that never needed one, since real npm
-// registries advertise the same canonical tarball URL the parser already
-// understands for every version.
-//
-// It only inspects successful (200) responses and never modifies the
-// response: the returned status, headers, and body are always exactly what
-// was passed in. A parse failure is logged generically and the response
-// passes through unchanged; log output never includes the packument body,
-// tarball references, URLs, or query strings, since those may carry signed
-// download tokens.
+// convention. See artifactDiscoveryModifier for the shared discovery
+// contract every ecosystem follows.
 func npmMetadataDiscoveryModifier(ctx *proxy.RequestContext, artifacts *artifactIndex, registries registryConfigSet, registryName string, metadataURL *url.URL) proxy.ResponseModifierFunc {
-	return func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
-		if statusCode != http.StatusOK {
-			return statusCode, headers, body, nil
-		}
-
-		discovered, err := parseNpmMetadataArtifacts(metadataURL, body)
-		if err != nil {
-			log.Warnf("[%s] Failed to parse npm metadata for artifact discovery", ctx.RequestID)
-			return statusCode, headers, body, nil
-		}
-
-		for _, artifact := range discovered {
-			if registryURLHasCanonicalIdentity(registries, artifact.URL) {
-				continue
-			}
-			if err := artifacts.Add(registryName, metadataURL, artifact.URL.String(), artifact.Identity); err != nil {
-				log.Warnf("[%s] Failed to index npm artifact: %v", ctx.RequestID, err)
-			}
-		}
-
-		return statusCode, headers, body, nil
-	}
+	return artifactDiscoveryModifier(ctx, artifacts, registries, registryName, metadataURL,
+		func(_ http.Header, body []byte) ([]advertisedArtifact, error) {
+			return parseNpmMetadataArtifacts(metadataURL, body)
+		})
 }

@@ -90,7 +90,7 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 		case "npm":
 			parser = npmParser{}
 		case "pypi":
-			parser = pypiOrgParser{}
+			parser = pypiCustomParser{}
 		}
 		for _, endpoint := range registry.Endpoints {
 			u, err := normalizedRegistryEndpoint(endpoint.URL)
