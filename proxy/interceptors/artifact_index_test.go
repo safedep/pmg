@@ -180,6 +180,62 @@ func TestArtifactIndexRejectsInvalidInputs(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestArtifactIndexErrorsDoNotExposeURLSecrets(t *testing.T) {
+	index := newArtifactIndexWithOptions(10, time.Minute, time.Now)
+	identity := artifactIdentity{Name: "pkg", Version: "1"}
+	validBase := mustParseArtifactURL(t, "https://registry.example/metadata")
+
+	tests := []struct {
+		name    string
+		base    *url.URL
+		ref     string
+		secrets []string
+	}{
+		{
+			name: "credential-bearing base",
+			base: mustParseArtifactURL(t, "https://base-user:base-password@registry.example/metadata?token=base-secret"),
+			ref:  "artifact.tgz",
+			secrets: []string{
+				"base-user",
+				"base-password",
+				"base-secret",
+				"registry.example",
+			},
+		},
+		{
+			name: "malformed reference",
+			base: validBase,
+			ref:  "%zz?token=reference-secret",
+			secrets: []string{
+				"%zz",
+				"reference-secret",
+				"registry.example",
+			},
+		},
+		{
+			name: "credential-bearing reference",
+			base: validBase,
+			ref:  "https://ref-user:ref-password@artifacts.example/pkg.tgz?token=artifact-secret",
+			secrets: []string{
+				"ref-user",
+				"ref-password",
+				"artifact-secret",
+				"artifacts.example",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := index.Add("npm", test.base, test.ref, identity)
+			require.Error(t, err)
+			for _, secret := range test.secrets {
+				assert.NotContains(t, err.Error(), secret)
+			}
+		})
+	}
+}
+
 func TestArtifactIndexConcurrentAccess(t *testing.T) {
 	index := newArtifactIndexWithOptions(100, time.Minute, time.Now)
 	base := mustParseArtifactURL(t, "https://registry.example/metadata")
