@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"net/url"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -40,6 +41,7 @@ type PypiRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *pypiCooldownHandler
 	registries      registryConfigSet
+	artifacts       *artifactIndex
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
@@ -78,6 +80,7 @@ func NewPypiRegistryInterceptor(
 		},
 		cooldownHandler: newPypiCooldownHandler(statsCollector),
 		registries:      registries,
+		artifacts:       newArtifactIndex(),
 	}, nil
 }
 
@@ -119,63 +122,139 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	requestURL := registryAbsoluteRequestURL(ctx)
+
 	// Parse URL using registry-specific strategy
-	pkgInfo, err := config.Parser.ParseURL(match.RelativePath)
-	if err != nil {
-		log.Warnf("[%s] Failed to parse PyPI registry URL %s for %s: %v",
-			ctx.RequestID, ctx.URL.Path, config.Host, err)
+	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
+
+	if parseErr == nil && pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != "" {
+		// Canonical parsing already resolves this exact URL to a complete
+		// identity. This is authoritative and must never be overridden by a
+		// metadata-discovered mapping: otherwise a compromised registry could
+		// advertise a safe identity for another package's real artifact path
+		// and have PMG analyze and allow the wrong bytes.
+		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+	}
+
+	// Canonical parsing failed, or the path isn't shaped like a real PyPI
+	// artifact (a metadata request, or a parser that never resolves file
+	// downloads). Only now fall back to the registry-scoped artifact index,
+	// which resolves non-standard artifact paths advertised by metadata
+	// discovery. config.Name is empty for built-in registries, so this never
+	// matches them: artifactIndex.Get requires a non-empty registry name.
+	if identity, ok := i.artifacts.Get(config.Name, requestURL); ok {
+		return i.handleArtifact(ctx, identity.Name, identity.Version)
+	}
+
+	if parseErr != nil {
+		if config.Name == "" {
+			log.Warnf("[%s] Failed to parse PyPI registry URL %s for %s: %v",
+				ctx.RequestID, ctx.URL.Path, config.Host, parseErr)
+		} else {
+			// Custom registries see far more non-package traffic (health
+			// checks, auth, search) under their configured prefix, and the
+			// path itself may embed a signed token, so this stays at debug
+			// level and never logs the raw path.
+			log.Debugf("[%s] Failed to parse PyPI registry URL for custom registry %q: %v", ctx.RequestID, config.Name, parseErr)
+		}
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	if !pkgInfo.IsFileDownload() {
-		depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-		// Only apply cooldown to Simple API requests (/simple/{pkg}/) — pip uses these
-		// for version resolution. JSON API requests (/pypi/{pkg}/json) are allowed through;
-		// they have a different response structure and pip does not use them for installs.
-		if depCooldownConfig.Enabled && strings.HasPrefix(ctx.URL.Path, "/simple/") {
-			if pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName())) {
-				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return i.handleMetadataRequest(ctx, config, pkgInfo, requestURL)
+	}
+
+	// A file-download parse without a complete identity, and no index match:
+	// nothing reliable to analyze against.
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+}
+
+// handleMetadataRequest applies dependency cooldown, artifact discovery, or
+// both to a package metadata request, depending on whether cooldown applies
+// and whether the request targets a custom registry. Discovery runs before
+// cooldown so it always sees the upstream index, never a cooldown-stripped
+// one. Cooldown only ever applies to Simple API requests — pip uses those
+// for version resolution, while JSON API requests have a different response
+// shape and pip does not use them for installs.
+func (i *PypiRegistryInterceptor) handleMetadataRequest(
+	ctx *proxy.RequestContext,
+	config *registryConfig,
+	pkgInfo packageInfo,
+	requestURL *url.URL,
+) (*proxy.InterceptorResponse, error) {
+	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+	isSimpleAPIRequest := pypiIsSimpleAPIMetadataRequest(ctx, config, pkgInfo)
+
+	var cooldownModifier proxy.ResponseModifierFunc
+	if depCooldownConfig.Enabled && isSimpleAPIRequest {
+		canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+		if !pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName) {
+			cooldownResp, err := i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+			if err != nil {
+				return nil, err
 			}
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+			if cooldownResp.Action == proxy.ActionModifyResponse {
+				cooldownModifier = cooldownResp.ResponseModifier
+			}
 		}
-
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	// Ensure we have both name and version for analysis
-	if pkgInfo.GetName() == "" || pkgInfo.GetVersion() == "" {
-		log.Warnf("[%s] Incomplete package info from URL %s: name=%s, version=%s",
-			ctx.RequestID, ctx.URL.Path, pkgInfo.GetName(), pkgInfo.GetVersion())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	if config.Name == "" || !isSimpleAPIRequest {
+		if cooldownModifier == nil {
+			log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
+			return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		}
+		return &proxy.InterceptorResponse{Action: proxy.ActionModifyResponse, ResponseModifier: cooldownModifier}, nil
 	}
 
-	// Canonical name is used for identity checks (trusted, cooldown); raw name
-	// is kept for analyzePackage so malware analysis sees the original form.
-	canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+	// Discovery needs a parseable, always-fresh body regardless of whether
+	// cooldown also runs: cooldown only normalizes these headers itself when
+	// it registers its own modifier (enabled, not trusted), so without this a
+	// discovery-only request could otherwise arrive compressed or be
+	// answered with a bodyless 304.
+	forceUncompressedNonConditionalResponse(ctx.Headers)
 
-	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, pkgInfo.GetVersion()); ok {
+	discovery := pypiMetadataDiscoveryModifier(ctx, i.artifacts, i.registries, config.Name, requestURL)
+	return &proxy.InterceptorResponse{
+		Action:           proxy.ActionModifyResponse,
+		ResponseModifier: chainResponseModifiers(discovery, cooldownModifier),
+	}, nil
+}
+
+// pypiIsSimpleAPIMetadataRequest decides whether a metadata request is Simple
+// API shaped, the only shape pip uses for version resolution and the only
+// one cooldown and discovery apply to.
+//
+// A built-in registry's base path is always "/simple/..." or "/pypi/..."
+// verbatim, so the absolute request path decides it exactly as before a
+// custom registry could exist. A custom registry can mount its Simple API
+// under any prefix, so the absolute path can no longer be trusted; whether
+// config.Parser resolved a Simple-shaped or JSON-shaped result decides it
+// instead.
+func pypiIsSimpleAPIMetadataRequest(ctx *proxy.RequestContext, config *registryConfig, pkgInfo packageInfo) bool {
+	if config.Name == "" {
+		return strings.HasPrefix(ctx.URL.Path, "/simple/")
+	}
+	info, ok := pkgInfo.(*pypiPackageInfo)
+	return ok && info.IsSimpleAPI()
+}
+
+// handleArtifact runs the shared trust, analysis, and verdict pipeline for a
+// package artifact download, regardless of whether its identity came from
+// canonical URL parsing or from the registry-scoped artifact index. Canonical
+// (denormalized) name is used for the trust check; the parsed name is kept
+// for analyzePackage so malware analysis sees the original form.
+func (i *PypiRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
+	canonicalName := denormalizePyPIPackageName(name)
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, version); ok {
 		return resp, nil
 	}
 
-	// Get file type for logging if available
-	fileType := ""
-	if pypiInfo, ok := pkgInfo.(*pypiPackageInfo); ok {
-		fileType = pypiInfo.FileType()
-	}
-	log.Debugf("[%s] Analyzing PyPI package: %s@%s (type: %s)",
-		ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), fileType)
-
-	result, err := i.analyzePackage(
-		ctx,
-		packagev1.Ecosystem_ECOSYSTEM_PYPI,
-		pkgInfo.GetName(),
-		pkgInfo.GetVersion(),
-	)
+	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), err)
+		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
+	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, name, version, result)
 }

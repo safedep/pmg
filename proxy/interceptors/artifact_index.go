@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/registryurl"
 	"github.com/safedep/pmg/proxy"
 )
@@ -238,6 +239,60 @@ func artifactURLPort(host string) (string, bool) {
 		return port, port != ""
 	default:
 		return "", false
+	}
+}
+
+// artifactDiscoveryModifier returns a response modifier that indexes the
+// artifacts a parse function extracts from a successful metadata response, so
+// a later request for one of those artifact URLs can be resolved back to its
+// package identity even when the URL itself does not follow the ecosystem's
+// standard artifact-URL convention. Every ecosystem's metadata discovery
+// modifier (npm packument, pypi Simple API index, ...) is a thin wrapper
+// around this: only the parse function differs.
+//
+// An advertised URL that request-time canonical parsing would already
+// resolve to a complete file-download identity is never indexed: canonical
+// parsing is authoritative for it, and it would only be a redundant entry in
+// the bounded index. This also keeps a large response from flooding the
+// index with mappings for URLs that never needed one, since real registries
+// advertise the same canonical artifact URL the parser already understands
+// for every version.
+//
+// It only inspects successful (200) responses and never modifies the
+// response: the returned status, headers, and body are always exactly what
+// was passed in. A parse failure is logged generically and the response
+// passes through unchanged; log output never includes the response body,
+// artifact references, URLs, or query strings, since those may carry signed
+// download tokens.
+func artifactDiscoveryModifier(
+	ctx *proxy.RequestContext,
+	artifacts *artifactIndex,
+	registries registryConfigSet,
+	registryName string,
+	metadataURL *url.URL,
+	parse func(headers http.Header, body []byte) ([]advertisedArtifact, error),
+) proxy.ResponseModifierFunc {
+	return func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+		if statusCode != http.StatusOK {
+			return statusCode, headers, body, nil
+		}
+
+		discovered, err := parse(headers, body)
+		if err != nil {
+			log.Warnf("[%s] Failed to parse metadata for artifact discovery", ctx.RequestID)
+			return statusCode, headers, body, nil
+		}
+
+		for _, artifact := range discovered {
+			if registryURLHasCanonicalIdentity(registries, artifact.URL) {
+				continue
+			}
+			if err := artifacts.Add(registryName, metadataURL, artifact.URL.String(), artifact.Identity); err != nil {
+				log.Warnf("[%s] Failed to index artifact: %v", ctx.RequestID, err)
+			}
+		}
+
+		return statusCode, headers, body, nil
 	}
 }
 
