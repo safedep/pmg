@@ -237,6 +237,28 @@ func TestPypiRegistryInterceptor_Custom_NonSimpleBaseDoesNotGuessArbitraryPaths(
 	assert.Equal(t, `"etag-value"`, ctx.Headers.Get("If-None-Match"))
 }
 
+func TestPypiRegistryInterceptor_Custom_ProjectNameShapedLikeFilenameIsMetadataNotArtifact(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestPypiCustomInterceptor(t, mock, "https://python.test/simple")
+
+	// "totally-fine-2.0.0.tar.gz" is a pathological but syntactically legal
+	// PyPI project name that happens to parse cleanly as a distribution
+	// filename. Under a /simple-ending base, a bare one-segment path is
+	// always that project's Simple API index page, never a download: it
+	// must go through metadata handling (discovery/cooldown), never
+	// straight to handleArtifact under a fabricated {totally-fine, 2.0.0}
+	// identity that would skip both and let the analyzer's NotFound
+	// fail-open pass the real response straight through.
+	ctx := makeTestRequestContext("https://python.test/simple/totally-fine-2.0.0.tar.gz/")
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionModifyResponse, resp.Action)
+	require.NotNil(t, resp.ResponseModifier)
+	assert.Zero(t, mock.callCount, "the analyzer must never be called under a fabricated filename-derived identity")
+}
+
 func TestPypiRegistryInterceptor_Custom_MetadataDiscoveryChainsBeforeCooldown(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 

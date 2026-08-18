@@ -65,8 +65,20 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	// "simple" served as ".../simple/simple/simple-1.0.0.tar.gz" must resolve
 	// as a download, not as a one-segment Simple API index request for a
 	// package named after the filename itself.
-	if info, ok := pypiFilenameFromLastSegment(segments[len(segments)-1]); ok {
-		return info, nil
+	//
+	// This shortcut is skipped at exactly depth 1 on a base ending in
+	// "/simple": per PEP 503, a bare one-segment path under a Simple API
+	// mount is always that project's index page, never a download, even on
+	// the pathological chance the project's own name happens to parse as a
+	// distribution filename (e.g. a project literally named
+	// "totally-fine-2.0.0.tar.gz" is a syntactically legal PyPI name). The
+	// shortcut still applies at depth 1 on any other base (a dedicated,
+	// non-project-scoped download endpoint, where a bare filename really is
+	// a download) and at every depth of 2 or more regardless of base shape.
+	if !(p.baseEndsInSimple && len(segments) == 1) {
+		if info, ok := pypiFilenameFromLastSegment(segments[len(segments)-1]); ok {
+			return info, nil
+		}
 	}
 
 	if info, err := (pypiOrgParser{}).ParseURL(urlPath); err == nil {
