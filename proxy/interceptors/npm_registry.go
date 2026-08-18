@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"net/url"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -37,6 +39,7 @@ type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *npmCooldownHandler
 	registries      registryConfigSet
+	artifacts       *artifactIndex
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
@@ -67,6 +70,7 @@ func NewNpmRegistryInterceptor(
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
 		registries:      registries,
+		artifacts:       newArtifactIndex(),
 	}, nil
 }
 
@@ -108,6 +112,16 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	requestURL := registryAbsoluteRequestURL(ctx)
+
+	// A custom registry may advertise artifacts at paths that don't follow the
+	// standard npm tarball convention (config.Name is empty for built-in
+	// registries, so this never matches them). Check the index before
+	// canonical parsing so a metadata-discovered identity always wins.
+	if identity, ok := i.artifacts.Get(config.Name, requestURL); ok {
+		return i.handleArtifact(ctx, identity.Name, identity.Version)
+	}
+
 	// Parse URL using registry-specific strategy
 	pkgInfo, err := config.Parser.ParseURL(match.RelativePath)
 	if err != nil {
@@ -119,31 +133,65 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
 
 	if !pkgInfo.IsFileDownload() {
-		if depCooldownConfig.Enabled {
-			if pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName()) {
-				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-			}
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
-		}
-
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return i.handleMetadataRequest(ctx, config, pkgInfo, requestURL, depCooldownConfig)
 	}
 
-	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion()); ok {
+	return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+}
+
+// handleMetadataRequest applies dependency cooldown, artifact discovery, or
+// both to a package metadata request, depending on whether cooldown is
+// enabled and whether the request targets a custom registry. Discovery runs
+// before cooldown so it always sees the upstream packument, never a
+// cooldown-stripped one.
+func (i *NpmRegistryInterceptor) handleMetadataRequest(
+	ctx *proxy.RequestContext,
+	config *registryConfig,
+	pkgInfo packageInfo,
+	requestURL *url.URL,
+	depCooldownConfig pmgconfig.DependencyCooldownConfig,
+) (*proxy.InterceptorResponse, error) {
+	trustedAllVersions := pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
+
+	var cooldownModifier proxy.ResponseModifierFunc
+	if depCooldownConfig.Enabled && !trustedAllVersions {
+		cooldownResp, err := i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+		if err != nil {
+			return nil, err
+		}
+		if cooldownResp.Action == proxy.ActionModifyResponse {
+			cooldownModifier = cooldownResp.ResponseModifier
+		}
+	}
+
+	if config.Name == "" {
+		if cooldownModifier == nil {
+			log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
+			return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		}
+		return &proxy.InterceptorResponse{Action: proxy.ActionModifyResponse, ResponseModifier: cooldownModifier}, nil
+	}
+
+	discovery := npmMetadataDiscoveryModifier(ctx, i.artifacts, config.Name, requestURL)
+	return &proxy.InterceptorResponse{
+		Action:           proxy.ActionModifyResponse,
+		ResponseModifier: chainResponseModifiers(discovery, cooldownModifier),
+	}, nil
+}
+
+// handleArtifact runs the shared trust, analysis, and verdict pipeline for a
+// package artifact download, regardless of whether its identity came from
+// canonical URL parsing or from the registry-scoped artifact index.
+func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version); ok {
 		return resp, nil
 	}
 
-	result, err := i.analyzePackage(
-		ctx,
-		packagev1.Ecosystem_ECOSYSTEM_NPM,
-		pkgInfo.GetName(),
-		pkgInfo.GetVersion(),
-	)
+	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), err)
+		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
+	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, result)
 }
