@@ -1048,6 +1048,14 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.False(t, res.Blocked())
 				assert.Empty(t, h.Analyzer.Calls())
+				// A tunneled (non-MITM) connection's TLS handshake fails against the
+				// mock's self-signed cert, since the client trusts only the MITM CA
+				// (harness.go), so the registry never sees the request. Requested
+				// being true here proves the host WAS MITM'd and the request was
+				// actually forwarded upstream untouched, not silently tunneled past
+				// an interceptor that never ran.
+				assert.True(t, h.Registry.Requested("packages.example.test", "/health"),
+					"the unmatched path must be MITM'd and forwarded upstream, not tunneled")
 			},
 		},
 		{
@@ -1070,10 +1078,22 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 	})
 }
 
+// TestProxyFlow_CustomRegistryTunneling asserts the tunneled-vs-MITM'd distinction
+// itself (via Registry.Requested, since a tunneled connection's TLS handshake fails
+// against the mock's self-signed cert and never reaches the registry's HTTP layer,
+// while a MITM'd request does). It does not assert that an unmatched host is
+// recorded as an audit "Host Observation": internal/audit's global sink
+// (internal/audit/audit.go) has no test hook this hermetic harness can observe.
+// That decision — whether a hostname is treated as already known, the precondition
+// for LogProxyHostObserved firing at all — is unit-tested directly instead:
+// proxy/interceptors/audit_logger_test.go:46-52 (TestAuditLoggerInterceptorCustomRegistryHosts)
+// and internal/flows/proxy_flow_interceptors_test.go:33-36
+// (TestBuildProxyFlowInterceptorsWiresCustomRegistries), both of which confirm a
+// custom registry's own host is known while its subdomain is not.
 func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
-			Name:   "subdomain of a custom registry host is tunneled and observed",
+			Name:   "subdomain of a custom registry host stays tunneled, not MITM'd",
 			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
 			Exec: func(h *Harness) ExecResult {
 				res := ExecResult{}
@@ -1082,7 +1102,9 @@ func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.Contains(t, h.DialedAddrs(), "cdn.packages.example.test:443",
-					"an unconfigured subdomain must never be MITM'd; the CONNECT tunnel still routes through the mock override")
+					"the CONNECT tunnel must still route through the mock override for hermeticity")
+				assert.False(t, h.Registry.Requested("cdn.packages.example.test", "/whatever.tgz"),
+					"an unconfigured subdomain must never be MITM'd, so the request never reaches the registry")
 				assert.Empty(t, h.Analyzer.Calls())
 			},
 		},
@@ -1105,6 +1127,8 @@ func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.Contains(t, h.DialedAddrs(), "cdn.unconfigured.test:443",
 					"discovery must never dynamically enroll a new MITM host; the off-host artifact stays tunneled")
+				assert.False(t, h.Registry.Requested("cdn.unconfigured.test", "/demo-1.2.3.tgz"),
+					"a MITM'd request would reach the registry; this must never happen for a discovered off-host URL")
 				assert.Zero(t, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
 			},
 		},
