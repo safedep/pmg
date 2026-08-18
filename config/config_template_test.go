@@ -64,4 +64,5 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.Equal(t, def.AdvisoryMessage, parsed.AdvisoryMessage, "advisory_message mismatch")
 
 	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
+	assert.Equal(t, def.Proxy.Registries, parsed.Proxy.Registries, "proxy.registries mismatch")
 }
