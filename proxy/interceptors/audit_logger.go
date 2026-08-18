@@ -5,15 +5,19 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
-// AuditLoggerInterceptor logs unknown outbound hosts observed by proxy mode.
-// It is passive telemetry only and never blocks or mutates requests.
-type AuditLoggerInterceptor struct{}
+type AuditLoggerInterceptor struct {
+	customRegistryHosts map[string]struct{}
+}
 
 var _ proxy.Interceptor = (*AuditLoggerInterceptor)(nil)
 var _ proxy.MITMDecider = (*AuditLoggerInterceptor)(nil)
 
-func NewAuditLoggerInterceptor() *AuditLoggerInterceptor {
-	return &AuditLoggerInterceptor{}
+func NewAuditLoggerInterceptor(customRegistryHosts []string) *AuditLoggerInterceptor {
+	hosts := make(map[string]struct{}, len(customRegistryHosts))
+	for _, host := range customRegistryHosts {
+		hosts[normalizeHostnameWithOptionalPort(host)] = struct{}{}
+	}
+	return &AuditLoggerInterceptor{customRegistryHosts: hosts}
 }
 
 func (i *AuditLoggerInterceptor) Name() string {
@@ -55,6 +59,10 @@ var wellKnownGoHosts = map[string]bool{
 }
 
 func (i *AuditLoggerInterceptor) isKnownRegistryHost(hostname string) bool {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	if _, exists := i.customRegistryHosts[hostname]; exists {
+		return true
+	}
 	return npmRegistryDomains.ContainsHostname(hostname) ||
 		pypiRegistryDomains.ContainsHostname(hostname) ||
 		wellKnownGoHosts[hostname]

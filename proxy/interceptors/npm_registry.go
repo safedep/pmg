@@ -36,6 +36,7 @@ var npmRegistryDomains = registryConfigMap{
 type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *npmCooldownHandler
+	registries      registryConfigSet
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
@@ -49,6 +50,8 @@ func NewNpmRegistryInterceptor(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) *NpmRegistryInterceptor {
+	registries := registryConfigSet{entries: builtInRegistryConfigs(npmRegistryDomains)}
+	registries.entries = append(registries.entries, customRegistryConfigs(execContext.Registries, "npm", npmParser{})...)
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -59,6 +62,7 @@ func NewNpmRegistryInterceptor(
 			execContext:      execContext,
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
+		registries:      registries,
 	}
 }
 
@@ -68,17 +72,15 @@ func (i *NpmRegistryInterceptor) Name() string {
 }
 
 func (i *NpmRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
-	config := npmRegistryDomains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
+	if ctx == nil {
 		return false
 	}
-
-	return config.SupportedForAnalysis
+	return registryHostSupportsAnalysis(i.registries, ctx.Hostname)
 }
 
 // ShouldIntercept determines if this interceptor should handle the given request
 func (i *NpmRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	return npmRegistryDomains.ContainsHostname(ctx.Hostname)
+	return registryRequestMatch(i.registries, ctx) != nil
 }
 
 // HandleRequest processes the request and returns response action
@@ -87,14 +89,15 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	log.Debugf("[%s] Handling NPM registry request: %s", ctx.RequestID, ctx.URL.Path)
 
 	// Get registry configuration
-	config := npmRegistryDomains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
+	match := registryRequestMatch(i.registries, ctx)
+	if match == nil {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	// Skip analysis for registries that are not supported for analysis
+	config := match.Config
 	if !config.SupportedForAnalysis {
 		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
 			ctx.RequestID, config.Host, ctx.URL.String())
@@ -102,7 +105,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	}
 
 	// Parse URL using registry-specific strategy
-	pkgInfo, err := config.Parser.ParseURL(ctx.URL.Path)
+	pkgInfo, err := config.Parser.ParseURL(match.RelativePath)
 	if err != nil {
 		log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
 			ctx.RequestID, ctx.URL.Path, config.Host, err)
