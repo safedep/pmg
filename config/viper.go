@@ -47,7 +47,7 @@ func loadViperConfig() error {
 		}
 	}
 
-	merged := globalConfig.Config
+	var merged Config
 	if err := v.Unmarshal(&merged); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
