@@ -201,7 +201,7 @@ func hostnameMatch(hostname string, config *registryConfig) (bool, bool) {
 }
 
 func normalizeRegistryBasePath(path string) string {
-	return strings.TrimSuffix(registryurl.NormalizeEscapedPath(path), "/")
+	return registryurl.NormalizeBasePath(path)
 }
 
 func matchesRegistryPath(path, basePath string) bool {

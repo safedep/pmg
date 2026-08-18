@@ -272,6 +272,7 @@ func TestRegistryConfigSetMatchURL(t *testing.T) {
 		{Name: "alternate-port", Host: "packages.example.test", Scheme: "https", Port: "8443", BasePath: "/npm/team"},
 		{Name: "ipv6", Host: "2001:DB8::1", Scheme: "https", BasePath: "/simple"},
 		{Name: "escaped", Host: "escapes.example.test", Scheme: "https", BasePath: "/npm/%2Fteam"},
+		{Name: "repeated-trailing-slashes", Host: "slashes.example.test", Scheme: "https", BasePath: "/npm///"},
 		{Name: "built-in", Host: "registry.example.org", Scheme: "https", MatchSubdomains: true},
 	}}
 
@@ -295,6 +296,7 @@ func TestRegistryConfigSetMatchURL(t *testing.T) {
 		{name: "ipv6 origin", rawURL: "https://[2001:db8::1]/simple/pkg", wantName: "ipv6", wantRelative: "/pkg"},
 		{name: "escaped path hex case", rawURL: "https://escapes.example.test/npm/%2fteam/pkg", wantName: "escaped", wantRelative: "/pkg"},
 		{name: "escaped slash remains a segment value", rawURL: "https://escapes.example.test/npm//team/pkg"},
+		{name: "repeated base trailing slashes", rawURL: "https://slashes.example.test/npm/pkg", wantName: "repeated-trailing-slashes", wantRelative: "/pkg"},
 		{name: "built-in exact hostname", rawURL: "https://registry.example.org/pkg", wantName: "built-in", wantRelative: "/pkg"},
 		{name: "built-in subdomain", rawURL: "https://cdn.registry.example.org/pkg", wantName: "built-in", wantRelative: "/pkg"},
 		{name: "custom subdomain is unmatched", rawURL: "https://cdn.packages.example.test/npm/team/pkg"},
