@@ -165,9 +165,10 @@ type CloudAutoSyncConfig struct {
 }
 
 type ProxyConfig struct {
-	InstallOnly  bool                `mapstructure:"install_only"`
-	SkipCommands map[string][]string `mapstructure:"skip_commands"`
-	Server       ProxyServerConfig   `mapstructure:"server"`
+	InstallOnly  bool                  `mapstructure:"install_only"`
+	SkipCommands map[string][]string   `mapstructure:"skip_commands"`
+	Server       ProxyServerConfig     `mapstructure:"server"`
+	Registries   []ProxyRegistryConfig `mapstructure:"registries"`
 }
 
 // ProxyServerConfig configures the persistent proxy server (`pmg proxy start`).
