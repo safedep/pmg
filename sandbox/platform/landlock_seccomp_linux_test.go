@@ -674,11 +674,13 @@ func TestReadNetPeer_UnreadableMemFails(t *testing.T) {
 	assert.Error(t, err, "empty memory image must fail the family read")
 }
 
+var noMemFd = func() *os.File { return nil }
+
 func TestNetSockaddrAddr(t *testing.T) {
 	t.Run("connect exposes args directly", func(t *testing.T) {
 		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_CONNECT)}}
 		notif.Data.Args[1], notif.Data.Args[2] = 0xdead, 16
-		ptr, length, hasDest, ok := netSockaddrAddr(notif, nil)
+		ptr, length, hasDest, ok := netSockaddrAddr(notif, noMemFd)
 		assert.True(t, ok)
 		assert.True(t, hasDest)
 		assert.Equal(t, uint64(0xdead), ptr)
@@ -687,7 +689,7 @@ func TestNetSockaddrAddr(t *testing.T) {
 
 	t.Run("connected sendto has no destination", func(t *testing.T) {
 		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_SENDTO)}}
-		ptr, _, hasDest, ok := netSockaddrAddr(notif, nil)
+		ptr, _, hasDest, ok := netSockaddrAddr(notif, noMemFd)
 		assert.True(t, ok)
 		assert.False(t, hasDest)
 		assert.Equal(t, uint64(0), ptr)
@@ -696,7 +698,7 @@ func TestNetSockaddrAddr(t *testing.T) {
 	t.Run("unconnected sendto exposes args", func(t *testing.T) {
 		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_SENDTO)}}
 		notif.Data.Args[4], notif.Data.Args[5] = 0xbeef, 16
-		ptr, length, hasDest, ok := netSockaddrAddr(notif, nil)
+		ptr, length, hasDest, ok := netSockaddrAddr(notif, noMemFd)
 		assert.True(t, ok)
 		assert.True(t, hasDest)
 		assert.Equal(t, uint64(0xbeef), ptr)
@@ -710,7 +712,7 @@ func TestNetSockaddrAddr(t *testing.T) {
 		memFd := writeMemImage(t, hdr)
 
 		notif := &seccompNotification{PID: 7, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
-		ptr, length, hasDest, ok := netSockaddrAddr(notif, memFd)
+		ptr, length, hasDest, ok := netSockaddrAddr(notif, func() *os.File { return memFd })
 		assert.True(t, ok)
 		assert.True(t, hasDest)
 		assert.Equal(t, uint64(0xcafe), ptr)
@@ -720,14 +722,14 @@ func TestNetSockaddrAddr(t *testing.T) {
 	t.Run("sendmsg with no name has no destination", func(t *testing.T) {
 		memFd := writeMemImage(t, make([]byte, 16))
 		notif := &seccompNotification{PID: 7, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
-		_, _, hasDest, ok := netSockaddrAddr(notif, memFd)
+		_, _, hasDest, ok := netSockaddrAddr(notif, func() *os.File { return memFd })
 		assert.True(t, ok)
 		assert.False(t, hasDest)
 	})
 
 	t.Run("sendmsg with unreadable memory is a policy failure", func(t *testing.T) {
 		notif := &seccompNotification{PID: 1, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
-		_, _, _, ok := netSockaddrAddr(notif, nil)
+		_, _, _, ok := netSockaddrAddr(notif, noMemFd)
 		assert.False(t, ok)
 	})
 }

@@ -419,6 +419,14 @@ func (p *seccompPhase) memFdFor(pid uint32) *os.File {
 	return fd
 }
 
+// closeMemFd closes a per-notification mem fd, logging close failures instead
+// of discarding them.
+func closeMemFd(fd *os.File) {
+	if err := fd.Close(); err != nil {
+		log.Warnf("close /proc/pid/mem: %v", err)
+	}
+}
+
 // Stop signals the recv loop to exit via the eventfd, waits for it, then
 // closes the notification fd. Closing notifyFd alone does NOT wake a
 // goroutine blocked in ioctl(SECCOMP_IOCTL_NOTIF_RECV).
@@ -517,7 +525,7 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 		s.continueSyscall(notif.ID)
 		return
 	}
-	defer func() { _ = memFd.Close() }()
+	defer closeMemFd(memFd)
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
@@ -567,7 +575,7 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 		s.continueSyscall(notif.ID)
 		return
 	}
-	defer func() { _ = memFd.Close() }()
+	defer closeMemFd(memFd)
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
@@ -603,6 +611,7 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 		return
 	}
 
+	traceSeccompDecision("allow %s pid=%d path=%s", syscallName(notif.Data.Nr), notif.PID, resolved)
 	s.continueSyscall(notif.ID)
 }
 
@@ -626,6 +635,7 @@ func (s *seccompSupervisor) handleIoUringSetup(notif *seccompNotification, phase
 			Ts:      time.Now().UnixNano(),
 		})
 	}
+	traceSeccompDecision("deny %s pid=%d reason=io_uring_setup denied under network_via_proxy_only", syscallName(notif.Data.Nr), notif.PID)
 	if err := respondErrno(s.notifyFd, notif.ID, unix.EPERM); err != nil {
 		log.Warnf("seccomp io_uring_setup deny for notif %d failed: %v", notif.ID, err)
 	}
@@ -759,15 +769,23 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 		return
 	}
 
-	memFd := phase.memFdFor(notif.PID)
-	if memFd == nil {
-		traceSeccompDecision("deny %s pid=%d: unreadable process memory", syscallName(notif.Data.Nr), notif.PID)
-		s.denyNetworkConnect(notif, phase, "", "unreadable process memory")
-		return
+	// Open process memory lazily: a NULL-destination sendto/sendmsg on a
+	// connected socket targets an already-validated peer, so it must
+	// continue uninspected without ever requiring a mem fd.
+	var memFd *os.File
+	openMem := func() *os.File {
+		if memFd == nil {
+			memFd = phase.memFdFor(notif.PID)
+		}
+		return memFd
 	}
-	defer func() { _ = memFd.Close() }()
+	defer func() {
+		if memFd != nil {
+			closeMemFd(memFd)
+		}
+	}()
 
-	addrPtr, addrLen, hasDest, ok := netSockaddrAddr(notif, memFd)
+	addrPtr, addrLen, hasDest, ok := netSockaddrAddr(notif, openMem)
 	if !ok {
 		traceSeccompDecision("deny %s pid=%d: could not resolve destination address", syscallName(notif.Data.Nr), notif.PID)
 		s.denyNetworkConnect(notif, phase, "", "could not resolve destination address")
@@ -775,6 +793,11 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 	}
 	if !hasDest {
 		s.continueSyscall(notif.ID)
+		return
+	}
+	if openMem() == nil {
+		traceSeccompDecision("deny %s pid=%d: unreadable process memory", syscallName(notif.Data.Nr), notif.PID)
+		s.denyNetworkConnect(notif, phase, "", "unreadable process memory")
 		return
 	}
 
@@ -798,10 +821,10 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 // netSockaddrAddr extracts the destination sockaddr pointer and length from
 // the intercepted syscall's arguments. hasDest is false when the syscall
 // carries no destination (sendto/sendmsg on a connected socket), in which
-// case the caller continues without a policy decision. memFd may be nil only
-// when the syscall cannot carry an in-memory destination (connect, sendto);
-// sendmsg needs it to chase the msghdr.
-func netSockaddrAddr(notif *seccompNotification, memFd *os.File) (addrPtr, addrLen uint64, hasDest, ok bool) {
+// case the caller continues without a policy decision. openMem is invoked at
+// most once, only when the destination must be chased through process memory
+// (sendmsg's msghdr); connect and sendto expose their sockaddr in args.
+func netSockaddrAddr(notif *seccompNotification, openMem func() *os.File) (addrPtr, addrLen uint64, hasDest, ok bool) {
 	switch notif.Data.Nr {
 	case int32(unix.SYS_CONNECT):
 		ptr, length := notif.Data.Args[1], notif.Data.Args[2]
@@ -817,6 +840,7 @@ func netSockaddrAddr(notif *seccompNotification, memFd *os.File) (addrPtr, addrL
 	case int32(unix.SYS_SENDMSG):
 		// struct msghdr { void *msg_name; socklen_t msg_namelen; ... }:
 		// name pointer at offset 0, namelen (u32) at offset 8.
+		memFd := openMem()
 		if memFd == nil {
 			return 0, 0, false, false
 		}
