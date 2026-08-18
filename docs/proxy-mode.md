@@ -51,7 +51,7 @@ The legacy flat config key `proxy_install_only` is still supported when the `pro
 
 ### Removed: disabling proxy interception
 
-Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out — `proxy.enabled: false` or `proxy_mode: false` in the config file, `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment — instead of silently switching to proxy interception. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
+Guard mode (the non-proxy analysis flow) has been removed and proxy interception can no longer be disabled. PMG fails with an error when it detects a leftover opt-out: `proxy.enabled: false` or `proxy_mode: false` in the config file, or `PMG_PROXY_ENABLED=false` or `PMG_PROXY_MODE=false` in the environment. PMG does not silently switch to proxy interception when it finds one of these settings. Remove the setting to proceed. The `--proxy-mode` flag is removed and fails as an unknown flag.
 
 Note one trade-off versus the removed guard mode: the proxy analyzes packages as they are downloaded, so installs fully served from a local package manager cache (e.g. npm cache, pnpm store, pip cache, `--offline` installs) do not trigger analysis. Guard mode analyzed manifest-listed packages via registry metadata regardless of downloads. Packages are analyzed when first fetched through the proxy, which is when they enter those caches.
 
@@ -92,7 +92,7 @@ PMG never decrypts traffic to a host it does not know, and a subdomain of a conf
 
 PMG decides whether to intercept a connection in two steps.
 
-At CONNECT time, before any request path is visible, PMG checks the hostname alone. PMG intercepts the connection and decrypts it when the hostname matches a configured endpoint, or a subdomain of one for a built-in registry.
+At CONNECT time, before any request path is visible, PMG checks the hostname alone. PMG decrypts the connection when the hostname matches a custom endpoint you configured. PMG also decrypts it for a built-in registry host, or one of its subdomains, that PMG analyzes. A few built-in hosts are recognized but not analyzed, for example GitHub's npm registry mirror and the PyPI test instances. PMG tunnels their traffic without decrypting it.
 
 After decryption, PMG matches each request against an endpoint by:
 
@@ -103,7 +103,7 @@ The base path check works on whole path segments, not on raw string prefixes. An
 
 When more than one endpoint could match a request, the endpoint with the longest matching base path wins.
 
-A request on a configured host whose path matches no endpoint passes through unchanged. PMG does not analyze it, and does not block it.
+A request on a configured host whose path matches no endpoint passes through unchanged. Because the host matched a configured endpoint at CONNECT time, PMG already decrypted this traffic. PMG does not analyze the request, and does not block it.
 
 ### npm registry requirements
 
@@ -166,14 +166,15 @@ PMG accepts an `http://` endpoint and prints one startup warning for it. Use `ht
 
 **Configuration fails to load.** PMG validates `proxy.registries` at startup and rejects the whole configuration file on any of these:
 
-- A duplicate or empty `name`
+- A `name` that is empty, whitespace-only, or has leading or trailing whitespace
+- A duplicate `name`
 - An `ecosystem` other than `npm` or `pypi`
 - A registry with no `endpoints`
 - A URL that is relative, invalid, or uses a scheme other than `http` or `https`
 - A URL that includes credentials, a query string, or a fragment
 - Two endpoints that normalize to the same origin and base path
 
-The error names the registry and the specific problem. Fix that entry and restart PMG.
+The error names the registry and the specific problem. An empty or whitespace-only name has no registry name to report, so the error names the entry's position in the list instead, for example `proxy.registries[0]`. Fix that entry and restart PMG.
 
 ### Find your current registry settings
 
@@ -218,7 +219,7 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   comma-joined list: `direct` is removed (a module PMG cannot inspect fails
   instead of silently bypassing analysis) and pipe separators collapse to
   comma so a block is terminal.
-- Malware analysis and dependency cooldown run on the `.zip` source download —
+- Malware analysis and dependency cooldown run on the `.zip` source download:
   the only GOPROXY endpoint that delivers code. `.info`/`.mod` metadata passes
   through (cooldown reads the publish time from `.info` without modifying it).
 - `sum.golang.org` is never MITM'd and `/sumdb/` requests pass through

@@ -17,6 +17,22 @@ type ProxyRegistryEndpointConfig struct {
 	URL string `mapstructure:"url"`
 }
 
+// ProxyRegistriesError wraps a proxy.registries validation failure so callers
+// can distinguish it, via errors.As, from any other configuration load error
+// and fail closed instead of falling back to defaults: defaults drop every
+// custom-registry protection the user configured.
+type ProxyRegistriesError struct {
+	err error
+}
+
+func (e *ProxyRegistriesError) Error() string {
+	return fmt.Sprintf("invalid proxy registries: %v", e.err)
+}
+
+func (e *ProxyRegistriesError) Unwrap() error {
+	return e.err
+}
+
 func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 	names := make(map[string]struct{}, len(registries))
 	endpoints := make(map[string]string)
@@ -58,8 +74,4 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 
 func normalizeProxyRegistryURL(rawURL string) (string, error) {
 	return registryurl.Normalize(rawURL)
-}
-
-func normalizeEscapedPath(path string) string {
-	return registryurl.NormalizeEscapedPath(path)
 }

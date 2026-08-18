@@ -32,7 +32,11 @@ const (
 	// Proxy error codes. ProxyPolicyViolation is returned when the proxy blocked
 	// one or more packages by policy (malware, dependency cooldown, or a denied
 	// suspicious package) and the run was gated with --fail-on-violation.
-	ProxyPolicyViolation = "ProxyPolicyViolation"
+	// InvalidProxyRegistries is returned when proxy.registries fails validation,
+	// so PMG aborts startup instead of silently running without the configured
+	// custom-registry protection.
+	ProxyPolicyViolation   = "ProxyPolicyViolation"
+	InvalidProxyRegistries = "InvalidProxyRegistries"
 
 	// Cloud error codes. CloudCredentialsNotFound is returned when a cloud
 	// operation needs SafeDep Cloud credentials but none are configured in the
