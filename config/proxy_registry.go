@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -24,6 +25,9 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 		name := strings.TrimSpace(registry.Name)
 		if name == "" {
 			return fmt.Errorf("proxy.registries[%d].name is required", registryIndex)
+		}
+		if name != registry.Name {
+			return fmt.Errorf("proxy.registries[%d].name must not have leading or trailing whitespace", registryIndex)
 		}
 		if _, exists := names[name]; exists {
 			return fmt.Errorf("duplicate proxy registry name %q", name)
@@ -85,10 +89,37 @@ func normalizeProxyRegistryURL(rawURL string) (string, error) {
 	}
 
 	port := parsed.Port()
-	if port != "" && !(scheme == "http" && port == "80") && !(scheme == "https" && port == "443") {
-		host += ":" + port
+	if port == "" && strings.HasSuffix(parsed.Host, ":") {
+		return "", fmt.Errorf("URL port must be between 1 and 65535")
+	}
+	if port != "" {
+		portNumber, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || portNumber == 0 {
+			return "", fmt.Errorf("URL port must be between 1 and 65535")
+		}
+		port = strconv.Itoa(int(portNumber))
+		if !(scheme == "http" && port == "80") && !(scheme == "https" && port == "443") {
+			host += ":" + port
+		}
 	}
 
-	path := strings.TrimSuffix(parsed.EscapedPath(), "/")
+	path := strings.TrimSuffix(normalizeEscapedPath(parsed.EscapedPath()), "/")
 	return scheme + "://" + host + path, nil
+}
+
+func normalizeEscapedPath(path string) string {
+	var normalized strings.Builder
+	normalized.Grow(len(path))
+
+	for index := 0; index < len(path); index++ {
+		if path[index] == '%' && index+2 < len(path) {
+			normalized.WriteByte('%')
+			normalized.WriteString(strings.ToUpper(path[index+1 : index+3]))
+			index += 2
+			continue
+		}
+		normalized.WriteByte(path[index])
+	}
+
+	return normalized.String()
 }
