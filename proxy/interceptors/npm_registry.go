@@ -118,20 +118,16 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
 
 	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
-		// Canonical parsing already resolves this exact URL to a complete
-		// identity. This is authoritative and must never be overridden by a
-		// metadata-discovered mapping: otherwise a compromised registry could
-		// advertise a safe identity for another package's real tarball path
-		// and have PMG analyze and allow the wrong bytes.
+		// Canonical parsing is authoritative and must never be overridden by
+		// metadata discovery, or a compromised registry could get a
+		// malicious tarball analyzed under a different, safe identity.
 		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
-	// Canonical parsing failed, or the path isn't shaped like a real npm
-	// tarball (a metadata request, or a parser that never resolves file
-	// downloads). Only now fall back to the registry-scoped artifact index,
-	// which resolves non-standard artifact paths advertised by metadata
-	// discovery. config.Name is empty for built-in registries, so this never
-	// matches them: artifactIndex.Get requires a non-empty registry name.
+	// Canonical parsing failed or the path is not a real tarball path
+	// (metadata, or unsupported). Fall back to the registry-scoped artifact
+	// index; built-in registries have an empty config.Name, so they never
+	// match here.
 	if identity, ok := i.artifacts.Get(config.Name, requestURL); ok {
 		return i.handleArtifact(ctx, identity.Name, identity.Version)
 	}
@@ -141,10 +137,9 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 			log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
 				ctx.RequestID, ctx.URL.Path, config.Host, parseErr)
 		} else {
-			// Custom registries see far more non-package traffic (health
-			// checks, auth, search) under their configured prefix, and the
-			// path itself may embed a signed token, so this stays at debug
-			// level and never logs the raw path.
+			// Custom registries see far more non-package traffic under their
+			// configured prefix, and the path can embed a signed token, so
+			// this logs at debug level only.
 			log.Debugf("[%s] Failed to parse NPM registry URL for custom registry %q: %v", ctx.RequestID, config.Name, parseErr)
 		}
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
@@ -161,11 +156,9 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
 
-// handleMetadataRequest applies dependency cooldown, artifact discovery, or
-// both to a package metadata request, depending on whether cooldown is
-// enabled and whether the request targets a custom registry. Discovery runs
-// before cooldown so it always sees the upstream packument, never a
-// cooldown-stripped one.
+// handleMetadataRequest applies cooldown, artifact discovery, or both to a
+// metadata request. Discovery runs before cooldown so it always sees the
+// upstream packument.
 func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
 	config *registryConfig,
@@ -194,11 +187,9 @@ func (i *NpmRegistryInterceptor) handleMetadataRequest(
 		return &proxy.InterceptorResponse{Action: proxy.ActionModifyResponse, ResponseModifier: cooldownModifier}, nil
 	}
 
-	// Discovery needs a parseable, always-fresh body regardless of whether
-	// cooldown also runs: cooldown only normalizes these headers itself when
-	// it registers its own modifier (enabled, not trusted, not skip-listed),
-	// so without this a discovery-only request could otherwise arrive
-	// compressed or be answered with a bodyless 304.
+	// Discovery needs a parseable, always-fresh body even when cooldown does
+	// not run its own modifier, or the response could arrive compressed or
+	// as a bodyless 304.
 	forceUncompressedNonConditionalResponse(ctx.Headers)
 
 	discovery := npmMetadataDiscoveryModifier(ctx, i.artifacts, i.registries, config.Name, requestURL)
@@ -208,9 +199,9 @@ func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	}, nil
 }
 
-// handleArtifact runs the shared trust, analysis, and verdict pipeline for a
-// package artifact download, regardless of whether its identity came from
-// canonical URL parsing or from the registry-scoped artifact index.
+// handleArtifact runs the trust, analysis, and verdict pipeline for an
+// artifact download, whether its identity came from canonical URL parsing
+// or the artifact index.
 func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
 	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version); ok {
 		return resp, nil

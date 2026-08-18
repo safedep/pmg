@@ -17,10 +17,10 @@ type ProxyRegistryEndpointConfig struct {
 	URL string `mapstructure:"url"`
 }
 
-// ProxyRegistriesError wraps a proxy.registries validation failure so callers
-// can distinguish it, via errors.As, from any other configuration load error
-// and fail closed instead of falling back to defaults: defaults drop every
-// custom-registry protection the user configured.
+// ProxyRegistriesError wraps a proxy.registries validation failure so
+// callers can detect it via errors.As and fail closed instead of falling
+// back to defaults, which would silently drop the custom-registry
+// protection configured.
 type ProxyRegistriesError struct {
 	err error
 }

@@ -103,10 +103,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 		interceptors.InterceptorContext{
 			PinnedVersions: o.pinnedVersions,
 			// RunCases applies TestCase.Config before New runs, so the global
-			// config singleton already carries the case's custom registries
-			// here. This mirrors both production assembly points (the
-			// persistent proxy daemon and the per-invocation wrapped flow),
-			// which each compile the factory from the same config field.
+			// config already carries the case's custom registries. This
+			// mirrors production, which also compiles the factory from this
+			// same config field.
 			Registries: config.Get().Config.Proxy.Registries,
 			// proxy.golang.org serves at the root of the plain-HTTP mock (also
 			// the base for out-of-band .info fetches); corp.example.com serves
@@ -118,9 +117,8 @@ func New(t *testing.T, opts ...Option) *Harness {
 		},
 	)
 
-	// Both production assembly points build the audit logger's known-host set
-	// from the compiled factory rather than the raw config, so a validation
-	// failure surfaces the same way here.
+	// Production also builds the audit logger's known-host set from the
+	// compiled factory, so a validation failure surfaces the same way here.
 	registryHosts, err := factory.CustomRegistryHosts()
 	require.NoError(t, err)
 

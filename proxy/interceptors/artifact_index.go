@@ -242,27 +242,15 @@ func artifactURLPort(host string) (string, bool) {
 	}
 }
 
-// artifactDiscoveryModifier returns a response modifier that indexes the
-// artifacts a parse function extracts from a successful metadata response, so
-// a later request for one of those artifact URLs can be resolved back to its
-// package identity even when the URL itself does not follow the ecosystem's
-// standard artifact-URL convention. Every ecosystem's metadata discovery
-// modifier (npm packument, pypi Simple API index, ...) is a thin wrapper
-// around this: only the parse function differs.
+// artifactDiscoveryModifier returns a response modifier that indexes
+// artifacts a parse function extracts from a metadata response, so a later
+// request to a non-standard URL still resolves to its package identity.
+// Every ecosystem wraps this; only the parse function differs.
 //
-// An advertised URL that request-time canonical parsing would already
-// resolve to a complete file-download identity is never indexed: canonical
-// parsing is authoritative for it, and it would only be a redundant entry in
-// the bounded index. This also keeps a large response from flooding the
-// index with mappings for URLs that never needed one, since real registries
-// advertise the same canonical artifact URL the parser already understands
-// for every version.
-//
-// It only inspects successful (200) responses and never modifies the
-// response: the returned status, headers, and body are always exactly what
-// was passed in. A parse failure is logged generically and the response
-// passes through unchanged; log output never includes the response body,
-// artifact references, URLs, or query strings, since those may carry signed
+// A URL canonical parsing would already resolve is never indexed, since
+// canonical parsing is authoritative and indexing it would be redundant.
+// The response itself is never modified, and a parse failure is logged
+// without URLs, references, or the body, since those may carry signed
 // download tokens.
 func artifactDiscoveryModifier(
 	ctx *proxy.RequestContext,
@@ -273,10 +261,8 @@ func artifactDiscoveryModifier(
 	parse func(headers http.Header, body []byte) ([]advertisedArtifact, error),
 ) proxy.ResponseModifierFunc {
 	return func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
-		// Only exactly 200 triggers discovery. This is deliberately stricter
-		// than "a non-2xx response adds no mappings": every registry response
-		// this feature targets (npm packument, PyPI Simple API index) is a 200
-		// on success, so no other 2xx status needs to be trusted with identity.
+		// Only exactly 200 triggers discovery, stricter than "any 2xx
+		// succeeds": every targeted registry response uses 200 on success.
 		if statusCode != http.StatusOK {
 			return statusCode, headers, body, nil
 		}

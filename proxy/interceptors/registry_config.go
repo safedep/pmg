@@ -70,11 +70,10 @@ func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) 
 	return configs.MatchURL(registryAbsoluteRequestURL(ctx))
 }
 
-// registryAbsoluteRequestURL absolutizes ctx.URL using ctx.Hostname and ctx.Port,
-// defaulting to HTTPS. The proxy hands interceptors a request URL that is often
-// scheme- and host-less (a plain path), so callers that need a fully qualified
-// URL, such as artifact reference resolution, must go through this rather than
-// using ctx.URL directly.
+// registryAbsoluteRequestURL absolutizes ctx.URL using ctx.Hostname and
+// ctx.Port, defaulting to HTTPS. The proxy hands interceptors a request URL
+// that is often scheme- and host-less, so callers needing a fully qualified
+// URL must use this instead of ctx.URL directly.
 func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
 	if ctx == nil || ctx.URL == nil {
 		return nil
@@ -93,12 +92,10 @@ func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
 	return &u
 }
 
-// registryURLHasCanonicalIdentity reports whether request-time canonical
-// parsing already resolves u to a complete file-download identity under any
-// configured registry endpoint. Metadata discovery must skip indexing a URL
-// this already answers: canonical parsing is authoritative for it, so an
-// index entry for the same URL would be redundant at best, and a stale or
-// compromised entry must never be able to compete with it.
+// registryURLHasCanonicalIdentity reports whether canonical parsing already
+// resolves u to a complete identity. Discovery must skip indexing such a
+// URL: canonical parsing is authoritative, and a stale or compromised index
+// entry must never be able to override it.
 func registryURLHasCanonicalIdentity(registries registryConfigSet, u *url.URL) bool {
 	match := registries.MatchURL(u)
 	if match == nil {
@@ -125,10 +122,9 @@ type packageInfo interface {
 	IsFileDownload() bool
 }
 
-// packageInfoHasCompleteIdentity reports whether pkgInfo resolves to a fully
-// identified file download: a file download with both a name and a version.
-// This is the bar every ecosystem interceptor uses to treat parsed URL info
-// as an authoritative package identity, shared so npm and PyPI cannot drift.
+// packageInfoHasCompleteIdentity reports whether pkgInfo is a fully
+// identified file download: a name, a version, and IsFileDownload all set.
+// Shared across ecosystems so npm and PyPI cannot drift.
 func packageInfoHasCompleteIdentity(pkgInfo packageInfo) bool {
 	return pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != ""
 }

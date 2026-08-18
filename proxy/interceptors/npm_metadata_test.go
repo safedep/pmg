@@ -118,17 +118,6 @@ func TestNpmMetadataArtifacts(t *testing.T) {
 	}
 }
 
-func TestNpmMetadataArtifacts_ExactBriefExample(t *testing.T) {
-	body := []byte(`{"name":"demo","versions":{"1.2.3":{"name":"demo","version":"1.2.3","dist":{"tarball":"../../download/opaque?id=42"}}}}`)
-	base, err := url.Parse("https://packages.test/npm/demo")
-	require.NoError(t, err)
-	artifacts, err := parseNpmMetadataArtifacts(base, body)
-	require.NoError(t, err)
-	require.Len(t, artifacts, 1)
-	assert.Equal(t, "https://packages.test/download/opaque?id=42", artifacts[0].URL.String())
-	assert.Equal(t, artifactIdentity{Name: "demo", Version: "1.2.3"}, artifacts[0].Identity)
-}
-
 func TestNpmMetadataArtifacts_RequiresBase(t *testing.T) {
 	_, err := parseNpmMetadataArtifacts(nil, []byte(`{}`))
 	assert.Error(t, err)

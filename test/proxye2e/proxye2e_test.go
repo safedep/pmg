@@ -29,9 +29,8 @@ func combineConfig(fns ...func(rc *config.RuntimeConfig)) func(rc *config.Runtim
 	}
 }
 
-// customRegistry appends one proxy.registries entry. Composing several via
-// combineConfig models multiple registries, e.g. two ecosystems sharing a
-// host, or two registries of the same ecosystem at overlapping base paths.
+// customRegistry appends one proxy.registries entry. Combine several with
+// combineConfig to model multiple registries sharing a host.
 func customRegistry(name, ecosystem string, endpointURLs ...string) func(rc *config.RuntimeConfig) {
 	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
 	for i, u := range endpointURLs {
@@ -920,13 +919,10 @@ func TestProxyFlow_CustomPypi(t *testing.T) {
 			},
 		},
 		{
-			// The href sits at depth 1 directly under the "/simple"-ending base,
-			// so request-time parsing reads it as Simple API metadata for a
-			// (fabricated) project literally named after the filename, never as
-			// a download: PEP 503 HTML identity comes only from the href's own
-			// filename shape (never anchor text), so this is the one shape where
-			// HTML discovery's index is actually consulted instead of canonical
-			// parsing resolving the download directly.
+			// The href sits at depth 1 under the "/simple"-ending base, so
+			// canonical parsing reads it as a metadata request, not a
+			// download. This is the one shape where HTML discovery's index
+			// is actually consulted.
 			Name:   "custom pypi HTML flow blocks malware via discovery",
 			Config: customRegistry("company-pypi", "pypi", simpleBase),
 			Setup: func(h *Harness) {
@@ -1067,12 +1063,9 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.False(t, res.Blocked())
 				assert.Empty(t, h.Analyzer.Calls())
-				// A tunneled (non-MITM) connection's TLS handshake fails against the
-				// mock's self-signed cert, since the client trusts only the MITM CA
-				// (harness.go), so the registry never sees the request. Requested
-				// being true here proves the host WAS MITM'd and the request was
-				// actually forwarded upstream untouched, not silently tunneled past
-				// an interceptor that never ran.
+				// A tunneled connection's TLS handshake fails against the mock's
+				// self-signed cert, so Requested being true here proves the host
+				// was MITM'd and forwarded upstream, not tunneled past.
 				assert.True(t, h.Registry.Requested("packages.example.test", "/health"),
 					"the unmatched path must be MITM'd and forwarded upstream, not tunneled")
 			},
@@ -1097,18 +1090,10 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 	})
 }
 
-// TestProxyFlow_CustomRegistryTunneling asserts the tunneled-vs-MITM'd distinction
-// itself (via Registry.Requested, since a tunneled connection's TLS handshake fails
-// against the mock's self-signed cert and never reaches the registry's HTTP layer,
-// while a MITM'd request does). It does not assert that an unmatched host is
-// recorded as an audit "Host Observation": internal/audit's global sink
-// (internal/audit/audit.go) has no test hook this hermetic harness can observe.
-// Whether a hostname counts as already known decides if LogProxyHostObserved
-// fires at all, and that decision is unit-tested directly instead:
-// proxy/interceptors/audit_logger_test.go:46-52 (TestAuditLoggerInterceptorCustomRegistryHosts)
-// and internal/flows/proxy_flow_interceptors_test.go:33-36
-// (TestBuildProxyFlowInterceptorsWiresCustomRegistries), both of which confirm a
-// custom registry's own host is known while its subdomain is not.
+// TestProxyFlow_CustomRegistryTunneling asserts the tunneled-vs-MITM'd
+// distinction via Registry.Requested. Whether an unmatched host is logged as
+// a known audit host is unit-tested separately in audit_logger_test.go and
+// proxy_flow_interceptors_test.go.
 func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 	RunCases(t, []TestCase{
 		{

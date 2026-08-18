@@ -19,17 +19,10 @@ type advertisedArtifact struct {
 	Identity artifactIdentity
 }
 
-// parseNpmMetadataArtifacts extracts artifact URLs advertised by an npm
-// packument. It reads only the standard "name", "versions.*.name",
-// "versions.*.version", and "versions.*.dist.tarball" fields, so it works for
-// both full and abbreviated (install-v1) packument shapes. Every other field
-// is ignored.
-//
-// A version entry is skipped, not treated as an error, when its shape does
-// not decode, when its map key disagrees with its own "version" field, or
-// when its resolved name or version is empty, whitespace-only, or contains a
-// control character. This keeps one malformed or inconsistent entry from
-// discarding the rest of an otherwise usable packument.
+// parseNpmMetadataArtifacts extracts tarball URLs from an npm packument's
+// "versions" map, supporting both full and abbreviated (install-v1) shapes.
+// A malformed or inconsistent entry is skipped rather than failing the
+// whole packument.
 func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact, error) {
 	if base == nil {
 		return nil, fmt.Errorf("metadata base URL is required")
@@ -57,9 +50,8 @@ func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact
 			continue
 		}
 
-		// The packument contract keys "versions" by the entry's own version
-		// string. A mismatch means the registry response is inconsistent, so
-		// the entry's identity cannot be trusted.
+		// "versions" is keyed by the entry's own version string. A mismatch
+		// means the entry's identity cannot be trusted.
 		if entry.Version != "" && key != entry.Version {
 			continue
 		}
@@ -70,9 +62,8 @@ func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact
 			// No usable name of its own: fall back to the packument's name.
 			name = packument.Name
 		case identityFieldValid(packument.Name) && name != packument.Name:
-			// A valid name that disagrees with the packument's own name is
-			// inconsistent metadata, the same way a mismatched version key is
-			// rejected above.
+			// A valid name that disagrees with the packument's name is
+			// inconsistent, like the mismatched version key above.
 			continue
 		}
 		if !identityFieldValid(name) || !identityFieldValid(entry.Version) || entry.Dist.Tarball == "" {
@@ -94,11 +85,8 @@ func parseNpmMetadataArtifacts(base *url.URL, body []byte) ([]advertisedArtifact
 	return artifacts, nil
 }
 
-// identityFieldValid reports whether s is usable as a package name or
-// version: non-empty once trimmed, and free of control characters. Shared by
-// every ecosystem's metadata discovery, since the requirement is the same
-// regardless of what the field is called upstream (npm tarball name/version,
-// pypi filename-derived name/version, and so on).
+// identityFieldValid reports whether s is non-empty once trimmed and free of
+// control characters. Shared by every ecosystem's metadata discovery.
 func identityFieldValid(s string) bool {
 	if strings.TrimSpace(s) == "" {
 		return false
@@ -111,12 +99,10 @@ func identityFieldValid(s string) bool {
 	return true
 }
 
-// npmMetadataDiscoveryModifier returns a response modifier that indexes the
-// artifact URLs advertised by a custom registry's packument response, so a
-// later request for one of those URLs can be resolved back to its package
-// identity even when the URL itself does not follow the standard npm tarball
-// convention. See artifactDiscoveryModifier for the shared discovery
-// contract every ecosystem follows.
+// npmMetadataDiscoveryModifier indexes tarball URLs advertised by a
+// packument response so a later request to a non-standard URL still
+// resolves to its package identity. See artifactDiscoveryModifier for the
+// shared discovery contract.
 func npmMetadataDiscoveryModifier(ctx *proxy.RequestContext, artifacts *artifactIndex, registries registryConfigSet, registryName string, metadataURL *url.URL) proxy.ResponseModifierFunc {
 	return artifactDiscoveryModifier(ctx, artifacts, registries, registryName, metadataURL,
 		func(_ http.Header, body []byte) ([]advertisedArtifact, error) {

@@ -32,9 +32,8 @@ const (
 	// Proxy error codes. ProxyPolicyViolation is returned when the proxy blocked
 	// one or more packages by policy (malware, dependency cooldown, or a denied
 	// suspicious package) and the run was gated with --fail-on-violation.
-	// InvalidProxyRegistries is returned when proxy.registries fails validation,
-	// so PMG aborts startup instead of silently running without the configured
-	// custom-registry protection.
+	// InvalidProxyRegistries is returned when proxy.registries fails
+	// validation, so PMG aborts startup rather than running unprotected.
 	ProxyPolicyViolation   = "ProxyPolicyViolation"
 	InvalidProxyRegistries = "InvalidProxyRegistries"
 
