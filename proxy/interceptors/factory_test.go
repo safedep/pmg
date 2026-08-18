@@ -146,6 +146,28 @@ func TestCustomRegistryMatchesRelativeMITMURLWithNonDefaultPort(t *testing.T) {
 	}))
 }
 
+func TestInterceptorFactoryRejectsMalformedRegistryWithoutLoggingRawURL(t *testing.T) {
+	var logs bytes.Buffer
+	restore := drylog.SwapGlobalForTest(&logs)
+	defer restore()
+
+	factory := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{
+		Registries: []config.ProxyRegistryConfig{{
+			Name:      "company-npm",
+			Ecosystem: "npm",
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:super-secret@packages.test/npm"}},
+		}},
+	})
+
+	_, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "company-npm")
+	assert.Contains(t, err.Error(), "must not include credentials")
+	_, hostErr := factory.CustomRegistryHosts()
+	require.EqualError(t, hostErr, err.Error())
+	assert.NotContains(t, logs.String(), "super-secret")
+}
+
 func registryRequest(t *testing.T, rawURL string) *proxy.RequestContext {
 	t.Helper()
 	u, err := url.Parse(rawURL)

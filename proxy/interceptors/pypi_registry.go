@@ -61,7 +61,7 @@ func NewPypiRegistryInterceptor(
 	}
 	execContext.PinnedVersions = normalizedPinned
 	registries := registryConfigSet{entries: builtInRegistryConfigs(pypiRegistryDomains)}
-	registries.entries = append(registries.entries, customRegistryConfigs(execContext.Registries, "pypi", pypiOrgParser{})...)
+	registries.entries = append(registries.entries, customRegistryConfigs(execContext, "pypi")...)
 
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{

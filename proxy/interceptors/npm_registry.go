@@ -51,7 +51,7 @@ func NewNpmRegistryInterceptor(
 	execContext InterceptorContext,
 ) *NpmRegistryInterceptor {
 	registries := registryConfigSet{entries: builtInRegistryConfigs(npmRegistryDomains)}
-	registries.entries = append(registries.entries, customRegistryConfigs(execContext.Registries, "npm", npmParser{})...)
+	registries.entries = append(registries.entries, customRegistryConfigs(execContext, "npm")...)
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
