@@ -142,6 +142,48 @@ func TestArtifactIndexDuplicateUpdateRefreshesValueAndAge(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestArtifactIndexMaintainsInsertionAndRefreshOrder(t *testing.T) {
+	clock := newArtifactIndexTestClock()
+	index := newArtifactIndexWithOptions(3, time.Hour, clock.Now)
+	base := mustParseArtifactURL(t, "https://registry.example/metadata")
+
+	require.NoError(t, index.Add("npm", base, "first.tgz", artifactIdentity{Name: "first", Version: "1"}))
+	require.NoError(t, index.Add("npm", base, "second.tgz", artifactIdentity{Name: "second", Version: "1"}))
+	require.NoError(t, index.Add("npm", base, "first.tgz", artifactIdentity{Name: "first", Version: "2"}))
+
+	require.Len(t, index.entries, 2)
+	require.Equal(t, 2, index.order.Len())
+	assert.Equal(t, artifactIdentity{Name: "second", Version: "1"}, index.order.Front().Value.(*artifactIndexEntry).identity)
+	assert.Equal(t, artifactIdentity{Name: "first", Version: "2"}, index.order.Back().Value.(*artifactIndexEntry).identity)
+}
+
+func TestArtifactIndexPrunesExpiredEntriesAfterRefreshedEntriesMoveBack(t *testing.T) {
+	clock := newArtifactIndexTestClock()
+	index := newArtifactIndexWithOptions(2, time.Minute, clock.Now)
+	base := mustParseArtifactURL(t, "https://registry.example/metadata")
+	first := mustParseArtifactURL(t, "https://registry.example/first.tgz")
+	second := mustParseArtifactURL(t, "https://registry.example/second.tgz")
+	third := mustParseArtifactURL(t, "https://registry.example/third.tgz")
+
+	require.NoError(t, index.Add("npm", base, first.String(), artifactIdentity{Name: "first", Version: "1"}))
+	clock.Advance(30 * time.Second)
+	require.NoError(t, index.Add("npm", base, second.String(), artifactIdentity{Name: "second", Version: "1"}))
+	clock.Advance(10 * time.Second)
+	require.NoError(t, index.Add("npm", base, first.String(), artifactIdentity{Name: "first", Version: "2"}))
+	clock.Advance(51 * time.Second)
+	require.NoError(t, index.Add("npm", base, third.String(), artifactIdentity{Name: "third", Version: "1"}))
+
+	refreshed, ok := index.Get("npm", first)
+	assert.True(t, ok)
+	assert.Equal(t, artifactIdentity{Name: "first", Version: "2"}, refreshed)
+	_, ok = index.Get("npm", second)
+	assert.False(t, ok)
+	_, ok = index.Get("npm", third)
+	assert.True(t, ok)
+	assert.Len(t, index.entries, 2)
+	assert.Equal(t, 2, index.order.Len())
+}
+
 func TestArtifactIndexRejectsInvalidInputs(t *testing.T) {
 	index := newArtifactIndexWithOptions(10, time.Minute, time.Now)
 	validBase := mustParseArtifactURL(t, "https://registry.example/pkg")
