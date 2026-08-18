@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"container/list"
 	"fmt"
 	"net"
 	"net/http"
@@ -29,19 +30,18 @@ type artifactIndexKey struct {
 }
 
 type artifactIndexEntry struct {
+	key       artifactIndexKey
 	identity  artifactIdentity
 	expiresAt time.Time
-	addedAt   time.Time
-	sequence  uint64
 }
 
 type artifactIndex struct {
-	mu       sync.Mutex
-	entries  map[artifactIndexKey]artifactIndexEntry
-	limit    int
-	ttl      time.Duration
-	now      func() time.Time
-	sequence uint64
+	mu      sync.Mutex
+	entries map[artifactIndexKey]*list.Element
+	order   *list.List
+	limit   int
+	ttl     time.Duration
+	now     func() time.Time
 }
 
 func newArtifactIndex() *artifactIndex {
@@ -50,7 +50,8 @@ func newArtifactIndex() *artifactIndex {
 
 func newArtifactIndexWithOptions(limit int, ttl time.Duration, now func() time.Time) *artifactIndex {
 	return &artifactIndex{
-		entries: make(map[artifactIndexKey]artifactIndexEntry),
+		entries: make(map[artifactIndexKey]*list.Element),
+		order:   list.New(),
 		limit:   limit,
 		ttl:     ttl,
 		now:     now,
@@ -90,22 +91,25 @@ func (i *artifactIndex) Add(registry string, base *url.URL, ref string, identity
 		return fmt.Errorf("resolved artifact URL is invalid")
 	}
 	key := artifactIndexKey{registry: registry, url: normalizedURL}
-	now := i.now()
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
+	now := i.now()
 	i.pruneExpired(now)
-	i.sequence++
-	i.entries[key] = artifactIndexEntry{
+	if existing, ok := i.entries[key]; ok {
+		i.remove(existing)
+	} else if len(i.entries) >= i.limit {
+		i.remove(i.order.Front())
+	}
+
+	entry := &artifactIndexEntry{
+		key:       key,
 		identity:  identity,
 		expiresAt: now.Add(i.ttl),
-		addedAt:   now,
-		sequence:  i.sequence,
 	}
-	for len(i.entries) > i.limit {
-		i.evictOldest()
-	}
+	element := i.order.PushBack(entry)
+	i.entries[key] = element
 	return nil
 }
 
@@ -118,45 +122,42 @@ func (i *artifactIndex) Get(registry string, requestURL *url.URL) (artifactIdent
 		return artifactIdentity{}, false
 	}
 	key := artifactIndexKey{registry: registry, url: normalizedURL}
-	now := i.now()
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	entry, ok := i.entries[key]
+	element, ok := i.entries[key]
 	if !ok {
 		return artifactIdentity{}, false
 	}
+	entry := element.Value.(*artifactIndexEntry)
+	now := i.now()
 	if !now.Before(entry.expiresAt) {
-		delete(i.entries, key)
+		i.remove(element)
 		return artifactIdentity{}, false
 	}
 	return entry.identity, true
 }
 
 func (i *artifactIndex) pruneExpired(now time.Time) {
-	for key, entry := range i.entries {
-		if !now.Before(entry.expiresAt) {
-			delete(i.entries, key)
+	for element := i.order.Front(); element != nil; {
+		entry := element.Value.(*artifactIndexEntry)
+		if now.Before(entry.expiresAt) {
+			return
 		}
+		next := element.Next()
+		i.remove(element)
+		element = next
 	}
 }
 
-func (i *artifactIndex) evictOldest() {
-	var oldestKey artifactIndexKey
-	var oldest artifactIndexEntry
-	found := false
-	for key, entry := range i.entries {
-		if !found || entry.addedAt.Before(oldest.addedAt) ||
-			(entry.addedAt.Equal(oldest.addedAt) && entry.sequence < oldest.sequence) {
-			oldestKey = key
-			oldest = entry
-			found = true
-		}
+func (i *artifactIndex) remove(element *list.Element) {
+	if element == nil {
+		return
 	}
-	if found {
-		delete(i.entries, oldestKey)
-	}
+	entry := element.Value.(*artifactIndexEntry)
+	delete(i.entries, entry.key)
+	i.order.Remove(element)
 }
 
 func usableArtifactURL(u *url.URL) bool {
