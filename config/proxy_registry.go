@@ -2,9 +2,9 @@ package config
 
 import (
 	"fmt"
-	"net/url"
-	"strconv"
 	"strings"
+
+	"github.com/safedep/pmg/internal/registryurl"
 )
 
 type ProxyRegistryConfig struct {
@@ -57,69 +57,9 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 }
 
 func normalizeProxyRegistryURL(rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
-	}
-	if !parsed.IsAbs() {
-		return "", fmt.Errorf("URL must be absolute")
-	}
-
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", fmt.Errorf("URL scheme must be http or https")
-	}
-	if parsed.Host == "" || parsed.Hostname() == "" {
-		return "", fmt.Errorf("URL host is required")
-	}
-	if parsed.User != nil {
-		return "", fmt.Errorf("URL must not include credentials")
-	}
-	if parsed.RawQuery != "" || parsed.ForceQuery {
-		return "", fmt.Errorf("URL must not include a query")
-	}
-	if parsed.Fragment != "" || strings.Contains(rawURL, "#") {
-		return "", fmt.Errorf("URL must not include a fragment")
-	}
-
-	hostname := strings.ToLower(parsed.Hostname())
-	host := hostname
-	if strings.Contains(hostname, ":") {
-		host = "[" + hostname + "]"
-	}
-
-	port := parsed.Port()
-	if port == "" && strings.HasSuffix(parsed.Host, ":") {
-		return "", fmt.Errorf("URL port must be between 1 and 65535")
-	}
-	if port != "" {
-		portNumber, err := strconv.ParseUint(port, 10, 16)
-		if err != nil || portNumber == 0 {
-			return "", fmt.Errorf("URL port must be between 1 and 65535")
-		}
-		port = strconv.Itoa(int(portNumber))
-		if !(scheme == "http" && port == "80") && !(scheme == "https" && port == "443") {
-			host += ":" + port
-		}
-	}
-
-	path := strings.TrimSuffix(normalizeEscapedPath(parsed.EscapedPath()), "/")
-	return scheme + "://" + host + path, nil
+	return registryurl.Normalize(rawURL)
 }
 
 func normalizeEscapedPath(path string) string {
-	var normalized strings.Builder
-	normalized.Grow(len(path))
-
-	for index := 0; index < len(path); index++ {
-		if path[index] == '%' && index+2 < len(path) {
-			normalized.WriteByte('%')
-			normalized.WriteString(strings.ToUpper(path[index+1 : index+3]))
-			index += 2
-			continue
-		}
-		normalized.WriteByte(path[index])
-	}
-
-	return normalized.String()
+	return registryurl.NormalizeEscapedPath(path)
 }

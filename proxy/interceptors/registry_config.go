@@ -1,6 +1,13 @@
 package interceptors
 
-import "strings"
+import (
+	"net"
+	"net/url"
+	"sort"
+	"strings"
+
+	"github.com/safedep/pmg/internal/registryurl"
+)
 
 // packageInfo represents parsed package information from a registry URL.
 // All ecosystem-specific package info types must implement this interface.
@@ -27,8 +34,14 @@ type registryURLParser interface {
 // registryConfig defines configuration for a package registry endpoint.
 // This is the common configuration structure used by all ecosystem interceptors.
 type registryConfig struct {
+	Name string
+
 	// Host is the hostname of the registry
-	Host string
+	Host            string
+	Scheme          string
+	Port            string
+	BasePath        string
+	MatchSubdomains bool
 
 	// SupportedForAnalysis indicates whether this registry supports malware analysis.
 	// Some registries (like private registries or test instances) may not support analysis.
@@ -36,6 +49,163 @@ type registryConfig struct {
 
 	// Parser is the URL parser for this registry
 	Parser registryURLParser
+}
+
+type registryMatch struct {
+	Config       *registryConfig
+	RelativePath string
+}
+
+type registryConfigSet struct {
+	entries []*registryConfig
+}
+
+func (s registryConfigSet) ContainsHostname(hostname string) bool {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	for _, config := range s.entries {
+		if config != nil && matchesHostname(hostname, config) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
+	if u == nil || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
+		return nil
+	}
+
+	scheme := registryurl.NormalizeScheme(u.Scheme)
+	hostname := registryurl.NormalizeHostname(u.Hostname())
+	port, valid := registryurl.EffectivePort(scheme, u.Port())
+	if !valid {
+		return nil
+	}
+	path := registryurl.NormalizeEscapedPath(u.EscapedPath())
+
+	var best *registryMatchCandidate
+	for _, config := range s.entries {
+		if config == nil {
+			continue
+		}
+
+		exactHostname, matches := hostnameMatch(hostname, config)
+		if !matches || registryurl.NormalizeScheme(config.Scheme) != scheme {
+			continue
+		}
+		configPort, valid := registryurl.EffectivePort(config.Scheme, config.Port)
+		if !valid || configPort != port {
+			continue
+		}
+
+		basePath := normalizeRegistryBasePath(config.BasePath)
+		if !matchesRegistryPath(path, basePath) {
+			continue
+		}
+
+		candidate := &registryMatchCandidate{
+			config:        config,
+			basePath:      basePath,
+			hostname:      registryurl.NormalizeHostname(config.Host),
+			exactHostname: exactHostname,
+		}
+		if candidate.betterThan(best) {
+			best = candidate
+		}
+	}
+
+	if best == nil {
+		return nil
+	}
+	relativePath := strings.TrimPrefix(path, best.basePath)
+	if relativePath == "" {
+		relativePath = "/"
+	}
+	return &registryMatch{Config: best.config, RelativePath: relativePath}
+}
+
+func (s registryConfigSet) KnownHosts() []string {
+	hosts := make(map[string]struct{}, len(s.entries))
+	for _, config := range s.entries {
+		if config == nil {
+			continue
+		}
+		host := registryurl.NormalizeHostname(config.Host)
+		if host != "" {
+			hosts[host] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(hosts))
+	for host := range hosts {
+		result = append(result, host)
+	}
+	sort.Strings(result)
+	return result
+}
+
+type registryMatchCandidate struct {
+	config        *registryConfig
+	basePath      string
+	hostname      string
+	exactHostname bool
+}
+
+func (candidate *registryMatchCandidate) betterThan(current *registryMatchCandidate) bool {
+	if current == nil {
+		return true
+	}
+	if len(candidate.basePath) != len(current.basePath) {
+		return len(candidate.basePath) > len(current.basePath)
+	}
+	if candidate.exactHostname != current.exactHostname {
+		return candidate.exactHostname
+	}
+	if len(candidate.hostname) != len(current.hostname) {
+		return len(candidate.hostname) > len(current.hostname)
+	}
+	return registryConfigKey(candidate.config) < registryConfigKey(current.config)
+}
+
+func registryConfigKey(config *registryConfig) string {
+	port, _ := registryurl.EffectivePort(config.Scheme, config.Port)
+	return strings.Join([]string{
+		registryurl.NormalizeScheme(config.Scheme),
+		registryurl.NormalizeHostname(config.Host),
+		port,
+		normalizeRegistryBasePath(config.BasePath),
+		config.Name,
+	}, "\x00")
+}
+
+func normalizeHostnameWithOptionalPort(hostname string) string {
+	if host, _, err := net.SplitHostPort(hostname); err == nil {
+		hostname = host
+	} else if strings.HasPrefix(hostname, "[") && strings.HasSuffix(hostname, "]") {
+		hostname = strings.TrimSuffix(strings.TrimPrefix(hostname, "["), "]")
+	}
+	return registryurl.NormalizeHostname(hostname)
+}
+
+func matchesHostname(hostname string, config *registryConfig) bool {
+	_, matches := hostnameMatch(hostname, config)
+	return matches
+}
+
+func hostnameMatch(hostname string, config *registryConfig) (bool, bool) {
+	configured := registryurl.NormalizeHostname(config.Host)
+	if hostname == configured {
+		return true, true
+	}
+	return false, config.MatchSubdomains && strings.HasSuffix(hostname, "."+configured)
+}
+
+func normalizeRegistryBasePath(path string) string {
+	return strings.TrimSuffix(registryurl.NormalizeEscapedPath(path), "/")
+}
+
+func matchesRegistryPath(path, basePath string) bool {
+	return basePath == "" || path == basePath || strings.HasPrefix(path, basePath+"/")
 }
 
 // registryConfigMap is a map of hostname to registry configuration
