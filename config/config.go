@@ -347,6 +347,12 @@ func (r *RuntimeConfig) CloudSyncLastRunPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.lastrun")
 }
 
+// CloudCheckInLastRunPath returns the path to the timestamp file recording
+// the last check-in attempt (success or failure) in Unix epoch seconds.
+func (r *RuntimeConfig) CloudCheckInLastRunPath() string {
+	return filepath.Join(r.configDir, "cloud-checkin.lastrun")
+}
+
 // ConfigFilePath returns the path to the active config file (the globally
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {

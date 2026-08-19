@@ -65,6 +65,12 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 		log.Warnf("failed to update cloud sync lastrun: %v", werr)
 	}
 
+	if syncErr == nil {
+		if cerr := bundle.CheckIn(syncCtx); cerr != nil {
+			log.Warnf("cloud check-in failed: %v", cerr)
+		}
+	}
+
 	return synced, syncErr
 }
 
@@ -73,11 +79,34 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 type SyncClientBundle struct {
 	syncClient  *endpointsync.SyncClient
 	cloudClient *cloud.Client
+	cfg         *config.RuntimeConfig
 }
 
 // Sync delivers pending events from the WAL to SafeDep Cloud.
 func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
 	return b.syncClient.Sync(ctx)
+}
+
+// CheckIn reports endpoint presence, rate limited by the auto-sync interval.
+// Callers invoke it after a successful sync.
+func (b *SyncClientBundle) CheckIn(ctx context.Context) error {
+	return checkInWithRateLimit(ctx, b.cfg, b.syncClient.CheckIn)
+}
+
+// checkInWithRateLimit uses its own lastrun file: the proxy ticker keeps
+// cloud-sync.lastrun always fresh, which would starve the check-in. Like
+// cloud-sync.lastrun, the file records every attempt, so a failing endpoint
+// or an old server does not retry on every sync.
+func checkInWithRateLimit(ctx context.Context, cfg *config.RuntimeConfig, checkIn func(context.Context) error) error {
+	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
+		return nil
+	}
+
+	if err := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); err != nil {
+		return fmt.Errorf("update check-in lastrun: %w", err)
+	}
+
+	return checkIn(ctx)
 }
 
 func (b *SyncClientBundle) Close() error {
@@ -141,6 +170,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	return &SyncClientBundle{
 		syncClient:  syncClient,
 		cloudClient: cloudClient,
+		cfg:         cfg,
 	}, nil
 }
 

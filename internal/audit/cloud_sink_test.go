@@ -26,6 +26,10 @@ func (m *mockTransport) Send(_ context.Context, req *servicev1.SyncEventsRequest
 	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmed}, nil
 }
 
+func (m *mockTransport) CheckIn(_ context.Context, _ *servicev1.CheckInRequest) (*servicev1.CheckInResponse, error) {
+	return &servicev1.CheckInResponse{}, nil
+}
+
 func (m *mockTransport) Close() error {
 	m.closed = true
 	return nil
