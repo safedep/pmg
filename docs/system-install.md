@@ -132,7 +132,7 @@ The error message and `pmg setup doctor` print the fix matching your case.
 
 For cloud sync, enable cloud in the system config and provide credentials (`SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID`, or a keychain login on developer machines).
 
-For MDM fleets, also schedule `pmg cloud sync` hourly (launchd, systemd timer, or your MDM's script scheduler). Each sync also sends a rate-limited check-in, so an idle endpoint still appears as active in the SafeDep Cloud Endpoints view. No `pmg setup doctor` run is needed for the endpoint to appear. Hourly is the supported schedule: the server refreshes endpoint activity at most every 30 minutes and the console marks an endpoint recent within 24 hours.
+For MDM fleets, also schedule `pmg cloud sync` hourly (launchd, systemd timer, or your MDM's script scheduler). Each sync also sends a rate-limited check-in, so an idle endpoint still appears as active in the SafeDep Cloud Endpoints view.
 
 ## Certificates
 
