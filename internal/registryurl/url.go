@@ -54,6 +54,9 @@ func Normalize(rawURL string) (string, error) {
 	}
 
 	path := NormalizeBasePath(parsed.EscapedPath())
+	if HasUncleanPathSegments(path) {
+		return "", fmt.Errorf("URL path must not contain empty or dot segments")
+	}
 	return scheme + "://" + host + path, nil
 }
 
@@ -100,6 +103,31 @@ func NormalizeEscapedPath(path string) string {
 
 func NormalizeBasePath(path string) string {
 	return strings.TrimRight(NormalizeEscapedPath(path), "/")
+}
+
+// HasUncleanPathSegments reports whether an escaped path contains an empty
+// or dot segment (including %2E forms). Servers resolve such paths into a
+// different tree than a literal prefix match suggests, so endpoint base
+// paths must not contain them and request paths containing them are left
+// unmatched. The leading segment (before the first slash) and a trailing
+// slash are not treated as empty segments.
+func HasUncleanPathSegments(escapedPath string) bool {
+	segments := strings.Split(escapedPath, "/")
+	for i, segment := range segments {
+		if segment == "" {
+			if i != 0 && i != len(segments)-1 {
+				return true
+			}
+			continue
+		}
+		if segment == "." || segment == ".." {
+			return true
+		}
+		if decoded, err := url.PathUnescape(segment); err == nil && (decoded == "." || decoded == "..") {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultPort(scheme string) string {

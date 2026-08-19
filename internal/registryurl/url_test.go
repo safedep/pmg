@@ -34,3 +34,50 @@ func TestNormalizeDoesNotExposeMalformedURLCredentials(t *testing.T) {
 	assert.NotContains(t, err.Error(), "super-secret")
 	assert.NotContains(t, err.Error(), "user:")
 }
+
+func TestNormalizeRejectsUncleanPathSegments(t *testing.T) {
+	tests := []string{
+		"https://packages.example.test//npm",
+		"https://packages.example.test/npm//team",
+		"https://packages.example.test/npm/./team",
+		"https://packages.example.test/npm/../team",
+		"https://packages.example.test/npm/%2e/team",
+		"https://packages.example.test/npm/%2E%2E/team",
+		"https://packages.example.test/npm/%2E./team",
+	}
+
+	for _, rawURL := range tests {
+		t.Run(rawURL, func(t *testing.T) {
+			_, err := Normalize(rawURL)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "must not contain empty or dot segments")
+		})
+	}
+}
+
+func TestHasUncleanPathSegments(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"", false},
+		{"/", false},
+		{"/npm", false},
+		{"/npm/", false},
+		{"/simple/demo/", false},
+		{"/npm//team", true},
+		{"//npm", true},
+		{"/npm/./team", true},
+		{"/npm/../team", true},
+		{"/npm/%2e%2e/team", true},
+		{"/npm/%2E./team", true},
+		{"/npm/.%2e/team", true},
+		{"/npm/a%2Fb/team", false}, // escaped slash is not a dot segment
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			assert.Equal(t, tt.want, HasUncleanPathSegments(tt.path))
+		})
+	}
+}

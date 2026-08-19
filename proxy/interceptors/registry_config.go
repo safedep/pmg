@@ -180,6 +180,12 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 		return nil
 	}
 	path := registryurl.NormalizeEscapedPath(u.EscapedPath())
+	// A dot-segment path resolves into a different tree upstream than a
+	// literal prefix match suggests; leave it unmatched so it passes
+	// through unanalyzed instead of being attributed to the wrong registry.
+	if registryurl.HasUncleanPathSegments(path) {
+		return nil
+	}
 
 	// Load-time validation makes ambiguity impossible, so the best match is
 	// decided by two rules only: an exact host beats a built-in subdomain

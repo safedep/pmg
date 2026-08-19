@@ -263,6 +263,28 @@ func TestValidateProxyRegistriesNesting(t *testing.T) {
 				},
 			}},
 		},
+		{
+			name: "endpoint with a dot-segment base path",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm/../team"},
+				},
+			}},
+			wantErr: "must not contain empty or dot segments",
+		},
+		{
+			name: "endpoint with an empty base path segment",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm//team"},
+				},
+			}},
+			wantErr: "must not contain empty or dot segments",
+		},
 	}
 
 	for _, tt := range tests {

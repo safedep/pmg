@@ -309,6 +309,9 @@ func TestRegistryConfigSetMatchURL(t *testing.T) {
 		{name: "relative path is unescaped for parsers", rawURL: "https://registry.example.org/@scope%2Fname", wantName: "built-in", wantRelative: "/@scope/name"},
 		{name: "custom endpoint relative path is unescaped", rawURL: "https://packages.example.test/npm/@scope%2Fname", wantName: "short", wantRelative: "/@scope/name"},
 		{name: "unknown origin is unmatched", rawURL: "https://unknown.example.test/npm/team/pkg"},
+		{name: "dot-segment path is unmatched", rawURL: "https://packages.example.test/npm/../pypi/x.tar.gz"},
+		{name: "encoded dot-segment path is unmatched", rawURL: "https://packages.example.test/npm/%2e%2e/pypi/x.tar.gz"},
+		{name: "empty segment path is unmatched", rawURL: "https://packages.example.test/npm//team/pkg"},
 	}
 
 	for _, tt := range tests {

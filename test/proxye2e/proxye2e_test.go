@@ -1077,6 +1077,26 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 			},
 		},
 		{
+			// A dot-segment path resolves into a different tree upstream than
+			// a literal base-path match suggests, so it must not be attributed
+			// to the registry: it passes through without analysis.
+			Name:   "dot-segment path on configured custom host passes through without analysis",
+			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm("packages.example.test", "/npm/team")
+				h.Analyzer.SetNpm("demo", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://packages.example.test/npm/team/../team/demo/-/demo-1.0.0.tgz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Empty(t, h.Analyzer.Calls(), "a dot-segment path must never reach analysis under a registry identity")
+			},
+		},
+		{
 			Name:   "analyzer NotFound allows a private package on a custom registry",
 			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
 			Setup: func(h *Harness) {
