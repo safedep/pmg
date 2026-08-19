@@ -315,6 +315,39 @@ func TestValidateProxyRegistriesNesting(t *testing.T) {
 	}
 }
 
+func TestValidateProxyRegistriesEndpointHosts(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr string
+	}{
+		{name: "localhost", url: "http://localhost:4873", wantErr: "loopback"},
+		{name: "loopback ipv4", url: "http://127.0.0.1:8080/npm", wantErr: "loopback"},
+		{name: "loopback ipv6", url: "https://[::1]/simple", wantErr: "loopback"},
+		{name: "subdomain of localhost", url: "http://foo.localhost/npm", wantErr: "loopback"},
+		{name: "unicode hostname", url: "https://münchen.example.test/npm", wantErr: "not ASCII"},
+		{name: "private ipv4 is fine", url: "https://10.0.0.8/npm"},
+		{name: "private ipv6 is fine", url: "https://[fd00::1]/simple"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registries := []ProxyRegistryConfig{{
+				Name:      "test",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: tt.url}},
+			}}
+			err := ValidateProxyRegistries(registries)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestNormalizeProxyRegistryURL(t *testing.T) {
 	tests := []struct {
 		name    string

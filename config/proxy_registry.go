@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"github.com/safedep/pmg/internal/registryurl"
 )
@@ -77,6 +79,10 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 			}
 			endpoints[normalized] = name
 
+			if err := validateEndpointHost(normalized); err != nil {
+				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
+			}
+
 			split, err := splitNormalizedEndpoint(endpoint.URL, normalized)
 			if err != nil {
 				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
@@ -95,6 +101,31 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 		}
 	}
 
+	return nil
+}
+
+// validateEndpointHost rejects endpoint hosts PMG can never analyze:
+// loopback hosts (proxied runs export NO_PROXY=localhost,127.0.0.1,::1, so
+// they bypass the proxy entirely) and non-ASCII hostnames (package managers
+// punycode before connecting, so a Unicode entry never matches the wire).
+func validateEndpointHost(normalized string) error {
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return err
+	}
+	hostname := registryurl.NormalizeHostname(u.Hostname())
+
+	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
+		return fmt.Errorf("host %q is a loopback address; proxied runs exclude loopback hosts via NO_PROXY, so PMG cannot analyze them", u.Hostname())
+	}
+	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
+		return fmt.Errorf("host %q is loopback-only; proxied runs exclude localhost via NO_PROXY, so PMG cannot analyze it", u.Hostname())
+	}
+	for _, r := range hostname {
+		if r > unicode.MaxASCII {
+			return fmt.Errorf("host %q is not ASCII; package managers punycode hostnames before connecting, so use the punycode (xn--) form", u.Hostname())
+		}
+	}
 	return nil
 }
 
