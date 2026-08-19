@@ -164,7 +164,7 @@ PMG accepts an `http://` endpoint and prints one startup warning for it. Use `ht
 - A URL that is relative, invalid, or uses a scheme other than `http` or `https`
 - A URL that includes credentials, a query string, or a fragment
 - Two endpoints that normalize to the same origin and base path
-- Two endpoints of the same ecosystem whose base paths nest into each other, such as `/npm` and `/npm/team` (npm and PyPI may share a host, but same-ecosystem ambiguity is rejected)
+- Two endpoints on the same origin whose base paths nest into each other, such as `/npm` and `/npm/team` (npm and PyPI may share a host, but their base paths must be disjoint subtrees)
 - At proxy startup, an endpoint whose host is covered by a built-in registry (for example `registry.npmjs.org`, `pypi.org`, or their subdomains), because PMG already analyzes it
 
 The error names the registry and the specific problem. An empty or whitespace-only name has no registry name to report, so the error names the entry's position in the list instead, for example `proxy.registries[0]`. Fix that entry and restart PMG.

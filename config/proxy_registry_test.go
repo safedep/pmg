@@ -227,7 +227,7 @@ func TestValidateProxyRegistriesNesting(t *testing.T) {
 					{URL: "https://packages.example.test/npm/team"},
 				},
 			}},
-			wantErr: "same-ecosystem endpoint base paths must not nest",
+			wantErr: "endpoint base paths on the same origin must not nest",
 		},
 		{
 			name: "same ecosystem nested base paths across registries",
@@ -235,21 +235,37 @@ func TestValidateProxyRegistriesNesting(t *testing.T) {
 				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm"}}},
 				{Name: "b", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm/team"}}},
 			},
-			wantErr: "same-ecosystem endpoint base paths must not nest",
+			wantErr: "endpoint base paths on the same origin must not nest",
 		},
 		{
-			name: "bare origin nests with a deeper same-ecosystem base",
+			name: "bare origin nests with a deeper base",
 			registries: []ProxyRegistryConfig{
 				{Name: "a", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test"}}},
 				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/simple"}}},
 			},
-			wantErr: "same-ecosystem endpoint base paths must not nest",
+			wantErr: "endpoint base paths on the same origin must not nest",
 		},
 		{
-			name: "cross-ecosystem nesting is allowed (npm and pypi share a host)",
+			name: "cross-ecosystem nested base paths (npm prefix of pypi)",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x/simple"}}},
+			},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "cross-ecosystem nested base paths in reverse declaration order",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x/simple"}}},
+				{Name: "b", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x"}}},
+			},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "cross-ecosystem disjoint subtrees share a host (npm and pypi)",
 			registries: []ProxyRegistryConfig{
 				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/npm"}}},
-				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/npm/team"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/pypi/simple"}}},
 			},
 		},
 		{

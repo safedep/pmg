@@ -35,7 +35,7 @@ func (e *ProxyRegistriesError) Unwrap() error {
 }
 
 // normalizedEndpoint splits a normalized endpoint URL into its origin and
-// base path so same-ecosystem endpoint nesting can be checked.
+// base path so endpoint nesting can be checked across all registries.
 type normalizedEndpoint struct {
 	rawURL string
 	origin string
@@ -45,7 +45,7 @@ type normalizedEndpoint struct {
 func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 	names := make(map[string]struct{}, len(registries))
 	endpoints := make(map[string]string)
-	byEcosystem := make(map[string][]normalizedEndpoint)
+	var byOrigin []normalizedEndpoint
 
 	for registryIndex, registry := range registries {
 		name := strings.TrimSpace(registry.Name)
@@ -81,13 +81,17 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 			if err != nil {
 				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
 			}
-			for _, existing := range byEcosystem[registry.Ecosystem] {
+			// Nested base paths on one origin are ambiguous regardless of
+			// ecosystem: in daemon mode both interceptors would handle the
+			// nested requests, and even single-ecosystem nesting forces an
+			// arbitration rule the config should state explicitly instead.
+			for _, existing := range byOrigin {
 				if existing.origin == split.origin && endpointPathsNest(existing.path, split.path) {
-					return fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: same-ecosystem endpoint base paths must not nest",
+					return fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: endpoint base paths on the same origin must not nest",
 						name, endpointIndex, endpoint.URL, existing.rawURL)
 				}
 			}
-			byEcosystem[registry.Ecosystem] = append(byEcosystem[registry.Ecosystem], split)
+			byOrigin = append(byOrigin, split)
 		}
 	}
 
