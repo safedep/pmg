@@ -31,8 +31,8 @@ jobs:
 
 **Order matters.** Put `safedep/pmg` **after** `setup-node` / `setup-python`
 / etc. Each step that writes to `GITHUB_PATH` prepends to `PATH`, and PMG
-needs its shims (`$HOME/.pmg/bin/{npm,pip,...}`) to land in front of the
-real toolchains.
+needs its shims (`{npm,pip,...}` under the directory reported by
+`pmg setup info --json`) to land in front of the real toolchains.
 
 ## Inputs
 

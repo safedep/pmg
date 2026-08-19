@@ -36,7 +36,9 @@ jobs:
           set -e
           which pmg
           which npm
-          test "$(command -v npm)" = "$HOME/.pmg/bin/npm"
+          shims_path="$(pmg setup info --json | jq -er '.shell_integration.shims_path')"
+          test "$(command -v npm)" = "$shims_path/npm"
+          test ! -e "$HOME/.pmg"
       - name: Install a benign package
         run: |
           mkdir t && cd t

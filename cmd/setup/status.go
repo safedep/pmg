@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
@@ -38,6 +39,10 @@ type shellIntegration struct {
 	Shell       string `json:"shell"`
 	Aliases     bool   `json:"aliases"`
 	ShimsInPath bool   `json:"shims_in_path"`
+	// ShimsPath is the resolved per-user shim directory. Consumers that need
+	// it on PATH (e.g. the GitHub Action) must read it rather than assume a
+	// layout, since it differs between legacy and XDG installs.
+	ShimsPath string `json:"shims_path,omitempty"`
 }
 
 type cooldownInfo struct {
@@ -151,6 +156,11 @@ func collectShellIntegration(core []doctor.CheckResult) shellIntegration {
 	}
 
 	si := shellIntegration{Shell: shell}
+	if binDir, err := shim.UserBinDir(); err == nil {
+		si.ShimsPath = binDir
+	} else {
+		log.Warnf("failed to resolve shim directory: %v", err)
+	}
 	if c, ok := findCheck(core, checkShellAliases); ok {
 		si.Aliases = c.ImpliesInterception
 	}

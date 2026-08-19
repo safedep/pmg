@@ -52,7 +52,7 @@ func NewShimManager(config ShimConfig) *ShimManager {
 }
 
 func NewDefaultShimManager() (*ShimManager, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
@@ -223,7 +223,7 @@ func UserBinDir() (string, error) {
 
 // LegacyUserBinDir returns the pre-XDG shim directory (~/.pmg/bin).
 func LegacyUserBinDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}

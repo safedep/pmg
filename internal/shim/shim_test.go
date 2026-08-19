@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -163,8 +165,15 @@ func TestNewDefaultShimManager(t *testing.T) {
 	mgr, err := NewDefaultShimManager()
 	require.NoError(t, err)
 
+	expectedBinDir, err := UserBinDir()
+	require.NoError(t, err)
+
 	assert.NotEmpty(t, mgr.GetBinDir())
-	assert.Contains(t, mgr.GetBinDir(), ".pmg/bin")
+	assert.Equal(t, expectedBinDir, mgr.GetBinDir())
+
+	expectedLegacy, err := LegacyUserBinDir()
+	require.NoError(t, err)
+	assert.Equal(t, expectedLegacy, mgr.config.LegacyBinDir)
 	assert.NotEmpty(t, mgr.config.PMGBin)
 	assert.True(t, filepath.IsAbs(mgr.config.PMGBin))
 	assert.NotEmpty(t, mgr.config.PackageManagers)
@@ -265,9 +274,16 @@ func TestUserBinDirUsesDataDirWhenLegacyEmpty(t *testing.T) {
 	// resurrect it.
 	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, legacyUserDirName, "bin"), 0o755))
 
+	expectedDataDir, err := config.UserDataDir()
+	require.NoError(t, err)
+
 	binDir, err := UserBinDir()
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(dataHome, "safedep", "pmg", "bin"), binDir)
+	assert.Equal(t, filepath.Join(expectedDataDir, "bin"), binDir)
+	assert.NotContains(t, binDir, legacyUserDirName)
+	if runtime.GOOS == "linux" {
+		assert.Equal(t, filepath.Join(dataHome, "safedep", "pmg", "bin"), binDir)
+	}
 }
 
 func TestShimManagerRemoveClearsLegacyDir(t *testing.T) {

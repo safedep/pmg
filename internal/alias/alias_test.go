@@ -142,3 +142,29 @@ func TestAliasRemove(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), RcFileName)
 }
+
+func TestAliasDetectionIgnoresUnrelatedRcPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/zsh")
+
+	// A user-managed file whose name merely ends in the pmg rc file name must
+	// not read as a pmg install, and must survive removal.
+	unrelated := "[ -f '" + filepath.Join(home, "my-pmg.rc") + "' ] && source '" + filepath.Join(home, "my-pmg.rc") + "'\n"
+	zshrc := filepath.Join(home, ".zshrc")
+	require.NoError(t, os.WriteFile(zshrc, []byte(unrelated), 0o644))
+
+	mgr := newTestAliasManager(t, testConfigDir(t, home))
+
+	installed, err := mgr.IsInstalled()
+	require.NoError(t, err)
+	assert.False(t, installed)
+
+	require.NoError(t, mgr.Install())
+	require.NoError(t, mgr.Remove())
+
+	data, err := os.ReadFile(zshrc)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "my-pmg.rc")
+	assert.NotContains(t, string(data), aliasSourceMarker)
+}

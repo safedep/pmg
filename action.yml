@@ -324,7 +324,12 @@ runs:
     - name: Add PMG shims to PATH (shim mode)
       if: inputs.server-mode != 'true'
       shell: bash
-      run: echo "$HOME/.pmg/bin" >> "$GITHUB_PATH"
+      run: |
+        set -euo pipefail
+        # Ask pmg where its shims landed: the directory differs between a
+        # legacy install and the XDG layout, so it must not be assumed here.
+        shims_path="$(pmg setup info --json | jq -er '.shell_integration.shims_path')"
+        echo "$shims_path" >> "$GITHUB_PATH"
 
     - name: Start PMG proxy server (server mode)
       if: inputs.server-mode == 'true'

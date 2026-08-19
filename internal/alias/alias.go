@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 )
 
 // LegacyRcFileName is the pre-XDG alias file in $HOME. RcFileName is a suffix
@@ -50,7 +51,7 @@ var _ RcFileManager = &defaultRcFileManager{}
 // used until `pmg setup remove` clears it, so upgrades do not silently move the
 // file a user's shell rc already sources.
 func NewDefaultRcFileManager(configDir, rcFileName string) (*defaultRcFileManager, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +170,7 @@ func (a *AliasManager) GetRcPath() string {
 
 // IsInstalled checks if the PMG aliases are sourced in any of the shell config files.
 func (a *AliasManager) IsInstalled() (bool, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return false, err
 	}
@@ -191,7 +192,7 @@ func (a *AliasManager) IsInstalled() (bool, error) {
 				if strings.HasPrefix(trimmed, "#") {
 					continue
 				}
-				if strings.Contains(trimmed, a.config.RcFileName) {
+				if strings.Contains(trimmed, aliasSourceMarker) {
 					return true, nil
 				}
 			}
@@ -212,7 +213,7 @@ func (a *AliasManager) buildAliases() []string {
 
 // sourceRcFile adds source lines to all shell configuration files.
 func (a *AliasManager) sourceRcFile() error {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return err
 	}
@@ -237,13 +238,13 @@ func (a *AliasManager) sourceRcFile() error {
 
 // removeSourceLinesFromShells removes source lines from all shell configuration files.
 func (a *AliasManager) removeSourceLinesFromShells() error {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return err
 	}
 
 	drop := func(line string) bool {
-		return strings.Contains(line, a.config.RcFileName) ||
+		return strings.Contains(line, aliasSourceMarker) ||
 			strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource)
 	}
 
@@ -266,7 +267,7 @@ func (a *AliasManager) addSourceLine(configPath, sourceLine string) error {
 		return err // file doesn't exist or can't read, skip
 	}
 
-	if strings.Contains(string(data), a.config.RcFileName) {
+	if strings.Contains(string(data), aliasSourceMarker) {
 		return nil // already sourced, skip
 	}
 

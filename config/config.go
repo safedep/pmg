@@ -663,6 +663,25 @@ func rootCacheDir() (string, error) {
 	return filepath.Join(home, ".cache"), nil
 }
 
+// UserHomeDir returns the home directory pmg should treat as the current
+// user's. It applies the same sudo guard as configDir: under sudo the passwd
+// home of root wins over a HOME preserved from the invoking user, so an
+// elevated run never reads or writes that user's dotfiles. Callers resolving
+// paths that sit alongside the config directory must use this rather than
+// os.UserHomeDir, otherwise the two can disagree under sudo.
+func UserHomeDir() (string, error) {
+	if isSudoElevation() {
+		if home, err := rootHomeDirResolver(); err == nil {
+			return home, nil
+		} else {
+			// Same fallback rationale as configDir.
+			log.Warnf("failed to resolve root home, using environment: %v", err)
+		}
+	}
+
+	return os.UserHomeDir()
+}
+
 // rootDataDir mirrors userDataBaseDir platform conventions for root's passwd
 // home.
 func rootDataDir() (string, error) {
@@ -681,6 +700,7 @@ var (
 	rootConfigDirResolver = rootConfigDir
 	rootCacheDirResolver  = rootCacheDir
 	rootDataDirResolver   = rootDataDir
+	rootHomeDirResolver   = rootHomeDir
 )
 
 // currentUserHomeDir returns the current user's home from the passwd

@@ -81,11 +81,16 @@ jobs:
 
       - name: Test PMG Aliases and Shims are Installed
         run: |
-          test -f $HOME/.pmg.rc
-          test -d $HOME/.pmg/bin
+          config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
+          shims_dir="${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin"
+          test -f "$config_dir/pmg.rc"
+          test -d "$shims_dir"
           for shim in npm pip pip3 pnpm bun uv uvx yarn poetry npx pnpx; do
-            test -x $HOME/.pmg/bin/$shim || { echo "Missing shim: $shim"; exit 1; }
+            test -x "$shims_dir/$shim" || { echo "Missing shim: $shim"; exit 1; }
           done
+          # A fresh install must not create the legacy layout.
+          test ! -e "$HOME/.pmg"
+          test ! -e "$HOME/.pmg.rc"
 
       - name: Test NPM - Single Package & Manifest
         run: |

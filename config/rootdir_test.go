@@ -183,3 +183,40 @@ func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/home/victim", ".local", "share", pmgDefaultHomeRelativePath), dir)
 }
+
+func TestUserHomeDirUnderSudoIgnoresPreservedHome(t *testing.T) {
+	poisonUserEnv(t)
+	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "victim")
+
+	home, err := UserHomeDir()
+	require.NoError(t, err)
+
+	rootUser, err := user.LookupId("0")
+	require.NoError(t, err)
+	assert.Equal(t, rootUser.HomeDir, home)
+	assert.NotContains(t, home, "/home/victim")
+}
+
+func TestUserHomeDirAsNonRootUsesEnvHome(t *testing.T) {
+	poisonUserEnv(t)
+	withEuid(t, 1000)
+
+	home, err := UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, "/home/victim", home)
+}
+
+func TestUserHomeDirFallsBackToEnvWhenPasswdUnavailable(t *testing.T) {
+	poisonUserEnv(t)
+	withEuid(t, 0)
+	t.Setenv("SUDO_USER", "victim")
+
+	orig := rootHomeDirResolver
+	rootHomeDirResolver = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { rootHomeDirResolver = orig })
+
+	home, err := UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, "/home/victim", home)
+}
