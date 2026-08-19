@@ -124,7 +124,7 @@ A custom PyPI endpoint must serve the [Simple Repository API](https://packaging.
 
 PMG recognizes a project's index page, the page listing all of one project's files, when the configured base URL itself ends in `/simple`. With a base of `.../artifactory/api/pypi/python/simple`, a request for `.../artifactory/api/pypi/python/simple/requests/` is recognized as the index page for `requests`.
 
-Some bases do not end in `/simple`. For example, a base might point at a mirror's API root above the Simple mount. PMG still recognizes the relative layouts `/simple/<project>/` and `/pypi/<project>/json` beneath a base like this. A Simple API exposed some other way, such as a root-mounted index or a `+simple` convention, gets no project-page discovery and no dependency cooldown. PMG still analyzes distribution file downloads under that base, because it identifies them from their filename rather than from the page that links to them.
+Some bases do not end in `/simple`. For example, a base might point at a mirror's API root above the Simple mount. PMG still recognizes the relative layouts `/simple/<project>/` and `/pypi/<project>/json` beneath a base like this. A Simple API exposed some other way, such as a root-mounted index or a `+simple` convention, gets no project-page recognition and no dependency cooldown. PMG still analyzes distribution file downloads under that base, because it identifies them from their filename rather than from the page that links to them.
 
 PMG identifies a distribution file, a wheel or an sdist, by its standard filename, at any depth below the configured base.
 
@@ -136,11 +136,9 @@ If your artifacts live on a separate host or prefix, add that host or prefix as 
 
 ### How PMG identifies a package from a URL
 
-PMG prefers to read a package's name and version directly from the request URL: the npm tarball path shape, or the PyPI distribution filename. This covers most registries and needs no extra state.
+PMG reads a package's name and version directly from the request URL: the npm tarball path shape, or the PyPI distribution filename. This covers most registries and needs no extra state.
 
-Some registries use opaque download URLs that carry no name or version, for example `.../download/opaque?id=42`. For a URL like this, PMG remembers the name and version that a metadata response advertised for it. PMG reuses that mapping when the download request arrives. The mapping is scoped to one registry, expires after 15 minutes, and holds at most 10,000 entries.
-
-A URL that PMG can already identify from its own shape always wins. Registry metadata can never override an identity PMG derived from the URL itself.
+Some registries use opaque download URLs that carry no name or version, for example `.../download/opaque?id=42`. PMG cannot identify these downloads, so it currently allows them without analysis, the same fail-open behavior as an unparsable URL. Support for identifying them from registry metadata is planned.
 
 ### Public packages only
 

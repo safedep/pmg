@@ -92,22 +92,6 @@ func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
 	return &u
 }
 
-// registryURLHasCanonicalIdentity reports whether canonical parsing already
-// resolves u to a complete identity. Discovery must skip indexing such a
-// URL: canonical parsing is authoritative, and a stale or compromised index
-// entry must never be able to override it.
-func registryURLHasCanonicalIdentity(registries registryConfigSet, u *url.URL) bool {
-	match := registries.MatchURL(u)
-	if match == nil {
-		return false
-	}
-	pkgInfo, err := match.Config.Parser.ParseURL(match.RelativePath)
-	if err != nil {
-		return false
-	}
-	return packageInfoHasCompleteIdentity(pkgInfo)
-}
-
 // packageInfo represents parsed package information from a registry URL.
 // All ecosystem-specific package info types must implement this interface.
 type packageInfo interface {
