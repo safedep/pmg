@@ -30,30 +30,20 @@ func newCheckInConfig(t *testing.T) *config.RuntimeConfig {
 func TestMaybeCheckIn(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("checks in on a zero-event sync", func(t *testing.T) {
+	t.Run("checks in after a successful sync", func(t *testing.T) {
 		cfg := newCheckInConfig(t)
 		calls := 0
-		maybeCheckIn(ctx, cfg, 0, nil, func(context.Context) error {
+		maybeCheckIn(ctx, cfg, nil, func(context.Context) error {
 			calls++
 			return nil
 		})
 		assert.Equal(t, 1, calls)
 	})
 
-	t.Run("skips when events were synced", func(t *testing.T) {
-		cfg := newCheckInConfig(t)
-		calls := 0
-		maybeCheckIn(ctx, cfg, 3, nil, func(context.Context) error {
-			calls++
-			return nil
-		})
-		assert.Equal(t, 0, calls)
-	})
-
 	t.Run("skips when the sync failed", func(t *testing.T) {
 		cfg := newCheckInConfig(t)
 		calls := 0
-		maybeCheckIn(ctx, cfg, 0, errors.New("sync failed"), func(context.Context) error {
+		maybeCheckIn(ctx, cfg, errors.New("sync failed"), func(context.Context) error {
 			calls++
 			return nil
 		})
@@ -64,7 +54,7 @@ func TestMaybeCheckIn(t *testing.T) {
 		cfg := newCheckInConfig(t)
 		cfg.Config.Cloud.CheckIn.Enabled = false
 		calls := 0
-		maybeCheckIn(ctx, cfg, 0, nil, func(context.Context) error {
+		maybeCheckIn(ctx, cfg, nil, func(context.Context) error {
 			calls++
 			return nil
 		})
@@ -79,8 +69,8 @@ func TestMaybeCheckIn(t *testing.T) {
 			return nil
 		}
 
-		maybeCheckIn(ctx, cfg, 0, nil, checkIn)
-		maybeCheckIn(ctx, cfg, 0, nil, checkIn)
+		maybeCheckIn(ctx, cfg, nil, checkIn)
+		maybeCheckIn(ctx, cfg, nil, checkIn)
 		assert.Equal(t, 1, calls, "second attempt inside the cooldown must not fire")
 		require.FileExists(t, cfg.CloudCheckInLastRunPath())
 	})
@@ -93,15 +83,15 @@ func TestMaybeCheckIn(t *testing.T) {
 			return status.Error(codes.Unavailable, "server down")
 		}
 
-		maybeCheckIn(ctx, cfg, 0, nil, checkIn)
-		maybeCheckIn(ctx, cfg, 0, nil, checkIn)
+		maybeCheckIn(ctx, cfg, nil, checkIn)
+		maybeCheckIn(ctx, cfg, nil, checkIn)
 		assert.Equal(t, 1, calls, "a failed check-in must still start the cooldown")
 	})
 
 	t.Run("unimplemented degrades to a warning", func(t *testing.T) {
 		cfg := newCheckInConfig(t)
 		assert.NotPanics(t, func() {
-			maybeCheckIn(ctx, cfg, 0, nil, func(context.Context) error {
+			maybeCheckIn(ctx, cfg, nil, func(context.Context) error {
 				return status.Error(codes.Unimplemented, "old server")
 			})
 		})

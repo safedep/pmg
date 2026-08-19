@@ -70,15 +70,16 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 	return synced, syncErr
 }
 
-// maybeCheckIn sends an endpoint check-in when the sync delivered zero events,
-// so an idle endpoint still shows as active in SafeDep Cloud. When events went
-// out, SyncEvents already refreshed the endpoint's last sync time. A check-in
-// failure never affects the sync result: an older server answers Unimplemented,
-// which is expected during rollout. The lastrun file is written before the
-// call: a failing endpoint does not check in on every sync, and an unwritable
-// file skips the call so the cooldown cannot silently stop working.
-func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, synced int, syncErr error, checkIn func(context.Context) error) {
-	if syncErr != nil || synced > 0 {
+// maybeCheckIn sends an endpoint check-in after a successful sync, behind its
+// own cooldown. The call does not depend on event volume: the future cloud
+// config rides on the check-in response, so a busy endpoint that always syncs
+// events must call it too. A check-in failure never affects the sync result:
+// an older server answers Unimplemented, which is expected during rollout.
+// The lastrun file is written before the call: a failing endpoint does not
+// check in on every sync, and an unwritable file skips the call so the
+// cooldown cannot silently stop working.
+func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, syncErr error, checkIn func(context.Context) error) {
+	if syncErr != nil {
 		return
 	}
 	if !cfg.Config.Cloud.CheckIn.Enabled {
@@ -110,13 +111,12 @@ type SyncClientBundle struct {
 	cfg         *config.RuntimeConfig
 }
 
-// Sync delivers pending events from the WAL to SafeDep Cloud. A zero-event
-// sync sends a check-in instead, behind its own cooldown, so every sync path
-// reports presence: manual sync, the detached auto-sync child, and the proxy
-// server ticker.
+// Sync delivers pending events from the WAL to SafeDep Cloud, then sends a
+// check-in behind its own cooldown. Every sync path reports presence: manual
+// sync, the detached auto-sync child, and the proxy server ticker.
 func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
 	synced, err := b.syncClient.Sync(ctx)
-	maybeCheckIn(ctx, b.cfg, synced, err, b.syncClient.CheckIn)
+	maybeCheckIn(ctx, b.cfg, err, b.syncClient.CheckIn)
 	return synced, err
 }
 

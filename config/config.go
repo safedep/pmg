@@ -156,9 +156,9 @@ type CloudConfig struct {
 }
 
 // CloudCheckInConfig controls the endpoint check-in: an event-free presence
-// call sent when a sync finds an empty WAL, so an idle endpoint still shows
-// as active in SafeDep Cloud. MinInterval must stay above the server's
-// 30-minute last-sync refresh throttle.
+// call sent after every successful sync, so an endpoint shows as active in
+// SafeDep Cloud whatever its event volume. MinInterval must stay above the
+// server's 30-minute last-sync refresh throttle.
 type CloudCheckInConfig struct {
 	Enabled     bool          `mapstructure:"enabled"`
 	MinInterval time.Duration `mapstructure:"min_interval"`
