@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -27,6 +28,11 @@ type AnalysisStatsCollector struct {
 	blockedPackages   []*analyzer.PackageVersionAnalysisResult
 	confirmedPackages []*analyzer.PackageVersionAnalysisResult
 	cooldownBlocks    []models.CooldownBlock
+
+	// cooldownWithheld is keyed by package name, then version, holding days
+	// left. Metadata for one package can be fetched several times during an
+	// install, so recording must deduplicate rather than append.
+	cooldownWithheld map[string]map[string]int
 }
 
 // NewAnalysisStatsCollector creates a new stats collector
@@ -148,5 +154,51 @@ func (c *AnalysisStatsCollector) GetCooldownBlocks() []models.CooldownBlock {
 
 	result := make([]models.CooldownBlock, len(c.cooldownBlocks))
 	copy(result, c.cooldownBlocks)
+	return result
+}
+
+// RecordCooldownWithheld records versions stripped from a package's metadata
+// while eligible versions remained. Withheld versions are not blocks: they do
+// not count toward analyzed or blocked totals.
+func (c *AnalysisStatsCollector) RecordCooldownWithheld(name string, versions []models.CooldownWithheldVersion) {
+	if len(versions) == 0 {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.cooldownWithheld == nil {
+		c.cooldownWithheld = make(map[string]map[string]int)
+	}
+	if c.cooldownWithheld[name] == nil {
+		c.cooldownWithheld[name] = make(map[string]int)
+	}
+	for _, v := range versions {
+		c.cooldownWithheld[name][v.Version] = v.DaysLeft
+	}
+}
+
+// GetCooldownWithheld returns the withheld records sorted by package name and
+// version for stable rendering.
+func (c *AnalysisStatsCollector) GetCooldownWithheld() []models.CooldownWithheld {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]models.CooldownWithheld, 0, len(c.cooldownWithheld))
+	for name, versions := range c.cooldownWithheld {
+		entry := models.CooldownWithheld{Name: name}
+		for version, daysLeft := range versions {
+			entry.Versions = append(entry.Versions, models.CooldownWithheldVersion{
+				Version:  version,
+				DaysLeft: daysLeft,
+			})
+		}
+		sort.Slice(entry.Versions, func(i, j int) bool {
+			return entry.Versions[i].Version < entry.Versions[j].Version
+		})
+		result = append(result, entry)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }

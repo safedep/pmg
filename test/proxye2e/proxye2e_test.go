@@ -133,6 +133,107 @@ func TestProxyFlow_Npm(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "pinned in-window version should be recorded as a cooldown block")
+				assert.Empty(t, h.CooldownWithheld(), "a definite block must not also be recorded as withheld")
+			},
+		},
+		{
+			Name:   "cooldown records withheld versions when the resolver falls back",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"), "resolver must fall back to the repaired latest")
+				assert.Equal(t, 0, h.Stats().CooldownBlockedCount, "a successful fallback is not a block")
+
+				withheld := h.CooldownWithheld()
+				assert.Len(t, withheld, 1)
+				assert.Equal(t, "left-pad", withheld[0].Name)
+				assert.Len(t, withheld[0].Versions, 1)
+				assert.Equal(t, "2.0.0", withheld[0].Versions[0].Version)
+				assert.Positive(t, withheld[0].Versions[0].DaysLeft)
+			},
+		},
+		{
+			// Models a transitive exact pin (e.g. posthog-node requiring exactly
+			// @posthog/core@1.47.0): the version is not CLI-pinned, eligible
+			// versions remain, but resolution still fails. PMG cannot record a
+			// block here; the withheld record is what the failure report shows.
+			Name:   "cooldown withheld exact transitive pin fails without a block record",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "core", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("core", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, h.Registry.DownloadedTarball("core", "2.0.0"), "stripped version must not resolve")
+				assert.Equal(t, 0, h.Stats().CooldownBlockedCount)
+				assert.Empty(t, h.CooldownBlocks())
+
+				withheld := h.CooldownWithheld()
+				assert.Len(t, withheld, 1)
+				assert.Equal(t, "core", withheld[0].Name)
+				assert.Len(t, withheld[0].Versions, 1)
+				assert.Equal(t, "2.0.0", withheld[0].Versions[0].Version)
+			},
+		},
+		{
+			Name:   "cooldown all-in-window block is not duplicated as withheld",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.1", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: recent()},
+					{Version: "1.0.1", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.GreaterOrEqual(t, h.Stats().CooldownBlockedCount, 1, "all versions in window is a definite block")
+				assert.Empty(t, h.CooldownWithheld())
+				assert.False(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
+				assert.False(t, h.Registry.DownloadedTarball("left-pad", "1.0.1"))
+			},
+		},
+		{
+			// Regression: a pinned version that survives stripping via the skip
+			// list must not be reported as a cooldown block. Only the other
+			// stripped versions are recorded, as withheld.
+			Name: "cooldown skip-listed pinned version installs without a block record",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{
+					Enabled: true, Days: 7,
+					Skip: []config.TrustedPackage{{Purl: "pkg:npm/left-pad@2.0.0"}},
+				}
+			},
+			PinnedVersions: map[string]string{"left-pad": "2.0.0"},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "2.1.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+					{Version: "2.1.0", PublishedAt: recent()},
+				}})
+				h.Analyzer.SetNpm("left-pad", "2.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "2.0.0"), "skip-listed pinned version must install")
+				assert.Equal(t, 0, h.Stats().CooldownBlockedCount, "surviving pinned version must not be recorded as blocked")
+				assert.Empty(t, h.CooldownBlocks())
+
+				withheld := h.CooldownWithheld()
+				assert.Len(t, withheld, 1)
+				assert.Len(t, withheld[0].Versions, 1)
+				assert.Equal(t, "2.1.0", withheld[0].Versions[0].Version)
 			},
 		},
 		{
@@ -356,6 +457,28 @@ func TestProxyFlow_Pypi(t *testing.T) {
 				simple := h.Pypi().FetchSimple("Flask_Thing")
 				assert.False(t, simple.HasVersion("Flask_Thing", "2.0.0"), "in-window version must be stripped")
 				assert.True(t, simple.HasVersion("Flask_Thing", "1.0.0"), "out-of-window version must survive")
+			},
+		},
+		{
+			Name:   "cooldown records withheld versions while eligible remain",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddPypi(PypiPackage{Name: "requests", Versions: []PypiVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install("requests", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Equal(t, 0, h.Stats().CooldownBlockedCount, "eligible versions remain, not a block")
+				assert.Empty(t, h.CooldownBlocks())
+
+				withheld := h.CooldownWithheld()
+				assert.Len(t, withheld, 1)
+				assert.Equal(t, "requests", withheld[0].Name)
+				assert.Len(t, withheld[0].Versions, 1)
+				assert.Equal(t, "2.0.0", withheld[0].Versions[0].Version)
+				assert.Positive(t, withheld[0].Versions[0].DaysLeft)
 			},
 		},
 	})

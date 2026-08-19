@@ -3,7 +3,9 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -75,11 +77,11 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, skip, dates, cooldownDays)
 		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, exempt)
 		strippedBody, stripped, remaining := h.stripCooldownVersions(body, dates, cooldownDays, exempt.all)
-		if stripped > 0 {
+		if len(stripped) > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
-				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
+				ctx.RequestID, len(stripped), packageName, cooldownDays, remaining)
 
-			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, pinnedVersion, dates, remaining, cooldownDays)
+			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_NPM, packageName, pinnedVersion, dates, stripped, remaining, cooldownDays)
 
 			// Prevent npm from caching the modified response. Without this,
 			// npm would serve the stripped metadata from cache even after the
@@ -135,7 +137,8 @@ func (h *npmCooldownHandler) parseMetadataTime(body []byte) (map[string]time.Tim
 
 // stripCooldownVersions removes versions published within the cooldown window from the
 // NPM metadata response. It strips entries from "versions", "time", and updates "dist-tags".
-func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, int, int) {
+// Returns the modified body, the stripped versions, and the count of versions remaining.
+func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, []string, int) {
 	tooNew := make(map[string]bool)
 	for version, publishDate := range dates {
 		// Version-pinned skip entries are never stripped, even inside the window.
@@ -150,13 +153,13 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 	remaining := len(dates) - len(tooNew)
 
 	if len(tooNew) == 0 {
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
 	var metadata map[string]json.RawMessage
 	if err := json.Unmarshal(body, &metadata); err != nil {
 		log.Warnf("Cooldown: failed to unmarshal metadata body: %v", err)
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
 	// survivingVersions holds the version keys still present in the "versions" object
@@ -263,8 +266,8 @@ func (h *npmCooldownHandler) stripCooldownVersions(body []byte, dates map[string
 	result, err := json.Marshal(metadata)
 	if err != nil {
 		log.Warnf("Cooldown: failed to marshal final metadata: %v", err)
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
-	return result, len(tooNew), remaining
+	return result, slices.Collect(maps.Keys(tooNew)), remaining
 }

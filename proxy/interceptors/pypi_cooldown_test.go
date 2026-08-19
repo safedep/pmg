@@ -181,7 +181,7 @@ func TestStripCooldownFiles_MixedVersions(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5, nil)
-	assert.Equal(t, 1, stripped)
+	assert.ElementsMatch(t, []string{"2.0.0"}, stripped)
 	assert.Equal(t, 1, remaining)
 
 	var result struct {
@@ -214,7 +214,7 @@ func TestStripCooldownFiles_AllVersionsTooNew(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5, nil)
-	assert.Equal(t, 2, stripped)
+	assert.ElementsMatch(t, []string{"1.0.0", "2.0.0"}, stripped)
 	assert.Equal(t, 0, remaining)
 
 	var result struct {
@@ -239,7 +239,7 @@ func TestStripCooldownFiles_NoVersionsTooNew(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5, nil)
-	assert.Equal(t, 0, stripped)
+	assert.Empty(t, stripped)
 	assert.Equal(t, 2, remaining)
 	assert.Equal(t, body, newBody)
 }
@@ -257,7 +257,7 @@ func TestStripCooldownFiles_SingleVersionInCooldown(t *testing.T) {
 	require.NoError(t, err)
 
 	_, stripped, remaining := handler.stripCooldownFiles(body, dates, 5, nil)
-	assert.Equal(t, 1, stripped)
+	assert.ElementsMatch(t, []string{"1.0.0"}, stripped)
 	assert.Equal(t, 0, remaining)
 }
 
@@ -288,7 +288,7 @@ func TestStripCooldownFiles_MultipleFilesPerVersion_AllStripped(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownFiles(body, dates, 5, nil)
-	assert.Equal(t, 1, stripped) // 1 version stripped
+	assert.ElementsMatch(t, []string{"1.0.0"}, stripped)
 	assert.Equal(t, 0, remaining)
 
 	var result struct {
@@ -304,7 +304,7 @@ func TestStripCooldownFiles_MalformedJSON(t *testing.T) {
 	dates := map[string]time.Time{"1.0.0": time.Now().Add(-1 * time.Hour)}
 
 	newBody, stripped, _ := handler.stripCooldownFiles(body, dates, 5, nil)
-	assert.Equal(t, 0, stripped)
+	assert.Empty(t, stripped)
 	assert.Equal(t, body, newBody)
 }
 
@@ -339,7 +339,7 @@ func TestStripCooldownFiles_UnparseableFilename_KeepFile(t *testing.T) {
 		"1.0.0": now.Add(-1 * 24 * time.Hour),
 	}
 	newBody, stripped, _ := handler.stripCooldownFiles(body, forcedDates, 5, nil)
-	assert.Equal(t, 1, stripped) // version is "stripped" from the date map perspective
+	assert.ElementsMatch(t, []string{"1.0.0"}, stripped) // stripped from the date map perspective
 
 	var result struct {
 		Files []json.RawMessage `json:"files"`
