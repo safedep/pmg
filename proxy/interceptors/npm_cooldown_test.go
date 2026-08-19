@@ -184,7 +184,7 @@ func TestStripCooldownVersions_MixedVersions(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownVersions(body, dates, 5, nil)
-	assert.Equal(t, 1, stripped)
+	assert.ElementsMatch(t, []string{"1.0.2"}, stripped)
 	assert.Equal(t, 2, remaining)
 
 	var result map[string]json.RawMessage
@@ -224,7 +224,7 @@ func TestStripCooldownVersions_AllVersionsTooNew(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownVersions(body, dates, 5, nil)
-	assert.Equal(t, 2, stripped)
+	assert.ElementsMatch(t, []string{"1.0.0", "1.0.1"}, stripped)
 	assert.Equal(t, 0, remaining)
 
 	var result map[string]json.RawMessage
@@ -250,7 +250,7 @@ func TestStripCooldownVersions_NoVersionsTooNew(t *testing.T) {
 	require.NoError(t, err)
 
 	newBody, stripped, remaining := handler.stripCooldownVersions(body, dates, 5, nil)
-	assert.Equal(t, 0, stripped)
+	assert.Empty(t, stripped)
 	assert.Equal(t, 2, remaining)
 	assert.Equal(t, body, newBody) // body unchanged
 }
@@ -268,7 +268,7 @@ func TestStripCooldownVersions_SingleVersionInCooldown(t *testing.T) {
 	require.NoError(t, err)
 
 	_, stripped, remaining := handler.stripCooldownVersions(body, dates, 5, nil)
-	assert.Equal(t, 1, stripped)
+	assert.ElementsMatch(t, []string{"1.0.0"}, stripped)
 	assert.Equal(t, 0, remaining)
 }
 
@@ -278,7 +278,7 @@ func TestStripCooldownVersions_MalformedJSON(t *testing.T) {
 	dates := map[string]time.Time{"1.0.0": time.Now().Add(-1 * time.Hour)}
 
 	newBody, stripped, _ := handler.stripCooldownVersions(body, dates, 5, nil)
-	assert.Equal(t, 0, stripped)
+	assert.Empty(t, stripped)
 	assert.Equal(t, body, newBody)
 }
 
