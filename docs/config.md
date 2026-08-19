@@ -51,6 +51,7 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | `dependency_cooldown.enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` |
 | `cloud.enabled` | `PMG_CLOUD_ENABLED` |
 | `cloud.check_in.enabled` | `PMG_CLOUD_CHECK_IN_ENABLED` |
+| `cloud.check_in.min_interval` | `PMG_CLOUD_CHECK_IN_MIN_INTERVAL` |
 
 The legacy flat key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
 

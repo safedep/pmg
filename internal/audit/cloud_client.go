@@ -67,8 +67,6 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 		log.Warnf("failed to update cloud sync lastrun: %v", werr)
 	}
 
-	maybeCheckIn(syncCtx, cfg, synced, syncErr, bundle.CheckIn)
-
 	return synced, syncErr
 }
 
@@ -76,8 +74,9 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 // so an idle endpoint still shows as active in SafeDep Cloud. When events went
 // out, SyncEvents already refreshed the endpoint's last sync time. A check-in
 // failure never affects the sync result: an older server answers Unimplemented,
-// which is expected during rollout. The lastrun file is written on every
-// attempt so a failing endpoint does not check in on every sync.
+// which is expected during rollout. The lastrun file is written before the
+// call: a failing endpoint does not check in on every sync, and an unwritable
+// file skips the call so the cooldown cannot silently stop working.
 func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, synced int, syncErr error, checkIn func(context.Context) error) {
 	if syncErr != nil || synced > 0 {
 		return
@@ -90,7 +89,8 @@ func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, synced int, sy
 	}
 
 	if werr := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); werr != nil {
-		log.Warnf("failed to update cloud check-in lastrun: %v", werr)
+		log.Warnf("cloud check-in skipped: failed to update lastrun: %v", werr)
+		return
 	}
 
 	if err := checkIn(ctx); err != nil {
@@ -107,16 +107,17 @@ func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, synced int, sy
 type SyncClientBundle struct {
 	syncClient  *endpointsync.SyncClient
 	cloudClient *cloud.Client
+	cfg         *config.RuntimeConfig
 }
 
-// Sync delivers pending events from the WAL to SafeDep Cloud.
+// Sync delivers pending events from the WAL to SafeDep Cloud. A zero-event
+// sync sends a check-in instead, behind its own cooldown, so every sync path
+// reports presence: manual sync, the detached auto-sync child, and the proxy
+// server ticker.
 func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
-	return b.syncClient.Sync(ctx)
-}
-
-// CheckIn reports endpoint presence without events.
-func (b *SyncClientBundle) CheckIn(ctx context.Context) error {
-	return b.syncClient.CheckIn(ctx)
+	synced, err := b.syncClient.Sync(ctx)
+	maybeCheckIn(ctx, b.cfg, synced, err, b.syncClient.CheckIn)
+	return synced, err
 }
 
 func (b *SyncClientBundle) Close() error {
@@ -180,6 +181,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	return &SyncClientBundle{
 		syncClient:  syncClient,
 		cloudClient: cloudClient,
+		cfg:         cfg,
 	}, nil
 }
 
