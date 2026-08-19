@@ -152,6 +152,16 @@ type CloudConfig struct {
 	Enabled    bool                `mapstructure:"enabled"`
 	EndpointID string              `mapstructure:"endpoint_id"`
 	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
+	CheckIn    CloudCheckInConfig  `mapstructure:"check_in"`
+}
+
+// CloudCheckInConfig controls the endpoint check-in: an event-free presence
+// call sent when a sync finds an empty WAL, so an idle endpoint still shows
+// as active in SafeDep Cloud. MinInterval must stay above the server's
+// 30-minute last-sync refresh throttle.
+type CloudCheckInConfig struct {
+	Enabled     bool          `mapstructure:"enabled"`
+	MinInterval time.Duration `mapstructure:"min_interval"`
 }
 
 // CloudAutoSyncConfig controls opportunistic background sync of the cloud
@@ -347,6 +357,12 @@ func (r *RuntimeConfig) CloudSyncLastRunPath() string {
 	return filepath.Join(r.configDir, "cloud-sync.lastrun")
 }
 
+// CloudCheckInLastRunPath returns the path to the timestamp file recording
+// the last check-in attempt (success or failure) in Unix epoch seconds.
+func (r *RuntimeConfig) CloudCheckInLastRunPath() string {
+	return filepath.Join(r.configDir, "cloud-checkin.lastrun")
+}
+
 // ConfigFilePath returns the path to the active config file (the globally
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {
@@ -488,6 +504,10 @@ func DefaultConfig() RuntimeConfig {
 					Enabled:     true,
 					MinInterval: 15 * time.Minute,
 					Timeout:     5 * time.Minute,
+				},
+				CheckIn: CloudCheckInConfig{
+					Enabled:     true,
+					MinInterval: time.Hour,
 				},
 			},
 			Proxy: ProxyConfig{

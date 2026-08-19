@@ -251,3 +251,14 @@ cloud:
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
+
+  # Check-in reports endpoint presence to SafeDep Cloud when a sync finds no
+  # events to deliver, so an idle endpoint still shows as active in the
+  # Endpoints view. For MDM fleets: drop an API key and schedule
+  # `pmg cloud sync` hourly; the check-in rides on it.
+  check_in:
+    enabled: true
+
+    # Minimum gap between check-in attempts. Keep this above 30m: the server
+    # throttles last-sync refreshes to once per 30 minutes.
+    min_interval: 1h

@@ -132,6 +132,8 @@ The error message and `pmg setup doctor` print the fix matching your case.
 
 For cloud sync, enable cloud in the system config and provide credentials (`SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID`, or a keychain login on developer machines).
 
+For MDM fleets, also schedule `pmg cloud sync` hourly (launchd, systemd timer, or your MDM's script scheduler). When the sync finds no events, pmg sends a check-in, so an idle endpoint still appears as active in the SafeDep Cloud Endpoints view. No `pmg setup doctor` run is needed for the endpoint to appear. Hourly is the supported cadence: the server refreshes endpoint activity at most every 30 minutes and the console marks an endpoint recent within 24 hours. See `cloud.check_in` in the config template to tune or disable it.
+
 ## Certificates
 
 System install does not set up a MITM certificate authority. For npm and pip on Linux, PMG's default ephemeral CA and environment-variable injection are enough.

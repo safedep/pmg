@@ -12,6 +12,8 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
 	appVersion "github.com/safedep/pmg/internal/version"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ErrSyncInProgress is returned by DrainToCloud when another process already
@@ -65,7 +67,39 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 		log.Warnf("failed to update cloud sync lastrun: %v", werr)
 	}
 
+	maybeCheckIn(syncCtx, cfg, synced, syncErr, bundle.CheckIn)
+
 	return synced, syncErr
+}
+
+// maybeCheckIn sends an endpoint check-in when the sync delivered zero events,
+// so an idle endpoint still shows as active in SafeDep Cloud. When events went
+// out, SyncEvents already refreshed the endpoint's last sync time. A check-in
+// failure never affects the sync result: an older server answers Unimplemented,
+// which is expected during rollout. The lastrun file is written on every
+// attempt so a failing endpoint does not check in on every sync.
+func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, synced int, syncErr error, checkIn func(context.Context) error) {
+	if syncErr != nil || synced > 0 {
+		return
+	}
+	if !cfg.Config.Cloud.CheckIn.Enabled {
+		return
+	}
+	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.CheckIn.MinInterval) {
+		return
+	}
+
+	if werr := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); werr != nil {
+		log.Warnf("failed to update cloud check-in lastrun: %v", werr)
+	}
+
+	if err := checkIn(ctx); err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			log.Warnf("cloud check-in not supported by server, skipping: %v", err)
+			return
+		}
+		log.Warnf("cloud check-in failed: %v", err)
+	}
 }
 
 // SyncClientBundle holds a SyncClient and its underlying cloud client.
@@ -78,6 +112,11 @@ type SyncClientBundle struct {
 // Sync delivers pending events from the WAL to SafeDep Cloud.
 func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
 	return b.syncClient.Sync(ctx)
+}
+
+// CheckIn reports endpoint presence without events.
+func (b *SyncClientBundle) CheckIn(ctx context.Context) error {
+	return b.syncClient.CheckIn(ctx)
 }
 
 func (b *SyncClientBundle) Close() error {
