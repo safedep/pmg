@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/safedep/pmg/analyzer"
@@ -158,6 +159,29 @@ func TestNpmRegistryInterceptor_Custom_MetadataResponseIsNotModifiedWithoutCoold
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 	assert.Nil(t, resp.ResponseModifier)
 	assert.Equal(t, "gzip", ctx.Headers.Get("Accept-Encoding"))
+	assert.Equal(t, `"etag-value"`, ctx.Headers.Get("If-None-Match"))
+	assert.Zero(t, mock.callCount)
+}
+
+func TestNpmRegistryInterceptor_Custom_NonReadMethodPassesThroughUntouched(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	// npm publish issues PUT <base>/<name>, which parses as metadata. It
+	// must pass through untouched: no cooldown header rewrites, no response
+	// modifier, no analyzer call.
+	mock := &mockAnalyzer{}
+	interceptor := newTestNpmCustomInterceptor(t, mock, "https://packages.test/npm")
+
+	ctx := makeTestRequestContext("https://packages.test/npm/demo")
+	ctx.Method = http.MethodPut
+	ctx.Headers.Set("Accept", "application/json; charset=utf-8")
+	ctx.Headers.Set("If-None-Match", `"etag-value"`)
+
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Nil(t, resp.ResponseModifier)
+	assert.Equal(t, "application/json; charset=utf-8", ctx.Headers.Get("Accept"))
 	assert.Equal(t, `"etag-value"`, ctx.Headers.Get("If-None-Match"))
 	assert.Zero(t, mock.callCount)
 }

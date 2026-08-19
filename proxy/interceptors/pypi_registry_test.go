@@ -222,6 +222,26 @@ func TestPypiRegistryInterceptor_Custom_ProjectNameShapedLikeFilenameIsMetadataN
 	assert.Zero(t, mock.callCount, "the analyzer must never be called under a fabricated filename-derived identity")
 }
 
+func TestPypiRegistryInterceptor_Custom_NonReadMethodPassesThroughUntouched(t *testing.T) {
+	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
+
+	mock := &mockAnalyzer{}
+	interceptor := newTestPypiCustomInterceptor(t, mock, "https://python.test/simple")
+
+	ctx := makeTestRequestContext("https://python.test/simple/demo/")
+	ctx.Method = http.MethodPut
+	ctx.Headers.Set("Accept", pypiSimpleAPIContentType)
+	ctx.Headers.Set("If-None-Match", `"etag-value"`)
+
+	resp, err := interceptor.HandleRequest(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, proxy.ActionAllow, resp.Action)
+	assert.Nil(t, resp.ResponseModifier)
+	assert.Equal(t, pypiSimpleAPIContentType, ctx.Headers.Get("Accept"))
+	assert.Equal(t, `"etag-value"`, ctx.Headers.Get("If-None-Match"))
+	assert.Zero(t, mock.callCount)
+}
+
 func TestPypiRegistryInterceptor_Custom_UnparseablePathAllows(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false})
 

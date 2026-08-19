@@ -1,6 +1,9 @@
 package proxye2e
 
 import (
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -843,6 +846,49 @@ func TestProxyFlow_CustomNpm(t *testing.T) {
 				assert.False(t, meta.HasVersion("2.0.0"), "in-window version must be stripped")
 				assert.True(t, meta.HasVersion("1.0.0"), "out-of-window version must survive")
 				assert.False(t, h.Registry.Requested(npmHost, "/npm/team/left-pad/-/left-pad-2.0.0.tgz"))
+			},
+		},
+		{
+			// npm publish issues PUT <base>/<name>, which parses as metadata.
+			// Writes must pass through untouched: no cooldown header rewrites,
+			// no response modifier, no analysis.
+			Name:   "publish-style PUT passes through untouched",
+			Config: combineConfig(customRegistry("company-npm", "npm", npmBase), cooldownEnabled(7)),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				// An in-window version: if the write were treated as a metadata
+				// read, cooldown would strip it from the response body.
+				h.Registry.AddNpm(NpmPackage{Name: "demo", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: recent()}}})
+				h.Analyzer.SetNpm("demo", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				out := RequestOutcome{URL: npmBase + "/demo"}
+				req, err := http.NewRequest(http.MethodPut, out.URL, strings.NewReader(`{"name":"demo"}`))
+				if err != nil {
+					out.Err = err
+				} else if resp, reqErr := h.RawClient().Do(req); reqErr != nil {
+					out.Err = reqErr
+				} else {
+					body, _ := io.ReadAll(resp.Body)
+					_ = resp.Body.Close()
+					out.StatusCode = resp.StatusCode
+					out.Blocked = resp.StatusCode == http.StatusForbidden
+					out.Body = string(body)
+				}
+				res := ExecResult{}
+				res.add(out)
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Len(t, res.Requests, 1)
+				assert.NoError(t, res.Requests[0].Err)
+				assert.False(t, res.Blocked())
+				assert.Empty(t, h.Analyzer.Calls())
+				assert.True(t, h.Registry.Requested(npmHost, "/npm/team/demo"),
+					"the PUT must pass through to the registry")
+				assert.Contains(t, res.Requests[0].Body, "1.0.0",
+					"cooldown must not strip versions from a write response")
 			},
 		},
 		{

@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"net/http"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -97,6 +99,13 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	if match == nil {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	// Analysis and cooldown only ever act on reads. Anything else (publish,
+	// registry API calls) passes through untouched: no header rewrites, no
+	// response modifiers.
+	if ctx.Method != http.MethodGet && ctx.Method != http.MethodHead {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
