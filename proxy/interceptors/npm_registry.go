@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"net/url"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -37,6 +39,7 @@ type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *npmCooldownHandler
 	registries      registryConfigSet
+	artifacts       *artifactIndex
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
@@ -67,6 +70,7 @@ func NewNpmRegistryInterceptor(
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
 		registries:      registries,
+		artifacts:       newArtifactIndex(),
 	}, nil
 }
 
@@ -108,11 +112,24 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	requestURL := registryAbsoluteRequestURL(ctx)
+
 	// Parse URL using registry-specific strategy
 	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
 
 	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
+		// Canonical parsing is authoritative and must never be overridden by
+		// metadata discovery, or a compromised registry could get a
+		// malicious tarball analyzed under a different, safe identity.
 		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+	}
+
+	// Canonical parsing failed or the path is not a real tarball path
+	// (metadata, or unsupported). Fall back to the registry-scoped artifact
+	// index; built-in registries have an empty config.Name, so they never
+	// match here.
+	if identity, ok := i.artifacts.Get(config.Name, requestURL); ok {
+		return i.handleArtifact(ctx, identity.Name, identity.Version)
 	}
 
 	if parseErr != nil {
@@ -128,30 +145,58 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
+
 	if !pkgInfo.IsFileDownload() {
-		return i.handleMetadataRequest(ctx, pkgInfo)
+		return i.handleMetadataRequest(ctx, config, pkgInfo, requestURL, depCooldownConfig)
 	}
 
-	// A file-download parse without a complete identity: nothing reliable
-	// to analyze against. URLs that carry no identity at all (opaque
-	// download URLs some registries serve) land here too and are allowed
-	// without analysis.
+	// A file-download parse without a complete identity, and no index match:
+	// nothing reliable to analyze against.
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
 
-// handleMetadataRequest applies dependency cooldown to a metadata request.
+// handleMetadataRequest applies cooldown, artifact discovery, or both to a
+// metadata request. Discovery runs before cooldown so it always sees the
+// upstream packument.
 func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	config *registryConfig,
 	pkgInfo packageInfo,
+	requestURL *url.URL,
+	depCooldownConfig pmgconfig.DependencyCooldownConfig,
 ) (*proxy.InterceptorResponse, error) {
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-	if !depCooldownConfig.Enabled ||
-		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName()) {
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	trustedAllVersions := pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
+
+	var cooldownModifier proxy.ResponseModifierFunc
+	if depCooldownConfig.Enabled && !trustedAllVersions {
+		cooldownResp, err := i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+		if err != nil {
+			return nil, err
+		}
+		if cooldownResp.Action == proxy.ActionModifyResponse {
+			cooldownModifier = cooldownResp.ResponseModifier
+		}
 	}
 
-	return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+	if config.Name == "" {
+		if cooldownModifier == nil {
+			log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
+			return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		}
+		return &proxy.InterceptorResponse{Action: proxy.ActionModifyResponse, ResponseModifier: cooldownModifier}, nil
+	}
+
+	// Discovery needs a parseable, always-fresh body even when cooldown does
+	// not run its own modifier, or the response could arrive compressed or
+	// as a bodyless 304.
+	forceUncompressedNonConditionalResponse(ctx.Headers)
+
+	discovery := npmMetadataDiscoveryModifier(ctx, i.artifacts, i.registries, config.Name, requestURL)
+	return &proxy.InterceptorResponse{
+		Action:           proxy.ActionModifyResponse,
+		ResponseModifier: chainResponseModifiers(discovery, cooldownModifier),
+	}, nil
 }
 
 // handleArtifact runs the trust, analysis, and verdict pipeline for an

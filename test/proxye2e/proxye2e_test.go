@@ -846,11 +846,7 @@ func TestProxyFlow_CustomNpm(t *testing.T) {
 			},
 		},
 		{
-			// Opaque download URLs carry no identity. Until metadata-based
-			// artifact discovery lands, they must pass through unanalyzed
-			// (fail-open), never blocked on a guess. This pins the v1 contract
-			// that discovery flips to a block.
-			Name:   "opaque npm artifact is allowed without analysis",
+			Name:   "opaque npm artifact resolved via metadata discovery is blocked",
 			Config: customRegistry("company-npm", "npm", npmBase, downloadBase),
 			Setup: func(h *Harness) {
 				h.Registry.AddCustomNpm(npmHost, "/npm/team")
@@ -868,9 +864,8 @@ func TestProxyFlow_CustomNpm(t *testing.T) {
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked(), "an opaque download must be allowed, not blocked on a guess")
-				assert.Equal(t, 0, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
-				assert.True(t, h.Registry.Requested(npmHost, "/download/opaque"), "the download must pass through to the registry")
+				assert.True(t, res.Blocked(), "the opaque download must resolve via the discovered identity and be blocked")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
 			},
 		},
 		{
@@ -950,11 +945,9 @@ func TestProxyFlow_CustomPypi(t *testing.T) {
 		{
 			// The href sits at depth 1 under the "/simple"-ending base, so
 			// canonical parsing reads it as a metadata request, not a
-			// download: per PEP 503 a bare one-segment path there is always the
-			// project index page. Until metadata-based artifact discovery
-			// lands, such a download is allowed without analysis. This pins
-			// the v1 contract that discovery flips to a block.
-			Name:   "depth-1 artifact under a /simple base is allowed without analysis",
+			// download. This is the one shape where HTML discovery's index
+			// is actually consulted.
+			Name:   "custom pypi HTML flow blocks malware via discovery",
 			Config: customRegistry("company-pypi", "pypi", simpleBase),
 			Setup: func(h *Harness) {
 				h.Registry.AddCustomPypi(pypiHost, "/simple")
@@ -970,16 +963,33 @@ func TestProxyFlow_CustomPypi(t *testing.T) {
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked(), "an unidentifiable download must be allowed, not blocked on a guess")
-				assert.Equal(t, 0, h.Analyzer.AnalyzedCount("htmlpkg", "1.0.0"))
-				assert.True(t, h.Registry.Requested(pypiHost, "/simple/htmlpkg-1.0.0.tar.gz"),
-					"the download must pass through to the registry")
+				assert.True(t, res.Blocked(), "the depth-1 filename must resolve via the HTML-discovered identity and be blocked")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("htmlpkg", "1.0.0"))
 			},
 		},
 		{
-			// Same fail-open contract as the npm opaque case: no identity in
-			// the URL means no analysis until artifact discovery lands.
-			Name:   "opaque pypi artifact is allowed without analysis",
+			Name:   "custom pypi HTML flow allows a clean package via discovery",
+			Config: customRegistry("company-pypi", "pypi", simpleBase),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomPypi(pypiHost, "/simple")
+				h.Registry.AddPypi(PypiPackage{Name: "htmlclean", Versions: []PypiVersion{
+					{Version: "1.0.0", PublishedAt: old(), FileURL: simpleBase + "/htmlclean-1.0.0.tar.gz"},
+				}})
+				h.Analyzer.SetPypi("htmlclean", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get(simpleBase+"/htmlclean/", map[string]string{"Accept": pypiSimpleHTMLContentType}))
+				res.add(h.get(simpleBase+"/htmlclean-1.0.0.tar.gz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("htmlclean", "1.0.0"))
+			},
+		},
+		{
+			Name:   "opaque pypi artifact resolved via JSON metadata discovery is blocked",
 			Config: customRegistry("company-pypi", "pypi", simpleBase, filesBase),
 			Setup: func(h *Harness) {
 				h.Registry.AddCustomPypi(pypiHost, "/simple")
@@ -991,10 +1001,8 @@ func TestProxyFlow_CustomPypi(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult { return h.Pypi().InstallFrom(simpleBase, "demo", "1.2.3") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked(), "an opaque download must be allowed, not blocked on a guess")
-				assert.Equal(t, 0, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
-				assert.True(t, h.Registry.Requested(pypiHost, "/files/opaque"),
-					"the download must pass through to the registry")
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
 			},
 		},
 		{
