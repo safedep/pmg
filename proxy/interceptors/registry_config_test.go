@@ -235,7 +235,7 @@ func TestRegistryConfigMap_EmptyMap(t *testing.T) {
 	assert.False(t, configMap.ContainsHostname("any.host.org"))
 }
 
-func TestRegistryConfigSetContainsHostname(t *testing.T) {
+func TestRegistryConfigSetMatchConnect(t *testing.T) {
 	set := registryConfigSet{entries: []*registryConfig{
 		{Host: "registry.example.org", MatchSubdomains: true},
 		{Host: "Packages.Example.Test"},
@@ -258,7 +258,7 @@ func TestRegistryConfigSetContainsHostname(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, set.ContainsHostname(tt.hostname))
+			assert.Equal(t, tt.want, set.matchConnect(tt.hostname) != nil)
 		})
 	}
 }

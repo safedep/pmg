@@ -29,7 +29,9 @@ func Normalize(rawURL string) (string, error) {
 	if parsed.RawQuery != "" || parsed.ForceQuery {
 		return "", fmt.Errorf("URL must not include a query")
 	}
-	if parsed.Fragment != "" || strings.Contains(rawURL, "#") {
+	// Any '#' in the raw URL is the fragment delimiter (encoded %23 is
+	// data), so this also covers a trailing empty fragment.
+	if strings.Contains(rawURL, "#") {
 		return "", fmt.Errorf("URL must not include a fragment")
 	}
 
@@ -43,15 +45,12 @@ func Normalize(rawURL string) (string, error) {
 	if port == "" && strings.HasSuffix(parsed.Host, ":") {
 		return "", fmt.Errorf("URL port must be between 1 and 65535")
 	}
-	if port != "" {
-		portNumber, err := strconv.ParseUint(port, 10, 16)
-		if err != nil || portNumber == 0 {
-			return "", fmt.Errorf("URL port must be between 1 and 65535")
-		}
-		port = strconv.Itoa(int(portNumber))
-		if port != defaultPort(scheme) {
-			host += ":" + port
-		}
+	effectivePort, valid := EffectivePort(scheme, port)
+	if !valid {
+		return "", fmt.Errorf("URL port must be between 1 and 65535")
+	}
+	if effectivePort != defaultPort(scheme) {
+		host += ":" + effectivePort
 	}
 
 	path := NormalizeBasePath(parsed.EscapedPath())

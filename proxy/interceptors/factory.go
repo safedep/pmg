@@ -103,6 +103,11 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 				parser = npmParser{}
 			case "pypi":
 				parser = pypiCustomParser{baseEndsInSimple: pypiBaseEndsInSimple(u.EscapedPath())}
+			default:
+				// Validation rejects anything but npm/pypi before this runs,
+				// but a nil parser would panic at request time if that ever
+				// changes.
+				return nil, fmt.Errorf("invalid custom proxy registry %q: unsupported ecosystem %q", registry.Name, registry.Ecosystem)
 			}
 
 			compiled.configs[registry.Ecosystem] = append(compiled.configs[registry.Ecosystem], &registryConfig{

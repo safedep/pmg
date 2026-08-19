@@ -168,16 +168,6 @@ func (s registryConfigSet) matchConnect(hostname string) *registryMatch {
 	return &registryMatch{Config: subdomain, RelativePath: "/"}
 }
 
-func (s registryConfigSet) ContainsHostname(hostname string) bool {
-	hostname = normalizeHostnameWithOptionalPort(hostname)
-	for _, config := range s.entries {
-		if config != nil && matchesHostname(hostname, config) {
-			return true
-		}
-	}
-	return false
-}
-
 func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 	if u == nil || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
 		return nil
