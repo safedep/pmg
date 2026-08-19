@@ -1021,24 +1021,20 @@ func TestProxyFlow_CustomPypi(t *testing.T) {
 func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
-			Name: "shared host routes npm and pypi via longest matching base",
+			// npm and pypi can share one host; same-ecosystem nesting (e.g.
+			// /npm plus /npm/team) is rejected at load time as ambiguous.
+			Name: "shared host routes npm and pypi by endpoint base path",
 			Config: combineConfig(
-				customRegistry("root-npm", "npm", "https://shared.example.test/npm"),
 				customRegistry("team-npm", "npm", "https://shared.example.test/npm/team"),
 				customRegistry("company-pypi", "pypi", "https://shared.example.test/pypi/simple"),
 			),
 			Setup: func(h *Harness) {
-				h.Registry.AddCustomNpm("shared.example.test", "/npm")
 				h.Registry.AddCustomNpm("shared.example.test", "/npm/team")
 				h.Registry.AddCustomPypi("shared.example.test", "/pypi/simple")
 
-				h.Registry.AddNpm(NpmPackage{Name: "root-pkg", DistTagLatest: "1.0.0",
-					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
-				h.Analyzer.SetNpm("root-pkg", "1.0.0", Clean())
-
 				h.Registry.AddNpm(NpmPackage{Name: "team-pkg", DistTagLatest: "1.0.0",
 					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
-				h.Analyzer.SetNpm("team-pkg", "1.0.0", VerifiedMalware())
+				h.Analyzer.SetNpm("team-pkg", "1.0.0", Clean())
 
 				h.Registry.AddPypi(PypiPackage{Name: "pylib", Versions: []PypiVersion{
 					{Version: "1.0.0", PublishedAt: old(), FileURL: "https://shared.example.test/pypi/simple/pylib/pylib-1.0.0.tar.gz"},
@@ -1047,19 +1043,13 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult {
 				res := ExecResult{}
-				res.Requests = append(res.Requests, h.Npm().InstallFrom("https://shared.example.test/npm", "root-pkg", "1.0.0").Requests...)
 				res.Requests = append(res.Requests, h.Npm().InstallFrom("https://shared.example.test/npm/team", "team-pkg", "1.0.0").Requests...)
 				res.Requests = append(res.Requests, h.Pypi().InstallFrom("https://shared.example.test/pypi/simple", "pylib", "1.0.0").Requests...)
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("root-pkg", "1.0.0"))
-				assert.True(t, h.Registry.Requested("shared.example.test", "/npm/root-pkg/-/root-pkg-1.0.0.tgz"))
-
-				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("team-pkg", "1.0.0"),
-					"the longer /npm/team base must win so the nested tarball path parses and is analyzed")
-				assert.False(t, h.Registry.Requested("shared.example.test", "/npm/team/team-pkg/-/team-pkg-1.0.0.tgz"),
-					"a malicious tarball behind the longer base must never be downloaded")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("team-pkg", "1.0.0"))
+				assert.True(t, h.Registry.Requested("shared.example.test", "/npm/team/team-pkg/-/team-pkg-1.0.0.tgz"))
 
 				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("pylib", "1.0.0"))
 				assert.True(t, h.Registry.Requested("shared.example.test", "/pypi/simple/pylib/pylib-1.0.0.tar.gz"))

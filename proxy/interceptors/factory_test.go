@@ -187,6 +187,39 @@ func TestRegistryConstructorsRejectMalformedRegistries(t *testing.T) {
 	assert.NotContains(t, pypiErr.Error(), "secret")
 }
 
+func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
+	tests := []struct {
+		name      string
+		ecosystem string
+		endpoint  string
+	}{
+		{name: "analyzed npm host", ecosystem: "npm", endpoint: "https://registry.npmjs.org/npm-virtual"},
+		{name: "analyzed pypi host", ecosystem: "pypi", endpoint: "https://pypi.org/simple"},
+		{name: "analyzed pypi files host", ecosystem: "pypi", endpoint: "https://files.pythonhosted.org/simple"},
+		{name: "subdomain of a built-in host", ecosystem: "npm", endpoint: "https://cdn.registry.npmjs.org/npm-virtual"},
+		{name: "recognized but not analyzed host is still covered", ecosystem: "pypi", endpoint: "https://test.pypi.org/simple"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			factory := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{
+				Registries: []config.ProxyRegistryConfig{{
+					Name:      "dup",
+					Ecosystem: tt.ecosystem,
+					Endpoints: []config.ProxyRegistryEndpointConfig{{URL: tt.endpoint}},
+				}},
+			})
+			ecosystem := packagev1.Ecosystem_ECOSYSTEM_NPM
+			if tt.ecosystem == "pypi" {
+				ecosystem = packagev1.Ecosystem_ECOSYSTEM_PYPI
+			}
+			_, err := factory.CreateInterceptor(ecosystem)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is covered by the built-in")
+		})
+	}
+}
+
 func registryRequest(t *testing.T, rawURL string) *proxy.RequestContext {
 	t.Helper()
 	u, err := url.Parse(rawURL)

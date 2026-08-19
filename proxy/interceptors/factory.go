@@ -90,6 +90,9 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 			if err != nil {
 				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
 			}
+			if covered := builtInRegistryCoverage(registry.Ecosystem).GetConfigForHostname(u.Hostname()); covered != nil {
+				return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by the built-in %s registries", registry.Ecosystem, registry.Name, u.Hostname(), registry.Ecosystem)
+			}
 
 			// pypi's parser depends on this endpoint's own base path
 			// (whether it ends in "/simple"), so it is built per endpoint,
@@ -124,6 +127,22 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 	}
 	sort.Strings(compiled.hosts)
 	return compiled, nil
+}
+
+// builtInRegistryCoverage returns the built-in domain map for an ecosystem,
+// used to reject custom endpoints whose host is already covered by a built-in
+// registry (exact host or subdomain of a built-in host). This is intentionally
+// a factory-level check: the built-in domain maps live in this package, and
+// rejecting overlap here keeps runtime matching free of resolution order.
+func builtInRegistryCoverage(ecosystem string) registryConfigMap {
+	switch ecosystem {
+	case "npm":
+		return npmRegistryDomains
+	case "pypi":
+		return pypiRegistryDomains
+	default:
+		return nil
+	}
 }
 
 func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {

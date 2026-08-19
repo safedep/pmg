@@ -211,6 +211,72 @@ func TestValidateProxyRegistries(t *testing.T) {
 	}
 }
 
+func TestValidateProxyRegistriesNesting(t *testing.T) {
+	tests := []struct {
+		name       string
+		registries []ProxyRegistryConfig
+		wantErr    string
+	}{
+		{
+			name: "same ecosystem nested base paths in one registry",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm"},
+					{URL: "https://packages.example.test/npm/team"},
+				},
+			}},
+			wantErr: "same-ecosystem endpoint base paths must not nest",
+		},
+		{
+			name: "same ecosystem nested base paths across registries",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm"}}},
+				{Name: "b", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm/team"}}},
+			},
+			wantErr: "same-ecosystem endpoint base paths must not nest",
+		},
+		{
+			name: "bare origin nests with a deeper same-ecosystem base",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/simple"}}},
+			},
+			wantErr: "same-ecosystem endpoint base paths must not nest",
+		},
+		{
+			name: "cross-ecosystem nesting is allowed (npm and pypi share a host)",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/npm"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/npm/team"}}},
+			},
+		},
+		{
+			name: "segment-sibling paths are not nested",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm"},
+					{URL: "https://packages.example.test/npmx"},
+				},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateProxyRegistries(tt.registries)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestNormalizeProxyRegistryURL(t *testing.T) {
 	tests := []struct {
 		name    string

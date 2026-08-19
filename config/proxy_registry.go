@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/safedep/pmg/internal/registryurl"
@@ -33,9 +34,18 @@ func (e *ProxyRegistriesError) Unwrap() error {
 	return e.err
 }
 
+// normalizedEndpoint splits a normalized endpoint URL into its origin and
+// base path so same-ecosystem endpoint nesting can be checked.
+type normalizedEndpoint struct {
+	rawURL string
+	origin string
+	path   string
+}
+
 func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 	names := make(map[string]struct{}, len(registries))
 	endpoints := make(map[string]string)
+	byEcosystem := make(map[string][]normalizedEndpoint)
 
 	for registryIndex, registry := range registries {
 		name := strings.TrimSpace(registry.Name)
@@ -66,10 +76,44 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 				return fmt.Errorf("proxy registry endpoint %q is already assigned to %q", normalized, owner)
 			}
 			endpoints[normalized] = name
+
+			split, err := splitNormalizedEndpoint(endpoint.URL, normalized)
+			if err != nil {
+				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
+			}
+			for _, existing := range byEcosystem[registry.Ecosystem] {
+				if existing.origin == split.origin && endpointPathsNest(existing.path, split.path) {
+					return fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: same-ecosystem endpoint base paths must not nest",
+						name, endpointIndex, endpoint.URL, existing.rawURL)
+				}
+			}
+			byEcosystem[registry.Ecosystem] = append(byEcosystem[registry.Ecosystem], split)
 		}
 	}
 
 	return nil
+}
+
+func splitNormalizedEndpoint(rawURL, normalized string) (normalizedEndpoint, error) {
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return normalizedEndpoint{}, err
+	}
+	return normalizedEndpoint{
+		rawURL: rawURL,
+		origin: u.Scheme + "://" + u.Host,
+		path:   u.EscapedPath(),
+	}, nil
+}
+
+// endpointPathsNest reports whether one base path is a segment-prefix of the
+// other (either direction). An empty base path nests with every other path on
+// the same origin.
+func endpointPathsNest(a, b string) bool {
+	if a == "" || b == "" || a == b {
+		return true
+	}
+	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 func normalizeProxyRegistryURL(rawURL string) (string, error) {
