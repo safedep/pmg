@@ -32,8 +32,8 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 
 	// A distribution filename is always the final path segment, at any
 	// depth (mirrors pypiFilesParser). Checking this first resolves a real
-	// download without needing a warm artifact index, and stops a literal
-	// reserved segment ("simple", "pypi") from shadowing an actual download.
+	// download directly from the URL, and stops a literal reserved segment
+	// ("simple", "pypi") from shadowing an actual download.
 	//
 	// The shortcut is skipped at depth 1 on a base ending in "/simple": per
 	// PEP 503, a bare one-segment path there is always the project's index

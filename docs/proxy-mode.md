@@ -107,20 +107,13 @@ A request on a configured host whose path matches no endpoint passes through unc
 
 ### npm registry requirements
 
-A custom npm endpoint must serve a standard packument, full or abbreviated, the same JSON document `npm install` itself downloads. PMG reads only these fields:
-
-- `name`
-- `versions.*.name`
-- `versions.*.version`
-- `versions.*.dist.tarball`
-
-PMG ignores every other field, except when dependency cooldown changes what it reads and writes.
+A custom npm endpoint must serve a standard packument, full or abbreviated, the same JSON document `npm install` itself downloads. PMG identifies packages from the request URL (the tarball path shape) and does not otherwise read the packument, except when dependency cooldown changes what it reads and writes.
 
 When [dependency cooldown](./dependency-cooldown.md) is enabled, PMG requests the full packument from the endpoint. It reads the `time` object to check each version's publish date. An endpoint that can only serve abbreviated metadata gets no cooldown protection, because abbreviated metadata omits `time`. When cooldown strips a version, PMG rewrites `versions`, `time`, and `dist-tags` in the response.
 
 ### PyPI registry requirements
 
-A custom PyPI endpoint must serve the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/), either the PEP 691 JSON format or the PEP 503 HTML format.
+A custom PyPI endpoint must serve the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/), either the PEP 691 JSON format or the PEP 503 HTML format. An endpoint that can only serve PEP 503 HTML gets no dependency cooldown protection, because PMG reads upload times from the PEP 691 JSON response; malware analysis of file downloads is unaffected.
 
 PMG recognizes a project's index page, the page listing all of one project's files, when the configured base URL itself ends in `/simple`. With a base of `.../artifactory/api/pypi/python/simple`, a request for `.../artifactory/api/pypi/python/simple/requests/` is recognized as the index page for `requests`.
 

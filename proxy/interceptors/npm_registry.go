@@ -155,8 +155,7 @@ func (i *NpmRegistryInterceptor) handleMetadataRequest(
 }
 
 // handleArtifact runs the trust, analysis, and verdict pipeline for an
-// artifact download, whether its identity came from canonical URL parsing
-// or the artifact index.
+// artifact download identified by canonical URL parsing.
 func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
 	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version); ok {
 		return resp, nil
