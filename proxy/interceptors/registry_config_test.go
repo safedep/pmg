@@ -304,6 +304,10 @@ func TestRegistryConfigSetMatchURL(t *testing.T) {
 		{name: "segment collision without parent is unmatched", rawURL: "https://escapes.example.test/npm/%2Fteam-backup/pkg"},
 		{name: "root base matches descendants", rawURL: "https://root.example.test/anything/pkg", wantName: "root", wantRelative: "/anything/pkg"},
 		{name: "root request has stable relative path", rawURL: "https://root.example.test", wantName: "root", wantRelative: "/"},
+		// Parsers consume the decoded form: npm requests scoped packuments as
+		// /@scope%2Fname, and the parser must see /@scope/name.
+		{name: "relative path is unescaped for parsers", rawURL: "https://registry.example.org/@scope%2Fname", wantName: "built-in", wantRelative: "/@scope/name"},
+		{name: "custom endpoint relative path is unescaped", rawURL: "https://packages.example.test/npm/@scope%2Fname", wantName: "short", wantRelative: "/@scope/name"},
 		{name: "unknown origin is unmatched", rawURL: "https://unknown.example.test/npm/team/pkg"},
 	}
 

@@ -141,6 +141,30 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 		},
 		{
+			// npm requests scoped packuments with an encoded slash
+			// (/@scope%2Fdemo). Registry matching must hand the parser the
+			// decoded path, or scoped metadata fails to parse and cooldown is
+			// silently skipped.
+			Name:   "cooldown strips in-window version from scoped package metadata",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "@scope/demo", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Npm().FetchMetadataFrom(npmRegistryBaseURL, "@scope%2Fdemo").Outcome)
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				meta := h.Npm().FetchMetadataFrom(npmRegistryBaseURL, "@scope%2Fdemo")
+				assert.False(t, meta.HasVersion("2.0.0"), "in-window version must be stripped")
+				assert.True(t, meta.HasVersion("1.0.0"), "out-of-window version must survive")
+			},
+		},
+		{
 			Name:           "cooldown records a blocked pinned version",
 			Config:         cooldownEnabled(7),
 			PinnedVersions: map[string]string{"left-pad": "2.0.0"},

@@ -232,6 +232,12 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 	if relativePath == "" {
 		relativePath = "/"
 	}
+	// Matching runs on the escaped path so segment boundaries cannot be
+	// smuggled past the base-path check, but parsers expect the decoded
+	// form (npm requests scoped packuments as /@scope%2Fname).
+	if unescaped, err := url.PathUnescape(relativePath); err == nil {
+		relativePath = unescaped
+	}
 	return &registryMatch{Config: best.config, RelativePath: relativePath}
 }
 
