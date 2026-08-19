@@ -12,8 +12,6 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
 	appVersion "github.com/safedep/pmg/internal/version"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // ErrSyncInProgress is returned by DrainToCloud when another process already
@@ -67,42 +65,11 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 		log.Warnf("failed to update cloud sync lastrun: %v", werr)
 	}
 
+	if syncErr == nil {
+		bundle.CheckIn(syncCtx)
+	}
+
 	return synced, syncErr
-}
-
-// maybeCheckIn sends an endpoint check-in after a successful sync. A check-in
-// is a form of cloud sync, so cloud.enabled (which gates every sync path) is
-// its only switch and the auto-sync interval is its rate limit. The call does
-// not depend on event volume: the future cloud config rides on the check-in
-// response, so a busy endpoint that always syncs events must call it too.
-// A check-in failure never affects the sync result: an older server answers
-// Unimplemented, which is expected during rollout.
-//
-// The rate limit uses its own timestamp file, not cloud-sync.lastrun: the
-// proxy server drains every 15 seconds and keeps that file always fresh,
-// which would starve the check-in. The file is written before the call: a
-// failing endpoint does not check in on every sync, and an unwritable file
-// skips the call so the rate limit cannot silently stop working.
-func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, syncErr error, checkIn func(context.Context) error) {
-	if syncErr != nil {
-		return
-	}
-	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
-		return
-	}
-
-	if werr := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); werr != nil {
-		log.Warnf("cloud check-in skipped: failed to update lastrun: %v", werr)
-		return
-	}
-
-	if err := checkIn(ctx); err != nil {
-		if status.Code(err) == codes.Unimplemented {
-			log.Warnf("cloud check-in not supported by server, skipping: %v", err)
-			return
-		}
-		log.Warnf("cloud check-in failed: %v", err)
-	}
 }
 
 // SyncClientBundle holds a SyncClient and its underlying cloud client.
@@ -113,13 +80,34 @@ type SyncClientBundle struct {
 	cfg         *config.RuntimeConfig
 }
 
-// Sync delivers pending events from the WAL to SafeDep Cloud, then sends a
-// rate-limited check-in. Every sync path reports presence: manual sync, the
-// detached auto-sync child, and the proxy server ticker.
+// Sync delivers pending events from the WAL to SafeDep Cloud.
 func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
-	synced, err := b.syncClient.Sync(ctx)
-	maybeCheckIn(ctx, b.cfg, err, b.syncClient.CheckIn)
-	return synced, err
+	return b.syncClient.Sync(ctx)
+}
+
+// CheckIn reports endpoint presence, rate limited by the auto-sync interval.
+// Failures log and are not returned. Callers invoke it after a successful
+// sync.
+func (b *SyncClientBundle) CheckIn(ctx context.Context) {
+	checkInWithRateLimit(ctx, b.cfg, b.syncClient.CheckIn)
+}
+
+// checkInWithRateLimit uses its own lastrun file: the proxy ticker keeps
+// cloud-sync.lastrun always fresh, which would starve the check-in. The file
+// is written before the call, and an unwritable file skips the call.
+func checkInWithRateLimit(ctx context.Context, cfg *config.RuntimeConfig, checkIn func(context.Context) error) {
+	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
+		return
+	}
+
+	if werr := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); werr != nil {
+		log.Warnf("cloud check-in skipped: failed to update lastrun: %v", werr)
+		return
+	}
+
+	if err := checkIn(ctx); err != nil {
+		log.Warnf("cloud check-in failed: %v", err)
+	}
 }
 
 func (b *SyncClientBundle) Close() error {
