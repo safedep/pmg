@@ -177,6 +177,22 @@ func TestPypiCustomParser_BareFilenameStillDownloadUnderNonSimpleBase(t *testing
 	assert.Equal(t, "1.2.3", got.GetVersion())
 }
 
+func TestPypiCustomParser_DoesNotDecodeSegmentsASecondTime(t *testing.T) {
+	// MatchURL decodes the path once before parsing. A segment still
+	// containing %-escapes after that single decode (wire-encoded as %252B)
+	// must not be misread as a +build tag in the version: it simply does
+	// not parse as a distribution filename.
+	parser := pypiCustomParser{baseEndsInSimple: false}
+
+	filename, ok := pypiFilenameFromLastSegment("demo-1.0.0%2Bbuild.tar.gz")
+	if ok {
+		assert.NotEqual(t, "1.0.0+build", filename.GetVersion(), "an escaped segment must never be double-decoded")
+	}
+
+	_, err := parser.ParseURL("/demo-1.0.0%2Bbuild.tar.gz")
+	assert.Error(t, err, "a leftover escape must not yield a misattributed identity")
+}
+
 func TestPypiBaseEndsInSimple(t *testing.T) {
 	tests := []struct {
 		name     string

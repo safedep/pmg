@@ -2,7 +2,6 @@ package interceptors
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 )
 
@@ -65,14 +64,12 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	return nil, fmt.Errorf("invalid custom PyPI URL format: unexpected number of segments %d", len(segments))
 }
 
-// pypiFilenameFromLastSegment tries to parse a URL's final, URL-decoded path
-// segment as a supported distribution filename.
+// pypiFilenameFromLastSegment tries to parse a URL's final path segment as a
+// supported distribution filename. MatchURL already decoded the path, so the
+// segment is parsed as received: decoding again would misattribute
+// once-encoded names like demo-1.0.0%252Bbuild.tar.gz.
 func pypiFilenameFromLastSegment(lastSegment string) (packageInfo, bool) {
-	decoded, err := url.PathUnescape(lastSegment)
-	if err != nil {
-		decoded = lastSegment
-	}
-	info, err := parseFilename(decoded)
+	info, err := parseFilename(lastSegment)
 	if err != nil {
 		return nil, false
 	}
