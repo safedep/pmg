@@ -1,8 +1,6 @@
 package interceptors
 
 import (
-	"strings"
-
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -140,7 +138,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	}
 
 	if !pkgInfo.IsFileDownload() {
-		return i.handleMetadataRequest(ctx, config, pkgInfo)
+		return i.handleMetadataRequest(ctx, pkgInfo)
 	}
 
 	// A file-download parse without a complete identity: nothing reliable
@@ -155,11 +153,10 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 // the JSON API, for version resolution.
 func (i *PypiRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
-	config *registryConfig,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-	if !depCooldownConfig.Enabled || !pypiIsSimpleAPIMetadataRequest(ctx, config, pkgInfo) ||
+	if !depCooldownConfig.Enabled || !pypiIsSimpleAPIMetadataRequest(pkgInfo) ||
 		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName())) {
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
@@ -169,13 +166,11 @@ func (i *PypiRegistryInterceptor) handleMetadataRequest(
 }
 
 // pypiIsSimpleAPIMetadataRequest reports whether a metadata request is
-// Simple API shaped, the only shape cooldown applies to. A built-in
-// registry's path prefix decides it; a custom registry can mount Simple
-// API anywhere, so the parsed result's shape decides instead.
-func pypiIsSimpleAPIMetadataRequest(ctx *proxy.RequestContext, config *registryConfig, pkgInfo packageInfo) bool {
-	if config.Name == "" {
-		return strings.HasPrefix(ctx.URL.Path, "/simple/")
-	}
+// Simple API shaped, the only shape cooldown applies to. The parsers set
+// the flag for both built-in and custom registries (parseSimpleAPIURL sets
+// it, parseJSONAPIURL leaves it false), so the JSON API stays excluded
+// from cooldown everywhere.
+func pypiIsSimpleAPIMetadataRequest(pkgInfo packageInfo) bool {
 	info, ok := pkgInfo.(*pypiPackageInfo)
 	return ok && info.IsSimpleAPI()
 }
