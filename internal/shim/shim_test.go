@@ -171,9 +171,10 @@ func TestNewDefaultShimManager(t *testing.T) {
 	assert.NotEmpty(t, mgr.GetBinDir())
 	assert.Equal(t, expectedBinDir, mgr.GetBinDir())
 
-	expectedLegacy, err := LegacyUserBinDir()
+	expectedCleanup, err := otherUserBinDirs(expectedBinDir)
 	require.NoError(t, err)
-	assert.Equal(t, expectedLegacy, mgr.config.LegacyBinDir)
+	assert.Equal(t, expectedCleanup, mgr.config.CleanupBinDirs)
+	assert.NotContains(t, mgr.config.CleanupBinDirs, expectedBinDir)
 	assert.NotEmpty(t, mgr.config.PMGBin)
 	assert.True(t, filepath.IsAbs(mgr.config.PMGBin))
 	assert.NotEmpty(t, mgr.config.PackageManagers)
@@ -298,7 +299,7 @@ func TestShimManagerRemoveClearsLegacyDir(t *testing.T) {
 	mgr := NewShimManager(ShimConfig{
 		BinDir:          binDir,
 		HomeDir:         homeDir,
-		LegacyBinDir:    legacyBinDir,
+		CleanupBinDirs:  []string{legacyBinDir},
 		PMGBin:          filepath.Join(homeDir, "bin", "pmg"),
 		PackageManagers: []string{"npm"},
 		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc"}},
@@ -324,7 +325,7 @@ func TestShimManagerRemoveKeepsNonEmptyLegacyParent(t *testing.T) {
 	mgr := NewShimManager(ShimConfig{
 		BinDir:          legacyBinDir,
 		HomeDir:         homeDir,
-		LegacyBinDir:    legacyBinDir,
+		CleanupBinDirs:  []string{legacyBinDir},
 		PMGBin:          filepath.Join(homeDir, "bin", "pmg"),
 		PackageManagers: []string{"npm"},
 		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc"}},
@@ -334,4 +335,61 @@ func TestShimManagerRemoveKeepsNonEmptyLegacyParent(t *testing.T) {
 
 	assert.NoDirExists(t, legacyBinDir)
 	assert.FileExists(t, unrelated)
+}
+
+func TestShimManagerRemoveClearsBothPopulatedLayouts(t *testing.T) {
+	homeDir := t.TempDir()
+	legacyBinDir := filepath.Join(homeDir, legacyUserDirName, "bin")
+	dataBinDir := filepath.Join(homeDir, ".local", "share", "safedep", "pmg", "bin")
+
+	for _, dir := range []string{legacyBinDir, dataBinDir} {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "npm"),
+			[]byte(shimScriptMarker+"\n"), 0o755))
+	}
+
+	// A downgrade/upgrade cycle can populate both; UserBinDir prefers legacy,
+	// so the data dir must still be cleaned.
+	mgr := NewShimManager(ShimConfig{
+		BinDir:          legacyBinDir,
+		HomeDir:         homeDir,
+		CleanupBinDirs:  []string{dataBinDir},
+		PMGBin:          filepath.Join(homeDir, "bin", "pmg"),
+		PackageManagers: []string{"npm"},
+		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc"}},
+	})
+
+	require.NoError(t, mgr.Remove())
+
+	assert.NoDirExists(t, legacyBinDir)
+	assert.NoDirExists(t, dataBinDir)
+	assert.NoDirExists(t, filepath.Join(homeDir, legacyUserDirName))
+	assert.NoDirExists(t, filepath.Join(homeDir, ".local", "share", "safedep"))
+	assert.DirExists(t, filepath.Join(homeDir, ".local", "share"), "shared XDG roots must survive")
+}
+
+func TestPruneEmptyParentsStopsOutsidePMGDirs(t *testing.T) {
+	homeDir := t.TempDir()
+	shareDir := filepath.Join(homeDir, "share")
+	binDir := filepath.Join(shareDir, "safedep", "pmg", "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	require.NoError(t, os.RemoveAll(binDir))
+
+	pruneEmptyParents(binDir, homeDir)
+
+	assert.NoDirExists(t, filepath.Join(shareDir, "safedep"))
+	assert.DirExists(t, shareDir, "a directory pmg did not create must survive")
+	assert.DirExists(t, homeDir, "home itself must never be removed")
+}
+
+func TestPruneEmptyParentsIgnoresSystemDirs(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "usr", "local", "lib", "pmg", "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	require.NoError(t, os.RemoveAll(binDir))
+
+	// A system install passes an empty HomeDir, so nothing is pruned.
+	pruneEmptyParents(binDir, "")
+
+	assert.DirExists(t, filepath.Join(root, "usr", "local", "lib", "pmg"))
 }

@@ -243,20 +243,22 @@ func (a *AliasManager) removeSourceLinesFromShells() error {
 		return err
 	}
 
-	drop := func(line string) bool {
-		return strings.Contains(line, aliasSourceMarker) ||
-			strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource)
-	}
-
 	for _, shell := range a.config.Shells {
 		for _, configPath := range shell.CandidateRcFiles(homeDir) {
-			if err := RewriteFileDroppingLines(configPath, drop); err != nil {
+			if err := RewriteFileDroppingLines(configPath, dropAliasSourceLine); err != nil {
 				log.Warnf("Warning: failed to update %s: %s", configPath, err)
 			}
 		}
 	}
 
 	return nil
+}
+
+// dropAliasSourceLine reports whether a shell rc line is one pmg wrote to
+// source its alias file.
+func dropAliasSourceLine(line string) bool {
+	return strings.Contains(line, aliasSourceMarker) ||
+		strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource)
 }
 
 // addSourceLine adds a source line to the specified shell configuration file.
@@ -267,8 +269,18 @@ func (a *AliasManager) addSourceLine(configPath, sourceLine string) error {
 		return err // file doesn't exist or can't read, skip
 	}
 
-	if strings.Contains(string(data), aliasSourceMarker) {
+	if strings.Contains(string(data), sourceLine) {
 		return nil // already sourced, skip
+	}
+
+	// A marker line pointing at a different rc path is stale: an earlier
+	// install used another layout, or the user deleted the file it names. The
+	// `[ -f ]` guard makes such a line a silent no-op, so leaving it in place
+	// while skipping the write would break aliases without any visible error.
+	if strings.Contains(string(data), aliasSourceMarker) {
+		if err := RewriteFileDroppingLines(configPath, dropAliasSourceLine); err != nil {
+			return err
+		}
 	}
 
 	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0o644)

@@ -168,3 +168,29 @@ func TestAliasDetectionIgnoresUnrelatedRcPaths(t *testing.T) {
 	assert.Contains(t, string(data), "my-pmg.rc")
 	assert.NotContains(t, string(data), aliasSourceMarker)
 }
+
+func TestAliasInstallReplacesStaleSourceLine(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/zsh")
+
+	// An install from the legacy layout, whose rc file the user then deleted
+	// while leaving .zshrc alone.
+	legacy := filepath.Join(home, LegacyRcFileName)
+	zshrc := filepath.Join(home, ".zshrc")
+	staleShell, err := NewZshShell()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(zshrc, []byte(staleShell.Source(legacy)), 0o644))
+
+	configDir := testConfigDir(t, home)
+	require.NoError(t, newTestAliasManager(t, configDir).Install())
+
+	rcPath := filepath.Join(configDir, RcFileName)
+	assert.FileExists(t, rcPath)
+
+	data, err := os.ReadFile(zshrc)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), rcPath)
+	assert.NotContains(t, string(data), legacy, "the stale source line must not survive")
+	assert.Equal(t, 1, strings.Count(string(data), aliasSourceMarker))
+}

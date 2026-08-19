@@ -34,6 +34,11 @@ jobs:
 needs its shims (`{npm,pip,...}` under the directory reported by
 `pmg setup info --json`) to land in front of the real toolchains.
 
+**Requires `jq`.** In shim mode the action reads the shim directory from
+`pmg setup info --json`, because that path depends on the install layout
+and must not be assumed. `jq` is preinstalled on GitHub-hosted runners;
+install it first on a self-hosted runner that lacks it.
+
 ## Inputs
 
 All toggle inputs default to empty. When empty, the action emits no
