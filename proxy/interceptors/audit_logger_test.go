@@ -43,10 +43,14 @@ func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
 }
 
-func TestAuditLoggerInterceptorCustomRegistryHosts(t *testing.T) {
-	i := NewAuditLoggerInterceptor([]string{"Packages.Test"})
+func TestAuditLoggerInterceptorCustomRegistryOrigins(t *testing.T) {
+	i := NewAuditLoggerInterceptor([]string{"packages.test:443", "ports.test:8443"})
 
-	assert.True(t, i.IsKnownRegistryHost("packages.test"))
-	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test"))
-	assert.False(t, i.IsKnownRegistryHost("unrelated.test"))
+	assert.True(t, i.IsKnownRegistryHost("packages.test", "443"))
+	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test", "443"))
+	assert.False(t, i.IsKnownRegistryHost("unrelated.test", "443"))
+
+	// Port-scoped: an endpoint on :8443 suppresses :8443 but not :443.
+	assert.True(t, i.IsKnownRegistryHost("ports.test", "8443"))
+	assert.False(t, i.IsKnownRegistryHost("ports.test", "443"))
 }

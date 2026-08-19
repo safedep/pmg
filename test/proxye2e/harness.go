@@ -119,7 +119,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 
 	// Production also builds the audit logger's known-host set from the
 	// compiled factory, so a validation failure surfaces the same way here.
-	registryHosts, err := factory.CustomRegistryHosts()
+	registryHosts, err := factory.CustomRegistryOrigins()
 	require.NoError(t, err)
 
 	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(registryHosts)}

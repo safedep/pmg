@@ -6,18 +6,22 @@ import (
 )
 
 type AuditLoggerInterceptor struct {
-	customRegistryHosts map[string]struct{}
+	customRegistryOrigins map[string]struct{}
 }
 
 var _ proxy.Interceptor = (*AuditLoggerInterceptor)(nil)
 var _ proxy.MITMDecider = (*AuditLoggerInterceptor)(nil)
 
-func NewAuditLoggerInterceptor(customRegistryHosts []string) *AuditLoggerInterceptor {
-	hosts := make(map[string]struct{}, len(customRegistryHosts))
-	for _, host := range customRegistryHosts {
-		hosts[normalizeHostnameWithOptionalPort(host)] = struct{}{}
+// NewAuditLoggerInterceptor takes the configured origins as canonical
+// host:effectivePort pairs so suppression applies exactly at the
+// configured scope (an endpoint on :8443 must not hide observations on
+// :443). Built-in suppression stays hostname-only.
+func NewAuditLoggerInterceptor(origins []string) *AuditLoggerInterceptor {
+	set := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		set[origin] = struct{}{}
 	}
-	return &AuditLoggerInterceptor{customRegistryHosts: hosts}
+	return &AuditLoggerInterceptor{customRegistryOrigins: set}
 }
 
 func (i *AuditLoggerInterceptor) Name() string {
@@ -39,7 +43,7 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if i.IsKnownRegistryHost(ctx.Hostname) {
+	if i.IsKnownRegistryHost(ctx.Hostname, ctx.Port) {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -59,10 +63,15 @@ var wellKnownGoHosts = map[string]bool{
 }
 
 // IsKnownRegistryHost reports whether host observations should be suppressed.
-func (i *AuditLoggerInterceptor) IsKnownRegistryHost(hostname string) bool {
+// Custom origins are scoped to host:effectivePort; a CONNECT names the port
+// in the authority, so the check is exact. Built-in suppression is
+// hostname-only.
+func (i *AuditLoggerInterceptor) IsKnownRegistryHost(hostname, port string) bool {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
-	if _, exists := i.customRegistryHosts[hostname]; exists {
-		return true
+	if origin := registryOrigin(hostname, "https", port); origin != "" {
+		if _, exists := i.customRegistryOrigins[origin]; exists {
+			return true
+		}
 	}
 	return npmRegistryDomains.ContainsHostname(hostname) ||
 		pypiRegistryDomains.ContainsHostname(hostname) ||

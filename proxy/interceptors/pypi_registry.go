@@ -90,7 +90,7 @@ func (i *PypiRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
 	if ctx == nil {
 		return false
 	}
-	return registryHostSupportsAnalysis(i.registries, ctx.Hostname)
+	return registryHostSupportsAnalysis(i.registries, ctx.Hostname, ctx.Port)
 }
 
 // ShouldIntercept determines if this interceptor should handle the given request

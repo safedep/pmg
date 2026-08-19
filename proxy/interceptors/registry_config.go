@@ -20,20 +20,21 @@ func builtInRegistryConfigs(configs registryConfigMap) []*registryConfig {
 	return entries
 }
 
-// registryHostSupportsAnalysis decides MITM at CONNECT time, when only the
-// hostname is visible. Load-time validation (no nested same-ecosystem base
-// paths, no endpoints on built-in-covered hosts) makes overlap between
-// entries impossible, so the resolution is a simple two-pass rule:
-// an exact host match wins outright; otherwise the longest built-in
-// subdomain umbrella decides.
-func registryHostSupportsAnalysis(configs registryConfigSet, hostname string) bool {
+// registryHostSupportsAnalysis decides MITM at CONNECT time. Built-ins
+// match on hostname alone; custom endpoints must match the configured
+// https origin (host + effective port) so PMG never decrypts services on
+// the host's other ports. Load-time validation (no nested base paths, no
+// endpoints on built-in-covered hosts) makes overlap impossible, so the
+// resolution is a two-pass rule: an exact match wins outright, otherwise
+// the longest built-in subdomain umbrella decides.
+func registryHostSupportsAnalysis(configs registryConfigSet, hostname, port string) bool {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
 	var bestSubdomain *registryConfig
 	for _, config := range configs.entries {
 		if config == nil {
 			continue
 		}
-		exact, matches := hostnameMatch(hostname, config)
+		exact, matches := connectMatch(config, hostname, port)
 		if !matches {
 			continue
 		}
@@ -52,7 +53,7 @@ func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) 
 		return nil
 	}
 	if ctx.Method == http.MethodConnect || ctx.URL == nil {
-		return configs.matchConnect(ctx.Hostname)
+		return configs.matchConnect(ctx.Hostname, ctx.Port)
 	}
 
 	return configs.MatchURL(registryAbsoluteRequestURL(ctx))
@@ -138,20 +139,42 @@ type registryConfigSet struct {
 	entries []*registryConfig
 }
 
+// connectMatch reports whether a CONNECT authority (host + port) maps to
+// config. Built-ins match on hostname alone. Custom endpoints (Scheme set)
+// additionally require an https scheme and the effective port: a CONNECT is
+// always TLS, and PMG never decrypts services on the configured host's
+// other ports, so scope stays at the configured origin. http endpoints are
+// proxied in absolute form and never need MITM.
+func connectMatch(config *registryConfig, hostname, port string) (bool, bool) {
+	exact, matches := hostnameMatch(hostname, config)
+	if !matches || config.Scheme == "" {
+		return exact, matches
+	}
+	if registryurl.NormalizeScheme(config.Scheme) != "https" {
+		return false, false
+	}
+	endpointPort, okEndpoint := registryurl.EffectivePort(config.Scheme, config.Port)
+	requestPort, okRequest := registryurl.EffectivePort("https", port)
+	if !okEndpoint || !okRequest || endpointPort != requestPort {
+		return false, false
+	}
+	return exact, matches
+}
+
 // matchConnect returns the registry a CONNECT (or otherwise pathless)
 // request belongs to. An exact host match wins over a built-in subdomain
 // umbrella, mirroring registryHostSupportsAnalysis; entry order derives
 // from a map, so this order-insensitive rule keeps the result
 // deterministic (test.pypi.org must resolve to its own entry, not the
 // pypi.org umbrella).
-func (s registryConfigSet) matchConnect(hostname string) *registryMatch {
+func (s registryConfigSet) matchConnect(hostname, port string) *registryMatch {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
 	var subdomain *registryConfig
 	for _, config := range s.entries {
 		if config == nil {
 			continue
 		}
-		exact, matches := hostnameMatch(hostname, config)
+		exact, matches := connectMatch(config, hostname, port)
 		if !matches {
 			continue
 		}
@@ -244,6 +267,20 @@ func relativePath(path, basePath string) string {
 		relative = unescaped
 	}
 	return relative
+}
+
+// registryOrigin renders a host and scheme+port as the canonical
+// host:effectivePort form used for audit suppression scoping.
+func registryOrigin(host, scheme, port string) string {
+	host = registryurl.NormalizeHostname(host)
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	effectivePort, ok := registryurl.EffectivePort(scheme, port)
+	if !ok {
+		return ""
+	}
+	return host + ":" + effectivePort
 }
 
 func normalizeHostnameWithOptionalPort(hostname string) string {

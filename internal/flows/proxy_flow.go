@@ -341,7 +341,7 @@ func buildProxyFlowInterceptors(
 	if err != nil {
 		return nil, err
 	}
-	registryHosts, err := factory.CustomRegistryHosts()
+	registryHosts, err := factory.CustomRegistryOrigins()
 	if err != nil {
 		return nil, err
 	}

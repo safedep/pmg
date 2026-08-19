@@ -63,17 +63,19 @@ func NewInterceptorFactory(
 	}
 }
 
-// CustomRegistryHosts returns the validated exact hosts used by the audit interceptor.
-func (f *InterceptorFactory) CustomRegistryHosts() ([]string, error) {
+// CustomRegistryOrigins returns the validated configured origins as
+// canonical host:effectivePort pairs, used by the audit interceptor to
+// suppress Host Observations exactly at the configured scope.
+func (f *InterceptorFactory) CustomRegistryOrigins() ([]string, error) {
 	if f.registryErr != nil {
 		return nil, f.registryErr
 	}
-	return append([]string(nil), f.execContext.compiledRegistries.hosts...), nil
+	return append([]string(nil), f.execContext.compiledRegistries.origins...), nil
 }
 
 type compiledCustomRegistries struct {
 	configs            map[string][]*registryConfig
-	hosts              []string
+	origins            []string
 	plainHTTPEndpoints []string
 }
 
@@ -83,7 +85,7 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 	}
 
 	compiled := &compiledCustomRegistries{configs: make(map[string][]*registryConfig)}
-	hosts := make(map[string]struct{})
+	origins := make(map[string]struct{})
 	for _, registry := range registries {
 		for _, endpoint := range registry.Endpoints {
 			u, err := normalizedRegistryEndpoint(endpoint.URL)
@@ -120,17 +122,17 @@ func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiled
 				SupportedForAnalysis: true,
 				Parser:               parser,
 			})
-			hosts[u.Hostname()] = struct{}{}
+			origins[registryOrigin(u.Hostname(), u.Scheme, u.Port())] = struct{}{}
 			if u.Scheme == "http" {
 				compiled.plainHTTPEndpoints = append(compiled.plainHTTPEndpoints, u.String())
 			}
 		}
 	}
 
-	for host := range hosts {
-		compiled.hosts = append(compiled.hosts, host)
+	for origin := range origins {
+		compiled.origins = append(compiled.origins, origin)
 	}
-	sort.Strings(compiled.hosts)
+	sort.Strings(compiled.origins)
 	return compiled, nil
 }
 

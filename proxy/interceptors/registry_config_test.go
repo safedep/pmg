@@ -258,7 +258,7 @@ func TestRegistryConfigSetMatchConnect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, set.matchConnect(tt.hostname) != nil)
+			assert.Equal(t, tt.want, set.matchConnect(tt.hostname, "") != nil)
 		})
 	}
 }
@@ -339,14 +339,48 @@ func TestRegistryConfigSetDeterministicConnectMatch(t *testing.T) {
 	exact := &registryConfig{Name: "exact", Host: "test.example.test", MatchSubdomains: true}
 
 	for _, entries := range [][]*registryConfig{{umbrella, exact}, {exact, umbrella}} {
-		match := (registryConfigSet{entries: entries}).matchConnect("test.example.test")
+		match := (registryConfigSet{entries: entries}).matchConnect("test.example.test", "")
 		require.NotNil(t, match)
 		assert.Equal(t, "exact", match.Config.Name)
 	}
 
-	match := (registryConfigSet{entries: []*registryConfig{umbrella, exact}}).matchConnect("other.example.test")
+	match := (registryConfigSet{entries: []*registryConfig{umbrella, exact}}).matchConnect("other.example.test", "")
 	require.NotNil(t, match)
 	assert.Equal(t, "umbrella", match.Config.Name, "a host with no exact entry still resolves via the umbrella")
+}
+
+func TestRegistryConfigSetConnectOriginGating(t *testing.T) {
+	set := registryConfigSet{entries: []*registryConfig{
+		{Name: "secure-8443", Host: "registry.test", Scheme: "https", Port: "8443", SupportedForAnalysis: true},
+		{Name: "plain-http", Host: "http.test", Scheme: "http", Port: "80", SupportedForAnalysis: true},
+		{Name: "secure-default", Host: "default.test", Scheme: "https", SupportedForAnalysis: true},
+	}}
+
+	tests := []struct {
+		name        string
+		host        string
+		port        string
+		wantMatch   string
+		wantAnalyze bool
+	}{
+		{name: "configured non-default port matches", host: "registry.test", port: "8443", wantMatch: "secure-8443", wantAnalyze: true},
+		{name: "other port is out of scope", host: "registry.test", port: "443"},
+		{name: "http endpoint is never MITM'd", host: "http.test", port: "80"},
+		{name: "omitted port hits 443 as configured", host: "default.test", port: "", wantMatch: "secure-default", wantAnalyze: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			match := set.matchConnect(tt.host, tt.port)
+			if tt.wantMatch == "" {
+				assert.Nil(t, match)
+			} else {
+				require.NotNil(t, match)
+				assert.Equal(t, tt.wantMatch, match.Config.Name)
+			}
+			assert.Equal(t, tt.wantAnalyze, registryHostSupportsAnalysis(set, tt.host, tt.port))
+	})
+	}
 }
 
 func TestRegistryConfigSetDeterministicMatch(t *testing.T) {

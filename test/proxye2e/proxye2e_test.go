@@ -1185,6 +1185,37 @@ func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 			},
 		},
 		{
+			// A custom endpoint scoped to https://host:8443 must MITM only
+			// that port. The same host on :443 is tunneled, never decrypted.
+			Name:   "custom endpoint MITM scope is limited to the configured port",
+			Config: customRegistry("company-npm", "npm", "https://ports.example.test:8443/npm"),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm("ports.example.test", "/npm")
+				h.Registry.AddNpm(NpmPackage{Name: "demo", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("demo", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://ports.example.test:8443/npm/demo/-/demo-1.0.0.tgz", nil))
+				res.add(h.get("https://ports.example.test/npm/demo/-/demo-1.0.0.tgz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.0.0"),
+					"only the request on the configured :8443 may be analyzed")
+				assert.Contains(t, h.DialedAddrs(), "ports.example.test:443",
+					"the off-port request must stay a CONNECT tunnel, never decrypted")
+				upstream := 0
+				for _, req := range h.Registry.Requests() {
+					if strings.Contains(req.Path, "demo") {
+						upstream++
+					}
+				}
+				assert.Equal(t, 1, upstream, "only the configured port's request may reach the registry")
+			},
+		},
+		{
 			Name:   "off-host artifact URL from metadata stays tunneled",
 			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
 			Setup: func(h *Harness) {

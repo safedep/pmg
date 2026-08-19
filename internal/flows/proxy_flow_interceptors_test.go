@@ -30,8 +30,9 @@ func TestBuildProxyFlowInterceptorsWiresCustomRegistries(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got[0].ShouldIntercept(&proxy.RequestContext{URL: u, Hostname: u.Hostname(), Method: http.MethodGet}))
 
-	auditLogger, ok := got[1].(interface{ IsKnownRegistryHost(string) bool })
+	auditLogger, ok := got[1].(interface{ IsKnownRegistryHost(string, string) bool })
 	require.True(t, ok)
-	assert.True(t, auditLogger.IsKnownRegistryHost("packages.test"))
-	assert.False(t, auditLogger.IsKnownRegistryHost("cdn.packages.test"))
+	assert.True(t, auditLogger.IsKnownRegistryHost("packages.test", "443"))
+	assert.False(t, auditLogger.IsKnownRegistryHost("packages.test", "8443"))
+	assert.False(t, auditLogger.IsKnownRegistryHost("cdn.packages.test", "443"))
 }

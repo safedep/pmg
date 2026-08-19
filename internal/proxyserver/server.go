@@ -210,7 +210,7 @@ func buildInterceptors(
 		}
 		interceptorList = append(interceptorList, interceptor)
 	}
-	registryHosts, err := factory.CustomRegistryHosts()
+	registryHosts, err := factory.CustomRegistryOrigins()
 	if err != nil {
 		return nil, err
 	}
