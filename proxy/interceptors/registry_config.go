@@ -20,11 +20,15 @@ func builtInRegistryConfigs(configs registryConfigMap) []*registryConfig {
 	return entries
 }
 
+// registryHostSupportsAnalysis decides MITM at CONNECT time, when only the
+// hostname is visible. Load-time validation (no nested same-ecosystem base
+// paths, no endpoints on built-in-covered hosts) makes overlap between
+// entries impossible, so the resolution is a simple two-pass rule:
+// an exact host match wins outright; otherwise the longest built-in
+// subdomain umbrella decides.
 func registryHostSupportsAnalysis(configs registryConfigSet, hostname string) bool {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
-	bestHostLength := -1
-	bestExact := false
-	supported := false
+	var bestSubdomain *registryConfig
 	for _, config := range configs.entries {
 		if config == nil {
 			continue
@@ -33,25 +37,14 @@ func registryHostSupportsAnalysis(configs registryConfigSet, hostname string) bo
 		if !matches {
 			continue
 		}
-		hostLength := len(registryurl.NormalizeHostname(config.Host))
-		if exact != bestExact {
-			if exact {
-				bestExact = true
-				bestHostLength = hostLength
-				supported = config.SupportedForAnalysis
-			}
-			continue
+		if exact {
+			return config.SupportedForAnalysis
 		}
-		if hostLength > bestHostLength {
-			bestHostLength = hostLength
-			supported = config.SupportedForAnalysis
-			continue
-		}
-		if hostLength == bestHostLength && config.SupportedForAnalysis {
-			supported = true
+		if bestSubdomain == nil || len(config.Host) > len(bestSubdomain.Host) {
+			bestSubdomain = config
 		}
 	}
-	return supported
+	return bestSubdomain != nil && bestSubdomain.SupportedForAnalysis
 }
 
 func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) *registryMatch {
@@ -173,7 +166,12 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 	}
 	path := registryurl.NormalizeEscapedPath(u.EscapedPath())
 
-	var best *registryMatchCandidate
+	// Load-time validation makes ambiguity impossible, so the best match is
+	// decided by two rules only: an exact host beats a built-in subdomain
+	// umbrella, and among equally-exact matches the longest base path wins.
+	var best *registryMatch
+	bestExact := false
+	bestBaseLength := -1
 	for _, config := range s.entries {
 		if config == nil {
 			continue
@@ -198,65 +196,33 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 			continue
 		}
 
-		candidate := &registryMatchCandidate{
-			config:        config,
-			basePath:      basePath,
-			hostname:      registryurl.NormalizeHostname(config.Host),
-			exactHostname: exactHostname,
+		if best != nil {
+			better := (exactHostname && !bestExact) ||
+				(exactHostname == bestExact && len(basePath) > bestBaseLength)
+			if !better {
+				continue
+			}
 		}
-		if candidate.betterThan(best) {
-			best = candidate
-		}
+		best = &registryMatch{Config: config, RelativePath: relativePath(path, basePath)}
+		bestExact = exactHostname
+		bestBaseLength = len(basePath)
 	}
-
-	if best == nil {
-		return nil
-	}
-	relativePath := strings.TrimPrefix(path, best.basePath)
-	if relativePath == "" {
-		relativePath = "/"
-	}
-	// Matching runs on the escaped path so segment boundaries cannot be
-	// smuggled past the base-path check, but parsers expect the decoded
-	// form (npm requests scoped packuments as /@scope%2Fname).
-	if unescaped, err := url.PathUnescape(relativePath); err == nil {
-		relativePath = unescaped
-	}
-	return &registryMatch{Config: best.config, RelativePath: relativePath}
+	return best
 }
 
-type registryMatchCandidate struct {
-	config        *registryConfig
-	basePath      string
-	hostname      string
-	exactHostname bool
-}
-
-func (candidate *registryMatchCandidate) betterThan(current *registryMatchCandidate) bool {
-	if current == nil {
-		return true
+// relativePath strips the matched base path from the request path. Matching
+// runs on the escaped path so segment boundaries cannot be smuggled past the
+// base-path check, but parsers expect the decoded form (npm requests scoped
+// packuments as /@scope%2Fname).
+func relativePath(path, basePath string) string {
+	relative := strings.TrimPrefix(path, basePath)
+	if relative == "" {
+		relative = "/"
 	}
-	if len(candidate.basePath) != len(current.basePath) {
-		return len(candidate.basePath) > len(current.basePath)
+	if unescaped, err := url.PathUnescape(relative); err == nil {
+		relative = unescaped
 	}
-	if candidate.exactHostname != current.exactHostname {
-		return candidate.exactHostname
-	}
-	if len(candidate.hostname) != len(current.hostname) {
-		return len(candidate.hostname) > len(current.hostname)
-	}
-	return registryConfigKey(candidate.config) < registryConfigKey(current.config)
-}
-
-func registryConfigKey(config *registryConfig) string {
-	port, _ := registryurl.EffectivePort(config.Scheme, config.Port)
-	return strings.Join([]string{
-		registryurl.NormalizeScheme(config.Scheme),
-		registryurl.NormalizeHostname(config.Host),
-		port,
-		normalizeRegistryBasePath(config.BasePath),
-		config.Name,
-	}, "\x00")
+	return relative
 }
 
 func normalizeHostnameWithOptionalPort(hostname string) string {
