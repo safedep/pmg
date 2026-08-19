@@ -65,6 +65,14 @@ type ProxyDaemonConfig struct {
 // receives SIGINT/SIGTERM. It writes the state file on startup, auto-blocks
 // suspicious packages, and records the final blocked count on shutdown.
 func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string, port int) error {
+	// The daemon runs intercepted traffic for every ecosystem, so an
+	// unloadable proxy.registries entry must abort here rather than fall
+	// back to defaults. Non-install commands (pmg config, proxy stop, ...)
+	// are deliberately not gated, so the file stays fixable with pmg.
+	if err := config.LoadError(); err != nil {
+		return err
+	}
+
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}

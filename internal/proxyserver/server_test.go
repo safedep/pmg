@@ -1,8 +1,11 @@
 package proxyserver
 
 import (
+	"context"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
@@ -49,4 +52,28 @@ func requestContext(t *testing.T, rawURL string) *pmgproxy.RequestContext {
 	u, err := url.Parse(rawURL)
 	require.NoError(t, err)
 	return &pmgproxy.RequestContext{URL: u, Hostname: u.Hostname(), Method: http.MethodGet}
+}
+
+func TestRunRejectsUnloadableProxyRegistries(t *testing.T) {
+	dir := t.TempDir()
+	broken := `
+proxy:
+  registries:
+    - name: bad
+      ecosystem: maven
+      endpoints:
+        - url: https://packages.example.test/npm
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(broken), 0o644))
+	require.NoError(t, os.Setenv("PMG_CONFIG_DIR", dir))
+	config.Reload()
+	t.Cleanup(func() {
+		_ = os.Unsetenv("PMG_CONFIG_DIR")
+		config.Reload()
+	})
+	require.Error(t, config.LoadError())
+
+	err := Run(context.Background(), config.Get(), filepath.Join(dir, "state.json"), "127.0.0.1", 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid proxy registries")
 }

@@ -44,6 +44,15 @@ func RunProxy(ctx context.Context, pm packagemanager.PackageManager, args []stri
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
+	// A proxy.registries entry PMG could not load must abort any flow that
+	// runs intercepted traffic, never fall back to defaults. Checked here
+	// rather than at CLI startup, like the opt-out rejection below, so
+	// non-install commands (pmg config, doctor, ...) stay usable to fix
+	// the file.
+	if err := config.LoadError(); err != nil {
+		return err
+	}
+
 	// Guard mode is removed: a config or environment that still disables proxy
 	// interception must fail loudly instead of being silently switched to proxy
 	// mode. Checked here rather than at CLI startup so non-install commands

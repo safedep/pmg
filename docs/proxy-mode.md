@@ -170,7 +170,7 @@ PMG accepts an `http://` endpoint and prints one startup warning for it. Use `ht
 - Endpoint paths with empty or dot segments (`/npm//team`, `/npm/../team`), which could never match real traffic
 - At proxy startup, an endpoint whose host is covered by a built-in registry (for example `registry.npmjs.org`, `pypi.org`, or their subdomains), because PMG already analyzes it
 
-The error names the registry and the specific problem. An empty or whitespace-only name has no registry name to report, so the error names the entry's position in the list instead, for example `proxy.registries[0]`. Fix that entry and restart PMG.
+The error names the registry and the specific problem. An empty or whitespace-only name has no registry name to report, so the error names the entry's position in the list instead, for example `proxy.registries[0]`. While the error stands, commands that run intercepted traffic (`pmg <pkg-manager>` installs, `pmg proxy start`) fail closed, because falling back to defaults would silently drop the configured protection. Non-install commands such as `pmg config`, `pmg doctor`, and `pmg version` still work, so you can repair the file with PMG itself. Fix the entry and retry.
 
 ### Find your current registry settings
 
