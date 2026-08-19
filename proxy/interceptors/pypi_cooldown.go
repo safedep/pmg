@@ -3,7 +3,9 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -78,11 +80,11 @@ func (h *pypiCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, p
 		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, skip, dates, cooldownDays)
 		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonical, exempt)
 		strippedBody, stripped, remaining := h.stripCooldownFiles(body, dates, cooldownDays, exempt.all)
-		if stripped > 0 {
+		if len(stripped) > 0 {
 			log.Infof("[%s] Cooldown: stripped %d version(s) from %s metadata (%d days, %d eligible remain)",
-				ctx.RequestID, stripped, packageName, cooldownDays, remaining)
+				ctx.RequestID, len(stripped), packageName, cooldownDays, remaining)
 
-			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_PYPI, packageName, pinnedVersion, dates, remaining, cooldownDays)
+			recordCooldownStats(h.statsCollector, packagev1.Ecosystem_ECOSYSTEM_PYPI, packageName, pinnedVersion, dates, stripped, remaining, cooldownDays)
 
 			headers.Set("Cache-Control", "no-store")
 			return statusCode, headers, strippedBody, nil
@@ -146,9 +148,9 @@ func (h *pypiCooldownHandler) parsePEP691Files(body []byte) (map[string]time.Tim
 }
 
 // stripCooldownFiles removes all file entries for versions within the cooldown window
-// from a PEP 691 JSON body. Returns the modified body, number of versions stripped,
-// and number of versions remaining.
-func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, int, int) {
+// from a PEP 691 JSON body. Returns the modified body, the stripped versions, and the
+// count of versions remaining.
+func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, []string, int) {
 	tooNew := make(map[string]bool)
 	for version, uploadDate := range dates {
 		// Version-pinned skip entries are never stripped, even inside the window.
@@ -163,24 +165,24 @@ func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]t
 	remaining := len(dates) - len(tooNew)
 
 	if len(tooNew) == 0 {
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
 	var resp map[string]json.RawMessage
 	if err := json.Unmarshal(body, &resp); err != nil {
 		log.Warnf("Cooldown: failed to unmarshal PEP 691 body for stripping: %v", err)
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
 	rawFiles, ok := resp["files"]
 	if !ok {
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
 	var files []json.RawMessage
 	if err := json.Unmarshal(rawFiles, &files); err != nil {
 		log.Warnf("Cooldown: failed to unmarshal files array: %v", err)
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
 	filtered := make([]json.RawMessage, 0, len(files))
@@ -209,17 +211,17 @@ func (h *pypiCooldownHandler) stripCooldownFiles(body []byte, dates map[string]t
 	updatedFiles, err := json.Marshal(filtered)
 	if err != nil {
 		log.Warnf("Cooldown: failed to marshal filtered files array: %v", err)
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 	resp["files"] = updatedFiles
 
 	result, err := json.Marshal(resp)
 	if err != nil {
 		log.Warnf("Cooldown: failed to marshal final PEP 691 response: %v", err)
-		return body, 0, remaining
+		return body, nil, remaining
 	}
 
-	return result, len(tooNew), remaining
+	return result, slices.Collect(maps.Keys(tooNew)), remaining
 }
 
 // parsePEP691UploadTime parses the ISO 8601 upload-time field from PEP 691 responses.

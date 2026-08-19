@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -125,6 +126,132 @@ func TestReportVerboseAdvisoryMessage(t *testing.T) {
 	out := captureStdout(t, func() { Report(data) })
 	assert.Contains(t, out, "Installation blocked")
 	assert.Contains(t, out, "ℹ Contact #security-help")
+}
+
+func withheldData(outcome ExecutionOutcome) *ReportData {
+	data := NewReportData()
+	data.Outcome = outcome
+	data.CooldownWithheldPackages = []models.CooldownWithheld{
+		{Name: "@posthog/core", Versions: []models.CooldownWithheldVersion{{Version: "1.47.0", DaysLeft: 2}}},
+	}
+	return data
+}
+
+func TestReportNormalWithheldHintOnError(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	out := captureStdout(t, func() { Report(withheldData(OutcomeError)) })
+	assert.Contains(t, out, "Dependency cooldown withheld 1 version during version resolution")
+	assert.Contains(t, out, "@posthog/core")
+	assert.Contains(t, out, "1.47.0 (available in 2 days)")
+	assert.Contains(t, out, "this is the likely cause")
+}
+
+func TestReportNormalNoWithheldHintOnSuccess(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := withheldData(OutcomeSuccess)
+	data.TotalAnalyzed = 2
+	data.AllowedCount = 2
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.NotContains(t, out, "withheld", "resolver fallback succeeded, hint would be noise")
+}
+
+func TestReportNormalErrorWithoutWithheldStaysQuiet(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Empty(t, out)
+}
+
+func TestReportNormalWithheldHintCapsVersions(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+	data.CooldownWithheldPackages = []models.CooldownWithheld{
+		{Name: "busy-pkg", Versions: []models.CooldownWithheldVersion{
+			{Version: "1.0.1", DaysLeft: 1},
+			{Version: "1.0.2", DaysLeft: 2},
+			{Version: "1.0.3", DaysLeft: 3},
+			{Version: "1.0.4", DaysLeft: 4},
+			{Version: "1.0.5", DaysLeft: 5},
+		}},
+	}
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Contains(t, out, "withheld 5 versions")
+	assert.Contains(t, out, "1.0.3 (available in 3 days)")
+	assert.NotContains(t, out, "1.0.4")
+	assert.Contains(t, out, "and 2 more")
+}
+
+func manyWithheldPackages(n int) []models.CooldownWithheld {
+	packages := make([]models.CooldownWithheld, 0, n)
+	for i := range n {
+		packages = append(packages, models.CooldownWithheld{
+			Name:     fmt.Sprintf("pkg-%02d", i),
+			Versions: []models.CooldownWithheldVersion{{Version: "1.0.0", DaysLeft: 2}},
+		})
+	}
+	return packages
+}
+
+func TestReportNormalWithheldHintDetailAtThreshold(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+	data.CooldownWithheldPackages = manyWithheldPackages(3)
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Contains(t, out, "withheld 3 versions during version resolution")
+	assert.Contains(t, out, "1.0.0 (available in 2 days)")
+}
+
+func TestReportNormalWithheldHintCollapsesManyPackages(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+	data.CooldownWithheldPackages = manyWithheldPackages(24)
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Contains(t, out, "Dependency cooldown withheld versions of 24 packages during resolution")
+	assert.Contains(t, out, "    pkg-00\n    pkg-01\n    pkg-02\n    pkg-03\n    pkg-04\n    and 19 more...",
+		"collapsed hint lists one package name per line")
+	assert.NotContains(t, out, "pkg-05", "collapsed hint must cap the name list")
+	assert.NotContains(t, out, "available in", "collapsed hint must not list versions")
+	assert.Contains(t, out, "Run with --verbose to list all withheld versions.")
+}
+
+func TestReportSilentWithheldStaysQuiet(t *testing.T) {
+	withVerbosity(t, VerbosityLevelSilent)
+
+	out := captureStdout(t, func() { Report(withheldData(OutcomeError)) })
+	assert.Empty(t, out)
+}
+
+func TestReportVerboseWithheldSection(t *testing.T) {
+	withVerbosity(t, VerbosityLevelVerbose)
+
+	data := withheldData(OutcomeError)
+	data.CooldownWithheldPackages[0].Versions = append(data.CooldownWithheldPackages[0].Versions,
+		models.CooldownWithheldVersion{Version: "1.47.1", DaysLeft: 3},
+		models.CooldownWithheldVersion{Version: "1.48.0", DaysLeft: 4},
+		models.CooldownWithheldVersion{Version: "1.48.1", DaysLeft: 5},
+	)
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.Contains(t, out, "Versions withheld by dependency cooldown:")
+	assert.Contains(t, out, "⊘ @posthog/core")
+	assert.Contains(t, out, "1.47.0 (available in 2 days)")
+	assert.Contains(t, out, "1.48.1 (available in 5 days)", "verbose must list every version, no cap")
+	assert.NotContains(t, out, "and 1 more", "verbose must not truncate the version list")
 }
 
 func TestTermWidthFormatTextIndent(t *testing.T) {

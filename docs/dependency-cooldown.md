@@ -8,6 +8,30 @@ When cooldown is enabled, PMG intercepts package metadata responses from the reg
 
 Cooldown is enforced through metadata filtering and does not apply to direct tarball installs or workflows that already have a resolved tarball URL (e.g., lockfile or cache scenarios).
 
+## How PMG Reports Cooldown
+
+PMG reports cooldown in the install summary in three ways:
+
+- **Block: no version is eligible.** Every version of the package is within the
+  cooldown window. The install fails and PMG reports the package as blocked,
+  with the version closest to exiting the window.
+- **Block: a requested version is withheld.** You pinned a version on the
+  command line (for example `pmg npm install pkg@1.2.3`) and that version is
+  within the window. The install fails and PMG reports that version as blocked.
+- **Hint: versions withheld, eligible versions remain.** Recent versions were
+  withheld but older eligible versions survive. The resolver normally falls
+  back to an eligible version and the install succeeds with no extra output.
+  The install can still fail when something requires exactly a withheld
+  version, for example a lockfile entry or a dependency with an exact version
+  pin. PMG cannot see that requirement in the metadata, so in this case it
+  prints the withheld versions after the package manager error as the likely
+  cause of the failure. When more than 3 packages had versions withheld, the
+  hint lists package names only; the package manager error above it names the
+  exact version it could not find.
+
+Run PMG with `--verbose` to always list the withheld versions in the execution
+report, including on successful installs.
+
 ## Configuration
 
 Dependency cooldown is configured in `config.yml`. See [config template](../config/config.template.yml) for the full schema. If you don't have a `config.yml` file, create one by running `pmg setup install`.
