@@ -80,7 +80,9 @@ func runSyncBackground(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	bundle.CheckIn(ctx)
+	if err := bundle.CheckIn(ctx); err != nil {
+		log.Warnf("Auto-sync: check-in failed: %v", err)
+	}
 
 	log.Infof("Auto-sync: drained %d events to SafeDep Cloud", synced)
 	return nil

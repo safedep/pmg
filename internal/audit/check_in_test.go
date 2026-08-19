@@ -31,10 +31,11 @@ func TestCheckInWithRateLimit(t *testing.T) {
 	t.Run("checks in when the rate limit elapsed", func(t *testing.T) {
 		cfg := newCheckInConfig(t)
 		calls := 0
-		checkInWithRateLimit(ctx, cfg, func(context.Context) error {
+		err := checkInWithRateLimit(ctx, cfg, func(context.Context) error {
 			calls++
 			return nil
 		})
+		require.NoError(t, err)
 		assert.Equal(t, 1, calls)
 	})
 
@@ -46,8 +47,8 @@ func TestCheckInWithRateLimit(t *testing.T) {
 			return nil
 		}
 
-		checkInWithRateLimit(ctx, cfg, checkIn)
-		checkInWithRateLimit(ctx, cfg, checkIn)
+		require.NoError(t, checkInWithRateLimit(ctx, cfg, checkIn))
+		require.NoError(t, checkInWithRateLimit(ctx, cfg, checkIn))
 		assert.Equal(t, 1, calls, "second attempt inside the rate limit must not fire")
 		require.FileExists(t, cfg.CloudCheckInLastRunPath())
 	})
@@ -60,8 +61,10 @@ func TestCheckInWithRateLimit(t *testing.T) {
 			return status.Error(codes.Unavailable, "server down")
 		}
 
-		checkInWithRateLimit(ctx, cfg, checkIn)
-		checkInWithRateLimit(ctx, cfg, checkIn)
+		err := checkInWithRateLimit(ctx, cfg, checkIn)
+		require.Error(t, err)
+		assert.Equal(t, codes.Unavailable, status.Code(err))
+		require.NoError(t, checkInWithRateLimit(ctx, cfg, checkIn))
 		assert.Equal(t, 1, calls)
 	})
 }

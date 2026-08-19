@@ -66,7 +66,9 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 	}
 
 	if syncErr == nil {
-		bundle.CheckIn(syncCtx)
+		if cerr := bundle.CheckIn(syncCtx); cerr != nil {
+			log.Warnf("cloud check-in failed: %v", cerr)
+		}
 	}
 
 	return synced, syncErr
@@ -86,28 +88,25 @@ func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
 }
 
 // CheckIn reports endpoint presence, rate limited by the auto-sync interval.
-// Failures log and are not returned. Callers invoke it after a successful
-// sync.
-func (b *SyncClientBundle) CheckIn(ctx context.Context) {
-	checkInWithRateLimit(ctx, b.cfg, b.syncClient.CheckIn)
+// Callers invoke it after a successful sync.
+func (b *SyncClientBundle) CheckIn(ctx context.Context) error {
+	return checkInWithRateLimit(ctx, b.cfg, b.syncClient.CheckIn)
 }
 
 // checkInWithRateLimit uses its own lastrun file: the proxy ticker keeps
-// cloud-sync.lastrun always fresh, which would starve the check-in. The file
-// is written before the call, and an unwritable file skips the call.
-func checkInWithRateLimit(ctx context.Context, cfg *config.RuntimeConfig, checkIn func(context.Context) error) {
+// cloud-sync.lastrun always fresh, which would starve the check-in. Like
+// cloud-sync.lastrun, the file records every attempt, so a failing endpoint
+// or an old server does not retry on every sync.
+func checkInWithRateLimit(ctx context.Context, cfg *config.RuntimeConfig, checkIn func(context.Context) error) error {
 	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
-		return
+		return nil
 	}
 
-	if werr := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); werr != nil {
-		log.Warnf("cloud check-in skipped: failed to update lastrun: %v", werr)
-		return
+	if err := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); err != nil {
+		return fmt.Errorf("update check-in lastrun: %w", err)
 	}
 
-	if err := checkIn(ctx); err != nil {
-		log.Warnf("cloud check-in failed: %v", err)
-	}
+	return checkIn(ctx)
 }
 
 func (b *SyncClientBundle) Close() error {
