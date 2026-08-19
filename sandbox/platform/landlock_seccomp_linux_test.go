@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"runtime"
 	"testing"
 	"unsafe"
 
@@ -673,15 +674,13 @@ func TestReadNetPeer_UnreadableMemFails(t *testing.T) {
 	assert.Error(t, err, "empty memory image must fail the family read")
 }
 
-func TestNetSockaddrAddr(t *testing.T) {
-	phase := &seccompPhase{
-		memFdCache: map[uint32]*os.File{},
-	}
+var noMemFd = func() *os.File { return nil }
 
+func TestNetSockaddrAddr(t *testing.T) {
 	t.Run("connect exposes args directly", func(t *testing.T) {
 		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_CONNECT)}}
 		notif.Data.Args[1], notif.Data.Args[2] = 0xdead, 16
-		ptr, length, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		ptr, length, hasDest, ok := netSockaddrAddr(notif, noMemFd)
 		assert.True(t, ok)
 		assert.True(t, hasDest)
 		assert.Equal(t, uint64(0xdead), ptr)
@@ -690,7 +689,7 @@ func TestNetSockaddrAddr(t *testing.T) {
 
 	t.Run("connected sendto has no destination", func(t *testing.T) {
 		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_SENDTO)}}
-		ptr, _, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		ptr, _, hasDest, ok := netSockaddrAddr(notif, noMemFd)
 		assert.True(t, ok)
 		assert.False(t, hasDest)
 		assert.Equal(t, uint64(0), ptr)
@@ -699,7 +698,7 @@ func TestNetSockaddrAddr(t *testing.T) {
 	t.Run("unconnected sendto exposes args", func(t *testing.T) {
 		notif := &seccompNotification{Data: seccompData{Nr: int32(unix.SYS_SENDTO)}}
 		notif.Data.Args[4], notif.Data.Args[5] = 0xbeef, 16
-		ptr, length, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		ptr, length, hasDest, ok := netSockaddrAddr(notif, noMemFd)
 		assert.True(t, ok)
 		assert.True(t, hasDest)
 		assert.Equal(t, uint64(0xbeef), ptr)
@@ -712,9 +711,8 @@ func TestNetSockaddrAddr(t *testing.T) {
 		binary.NativeEndian.PutUint32(hdr[8:12], 16)
 		memFd := writeMemImage(t, hdr)
 
-		phaseWithMem := &seccompPhase{memFdCache: map[uint32]*os.File{7: memFd}}
 		notif := &seccompNotification{PID: 7, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
-		ptr, length, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phaseWithMem)
+		ptr, length, hasDest, ok := netSockaddrAddr(notif, func() *os.File { return memFd })
 		assert.True(t, ok)
 		assert.True(t, hasDest)
 		assert.Equal(t, uint64(0xcafe), ptr)
@@ -723,18 +721,47 @@ func TestNetSockaddrAddr(t *testing.T) {
 
 	t.Run("sendmsg with no name has no destination", func(t *testing.T) {
 		memFd := writeMemImage(t, make([]byte, 16))
-		phaseWithMem := &seccompPhase{memFdCache: map[uint32]*os.File{7: memFd}}
 		notif := &seccompNotification{PID: 7, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
-		_, _, hasDest, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phaseWithMem)
+		_, _, hasDest, ok := netSockaddrAddr(notif, func() *os.File { return memFd })
 		assert.True(t, ok)
 		assert.False(t, hasDest)
 	})
 
 	t.Run("sendmsg with unreadable memory is a policy failure", func(t *testing.T) {
 		notif := &seccompNotification{PID: 1, Data: seccompData{Nr: int32(unix.SYS_SENDMSG)}}
-		_, _, _, ok := (&seccompSupervisor{}).netSockaddrAddr(notif, phase)
+		_, _, _, ok := netSockaddrAddr(notif, noMemFd)
 		assert.False(t, ok)
 	})
+}
+
+// TestMemFdForOpensFreshFdPerCall guards the fix for the stale-/proc/pid/mem
+// cache bug: an open mem fd pins the task's mm at open() time, so caching
+// fds across notifications silently reads a dead address space after execve.
+// Every lookup must return a new, independent fd.
+func TestMemFdForOpensFreshFdPerCall(t *testing.T) {
+	phase := &seccompPhase{}
+	pid := uint32(os.Getpid())
+
+	first := phase.memFdFor(pid)
+	require.NotNil(t, first)
+	defer func() { _ = first.Close() }()
+
+	second := phase.memFdFor(pid)
+	require.NotNil(t, second)
+	defer func() { _ = second.Close() }()
+
+	assert.NotEqual(t, first.Fd(), second.Fd(), "each lookup must open a fresh fd")
+
+	// Both must read live memory at the same address.
+	var probe = [4]byte{0xde, 0xad, 0xbe, 0xef}
+	addr := uintptr(unsafe.Pointer(&probe[0]))
+	for _, fd := range []*os.File{first, second} {
+		buf := make([]byte, 4)
+		_, err := fd.ReadAt(buf, int64(addr))
+		require.NoError(t, err)
+		assert.Equal(t, probe[:], buf)
+	}
+	runtime.KeepAlive(&probe)
 }
 
 func TestClassifyOpenFlags_Openat(t *testing.T) {
