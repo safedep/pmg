@@ -52,12 +52,7 @@ func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) 
 		return nil
 	}
 	if ctx.Method == http.MethodConnect || ctx.URL == nil {
-		for _, config := range configs.entries {
-			if config != nil && matchesHostname(normalizeHostnameWithOptionalPort(ctx.Hostname), config) {
-				return &registryMatch{Config: config, RelativePath: "/"}
-			}
-		}
-		return nil
+		return configs.matchConnect(ctx.Hostname)
 	}
 
 	return configs.MatchURL(registryAbsoluteRequestURL(ctx))
@@ -141,6 +136,36 @@ type registryMatch struct {
 
 type registryConfigSet struct {
 	entries []*registryConfig
+}
+
+// matchConnect returns the registry a CONNECT (or otherwise pathless)
+// request belongs to. An exact host match wins over a built-in subdomain
+// umbrella, mirroring registryHostSupportsAnalysis; entry order derives
+// from a map, so this order-insensitive rule keeps the result
+// deterministic (test.pypi.org must resolve to its own entry, not the
+// pypi.org umbrella).
+func (s registryConfigSet) matchConnect(hostname string) *registryMatch {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	var subdomain *registryConfig
+	for _, config := range s.entries {
+		if config == nil {
+			continue
+		}
+		exact, matches := hostnameMatch(hostname, config)
+		if !matches {
+			continue
+		}
+		if exact {
+			return &registryMatch{Config: config, RelativePath: "/"}
+		}
+		if subdomain == nil || len(config.Host) > len(subdomain.Host) {
+			subdomain = config
+		}
+	}
+	if subdomain == nil {
+		return nil
+	}
+	return &registryMatch{Config: subdomain, RelativePath: "/"}
 }
 
 func (s registryConfigSet) ContainsHostname(hostname string) bool {

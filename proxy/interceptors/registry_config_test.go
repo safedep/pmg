@@ -328,6 +328,24 @@ func TestRegistryConfigSetMatchURL(t *testing.T) {
 	}
 }
 
+func TestRegistryConfigSetDeterministicConnectMatch(t *testing.T) {
+	// Models pypi.org (subdomain umbrella) plus test.pypi.org (its own
+	// entry): a CONNECT to test.pypi.org must resolve to the exact entry
+	// regardless of entry order, which derives from a map.
+	umbrella := &registryConfig{Name: "umbrella", Host: "example.test", MatchSubdomains: true}
+	exact := &registryConfig{Name: "exact", Host: "test.example.test", MatchSubdomains: true}
+
+	for _, entries := range [][]*registryConfig{{umbrella, exact}, {exact, umbrella}} {
+		match := (registryConfigSet{entries: entries}).matchConnect("test.example.test")
+		require.NotNil(t, match)
+		assert.Equal(t, "exact", match.Config.Name)
+	}
+
+	match := (registryConfigSet{entries: []*registryConfig{umbrella, exact}}).matchConnect("other.example.test")
+	require.NotNil(t, match)
+	assert.Equal(t, "umbrella", match.Config.Name, "a host with no exact entry still resolves via the umbrella")
+}
+
 func TestRegistryConfigSetDeterministicMatch(t *testing.T) {
 	parent := &registryConfig{Name: "parent", Host: "example.test", Scheme: "https", BasePath: "/npm", MatchSubdomains: true}
 	exact := &registryConfig{Name: "exact", Host: "cdn.example.test", Scheme: "https", BasePath: "/npm"}
