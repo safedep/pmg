@@ -22,8 +22,7 @@ func newCheckInConfig(t *testing.T) *config.RuntimeConfig {
 
 	cfg := config.Get()
 	cfg.Config.Cloud.Enabled = true
-	cfg.Config.Cloud.CheckIn.Enabled = true
-	cfg.Config.Cloud.CheckIn.MinInterval = time.Hour
+	cfg.Config.Cloud.AutoSync.MinInterval = 15 * time.Minute
 	return cfg
 }
 
@@ -44,17 +43,6 @@ func TestMaybeCheckIn(t *testing.T) {
 		cfg := newCheckInConfig(t)
 		calls := 0
 		maybeCheckIn(ctx, cfg, errors.New("sync failed"), func(context.Context) error {
-			calls++
-			return nil
-		})
-		assert.Equal(t, 0, calls)
-	})
-
-	t.Run("skips when disabled", func(t *testing.T) {
-		cfg := newCheckInConfig(t)
-		cfg.Config.Cloud.CheckIn.Enabled = false
-		calls := 0
-		maybeCheckIn(ctx, cfg, nil, func(context.Context) error {
 			calls++
 			return nil
 		})

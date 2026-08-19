@@ -70,22 +70,24 @@ func DrainToCloud(ctx context.Context, cfg *config.RuntimeConfig, lockTimeout, s
 	return synced, syncErr
 }
 
-// maybeCheckIn sends an endpoint check-in after a successful sync, behind its
-// own cooldown. The call does not depend on event volume: the future cloud
-// config rides on the check-in response, so a busy endpoint that always syncs
-// events must call it too. A check-in failure never affects the sync result:
-// an older server answers Unimplemented, which is expected during rollout.
-// The lastrun file is written before the call: a failing endpoint does not
-// check in on every sync, and an unwritable file skips the call so the
-// cooldown cannot silently stop working.
+// maybeCheckIn sends an endpoint check-in after a successful sync. A check-in
+// is a form of cloud sync, so cloud.enabled (which gates every sync path) is
+// its only switch and the auto-sync interval is its rate limit. The call does
+// not depend on event volume: the future cloud config rides on the check-in
+// response, so a busy endpoint that always syncs events must call it too.
+// A check-in failure never affects the sync result: an older server answers
+// Unimplemented, which is expected during rollout.
+//
+// The rate limit uses its own timestamp file, not cloud-sync.lastrun: the
+// proxy server drains every 15 seconds and keeps that file always fresh,
+// which would starve the check-in. The file is written before the call: a
+// failing endpoint does not check in on every sync, and an unwritable file
+// skips the call so the rate limit cannot silently stop working.
 func maybeCheckIn(ctx context.Context, cfg *config.RuntimeConfig, syncErr error, checkIn func(context.Context) error) {
 	if syncErr != nil {
 		return
 	}
-	if !cfg.Config.Cloud.CheckIn.Enabled {
-		return
-	}
-	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.CheckIn.MinInterval) {
+	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
 		return
 	}
 
@@ -112,8 +114,8 @@ type SyncClientBundle struct {
 }
 
 // Sync delivers pending events from the WAL to SafeDep Cloud, then sends a
-// check-in behind its own cooldown. Every sync path reports presence: manual
-// sync, the detached auto-sync child, and the proxy server ticker.
+// rate-limited check-in. Every sync path reports presence: manual sync, the
+// detached auto-sync child, and the proxy server ticker.
 func (b *SyncClientBundle) Sync(ctx context.Context) (int, error) {
 	synced, err := b.syncClient.Sync(ctx)
 	maybeCheckIn(ctx, b.cfg, err, b.syncClient.CheckIn)

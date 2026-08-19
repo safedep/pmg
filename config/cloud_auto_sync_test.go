@@ -20,33 +20,6 @@ func TestCloudAutoSyncDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, c.Timeout)
 }
 
-func TestCloudCheckInDefaults(t *testing.T) {
-	t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
-	initConfig()
-
-	c := Get().Config.Cloud.CheckIn
-	assert.True(t, c.Enabled, "check_in.enabled defaults to true")
-	assert.Equal(t, time.Hour, c.MinInterval)
-}
-
-func TestCloudCheckInEnvOverridesDefaults(t *testing.T) {
-	t.Run("PMG_CLOUD_CHECK_IN_ENABLED=false flips the default", func(t *testing.T) {
-		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
-		t.Setenv("PMG_CLOUD_CHECK_IN_ENABLED", "false")
-		initConfig()
-
-		assert.False(t, Get().Config.Cloud.CheckIn.Enabled)
-	})
-
-	t.Run("PMG_CLOUD_CHECK_IN_MIN_INTERVAL is parsed as duration", func(t *testing.T) {
-		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")
-		t.Setenv("PMG_CLOUD_CHECK_IN_MIN_INTERVAL", "45m")
-		initConfig()
-
-		assert.Equal(t, 45*time.Minute, Get().Config.Cloud.CheckIn.MinInterval)
-	})
-}
-
 func TestCloudAutoSyncEnvOverridesDefaults(t *testing.T) {
 	t.Run("PMG_CLOUD_AUTO_SYNC_ENABLED=false flips the default", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "/tmp/pmg-test/random-does-not-exist")

@@ -152,16 +152,6 @@ type CloudConfig struct {
 	Enabled    bool                `mapstructure:"enabled"`
 	EndpointID string              `mapstructure:"endpoint_id"`
 	AutoSync   CloudAutoSyncConfig `mapstructure:"auto_sync"`
-	CheckIn    CloudCheckInConfig  `mapstructure:"check_in"`
-}
-
-// CloudCheckInConfig controls the endpoint check-in: an event-free presence
-// call sent after every successful sync, so an endpoint shows as active in
-// SafeDep Cloud whatever its event volume. MinInterval must stay above the
-// server's 30-minute last-sync refresh throttle.
-type CloudCheckInConfig struct {
-	Enabled     bool          `mapstructure:"enabled"`
-	MinInterval time.Duration `mapstructure:"min_interval"`
 }
 
 // CloudAutoSyncConfig controls opportunistic background sync of the cloud
@@ -504,10 +494,6 @@ func DefaultConfig() RuntimeConfig {
 					Enabled:     true,
 					MinInterval: 15 * time.Minute,
 					Timeout:     5 * time.Minute,
-				},
-				CheckIn: CloudCheckInConfig{
-					Enabled:     true,
-					MinInterval: time.Hour,
 				},
 			},
 			Proxy: ProxyConfig{
