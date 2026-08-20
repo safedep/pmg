@@ -34,6 +34,8 @@ pmg config set cloud.enabled true
 ```
 See [config template](../config/config.template.yml) for the configuration schema.
 
+Custom npm/PyPI registry endpoints are configured under `proxy.registries` (a list, so edit the config file directly or use `pmg config edit` rather than `pmg config set`). Invalid entries fail closed: install commands and `pmg proxy start` refuse to run until the file is fixed, while `pmg config` and other non-install commands keep working. See [Custom Registries](proxy-mode.md#custom-registries).
+
 ## Environment Variables
 
 Any configuration key can be overridden using environment variables, without modifying the config
