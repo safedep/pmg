@@ -91,6 +91,46 @@ SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" ./pmg_setup_install_macos.sh
 
 `$4` and `$5` are Jamf script parameters. Adjust them to your configuration.
 
+## JumpCloud example
+
+Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which covers fleet-wide, multi-user deployment.
+
+### Install
+
+1. In the JumpCloud Admin Console, create a new **Command** and set **Run As** to `root`.
+2. Upload `lib_macos.sh` and `pmg_setup_install_macos.sh` from `scripts/mdm/`. Optionally upload `config.yml` to deploy a globally managed config. Set the **File Destination** to `/tmp/pmg-mdm/` for each file.
+3. Set **Timeout After** to at least 900 seconds so installs on slow networks aren't killed mid-run.
+4. To enable cloud sync, define the Command Variables `safedep_api_key` and `safedep_tenant_id`, and mark the API key as a Secret variable.
+5. Set the Command body to:
+
+   ```sh
+   #!/bin/sh
+   set -eu
+   cd /tmp/pmg-mdm
+   chmod +x pmg_setup_install_macos.sh
+   SAFEDEP_API_KEY={{safedep_api_key}} SAFEDEP_TENANT_ID={{safedep_tenant_id}} ./pmg_setup_install_macos.sh
+   cd / && rm -rf /tmp/pmg-mdm
+   ```
+
+   Drop the `SAFEDEP_API_KEY`/`SAFEDEP_TENANT_ID` variables if cloud sync isn't enabled.
+6. Assign the Command to a device group and run it.
+
+### Uninstall
+
+1. Create a second Command as above, uploading `lib_macos.sh` and `pmg_uninstall_macos.sh` instead.
+2. Set the Command body to:
+
+   ```sh
+   #!/bin/sh
+   set -eu
+   cd /tmp/pmg-mdm
+   chmod +x pmg_uninstall_macos.sh
+   ./pmg_uninstall_macos.sh
+   cd / && rm -rf /tmp/pmg-mdm
+   ```
+
+3. Assign the Command to the same device group and run it.
+
 ## Limitations
 
 - Installing PMG's MITM CA into the trust store (`pmg setup cert install`) is not supported via MDM on macOS. Adding a trusted root to the login keychain requires interactive authorization from the user's GUI session, which an MDM deployment cannot supply. Have each user run `pmg setup cert install` in their own session when they need it (only needed for tools that ignore the proxy's CA environment variables, such as Go on macOS).
