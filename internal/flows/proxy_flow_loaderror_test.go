@@ -26,12 +26,9 @@ proxy:
         - url: https://packages.example.test/npm
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yml"), []byte(broken), 0o644))
-	require.NoError(t, os.Setenv("PMG_CONFIG_DIR", dir))
+	t.Cleanup(config.Reload)
+	t.Setenv("PMG_CONFIG_DIR", dir)
 	config.Reload()
-	t.Cleanup(func() {
-		_ = os.Unsetenv("PMG_CONFIG_DIR")
-		config.Reload()
-	})
 	require.Error(t, config.LoadError())
 }
 

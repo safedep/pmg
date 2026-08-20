@@ -62,20 +62,8 @@ func TestNpmRegistryInterceptor_ShouldIntercept(t *testing.T) {
 
 func newTestNpmCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs ...string) *NpmRegistryInterceptor {
 	t.Helper()
-
-	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
-	for i, endpointURL := range endpointURLs {
-		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
-	}
-
-	registries := []config.ProxyRegistryConfig{{
-		Name:      "custom-npm",
-		Ecosystem: "npm",
-		Endpoints: endpoints,
-	}}
-
 	return newNpmRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{},
-		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, registries))
+		newTestCustomRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, endpointURLs...))
 }
 
 func TestNpmRegistryInterceptor_Custom_UnknownPathPassesThrough(t *testing.T) {

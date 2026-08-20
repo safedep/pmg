@@ -117,7 +117,7 @@ func TestInterceptorFactoryCreatesRegistryAndAuditInterceptors(t *testing.T) {
 
 	auditLogger, ok := got[1].(*AuditLoggerInterceptor)
 	require.True(t, ok)
-	assert.True(t, auditLogger.IsKnownRegistryHost("packages.test", "443"))
+	assert.True(t, auditLogger.isKnownRegistryRequest(registryRequest(t, "https://packages.test/npm/pkg")))
 }
 
 func TestInterceptorFactoryWarnsOncePerPlainHTTPEndpoint(t *testing.T) {

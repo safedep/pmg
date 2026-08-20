@@ -1,8 +1,6 @@
 package interceptors
 
 import (
-	"net/http"
-
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 )
@@ -34,7 +32,7 @@ func (i *AuditLoggerInterceptor) ShouldMITM(_ *proxy.RequestContext) bool {
 }
 
 func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
-	if ctx == nil || ctx.Hostname == "" || i.IsKnownRegistryRequest(ctx) {
+	if ctx == nil || ctx.Hostname == "" || i.isKnownRegistryRequest(ctx) {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -44,15 +42,7 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
 
-func (i *AuditLoggerInterceptor) IsKnownRegistryHost(hostname, port string) bool {
-	return i.IsKnownRegistryRequest(&proxy.RequestContext{
-		Hostname: hostname,
-		Port:     port,
-		Method:   http.MethodConnect,
-	})
-}
-
-func (i *AuditLoggerInterceptor) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool {
+func (i *AuditLoggerInterceptor) isKnownRegistryRequest(ctx *proxy.RequestContext) bool {
 	return i != nil && i.registries != nil && i.registries.IsKnownRegistryRequest(ctx)
 }
 

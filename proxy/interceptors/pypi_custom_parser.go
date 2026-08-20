@@ -7,7 +7,7 @@ import (
 	"github.com/safedep/pmg/internal/registryurl"
 )
 
-// pypiCustomParser parses relative paths for a custom PyPI registry, whose
+// pypiCustomParser adapts relative paths for a custom PyPI registry, whose
 // Simple API can be mounted at a base already ending in "/simple", leaving
 // pypiOrgParser unable to parse the resulting bare paths (e.g. "/demo/").
 //

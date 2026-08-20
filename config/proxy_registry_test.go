@@ -325,6 +325,8 @@ func TestValidateProxyRegistriesEndpointHosts(t *testing.T) {
 		{name: "localhost", url: "http://localhost:4873", wantErr: "loopback"},
 		{name: "loopback ipv4", url: "http://127.0.0.1:8080/npm", wantErr: "loopback"},
 		{name: "loopback ipv6", url: "https://[::1]/simple", wantErr: "loopback"},
+		{name: "unspecified ipv4", url: "http://0.0.0.0:8080/npm", wantErr: "unspecified"},
+		{name: "unspecified ipv6", url: "https://[::]/simple", wantErr: "unspecified"},
 		{name: "subdomain of localhost", url: "http://foo.localhost/npm", wantErr: "loopback"},
 		{name: "unicode hostname", url: "https://münchen.example.test/npm", wantErr: "not ASCII"},
 		{name: "private ipv4 is fine", url: "https://10.0.0.8/npm"},

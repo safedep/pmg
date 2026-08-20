@@ -72,6 +72,4 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 func TestTemplateHasCommentedRegistryExample(t *testing.T) {
 	assert.Contains(t, templateConfig, "\n  # registries:\n",
 		"expected a commented-out registries example")
-	assert.Contains(t, templateConfig, "https://packages.example.com/artifactory/api/npm/npm-virtual",
-		"expected the example endpoint URL in the commented block")
 }

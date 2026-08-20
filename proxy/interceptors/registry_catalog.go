@@ -17,6 +17,8 @@ type RegistryCatalog struct {
 }
 
 func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatalog, error) {
+	// Keep this boundary self-validating because callers can construct a
+	// catalog directly without going through the global config loader.
 	if err := config.ValidateProxyRegistries(registries); err != nil {
 		return nil, fmt.Errorf("invalid custom proxy registries: %w", err)
 	}

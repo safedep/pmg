@@ -39,20 +39,8 @@ func TestPypiRegistryInterceptor_ShouldMITM(t *testing.T) {
 
 func newTestPypiCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs ...string) *PypiRegistryInterceptor {
 	t.Helper()
-
-	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
-	for i, endpointURL := range endpointURLs {
-		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
-	}
-
-	registries := []config.ProxyRegistryConfig{{
-		Name:      "custom-pypi",
-		Ecosystem: "pypi",
-		Endpoints: endpoints,
-	}}
-
 	return newPypiRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{},
-		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_PYPI, registries))
+		newTestCustomRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_PYPI, endpointURLs...))
 }
 
 func TestPypiRegistryInterceptor_Custom_UnknownPathPassesThrough(t *testing.T) {

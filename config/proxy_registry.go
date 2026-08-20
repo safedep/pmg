@@ -115,8 +115,13 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 // punycode before connecting, so a Unicode entry never matches the wire).
 // The hostname arrives already normalized by registryurl.Normalize.
 func validateEndpointHost(hostname string) error {
-	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
-		return fmt.Errorf("host %q is a loopback address; proxied runs exclude loopback hosts via NO_PROXY, so PMG cannot analyze them", hostname)
+	if ip := net.ParseIP(hostname); ip != nil {
+		if ip.IsLoopback() {
+			return fmt.Errorf("host %q is a loopback address; proxied runs exclude loopback hosts via NO_PROXY, so PMG cannot analyze them", hostname)
+		}
+		if ip.IsUnspecified() {
+			return fmt.Errorf("host %q is an unspecified address and cannot identify a registry", hostname)
+		}
 	}
 	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
 		return fmt.Errorf("host %q is loopback-only; proxied runs exclude localhost via NO_PROXY, so PMG cannot analyze it", hostname)
@@ -138,5 +143,3 @@ func endpointPathsNest(a, b string) bool {
 	}
 	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
-
-

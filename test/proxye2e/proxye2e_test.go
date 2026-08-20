@@ -1,6 +1,7 @@
 package proxye2e
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func recent() time.Time { return time.Now().Add(-24 * time.Hour) }
@@ -162,7 +164,7 @@ func TestProxyFlow_Npm(t *testing.T) {
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				meta := h.Npm().FetchMetadataFrom(npmRegistryBaseURL, "@scope%2Fdemo")
+				meta := npmMetadataFromResult(t, res)
 				assert.False(t, meta.HasVersion("2.0.0"), "in-window version must be stripped")
 				assert.True(t, meta.HasVersion("1.0.0"), "out-of-window version must survive")
 			},
@@ -755,6 +757,15 @@ func blockedBody(res ExecResult) string {
 	return ""
 }
 
+func npmMetadataFromResult(t *testing.T, res ExecResult) NpmMetadata {
+	t.Helper()
+	require.Len(t, res.Requests, 1)
+	require.NoError(t, res.Requests[0].Err)
+	meta := NpmMetadata{Outcome: res.Requests[0]}
+	require.NoError(t, json.Unmarshal([]byte(res.Requests[0].Body), &meta))
+	return meta
+}
+
 func TestProxyFlow_AdvisoryMessage(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
@@ -846,6 +857,28 @@ func TestProxyFlow_CustomNpm(t *testing.T) {
 				assert.False(t, meta.HasVersion("2.0.0"), "in-window version must be stripped")
 				assert.True(t, meta.HasVersion("1.0.0"), "out-of-window version must survive")
 				assert.False(t, h.Registry.Requested(npmHost, "/npm/team/left-pad/-/left-pad-2.0.0.tgz"))
+			},
+		},
+		{
+			Name:   "cooldown handles an encoded scoped package on a custom npm prefix",
+			Config: combineConfig(customRegistry("company-npm", "npm", npmBase), cooldownEnabled(7)),
+			Setup: func(h *Harness) {
+				h.Registry.AddCustomNpm(npmHost, "/npm/team")
+				h.Registry.AddNpm(NpmPackage{Name: "@scope/demo", DistTagLatest: "2.0.0", Versions: []NpmVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Npm().FetchMetadataFrom(npmBase, "@scope%2Fdemo").Outcome)
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				meta := npmMetadataFromResult(t, res)
+				assert.False(t, meta.HasVersion("2.0.0"), "in-window version must be stripped")
+				assert.True(t, meta.HasVersion("1.0.0"), "out-of-window version must survive")
+				assert.True(t, h.Registry.Requested(npmHost, "/npm/team/@scope/demo"))
 			},
 		},
 		{

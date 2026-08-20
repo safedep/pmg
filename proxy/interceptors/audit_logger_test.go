@@ -51,15 +51,15 @@ func TestAuditLoggerInterceptorCustomRegistryOrigins(t *testing.T) {
 		{Name: "c", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "http://plain.test/npm"}}},
 	}))
 
-	assert.True(t, i.IsKnownRegistryHost("packages.test", "443"))
-	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test", "443"))
-	assert.False(t, i.IsKnownRegistryHost("unrelated.test", "443"))
+	assert.True(t, i.isKnownRegistryRequest(registryRequest(t, "https://packages.test/npm/pkg")))
+	assert.False(t, i.isKnownRegistryRequest(registryRequest(t, "https://cdn.packages.test/npm/pkg")))
+	assert.False(t, i.isKnownRegistryRequest(registryRequest(t, "https://unrelated.test/npm/pkg")))
 
 	// Port-scoped: an endpoint on :8443 suppresses :8443 but not :443.
-	assert.True(t, i.IsKnownRegistryHost("ports.test", "8443"))
-	assert.False(t, i.IsKnownRegistryHost("ports.test", "443"))
+	assert.True(t, i.isKnownRegistryRequest(registryRequest(t, "https://ports.test:8443/npm/pkg")))
+	assert.False(t, i.isKnownRegistryRequest(registryRequest(t, "https://ports.test/npm/pkg")))
 
-	assert.True(t, i.IsKnownRegistryRequest(registryRequest(t, "http://plain.test/npm/pkg")))
-	assert.False(t, i.IsKnownRegistryRequest(registryRequest(t, "https://plain.test/npm/pkg")))
-	assert.False(t, i.IsKnownRegistryRequest(registryRequest(t, "http://cdn.plain.test/npm/pkg")))
+	assert.True(t, i.isKnownRegistryRequest(registryRequest(t, "http://plain.test/npm/pkg")))
+	assert.False(t, i.isKnownRegistryRequest(registryRequest(t, "https://plain.test/npm/pkg")))
+	assert.False(t, i.isKnownRegistryRequest(registryRequest(t, "http://cdn.plain.test/npm/pkg")))
 }

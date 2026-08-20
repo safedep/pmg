@@ -24,6 +24,23 @@ func newTestRegistrySetFor(
 	return newTestRegistryCatalog(t, registries).registrySet(ecosystem)
 }
 
+func newTestCustomRegistrySetFor(t *testing.T, ecosystem packagev1.Ecosystem, endpointURLs ...string) registrySet {
+	t.Helper()
+	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
+	for index, endpointURL := range endpointURLs {
+		endpoints[index] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
+	}
+	ecosystemName := "npm"
+	if ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
+		ecosystemName = "pypi"
+	}
+	return newTestRegistrySetFor(t, ecosystem, []config.ProxyRegistryConfig{{
+		Name:      "custom-" + ecosystemName,
+		Ecosystem: ecosystemName,
+		Endpoints: endpoints,
+	}})
+}
+
 func newTestDefaultNpmInterceptor(t *testing.T) *NpmRegistryInterceptor {
 	t.Helper()
 	return newNpmRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(),

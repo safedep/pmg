@@ -82,7 +82,7 @@ proxy:
 
 ### Which hosts PMG intercepts
 
-PMG intercepts traffic only to the exact host in an endpoint URL. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com` or any other subdomain.
+PMG intercepts traffic only to the exact host in an endpoint URL. If you configure `packages.example.com`, PMG does not intercept `cdn.packages.example.com` or any other subdomain. For HTTPS, the configured port is part of the match: an endpoint on port 8443 does not cause PMG to decrypt traffic to port 443.
 
 This is different from PMG's built-in registries, which also cover their known subdomains automatically.
 
@@ -92,7 +92,7 @@ PMG never decrypts traffic to a host it does not know, and a subdomain of a conf
 
 PMG decides whether to intercept a connection in two steps.
 
-At CONNECT time, before any request path is visible, PMG checks the hostname alone. PMG decrypts the connection when the hostname matches a custom endpoint you configured. PMG also decrypts it for a built-in registry host, or one of its subdomains, that PMG analyzes. A few built-in hosts are recognized but not analyzed, for example GitHub's npm registry mirror and the PyPI test instances. PMG tunnels their traffic without decrypting it.
+At CONNECT time, before any request path is visible, PMG checks the hostname and port. PMG decrypts the connection when they match the exact origin of a configured HTTPS endpoint. An `http://` endpoint never causes an HTTPS CONNECT connection to be decrypted. PMG also decrypts traffic for a built-in registry host, or one of its subdomains, that PMG analyzes. A few built-in hosts are recognized but not analyzed, for example GitHub's npm registry mirror and the PyPI test instances. PMG tunnels their traffic without decrypting it.
 
 After decryption, PMG matches each request against an endpoint by:
 
@@ -101,7 +101,7 @@ After decryption, PMG matches each request against an endpoint by:
 
 The base path check works on whole path segments, not on raw string prefixes. An endpoint base of `/repository/npm` matches `/repository/npm` and `/repository/npm/lodash`. It does not match `/repository/npm-private`, because `npm-private` is a different segment, not a continuation of `npm`. Query strings and fragments never affect the match.
 
-When more than one endpoint could match a request, the endpoint with the longest matching base path wins.
+PMG rejects nested endpoint base paths on the same origin during configuration validation, so a request cannot match more than one custom endpoint.
 
 A request on a configured host whose path matches no endpoint passes through unchanged. Because the host matched a configured endpoint at CONNECT time, PMG already decrypted this traffic. PMG does not analyze the request, and does not block it.
 
@@ -113,9 +113,11 @@ When [dependency cooldown](./dependency-cooldown.md) is enabled, PMG requests th
 
 ### PyPI registry requirements
 
-A custom PyPI endpoint must serve the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/), either the PEP 691 JSON format or the PEP 503 HTML format. An endpoint that can only serve PEP 503 HTML gets no dependency cooldown protection, because PMG reads upload times from the PEP 691 JSON response; malware analysis of file downloads is unaffected.
+A custom PyPI metadata endpoint must serve the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/), either the PEP 691 JSON format or the PEP 503 HTML format. An endpoint that can only serve PEP 503 HTML gets no dependency cooldown protection, because PMG reads upload times from the PEP 691 JSON response; malware analysis of file downloads is unaffected.
 
-PMG recognizes a project's index page, the page listing all of one project's files, when the configured base URL itself ends in `/simple`. With a base of `.../artifactory/api/pypi/python/simple`, a request for `.../artifactory/api/pypi/python/simple/requests/` is recognized as the index page for `requests`.
+An endpoint configured only for artifact downloads does not need to serve project metadata. PMG can analyze files beneath it when their standard wheel or source-distribution filenames contain the public package name and version.
+
+The endpoint does not have to end in `/simple`. PMG recognizes `<base>/<project>/` when the configured base itself ends in `/simple`, and `<base>/simple/<project>/` when the base sits above the standard Simple API mount. For example, both `.../python/simple` plus `/requests/` and `.../python` plus `/simple/requests/` identify the project `requests`. PMG also recognizes the standard `<base>/pypi/<project>/json` metadata path.
 
 Some bases do not end in `/simple`. For example, a base might point at a mirror's API root above the Simple mount. PMG still recognizes the relative layouts `/simple/<project>/` and `/pypi/<project>/json` beneath a base like this. A Simple API exposed some other way, such as a root-mounted index or a `+simple` convention, gets no project-page recognition and no dependency cooldown. PMG still analyzes distribution file downloads under that base, because it identifies them from their filename rather than from the page that links to them.
 
@@ -125,7 +127,7 @@ PMG identifies a distribution file, a wheel or an sdist, by its standard filenam
 
 Some registries serve package metadata from one host and the actual files from another, or from a different path prefix on the same host. PMG never treats a link or a redirect target as a reason to trust a new host. It analyzes an artifact from another host only if that host is itself a configured endpoint.
 
-If your artifacts live on a separate host or prefix, add that host or prefix as its own endpoint.
+If your artifacts live on a separate origin or a disjoint path prefix, add it as its own endpoint. Nested endpoint prefixes on the same origin are rejected; an artifact already beneath an existing endpoint base is covered by that endpoint.
 
 ### How PMG identifies a package from a URL
 
@@ -137,7 +139,7 @@ Some registries use opaque download URLs that carry no name or version, for exam
 
 PMG's malware database covers public packages. A package PMG cannot find there, including any private package on a custom registry, keeps the current behavior: PMG allows it.
 
-Custom registry support targets public packages served through an internal mirror or a compatible registry proxy. PMG does not promise compatibility with any specific vendor. It requires only that the registry serve the standard protocol, npm packument or PyPI Simple API, beneath the URL you configure.
+Custom registry support targets public packages served through an internal mirror or a compatible registry proxy. PMG does not promise compatibility with any specific vendor. Metadata endpoints must serve the standard npm packument or PyPI Simple API beneath the URL you configure. Artifact-only PyPI endpoints must use standard distribution filenames.
 
 ### Credentials
 
@@ -151,11 +153,13 @@ PMG accepts an `http://` endpoint and prints one startup warning for it. Use `ht
 
 **A shallow base path matches more than expected.** The base path check works on whole segments, so a shallow base also matches sibling repositories under the same prefix. A base of `/repository` also matches `/repository/npm-private` and `/repository/pypi-internal`. Configure the base as deep as your registry's actual mount point, not its parent.
 
-**PyPI project pages are not recognized.** PMG only recognizes a bare project-name request as an index page when the configured base itself ends in `/simple`. Your base might sit above the `/simple` mount, for example `.../python-remote` instead of `.../python-remote/simple`. Add the `/simple` segment to the endpoint URL, or add a second endpoint that includes it.
+**A vendor-specific PyPI project page is not recognized.** The endpoint does not need to end in `/simple`, but its metadata path must use one of the standard shapes described above. PMG does not guess that an arbitrary `<base>/<project>/` path is project metadata unless the base ends in `/simple`. Standard wheel and source-distribution filenames beneath the matched endpoint are still analyzed at any path depth.
 
-**An artifact is never analyzed.** Check the audit log for a Host Observation event on the artifact's host. If one appears, add that host, or the deeper prefix the artifact lives under, as its own endpoint. See "Artifacts on a different host" above.
+**An artifact is never analyzed.** Compare its URL with the configured endpoint's scheme, exact host, effective port, and segment-aware base path. A Host Observation means the artifact used an unknown origin; add that origin as an endpoint. A non-matching path on an already configured origin passes through without analysis and does not produce a Host Observation, so correct the existing base or add a disjoint endpoint. PMG rejects nested endpoint bases on the same origin. See "Artifacts on a different host" above.
 
-**Configuration fails to load.** PMG validates `proxy.registries` at startup and rejects the whole configuration file on any of these:
+**Configuration or proxy startup fails.** PMG validates `proxy.registries` while loading the configuration and again when building the registry catalog before the proxy starts.
+
+PMG rejects these endpoint values:
 
 - A `name` that is empty, whitespace-only, or has leading or trailing whitespace
 - A duplicate `name`
@@ -164,6 +168,7 @@ PMG accepts an `http://` endpoint and prints one startup warning for it. Use `ht
 - A URL that is relative, invalid, or uses a scheme other than `http` or `https`
 - A URL that includes credentials, a query string, or a fragment
 - A loopback host (`localhost`, `127.x`, `::1`), which proxied runs exclude via `NO_PROXY` so PMG could never analyze it
+- An unspecified address (`0.0.0.0`, `::`)
 - A non-ASCII hostname; use the punycode (`xn--`) form, since package managers punycode before connecting
 - Two endpoints that normalize to the same origin and base path
 - Two endpoints on the same origin whose base paths nest into each other, such as `/npm` and `/npm/team` (npm and PyPI may share a host, but their base paths must be disjoint subtrees)

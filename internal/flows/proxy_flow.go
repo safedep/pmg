@@ -218,10 +218,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
 	}
-	interceptor := interceptorList[0]
-
-	log.Debugf("Created %s interceptor for ecosystem %s", interceptor.Name(), ecosystem.String())
-
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
 	if err != nil {
