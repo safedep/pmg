@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPypiFilesParser_ParseURL(t *testing.T) {
@@ -545,15 +546,15 @@ func TestGetPypiRegistryConfigForHostname(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := pypiRegistryDomains.GetConfigForHostname(tt.hostname)
+			match := (registrySet{entries: pypiRegistryEndpoints}).MatchConnect(tt.hostname, "443")
 
 			if !tt.expectConfig {
-				assert.Nil(t, config)
+				assert.Nil(t, match)
 				return
 			}
 
-			assert.NotNil(t, config)
-			assert.Equal(t, tt.expectHost, config.Host)
+			require.NotNil(t, match)
+			assert.Equal(t, tt.expectHost, match.Endpoint.Host)
 		})
 	}
 }
@@ -583,7 +584,7 @@ func TestPypiRegistryDomains_ContainsHostname(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := pypiRegistryDomains.ContainsHostname(tt.hostname)
+			got := (registrySet{entries: pypiRegistryEndpoints}).MatchConnect(tt.hostname, "443") != nil
 			assert.Equal(t, tt.want, got)
 		})
 	}

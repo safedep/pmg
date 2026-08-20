@@ -5,6 +5,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -14,17 +15,10 @@ import (
 type InterceptorContext struct {
 	PinnedVersions map[string]string
 
-	// CustomRegistries are the user-configured registry endpoints in
-	// compiled form. CompileCustomRegistries runs once per flow and the
-	// result is shared with every ecosystem interceptor and the audit
-	// logger; nil means none configured.
-	CustomRegistries CustomRegistriesByEcosystem
-
 	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
 	// GOPROXY to their upstream base URL (scheme + host + optional path
-	// prefix). The Go interceptor MITMs and analyzes these hosts; Go is the
-	// only ecosystem whose registry hosts are user-configurable rather than
-	// fixed.
+	// prefix). Go registry routing is derived dynamically from GOPROXY and
+	// remains separate from the npm/PyPI registry catalog.
 	GoProxyBaseURLs map[string]string
 }
 
@@ -35,6 +29,7 @@ type InterceptorFactory struct {
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 	execContext      InterceptorContext
+	registries       *RegistryCatalog
 }
 
 // NewInterceptorFactory creates a new interceptor factory with shared dependencies
@@ -44,14 +39,20 @@ func NewInterceptorFactory(
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
-) *InterceptorFactory {
+	registries []config.ProxyRegistryConfig,
+) (*InterceptorFactory, error) {
+	catalog, err := NewRegistryCatalog(registries)
+	if err != nil {
+		return nil, err
+	}
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
 		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
 		execContext:      execContext,
-	}
+		registries:       catalog,
+	}, nil
 }
 
 // CreateInterceptor creates an interceptor for the specified ecosystem
@@ -59,22 +60,24 @@ func NewInterceptorFactory(
 func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (proxy.Interceptor, error) {
 	switch ecosystem {
 	case packagev1.Ecosystem_ECOSYSTEM_NPM:
-		return NewNpmRegistryInterceptor(
+		return newNpmRegistryInterceptor(
 			f.analyzer,
 			f.cache,
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
-		)
+			f.registries.registrySet(packagev1.Ecosystem_ECOSYSTEM_NPM),
+		), nil
 
 	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
-		return NewPypiRegistryInterceptor(
+		return newPypiRegistryInterceptor(
 			f.analyzer,
 			f.cache,
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
-		)
+			f.registries.registrySet(packagev1.Ecosystem_ECOSYSTEM_PYPI),
+		), nil
 
 	case packagev1.Ecosystem_ECOSYSTEM_GO:
 		return NewGoRegistryInterceptor(
@@ -88,6 +91,18 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 	default:
 		return nil, fmt.Errorf("proxy-based interception not yet supported for ecosystem: %s", ecosystem.String())
 	}
+}
+
+func (f *InterceptorFactory) CreateInterceptors(ecosystems ...packagev1.Ecosystem) ([]proxy.Interceptor, error) {
+	result := make([]proxy.Interceptor, 0, len(ecosystems)+1)
+	for _, ecosystem := range ecosystems {
+		interceptor, err := f.CreateInterceptor(ecosystem)
+		if err != nil {
+			return nil, fmt.Errorf("create interceptor for %s: %w", ecosystem.String(), err)
+		}
+		result = append(result, interceptor)
+	}
+	return append(result, NewAuditLoggerInterceptor(f.registries)), nil
 }
 
 // SupportedEcosystems returns a list of ecosystems that support proxy-based interception

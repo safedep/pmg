@@ -1185,6 +1185,20 @@ func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 			},
 		},
 		{
+			Name:   "https on a plain-http custom registry host stays tunneled",
+			Config: customRegistry("company-npm", "npm", "http://plain.example.test/npm"),
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://plain.example.test/npm/demo", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Contains(t, h.DialedAddrs(), "plain.example.test:443")
+				assert.False(t, h.Registry.Requested("plain.example.test", "/npm/demo"))
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
 			// A custom endpoint scoped to https://host:8443 must MITM only
 			// that port. The same host on :443 is tunneled, never decrypted.
 			Name:   "custom endpoint MITM scope is limited to the configured port",

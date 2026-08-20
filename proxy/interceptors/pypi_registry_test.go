@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
@@ -13,8 +14,8 @@ import (
 )
 
 func TestPypiRegistryInterceptor_ShouldMITM(t *testing.T) {
-	interceptor, err := NewPypiRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
-	require.NoError(t, err)
+	interceptor := newPypiRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{},
+		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_PYPI, nil))
 
 	tests := []struct {
 		name     string
@@ -44,15 +45,14 @@ func newTestPypiCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs
 		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
 	}
 
-	execContext := newTestInterceptorContext(t, []config.ProxyRegistryConfig{{
+	registries := []config.ProxyRegistryConfig{{
 		Name:      "custom-pypi",
 		Ecosystem: "pypi",
 		Endpoints: endpoints,
-	}})
+	}}
 
-	interceptor, err := NewPypiRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), execContext)
-	require.NoError(t, err)
-	return interceptor
+	return newPypiRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{},
+		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_PYPI, registries))
 }
 
 func TestPypiRegistryInterceptor_Custom_UnknownPathPassesThrough(t *testing.T) {

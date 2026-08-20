@@ -344,22 +344,18 @@ func buildProxyFlowInterceptors(
 	cfg *config.RuntimeConfig,
 	execContext interceptors.InterceptorContext,
 ) ([]proxy.Interceptor, error) {
-	customRegistries, err := interceptors.CompileCustomRegistries(cfg.Config.Proxy.Registries)
+	factory, err := interceptors.NewInterceptorFactory(
+		malysisAnalyzer,
+		cache,
+		statsCollector,
+		confirmationChan,
+		execContext,
+		cfg.Config.Proxy.Registries,
+	)
 	if err != nil {
 		return nil, err
 	}
-	execContext.CustomRegistries = customRegistries
-
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, execContext)
-	interceptor, err := factory.CreateInterceptor(ecosystem)
-	if err != nil {
-		return nil, err
-	}
-
-	return []proxy.Interceptor{
-		interceptor,
-		interceptors.NewAuditLoggerInterceptor(customRegistries),
-	}, nil
+	return factory.CreateInterceptors(ecosystem)
 }
 
 // handleExecutionResultError returns the execution error so RunE can route it

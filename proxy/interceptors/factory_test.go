@@ -16,10 +16,11 @@ import (
 )
 
 func TestInterceptorFactoryCustomRegistries(t *testing.T) {
-	factory := NewInterceptorFactory(nil, nil, nil, nil, newTestInterceptorContext(t, []config.ProxyRegistryConfig{
+	factory, err := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{}, []config.ProxyRegistryConfig{
 		{Name: "company-npm", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}}},
 		{Name: "company-pypi", Ecosystem: "pypi", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/simple"}}},
-	}))
+	})
+	require.NoError(t, err)
 
 	npmRaw, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
 	require.NoError(t, err)
@@ -100,18 +101,38 @@ func TestInterceptorFactoryCustomRegistries(t *testing.T) {
 	assert.True(t, npm.ShouldIntercept(registryRequest(t, "https://registry.npmjs.org:8443/left-pad")))
 }
 
+func TestInterceptorFactoryCreatesRegistryAndAuditInterceptors(t *testing.T) {
+	factory, err := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{}, []config.ProxyRegistryConfig{{
+		Name:      "company-npm",
+		Ecosystem: "npm",
+		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}},
+	}})
+	require.NoError(t, err)
+
+	got, err := factory.CreateInterceptors(packagev1.Ecosystem_ECOSYSTEM_NPM)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "npm-registry-interceptor", got[0].Name())
+	assert.Equal(t, "audit-logger-interceptor", got[1].Name())
+
+	auditLogger, ok := got[1].(*AuditLoggerInterceptor)
+	require.True(t, ok)
+	assert.True(t, auditLogger.IsKnownRegistryHost("packages.test", "443"))
+}
+
 func TestInterceptorFactoryWarnsOncePerPlainHTTPEndpoint(t *testing.T) {
 	var logs bytes.Buffer
 	restore := drylog.SwapGlobalForTest(&logs)
 	defer restore()
 
-	factory := NewInterceptorFactory(nil, nil, nil, nil, newTestInterceptorContext(t, []config.ProxyRegistryConfig{
+	factory, err := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{}, []config.ProxyRegistryConfig{
 		{Name: "company-npm", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{
 			{URL: "http://one.test/npm"},
 			{URL: "http://two.test/npm"},
 			{URL: "https://secure.test/npm"},
 		}},
-	}))
+	})
+	require.NoError(t, err)
 
 	interceptorRaw, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
 	require.NoError(t, err)
@@ -124,12 +145,13 @@ func TestInterceptorFactoryWarnsOncePerPlainHTTPEndpoint(t *testing.T) {
 }
 
 func TestCustomRegistryMatchesRelativeMITMURLWithNonDefaultPort(t *testing.T) {
-	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, newTestInterceptorContext(t, []config.ProxyRegistryConfig{{
+	registries := []config.ProxyRegistryConfig{{
 		Name:      "company-npm",
 		Ecosystem: "npm",
 		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test:8443/npm"}},
-	}}))
-	require.NoError(t, err)
+	}}
+	interceptor := newNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{},
+		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, registries))
 	u, err := url.Parse("/npm/left-pad")
 	require.NoError(t, err)
 
@@ -141,12 +163,12 @@ func TestCustomRegistryMatchesRelativeMITMURLWithNonDefaultPort(t *testing.T) {
 	}))
 }
 
-func TestCompileCustomRegistriesRejectsMalformedRegistryWithoutLoggingRawURL(t *testing.T) {
+func TestInterceptorFactoryRejectsMalformedRegistryWithoutLoggingRawURL(t *testing.T) {
 	var logs bytes.Buffer
 	restore := drylog.SwapGlobalForTest(&logs)
 	defer restore()
 
-	_, err := CompileCustomRegistries([]config.ProxyRegistryConfig{{
+	_, err := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{}, []config.ProxyRegistryConfig{{
 		Name:      "company-npm",
 		Ecosystem: "npm",
 		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:super-secret@packages.test/%zz"}},
@@ -169,11 +191,13 @@ func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
 		{name: "analyzed pypi files host", ecosystem: "pypi", endpoint: "https://files.pythonhosted.org/simple"},
 		{name: "subdomain of a built-in host", ecosystem: "npm", endpoint: "https://cdn.registry.npmjs.org/npm-virtual"},
 		{name: "recognized but not analyzed host is still covered", ecosystem: "pypi", endpoint: "https://test.pypi.org/simple"},
+		{name: "npm custom endpoint on built-in pypi host", ecosystem: "npm", endpoint: "https://pypi.org/company/npm"},
+		{name: "pypi custom endpoint on built-in npm host", ecosystem: "pypi", endpoint: "https://registry.npmjs.org/company/simple"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := CompileCustomRegistries([]config.ProxyRegistryConfig{{
+			_, err := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{}, []config.ProxyRegistryConfig{{
 				Name:      "dup",
 				Ecosystem: tt.ecosystem,
 				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: tt.endpoint}},

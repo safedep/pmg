@@ -10,28 +10,11 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
-var pypiRegistryDomains = registryConfigMap{
-	"files.pythonhosted.org": {
-		Host:                 "files.pythonhosted.org",
-		SupportedForAnalysis: true,
-		Parser:               pypiFilesParser{},
-	},
-	"pypi.org": {
-		Host:                 "pypi.org",
-		SupportedForAnalysis: true,
-		Parser:               pypiOrgParser{},
-	},
-	// Test PyPI instance
-	"test.pypi.org": {
-		Host:                 "test.pypi.org",
-		SupportedForAnalysis: false, // Skip analysis for test PyPI
-		Parser:               pypiOrgParser{},
-	},
-	"test-files.pythonhosted.org": {
-		Host:                 "test-files.pythonhosted.org",
-		SupportedForAnalysis: false, // Skip analysis for test PyPI files
-		Parser:               pypiFilesParser{},
-	},
+var pypiRegistryEndpoints = []registryEndpoint{
+	builtInRegistryEndpoint("files.pythonhosted.org", true, pypiFilesParser{}),
+	builtInRegistryEndpoint("pypi.org", true, pypiOrgParser{}),
+	builtInRegistryEndpoint("test.pypi.org", false, pypiOrgParser{}),
+	builtInRegistryEndpoint("test-files.pythonhosted.org", false, pypiFilesParser{}),
 }
 
 // PypiRegistryInterceptor intercepts PyPI registry requests and analyzes packages for malware
@@ -39,20 +22,20 @@ var pypiRegistryDomains = registryConfigMap{
 type PypiRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *pypiCooldownHandler
-	registries      registryConfigSet
+	registries      registrySet
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
 var _ proxy.MITMDecider = (*PypiRegistryInterceptor)(nil)
 
-// NewPypiRegistryInterceptor creates a new PyPI registry interceptor
-func NewPypiRegistryInterceptor(
+func newPypiRegistryInterceptor(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
-) (*PypiRegistryInterceptor, error) {
+	registries registrySet,
+) *PypiRegistryInterceptor {
 	// Re-key pinned versions to the normalized form (lowercase, underscores→hyphens)
 	// so lookups by URL-parsed package name match correctly.
 	normalizedPinned := make(map[string]string, len(execContext.PinnedVersions))
@@ -60,10 +43,6 @@ func NewPypiRegistryInterceptor(
 		normalizedPinned[denormalizePyPIPackageName(name)] = version
 	}
 	execContext.PinnedVersions = normalizedPinned
-	registries := registryConfigSet{
-		entries: append(builtInRegistryConfigs(pypiRegistryDomains), execContext.CustomRegistries["pypi"]...),
-	}
-
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -75,7 +54,7 @@ func NewPypiRegistryInterceptor(
 		},
 		cooldownHandler: newPypiCooldownHandler(statsCollector),
 		registries:      registries,
-	}, nil
+	}
 }
 
 // Name returns the interceptor name for logging
@@ -116,22 +95,22 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	}
 
 	// Skip analysis for registries that are not supported for analysis
-	config := match.Config
-	if !config.SupportedForAnalysis {
+	endpoint := match.Endpoint
+	if !endpoint.Analyze {
 		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
-			ctx.RequestID, config.Host, ctx.URL.String())
+			ctx.RequestID, endpoint.Host, ctx.URL.String())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	// Parse URL using registry-specific strategy
-	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
+	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
 
 	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
 		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	if parseErr != nil {
-		logRegistryParseFailure(ctx, config, "PyPI", parseErr)
+		logRegistryParseFailure(ctx, endpoint, "PyPI", parseErr)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
@@ -12,8 +13,8 @@ import (
 )
 
 func TestNpmRegistryInterceptor_ShouldMITM(t *testing.T) {
-	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
-	require.NoError(t, err)
+	interceptor := newNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{},
+		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, nil))
 
 	tests := []struct {
 		name     string
@@ -36,8 +37,8 @@ func TestNpmRegistryInterceptor_ShouldMITM(t *testing.T) {
 }
 
 func TestNpmRegistryInterceptor_ShouldIntercept(t *testing.T) {
-	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{})
-	require.NoError(t, err)
+	interceptor := newNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{},
+		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, nil))
 
 	tests := []struct {
 		name          string
@@ -67,15 +68,14 @@ func newTestNpmCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs 
 		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
 	}
 
-	execContext := newTestInterceptorContext(t, []config.ProxyRegistryConfig{{
+	registries := []config.ProxyRegistryConfig{{
 		Name:      "custom-npm",
 		Ecosystem: "npm",
 		Endpoints: endpoints,
-	}})
+	}}
 
-	interceptor, err := NewNpmRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), execContext)
-	require.NoError(t, err)
-	return interceptor
+	return newNpmRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{},
+		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, registries))
 }
 
 func TestNpmRegistryInterceptor_Custom_UnknownPathPassesThrough(t *testing.T) {

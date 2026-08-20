@@ -45,10 +45,11 @@ func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {
 }
 
 func TestAuditLoggerInterceptorCustomRegistryOrigins(t *testing.T) {
-	i := NewAuditLoggerInterceptor(newTestInterceptorContext(t, []config.ProxyRegistryConfig{
+	i := NewAuditLoggerInterceptor(newTestRegistryCatalog(t, []config.ProxyRegistryConfig{
 		{Name: "a", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}}},
 		{Name: "b", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://ports.test:8443/npm"}}},
-	}).CustomRegistries)
+		{Name: "c", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "http://plain.test/npm"}}},
+	}))
 
 	assert.True(t, i.IsKnownRegistryHost("packages.test", "443"))
 	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test", "443"))
@@ -57,4 +58,8 @@ func TestAuditLoggerInterceptorCustomRegistryOrigins(t *testing.T) {
 	// Port-scoped: an endpoint on :8443 suppresses :8443 but not :443.
 	assert.True(t, i.IsKnownRegistryHost("ports.test", "8443"))
 	assert.False(t, i.IsKnownRegistryHost("ports.test", "443"))
+
+	assert.True(t, i.IsKnownRegistryRequest(registryRequest(t, "http://plain.test/npm/pkg")))
+	assert.False(t, i.IsKnownRegistryRequest(registryRequest(t, "https://plain.test/npm/pkg")))
+	assert.False(t, i.IsKnownRegistryRequest(registryRequest(t, "http://cdn.plain.test/npm/pkg")))
 }

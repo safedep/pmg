@@ -10,27 +10,11 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
-var npmRegistryDomains = registryConfigMap{
-	"registry.npmjs.org": {
-		Host:                 "registry.npmjs.org",
-		SupportedForAnalysis: true,
-		Parser:               npmParser{},
-	},
-	"registry.yarnpkg.com": {
-		Host:                 "registry.yarnpkg.com",
-		SupportedForAnalysis: true,
-		Parser:               npmParser{},
-	},
-	"npm.pkg.github.com": {
-		Host:                 "npm.pkg.github.com",
-		SupportedForAnalysis: false, // Skip analysis for now (private packages, auth complexity)
-		Parser:               npmGithubParser{},
-	},
-	"pkg-npm.githubusercontent.com": {
-		Host:                 "pkg-npm.githubusercontent.com",
-		SupportedForAnalysis: false, // Skip analysis (blob storage, redirected downloads)
-		Parser:               npmGithubBlobParser{},
-	},
+var npmRegistryEndpoints = []registryEndpoint{
+	builtInRegistryEndpoint("registry.npmjs.org", true, npmParser{}),
+	builtInRegistryEndpoint("registry.yarnpkg.com", true, npmParser{}),
+	builtInRegistryEndpoint("npm.pkg.github.com", false, npmGithubParser{}),
+	builtInRegistryEndpoint("pkg-npm.githubusercontent.com", false, npmGithubBlobParser{}),
 }
 
 // NpmRegistryInterceptor intercepts NPM registry requests and analyzes packages for malware
@@ -38,23 +22,20 @@ var npmRegistryDomains = registryConfigMap{
 type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *npmCooldownHandler
-	registries      registryConfigSet
+	registries      registrySet
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
 var _ proxy.MITMDecider = (*NpmRegistryInterceptor)(nil)
 
-// NewNpmRegistryInterceptor creates a new NPM registry interceptor
-func NewNpmRegistryInterceptor(
+func newNpmRegistryInterceptor(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
-) (*NpmRegistryInterceptor, error) {
-	registries := registryConfigSet{
-		entries: append(builtInRegistryConfigs(npmRegistryDomains), execContext.CustomRegistries["npm"]...),
-	}
+	registries registrySet,
+) *NpmRegistryInterceptor {
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -66,7 +47,7 @@ func NewNpmRegistryInterceptor(
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
 		registries:      registries,
-	}, nil
+	}
 }
 
 // Name returns the interceptor name for logging
@@ -107,22 +88,22 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	}
 
 	// Skip analysis for registries that are not supported for analysis
-	config := match.Config
-	if !config.SupportedForAnalysis {
+	endpoint := match.Endpoint
+	if !endpoint.Analyze {
 		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
-			ctx.RequestID, config.Host, ctx.URL.String())
+			ctx.RequestID, endpoint.Host, ctx.URL.String())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	// Parse URL using registry-specific strategy
-	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
+	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
 
 	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
 		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	if parseErr != nil {
-		logRegistryParseFailure(ctx, config, "NPM", parseErr)
+		logRegistryParseFailure(ctx, endpoint, "NPM", parseErr)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
