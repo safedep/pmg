@@ -507,3 +507,40 @@ func bytesContainsAny(s string, subs []string) bool {
 	}
 	return false
 }
+
+// TestLandlockHelper_DenyOverlappingAllowRuleDoesNotWedgeShim guards the shim
+// ordering: populating the Landlock ruleset opens every rule path, so a rule
+// path that is also deny-listed must not abort the shim with EACCES before
+// exec. The translator normally subtracts such rules (see
+// landlockMaskDeniedRules); this feeds a crafted overlapping policy
+// directly to the helper to pin the defense-in-depth property.
+func TestLandlockHelper_DenyOverlappingAllowRuleDoesNotWedgeShim(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+
+	home := t.TempDir()
+	denyDir := filepath.Join(home, "hooks")
+	require.NoError(t, os.Mkdir(denyDir, 0o755))
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: denyDir, Access: landlockRuleReadExec},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: denyDir, Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/echo",
+		Args:             []string{"shim-survived"},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelper(t, policyPath)
+	assert.Equal(t, 0, exit, "shim must survive a deny/allow overlap: stderr=%s", stderr)
+	assert.Contains(t, stdout, "shim-survived")
+}
