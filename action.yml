@@ -326,10 +326,22 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # Ask pmg where its shims landed: the directory differs between a
-        # legacy install and the XDG layout, so it must not be assumed here.
-        shims_path="$(pmg setup info --json | jq -er '.shell_integration.shims_path')"
-        echo "$shims_path" >> "$GITHUB_PATH"
+        # The shim directory depends on the installed pmg version: releases
+        # before the XDG layout use ~/.pmg/bin, later ones use the data dir.
+        # This action installs a published release, which may be either, so
+        # add whichever the install actually created. Linux-only, as enforced
+        # above, so the XDG default needs no platform branch.
+        found=""
+        for dir in "${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin" "$HOME/.pmg/bin"; do
+          if [ -d "$dir" ]; then
+            echo "$dir" >> "$GITHUB_PATH"
+            found="$dir"
+          fi
+        done
+        if [ -z "$found" ]; then
+          echo "::error::No PMG shim directory found after setup install." >&2
+          exit 1
+        fi
 
     - name: Start PMG proxy server (server mode)
       if: inputs.server-mode == 'true'

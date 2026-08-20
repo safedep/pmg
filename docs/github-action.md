@@ -31,13 +31,13 @@ jobs:
 
 **Order matters.** Put `safedep/pmg` **after** `setup-node` / `setup-python`
 / etc. Each step that writes to `GITHUB_PATH` prepends to `PATH`, and PMG
-needs its shims (`{npm,pip,...}` under the directory reported by
-`pmg setup info --json`) to land in front of the real toolchains.
+needs its shims (`{npm,pip,...}` under the directory reported as
+`user_shims.dir` by `pmg setup info --json`) to land in front of the real
+toolchains.
 
-**Requires `jq`.** In shim mode the action reads the shim directory from
-`pmg setup info --json`, because that path depends on the install layout
-and must not be assumed. `jq` is preinstalled on GitHub-hosted runners;
-install it first on a self-hosted runner that lacks it.
+The action adds whichever shim directory the install created, so it works
+with releases from before and after PMG moved its shims under the XDG data
+directory.
 
 ## Inputs
 

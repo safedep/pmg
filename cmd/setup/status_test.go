@@ -238,3 +238,133 @@ func TestWriteStatusJSONSchema(t *testing.T) {
 	assert.Contains(t, decoded, "layers")
 	assert.Contains(t, decoded, "shell_integration")
 }
+
+func TestCollectConfigInfo(t *testing.T) {
+	t.Run("user config source", func(t *testing.T) {
+		info := collectConfigInfo(&config.RuntimeConfig{
+			Config: config.Config{Proxy: config.ProxyConfig{InstallOnly: true}},
+		})
+		assert.Equal(t, "user", info.Source)
+		assert.True(t, info.ProxyInstallOnly)
+	})
+}
+
+func TestCollectSecurityInfo(t *testing.T) {
+	cfg := &config.RuntimeConfig{
+		Config: config.Config{
+			TrustedPackages: []config.TrustedPackage{
+				{Purl: "pkg:npm/foo"},
+				{Purl: "pkg:pypi/bar"},
+			},
+			SkipEventLogging: true,
+		},
+	}
+
+	info := collectSecurityInfo(cfg)
+	assert.Equal(t, []string{"pkg:npm/foo", "pkg:pypi/bar"}, info.TrustedPackages)
+	assert.False(t, info.EventLogging)
+
+	info = collectSecurityInfo(&config.RuntimeConfig{})
+	assert.Empty(t, info.TrustedPackages)
+	assert.NotNil(t, info.TrustedPackages)
+	assert.True(t, info.EventLogging)
+}
+
+func TestCollectSandboxPolicies(t *testing.T) {
+	t.Run("no policies is nil", func(t *testing.T) {
+		assert.Nil(t, collectSandboxPolicies(&config.RuntimeConfig{}))
+	})
+
+	t.Run("enabled maps to profile, disabled maps to disabled", func(t *testing.T) {
+		cfg := &config.RuntimeConfig{
+			Config: config.Config{
+				Sandbox: config.SandboxConfig{
+					Policies: map[string]config.SandboxPolicyRef{
+						"npm": {Enabled: true, Profile: "custom-profile"},
+						"pip": {Enabled: false, Profile: "pip"},
+					},
+				},
+			},
+		}
+		assert.Equal(t, map[string]string{
+			"npm": "custom-profile",
+			"pip": "disabled",
+		}, collectSandboxPolicies(cfg))
+	})
+}
+
+func TestCollectCloudInfo(t *testing.T) {
+	t.Run("disabled cloud is omitted", func(t *testing.T) {
+		assert.Nil(t, collectCloudInfo(&config.RuntimeConfig{}))
+	})
+
+	t.Run("enabled cloud carries endpoint and sync details", func(t *testing.T) {
+		cfg := &config.RuntimeConfig{
+			Config: config.Config{
+				Cloud: config.CloudConfig{
+					Enabled:    true,
+					EndpointID: "endpoint-1",
+					AutoSync:   config.CloudAutoSyncConfig{Enabled: false},
+				},
+			},
+		}
+
+		info := collectCloudInfo(cfg)
+		require.NotNil(t, info)
+		assert.True(t, info.Enabled)
+		assert.Equal(t, "endpoint-1", info.EndpointID)
+		assert.NotEmpty(t, info.Credentials)
+		assert.Equal(t, "disabled", info.AutoSync)
+		assert.NotEmpty(t, info.LastSync)
+	})
+}
+
+func TestStatusReportJSONParity(t *testing.T) {
+	cfg := &config.RuntimeConfig{
+		Config: config.Config{
+			TrustedPackages: []config.TrustedPackage{{Purl: "pkg:npm/foo"}},
+			Sandbox: config.SandboxConfig{
+				Enabled: true,
+				Policies: map[string]config.SandboxPolicyRef{
+					"npm": {Enabled: true, Profile: "npm"},
+				},
+			},
+		},
+	}
+	results := []doctor.CheckResult{
+		{Name: checkShimInPath, Status: doctor.StatusPass, ImpliesInterception: true},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, writeStatusJSON(&buf, buildStatusReport(cfg, results)))
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+
+	assert.Contains(t, decoded, "commit")
+	assert.Contains(t, decoded, "config")
+	assert.Contains(t, decoded, "security")
+	// Cloud is omitted when disabled.
+	assert.NotContains(t, decoded, "cloud")
+
+	cfgSection := decoded["config"].(map[string]any)
+	assert.Contains(t, cfgSection, "path")
+	assert.Contains(t, cfgSection, "source")
+	assert.Contains(t, cfgSection, "proxy_install_only")
+
+	security := decoded["security"].(map[string]any)
+	assert.Equal(t, []any{"pkg:npm/foo"}, security["trusted_packages"])
+	assert.Contains(t, security, "telemetry")
+	assert.Contains(t, security, "event_logging")
+
+	shell := decoded["shell_integration"].(map[string]any)
+	assert.Contains(t, shell, "user_shims")
+	assert.Contains(t, shell, "system_shims")
+
+	sandbox := decoded["layers"].(map[string]any)["sandbox"].(map[string]any)
+	assert.Contains(t, sandbox, "enforce_always")
+	assert.Equal(t, map[string]any{"npm": "npm"}, sandbox["policies"])
+
+	ca := decoded["layers"].(map[string]any)["ca"].(map[string]any)
+	assert.Contains(t, ca, "installed")
+}
