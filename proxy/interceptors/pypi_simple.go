@@ -3,6 +3,8 @@ package interceptors
 import (
 	"fmt"
 	"strings"
+
+	"github.com/safedep/pmg/internal/registryurl"
 )
 
 // pypiCustomParser parses relative paths for a custom PyPI registry, whose
@@ -80,5 +82,5 @@ func pypiFilenameFromLastSegment(lastSegment string) (packageInfo, bool) {
 // in "/simple", once normalized, gating pypiCustomParser's bare
 // project-name guess for that endpoint.
 func pypiBaseEndsInSimple(basePath string) bool {
-	return strings.HasSuffix(normalizeRegistryBasePath(basePath), "/simple")
+	return strings.HasSuffix(registryurl.NormalizeBasePath(basePath), "/simple")
 }

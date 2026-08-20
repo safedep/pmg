@@ -3,6 +3,7 @@ package interceptors
 import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/registryurl"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -69,8 +70,9 @@ var wellKnownGoHosts = map[string]bool{
 // hostname-only.
 func (i *AuditLoggerInterceptor) IsKnownRegistryHost(hostname, port string) bool {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
-	if origin := registryOrigin(hostname, "https", port); origin != "" {
-		if _, exists := i.customRegistryOrigins[origin]; exists {
+	effectivePort, ok := registryurl.EffectivePort("https", port)
+	if ok {
+		if _, exists := i.customRegistryOrigins[registryOrigin(hostname, effectivePort)]; exists {
 			return true
 		}
 	}

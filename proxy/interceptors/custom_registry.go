@@ -33,7 +33,7 @@ func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem st
 					ecosystem, registry.Name, u.Hostname(), ecosystem)
 			}
 
-			configs = append(configs, &registryConfig{
+			config := &registryConfig{
 				Name:                 registry.Name,
 				Host:                 u.Hostname(),
 				Scheme:               u.Scheme,
@@ -42,7 +42,9 @@ func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem st
 				MatchSubdomains:      false,
 				SupportedForAnalysis: true,
 				Parser:               customRegistryParser(ecosystem, u),
-			})
+			}
+			normalizeRegistryConfig(config)
+			configs = append(configs, config)
 			if u.Scheme == "http" {
 				log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", u.String())
 			}
@@ -63,7 +65,8 @@ func customRegistryOrigins(registries []config.ProxyRegistryConfig) []string {
 			if err != nil {
 				continue
 			}
-			set[registryOrigin(u.Hostname(), u.Scheme, u.Port())] = struct{}{}
+			port, _ := registryurl.EffectivePort(u.Scheme, u.Port())
+			set[registryOrigin(u.Hostname(), port)] = struct{}{}
 		}
 	}
 	origins := make([]string, 0, len(set))

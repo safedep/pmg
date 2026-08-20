@@ -15,6 +15,7 @@ func builtInRegistryConfigs(configs registryConfigMap) []*registryConfig {
 	for _, config := range configs {
 		clone := *config
 		clone.MatchSubdomains = true
+		normalizeRegistryConfig(&clone)
 		entries = append(entries, &clone)
 	}
 	return entries
@@ -112,6 +113,8 @@ type registryURLParser interface {
 
 // registryConfig defines configuration for a package registry endpoint.
 // This is the common configuration structure used by all ecosystem interceptors.
+// Derived forms (normalized host, effective port, normalized base path) are
+// computed once at construction so matching never re-normalizes config.
 type registryConfig struct {
 	Name string
 
@@ -128,6 +131,26 @@ type registryConfig struct {
 
 	// Parser is the URL parser for this registry
 	Parser registryURLParser
+
+	// Precomputed at construction (see normalizeRegistryConfig).
+	normalizedHost     string
+	effectivePort      string
+	normalizedBasePath string
+}
+
+// normalizeRegistryConfig computes the derived match fields once. Built-in
+// configs are constructed as literals, so this is applied by
+// builtInRegistryConfigs; custom configs are normalized by construction.
+// Scheme and Host are canonicalized in place so runtime matching compares
+// canonical forms directly.
+func normalizeRegistryConfig(config *registryConfig) {
+	config.Scheme = registryurl.NormalizeScheme(config.Scheme)
+	config.normalizedHost = registryurl.NormalizeHostname(config.Host)
+	if config.Scheme != "" {
+		port, _ := registryurl.EffectivePort(config.Scheme, config.Port)
+		config.effectivePort = port
+	}
+	config.normalizedBasePath = registryurl.NormalizeBasePath(config.BasePath)
 }
 
 type registryMatch struct {
@@ -150,12 +173,11 @@ func connectMatch(config *registryConfig, hostname, port string) (bool, bool) {
 	if !matches || config.Scheme == "" {
 		return exact, matches
 	}
-	if registryurl.NormalizeScheme(config.Scheme) != "https" {
+	if config.Scheme != "https" || config.effectivePort == "" {
 		return false, false
 	}
-	endpointPort, okEndpoint := registryurl.EffectivePort(config.Scheme, config.Port)
 	requestPort, okRequest := registryurl.EffectivePort("https", port)
-	if !okEndpoint || !okRequest || endpointPort != requestPort {
+	if !okRequest || config.effectivePort != requestPort {
 		return false, false
 	}
 	return exact, matches
@@ -226,30 +248,28 @@ func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
 			continue
 		}
 		if config.Scheme != "" {
-			if registryurl.NormalizeScheme(config.Scheme) != scheme {
+			if config.Scheme != scheme {
 				continue
 			}
-			configPort, valid := registryurl.EffectivePort(config.Scheme, config.Port)
-			if !valid || configPort != port {
+			if config.effectivePort == "" || config.effectivePort != port {
 				continue
 			}
 		}
 
-		basePath := normalizeRegistryBasePath(config.BasePath)
-		if !matchesRegistryPath(path, basePath) {
+		if !matchesRegistryPath(path, config.normalizedBasePath) {
 			continue
 		}
 
 		if best != nil {
 			better := (exactHostname && !bestExact) ||
-				(exactHostname == bestExact && len(basePath) > bestBaseLength)
+				(exactHostname == bestExact && len(config.normalizedBasePath) > bestBaseLength)
 			if !better {
 				continue
 			}
 		}
-		best = &registryMatch{Config: config, RelativePath: relativePath(path, basePath)}
+		best = &registryMatch{Config: config, RelativePath: relativePath(path, config.normalizedBasePath)}
 		bestExact = exactHostname
-		bestBaseLength = len(basePath)
+		bestBaseLength = len(config.normalizedBasePath)
 	}
 	return best
 }
@@ -269,18 +289,15 @@ func relativePath(path, basePath string) string {
 	return relative
 }
 
-// registryOrigin renders a host and scheme+port as the canonical
-// host:effectivePort form used for audit suppression scoping.
-func registryOrigin(host, scheme, port string) string {
+// registryOrigin renders a host+port pair in the canonical host:port form
+// used for audit suppression keys. IPv6 hosts get brackets (RFC 3986),
+// matching url.URL.Host form.
+func registryOrigin(host, port string) string {
 	host = registryurl.NormalizeHostname(host)
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	effectivePort, ok := registryurl.EffectivePort(scheme, port)
-	if !ok {
-		return ""
-	}
-	return host + ":" + effectivePort
+	return host + ":" + port
 }
 
 func normalizeHostnameWithOptionalPort(hostname string) string {
@@ -292,21 +309,11 @@ func normalizeHostnameWithOptionalPort(hostname string) string {
 	return registryurl.NormalizeHostname(hostname)
 }
 
-func matchesHostname(hostname string, config *registryConfig) bool {
-	_, matches := hostnameMatch(hostname, config)
-	return matches
-}
-
 func hostnameMatch(hostname string, config *registryConfig) (bool, bool) {
-	configured := registryurl.NormalizeHostname(config.Host)
-	if hostname == configured {
+	if hostname == config.normalizedHost {
 		return true, true
 	}
-	return false, config.MatchSubdomains && strings.HasSuffix(hostname, "."+configured)
-}
-
-func normalizeRegistryBasePath(path string) string {
-	return registryurl.NormalizeBasePath(path)
+	return false, config.MatchSubdomains && strings.HasSuffix(hostname, "."+config.normalizedHost)
 }
 
 func matchesRegistryPath(path, basePath string) bool {

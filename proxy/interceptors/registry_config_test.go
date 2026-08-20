@@ -15,6 +15,15 @@ func (m mockParser) ParseURL(urlPath string) (packageInfo, error) {
 	return nil, nil
 }
 
+// newTestRegistryConfigSet builds a set from literal configs, applying the
+// same normalization construction applies in production.
+func newTestRegistryConfigSet(entries ...*registryConfig) registryConfigSet {
+	for _, entry := range entries {
+		normalizeRegistryConfig(entry)
+	}
+	return registryConfigSet{entries: entries}
+}
+
 func TestRegistryConfigMap_GetConfigForHostname_ExactMatch(t *testing.T) {
 	configMap := registryConfigMap{
 		"registry.example.org": {
@@ -236,10 +245,10 @@ func TestRegistryConfigMap_EmptyMap(t *testing.T) {
 }
 
 func TestRegistryConfigSetMatchConnect(t *testing.T) {
-	set := registryConfigSet{entries: []*registryConfig{
-		{Host: "registry.example.org", MatchSubdomains: true},
-		{Host: "Packages.Example.Test"},
-	}}
+	set := newTestRegistryConfigSet(
+		&registryConfig{Host: "registry.example.org", MatchSubdomains: true},
+		&registryConfig{Host: "Packages.Example.Test"},
+	)
 
 	tests := []struct {
 		name     string
@@ -264,17 +273,17 @@ func TestRegistryConfigSetMatchConnect(t *testing.T) {
 }
 
 func TestRegistryConfigSetMatchURL(t *testing.T) {
-	set := registryConfigSet{entries: []*registryConfig{
-		{Name: "root", Host: "root.example.test", Scheme: "https", Port: "443", BasePath: "/"},
-		{Name: "short", Host: "packages.example.test", Scheme: "https", BasePath: "/npm"},
-		{Name: "team", Host: "PACKAGES.EXAMPLE.TEST", Scheme: "HTTPS", Port: "443", BasePath: "/npm/team"},
-		{Name: "legacy", Host: "packages.example.test", Scheme: "http", Port: "80", BasePath: "/legacy"},
-		{Name: "alternate-port", Host: "packages.example.test", Scheme: "https", Port: "8443", BasePath: "/npm/team"},
-		{Name: "ipv6", Host: "2001:DB8::1", Scheme: "https", BasePath: "/simple"},
-		{Name: "escaped", Host: "escapes.example.test", Scheme: "https", BasePath: "/npm/%2Fteam"},
-		{Name: "repeated-trailing-slashes", Host: "slashes.example.test", Scheme: "https", BasePath: "/npm///"},
-		{Name: "built-in", Host: "registry.example.org", Scheme: "https", MatchSubdomains: true},
-	}}
+	set := newTestRegistryConfigSet(
+		&registryConfig{Name: "root", Host: "root.example.test", Scheme: "https", Port: "443", BasePath: "/"},
+		&registryConfig{Name: "short", Host: "packages.example.test", Scheme: "https", BasePath: "/npm"},
+		&registryConfig{Name: "team", Host: "PACKAGES.EXAMPLE.TEST", Scheme: "HTTPS", Port: "443", BasePath: "/npm/team"},
+		&registryConfig{Name: "legacy", Host: "packages.example.test", Scheme: "http", Port: "80", BasePath: "/legacy"},
+		&registryConfig{Name: "alternate-port", Host: "packages.example.test", Scheme: "https", Port: "8443", BasePath: "/npm/team"},
+		&registryConfig{Name: "ipv6", Host: "2001:DB8::1", Scheme: "https", BasePath: "/simple"},
+		&registryConfig{Name: "escaped", Host: "escapes.example.test", Scheme: "https", BasePath: "/npm/%2Fteam"},
+		&registryConfig{Name: "repeated-trailing-slashes", Host: "slashes.example.test", Scheme: "https", BasePath: "/npm///"},
+		&registryConfig{Name: "built-in", Host: "registry.example.org", Scheme: "https", MatchSubdomains: true},
+	)
 
 	tests := []struct {
 		name         string
@@ -339,22 +348,22 @@ func TestRegistryConfigSetDeterministicConnectMatch(t *testing.T) {
 	exact := &registryConfig{Name: "exact", Host: "test.example.test", MatchSubdomains: true}
 
 	for _, entries := range [][]*registryConfig{{umbrella, exact}, {exact, umbrella}} {
-		match := (registryConfigSet{entries: entries}).matchConnect("test.example.test", "")
+		match := newTestRegistryConfigSet(entries...).matchConnect("test.example.test", "")
 		require.NotNil(t, match)
 		assert.Equal(t, "exact", match.Config.Name)
 	}
 
-	match := (registryConfigSet{entries: []*registryConfig{umbrella, exact}}).matchConnect("other.example.test", "")
+	match := newTestRegistryConfigSet(umbrella, exact).matchConnect("other.example.test", "")
 	require.NotNil(t, match)
 	assert.Equal(t, "umbrella", match.Config.Name, "a host with no exact entry still resolves via the umbrella")
 }
 
 func TestRegistryConfigSetConnectOriginGating(t *testing.T) {
-	set := registryConfigSet{entries: []*registryConfig{
-		{Name: "secure-8443", Host: "registry.test", Scheme: "https", Port: "8443", SupportedForAnalysis: true},
-		{Name: "plain-http", Host: "http.test", Scheme: "http", Port: "80", SupportedForAnalysis: true},
-		{Name: "secure-default", Host: "default.test", Scheme: "https", SupportedForAnalysis: true},
-	}}
+	set := newTestRegistryConfigSet(
+		&registryConfig{Name: "secure-8443", Host: "registry.test", Scheme: "https", Port: "8443", SupportedForAnalysis: true},
+		&registryConfig{Name: "plain-http", Host: "http.test", Scheme: "http", Port: "80", SupportedForAnalysis: true},
+		&registryConfig{Name: "secure-default", Host: "default.test", Scheme: "https", SupportedForAnalysis: true},
+	)
 
 	tests := []struct {
 		name        string
@@ -379,7 +388,7 @@ func TestRegistryConfigSetConnectOriginGating(t *testing.T) {
 				assert.Equal(t, tt.wantMatch, match.Config.Name)
 			}
 			assert.Equal(t, tt.wantAnalyze, registryHostSupportsAnalysis(set, tt.host, tt.port))
-	})
+		})
 	}
 }
 
@@ -390,7 +399,7 @@ func TestRegistryConfigSetDeterministicMatch(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, entries := range [][]*registryConfig{{parent, exact}, {exact, parent}} {
-		match := (registryConfigSet{entries: entries}).MatchURL(u)
+		match := newTestRegistryConfigSet(entries...).MatchURL(u)
 		require.NotNil(t, match)
 		assert.Equal(t, "exact", match.Config.Name)
 		assert.Equal(t, "/pkg", match.RelativePath)
