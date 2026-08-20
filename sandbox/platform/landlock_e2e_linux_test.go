@@ -512,7 +512,7 @@ func bytesContainsAny(s string, subs []string) bool {
 // ordering: populating the Landlock ruleset opens every rule path, so a rule
 // path that is also deny-listed must not abort the shim with EACCES before
 // exec. The translator normally subtracts such rules (see
-// landlockSubtractDeniedPaths); this feeds a crafted overlapping policy
+// landlockMaskDeniedRules); this feeds a crafted overlapping policy
 // directly to the helper to pin the defense-in-depth property.
 func TestLandlockHelper_DenyOverlappingAllowRuleDoesNotWedgeShim(t *testing.T) {
 	if !landlockE2EEnabled() {

@@ -130,13 +130,15 @@ func landlockUsrBinAlternate(path string) string {
 	return ""
 }
 
-// landlockSubtractDeniedPaths drops allow rules covered by a deny path.
-// Coverage is direction-aware: a write deny must not strip a read-only allow.
-func landlockSubtractDeniedPaths(rules []landlockPathRule, denies []denyPathEntry) []landlockPathRule {
+// landlockMaskDeniedRules clears the access bits each covering deny path
+// forbids, dropping rules left with no access. A directional deny leaves the
+// opposite direction intact.
+func landlockMaskDeniedRules(rules []landlockPathRule, denies []denyPathEntry) []landlockPathRule {
 	out := make([]landlockPathRule, 0, len(rules))
 	for _, r := range rules {
-		if landlockRuleCoveredByDeny(r, denies) {
-			log.Warnf("sandbox: dropping allow rule for %q: covered by a deny rule", r.Path)
+		r.Access = landlockMaskDeniedAccess(r, denies)
+		if r.Access == 0 {
+			log.Warnf("sandbox: dropping allow rule for %q: fully covered by deny rules", r.Path)
 			continue
 		}
 		out = append(out, r)
@@ -144,24 +146,33 @@ func landlockSubtractDeniedPaths(rules []landlockPathRule, denies []denyPathEntr
 	return out
 }
 
-func landlockRuleCoveredByDeny(r landlockPathRule, denies []denyPathEntry) bool {
-	readish := r.Access&landlockReadAccess != 0
-	writeish := r.Access&landlockWriteAccessBase != 0
+func landlockMaskDeniedAccess(r landlockPathRule, denies []denyPathEntry) uint64 {
+	access := r.Access
 	path := filepath.Clean(r.Path)
 	for _, d := range denies {
 		denyPath := filepath.Clean(d.Path)
 		if path != denyPath && !strings.HasPrefix(path, denyPath+"/") {
 			continue
 		}
-		if readish && d.Mode != denyWrite {
-			return true
-		}
-		if writeish && d.Mode != denyRead {
-			return true
+		switch d.Mode {
+		case denyRead:
+			access &^= landlockReadAccess
+		case denyWrite:
+			access &^= landlockWriteAccessFull
+		default:
+			access &^= landlockReadAccess | landlockWriteAccessFull
 		}
 	}
-	return false
+	return access
 }
+
+// landlockWriteAccessFull mirrors landlockWriteAccessBase plus the
+// ABI-dependent write rights (refer, truncate, ioctl_dev) that translators
+// add on top when the kernel supports them.
+var landlockWriteAccessFull = landlockWriteAccessBase |
+	uint64(llsyscall.AccessFSRefer) |
+	uint64(llsyscall.AccessFSTruncate) |
+	uint64(llsyscall.AccessFSIoctlDev)
 
 // landlockIsProcPath returns true if the path is /proc or any path under /proc.
 // Uses a path boundary check so /process, /procurement, etc. don't match.
@@ -431,18 +442,13 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		appendDeny(p, denyWrite)
 	}
 
-	// Deny-listed paths must never reach the Landlock ruleset: Landlock
-	// would grant what the seccomp deny list exists to forbid (including
-	// remove/rename, which the openat-only deny cannot catch), and the shim
-	// opens every rule path while populating the ruleset, so a denied rule
-	// path aborts the shim with EACCES before exec.
-	ep.FilesystemRules = landlockSubtractDeniedPaths(ep.FilesystemRules, ep.DenyPaths)
-
 	// Unlike bubblewrap's read-only bind mounts, Landlock requires explicit
 	// execute permission on system binary directories. The deny_exec list
 	// (enforced via seccomp) blocks specific dangerous binaries within them.
-	sysExecDirs := []string{"/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64",
-		"/bin", "/sbin", "/lib", "/lib64"}
+	sysExecDirs := []string{
+		"/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64",
+		"/bin", "/sbin", "/lib", "/lib64",
+	}
 	for _, dir := range sysExecDirs {
 		ep.FilesystemRules = append(ep.FilesystemRules, landlockPathRule{
 			Path:   dir,
@@ -490,6 +496,14 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		ep.SkipPIDNamespace = true
 		log.Warnf("Policy explicitly allows /proc paths beyond /proc/self - skipping PID namespace isolation")
 	}
+
+	// Deny-listed paths must never reach the Landlock ruleset: Landlock
+	// would grant what the seccomp deny list exists to forbid (including
+	// remove/rename, which the openat-only deny cannot catch), and the shim
+	// opens every rule path while populating the ruleset, so a denied rule
+	// path aborts the shim with EACCES before exec. Runs last so implicit
+	// rules above cannot reintroduce a denied path.
+	ep.FilesystemRules = landlockMaskDeniedRules(ep.FilesystemRules, ep.DenyPaths)
 
 	return ep, nil
 }

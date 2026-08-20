@@ -51,6 +51,10 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	var rules []landlock.Rule
 	for _, r := range policy.FilesystemRules {
 		access := landlockAdjustAccessForPath(r.Path, r.Access)
+		if access == 0 {
+			// A zero-access rule is a no-op; go-landlock errors on it.
+			continue
+		}
 		rules = append(rules, landlock.PathAccess(
 			landlock.AccessFSSet(access), r.Path,
 		).IgnoreIfMissing())
