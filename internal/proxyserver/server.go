@@ -218,12 +218,8 @@ func buildInterceptors(
 		}
 		interceptorList = append(interceptorList, interceptor)
 	}
-	registryHosts, err := factory.CustomRegistryOrigins()
-	if err != nil {
-		return nil, err
-	}
 
-	return append(interceptorList, interceptors.NewAuditLoggerInterceptor(registryHosts)), nil
+	return append(interceptorList, interceptors.NewAuditLoggerInterceptor(registries)), nil
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the

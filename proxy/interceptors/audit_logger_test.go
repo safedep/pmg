@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 )
@@ -44,7 +45,10 @@ func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {
 }
 
 func TestAuditLoggerInterceptorCustomRegistryOrigins(t *testing.T) {
-	i := NewAuditLoggerInterceptor([]string{"packages.test:443", "ports.test:8443"})
+	i := NewAuditLoggerInterceptor([]config.ProxyRegistryConfig{
+		{Name: "a", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}}},
+		{Name: "b", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://ports.test:8443/npm"}}},
+	})
 
 	assert.True(t, i.IsKnownRegistryHost("packages.test", "443"))
 	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test", "443"))

@@ -350,14 +350,10 @@ func buildProxyFlowInterceptors(
 	if err != nil {
 		return nil, err
 	}
-	registryHosts, err := factory.CustomRegistryOrigins()
-	if err != nil {
-		return nil, err
-	}
 
 	return []proxy.Interceptor{
 		interceptor,
-		interceptors.NewAuditLoggerInterceptor(registryHosts),
+		interceptors.NewAuditLoggerInterceptor(cfg.Config.Proxy.Registries),
 	}, nil
 }
 

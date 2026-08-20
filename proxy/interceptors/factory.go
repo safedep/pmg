@@ -2,14 +2,10 @@ package interceptors
 
 import (
 	"fmt"
-	"net/url"
-	"sort"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/registryurl"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -18,9 +14,10 @@ import (
 // (analyzer, cache, stats), this holds context specific to the current run.
 type InterceptorContext struct {
 	PinnedVersions map[string]string
-	Registries     []config.ProxyRegistryConfig
 
-	compiledRegistries *compiledCustomRegistries
+	// Registries are the user-configured custom registry endpoints. Each
+	// ecosystem's interceptor compiles its own share at construction.
+	Registries []config.ProxyRegistryConfig
 
 	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
 	// GOPROXY to their upstream base URL (scheme + host + optional path
@@ -37,7 +34,6 @@ type InterceptorFactory struct {
 	statsCollector   *AnalysisStatsCollector
 	confirmationChan chan *ConfirmationRequest
 	execContext      InterceptorContext
-	registryErr      error
 }
 
 // NewInterceptorFactory creates a new interceptor factory with shared dependencies
@@ -48,142 +44,18 @@ func NewInterceptorFactory(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) *InterceptorFactory {
-	compiled, err := compileCustomRegistries(execContext.Registries)
-	if err == nil {
-		execContext.compiledRegistries = compiled
-		warnPlainHTTPRegistryEndpoints(compiled.plainHTTPEndpoints)
-	}
 	return &InterceptorFactory{
 		analyzer:         analyzer,
 		cache:            cache,
 		statsCollector:   statsCollector,
 		confirmationChan: confirmationChan,
 		execContext:      execContext,
-		registryErr:      err,
-	}
-}
-
-// CustomRegistryOrigins returns the validated configured origins as
-// canonical host:effectivePort pairs, used by the audit interceptor to
-// suppress Host Observations exactly at the configured scope.
-func (f *InterceptorFactory) CustomRegistryOrigins() ([]string, error) {
-	if f.registryErr != nil {
-		return nil, f.registryErr
-	}
-	return append([]string(nil), f.execContext.compiledRegistries.origins...), nil
-}
-
-type compiledCustomRegistries struct {
-	configs            map[string][]*registryConfig
-	origins            []string
-	plainHTTPEndpoints []string
-}
-
-func compileCustomRegistries(registries []config.ProxyRegistryConfig) (*compiledCustomRegistries, error) {
-	if err := config.ValidateProxyRegistries(registries); err != nil {
-		return nil, fmt.Errorf("invalid custom proxy registries: %w", err)
-	}
-
-	compiled := &compiledCustomRegistries{configs: make(map[string][]*registryConfig)}
-	origins := make(map[string]struct{})
-	for _, registry := range registries {
-		for _, endpoint := range registry.Endpoints {
-			u, err := normalizedRegistryEndpoint(endpoint.URL)
-			if err != nil {
-				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
-			}
-			if covered := builtInRegistryCoverage(registry.Ecosystem).GetConfigForHostname(u.Hostname()); covered != nil {
-				return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by the built-in %s registries", registry.Ecosystem, registry.Name, u.Hostname(), registry.Ecosystem)
-			}
-
-			// pypi's parser depends on this endpoint's own base path
-			// (whether it ends in "/simple"), so it is built per endpoint,
-			// not once per registry.
-			var parser registryURLParser
-			switch registry.Ecosystem {
-			case "npm":
-				parser = npmParser{}
-			case "pypi":
-				parser = pypiCustomParser{baseEndsInSimple: pypiBaseEndsInSimple(u.EscapedPath())}
-			default:
-				// Validation rejects anything but npm/pypi before this runs,
-				// but a nil parser would panic at request time if that ever
-				// changes.
-				return nil, fmt.Errorf("invalid custom proxy registry %q: unsupported ecosystem %q", registry.Name, registry.Ecosystem)
-			}
-
-			compiled.configs[registry.Ecosystem] = append(compiled.configs[registry.Ecosystem], &registryConfig{
-				Name:                 registry.Name,
-				Host:                 u.Hostname(),
-				Scheme:               u.Scheme,
-				Port:                 u.Port(),
-				BasePath:             u.EscapedPath(),
-				MatchSubdomains:      false,
-				SupportedForAnalysis: true,
-				Parser:               parser,
-			})
-			origins[registryOrigin(u.Hostname(), u.Scheme, u.Port())] = struct{}{}
-			if u.Scheme == "http" {
-				compiled.plainHTTPEndpoints = append(compiled.plainHTTPEndpoints, u.String())
-			}
-		}
-	}
-
-	for origin := range origins {
-		compiled.origins = append(compiled.origins, origin)
-	}
-	sort.Strings(compiled.origins)
-	return compiled, nil
-}
-
-// builtInRegistryCoverage returns the built-in domain map for an ecosystem,
-// used to reject custom endpoints whose host is already covered by a built-in
-// registry (exact host or subdomain of a built-in host). This is intentionally
-// a factory-level check: the built-in domain maps live in this package, and
-// rejecting overlap here keeps runtime matching free of resolution order.
-func builtInRegistryCoverage(ecosystem string) registryConfigMap {
-	switch ecosystem {
-	case "npm":
-		return npmRegistryDomains
-	case "pypi":
-		return pypiRegistryDomains
-	default:
-		return nil
-	}
-}
-
-func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {
-	normalized, err := registryurl.Normalize(rawURL)
-	if err != nil {
-		return nil, err
-	}
-	return url.Parse(normalized)
-}
-
-func customRegistryConfigs(execContext InterceptorContext, ecosystem string) ([]*registryConfig, error) {
-	compiled := execContext.compiledRegistries
-	if compiled == nil {
-		var err error
-		compiled, err = compileCustomRegistries(execContext.Registries)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return compiled.configs[ecosystem], nil
-}
-
-func warnPlainHTTPRegistryEndpoints(endpoints []string) {
-	for _, endpoint := range endpoints {
-		log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", endpoint)
 	}
 }
 
 // CreateInterceptor creates an interceptor for the specified ecosystem
 // Returns an error if the ecosystem is not supported for proxy-based interception
 func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (proxy.Interceptor, error) {
-	if f.registryErr != nil {
-		return nil, f.registryErr
-	}
 	switch ecosystem {
 	case packagev1.Ecosystem_ECOSYSTEM_NPM:
 		return NewNpmRegistryInterceptor(

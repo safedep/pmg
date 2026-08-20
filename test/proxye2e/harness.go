@@ -117,12 +117,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 		},
 	)
 
-	// Production also builds the audit logger's known-host set from the
-	// compiled factory, so a validation failure surfaces the same way here.
-	registryHosts, err := factory.CustomRegistryOrigins()
-	require.NoError(t, err)
-
-	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(registryHosts)}
+	// Production also hands the audit logger the same config field, so
+	// known-host suppression mirrors the wiring under test.
+	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(config.Get().Config.Proxy.Registries)}
 	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI, packagev1.Ecosystem_ECOSYSTEM_GO} {
 		ic, ierr := factory.CreateInterceptor(eco)
 		require.NoError(t, ierr)

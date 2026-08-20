@@ -60,12 +60,11 @@ func NewPypiRegistryInterceptor(
 		normalizedPinned[denormalizePyPIPackageName(name)] = version
 	}
 	execContext.PinnedVersions = normalizedPinned
-	registries := registryConfigSet{entries: builtInRegistryConfigs(pypiRegistryDomains)}
-	customRegistries, err := customRegistryConfigs(execContext, "pypi")
+	customRegistries, err := customRegistryConfigs(execContext.Registries, "pypi")
 	if err != nil {
 		return nil, err
 	}
-	registries.entries = append(registries.entries, customRegistries...)
+	registries := registryConfigSet{entries: append(builtInRegistryConfigs(pypiRegistryDomains), customRegistries...)}
 
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{

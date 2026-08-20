@@ -52,12 +52,11 @@ func NewNpmRegistryInterceptor(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) (*NpmRegistryInterceptor, error) {
-	registries := registryConfigSet{entries: builtInRegistryConfigs(npmRegistryDomains)}
-	customRegistries, err := customRegistryConfigs(execContext, "npm")
+	customRegistries, err := customRegistryConfigs(execContext.Registries, "npm")
 	if err != nil {
 		return nil, err
 	}
-	registries.entries = append(registries.entries, customRegistries...)
+	registries := registryConfigSet{entries: append(builtInRegistryConfigs(npmRegistryDomains), customRegistries...)}
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,

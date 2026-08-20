@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 )
@@ -12,13 +13,13 @@ type AuditLoggerInterceptor struct {
 var _ proxy.Interceptor = (*AuditLoggerInterceptor)(nil)
 var _ proxy.MITMDecider = (*AuditLoggerInterceptor)(nil)
 
-// NewAuditLoggerInterceptor takes the configured origins as canonical
-// host:effectivePort pairs so suppression applies exactly at the
-// configured scope (an endpoint on :8443 must not hide observations on
-// :443). Built-in suppression stays hostname-only.
-func NewAuditLoggerInterceptor(origins []string) *AuditLoggerInterceptor {
-	set := make(map[string]struct{}, len(origins))
-	for _, origin := range origins {
+// NewAuditLoggerInterceptor takes the user-configured registries and
+// scopes suppression to their configured origins (an endpoint on :8443
+// must not hide observations on :443). Built-in suppression stays
+// hostname-only.
+func NewAuditLoggerInterceptor(registries []config.ProxyRegistryConfig) *AuditLoggerInterceptor {
+	set := make(map[string]struct{})
+	for _, origin := range customRegistryOrigins(registries) {
 		set[origin] = struct{}{}
 	}
 	return &AuditLoggerInterceptor{customRegistryOrigins: set}

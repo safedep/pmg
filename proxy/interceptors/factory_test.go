@@ -165,8 +165,6 @@ func TestInterceptorFactoryRejectsMalformedRegistryWithoutLoggingRawURL(t *testi
 	assert.Contains(t, err.Error(), "company-npm")
 	assert.Contains(t, err.Error(), "invalid URL syntax or escaping")
 	assert.NotContains(t, err.Error(), "super-secret")
-	_, hostErr := factory.CustomRegistryOrigins()
-	require.EqualError(t, hostErr, err.Error())
 	assert.NotContains(t, logs.String(), "super-secret")
 }
 
