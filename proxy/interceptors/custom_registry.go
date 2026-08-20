@@ -10,27 +10,47 @@ import (
 	"github.com/safedep/pmg/internal/registryurl"
 )
 
-// customRegistryConfigs compiles the user-configured endpoints of one
-// ecosystem into request-time registryConfigs. Called once per interceptor
-// construction; compile errors surface there directly.
-func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem string) ([]*registryConfig, error) {
+// CustomRegistriesByEcosystem is the compiled, request-time form of every
+// user-configured registry endpoint. Compiled once per flow (flows and the
+// proxy server call CompileCustomRegistries) and shared through
+// InterceptorContext.CustomRegistries.
+type CustomRegistriesByEcosystem map[string][]*registryConfig
+
+// Origins renders every compiled endpoint as a canonical host:effectivePort
+// pair for audit suppression.
+func (c CustomRegistriesByEcosystem) Origins() []string {
+	set := make(map[string]struct{})
+	for _, configs := range c {
+		for _, config := range configs {
+			set[registryOrigin(config.Host, config.effectivePort)] = struct{}{}
+		}
+	}
+	origins := make([]string, 0, len(set))
+	for origin := range set {
+		origins = append(origins, origin)
+	}
+	sort.Strings(origins)
+	return origins
+}
+
+// CompileCustomRegistries compiles user-configured endpoints into
+// request-time registryConfigs, validating first. Called once per flow; the
+// result is shared with every consumer via InterceptorContext.
+func CompileCustomRegistries(registries []config.ProxyRegistryConfig) (CustomRegistriesByEcosystem, error) {
 	if err := config.ValidateProxyRegistries(registries); err != nil {
 		return nil, fmt.Errorf("invalid custom proxy registries: %w", err)
 	}
 
-	var configs []*registryConfig
+	compiled := make(CustomRegistriesByEcosystem)
 	for _, registry := range registries {
-		if registry.Ecosystem != ecosystem {
-			continue
-		}
 		for _, endpoint := range registry.Endpoints {
-			u, err := normalizedRegistryEndpoint(endpoint.URL)
+			u, err := registryurl.Normalize(endpoint.URL)
 			if err != nil {
 				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
 			}
-			if covered := builtInRegistryCoverage(ecosystem).GetConfigForHostname(u.Hostname()); covered != nil {
+			if covered := builtInRegistryCoverage(registry.Ecosystem).GetConfigForHostname(u.Hostname()); covered != nil {
 				return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by the built-in %s registries",
-					ecosystem, registry.Name, u.Hostname(), ecosystem)
+					registry.Ecosystem, registry.Name, u.Hostname(), registry.Ecosystem)
 			}
 
 			config := &registryConfig{
@@ -41,40 +61,16 @@ func customRegistryConfigs(registries []config.ProxyRegistryConfig, ecosystem st
 				BasePath:             u.EscapedPath(),
 				MatchSubdomains:      false,
 				SupportedForAnalysis: true,
-				Parser:               customRegistryParser(ecosystem, u),
+				Parser:               customRegistryParser(registry.Ecosystem, u),
 			}
 			normalizeRegistryConfig(config)
-			configs = append(configs, config)
+			compiled[registry.Ecosystem] = append(compiled[registry.Ecosystem], config)
 			if u.Scheme == "http" {
 				log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", u.String())
 			}
 		}
 	}
-	return configs, nil
-}
-
-// customRegistryOrigins renders every configured endpoint as a canonical
-// host:effectivePort pair for audit suppression. Built best-effort: the
-// ecosystem interceptors are constructed first and their compile error
-// surfaces there, so anything invalid never reaches the audit logger.
-func customRegistryOrigins(registries []config.ProxyRegistryConfig) []string {
-	set := make(map[string]struct{})
-	for _, registry := range registries {
-		for _, endpoint := range registry.Endpoints {
-			u, err := normalizedRegistryEndpoint(endpoint.URL)
-			if err != nil {
-				continue
-			}
-			port, _ := registryurl.EffectivePort(u.Scheme, u.Port())
-			set[registryOrigin(u.Hostname(), port)] = struct{}{}
-		}
-	}
-	origins := make([]string, 0, len(set))
-	for origin := range set {
-		origins = append(origins, origin)
-	}
-	sort.Strings(origins)
-	return origins
+	return compiled, nil
 }
 
 // customRegistryParser picks the URL parser for an endpoint. pypi's parser
@@ -90,7 +86,7 @@ func customRegistryParser(ecosystem string, u *url.URL) registryURLParser {
 // builtInRegistryCoverage returns the built-in domain map for an ecosystem,
 // used to reject custom endpoints whose host is already covered by a built-in
 // registry (exact host or subdomain of a built-in host). Rejecting overlap
-// here keeps runtime matching free of resolution order.
+// here keeps runtime matching free of ambiguity rules.
 func builtInRegistryCoverage(ecosystem string) registryConfigMap {
 	switch ecosystem {
 	case "npm":
@@ -100,12 +96,4 @@ func builtInRegistryCoverage(ecosystem string) registryConfigMap {
 	default:
 		return nil
 	}
-}
-
-func normalizedRegistryEndpoint(rawURL string) (*url.URL, error) {
-	normalized, err := registryurl.Normalize(rawURL)
-	if err != nil {
-		return nil, err
-	}
-	return url.Parse(normalized)
 }

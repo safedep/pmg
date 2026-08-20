@@ -7,32 +7,37 @@ import (
 	"strings"
 )
 
-func Normalize(rawURL string) (string, error) {
+// Normalize validates a registry endpoint URL and returns it in canonical
+// form: lowercase scheme/host, default port elided, escaped-hex path
+// uppercased, trailing slashes trimmed. It rejects anything that would
+// never match real traffic (relative URLs, credentials, query, fragment,
+// bad ports, unclean path segments).
+func Normalize(rawURL string) (*url.URL, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL syntax or escaping")
+		return nil, fmt.Errorf("invalid URL syntax or escaping")
 	}
 	if !parsed.IsAbs() {
-		return "", fmt.Errorf("URL must be absolute")
+		return nil, fmt.Errorf("URL must be absolute")
 	}
 
 	scheme := NormalizeScheme(parsed.Scheme)
 	if scheme != "http" && scheme != "https" {
-		return "", fmt.Errorf("URL scheme must be http or https")
+		return nil, fmt.Errorf("URL scheme must be http or https")
 	}
 	if parsed.Host == "" || parsed.Hostname() == "" {
-		return "", fmt.Errorf("URL host is required")
+		return nil, fmt.Errorf("URL host is required")
 	}
 	if parsed.User != nil {
-		return "", fmt.Errorf("URL must not include credentials")
+		return nil, fmt.Errorf("URL must not include credentials")
 	}
 	if parsed.RawQuery != "" || parsed.ForceQuery {
-		return "", fmt.Errorf("URL must not include a query")
+		return nil, fmt.Errorf("URL must not include a query")
 	}
 	// Any '#' in the raw URL is the fragment delimiter (encoded %23 is
 	// data), so this also covers a trailing empty fragment.
 	if strings.Contains(rawURL, "#") {
-		return "", fmt.Errorf("URL must not include a fragment")
+		return nil, fmt.Errorf("URL must not include a fragment")
 	}
 
 	hostname := NormalizeHostname(parsed.Hostname())
@@ -43,11 +48,11 @@ func Normalize(rawURL string) (string, error) {
 
 	port := parsed.Port()
 	if port == "" && strings.HasSuffix(parsed.Host, ":") {
-		return "", fmt.Errorf("URL port must be between 1 and 65535")
+		return nil, fmt.Errorf("URL port must be between 1 and 65535")
 	}
 	effectivePort, valid := EffectivePort(scheme, port)
 	if !valid {
-		return "", fmt.Errorf("URL port must be between 1 and 65535")
+		return nil, fmt.Errorf("URL port must be between 1 and 65535")
 	}
 	if effectivePort != defaultPort(scheme) {
 		host += ":" + effectivePort
@@ -55,9 +60,14 @@ func Normalize(rawURL string) (string, error) {
 
 	path := NormalizeBasePath(parsed.EscapedPath())
 	if HasUncleanPathSegments(path) {
-		return "", fmt.Errorf("URL path must not contain empty or dot segments")
+		return nil, fmt.Errorf("URL path must not contain empty or dot segments")
 	}
-	return scheme + "://" + host + path, nil
+
+	canonical, err := url.Parse(scheme + "://" + host + path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL syntax or escaping")
+	}
+	return canonical, nil
 }
 
 func NormalizeScheme(scheme string) string {

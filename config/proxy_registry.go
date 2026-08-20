@@ -44,6 +44,14 @@ type normalizedEndpoint struct {
 	path   string
 }
 
+func splitEndpoint(rawURL string, u *url.URL) normalizedEndpoint {
+	return normalizedEndpoint{
+		rawURL: rawURL,
+		origin: u.Scheme + "://" + u.Host,
+		path:   u.EscapedPath(),
+	}
+}
+
 func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 	names := make(map[string]struct{}, len(registries))
 	endpoints := make(map[string]string)
@@ -70,23 +78,20 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 		}
 
 		for endpointIndex, endpoint := range registry.Endpoints {
-			normalized, err := normalizeProxyRegistryURL(endpoint.URL)
+			normalized, err := registryurl.Normalize(endpoint.URL)
 			if err != nil {
 				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
 			}
-			if owner, exists := endpoints[normalized]; exists {
+			if owner, exists := endpoints[normalized.String()]; exists {
 				return fmt.Errorf("proxy registry endpoint %q is already assigned to %q", normalized, owner)
 			}
-			endpoints[normalized] = name
+			endpoints[normalized.String()] = name
 
-			if err := validateEndpointHost(normalized); err != nil {
+			if err := validateEndpointHost(normalized.Hostname()); err != nil {
 				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
 			}
 
-			split, err := splitNormalizedEndpoint(endpoint.URL, normalized)
-			if err != nil {
-				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
-			}
+			split := splitEndpoint(endpoint.URL, normalized)
 			// Nested base paths on one origin are ambiguous regardless of
 			// ecosystem: in daemon mode both interceptors would handle the
 			// nested requests, and even single-ecosystem nesting forces an
@@ -108,37 +113,20 @@ func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
 // loopback hosts (proxied runs export NO_PROXY=localhost,127.0.0.1,::1, so
 // they bypass the proxy entirely) and non-ASCII hostnames (package managers
 // punycode before connecting, so a Unicode entry never matches the wire).
-func validateEndpointHost(normalized string) error {
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return err
-	}
-	hostname := registryurl.NormalizeHostname(u.Hostname())
-
+// The hostname arrives already normalized by registryurl.Normalize.
+func validateEndpointHost(hostname string) error {
 	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
-		return fmt.Errorf("host %q is a loopback address; proxied runs exclude loopback hosts via NO_PROXY, so PMG cannot analyze them", u.Hostname())
+		return fmt.Errorf("host %q is a loopback address; proxied runs exclude loopback hosts via NO_PROXY, so PMG cannot analyze them", hostname)
 	}
 	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
-		return fmt.Errorf("host %q is loopback-only; proxied runs exclude localhost via NO_PROXY, so PMG cannot analyze it", u.Hostname())
+		return fmt.Errorf("host %q is loopback-only; proxied runs exclude localhost via NO_PROXY, so PMG cannot analyze it", hostname)
 	}
 	for _, r := range hostname {
 		if r > unicode.MaxASCII {
-			return fmt.Errorf("host %q is not ASCII; package managers punycode hostnames before connecting, so use the punycode (xn--) form", u.Hostname())
+			return fmt.Errorf("host %q is not ASCII; package managers punycode hostnames before connecting, so use the punycode (xn--) form", hostname)
 		}
 	}
 	return nil
-}
-
-func splitNormalizedEndpoint(rawURL, normalized string) (normalizedEndpoint, error) {
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return normalizedEndpoint{}, err
-	}
-	return normalizedEndpoint{
-		rawURL: rawURL,
-		origin: u.Scheme + "://" + u.Host,
-		path:   u.EscapedPath(),
-	}, nil
 }
 
 // endpointPathsNest reports whether one base path is a segment-prefix of the
@@ -151,6 +139,4 @@ func endpointPathsNest(a, b string) bool {
 	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
-func normalizeProxyRegistryURL(rawURL string) (string, error) {
-	return registryurl.Normalize(rawURL)
-}
+

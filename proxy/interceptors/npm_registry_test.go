@@ -67,13 +67,11 @@ func newTestNpmCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs 
 		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
 	}
 
-	execContext := InterceptorContext{
-		Registries: []config.ProxyRegistryConfig{{
-			Name:      "custom-npm",
-			Ecosystem: "npm",
-			Endpoints: endpoints,
-		}},
-	}
+	execContext := newTestInterceptorContext(t, []config.ProxyRegistryConfig{{
+		Name:      "custom-npm",
+		Ecosystem: "npm",
+		Endpoints: endpoints,
+	}})
 
 	interceptor, err := NewNpmRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), execContext)
 	require.NoError(t, err)

@@ -202,12 +202,16 @@ func buildInterceptors(
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
 ) ([]pmgproxy.Interceptor, error) {
+	customRegistries, err := interceptors.CompileCustomRegistries(registries)
+	if err != nil {
+		return nil, err
+	}
 	factory := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		cache,
 		statsCollector,
 		confirmationChan,
-		interceptors.InterceptorContext{Registries: registries},
+		interceptors.InterceptorContext{CustomRegistries: customRegistries},
 	)
 
 	interceptorList := make([]pmgproxy.Interceptor, 0, len(interceptors.SupportedEcosystems())+1)
@@ -219,7 +223,7 @@ func buildInterceptors(
 		interceptorList = append(interceptorList, interceptor)
 	}
 
-	return append(interceptorList, interceptors.NewAuditLoggerInterceptor(registries)), nil
+	return append(interceptorList, interceptors.NewAuditLoggerInterceptor(customRegistries)), nil
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the

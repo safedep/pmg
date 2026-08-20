@@ -44,13 +44,11 @@ func newTestPypiCustomInterceptor(t *testing.T, mock *mockAnalyzer, endpointURLs
 		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
 	}
 
-	execContext := InterceptorContext{
-		Registries: []config.ProxyRegistryConfig{{
-			Name:      "custom-pypi",
-			Ecosystem: "pypi",
-			Endpoints: endpoints,
-		}},
-	}
+	execContext := newTestInterceptorContext(t, []config.ProxyRegistryConfig{{
+		Name:      "custom-pypi",
+		Ecosystem: "pypi",
+		Endpoints: endpoints,
+	}})
 
 	interceptor, err := NewPypiRegistryInterceptor(mock, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), execContext)
 	require.NoError(t, err)

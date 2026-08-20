@@ -95,6 +95,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 	confChan := make(chan *interceptors.ConfirmationRequest, 10)
 	go interceptors.HandleConfirmationRequests(confChan, confirm.interaction(), nil)
 
+	customRegistries, err := interceptors.CompileCustomRegistries(config.Get().Config.Proxy.Registries)
+	require.NoError(t, err)
+
 	factory := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		interceptors.NewInMemoryAnalysisCache(),
@@ -104,9 +107,8 @@ func New(t *testing.T, opts ...Option) *Harness {
 			PinnedVersions: o.pinnedVersions,
 			// RunCases applies TestCase.Config before New runs, so the global
 			// config already carries the case's custom registries. This
-			// mirrors production, which also compiles the factory from this
-			// same config field.
-			Registries: config.Get().Config.Proxy.Registries,
+			// mirrors production, which also compiles from this same field.
+			CustomRegistries: customRegistries,
 			// proxy.golang.org serves at the root of the plain-HTTP mock (also
 			// the base for out-of-band .info fetches); corp.example.com serves
 			// under a base path to exercise GOPROXY path-prefix stripping.
@@ -117,9 +119,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 		},
 	)
 
-	// Production also hands the audit logger the same config field, so
-	// known-host suppression mirrors the wiring under test.
-	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(config.Get().Config.Proxy.Registries)}
+	// Production also hands the audit logger the same compiled registries,
+	// so known-host suppression mirrors the wiring under test.
+	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(customRegistries)}
 	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI, packagev1.Ecosystem_ECOSYSTEM_GO} {
 		ic, ierr := factory.CreateInterceptor(eco)
 		require.NoError(t, ierr)

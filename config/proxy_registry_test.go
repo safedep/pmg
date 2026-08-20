@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/internal/registryurl"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -399,13 +400,13 @@ func TestNormalizeProxyRegistryURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotURL, err := normalizeProxyRegistryURL(tt.rawURL)
+			gotURL, err := registryurl.Normalize(tt.rawURL)
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantURL, gotURL)
+			assert.Equal(t, tt.wantURL, gotURL.String())
 		})
 	}
 }

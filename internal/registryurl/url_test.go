@@ -19,10 +19,10 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 		t.Run(rawURL, func(t *testing.T) {
 			once, err := Normalize(rawURL)
 			require.NoError(t, err)
-			twice, err := Normalize(once)
+			twice, err := Normalize(once.String())
 			require.NoError(t, err)
 
-			assert.Equal(t, once, twice)
+			assert.Equal(t, once.String(), twice.String())
 		})
 	}
 }

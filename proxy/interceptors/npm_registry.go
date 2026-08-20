@@ -52,11 +52,9 @@ func NewNpmRegistryInterceptor(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) (*NpmRegistryInterceptor, error) {
-	customRegistries, err := customRegistryConfigs(execContext.Registries, "npm")
-	if err != nil {
-		return nil, err
+	registries := registryConfigSet{
+		entries: append(builtInRegistryConfigs(npmRegistryDomains), execContext.CustomRegistries["npm"]...),
 	}
-	registries := registryConfigSet{entries: append(builtInRegistryConfigs(npmRegistryDomains), customRegistries...)}
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -124,15 +122,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	}
 
 	if parseErr != nil {
-		if config.Name == "" {
-			log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
-				ctx.RequestID, ctx.URL.Path, config.Host, parseErr)
-		} else {
-			// Custom registries see far more non-package traffic under their
-			// configured prefix, and the path can embed a signed token, so
-			// this logs at debug level only.
-			log.Debugf("[%s] Failed to parse NPM registry URL for custom registry %q: %v", ctx.RequestID, config.Name, parseErr)
-		}
+		logRegistryParseFailure(ctx, config, "NPM", parseErr)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 

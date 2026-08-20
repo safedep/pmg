@@ -5,7 +5,6 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
-	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -15,9 +14,11 @@ import (
 type InterceptorContext struct {
 	PinnedVersions map[string]string
 
-	// Registries are the user-configured custom registry endpoints. Each
-	// ecosystem's interceptor compiles its own share at construction.
-	Registries []config.ProxyRegistryConfig
+	// CustomRegistries are the user-configured registry endpoints in
+	// compiled form. CompileCustomRegistries runs once per flow and the
+	// result is shared with every ecosystem interceptor and the audit
+	// logger; nil means none configured.
+	CustomRegistries CustomRegistriesByEcosystem
 
 	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
 	// GOPROXY to their upstream base URL (scheme + host + optional path

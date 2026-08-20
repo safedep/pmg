@@ -184,8 +184,8 @@ func TestPypiCustomParser_DoesNotDecodeSegmentsASecondTime(t *testing.T) {
 	// not parse as a distribution filename.
 	parser := pypiCustomParser{baseEndsInSimple: false}
 
-	filename, ok := pypiFilenameFromLastSegment("demo-1.0.0%2Bbuild.tar.gz")
-	if ok {
+	filename, filenameErr := parseFilename("demo-1.0.0%2Bbuild.tar.gz")
+	if filenameErr == nil {
 		assert.NotEqual(t, "1.0.0+build", filename.GetVersion(), "an escaped segment must never be double-decoded")
 	}
 

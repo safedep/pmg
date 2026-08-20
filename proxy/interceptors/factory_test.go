@@ -16,12 +16,10 @@ import (
 )
 
 func TestInterceptorFactoryCustomRegistries(t *testing.T) {
-	factory := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{
-		Registries: []config.ProxyRegistryConfig{
-			{Name: "company-npm", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}}},
-			{Name: "company-pypi", Ecosystem: "pypi", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/simple"}}},
-		},
-	})
+	factory := NewInterceptorFactory(nil, nil, nil, nil, newTestInterceptorContext(t, []config.ProxyRegistryConfig{
+		{Name: "company-npm", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}}},
+		{Name: "company-pypi", Ecosystem: "pypi", Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://python.test/simple"}}},
+	}))
 
 	npmRaw, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
 	require.NoError(t, err)
@@ -107,15 +105,13 @@ func TestInterceptorFactoryWarnsOncePerPlainHTTPEndpoint(t *testing.T) {
 	restore := drylog.SwapGlobalForTest(&logs)
 	defer restore()
 
-	factory := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{
-		Registries: []config.ProxyRegistryConfig{
-			{Name: "company-npm", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{
-				{URL: "http://one.test/npm"},
-				{URL: "http://two.test/npm"},
-				{URL: "https://secure.test/npm"},
-			}},
-		},
-	})
+	factory := NewInterceptorFactory(nil, nil, nil, nil, newTestInterceptorContext(t, []config.ProxyRegistryConfig{
+		{Name: "company-npm", Ecosystem: "npm", Endpoints: []config.ProxyRegistryEndpointConfig{
+			{URL: "http://one.test/npm"},
+			{URL: "http://two.test/npm"},
+			{URL: "https://secure.test/npm"},
+		}},
+	}))
 
 	interceptorRaw, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
 	require.NoError(t, err)
@@ -128,13 +124,11 @@ func TestInterceptorFactoryWarnsOncePerPlainHTTPEndpoint(t *testing.T) {
 }
 
 func TestCustomRegistryMatchesRelativeMITMURLWithNonDefaultPort(t *testing.T) {
-	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{
-		Registries: []config.ProxyRegistryConfig{{
-			Name:      "company-npm",
-			Ecosystem: "npm",
-			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test:8443/npm"}},
-		}},
-	})
+	interceptor, err := NewNpmRegistryInterceptor(nil, nil, nil, nil, newTestInterceptorContext(t, []config.ProxyRegistryConfig{{
+		Name:      "company-npm",
+		Ecosystem: "npm",
+		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test:8443/npm"}},
+	}}))
 	require.NoError(t, err)
 	u, err := url.Parse("/npm/left-pad")
 	require.NoError(t, err)
@@ -147,42 +141,21 @@ func TestCustomRegistryMatchesRelativeMITMURLWithNonDefaultPort(t *testing.T) {
 	}))
 }
 
-func TestInterceptorFactoryRejectsMalformedRegistryWithoutLoggingRawURL(t *testing.T) {
+func TestCompileCustomRegistriesRejectsMalformedRegistryWithoutLoggingRawURL(t *testing.T) {
 	var logs bytes.Buffer
 	restore := drylog.SwapGlobalForTest(&logs)
 	defer restore()
 
-	factory := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{
-		Registries: []config.ProxyRegistryConfig{{
-			Name:      "company-npm",
-			Ecosystem: "npm",
-			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:super-secret@packages.test/%zz"}},
-		}},
-	})
-
-	_, err := factory.CreateInterceptor(packagev1.Ecosystem_ECOSYSTEM_NPM)
+	_, err := CompileCustomRegistries([]config.ProxyRegistryConfig{{
+		Name:      "company-npm",
+		Ecosystem: "npm",
+		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:super-secret@packages.test/%zz"}},
+	}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "company-npm")
 	assert.Contains(t, err.Error(), "invalid URL syntax or escaping")
 	assert.NotContains(t, err.Error(), "super-secret")
 	assert.NotContains(t, logs.String(), "super-secret")
-}
-
-func TestRegistryConstructorsRejectMalformedRegistries(t *testing.T) {
-	ctx := InterceptorContext{Registries: []config.ProxyRegistryConfig{{
-		Name:      "private",
-		Ecosystem: "npm",
-		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://user:secret@packages.test/%zz"}},
-	}}}
-
-	_, npmErr := NewNpmRegistryInterceptor(nil, nil, nil, nil, ctx)
-	require.Error(t, npmErr)
-	assert.NotContains(t, npmErr.Error(), "secret")
-
-	ctx.Registries[0].Ecosystem = "pypi"
-	_, pypiErr := NewPypiRegistryInterceptor(nil, nil, nil, nil, ctx)
-	require.Error(t, pypiErr)
-	assert.NotContains(t, pypiErr.Error(), "secret")
 }
 
 func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
@@ -200,18 +173,11 @@ func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			factory := NewInterceptorFactory(nil, nil, nil, nil, InterceptorContext{
-				Registries: []config.ProxyRegistryConfig{{
-					Name:      "dup",
-					Ecosystem: tt.ecosystem,
-					Endpoints: []config.ProxyRegistryEndpointConfig{{URL: tt.endpoint}},
-				}},
-			})
-			ecosystem := packagev1.Ecosystem_ECOSYSTEM_NPM
-			if tt.ecosystem == "pypi" {
-				ecosystem = packagev1.Ecosystem_ECOSYSTEM_PYPI
-			}
-			_, err := factory.CreateInterceptor(ecosystem)
+			_, err := CompileCustomRegistries([]config.ProxyRegistryConfig{{
+				Name:      "dup",
+				Ecosystem: tt.ecosystem,
+				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: tt.endpoint}},
+			}})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "is covered by the built-in")
 		})

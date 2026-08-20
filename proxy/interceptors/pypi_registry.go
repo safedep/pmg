@@ -60,11 +60,9 @@ func NewPypiRegistryInterceptor(
 		normalizedPinned[denormalizePyPIPackageName(name)] = version
 	}
 	execContext.PinnedVersions = normalizedPinned
-	customRegistries, err := customRegistryConfigs(execContext.Registries, "pypi")
-	if err != nil {
-		return nil, err
+	registries := registryConfigSet{
+		entries: append(builtInRegistryConfigs(pypiRegistryDomains), execContext.CustomRegistries["pypi"]...),
 	}
-	registries := registryConfigSet{entries: append(builtInRegistryConfigs(pypiRegistryDomains), customRegistries...)}
 
 	return &PypiRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
@@ -133,15 +131,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	}
 
 	if parseErr != nil {
-		if config.Name == "" {
-			log.Warnf("[%s] Failed to parse PyPI registry URL %s for %s: %v",
-				ctx.RequestID, ctx.URL.Path, config.Host, parseErr)
-		} else {
-			// Custom registries see far more non-package traffic under their
-			// configured prefix, and the path can embed a signed token, so
-			// this logs at debug level only.
-			log.Debugf("[%s] Failed to parse PyPI registry URL for custom registry %q: %v", ctx.RequestID, config.Name, parseErr)
-		}
+		logRegistryParseFailure(ctx, config, "PyPI", parseErr)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 

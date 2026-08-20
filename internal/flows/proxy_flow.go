@@ -344,7 +344,12 @@ func buildProxyFlowInterceptors(
 	cfg *config.RuntimeConfig,
 	execContext interceptors.InterceptorContext,
 ) ([]proxy.Interceptor, error) {
-	execContext.Registries = cfg.Config.Proxy.Registries
+	customRegistries, err := interceptors.CompileCustomRegistries(cfg.Config.Proxy.Registries)
+	if err != nil {
+		return nil, err
+	}
+	execContext.CustomRegistries = customRegistries
+
 	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, execContext)
 	interceptor, err := factory.CreateInterceptor(ecosystem)
 	if err != nil {
@@ -353,7 +358,7 @@ func buildProxyFlowInterceptors(
 
 	return []proxy.Interceptor{
 		interceptor,
-		interceptors.NewAuditLoggerInterceptor(cfg.Config.Proxy.Registries),
+		interceptors.NewAuditLoggerInterceptor(customRegistries),
 	}, nil
 }
 

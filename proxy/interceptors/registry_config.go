@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/registryurl"
 	"github.com/safedep/pmg/proxy"
 )
@@ -21,17 +22,16 @@ func builtInRegistryConfigs(configs registryConfigMap) []*registryConfig {
 	return entries
 }
 
-// registryHostSupportsAnalysis decides MITM at CONNECT time. Built-ins
-// match on hostname alone; custom endpoints must match the configured
-// https origin (host + effective port) so PMG never decrypts services on
-// the host's other ports. Load-time validation (no nested base paths, no
-// endpoints on built-in-covered hosts) makes overlap impossible, so the
-// resolution is a two-pass rule: an exact match wins outright, otherwise
-// the longest built-in subdomain umbrella decides.
-func registryHostSupportsAnalysis(configs registryConfigSet, hostname, port string) bool {
+// connectMatchConfig resolves a CONNECT authority (host + port) to a
+// registry config. An exact host match wins outright; otherwise the
+// longest built-in subdomain umbrella decides. Load-time validation (no
+// nested base paths, no endpoints on built-in-covered hosts) makes
+// overlap impossible, so entry order (which derives from a map) cannot
+// affect the result.
+func (s registryConfigSet) connectMatchConfig(hostname, port string) *registryConfig {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
 	var bestSubdomain *registryConfig
-	for _, config := range configs.entries {
+	for _, config := range s.entries {
 		if config == nil {
 			continue
 		}
@@ -40,13 +40,22 @@ func registryHostSupportsAnalysis(configs registryConfigSet, hostname, port stri
 			continue
 		}
 		if exact {
-			return config.SupportedForAnalysis
+			return config
 		}
 		if bestSubdomain == nil || len(config.Host) > len(bestSubdomain.Host) {
 			bestSubdomain = config
 		}
 	}
-	return bestSubdomain != nil && bestSubdomain.SupportedForAnalysis
+	return bestSubdomain
+}
+
+// registryHostSupportsAnalysis decides MITM at CONNECT time. Built-ins
+// match on hostname alone; custom endpoints must match the configured
+// https origin (host + effective port) so PMG never decrypts services on
+// the host's other ports.
+func registryHostSupportsAnalysis(configs registryConfigSet, hostname, port string) bool {
+	config := configs.connectMatchConfig(hostname, port)
+	return config != nil && config.SupportedForAnalysis
 }
 
 func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) *registryMatch {
@@ -184,33 +193,13 @@ func connectMatch(config *registryConfig, hostname, port string) (bool, bool) {
 }
 
 // matchConnect returns the registry a CONNECT (or otherwise pathless)
-// request belongs to. An exact host match wins over a built-in subdomain
-// umbrella, mirroring registryHostSupportsAnalysis; entry order derives
-// from a map, so this order-insensitive rule keeps the result
-// deterministic (test.pypi.org must resolve to its own entry, not the
-// pypi.org umbrella).
+// request belongs to.
 func (s registryConfigSet) matchConnect(hostname, port string) *registryMatch {
-	hostname = normalizeHostnameWithOptionalPort(hostname)
-	var subdomain *registryConfig
-	for _, config := range s.entries {
-		if config == nil {
-			continue
-		}
-		exact, matches := connectMatch(config, hostname, port)
-		if !matches {
-			continue
-		}
-		if exact {
-			return &registryMatch{Config: config, RelativePath: "/"}
-		}
-		if subdomain == nil || len(config.Host) > len(subdomain.Host) {
-			subdomain = config
-		}
-	}
-	if subdomain == nil {
+	config := s.connectMatchConfig(hostname, port)
+	if config == nil {
 		return nil
 	}
-	return &registryMatch{Config: subdomain, RelativePath: "/"}
+	return &registryMatch{Config: config, RelativePath: "/"}
 }
 
 func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
@@ -307,6 +296,21 @@ func normalizeHostnameWithOptionalPort(hostname string) string {
 		hostname = strings.TrimSuffix(strings.TrimPrefix(hostname, "["), "]")
 	}
 	return registryurl.NormalizeHostname(hostname)
+}
+
+// logRegistryParseFailure logs a registry URL parse failure. Built-in
+// registries (no name) warn since their traffic is almost entirely package
+// requests; custom endpoints see far more non-package traffic under their
+// configured prefix, and the path can embed a signed token, so they log at
+// debug level only.
+func logRegistryParseFailure(ctx *proxy.RequestContext, config *registryConfig, ecosystem string, err error) {
+	if config.Name == "" {
+		log.Warnf("[%s] Failed to parse %s registry URL %s for %s: %v",
+			ctx.RequestID, ecosystem, ctx.URL.Path, config.Host, err)
+		return
+	}
+	log.Debugf("[%s] Failed to parse %s registry URL for custom registry %q: %v",
+		ctx.RequestID, ecosystem, config.Name, err)
 }
 
 func hostnameMatch(hostname string, config *registryConfig) (bool, bool) {
