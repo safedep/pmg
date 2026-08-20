@@ -203,9 +203,15 @@ func collectShellIntegration(core []doctor.CheckResult) shellIntegration {
 	}
 
 	aliasCfg := alias.DefaultConfig()
-	if rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName); err == nil {
+	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+	if err != nil {
+		log.Debugf("rc file manager unavailable; omitting alias rc file: %v", err)
+	} else {
 		aliasManager := alias.New(aliasCfg, rcFileManager)
-		if installed, err := aliasManager.IsInstalled(); err == nil && installed {
+		installed, err := aliasManager.IsInstalled()
+		if err != nil {
+			log.Debugf("alias inspection failed; omitting alias rc file: %v", err)
+		} else if installed {
 			si.AliasRcFile = aliasManager.GetRcPath()
 		}
 	}
