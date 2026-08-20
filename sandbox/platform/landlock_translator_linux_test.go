@@ -716,3 +716,93 @@ func TestLandlockTranslatePolicy_NetworkLockdown(t *testing.T) {
 	assert.True(t, ep.Network.Lockdown)
 	assert.Equal(t, uint16(0), ep.Network.ProxyPort, "render path has no proxy port, must stay fail closed")
 }
+
+func TestLandlockTranslatePolicy_DenyCoveredAllowRulesDropped(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	gitDir := filepath.Join(dir, ".git")
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "refs"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]"), 0o644))
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowRead = []string{filepath.Join(gitDir, "config")}
+	policy.Filesystem.AllowWrite = []string{gitDir + "/**"}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
+	require.NoError(t, err)
+
+	for _, r := range ep.FilesystemRules {
+		assert.NotEqual(t, filepath.Join(gitDir, "hooks"), r.Path,
+			"deny-covered allow rule must not reach the landlock ruleset")
+		assert.False(t, strings.HasPrefix(r.Path, filepath.Join(gitDir, "hooks")+string(os.PathSeparator)),
+			"deny-covered allow rule must not reach the landlock ruleset: %s", r.Path)
+	}
+
+	// Read-only allow on .git/config survives the mandatory write deny on it.
+	assert.NotNil(t, findRule(ep.FilesystemRules, filepath.Join(gitDir, "config")))
+	// Unaffected writable paths under .git stay allowed.
+	assert.NotNil(t, findRule(ep.FilesystemRules, filepath.Join(gitDir, "refs")))
+}
+
+func TestLandlockRuleCoveredByDeny(t *testing.T) {
+	const readAccess = uint64(13)  // landlockReadAccess
+	const writeAccess = uint64(2)  // WriteFile
+	const rwAccess = readAccess | writeAccess
+
+	tests := []struct {
+		name   string
+		rule   landlockPathRule
+		denies []denyPathEntry
+		want   bool
+	}{
+		{
+			name: "read rule covered by read deny",
+			rule: landlockPathRule{Path: "/a/b", Access: readAccess},
+			denies: []denyPathEntry{
+				{Path: "/a/b", Mode: denyRead},
+			},
+			want: true,
+		},
+		{
+			name: "read rule covered by write deny only survives",
+			rule: landlockPathRule{Path: "/a/b", Access: readAccess},
+			denies: []denyPathEntry{
+				{Path: "/a/b", Mode: denyWrite},
+			},
+			want: false,
+		},
+		{
+			name: "write rule covered by write deny",
+			rule: landlockPathRule{Path: "/a/b/c", Access: rwAccess},
+			denies: []denyPathEntry{
+				{Path: "/a/b", Mode: denyWrite},
+			},
+			want: true,
+		},
+		{
+			name: "unrelated path survives",
+			rule: landlockPathRule{Path: "/a/bd", Access: rwAccess},
+			denies: []denyPathEntry{
+				{Path: "/a/b", Mode: denyBoth},
+			},
+			want: false,
+		},
+		{
+			name: "deny beneath allow path does not drop the allow",
+			rule: landlockPathRule{Path: "/a", Access: rwAccess},
+			denies: []denyPathEntry{
+				{Path: "/a/b", Mode: denyBoth},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, landlockRuleCoveredByDeny(tt.rule, tt.denies))
+		})
+	}
+}

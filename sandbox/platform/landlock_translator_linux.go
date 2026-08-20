@@ -130,6 +130,39 @@ func landlockUsrBinAlternate(path string) string {
 	return ""
 }
 
+// landlockSubtractDeniedPaths drops allow rules covered by a deny path.
+// Coverage is direction-aware: a write deny must not strip a read-only allow.
+func landlockSubtractDeniedPaths(rules []landlockPathRule, denies []denyPathEntry) []landlockPathRule {
+	out := make([]landlockPathRule, 0, len(rules))
+	for _, r := range rules {
+		if landlockRuleCoveredByDeny(r, denies) {
+			log.Warnf("sandbox: dropping allow rule for %q: covered by a deny rule", r.Path)
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func landlockRuleCoveredByDeny(r landlockPathRule, denies []denyPathEntry) bool {
+	readish := r.Access&landlockReadAccess != 0
+	writeish := r.Access&landlockWriteAccessBase != 0
+	path := filepath.Clean(r.Path)
+	for _, d := range denies {
+		denyPath := filepath.Clean(d.Path)
+		if path != denyPath && !strings.HasPrefix(path, denyPath+"/") {
+			continue
+		}
+		if readish && d.Mode != denyWrite {
+			return true
+		}
+		if writeish && d.Mode != denyRead {
+			return true
+		}
+	}
+	return false
+}
+
 // landlockIsProcPath returns true if the path is /proc or any path under /proc.
 // Uses a path boundary check so /process, /procurement, etc. don't match.
 func landlockIsProcPath(path string) bool {
@@ -397,6 +430,13 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		}
 		appendDeny(p, denyWrite)
 	}
+
+	// Deny-listed paths must never reach the Landlock ruleset: Landlock
+	// would grant what the seccomp deny list exists to forbid (including
+	// remove/rename, which the openat-only deny cannot catch), and the shim
+	// opens every rule path while populating the ruleset, so a denied rule
+	// path aborts the shim with EACCES before exec.
+	ep.FilesystemRules = landlockSubtractDeniedPaths(ep.FilesystemRules, ep.DenyPaths)
 
 	// Unlike bubblewrap's read-only bind mounts, Landlock requires explicit
 	// execute permission on system binary directories. The deny_exec list
