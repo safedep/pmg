@@ -208,7 +208,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("open /proc/%d/mem (fail-close): %w", childPID, err)
 	}
 
-	if err := supervisor.Enforce(childPID, memFd, policy.DenyPaths, policy.DenyExecPaths, policy.Network, auditWriter); err != nil {
+	if err := supervisor.Enforce(childPID, policy.DenyPaths, policy.DenyExecPaths, policy.Network, auditWriter); err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
 		if cerr := memFd.Close(); cerr != nil {
@@ -216,6 +216,14 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 		_ = supervisor.Stop()
 		return fmt.Errorf("enforce seccomp rules: %w", err)
+	}
+
+	// The supervisor opens /proc/<pid>/mem fresh for every notification: an
+	// open mem fd pins the task's mm at open() time, so a cached fd silently
+	// reads a dead address space after the task execve's. Our fd above served
+	// only as the fail-close capability check and is no longer needed.
+	if err := memFd.Close(); err != nil {
+		log.Warnf("close /proc/%d/mem: %v", childPID, err)
 	}
 
 	sigCh := make(chan os.Signal, 3)
@@ -231,9 +239,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	_ = supervisor.Stop()
 	signal.Stop(sigCh)
 	close(sigCh)
-	if err := memFd.Close(); err != nil {
-		log.Warnf("close /proc/%d/mem: %v", childPID, err)
-	}
 
 	exitCode := 0
 	if waitErr != nil {

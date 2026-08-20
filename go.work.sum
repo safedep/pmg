@@ -1,7 +1,10 @@
 buf.build/gen/go/bufbuild/protovalidate/connectrpc/go v1.20.0-20240508200655-46a4cf4ba109.1/go.mod h1:hR/w+cb6VNC4j0Rf91uvB2CMAcwIJ1cYxnGFwsP/w4k=
 buf.build/gen/go/bufbuild/protovalidate/grpc/go v1.6.1-20240508200655-46a4cf4ba109.1/go.mod h1:12iIaR0LjReZQXXxBXMzWTMUIN6n4Y3HuSTwPpUQYSg=
 buf.build/gen/go/bufbuild/protovalidate/grpc/go v1.6.2-20240508200655-46a4cf4ba109.1/go.mod h1:cz5A7G0AEk7z2kciJ1jK72u/8kRVlcfAhi2B9jYoMZw=
+buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260415201107-50325440f8f2.1 h1:y8A3AKdnK80frQccyJxFQcHJ9yZlcuoixzHhEsnpEfw=
 buf.build/gen/go/safedep/api/connectrpc/go v1.20.0-20260620084912-77c7bb923ddb.1/go.mod h1:7HRi2R20XR03np5l5oGKAa/RRFVeuFtyiE/loG1/P+4=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260819151225-edc87f21aeac.1 h1:aU7pnHb9RV/9wr4nZ+4gJkFuqobatbtoJkV088uMO+Y=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260819151225-edc87f21aeac.1 h1:WZWz7gEX+QDh+DcX2ICJWkERAt9BQRdqJ+ytwkbYhHA=
 buf.build/go/protovalidate v1.2.0/go.mod h1:7rYiQEhqvAipoazpVNBBH2S2f8bjG4huMVy1V2Yofn4=
 cel.dev/expr v0.25.1/go.mod h1:hrXvqGP6G6gyx8UAHSHJ5RGk//1Oj5nXQ2NI02Nrsg4=
 cloud.google.com/go v0.121.2/go.mod h1:nRFlrHq39MNVWu+zESP2PosMWA0ryJw8KUBZ2iZpxbw=
@@ -191,6 +194,7 @@ github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgr
 github.com/opencontainers/runtime-spec v1.1.0/go.mod h1:jwyrGlmzljRJv/Fgzds9SsS/C5hL+LL3ko9hs6T5lQ0=
 github.com/opencontainers/selinux v1.11.0/go.mod h1:E5dMC3VPuVvVHDYmi78qvhJp8+M586T4DlDRYpFkyec=
 github.com/ossf/osv-schema/bindings/go v0.0.0-20250210065807-ab8a4f6e6389/go.mod h1:lILztSxHU7VsdlYqCnwgxSDBhbXMf7iEQWtldJCDXPo=
+github.com/package-url/packageurl-go v0.1.4 h1:RHfiiN1SSY+Kic537DXch6fy593rxGJW6WDzAiOwNdk=
 github.com/pandatix/go-cvss v0.6.2/go.mod h1:jDXYlQBZrc8nvrMUVVvTG8PhmuShOnKrxP53nOFkt8Q=
 github.com/paulmach/orb v0.11.1/go.mod h1:5mULz1xQfs3bmQm63QEJA6lNGujuRafwA5S/EnuLaLU=
 github.com/perimeterx/marshmallow v1.1.5/go.mod h1:dsXbUu8CRzfYP5a87xpp0xq9S3u0Vchtcl8we9tYaXw=
@@ -261,6 +265,7 @@ google.golang.org/genproto v0.0.0-20250528174236-200df99c418a h1:KXuwdBmgjb4T3l4
 google.golang.org/genproto v0.0.0-20250528174236-200df99c418a/go.mod h1:Nlk93rrS2X7rV8hiC2gh2A/AJspZhElz9Oh2KGsjLEY=
 google.golang.org/genproto/googleapis/api v0.0.0-20260120221211-b8f7ae30c516/go.mod h1:p3MLuOwURrGBRoEyFHBT3GjUwaCQVKeNqqWxlcISGdw=
 google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171/go.mod h1:M5krXqk4GhBKvB596udGL3UyjL4I1+cTbK0orROM9ng=
+google.golang.org/protobuf v1.36.12 h1:pJOKDDOyeXErUroCihFAd5LQuwXBSpVnKGrj5o/fwxc=
 gopkg.in/ini.v1 v1.67.0/go.mod h1:pNLf8WUiyNEtQjuu5G5vTm06TEv9tsIgeAvK8hOrP4k=
 gorm.io/driver/clickhouse v0.7.0/go.mod h1:TmNo0wcVTsD4BBObiRnCahUgHJHjBIwuRejHwYt3JRs=
 gorm.io/driver/mysql v1.5.7/go.mod h1:sEtPWMiqiN1N1cMXoXmBbd8C6/l+TESwriotuRRpkDM=

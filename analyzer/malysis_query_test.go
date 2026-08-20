@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	malysisv1pb "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/malysis/v1"
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
@@ -15,6 +16,10 @@ import (
 // stubMalwareAnalysisServiceClient is a minimal stub implementing the Malysis gRPC client interface,
 // returning a preconfigured response for testing.
 type stubMalwareAnalysisServiceClient struct {
+	// Embedded so new service methods do not break the stub. Only
+	// QueryPackageAnalysis is implemented; any other call panics.
+	malysisv1grpc.MalwareAnalysisServiceClient
+
 	resp *malysisv1.QueryPackageAnalysisResponse
 	err  error
 }

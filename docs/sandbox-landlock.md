@@ -96,11 +96,15 @@ Bubblewrap's `--ro-bind` permits execve implicitly. Landlock requires explicit
 `AccessFSExecute`. Without it `allow_read: /` blocks every binary load. We bake EXECUTE
 into read access; deny-exec is still enforced by the seccomp supervisor.
 
-### Per-PID `/proc/<pid>/mem` cache, invalidated on execve
+### `/proc/<pid>/mem` is opened fresh per notification, never cached
 
-`execve` reshapes the address space; the cached fd returns EOF afterwards. We
-invalidate on each execve notification (`seccompPhase.invalidateMemFd`) and lazily
-reopen via `memFdFor`. Grandchildren get their own entries.
+An open `/proc/<pid>/mem` fd pins the task's `mm` at `open()` time, so a cached
+fd silently reads the dead pre-exec address space after execve (reads return
+EOF). The supervisor learns about execve at syscall-entry, but the exec runs
+only after it answers CONTINUE, so an open between the answer and the mm switch
+still pins the dying mm. Hence no cache: `memFdFor` opens a fresh fd per
+notification and the caller closes it. A parked notifying thread cannot execve
+and execve kills sibling threads, so the open always pins the live mm.
 
 ### Deny matcher treats a path as its own subtree
 
@@ -127,6 +131,12 @@ applies the Seatbelt-parity matrix:
 
 `sendto`/`sendmsg` with a NULL destination address target an already-connected
 peer (that peer passed the connect check) and continue uninspected.
+
+### Debugging: `PMG_SECCOMP_TRACE`
+
+Set `PMG_SECCOMP_TRACE=1` to log every intercepted syscall decision
+(`seccomp: allow|deny <syscall> pid=... path|peer=... reason=...`) at debug
+level, alongside `APP_LOG_LEVEL=debug` and optional `APP_LOG_FILE`.
 
 Only `AF_INET`/`AF_INET6` go through the matrix. `AF_UNIX` and `AF_NETLINK`
 (local IPC and kernel interfaces, no external egress) are allowed; every other
