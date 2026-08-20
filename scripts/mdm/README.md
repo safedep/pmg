@@ -1,6 +1,6 @@
 # PMG MDM Scripts (macOS)
 
-Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS fleets through an MDM (Jamf, Mosyle, Kandji, Intune).
+Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS fleets through an MDM (Jamf, JumpCloud, Mosyle, Kandji, Intune).
 
 | File | Purpose |
 |------|---------|
@@ -90,6 +90,27 @@ SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" ./pmg_setup_install_macos.sh
 ```
 
 `$4` and `$5` are Jamf script parameters. Adjust them to your configuration.
+
+## JumpCloud example
+
+JumpCloud Commands don't ship companion files with a script payload the way Jamf does; attach the files to the Command instead:
+
+1. Create a Command with type **Mac** and **Run As** `root`.
+2. Under **Files**, attach `lib_macos.sh` and `pmg_setup_install_macos.sh` (plus `config.yml` for a globally managed config). Set each file's **File Destination** to the same directory, e.g. `/tmp/pmg-mdm/` — the entry script sources `lib_macos.sh` from its own directory, so don't rely on the default destination.
+3. Raise **Timeout After** well above the 120-second default (e.g. 900); the Homebrew or GitHub-release install alone can exceed it.
+4. To enable cloud sync, store the credentials as [Custom Variables](https://jumpcloud.com/support/manage-variables) with **Secret Variable** enabled. JumpCloud substitutes `{{name}}` in the script text and wraps the value in single quotes at runtime — variables are *not* injected as environment variables — so pass them explicitly and don't add your own quotes.
+5. Paste as the Command script:
+
+```sh
+#!/bin/sh
+set -eu
+cd /tmp/pmg-mdm
+chmod +x pmg_setup_install_macos.sh
+SAFEDEP_API_KEY={{safedep_api_key}} SAFEDEP_TENANT_ID={{safedep_tenant_id}} ./pmg_setup_install_macos.sh
+cd / && rm -rf /tmp/pmg-mdm
+```
+
+Without cloud sync, drop the two variable assignments. Deploy `pmg_uninstall_macos.sh` as a separate Command with the same file setup (attach `lib_macos.sh` there too).
 
 ## Limitations
 
