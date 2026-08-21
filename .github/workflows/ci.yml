@@ -47,11 +47,11 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Test Intune script generation
-        run: bash scripts/mdm/generate_intune_scripts_test.sh
+      - name: Test standalone script generation
+        run: bash scripts/mdm/generate_standalone_scripts_test.sh
 
-      - name: Check generated Intune scripts
-        run: bash scripts/mdm/generate_intune_scripts.sh --check
+      - name: Check generated standalone scripts
+        run: bash scripts/mdm/generate_standalone_scripts.sh --check
 
       - name: Lint MDM scripts
         run: |
@@ -59,10 +59,10 @@ jobs:
             scripts/mdm/lib_macos.sh \
             scripts/mdm/pmg_setup_install_macos.sh \
             scripts/mdm/pmg_uninstall_macos.sh \
-            scripts/mdm/generate_intune_scripts.sh \
-            scripts/mdm/generate_intune_scripts_test.sh \
-            scripts/mdm/intune/pmg_setup_install_macos.sh \
-            scripts/mdm/intune/pmg_uninstall_macos.sh
+            scripts/mdm/generate_standalone_scripts.sh \
+            scripts/mdm/generate_standalone_scripts_test.sh \
+            scripts/mdm/standalone/pmg_setup_install_macos.sh \
+            scripts/mdm/standalone/pmg_uninstall_macos.sh
 
   # Runs the darwin-tagged tests (sandbox/platform/*_darwin_test.go) that no
   # other job can execute. Convention for darwin integration tests requiring
