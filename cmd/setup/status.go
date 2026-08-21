@@ -8,8 +8,10 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
@@ -34,10 +36,18 @@ type statusCheck struct {
 	Fix      string `json:"fix,omitempty"`
 }
 
+type shimStatus struct {
+	Installed bool   `json:"installed"`
+	Dir       string `json:"dir,omitempty"`
+}
+
 type shellIntegration struct {
-	Shell       string `json:"shell"`
-	Aliases     bool   `json:"aliases"`
-	ShimsInPath bool   `json:"shims_in_path"`
+	Shell       string     `json:"shell"`
+	Aliases     bool       `json:"aliases"`
+	ShimsInPath bool       `json:"shims_in_path"`
+	AliasRcFile string     `json:"alias_rc_file,omitempty"`
+	UserShims   shimStatus `json:"user_shims"`
+	SystemShims shimStatus `json:"system_shims"`
 }
 
 type cooldownInfo struct {
@@ -46,15 +56,19 @@ type cooldownInfo struct {
 }
 
 type sandboxInfo struct {
-	Enabled bool   `json:"enabled"`
-	Driver  string `json:"driver"`
-	Ready   bool   `json:"ready"`
+	Enabled       bool              `json:"enabled"`
+	Driver        string            `json:"driver"`
+	Ready         bool              `json:"ready"`
+	EnforceAlways bool              `json:"enforce_always"`
+	Policies      map[string]string `json:"policies,omitempty"`
 }
 
 type caInfo struct {
-	Trusted bool   `json:"trusted"`
-	Scope   string `json:"scope"` // none | user | system
-	Expires string `json:"expires,omitempty"`
+	Trusted     bool   `json:"trusted"`
+	Scope       string `json:"scope"` // none | user | system
+	Expires     string `json:"expires,omitempty"`
+	Installed   bool   `json:"installed"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type proxyInfo struct {
@@ -77,13 +91,39 @@ type protectionLayers struct {
 	Proxy       proxyInfo    `json:"proxy"`
 }
 
+type configInfo struct {
+	Path             string `json:"path"`
+	Source           string `json:"source"` // user | global | global_locked
+	ProxyInstallOnly bool   `json:"proxy_install_only"`
+}
+
+type securityInfo struct {
+	TrustedPackages []string `json:"trusted_packages"`
+	Telemetry       bool     `json:"telemetry"`
+	EventLogging    bool     `json:"event_logging"`
+	EventLogDir     string   `json:"event_log_dir,omitempty"`
+}
+
+type cloudInfo struct {
+	Enabled     bool   `json:"enabled"`
+	SyncDB      string `json:"sync_db,omitempty"`
+	EndpointID  string `json:"endpoint_id,omitempty"`
+	Credentials string `json:"credentials,omitempty"`
+	AutoSync    string `json:"auto_sync,omitempty"`
+	LastSync    string `json:"last_sync,omitempty"`
+}
+
 type statusReport struct {
 	SchemaVersion int              `json:"schema_version"`
 	Version       string           `json:"version"`
+	Commit        string           `json:"commit"`
 	Health        health           `json:"health"`
 	Protected     bool             `json:"protected"`
+	Config        configInfo       `json:"config"`
+	Security      securityInfo     `json:"security"`
 	Shell         shellIntegration `json:"shell_integration"`
 	Layers        protectionLayers `json:"layers"`
+	Cloud         *cloudInfo       `json:"cloud,omitempty"`
 	Checks        []statusCheck    `json:"checks"`
 }
 
@@ -104,10 +144,14 @@ func buildStatusReport(cfg *config.RuntimeConfig, checks []doctor.CheckResult) s
 	return statusReport{
 		SchemaVersion: statusSchemaVersion,
 		Version:       version.Version,
+		Commit:        version.Commit,
 		Health:        h,
 		Protected:     protected,
+		Config:        collectConfigInfo(cfg),
+		Security:      collectSecurityInfo(cfg),
 		Shell:         collectShellIntegration(checks),
 		Layers:        collectLayers(cfg),
+		Cloud:         collectCloudInfo(cfg),
 		Checks:        toStatusChecks(checks),
 	}
 }
@@ -163,6 +207,27 @@ func collectShellIntegration(core []doctor.CheckResult) shellIntegration {
 	if c, ok := findCheck(core, checkShimInPath); ok {
 		si.ShimsInPath = c.Status == doctor.StatusPass
 	}
+
+	aliasCfg := alias.DefaultConfig()
+	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+	if err != nil {
+		log.Debugf("rc file manager unavailable; omitting alias rc file: %v", err)
+	} else {
+		aliasManager := alias.New(aliasCfg, rcFileManager)
+		installed, err := aliasManager.IsInstalled()
+		if err != nil {
+			log.Debugf("alias inspection failed; omitting alias rc file: %v", err)
+		} else if installed {
+			si.AliasRcFile = aliasManager.GetRcPath()
+		}
+	}
+
+	userBinDir, err := shim.UserBinDir()
+	if err != nil {
+		userBinDir = ""
+	}
+	si.UserShims = shimStatus{Installed: shim.UserShimsInstalled(), Dir: userBinDir}
+	si.SystemShims = shimStatus{Installed: shim.SystemShimsInstalled(), Dir: shim.SystemBinDir()}
 	return si
 }
 
@@ -177,14 +242,79 @@ func collectLayers(cfg *config.RuntimeConfig) protectionLayers {
 			Days:    cfg.Config.DependencyCooldown.Days,
 		},
 		Sandbox: sandboxInfo{
-			Enabled: cfg.Config.Sandbox.Enabled,
-			Driver:  driver,
-			Ready:   driver != "unavailable",
+			Enabled:       cfg.Config.Sandbox.Enabled,
+			Driver:        driver,
+			Ready:         driver != "unavailable",
+			EnforceAlways: cfg.Config.Sandbox.EnforceAlways,
+			Policies:      collectSandboxPolicies(cfg),
 		},
 		CA:    collectCAInfo(cfg),
 		Proxy: collectProxyInfo(cfg),
 	}
 	return layers
+}
+
+func collectSandboxPolicies(cfg *config.RuntimeConfig) map[string]string {
+	policies := cfg.Config.Sandbox.Policies
+	if len(policies) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(policies))
+	for name := range policies {
+		ref, _ := cfg.Config.Sandbox.PolicyFor(name)
+		status := "disabled"
+		if ref.Enabled {
+			status = ref.Profile
+		}
+		out[name] = status
+	}
+	return out
+}
+
+func collectConfigInfo(cfg *config.RuntimeConfig) configInfo {
+	source := "user"
+	if cfg.IsManaged() {
+		source = "global"
+		if cfg.IsLocked() {
+			source = "global_locked"
+		}
+	}
+
+	return configInfo{
+		Path:             cfg.ConfigFilePath(),
+		Source:           source,
+		ProxyInstallOnly: cfg.Config.Proxy.InstallOnly,
+	}
+}
+
+func collectSecurityInfo(cfg *config.RuntimeConfig) securityInfo {
+	purls := make([]string, 0, len(cfg.Config.TrustedPackages))
+	for _, p := range cfg.Config.TrustedPackages {
+		purls = append(purls, p.Purl)
+	}
+
+	return securityInfo{
+		TrustedPackages: purls,
+		Telemetry:       !analytics.IsDisabled(),
+		EventLogging:    !cfg.Config.SkipEventLogging,
+		EventLogDir:     cfg.EventLogDir(),
+	}
+}
+
+func collectCloudInfo(cfg *config.RuntimeConfig) *cloudInfo {
+	if !cfg.Config.Cloud.Enabled {
+		return nil
+	}
+
+	return &cloudInfo{
+		Enabled:     true,
+		SyncDB:      cfg.CloudSyncDBPath(),
+		EndpointID:  cfg.Config.Cloud.EndpointID,
+		Credentials: describeCloudCredentials(),
+		AutoSync:    describeAutoSync(cfg.Config.Cloud.AutoSync),
+		LastSync:    describeLastSync(cfg.CloudSyncLastRunPath()),
+	}
 }
 
 func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
@@ -204,9 +334,12 @@ func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
 		scope = "user"
 	}
 
-	ca := caInfo{Trusted: st.Trusted(), Scope: scope}
+	ca := caInfo{Trusted: st.Trusted(), Scope: scope, Installed: st.KeyPresent && st.CertPresent}
 	if st.CertPresent && !st.NotAfter.IsZero() {
 		ca.Expires = st.NotAfter.Format(time.RFC3339)
+	}
+	if st.CertPresent {
+		ca.Fingerprint = st.Fingerprint
 	}
 	return ca
 }
