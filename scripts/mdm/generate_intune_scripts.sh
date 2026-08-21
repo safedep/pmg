@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 LIB_SOURCE="${SCRIPT_DIR}/lib_macos.sh"
 INSTALL_SOURCE="${SCRIPT_DIR}/pmg_setup_install_macos.sh"
 UNINSTALL_SOURCE="${SCRIPT_DIR}/pmg_uninstall_macos.sh"
@@ -194,6 +194,9 @@ generate_scripts() {
   local output_dir="$1"
   local config_path="$2"
   local encoded_config=""
+  local resolved_output_dir
+  local install_output
+  local uninstall_output
 
   if [[ -n "$config_path" ]]; then
     [[ -f "$config_path" ]] || die "config file does not exist: $config_path"
@@ -203,8 +206,20 @@ generate_scripts() {
   fi
 
   mkdir -p "$output_dir"
-  generate_script "$INSTALL_SOURCE" "${output_dir}/pmg_setup_install_macos.sh" "$encoded_config"
-  generate_script "$UNINSTALL_SOURCE" "${output_dir}/pmg_uninstall_macos.sh" ""
+  resolved_output_dir=$(cd "$output_dir" && pwd -P) ||
+    die "could not resolve output directory: $output_dir"
+  install_output="${resolved_output_dir}/pmg_setup_install_macos.sh"
+  uninstall_output="${resolved_output_dir}/pmg_uninstall_macos.sh"
+
+  if [[ "$install_output" == "$INSTALL_SOURCE" ||
+    "$install_output" == "$UNINSTALL_SOURCE" ||
+    "$uninstall_output" == "$INSTALL_SOURCE" ||
+    "$uninstall_output" == "$UNINSTALL_SOURCE" ]]; then
+    die "output directory resolves to canonical source scripts; choose a different --output-dir: $output_dir"
+  fi
+
+  generate_script "$INSTALL_SOURCE" "$install_output" "$encoded_config"
+  generate_script "$UNINSTALL_SOURCE" "$uninstall_output" ""
 }
 
 output_dir="$DEFAULT_OUTPUT_DIR"

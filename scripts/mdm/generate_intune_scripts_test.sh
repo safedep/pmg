@@ -80,6 +80,16 @@ DIRECTORY_TARGET_OUT="${TEST_ROOT}/directory-target"
 mkdir -p "${DIRECTORY_TARGET_OUT}/pmg_setup_install_macos.sh"
 assert_fails "$GENERATOR" --output-dir "$DIRECTORY_TARGET_OUT"
 
+SOURCE_OVERWRITE_FIXTURE="${TEST_ROOT}/source-overwrite"
+mkdir -p "$SOURCE_OVERWRITE_FIXTURE"
+cp "$GENERATOR" \
+  "${SCRIPT_DIR}/lib_macos.sh" \
+  "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
+  "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
+  "$SOURCE_OVERWRITE_FIXTURE"
+assert_fails "${SOURCE_OVERWRITE_FIXTURE}/generate_intune_scripts.sh" \
+  --output-dir "$SOURCE_OVERWRITE_FIXTURE"
+
 CONFIG="${TEST_ROOT}/config.yml"
 cat > "$CONFIG" <<'EOF'
 global_lockdown: true
