@@ -93,7 +93,8 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 		env = prependPath(env, venvBin)
 	}
 
-	cmd := exec.Command(pmgBinary, append([]string{binary}, tc.InstallArgs...)...)
+	args := append([]string{binary}, tc.InstallArgs...)
+	cmd := exec.Command(pmgBinary, args...)
 	cmd.Dir = tmpDir
 	cmd.Env = env
 
