@@ -64,15 +64,18 @@ Configure custom registries under `proxy.registries`:
 ```yaml
 proxy:
   registries:
-    - name: company-npm
+    - name: npm-mirror
       ecosystem: npm
       endpoints:
         - url: https://packages.example.com/artifactory/api/npm/npm-virtual
-    - name: company-pypi
+    - name: pypi-mirror
       ecosystem: pypi
       endpoints:
         - url: https://packages.example.com/artifactory/api/pypi/python/simple
+        - url: https://artifacts.example.com/packages
 ```
+
+Both PyPI URLs belong to the same logical registry. Every metadata or artifact endpoint PMG should analyze must be listed explicitly; PMG does not automatically trust hosts discovered through metadata links or redirects.
 
 | Key | Description |
 |---|---|

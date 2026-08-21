@@ -50,14 +50,15 @@ proxy:
   # not protected by PMG's public-package malware analysis.
   registries: []
   # registries:
-  #   - name: company-npm
+  #   - name: npm-mirror
   #     ecosystem: npm
   #     endpoints:
   #       - url: https://packages.example.com/artifactory/api/npm/npm-virtual
-  #   - name: company-pypi
+  #   - name: pypi-mirror
   #     ecosystem: pypi
   #     endpoints:
   #       - url: https://packages.example.com/artifactory/api/pypi/python/simple
+  #       - url: https://artifacts.example.com/packages
 
   # Persistent proxy server (`pmg proxy start`) settings.
   server:
