@@ -26,10 +26,10 @@ CLOUD_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
 install_via_brew() {
   local brew_bin="$1"
   log "Installing/updating pmg via Homebrew"
-  if run_brew "$brew_bin" ls --versions safedep/tap/pmg &>/dev/null; then
-    run_brew "$brew_bin" upgrade safedep/tap/pmg || true
+  if run_brew "$brew_bin" ls --cask --versions safedep/tap/pmg &>/dev/null; then
+    run_brew "$brew_bin" upgrade --cask safedep/tap/pmg || true
   else
-    run_brew "$brew_bin" install safedep/tap/pmg
+    run_brew "$brew_bin" install --cask safedep/tap/pmg
   fi
 }
 
