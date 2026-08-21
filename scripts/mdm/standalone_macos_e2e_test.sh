@@ -64,7 +64,16 @@ assert_uninstalled() {
 }
 
 keychain_value() {
-  security find-generic-password -s safedep -a "$1" -w
+  local value
+  value=$(security find-generic-password -s safedep -a "$1" -w)
+  case "$value" in
+    go-keyring-base64:*)
+      printf '%s' "${value#go-keyring-base64:}" | /usr/bin/base64 -D
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
 }
 
 assert_keychain_absent() {
