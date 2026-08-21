@@ -243,7 +243,7 @@ configure_user() {
   log "Configuring pmg for $user"
   run_user_file "$user" "$PMG_BIN" setup install || { warn "setup failed for $user"; return; }
 
-  [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]] || return
+  [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]] || return 0
   if ! user_has_session "$user"; then
     log "  $user is not logged in; run 'pmg cloud login' in their session to enable cloud sync"
     return
