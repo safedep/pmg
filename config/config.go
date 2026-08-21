@@ -623,6 +623,20 @@ func LoadError() error {
 	return configLoadErr
 }
 
+func NewInvalidProxyRegistriesError(err error) error {
+	detail := err
+	var registriesErr *ProxyRegistriesError
+	if errors.As(err, &registriesErr) {
+		detail = registriesErr.Unwrap()
+	}
+
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.InvalidProxyRegistries).
+		WithHumanError(fmt.Sprintf("invalid proxy registries configuration: %v", detail)).
+		WithHelp("Fix the proxy.registries entries in your PMG configuration file, then retry.").
+		Wrap(err)
+}
+
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
 // Right now we only support loading from a config file using Viper. An
@@ -637,11 +651,7 @@ func loadConfig() error {
 
 	var registriesErr *ProxyRegistriesError
 	if errors.As(err, &registriesErr) {
-		return usefulerror.NewUsefulError().
-			WithCode(errcodes.InvalidProxyRegistries).
-			WithHumanError(fmt.Sprintf("invalid proxy registries configuration: %v", registriesErr.Unwrap())).
-			WithHelp("Fix the proxy.registries entries in your PMG configuration file, then retry.").
-			Wrap(err)
+		return NewInvalidProxyRegistriesError(err)
 	}
 
 	log.Warnf("Failed to load config, using defaults: %v", err)

@@ -538,15 +538,13 @@ func buildPypiSimple(pkg PypiPackage, filesBase string) []byte {
 // identity-bearing URL. The anchor text itself is only diagnostic.
 func buildPypiSimpleHTML(pkg PypiPackage, filesBase string) []byte {
 	norm := normalizePypiName(pkg.Name)
-	var b strings.Builder
-	b.WriteString("<!DOCTYPE html><html><body>\n")
+	body := []byte("<!DOCTYPE html><html><body>\n")
 	for _, v := range pkg.Versions {
 		filename := fmt.Sprintf("%s-%s.tar.gz", norm, v.Version)
 		url := pypiFileURL(v.FileURL, filesBase, norm, filename)
-		b.WriteString(fmt.Sprintf("<a href=%q>%s</a><br/>\n", url, filename))
+		body = fmt.Appendf(body, "<a href=%q>%s</a><br/>\n", url, filename)
 	}
-	b.WriteString("</body></html>")
-	return []byte(b.String())
+	return append(body, "</body></html>"...)
 }
 
 // pypiFileURL returns override if set, otherwise the canonical hash-directory

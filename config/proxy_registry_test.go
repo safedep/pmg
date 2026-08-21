@@ -514,3 +514,30 @@ proxy:
 		})
 	}
 }
+
+func TestProxyRegistriesLoadErrorKeepsConfigReadable(t *testing.T) {
+	originalConfig := globalConfig
+	t.Cleanup(func() {
+		globalConfig = originalConfig
+		configLoadErr = nil
+	})
+
+	configDir := t.TempDir()
+	t.Setenv(pmgConfigDirEnvKey, configDir)
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, pmgConfigFileName), []byte(`
+paranoid: true
+proxy:
+  registries:
+    - name: packages
+      ecosystem: maven
+      endpoints:
+        - url: https://packages.example.test/npm
+`), 0o644))
+
+	initConfig()
+	require.Error(t, LoadError())
+
+	value, err := GetConfigValue("paranoid")
+	require.NoError(t, err)
+	assert.Equal(t, true, value)
+}

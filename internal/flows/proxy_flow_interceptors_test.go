@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/stretchr/testify/assert"
@@ -33,4 +35,21 @@ func TestBuildProxyFlowInterceptorsWiresCustomRegistries(t *testing.T) {
 	auditLogger, ok := got[1].(*interceptors.AuditLoggerInterceptor)
 	require.True(t, ok)
 	assert.Equal(t, "audit-logger-interceptor", auditLogger.Name())
+}
+
+func TestBuildProxyFlowInterceptorsReturnsUsefulErrorForBuiltInOverlap(t *testing.T) {
+	cfg := &config.RuntimeConfig{Config: config.Config{Proxy: config.ProxyConfig{
+		Registries: []config.ProxyRegistryConfig{{
+			Name:      "npm-overlap",
+			Ecosystem: "npm",
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://registry.npmjs.org/npm"}},
+		}},
+	}}}
+
+	_, err := buildProxyFlowInterceptors(nil, nil, nil, nil, packagev1.Ecosystem_ECOSYSTEM_NPM, cfg, interceptors.InterceptorContext{})
+	require.Error(t, err)
+
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, errcodes.InvalidProxyRegistries, usefulErr.Code())
 }

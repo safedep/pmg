@@ -51,12 +51,12 @@ func loadViperConfig() error {
 	if err := v.Unmarshal(&merged); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+	globalConfig.viper = v
 	if err := ValidateProxyRegistries(merged.Proxy.Registries); err != nil {
 		return &ProxyRegistriesError{err: err}
 	}
 
 	globalConfig.Config = merged
-	globalConfig.viper = v
 
 	// Resolve proxy config: new proxy section > legacy flat keys.
 	// Viper can't distinguish "value from template" vs "value from user config"

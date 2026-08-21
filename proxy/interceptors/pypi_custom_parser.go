@@ -41,7 +41,7 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	// PEP 503, a bare one-segment path there is always the project's index
 	// page, never a download, even if the project's own name parses as a
 	// filename.
-	if !(p.baseEndsInSimple && len(segments) == 1) {
+	if !p.baseEndsInSimple || len(segments) != 1 {
 		// MatchURL already decoded the path, so the segment is parsed as
 		// received: decoding again would misattribute once-encoded names.
 		if info, err := parseFilename(segments[len(segments)-1]); err == nil {

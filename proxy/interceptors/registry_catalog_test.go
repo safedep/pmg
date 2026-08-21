@@ -58,3 +58,9 @@ func TestRegistryCatalogReturnsIndependentSets(t *testing.T) {
 	second := catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_NPM)
 	assert.NotEqual(t, "mutated.test", second.entries[0].Host)
 }
+
+func TestRegistryEcosystemRejectsInvalidValue(t *testing.T) {
+	assert.Panics(t, func() {
+		registryEcosystem("maven")
+	})
+}

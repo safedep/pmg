@@ -43,7 +43,7 @@ func NewInterceptorFactory(
 ) (*InterceptorFactory, error) {
 	catalog, err := NewRegistryCatalog(registries)
 	if err != nil {
-		return nil, err
+		return nil, config.NewInvalidProxyRegistriesError(err)
 	}
 	return &InterceptorFactory{
 		analyzer:         analyzer,

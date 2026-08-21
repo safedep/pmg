@@ -146,10 +146,14 @@ func (c *RegistryCatalog) builtInForHostname(hostname string) *registryEndpoint 
 }
 
 func registryEcosystem(ecosystem string) packagev1.Ecosystem {
-	if ecosystem == "pypi" {
+	switch ecosystem {
+	case "npm":
+		return packagev1.Ecosystem_ECOSYSTEM_NPM
+	case "pypi":
 		return packagev1.Ecosystem_ECOSYSTEM_PYPI
+	default:
+		panic(fmt.Sprintf("unsupported validated registry ecosystem %q", ecosystem))
 	}
-	return packagev1.Ecosystem_ECOSYSTEM_NPM
 }
 
 func customRegistryParser(ecosystem packagev1.Ecosystem, u *url.URL) registryURLParser {
