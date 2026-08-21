@@ -62,7 +62,7 @@ for output in "$INSTALL_ONE" "$UNINSTALL_ONE" "$INSTALL_TWO" "$UNINSTALL_TWO"; d
   assert_executable "$output"
   bash -n "$output"
   assert_one_shebang "$output"
-  assert_not_contains "$output" 'source "${SCRIPT_DIR}/lib_macos.sh"'
+  assert_not_contains "$output" "source \"\${SCRIPT_DIR}/lib_macos.sh\""
   assert_contains "$output" 'require_macos()'
   assert_contains "$output" 'each_target_user()'
   assert_contains "$output" 'run_user_session()'
