@@ -75,12 +75,71 @@ func TestRunProtectionCheckSkipsWhenOnlyShimOnPath(t *testing.T) {
 	tc := ProtectionTestCase{
 		PackageManager: "npm",
 		Package:        "safedep-test-pkg@0.1.3",
-		InstallArgs:    []string{"npm", "install", "safedep-test-pkg@0.1.3"},
+		InstallArgs:    []string{"install", "safedep-test-pkg@0.1.3"},
 	}
 
 	result := RunProtectionCheck(tc, filepath.Join(tmp, "nonexistent-pmg"))
 	assert.Equal(t, StatusWarn, result.Status)
 	assert.Contains(t, result.Message, "not available")
+}
+
+func TestResolveProtectionBinary(t *testing.T) {
+	tests := []struct {
+		name       string
+		available  []string
+		tc         ProtectionTestCase
+		wantBinary string
+		wantFound  bool
+	}{
+		{
+			name:       "primary preferred when both available",
+			available:  []string{"pip", "pip3"},
+			tc:         ProtectionTestCase{PackageManager: "pip", Fallbacks: []string{"pip3"}},
+			wantBinary: "pip",
+			wantFound:  true,
+		},
+		{
+			name:       "falls back to pip3 when pip is absent",
+			available:  []string{"pip3"},
+			tc:         ProtectionTestCase{PackageManager: "pip", Fallbacks: []string{"pip3"}},
+			wantBinary: "pip3",
+			wantFound:  true,
+		},
+		{
+			name:      "none available",
+			tc:        ProtectionTestCase{PackageManager: "pip", Fallbacks: []string{"pip3"}},
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			for _, name := range tt.available {
+				require.NoError(t, os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o755))
+			}
+			t.Setenv("PATH", binDir)
+
+			binary, found := resolveProtectionBinary(tt.tc)
+			assert.Equal(t, tt.wantFound, found)
+			assert.Equal(t, tt.wantBinary, binary)
+		})
+	}
+}
+
+func TestRunProtectionCheckReportsAllCandidatesWhenNoneAvailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	tc := ProtectionTestCase{
+		PackageManager: "pip",
+		Fallbacks:      []string{"pip3"},
+		Package:        "safedep-test-pkg==0.0.4",
+		InstallArgs:    []string{"install", "safedep-test-pkg==0.0.4"},
+	}
+
+	result := RunProtectionCheck(tc, "pmg")
+	assert.Equal(t, StatusWarn, result.Status)
+	assert.Contains(t, result.Message, "pip/pip3 not available")
 }
 
 func TestProtectionTestCases(t *testing.T) {
@@ -93,12 +152,14 @@ func TestProtectionTestCases(t *testing.T) {
 		if tc.PackageManager == "npm" {
 			hasNpm = true
 			assert.False(t, tc.NeedsVenv)
+			assert.Empty(t, tc.Fallbacks)
 			assert.Contains(t, tc.InstallArgs, "--no-cache")
 			assert.Contains(t, tc.InstallArgs, "--prefer-online")
 		}
 		if tc.PackageManager == "pip" {
 			hasPip = true
 			assert.True(t, tc.NeedsVenv)
+			assert.Equal(t, []string{"pip3"}, tc.Fallbacks)
 			assert.Contains(t, tc.InstallArgs, "--no-cache-dir")
 		}
 	}
