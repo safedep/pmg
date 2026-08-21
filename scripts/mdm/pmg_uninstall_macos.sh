@@ -49,7 +49,7 @@ done < <(each_target_user)
 
 remove_binary() {
   local brew_bin
-  if brew_bin=$(find_brew) && run_brew "$brew_bin" ls --cask --versions safedep/tap/pmg &>/dev/null; then
+  if brew_bin=$(find_brew) && run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
     log "Uninstalling pmg via Homebrew"
     run_brew "$brew_bin" uninstall --cask safedep/tap/pmg || warn "brew uninstall failed"
     return
