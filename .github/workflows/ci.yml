@@ -61,8 +61,8 @@ jobs:
             scripts/mdm/pmg_uninstall_macos.sh \
             scripts/mdm/generate_standalone_scripts.sh \
             scripts/mdm/generate_standalone_scripts_test.sh \
-            scripts/mdm/standalone/pmg_setup_install_macos.sh \
-            scripts/mdm/standalone/pmg_uninstall_macos.sh
+            scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh \
+            scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh
 
   # Runs the darwin-tagged tests (sandbox/platform/*_darwin_test.go) that no
   # other job can execute. Convention for darwin integration tests requiring

@@ -208,15 +208,8 @@ generate_scripts() {
   mkdir -p "$output_dir"
   resolved_output_dir=$(cd "$output_dir" && pwd -P) ||
     die "could not resolve output directory: $output_dir"
-  install_output="${resolved_output_dir}/pmg_setup_install_macos.sh"
-  uninstall_output="${resolved_output_dir}/pmg_uninstall_macos.sh"
-
-  if [[ "$install_output" == "$INSTALL_SOURCE" ||
-    "$install_output" == "$UNINSTALL_SOURCE" ||
-    "$uninstall_output" == "$INSTALL_SOURCE" ||
-    "$uninstall_output" == "$UNINSTALL_SOURCE" ]]; then
-    die "output directory resolves to canonical source scripts; choose a different --output-dir: $output_dir"
-  fi
+  install_output="${resolved_output_dir}/pmg_setup_install_macos_standalone.sh"
+  uninstall_output="${resolved_output_dir}/pmg_uninstall_macos_standalone.sh"
 
   generate_script "$INSTALL_SOURCE" "$install_output" "$encoded_config"
   generate_script "$UNINSTALL_SOURCE" "$uninstall_output" ""
@@ -270,11 +263,11 @@ if [[ "$check" -eq 1 ]]; then
   [[ "$output_dir_set" -eq 0 ]] || die "--check cannot be used with --output-dir"
   CHECK_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pmg-standalone-check.XXXXXX")
   generate_scripts "$CHECK_TEMP_DIR" ""
-  cmp "${CHECK_TEMP_DIR}/pmg_setup_install_macos.sh" \
-    "${DEFAULT_OUTPUT_DIR}/pmg_setup_install_macos.sh" >/dev/null ||
+  cmp "${CHECK_TEMP_DIR}/pmg_setup_install_macos_standalone.sh" \
+    "${DEFAULT_OUTPUT_DIR}/pmg_setup_install_macos_standalone.sh" >/dev/null ||
     die "committed standalone installer is out of date"
-  cmp "${CHECK_TEMP_DIR}/pmg_uninstall_macos.sh" \
-    "${DEFAULT_OUTPUT_DIR}/pmg_uninstall_macos.sh" >/dev/null ||
+  cmp "${CHECK_TEMP_DIR}/pmg_uninstall_macos_standalone.sh" \
+    "${DEFAULT_OUTPUT_DIR}/pmg_uninstall_macos_standalone.sh" >/dev/null ||
     die "committed standalone uninstaller is out of date"
   echo "Generated standalone MDM scripts are current"
   exit 0

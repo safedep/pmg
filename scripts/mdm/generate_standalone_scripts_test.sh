@@ -52,10 +52,10 @@ OUT_TWO="${TEST_ROOT}/two"
 "$GENERATOR" --output-dir "$OUT_ONE"
 "$GENERATOR" --output-dir "$OUT_TWO"
 
-INSTALL_ONE="${OUT_ONE}/pmg_setup_install_macos.sh"
-UNINSTALL_ONE="${OUT_ONE}/pmg_uninstall_macos.sh"
-INSTALL_TWO="${OUT_TWO}/pmg_setup_install_macos.sh"
-UNINSTALL_TWO="${OUT_TWO}/pmg_uninstall_macos.sh"
+INSTALL_ONE="${OUT_ONE}/pmg_setup_install_macos_standalone.sh"
+UNINSTALL_ONE="${OUT_ONE}/pmg_uninstall_macos_standalone.sh"
+INSTALL_TWO="${OUT_TWO}/pmg_setup_install_macos_standalone.sh"
+UNINSTALL_TWO="${OUT_TWO}/pmg_uninstall_macos_standalone.sh"
 
 for output in "$INSTALL_ONE" "$UNINSTALL_ONE" "$INSTALL_TWO" "$UNINSTALL_TWO"; do
   assert_file "$output"
@@ -78,7 +78,7 @@ assert_contains "$UNINSTALL_ONE" 'remove_user_state()'
 assert_contains "$UNINSTALL_ONE" 'remove_binary()'
 
 DIRECTORY_TARGET_OUT="${TEST_ROOT}/directory-target"
-mkdir -p "${DIRECTORY_TARGET_OUT}/pmg_setup_install_macos.sh"
+mkdir -p "${DIRECTORY_TARGET_OUT}/pmg_setup_install_macos_standalone.sh"
 assert_fails "$GENERATOR" --output-dir "$DIRECTORY_TARGET_OUT"
 
 SOURCE_OVERWRITE_FIXTURE="${TEST_ROOT}/source-overwrite"
@@ -88,8 +88,14 @@ cp "$GENERATOR" \
   "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
   "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
   "$SOURCE_OVERWRITE_FIXTURE"
-assert_fails "${SOURCE_OVERWRITE_FIXTURE}/generate_standalone_scripts.sh" \
+"${SOURCE_OVERWRITE_FIXTURE}/generate_standalone_scripts.sh" \
   --output-dir "$SOURCE_OVERWRITE_FIXTURE"
+cmp "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
+  "${SOURCE_OVERWRITE_FIXTURE}/pmg_setup_install_macos.sh"
+cmp "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
+  "${SOURCE_OVERWRITE_FIXTURE}/pmg_uninstall_macos.sh"
+assert_file "${SOURCE_OVERWRITE_FIXTURE}/pmg_setup_install_macos_standalone.sh"
+assert_file "${SOURCE_OVERWRITE_FIXTURE}/pmg_uninstall_macos_standalone.sh"
 
 CONFIG="${TEST_ROOT}/config.yml"
 cat > "$CONFIG" <<'EOF'
@@ -101,8 +107,8 @@ EOF
 CONFIG_OUT="${TEST_ROOT}/configured"
 "$GENERATOR" --config "$CONFIG" --output-dir "$CONFIG_OUT"
 
-CONFIG_INSTALL="${CONFIG_OUT}/pmg_setup_install_macos.sh"
-CONFIG_UNINSTALL="${CONFIG_OUT}/pmg_uninstall_macos.sh"
+CONFIG_INSTALL="${CONFIG_OUT}/pmg_setup_install_macos_standalone.sh"
+CONFIG_UNINSTALL="${CONFIG_OUT}/pmg_uninstall_macos_standalone.sh"
 
 assert_contains "$CONFIG_INSTALL" 'EMBEDDED_GLOBAL_CONFIG_B64='
 assert_not_contains "$CONFIG_UNINSTALL" 'EMBEDDED_GLOBAL_CONFIG_B64='

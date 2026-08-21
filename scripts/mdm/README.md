@@ -7,8 +7,8 @@ Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS fleets through 
 | `pmg_setup_install_macos.sh` | Install the binary and configure every user (config, aliases, shims, optional cloud sync) |
 | `pmg_uninstall_macos.sh` | Remove per-user state, Keychain credentials, and the binary |
 | `lib_macos.sh` | Shared helpers. Deploy it alongside the other two. |
-| `standalone/pmg_setup_install_macos.sh` | Generated installer for single-script MDM policies |
-| `standalone/pmg_uninstall_macos.sh` | Generated uninstaller for single-script MDM policies |
+| `standalone/pmg_setup_install_macos_standalone.sh` | Generated installer for single-script MDM policies |
+| `standalone/pmg_uninstall_macos_standalone.sh` | Generated uninstaller for single-script MDM policies |
 | `generate_standalone_scripts.sh` | Regenerates standalone scripts and optionally embeds `config.yml` |
 | `config.yml` *(optional)* | When present in the package, the install script deploys it as the machine-wide globally managed config |
 
@@ -90,9 +90,9 @@ Microsoft Intune accepts one script per policy. Use the generated scripts in [`s
 
 To install PMG:
 
-1. Download [`scripts/mdm/standalone/pmg_setup_install_macos.sh`](standalone/pmg_setup_install_macos.sh).
+1. Download [`scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh`](standalone/pmg_setup_install_macos_standalone.sh).
 2. In Intune, go to **Devices > By platform > macOS > Manage devices > Scripts > Add**.
-3. Upload `pmg_setup_install_macos.sh`.
+3. Upload `pmg_setup_install_macos_standalone.sh`.
 4. Set **Run script as signed-in user** to **No** so that the script runs as root.
 5. Set the frequency to **Not configured** for a one-time deployment.
 6. Configure the retry count for your deployment.
@@ -104,11 +104,11 @@ The published standalone installer contains no organization config. To embed a g
 ./generate_standalone_scripts.sh --config /path/to/config.yml --output-dir ./pmg-intune
 ```
 
-Upload `./pmg-intune/pmg_setup_install_macos.sh` instead of the published installer. The installer writes the config before it configures users.
+Upload `./pmg-intune/pmg_setup_install_macos_standalone.sh` instead of the published installer. The installer writes the config before it configures users.
 
 Intune administrators can view the embedded config in the uploaded script. Do not put API keys or other secrets in this config.
 
-Create a separate policy for [`scripts/mdm/standalone/pmg_uninstall_macos.sh`](standalone/pmg_uninstall_macos.sh). Run it as root. Do not assign the install and uninstall policies at the same time because Intune can run them concurrently.
+Create a separate policy for [`scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh`](standalone/pmg_uninstall_macos_standalone.sh). Run it as root. Do not assign the install and uninstall policies at the same time because Intune can run them concurrently.
 
 ## Jamf example
 
@@ -142,6 +142,6 @@ shellcheck -x \
   pmg_uninstall_macos.sh \
   generate_standalone_scripts.sh \
   generate_standalone_scripts_test.sh \
-  standalone/pmg_setup_install_macos.sh \
-  standalone/pmg_uninstall_macos.sh
+  standalone/pmg_setup_install_macos_standalone.sh \
+  standalone/pmg_uninstall_macos_standalone.sh
 ```
