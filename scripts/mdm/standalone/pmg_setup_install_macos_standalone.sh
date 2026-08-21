@@ -187,7 +187,7 @@ install_via_brew() {
 
 install_via_release() {
   log "Homebrew not found, installing pmg from GitHub releases"
-  local install_dir="/usr/local/bin" tag asset url checksums_url tmpdir expected actual
+  local install_dir="/usr/local/bin" tag asset url checksums_url expected actual
 
   tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" | sed 's|.*/||')
   [[ -n "$tag" ]] || { echo "Error: could not determine latest release" >&2; exit 1; }
