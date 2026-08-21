@@ -60,10 +60,15 @@ func resolveProtectionBinary(tc ProtectionTestCase) (string, bool) {
 func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 	binary, found := resolveProtectionBinary(tc)
 	if !found {
-		return CheckResult{
-			Status:  StatusWarn,
-			Message: fmt.Sprintf("%s not available — skipping protection test for %s", strings.Join(tc.binaries(), "/"), tc.Package),
+		if !tc.NeedsVenv {
+			return CheckResult{
+				Status:  StatusWarn,
+				Message: fmt.Sprintf("%s not available — skipping protection test for %s", strings.Join(tc.binaries(), "/"), tc.Package),
+			}
 		}
+		// Venv-based tests supply their own binary: python3 -m venv bootstraps
+		// pip into the venv, whose bin dir is prepended to PATH for the pmg run.
+		binary = tc.PackageManager
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pmg-doctor-*")

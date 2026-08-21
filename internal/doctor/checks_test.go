@@ -142,6 +142,38 @@ func TestRunProtectionCheckReportsAllCandidatesWhenNoneAvailable(t *testing.T) {
 	assert.Contains(t, result.Message, "pip/pip3 not available")
 }
 
+func TestRunProtectionCheckUsesVenvPipWhenNoSystemPip(t *testing.T) {
+	realPython, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+
+	binDir := t.TempDir()
+	require.NoError(t, os.Symlink(realPython, filepath.Join(binDir, "python3")))
+
+	argvFile := filepath.Join(t.TempDir(), "argv.txt")
+	pmgStub := filepath.Join(binDir, "pmg-stub")
+	stub := fmt.Sprintf("#!/bin/sh\necho \"$@\" > %s\necho '%s'\nexit 1\n", argvFile, ui.MalwareBlockedHeadline)
+	require.NoError(t, os.WriteFile(pmgStub, []byte(stub), 0o755))
+
+	t.Setenv("PATH", binDir)
+
+	var pipCase ProtectionTestCase
+	for _, tc := range ProtectionTestCases() {
+		if tc.PackageManager == "pip" {
+			pipCase = tc
+		}
+	}
+	require.True(t, pipCase.NeedsVenv)
+
+	result := RunProtectionCheck(pipCase, pmgStub)
+	assert.Equal(t, StatusPass, result.Status)
+
+	argv, err := os.ReadFile(argvFile)
+	require.NoError(t, err)
+	assert.Equal(t, "pip install --no-cache-dir safedep-test-pkg==0.0.4", strings.TrimSpace(string(argv)))
+}
+
 func TestProtectionTestCases(t *testing.T) {
 	cases := ProtectionTestCases()
 	require.GreaterOrEqual(t, len(cases), 2)
