@@ -72,9 +72,15 @@ type caInfo struct {
 }
 
 type proxyInfo struct {
-	Running bool   `json:"running"`
-	Addr    string `json:"addr,omitempty"`
-	PID     int    `json:"pid,omitempty"`
+	Running    bool           `json:"running"`
+	Addr       string         `json:"addr,omitempty"`
+	PID        int            `json:"pid,omitempty"`
+	Registries []registryInfo `json:"registries,omitempty"`
+}
+
+type registryInfo struct {
+	Name      string `json:"name"`
+	Ecosystem string `json:"ecosystem"`
 }
 
 type protectionLayers struct {
@@ -339,11 +345,18 @@ func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
 }
 
 func collectProxyInfo(cfg *config.RuntimeConfig) proxyInfo {
-	st := proxyserver.GetStatus(proxyserver.ResolveStatePath("", cfg.CacheDir()))
-	if !st.Found || !st.Running {
-		return proxyInfo{}
+	info := proxyInfo{}
+	if st := proxyserver.GetStatus(proxyserver.ResolveStatePath("", cfg.CacheDir())); st.Found && st.Running {
+		info.Running = true
+		info.Addr = st.Addr
+		info.PID = st.PID
 	}
-	return proxyInfo{Running: true, Addr: st.Addr, PID: st.PID}
+	// Custom registries are surfaced even when the daemon is not running:
+	// interception works per-command too.
+	for _, r := range cfg.Config.Proxy.Registries {
+		info.Registries = append(info.Registries, registryInfo{Name: r.Name, Ecosystem: r.Ecosystem})
+	}
+	return info
 }
 
 func toStatusChecks(results []doctor.CheckResult) []statusCheck {

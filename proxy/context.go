@@ -13,17 +13,20 @@ import (
 
 func newRequestContext(req *http.Request) (*RequestContext, error) {
 	var hostname string
+	var port string
 	// Extract hostname - for MITM'd requests, URL might be relative
 	// so we need to check the Host header
 	if req.URL != nil {
 		hostname = req.URL.Hostname()
+		port = req.URL.Port()
 	}
 
 	if hostname == "" && req.Host != "" {
 		// For MITM requests, the URL is relative but Host header contains the hostname
 		hostname = req.Host
-		if host, _, err := net.SplitHostPort(req.Host); err == nil {
+		if host, parsedPort, err := net.SplitHostPort(req.Host); err == nil {
 			hostname = host
+			port = parsedPort
 		}
 	}
 
@@ -37,6 +40,7 @@ func newRequestContext(req *http.Request) (*RequestContext, error) {
 		Method:    req.Method,
 		Headers:   req.Header,
 		Hostname:  hostname,
+		Port:      port,
 		RequestID: requestID,
 		StartTime: time.Now(),
 		Data:      make(map[string]interface{}),
@@ -70,6 +74,7 @@ func newRequestContextFromURL(urlStr string, method string) (*RequestContext, er
 		Method:    method,
 		Headers:   make(http.Header),
 		Hostname:  parsedURL.Hostname(),
+		Port:      parsedURL.Port(),
 		RequestID: requestID,
 		StartTime: time.Now(),
 		Data:      make(map[string]interface{}),

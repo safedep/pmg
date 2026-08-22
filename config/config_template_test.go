@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,10 +41,10 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	err := v.ReadConfig(strings.NewReader(templateConfig))
-	assert.NoError(t, err, "expected no error while reading config")
+	require.NoError(t, err, "expected no error while reading config")
 
 	err = v.Unmarshal(&parsed)
-	assert.NoError(t, err, "expected no error while unmarshalling config")
+	require.NoError(t, err, "expected no error while unmarshalling config")
 
 	def := DefaultConfig().Config
 
@@ -64,4 +65,11 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.Equal(t, def.AdvisoryMessage, parsed.AdvisoryMessage, "advisory_message mismatch")
 
 	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
+	assert.Empty(t, def.Proxy.Registries, "default proxy.registries must be empty")
+	assert.Empty(t, parsed.Proxy.Registries, "template proxy.registries must be empty")
+}
+
+func TestTemplateHasCommentedRegistryExample(t *testing.T) {
+	assert.Contains(t, templateConfig, "\n  # registries:\n",
+		"expected a commented-out registries example")
 }
