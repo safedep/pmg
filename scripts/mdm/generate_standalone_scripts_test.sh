@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 GENERATOR="${SCRIPT_DIR}/generate_standalone_scripts.sh"
-TEST_ROOT=$(mktemp -d)
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/pmg-generator-test.XXXXXX")
 
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
@@ -16,8 +16,20 @@ assert_file() {
   [[ -f "$1" ]] || fail "missing file: $1"
 }
 
+assert_absent() {
+  [[ ! -e "$1" && ! -L "$1" ]] || fail "path unexpectedly exists: $1"
+}
+
 assert_executable() {
   [[ -x "$1" ]] || fail "file is not executable: $1"
+}
+
+assert_equals() {
+  local expected="$1"
+  local actual="$2"
+  local message="$3"
+  [[ "$actual" == "$expected" ]] ||
+    fail "$message: expected '$expected', got '$actual'"
 }
 
 assert_contains() {
@@ -46,8 +58,65 @@ assert_fails() {
   fi
 }
 
-OUT_ONE="${TEST_ROOT}/one"
-OUT_TWO="${TEST_ROOT}/two"
+decode_base64() {
+  if printf '' | base64 --decode >/dev/null 2>&1; then
+    base64 --decode
+  else
+    base64 -D
+  fi
+}
+
+encode_base64() {
+  base64 | tr -d '\r\n'
+}
+
+file_mode() {
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
+    stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
+  fi
+}
+
+assert_variant() {
+  local variant="$1"
+  local installer="$2"
+  local uninstaller="$3"
+  local has_config="$4"
+  local has_credentials="$5"
+  local expected_installer_mode="$6"
+
+  echo "Verifying variant: $variant"
+  if [[ "$has_config" == "yes" ]]; then
+    assert_contains "$installer" "EMBEDDED_GLOBAL_CONFIG_B64='"
+  else
+    assert_not_contains "$installer" "EMBEDDED_GLOBAL_CONFIG_B64='"
+  fi
+  if [[ "$has_credentials" == "yes" ]]; then
+    assert_contains "$installer" "EMBEDDED_SAFEDEP_API_KEY_B64='"
+    assert_contains "$installer" "EMBEDDED_SAFEDEP_TENANT_ID_B64='"
+  else
+    assert_not_contains "$installer" "EMBEDDED_SAFEDEP_API_KEY_B64='"
+    assert_not_contains "$installer" "EMBEDDED_SAFEDEP_TENANT_ID_B64='"
+  fi
+  assert_not_contains "$uninstaller" "EMBEDDED_GLOBAL_CONFIG_B64='"
+  assert_not_contains "$uninstaller" "EMBEDDED_SAFEDEP_API_KEY_B64='"
+  assert_not_contains "$uninstaller" "EMBEDDED_SAFEDEP_TENANT_ID_B64='"
+  assert_not_contains "$installer" "$TEST_API_KEY"
+  assert_not_contains "$installer" "$TEST_TENANT_ID"
+  assert_not_contains "$uninstaller" "$TEST_API_KEY"
+  assert_not_contains "$uninstaller" "$TEST_TENANT_ID"
+  assert_equals "$expected_installer_mode" "$(file_mode "$installer")" \
+    "$variant installer mode"
+  assert_equals "755" "$(file_mode "$uninstaller")" \
+    "$variant uninstaller mode"
+}
+
+TEST_API_KEY="pmg-generator-test-api-key"
+TEST_TENANT_ID="pmg-generator-test-tenant"
+
+OUT_ONE="${TEST_ROOT}/pmg-only"
+OUT_TWO="${TEST_ROOT}/pmg-only-repeat"
 
 "$GENERATOR" --output-dir "$OUT_ONE"
 "$GENERATOR" --output-dir "$OUT_TWO"
@@ -104,7 +173,7 @@ cloud:
   enabled: true
 EOF
 
-CONFIG_OUT="${TEST_ROOT}/configured"
+CONFIG_OUT="${TEST_ROOT}/config-only"
 "$GENERATOR" --config "$CONFIG" --output-dir "$CONFIG_OUT"
 
 CONFIG_INSTALL="${CONFIG_OUT}/pmg_setup_install_macos_standalone.sh"
@@ -112,11 +181,44 @@ CONFIG_UNINSTALL="${CONFIG_OUT}/pmg_uninstall_macos_standalone.sh"
 
 assert_contains "$CONFIG_INSTALL" 'EMBEDDED_GLOBAL_CONFIG_B64='
 assert_not_contains "$CONFIG_UNINSTALL" 'EMBEDDED_GLOBAL_CONFIG_B64='
+assert_not_contains "$GENERATOR" 'install_global_config "$embedded_config_tmp"'
+assert_equals "755" "$(file_mode "$CONFIG_INSTALL")" "config installer mode"
+assert_equals "755" "$(file_mode "$CONFIG_UNINSTALL")" "config uninstaller mode"
 
 embedded_line=$(grep -Fnm1 'EMBEDDED_GLOBAL_CONFIG_B64=' "$CONFIG_INSTALL" | cut -d: -f1)
-setup_line=$(grep -Fnm1 'configure_user()' "$CONFIG_INSTALL" | cut -d: -f1)
-[[ "$embedded_line" -lt "$setup_line" ]] ||
-  fail "embedded config must appear before per-user setup"
+lib_line_count=$(wc -l < "${SCRIPT_DIR}/lib_macos.sh")
+installer_body_line=$(grep -Fnm1 '# pmg_setup_install_macos.sh' "$CONFIG_INSTALL" | cut -d: -f1)
+assert_equals "$((lib_line_count + 2))" "$embedded_line" \
+  "embedded config declaration position"
+assert_equals "$((embedded_line + 1))" "$installer_body_line" \
+  "canonical installer body position"
+
+MARKER_FIXTURE="${TEST_ROOT}/marker-fixture"
+mkdir -p "$MARKER_FIXTURE"
+cp "$GENERATOR" \
+  "${SCRIPT_DIR}/lib_macos.sh" \
+  "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
+  "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
+  "$MARKER_FIXTURE"
+awk '
+  NR > 1 && /^#/ && $0 != "# shellcheck source=lib_macos.sh" {
+    printf "# Fixture installer prose %d\n", NR
+    next
+  }
+  { print }
+' "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
+  > "${MARKER_FIXTURE}/pmg_setup_install_macos.sh"
+if cmp -s \
+  "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
+  "${MARKER_FIXTURE}/pmg_setup_install_macos.sh"; then
+  fail "marker-independence fixture did not change installer prose"
+fi
+"${MARKER_FIXTURE}/generate_standalone_scripts.sh" \
+  --config "$CONFIG" \
+  --output-dir "${MARKER_FIXTURE}/output"
+assert_contains \
+  "${MARKER_FIXTURE}/output/pmg_setup_install_macos_standalone.sh" \
+  'EMBEDDED_GLOBAL_CONFIG_B64='
 
 assert_fails "$GENERATOR" \
   --config "${TEST_ROOT}/missing.yml" \
@@ -129,5 +231,247 @@ assert_fails "$GENERATOR" \
   --output-dir "${TEST_ROOT}/empty-output"
 
 assert_fails "$GENERATOR" --config "$CONFIG"
+
+OVERSIZED_CONFIG="${TEST_ROOT}/oversized-intune-config.yml"
+OVERSIZED_STDERR="${TEST_ROOT}/oversized-intune.stderr"
+OVERSIZED_OUTPUT="${TEST_ROOT}/oversized-intune-output"
+awk 'BEGIN {
+  printf "padding: "
+  for (i = 0; i < 800000; i++) {
+    printf "x"
+  }
+  printf "\n"
+}' > "$OVERSIZED_CONFIG"
+[[ "$(wc -c < "$OVERSIZED_CONFIG")" -lt 1048576 ]] ||
+  fail "oversized installer fixture config must remain smaller than 1 MB"
+if "$GENERATOR" \
+  --config "$OVERSIZED_CONFIG" \
+  --output-dir "$OVERSIZED_OUTPUT" \
+  >/dev/null 2>"$OVERSIZED_STDERR"; then
+  fail "Intune must reject a generated installer larger than 1 MB"
+fi
+assert_contains "$OVERSIZED_STDERR" \
+  "must be smaller than 1048576 bytes"
+assert_absent "${OVERSIZED_OUTPUT}/pmg_setup_install_macos_standalone.sh"
+assert_absent "${OVERSIZED_OUTPUT}/pmg_uninstall_macos_standalone.sh"
+
+OVERSIZED_EXISTING_OUTPUT="${TEST_ROOT}/oversized-intune-existing-output"
+mkdir -p "$OVERSIZED_EXISTING_OUTPUT"
+printf '%s\n' "existing installer" \
+  > "${OVERSIZED_EXISTING_OUTPUT}/pmg_setup_install_macos_standalone.sh"
+printf '%s\n' "existing uninstaller" \
+  > "${OVERSIZED_EXISTING_OUTPUT}/pmg_uninstall_macos_standalone.sh"
+assert_fails "$GENERATOR" \
+  --config "$OVERSIZED_CONFIG" \
+  --output-dir "$OVERSIZED_EXISTING_OUTPUT"
+assert_equals "existing installer" \
+  "$(cat "${OVERSIZED_EXISTING_OUTPUT}/pmg_setup_install_macos_standalone.sh")" \
+  "oversized generation must not replace installer"
+assert_equals "existing uninstaller" \
+  "$(cat "${OVERSIZED_EXISTING_OUTPUT}/pmg_uninstall_macos_standalone.sh")" \
+  "oversized generation must not replace uninstaller"
+
+CHILD_PROBE_BIN="${TEST_ROOT}/child-probe-bin"
+CHILD_ENV_LEAK_FILE="${TEST_ROOT}/child-env-leak"
+mkdir -p "$CHILD_PROBE_BIN"
+cat > "${CHILD_PROBE_BIN}/probe" <<'EOF'
+#!/bin/bash
+if [[ -n "${SAFEDEP_API_KEY+x}" || -n "${SAFEDEP_TENANT_ID+x}" ||
+  -n "${GENERATOR_SAFEDEP_API_KEY+x}" ||
+  -n "${GENERATOR_SAFEDEP_TENANT_ID+x}" ||
+  -n "${credential_api_key+x}" || -n "${credential_tenant_id+x}" ]]; then
+  printf '%s\n' "${0##*/}" >> "$CHILD_ENV_LEAK_FILE"
+fi
+real_command="/usr/bin/${0##*/}"
+[[ -x "$real_command" ]] || real_command="/bin/${0##*/}"
+[[ -x "$real_command" ]] || exit 1
+exec "$real_command" "$@"
+EOF
+for command in dirname grep base64 tr mkdir mktemp awk chmod bash wc mv rm; do
+  cp "${CHILD_PROBE_BIN}/probe" "${CHILD_PROBE_BIN}/${command}"
+  chmod 0755 "${CHILD_PROBE_BIN}/${command}"
+done
+
+CHILD_PROBE_OUT="${TEST_ROOT}/credentials-only"
+env \
+  PATH="${CHILD_PROBE_BIN}:${PATH}" \
+  CHILD_ENV_LEAK_FILE="$CHILD_ENV_LEAK_FILE" \
+  SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "$CHILD_PROBE_OUT" \
+  >/dev/null
+[[ ! -e "$CHILD_ENV_LEAK_FILE" ]] ||
+  fail "generator child inherited SAFEDEP credentials: $(tr '\n' ' ' < "$CHILD_ENV_LEAK_FILE")"
+
+AMBIENT_OUT="${TEST_ROOT}/ambient"
+SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" --output-dir "$AMBIENT_OUT"
+AMBIENT_INSTALL="${AMBIENT_OUT}/pmg_setup_install_macos_standalone.sh"
+AMBIENT_UNINSTALL="${AMBIENT_OUT}/pmg_uninstall_macos_standalone.sh"
+for output in "$AMBIENT_INSTALL" "$AMBIENT_UNINSTALL"; do
+  assert_not_contains "$output" 'EMBEDDED_SAFEDEP_API_KEY_B64='
+  assert_not_contains "$output" 'EMBEDDED_SAFEDEP_TENANT_ID_B64='
+  assert_not_contains "$output" "$TEST_API_KEY"
+  assert_not_contains "$output" "$TEST_TENANT_ID"
+  assert_equals "755" "$(file_mode "$output")" "ambient output mode"
+done
+
+CREDENTIAL_OUT="${TEST_ROOT}/config-and-credentials"
+GENERATOR_STDOUT="${TEST_ROOT}/credential.stdout"
+GENERATOR_STDERR="${TEST_ROOT}/credential.stderr"
+SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --config "$CONFIG" \
+  --embed-cloud-credentials \
+  --output-dir "$CREDENTIAL_OUT" \
+  >"$GENERATOR_STDOUT" 2>"$GENERATOR_STDERR"
+
+CREDENTIAL_INSTALL="${CREDENTIAL_OUT}/pmg_setup_install_macos_standalone.sh"
+CREDENTIAL_UNINSTALL="${CREDENTIAL_OUT}/pmg_uninstall_macos_standalone.sh"
+
+assert_contains "$CREDENTIAL_INSTALL" 'EMBEDDED_SAFEDEP_API_KEY_B64='
+assert_contains "$CREDENTIAL_INSTALL" 'EMBEDDED_SAFEDEP_TENANT_ID_B64='
+assert_not_contains "$CREDENTIAL_INSTALL" "$TEST_API_KEY"
+assert_not_contains "$CREDENTIAL_INSTALL" "$TEST_TENANT_ID"
+assert_not_contains "$CREDENTIAL_UNINSTALL" 'EMBEDDED_SAFEDEP_API_KEY_B64='
+assert_not_contains "$CREDENTIAL_UNINSTALL" 'EMBEDDED_SAFEDEP_TENANT_ID_B64='
+assert_not_contains "$CREDENTIAL_UNINSTALL" "$TEST_API_KEY"
+assert_not_contains "$CREDENTIAL_UNINSTALL" "$TEST_TENANT_ID"
+assert_equals "700" "$(file_mode "$CREDENTIAL_INSTALL")" \
+  "credential installer mode"
+assert_equals "755" "$(file_mode "$CREDENTIAL_UNINSTALL")" \
+  "credential uninstaller mode"
+assert_contains "$GENERATOR_STDERR" \
+  "Warning: generated installer contains recoverable cloud credentials"
+assert_not_contains "$GENERATOR_STDOUT" "$TEST_API_KEY"
+assert_not_contains "$GENERATOR_STDOUT" "$TEST_TENANT_ID"
+assert_not_contains "$GENERATOR_STDERR" "$TEST_API_KEY"
+assert_not_contains "$GENERATOR_STDERR" "$TEST_TENANT_ID"
+
+embedded_api_key=$(
+  grep -Fm1 'EMBEDDED_SAFEDEP_API_KEY_B64=' "$CREDENTIAL_INSTALL" |
+    cut -d"'" -f2 |
+    decode_base64
+)
+embedded_tenant_id=$(
+  grep -Fm1 'EMBEDDED_SAFEDEP_TENANT_ID_B64=' "$CREDENTIAL_INSTALL" |
+    cut -d"'" -f2 |
+    decode_base64
+)
+assert_equals "$TEST_API_KEY" "$embedded_api_key" "embedded API key"
+assert_equals "$TEST_TENANT_ID" "$embedded_tenant_id" "embedded tenant ID"
+assert_not_contains "$CREDENTIAL_UNINSTALL" \
+  "$(printf '%s' "$TEST_API_KEY" | encode_base64)"
+assert_not_contains "$CREDENTIAL_UNINSTALL" \
+  "$(printf '%s' "$TEST_TENANT_ID" | encode_base64)"
+
+FAILED_UNINSTALL_OUT="${TEST_ROOT}/failed-uninstaller"
+mkdir -p \
+  "${FAILED_UNINSTALL_OUT}/pmg_uninstall_macos_standalone.sh"
+printf '%s\n' "existing installer" \
+  > "${FAILED_UNINSTALL_OUT}/pmg_setup_install_macos_standalone.sh"
+assert_fails env SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "$FAILED_UNINSTALL_OUT"
+assert_equals "existing installer" \
+  "$(cat "${FAILED_UNINSTALL_OUT}/pmg_setup_install_macos_standalone.sh")" \
+  "failed uninstaller generation must not rewrite installer"
+
+FAILED_INSTALL_OUT="${TEST_ROOT}/failed-installer"
+mkdir -p "${FAILED_INSTALL_OUT}/pmg_setup_install_macos_standalone.sh"
+printf '%s\n' "existing uninstaller" \
+  > "${FAILED_INSTALL_OUT}/pmg_uninstall_macos_standalone.sh"
+assert_fails env SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "$FAILED_INSTALL_OUT"
+assert_equals "existing uninstaller" \
+  "$(cat "${FAILED_INSTALL_OUT}/pmg_uninstall_macos_standalone.sh")" \
+  "failed installer generation must not rewrite uninstaller"
+
+assert_fails env -u SAFEDEP_API_KEY -u SAFEDEP_TENANT_ID \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "${TEST_ROOT}/missing-credentials-output"
+
+assert_fails env -u SAFEDEP_TENANT_ID SAFEDEP_API_KEY="$TEST_API_KEY" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "${TEST_ROOT}/api-key-only-output"
+
+assert_fails env -u SAFEDEP_API_KEY SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "${TEST_ROOT}/tenant-only-output"
+
+assert_fails env SAFEDEP_API_KEY="" SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "${TEST_ROOT}/empty-api-key-output"
+
+assert_fails env SAFEDEP_API_KEY="$TEST_API_KEY" SAFEDEP_TENANT_ID="" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --output-dir "${TEST_ROOT}/empty-tenant-output"
+
+assert_fails env SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" --embed-cloud-credentials
+
+assert_fails env SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" --embed-cloud-credentials --check
+
+assert_fails env SAFEDEP_API_KEY="$TEST_API_KEY" \
+  SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  --embed-cloud-credentials \
+  --output-dir "${TEST_ROOT}/duplicate-credential-flag-output"
+
+assert_fails "$GENERATOR" \
+  --cloud-credentials "${TEST_ROOT}/credentials.env" \
+  --output-dir "${TEST_ROOT}/removed-credential-flag-output"
+
+CLI_SECRET_STDOUT="${TEST_ROOT}/cli-secret.stdout"
+CLI_SECRET_STDERR="${TEST_ROOT}/cli-secret.stderr"
+if env SAFEDEP_API_KEY="$TEST_API_KEY" SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" \
+  --embed-cloud-credentials \
+  "$TEST_API_KEY" \
+  --output-dir "${TEST_ROOT}/cli-secret-output" \
+  >"$CLI_SECRET_STDOUT" 2>"$CLI_SECRET_STDERR"; then
+  fail "credential flag must not accept an API key argument"
+fi
+assert_not_contains "$CLI_SECRET_STDOUT" "$TEST_API_KEY"
+assert_not_contains "$CLI_SECRET_STDERR" "$TEST_API_KEY"
+
+assert_variant "pmg-only" \
+  "$INSTALL_ONE" "$UNINSTALL_ONE" "no" "no" "755"
+assert_variant "config-only" \
+  "$CONFIG_INSTALL" "$CONFIG_UNINSTALL" "yes" "no" "755"
+assert_variant "credentials-only" \
+  "${CHILD_PROBE_OUT}/pmg_setup_install_macos_standalone.sh" \
+  "${CHILD_PROBE_OUT}/pmg_uninstall_macos_standalone.sh" \
+  "no" "yes" "700"
+assert_variant "config-and-credentials" \
+  "$CREDENTIAL_INSTALL" "$CREDENTIAL_UNINSTALL" "yes" "yes" "700"
+
+for generic_output in \
+  "${SCRIPT_DIR}/standalone/pmg_setup_install_macos_standalone.sh" \
+  "${SCRIPT_DIR}/standalone/pmg_uninstall_macos_standalone.sh"; do
+  assert_not_contains "$generic_output" "EMBEDDED_GLOBAL_CONFIG_B64='"
+  assert_not_contains "$generic_output" "EMBEDDED_SAFEDEP_API_KEY_B64='"
+  assert_not_contains "$generic_output" "EMBEDDED_SAFEDEP_TENANT_ID_B64='"
+  assert_not_contains "$generic_output" "$TEST_API_KEY"
+  assert_not_contains "$generic_output" "$TEST_TENANT_ID"
+done
 
 echo "PASS"

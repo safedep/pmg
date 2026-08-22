@@ -13,6 +13,11 @@
 
 set -euo pipefail
 
+INPUT_SAFEDEP_API_KEY="${SAFEDEP_API_KEY:-}"
+INPUT_SAFEDEP_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
+export -n INPUT_SAFEDEP_API_KEY INPUT_SAFEDEP_TENANT_ID
+unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib_macos.sh
 source "${SCRIPT_DIR}/lib_macos.sh"
@@ -20,8 +25,51 @@ source "${SCRIPT_DIR}/lib_macos.sh"
 require_macos
 
 REPO="safedep/pmg"
-CLOUD_API_KEY="${SAFEDEP_API_KEY:-}"
-CLOUD_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
+CLOUD_API_KEY=""
+CLOUD_TENANT_ID=""
+
+load_embedded_cloud_credentials() {
+  local runtime_api_key="$INPUT_SAFEDEP_API_KEY"
+  local runtime_tenant_id="$INPUT_SAFEDEP_TENANT_ID"
+  local embedded_api_key="${EMBEDDED_SAFEDEP_API_KEY_B64:-}"
+  local embedded_tenant_id="${EMBEDDED_SAFEDEP_TENANT_ID_B64:-}"
+
+  unset INPUT_SAFEDEP_API_KEY INPUT_SAFEDEP_TENANT_ID
+  unset EMBEDDED_SAFEDEP_API_KEY_B64 EMBEDDED_SAFEDEP_TENANT_ID_B64
+
+  if [[ -n "$runtime_api_key" && -n "$runtime_tenant_id" ]]; then
+    CLOUD_API_KEY="$runtime_api_key"
+    CLOUD_TENANT_ID="$runtime_tenant_id"
+    return
+  fi
+
+  if [[ -z "$embedded_api_key" && -z "$embedded_tenant_id" ]]; then
+    CLOUD_API_KEY="$runtime_api_key"
+    CLOUD_TENANT_ID="$runtime_tenant_id"
+    return
+  fi
+
+  if [[ -n "$runtime_api_key" || -n "$runtime_tenant_id" ]]; then
+    echo "Error: SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set together" >&2
+    return 1
+  fi
+
+  if [[ -z "$embedded_api_key" || -z "$embedded_tenant_id" ]]; then
+    echo "Error: embedded cloud credentials are incomplete" >&2
+    return 1
+  fi
+
+  if ! CLOUD_API_KEY=$(printf '%s' "$embedded_api_key" | /usr/bin/base64 -D); then
+    echo "Error: could not decode embedded cloud API key" >&2
+    return 1
+  fi
+  if ! CLOUD_TENANT_ID=$(printf '%s' "$embedded_tenant_id" | /usr/bin/base64 -D); then
+    echo "Error: could not decode embedded cloud tenant ID" >&2
+    return 1
+  fi
+}
+
+load_embedded_cloud_credentials || exit 1
 
 install_via_brew() {
   local brew_bin="$1"
@@ -75,16 +123,59 @@ fi
 PMG_BIN=$(resolve_pmg) || { echo "Error: pmg not found after install" >&2; exit 1; }
 log "pmg installed: $("$PMG_BIN" version 2>/dev/null || echo unknown)"
 
-# Install the globally managed config if the package ships one. Done before the
-# per-user loop so each user's `setup install` sees managed mode and skips
-# writing a per-user config.
-if [[ -f "${SCRIPT_DIR}/config.yml" ]]; then
-  install_global_config "${SCRIPT_DIR}/config.yml"
-fi
+install_requested_global_config() {
+  local embedded_config="${EMBEDDED_GLOBAL_CONFIG_B64:-}"
+  local embedded_config_tmp
+
+  if [[ -z "$embedded_config" ]]; then
+    unset EMBEDDED_GLOBAL_CONFIG_B64
+    if [[ -f "${SCRIPT_DIR}/config.yml" ]]; then
+      install_global_config "${SCRIPT_DIR}/config.yml"
+    fi
+    return
+  fi
+
+  embedded_config_tmp=$(mktemp "${TMPDIR:-/tmp}/pmg-embedded-config.XXXXXX") || {
+    echo "Error: could not create temporary config file" >&2
+    unset EMBEDDED_GLOBAL_CONFIG_B64
+    return 1
+  }
+  if ! printf '%s' "$embedded_config" | /usr/bin/base64 -D > "$embedded_config_tmp"; then
+    warn "failed to decode embedded global config"
+    rm -f "$embedded_config_tmp" || warn "failed to remove temporary config file"
+    unset EMBEDDED_GLOBAL_CONFIG_B64
+    return 1
+  fi
+  if ! install_global_config "$embedded_config_tmp"; then
+    rm -f "$embedded_config_tmp" || warn "failed to remove temporary config file"
+    unset EMBEDDED_GLOBAL_CONFIG_B64
+    return 1
+  fi
+  if ! rm -f "$embedded_config_tmp"; then
+    warn "failed to remove temporary config file"
+    unset EMBEDDED_GLOBAL_CONFIG_B64
+    return 1
+  fi
+  unset EMBEDDED_GLOBAL_CONFIG_B64
+}
+
+install_requested_global_config
 
 if [[ -f "$GLOBAL_CONFIG_FILE" && -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]]; then
   log "Config is globally managed; set 'cloud.enabled: true' in the bundled config.yml to enable sync (per-user config is locked)"
 fi
+
+cloud_login() {
+  local user="$1"
+
+  printf '%s\0%s\0' "$CLOUD_API_KEY" "$CLOUD_TENANT_ID" |
+    run_user_session "$user" /bin/bash -c '
+      IFS= read -r -d "" SAFEDEP_API_KEY || exit 1
+      IFS= read -r -d "" SAFEDEP_TENANT_ID || exit 1
+      export SAFEDEP_API_KEY SAFEDEP_TENANT_ID
+      exec "$1" cloud login --from-env
+    ' _ "$PMG_BIN"
+}
 
 configure_user() {
   local user="$1"
@@ -101,13 +192,13 @@ configure_user() {
   if [[ ! -f "$GLOBAL_CONFIG_FILE" ]]; then
     run_user_file "$user" "$PMG_BIN" config set cloud.enabled true || warn "could not enable cloud sync for $user"
   fi
-  run_user_session "$user" \
-    env SAFEDEP_API_KEY="$CLOUD_API_KEY" SAFEDEP_TENANT_ID="$CLOUD_TENANT_ID" "$PMG_BIN" cloud login --from-env \
-    || warn "cloud login failed for $user"
+  cloud_login "$user" || warn "cloud login failed for $user"
 }
 
 while IFS=$'\t' read -r user _ _; do
   configure_user "$user"
 done < <(each_target_user)
+
+unset CLOUD_API_KEY CLOUD_TENANT_ID
 
 log "pmg setup complete"
