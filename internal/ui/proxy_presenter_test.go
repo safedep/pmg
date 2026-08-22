@@ -16,6 +16,7 @@ func TestEcosystemLabel(t *testing.T) {
 		{packagev1.Ecosystem_ECOSYSTEM_NPM, "npm"},
 		{packagev1.Ecosystem_ECOSYSTEM_PYPI, "pypi"},
 		{packagev1.Ecosystem_ECOSYSTEM_GO, "go"},
+		{packagev1.Ecosystem_ECOSYSTEM_CARGO, "cargo"},
 		{packagev1.Ecosystem_ECOSYSTEM_RUBYGEMS, "rubygems"},
 		{packagev1.Ecosystem_ECOSYSTEM_GITHUB_ACTIONS, "github_actions"},
 		{packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED, "unspecified"},

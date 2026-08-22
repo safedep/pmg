@@ -90,25 +90,42 @@ type GoModule struct {
 	Versions []GoVersion
 }
 
+type CargoVersion struct {
+	Version     string
+	PublishedAt time.Time
+
+	// NoPubTime omits the optional pubtime field from the index line, modeling
+	// registries that do not serve publish times.
+	NoPubTime bool
+}
+
+type CargoCrate struct {
+	Name     string
+	Versions []CargoVersion
+}
+
 type RecordedRequest struct {
-	Host   string
-	Method string
-	Path   string
+	Host    string
+	Method  string
+	Path    string
+	Headers http.Header
 }
 
 // Registry is an in-process stand-in for the npm and PyPI registries. The proxy
 // upstream is redirected here, so it answers for every registry hostname and
 // records each request for routing assertions.
 type Registry struct {
-	mu         sync.Mutex
-	npm        map[string]NpmPackage
-	pypi       map[string]PypiPackage
-	gomod      map[string]GoModule
-	npmMounts  []mount
-	pypiMounts []mount
-	requests   []RecordedRequest
-	server     *httptest.Server
-	goServer   *httptest.Server
+	mu          sync.Mutex
+	npm         map[string]NpmPackage
+	pypi        map[string]PypiPackage
+	gomod       map[string]GoModule
+	cargo       map[string]CargoCrate
+	npmMounts   []mount
+	pypiMounts  []mount
+	requests    []RecordedRequest
+	server      *httptest.Server
+	goServer    *httptest.Server
+	cargoServer *httptest.Server
 }
 
 func newRegistry() *Registry {
@@ -116,6 +133,7 @@ func newRegistry() *Registry {
 		npm:   map[string]NpmPackage{},
 		pypi:  map[string]PypiPackage{},
 		gomod: map[string]GoModule{},
+		cargo: map[string]CargoCrate{},
 	}
 	r.server = httptest.NewTLSServer(http.HandlerFunc(r.serve))
 	// Plain-HTTP GOPROXY endpoint for the interceptor's out-of-band .info
@@ -126,6 +144,12 @@ func newRegistry() *Registry {
 		r.record(req)
 		r.serveGoWithOptionalPrefix(w, req)
 	}))
+	// Plain-HTTP sparse-index endpoint for the cargo interceptor's
+	// out-of-band publish-time fetches.
+	r.cargoServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		r.record(req)
+		r.serveCargoIndex(w, req)
+	}))
 	return r
 }
 
@@ -133,9 +157,12 @@ func (r *Registry) addr() string { return r.server.Listener.Addr().String() }
 
 func (r *Registry) goBaseURL() string { return r.goServer.URL }
 
+func (r *Registry) cargoBaseURL() string { return r.cargoServer.URL }
+
 func (r *Registry) close() {
 	r.server.Close()
 	r.goServer.Close()
+	r.cargoServer.Close()
 }
 
 func (r *Registry) AddNpm(pkg NpmPackage) {
@@ -174,6 +201,12 @@ func (r *Registry) AddCustomPypi(host, basePath string) {
 	r.pypiMounts = append(r.pypiMounts, mount{host: host, basePath: normalizeMountBasePath(basePath)})
 }
 
+func (r *Registry) AddCargo(crate CargoCrate) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cargo[strings.ToLower(crate.Name)] = crate
+}
+
 // Requests returns every request the proxy forwarded upstream, in order.
 func (r *Registry) Requests() []RecordedRequest {
 	r.mu.Lock()
@@ -210,7 +243,7 @@ func (r *Registry) Requested(host, path string) bool {
 func (r *Registry) record(req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.requests = append(r.requests, RecordedRequest{Host: hostOnly(req.Host), Method: req.Method, Path: req.URL.Path})
+	r.requests = append(r.requests, RecordedRequest{Host: hostOnly(req.Host), Method: req.Method, Path: req.URL.Path, Headers: req.Header.Clone()})
 }
 
 func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
@@ -241,6 +274,10 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		r.servePypiFile(w, req)
 	case "proxy.golang.org", "corp.example.com":
 		r.serveGoWithOptionalPrefix(w, req)
+	case "index.crates.io":
+		r.serveCargoIndex(w, req)
+	case "static.crates.io":
+		r.serveCargoDownload(w, req)
 	default:
 		http.NotFound(w, req)
 	}
@@ -353,6 +390,79 @@ func goEscapeVersion(v string) string {
 		return v
 	}
 	return escaped
+}
+
+// DownloadedCrate reports whether the .crate file for the given crate version
+// was fetched from the registry.
+func (r *Registry) DownloadedCrate(name, version string) bool {
+	want := fmt.Sprintf("/crates/%s/%s/download", name, version)
+	for _, req := range r.Requests() {
+		if req.Path == want {
+			return true
+		}
+	}
+	return false
+}
+
+// RequestForPath returns the first upstream request recorded for path.
+func (r *Registry) RequestForPath(path string) (RecordedRequest, bool) {
+	for _, req := range r.Requests() {
+		if req.Path == path {
+			return req, true
+		}
+	}
+	return RecordedRequest{}, false
+}
+
+// serveCargoIndex implements a minimal crates.io sparse index: NDJSON per
+// registered crate with the optional pubtime field, addressed by the last
+// path segment (the lowercase crate name).
+func (r *Registry) serveCargoIndex(w http.ResponseWriter, req *http.Request) {
+	if req.URL.Path == "/config.json" {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"dl":"https://static.crates.io/crates","api":"https://crates.io"}`)
+		return
+	}
+
+	segments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+	name := segments[len(segments)-1]
+
+	r.mu.Lock()
+	crate, ok := r.cargo[strings.ToLower(name)]
+	r.mu.Unlock()
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("ETag", `"e2e-cargo-index"`)
+	_, _ = w.Write(buildCargoIndex(crate))
+}
+
+func (r *Registry) serveCargoDownload(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = w.Write([]byte("e2e-crate"))
+}
+
+func buildCargoIndex(crate CargoCrate) []byte {
+	var b strings.Builder
+	for _, v := range crate.Versions {
+		line := map[string]any{
+			"name":   crate.Name,
+			"vers":   v.Version,
+			"deps":   []any{},
+			"cksum":  "0000000000000000000000000000000000000000000000000000000000000000",
+			"yanked": false,
+		}
+		if !v.NoPubTime {
+			line["pubtime"] = v.PublishedAt.UTC().Format("2006-01-02T15:04:05Z")
+		}
+		body, _ := json.Marshal(line)
+		b.Write(body)
+		b.WriteByte('\n')
+	}
+	return []byte(b.String())
 }
 
 func (r *Registry) serveNpm(w http.ResponseWriter, req *http.Request) {

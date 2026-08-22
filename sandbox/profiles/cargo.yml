@@ -1,0 +1,122 @@
+name: cargo
+description: Sandbox policy for the Rust crates ecosystem (cargo command)
+package_managers:
+  - cargo
+
+# cargo run executes the built program in the foreground and may need a TTY.
+allow_pty: true
+
+# Localhost-only listening (same as go/npx/uvx): cargo test commonly binds
+# local test servers, and cargo run workloads often serve locally.
+# Non-localhost binds and outbound traffic are unaffected.
+allow_network_bind: true
+
+# All non-loopback outbound traffic is denied: only the PMG proxy's port is
+# reachable, plus loopback-to-loopback connects since this profile sets
+# allow_network_bind. This is the main containment for build scripts
+# (build.rs) and proc macros, which run arbitrary code at build time.
+# Per-host control happens at the proxy; direct DNS is disabled (the proxy
+# resolves). Requires the proxy flow; pmg fails closed if the proxy is not
+# running.
+network_via_proxy_only: true
+
+# .git/config stays blocked (default). Some build scripts embed VCS info by
+# invoking git; if git fails on the blocked config, set
+# allow_git_config: true in a custom profile.
+
+filesystem:
+  allow_read:
+    # Root read is required for toolchain discovery: rustc/cargo can live
+    # anywhere (rustup, distro packages, Homebrew, asdf). This is safe because
+    # deny rules have higher precedence and dangerous files (.env, .ssh,
+    # .aws, .gnupg, etc.) are blocked by mandatory deny patterns.
+    - /
+    - ${CWD}/**
+    - ${HOME}/.cargo/**
+    - ${HOME}/.rustup/**
+
+  allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: On macOS, /tmp is a symlink to /private/tmp, so we need both
+    - /tmp/**
+    - /private/tmp/**
+    - /var/tmp/**
+    # cargo writes build output, the target directory and Cargo.lock anywhere
+    # in the project. Credential files inside the project stay blocked by the
+    # mandatory deny patterns.
+    - ${CWD}/**
+    # Default CARGO_HOME: registry cache and index, git checkouts, cargo
+    # install target (bin).
+    - ${HOME}/.cargo/**
+    # Default RUSTUP_HOME: toolchains auto-installed by the rustup shim on
+    # first use (e.g. a rust-toolchain.toml pin).
+    - ${HOME}/.rustup/**
+
+  deny_read: []
+
+  deny_write:
+    # Additional system directories to protect
+    - /etc/**
+    - /usr/**
+
+network:
+  # These hosts are documentation of the default crates.io endpoints and the
+  # future input to proxy-level per-host policy. They are NOT kernel-enforced:
+  # with network_via_proxy_only, the sandbox denies all non-loopback outbound
+  # traffic, and the proxy controls registry traffic.
+  allow_outbound:
+    - index.crates.io:443
+    - static.crates.io:443
+    - crates.io:443
+
+  deny_outbound:
+    - "*:*"
+
+environment:
+  # Rust toolchain variables (CARGO_*, RUSTUP_*, RUSTFLAGS, CC, CXX) and the
+  # PMG-injected proxy/cert variables are not on the DANGEROUS_ENV_VARS scrub
+  # list, so they pass through without an allow entry. CARGO_REGISTRY_TOKEN
+  # IS scrubbed and deliberately not re-allowed here: build scripts have no
+  # business reading the publish token. Re-allow it in a custom profile if
+  # you run `cargo publish` under pmg.
+  allow: []
+
+process:
+  allow_exec:
+    # Rust toolchain: rustup shims, rustup-managed toolchains, distro
+    # packages, Homebrew
+    - ${HOME}/.cargo/bin/**
+    - ${HOME}/.rustup/toolchains/**
+    - /usr/local/bin/cargo
+    - /usr/local/bin/rustc
+    - /usr/bin/cargo
+    - /usr/bin/rustc
+    - /usr/lib/rust*/**
+    - /opt/homebrew/bin/cargo
+    - /opt/homebrew/bin/rustc
+    - /opt/homebrew/Cellar/rust/**
+    - /opt/homebrew/Cellar/rustup/**
+    # Version manager shims (e.g., asdf)
+    - ${HOME}/.asdf/shims/cargo
+    - ${HOME}/.asdf/shims/rustc
+    # Build scripts and test/run binaries execute from the target directory
+    # and per-build temp work directories
+    - ${CWD}/target/**
+    - /tmp/**
+    - ${TMPDIR}/**
+    # Linker and cc crate toolchain invoked by rustc and build scripts, plus
+    # VCS stamping used by some build scripts
+    - /usr/bin/gcc
+    - /usr/bin/clang
+    - /usr/bin/cc
+    - /usr/bin/ld
+    - /usr/bin/git
+    - /usr/local/bin/git
+    # Required for shims (e.g., asdf) that use #!/usr/bin/env bash
+    - /bin/bash
+    - /bin/sh
+    - /usr/bin/env
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget
