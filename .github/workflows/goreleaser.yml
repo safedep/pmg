@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-edge.[0-9]+"
 
 concurrency: ci-release-automation
 
@@ -49,6 +50,18 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve previous stable tag
+        if: ${{ !contains(github.ref_name, '-') }}
+        shell: bash
+        run: |
+          # Without this the changelog for a stable release spans only the
+          # commits since the most recent edge tag.
+          prev=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | grep -vFx "${GITHUB_REF_NAME}" | sort -V | tail -1)
+          if [ -n "$prev" ]; then
+            echo "GORELEASER_PREVIOUS_TAG=${prev}" >> "$GITHUB_ENV"
+          fi
+
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
@@ -66,6 +79,7 @@ jobs:
           subject-checksums: dist/checksums.txt
 
       - name: Publish npm packages (sync + build + publish via Nx)
+        if: ${{ !contains(github.ref_name, '-') }}
         run: pnpm nx run pmg:publish-npm
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -73,6 +87,7 @@ jobs:
 
   test-installation:
     needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
