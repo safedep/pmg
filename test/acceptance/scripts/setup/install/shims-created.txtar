@@ -1,0 +1,12 @@
+# guarantee: pmg setup install provisions package-manager shims under the XDG data
+# dir. This needs no network or backend, so it runs in every mode.
+
+env HOME=$WORK/home
+env XDG_CONFIG_HOME=$WORK/home/.config
+env XDG_DATA_HOME=$WORK/home/.local/share
+mkdir $WORK/home
+
+exec pmg setup install
+exists $WORK/home/.local/share/safedep/pmg/bin
+exists $WORK/home/.local/share/safedep/pmg/bin/npm
+exists $WORK/home/.config/safedep/pmg/config.yml

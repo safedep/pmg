@@ -1,0 +1,8 @@
+# guarantee: a clean pip package passes analysis, installs, and pmg exits zero.
+# requests is installed into an isolated target dir so the run needs no virtualenv.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg pip install --target=$WORK/site requests==2.32.4
+exists $WORK/site/requests

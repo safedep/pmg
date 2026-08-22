@@ -12,16 +12,16 @@
   surface: npm
   tier: P0
   guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
-- id: npm/dry-run/clean-allow
-  title: "npm --dry-run install of a clean package succeeds"
+- id: npm/install/clean-allow
+  title: "npm install of a clean package succeeds"
   surface: npm
   tier: P1
-  guarantee: "A clean package passes analysis and pmg exits zero."
-- id: pip/guard/malware-block
-  title: "pip install of a known-malicious package is blocked"
+  guarantee: "A clean package passes analysis, installs, and pmg exits zero."
+- id: pip/install/clean-allow
+  title: "pip install of a clean package succeeds"
   surface: pip
-  tier: P0
-  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  tier: P1
+  guarantee: "A clean package passes analysis, installs, and pmg exits zero."
 - id: setup/install/shims-created
   title: "pmg setup install creates package-manager shims"
   surface: setup
@@ -63,6 +63,13 @@
   guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
 
 # python ecosystem
+# No script yet: the repo has no proven known-malicious PyPI fixture (safedep-test-pkg
+# is an npm package). Cataloged as a gap until a stable PyPI fixture exists.
+- id: pip/guard/malware-block
+  title: "pip install of a known-malicious package is blocked"
+  surface: pip
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
 - id: pip3/guard/malware-block
   title: "pip3 install of a known-malicious package is blocked"
   surface: pip3
