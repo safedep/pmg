@@ -1,0 +1,87 @@
+name: Acceptance Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to test (default: triggering ref)"
+        required: false
+        default: ""
+      surface:
+        description: "Optional surface filter, e.g. npm (default: all)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 3 * * *" # nightly 03:00 UTC, default branch
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: Acceptance Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+      SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+      PMG_CLOUD_ENABLED: "true"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Build PMG
+        run: make
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      - name: Run acceptance suite
+        env:
+          PMG_BIN: ${{ github.workspace }}/bin/pmg
+          SURFACE: ${{ inputs.surface }}
+        run: |
+          run_args=()
+          if [[ -n "${SURFACE}" ]]; then
+            run_args=(-run "TestAcceptance/${SURFACE}/")
+          fi
+          gotestsum --junitfile "${RUNNER_TEMP}/acceptance.xml" --format testname \
+            -- -tags acceptance -timeout 20m "${run_args[@]}" ./test/acceptance
+
+      - name: Render report
+        if: always()
+        run: |
+          go run ./test/acceptance/report \
+            -junit "${RUNNER_TEMP}/acceptance.xml" \
+            -catalog test/acceptance/catalog.yaml \
+            | tee "${RUNNER_TEMP}/acceptance-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: acceptance-report
+          path: |
+            ${{ runner.temp }}/acceptance-report.md
+            ${{ runner.temp }}/acceptance.xml
