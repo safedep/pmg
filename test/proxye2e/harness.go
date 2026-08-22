@@ -102,6 +102,11 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan,
 		interceptors.InterceptorContext{
 			PinnedVersions: o.pinnedVersions,
+			// RunCases applies TestCase.Config before New runs, so the global
+			// config already carries the case's custom registries. This
+			// mirrors production, which also compiles the factory from this
+			// same config field.
+			Registries: config.Get().Config.Proxy.Registries,
 			// proxy.golang.org serves at the root of the plain-HTTP mock (also
 			// the base for out-of-band .info fetches); corp.example.com serves
 			// under a base path to exercise GOPROXY path-prefix stripping.
@@ -112,7 +117,12 @@ func New(t *testing.T, opts ...Option) *Harness {
 		},
 	)
 
-	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor()}
+	// Production also builds the audit logger's known-host set from the
+	// compiled factory, so a validation failure surfaces the same way here.
+	registryHosts, err := factory.CustomRegistryHosts()
+	require.NoError(t, err)
+
+	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor(registryHosts)}
 	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI, packagev1.Ecosystem_ECOSYSTEM_GO} {
 		ic, ierr := factory.CreateInterceptor(eco)
 		require.NoError(t, ierr)

@@ -5,15 +5,19 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
-// AuditLoggerInterceptor logs unknown outbound hosts observed by proxy mode.
-// It is passive telemetry only and never blocks or mutates requests.
-type AuditLoggerInterceptor struct{}
+type AuditLoggerInterceptor struct {
+	customRegistryHosts map[string]struct{}
+}
 
 var _ proxy.Interceptor = (*AuditLoggerInterceptor)(nil)
 var _ proxy.MITMDecider = (*AuditLoggerInterceptor)(nil)
 
-func NewAuditLoggerInterceptor() *AuditLoggerInterceptor {
-	return &AuditLoggerInterceptor{}
+func NewAuditLoggerInterceptor(customRegistryHosts []string) *AuditLoggerInterceptor {
+	hosts := make(map[string]struct{}, len(customRegistryHosts))
+	for _, host := range customRegistryHosts {
+		hosts[normalizeHostnameWithOptionalPort(host)] = struct{}{}
+	}
+	return &AuditLoggerInterceptor{customRegistryHosts: hosts}
 }
 
 func (i *AuditLoggerInterceptor) Name() string {
@@ -35,7 +39,7 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if i.isKnownRegistryHost(ctx.Hostname) {
+	if i.IsKnownRegistryHost(ctx.Hostname) {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
@@ -54,7 +58,12 @@ var wellKnownGoHosts = map[string]bool{
 	"sum.golang.org":   true,
 }
 
-func (i *AuditLoggerInterceptor) isKnownRegistryHost(hostname string) bool {
+// IsKnownRegistryHost reports whether host observations should be suppressed.
+func (i *AuditLoggerInterceptor) IsKnownRegistryHost(hostname string) bool {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	if _, exists := i.customRegistryHosts[hostname]; exists {
+		return true
+	}
 	return npmRegistryDomains.ContainsHostname(hostname) ||
 		pypiRegistryDomains.ContainsHostname(hostname) ||
 		wellKnownGoHosts[hostname]

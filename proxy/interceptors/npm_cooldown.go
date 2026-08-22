@@ -52,18 +52,7 @@ func (h *npmCooldownHandler) HandleMetadataRequest(ctx *proxy.RequestContext, pa
 	// Abbreviated metadata (Accept: application/vnd.npm.install-v1+json) omits it.
 	ctx.Headers.Set("Accept", "application/json")
 
-	// Prevent the server from compressing the response so we can parse the JSON body.
-	// Go's http.Transport only auto-decompresses when it added the Accept-Encoding
-	// header itself; since the client's original header is forwarded by the proxy,
-	// we'd get raw gzip bytes that fail JSON parsing.
-	ctx.Headers.Set("Accept-Encoding", "identity")
-
-	// Strip conditional-GET headers so the registry cannot return 304 Not Modified.
-	// A 304 has no body — the modifier would receive an empty body, fail to parse
-	// it as JSON, and fail-open, letting the client use its cached (unfiltered)
-	// response. Removing these forces a full 200 response on every request.
-	ctx.Headers.Del("If-None-Match")
-	ctx.Headers.Del("If-Modified-Since")
+	forceUncompressedNonConditionalResponse(ctx.Headers)
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		dates, err := h.parseMetadataTime(body)

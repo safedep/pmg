@@ -1,6 +1,112 @@
 package interceptors
 
-import "strings"
+import (
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/safedep/pmg/internal/registryurl"
+	"github.com/safedep/pmg/proxy"
+)
+
+func builtInRegistryConfigs(configs registryConfigMap) []*registryConfig {
+	entries := make([]*registryConfig, 0, len(configs))
+	for _, config := range configs {
+		clone := *config
+		clone.MatchSubdomains = true
+		entries = append(entries, &clone)
+	}
+	return entries
+}
+
+func registryHostSupportsAnalysis(configs registryConfigSet, hostname string) bool {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	bestHostLength := -1
+	bestExact := false
+	supported := false
+	for _, config := range configs.entries {
+		if config == nil {
+			continue
+		}
+		exact, matches := hostnameMatch(hostname, config)
+		if !matches {
+			continue
+		}
+		hostLength := len(registryurl.NormalizeHostname(config.Host))
+		if exact != bestExact {
+			if exact {
+				bestExact = true
+				bestHostLength = hostLength
+				supported = config.SupportedForAnalysis
+			}
+			continue
+		}
+		if hostLength > bestHostLength {
+			bestHostLength = hostLength
+			supported = config.SupportedForAnalysis
+			continue
+		}
+		if hostLength == bestHostLength && config.SupportedForAnalysis {
+			supported = true
+		}
+	}
+	return supported
+}
+
+func registryRequestMatch(configs registryConfigSet, ctx *proxy.RequestContext) *registryMatch {
+	if ctx == nil || ctx.Hostname == "" {
+		return nil
+	}
+	if ctx.Method == http.MethodConnect || ctx.URL == nil {
+		for _, config := range configs.entries {
+			if config != nil && matchesHostname(normalizeHostnameWithOptionalPort(ctx.Hostname), config) {
+				return &registryMatch{Config: config, RelativePath: "/"}
+			}
+		}
+		return nil
+	}
+
+	return configs.MatchURL(registryAbsoluteRequestURL(ctx))
+}
+
+// registryAbsoluteRequestURL absolutizes ctx.URL using ctx.Hostname and
+// ctx.Port, defaulting to HTTPS. The proxy hands interceptors a request URL
+// that is often scheme- and host-less, so callers needing a fully qualified
+// URL must use this instead of ctx.URL directly.
+func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
+	if ctx == nil || ctx.URL == nil {
+		return nil
+	}
+
+	u := *ctx.URL
+	if u.Hostname() == "" {
+		u.Host = ctx.Hostname
+		if ctx.Port != "" {
+			u.Host = net.JoinHostPort(ctx.Hostname, ctx.Port)
+		}
+	}
+	if u.Scheme == "" {
+		u.Scheme = "https"
+	}
+	return &u
+}
+
+// registryURLHasCanonicalIdentity reports whether canonical parsing already
+// resolves u to a complete identity. Discovery must skip indexing such a
+// URL: canonical parsing is authoritative, and a stale or compromised index
+// entry must never be able to override it.
+func registryURLHasCanonicalIdentity(registries registryConfigSet, u *url.URL) bool {
+	match := registries.MatchURL(u)
+	if match == nil {
+		return false
+	}
+	pkgInfo, err := match.Config.Parser.ParseURL(match.RelativePath)
+	if err != nil {
+		return false
+	}
+	return packageInfoHasCompleteIdentity(pkgInfo)
+}
 
 // packageInfo represents parsed package information from a registry URL.
 // All ecosystem-specific package info types must implement this interface.
@@ -16,6 +122,13 @@ type packageInfo interface {
 	IsFileDownload() bool
 }
 
+// packageInfoHasCompleteIdentity reports whether pkgInfo is a fully
+// identified file download: a name, a version, and IsFileDownload all set.
+// Shared across ecosystems so npm and PyPI cannot drift.
+func packageInfoHasCompleteIdentity(pkgInfo packageInfo) bool {
+	return pkgInfo.IsFileDownload() && pkgInfo.GetName() != "" && pkgInfo.GetVersion() != ""
+}
+
 // registryURLParser parses registry-specific URLs to extract package information.
 // Each registry (npm, pypi, etc.) implements this interface with its own URL parsing logic.
 type registryURLParser interface {
@@ -27,8 +140,14 @@ type registryURLParser interface {
 // registryConfig defines configuration for a package registry endpoint.
 // This is the common configuration structure used by all ecosystem interceptors.
 type registryConfig struct {
+	Name string
+
 	// Host is the hostname of the registry
-	Host string
+	Host            string
+	Scheme          string
+	Port            string
+	BasePath        string
+	MatchSubdomains bool
 
 	// SupportedForAnalysis indicates whether this registry supports malware analysis.
 	// Some registries (like private registries or test instances) may not support analysis.
@@ -36,6 +155,154 @@ type registryConfig struct {
 
 	// Parser is the URL parser for this registry
 	Parser registryURLParser
+}
+
+type registryMatch struct {
+	Config       *registryConfig
+	RelativePath string
+}
+
+type registryConfigSet struct {
+	entries []*registryConfig
+}
+
+func (s registryConfigSet) ContainsHostname(hostname string) bool {
+	hostname = normalizeHostnameWithOptionalPort(hostname)
+	for _, config := range s.entries {
+		if config != nil && matchesHostname(hostname, config) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s registryConfigSet) MatchURL(u *url.URL) *registryMatch {
+	if u == nil || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
+		return nil
+	}
+
+	scheme := registryurl.NormalizeScheme(u.Scheme)
+	hostname := registryurl.NormalizeHostname(u.Hostname())
+	port, valid := registryurl.EffectivePort(scheme, u.Port())
+	if !valid {
+		return nil
+	}
+	path := registryurl.NormalizeEscapedPath(u.EscapedPath())
+
+	var best *registryMatchCandidate
+	for _, config := range s.entries {
+		if config == nil {
+			continue
+		}
+
+		exactHostname, matches := hostnameMatch(hostname, config)
+		if !matches {
+			continue
+		}
+		if config.Scheme != "" {
+			if registryurl.NormalizeScheme(config.Scheme) != scheme {
+				continue
+			}
+			configPort, valid := registryurl.EffectivePort(config.Scheme, config.Port)
+			if !valid || configPort != port {
+				continue
+			}
+		}
+
+		basePath := normalizeRegistryBasePath(config.BasePath)
+		if !matchesRegistryPath(path, basePath) {
+			continue
+		}
+
+		candidate := &registryMatchCandidate{
+			config:        config,
+			basePath:      basePath,
+			hostname:      registryurl.NormalizeHostname(config.Host),
+			exactHostname: exactHostname,
+		}
+		if candidate.betterThan(best) {
+			best = candidate
+		}
+	}
+
+	if best == nil {
+		return nil
+	}
+	relativePath := strings.TrimPrefix(path, best.basePath)
+	if relativePath == "" {
+		relativePath = "/"
+	}
+	// Matching runs on the escaped path so segment boundaries cannot be
+	// smuggled past the base-path check, but parsers expect the decoded
+	// form (npm requests scoped packuments as /@scope%2Fname).
+	if unescaped, err := url.PathUnescape(relativePath); err == nil {
+		relativePath = unescaped
+	}
+	return &registryMatch{Config: best.config, RelativePath: relativePath}
+}
+
+type registryMatchCandidate struct {
+	config        *registryConfig
+	basePath      string
+	hostname      string
+	exactHostname bool
+}
+
+func (candidate *registryMatchCandidate) betterThan(current *registryMatchCandidate) bool {
+	if current == nil {
+		return true
+	}
+	if len(candidate.basePath) != len(current.basePath) {
+		return len(candidate.basePath) > len(current.basePath)
+	}
+	if candidate.exactHostname != current.exactHostname {
+		return candidate.exactHostname
+	}
+	if len(candidate.hostname) != len(current.hostname) {
+		return len(candidate.hostname) > len(current.hostname)
+	}
+	return registryConfigKey(candidate.config) < registryConfigKey(current.config)
+}
+
+func registryConfigKey(config *registryConfig) string {
+	port, _ := registryurl.EffectivePort(config.Scheme, config.Port)
+	return strings.Join([]string{
+		registryurl.NormalizeScheme(config.Scheme),
+		registryurl.NormalizeHostname(config.Host),
+		port,
+		normalizeRegistryBasePath(config.BasePath),
+		config.Name,
+	}, "\x00")
+}
+
+func normalizeHostnameWithOptionalPort(hostname string) string {
+	if host, _, err := net.SplitHostPort(hostname); err == nil {
+		hostname = host
+	} else if strings.HasPrefix(hostname, "[") && strings.HasSuffix(hostname, "]") {
+		hostname = strings.TrimSuffix(strings.TrimPrefix(hostname, "["), "]")
+	}
+	return registryurl.NormalizeHostname(hostname)
+}
+
+func matchesHostname(hostname string, config *registryConfig) bool {
+	_, matches := hostnameMatch(hostname, config)
+	return matches
+}
+
+func hostnameMatch(hostname string, config *registryConfig) (bool, bool) {
+	configured := registryurl.NormalizeHostname(config.Host)
+	if hostname == configured {
+		return true, true
+	}
+	return false, config.MatchSubdomains && strings.HasSuffix(hostname, "."+configured)
+}
+
+func normalizeRegistryBasePath(path string) string {
+	return registryurl.NormalizeBasePath(path)
+}
+
+func matchesRegistryPath(path, basePath string) bool {
+	return basePath == "" || path == basePath || strings.HasPrefix(path, basePath+"/")
 }
 
 // registryConfigMap is a map of hostname to registry configuration

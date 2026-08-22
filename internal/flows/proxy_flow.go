@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -193,23 +194,27 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		}
 	}
 
-	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
-		PinnedVersions:  pinnedVersions,
-		GoProxyBaseURLs: routing.MITMHosts,
-	})
-	interceptor, err := factory.CreateInterceptor(ecosystem)
+	interceptorList, err := buildProxyFlowInterceptors(
+		malysisAnalyzer,
+		cache,
+		statsCollector,
+		confirmationChan,
+		ecosystem,
+		cfg,
+		interceptors.InterceptorContext{
+			PinnedVersions:  pinnedVersions,
+			GoProxyBaseURLs: routing.MITMHosts,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
 	}
+	interceptor := interceptorList[0]
 
 	log.Debugf("Created %s interceptor for ecosystem %s", interceptor.Name(), ecosystem.String())
 
 	// Create and start proxy server
-	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, []proxy.Interceptor{
-		interceptor,
-		interceptors.NewAuditLoggerInterceptor(),
-	})
+	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
 	if err != nil {
 		return fmt.Errorf("failed to start proxy server: %w", err)
 	}
@@ -319,6 +324,32 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
 	// from the execution result.
 	return handleExecutionResultError(executionError)
+}
+
+func buildProxyFlowInterceptors(
+	malysisAnalyzer analyzer.PackageVersionAnalyzer,
+	cache interceptors.AnalysisCache,
+	statsCollector *interceptors.AnalysisStatsCollector,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	ecosystem packagev1.Ecosystem,
+	cfg *config.RuntimeConfig,
+	execContext interceptors.InterceptorContext,
+) ([]proxy.Interceptor, error) {
+	execContext.Registries = cfg.Config.Proxy.Registries
+	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, execContext)
+	interceptor, err := factory.CreateInterceptor(ecosystem)
+	if err != nil {
+		return nil, err
+	}
+	registryHosts, err := factory.CustomRegistryHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	return []proxy.Interceptor{
+		interceptor,
+		interceptors.NewAuditLoggerInterceptor(registryHosts),
+	}, nil
 }
 
 // handleExecutionResultError returns the execution error so RunE can route it

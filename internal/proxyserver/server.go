@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
@@ -98,19 +99,12 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 100)
 	go autoBlockConfirmations(confirmationChan)
 
-	factory := interceptors.NewInterceptorFactory(
-		malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{},
+	interceptorList, err := buildInterceptors(
+		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries,
 	)
-
-	var interceptorList []pmgproxy.Interceptor
-	for _, eco := range interceptors.SupportedEcosystems() {
-		i, ferr := factory.CreateInterceptor(eco)
-		if ferr != nil {
-			return fmt.Errorf("create interceptor for %s: %w", eco.String(), ferr)
-		}
-		interceptorList = append(interceptorList, i)
+	if err != nil {
+		return err
 	}
-	interceptorList = append(interceptorList, interceptors.NewAuditLoggerInterceptor())
 
 	proxyConfig := pmgproxy.DefaultProxyConfig()
 	proxyConfig.ListenAddr = listenAddr(host, port)
@@ -191,6 +185,37 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	}
 
 	return stopErr
+}
+
+func buildInterceptors(
+	malysisAnalyzer analyzer.PackageVersionAnalyzer,
+	cache interceptors.AnalysisCache,
+	statsCollector *interceptors.AnalysisStatsCollector,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	registries []config.ProxyRegistryConfig,
+) ([]pmgproxy.Interceptor, error) {
+	factory := interceptors.NewInterceptorFactory(
+		malysisAnalyzer,
+		cache,
+		statsCollector,
+		confirmationChan,
+		interceptors.InterceptorContext{Registries: registries},
+	)
+
+	interceptorList := make([]pmgproxy.Interceptor, 0, len(interceptors.SupportedEcosystems())+1)
+	for _, ecosystem := range interceptors.SupportedEcosystems() {
+		interceptor, err := factory.CreateInterceptor(ecosystem)
+		if err != nil {
+			return nil, fmt.Errorf("create interceptor for %s: %w", ecosystem.String(), err)
+		}
+		interceptorList = append(interceptorList, interceptor)
+	}
+	registryHosts, err := factory.CustomRegistryHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	return append(interceptorList, interceptors.NewAuditLoggerInterceptor(registryHosts)), nil
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the

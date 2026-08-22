@@ -49,6 +49,13 @@ func main() {
 		Use:              "pmg",
 		TraverseChildren: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			// An invalid proxy.registries entry must abort every command,
+			// since falling back to defaults would silently drop the
+			// configured protection. Check this before anything else.
+			if err := config.LoadError(); err != nil {
+				ui.ErrorExit(err)
+			}
+
 			// Always set this first because we will override the log
 			// level if debug or verbose is set
 			if logFile != "" {

@@ -64,4 +64,27 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.Equal(t, def.AdvisoryMessage, parsed.AdvisoryMessage, "advisory_message mismatch")
 
 	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
+	assert.Empty(t, def.Proxy.Registries, "default proxy.registries must be empty")
+	assert.Empty(t, parsed.Proxy.Registries, "template proxy.registries must be empty")
+}
+
+func TestTemplateRegistriesDefaultToEmpty(t *testing.T) {
+	var cfg Config
+
+	v := viper.New()
+	v.SetConfigType("yaml")
+	err := v.ReadConfig(strings.NewReader(templateConfig))
+	assert.NoError(t, err, "expected no error while reading config")
+
+	err = v.Unmarshal(&cfg)
+	assert.NoError(t, err, "expected no error while unmarshalling config")
+
+	assert.Empty(t, cfg.Proxy.Registries, "expected no registries enabled by default")
+}
+
+func TestTemplateHasCommentedRegistryExample(t *testing.T) {
+	assert.Contains(t, templateConfig, "\n  # registries:\n",
+		"expected a commented-out registries example")
+	assert.Contains(t, templateConfig, "https://packages.example.com/artifactory/api/npm/npm-virtual",
+		"expected the example endpoint URL in the commented block")
 }

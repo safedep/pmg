@@ -9,7 +9,7 @@ import (
 )
 
 func TestAuditLoggerInterceptor_Behavior(t *testing.T) {
-	i := NewAuditLoggerInterceptor()
+	i := NewAuditLoggerInterceptor(nil)
 
 	assert.Equal(t, "audit-logger-interceptor", i.Name())
 	assert.True(t, i.ShouldIntercept(nil))
@@ -17,7 +17,7 @@ func TestAuditLoggerInterceptor_Behavior(t *testing.T) {
 }
 
 func TestAuditLoggerInterceptor_KnownRegistryHost(t *testing.T) {
-	i := NewAuditLoggerInterceptor()
+	i := NewAuditLoggerInterceptor(nil)
 
 	resp, err := i.HandleRequest(&proxy.RequestContext{
 		Hostname: "registry.npmjs.org",
@@ -30,7 +30,7 @@ func TestAuditLoggerInterceptor_KnownRegistryHost(t *testing.T) {
 }
 
 func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {
-	i := NewAuditLoggerInterceptor()
+	i := NewAuditLoggerInterceptor(nil)
 
 	resp, err := i.HandleRequest(&proxy.RequestContext{
 		Hostname:  "unknown.example.test",
@@ -41,4 +41,12 @@ func TestAuditLoggerInterceptor_UnknownHost(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, proxy.ActionAllow, resp.Action)
+}
+
+func TestAuditLoggerInterceptorCustomRegistryHosts(t *testing.T) {
+	i := NewAuditLoggerInterceptor([]string{"Packages.Test"})
+
+	assert.True(t, i.IsKnownRegistryHost("packages.test"))
+	assert.False(t, i.IsKnownRegistryHost("cdn.packages.test"))
+	assert.False(t, i.IsKnownRegistryHost("unrelated.test"))
 }

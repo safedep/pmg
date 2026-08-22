@@ -60,6 +60,7 @@ func applyConfig(t *testing.T, override func(rc *config.RuntimeConfig)) {
 	rc.Config.TrustedPackages = nil
 	rc.Config.DependencyCooldown = config.DependencyCooldownConfig{}
 	rc.Config.AdvisoryMessage = ""
+	rc.Config.Proxy.Registries = nil
 
 	if override != nil {
 		override(rc)

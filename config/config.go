@@ -168,9 +168,10 @@ type CloudAutoSyncConfig struct {
 }
 
 type ProxyConfig struct {
-	InstallOnly  bool                `mapstructure:"install_only"`
-	SkipCommands map[string][]string `mapstructure:"skip_commands"`
-	Server       ProxyServerConfig   `mapstructure:"server"`
+	InstallOnly  bool                  `mapstructure:"install_only"`
+	SkipCommands map[string][]string   `mapstructure:"skip_commands"`
+	Server       ProxyServerConfig     `mapstructure:"server"`
+	Registries   []ProxyRegistryConfig `mapstructure:"registries"`
 }
 
 // ProxyServerConfig configures the persistent proxy server (`pmg proxy start`).
@@ -606,21 +607,48 @@ func initConfig() {
 		globalConfig.InsecureInstallation = false
 	}
 
-	loadConfig()
+	configLoadErr = loadConfig()
 
 	if err := preprocessPackageRefs(&globalConfig.Config); err != nil {
 		log.Warnf("Failed to preprocess package refs: %v", err)
 	}
 }
 
+// configLoadErr holds the fail-closed error from the last loadConfig call,
+// if any, exposed via LoadError so the CLI can abort before running.
+var configLoadErr error
+
+// LoadError returns the error that made configuration loading fail closed,
+// or nil. Only an invalid proxy.registries entry sets this, since falling
+// back to defaults would silently drop the user's custom-registry
+// protections; every other load failure still warns and continues.
+func LoadError() error {
+	return configLoadErr
+}
+
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
-// Right now we only support loading from a config file using Viper. If loading
-// fails, the default configuration is used and a warning is logged.
-func loadConfig() {
-	if err := loadViperConfig(); err != nil {
-		log.Warnf("Failed to load config, using defaults: %v", err)
+// Right now we only support loading from a config file using Viper. An
+// invalid proxy.registries entry fails closed, since falling back to
+// defaults would silently drop the configured protection. Every other
+// load failure falls back to defaults with a warning.
+func loadConfig() error {
+	err := loadViperConfig()
+	if err == nil {
+		return nil
 	}
+
+	var registriesErr *ProxyRegistriesError
+	if errors.As(err, &registriesErr) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.InvalidProxyRegistries).
+			WithHumanError(fmt.Sprintf("invalid proxy registries configuration: %v", registriesErr.Unwrap())).
+			WithHelp("Fix the proxy.registries entries in your PMG configuration file, then retry.").
+			Wrap(err)
+	}
+
+	log.Warnf("Failed to load config, using defaults: %v", err)
+	return nil
 }
 
 // configGeteuid is overridable in tests to exercise root path resolution

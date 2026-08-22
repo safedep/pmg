@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"net/url"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -36,6 +38,8 @@ var npmRegistryDomains = registryConfigMap{
 type NpmRegistryInterceptor struct {
 	baseRegistryInterceptor
 	cooldownHandler *npmCooldownHandler
+	registries      registryConfigSet
+	artifacts       *artifactIndex
 }
 
 var _ proxy.Interceptor = (*NpmRegistryInterceptor)(nil)
@@ -48,7 +52,13 @@ func NewNpmRegistryInterceptor(
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
-) *NpmRegistryInterceptor {
+) (*NpmRegistryInterceptor, error) {
+	registries := registryConfigSet{entries: builtInRegistryConfigs(npmRegistryDomains)}
+	customRegistries, err := customRegistryConfigs(execContext, "npm")
+	if err != nil {
+		return nil, err
+	}
+	registries.entries = append(registries.entries, customRegistries...)
 	return &NpmRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -59,7 +69,9 @@ func NewNpmRegistryInterceptor(
 			execContext:      execContext,
 		},
 		cooldownHandler: newNpmCooldownHandler(statsCollector),
-	}
+		registries:      registries,
+		artifacts:       newArtifactIndex(),
+	}, nil
 }
 
 // Name returns the interceptor name for logging
@@ -68,17 +80,15 @@ func (i *NpmRegistryInterceptor) Name() string {
 }
 
 func (i *NpmRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
-	config := npmRegistryDomains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
+	if ctx == nil {
 		return false
 	}
-
-	return config.SupportedForAnalysis
+	return registryHostSupportsAnalysis(i.registries, ctx.Hostname)
 }
 
 // ShouldIntercept determines if this interceptor should handle the given request
 func (i *NpmRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	return npmRegistryDomains.ContainsHostname(ctx.Hostname)
+	return registryRequestMatch(i.registries, ctx) != nil
 }
 
 // HandleRequest processes the request and returns response action
@@ -87,56 +97,121 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 	log.Debugf("[%s] Handling NPM registry request: %s", ctx.RequestID, ctx.URL.Path)
 
 	// Get registry configuration
-	config := npmRegistryDomains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
+	match := registryRequestMatch(i.registries, ctx)
+	if match == nil {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	// Skip analysis for registries that are not supported for analysis
+	config := match.Config
 	if !config.SupportedForAnalysis {
 		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
 			ctx.RequestID, config.Host, ctx.URL.String())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	requestURL := registryAbsoluteRequestURL(ctx)
+
 	// Parse URL using registry-specific strategy
-	pkgInfo, err := config.Parser.ParseURL(ctx.URL.Path)
-	if err != nil {
-		log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
-			ctx.RequestID, ctx.URL.Path, config.Host, err)
+	pkgInfo, parseErr := config.Parser.ParseURL(match.RelativePath)
+
+	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
+		// Canonical parsing is authoritative and must never be overridden by
+		// metadata discovery, or a compromised registry could get a
+		// malicious tarball analyzed under a different, safe identity.
+		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+	}
+
+	// Canonical parsing failed or the path is not a real tarball path
+	// (metadata, or unsupported). Fall back to the registry-scoped artifact
+	// index; built-in registries have an empty config.Name, so they never
+	// match here.
+	if identity, ok := i.artifacts.Get(config.Name, requestURL); ok {
+		return i.handleArtifact(ctx, identity.Name, identity.Version)
+	}
+
+	if parseErr != nil {
+		if config.Name == "" {
+			log.Warnf("[%s] Failed to parse NPM registry URL %s for %s: %v",
+				ctx.RequestID, ctx.URL.Path, config.Host, parseErr)
+		} else {
+			// Custom registries see far more non-package traffic under their
+			// configured prefix, and the path can embed a signed token, so
+			// this logs at debug level only.
+			log.Debugf("[%s] Failed to parse NPM registry URL for custom registry %q: %v", ctx.RequestID, config.Name, parseErr)
+		}
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
 
 	if !pkgInfo.IsFileDownload() {
-		if depCooldownConfig.Enabled {
-			if pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName()) {
-				return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-			}
-			return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
-		}
-
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return i.handleMetadataRequest(ctx, config, pkgInfo, requestURL, depCooldownConfig)
 	}
 
-	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion()); ok {
+	// A file-download parse without a complete identity, and no index match:
+	// nothing reliable to analyze against.
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+}
+
+// handleMetadataRequest applies cooldown, artifact discovery, or both to a
+// metadata request. Discovery runs before cooldown so it always sees the
+// upstream packument.
+func (i *NpmRegistryInterceptor) handleMetadataRequest(
+	ctx *proxy.RequestContext,
+	config *registryConfig,
+	pkgInfo packageInfo,
+	requestURL *url.URL,
+	depCooldownConfig pmgconfig.DependencyCooldownConfig,
+) (*proxy.InterceptorResponse, error) {
+	trustedAllVersions := pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName())
+
+	var cooldownModifier proxy.ResponseModifierFunc
+	if depCooldownConfig.Enabled && !trustedAllVersions {
+		cooldownResp, err := i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+		if err != nil {
+			return nil, err
+		}
+		if cooldownResp.Action == proxy.ActionModifyResponse {
+			cooldownModifier = cooldownResp.ResponseModifier
+		}
+	}
+
+	if config.Name == "" {
+		if cooldownModifier == nil {
+			log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
+			return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		}
+		return &proxy.InterceptorResponse{Action: proxy.ActionModifyResponse, ResponseModifier: cooldownModifier}, nil
+	}
+
+	// Discovery needs a parseable, always-fresh body even when cooldown does
+	// not run its own modifier, or the response could arrive compressed or
+	// as a bodyless 304.
+	forceUncompressedNonConditionalResponse(ctx.Headers)
+
+	discovery := npmMetadataDiscoveryModifier(ctx, i.artifacts, i.registries, config.Name, requestURL)
+	return &proxy.InterceptorResponse{
+		Action:           proxy.ActionModifyResponse,
+		ResponseModifier: chainResponseModifiers(discovery, cooldownModifier),
+	}, nil
+}
+
+// handleArtifact runs the trust, analysis, and verdict pipeline for an
+// artifact download, whether its identity came from canonical URL parsing
+// or the artifact index.
+func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version); ok {
 		return resp, nil
 	}
 
-	result, err := i.analyzePackage(
-		ctx,
-		packagev1.Ecosystem_ECOSYSTEM_NPM,
-		pkgInfo.GetName(),
-		pkgInfo.GetVersion(),
-	)
+	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, pkgInfo.GetName(), pkgInfo.GetVersion(), err)
+		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName(), pkgInfo.GetVersion(), result)
+	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, result)
 }
