@@ -3,7 +3,7 @@ package interceptors
 import (
 	"fmt"
 	"net/http"
-	"net/url"
+	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -12,6 +12,32 @@ import (
 	"github.com/safedep/pmg/proxy"
 )
 
+// ecosystemSpec is everything the catalog needs to support one ecosystem.
+// Adding an ecosystem means adding a config.ProxyRegistryEcosystem constant
+// and one entry here.
+type ecosystemSpec struct {
+	proto           packagev1.Ecosystem
+	builtIns        []registryEndpoint
+	newCustomParser func(basePath string) registryURLParser
+}
+
+var proxyEcosystems = map[config.ProxyRegistryEcosystem]ecosystemSpec{
+	config.ProxyRegistryEcosystemNpm: {
+		proto:    packagev1.Ecosystem_ECOSYSTEM_NPM,
+		builtIns: npmRegistryEndpoints,
+		newCustomParser: func(string) registryURLParser {
+			return npmParser{}
+		},
+	},
+	config.ProxyRegistryEcosystemPypi: {
+		proto:    packagev1.Ecosystem_ECOSYSTEM_PYPI,
+		builtIns: pypiRegistryEndpoints,
+		newCustomParser: func(basePath string) registryURLParser {
+			return pypiCustomParser{baseEndsInSimple: pypiBaseEndsInSimple(basePath)}
+		},
+	},
+}
+
 type RegistryCatalog struct {
 	byEcosystem map[packagev1.Ecosystem]registrySet
 }
@@ -19,45 +45,47 @@ type RegistryCatalog struct {
 func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatalog, error) {
 	// Keep this boundary self-validating because callers can construct a
 	// catalog directly without going through the global config loader.
-	if err := config.ValidateProxyRegistries(registries); err != nil {
+	normalized, err := config.NormalizeProxyRegistries(registries)
+	if err != nil {
 		return nil, fmt.Errorf("invalid custom proxy registries: %w", err)
 	}
 
 	catalog := newBuiltInRegistryCatalog()
 
-	for _, registry := range registries {
-		ecosystem := registryEcosystem(registry.Ecosystem)
-		for _, configured := range registry.Endpoints {
-			u, err := registryurl.Normalize(configured.URL)
-			if err != nil {
-				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint: %w", registry.Name, err)
-			}
-			if endpoint := catalog.builtInForHostname(u.Hostname()); endpoint != nil {
-				return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by the built-in npm/PyPI registries",
-					registry.Ecosystem, registry.Name, u.Hostname())
-			}
+	for _, configured := range normalized {
+		spec, ok := proxyEcosystems[configured.Ecosystem]
+		if !ok {
+			return nil, fmt.Errorf("invalid custom proxy registry %q: unsupported ecosystem %q", configured.RegistryName, configured.Ecosystem)
+		}
+		if catalog.builtInCoversHostname(configured.Host) {
+			return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by the built-in npm/PyPI registries",
+				configured.Ecosystem, configured.RegistryName, configured.Host)
+		}
+		// The Go hosts are not catalog entries (Go routing derives from
+		// GOPROXY per run), so cover them here: a custom endpoint on them
+		// would decrypt Go module traffic, including sum.golang.org, which
+		// PMG never MITMs.
+		if reservedGoHost(configured.Host) {
+			return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is reserved for PMG's built-in Go module handling",
+				configured.Ecosystem, configured.RegistryName, configured.Host)
+		}
 
-			port, valid := registryurl.EffectivePort(u.Scheme, u.Port())
-			if !valid {
-				return nil, fmt.Errorf("invalid custom proxy registry %q endpoint port", registry.Name)
-			}
-			endpoint := registryEndpoint{
-				Name:     registry.Name,
-				Source:   registrySourceCustom,
-				Scope:    registryScopeOrigin,
-				Scheme:   u.Scheme,
-				Host:     u.Hostname(),
-				Port:     port,
-				BasePath: registryurl.NormalizeBasePath(u.EscapedPath()),
-				Analyze:  true,
-				Parser:   customRegistryParser(ecosystem, u),
-			}
-			set := catalog.byEcosystem[ecosystem]
-			set.entries = append(set.entries, endpoint)
-			catalog.byEcosystem[ecosystem] = set
-			if u.Scheme == "http" {
-				log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", u.String())
-			}
+		endpoint := registryEndpoint{
+			Name:     configured.RegistryName,
+			Source:   registrySourceCustom,
+			Scope:    registryScopeOrigin,
+			Scheme:   configured.Scheme,
+			Host:     configured.Host,
+			Port:     configured.Port,
+			BasePath: configured.BasePath,
+			Analyze:  true,
+			Parser:   spec.newCustomParser(configured.BasePath),
+		}
+		set := catalog.byEcosystem[spec.proto]
+		set.entries = append(set.entries, endpoint)
+		catalog.byEcosystem[spec.proto] = set
+		if configured.Scheme == "http" {
+			log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", configured.URL)
 		}
 	}
 
@@ -65,12 +93,11 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatal
 }
 
 func newBuiltInRegistryCatalog() *RegistryCatalog {
-	return &RegistryCatalog{
-		byEcosystem: map[packagev1.Ecosystem]registrySet{
-			packagev1.Ecosystem_ECOSYSTEM_NPM:  {entries: append([]registryEndpoint(nil), npmRegistryEndpoints...)},
-			packagev1.Ecosystem_ECOSYSTEM_PYPI: {entries: append([]registryEndpoint(nil), pypiRegistryEndpoints...)},
-		},
+	byEcosystem := make(map[packagev1.Ecosystem]registrySet, len(proxyEcosystems))
+	for _, spec := range proxyEcosystems {
+		byEcosystem[spec.proto] = registrySet{entries: append([]registryEndpoint(nil), spec.builtIns...)}
 	}
+	return &RegistryCatalog{byEcosystem: byEcosystem}
 }
 
 func (c *RegistryCatalog) registrySet(ecosystem packagev1.Ecosystem) registrySet {
@@ -81,6 +108,11 @@ func (c *RegistryCatalog) registrySet(ecosystem packagev1.Ecosystem) registrySet
 	return registrySet{entries: append([]registryEndpoint(nil), set.entries...)}
 }
 
+// IsKnownRegistryRequest reports whether a request targets a known registry
+// origin. It deliberately ignores paths: audit host observations are
+// suppressed for the whole origin, not per endpoint base path. This is a
+// third matching semantic next to MatchConnect (MITM decisions) and MatchURL
+// (per-request endpoint resolution); do not fold it into either.
 func (c *RegistryCatalog) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool {
 	if ctx == nil || ctx.Hostname == "" {
 		return false
@@ -117,50 +149,33 @@ func (c *RegistryCatalog) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool
 	return false
 }
 
-func (c *RegistryCatalog) builtInForHostname(hostname string) *registryEndpoint {
+func (c *RegistryCatalog) builtInCoversHostname(hostname string) bool {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
-	var best *registryEndpoint
-	for _, ecosystem := range []packagev1.Ecosystem{
-		packagev1.Ecosystem_ECOSYSTEM_NPM,
-		packagev1.Ecosystem_ECOSYSTEM_PYPI,
-	} {
-		set := c.byEcosystem[ecosystem]
+	for _, set := range c.byEcosystem {
 		for index := range set.entries {
 			endpoint := &set.entries[index]
 			if endpoint.Source != registrySourceBuiltIn {
 				continue
 			}
-			exact, matches := endpointMatchesHostname(endpoint, hostname)
-			if !matches {
-				continue
-			}
-			if exact {
-				return endpoint
-			}
-			if best == nil || len(endpoint.Host) > len(best.Host) {
-				best = endpoint
+			if _, matches := endpointMatchesHostname(endpoint, hostname); matches {
+				return true
 			}
 		}
 	}
-	return best
+	return false
 }
 
-func registryEcosystem(ecosystem string) packagev1.Ecosystem {
-	switch ecosystem {
-	case "npm":
-		return packagev1.Ecosystem_ECOSYSTEM_NPM
-	case "pypi":
-		return packagev1.Ecosystem_ECOSYSTEM_PYPI
-	default:
-		panic(fmt.Sprintf("unsupported validated registry ecosystem %q", ecosystem))
+// reservedGoHost reports whether a hostname belongs to the well-known Go
+// module infrastructure, including subdomains. When PMG grows built-in Go
+// registry endpoints, proxy.golang.org moves into that built-in set and this
+// keeps guarding sum.golang.org.
+func reservedGoHost(hostname string) bool {
+	for host := range wellKnownGoHosts {
+		if hostname == host || strings.HasSuffix(hostname, "."+host) {
+			return true
+		}
 	}
-}
-
-func customRegistryParser(ecosystem packagev1.Ecosystem, u *url.URL) registryURLParser {
-	if ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
-		return pypiCustomParser{baseEndsInSimple: pypiBaseEndsInSimple(u.EscapedPath())}
-	}
-	return npmParser{}
+	return false
 }
 
 func builtInRegistryEndpoint(host string, analyze bool, parser registryURLParser) registryEndpoint {

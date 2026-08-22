@@ -59,8 +59,32 @@ func TestRegistryCatalogReturnsIndependentSets(t *testing.T) {
 	assert.NotEqual(t, "mutated.test", second.entries[0].Host)
 }
 
-func TestRegistryEcosystemRejectsInvalidValue(t *testing.T) {
-	assert.Panics(t, func() {
-		registryEcosystem("maven")
-	})
+func TestProxyEcosystemsCoverEveryConfigEcosystem(t *testing.T) {
+	for _, ecosystem := range config.ProxyRegistryEcosystems() {
+		assert.Contains(t, proxyEcosystems, ecosystem)
+	}
+	assert.Len(t, proxyEcosystems, len(config.ProxyRegistryEcosystems()))
+}
+
+func TestRegistryCatalogRejectsReservedGoHosts(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+	}{
+		{name: "go module proxy", endpoint: "https://proxy.golang.org/npm"},
+		{name: "go checksum database", endpoint: "https://sum.golang.org/npm"},
+		{name: "subdomain of a go host", endpoint: "https://mirror.sum.golang.org/npm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistryCatalog([]config.ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: tt.endpoint}},
+			}})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "reserved for PMG's built-in Go module handling")
+		})
+	}
 }

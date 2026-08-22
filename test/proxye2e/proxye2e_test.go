@@ -36,7 +36,7 @@ func combineConfig(fns ...func(rc *config.RuntimeConfig)) func(rc *config.Runtim
 
 // customRegistry appends one proxy.registries entry. Combine several with
 // combineConfig to model multiple registries sharing a host.
-func customRegistry(name, ecosystem string, endpointURLs ...string) func(rc *config.RuntimeConfig) {
+func customRegistry(name string, ecosystem config.ProxyRegistryEcosystem, endpointURLs ...string) func(rc *config.RuntimeConfig) {
 	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
 	for i, u := range endpointURLs {
 		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: u}

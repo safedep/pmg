@@ -183,7 +183,7 @@ func TestInterceptorFactoryRejectsMalformedRegistryWithoutLoggingRawURL(t *testi
 func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
 	tests := []struct {
 		name      string
-		ecosystem string
+		ecosystem config.ProxyRegistryEcosystem
 		endpoint  string
 	}{
 		{name: "analyzed npm host", ecosystem: "npm", endpoint: "https://registry.npmjs.org/npm-virtual"},
