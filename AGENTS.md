@@ -32,6 +32,16 @@ go test ./config/ -v -count=1  # Run specific package tests
   in `test/proxye2e/`. Add a `TestCase` with `Config`/`Setup`/`Exec`/`Assert`; do not build new
   scaffolding.
 
+## Acceptance Suite
+
+- `test/acceptance/` is a `testscript`-driven suite that runs the real `pmg` binary against
+  production and reports per-guarantee results. It is non-gating (manual + nightly dispatch),
+  separate from and non-overlapping with `test/proxye2e`.
+- Adding a user-facing guarantee means adding a `<surface>/.../<name>.txtar` script AND a
+  matching `catalog.yaml` entry (with a `tier`). `TestCatalogIntegrity` (which runs under
+  `go test ./...`) fails if a script has no catalog entry. Do not add scaffolding — add a
+  script and a catalog row. See `test/acceptance/README.md`.
+
 ## Code Style
 
 - Keep things short and simple
