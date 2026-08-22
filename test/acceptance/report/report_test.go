@@ -44,11 +44,11 @@ func TestSummarize(t *testing.T) {
 	path := filepath.Join(dir, "catalog.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
 - id: npm/guard/malware-block
-  surface: npm
+  category: npm
   tier: P0
   guarantee: x
 - id: pnpm/guard/malware-block
-  surface: pnpm
+  category: pnpm
   tier: P0
   guarantee: y
 `), 0o600))
@@ -66,11 +66,11 @@ func TestSummarizeUnknownWhenScriptPresentButNoResult(t *testing.T) {
 	path := filepath.Join(dir, "catalog.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
 - id: npm/guard/malware-block
-  surface: npm
+  category: npm
   tier: P0
   guarantee: x
 - id: pnpm/guard/malware-block
-  surface: pnpm
+  category: pnpm
   tier: P0
   guarantee: y
 `), 0o600))
@@ -89,11 +89,11 @@ func TestRenderShowsFailureSnippetAndCoverage(t *testing.T) {
 	path := filepath.Join(dir, "catalog.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
 - id: npm/guard/malware-block
-  surface: npm
+  category: npm
   tier: P0
   guarantee: a malware verdict is never installed
 - id: npm/install/clean-allow
-  surface: npm
+  category: npm
   tier: P1
   guarantee: a clean package installs
 `), 0o600))

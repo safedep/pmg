@@ -206,19 +206,19 @@ func render(w io.Writer, sum Summary, messages map[string]result) error {
 
 	renderTierRollup(ew, sum)
 
-	bySurface := map[string][]Row{}
-	surfaces := []string{}
+	byCategory := map[string][]Row{}
+	categories := []string{}
 	for _, r := range sum.Rows {
-		if _, seen := bySurface[r.G.Surface]; !seen {
-			surfaces = append(surfaces, r.G.Surface)
+		if _, seen := byCategory[r.G.Category]; !seen {
+			categories = append(categories, r.G.Category)
 		}
-		bySurface[r.G.Surface] = append(bySurface[r.G.Surface], r)
+		byCategory[r.G.Category] = append(byCategory[r.G.Category], r)
 	}
-	sort.Strings(surfaces)
+	sort.Strings(categories)
 
-	for _, surface := range surfaces {
-		ew.printf("## %s\n\n| | Tier | Guarantee | Detail |\n|---|---|---|---|\n", surface)
-		rows := bySurface[surface]
+	for _, category := range categories {
+		ew.printf("## %s\n\n| | Tier | Guarantee | Detail |\n|---|---|---|---|\n", category)
+		rows := byCategory[category]
 		sortRowsByTier(rows)
 		for _, r := range rows {
 			detail := r.G.Guarantee

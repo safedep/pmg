@@ -26,14 +26,15 @@ func TestLoadCatalog(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 - id: npm/guard/malware-block
   title: "npm install of a known-malicious package is blocked"
-  surface: npm
+  category: npm
   tier: P0
   guarantee: "A malware verdict is never installed; pmg exits non-zero."
 - id: setup/install/shims-created
   title: "setup install creates shims"
-  surface: setup
+  category: setup
   tier: P1
   guarantee: "pmg setup install creates package-manager shims."
+  labels: [shims, offline]
 `), 0o600))
 
 	cat, err := LoadCatalog(path)
@@ -43,7 +44,51 @@ func TestLoadCatalog(t *testing.T) {
 	g, ok := cat.Get("setup/install/shims-created")
 	require.True(t, ok)
 	assert.Equal(t, TierP1, g.Tier)
-	assert.Equal(t, "setup", g.Surface)
+	assert.Equal(t, "setup", g.Category)
+	assert.Equal(t, []string{"shims", "offline"}, g.Labels)
+}
+
+func TestCatalogSelects(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "catalog.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+- id: npm/guard/malware-block
+  category: npm
+  tier: P0
+  guarantee: x
+  labels: [malware, npm]
+- id: npm/install/clean-allow
+  category: npm
+  tier: P1
+  guarantee: y
+  labels: [clean, npm]
+- id: setup/install/shims-created
+  category: setup
+  tier: P1
+  guarantee: z
+  labels: [shims, offline]
+`), 0o600))
+	cat, err := LoadCatalog(path)
+	require.NoError(t, err)
+
+	// Empty selector matches everything, including an un-cataloged id.
+	assert.True(t, cat.Selects("npm/guard/malware-block", Selector{}))
+	assert.True(t, cat.Selects("not/in/catalog", Selector{}))
+
+	// Category filter.
+	assert.True(t, cat.Selects("npm/guard/malware-block", Selector{Category: "npm"}))
+	assert.False(t, cat.Selects("setup/install/shims-created", Selector{Category: "npm"}))
+
+	// Label filter matches when any label overlaps.
+	assert.True(t, cat.Selects("npm/guard/malware-block", Selector{Labels: []string{"malware"}}))
+	assert.False(t, cat.Selects("npm/install/clean-allow", Selector{Labels: []string{"malware"}}))
+
+	// Category and labels combine (AND across fields, OR within labels).
+	assert.True(t, cat.Selects("npm/install/clean-allow", Selector{Category: "npm", Labels: []string{"clean", "malware"}}))
+	assert.False(t, cat.Selects("setup/install/shims-created", Selector{Category: "setup", Labels: []string{"malware"}}))
+
+	// A filtered run never includes an un-cataloged id.
+	assert.False(t, cat.Selects("not/in/catalog", Selector{Category: "npm"}))
 }
 
 func TestLoadCatalogRejectsBadTierAndDupes(t *testing.T) {
@@ -51,7 +96,7 @@ func TestLoadCatalogRejectsBadTierAndDupes(t *testing.T) {
 	badTier := filepath.Join(dir, "bad.yaml")
 	require.NoError(t, os.WriteFile(badTier, []byte(`
 - id: a/b/c
-  surface: npm
+  category: npm
   tier: P9
   guarantee: x
 `), 0o600))
@@ -61,11 +106,11 @@ func TestLoadCatalogRejectsBadTierAndDupes(t *testing.T) {
 	dupe := filepath.Join(dir, "dupe.yaml")
 	require.NoError(t, os.WriteFile(dupe, []byte(`
 - id: a/b/c
-  surface: npm
+  category: npm
   tier: P0
   guarantee: x
 - id: a/b/c
-  surface: npm
+  category: npm
   tier: P0
   guarantee: y
 `), 0o600))

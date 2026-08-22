@@ -19,16 +19,56 @@ const (
 )
 
 type Guarantee struct {
-	ID        string `yaml:"id"`
-	Title     string `yaml:"title"`
-	Surface   string `yaml:"surface"`
-	Tier      Tier   `yaml:"tier"`
-	Guarantee string `yaml:"guarantee"`
+	ID        string   `yaml:"id"`
+	Title     string   `yaml:"title"`
+	Category  string   `yaml:"category"`
+	Tier      Tier     `yaml:"tier"`
+	Guarantee string   `yaml:"guarantee"`
+	Labels    []string `yaml:"labels"`
 }
 
 type Catalog struct {
 	guarantees []Guarantee
 	byID       map[string]Guarantee
+}
+
+// Selector filters guarantees by category and labels. An empty Category matches
+// every category; an empty Labels matches every guarantee. When Labels is set, a
+// guarantee matches if it carries at least one of the requested labels.
+type Selector struct {
+	Category string
+	Labels   []string
+}
+
+// Empty reports whether the selector filters nothing.
+func (s Selector) Empty() bool { return s.Category == "" && len(s.Labels) == 0 }
+
+// Selects reports whether the guarantee with the given id passes the selector.
+// An id with no catalog entry passes only when the selector is empty, so a
+// filtered run never includes an un-cataloged script.
+func (c *Catalog) Selects(id string, sel Selector) bool {
+	g, ok := c.byID[id]
+	if !ok {
+		return sel.Empty()
+	}
+	if sel.Category != "" && g.Category != sel.Category {
+		return false
+	}
+	if len(sel.Labels) > 0 && !hasAnyLabel(g.Labels, sel.Labels) {
+		return false
+	}
+	return true
+}
+
+func hasAnyLabel(have, want []string) bool {
+	for _, w := range want {
+		for _, h := range have {
+			if h == w {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func LoadCatalog(path string) (*Catalog, error) {
