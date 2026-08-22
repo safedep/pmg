@@ -35,8 +35,9 @@ go test ./config/ -v -count=1  # Run specific package tests
 ## Acceptance Suite
 
 - `test/acceptance/` is a `testscript`-driven suite that runs the real `pmg` binary against
-  production and reports per-guarantee results. It is non-gating (manual + nightly dispatch),
-  separate from and non-overlapping with `test/proxye2e`.
+  production and reports per-guarantee results. It runs on manual dispatch, a nightly schedule,
+  and as an advisory (non-gating) check on non-docs PRs; it is separate from and non-overlapping
+  with `test/proxye2e`.
 - Adding a user-facing guarantee means adding a `<surface>/.../<name>.txtar` script AND a
   matching `catalog.yaml` entry (with a `tier`). `TestCatalogIntegrity` (which runs under
   `go test ./...`) fails if a script has no catalog entry. Do not add scaffolding — add a

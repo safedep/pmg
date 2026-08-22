@@ -2,8 +2,9 @@
 
 This suite drives the **real `pmg` binary** through user-facing CLI flows and asserts PMG's
 guarantees end to end. It runs against **production** (a live malysis backend and real package
-registries), so it is non-hermetic by design and runs on manual dispatch and a nightly schedule,
-not on every PR.
+registries), so it is non-hermetic by design. It runs on manual dispatch, a nightly schedule, and
+as an **advisory (non-gating)** check on non-docs PRs. A red run is a signal, not a merge block —
+keep it out of required checks so a stale fixture or a backend blip never wedges an unrelated PR.
 
 It is separate from and does not overlap with `test/proxye2e`. `proxye2e` stays hermetic and
 in-process and owns proxy-flow correctness; this suite owns real-binary guarantees.
