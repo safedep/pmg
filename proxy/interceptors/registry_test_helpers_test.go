@@ -30,12 +30,12 @@ func newTestCustomRegistrySetFor(t *testing.T, ecosystem packagev1.Ecosystem, en
 	for index, endpointURL := range endpointURLs {
 		endpoints[index] = config.ProxyRegistryEndpointConfig{URL: endpointURL}
 	}
-	ecosystemName := "npm"
+	ecosystemName := config.ProxyRegistryEcosystemNpm
 	if ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
-		ecosystemName = "pypi"
+		ecosystemName = config.ProxyRegistryEcosystemPypi
 	}
 	return newTestRegistrySetFor(t, ecosystem, []config.ProxyRegistryConfig{{
-		Name:      "custom-" + ecosystemName,
+		Name:      "custom-" + string(ecosystemName),
 		Ecosystem: ecosystemName,
 		Endpoints: endpoints,
 	}})
