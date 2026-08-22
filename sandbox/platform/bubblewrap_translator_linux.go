@@ -60,6 +60,13 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 
 	args = append(args, filesystemArgs...)
 
+	// Essential devices are re-bound after the filesystem rules: bwrap mounts
+	// in argument order, so a broad allow_read rule (e.g. `/`) emitted later
+	// would otherwise shadow the device binds with a plain ro-bind. On kernels
+	// that restrict device-node access through non-dev binds, that breaks
+	// /dev/null for the child (cargo and pip open it when spawning tools).
+	args = append(args, t.addEssentialDevices()...)
+
 	// 4. Add PTY support if needed
 	if utils.SafelyGetValue(policy.AllowPTY) {
 		ptyArgs := t.addPTYSupport()
@@ -92,10 +99,7 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 		args = append(args, "--ro-bind-try", path, path)
 	}
 
-	// Add essential device files
-	for _, device := range t.config.getEssentialDevices() {
-		args = append(args, "--dev-bind-try", device, device)
-	}
+	args = append(args, t.addEssentialDevices()...)
 
 	// Add proc filesystem (read-only for safety)
 	for _, procPath := range t.config.procPaths {
@@ -103,6 +107,17 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 	}
 
 	return args, nil
+}
+
+// addEssentialDevices binds the essential device files. Emitted both before
+// and after the filesystem rules so the device binds survive whichever broad
+// bind is mounted on top of them.
+func (t *bubblewrapPolicyTranslator) addEssentialDevices() []string {
+	args := []string{}
+	for _, device := range t.config.getEssentialDevices() {
+		args = append(args, "--dev-bind-try", device, device)
+	}
+	return args
 }
 
 // addIsolationNamespaces adds namespace isolation arguments based on policy and config.
