@@ -1,5 +1,6 @@
 name: CI
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -39,6 +40,48 @@ jobs:
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  mdm-scripts-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Test standalone script generation
+        run: bash scripts/mdm/generate_standalone_scripts_test.sh
+
+      - name: Check generated standalone scripts
+        run: bash scripts/mdm/generate_standalone_scripts.sh --check
+
+      - name: Lint MDM scripts
+        run: |
+          shellcheck -x -P SCRIPTDIR \
+            scripts/mdm/lib_macos.sh \
+            scripts/mdm/pmg_setup_install_macos.sh \
+            scripts/mdm/pmg_uninstall_macos.sh \
+            scripts/mdm/generate_standalone_scripts.sh \
+            scripts/mdm/generate_standalone_scripts_test.sh \
+            scripts/mdm/pmg_setup_install_macos_test.sh \
+            scripts/mdm/standalone_macos_e2e_test.sh \
+            scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh \
+            scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh
+
+  mdm-scripts-macos-e2e:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Test MDM installer behavior
+        run: bash scripts/mdm/pmg_setup_install_macos_test.sh
+
+      - name: Test standalone scripts on macOS
+        env:
+          CI: "true"
+          PMG_MDM_E2E: "1"
+        run: bash scripts/mdm/standalone_macos_e2e_test.sh
 
   # Runs the darwin-tagged tests (sandbox/platform/*_darwin_test.go) that no
   # other job can execute. Convention for darwin integration tests requiring
