@@ -123,3 +123,20 @@ func TestParseJUnitRejectsMalformed(t *testing.T) {
 	_, err := statusesFromJUnit([]byte("<testsuites><not-closed"))
 	assert.Error(t, err)
 }
+
+func TestSnippetPrefersAssertionLineOverTestLogNoise(t *testing.T) {
+	body := `=== RUN   TestAcceptance/npm/guard/malware-block
+=== PAUSE TestAcceptance/npm/guard/malware-block
+    testscript.go:584: WORK=$WORK
+        PATH=/usr/bin
+        HOME=/no-home
+        > ! exec pmg npm install safedep-test-pkg@0.1.3
+        FAIL: scripts/npm/guard/malware-block.txtar:11: unexpected command success`
+	got := snippet(&xmlNode{Message: "=== RUN   TestAcceptance/npm/guard/malware-block", Body: body})
+	assert.Equal(t, "FAIL: scripts/npm/guard/malware-block.txtar:11: unexpected command success", got)
+}
+
+func TestSnippetSuppressesRunHeaderOnlyBody(t *testing.T) {
+	got := snippet(&xmlNode{Message: "=== RUN   TestAcceptance/cloud/analyzer/x", Body: "=== RUN   TestAcceptance/cloud/analyzer/x\n"})
+	assert.Equal(t, "", got)
+}

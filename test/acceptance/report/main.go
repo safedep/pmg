@@ -92,18 +92,46 @@ func statusesFromJUnit(data []byte) (map[string]Status, error) {
 	return out, nil
 }
 
+// snippet extracts the most useful single line from a gotestsum failure/skip
+// body. gotestsum captures the whole `go test` log, whose first lines are the
+// "=== RUN" headers and the testscript env dump, not the reason. Prefer the
+// testscript assertion line ("... .txtar:NN: <reason>"); fall back to the first
+// line that is not a go-test header or env dump.
 func snippet(n *xmlNode) string {
-	text := strings.TrimSpace(n.Body)
-	if text == "" {
-		text = strings.TrimSpace(n.Message)
+	lines := strings.Split(n.Body, "\n")
+	for _, ln := range lines {
+		s := strings.TrimSpace(ln)
+		if strings.Contains(s, ".txtar:") {
+			return truncate(s)
+		}
 	}
-	if text == "" {
-		return ""
+	for _, ln := range lines {
+		s := strings.TrimSpace(ln)
+		if s == "" || isTestLogNoise(s) {
+			continue
+		}
+		return truncate(s)
 	}
-	line := strings.TrimSpace(strings.SplitN(text, "\n", 2)[0])
+	if m := strings.TrimSpace(n.Message); m != "" && !isTestLogNoise(m) {
+		return truncate(m)
+	}
+	return ""
+}
+
+func isTestLogNoise(s string) bool {
+	for _, p := range []string{"=== RUN", "=== PAUSE", "=== CONT", "=== NAME", "--- FAIL", "--- PASS", "--- SKIP"} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	// The testscript env dump: "testscript.go:NN: WORK=..." then indented KEY=VALUE lines.
+	return strings.HasPrefix(s, "testscript.go:") || strings.Contains(s, "=$WORK")
+}
+
+func truncate(line string) string {
 	const max = 200
 	if len(line) > max {
-		line = line[:max] + "…"
+		return line[:max] + "…"
 	}
 	return line
 }
