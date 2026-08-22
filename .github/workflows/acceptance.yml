@@ -16,9 +16,7 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: "0 3 * * *" # nightly 03:00 UTC, default branch
-  # Advisory check on code PRs. Keep it out of the required checks: a stale
-  # fixture or a backend outage must not block an unrelated PR.
+    - cron: "0 3 * * *"
   pull_request:
     branches: [main]
     paths-ignore:
@@ -37,8 +35,6 @@ jobs:
     name: Acceptance Suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Skip fork PRs: their code is untrusted and forks get no secrets. A
-    # maintainer can still run a fork ref with workflow_dispatch.
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
@@ -78,8 +74,6 @@ jobs:
         run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Run acceptance suite
-        # Filters pass as env vars read by the Go harness, never interpolated
-        # into this script, so a dispatch input cannot inject a command.
         env:
           PMG_BIN: ${{ github.workspace }}/bin/pmg
           ACCEPTANCE_CATEGORY: ${{ inputs.category }}
