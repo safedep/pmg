@@ -75,6 +75,7 @@ jobs:
           go run ./test/acceptance/report \
             -junit "${RUNNER_TEMP}/acceptance.xml" \
             -catalog test/acceptance/catalog.yaml \
+            -scripts test/acceptance/scripts \
             | tee "${RUNNER_TEMP}/acceptance-report.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report

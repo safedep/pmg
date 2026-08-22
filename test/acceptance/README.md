@@ -97,6 +97,13 @@ credentials are present (forks, local runs), so a credential-less run stays hone
 The harness reports `cloud` true when credentials resolve from the keychain or the
 `SAFEDEP_API_KEY` / `SAFEDEP_TENANT_ID` environment.
 
+**Credentials reach only the `cloud` surface.** `testscript` does not forward host environment, and
+the harness forwards `SAFEDEP_API_KEY` / `SAFEDEP_TENANT_ID` / `PMG_CLOUD_ENABLED` into a script's
+environment only when its first path segment is `cloud`. So the community-surface scripts (npm, pip,
+…) always run the unauthenticated `community-api.safedep.io` path, and the authenticated
+`api.safedep.io` path is exercised only by `cloud/...` cases. Put an authenticated-path guarantee
+under `scripts/cloud/`.
+
 ## Running locally
 
 ```bash

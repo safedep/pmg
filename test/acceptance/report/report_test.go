@@ -55,10 +55,33 @@ func TestSummarize(t *testing.T) {
 	cat, err := acc.LoadCatalog(path)
 	require.NoError(t, err)
 
-	sum := summarize(cat, map[string]Status{"npm/guard/malware-block": StatusPass})
+	sum := summarize(cat, map[string]Status{"npm/guard/malware-block": StatusPass}, nil)
 	assert.Equal(t, 1, sum.Counts[StatusPass])
-	assert.Equal(t, 1, sum.Counts[StatusGap]) // pnpm has no result
+	assert.Equal(t, 1, sum.Counts[StatusGap]) // pnpm has no result and no script
 	assert.Len(t, sum.Rows, 2)
+}
+
+func TestSummarizeUnknownWhenScriptPresentButNoResult(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "catalog.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+- id: npm/guard/malware-block
+  surface: npm
+  tier: P0
+  guarantee: x
+- id: pnpm/guard/malware-block
+  surface: pnpm
+  tier: P0
+  guarantee: y
+`), 0o600))
+	cat, err := acc.LoadCatalog(path)
+	require.NoError(t, err)
+
+	// npm has a script on disk but no result; pnpm has neither.
+	scripts := map[string]bool{"npm/guard/malware-block": true}
+	sum := summarize(cat, map[string]Status{}, scripts)
+	assert.Equal(t, 1, sum.Counts[StatusUnknown]) // scripted but unreported
+	assert.Equal(t, 1, sum.Counts[StatusGap])     // no script yet
 }
 
 func TestRenderShowsFailureSnippetAndCoverage(t *testing.T) {
@@ -87,11 +110,16 @@ func TestRenderShowsFailureSnippetAndCoverage(t *testing.T) {
 	}
 
 	var b strings.Builder
-	render(&b, summarize(cat, statuses), results)
+	require.NoError(t, render(&b, summarize(cat, statuses, nil), results))
 	out := b.String()
 
 	assert.Contains(t, out, "npm/guard/malware-block")
 	assert.Contains(t, out, "unexpected command success")
 	assert.Contains(t, out, "1/1") // P0 coverage: 1 pass of 1
 	assert.Contains(t, out, "## npm")
+}
+
+func TestParseJUnitRejectsMalformed(t *testing.T) {
+	_, err := statusesFromJUnit([]byte("<testsuites><not-closed"))
+	assert.Error(t, err)
 }

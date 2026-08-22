@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
@@ -41,11 +42,20 @@ func TestAcceptance(t *testing.T) {
 	for dir := range dirs {
 		relDir, err := filepath.Rel(root, dir)
 		require.NoError(t, err)
-		t.Run(filepath.ToSlash(relDir), func(t *testing.T) {
+		relDir = filepath.ToSlash(relDir)
+		surface, _, _ := strings.Cut(relDir, "/")
+		t.Run(relDir, func(t *testing.T) {
 			testscript.Run(t, testscript.Params{
 				Dir: dir,
 				Setup: func(env *testscript.Env) error {
 					env.Setenv("PATH", binDir+string(os.PathListSeparator)+env.Getenv("PATH"))
+					// Only cloud-surface scripts get SafeDep Cloud credentials, so the
+					// community-surface scripts keep exercising the unauthenticated
+					// community-api.safedep.io path. testscript does not forward host
+					// env, so without this the authenticated analyzer is never reached.
+					if surface == "cloud" {
+						forwardCloudCredentials(env)
+					}
 					return nil
 				},
 				Condition: func(cond string) (bool, error) {
@@ -58,6 +68,19 @@ func TestAcceptance(t *testing.T) {
 				},
 			})
 		})
+	}
+}
+
+// forwardCloudCredentials copies the SafeDep Cloud credential variables set in
+// the host environment into the testscript environment, so cloud-surface scripts
+// reach the authenticated analyzer. testscript does not forward host env, so
+// community-surface scripts (which never call this) keep their unauthenticated
+// community path.
+func forwardCloudCredentials(env *testscript.Env) {
+	for _, key := range []string{"SAFEDEP_API_KEY", "SAFEDEP_TENANT_ID", "PMG_CLOUD_ENABLED"} {
+		if v, ok := os.LookupEnv(key); ok && v != "" {
+			env.Setenv(key, v)
+		}
 	}
 }
 
