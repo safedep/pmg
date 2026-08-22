@@ -11,8 +11,6 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
-	pmgconfig "github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 	gomodule "golang.org/x/mod/module"
 )
@@ -73,74 +71,21 @@ func (h *goCooldownHandler) HandleInfoRequest(ctx *proxy.RequestContext, module,
 }
 
 // CheckZipDownload blocks the module zip when its publish time is within the
-// cooldown window. handled=false lets the request continue to malware
-// analysis. When the publish time was not observed on the wire (go served
-// .info from its local module cache, common on machines that used go before
-// PMG), it is fetched out-of-band from the upstream proxy; only if that also
-// fails does cooldown fail open — malware analysis still runs.
+// cooldown window. When the publish time was not observed on the wire (go
+// served .info from its local module cache, common on machines that used go
+// before PMG), it is fetched out-of-band from the upstream proxy.
 func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL, module, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
-	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_GO, module)
-	if skip.SkipAll || pmgconfig.IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_GO, module, version) {
-		return nil, false
-	}
-
-	h.mu.Lock()
-	publishTime, ok := h.publishTimes[goModuleVersionKey(module, version)]
-	h.mu.Unlock()
-
-	if !ok {
-		publishTime, ok = h.fetchPublishTime(ctx, baseURL, module, version)
-	}
-
-	if !ok {
-		log.Warnf("[%s] Cooldown: no publish time available for %s@%s; cooldown not enforced for this download", ctx.RequestID, module, version)
-		return nil, false
-	}
-
-	within, daysAgo, daysLeft := cooldownIsWithinWindow(publishTime, cooldownDays)
-	if !within {
-		return nil, false
-	}
-
-	if skip.ExemptsVersion(version) {
-		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_GO, module, cooldownExemptions{skipListed: []string{version}})
-		return nil, false
-	}
-
-	log.Infof("[%s] Cooldown: blocking %s@%s published %d day(s) ago (%d day cooldown, %d remaining)",
-		ctx.RequestID, module, version, daysAgo, cooldownDays, daysLeft)
-
-	if h.statsCollector != nil {
-		h.statsCollector.RecordCooldownBlocked(module, version, publishTime, daysAgo, daysLeft, cooldownDays)
-	}
-
-	pv := &packagev1.PackageVersion{}
-	pv.SetPackage(&packagev1.Package{})
-	pv.GetPackage().SetName(module)
-	pv.GetPackage().SetEcosystem(packagev1.Ecosystem_ECOSYSTEM_GO)
-	pv.SetVersion(version)
-	audit.LogDependencyCooldown(pv, publishTime, cooldownDays, daysAgo, daysLeft)
-
-	return &proxy.InterceptorResponse{
-		Action:      proxy.ActionBlock,
-		BlockCode:   http.StatusForbidden,
-		BlockReason: proxy.BlockReasonDependencyCooldown,
-		BlockContext: &proxy.BlockContext{
-			Ecosystem:        packagev1.Ecosystem_ECOSYSTEM_GO,
-			PackageName:      module,
-			PackageVersion:   version,
-			CooldownDays:     cooldownDays,
-			CooldownDaysAgo:  daysAgo,
-			CooldownDaysLeft: daysLeft,
-		},
-	}, true
+	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, module, version, cooldownDays, h.statsCollector,
+		func() (time.Time, bool) {
+			h.mu.Lock()
+			publishTime, ok := h.publishTimes[goModuleVersionKey(module, version)]
+			h.mu.Unlock()
+			if ok {
+				return publishTime, true
+			}
+			return h.fetchPublishTime(ctx, baseURL, module, version)
+		})
 }
-
-// goInfoFetchClient fetches .info out-of-band, straight to the upstream proxy
-// rather than back through PMG's own in-process proxy (which would
-// re-intercept the request). It honors the process' own proxy environment,
-// not the child's injected one.
-var goInfoFetchClient = &http.Client{Timeout: 10 * time.Second}
 
 // fetchPublishTime performs a one-shot authoritative $base/$module/@v/$version.info
 // fetch and caches the result. Best-effort: any failure means no publish time.
@@ -161,7 +106,7 @@ func (h *goCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, baseURL,
 
 	infoURL := fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimSuffix(baseURL, "/"), escapedPath, escapedVersion)
 
-	resp, err := goInfoFetchClient.Get(infoURL)
+	resp, err := cooldownFetchClient.Get(infoURL)
 	if err != nil {
 		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, infoURL, err)
 		return time.Time{}, false

@@ -13,7 +13,6 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	pmgconfig "github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -52,13 +51,11 @@ func cargoCrateVersionKey(name, version string) string {
 	return strings.ToLower(name) + "@" + version
 }
 
-// cargoIndexLine is the subset of a sparse-index NDJSON line the cooldown
-// needs. pubtime is optional in the index format; versions without it cannot
-// be stripped (fail open, malware analysis still runs at download time).
-type cargoIndexLine struct {
-	Name    string     `json:"name"`
-	Vers    string     `json:"vers"`
-	PubTime *time.Time `json:"pubtime"`
+// cargoIndexEntry is one sparse-index NDJSON line. vers is empty for
+// unparseable lines, which are kept verbatim (fail open).
+type cargoIndexEntry struct {
+	raw  []byte
+	vers string
 }
 
 // HandleIndexRequest registers a response modifier that captures per-version
@@ -68,19 +65,14 @@ type cargoIndexLine struct {
 func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, crate string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
 	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate)
 
-	// Force an uncompressed, non-conditional response so the body is parseable
-	// NDJSON rather than raw gzip bytes or an empty 304 (same as the npm
-	// metadata modifier).
-	ctx.Headers.Set("Accept-Encoding", "identity")
-	ctx.Headers.Del("If-None-Match")
-	ctx.Headers.Del("If-Modified-Since")
+	forceUncompressedNonConditionalResponse(ctx.Headers)
 
 	modifier := func(statusCode int, headers http.Header, body []byte) (int, http.Header, []byte, error) {
 		if statusCode != http.StatusOK {
 			return statusCode, headers, body, nil
 		}
 
-		lines, dates := h.parseIndexBody(ctx.RequestID, crate, body)
+		entries, dates := parseCargoIndexBody(ctx.RequestID, crate, body)
 		h.recordPublishTimes(crate, dates)
 
 		if skip.SkipAll {
@@ -93,7 +85,7 @@ func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, cra
 		exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, skip, dates, cooldownDays)
 		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, exempt)
 
-		strippedBody, stripped, remaining := stripCargoIndexLines(lines, dates, cooldownDays, exempt.all)
+		strippedBody, stripped, remaining := stripCargoIndexLines(entries, dates, cooldownDays, exempt.all)
 		if len(stripped) == 0 {
 			return statusCode, headers, body, nil
 		}
@@ -119,30 +111,36 @@ func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, cra
 	}, nil
 }
 
-// parseIndexBody splits a sparse-index body into raw NDJSON lines and the
-// publish dates parsed from them. Unparseable lines survive verbatim with no
-// date (fail open).
-func (h *cargoCooldownHandler) parseIndexBody(requestID, crate string, body []byte) ([][]byte, map[string]time.Time) {
-	rawLines := bytes.Split(body, []byte("\n"))
+// parseCargoIndexBody splits a sparse-index body into NDJSON entries and the
+// publish dates parsed from them. Unparseable lines get an empty vers and no
+// date (fail open). pubtime is optional in the index format; versions without
+// it cannot be stripped, and malware analysis still runs at download time.
+func parseCargoIndexBody(requestID, crate string, body []byte) ([]cargoIndexEntry, map[string]time.Time) {
+	var entries []cargoIndexEntry
 	dates := map[string]time.Time{}
 
-	for _, raw := range rawLines {
+	for _, raw := range bytes.Split(body, []byte("\n")) {
 		if len(bytes.TrimSpace(raw)) == 0 {
 			continue
 		}
 
-		var line cargoIndexLine
+		var line struct {
+			Vers    string     `json:"vers"`
+			PubTime *time.Time `json:"pubtime"`
+		}
 		if err := json.Unmarshal(raw, &line); err != nil || line.Vers == "" {
-			log.Debugf("[%s] Cooldown: skipping unparseable index line for %s", requestID, crate)
+			log.Debugf("[%s] Cooldown: keeping unparseable index line for %s", requestID, crate)
+			entries = append(entries, cargoIndexEntry{raw: raw})
 			continue
 		}
 
+		entries = append(entries, cargoIndexEntry{raw: raw, vers: line.Vers})
 		if line.PubTime != nil && !line.PubTime.IsZero() {
 			dates[line.Vers] = *line.PubTime
 		}
 	}
 
-	return rawLines, dates
+	return entries, dates
 }
 
 // recordPublishTimes caches a crate's per-version publish times for the
@@ -155,10 +153,13 @@ func (h *cargoCooldownHandler) recordPublishTimes(crate string, dates map[string
 	}
 }
 
-// stripCargoIndexLines removes lines whose version is within the cooldown
-// window. Surviving lines keep their original bytes so checksums and fields
-// PMG does not model pass through untouched.
-func stripCargoIndexLines(rawLines [][]byte, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, []string, int) {
+// stripCargoIndexLines removes entries whose version is within the cooldown
+// window. Surviving entries keep their original bytes so checksums and fields
+// PMG does not model pass through untouched. remaining counts every surviving
+// entry, including versions without a pubtime, so a strip that leaves
+// installable versions is never reported as a definite block. Returns a nil
+// body when nothing is stripped; callers keep the original.
+func stripCargoIndexLines(entries []cargoIndexEntry, dates map[string]time.Time, cooldownDays int, exemptVersions map[string]bool) ([]byte, []string, int) {
 	tooNew := map[string]bool{}
 	for version, publishDate := range dates {
 		if exemptVersions[version] {
@@ -169,25 +170,18 @@ func stripCargoIndexLines(rawLines [][]byte, dates map[string]time.Time, cooldow
 		}
 	}
 
-	remaining := len(dates) - len(tooNew)
 	if len(tooNew) == 0 {
-		return bytes.Join(rawLines, []byte("\n")), nil, remaining
+		return nil, nil, len(entries)
 	}
 
 	var kept [][]byte
 	var stripped []string
-	for _, raw := range rawLines {
-		if len(bytes.TrimSpace(raw)) == 0 {
+	for _, entry := range entries {
+		if entry.vers != "" && tooNew[entry.vers] {
+			stripped = append(stripped, entry.vers)
 			continue
 		}
-
-		var line cargoIndexLine
-		if err := json.Unmarshal(raw, &line); err == nil && tooNew[line.Vers] {
-			stripped = append(stripped, line.Vers)
-			continue
-		}
-
-		kept = append(kept, raw)
+		kept = append(kept, entry.raw)
 	}
 
 	body := bytes.Join(kept, []byte("\n"))
@@ -195,80 +189,25 @@ func stripCargoIndexLines(rawLines [][]byte, dates map[string]time.Time, cooldow
 		body = append(body, '\n')
 	}
 
-	return body, stripped, remaining
+	return body, stripped, len(kept)
 }
 
 // CheckCrateDownload blocks a .crate download when its publish time is within
-// the cooldown window. handled=false lets the request continue to malware
-// analysis. When the publish time was not observed on the wire (cargo resolved
-// from Cargo.lock or a warm index cache), it is fetched out-of-band from the
-// upstream sparse index; only if that also fails does cooldown fail open —
-// malware analysis still runs.
+// the cooldown window. When the publish time was not observed on the wire
+// (cargo resolved from Cargo.lock or a warm index cache), it is fetched
+// out-of-band from the upstream sparse index.
 func (h *cargoCooldownHandler) CheckCrateDownload(ctx *proxy.RequestContext, crate, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
-	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate)
-	if skip.SkipAll || pmgconfig.IsTrustedPackageRef(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, version) {
-		return nil, false
-	}
-
-	key := cargoCrateVersionKey(crate, version)
-
-	h.mu.Lock()
-	publishTime, ok := h.publishTimes[key]
-	h.mu.Unlock()
-
-	if !ok {
-		publishTime, ok = h.fetchPublishTime(ctx, crate, version)
-	}
-
-	if !ok {
-		log.Warnf("[%s] Cooldown: no publish time available for %s@%s; cooldown not enforced for this download", ctx.RequestID, crate, version)
-		return nil, false
-	}
-
-	within, daysAgo, daysLeft := cooldownIsWithinWindow(publishTime, cooldownDays)
-	if !within {
-		return nil, false
-	}
-
-	if skip.ExemptsVersion(version) {
-		auditCooldownSkips(ctx.RequestID, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, cooldownExemptions{skipListed: []string{version}})
-		return nil, false
-	}
-
-	log.Infof("[%s] Cooldown: blocking %s@%s published %d day(s) ago (%d day cooldown, %d remaining)",
-		ctx.RequestID, crate, version, daysAgo, cooldownDays, daysLeft)
-
-	if h.statsCollector != nil {
-		h.statsCollector.RecordCooldownBlocked(crate, version, publishTime, daysAgo, daysLeft, cooldownDays)
-	}
-
-	pv := &packagev1.PackageVersion{}
-	pv.SetPackage(&packagev1.Package{})
-	pv.GetPackage().SetName(crate)
-	pv.GetPackage().SetEcosystem(packagev1.Ecosystem_ECOSYSTEM_CARGO)
-	pv.SetVersion(version)
-	audit.LogDependencyCooldown(pv, publishTime, cooldownDays, daysAgo, daysLeft)
-
-	return &proxy.InterceptorResponse{
-		Action:      proxy.ActionBlock,
-		BlockCode:   http.StatusForbidden,
-		BlockReason: proxy.BlockReasonDependencyCooldown,
-		BlockContext: &proxy.BlockContext{
-			Ecosystem:        packagev1.Ecosystem_ECOSYSTEM_CARGO,
-			PackageName:      crate,
-			PackageVersion:   version,
-			CooldownDays:     cooldownDays,
-			CooldownDaysAgo:  daysAgo,
-			CooldownDaysLeft: daysLeft,
-		},
-	}, true
+	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, version, cooldownDays, h.statsCollector,
+		func() (time.Time, bool) {
+			h.mu.Lock()
+			publishTime, ok := h.publishTimes[cargoCrateVersionKey(crate, version)]
+			h.mu.Unlock()
+			if ok {
+				return publishTime, true
+			}
+			return h.fetchPublishTime(ctx, crate, version)
+		})
 }
-
-// cargoIndexFetchClient fetches index files out-of-band, straight to the
-// upstream sparse index rather than back through PMG's own in-process proxy
-// (which would re-intercept the request). It honors the process' own proxy
-// environment, not the child's injected one.
-var cargoIndexFetchClient = &http.Client{Timeout: 10 * time.Second}
 
 // fetchPublishTime performs a one-shot authoritative sparse-index fetch for
 // the crate and caches every version's publish time from it. Best-effort: any
@@ -276,7 +215,7 @@ var cargoIndexFetchClient = &http.Client{Timeout: 10 * time.Second}
 func (h *cargoCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, crate, version string) (time.Time, bool) {
 	indexURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(h.indexBaseURL, "/"), cargoSparseIndexPath(crate))
 
-	resp, err := cargoIndexFetchClient.Get(indexURL)
+	resp, err := cooldownFetchClient.Get(indexURL)
 	if err != nil {
 		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, indexURL, err)
 		return time.Time{}, false
@@ -294,14 +233,9 @@ func (h *cargoCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, crate
 		return time.Time{}, false
 	}
 
-	_, dates := h.parseIndexBody(ctx.RequestID, crate, body)
+	_, dates := parseCargoIndexBody(ctx.RequestID, crate, body)
+	h.recordPublishTimes(crate, dates)
 
-	h.mu.Lock()
-	for v, t := range dates {
-		h.publishTimes[cargoCrateVersionKey(crate, v)] = t
-	}
-	publishTime, ok := h.publishTimes[cargoCrateVersionKey(crate, version)]
-	h.mu.Unlock()
-
+	publishTime, ok := dates[version]
 	return publishTime, ok
 }

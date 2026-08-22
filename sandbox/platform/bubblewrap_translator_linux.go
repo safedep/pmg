@@ -40,7 +40,7 @@ func newBubblewrapPolicyTranslator(config *bubblewrapConfig) *bubblewrapPolicyTr
 func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
 
-	// 1. Add essential system permissions (filesystem, devices, proc)
+	// 1. Add essential system permissions (filesystem, proc)
 	systemArgs, err := t.addEssentialSystemPermissions()
 	if err != nil {
 		return nil, fmt.Errorf("failed to add essential system permissions: %w", err)
@@ -60,8 +60,8 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 
 	args = append(args, filesystemArgs...)
 
-	// Essential devices are re-bound after the filesystem rules: bwrap mounts
-	// in argument order, so a broad allow_read rule (e.g. `/`) emitted later
+	// Essential devices are bound after the filesystem rules: bwrap mounts in
+	// argument order, so a broad allow_read rule (e.g. `/`) emitted later
 	// would otherwise shadow the device binds with a plain ro-bind. On kernels
 	// that restrict device-node access through non-dev binds, that breaks
 	// /dev/null for the child (cargo and pip open it when spawning tools).
@@ -89,8 +89,9 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 	return args, nil
 }
 
-// addEssentialSystemPermissions adds bind mounts for essential system paths and devices
-// that package managers need to function properly.
+// addEssentialSystemPermissions adds bind mounts for essential system paths
+// that package managers need to function properly. Device binds are emitted
+// separately, after the filesystem rules (see translate).
 func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, error) {
 	args := []string{}
 
@@ -98,8 +99,6 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 	for _, path := range t.config.getEssentialSystemPaths() {
 		args = append(args, "--ro-bind-try", path, path)
 	}
-
-	args = append(args, t.addEssentialDevices()...)
 
 	// Add proc filesystem (read-only for safety)
 	for _, procPath := range t.config.procPaths {
@@ -109,9 +108,8 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 	return args, nil
 }
 
-// addEssentialDevices binds the essential device files. Emitted both before
-// and after the filesystem rules so the device binds survive whichever broad
-// bind is mounted on top of them.
+// addEssentialDevices binds the essential device files. Emitted after the
+// filesystem rules (see translate) so a broad allow bind cannot shadow them.
 func (t *bubblewrapPolicyTranslator) addEssentialDevices() []string {
 	args := []string{}
 	for _, device := range t.config.getEssentialDevices() {

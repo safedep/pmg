@@ -117,6 +117,20 @@ func TestCargoCooldownHandleIndexRequest(t *testing.T) {
 		assert.Equal(t, "serde", withheld[0].Name)
 	})
 
+	t.Run("pubtime-less survivors are not reported as a definite block", func(t *testing.T) {
+		stats := NewAnalysisStatsCollector()
+		h := newCargoCooldownHandler(stats, "")
+
+		body := cargoIndexBody(
+			`{"name":"serde","vers":"0.9.0","deps":[],"cksum":"abc","yanked":false}`,
+			cargoIndexLineJSON("serde", "2.0.0", recentTime),
+		)
+		runCargoIndexModifier(t, h, "serde", 7, body)
+
+		assert.Empty(t, stats.GetCooldownBlocks(), "an installable pubtime-less version remains, not a definite block")
+		assert.Len(t, stats.GetCooldownWithheld(), 1)
+	})
+
 	t.Run("non-200 response passes through", func(t *testing.T) {
 		h := newCargoCooldownHandler(NewAnalysisStatsCollector(), "")
 

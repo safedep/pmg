@@ -67,7 +67,13 @@ func (c *cargoPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 
 	parsed := &ParsedCommand{Command: Command{Exe: c.Config.CommandName, Args: args}}
 
-	subcmd, rest := cargoFirstNonFlagArg(args)
+	// cargo [+toolchain] [OPTIONS] [COMMAND]: a leading +toolchain selector is
+	// not the subcommand.
+	if len(args) > 0 && strings.HasPrefix(args[0], "+") {
+		args = args[1:]
+	}
+
+	subcmd, rest := FirstNonFlagArg(args, cargoGlobalValueFlags)
 	if subcmd == "" {
 		return parsed, nil
 	}
@@ -94,14 +100,12 @@ func (c *cargoPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	return parsed, nil
 }
 
-func cargoFirstNonFlagArg(args []string) (string, []string) {
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		return arg, args[i+1:]
-	}
-	return "", nil
+// cargoGlobalValueFlags are cargo-wide flags that consume the next argument,
+// so their values are not mistaken for the subcommand (e.g. `cargo --config
+// clean build` must not classify as the non-download `clean`, which would
+// skip protection).
+var cargoGlobalValueFlags = map[string]bool{
+	"--color": true, "--config": true, "--explain": true, "-C": true, "-Z": true,
 }
 
 // cargoValueFlags are add/install flags that consume the next argument, so
@@ -161,11 +165,13 @@ func cargoCrateTargets(args []string) []*PackageInstallTarget {
 			continue
 		}
 
+		// Lowercased to match the interceptor's index-derived names: crates.io
+		// names are case-insensitive and index paths are always lowercase.
 		targets = append(targets, &PackageInstallTarget{
 			PackageVersion: &packagev1.PackageVersion{
 				Package: &packagev1.Package{
 					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_CARGO,
-					Name:      name,
+					Name:      strings.ToLower(name),
 				},
 				Version: version,
 			},

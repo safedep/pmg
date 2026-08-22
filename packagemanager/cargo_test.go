@@ -132,6 +132,27 @@ func TestCargoPackageManagerParseCommand(t *testing.T) {
 			manifestInstall: true,
 		},
 		{
+			name:            "toolchain selector is not the subcommand",
+			args:            []string{"cargo", "+nightly", "build"},
+			manifestInstall: true,
+		},
+		{
+			name:            "global value flag does not hide the subcommand",
+			args:            []string{"cargo", "--color", "always", "build"},
+			manifestInstall: true,
+		},
+		{
+			name: "global flag value matching a non-download command is not misclassified",
+			args: []string{"cargo", "--config", "clean", "build"},
+			// build, not clean: the command downloads and must stay guarded
+			manifestInstall: true,
+		},
+		{
+			name:    "crate name is lowercased for interceptor matching",
+			args:    []string{"cargo", "add", "Inflector@0.11.4"},
+			targets: []target{{name: "inflector", version: "0.11.4", explicit: true}},
+		},
+		{
 			name: "no subcommand",
 			args: []string{"cargo"},
 		},

@@ -78,6 +78,24 @@ func IsFirstNonFlagArgInList(args []string, nonDownloadCmds []string) bool {
 	return false
 }
 
+// FirstNonFlagArg returns the first argument that is not a flag, plus the
+// arguments after it. Flags in valueFlags consume the following argument
+// (their value) when it is not attached with '=', so the value is never
+// mistaken for the subcommand.
+func FirstNonFlagArg(args []string, valueFlags map[string]bool) (string, []string) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			if flag, _, hasValue := strings.Cut(arg, "="); valueFlags[flag] && !hasValue {
+				i++
+			}
+			continue
+		}
+		return arg, args[i+1:]
+	}
+	return "", nil
+}
+
 // PackageManager is the contract for implementing a package manager
 type PackageManager interface {
 	// Name of the package manager implementation
