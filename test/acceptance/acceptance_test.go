@@ -25,6 +25,10 @@ func TestAcceptance(t *testing.T) {
 		build.Stderr = os.Stderr
 		require.NoError(t, build.Run(), "build pmg for acceptance run")
 	}
+	// testscript resolves exec targets via PATH from each script's cwd, which cd's
+	// around, so a relative PMG_BIN would never resolve. Anchor it to an absolute path.
+	pmgBin, err := filepath.Abs(pmgBin)
+	require.NoError(t, err)
 	binDir := filepath.Dir(pmgBin)
 
 	cat, err := LoadCatalog("catalog.yaml")

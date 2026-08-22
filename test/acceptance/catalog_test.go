@@ -96,7 +96,7 @@ func TestLoadCatalogRejectsBadTierAndDupes(t *testing.T) {
 	badTier := filepath.Join(dir, "bad.yaml")
 	require.NoError(t, os.WriteFile(badTier, []byte(`
 - id: a/b/c
-  category: npm
+  category: a
   tier: P9
   guarantee: x
 `), 0o600))
@@ -106,14 +106,27 @@ func TestLoadCatalogRejectsBadTierAndDupes(t *testing.T) {
 	dupe := filepath.Join(dir, "dupe.yaml")
 	require.NoError(t, os.WriteFile(dupe, []byte(`
 - id: a/b/c
-  category: npm
+  category: a
   tier: P0
   guarantee: x
 - id: a/b/c
-  category: npm
+  category: a
   tier: P0
   guarantee: y
 `), 0o600))
 	_, err = LoadCatalog(dupe)
 	assert.Error(t, err)
+}
+
+func TestLoadCatalogRejectsCategoryMismatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mismatch.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+- id: npm/guard/malware-block
+  category: npn
+  tier: P0
+  guarantee: x
+`), 0o600))
+	_, err := LoadCatalog(path)
+	assert.ErrorContains(t, err, "must match id head")
 }

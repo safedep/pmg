@@ -86,8 +86,7 @@ stdout 'Malicious package blocked'
 ! exists node_modules/safedep-test-pkg
 ```
 
-Keep the known-malicious fixtures malicious, or the test means nothing: `safedep-test-pkg` (npm) and
-`nyc-config@10.0.0`.
+Keep the known-malicious fixture malicious, or the test means nothing: `safedep-test-pkg` (npm).
 
 ### Cloud-mode cases
 

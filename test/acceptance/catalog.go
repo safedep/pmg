@@ -87,6 +87,12 @@ func LoadCatalog(path string) (*Catalog, error) {
 		if g.ID == "" {
 			return nil, fmt.Errorf("catalog entry with empty id: %+v", g)
 		}
+		// The category must equal the id's first path segment: Selects filters on
+		// it and the report groups by it, so a typo would silently mis-filter and
+		// mis-group instead of failing.
+		if head, _, _ := strings.Cut(g.ID, "/"); g.Category != head {
+			return nil, fmt.Errorf("catalog %s: category %q must match id head %q", g.ID, g.Category, head)
+		}
 		if _, dup := c.byID[g.ID]; dup {
 			return nil, fmt.Errorf("duplicate catalog id: %s", g.ID)
 		}
