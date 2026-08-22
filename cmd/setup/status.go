@@ -203,7 +203,7 @@ func collectShellIntegration(core []doctor.CheckResult) shellIntegration {
 	}
 
 	aliasCfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+	rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), aliasCfg.RcFileName)
 	if err != nil {
 		log.Debugf("rc file manager unavailable; omitting alias rc file: %v", err)
 	} else {

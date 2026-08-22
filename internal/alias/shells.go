@@ -24,6 +24,11 @@ type Shell interface {
 	CandidateRcFiles(homeDir string) []string
 }
 
+// aliasSourceMarker tags every source line pmg writes into a shell rc file.
+// Detection and removal match on it rather than on the rc file name, which is
+// a plain filename and would also match unrelated user-managed paths.
+const aliasSourceMarker = "# PMG source aliases"
+
 var commentForRemovingShellSource = "# remove aliases by running `pmg setup remove` or deleting the line"
 var commentForRemovingShellShims = "# remove PMG shims by running `pmg setup remove` or deleting the line"
 
@@ -32,7 +37,7 @@ func defaultPathExport(binDir string) string {
 }
 
 func defaultShellSource(rcPath string) string {
-	return fmt.Sprintf("%s \n[ -f '%s' ] && source '%s'  # PMG source aliases\n", commentForRemovingShellSource, rcPath, rcPath)
+	return fmt.Sprintf("%s \n[ -f '%s' ] && source '%s'  %s\n", commentForRemovingShellSource, rcPath, rcPath, aliasSourceMarker)
 }
 
 // DetectShell attempts to detect the current shell from the SHELL environment variable.
