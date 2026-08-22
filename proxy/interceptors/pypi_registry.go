@@ -1,8 +1,6 @@
 package interceptors
 
 import (
-	"net/http"
-
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -21,8 +19,8 @@ var pypiRegistryEndpoints = []registryEndpoint{
 // It embeds baseRegistryInterceptor to reuse ecosystem agnostic functionality
 type PypiRegistryInterceptor struct {
 	baseRegistryInterceptor
+	registryRequestMatcher
 	cooldownHandler *pypiCooldownHandler
-	registries      registrySet
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
@@ -52,8 +50,8 @@ func newPypiRegistryInterceptor(
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-pypi"),
 			execContext:      execContext,
 		},
-		cooldownHandler: newPypiCooldownHandler(statsCollector),
-		registries:      registries,
+		registryRequestMatcher: registryRequestMatcher{registries: registries},
+		cooldownHandler:        newPypiCooldownHandler(statsCollector),
 	}
 }
 
@@ -62,67 +60,10 @@ func (i *PypiRegistryInterceptor) Name() string {
 	return "pypi-registry-interceptor"
 }
 
-func (i *PypiRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
-	if ctx == nil {
-		return false
-	}
-	return registryHostSupportsAnalysis(i.registries, ctx.Hostname, ctx.Port)
-}
-
-// ShouldIntercept determines if this interceptor should handle the given request
-func (i *PypiRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	return registryRequestMatch(i.registries, ctx) != nil
-}
-
-// HandleRequest processes the request and returns response action
-// We take a fail-open approach here, allowing requests that we can't parse the package information from the URL.
+// HandleRequest runs the shared registry flow with PyPI's artifact and
+// metadata handlers.
 func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
-	log.Debugf("[%s] Handling PyPI registry request: %s", ctx.RequestID, ctx.URL.Path)
-
-	// Get registry configuration
-	match := registryRequestMatch(i.registries, ctx)
-	if match == nil {
-		// Shouldn't happen if ShouldIntercept is working correctly
-		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	// Analysis and cooldown only ever act on reads. Anything else (publish,
-	// registry API calls) passes through untouched: no header rewrites, no
-	// response modifiers.
-	if ctx.Method != http.MethodGet && ctx.Method != http.MethodHead {
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	// Skip analysis for registries that are not supported for analysis
-	endpoint := match.Endpoint
-	if !endpoint.Analyze {
-		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
-			ctx.RequestID, endpoint.Host, ctx.URL.String())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	// Parse URL using registry-specific strategy
-	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
-
-	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
-		return i.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
-	}
-
-	if parseErr != nil {
-		logRegistryParseFailure(ctx, endpoint, "PyPI", parseErr)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	if !pkgInfo.IsFileDownload() {
-		return i.handleMetadataRequest(ctx, pkgInfo)
-	}
-
-	// A file-download parse without a complete identity: nothing reliable
-	// to analyze against. URLs that carry no identity at all (opaque
-	// download URLs some registries serve) land here too and are allowed
-	// without analysis.
-	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	return handleRegistryRequest(ctx, i.registries, "PyPI", i)
 }
 
 // handleMetadataRequest applies dependency cooldown to a metadata request.
