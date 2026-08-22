@@ -1,0 +1,159 @@
+# Guarantee inventory for the PMG acceptance suite. One entry per guarantee.
+# coverage is derived (a script whose path-id matches => covered), never authored.
+#
+# surface is one of:
+#   npm|pnpm|bun|yarn|npx|pnpx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|setup|sandbox|cloud|config|version|audit
+# tier is P0 (incident) | P1 (important) | P2 (tracked). Tier is metadata in Part 1;
+# it encodes the Part 2 gate policy up front and gates nothing yet.
+
+# --- covered by seed scripts ---
+- id: npm/guard/malware-block
+  title: "npm install of a known-malicious package is blocked"
+  surface: npm
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: npm/dry-run/clean-allow
+  title: "npm --dry-run install of a clean package succeeds"
+  surface: npm
+  tier: P1
+  guarantee: "A clean package passes analysis and pmg exits zero."
+- id: pip/guard/malware-block
+  title: "pip install of a known-malicious package is blocked"
+  surface: pip
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: setup/install/shims-created
+  title: "pmg setup install creates package-manager shims"
+  surface: setup
+  tier: P1
+  guarantee: "pmg setup install provisions shims for supported package managers."
+- id: cloud/analyzer/authenticated-query-blocks-malware
+  title: "authenticated (cloud-mode) query blocks known malware"
+  surface: cloud
+  tier: P0
+  guarantee: "With SafeDep Cloud creds, the authenticated api.safedep.io path still blocks malware."
+
+# --- full-surface gaps (no script yet; tracked, reported, non-blocking) ---
+
+# npm ecosystem
+- id: pnpm/guard/malware-block
+  title: "pnpm add of a known-malicious package is blocked"
+  surface: pnpm
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: bun/guard/malware-block
+  title: "bun add of a known-malicious package is blocked"
+  surface: bun
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: yarn/guard/malware-block
+  title: "yarn add of a known-malicious package is blocked"
+  surface: yarn
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: npx/guard/malware-block
+  title: "npx of a known-malicious package is blocked"
+  surface: npx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+- id: pnpx/guard/malware-block
+  title: "pnpx of a known-malicious package is blocked"
+  surface: pnpx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+
+# python ecosystem
+- id: pip3/guard/malware-block
+  title: "pip3 install of a known-malicious package is blocked"
+  surface: pip3
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: uv/guard/malware-block
+  title: "uv pip install of a known-malicious package is blocked"
+  surface: uv
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: uvx/guard/malware-block
+  title: "uvx of a known-malicious package is blocked"
+  surface: uvx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+- id: poetry/guard/malware-block
+  title: "poetry add of a known-malicious package is blocked"
+  surface: poetry
+  tier: P1
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+- id: pipx/guard/malware-block
+  title: "pipx install of a known-malicious package is blocked"
+  surface: pipx
+  tier: P1
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+
+# go ecosystem
+- id: go/guard/malware-block
+  title: "go get of a known-malicious module is blocked"
+  surface: go
+  tier: P1
+  guarantee: "A module with a malware verdict is never fetched; pmg exits non-zero."
+
+# proxy
+- id: proxy/lifecycle/starts-and-stops
+  title: "pmg proxy starts and stops cleanly"
+  surface: proxy
+  tier: P2
+  guarantee: "pmg proxy starts, serves, and shuts down without a leaked process."
+- id: proxy/trusted/registry-bypass
+  title: "trusted registry traffic bypasses interception"
+  surface: proxy
+  tier: P1
+  guarantee: "Traffic to a configured trusted registry is passed through, not analyzed."
+
+# sandbox
+- id: sandbox/enforce/blocks-secret-exfil
+  title: "sandbox enforce blocks secret exfiltration"
+  surface: sandbox
+  tier: P0
+  guarantee: "Under --sandbox --sandbox-enforce, a seeded secret cannot be exfiltrated."
+- id: sandbox/enforce/allows-clean-install
+  title: "sandbox enforce still allows a clean install"
+  surface: sandbox
+  tier: P1
+  guarantee: "Under --sandbox --sandbox-enforce, a clean install completes without a false denial."
+
+# cloud
+- id: cloud/analyzer/bad-creds-fall-back-to-community
+  title: "invalid cloud creds fall back to community analyzer"
+  surface: cloud
+  tier: P1
+  guarantee: "When the API rejects the credentials, pmg falls back to community analysis instead of failing open."
+- id: cloud/analyzer/tenant-exclusion-honored
+  title: "a tenant exclusion is honored on the authenticated path"
+  surface: cloud
+  tier: P1
+  guarantee: "With a stable exclusion in a dedicated test tenant, the excluded package is not blocked."
+- id: cloud/sync/uploads-events
+  title: "pmg cloud sync uploads recorded events"
+  surface: cloud
+  tier: P2
+  guarantee: "pmg cloud sync uploads locally recorded events to SafeDep Cloud."
+
+# audit
+- id: audit/log/records-block
+  title: "a blocked install is recorded in the audit log"
+  surface: audit
+  tier: P1
+  guarantee: "Blocking a package writes an audit-log entry."
+
+# config
+- id: config/show/reports-effective-config
+  title: "pmg config prints effective configuration"
+  surface: config
+  tier: P2
+  guarantee: "pmg config reports the effective merged configuration."
+
+# version
+- id: version/reports-build-metadata
+  title: "pmg version prints version and commit"
+  surface: version
+  tier: P2
+  guarantee: "pmg version prints the build version and commit."
