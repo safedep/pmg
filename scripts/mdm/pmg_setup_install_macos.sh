@@ -26,16 +26,16 @@ CLOUD_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
 install_via_brew() {
   local brew_bin="$1"
   log "Installing/updating pmg via Homebrew"
-  if run_brew "$brew_bin" ls --versions safedep/tap/pmg &>/dev/null; then
-    run_brew "$brew_bin" upgrade safedep/tap/pmg || true
+  if run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
+    run_brew "$brew_bin" upgrade --cask safedep/tap/pmg || true
   else
-    run_brew "$brew_bin" install safedep/tap/pmg
+    run_brew "$brew_bin" install --cask safedep/tap/pmg
   fi
 }
 
 install_via_release() {
   log "Homebrew not found, installing pmg from GitHub releases"
-  local install_dir="/usr/local/bin" tag asset url checksums_url tmpdir expected actual
+  local install_dir="/usr/local/bin" tag asset url checksums_url expected actual
 
   tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" | sed 's|.*/||')
   [[ -n "$tag" ]] || { echo "Error: could not determine latest release" >&2; exit 1; }
@@ -91,7 +91,7 @@ configure_user() {
   log "Configuring pmg for $user"
   run_user_file "$user" "$PMG_BIN" setup install || { warn "setup failed for $user"; return; }
 
-  [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]] || return
+  [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]] || return 0
   if ! user_has_session "$user"; then
     log "  $user is not logged in; run 'pmg cloud login' in their session to enable cloud sync"
     return

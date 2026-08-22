@@ -7,9 +7,14 @@ Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS fleets through 
 | `pmg_setup_install_macos.sh` | Install the binary and configure every user (config, aliases, shims, optional cloud sync) |
 | `pmg_uninstall_macos.sh` | Remove per-user state, Keychain credentials, and the binary |
 | `lib_macos.sh` | Shared helpers. Deploy it alongside the other two. |
+| `standalone/pmg_setup_install_macos_standalone.sh` | Generated installer for single-script MDM policies |
+| `standalone/pmg_uninstall_macos_standalone.sh` | Generated uninstaller for single-script MDM policies |
+| `generate_standalone_scripts.sh` | Regenerates standalone scripts and optionally embeds `config.yml` |
 | `config.yml` *(optional)* | When present in the package, the install script deploys it as the machine-wide globally managed config |
 
-The install and uninstall scripts source `./lib_macos.sh` from their own directory, so ship all three together. Zip the `mdm/` folder as the MDM payload. Add a `config.yml` to the folder to deploy a globally managed config (see below).
+For a multi-file MDM deployment, ship `lib_macos.sh` and both entry scripts together. The entry scripts source `./lib_macos.sh` from their own directory. Zip the `mdm/` folder as the MDM payload. Add a `config.yml` to the folder to deploy a globally managed config (see below).
+
+For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload `lib_macos.sh` separately.
 
 ## Execution model
 
@@ -79,6 +84,32 @@ Only the config *file* is global. Per-user runtime state (logs, cloud sync datab
 | `PMG_CACHE_DIR` | Override the cache directory location (uninstall cleanup honors it) |
 | `PMG_KEEP_GLOBAL_CONFIG` | Uninstall only: when set, keep the globally managed config instead of removing it |
 
+## Microsoft Intune example
+
+Microsoft Intune accepts one script per policy. Use the generated scripts in [`scripts/mdm/standalone/`](standalone/). Do not upload `lib_macos.sh`.
+
+To install PMG:
+
+1. Download [`scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh`](standalone/pmg_setup_install_macos_standalone.sh).
+2. In Intune, go to **Devices > By platform > macOS > Manage devices > Scripts > Add**.
+3. Upload `pmg_setup_install_macos_standalone.sh`.
+4. Set **Run script as signed-in user** to **No** so that the script runs as root.
+5. Set the frequency to **Not configured** for a one-time deployment.
+6. Configure the retry count for your deployment.
+7. Assign the policy to a device group.
+
+The published standalone installer contains no organization config. To embed a globally managed config, run this command from `scripts/mdm/`:
+
+```sh
+./generate_standalone_scripts.sh --config /path/to/config.yml --output-dir ./pmg-intune
+```
+
+Upload `./pmg-intune/pmg_setup_install_macos_standalone.sh` instead of the published installer. The installer writes the config before it configures users.
+
+Intune administrators can view the embedded config in the uploaded script. Do not put API keys or other secrets in this config.
+
+Create a separate policy for [`scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh`](standalone/pmg_uninstall_macos_standalone.sh). Run it as root. Do not assign the install and uninstall policies at the same time because Intune can run them concurrently.
+
 ## Jamf example
 
 Upload the `mdm/` folder as a script payload, or a package that drops the three files together, then invoke the entry script. Jamf runs scripts as root, which covers fleet-wide, multi-user deployment:
@@ -142,5 +173,15 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
 
 ```sh
 # From this directory
-shellcheck -x lib_macos.sh pmg_setup_install_macos.sh pmg_uninstall_macos.sh
+./generate_standalone_scripts.sh
+./generate_standalone_scripts.sh --check
+bash ./generate_standalone_scripts_test.sh
+shellcheck -x \
+  lib_macos.sh \
+  pmg_setup_install_macos.sh \
+  pmg_uninstall_macos.sh \
+  generate_standalone_scripts.sh \
+  generate_standalone_scripts_test.sh \
+  standalone/pmg_setup_install_macos_standalone.sh \
+  standalone/pmg_uninstall_macos_standalone.sh
 ```
