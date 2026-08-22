@@ -67,8 +67,9 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatal
 func newBuiltInRegistryCatalog() *RegistryCatalog {
 	return &RegistryCatalog{
 		byEcosystem: map[packagev1.Ecosystem]registrySet{
-			packagev1.Ecosystem_ECOSYSTEM_NPM:  {entries: append([]registryEndpoint(nil), npmRegistryEndpoints...)},
-			packagev1.Ecosystem_ECOSYSTEM_PYPI: {entries: append([]registryEndpoint(nil), pypiRegistryEndpoints...)},
+			packagev1.Ecosystem_ECOSYSTEM_NPM:   {entries: append([]registryEndpoint(nil), npmRegistryEndpoints...)},
+			packagev1.Ecosystem_ECOSYSTEM_PYPI:  {entries: append([]registryEndpoint(nil), pypiRegistryEndpoints...)},
+			packagev1.Ecosystem_ECOSYSTEM_CARGO: {entries: append([]registryEndpoint(nil), cargoRegistryEndpoints...)},
 		},
 	}
 }
@@ -123,6 +124,7 @@ func (c *RegistryCatalog) builtInForHostname(hostname string) *registryEndpoint 
 	for _, ecosystem := range []packagev1.Ecosystem{
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,
+		packagev1.Ecosystem_ECOSYSTEM_CARGO,
 	} {
 		set := c.byEcosystem[ecosystem]
 		for index := range set.entries {

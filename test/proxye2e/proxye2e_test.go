@@ -766,6 +766,226 @@ func npmMetadataFromResult(t *testing.T, res ExecResult) NpmMetadata {
 	return meta
 }
 
+func TestProxyFlow_Cargo(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "clean crate is analyzed and allowed",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "serde",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("serde", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("serde", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("serde", "1.0.0"))
+				assert.True(t, h.Registry.DownloadedCrate("serde", "1.0.0"))
+				assert.GreaterOrEqual(t, h.Stats().AllowedCount, 1)
+			},
+		},
+		{
+			Name: "verified malware is blocked before download",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "evil",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("evil", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedCrate("evil", "1.0.0"))
+				assert.Len(t, h.BlockedPackages(), 1)
+			},
+		},
+		{
+			Name: "suspicious crate blocked when user declines",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "maybe",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("maybe", "1.0.0", Suspicious())
+				h.Confirm.AutoDeny()
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("maybe", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Len(t, h.Confirm.Prompts(), 1)
+				assert.False(t, h.Registry.DownloadedCrate("maybe", "1.0.0"))
+			},
+		},
+		{
+			Name: "suspicious crate allowed when user confirms",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "maybe",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("maybe", "1.0.0", Suspicious())
+				h.Confirm.AutoApprove()
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("maybe", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Len(t, h.Confirm.Prompts(), 1)
+				assert.True(t, h.Registry.DownloadedCrate("maybe", "1.0.0"))
+				assert.GreaterOrEqual(t, h.Stats().ConfirmedCount, 1)
+			},
+		},
+		{
+			Name:   "paranoid mode blocks suspicious without prompting",
+			Config: func(rc *config.RuntimeConfig) { rc.Config.Paranoid = true },
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "maybe",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("maybe", "1.0.0", Suspicious())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("maybe", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Empty(t, h.Confirm.Prompts())
+			},
+		},
+		{
+			Name:   "cooldown strips in-window version from the index",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "serde", Versions: []CargoVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+				h.Analyzer.SetCargo("serde", "1.0.0", Clean())
+				h.Analyzer.SetCargo("serde", "2.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("serde", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				index := h.Cargo().FetchIndex("serde")
+				assert.False(t, index.HasVersion("2.0.0"), "in-window version must be stripped")
+				assert.True(t, index.HasVersion("1.0.0"), "out-of-window version must survive")
+				assert.False(t, h.Registry.DownloadedCrate("serde", "2.0.0"))
+
+				withheld := h.CooldownWithheld()
+				assert.Len(t, withheld, 1)
+				assert.Equal(t, "serde", withheld[0].Name)
+			},
+		},
+		{
+			Name:           "cooldown records a blocked pinned version",
+			Config:         cooldownEnabled(7),
+			PinnedVersions: map[string]string{"serde": "2.0.0"},
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "serde", Versions: []CargoVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "2.0.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("serde", "2.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.GreaterOrEqual(t, h.Stats().CooldownBlockedCount, 1)
+				blocks := h.CooldownBlocks()
+				var found bool
+				for _, b := range blocks {
+					if b.Name == "serde" && b.Version == "2.0.0" {
+						found = true
+					}
+				}
+				assert.True(t, found, "pinned in-window version should be recorded as a cooldown block")
+				assert.Empty(t, h.CooldownWithheld(), "a definite block must not also be recorded as withheld")
+			},
+		},
+		{
+			// Models a Cargo.lock build: cargo downloads the locked version
+			// without an index fetch on the wire, so the publish time comes
+			// from the out-of-band index fetch.
+			Name:   "cooldown blocks a lockfile download via out-of-band publish time",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "fresh",
+					Versions: []CargoVersion{{Version: "1.1.0", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Cargo().Download("fresh", "1.1.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.GreaterOrEqual(t, h.Stats().CooldownBlockedCount, 1)
+				assert.Empty(t, h.Analyzer.Calls(), "blocked download must not reach the analyzer")
+			},
+		},
+		{
+			Name:   "cooldown fails open without a publish time and analysis still runs",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "nodate",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: recent(), NoPubTime: true}}})
+				h.Analyzer.SetCargo("nodate", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Cargo().Download("nodate", "1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("nodate", "1.0.0"))
+				assert.Equal(t, 0, h.Stats().CooldownBlockedCount)
+			},
+		},
+		{
+			Name: "trusted crate waives both cooldown and malware analysis",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:cargo/internal-sdk"}}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "internal-sdk",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("internal-sdk", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedCrate("internal-sdk", "1.0.0"), "trusted crate must bypass an active cooldown window")
+				assert.Empty(t, h.Analyzer.Calls(), "trusted crate must bypass malware analysis")
+			},
+		},
+		{
+			Name: "canonical-case crate download is analyzed under its URL name",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "Inflector",
+					Versions: []CargoVersion{{Version: "0.11.4", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("Inflector", "0.11.4", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Cargo().Download("Inflector", "0.11.4"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+			},
+		},
+		{
+			Name: "cargo cooldown block body carries advisory message",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+				rc.Config.AdvisoryMessage = "Request an exemption at go/pmg-exceptions"
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "fresh",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Cargo().Download("fresh", "1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Contains(t, blockedBody(res), "Request an exemption at go/pmg-exceptions")
+			},
+		},
+	})
+}
+
 func TestProxyFlow_AdvisoryMessage(t *testing.T) {
 	RunCases(t, []TestCase{
 		{

@@ -109,6 +109,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 				"proxy.golang.org": registry.goBaseURL(),
 				"corp.example.com": registry.goBaseURL() + "/goproxy",
 			},
+			// The cargo interceptor's out-of-band publish-time fetches go to
+			// the plain-HTTP mock index instead of the real crates.io.
+			CargoIndexBaseURL: registry.cargoBaseURL(),
 		},
 		config.Get().Config.Proxy.Registries,
 	)
@@ -118,6 +121,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,
 		packagev1.Ecosystem_ECOSYSTEM_GO,
+		packagev1.Ecosystem_ECOSYSTEM_CARGO,
 	)
 	require.NoError(t, err)
 
@@ -186,9 +190,10 @@ func (h *Harness) Close() {
 	h.Registry.close()
 }
 
-func (h *Harness) Npm() NpmDriver   { return NpmDriver{h: h} }
-func (h *Harness) Pypi() PypiDriver { return PypiDriver{h: h} }
-func (h *Harness) Go() GoDriver     { return GoDriver{h: h} }
+func (h *Harness) Npm() NpmDriver     { return NpmDriver{h: h} }
+func (h *Harness) Pypi() PypiDriver   { return PypiDriver{h: h} }
+func (h *Harness) Go() GoDriver       { return GoDriver{h: h} }
+func (h *Harness) Cargo() CargoDriver { return CargoDriver{h: h} }
 
 func (h *Harness) Stats() interceptors.AnalysisStats { return h.stats.GetStats() }
 

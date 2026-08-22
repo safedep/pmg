@@ -20,6 +20,11 @@ type InterceptorContext struct {
 	// prefix). Go registry routing is derived dynamically from GOPROXY and
 	// remains separate from the npm/PyPI registry catalog.
 	GoProxyBaseURLs map[string]string
+
+	// CargoIndexBaseURL overrides the upstream sparse-index base URL used for
+	// out-of-band publish-time fetches. Empty means the public crates.io
+	// sparse index; set by the hermetic proxy E2E tests.
+	CargoIndexBaseURL string
 }
 
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy
@@ -88,6 +93,16 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 			f.execContext,
 		), nil
 
+	case packagev1.Ecosystem_ECOSYSTEM_CARGO:
+		return newCargoRegistryInterceptor(
+			f.analyzer,
+			f.cache,
+			f.statsCollector,
+			f.confirmationChan,
+			f.execContext,
+			f.registries.registrySet(packagev1.Ecosystem_ECOSYSTEM_CARGO),
+		), nil
+
 	default:
 		return nil, fmt.Errorf("proxy-based interception not yet supported for ecosystem: %s", ecosystem.String())
 	}
@@ -111,6 +126,7 @@ func SupportedEcosystems() []packagev1.Ecosystem {
 		packagev1.Ecosystem_ECOSYSTEM_NPM,
 		packagev1.Ecosystem_ECOSYSTEM_PYPI,
 		packagev1.Ecosystem_ECOSYSTEM_GO,
+		packagev1.Ecosystem_ECOSYSTEM_CARGO,
 	}
 }
 

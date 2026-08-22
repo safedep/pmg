@@ -207,6 +207,7 @@ pip config debug
 | `uvx`           | ✅      |
 | `poetry`        | ✅      |
 | `go`            | 🧪 experimental |
+| `cargo`         | 🧪 experimental |
 
 ### Go (experimental)
 
@@ -235,6 +236,39 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   instructions if the PMG CA is not trusted. Linux works out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
   VCS host and are not analyzed; PMG warns when these are set.
+
+</details>
+
+### Cargo (experimental)
+
+`pmg cargo` guards crates.io downloads through the same proxy flow. It is
+experimental and opt-in: it only runs when invoked explicitly as
+`pmg cargo ...` and is deliberately excluded from `pmg setup` shell aliases
+and PATH shims. Unlike npm/PyPI, Rust executes third-party code at build time
+(build scripts, proc macros), so `cargo build`/`run`/`test` are guarded
+dependency-installing commands, not pass-throughs.
+
+<details>
+<summary>How it differs from npm/PyPI</summary>
+
+- PMG intercepts the fixed crates.io hosts: `index.crates.io` (sparse index)
+  and `static.crates.io` (`.crate` downloads). The crates.io API host is
+  tunneled without inspection, so registry tokens used by `cargo publish`
+  never pass through the MITM path.
+- PMG forces the sparse registry protocol for the child
+  (`CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse`) so index traffic is
+  interceptable, and injects `CARGO_HTTP_CAINFO` — the only CA variable
+  cargo's libcurl reads. No OS trust store change is needed on any platform.
+- Dependency cooldown strips in-window versions from sparse-index responses
+  using the index's per-version `pubtime` field, so cargo's resolver falls
+  back to an older release. A pinned or `Cargo.lock` version inside the
+  window is blocked at download time with HTTP 403, using an out-of-band
+  index fetch when the publish time was not observed on the wire.
+- Malware analysis runs on every `.crate` download, direct and transitive.
+- Git dependencies (`git = "..."` in `Cargo.toml`) are fetched from their VCS
+  host and are not analyzed. Alternative registries and source replacement
+  are not analyzed either; their traffic is tunneled and surfaces in the
+  audit log as observed hosts.
 
 </details>
 
