@@ -1,0 +1,543 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/safedep/pmg/internal/registryurl"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestValidateProxyRegistries(t *testing.T) {
+	tests := []struct {
+		name       string
+		registries []ProxyRegistryConfig
+		wantErr    string
+	}{
+		{
+			name: "valid npm registry",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "https://packages.example.test/artifactory/api/npm/team/",
+				}},
+			}},
+		},
+		{
+			name: "valid pypi registry with escaped path",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-pypi",
+				Ecosystem: "pypi",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "https://packages.example.test/simple/%2Fteam/",
+				}},
+			}},
+		},
+		{
+			name: "duplicate name",
+			registries: []ProxyRegistryConfig{
+				{Name: "packages", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://npm.example.test/"}}},
+				{Name: "packages", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://pypi.example.test/simple"}}},
+			},
+			wantErr: `duplicate proxy registry name "packages"`,
+		},
+		{
+			name: "empty name",
+			registries: []ProxyRegistryConfig{{
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://npm.example.test/"}},
+			}},
+			wantErr: "proxy.registries[0].name is required",
+		},
+		{
+			name: "whitespace name",
+			registries: []ProxyRegistryConfig{{
+				Name:      " \t ",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://npm.example.test/"}},
+			}},
+			wantErr: "proxy.registries[0].name is required",
+		},
+		{
+			name: "name with surrounding whitespace",
+			registries: []ProxyRegistryConfig{{
+				Name:      " packages ",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://npm.example.test/"}},
+			}},
+			wantErr: "proxy.registries[0].name must not have leading or trailing whitespace",
+		},
+		{
+			name: "unsupported ecosystem",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "maven",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/"}},
+			}},
+			wantErr: `proxy registry "packages" has unsupported ecosystem "maven"`,
+		},
+		{
+			name: "missing ecosystem",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/"}},
+			}},
+			wantErr: `proxy registry "packages" has unsupported ecosystem ""`,
+		},
+		{
+			name: "no endpoints",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+			}},
+			wantErr: `proxy registry "packages" must define at least one endpoint`,
+		},
+		{
+			name: "empty endpoint url",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL must be absolute`,
+		},
+		{
+			name: "relative endpoint url",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "/npm",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL must be absolute`,
+		},
+		{
+			name: "endpoint url without host",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "https:/npm",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL host is required`,
+		},
+		{
+			name: "unsupported endpoint scheme",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "ftp://packages.example.test/npm",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL scheme must be http or https`,
+		},
+		{
+			name: "endpoint url credentials",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "https://user:password@packages.example.test/npm",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL must not include credentials`,
+		},
+		{
+			name: "endpoint url query",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "https://packages.example.test/npm?token=value",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL must not include a query`,
+		},
+		{
+			name: "endpoint url fragment",
+			registries: []ProxyRegistryConfig{{
+				Name:      "packages",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{
+					URL: "https://packages.example.test/npm#fragment",
+				}},
+			}},
+			wantErr: `proxy registry "packages" endpoint 0: URL must not include a fragment`,
+		},
+		{
+			name: "duplicate normalized endpoint across registries",
+			registries: []ProxyRegistryConfig{
+				{Name: "npm", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "HTTP://PACKAGES.EXAMPLE.TEST:80/npm/"}}},
+				{Name: "pypi", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "http://packages.example.test/npm"}}},
+			},
+			wantErr: `proxy registry endpoint "http://packages.example.test/npm" is already assigned to "npm"`,
+		},
+		{
+			name: "duplicate endpoint with leading zero default port",
+			registries: []ProxyRegistryConfig{
+				{Name: "npm", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "http://packages.example.test:080/npm/"}}},
+				{Name: "pypi", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "http://packages.example.test/npm"}}},
+			},
+			wantErr: `proxy registry endpoint "http://packages.example.test/npm" is already assigned to "npm"`,
+		},
+		{
+			name: "duplicate endpoint with escaped path casing",
+			registries: []ProxyRegistryConfig{
+				{Name: "npm", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/%2fteam"}}},
+				{Name: "pypi", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/%2Fteam"}}},
+			},
+			wantErr: `proxy registry endpoint "https://packages.example.test/%2Fteam" is already assigned to "npm"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateProxyRegistries(tt.registries)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidateProxyRegistriesNesting(t *testing.T) {
+	tests := []struct {
+		name       string
+		registries []ProxyRegistryConfig
+		wantErr    string
+	}{
+		{
+			name: "same ecosystem nested base paths in one registry",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm"},
+					{URL: "https://packages.example.test/npm/team"},
+				},
+			}},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "same ecosystem nested base paths across registries",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm"}}},
+				{Name: "b", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm/team"}}},
+			},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "bare origin nests with a deeper base",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/simple"}}},
+			},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "cross-ecosystem nested base paths (npm prefix of pypi)",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x/simple"}}},
+			},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "cross-ecosystem nested base paths in reverse declaration order",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x/simple"}}},
+				{Name: "b", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/x"}}},
+			},
+			wantErr: "endpoint base paths on the same origin must not nest",
+		},
+		{
+			name: "cross-ecosystem disjoint subtrees share a host (npm and pypi)",
+			registries: []ProxyRegistryConfig{
+				{Name: "a", Ecosystem: "npm", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/npm"}}},
+				{Name: "b", Ecosystem: "pypi", Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://shared.example.test/pypi/simple"}}},
+			},
+		},
+		{
+			name: "segment-sibling paths are not nested",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm"},
+					{URL: "https://packages.example.test/npmx"},
+				},
+			}},
+		},
+		{
+			name: "endpoint with a dot-segment base path",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm/../team"},
+				},
+			}},
+			wantErr: "must not contain empty or dot segments",
+		},
+		{
+			name: "endpoint with an empty base path segment",
+			registries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{
+					{URL: "https://packages.example.test/npm//team"},
+				},
+			}},
+			wantErr: "must not contain empty or dot segments",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateProxyRegistries(tt.registries)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidateProxyRegistriesEndpointHosts(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr string
+	}{
+		{name: "localhost", url: "http://localhost:4873", wantErr: "loopback"},
+		{name: "loopback ipv4", url: "http://127.0.0.1:8080/npm", wantErr: "loopback"},
+		{name: "loopback ipv6", url: "https://[::1]/simple", wantErr: "loopback"},
+		{name: "unspecified ipv4", url: "http://0.0.0.0:8080/npm", wantErr: "unspecified"},
+		{name: "unspecified ipv6", url: "https://[::]/simple", wantErr: "unspecified"},
+		{name: "subdomain of localhost", url: "http://foo.localhost/npm", wantErr: "loopback"},
+		{name: "unicode hostname", url: "https://münchen.example.test/npm", wantErr: "not ASCII"},
+		{name: "private ipv4 is fine", url: "https://10.0.0.8/npm"},
+		{name: "private ipv6 is fine", url: "https://[fd00::1]/simple"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registries := []ProxyRegistryConfig{{
+				Name:      "test",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: tt.url}},
+			}}
+			err := ValidateProxyRegistries(registries)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestNormalizeProxyRegistryURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantURL string
+		wantErr string
+	}{
+		{
+			name:    "canonicalizes leading zero default port and trailing slash",
+			rawURL:  "http://PACKAGES.EXAMPLE.TEST:080/npm/",
+			wantURL: "http://packages.example.test/npm",
+		},
+		{
+			name:    "canonicalizes escaped path casing without decoding slash",
+			rawURL:  "https://packages.example.test/%2fteam/",
+			wantURL: "https://packages.example.test/%2Fteam",
+		},
+		{
+			name:    "canonicalizes IPv6 default port",
+			rawURL:  "https://[2001:DB8::1]:443/simple/",
+			wantURL: "https://[2001:db8::1]/simple",
+		},
+		{
+			name:    "canonicalizes root trailing slash",
+			rawURL:  "https://packages.example.test/",
+			wantURL: "https://packages.example.test",
+		},
+		{
+			name:    "canonicalizes repeated trailing slashes",
+			rawURL:  "https://packages.example.test/npm///",
+			wantURL: "https://packages.example.test/npm",
+		},
+		{
+			name:    "canonicalizes repeated root slashes",
+			rawURL:  "https://packages.example.test///",
+			wantURL: "https://packages.example.test",
+		},
+		{
+			name:    "rejects zero port",
+			rawURL:  "https://packages.example.test:0/simple",
+			wantErr: "URL port must be between 1 and 65535",
+		},
+		{
+			name:    "rejects out of range port",
+			rawURL:  "https://packages.example.test:99999/simple",
+			wantErr: "URL port must be between 1 and 65535",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotURL, err := registryurl.Normalize(tt.rawURL)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, gotURL.String())
+		})
+	}
+}
+
+func TestProxyRegistriesConfig(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	require.NoError(t, v.ReadConfig(strings.NewReader(`
+proxy:
+  registries:
+    - name: company-npm
+      ecosystem: npm
+      endpoints:
+        - url: https://packages.example.test/npm
+    - name: company-pypi
+      ecosystem: pypi
+      endpoints:
+        - url: https://packages.example.test/simple
+`)))
+
+	var cfg Config
+	require.NoError(t, v.Unmarshal(&cfg))
+
+	require.Len(t, cfg.Proxy.Registries, 2)
+	assert.Equal(t, ProxyRegistryConfig{
+		Name:      "company-npm",
+		Ecosystem: "npm",
+		Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm"}},
+	}, cfg.Proxy.Registries[0])
+	assert.Equal(t, ProxyRegistryConfig{
+		Name:      "company-pypi",
+		Ecosystem: "pypi",
+		Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/simple"}},
+	}, cfg.Proxy.Registries[1])
+}
+
+func TestProxyRegistriesLoader(t *testing.T) {
+	originalConfig := globalConfig
+	t.Cleanup(func() {
+		globalConfig = originalConfig
+		configLoadErr = nil
+	})
+
+	tests := []struct {
+		name           string
+		contents       string
+		wantRegistries []ProxyRegistryConfig
+		wantSkip       map[string][]string
+		wantLoadErr    bool
+	}{
+		{
+			name: "activates valid registries",
+			contents: `
+proxy:
+  registries:
+    - name: company-npm
+      ecosystem: npm
+      endpoints:
+        - url: https://packages.example.test/npm
+`,
+			wantRegistries: []ProxyRegistryConfig{{
+				Name:      "company-npm",
+				Ecosystem: "npm",
+				Endpoints: []ProxyRegistryEndpointConfig{{URL: "https://packages.example.test/npm"}},
+			}},
+			wantSkip: map[string][]string{"npm": {}},
+		},
+		{
+			name: "invalid registries abort config load",
+			contents: `
+proxy:
+  skip_commands:
+    pypi: [list]
+  registries:
+    - name: company-npm
+      ecosystem: maven
+      endpoints:
+        - url: https://packages.example.test/npm
+`,
+			wantSkip:    map[string][]string{},
+			wantLoadErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configDir := t.TempDir()
+			t.Setenv(pmgConfigDirEnvKey, configDir)
+			require.NoError(t, os.WriteFile(filepath.Join(configDir, pmgConfigFileName), []byte(tt.contents), 0o644))
+
+			initConfig()
+
+			assert.Equal(t, tt.wantRegistries, Get().Config.Proxy.Registries)
+			assert.Equal(t, tt.wantSkip, Get().Config.Proxy.SkipCommands)
+
+			if tt.wantLoadErr {
+				require.Error(t, LoadError())
+				var registriesErr *ProxyRegistriesError
+				assert.ErrorAs(t, LoadError(), &registriesErr)
+			} else {
+				assert.NoError(t, LoadError())
+			}
+		})
+	}
+}
+
+func TestProxyRegistriesLoadErrorKeepsConfigReadable(t *testing.T) {
+	originalConfig := globalConfig
+	t.Cleanup(func() {
+		globalConfig = originalConfig
+		configLoadErr = nil
+	})
+
+	configDir := t.TempDir()
+	t.Setenv(pmgConfigDirEnvKey, configDir)
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, pmgConfigFileName), []byte(`
+paranoid: true
+proxy:
+  registries:
+    - name: packages
+      ecosystem: maven
+      endpoints:
+        - url: https://packages.example.test/npm
+`), 0o644))
+
+	initConfig()
+	require.Error(t, LoadError())
+
+	value, err := GetConfigValue("paranoid")
+	require.NoError(t, err)
+	assert.Equal(t, true, value)
+}

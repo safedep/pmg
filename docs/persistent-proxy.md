@@ -118,6 +118,23 @@ Bind a non-loopback address (e.g. `--host 0.0.0.0`) **only** for a deliberately
 hosted deployment: it exposes the MITM proxy to the network, and every client
 routed through it has its HTTPS intercepted and must trust the PMG CA.
 
+## Custom registries
+
+The daemon loads `proxy.registries` once, at startup, from the same config
+file the default proxy mode reads. See [Custom Registries](./proxy-mode.md#custom-registries)
+for the full configuration reference.
+
+Restart the daemon after you add, remove, or edit a registry entry:
+
+```bash
+pmg proxy stop
+pmg proxy start --daemon
+```
+
+A running daemon does not notice a config file edit on its own. The default
+proxy mode has no such limitation: `pmg npm install` starts a fresh proxy
+process for each command, so it always reads the current config file.
+
 ## Certificate trust
 
 The proxy performs TLS MITM, so clients must trust its CA. Trust is delivered

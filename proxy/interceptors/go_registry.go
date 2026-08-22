@@ -26,7 +26,7 @@ const goToolchainModule = "golang.org/toolchain"
 // checksum-database traffic is tunneled, not MITM'd.
 type GoRegistryInterceptor struct {
 	baseRegistryInterceptor
-	domains         registryConfigMap
+	domains         goRegistryConfigMap
 	baseURLs        map[string]string
 	cooldownHandler *goCooldownHandler
 
@@ -48,7 +48,7 @@ func NewGoRegistryInterceptor(
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
 ) *GoRegistryInterceptor {
-	domains := registryConfigMap{}
+	domains := goRegistryConfigMap{}
 	baseURLs := map[string]string{}
 	for host, baseURL := range execContext.GoProxyBaseURLs {
 		basePath := ""
@@ -56,10 +56,9 @@ func NewGoRegistryInterceptor(
 			basePath = strings.TrimSuffix(u.Path, "/")
 		}
 
-		domains[host] = &registryConfig{
-			Host:                 host,
-			SupportedForAnalysis: true,
-			Parser:               goProxyParser{basePath: basePath},
+		domains[host] = &goRegistryConfig{
+			Host:   host,
+			Parser: goProxyParser{basePath: basePath},
 		}
 		baseURLs[host] = baseURL
 	}
@@ -90,7 +89,7 @@ func (i *GoRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
 		return false
 	}
 
-	return config.SupportedForAnalysis
+	return true
 }
 
 func (i *GoRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
@@ -180,7 +179,7 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 // an analyzer error, so a retried request gets another chance to be analyzed.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
-	config *registryConfig,
+	config *goRegistryConfig,
 	info *goModuleInfo,
 	depCooldownConfig pmgconfig.DependencyCooldownConfig,
 ) (*proxy.InterceptorResponse, bool, error) {

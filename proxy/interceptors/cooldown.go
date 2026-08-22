@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -11,6 +12,16 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/models"
 )
+
+// forceUncompressedNonConditionalResponse makes the upstream response
+// always a fresh, uncompressed body: a response modifier gets raw bytes
+// with no decompression, and a conditional GET can otherwise come back as a
+// bodyless 304. Callers still own any Accept override of their own.
+func forceUncompressedNonConditionalResponse(headers http.Header) {
+	headers.Set("Accept-Encoding", "identity")
+	headers.Del("If-None-Match")
+	headers.Del("If-Modified-Since")
+}
 
 // cooldownExemptions describes the in-window versions that survive cooldown
 // stripping and why. all is the full exempt set; skipListed is the subset

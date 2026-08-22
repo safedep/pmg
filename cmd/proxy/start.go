@@ -62,6 +62,11 @@ func runStart(cmd *cobra.Command, _ []string) error {
 }
 
 func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host string, port int) error {
+	// The daemon is a re-exec; surface its config error instead of a parent-side readiness timeout.
+	if err := config.LoadError(); err != nil {
+		return err
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)

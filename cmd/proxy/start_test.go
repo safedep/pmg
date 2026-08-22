@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
@@ -8,6 +10,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStartDaemonRejectsConfigLoadErrorBeforeLaunch(t *testing.T) {
+	configDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yml"), []byte(`
+proxy:
+  registries:
+    - name: company-npm
+      ecosystem: maven
+      endpoints:
+        - url: https://packages.example.test/npm
+`), 0o644))
+	t.Cleanup(config.Reload)
+	t.Setenv("PMG_CONFIG_DIR", configDir)
+	config.Reload()
+	require.Error(t, config.LoadError())
+
+	notDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(notDirectory, []byte("x"), 0o600))
+	originalLogFileFlag := logFileFlag
+	logFileFlag = filepath.Join(notDirectory, "proxy.log")
+	t.Cleanup(func() { logFileFlag = originalLogFileFlag })
+
+	err := startDaemon(&cobra.Command{}, config.Get(), filepath.Join(configDir, "state.json"), "127.0.0.1", 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid proxy registries")
+}
 
 func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 	root := &cobra.Command{Use: "pmg"}

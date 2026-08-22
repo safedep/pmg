@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
@@ -64,6 +65,14 @@ type ProxyDaemonConfig struct {
 // receives SIGINT/SIGTERM. It writes the state file on startup, auto-blocks
 // suspicious packages, and records the final blocked count on shutdown.
 func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string, port int) error {
+	// The daemon runs intercepted traffic for every ecosystem, so an
+	// unloadable proxy.registries entry must abort here rather than fall
+	// back to defaults. Non-install commands (pmg config, proxy stop, ...)
+	// are deliberately not gated, so the file stays fixable with pmg.
+	if err := config.LoadError(); err != nil {
+		return err
+	}
+
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
@@ -98,19 +107,12 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 100)
 	go autoBlockConfirmations(confirmationChan)
 
-	factory := interceptors.NewInterceptorFactory(
-		malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{},
+	interceptorList, err := buildInterceptors(
+		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries,
 	)
-
-	var interceptorList []pmgproxy.Interceptor
-	for _, eco := range interceptors.SupportedEcosystems() {
-		i, ferr := factory.CreateInterceptor(eco)
-		if ferr != nil {
-			return fmt.Errorf("create interceptor for %s: %w", eco.String(), ferr)
-		}
-		interceptorList = append(interceptorList, i)
+	if err != nil {
+		return err
 	}
-	interceptorList = append(interceptorList, interceptors.NewAuditLoggerInterceptor())
 
 	proxyConfig := pmgproxy.DefaultProxyConfig()
 	proxyConfig.ListenAddr = listenAddr(host, port)
@@ -191,6 +193,27 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	}
 
 	return stopErr
+}
+
+func buildInterceptors(
+	malysisAnalyzer analyzer.PackageVersionAnalyzer,
+	cache interceptors.AnalysisCache,
+	statsCollector *interceptors.AnalysisStatsCollector,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	registries []config.ProxyRegistryConfig,
+) ([]pmgproxy.Interceptor, error) {
+	factory, err := interceptors.NewInterceptorFactory(
+		malysisAnalyzer,
+		cache,
+		statsCollector,
+		confirmationChan,
+		interceptors.InterceptorContext{},
+		registries,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return factory.CreateInterceptors(interceptors.SupportedEcosystems()...)
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the
