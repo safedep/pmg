@@ -66,7 +66,7 @@ func executeSetupInfo() error {
 
 	// Shell Integration section
 	aliasCfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
 	if err != nil {
 		return fmt.Errorf("failed to create alias manager: %w", err)
 	}

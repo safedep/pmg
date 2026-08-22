@@ -1,12 +1,21 @@
 package alias
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
+)
+
+// LegacyRcFileName is the pre-XDG alias file in $HOME. RcFileName is a suffix
+// of it, so the shell rc scan that looks for RcFileName matches both layouts.
+const (
+	RcFileName       = "pmg.rc"
+	LegacyRcFileName = ".pmg.rc"
 )
 
 // AliasManager manages shell aliases for package managers.
@@ -31,28 +40,41 @@ type RcFileManager interface {
 
 // DefaultRcFileManager implements RcFileManager for managing the RC file.
 type defaultRcFileManager struct {
-	HomeDir    string
-	RcFileName string
+	RcPath       string
+	LegacyRcPath string
 }
 
 var _ RcFileManager = &defaultRcFileManager{}
 
-// NewDefaultRcFileManager creates a new DefaultRcFileManager.
-func NewDefaultRcFileManager(rcFileName string) (*defaultRcFileManager, error) {
-	homeDir, err := os.UserHomeDir()
+// NewDefaultRcFileManager creates a new DefaultRcFileManager writing rcFileName
+// under configDir. An existing ~/.pmg.rc from a pre-XDG install keeps being
+// used until `pmg setup remove` clears it, so upgrades do not silently move the
+// file a user's shell rc already sources.
+func NewDefaultRcFileManager(configDir, rcFileName string) (*defaultRcFileManager, error) {
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 
+	legacyRcPath := filepath.Join(homeDir, LegacyRcFileName)
+	rcPath := filepath.Join(configDir, rcFileName)
+	if _, err := os.Stat(legacyRcPath); err == nil {
+		rcPath = legacyRcPath
+	}
+
 	return &defaultRcFileManager{
-		HomeDir:    homeDir,
-		RcFileName: rcFileName,
+		RcPath:       rcPath,
+		LegacyRcPath: legacyRcPath,
 	}, nil
 }
 
 // Create creates the RC file with the given aliases.
 func (m *defaultRcFileManager) Create(aliases []string) (string, error) {
 	rcPath := m.GetRcPath()
+	if err := os.MkdirAll(filepath.Dir(rcPath), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create alias file directory: %w", err)
+	}
+
 	f, err := os.Create(rcPath)
 	if err != nil {
 		return "", err
@@ -71,18 +93,20 @@ func (m *defaultRcFileManager) Create(aliases []string) (string, error) {
 	return rcPath, nil
 }
 
-// Remove deletes the RC file.
+// Remove deletes the RC file, including a legacy copy left by an older layout.
 func (m *defaultRcFileManager) Remove() error {
-	rcPath := m.GetRcPath()
-	if err := os.Remove(rcPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("could not delete %s: %w", rcPath, err)
+	var errs []error
+	for _, rcPath := range []string{m.RcPath, m.LegacyRcPath} {
+		if err := os.Remove(rcPath); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("could not delete %s: %w", rcPath, err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // GetRcPath returns the full path to the RC file.
 func (m *defaultRcFileManager) GetRcPath() string {
-	return filepath.Join(m.HomeDir, m.RcFileName)
+	return m.RcPath
 }
 
 // DefaultConfig returns the default configuration for alias management.
@@ -96,7 +120,7 @@ func DefaultConfig() AliasConfig {
 	shells = append(shells, fishShell, zshShell, bashShell)
 
 	return AliasConfig{
-		RcFileName:      ".pmg.rc",
+		RcFileName:      RcFileName,
 		PackageManagers: []string{"npm", "pip", "pip3", "pipx", "pnpm", "bun", "uv", "uvx", "yarn", "poetry", "npx", "pnpx"},
 		Shells:          shells,
 	}
@@ -146,7 +170,7 @@ func (a *AliasManager) GetRcPath() string {
 
 // IsInstalled checks if the PMG aliases are sourced in any of the shell config files.
 func (a *AliasManager) IsInstalled() (bool, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return false, err
 	}
@@ -168,7 +192,7 @@ func (a *AliasManager) IsInstalled() (bool, error) {
 				if strings.HasPrefix(trimmed, "#") {
 					continue
 				}
-				if strings.Contains(trimmed, a.config.RcFileName) {
+				if strings.Contains(trimmed, aliasSourceMarker) {
 					return true, nil
 				}
 			}
@@ -189,7 +213,7 @@ func (a *AliasManager) buildAliases() []string {
 
 // sourceRcFile adds source lines to all shell configuration files.
 func (a *AliasManager) sourceRcFile() error {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return err
 	}
@@ -214,25 +238,27 @@ func (a *AliasManager) sourceRcFile() error {
 
 // removeSourceLinesFromShells removes source lines from all shell configuration files.
 func (a *AliasManager) removeSourceLinesFromShells() error {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return err
 	}
 
-	drop := func(line string) bool {
-		return strings.Contains(line, a.config.RcFileName) ||
-			strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource)
-	}
-
 	for _, shell := range a.config.Shells {
 		for _, configPath := range shell.CandidateRcFiles(homeDir) {
-			if err := RewriteFileDroppingLines(configPath, drop); err != nil {
+			if err := RewriteFileDroppingLines(configPath, dropAliasSourceLine); err != nil {
 				log.Warnf("Warning: failed to update %s: %s", configPath, err)
 			}
 		}
 	}
 
 	return nil
+}
+
+// dropAliasSourceLine reports whether a shell rc line is one pmg wrote to
+// source its alias file.
+func dropAliasSourceLine(line string) bool {
+	return strings.Contains(line, aliasSourceMarker) ||
+		strings.TrimSpace(line) == strings.TrimSpace(commentForRemovingShellSource)
 }
 
 // addSourceLine adds a source line to the specified shell configuration file.
@@ -243,8 +269,18 @@ func (a *AliasManager) addSourceLine(configPath, sourceLine string) error {
 		return err // file doesn't exist or can't read, skip
 	}
 
-	if strings.Contains(string(data), a.config.RcFileName) {
+	if strings.Contains(string(data), sourceLine) {
 		return nil // already sourced, skip
+	}
+
+	// A marker line pointing at a different rc path is stale: an earlier
+	// install used another layout, or the user deleted the file it names. The
+	// `[ -f ]` guard makes such a line a silent no-op, so leaving it in place
+	// while skipping the write would break aliases without any visible error.
+	if strings.Contains(string(data), aliasSourceMarker) {
+		if err := RewriteFileDroppingLines(configPath, dropAliasSourceLine); err != nil {
+			return err
+		}
 	}
 
 	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0o644)

@@ -16,7 +16,7 @@ The install and uninstall scripts source `./lib_macos.sh` from their own directo
 PMG writes two kinds of state, and the scripts handle each:
 
 - **Machine scope**: the `pmg` binary (`/usr/local/bin` or Homebrew). Needs root.
-- **User scope**: config (`~/Library/Application Support/safedep/pmg`), aliases (`~/.pmg.rc` and shell rc edits), PATH shims (`~/.pmg/bin`), and login Keychain credentials. Runs as the user. Keychain also needs the user's GUI session.
+- **User scope**: config (`~/Library/Application Support/safedep/pmg`), aliases (`pmg.rc` in that directory, plus shell rc edits), PATH shims (`bin/` in that directory), and login Keychain credentials. Runs as the user. Keychain also needs the user's GUI session.
 
 The scripts detect how the MDM invoked them:
 
@@ -51,7 +51,7 @@ sudo ./pmg_uninstall_macos.sh
 For each target user, the uninstall script:
 
 1. Runs `pmg setup remove` to strip shell aliases and PATH shims.
-2. Deletes the config directory, cache directory, `~/.pmg`, `~/.pmg.rc`, and `~/.local/bin/pmg`.
+2. Deletes the config directory (which also holds `pmg.rc` and the shims), cache directory, the legacy `~/.pmg` and `~/.pmg.rc`, and `~/.local/bin/pmg`.
 3. Runs `pmg cloud logout` to clear Keychain credentials for the logged-in user. Other users' credentials clear on their next login.
 
 It then removes the machine-wide binary via `brew uninstall`, or by deleting `/usr/local/bin/pmg` and `/opt/homebrew/bin/pmg`. It also removes the globally managed config if present (set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it).

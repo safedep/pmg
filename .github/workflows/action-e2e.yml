@@ -36,7 +36,13 @@ jobs:
           set -e
           which pmg
           which npm
-          test "$(command -v npm)" = "$HOME/.pmg/bin/npm"
+          # Either layout is valid here: the action installs a published
+          # release, which may predate the XDG shim directory.
+          npm_path="$(command -v npm)"
+          case "$npm_path" in
+            "${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin/npm"|"$HOME/.pmg/bin/npm") ;;
+            *) echo "npm resolved outside the PMG shim dirs: $npm_path"; exit 1 ;;
+          esac
       - name: Install a benign package
         run: |
           mkdir t && cd t
