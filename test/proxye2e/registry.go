@@ -105,9 +105,10 @@ type CargoCrate struct {
 }
 
 type RecordedRequest struct {
-	Host   string
-	Method string
-	Path   string
+	Host    string
+	Method  string
+	Path    string
+	Headers http.Header
 }
 
 // Registry is an in-process stand-in for the npm and PyPI registries. The proxy
@@ -242,7 +243,7 @@ func (r *Registry) Requested(host, path string) bool {
 func (r *Registry) record(req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.requests = append(r.requests, RecordedRequest{Host: hostOnly(req.Host), Method: req.Method, Path: req.URL.Path})
+	r.requests = append(r.requests, RecordedRequest{Host: hostOnly(req.Host), Method: req.Method, Path: req.URL.Path, Headers: req.Header.Clone()})
 }
 
 func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
@@ -401,6 +402,16 @@ func (r *Registry) DownloadedCrate(name, version string) bool {
 		}
 	}
 	return false
+}
+
+// RequestForPath returns the first upstream request recorded for path.
+func (r *Registry) RequestForPath(path string) (RecordedRequest, bool) {
+	for _, req := range r.Requests() {
+		if req.Path == path {
+			return req, true
+		}
+	}
+	return RecordedRequest{}, false
 }
 
 // serveCargoIndex implements a minimal crates.io sparse index: NDJSON per

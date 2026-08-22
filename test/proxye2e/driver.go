@@ -3,6 +3,7 @@ package proxye2e
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 )
@@ -12,6 +13,7 @@ type RequestOutcome struct {
 	StatusCode int
 	Blocked    bool
 	Body       string
+	Headers    http.Header
 	Err        error
 }
 

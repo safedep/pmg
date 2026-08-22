@@ -963,6 +963,129 @@ func TestProxyFlow_Cargo(t *testing.T) {
 				assert.True(t, res.Blocked())
 			},
 		},
+		{
+			// The token-bearing API host must never be MITM'd: cargo publish/login
+			// send registry credentials there.
+			Name: "crates.io API host is tunneled without interception",
+			Exec: func(h *Harness) ExecResult {
+				_, _ = h.RawClient().Get("https://crates.io/api/v1/crates/serde")
+				return ExecResult{}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Contains(t, h.DialedAddrs(), "crates.io:443",
+					"API traffic must go through an opaque CONNECT tunnel")
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
+			// cargo revalidates its index cache with conditional requests; the
+			// cooldown must force a full response and keep cargo from caching a
+			// filtered body against upstream validators.
+			Name:   "cooldown makes index requests unconditional and the filtered response uncacheable",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "fresh", Versions: []CargoVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "1.1.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://index.crates.io/"+cargoTestIndexPath("fresh"), map[string]string{
+					"If-None-Match":     `"cached"`,
+					"If-Modified-Since": "Mon, 02 Jan 2006 15:04:05 GMT",
+				}))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				upstream, ok := h.Registry.RequestForPath("/" + cargoTestIndexPath("fresh"))
+				require.True(t, ok)
+				assert.Empty(t, upstream.Headers.Get("If-None-Match"))
+				assert.Empty(t, upstream.Headers.Get("If-Modified-Since"))
+
+				out := res.Requests[0]
+				require.NoError(t, out.Err)
+				assert.NotContains(t, out.Body, `"vers":"1.1.0"`)
+				assert.Equal(t, "no-store", out.Headers.Get("Cache-Control"))
+				assert.Empty(t, out.Headers.Get("ETag"), "filtered body must carry no upstream validator")
+			},
+		},
+		{
+			// Surviving lines must be byte-identical to upstream so cargo's
+			// cksum verification of downloaded crates stays intact.
+			Name:   "cooldown keeps surviving index lines byte-identical",
+			Config: cooldownEnabled(7),
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "fresh", Versions: []CargoVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "1.1.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return ExecResult{} },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				index := h.Cargo().FetchIndex("fresh")
+				require.NoError(t, index.Outcome.Err)
+
+				survivorOnly := buildCargoIndex(CargoCrate{Name: "fresh", Versions: []CargoVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+				}})
+				assert.Equal(t, string(survivorOnly), index.Outcome.Body)
+			},
+		},
+		{
+			Name: "index config.json passes through unmodified",
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://index.crates.io/config.json", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				out := res.Requests[0]
+				require.NoError(t, out.Err)
+				assert.Equal(t, 200, out.StatusCode)
+				assert.Contains(t, out.Body, `"dl"`)
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
+			Name: "direct CDN crate path is analyzed and blocked",
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "evil",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetCargo("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://static.crates.io/crates/evil/evil-1.0.0.crate", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("evil", "1.0.0"))
+			},
+		},
+		{
+			Name: "cooldown skip-listed version survives stripping and is still analyzed",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{
+					Enabled: true, Days: 7,
+					Skip: []config.TrustedPackage{{Purl: "pkg:cargo/fresh@1.1.0"}},
+				}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "fresh", Versions: []CargoVersion{
+					{Version: "1.0.0", PublishedAt: old()},
+					{Version: "1.1.0", PublishedAt: recent()},
+				}})
+				h.Analyzer.SetCargo("fresh", "1.1.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("fresh", "1.1.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedCrate("fresh", "1.1.0"), "skip-listed version must install during its window")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("fresh", "1.1.0"), "cooldown skip must not waive malware analysis")
+			},
+		},
 	})
 }
 
