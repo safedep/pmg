@@ -167,9 +167,9 @@ remove_global_config() {
 
 set -euo pipefail
 
-INPUT_SAFEDEP_API_KEY="${SAFEDEP_API_KEY:-}"
-INPUT_SAFEDEP_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
-export -n INPUT_SAFEDEP_API_KEY INPUT_SAFEDEP_TENANT_ID
+CLOUD_API_KEY="${SAFEDEP_API_KEY:-}"
+CLOUD_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
+export -n CLOUD_API_KEY CLOUD_TENANT_ID
 unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -177,31 +177,22 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 require_macos
 
 REPO="safedep/pmg"
-CLOUD_API_KEY=""
-CLOUD_TENANT_ID=""
 
 load_embedded_cloud_credentials() {
-  local runtime_api_key="$INPUT_SAFEDEP_API_KEY"
-  local runtime_tenant_id="$INPUT_SAFEDEP_TENANT_ID"
   local embedded_api_key="${EMBEDDED_SAFEDEP_API_KEY_B64:-}"
   local embedded_tenant_id="${EMBEDDED_SAFEDEP_TENANT_ID_B64:-}"
 
-  unset INPUT_SAFEDEP_API_KEY INPUT_SAFEDEP_TENANT_ID
   unset EMBEDDED_SAFEDEP_API_KEY_B64 EMBEDDED_SAFEDEP_TENANT_ID_B64
 
-  if [[ -n "$runtime_api_key" && -n "$runtime_tenant_id" ]]; then
-    CLOUD_API_KEY="$runtime_api_key"
-    CLOUD_TENANT_ID="$runtime_tenant_id"
+  if [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]]; then
     return
   fi
 
   if [[ -z "$embedded_api_key" && -z "$embedded_tenant_id" ]]; then
-    CLOUD_API_KEY="$runtime_api_key"
-    CLOUD_TENANT_ID="$runtime_tenant_id"
     return
   fi
 
-  if [[ -n "$runtime_api_key" || -n "$runtime_tenant_id" ]]; then
+  if [[ -n "$CLOUD_API_KEY" || -n "$CLOUD_TENANT_ID" ]]; then
     echo "Error: SAFEDEP_API_KEY and SAFEDEP_TENANT_ID must be set together" >&2
     return 1
   fi

@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-GENERATOR_SAFEDEP_API_KEY="${SAFEDEP_API_KEY:-}"
-GENERATOR_SAFEDEP_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
-export -n GENERATOR_SAFEDEP_API_KEY GENERATOR_SAFEDEP_TENANT_ID
+CLOUD_API_KEY="${SAFEDEP_API_KEY:-}"
+CLOUD_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
+export -n CLOUD_API_KEY CLOUD_TENANT_ID
 unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -195,19 +195,11 @@ generate_scripts() {
   local encoded_api_key=""
   local encoded_tenant_id=""
   local install_mode="0755"
-  local credential_api_key=""
-  local credential_tenant_id=""
   local resolved_output_dir
   local install_output
   local uninstall_output
   local staged_install
   local staged_uninstall
-
-  if [[ "$embed_cloud_credentials" -eq 1 ]]; then
-    credential_api_key="$GENERATOR_SAFEDEP_API_KEY"
-    credential_tenant_id="$GENERATOR_SAFEDEP_TENANT_ID"
-  fi
-  unset GENERATOR_SAFEDEP_API_KEY GENERATOR_SAFEDEP_TENANT_ID
 
   if [[ -n "$config_path" ]]; then
     [[ -f "$config_path" ]] || die "config file does not exist: $config_path"
@@ -217,16 +209,17 @@ generate_scripts() {
   fi
 
   if [[ "$embed_cloud_credentials" -eq 1 ]]; then
-    [[ -n "$credential_api_key" ]] ||
+    [[ -n "$CLOUD_API_KEY" ]] ||
       die "--embed-cloud-credentials requires non-empty SAFEDEP_API_KEY"
-    [[ -n "$credential_tenant_id" ]] ||
+    [[ -n "$CLOUD_TENANT_ID" ]] ||
       die "--embed-cloud-credentials requires non-empty SAFEDEP_TENANT_ID"
-    encoded_api_key=$(printf '%s' "$credential_api_key" | base64 | tr -d '\r\n')
-    encoded_tenant_id=$(printf '%s' "$credential_tenant_id" | base64 | tr -d '\r\n')
+    encoded_api_key=$(printf '%s' "$CLOUD_API_KEY" | base64 | tr -d '\r\n')
+    encoded_tenant_id=$(printf '%s' "$CLOUD_TENANT_ID" | base64 | tr -d '\r\n')
     [[ -n "$encoded_api_key" ]] || die "could not encode SAFEDEP_API_KEY"
     [[ -n "$encoded_tenant_id" ]] || die "could not encode SAFEDEP_TENANT_ID"
     install_mode="0700"
   fi
+  unset CLOUD_API_KEY CLOUD_TENANT_ID
 
   mkdir -p "$output_dir"
   resolved_output_dir=$(cd "$output_dir" && pwd -P) ||

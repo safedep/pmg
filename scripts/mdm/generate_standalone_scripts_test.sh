@@ -277,9 +277,7 @@ mkdir -p "$CHILD_PROBE_BIN"
 cat > "${CHILD_PROBE_BIN}/probe" <<'EOF'
 #!/bin/bash
 if [[ -n "${SAFEDEP_API_KEY+x}" || -n "${SAFEDEP_TENANT_ID+x}" ||
-  -n "${GENERATOR_SAFEDEP_API_KEY+x}" ||
-  -n "${GENERATOR_SAFEDEP_TENANT_ID+x}" ||
-  -n "${credential_api_key+x}" || -n "${credential_tenant_id+x}" ]]; then
+  -n "${CLOUD_API_KEY+x}" || -n "${CLOUD_TENANT_ID+x}" ]]; then
   printf '%s\n' "${0##*/}" >> "$CHILD_ENV_LEAK_FILE"
 fi
 real_command="/usr/bin/${0##*/}"

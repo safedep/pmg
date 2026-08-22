@@ -72,7 +72,7 @@ cat > "${STARTUP_PROBE_BIN}/probe" <<'EOF'
 #!/bin/bash
 printf '%s\n' "${0##*/}" >> "$STARTUP_CHILD_TRACE_FILE"
 if [[ -n "${SAFEDEP_API_KEY+x}" || -n "${SAFEDEP_TENANT_ID+x}" ||
-  -n "${INPUT_SAFEDEP_API_KEY+x}" || -n "${INPUT_SAFEDEP_TENANT_ID+x}" ]]; then
+  -n "${CLOUD_API_KEY+x}" || -n "${CLOUD_TENANT_ID+x}" ]]; then
   printf '%s\n' "${0##*/}" >> "$STARTUP_ENV_LEAK_FILE"
 fi
 if [[ "${0##*/}" == "uname" ]]; then
@@ -127,8 +127,6 @@ awk '
 assert_not_contains "$CREDENTIAL_RUNTIME" "mktemp"
 assert_not_contains "$CREDENTIAL_RUNTIME" "pmg-embedded-credentials"
 assert_contains "$CREDENTIAL_RUNTIME" \
-  "unset INPUT_SAFEDEP_API_KEY INPUT_SAFEDEP_TENANT_ID"
-assert_contains "$CREDENTIAL_RUNTIME" \
   "unset EMBEDDED_SAFEDEP_API_KEY_B64 EMBEDDED_SAFEDEP_TENANT_ID_B64"
 
 awk '/^(cloud_login|configure_user)\(\)/ { emit = 1 } emit' \
@@ -146,16 +144,16 @@ run_credential_runtime() {
 
   (
     set -euo pipefail
-    INPUT_SAFEDEP_API_KEY="$runtime_api_key"
-    INPUT_SAFEDEP_TENANT_ID="$runtime_tenant_id"
+    SAFEDEP_API_KEY="$runtime_api_key"
+    SAFEDEP_TENANT_ID="$runtime_tenant_id"
     EMBEDDED_SAFEDEP_API_KEY_B64="$embedded_api_key"
     EMBEDDED_SAFEDEP_TENANT_ID_B64="$embedded_tenant_id"
 
     source "$CREDENTIAL_RUNTIME"
 
-    [[ -z "${INPUT_SAFEDEP_API_KEY+x}" ]] ||
+    [[ -z "${SAFEDEP_API_KEY+x}" ]] ||
       fail "runtime API key input must be unset after loading"
-    [[ -z "${INPUT_SAFEDEP_TENANT_ID+x}" ]] ||
+    [[ -z "${SAFEDEP_TENANT_ID+x}" ]] ||
       fail "runtime tenant ID input must be unset after loading"
     [[ -z "${EMBEDDED_SAFEDEP_API_KEY_B64+x}" ]] ||
       fail "embedded API key must be unset after loading"
