@@ -107,6 +107,10 @@ func (r *AnalyzerRecorder) SetGo(name, version string, v Verdict) {
 	r.set(packagev1.Ecosystem_ECOSYSTEM_GO, name, version, v)
 }
 
+func (r *AnalyzerRecorder) SetCargo(name, version string, v Verdict) {
+	r.set(packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version, v)
+}
+
 func (r *AnalyzerRecorder) set(eco packagev1.Ecosystem, name, version string, v Verdict) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

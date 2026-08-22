@@ -3,6 +3,7 @@ package proxye2e
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -142,6 +143,79 @@ func (d GoDriver) Install(modulePath, version string) ExecResult {
 	res.add(d.FetchMod(modulePath, version))
 	res.add(d.DownloadZip(modulePath, version))
 	return res
+}
+
+type CargoDriver struct{ h *Harness }
+
+type CargoIndex struct {
+	Outcome  RequestOutcome
+	Versions []string
+}
+
+func (c CargoIndex) HasVersion(v string) bool {
+	return slices.Contains(c.Versions, v)
+}
+
+// FetchIndex fetches a crate's sparse-index file through the proxy and parses
+// the surviving version lines.
+func (d CargoDriver) FetchIndex(name string) CargoIndex {
+	out := d.h.get(fmt.Sprintf("https://index.crates.io/%s", cargoTestIndexPath(name)), nil)
+
+	index := CargoIndex{Outcome: out}
+	if out.Err != nil || out.StatusCode != 200 {
+		return index
+	}
+
+	for _, raw := range strings.Split(out.Body, "\n") {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		var line struct {
+			Vers string `json:"vers"`
+		}
+		if err := json.Unmarshal([]byte(raw), &line); err != nil {
+			index.Outcome.Err = fmt.Errorf("failed to decode cargo index line for %s: %w", name, err)
+			return index
+		}
+		index.Versions = append(index.Versions, line.Vers)
+	}
+	return index
+}
+
+func (d CargoDriver) Download(name, version string) RequestOutcome {
+	return d.h.get(fmt.Sprintf("https://static.crates.io/crates/%s/%s/download", name, version), nil)
+}
+
+// Install replays cargo's resolve-then-download sequence: fetch the sparse
+// index and download the requested version only if it survived in the index
+// the proxy returned.
+func (d CargoDriver) Install(name, version string) ExecResult {
+	res := ExecResult{}
+
+	index := d.FetchIndex(name)
+	res.add(index.Outcome)
+
+	if index.HasVersion(version) {
+		res.add(d.Download(name, version))
+	}
+
+	return res
+}
+
+// cargoTestIndexPath mirrors the sparse-index path layout for the crate names
+// used in tests.
+func cargoTestIndexPath(name string) string {
+	lower := strings.ToLower(name)
+	switch len(lower) {
+	case 1:
+		return "1/" + lower
+	case 2:
+		return "2/" + lower
+	case 3:
+		return "3/" + lower[:1] + "/" + lower
+	default:
+		return lower[:2] + "/" + lower[2:4] + "/" + lower
+	}
 }
 
 type PypiDriver struct{ h *Harness }

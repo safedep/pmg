@@ -15,7 +15,7 @@ const proxyNoProxyList = "localhost,127.0.0.1,::1"
 // the supported package managers through the proxy at proxyAddr and make them
 // trust its MITM CA at certPath. It encodes per-package-manager quirks: yarn
 // Berry ignores HTTP_PROXY and needs YARN_* (#319); pip/requests and Node each
-// read their own CA-bundle var.
+// read their own CA-bundle var; cargo's libcurl reads only CARGO_HTTP_CAINFO.
 //
 // The cert-path variables are always emitted, never skipped based on OS
 // trust-store status. Whether a tool trusts the OS store varies by tool,
@@ -45,5 +45,13 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", certPath),
 		fmt.Sprintf("PIP_CERT=%s", certPath),
 		fmt.Sprintf("YARN_HTTPS_CA_FILE_PATH=%s", certPath),
+		fmt.Sprintf("CARGO_HTTP_CAINFO=%s", certPath),
+		// Force the sparse (HTTP) crates.io protocol so registry traffic is
+		// interceptable; a git-protocol index would bypass the proxy's analysis.
+		"CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse",
+		// Windows-only effect: schannel revocation checks fail on PMG's
+		// ephemeral MITM leaf certs (no CRL/OCSP endpoints). Elsewhere this
+		// matches cargo's default.
+		"CARGO_HTTP_CHECK_REVOKE=false",
 	}
 }
