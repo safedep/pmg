@@ -13,6 +13,14 @@ on:
         default: ""
   schedule:
     - cron: "0 3 * * *" # nightly 03:00 UTC, default branch
+  # TEMPORARY: run on this PR to prove the suite works in CI. REMOVE BEFORE MERGE.
+  # The suite is designed to be manual + nightly and non-gating; this trigger only
+  # exists to validate it against a GitHub-hosted runner. Scoped to acceptance
+  # files so it does not fire on unrelated PRs.
+  pull_request:
+    paths:
+      - "test/acceptance/**"
+      - ".github/workflows/acceptance.yml"
 
 permissions:
   contents: read
