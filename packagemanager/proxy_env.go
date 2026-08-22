@@ -45,6 +45,12 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", certPath),
 		fmt.Sprintf("PIP_CERT=%s", certPath),
 		fmt.Sprintf("YARN_HTTPS_CA_FILE_PATH=%s", certPath),
+		// The CARGO_* vars are deliberately emitted for every package manager,
+		// not just `pmg cargo`: cargo's libcurl honors the injected
+		// HTTPS_PROXY, so a cargo invocation nested under another guarded run
+		// (e.g. an npm postinstall building a Rust addon) already routes
+		// through the proxy and needs the CA and an interceptable protocol to
+		// keep working.
 		fmt.Sprintf("CARGO_HTTP_CAINFO=%s", certPath),
 		// Force the sparse (HTTP) crates.io protocol so registry traffic is
 		// interceptable; a git-protocol index would bypass the proxy's analysis.

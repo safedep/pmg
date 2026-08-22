@@ -963,26 +963,6 @@ func TestProxyFlow_Cargo(t *testing.T) {
 				assert.True(t, res.Blocked())
 			},
 		},
-		{
-			Name: "cargo cooldown block body carries advisory message",
-			Config: func(rc *config.RuntimeConfig) {
-				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
-				rc.Config.AdvisoryMessage = "Request an exemption at go/pmg-exceptions"
-			},
-			Setup: func(h *Harness) {
-				h.Registry.AddCargo(CargoCrate{Name: "fresh",
-					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: recent()}}})
-			},
-			Exec: func(h *Harness) ExecResult {
-				res := ExecResult{}
-				res.add(h.Cargo().Download("fresh", "1.0.0"))
-				return res
-			},
-			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.True(t, res.Blocked())
-				assert.Contains(t, blockedBody(res), "Request an exemption at go/pmg-exceptions")
-			},
-		},
 	})
 }
 
@@ -1015,6 +995,26 @@ func TestProxyFlow_AdvisoryMessage(t *testing.T) {
 					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: recent()}}})
 			},
 			Exec: func(h *Harness) ExecResult { return h.Go().Install("example.com/fresh", "v1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Contains(t, blockedBody(res), "Request an exemption at go/pmg-exceptions")
+			},
+		},
+		{
+			Name: "cargo cooldown block body carries advisory message",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+				rc.Config.AdvisoryMessage = "Request an exemption at go/pmg-exceptions"
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "fresh",
+					Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Cargo().Download("fresh", "1.0.0"))
+				return res
+			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.True(t, res.Blocked())
 				assert.Contains(t, blockedBody(res), "Request an exemption at go/pmg-exceptions")
