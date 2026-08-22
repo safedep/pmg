@@ -17,19 +17,14 @@ on:
         default: ""
   schedule:
     - cron: "0 3 * * *" # nightly 03:00 UTC, default branch
-  # Advisory (non-gating) PR check. The suite runs in well under a minute and
-  # guards PMG's real-binary guarantees against regressions. Pure-docs PRs are
-  # skipped. Fork PRs have no cloud secrets, so cloud-category cases skip visibly.
-  # A red run is a signal, not a merge block: keep this out of required checks so
-  # a stale fixture or backend blip never wedges an unrelated PR.
+  # Advisory check on code PRs. Keep it out of the required checks: a stale
+  # fixture or a backend outage must not block an unrelated PR.
   pull_request:
     branches: [main]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
 
-# One in-flight run per PR (or per branch for other events); a new push cancels
-# the superseded PR run.
 concurrency:
   group: acceptance-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -42,10 +37,8 @@ jobs:
     name: Acceptance Suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Do not auto-run on fork PRs: the suite runs the real binary and hits prod.
-    # Forks get no secrets (cloud cases would skip), and gating their untrusted
-    # code behind a maintainer keeps compute and prod calls under our control. A
-    # maintainer can still run a fork's ref with workflow_dispatch.
+    # Skip fork PRs: their code is untrusted and forks get no secrets. A
+    # maintainer can still run a fork ref with workflow_dispatch.
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
@@ -85,9 +78,8 @@ jobs:
         run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Run acceptance suite
-        # The category and label filters reach the suite only as environment
-        # variables read by the Go harness, never interpolated into this script,
-        # so a dispatch input cannot inject a shell command or extra test args.
+        # Filters pass as env vars read by the Go harness, never interpolated
+        # into this script, so a dispatch input cannot inject a command.
         env:
           PMG_BIN: ${{ github.workspace }}/bin/pmg
           ACCEPTANCE_CATEGORY: ${{ inputs.category }}
