@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/proxy/certmanager"
+	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/pmg/truststore"
 	"github.com/spf13/cobra"
@@ -633,6 +634,16 @@ func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistry
 		return doctor.CheckResult{
 			Status:  doctor.StatusPass,
 			Message: "No custom registries configured",
+		}
+	}
+
+	// Build the catalog that proxy startup builds, so the check fails on
+	// everything startup rejects (built-in host overlap, reserved Go hosts),
+	// not only on load-time validation.
+	if _, err := interceptors.NewRegistryCatalog(registries); err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("%v; installs and proxy start fail closed", err),
 		}
 	}
 

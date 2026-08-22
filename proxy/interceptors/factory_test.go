@@ -190,6 +190,7 @@ func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
 		{name: "analyzed pypi host", ecosystem: "pypi", endpoint: "https://pypi.org/simple"},
 		{name: "analyzed pypi files host", ecosystem: "pypi", endpoint: "https://files.pythonhosted.org/simple"},
 		{name: "subdomain of a built-in host", ecosystem: "npm", endpoint: "https://cdn.registry.npmjs.org/npm-virtual"},
+		{name: "built-in host with trailing DNS dot", ecosystem: "npm", endpoint: "https://registry.npmjs.org./npm-virtual"},
 		{name: "recognized but not analyzed host is still covered", ecosystem: "pypi", endpoint: "https://test.pypi.org/simple"},
 		{name: "npm custom endpoint on built-in pypi host", ecosystem: "npm", endpoint: "https://pypi.org/company/npm"},
 		{name: "pypi custom endpoint on built-in npm host", ecosystem: "pypi", endpoint: "https://registry.npmjs.org/company/simple"},

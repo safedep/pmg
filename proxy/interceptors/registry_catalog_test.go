@@ -74,6 +74,7 @@ func TestRegistryCatalogRejectsReservedGoHosts(t *testing.T) {
 		{name: "go module proxy", endpoint: "https://proxy.golang.org/npm"},
 		{name: "go checksum database", endpoint: "https://sum.golang.org/npm"},
 		{name: "subdomain of a go host", endpoint: "https://mirror.sum.golang.org/npm"},
+		{name: "go host with trailing DNS dot", endpoint: "https://sum.golang.org./npm"},
 	}
 
 	for _, tt := range tests {
