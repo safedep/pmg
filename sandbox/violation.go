@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -51,20 +52,28 @@ func BuildExplanation(report *ViolationReport) Explanation {
 	return exp
 }
 
-func overrideSuggestion(v Violation) *OverrideSuggestion {
-	if !isSafeOverrideTarget(v.Target) {
-		return nil
-	}
+// Suggestions are rendered into a shell command, so env names are held to the
+// conventional form rather than everything execve permits in a variable name.
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+func overrideSuggestion(v Violation) *OverrideSuggestion {
 	switch v.Kind {
 	case ViolationKindFSRead,
 		ViolationKindFSWrite,
 		ViolationKindFSDeleteOrRename,
 		ViolationKindExec:
-		return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
+		if !isSafeOverrideTarget(v.Target) {
+			return nil
+		}
+	case ViolationKindEnvScrub:
+		if !envNameRe.MatchString(v.Target) {
+			return nil
+		}
 	default:
 		return nil
 	}
+
+	return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
 }
 
 func primaryViolation(report *ViolationReport) *Violation {
@@ -88,6 +97,12 @@ func primaryViolation(report *ViolationReport) *Violation {
 }
 
 func scoreViolation(driver DriverName, v Violation, cwd string) int {
+	// Preemptive, not observed: ranks below every driver denial, and the
+	// modifiers below read a path and say nothing about a variable name.
+	if v.Kind == ViolationKindEnvScrub {
+		return 45
+	}
+
 	score := 0
 
 	switch v.Kind {

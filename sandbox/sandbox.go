@@ -75,6 +75,7 @@ const (
 	ViolationKindNetworkConnect   ViolationKind = "network_connect"
 	ViolationKindNetworkBind      ViolationKind = "network_bind"
 	ViolationKindGenericDeny      ViolationKind = "generic_deny"
+	ViolationKindEnvScrub         ViolationKind = "env_scrub"
 )
 
 // ViolationReport is a best-effort sandbox violation summary collected from a
@@ -114,14 +115,24 @@ type diagnosticsWriter interface {
 	DiagnosticsWriter() io.Writer
 }
 
+// EnvScrub records the environment variables removed from a child process by
+// the resolved environment policy. The driver and policy are captured here
+// because no driver observes a scrub.
+type EnvScrub struct {
+	Names       []string
+	SandboxName DriverName
+	PolicyName  string
+	Process     string
+}
+
 // ExecutionResult represents the result of executing a command in a sandbox.
 // It contains sandbox internal state and allows for future extension with
 // additional metadata (e.g., exit codes, resource usage, violation events).
 // Callers must call Close() after cmd.Run() completes to clean up resources.
 type ExecutionResult struct {
-	executed         bool
-	sandbox          Sandbox
-	scrubbedEnvCount int
+	executed bool
+	sandbox  Sandbox
+	envScrub EnvScrub
 }
 
 // ExecutionResultOpt is a function that can be used to configure an ExecutionResult.
@@ -156,10 +167,18 @@ func (r *ExecutionResult) ShouldRun() bool {
 	return !r.executed
 }
 
-// SetScrubbedEnvCount records how many environment variables were scrubbed
-// from the child process per the resolved environment policy.
-func (r *ExecutionResult) SetScrubbedEnvCount(count int) {
-	r.scrubbedEnvCount = count
+// SetEnvScrub records the environment variables scrubbed from the child process.
+func (r *ExecutionResult) SetEnvScrub(scrub EnvScrub) {
+	r.envScrub = scrub
+}
+
+// EnvScrub returns the environment scrub recorded for this run.
+func (r *ExecutionResult) EnvScrub() EnvScrub {
+	if r == nil {
+		return EnvScrub{}
+	}
+
+	return r.envScrub
 }
 
 // ScrubbedEnvCount returns how many environment variables were scrubbed from
@@ -170,7 +189,7 @@ func (r *ExecutionResult) ScrubbedEnvCount() int {
 		return 0
 	}
 
-	return r.scrubbedEnvCount
+	return len(r.envScrub.Names)
 }
 
 // BestEffortViolation returns sandbox-specific best-effort violation details.

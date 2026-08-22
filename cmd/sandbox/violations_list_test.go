@@ -199,3 +199,39 @@ func TestViolationsList_NoViolations_JSONOmitsPrimary(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, entries, 1)
 }
+
+func TestViolationsList_JSONNamesScrubbedEnv(t *testing.T) {
+	factory, cache := newTestCacheFactory(t)
+
+	report := pmgsandbox.MergeEnvScrub(sampleViolationsReport("/Users/dev/project/.astro"), pmgsandbox.EnvScrub{
+		Names:   []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		Process: "pipx",
+	})
+	_, err := cache.Write(report)
+	require.NoError(t, err)
+
+	stdout, _, err := runList(t, factory, "--json")
+	require.NoError(t, err)
+
+	var payload violationsListJSONOutput
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+	require.Len(t, payload.Entries, 1)
+
+	entry := payload.Entries[0]
+	assert.Equal(t, []string{"GOOGLE_APPLICATION_CREDENTIALS"}, entry.ScrubbedEnv)
+
+	require.NotNil(t, entry.Primary)
+	assert.Equal(t, string(pmgsandbox.ViolationKindFSWrite), entry.Primary.Kind)
+}
+
+func TestViolationsList_JSONOmitsScrubbedEnvWhenNoScrubs(t *testing.T) {
+	factory, cache := newTestCacheFactory(t)
+
+	_, err := cache.Write(sampleViolationsReport("/Users/dev/project/.astro"))
+	require.NoError(t, err)
+
+	stdout, _, err := runList(t, factory, "--json")
+	require.NoError(t, err)
+
+	assert.NotContains(t, stdout, "scrubbed_env")
+}

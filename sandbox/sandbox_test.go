@@ -27,17 +27,27 @@ type stubDiagnosticsSandbox struct {
 
 func (s stubDiagnosticsSandbox) DiagnosticsWriter() io.Writer { return s.writer }
 
-func TestExecutionResultScrubbedEnvCount(t *testing.T) {
+func TestExecutionResultEnvScrub(t *testing.T) {
 	r := NewExecutionResult()
 	assert.Equal(t, 0, r.ScrubbedEnvCount())
+	assert.Empty(t, r.EnvScrub().Names)
 
-	r.SetScrubbedEnvCount(3)
+	scrub := EnvScrub{
+		Names:       []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "NPM_TOKEN"},
+		SandboxName: DriverLandlock,
+		PolicyName:  "npm-restrictive",
+		Process:     "npm",
+	}
+	r.SetEnvScrub(scrub)
+
 	assert.Equal(t, 3, r.ScrubbedEnvCount())
+	assert.Equal(t, scrub, r.EnvScrub())
 }
 
-func TestExecutionResultScrubbedEnvCountNilReceiver(t *testing.T) {
+func TestExecutionResultEnvScrubNilReceiver(t *testing.T) {
 	var r *ExecutionResult
 	assert.Equal(t, 0, r.ScrubbedEnvCount())
+	assert.Equal(t, EnvScrub{}, r.EnvScrub())
 }
 
 func TestExecutionResultDiagnosticsWriter(t *testing.T) {

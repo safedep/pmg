@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,18 +16,40 @@ import (
 // The flag name lives here (not in sandbox/) because it is CLI-surface owned
 // by the cmd layer; the sandbox package only knows kind + target.
 func FormatSandboxOverrideFlag(o *pmgsandbox.OverrideSuggestion) string {
+	arg := sandboxAllowArg(o)
+	if arg == "" {
+		return ""
+	}
+
+	return "--sandbox-allow " + arg
+}
+
+// FormatSandboxAllowCommand renders an OverrideSuggestion as the `pmg sandbox
+// allow` command that persists the same allowance for this repository. Returns
+// "" for sensitive targets, which that command refuses without --force.
+func FormatSandboxAllowCommand(o *pmgsandbox.OverrideSuggestion) string {
+	arg := sandboxAllowArg(o)
+	if arg == "" || pmgsandbox.IsSensitiveProjectTarget(o.Target) {
+		return ""
+	}
+
+	return "pmg sandbox allow " + arg
+}
+
+func sandboxAllowArg(o *pmgsandbox.OverrideSuggestion) string {
 	if o == nil {
 		return ""
 	}
 
-	quoted := shellQuote(o.Target)
 	switch o.Kind {
 	case pmgsandbox.ViolationKindFSRead:
-		return "--sandbox-allow read=" + quoted
+		return "read=" + shellQuote(o.Target)
 	case pmgsandbox.ViolationKindFSWrite, pmgsandbox.ViolationKindFSDeleteOrRename:
-		return "--sandbox-allow write=" + quoted
+		return "write=" + shellQuote(o.Target)
 	case pmgsandbox.ViolationKindExec:
-		return "--sandbox-allow exec=" + quoted
+		return "exec=" + shellQuote(o.Target)
+	case pmgsandbox.ViolationKindEnvScrub:
+		return "env=" + o.Target
 	default:
 		return ""
 	}
@@ -80,8 +103,13 @@ func FormatSandboxDetails(report *pmgsandbox.ViolationReport, primary *pmgsandbo
 		lines = append(lines, "Raw log: "+primary.RawLog)
 	}
 
-	if len(report.Violations) > 1 {
-		lines = append(lines, fmt.Sprintf("Additional denials observed: %d", len(report.Violations)-1))
+	// Scrubs are listed separately and are not denials.
+	denials := len(report.Violations) - len(pmgsandbox.EnvScrubNames(report))
+	if primary.Kind != pmgsandbox.ViolationKindEnvScrub {
+		denials--
+	}
+	if denials > 0 {
+		lines = append(lines, fmt.Sprintf("Additional denials observed: %d", denials))
 	}
 
 	return strings.Join(lines, "\n")
@@ -138,6 +166,26 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		}
 		for _, line := range strings.Split(details, "\n") {
 			if _, err := fmt.Fprintf(out, "  %s\n", line); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+
+	// The primary is rendered in full below, so drop it here.
+	names := pmgsandbox.EnvScrubNames(rec.Report)
+	if exp.Primary != nil && exp.Primary.Kind == pmgsandbox.ViolationKindEnvScrub {
+		names = slices.DeleteFunc(names, func(n string) bool { return n == exp.Primary.Target })
+	}
+
+	if len(names) > 0 {
+		if _, err := fmt.Fprintln(out, Colors.Bold("Environment variables scrubbed:")); err != nil {
+			return err
+		}
+		for _, name := range names {
+			if _, err := fmt.Fprintf(out, "  %s\n", name); err != nil {
 				return err
 			}
 		}

@@ -238,3 +238,24 @@ func TestAllow_LastRefusesOutputDerivedReport(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, overlay, "nothing may be persisted from a forgeable report")
 }
+
+func TestAllow_LastPromotesEnvScrub(t *testing.T) {
+	deps := newAllowDeps(t)
+	report := pmgsandbox.MergeEnvScrub(nil, pmgsandbox.EnvScrub{
+		Names:       []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		SandboxName: pmgsandbox.DriverLandlock,
+		PolicyName:  "pipx",
+	})
+	_, err := deps.cache.Write(report)
+	require.NoError(t, err)
+
+	_, stderr, err := runAllowCmd(t, deps, "--last")
+	require.NoError(t, err, "stderr: %s", stderr)
+
+	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	require.NotNil(t, overlay)
+	require.Len(t, overlay.Allow, 1)
+	assert.Equal(t, config.SandboxAllowEnv, overlay.Allow[0].Type)
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", overlay.Allow[0].Value)
+}
