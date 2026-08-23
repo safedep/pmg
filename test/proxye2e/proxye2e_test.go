@@ -949,7 +949,7 @@ func TestProxyFlow_Cargo(t *testing.T) {
 			},
 		},
 		{
-			Name: "canonical-case crate download is analyzed under its URL name",
+			Name: "canonical-case crate download is analyzed under its normalized name",
 			Setup: func(h *Harness) {
 				h.Registry.AddCargo(CargoCrate{Name: "Inflector",
 					Versions: []CargoVersion{{Version: "0.11.4", PublishedAt: old()}}})
@@ -962,6 +962,26 @@ func TestProxyFlow_Cargo(t *testing.T) {
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("inflector", "0.11.4"))
+			},
+		},
+		{
+			// A canonical-case PURL must exempt the crate on both paths: index
+			// filtering (lowercase index name) and the canonical-case download.
+			Name: "canonical-case trusted purl applies across index and download",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 7}
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:cargo/Inflector"}}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddCargo(CargoCrate{Name: "Inflector",
+					Versions: []CargoVersion{{Version: "0.12.0", PublishedAt: recent()}}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Cargo().Install("Inflector", "0.12.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedCrate("Inflector", "0.12.0"), "trusted crate must survive cooldown and download")
+				assert.Empty(t, h.Analyzer.Calls(), "trusted crate must bypass malware analysis")
 			},
 		},
 		{

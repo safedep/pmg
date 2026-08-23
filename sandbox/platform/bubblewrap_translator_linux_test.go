@@ -234,6 +234,45 @@ func TestBubblewrapTranslatorFilesystemRules(t *testing.T) {
 	}
 }
 
+func TestBubblewrapTranslatorDeviceBindOrdering(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Name:            "test",
+		Description:     "device bind ordering",
+		PackageManagers: []string{"npm"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead: []string{"/"},
+			DenyRead:  []string{"/dev/urandom"},
+		},
+	}
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	rootBind := lastIndexOfTriple(args, "--ro-bind-try", "/", "/")
+	deviceBind := lastIndexOfTriple(args, "--dev-bind-try", "/dev/urandom", "/dev/urandom")
+	denyOverlay := lastIndexOfTriple(args, "--ro-bind", "/dev/null", "/dev/urandom")
+
+	require.NotEqual(t, -1, rootBind, "broad allow_read bind missing")
+	require.NotEqual(t, -1, deviceBind, "essential device bind missing")
+	require.NotEqual(t, -1, denyOverlay, "explicit device deny overlay missing")
+
+	// bwrap applies mounts in argument order: the device bind must punch
+	// through the broad allow, and an explicit policy deny must still win.
+	assert.Greater(t, deviceBind, rootBind, "device bind must come after broad allow_read")
+	assert.Greater(t, denyOverlay, deviceBind, "explicit deny must come after the device bind")
+}
+
+func lastIndexOfTriple(args []string, option, source, dest string) int {
+	last := -1
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == option && args[i+1] == source && args[i+2] == dest {
+			last = i
+		}
+	}
+	return last
+}
+
 func TestBubblewrapTranslatorGlobPatterns(t *testing.T) {
 	// Create a temporary directory structure for testing glob expansion
 	tmpDir := t.TempDir()

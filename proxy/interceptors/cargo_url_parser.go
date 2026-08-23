@@ -97,17 +97,21 @@ func (cargoDownloadParser) ParseURL(urlPath string) (packageInfo, error) {
 		return nil, fmt.Errorf("unrecognized cargo download URL path: %q", urlPath)
 	}
 
+	// crates.io names are case-insensitive; download URLs carry the crate's
+	// canonical case while index paths are lowercase. Names are normalized to
+	// lowercase so analysis caching and PURL policy matching (trusted_packages,
+	// dependency_cooldown.skip) see one identity across both paths.
 	name := segments[1]
 
 	if len(segments) == 4 && segments[3] == "download" && segments[2] != "" {
-		return &cargoCrateInfo{name: name, version: segments[2], requestType: cargoRequestDownload}, nil
+		return &cargoCrateInfo{name: strings.ToLower(name), version: segments[2], requestType: cargoRequestDownload}, nil
 	}
 
 	if len(segments) == 3 {
 		if file, ok := strings.CutSuffix(segments[2], ".crate"); ok {
 			version, found := strings.CutPrefix(file, name+"-")
 			if found && version != "" {
-				return &cargoCrateInfo{name: name, version: version, requestType: cargoRequestDownload}, nil
+				return &cargoCrateInfo{name: strings.ToLower(name), version: version, requestType: cargoRequestDownload}, nil
 			}
 		}
 	}

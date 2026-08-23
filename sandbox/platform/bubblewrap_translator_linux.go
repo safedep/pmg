@@ -60,13 +60,6 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 
 	args = append(args, filesystemArgs...)
 
-	// Essential devices are bound after the filesystem rules: bwrap mounts in
-	// argument order, so a broad allow_read rule (e.g. `/`) emitted later
-	// would otherwise shadow the device binds with a plain ro-bind. On kernels
-	// that restrict device-node access through non-dev binds, that breaks
-	// /dev/null for the child (cargo and pip open it when spawning tools).
-	args = append(args, t.addEssentialDevices()...)
-
 	// 4. Add PTY support if needed
 	if utils.SafelyGetValue(policy.AllowPTY) {
 		ptyArgs := t.addPTYSupport()
@@ -108,8 +101,9 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 	return args, nil
 }
 
-// addEssentialDevices binds the essential device files. Emitted after the
-// filesystem rules (see translate) so a broad allow bind cannot shadow them.
+// addEssentialDevices binds the essential device files. Emitted between the
+// allow mounts and the deny overlays (see translateFilesystem) so a broad
+// allow bind cannot shadow them while explicit denies still win.
 func (t *bubblewrapPolicyTranslator) addEssentialDevices() []string {
 	args := []string{}
 	for _, device := range t.config.getEssentialDevices() {
@@ -241,6 +235,14 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		args = append(args, writeArgs...)
 	}
+
+	// Essential devices are bound after the allow mounts but before the deny
+	// overlays: bwrap mounts in argument order, so a broad allow_read rule
+	// (e.g. `/`) emitted above would otherwise shadow the device binds with a
+	// plain ro-bind (breaking /dev/null on kernels that restrict device nodes
+	// through non-dev binds), while an explicit policy deny on a device must
+	// still win by mounting over the rebind.
+	args = append(args, t.addEssentialDevices()...)
 
 	// 3. Process deny_write rules after allow_write so read-only binds override writable parents.
 	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)

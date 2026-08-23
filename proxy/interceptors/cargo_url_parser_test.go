@@ -57,7 +57,8 @@ func TestCargoDownloadParserParseURL(t *testing.T) {
 	}{
 		{path: "/crates/serde/1.0.219/download", name: "serde", version: "1.0.219"},
 		{path: "/crates/serde/serde-1.0.219.crate", name: "serde", version: "1.0.219"},
-		{path: "/crates/Inflector/0.11.4/download", name: "Inflector", version: "0.11.4"},
+		{path: "/crates/Inflector/0.11.4/download", name: "inflector", version: "0.11.4"},
+		{path: "/crates/Inflector/Inflector-0.11.4.crate", name: "inflector", version: "0.11.4"},
 		{path: "/crates/my-crate/my-crate-0.1.0-alpha.1.crate", name: "my-crate", version: "0.1.0-alpha.1"},
 		{path: "/crates/serde", wantErr: true},
 		{path: "/crates/serde/1.0.219", wantErr: true},
