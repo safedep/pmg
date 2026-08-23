@@ -167,12 +167,12 @@ fi
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --output-dir)
-      [[ -n "$2" && "$2" != -* ]] || die "--output-dir requires a directory"
+      [[ "${2:-}" != "" && "${2:-}" != -* ]] || die "--output-dir requires a directory"
       output_dir="$2"
       shift 2
       ;;
     --config)
-      [[ -n "$2" && "$2" != -* ]] || die "--config requires a file"
+      [[ "${2:-}" != "" && "${2:-}" != -* ]] || die "--config requires a file"
       config_path="$2"
       shift 2
       ;;

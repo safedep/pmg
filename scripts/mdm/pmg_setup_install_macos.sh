@@ -65,6 +65,12 @@ load_embedded_cloud_credentials || exit 1
 install_via_brew() {
   local brew_bin="$1"
   log "Installing/updating pmg via Homebrew"
+  # Remove a legacy formula install (pmg was a formula before the tap migrated
+  # it to a cask) so its binary link does not conflict with the cask install.
+  if run_brew "$brew_bin" ls --versions pmg &>/dev/null; then
+    log "Removing legacy pmg formula"
+    run_brew "$brew_bin" uninstall pmg || warn "could not remove legacy pmg formula"
+  fi
   if run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
     run_brew "$brew_bin" upgrade --cask safedep/tap/pmg || true
   else
@@ -117,9 +123,9 @@ log "pmg installed: $("$PMG_BIN" version 2>/dev/null || echo unknown)"
 install_requested_global_config() {
   local embedded_config="${EMBEDDED_GLOBAL_CONFIG_B64:-}"
   local embedded_config_tmp
+  unset EMBEDDED_GLOBAL_CONFIG_B64
 
   if [[ -z "$embedded_config" ]]; then
-    unset EMBEDDED_GLOBAL_CONFIG_B64
     if [[ -f "${SCRIPT_DIR}/config.yml" ]]; then
       install_global_config "${SCRIPT_DIR}/config.yml"
     fi
@@ -128,26 +134,18 @@ install_requested_global_config() {
 
   embedded_config_tmp=$(mktemp "${TMPDIR:-/tmp}/pmg-embedded-config.XXXXXX") || {
     echo "Error: could not create temporary config file" >&2
-    unset EMBEDDED_GLOBAL_CONFIG_B64
     return 1
   }
   if ! printf '%s' "$embedded_config" | /usr/bin/base64 -D > "$embedded_config_tmp"; then
     warn "failed to decode embedded global config"
     rm -f "$embedded_config_tmp" || warn "failed to remove temporary config file"
-    unset EMBEDDED_GLOBAL_CONFIG_B64
     return 1
   fi
   if ! install_global_config "$embedded_config_tmp"; then
     rm -f "$embedded_config_tmp" || warn "failed to remove temporary config file"
-    unset EMBEDDED_GLOBAL_CONFIG_B64
     return 1
   fi
-  if ! rm -f "$embedded_config_tmp"; then
-    warn "failed to remove temporary config file"
-    unset EMBEDDED_GLOBAL_CONFIG_B64
-    return 1
-  fi
-  unset EMBEDDED_GLOBAL_CONFIG_B64
+  rm -f "$embedded_config_tmp" || warn "failed to remove temporary config file"
 }
 
 install_requested_global_config

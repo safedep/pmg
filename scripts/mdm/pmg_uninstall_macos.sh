@@ -49,10 +49,18 @@ done < <(each_target_user)
 
 remove_binary() {
   local brew_bin
-  if brew_bin=$(find_brew) && run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
-    log "Uninstalling pmg via Homebrew"
-    run_brew "$brew_bin" uninstall --cask safedep/tap/pmg || warn "brew uninstall failed"
-    return
+  if brew_bin=$(find_brew); then
+    # Remove a legacy formula install (pmg was a formula before the tap
+    # migrated it to a cask); skipping it leaves a broken brew state behind.
+    if run_brew "$brew_bin" ls --versions pmg &>/dev/null; then
+      log "Uninstalling legacy pmg formula"
+      run_brew "$brew_bin" uninstall pmg || warn "brew uninstall of legacy formula failed"
+    fi
+    if run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
+      log "Uninstalling pmg via Homebrew"
+      run_brew "$brew_bin" uninstall --cask safedep/tap/pmg || warn "brew uninstall failed"
+      return
+    fi
   fi
 
   # Not brew-managed: remove machine-wide binaries from the locations resolve_pmg

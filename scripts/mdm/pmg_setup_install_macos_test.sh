@@ -63,6 +63,10 @@ awk '
   emit { print }
   emit && /^load_embedded_cloud_credentials \|\| exit 1$/ { exit }
 ' "$INSTALL_SOURCE" > "$STARTUP_RUNTIME"
+
+[[ -s "$STARTUP_RUNTIME" ]] ||
+  fail "startup extraction matched nothing in $INSTALL_SOURCE (anchor moved?)"
+
 cat >> "$STARTUP_RUNTIME" <<'EOF'
 printf 'CLOUD_API_KEY=%s\nCLOUD_TENANT_ID=%s\n' \
   "$CLOUD_API_KEY" "$CLOUD_TENANT_ID" > "$STARTUP_CREDENTIALS_FILE"
@@ -132,6 +136,9 @@ assert_contains "$CREDENTIAL_RUNTIME" \
 
 awk '/^(cloud_login|configure_user)\(\)/ { emit = 1 } emit' \
   "$INSTALL_SOURCE" > "$INSTALL_TAIL"
+
+[[ -s "$INSTALL_TAIL" ]] ||
+  fail "tail extraction matched nothing in $INSTALL_SOURCE (function renamed?)"
 
 encode_base64() {
   base64 | tr -d '\r\n'
