@@ -187,7 +187,7 @@ assert_equals "755" "$(file_mode "$CONFIG_UNINSTALL")" "config uninstaller mode"
 
 embedded_line=$(grep -Fnm1 'EMBEDDED_GLOBAL_CONFIG_B64=' "$CONFIG_INSTALL" | cut -d: -f1)
 lib_line_count=$(wc -l < "${SCRIPT_DIR}/lib_macos.sh")
-installer_body_line=$(grep -Fnm1 '# pmg_setup_install_macos.sh' "$CONFIG_INSTALL" | cut -d: -f1)
+installer_body_line=$(grep -Fnm1 'install_via_brew() {' "$CONFIG_INSTALL" | cut -d: -f1)
 assert_equals "$((lib_line_count + 2))" "$embedded_line" \
   "embedded config declaration position"
 assert_equals "$((embedded_line + 1))" "$installer_body_line" \
