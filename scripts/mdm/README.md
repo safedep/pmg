@@ -32,6 +32,8 @@ Homebrew can't run as root, so the script runs brew commands as the owner of the
 
 ## Install
 
+Deploy `lib_macos.sh` in the same directory as the entry scripts — they source it at runtime and fail without it.
+
 ```sh
 # Install PMG without cloud credentials
 sudo ./pmg_setup_install_macos.sh
@@ -91,29 +93,16 @@ The installer consumes `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` at runtime. The
 
 ## Standalone scripts for Microsoft Intune
 
-Microsoft Intune accepts one shell script per policy. Follow Microsoft's [macOS shell-script procedure](https://learn.microsoft.com/en-us/intune/device-management/tools/run-shell-scripts-macos).
-
-The generator writes exactly two files to the output directory:
+Microsoft Intune accepts one shell script per policy, so use the prebuilt single-file scripts in [`standalone/`](standalone/):
 
 - `pmg_setup_install_macos_standalone.sh`
 - `pmg_uninstall_macos_standalone.sh`
 
-Each file must be smaller than 1 MB for Intune. The generator rejects larger files.
-
-The committed files in [`standalone/`](standalone/) are generic and secret-free. They contain no tenant config or cloud credentials.
-
-### PMG only
-
-From `scripts/mdm/`, generate the installer and uninstaller:
-
-```sh
-./generate_standalone_scripts.sh \
-  --output-dir /path/to/pmg-intune
-```
+They contain no tenant config or cloud credentials, and must be smaller than 1 MB for Intune.
 
 ### Config only
 
-Generate both scripts with the managed config in the installer:
+Regenerate the installer with the managed config embedded:
 
 ```sh
 ./generate_standalone_scripts.sh \
@@ -123,105 +112,32 @@ Generate both scripts with the managed config in the installer:
 
 The uninstaller never contains the embedded config.
 
-### Security warning for cloud credentials
+### Cloud credentials
 
-**Warning:** Base64 is not encryption. Intune administrators and device administrators can recover credentials from the uploaded installer.
+Intune has no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables — set them however you manage secrets (shell, CI, secrets manager):
 
-Before you generate a credential installer:
-
-1. Generate the tenant artifacts outside a tracked source directory.
-2. Restrict access to the output directory and its files.
-3. Use a scoped and revocable API key.
-4. Never commit the generated tenant artifacts.
-5. Upload both scripts, then remove the local tenant artifacts when you no longer need them.
-6. Rotate the API key if you suspect exposure.
-
-Removing the local artifact does not remove Intune's uploaded copy.
-
-### Credentials only
-
-Use Bash for these steps. Read the API key without terminal echo or a literal shell-history value:
-
-```bash
-read -rsp 'SafeDep API key: ' safedep_api_key
-printf '\n'
-read -rp 'SafeDep tenant ID: ' safedep_tenant_id
-tenant_output=$(mktemp -d "${TMPDIR:-/tmp}/pmg-intune-credentials.XXXXXX")
-
-SAFEDEP_API_KEY="$safedep_api_key" \
-SAFEDEP_TENANT_ID="$safedep_tenant_id" \
+```sh
+SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
   ./generate_standalone_scripts.sh \
   --embed-cloud-credentials \
-  --output-dir "$tenant_output"
-
-unset safedep_api_key safedep_tenant_id
-printf 'Artifacts: %s\n' "$tenant_output"
+  --output-dir /path/to/pmg-intune
 ```
 
-The installer uses `pmg config set cloud.enabled true` in the active GUI user's config. It then stores the credentials in the Keychain.
+With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: true` in it) to the same command.
 
-### Config plus credentials
+**Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. Use a scoped and revocable API key, and never commit the generated artifacts.
 
-First, set cloud sync in the managed `config.yml`:
-
-```yaml
-cloud:
-  enabled: true
-```
-
-Then use Bash to generate both scripts:
-
-```bash
-read -rsp 'SafeDep API key: ' safedep_api_key
-printf '\n'
-read -rp 'SafeDep tenant ID: ' safedep_tenant_id
-tenant_output=$(mktemp -d "${TMPDIR:-/tmp}/pmg-intune-config-credentials.XXXXXX")
-
-SAFEDEP_API_KEY="$safedep_api_key" \
-SAFEDEP_TENANT_ID="$safedep_tenant_id" \
-  ./generate_standalone_scripts.sh \
-  --config /path/to/config.yml \
-  --embed-cloud-credentials \
-  --output-dir "$tenant_output"
-
-unset safedep_api_key safedep_tenant_id
-printf 'Artifacts: %s\n' "$tenant_output"
-```
-
-The managed config is authoritative. The installer cannot enable cloud sync through a per-user config.
-
-For both credential variants, the installer has mode `0700`. The uninstaller has no embedded credentials.
+The credential installer has mode `0700`. The uninstaller has no embedded credentials.
 
 ### Upload to Intune
 
-1. Create an install policy in **Devices > By platform > macOS > Manage devices > Scripts > Add**.
-2. Upload only `pmg_setup_install_macos_standalone.sh` to the install policy.
-3. Verify that the script is smaller than 1 MB.
-4. Set **Run script as signed-in user** to **No**. Intune runs the script as root.
-5. Select the script frequency intentionally. Use **Not configured** only for a one-time run.
-6. Select the retry count intentionally. Use retries only for script failures.
-7. Assign the install policy to the required device group.
-8. Create a separate uninstall policy.
-9. Upload only `pmg_uninstall_macos_standalone.sh` to the uninstall policy.
-10. Set **Run script as signed-in user** to **No** for the uninstall policy.
-11. Do not assign install and uninstall policies concurrently.
+Create two shell-script policies ([Microsoft's procedure](https://learn.microsoft.com/en-us/intune/device-management/tools/run-shell-scripts-macos)):
 
-Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users.
+1. **Install policy**: upload `pmg_setup_install_macos_standalone.sh`, set **Run script as signed-in user** to **No**.
+2. **Uninstall policy**: upload `pmg_uninstall_macos_standalone.sh`, same setting.
+3. Assign to the device group. Do not assign both policies concurrently.
 
-For manual setup of a later user:
-
-- With managed config and `cloud.enabled: true`, run `pmg cloud login`.
-- Without managed config, run `pmg config set cloud.enabled true`, then run `pmg cloud login`.
-
-A missing GUI session is a nonfatal skip. A cloud login failure is also nonfatal. Neither condition causes a nonzero exit for Intune retries.
-
-After you upload both credential variant files, remove the local tenant artifacts:
-
-```bash
-rm -rf -- "$tenant_output"
-unset tenant_output
-```
-
+Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip — neither causes a nonzero exit for Intune retries.
 ## Jamf example
 
 Build a Jamf package that installs these sibling files under `/Library/Application Support/safedep/pmg-mdm`:
@@ -245,6 +161,46 @@ SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" \
 Invoke `"$MDM_DIR/pmg_uninstall_macos.sh"` from a separate uninstall policy.
 
 If the Jamf policy accepts one script, use the standalone workflow instead.
+
+## JumpCloud example
+
+Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which covers fleet-wide, multi-user deployment.
+
+### Install
+
+1. In the JumpCloud Admin Console, create a new **Command** and set **Run As** to `root`.
+2. Upload `lib_macos.sh` and `pmg_setup_install_macos.sh` from `scripts/mdm/`. Optionally upload `config.yml` to deploy a globally managed config. Set the **File Destination** to `/tmp/pmg-mdm/` for each file.
+3. Set **Timeout After** to at least 900 seconds so installs on slow networks aren't killed mid-run.
+4. To enable cloud sync, define the Command Variables `safedep_api_key` and `safedep_tenant_id`, and mark the API key as a Secret variable.
+5. Set the Command body to:
+
+   ```sh
+   #!/bin/sh
+   set -eu
+   cd /tmp/pmg-mdm
+   chmod +x pmg_setup_install_macos.sh
+   SAFEDEP_API_KEY={{safedep_api_key}} SAFEDEP_TENANT_ID={{safedep_tenant_id}} ./pmg_setup_install_macos.sh
+   cd / && rm -rf /tmp/pmg-mdm
+   ```
+
+   Drop the `SAFEDEP_API_KEY`/`SAFEDEP_TENANT_ID` variables if cloud sync isn't enabled.
+6. Assign the Command to a device group and run it.
+
+### Uninstall
+
+1. Create a second Command as above, uploading `lib_macos.sh` and `pmg_uninstall_macos.sh` instead.
+2. Set the Command body to:
+
+   ```sh
+   #!/bin/sh
+   set -eu
+   cd /tmp/pmg-mdm
+   chmod +x pmg_uninstall_macos.sh
+   ./pmg_uninstall_macos.sh
+   cd / && rm -rf /tmp/pmg-mdm
+   ```
+
+3. Assign the Command to the same device group and run it.
 
 ## Limitations
 
