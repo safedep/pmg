@@ -354,7 +354,7 @@ func collectProxyInfo(cfg *config.RuntimeConfig) proxyInfo {
 	// Custom registries are surfaced even when the daemon is not running:
 	// interception works per-command too.
 	for _, r := range cfg.Config.Proxy.Registries {
-		info.Registries = append(info.Registries, registryInfo{Name: r.Name, Ecosystem: r.Ecosystem})
+		info.Registries = append(info.Registries, registryInfo{Name: r.Name, Ecosystem: string(r.Ecosystem)})
 	}
 	return info
 }
