@@ -1,0 +1,9 @@
+# guarantee: a clean npm package passes analysis, installs, and pmg exits zero.
+# lodash has no dependencies, so a single clean verdict decides the run.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg npm init -y
+exec pmg npm install lodash@4.17.21
+exists node_modules/lodash
