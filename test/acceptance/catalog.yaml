@@ -43,6 +43,9 @@
 # --- gaps across the full user-facing surface (no script yet; tracked, reported, non-blocking) ---
 
 # npm ecosystem
+# open finding: pnpm add analyzes the package but does not block it, and poetry
+# add installs it with no analysis line. npm, bun, pip, pip3, uv, and pipx block
+# the same fixture. These two stay gaps until pmg blocks a direct add.
 - id: pnpm/guard/malware-block
   title: "pnpm add of a known-malicious package is blocked"
   category: pnpm
