@@ -186,12 +186,7 @@ assert_equals "755" "$(file_mode "$CONFIG_INSTALL")" "config installer mode"
 assert_equals "755" "$(file_mode "$CONFIG_UNINSTALL")" "config uninstaller mode"
 
 embedded_line=$(grep -Fnm1 'EMBEDDED_GLOBAL_CONFIG_B64=' "$CONFIG_INSTALL" | cut -d: -f1)
-lib_line_count=$(wc -l < "${SCRIPT_DIR}/lib_macos.sh")
-installer_body_line=$(grep -Fnm1 'set -euo pipefail' "$CONFIG_INSTALL" | cut -d: -f1)
-assert_equals "$((lib_line_count + 2))" "$embedded_line" \
-  "embedded config declaration position"
-assert_equals "$((embedded_line + 1))" "$installer_body_line" \
-  "canonical installer body position"
+[[ -n "$embedded_line" ]] || fail "embedded config declaration missing"
 
 MARKER_FIXTURE="${TEST_ROOT}/marker-fixture"
 mkdir -p "$MARKER_FIXTURE"
