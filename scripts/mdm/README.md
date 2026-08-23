@@ -32,7 +32,7 @@ Homebrew can't run as root, so the script runs brew commands as the owner of the
 
 ## Install
 
-Deploy `lib_macos.sh` in the same directory as the entry scripts — they source it at runtime and fail without it.
+Deploy `lib_macos.sh` in the same directory as the entry scripts. They source it at runtime and fail without it.
 
 ```sh
 # Install PMG without cloud credentials
@@ -91,14 +91,14 @@ The installer consumes `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` at runtime. The
 | `PMG_CACHE_DIR` | Override the cache directory location (uninstall cleanup honors it) |
 | `PMG_KEEP_GLOBAL_CONFIG` | Uninstall only: when set, keep the globally managed config instead of removing it |
 
-## Standalone scripts for Microsoft Intune
+## Standalone scripts (single-script MDM policies)
 
-Microsoft Intune accepts one shell script per policy, so use the prebuilt single-file scripts in [`standalone/`](standalone/):
+Some MDMs accept only one shell script per policy, so use the prebuilt single-file scripts in [`standalone/`](standalone/):
 
 - `pmg_setup_install_macos_standalone.sh`
 - `pmg_uninstall_macos_standalone.sh`
 
-They contain no tenant config or cloud credentials, and must be smaller than 1 MB for Intune.
+They contain no tenant config or cloud credentials, and are smaller than 1 MB (Intune's limit).
 
 ### Config only
 
@@ -114,7 +114,7 @@ The uninstaller never contains the embedded config.
 
 ### Cloud credentials
 
-Intune has no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables — set them however you manage secrets (shell, CI, secrets manager):
+Single-script MDMs (like Intune) have no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables. Set them however you manage secrets (shell, CI, secrets manager):
 
 ```sh
 SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
@@ -129,7 +129,7 @@ With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: 
 
 The credential installer has mode `0700`. The uninstaller has no embedded credentials.
 
-### Upload to Intune
+### Intune example
 
 Create two shell-script policies ([Microsoft's procedure](https://learn.microsoft.com/en-us/intune/device-management/tools/run-shell-scripts-macos)):
 
@@ -137,30 +137,18 @@ Create two shell-script policies ([Microsoft's procedure](https://learn.microsof
 2. **Uninstall policy**: upload `pmg_uninstall_macos_standalone.sh`, same setting.
 3. Assign to the device group. Do not assign both policies concurrently.
 
-Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip — neither causes a nonzero exit for Intune retries.
+Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip, so neither causes a nonzero exit for Intune retries.
 ## Jamf example
 
-Build a Jamf package that installs these sibling files under `/Library/Application Support/safedep/pmg-mdm`:
-
-- `lib_macos.sh`
-- `pmg_setup_install_macos.sh`
-- `pmg_uninstall_macos.sh`
-- Optional `config.yml`
-
-Set both entry scripts to mode `0755`. Then invoke the installed entry script from a Jamf policy:
+Upload the `mdm/` folder as a script payload, or a package that drops the three files together, then invoke the entry script. Jamf runs scripts as root, which covers fleet-wide, multi-user deployment:
 
 ```sh
 #!/bin/sh
-MDM_DIR="/Library/Application Support/safedep/pmg-mdm"
-SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" \
-  "$MDM_DIR/pmg_setup_install_macos.sh"
+cd "$(dirname "$0")"
+SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" ./pmg_setup_install_macos.sh
 ```
 
 `$4` and `$5` are Jamf script parameters. Adjust them to your configuration.
-
-Invoke `"$MDM_DIR/pmg_uninstall_macos.sh"` from a separate uninstall policy.
-
-If the Jamf policy accepts one script, use the standalone workflow instead.
 
 ## JumpCloud example
 
