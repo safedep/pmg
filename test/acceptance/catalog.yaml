@@ -1,0 +1,195 @@
+# Guarantee inventory for the PMG acceptance suite. One entry per guarantee.
+# coverage is derived (a script whose path-id matches => covered), never authored.
+#
+# category is one of:
+#   npm|pnpm|bun|yarn|npx|pnpx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|setup|sandbox|cloud|config|version|audit
+# The category is also the first path segment of the script id.
+# tier is P0 (incident) | P1 (important) | P2 (tracked). Tier is metadata in Part 1;
+# it records the Part 2 gate policy and gates nothing yet.
+# labels are free-form tags. A run can filter by category and by labels (see README).
+
+# --- covered by seed scripts ---
+- id: npm/guard/malware-block
+  title: "npm install of a known-malicious package is blocked"
+  category: npm
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: npm/install/clean-allow
+  title: "npm install of a clean package succeeds"
+  category: npm
+  tier: P1
+  guarantee: "A clean package passes analysis, installs, and pmg exits zero."
+  labels: [clean, install]
+- id: pip/install/clean-allow
+  title: "pip install of a clean package succeeds"
+  category: pip
+  tier: P1
+  guarantee: "A clean package passes analysis, installs, and pmg exits zero."
+  labels: [clean, install]
+- id: setup/install/shims-created
+  title: "pmg setup install creates package-manager shims"
+  category: setup
+  tier: P1
+  guarantee: "pmg setup install provisions shims for supported package managers."
+  labels: [shims, offline]
+- id: cloud/analyzer/authenticated-query-blocks-malware
+  title: "authenticated (cloud-mode) query blocks known malware"
+  category: cloud
+  tier: P0
+  guarantee: "With SafeDep Cloud creds, the authenticated api.safedep.io path still blocks malware."
+  labels: [malware, block, cloud, authenticated]
+
+# --- gaps across the full user-facing surface (no script yet; tracked, reported, non-blocking) ---
+
+# npm ecosystem
+- id: pnpm/guard/malware-block
+  title: "pnpm add of a known-malicious package is blocked"
+  category: pnpm
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: bun/guard/malware-block
+  title: "bun add of a known-malicious package is blocked"
+  category: bun
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: yarn/guard/malware-block
+  title: "yarn add of a known-malicious package is blocked"
+  category: yarn
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: npx/guard/malware-block
+  title: "npx of a known-malicious package is blocked"
+  category: npx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+  labels: [malware, block, execute]
+- id: pnpx/guard/malware-block
+  title: "pnpx of a known-malicious package is blocked"
+  category: pnpx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+  labels: [malware, block, execute]
+
+# python ecosystem
+# No script yet: the repo has no proven known-malicious PyPI fixture (safedep-test-pkg
+# is an npm package). Cataloged as a gap until a stable PyPI fixture exists.
+- id: pip/guard/malware-block
+  title: "pip install of a known-malicious package is blocked"
+  category: pip
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: pip3/guard/malware-block
+  title: "pip3 install of a known-malicious package is blocked"
+  category: pip3
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: uv/guard/malware-block
+  title: "uv pip install of a known-malicious package is blocked"
+  category: uv
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: uvx/guard/malware-block
+  title: "uvx of a known-malicious package is blocked"
+  category: uvx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+  labels: [malware, block, execute]
+- id: poetry/guard/malware-block
+  title: "poetry add of a known-malicious package is blocked"
+  category: poetry
+  tier: P1
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: pipx/guard/malware-block
+  title: "pipx install of a known-malicious package is blocked"
+  category: pipx
+  tier: P1
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+
+# go ecosystem
+- id: go/guard/malware-block
+  title: "go get of a known-malicious module is blocked"
+  category: go
+  tier: P1
+  guarantee: "A module with a malware verdict is never fetched; pmg exits non-zero."
+  labels: [malware, block, community]
+
+# proxy
+- id: proxy/lifecycle/starts-and-stops
+  title: "pmg proxy starts and stops cleanly"
+  category: proxy
+  tier: P2
+  guarantee: "pmg proxy starts, serves, and shuts down without a leaked process."
+  labels: [lifecycle, offline]
+- id: proxy/trusted/registry-bypass
+  title: "trusted registry traffic bypasses interception"
+  category: proxy
+  tier: P1
+  guarantee: "Traffic to a configured trusted registry is passed through, not analyzed."
+  labels: [trusted, bypass]
+
+# sandbox
+- id: sandbox/enforce/blocks-secret-exfil
+  title: "sandbox enforce blocks secret exfiltration"
+  category: sandbox
+  tier: P0
+  guarantee: "Under --sandbox --sandbox-enforce, a seeded secret cannot be exfiltrated."
+  labels: [sandbox, block]
+- id: sandbox/enforce/allows-clean-install
+  title: "sandbox enforce still allows a clean install"
+  category: sandbox
+  tier: P1
+  guarantee: "Under --sandbox --sandbox-enforce, a clean install completes without a false denial."
+  labels: [sandbox, clean]
+
+# cloud
+- id: cloud/analyzer/bad-creds-fall-back-to-community
+  title: "invalid cloud creds fall back to community analyzer"
+  category: cloud
+  tier: P1
+  guarantee: "When the API rejects the credentials, pmg falls back to community analysis instead of failing open."
+  labels: [cloud, fallback]
+- id: cloud/analyzer/tenant-exclusion-honored
+  title: "a tenant exclusion is honored on the authenticated path"
+  category: cloud
+  tier: P1
+  guarantee: "With a stable exclusion in a dedicated test tenant, the excluded package is not blocked."
+  labels: [cloud, authenticated, exclusion]
+- id: cloud/sync/uploads-events
+  title: "pmg cloud sync uploads recorded events"
+  category: cloud
+  tier: P2
+  guarantee: "pmg cloud sync uploads locally recorded events to SafeDep Cloud."
+  labels: [cloud, authenticated, sync]
+
+# audit
+- id: audit/log/records-block
+  title: "a blocked install is recorded in the audit log"
+  category: audit
+  tier: P1
+  guarantee: "Blocking a package writes an audit-log entry."
+  labels: [audit, block]
+
+# config
+- id: config/show/reports-effective-config
+  title: "pmg config prints effective configuration"
+  category: config
+  tier: P2
+  guarantee: "pmg config reports the effective merged configuration."
+  labels: [config, offline]
+
+# version
+- id: version/reports-build-metadata
+  title: "pmg version prints version and commit"
+  category: version
+  tier: P2
+  guarantee: "pmg version prints the build version and commit."
+  labels: [version, offline]
