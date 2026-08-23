@@ -1336,7 +1336,7 @@ func TestProxyFlow_GoChecksumDatabaseStaysTunneled(t *testing.T) {
 				assert.Contains(t, h.DialedAddrs(), "sum.golang.org:443",
 					"the CONNECT tunnel must still route through the mock override for hermeticity")
 				assert.False(t, h.Registry.Requested("sum.golang.org", "/lookup/example.com/demo@v1.0.0"),
-					"a MITM'd request would reach the registry; sum.golang.org must stay an opaque tunnel")
+					"a MITM'd request would reach the registry. sum.golang.org must stay an opaque tunnel")
 				assert.Empty(t, h.Analyzer.Calls())
 			},
 		},

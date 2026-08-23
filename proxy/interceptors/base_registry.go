@@ -325,8 +325,8 @@ type registryRequestHandler interface {
 
 // handleRegistryRequest is the shared registry request flow: match the
 // endpoint, gate on reads, parse the URL, and dispatch to the ecosystem's
-// artifact or metadata handler. It fails open: requests whose package
-// identity cannot be parsed from the URL are allowed without analysis.
+// artifact or metadata handler. It fails open. PMG allows a request
+// without analysis when it cannot parse a package identity from the URL.
 func handleRegistryRequest(
 	ctx *proxy.RequestContext,
 	registries registrySet,

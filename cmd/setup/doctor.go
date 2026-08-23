@@ -620,14 +620,14 @@ func displayName(name string) string {
 }
 
 // checkProxyRegistriesResult reports the state of proxy.registries. A load
-// error is a failure: installs and proxy start fail closed until the config
-// is repaired. Plain-HTTP endpoints get a warning, because that traffic is
-// readable and modifiable on the network path.
+// error fails the check. Installs and proxy start fail closed until the
+// user repairs the config file. A plain-HTTP endpoint gets a warning.
+// Anyone on the network path can read and change that traffic.
 func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistryConfig) doctor.CheckResult {
 	if loadErr != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: "proxy.registries is invalid; installs and proxy start fail closed",
+			Message: "proxy.registries is invalid. Installs and proxy start fail closed",
 		}
 	}
 	if len(registries) == 0 {
@@ -637,13 +637,13 @@ func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistry
 		}
 	}
 
-	// Build the catalog that proxy startup builds, so the check fails on
-	// everything startup rejects (built-in host overlap, reserved Go hosts),
-	// not only on load-time validation.
+	// Build the same catalog that proxy startup builds. The check then
+	// fails on everything startup rejects (built-in host overlap, reserved
+	// Go hosts), not only on load-time validation errors.
 	if _, err := interceptors.NewRegistryCatalog(registries); err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("%v; installs and proxy start fail closed", err),
+			Message: fmt.Sprintf("%v. Installs and proxy start fail closed", err),
 		}
 	}
 

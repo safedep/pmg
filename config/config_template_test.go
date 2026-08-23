@@ -62,11 +62,11 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 
 // assertTemplateCoversDefaults walks the default and template-parsed configs
 // in lockstep. Every leaf whose Go default is non-empty must appear in the
-// template with the same value: loadViperConfig unmarshals into a zero
+// template with the same value. loadViperConfig unmarshals into a zero
 // Config with the template as its only default source, so a template that
 // misses such a field silently loads it as zero. The template may carry
 // extra content the Go defaults leave empty (trusted packages, sandbox
-// policies); empty defaults are skipped.
+// policies). The walk skips empty defaults.
 func assertTemplateCoversDefaults(t *testing.T, path string, def, parsed reflect.Value) {
 	t.Helper()
 

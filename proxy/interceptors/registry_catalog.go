@@ -62,7 +62,7 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatal
 				configured.Ecosystem, configured.RegistryName, configured.Host)
 		}
 		// The Go hosts are not catalog entries (Go routing derives from
-		// GOPROXY per run), so cover them here: a custom endpoint on them
+		// GOPROXY per run), so cover them here. A custom endpoint on them
 		// would decrypt Go module traffic, including sum.golang.org, which
 		// PMG never MITMs.
 		if reservedGoHost(configured.Host) {
@@ -85,7 +85,7 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatal
 		set.entries = append(set.entries, endpoint)
 		catalog.byEcosystem[spec.proto] = set
 		if configured.Scheme == "http" {
-			log.Warnf("Custom registry endpoint %q uses plain HTTP; traffic is inspectable but not encrypted", configured.URL)
+			log.Warnf("Custom registry endpoint %q uses plain HTTP. Anyone on the network path can read and change this traffic", configured.URL)
 		}
 	}
 
@@ -111,8 +111,8 @@ func (c *RegistryCatalog) registrySet(ecosystem packagev1.Ecosystem) registrySet
 // IsKnownRegistryRequest reports whether a request targets a known registry
 // origin. It deliberately ignores paths: audit host observations are
 // suppressed for the whole origin, not per endpoint base path. This is a
-// third matching semantic next to MatchConnect (MITM decisions) and MatchURL
-// (per-request endpoint resolution); do not fold it into either.
+// third matching semantic next to MatchConnect (MITM decisions) and
+// MatchURL (per-request endpoint resolution). Do not fold it into either.
 func (c *RegistryCatalog) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool {
 	if ctx == nil || ctx.Hostname == "" {
 		return false
