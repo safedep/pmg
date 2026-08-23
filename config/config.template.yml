@@ -193,9 +193,9 @@ sandbox:
       enabled: true
       profile: go
 
-    # Rust ecosystem (experimental). The cargo command is opt-in: it runs only
-    # when invoked explicitly as `pmg cargo ...`. Sandboxing cargo covers build
-    # scripts (build.rs) and proc macros, which execute at build time.
+    # Rust ecosystem (experimental). The cargo command is opt-in. It runs only
+    # when you invoke it as `pmg cargo ...`. The sandbox contains build
+    # scripts (build.rs) and proc macros. They run at build time.
     cargo:
       enabled: true
       profile: cargo
