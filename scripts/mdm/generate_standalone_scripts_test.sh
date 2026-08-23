@@ -1,5 +1,4 @@
 #!/bin/bash
-# shellcheck disable=SC2016
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -182,6 +181,7 @@ CONFIG_UNINSTALL="${CONFIG_OUT}/pmg_uninstall_macos_standalone.sh"
 
 assert_contains "$CONFIG_INSTALL" 'EMBEDDED_GLOBAL_CONFIG_B64='
 assert_not_contains "$CONFIG_UNINSTALL" 'EMBEDDED_GLOBAL_CONFIG_B64='
+# shellcheck disable=SC2016 # literal grep pattern, no expansion intended
 assert_not_contains "$GENERATOR" 'install_global_config "$embedded_config_tmp"'
 assert_equals "755" "$(file_mode "$CONFIG_INSTALL")" "config installer mode"
 assert_equals "755" "$(file_mode "$CONFIG_UNINSTALL")" "config uninstaller mode"

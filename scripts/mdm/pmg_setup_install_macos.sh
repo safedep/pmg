@@ -1,5 +1,4 @@
 #!/bin/bash
-# shellcheck disable=SC2016
 # pmg_setup_install_macos.sh — Install and configure PMG on a Mac.
 #
 # Deploy via Jamf or any MDM, alongside lib_macos.sh in the same directory.
@@ -160,6 +159,9 @@ fi
 cloud_login() {
   local user="$1"
 
+  # Single-quoted string is literal by design: bash -c runs it in the user's
+  # session and $1 must expand there, not here.
+  # shellcheck disable=SC2016
   printf '%s\0%s\0' "$CLOUD_API_KEY" "$CLOUD_TENANT_ID" |
     run_user_session "$user" /bin/bash -c '
       IFS= read -r -d "" SAFEDEP_API_KEY || exit 1
