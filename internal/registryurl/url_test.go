@@ -142,3 +142,18 @@ func TestNormalizeBasePath(t *testing.T) {
 	assert.Equal(t, "", NormalizeBasePath("///"))
 	assert.Equal(t, "/npm/%2Fteam", NormalizeBasePath("/npm/%2fteam/"))
 }
+
+func TestNormalizeStripsTrailingDNSDot(t *testing.T) {
+	u, err := Normalize("https://SUM.golang.org./npm")
+	require.NoError(t, err)
+	assert.Equal(t, "https://sum.golang.org/npm", u.String())
+
+	_, err = Normalize("https://./npm")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host is required")
+}
+
+func TestNormalizeHostnameStripsTrailingDNSDot(t *testing.T) {
+	assert.Equal(t, "sum.golang.org", NormalizeHostname("Sum.Golang.Org."))
+	assert.Equal(t, "sum.golang.org", NormalizeHostname("sum.golang.org"))
+}
