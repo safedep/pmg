@@ -153,6 +153,7 @@ remove_global_config() {
   run_as_root rm -f "$GLOBAL_CONFIG_FILE" || warn "failed to remove global config (need root)"
   run_as_root rmdir "$GLOBAL_CONFIG_DIR" 2>/dev/null || true
 }
+# shellcheck disable=SC2016
 # pmg_setup_install_macos.sh — Install and configure PMG on a Mac.
 #
 # Deploy via Jamf or any MDM, alongside lib_macos.sh in the same directory.

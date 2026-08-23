@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2016
 # pmg_setup_install_macos.sh — Install and configure PMG on a Mac.
 #
 # Deploy via Jamf or any MDM, alongside lib_macos.sh in the same directory.
