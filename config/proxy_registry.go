@@ -3,16 +3,38 @@ package config
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 	"unicode"
 
 	"github.com/safedep/pmg/internal/registryurl"
 )
 
+// ProxyRegistryEcosystem is the canonical set of ecosystems proxy.registries
+// accepts. The interceptor layer keys its ecosystem table on this type, so a
+// new ecosystem is added here first.
+type ProxyRegistryEcosystem string
+
+const (
+	ProxyRegistryEcosystemNpm  ProxyRegistryEcosystem = "npm"
+	ProxyRegistryEcosystemPypi ProxyRegistryEcosystem = "pypi"
+)
+
+func ProxyRegistryEcosystems() []ProxyRegistryEcosystem {
+	return []ProxyRegistryEcosystem{ProxyRegistryEcosystemNpm, ProxyRegistryEcosystemPypi}
+}
+
+func (e ProxyRegistryEcosystem) Valid() bool {
+	for _, known := range ProxyRegistryEcosystems() {
+		if e == known {
+			return true
+		}
+	}
+	return false
+}
+
 type ProxyRegistryConfig struct {
 	Name      string                        `mapstructure:"name"`
-	Ecosystem string                        `mapstructure:"ecosystem"`
+	Ecosystem ProxyRegistryEcosystem        `mapstructure:"ecosystem"`
 	Endpoints []ProxyRegistryEndpointConfig `mapstructure:"endpoints"`
 }
 
@@ -36,77 +58,103 @@ func (e *ProxyRegistriesError) Unwrap() error {
 	return e.err
 }
 
-// normalizedEndpoint splits a normalized endpoint URL into its origin and
-// base path so endpoint nesting can be checked across all registries.
-type normalizedEndpoint struct {
-	rawURL string
-	origin string
-	path   string
+// NormalizedRegistryEndpoint is one custom registry endpoint after
+// validation and URL normalization. The registry catalog consumes this model
+// directly, so config loading and catalog construction share one
+// normalization pass.
+type NormalizedRegistryEndpoint struct {
+	RegistryName string
+	Ecosystem    ProxyRegistryEcosystem
+	URL          string
+	Scheme       string
+	// Host is the lowercase hostname without brackets or port.
+	Host string
+	// Port is the effective port: the configured port, or the scheme default.
+	Port string
+	// BasePath is the normalized escaped base path with no trailing slash.
+	BasePath string
 }
 
-func splitEndpoint(rawURL string, u *url.URL) normalizedEndpoint {
-	return normalizedEndpoint{
-		rawURL: rawURL,
-		origin: u.Scheme + "://" + u.Host,
-		path:   u.EscapedPath(),
-	}
+func (e NormalizedRegistryEndpoint) origin() string {
+	return e.Scheme + "://" + e.Host + ":" + e.Port
 }
 
 func ValidateProxyRegistries(registries []ProxyRegistryConfig) error {
+	_, err := NormalizeProxyRegistries(registries)
+	return err
+}
+
+// NormalizeProxyRegistries validates proxy.registries and returns the
+// normalized endpoint model. It fails on the first invalid entry.
+func NormalizeProxyRegistries(registries []ProxyRegistryConfig) ([]NormalizedRegistryEndpoint, error) {
 	names := make(map[string]struct{}, len(registries))
-	endpoints := make(map[string]string)
-	var byOrigin []normalizedEndpoint
+	owners := make(map[string]string)
+	var normalized []NormalizedRegistryEndpoint
 
 	for registryIndex, registry := range registries {
 		name := strings.TrimSpace(registry.Name)
 		if name == "" {
-			return fmt.Errorf("proxy.registries[%d].name is required", registryIndex)
+			return nil, fmt.Errorf("proxy.registries[%d].name is required", registryIndex)
 		}
 		if name != registry.Name {
-			return fmt.Errorf("proxy.registries[%d].name must not have leading or trailing whitespace", registryIndex)
+			return nil, fmt.Errorf("proxy.registries[%d].name must not have leading or trailing whitespace", registryIndex)
 		}
 		if _, exists := names[name]; exists {
-			return fmt.Errorf("duplicate proxy registry name %q", name)
+			return nil, fmt.Errorf("duplicate proxy registry name %q", name)
 		}
 		names[name] = struct{}{}
 
-		if registry.Ecosystem != "npm" && registry.Ecosystem != "pypi" {
-			return fmt.Errorf("proxy registry %q has unsupported ecosystem %q", name, registry.Ecosystem)
+		if !registry.Ecosystem.Valid() {
+			return nil, fmt.Errorf("proxy registry %q has unsupported ecosystem %q", name, registry.Ecosystem)
 		}
 		if len(registry.Endpoints) == 0 {
-			return fmt.Errorf("proxy registry %q must define at least one endpoint", name)
+			return nil, fmt.Errorf("proxy registry %q must define at least one endpoint", name)
 		}
 
 		for endpointIndex, endpoint := range registry.Endpoints {
-			normalized, err := registryurl.Normalize(endpoint.URL)
+			u, err := registryurl.Normalize(endpoint.URL)
 			if err != nil {
-				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
+				return nil, fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
 			}
-			if owner, exists := endpoints[normalized.String()]; exists {
-				return fmt.Errorf("proxy registry endpoint %q is already assigned to %q", normalized, owner)
+			if owner, exists := owners[u.String()]; exists {
+				return nil, fmt.Errorf("proxy registry endpoint %q is already assigned to %q", u, owner)
 			}
-			endpoints[normalized.String()] = name
+			owners[u.String()] = name
 
-			if err := validateEndpointHost(normalized.Hostname()); err != nil {
-				return fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
+			if err := validateEndpointHost(u.Hostname()); err != nil {
+				return nil, fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
 			}
 
-			split := splitEndpoint(endpoint.URL, normalized)
+			port, valid := registryurl.EffectivePort(u.Scheme, u.Port())
+			if !valid {
+				return nil, fmt.Errorf("proxy registry %q endpoint %d: URL port must be between 1 and 65535", name, endpointIndex)
+			}
+
+			entry := NormalizedRegistryEndpoint{
+				RegistryName: name,
+				Ecosystem:    registry.Ecosystem,
+				URL:          u.String(),
+				Scheme:       u.Scheme,
+				Host:         u.Hostname(),
+				Port:         port,
+				BasePath:     u.EscapedPath(),
+			}
+
 			// Nested base paths on one origin are ambiguous regardless of
 			// ecosystem: in daemon mode both interceptors would handle the
 			// nested requests, and even single-ecosystem nesting forces an
 			// arbitration rule the config should state explicitly instead.
-			for _, existing := range byOrigin {
-				if existing.origin == split.origin && endpointPathsNest(existing.path, split.path) {
-					return fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: endpoint base paths on the same origin must not nest",
-						name, endpointIndex, endpoint.URL, existing.rawURL)
+			for _, existing := range normalized {
+				if existing.origin() == entry.origin() && endpointPathsNest(existing.BasePath, entry.BasePath) {
+					return nil, fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: endpoint base paths on the same origin must not nest",
+						name, endpointIndex, endpoint.URL, existing.URL)
 				}
 			}
-			byOrigin = append(byOrigin, split)
+			normalized = append(normalized, entry)
 		}
 	}
 
-	return nil
+	return normalized, nil
 }
 
 // validateEndpointHost rejects endpoint hosts PMG can never analyze:
@@ -136,7 +184,8 @@ func validateEndpointHost(hostname string) error {
 
 // endpointPathsNest reports whether one base path is a segment-prefix of the
 // other (either direction). An empty base path nests with every other path on
-// the same origin.
+// the same origin. Equal paths nest too, though the duplicate-endpoint check
+// reports those before this rule runs.
 func endpointPathsNest(a, b string) bool {
 	if a == "" || b == "" || a == b {
 		return true

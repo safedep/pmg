@@ -54,23 +54,6 @@ func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *
 	})
 }
 
-var _ proxy.Interceptor = (*baseRegistryInterceptor)(nil)
-
-// Name returns a default name - should be overridden by specific implementations
-func (b *baseRegistryInterceptor) Name() string {
-	return "base-registry-interceptor"
-}
-
-// ShouldIntercept returns false by default - must be overridden by specific implementations
-func (b *baseRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	return false
-}
-
-// HandleRequest returns allow by default - should be overridden by specific implementations
-func (b *baseRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
-	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-}
-
 // fastAllow short-circuits the request when no security control should run for
 // this concrete version: insecure-installation mode (analysis globally off) or a
 // trusted package (waives every control). It returns (response, true) when it
@@ -313,4 +296,84 @@ func (b *baseRegistryInterceptor) requestUserConfirmation(
 	case <-time.After(5 * time.Minute):
 		return false, fmt.Errorf("timeout waiting for user confirmation")
 	}
+}
+
+// registryRequestMatcher gives an ecosystem interceptor its MITM and
+// intercept decisions from a registry set. Embed it and the interceptor
+// satisfies proxy.MITMDecider and the ShouldIntercept contract.
+type registryRequestMatcher struct {
+	registries registrySet
+}
+
+func (m *registryRequestMatcher) ShouldMITM(ctx *proxy.RequestContext) bool {
+	if ctx == nil {
+		return false
+	}
+	return registryHostSupportsAnalysis(m.registries, ctx.Hostname, ctx.Port)
+}
+
+func (m *registryRequestMatcher) ShouldIntercept(ctx *proxy.RequestContext) bool {
+	return registryRequestMatch(m.registries, ctx) != nil
+}
+
+// registryRequestHandler is the ecosystem-specific half of the shared
+// registry read-path flow.
+type registryRequestHandler interface {
+	handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error)
+	handleMetadataRequest(ctx *proxy.RequestContext, pkgInfo packageInfo) (*proxy.InterceptorResponse, error)
+}
+
+// handleRegistryRequest is the shared registry request flow: match the
+// endpoint, gate on reads, parse the URL, and dispatch to the ecosystem's
+// artifact or metadata handler. It fails open. PMG allows a request
+// without analysis when it cannot parse a package identity from the URL.
+func handleRegistryRequest(
+	ctx *proxy.RequestContext,
+	registries registrySet,
+	ecosystemLabel string,
+	handler registryRequestHandler,
+) (*proxy.InterceptorResponse, error) {
+	log.Debugf("[%s] Handling %s registry request: %s", ctx.RequestID, ecosystemLabel, ctx.URL.Path)
+
+	match := registryRequestMatch(registries, ctx)
+	if match == nil {
+		// Shouldn't happen if ShouldIntercept is working correctly
+		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	// Analysis and cooldown only ever act on reads. Anything else (publish,
+	// registry API calls) passes through untouched: no header rewrites, no
+	// response modifiers.
+	if ctx.Method != http.MethodGet && ctx.Method != http.MethodHead {
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	endpoint := match.Endpoint
+	if !endpoint.Analyze {
+		log.Debugf("[%s] Skipping analysis for %s registry (not supported for analysis): %s",
+			ctx.RequestID, endpoint.Host, ctx.URL.String())
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
+
+	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
+		return handler.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+	}
+
+	if parseErr != nil {
+		logRegistryParseFailure(ctx, endpoint, ecosystemLabel, parseErr)
+		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	}
+
+	if !pkgInfo.IsFileDownload() {
+		return handler.handleMetadataRequest(ctx, pkgInfo)
+	}
+
+	// A file-download parse without a complete identity: nothing reliable
+	// to analyze against. URLs that carry no identity at all (opaque
+	// download URLs some registries serve) land here too and are allowed
+	// without analysis.
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }

@@ -122,18 +122,19 @@ routed through it has its HTTPS intercepted and must trust the PMG CA.
 
 The daemon loads `proxy.registries` once, at startup, from the same config
 file the default proxy mode reads. See [Custom Registries](./proxy-mode.md#custom-registries)
-for the full configuration reference.
+for the configuration reference.
 
-Restart the daemon after you add, remove, or edit a registry entry:
+The daemon does not notice a config file edit. Restart it after you add,
+remove, or edit a registry entry:
 
 ```bash
 pmg proxy stop
 pmg proxy start --daemon
 ```
 
-A running daemon does not notice a config file edit on its own. The default
-proxy mode has no such limitation: `pmg npm install` starts a fresh proxy
-process for each command, so it always reads the current config file.
+The default proxy mode does not have this limitation. `pmg npm install`
+starts a fresh proxy process for each command, so it always reads the
+current config file.
 
 ## Certificate trust
 

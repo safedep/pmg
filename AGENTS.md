@@ -43,6 +43,16 @@ go test ./config/ -v -count=1  # Run specific package tests
   (which runs under `go test ./...`) fails if a script has no catalog entry. Do not add
   scaffolding — add a script and a catalog row. See `test/acceptance/README.md`.
 
+## Writing
+
+Write in ASD-STE100, Simplified Technical English. This applies to every word you write: code
+comments, user-facing messages (errors, warnings, doctor checks), commit messages, pull request
+titles and bodies, review comments, docs.
+
+- One sentence, one idea. Do not join clauses with a semicolon or a colon.
+- Use the active voice and name the actor.
+- Cut every word that does no work. Say it once.
+
 ## Code Style
 
 - Keep things short and simple

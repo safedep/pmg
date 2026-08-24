@@ -41,6 +41,9 @@ func Normalize(rawURL string) (*url.URL, error) {
 	}
 
 	hostname := NormalizeHostname(parsed.Hostname())
+	if hostname == "" {
+		return nil, fmt.Errorf("URL host is required")
+	}
 	host := hostname
 	if strings.Contains(hostname, ":") {
 		host = "[" + hostname + "]"
@@ -74,8 +77,11 @@ func NormalizeScheme(scheme string) string {
 	return strings.ToLower(scheme)
 }
 
+// NormalizeHostname lowercases a hostname and strips a single terminal DNS
+// dot: "sum.golang.org." names the same host as "sum.golang.org", and a
+// preserved dot would slip past every exact and suffix host comparison.
 func NormalizeHostname(hostname string) string {
-	return strings.ToLower(hostname)
+	return strings.ToLower(strings.TrimSuffix(hostname, "."))
 }
 
 func EffectivePort(scheme, port string) (string, bool) {
