@@ -158,6 +158,32 @@ func (b *baseRegistryInterceptor) analyzePackage(
 	return result, nil
 }
 
+// failClosed builds a block response for a package the gate could not verify.
+// The analysis backend gave no verdict, so the gate blocks the install rather
+// than allow an unscreened package. A NotFound backend response is not an
+// error and never reaches here; analyzePackage maps it to ActionAllow.
+func (b *baseRegistryInterceptor) failClosed(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	packageName string,
+	packageVersion string,
+	cause error,
+) *proxy.InterceptorResponse {
+	log.Errorf("[%s] Failed to analyze package %s@%s, blocking to fail closed: %v",
+		ctx.RequestID, packageName, packageVersion, cause)
+
+	return &proxy.InterceptorResponse{
+		Action:      proxy.ActionBlock,
+		BlockCode:   http.StatusForbidden,
+		BlockReason: proxy.BlockReasonAnalysisUnavailable,
+		BlockContext: &proxy.BlockContext{
+			Ecosystem:      ecosystem,
+			PackageName:    packageName,
+			PackageVersion: packageVersion,
+		},
+	}
+}
+
 // handleAnalysisResult processes the analysis result and returns appropriate response action
 // This method is ecosystem agnostic and handles the analysis result uniformly
 func (b *baseRegistryInterceptor) handleAnalysisResult(

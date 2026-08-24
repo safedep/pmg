@@ -25,6 +25,11 @@ type MalysisQueryAnalyzerConfig struct {
 	// Cache, when non-nil, enables a persistent read-through verdict cache
 	// applied as a decorator by newMalysisAnalyzer. nil = no caching.
 	Cache MalysisCache
+
+	// Retry, when non-nil, overrides the default transient-error retry policy
+	// applied as a decorator by newMalysisAnalyzer. nil selects
+	// DefaultRetryConfig.
+	Retry *RetryConfig
 }
 
 type malysisQueryAnalyzer struct {

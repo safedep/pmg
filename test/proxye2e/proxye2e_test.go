@@ -443,7 +443,7 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 		},
 		{
-			Name: "analyzer error fails open and allows",
+			Name: "analyzer error fails closed and blocks",
 			Setup: func(h *Harness) {
 				h.Registry.AddNpm(NpmPackage{Name: "flaky", DistTagLatest: "1.0.0",
 					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
@@ -451,8 +451,8 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult { return h.Npm().Install("flaky", "1.0.0") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked())
-				assert.True(t, h.Registry.DownloadedTarball("flaky", "1.0.0"))
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedTarball("flaky", "1.0.0"))
 			},
 		},
 	})

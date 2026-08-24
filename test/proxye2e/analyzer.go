@@ -65,7 +65,8 @@ func NotFound() Verdict {
 	return Verdict{err: status.Error(codes.NotFound, "package not found")}
 }
 
-// ServerError reports an upstream failure, exercising the fail-open path.
+// ServerError reports a transient upstream failure. The gate retries it, then
+// fails closed. It exercises the fail-closed path.
 func ServerError() Verdict {
 	return Verdict{err: status.Error(codes.Unavailable, "analysis service unavailable")}
 }

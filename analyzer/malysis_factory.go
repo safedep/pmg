@@ -28,7 +28,7 @@ func newMalysisAnalyzer(config MalysisQueryAnalyzerConfig,
 	creds, closeResolver, err := resolveCredentials()
 	if err != nil {
 		log.Debugf("SafeDep Cloud credentials unavailable, using community malysis analyzer: %v", err)
-		return withCache(community, config), nil
+		return withCache(withRetry(community, config), config), nil
 	}
 	defer func() {
 		if closeErr := closeResolver(); closeErr != nil {
@@ -42,13 +42,24 @@ func newMalysisAnalyzer(config MalysisQueryAnalyzerConfig,
 	}
 
 	log.Debugf("SafeDep Cloud credentials found, using authenticated malysis analyzer with community fallback")
-	return withCache(newMalysisFallbackAnalyzer(authenticated, community), config), nil
+	return withCache(withRetry(newMalysisFallbackAnalyzer(authenticated, community), config), config), nil
 }
 
 // withCache wraps a in a read-through cache decorator when one is configured.
+// It wraps withRetry so a cache hit skips the backend and its retries.
 func withCache(a PackageVersionAnalyzer, config MalysisQueryAnalyzerConfig) PackageVersionAnalyzer {
 	if config.Cache == nil {
 		return a
 	}
 	return newMalysisCachingAnalyzer(a, config.Cache)
+}
+
+// withRetry wraps a in a transient-error retry decorator. It uses the config
+// retry policy, or DefaultRetryConfig when none is set.
+func withRetry(a PackageVersionAnalyzer, config MalysisQueryAnalyzerConfig) PackageVersionAnalyzer {
+	rc := DefaultRetryConfig()
+	if config.Retry != nil {
+		rc = *config.Retry
+	}
+	return newMalysisRetryAnalyzer(a, rc)
 }

@@ -83,8 +83,7 @@ func (i *NpmRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name,
 
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return i.failClosed(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, err), nil
 	}
 
 	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, name, version, result)

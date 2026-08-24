@@ -17,8 +17,11 @@ func TestNewMalysisAnalyzer_CommunityWhenCredentialsUnavailable(t *testing.T) {
 	an, err := newMalysisAnalyzer(MalysisQueryAnalyzerConfig{}, resolver)
 	require.NoError(t, err)
 
-	community, ok := an.(*malysisQueryAnalyzer)
-	require.True(t, ok, "must be the plain community analyzer, got %T", an)
+	retry, ok := an.(*malysisRetryAnalyzer)
+	require.True(t, ok, "must be wrapped in the retry decorator, got %T", an)
+
+	community, ok := retry.next.(*malysisQueryAnalyzer)
+	require.True(t, ok, "must be the plain community analyzer, got %T", retry.next)
 	assert.False(t, community.honorExclusions)
 }
 
@@ -34,8 +37,11 @@ func TestNewMalysisAnalyzer_FallbackWrappedWhenCredentialsAvailable(t *testing.T
 	an, err := newMalysisAnalyzer(MalysisQueryAnalyzerConfig{}, resolver)
 	require.NoError(t, err)
 
-	fb, ok := an.(*malysisFallbackAnalyzer)
-	require.True(t, ok, "credentialed analyzer must carry a community fallback, got %T", an)
+	retry, ok := an.(*malysisRetryAnalyzer)
+	require.True(t, ok, "credentialed analyzer must be wrapped in the retry decorator, got %T", an)
+
+	fb, ok := retry.next.(*malysisFallbackAnalyzer)
+	require.True(t, ok, "credentialed analyzer must carry a community fallback, got %T", retry.next)
 
 	primary, ok := fb.primary.(*malysisQueryAnalyzer)
 	require.True(t, ok)

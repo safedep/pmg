@@ -53,6 +53,13 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		return fmt.Sprintf("Failed to get user confirmation for suspicious package %s/%s@%s",
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion)
 
+	case proxy.BlockReasonAnalysisUnavailable:
+		// The gate fails closed: the backend gave no verdict, so the package
+		// is neither confirmed safe nor malicious. This is an operational
+		// failure, so the advisory message is not appended.
+		return fmt.Sprintf("Malware analysis unavailable for %s/%s@%s; blocking to fail closed. Retry when the analysis backend is reachable.",
+			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion)
+
 	case proxy.BlockReasonDependencyCooldown:
 		message = fmt.Sprintf("Package blocked by dependency cooldown: %s/%s@%s\n\nPublished %d day(s) ago; cooldown window is %d day(s) (%d remaining).",
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,

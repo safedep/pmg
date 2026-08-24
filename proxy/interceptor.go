@@ -53,6 +53,9 @@ const (
 	BlockReasonUserDeclined
 	BlockReasonConfirmationFailed
 	BlockReasonDependencyCooldown
+	// BlockReasonAnalysisUnavailable means the analysis backend gave no verdict.
+	// The gate fails closed and blocks the install.
+	BlockReasonAnalysisUnavailable
 )
 
 // BlockContext carries the structured facts of a block decision so a
