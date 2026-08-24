@@ -43,6 +43,9 @@
 # --- gaps across the full user-facing surface (no script yet; tracked, reported, non-blocking) ---
 
 # npm ecosystem
+# open finding: pnpm add analyzes the package but does not block it, and poetry
+# add installs it with no analysis line. npm, bun, pip, pip3, uv, and pipx block
+# the same fixture. These two stay gaps until pmg blocks a direct add.
 - id: pnpm/guard/malware-block
   title: "pnpm add of a known-malicious package is blocked"
   category: pnpm
@@ -73,10 +76,16 @@
   tier: P1
   guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
   labels: [malware, block, execute]
+- id: npm/insecure/bypass-warns
+  title: "insecure mode installs but warns that protection is bypassed"
+  category: npm
+  tier: P1
+  guarantee: "With PMG_INSECURE_INSTALLATION, a malicious package installs but pmg prints a protection-bypassed warning."
+  labels: [insecure, bypass]
 
 # python ecosystem
-# No script yet: the repo has no proven known-malicious PyPI fixture (safedep-test-pkg
-# is an npm package). Cataloged as a gap until a stable PyPI fixture exists.
+# safedep-test-pkg is flagged as malware in the SafeDep database on PyPI as well as
+# npm, so the Python managers use it as the block fixture (version 0.0.4 on PyPI).
 - id: pip/guard/malware-block
   title: "pip install of a known-malicious package is blocked"
   category: pip
@@ -121,8 +130,20 @@
   tier: P1
   guarantee: "A module with a malware verdict is never fetched; pmg exits non-zero."
   labels: [malware, block, community]
+- id: go/install/clean-allow
+  title: "go get of a clean module succeeds"
+  category: go
+  tier: P1
+  guarantee: "A clean module passes analysis, is fetched, and pmg exits zero."
+  labels: [clean, install]
 
 # proxy
+- id: proxy/opt-out/rejected
+  title: "removed proxy opt-out fails loudly"
+  category: proxy
+  tier: P0
+  guarantee: "PMG_PROXY_ENABLED=false is rejected before any install, so protection cannot be silently disabled."
+  labels: [opt-out, offline]
 - id: proxy/lifecycle/starts-and-stops
   title: "pmg proxy starts and stops cleanly"
   category: proxy
