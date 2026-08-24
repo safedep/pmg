@@ -135,6 +135,23 @@ func TestIsTrustedPackageVersion(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "canonical-case cargo purl matches normalized crate name",
+			trustedPackages: []TrustedPackage{
+				{
+					Purl:   "pkg:cargo/Inflector",
+					Reason: "crates.io names are case-insensitive",
+				},
+			},
+			pkgVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Name:      "inflector",
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_CARGO,
+				},
+				Version: "0.11.4",
+			},
+			want: true,
+		},
+		{
 			name: "multiple trusted packages finds correct match",
 			trustedPackages: []TrustedPackage{
 				{

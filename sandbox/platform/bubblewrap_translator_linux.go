@@ -40,7 +40,7 @@ func newBubblewrapPolicyTranslator(config *bubblewrapConfig) *bubblewrapPolicyTr
 func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
 
-	// 1. Add essential system permissions (filesystem, devices, proc)
+	// 1. Add essential system permissions (filesystem, proc)
 	systemArgs, err := t.addEssentialSystemPermissions()
 	if err != nil {
 		return nil, fmt.Errorf("failed to add essential system permissions: %w", err)
@@ -82,8 +82,9 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 	return args, nil
 }
 
-// addEssentialSystemPermissions adds bind mounts for essential system paths and devices
-// that package managers need to function properly.
+// addEssentialSystemPermissions adds bind mounts for essential system paths
+// that package managers need to function properly. Device binds are emitted
+// separately, after the filesystem rules (see translate).
 func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, error) {
 	args := []string{}
 
@@ -92,17 +93,23 @@ func (t *bubblewrapPolicyTranslator) addEssentialSystemPermissions() ([]string, 
 		args = append(args, "--ro-bind-try", path, path)
 	}
 
-	// Add essential device files
-	for _, device := range t.config.getEssentialDevices() {
-		args = append(args, "--dev-bind-try", device, device)
-	}
-
 	// Add proc filesystem (read-only for safety)
 	for _, procPath := range t.config.procPaths {
 		args = append(args, "--proc", procPath)
 	}
 
 	return args, nil
+}
+
+// addEssentialDevices binds the essential device files. Emitted between the
+// allow mounts and the deny overlays (see translateFilesystem) so a broad
+// allow bind cannot shadow them while explicit denies still win.
+func (t *bubblewrapPolicyTranslator) addEssentialDevices() []string {
+	args := []string{}
+	for _, device := range t.config.getEssentialDevices() {
+		args = append(args, "--dev-bind-try", device, device)
+	}
+	return args
 }
 
 // addIsolationNamespaces adds namespace isolation arguments based on policy and config.
@@ -228,6 +235,14 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		args = append(args, writeArgs...)
 	}
+
+	// Essential devices are bound after the allow mounts but before the deny
+	// overlays: bwrap mounts in argument order, so a broad allow_read rule
+	// (e.g. `/`) emitted above would otherwise shadow the device binds with a
+	// plain ro-bind (breaking /dev/null on kernels that restrict device nodes
+	// through non-dev binds), while an explicit policy deny on a device must
+	// still win by mounting over the rebind.
+	args = append(args, t.addEssentialDevices()...)
 
 	// 3. Process deny_write rules after allow_write so read-only binds override writable parents.
 	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)

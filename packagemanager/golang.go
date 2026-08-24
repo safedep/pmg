@@ -56,7 +56,7 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 
 	parsed := &ParsedCommand{Command: Command{Exe: g.Config.CommandName, Args: args}}
 
-	subcmd, rest := goFirstNonFlagArg(args)
+	subcmd, rest := FirstNonFlagArg(args, nil)
 	if subcmd == "" {
 		return parsed, nil
 	}
@@ -72,7 +72,7 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	if subcmd == "mod" {
-		modCmd, modRest := goFirstNonFlagArg(rest)
+		modCmd, modRest := FirstNonFlagArg(rest, nil)
 		switch modCmd {
 		case "tidy":
 			parsed.IsManifestInstall = true
@@ -85,16 +85,6 @@ func (g *goPackageManager) ParseCommand(args []string) (*ParsedCommand, error) {
 	}
 
 	return parsed, nil
-}
-
-func goFirstNonFlagArg(args []string) (string, []string) {
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		return arg, args[i+1:]
-	}
-	return "", nil
 }
 
 // goRemoteModuleTargets extracts remote module targets (module[@version]) from
