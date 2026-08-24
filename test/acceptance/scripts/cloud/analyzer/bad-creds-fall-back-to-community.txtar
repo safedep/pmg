@@ -1,0 +1,15 @@
+# guarantee: invalid cloud credentials do not disable protection. When the API
+# rejects the credentials, pmg falls back to the community analyzer and still
+# blocks known malware (fail-safe, not fail-open). Runs everywhere: it supplies
+# its own bogus credentials, so it does not depend on real ones.
+
+env HOME=$WORK/home
+env SAFEDEP_API_KEY=invalid-key-for-acceptance
+env SAFEDEP_TENANT_ID=invalid-tenant-for-acceptance
+env PMG_CLOUD_ENABLED=true
+mkdir $WORK/home
+
+exec pmg npm init -y
+! exec pmg npm --no-cache --prefer-online install safedep-test-pkg@0.1.3
+stdout 'Malicious package blocked'
+! exists node_modules/safedep-test-pkg

@@ -1,0 +1,11 @@
+# guarantee: protection cannot be silently disabled. The removed PMG_PROXY_ENABLED
+# opt-out fails loudly: pmg rejects the run before it touches the package manager,
+# so a package is never installed without analysis. No network needed.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+env PMG_PROXY_ENABLED=false
+! exec pmg npm install express
+stderr 'proxy interception can no longer be disabled'
+! exists node_modules

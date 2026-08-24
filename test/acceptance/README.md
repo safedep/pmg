@@ -86,7 +86,9 @@ stdout 'Malicious package blocked'
 ! exists node_modules/safedep-test-pkg
 ```
 
-Keep the known-malicious fixture malicious, or the test means nothing: `safedep-test-pkg` (npm).
+Keep the known-malicious fixture malicious, or the test means nothing. SafeDep flags
+`safedep-test-pkg` on both registries: use `safedep-test-pkg@0.1.3` on npm and `safedep-test-pkg==0.0.4`
+on PyPI.
 
 ### Cloud-mode cases
 
