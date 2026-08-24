@@ -51,6 +51,7 @@ jobs:
 
   mdm-scripts-macos-multifile-e2e:
     runs-on: macos-latest
+    needs: mdm-scripts-test
     timeout-minutes: 20
     steps:
       - name: Checkout Source
@@ -61,12 +62,12 @@ jobs:
 
       - name: Test multifile scripts on macOS
         env:
-          CI: "true"
           PMG_MDM_E2E: "1"
         run: bash scripts/mdm/multifile_macos_e2e_test.sh
 
   mdm-scripts-macos-standalone-e2e:
     runs-on: macos-latest
+    needs: mdm-scripts-test
     timeout-minutes: 20
     steps:
       - name: Checkout Source
@@ -74,6 +75,5 @@ jobs:
 
       - name: Test standalone scripts on macOS
         env:
-          CI: "true"
           PMG_MDM_E2E: "1"
         run: bash scripts/mdm/standalone_macos_e2e_test.sh

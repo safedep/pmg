@@ -10,7 +10,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 GENERATOR="${SCRIPT_DIR}/generate_standalone_scripts.sh"
 INSTALLER="${SCRIPT_DIR}/standalone/pmg_setup_install_macos_standalone.sh"
 UNINSTALLER="${SCRIPT_DIR}/standalone/pmg_uninstall_macos_standalone.sh"
-TEST_ROOT=$(mktemp -d)
+# Keep the wrapper dir traversable by every local user. See e2e_lib_macos.sh.
+TEST_ROOT=$(mktemp -d /tmp/pmg-mdm-e2e.XXXXXX)
+chmod 0755 "$TEST_ROOT"
 # shellcheck source=e2e_lib_macos.sh
 source "${SCRIPT_DIR}/e2e_lib_macos.sh"
 
@@ -21,6 +23,10 @@ OPT_BREW_DISABLED=0
 USR_BREW_DISABLED=0
 
 create_pmg_wrapper
+
+run_installer() {
+  sudo -n /usr/bin/env PATH="$WRAPPER_PATH" "$@"
+}
 
 disable_brew() {
   local disabled=0
@@ -62,15 +68,17 @@ test_standalone_release_install() {
   log "Testing standalone release fallback without Homebrew"
   reset_wrapper_captures
   disable_brew
-  sudo -n "$INSTALLER"
+  run_installer "$INSTALLER"
   pmg_bin=$(installed_pmg) || fail "release fallback did not install pmg"
   assert_equals "/usr/local/bin/pmg" "$pmg_bin" "release fallback install path"
   "$pmg_bin" version >/dev/null
   assert_absent "$GLOBAL_CONFIG"
   assert_file "$USER_CONFIG"
+  assert_no_login_recorded
+  assert_no_unexpected_cloud
 
   run_uninstaller "$UNINSTALLER"
-  assert_absent "$UNEXPECTED_CLOUD"
+  assert_no_unexpected_cloud
   assert_uninstalled
   restore_brew
 }
@@ -91,21 +99,18 @@ EOF
   local configured_installer="${CONFIGURED_OUTPUT}/pmg_setup_install_macos_standalone.sh"
   local configured_uninstaller="${CONFIGURED_OUTPUT}/pmg_uninstall_macos_standalone.sh"
 
-  sudo -n "$configured_installer"
+  run_installer "$configured_installer"
   pmg_bin=$(installed_pmg) || fail "configured installer did not install pmg"
   "$pmg_bin" version >/dev/null
-  assert_file "$GLOBAL_CONFIG"
-  cmp "$CONFIG" "$GLOBAL_CONFIG"
-  assert_equals "root" "$(stat -f '%Su' "$GLOBAL_CONFIG")" \
-    "global config owner"
-  assert_equals "644" "$(stat -f '%Lp' "$GLOBAL_CONFIG")" \
-    "global config mode"
+  assert_global_config_installed "$CONFIG"
   assert_absent "$USER_CONFIG"
   assert_equals "true" "$("$pmg_bin" config get paranoid)" \
     "global config value"
+  assert_no_login_recorded
+  assert_no_unexpected_cloud
 
   run_uninstaller "$configured_uninstaller"
-  assert_absent "$UNEXPECTED_CLOUD"
+  assert_no_unexpected_cloud
   assert_uninstalled
 }
 
@@ -123,34 +128,22 @@ test_cloud_credentials_install() {
   local credential_installer="${CREDENTIAL_OUTPUT}/pmg_setup_install_macos_standalone.sh"
   local credential_uninstaller="${CREDENTIAL_OUTPUT}/pmg_uninstall_macos_standalone.sh"
 
-  sudo -n /usr/bin/env \
-    PATH="$WRAPPER_PATH" \
-    "$credential_installer"
+  run_installer "$credential_installer"
   pmg_bin=$(installed_pmg) || fail "credential installer did not install pmg"
-  assert_file "$LOGIN_ARGS"
-  assert_file "$LOGIN_ENV"
-  assert_file "$LOGIN_IDENTITY"
-  assert_equals $'cloud\nlogin\n--from-env' "$(cat "$LOGIN_ARGS")" \
-    "cloud login argv"
-  assert_equals "${TEST_API_KEY}"$'\t'"${TEST_TENANT_ID}" \
-    "$(cat "$LOGIN_ENV")" "cloud login environment"
-  assert_equals "${EXPECTED_UID}"$'\t'"${EXPECTED_USER}"$'\t'"${EXPECTED_HOME}" \
-    "$(cat "$LOGIN_IDENTITY")" "cloud login user context"
-  assert_absent "$UNEXPECTED_CLOUD"
+  assert_login_recorded
+  assert_no_unexpected_cloud
   assert_equals "true" "$("$pmg_bin" config get cloud.enabled)" \
     "cloud configuration"
 
   run_uninstaller "$credential_uninstaller"
-  assert_file "$LOGOUT_ARGS"
-  assert_equals $'cloud\nlogout' "$(cat "$LOGOUT_ARGS")" \
-    "cloud logout argv"
-  assert_absent "$UNEXPECTED_CLOUD"
+  assert_logout_recorded
+  assert_no_unexpected_cloud
   assert_uninstalled
 }
 
 require_e2e_preconditions
 run_uninstaller "$UNINSTALLER"
-assert_absent "$UNEXPECTED_CLOUD"
+assert_no_unexpected_cloud
 assert_uninstalled
 
 test_standalone_release_install

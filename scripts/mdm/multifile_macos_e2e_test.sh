@@ -1,7 +1,7 @@
 #!/bin/bash
-# multifile_macos_e2e_test.sh — run the multi-file MDM scripts end to end on a
-# disposable macOS CI runner. Uses dummy cloud credentials; a pmg wrapper on
-# PATH records cloud login/logout instead of reaching SafeDep Cloud.
+# Run the multi-file MDM scripts end to end on a disposable macOS CI runner.
+# The test uses dummy cloud credentials. A pmg wrapper on PATH records cloud
+# login and logout instead of reaching SafeDep Cloud.
 set -euo pipefail
 
 if [[ "${CI:-}" != "true" || "${PMG_MDM_E2E:-}" != "1" ]]; then
@@ -12,8 +12,8 @@ fi
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 INSTALLER="${SCRIPT_DIR}/pmg_setup_install_macos.sh"
 UNINSTALLER="${SCRIPT_DIR}/pmg_uninstall_macos.sh"
-# The fan-out scenario runs the pmg wrapper as a second user, and that user
-# cannot traverse the caller's private TMPDIR. /tmp is open to every user.
+# The fan-out scenario runs the pmg wrapper as a second user. That user cannot
+# traverse the caller's private TMPDIR. /tmp is open to every user.
 TEST_ROOT=$(mktemp -d /tmp/pmg-mdm-e2e.XXXXXX)
 chmod 0755 "$TEST_ROOT"
 # shellcheck source=e2e_lib_macos.sh
@@ -25,18 +25,6 @@ E2E_USER_HOME="/Users/${E2E_USER}"
 E2E_USER_CONFIG="${E2E_USER_HOME}/Library/Application Support/safedep/pmg/config.yml"
 
 create_pmg_wrapper
-
-# macOS creates new home directories with mode 0700, so the runner user cannot
-# stat files inside the second user's home. Check those paths as root.
-assert_root_file() {
-  sudo -n test -f "$1" || fail "missing file: $1"
-}
-
-assert_root_absent() {
-  if sudo -n test -e "$1" || sudo -n test -L "$1"; then
-    fail "path still exists: $1"
-  fi
-}
 
 cleanup() {
   set +e
@@ -52,7 +40,9 @@ test_multifile_configured_install() {
   log "Testing multifile install with a sibling config.yml"
   reset_wrapper_captures
   mkdir -p "$STAGE_DIR"
-  cp "${SCRIPT_DIR}/lib_macos.sh" "$INSTALLER" "$UNINSTALLER" "$STAGE_DIR/"
+  # The installer reads a sibling config.yml. Stage it in a temp dir so the
+  # repo stays clean and the fan-out scenario can run without a sibling config.
+  cp "${SCRIPT_DIR}/lib_macos.sh" "$INSTALLER" "$STAGE_DIR/"
   cat > "${STAGE_DIR}/config.yml" <<'EOF'
 paranoid: true
 EOF
@@ -65,42 +55,33 @@ EOF
 
   pmg_bin=$(installed_pmg) || fail "multifile installer did not install pmg"
   "$pmg_bin" version >/dev/null
-  assert_file "$GLOBAL_CONFIG"
-  cmp "${STAGE_DIR}/config.yml" "$GLOBAL_CONFIG"
-  assert_equals "root" "$(stat -f '%Su' "$GLOBAL_CONFIG")" \
-    "global config owner"
-  assert_equals "644" "$(stat -f '%Lp' "$GLOBAL_CONFIG")" \
-    "global config mode"
+  assert_global_config_installed "${STAGE_DIR}/config.yml"
   assert_absent "$USER_CONFIG"
   assert_equals "true" "$("$pmg_bin" config get paranoid)" \
     "global config value"
-  assert_file "$LOGIN_ARGS"
-  assert_equals $'cloud\nlogin\n--from-env' "$(cat "$LOGIN_ARGS")" \
-    "cloud login argv"
-  assert_equals "${TEST_API_KEY}"$'\t'"${TEST_TENANT_ID}" \
-    "$(cat "$LOGIN_ENV")" "cloud login environment"
-  assert_equals "${EXPECTED_UID}"$'\t'"${EXPECTED_USER}"$'\t'"${EXPECTED_HOME}" \
-    "$(cat "$LOGIN_IDENTITY")" "cloud login user context"
-  assert_absent "$UNEXPECTED_CLOUD"
+  assert_login_recorded
+  assert_no_unexpected_cloud
 
-  run_uninstaller "${STAGE_DIR}/pmg_uninstall_macos.sh"
-  assert_file "$LOGOUT_ARGS"
-  assert_equals $'cloud\nlogout' "$(cat "$LOGOUT_ARGS")" \
-    "cloud logout argv"
-  assert_absent "$UNEXPECTED_CLOUD"
+  run_uninstaller "$UNINSTALLER"
+  assert_logout_recorded
+  assert_no_unexpected_cloud
   assert_uninstalled
 }
 
 test_multifile_multi_user_install() {
-  local pmg_bin install_output
+  local pmg_bin install_output add_output del_output
 
   log "Testing multifile root fan-out across local users"
   reset_wrapper_captures
-  sudo -n sysadminctl -addUser "$E2E_USER" -fullName "PMG MDM E2E" \
-    -password "pmg-e2e-password" >/dev/null 2>&1
-  id "$E2E_USER" >/dev/null 2>&1 || fail "could not create test user"
+  if ! add_output=$(sudo -n sysadminctl -addUser "$E2E_USER" \
+    -fullName "PMG MDM E2E" -password "pmg-e2e-password" 2>&1) ||
+    ! id "$E2E_USER" >/dev/null 2>&1; then
+    printf '%s\n' "$add_output"
+    fail "sysadminctl did not create the test user"
+  fi
   sudo -n createhomedir -c -u "$E2E_USER" >/dev/null
-  [[ -d "$E2E_USER_HOME" ]] || fail "test user home was not created"
+  sudo -n test -d "$E2E_USER_HOME" ||
+    fail "createhomedir did not create the test user home"
 
   if ! install_output=$(
     sudo -n /usr/bin/env \
@@ -116,32 +97,35 @@ test_multifile_multi_user_install() {
 
   pmg_bin=$(installed_pmg) || fail "multifile installer did not install pmg"
   assert_file "$USER_CONFIG"
-  assert_root_file "$E2E_USER_CONFIG"
-  assert_equals "$E2E_USER" "$(sudo -n stat -f '%Su' "$E2E_USER_CONFIG")" \
-    "second user config owner"
+  assert_file "$E2E_USER_CONFIG"
+  assert_owner "$E2E_USER" "$E2E_USER_CONFIG" "second user config owner"
   assert_equals "true" "$("$pmg_bin" config get cloud.enabled)" \
     "cloud configuration"
-  assert_equals "${EXPECTED_UID}"$'\t'"${EXPECTED_USER}"$'\t'"${EXPECTED_HOME}" \
-    "$(cat "$LOGIN_IDENTITY")" "cloud login ran for the console user only"
+  # Cloud login runs only for the console user. A login recorded for any other
+  # user adds a second identity line and fails assert_login_recorded.
+  assert_login_recorded
   [[ "$install_output" == *"${E2E_USER} is not logged in"* ]] ||
     fail "installer did not report the cloud skip for the second user"
-  assert_absent "$UNEXPECTED_CLOUD"
+  [[ "$install_output" != *"cloud login failed"* ]] ||
+    fail "installer reported a cloud login failure"
+  assert_no_unexpected_cloud
 
   run_uninstaller "$UNINSTALLER"
-  assert_file "$LOGOUT_ARGS"
-  assert_equals $'cloud\nlogout' "$(cat "$LOGOUT_ARGS")" \
-    "cloud logout argv"
-  assert_root_absent "$E2E_USER_CONFIG"
-  assert_absent "$UNEXPECTED_CLOUD"
+  assert_logout_recorded
+  assert_absent "$E2E_USER_CONFIG"
+  assert_no_unexpected_cloud
   assert_uninstalled
 
-  sudo -n sysadminctl -deleteUser "$E2E_USER" >/dev/null 2>&1 ||
-    fail "could not delete test user"
+  if ! del_output=$(sudo -n sysadminctl -deleteUser "$E2E_USER" 2>&1) ||
+    id "$E2E_USER" >/dev/null 2>&1; then
+    printf '%s\n' "$del_output"
+    fail "sysadminctl did not delete the test user"
+  fi
 }
 
 require_e2e_preconditions
 run_uninstaller "$UNINSTALLER"
-assert_absent "$UNEXPECTED_CLOUD"
+assert_no_unexpected_cloud
 assert_uninstalled
 
 test_multifile_configured_install
