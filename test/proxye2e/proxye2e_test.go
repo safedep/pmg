@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func combineConfig(fns ...func(rc *config.RuntimeConfig)) func(rc *config.Runtim
 
 // customRegistry appends one proxy.registries entry. Combine several with
 // combineConfig to model multiple registries sharing a host.
-func customRegistry(name, ecosystem string, endpointURLs ...string) func(rc *config.RuntimeConfig) {
+func customRegistry(name string, ecosystem config.ProxyRegistryEcosystem, endpointURLs ...string) func(rc *config.RuntimeConfig) {
 	endpoints := make([]config.ProxyRegistryEndpointConfig, len(endpointURLs))
 	for i, u := range endpointURLs {
 		endpoints[i] = config.ProxyRegistryEndpointConfig{URL: u}
@@ -1284,6 +1285,59 @@ func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 				assert.False(t, h.Registry.Requested("cdn.unconfigured.test", "/demo-1.2.3.tgz"),
 					"a MITM'd request would reach the registry; this must never happen for a discovered off-host URL")
 				assert.Zero(t, h.Analyzer.AnalyzedCount("demo", "1.2.3"))
+			},
+		},
+	})
+}
+
+// TestProxyFlow_ReservedGoHostRefusesInterception pins the fail-closed
+// startup contract for reserved Go hosts. The harness cannot start when the
+// catalog rejects the config, so this drives the same config path the runner
+// uses into the same factory the harness, the per-command flow, and the
+// daemon all build their interceptors from.
+func TestProxyFlow_ReservedGoHostRefusesInterception(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+	}{
+		{name: "go module proxy", endpoint: "https://proxy.golang.org/npm"},
+		{name: "go checksum database", endpoint: "https://sum.golang.org/npm"},
+		{name: "go checksum database with trailing DNS dot", endpoint: "https://sum.golang.org./npm"},
+		{name: "subdomain of a go host", endpoint: "https://mirror.sum.golang.org/npm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			applyConfig(t, customRegistry("company-npm", "npm", tt.endpoint))
+
+			_, err := interceptors.NewInterceptorFactory(
+				nil, interceptors.NewInMemoryAnalysisCache(), interceptors.NewAnalysisStatsCollector(),
+				make(chan *interceptors.ConfirmationRequest, 1), interceptors.InterceptorContext{},
+				config.Get().Config.Proxy.Registries,
+			)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "reserved for PMG's built-in Go module handling")
+		})
+	}
+}
+
+// TestProxyFlow_GoChecksumDatabaseStaysTunneled pins the invariant the
+// reserved-host rejection protects: sum.golang.org is never decrypted.
+func TestProxyFlow_GoChecksumDatabaseStaysTunneled(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "go checksum database is tunneled, not MITM'd",
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.get("https://sum.golang.org/lookup/example.com/demo@v1.0.0", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Contains(t, h.DialedAddrs(), "sum.golang.org:443",
+					"the CONNECT tunnel must still route through the mock override for hermeticity")
+				assert.False(t, h.Registry.Requested("sum.golang.org", "/lookup/example.com/demo@v1.0.0"),
+					"a MITM'd request would reach the registry. sum.golang.org must stay an opaque tunnel")
+				assert.Empty(t, h.Analyzer.Calls())
 			},
 		},
 	})
