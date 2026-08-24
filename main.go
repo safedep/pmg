@@ -10,6 +10,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
+	cargoCmd "github.com/safedep/pmg/cmd/cargo"
 	"github.com/safedep/pmg/cmd/cloud"
 	configCmd "github.com/safedep/pmg/cmd/config"
 	"github.com/safedep/pmg/cmd/executors"
@@ -167,6 +168,7 @@ func main() {
 	cmd.AddCommand(executors.NewPipxCommand())
 	cmd.AddCommand(executors.NewUvxCommand())
 	cmd.AddCommand(golangCmd.NewGoCommand())
+	cmd.AddCommand(cargoCmd.NewCargoCommand())
 	cmd.AddCommand(proxyCmd.NewProxyCommand())
 	cmd.AddCommand(version.NewVersionCommand())
 	cmd.AddCommand(setup.NewSetupCommand())

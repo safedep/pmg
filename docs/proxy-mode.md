@@ -200,6 +200,7 @@ pip config debug
 | `uvx`           | ✅      |
 | `poetry`        | ✅      |
 | `go`            | 🧪 experimental |
+| `cargo`         | 🧪 experimental |
 
 ### Go (experimental)
 
@@ -228,6 +229,40 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   instructions if the PMG CA is not trusted. Linux works out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
   VCS host and are not analyzed; PMG warns when these are set.
+
+</details>
+
+### Cargo (experimental)
+
+`pmg cargo` guards crates.io downloads through the same proxy flow. The
+command is experimental and opt-in. It runs only when you invoke it as
+`pmg cargo ...`. `pmg setup` does not create a shell alias or a PATH shim
+for it. Rust runs third-party code at build time, in build scripts and proc
+macros. PMG therefore guards `cargo build`, `cargo run`, and `cargo test`
+as dependency-installing commands.
+
+<details>
+<summary>How it differs from npm/PyPI</summary>
+
+- PMG intercepts two fixed crates.io hosts. `index.crates.io` serves the
+  sparse index. `static.crates.io` serves the `.crate` downloads. PMG
+  tunnels the crates.io API host without inspection. Registry tokens used
+  by `cargo publish` never pass through the MITM path.
+- PMG sets `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` for the child
+  process so PMG can intercept index traffic. PMG sets `CARGO_HTTP_CAINFO`
+  because cargo's libcurl reads only this CA variable. You do not need to
+  change the OS trust store on any platform.
+- Dependency cooldown removes in-window versions from sparse-index
+  responses. It reads the per-version `pubtime` field in the index. Cargo's
+  resolver then falls back to an older release. PMG blocks a pinned or
+  `Cargo.lock` version inside the window at download time with HTTP 403.
+  When PMG did not see the publish time on the wire, it fetches the index
+  file out of band.
+- Malware analysis runs on every `.crate` download, direct and transitive.
+- Cargo fetches git dependencies from their VCS host. PMG does not analyze
+  them. PMG also does not analyze alternative registries and source
+  replacement. Their traffic is tunneled and appears in the audit log as
+  observed hosts.
 
 </details>
 

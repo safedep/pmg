@@ -1,6 +1,8 @@
 package config
 
 import (
+	"strings"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
@@ -28,6 +30,13 @@ func (r *purlRef) parseFrom(purl string) {
 	r.ecosystem = parsedPurl.Ecosystem()
 	r.name = parsedPurl.Name()
 	r.version = parsedPurl.Version()
+
+	// crates.io names are case-insensitive and the cargo interceptor
+	// normalizes them to lowercase, so a canonical-case PURL (pkg:cargo/Inflector)
+	// must match the same way.
+	if r.ecosystem == packagev1.Ecosystem_ECOSYSTEM_CARGO {
+		r.name = strings.ToLower(r.name)
+	}
 }
 
 // matches reports whether the ref matches a package version. A version-less

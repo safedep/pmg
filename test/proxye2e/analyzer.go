@@ -89,8 +89,12 @@ func newAnalyzerRecorder() *AnalyzerRecorder {
 }
 
 func verdictKey(eco packagev1.Ecosystem, name, version string) string {
-	if eco == packagev1.Ecosystem_ECOSYSTEM_PYPI {
+	switch eco {
+	case packagev1.Ecosystem_ECOSYSTEM_PYPI:
 		name = normalizePypiName(name)
+	case packagev1.Ecosystem_ECOSYSTEM_CARGO:
+		// Mirrors the interceptor's lowercase normalization of crate names.
+		name = strings.ToLower(name)
 	}
 	return fmt.Sprintf("%s|%s|%s", eco.String(), name, version)
 }
@@ -105,6 +109,10 @@ func (r *AnalyzerRecorder) SetPypi(name, version string, v Verdict) {
 
 func (r *AnalyzerRecorder) SetGo(name, version string, v Verdict) {
 	r.set(packagev1.Ecosystem_ECOSYSTEM_GO, name, version, v)
+}
+
+func (r *AnalyzerRecorder) SetCargo(name, version string, v Verdict) {
+	r.set(packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version, v)
 }
 
 func (r *AnalyzerRecorder) set(eco packagev1.Ecosystem, name, version string, v Verdict) {
