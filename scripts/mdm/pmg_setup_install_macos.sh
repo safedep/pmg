@@ -77,7 +77,7 @@ install_via_brew() {
   if run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
     run_brew "$brew_bin" upgrade --cask safedep/tap/pmg || true
   else
-    run_brew "$brew_bin" install safedep/tap/pmg
+    run_brew "$brew_bin" install --cask safedep/tap/pmg
   fi
 }
 
