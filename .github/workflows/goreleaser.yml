@@ -56,7 +56,7 @@ jobs:
         run: |
           # Without this the changelog for a stable release spans only the
           # commits since the most recent edge tag.
-          prev=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+          prev=$(git tag --merged "${GITHUB_REF_NAME}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
             | grep -vFx "${GITHUB_REF_NAME}" | sort -V | tail -1)
           if [ -n "$prev" ]; then
             echo "GORELEASER_PREVIOUS_TAG=${prev}" >> "$GITHUB_ENV"
