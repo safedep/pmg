@@ -42,6 +42,10 @@ changelog:
       - "^docs:"
       - "^test:"
 
+release:
+  prerelease: auto
+  make_latest: '{{ if .Prerelease }}false{{ else }}true{{ end }}'
+
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
@@ -50,7 +54,9 @@ universal_binaries:
   - replace: true
 
 homebrew_casks:
-  - name: pmg
+  # Channel is derived from the tag's prerelease part (edge.1 -> pmg@edge) so an
+  # unexpected prerelease identifier gets its own cask instead of overwriting pmg.
+  - name: 'pmg{{ if .Prerelease }}@{{ index (split .Prerelease ".") 0 }}{{ end }}'
     directory: Casks
     homepage: https://github.com/safedep/pmg
     description: "PMG protects developers from malicious packages"
