@@ -3,20 +3,25 @@
 Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS fleets through an MDM (Jamf, Mosyle, Kandji, Intune).
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `pmg_setup_install_macos.sh` | Install the binary and configure every user (config, aliases, shims, optional cloud sync) |
-| `pmg_uninstall_macos.sh` | Remove per-user state, Keychain credentials, and the binary |
+| `pmg_uninstall_macos.sh` | Remove per-user state, active GUI user credentials, and the binary |
 | `lib_macos.sh` | Shared helpers. Deploy it alongside the other two. |
+| `standalone/pmg_setup_install_macos_standalone.sh` | Generated installer for single-script MDM policies |
+| `standalone/pmg_uninstall_macos_standalone.sh` | Generated uninstaller for single-script MDM policies |
+| `generate_standalone_scripts.sh` | Regenerates standalone scripts and optionally embeds `config.yml` and cloud credentials |
 | `config.yml` *(optional)* | When present in the package, the install script deploys it as the machine-wide globally managed config |
 
-The install and uninstall scripts source `./lib_macos.sh` from their own directory, so ship all three together. Zip the `mdm/` folder as the MDM payload. Add a `config.yml` to the folder to deploy a globally managed config (see below).
+For a multi-file MDM deployment, install `lib_macos.sh` and both entry scripts as sibling files at a fixed path. Add an optional sibling `config.yml` for globally managed config.
+
+For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload `lib_macos.sh` separately.
 
 ## Execution model
 
 PMG writes two kinds of state, and the scripts handle each:
 
 - **Machine scope**: the `pmg` binary (`/usr/local/bin` or Homebrew). Needs root.
-- **User scope**: config (`~/Library/Application Support/safedep/pmg`), aliases (`pmg.rc` in that directory, plus shell rc edits), PATH shims (`bin/` in that directory), and login Keychain credentials. Runs as the user. Keychain also needs the user's GUI session.
+- **User scope**: The config, `pmg.rc`, and shims are under `~/Library/Application Support/safedep/pmg`. The cache is under `~/Library/Caches/safedep/pmg`. Shell rc edits and login Keychain credentials are also user state. Keychain access needs the user's GUI session.
 
 The scripts detect how the MDM invoked them:
 
@@ -27,12 +32,11 @@ Homebrew can't run as root, so the script runs brew commands as the owner of the
 
 ## Install
 
-```sh
-# Binary + per-user setup, no cloud sync
-sudo ./pmg_setup_install_macos.sh
+Deploy `lib_macos.sh` in the same directory as the entry scripts. They source it at runtime and fail without it.
 
-# Also enable SafeDep Cloud sync (stores credentials in the logged-in user's Keychain)
-sudo SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... ./pmg_setup_install_macos.sh
+```sh
+# Install PMG without cloud credentials
+sudo ./pmg_setup_install_macos.sh
 ```
 
 The install script:
@@ -40,7 +44,11 @@ The install script:
 1. Installs or updates `pmg` (Homebrew if present, otherwise the GitHub release tarball with SHA-256 verification).
 2. If the package includes a `config.yml`, installs it as the globally managed config (see below).
 3. Runs `pmg setup install` for each target user to create aliases and shims (and a per-user config, unless a globally managed config is active).
-4. With `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` set, enables cloud sync and stores credentials in the logged-in user's Keychain. It skips users who aren't logged in, since there's no session to write to. Run `pmg cloud login` in their session once they log in.
+4. If both cloud variables are set, configures cloud sync for the active GUI user.
+
+Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. It then stores credentials in the user's Keychain.
+
+The installer reports and skips cloud setup for users without an active GUI session. This skip is nonfatal. A cloud login failure is also nonfatal.
 
 ## Uninstall
 
@@ -51,8 +59,10 @@ sudo ./pmg_uninstall_macos.sh
 For each target user, the uninstall script:
 
 1. Runs `pmg setup remove` to strip shell aliases and PATH shims.
-2. Deletes the config directory (which also holds `pmg.rc` and the shims), cache directory, the legacy `~/.pmg` and `~/.pmg.rc`, and `~/.local/bin/pmg`.
-3. Runs `pmg cloud logout` to clear Keychain credentials for the logged-in user. Other users' credentials clear on their next login.
+2. Deletes the config directory, cache directory, and legacy PMG paths.
+3. Runs `pmg cloud logout` to clear Keychain credentials for the active GUI user.
+
+Credentials for inactive users remain in their Keychains. For full credential cleanup, have each user run `pmg cloud logout` before the uninstall policy removes PMG.
 
 It then removes the machine-wide binary via `brew uninstall`, or by deleting `/usr/local/bin/pmg` and `/opt/homebrew/bin/pmg`. It also removes the globally managed config if present (set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it).
 
@@ -62,7 +72,7 @@ Include a `config.yml` next to the scripts to centrally manage PMG configuration
 
 - By default the global config is an overridable baseline: users can still override its values at runtime with `PMG_*` env vars and CLI flags. Set `global_lockdown: true` in the bundled `config.yml` to forbid those overrides. See [Globally Managed Configuration](../../docs/config.md#globally-managed-configuration) for the full behaviour.
 - The file can be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to user values.
-- To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The install script skips the per-user `pmg config set` (a managed config refuses it) but still stores each logged-in user's credentials in the Keychain.
+- To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The installer skips the refused per-user config change. It still stores credentials for the active GUI user.
 - Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config.
 - Re-deploying the package overwrites the global config, keeping it in sync with the package.
 - Uninstall removes the global config whenever it is present, regardless of whether the uninstall package ships a `config.yml`. Set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it.
@@ -71,10 +81,12 @@ Only the config *file* is global. Per-user runtime state (logs, cloud sync datab
 
 ## Environment variables
 
+The installer consumes `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` at runtime. The generator consumes them only with `--embed-cloud-credentials`.
+
 | Variable | Effect |
-|----------|--------|
-| `SAFEDEP_API_KEY` | SafeDep Cloud API key (install only; with the tenant ID, enables cloud sync) |
-| `SAFEDEP_TENANT_ID` | SafeDep Cloud tenant ID (install only) |
+| --- | --- |
+| `SAFEDEP_API_KEY` | SafeDep Cloud API key, set with the tenant ID |
+| `SAFEDEP_TENANT_ID` | SafeDep Cloud tenant ID, set with the API key |
 | `PMG_CONFIG_DIR` | Override the config directory location (uninstall cleanup honors it) |
 | `PMG_CACHE_DIR` | Override the cache directory location (uninstall cleanup honors it) |
 | `PMG_KEEP_GLOBAL_CONFIG` | Uninstall only: when set, keep the globally managed config instead of removing it |
@@ -131,16 +143,85 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
 
 3. Assign the Command to the same device group and run it.
 
+## Standalone scripts (single-script MDM policies)
+
+Some MDMs accept only one shell script per policy, so use the prebuilt single-file scripts in [`standalone/`](standalone/):
+
+- `pmg_setup_install_macos_standalone.sh`
+- `pmg_uninstall_macos_standalone.sh`
+
+They contain no tenant config or cloud credentials, and are smaller than 1 MB (Intune's limit).
+
+### Config only
+
+Regenerate the installer with the managed config embedded:
+
+```sh
+./generate_standalone_scripts.sh \
+  --config /path/to/config.yml \
+  --output-dir /path/to/pmg-intune
+```
+
+The uninstaller never contains the embedded config.
+
+### Cloud credentials
+
+Single-script MDMs (like Intune) have no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables. Set them however you manage secrets (shell, CI, secrets manager):
+
+```sh
+SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
+  ./generate_standalone_scripts.sh \
+  --embed-cloud-credentials \
+  --output-dir /path/to/pmg-intune
+```
+
+With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: true` in it) to the same command.
+
+**Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. Use a scoped and revocable API key, and never commit the generated artifacts.
+
+The credential installer has mode `0700`. The uninstaller has no embedded credentials.
+
+### Intune example
+
+Create two shell-script policies ([Microsoft's procedure](https://learn.microsoft.com/en-us/intune/device-management/tools/run-shell-scripts-macos)):
+
+1. **Install policy**: upload `pmg_setup_install_macos_standalone.sh`, set **Run script as signed-in user** to **No**.
+2. **Uninstall policy**: upload `pmg_uninstall_macos_standalone.sh`, same setting.
+3. Assign to the device group. Do not assign both policies concurrently.
+
+Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip, so neither causes a nonzero exit for Intune retries.
+
 ## Limitations
 
 - Installing PMG's MITM CA into the trust store (`pmg setup cert install`) is not supported via MDM on macOS. Adding a trusted root to the login keychain requires interactive authorization from the user's GUI session, which an MDM deployment cannot supply. Have each user run `pmg setup cert install` in their own session when they need it (only needed for tools that ignore the proxy's CA environment variables, such as Go on macOS).
-- The scripts can't read or write the Keychain for a user who isn't logged in, since no session exists to reach. They report and skip those users; configure them in their session when they log in. After an uninstall, their credentials clear on next login.
+- The scripts can access only the active GUI user's Keychain. Inactive users' credentials remain. Complete their manual logout before the policy removes PMG.
 - Machine-scope steps under a non-root invocation need `sudo`. Without passwordless sudo in a non-interactive context, they fail with an error instead of hanging.
 - macOS only. The scripts exit on other platforms.
 
 ## Development
 
+Run these checks from `scripts/mdm/`:
+
 ```sh
-# From this directory
-shellcheck -x lib_macos.sh pmg_setup_install_macos.sh pmg_uninstall_macos.sh
+bash ./generate_standalone_scripts_test.sh
+bash ./pmg_setup_install_macos_test.sh
+bash ./generate_standalone_scripts.sh --check
+shellcheck -x -P SCRIPTDIR \
+  lib_macos.sh \
+  pmg_setup_install_macos.sh \
+  pmg_uninstall_macos.sh \
+  generate_standalone_scripts.sh \
+  generate_standalone_scripts_test.sh \
+  pmg_setup_install_macos_test.sh \
+  standalone_macos_e2e_test.sh \
+  standalone/pmg_setup_install_macos_standalone.sh \
+  standalone/pmg_uninstall_macos_standalone.sh
+```
+
+**Warning:** The standalone end-to-end test removes PMG state and temporarily renames Homebrew binaries.
+
+Run it only on a disposable macOS CI runner with passwordless `sudo`. The script rejects runs without both guards:
+
+```sh
+CI=true PMG_MDM_E2E=1 bash ./standalone_macos_e2e_test.sh
 ```
