@@ -16,7 +16,7 @@ The install and uninstall scripts source `./lib_macos.sh` from their own directo
 PMG writes two kinds of state, and the scripts handle each:
 
 - **Machine scope**: the `pmg` binary (`/usr/local/bin` or Homebrew). Needs root.
-- **User scope**: config (`~/Library/Application Support/safedep/pmg`), aliases (`~/.pmg.rc` and shell rc edits), PATH shims (`~/.pmg/bin`), and login Keychain credentials. Runs as the user. Keychain also needs the user's GUI session.
+- **User scope**: config (`~/Library/Application Support/safedep/pmg`), aliases (`pmg.rc` in that directory, plus shell rc edits), PATH shims (`bin/` in that directory), and login Keychain credentials. Runs as the user. Keychain also needs the user's GUI session.
 
 The scripts detect how the MDM invoked them:
 
@@ -51,7 +51,7 @@ sudo ./pmg_uninstall_macos.sh
 For each target user, the uninstall script:
 
 1. Runs `pmg setup remove` to strip shell aliases and PATH shims.
-2. Deletes the config directory, cache directory, `~/.pmg`, `~/.pmg.rc`, and `~/.local/bin/pmg`.
+2. Deletes the config directory (which also holds `pmg.rc` and the shims), cache directory, the legacy `~/.pmg` and `~/.pmg.rc`, and `~/.local/bin/pmg`.
 3. Runs `pmg cloud logout` to clear Keychain credentials for the logged-in user. Other users' credentials clear on their next login.
 
 It then removes the machine-wide binary via `brew uninstall`, or by deleting `/usr/local/bin/pmg` and `/opt/homebrew/bin/pmg`. It also removes the globally managed config if present (set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it).
@@ -90,6 +90,46 @@ SAFEDEP_API_KEY="$4" SAFEDEP_TENANT_ID="$5" ./pmg_setup_install_macos.sh
 ```
 
 `$4` and `$5` are Jamf script parameters. Adjust them to your configuration.
+
+## JumpCloud example
+
+Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which covers fleet-wide, multi-user deployment.
+
+### Install
+
+1. In the JumpCloud Admin Console, create a new **Command** and set **Run As** to `root`.
+2. Upload `lib_macos.sh` and `pmg_setup_install_macos.sh` from `scripts/mdm/`. Optionally upload `config.yml` to deploy a globally managed config. Set the **File Destination** to `/tmp/pmg-mdm/` for each file.
+3. Set **Timeout After** to at least 900 seconds so installs on slow networks aren't killed mid-run.
+4. To enable cloud sync, define the Command Variables `safedep_api_key` and `safedep_tenant_id`, and mark the API key as a Secret variable.
+5. Set the Command body to:
+
+   ```sh
+   #!/bin/sh
+   set -eu
+   cd /tmp/pmg-mdm
+   chmod +x pmg_setup_install_macos.sh
+   SAFEDEP_API_KEY={{safedep_api_key}} SAFEDEP_TENANT_ID={{safedep_tenant_id}} ./pmg_setup_install_macos.sh
+   cd / && rm -rf /tmp/pmg-mdm
+   ```
+
+   Drop the `SAFEDEP_API_KEY`/`SAFEDEP_TENANT_ID` variables if cloud sync isn't enabled.
+6. Assign the Command to a device group and run it.
+
+### Uninstall
+
+1. Create a second Command as above, uploading `lib_macos.sh` and `pmg_uninstall_macos.sh` instead.
+2. Set the Command body to:
+
+   ```sh
+   #!/bin/sh
+   set -eu
+   cd /tmp/pmg-mdm
+   chmod +x pmg_uninstall_macos.sh
+   ./pmg_uninstall_macos.sh
+   cd / && rm -rf /tmp/pmg-mdm
+   ```
+
+3. Assign the Command to the same device group and run it.
 
 ## Limitations
 

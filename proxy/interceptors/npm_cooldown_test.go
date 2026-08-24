@@ -650,7 +650,7 @@ func TestNpmCooldown_HandleMetadataRequest_UnpinnedWithRemainingVersions_NoBlock
 func TestNpmCooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: true, Days: 5})
 
-	interceptor := NewNpmRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := newTestDefaultNpmInterceptor(t)
 
 	ctx := makeTestRequestContext("https://registry.npmjs.org/lodash")
 	ctx.Hostname = "registry.npmjs.org"
@@ -665,7 +665,7 @@ func TestNpmCooldown_InterceptorDelegation_CooldownEnabled(t *testing.T) {
 func TestNpmCooldown_InterceptorDelegation_CooldownDisabled(t *testing.T) {
 	setCooldownConfig(t, config.DependencyCooldownConfig{Enabled: false, Days: 5})
 
-	interceptor := NewNpmRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := newTestDefaultNpmInterceptor(t)
 
 	ctx := makeTestRequestContext("https://registry.npmjs.org/lodash")
 	ctx.Hostname = "registry.npmjs.org"
@@ -718,7 +718,7 @@ func TestNpmCooldown_TarballRequestBypassesCooldown(t *testing.T) {
 	config.Get().InsecureInstallation = true
 	t.Cleanup(func() { config.Get().InsecureInstallation = origInsecure })
 
-	interceptor := NewNpmRegistryInterceptor(nil, NewInMemoryAnalysisCache(), NewAnalysisStatsCollector(), make(chan *ConfirmationRequest, 1), InterceptorContext{})
+	interceptor := newTestDefaultNpmInterceptor(t)
 
 	// Tarball URL has a version component
 	ctx := makeTestRequestContext("https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz")

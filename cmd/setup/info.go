@@ -66,7 +66,7 @@ func executeSetupInfo() error {
 
 	// Shell Integration section
 	aliasCfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
 	if err != nil {
 		return fmt.Errorf("failed to create alias manager: %w", err)
 	}
@@ -119,6 +119,7 @@ func executeSetupInfo() error {
 
 	securityEntries["Dependency Cooldown"] = strconv.FormatBool(cfg.Config.DependencyCooldown.Enabled)
 	securityEntries["Dependency Cooldown Days"] = strconv.Itoa(cfg.Config.DependencyCooldown.Days)
+	securityEntries["Custom Registries"] = describeCustomRegistries(cfg.Config.Proxy.Registries)
 	securityEntries["Telemetry"] = strconv.FormatBool(!analytics.IsDisabled())
 	securityEntries["Event Logging"] = strconv.FormatBool(!cfg.Config.SkipEventLogging)
 	securityEntries["Event Log Directory"] = cfg.EventLogDir()
@@ -192,6 +193,20 @@ func executeSetupInfo() error {
 	}
 
 	return nil
+}
+
+// describeCustomRegistries renders the configured custom registry endpoints
+// (name and ecosystem per registry) so users can confirm their protection
+// scope. "None" when unconfigured.
+func describeCustomRegistries(registries []config.ProxyRegistryConfig) string {
+	if len(registries) == 0 {
+		return "None"
+	}
+	parts := make([]string, 0, len(registries))
+	for _, r := range registries {
+		parts = append(parts, fmt.Sprintf("%s(%s)", r.Name, r.Ecosystem))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // installedState renders installation-state rows consistently: the location

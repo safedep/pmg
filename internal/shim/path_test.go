@@ -310,3 +310,43 @@ func TestFilterPMGFromEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterPMGFromPathStripsDataDirShims(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "strips XDG data shim dir",
+			path:     "/usr/local/bin:/home/user/.local/share/safedep/pmg/bin:/usr/bin",
+			expected: "/usr/local/bin:/usr/bin",
+		},
+		{
+			name:     "strips a relocated XDG_DATA_HOME shim dir",
+			path:     "/opt/data/safedep/pmg/bin:/usr/bin",
+			expected: "/usr/bin",
+		},
+		{
+			name:     "strips the macOS data shim dir",
+			path:     "/Users/u/Library/Application Support/safedep/pmg/bin:/usr/bin",
+			expected: "/usr/bin",
+		},
+		{
+			name:     "strips legacy and data dirs together",
+			path:     "/home/user/.pmg/bin:/home/user/.local/share/safedep/pmg/bin:/usr/bin",
+			expected: "/usr/bin",
+		},
+		{
+			name:     "keeps an unrelated safedep directory",
+			path:     "/home/user/.local/share/safedep/pmg/tools:/usr/bin",
+			expected: "/home/user/.local/share/safedep/pmg/tools:/usr/bin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, FilterPMGFromPath(tt.path))
+		})
+	}
+}

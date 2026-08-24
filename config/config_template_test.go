@@ -1,11 +1,13 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,18 +42,13 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	err := v.ReadConfig(strings.NewReader(templateConfig))
-	assert.NoError(t, err, "expected no error while reading config")
+	require.NoError(t, err, "expected no error while reading config")
 
 	err = v.Unmarshal(&parsed)
-	assert.NoError(t, err, "expected no error while unmarshalling config")
+	require.NoError(t, err, "expected no error while unmarshalling config")
 
 	def := DefaultConfig().Config
-
-	assert.Equal(t, def.Paranoid, parsed.Paranoid, "paranoid mismatch")
-	assert.Equal(t, def.DisableTelemetry, parsed.DisableTelemetry, "disable_telemetry mismatch")
-	assert.Equal(t, def.SkipEventLogging, parsed.SkipEventLogging, "skip_event_logging mismatch")
-	assert.Equal(t, def.EventLogRetentionDays, parsed.EventLogRetentionDays, "event_log_retention_days mismatch")
-	assert.Equal(t, def.Verbosity, parsed.Verbosity, "verbosity mismatch")
+	assertTemplateCoversDefaults(t, "Config", reflect.ValueOf(def), reflect.ValueOf(parsed))
 
 	assert.NotEmpty(t, parsed.TrustedPackages, "expected at least one trusted_packages entry")
 
@@ -59,9 +56,41 @@ func TestTemplateMatchesDefaults(t *testing.T) {
 	assert.NotEmpty(t, first.Purl, "first trusted package has empty purl")
 	assert.NotEmpty(t, first.Reason, "first trusted package has empty reason")
 
-	assert.Equal(t, def.DependencyCooldown.Enabled, parsed.DependencyCooldown.Enabled, "dependency_cooldown.enabled mismatch")
-	assert.Equal(t, def.DependencyCooldown.Days, parsed.DependencyCooldown.Days, "dependency_cooldown.days mismatch")
-	assert.Equal(t, def.AdvisoryMessage, parsed.AdvisoryMessage, "advisory_message mismatch")
+	assert.Empty(t, def.Proxy.Registries, "default proxy.registries must be empty")
+	assert.Empty(t, parsed.Proxy.Registries, "template proxy.registries must be empty")
+}
 
-	assert.Equal(t, def.Cloud.Enabled, parsed.Cloud.Enabled, "cloud.enabled mismatch")
+// assertTemplateCoversDefaults walks the default and template-parsed configs
+// in lockstep. Every leaf whose Go default is non-empty must appear in the
+// template with the same value. loadViperConfig unmarshals into a zero
+// Config with the template as its only default source, so a template that
+// misses such a field silently loads it as zero. The template may carry
+// extra content the Go defaults leave empty (trusted packages, sandbox
+// policies). The walk skips empty defaults.
+func assertTemplateCoversDefaults(t *testing.T, path string, def, parsed reflect.Value) {
+	t.Helper()
+
+	switch def.Kind() {
+	case reflect.Struct:
+		for i := 0; i < def.NumField(); i++ {
+			field := def.Type().Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			assertTemplateCoversDefaults(t, path+"."+field.Name, def.Field(i), parsed.Field(i))
+		}
+	case reflect.Slice, reflect.Map:
+		if def.Len() > 0 {
+			assert.Equal(t, def.Interface(), parsed.Interface(), "%s: template must carry the Go default", path)
+		}
+	default:
+		if !def.IsZero() {
+			assert.Equal(t, def.Interface(), parsed.Interface(), "%s: template must carry the Go default", path)
+		}
+	}
+}
+
+func TestTemplateHasCommentedRegistryExample(t *testing.T) {
+	assert.Contains(t, templateConfig, "\n  # registries:\n",
+		"expected a commented-out registries example")
 }

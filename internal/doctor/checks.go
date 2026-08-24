@@ -14,9 +14,13 @@ import (
 
 type ProtectionTestCase struct {
 	PackageManager string
-	Package        string
-	InstallArgs    []string
-	NeedsVenv      bool
+	// Fallbacks are alternate binaries to run the test through when the primary
+	// is absent (e.g. Homebrew and Debian ship pip3 without a bare pip). Each
+	// entry must also be a pmg subcommand.
+	Fallbacks   []string
+	Package     string
+	InstallArgs []string
+	NeedsVenv   bool
 }
 
 func ProtectionTestCases() []ProtectionTestCase {
@@ -24,26 +28,47 @@ func ProtectionTestCases() []ProtectionTestCase {
 		{
 			PackageManager: "npm",
 			Package:        "safedep-test-pkg@0.1.3",
-			InstallArgs:    []string{"npm", "install", "--no-cache", "--prefer-online", "safedep-test-pkg@0.1.3"},
+			InstallArgs:    []string{"install", "--no-cache", "--prefer-online", "safedep-test-pkg@0.1.3"},
 		},
 		{
 			PackageManager: "pip",
+			Fallbacks:      []string{"pip3"},
 			Package:        "safedep-test-pkg==0.0.4",
-			InstallArgs:    []string{"pip", "install", "--no-cache-dir", "safedep-test-pkg==0.0.4"},
+			InstallArgs:    []string{"install", "--no-cache-dir", "safedep-test-pkg==0.0.4"},
 			NeedsVenv:      true,
 		},
 	}
 }
 
-func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
-	// Resolve the real package manager the same way the runner does — PATH with
-	// PMG shim dirs stripped. A plain exec.LookPath would find the PMG shim on
-	// PATH and report the manager as available even when the real binary is absent
-	if _, err := shim.ResolveRealBinary(tc.PackageManager); err != nil {
-		return CheckResult{
-			Status:  StatusWarn,
-			Message: fmt.Sprintf("%s not available — skipping protection test for %s", tc.PackageManager, tc.Package),
+func (tc ProtectionTestCase) binaries() []string {
+	return append([]string{tc.PackageManager}, tc.Fallbacks...)
+}
+
+// resolveProtectionBinary picks the first candidate with a real binary,
+// resolved the same way the runner does — PATH with PMG shim dirs stripped.
+// A plain exec.LookPath would find the PMG shim on PATH and report the
+// manager as available even when the real binary is absent.
+func resolveProtectionBinary(tc ProtectionTestCase) (string, bool) {
+	for _, name := range tc.binaries() {
+		if _, err := shim.ResolveRealBinary(name); err == nil {
+			return name, true
 		}
+	}
+	return "", false
+}
+
+func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
+	binary, found := resolveProtectionBinary(tc)
+	if !found {
+		if !tc.NeedsVenv {
+			return CheckResult{
+				Status:  StatusWarn,
+				Message: fmt.Sprintf("%s not available — skipping protection test for %s", strings.Join(tc.binaries(), "/"), tc.Package),
+			}
+		}
+		// Venv-based tests supply their own binary: python3 -m venv bootstraps
+		// pip into the venv, whose bin dir is prepended to PATH for the pmg run.
+		binary = tc.PackageManager
 	}
 
 	tmpDir, err := os.MkdirTemp("", "pmg-doctor-*")
@@ -73,12 +98,13 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 		env = prependPath(env, venvBin)
 	}
 
-	cmd := exec.Command(pmgBinary, tc.InstallArgs...)
+	args := append([]string{binary}, tc.InstallArgs...)
+	cmd := exec.Command(pmgBinary, args...)
 	cmd.Dir = tmpDir
 	cmd.Env = env
 
 	output, runErr := cmd.CombinedOutput()
-	return evaluateProtectionResult(tc.PackageManager, tc.Package, string(output), runErr)
+	return evaluateProtectionResult(binary, tc.Package, string(output), runErr)
 }
 
 func setupVenv(baseDir string) (string, error) {

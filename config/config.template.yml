@@ -45,6 +45,21 @@ proxy:
   skip_commands:
     npm: []
 
+  # Additional npm/PyPI-compatible endpoints serving public packages through
+  # an internal mirror or registry proxy. Private packages are allowed but are
+  # not protected by PMG's public-package malware analysis.
+  registries: []
+  # registries:
+  #   - name: npm-mirror
+  #     ecosystem: npm
+  #     endpoints:
+  #       - url: https://packages.example.com/artifactory/api/npm/npm-virtual
+  #   - name: pypi-mirror
+  #     ecosystem: pypi
+  #     endpoints:
+  #       - url: https://packages.example.com/artifactory/api/pypi/python/simple
+  #       - url: https://artifacts.example.com/packages
+
   # Persistent proxy server (`pmg proxy start`) settings.
   server:
     # Host the persistent proxy binds to. Defaults to 127.0.0.1 (loopback),
@@ -251,4 +266,3 @@ cloud:
 
     # Hard timeout applied to a single background sync attempt.
     timeout: 5m
-

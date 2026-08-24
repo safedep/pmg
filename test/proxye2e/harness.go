@@ -95,7 +95,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 	confChan := make(chan *interceptors.ConfirmationRequest, 10)
 	go interceptors.HandleConfirmationRequests(confChan, confirm.interaction(), nil)
 
-	factory := interceptors.NewInterceptorFactory(
+	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
 		interceptors.NewInMemoryAnalysisCache(),
 		stats,
@@ -110,14 +110,16 @@ func New(t *testing.T, opts ...Option) *Harness {
 				"corp.example.com": registry.goBaseURL() + "/goproxy",
 			},
 		},
+		config.Get().Config.Proxy.Registries,
 	)
+	require.NoError(t, err)
 
-	interceptorList := []proxy.Interceptor{interceptors.NewAuditLoggerInterceptor()}
-	for _, eco := range []packagev1.Ecosystem{packagev1.Ecosystem_ECOSYSTEM_NPM, packagev1.Ecosystem_ECOSYSTEM_PYPI, packagev1.Ecosystem_ECOSYSTEM_GO} {
-		ic, ierr := factory.CreateInterceptor(eco)
-		require.NoError(t, ierr)
-		interceptorList = append(interceptorList, ic)
-	}
+	interceptorList, err := factory.CreateInterceptors(
+		packagev1.Ecosystem_ECOSYSTEM_NPM,
+		packagev1.Ecosystem_ECOSYSTEM_PYPI,
+		packagev1.Ecosystem_ECOSYSTEM_GO,
+	)
+	require.NoError(t, err)
 
 	h := &Harness{
 		t:        t,

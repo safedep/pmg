@@ -12,6 +12,12 @@ type pypiPackageInfo struct {
 	version    string
 	isDownload bool   // True if this is a file download (sdist or wheel)
 	fileType   string // "sdist", "wheel", or empty for non-download requests
+
+	// isSimpleAPI is true when parsed from a Simple API (PEP 503/691) path,
+	// false for the legacy JSON API request. A custom registry can reshape
+	// the absolute path with an arbitrary prefix, so callers use this
+	// instead of matching on the path.
+	isSimpleAPI bool
 }
 
 // Ensure pypiPackageInfo implements packageInfo interface
@@ -35,6 +41,12 @@ func (p *pypiPackageInfo) IsFileDownload() bool {
 // FileType returns the file type ("sdist", "wheel", or empty)
 func (p *pypiPackageInfo) FileType() string {
 	return p.fileType
+}
+
+// IsSimpleAPI reports whether this was parsed from a Simple API path rather
+// than the legacy JSON API. Meaningful only when IsFileDownload is false.
+func (p *pypiPackageInfo) IsSimpleAPI() bool {
+	return p.isSimpleAPI
 }
 
 // pypiFilesParser parses URLs from files.pythonhosted.org
@@ -130,8 +142,9 @@ func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
 	// Simple API index request: /simple/{package}/
 	if len(segments) == 1 {
 		return &pypiPackageInfo{
-			name:       denormalizePyPIPackageName(packageName),
-			isDownload: false,
+			name:        denormalizePyPIPackageName(packageName),
+			isDownload:  false,
+			isSimpleAPI: true,
 		}, nil
 	}
 
@@ -142,8 +155,9 @@ func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
 		if err != nil {
 			// If we can't parse the filename, treat it as a non-download request
 			return &pypiPackageInfo{
-				name:       denormalizePyPIPackageName(packageName),
-				isDownload: false,
+				name:        denormalizePyPIPackageName(packageName),
+				isDownload:  false,
+				isSimpleAPI: true,
 			}, nil
 		}
 		return info, nil

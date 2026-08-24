@@ -118,7 +118,11 @@ func TestHandleConfirmationRequests(t *testing.T) {
 			}
 
 			confirmationChan := make(chan *ConfirmationRequest, 1)
-			go HandleConfirmationRequests(confirmationChan, &interaction, hooks)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				HandleConfirmationRequests(confirmationChan, &interaction, hooks)
+			}()
 
 			pkgVersion := mockPackageVersion("test-package", "1.0.0")
 			analysisResult := mockAnalysisResult()
@@ -143,6 +147,7 @@ func TestHandleConfirmationRequests(t *testing.T) {
 			}
 
 			close(confirmationChan)
+			<-done
 		})
 	}
 }
@@ -159,7 +164,11 @@ func TestHandleConfirmationRequests_MultipleSequential(t *testing.T) {
 	}
 
 	confirmationChan := make(chan *ConfirmationRequest, 3)
-	go HandleConfirmationRequests(confirmationChan, &interaction, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		HandleConfirmationRequests(confirmationChan, &interaction, nil)
+	}()
 
 	pkgVersion1 := mockPackageVersion("package-1", "1.0.0")
 	analysisResult1 := mockAnalysisResult()
@@ -191,6 +200,7 @@ func TestHandleConfirmationRequests_MultipleSequential(t *testing.T) {
 	assert.Equal(t, []string{"package-1", "package-2", "package-3"}, processedPackages)
 
 	close(confirmationChan)
+	<-done
 }
 
 func TestNewConfirmationRequest(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -43,6 +44,15 @@ func RunProxy(ctx context.Context, pm packagemanager.PackageManager, args []stri
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
+	// A proxy.registries entry PMG could not load must abort any flow that
+	// runs intercepted traffic, never fall back to defaults. Checked here
+	// rather than at CLI startup, like the opt-out rejection below, so
+	// non-install commands (pmg config, doctor, ...) stay usable to fix
+	// the file.
+	if err := config.LoadError(); err != nil {
+		return err
+	}
+
 	// Guard mode is removed: a config or environment that still disables proxy
 	// interception must fail loudly instead of being silently switched to proxy
 	// mode. Checked here rather than at CLI startup so non-install commands
@@ -193,23 +203,23 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		}
 	}
 
-	// Create ecosystem-specific interceptor using factory
-	factory := interceptors.NewInterceptorFactory(malysisAnalyzer, cache, statsCollector, confirmationChan, interceptors.InterceptorContext{
-		PinnedVersions:  pinnedVersions,
-		GoProxyBaseURLs: routing.MITMHosts,
-	})
-	interceptor, err := factory.CreateInterceptor(ecosystem)
+	interceptorList, err := buildProxyFlowInterceptors(
+		malysisAnalyzer,
+		cache,
+		statsCollector,
+		confirmationChan,
+		ecosystem,
+		cfg,
+		interceptors.InterceptorContext{
+			PinnedVersions:  pinnedVersions,
+			GoProxyBaseURLs: routing.MITMHosts,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
 	}
-
-	log.Debugf("Created %s interceptor for ecosystem %s", interceptor.Name(), ecosystem.String())
-
 	// Create and start proxy server
-	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, []proxy.Interceptor{
-		interceptor,
-		interceptors.NewAuditLoggerInterceptor(),
-	})
+	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
 	if err != nil {
 		return fmt.Errorf("failed to start proxy server: %w", err)
 	}
@@ -319,6 +329,29 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
 	// from the execution result.
 	return handleExecutionResultError(executionError)
+}
+
+func buildProxyFlowInterceptors(
+	malysisAnalyzer analyzer.PackageVersionAnalyzer,
+	cache interceptors.AnalysisCache,
+	statsCollector *interceptors.AnalysisStatsCollector,
+	confirmationChan chan *interceptors.ConfirmationRequest,
+	ecosystem packagev1.Ecosystem,
+	cfg *config.RuntimeConfig,
+	execContext interceptors.InterceptorContext,
+) ([]proxy.Interceptor, error) {
+	factory, err := interceptors.NewInterceptorFactory(
+		malysisAnalyzer,
+		cache,
+		statsCollector,
+		confirmationChan,
+		execContext,
+		cfg.Config.Proxy.Registries,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return factory.CreateInterceptors(ecosystem)
 }
 
 // handleExecutionResultError returns the execution error so RunE can route it

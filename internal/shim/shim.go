@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/fsutil"
 )
@@ -15,14 +16,21 @@ import (
 const (
 	shimMarker       = "PMG shims"
 	shimScriptMarker = "# PMG shim - do not edit, managed by pmg setup"
+	// legacyUserDirName is the pre-XDG per-user PMG directory in $HOME.
+	legacyUserDirName = ".pmg"
 	// shimPMGBinVar is the shell variable in every shim script that holds the
 	// pmg binary path. parseShimPMGBin reads it back, so the name is shared.
 	shimPMGBinVar = "PMG_BIN"
 )
 
 type ShimConfig struct {
-	BinDir          string
-	HomeDir         string
+	BinDir  string
+	HomeDir string
+	// CleanupBinDirs lists per-user shim directories Remove must clear in
+	// addition to BinDir, so an uninstall strands nothing when more than one
+	// layout is populated. Empty for managers that own a single directory
+	// (system install, tests).
+	CleanupBinDirs  []string
 	PMGBin          string
 	PackageManagers []string
 	Shells          []alias.Shell
@@ -45,7 +53,7 @@ func NewShimManager(config ShimConfig) *ShimManager {
 }
 
 func NewDefaultShimManager() (*ShimManager, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
@@ -61,9 +69,15 @@ func NewDefaultShimManager() (*ShimManager, error) {
 		return nil, err
 	}
 
+	cleanupBinDirs, err := otherUserBinDirs(binDir)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ShimManager{config: ShimConfig{
 		BinDir:          binDir,
 		HomeDir:         homeDir,
+		CleanupBinDirs:  cleanupBinDirs,
 		PMGBin:          pmgBin,
 		PackageManagers: aliasCfg.PackageManagers,
 		Shells:          aliasCfg.Shells,
@@ -129,8 +143,18 @@ func (m *ShimManager) Remove() error {
 	// Best-effort: a failure removing the shim directory must not skip profile
 	// and rc cleanup, otherwise a rerun is needed to fully uninstall.
 	var errs []error
-	if err := os.RemoveAll(m.config.BinDir); err != nil {
-		errs = append(errs, fmt.Errorf("failed to remove shim directory %s: %w", m.config.BinDir, err))
+	for _, dir := range append([]string{m.config.BinDir}, m.config.CleanupBinDirs...) {
+		if dir == "" {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove shim directory %s: %w", dir, err))
+			continue
+		}
+		// Drops the now-childless wrappers pmg created (~/.pmg, and the
+		// safedep/pmg tree under the data dir). Stops at the first directory
+		// that still holds something, and never walks out of the home dir.
+		pruneEmptyParents(dir, m.config.HomeDir)
 	}
 
 	if m.config.SystemProfile {
@@ -173,13 +197,41 @@ func (m *ShimManager) GetBinDir() string {
 	return m.config.BinDir
 }
 
-// UserBinDir returns the per-user PMG shim directory (~/.pmg/bin).
+// UserBinDir returns the per-user PMG shim directory. Installs predating the
+// XDG layout keep using ~/.pmg/bin for as long as their shims are there, so an
+// upgrade never strands a shim outside PATH; a fresh install (or a reinstall
+// after `pmg setup remove`) resolves to the data directory instead.
 func UserBinDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	legacyDir, err := LegacyUserBinDir()
+	if err != nil {
+		return "", err
+	}
+
+	if shimsPresent(legacyDir) {
+		return legacyDir, nil
+	}
+
+	return DataUserBinDir()
+}
+
+// DataUserBinDir returns the per-user shim directory under the data directory,
+// ignoring any legacy install.
+func DataUserBinDir() (string, error) {
+	dataDir, err := config.UserDataDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get data directory: %w", err)
+	}
+
+	return filepath.Join(dataDir, "bin"), nil
+}
+
+// LegacyUserBinDir returns the pre-XDG shim directory (~/.pmg/bin).
+func LegacyUserBinDir() (string, error) {
+	homeDir, err := config.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".pmg", "bin"), nil
+	return filepath.Join(homeDir, legacyUserDirName, "bin"), nil
 }
 
 func (m *ShimManager) writeShimScript(pm string) error {
@@ -282,6 +334,55 @@ func (m *ShimManager) removePathFromShells() error {
 	}
 
 	return nil
+}
+
+// otherUserBinDirs returns the per-user shim directories that are not binDir,
+// so Remove can clear a layout that is populated but not currently preferred.
+func otherUserBinDirs(binDir string) ([]string, error) {
+	legacyBinDir, err := LegacyUserBinDir()
+	if err != nil {
+		return nil, err
+	}
+
+	dataBinDir, err := DataUserBinDir()
+	if err != nil {
+		return nil, err
+	}
+
+	var dirs []string
+	for _, dir := range []string{legacyBinDir, dataBinDir} {
+		if filepath.Clean(dir) != filepath.Clean(binDir) {
+			dirs = append(dirs, dir)
+		}
+	}
+
+	return dirs, nil
+}
+
+// pmgOwnedDirNames are the directory names pmg creates around its shim dir.
+// Pruning stops as soon as it walks out of them, so shared roots such as
+// ~/.local/share are never removed even when pmg left them empty.
+var pmgOwnedDirNames = map[string]bool{
+	legacyUserDirName: true,
+	"safedep":         true,
+	"pmg":             true,
+}
+
+// pruneEmptyParents removes the empty pmg-owned parent directories of dir. It
+// stops at the first non-empty one, at any directory pmg did not create, and
+// never at or above stopAt. A stopAt outside dir's ancestry (e.g. a system
+// install) prunes nothing.
+func pruneEmptyParents(dir, stopAt string) {
+	if stopAt == "" {
+		return
+	}
+
+	prefix := filepath.Clean(stopAt) + string(os.PathSeparator)
+	for parent := filepath.Dir(dir); strings.HasPrefix(parent, prefix) && pmgOwnedDirNames[filepath.Base(parent)]; parent = filepath.Dir(parent) {
+		if err := os.Remove(parent); err != nil {
+			return
+		}
+	}
 }
 
 // UserShimsInstalled reports whether the per-user shim directory contains at

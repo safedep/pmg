@@ -45,8 +45,16 @@ func (m NpmMetadata) HasVersion(v string) bool {
 	return ok
 }
 
+const npmRegistryBaseURL = "https://registry.npmjs.org"
+
 func (d NpmDriver) FetchMetadata(name string) NpmMetadata {
-	out := d.h.get(fmt.Sprintf("https://registry.npmjs.org/%s", name), nil)
+	return d.FetchMetadataFrom(npmRegistryBaseURL, name)
+}
+
+// FetchMetadataFrom fetches a packument from an arbitrary base URL, e.g. a
+// custom registry's configured endpoint.
+func (d NpmDriver) FetchMetadataFrom(baseURL, name string) NpmMetadata {
+	out := d.h.get(fmt.Sprintf("%s/%s", baseURL, name), nil)
 
 	meta := NpmMetadata{Outcome: out}
 	if out.Err == nil && out.StatusCode == 200 {
@@ -58,16 +66,28 @@ func (d NpmDriver) FetchMetadata(name string) NpmMetadata {
 }
 
 func (d NpmDriver) Download(name, version string) RequestOutcome {
-	return d.h.get(fmt.Sprintf("https://registry.npmjs.org/%s/-/%s-%s.tgz", name, name, version), nil)
+	return d.DownloadFrom(npmRegistryBaseURL, name, version)
+}
+
+// DownloadFrom fetches a canonical "/-/name-version.tgz" tarball relative to
+// an arbitrary base URL, e.g. a custom registry's configured endpoint.
+func (d NpmDriver) DownloadFrom(baseURL, name, version string) RequestOutcome {
+	return d.h.get(fmt.Sprintf("%s/%s/-/%s-%s.tgz", baseURL, name, name, version), nil)
 }
 
 // Install replays npm's resolve-then-download sequence: fetch the packument,
 // pick the requested version (or dist-tags.latest), and download it only if it
 // survived in the metadata the proxy returned.
 func (d NpmDriver) Install(name, version string) ExecResult {
+	return d.InstallFrom(npmRegistryBaseURL, name, version)
+}
+
+// InstallFrom replays Install's resolve-then-download sequence against an
+// arbitrary base URL, e.g. a custom registry's configured endpoint.
+func (d NpmDriver) InstallFrom(baseURL, name, version string) ExecResult {
 	res := ExecResult{}
 
-	meta := d.FetchMetadata(name)
+	meta := d.FetchMetadataFrom(baseURL, name)
 	res.add(meta.Outcome)
 
 	target := version
@@ -76,7 +96,7 @@ func (d NpmDriver) Install(name, version string) ExecResult {
 	}
 
 	if target != "" && meta.HasVersion(target) {
-		res.add(d.Download(name, target))
+		res.add(d.DownloadFrom(baseURL, name, target))
 	}
 
 	return res
@@ -152,9 +172,17 @@ func (s PypiSimple) HasVersion(name, version string) bool {
 	return ok
 }
 
+const pypiSimpleBaseURL = "https://pypi.org/simple"
+
 func (d PypiDriver) FetchSimple(name string) PypiSimple {
+	return d.FetchSimpleFrom(pypiSimpleBaseURL, name)
+}
+
+// FetchSimpleFrom fetches a Simple API project index from an arbitrary base
+// URL as PEP 691 JSON, e.g. a custom registry's configured endpoint.
+func (d PypiDriver) FetchSimpleFrom(baseURL, name string) PypiSimple {
 	out := d.h.get(
-		fmt.Sprintf("https://pypi.org/simple/%s/", normalizePypiName(name)),
+		fmt.Sprintf("%s/%s/", baseURL, normalizePypiName(name)),
 		map[string]string{"Accept": pypiSimpleContentType},
 	)
 
@@ -175,9 +203,15 @@ func (d PypiDriver) Download(fileURL string) RequestOutcome {
 // API: fetch the index, then download the requested version's file only if it
 // survived cooldown stripping.
 func (d PypiDriver) Install(name, version string) ExecResult {
+	return d.InstallFrom(pypiSimpleBaseURL, name, version)
+}
+
+// InstallFrom replays Install's resolve-then-download sequence against an
+// arbitrary Simple API base URL, e.g. a custom registry's configured endpoint.
+func (d PypiDriver) InstallFrom(baseURL, name, version string) ExecResult {
 	res := ExecResult{}
 
-	simple := d.FetchSimple(name)
+	simple := d.FetchSimpleFrom(baseURL, name)
 	res.add(simple.Outcome)
 
 	if f, ok := simple.fileForVersion(name, version); ok {

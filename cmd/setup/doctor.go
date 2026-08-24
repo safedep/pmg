@@ -17,6 +17,7 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/proxy/certmanager"
+	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/pmg/truststore"
 	"github.com/spf13/cobra"
@@ -30,6 +31,7 @@ const (
 	checkShimInPath         = "shim-in-path"
 	checkDependencyCooldown = "dependency-cooldown"
 	checkEventLogging       = "event-logging"
+	checkProxyRegistries    = "proxy-registries"
 	checkSandbox            = "sandbox"
 	checkProtectionNpm      = "protection-npm"
 	checkProtectionPip      = "protection-pip"
@@ -118,7 +120,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Shell Integration",
 			Run: func() doctor.CheckResult {
 				aliasCfg := alias.DefaultConfig()
-				rcFileManager, err := alias.NewDefaultRcFileManager(aliasCfg.RcFileName)
+				rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
 				if err != nil {
 					return doctor.CheckResult{
 						Status:  doctor.StatusWarn,
@@ -202,6 +204,13 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 					Status:  doctor.StatusWarn,
 					Message: "Dependency cooldown is disabled",
 				}
+			},
+		},
+		{
+			Name:     checkProxyRegistries,
+			Category: "Security",
+			Run: func() doctor.CheckResult {
+				return checkProxyRegistriesResult(config.LoadError(), cfg.Config.Proxy.Registries)
 			},
 		},
 		{
@@ -498,6 +507,7 @@ var checkDisplayNames = map[string]string{
 	checkShimInPath:         "Shim in PATH",
 	checkDependencyCooldown: "Dependency cooldown",
 	checkEventLogging:       "Event logging",
+	checkProxyRegistries:    "Custom registries",
 	checkSandbox:            "Sandbox",
 	checkProtectionNpm:      "npm protection",
 	checkProtectionPip:      "pip protection",
@@ -513,6 +523,7 @@ var checkFixes = map[string]string{
 	checkShimInPath:         "Restart shell or source profile",
 	checkSandbox:            "Set sandbox.enabled: true in config",
 	checkDependencyCooldown: "Set dependency_cooldown.enabled: true in config",
+	checkProxyRegistries:    "Fix the proxy.registries entries in the PMG configuration file",
 	checkEventLogging:       "Set skip_event_logging: false in config",
 	checkProtectionNpm:      "pmg setup install",
 	checkProtectionPip:      "pmg setup install",
@@ -606,6 +617,61 @@ func displayName(name string) string {
 		return dn
 	}
 	return name
+}
+
+// checkProxyRegistriesResult reports the state of proxy.registries. A load
+// error fails the check. Installs and proxy start fail closed until the
+// user repairs the config file. A plain-HTTP endpoint gets a warning.
+// Anyone on the network path can read and change that traffic.
+func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistryConfig) doctor.CheckResult {
+	if loadErr != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "proxy.registries is invalid. Installs and proxy start fail closed",
+		}
+	}
+	if len(registries) == 0 {
+		return doctor.CheckResult{
+			Status:  doctor.StatusPass,
+			Message: "No custom registries configured",
+		}
+	}
+
+	// Build the same catalog that proxy startup builds. The check then
+	// fails on everything startup rejects (built-in host overlap, reserved
+	// Go hosts), not only on load-time validation errors.
+	if _, err := interceptors.NewRegistryCatalog(registries); err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("%v. Installs and proxy start fail closed", err),
+		}
+	}
+
+	normalized, err := config.NormalizeProxyRegistries(registries)
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("proxy.registries is invalid: %v", err),
+		}
+	}
+
+	var insecure []string
+	for _, endpoint := range normalized {
+		if endpoint.Scheme == "http" {
+			insecure = append(insecure, endpoint.URL)
+		}
+	}
+	if len(insecure) > 0 {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("%d custom registry endpoint(s) use plain HTTP: %s", len(insecure), strings.Join(insecure, ", ")),
+			Fix:     "Use https:// endpoint URLs where the registry supports TLS",
+		}
+	}
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: fmt.Sprintf("%d custom registry endpoint(s) configured", len(normalized)),
+	}
 }
 
 func fixHint(name string) string {

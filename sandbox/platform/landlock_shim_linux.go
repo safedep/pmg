@@ -17,14 +17,17 @@ import (
 // As uid-0-in-ns with CAP_SYS_ADMIN, it:
 //
 //  1. Loads the serialised landlockExecPolicy from policyFile.
-//  2. Installs the seccomp-notify filter WITHOUT PR_SET_NO_NEW_PRIVS. This is
+//  2. Applies Landlock restrictions. This runs BEFORE the seccomp filter is
+//     installed: populating the ruleset opens every rule path, and the
+//     supervisor would enforce the policy's deny list against the shim
+//     itself, aborting it with EACCES before exec.
+//  3. Installs the seccomp-notify filter WITHOUT PR_SET_NO_NEW_PRIVS. This is
 //     the whole point of the user-ns indirection: without NNP, subsequent
 //     execve(2)s in the target tree do NOT reset the dumpable flag to 0, so
 //     the helper can keep opening /proc/<pid>/mem for descendants and resolve
 //     openat(2) path arguments.
-//  3. Sends the notify fd back to the helper over a socketpair on
+//  4. Sends the notify fd back to the helper over a socketpair on
 //     notifySocketFd (fd number preserved via cmd.ExtraFiles).
-//  4. Applies Landlock restrictions.
 //  5. execve(2)s the target binary. The seccomp filter survives execve
 //     (filters are inherited) and applies to the target and all descendants.
 //
@@ -45,6 +48,22 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: read policy: %w", err)
 	}
 
+	var rules []landlock.Rule
+	for _, r := range policy.FilesystemRules {
+		access := landlockAdjustAccessForPath(r.Path, r.Access)
+		if access == 0 {
+			// A zero-access rule is a no-op; go-landlock errors on it.
+			continue
+		}
+		rules = append(rules, landlock.PathAccess(
+			landlock.AccessFSSet(access), r.Path,
+		).IgnoreIfMissing())
+	}
+	cfg := landlockSelectConfig(policy)
+	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
+		return fmt.Errorf("shim: landlock restrict: %w", err)
+	}
+
 	syscalls := landlockNotifySyscalls(policy.Network, len(policy.DenyPaths) > 0)
 	notifyFd, err := shimInstallSeccomp(syscalls)
 	if err != nil {
@@ -58,18 +77,6 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	// shared file description.
 	_ = unix.Close(notifyFd)
 	_ = unix.Close(notifySocketFd)
-
-	var rules []landlock.Rule
-	for _, r := range policy.FilesystemRules {
-		access := landlockAdjustAccessForPath(r.Path, r.Access)
-		rules = append(rules, landlock.PathAccess(
-			landlock.AccessFSSet(access), r.Path,
-		).IgnoreIfMissing())
-	}
-	cfg := landlockSelectConfig(policy)
-	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
-		return fmt.Errorf("shim: landlock restrict: %w", err)
-	}
 
 	target := args[0]
 	env := os.Environ()

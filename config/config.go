@@ -35,6 +35,9 @@ const (
 	// Allow overriding the cache path from the environment
 	pmgCacheDirEnvKey = "PMG_CACHE_DIR"
 
+	// XDG base directory for user-specific data files on Linux
+	xdgDataHomeEnvKey = "XDG_DATA_HOME"
+
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
 	pmgDefaultHomeRelativePath = "safedep/pmg"
@@ -165,9 +168,10 @@ type CloudAutoSyncConfig struct {
 }
 
 type ProxyConfig struct {
-	InstallOnly  bool                `mapstructure:"install_only"`
-	SkipCommands map[string][]string `mapstructure:"skip_commands"`
-	Server       ProxyServerConfig   `mapstructure:"server"`
+	InstallOnly  bool                  `mapstructure:"install_only"`
+	SkipCommands map[string][]string   `mapstructure:"skip_commands"`
+	Server       ProxyServerConfig     `mapstructure:"server"`
+	Registries   []ProxyRegistryConfig `mapstructure:"registries"`
 }
 
 // ProxyServerConfig configures the persistent proxy server (`pmg proxy start`).
@@ -603,21 +607,58 @@ func initConfig() {
 		globalConfig.InsecureInstallation = false
 	}
 
-	loadConfig()
+	configLoadErr = loadConfig()
 
 	if err := preprocessPackageRefs(&globalConfig.Config); err != nil {
 		log.Warnf("Failed to preprocess package refs: %v", err)
 	}
 }
 
+// configLoadErr holds the fail-closed error from the last loadConfig call,
+// if any, exposed via LoadError so the CLI can abort before running.
+var configLoadErr error
+
+// LoadError returns the error that made configuration loading fail closed,
+// or nil. Only an invalid proxy.registries entry sets this, since falling
+// back to defaults would silently drop the user's custom-registry
+// protections; every other load failure still warns and continues.
+func LoadError() error {
+	return configLoadErr
+}
+
+func NewInvalidProxyRegistriesError(err error) error {
+	detail := err
+	var registriesErr *ProxyRegistriesError
+	if errors.As(err, &registriesErr) {
+		detail = registriesErr.Unwrap()
+	}
+
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.InvalidProxyRegistries).
+		WithHumanError(fmt.Sprintf("invalid proxy registries configuration: %v", detail)).
+		WithHelp("Fix the proxy.registries entries in your PMG configuration file, then retry.").
+		Wrap(err)
+}
+
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
-// Right now we only support loading from a config file using Viper. If loading
-// fails, the default configuration is used and a warning is logged.
-func loadConfig() {
-	if err := loadViperConfig(); err != nil {
-		log.Warnf("Failed to load config, using defaults: %v", err)
+// Right now we only support loading from a config file using Viper. An
+// invalid proxy.registries entry fails closed, since falling back to
+// defaults would silently drop the configured protection. Every other
+// load failure falls back to defaults with a warning.
+func loadConfig() error {
+	err := loadViperConfig()
+	if err == nil {
+		return nil
 	}
+
+	var registriesErr *ProxyRegistriesError
+	if errors.As(err, &registriesErr) {
+		return NewInvalidProxyRegistriesError(err)
+	}
+
+	log.Warnf("Failed to load config, using defaults: %v", err)
+	return nil
 }
 
 // configGeteuid is overridable in tests to exercise root path resolution
@@ -666,10 +707,44 @@ func rootCacheDir() (string, error) {
 	return filepath.Join(home, ".cache"), nil
 }
 
+// UserHomeDir returns the home directory pmg should treat as the current
+// user's. It applies the same sudo guard as configDir: under sudo the passwd
+// home of root wins over a HOME preserved from the invoking user, so an
+// elevated run never reads or writes that user's dotfiles. Callers resolving
+// paths that sit alongside the config directory must use this rather than
+// os.UserHomeDir, otherwise the two can disagree under sudo.
+func UserHomeDir() (string, error) {
+	if isSudoElevation() {
+		if home, err := rootHomeDirResolver(); err == nil {
+			return home, nil
+		} else {
+			// Same fallback rationale as configDir.
+			log.Warnf("failed to resolve root home, using environment: %v", err)
+		}
+	}
+
+	return os.UserHomeDir()
+}
+
+// rootDataDir mirrors userDataBaseDir platform conventions for root's passwd
+// home.
+func rootDataDir() (string, error) {
+	home, err := rootHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support"), nil
+	}
+	return filepath.Join(home, ".local", "share"), nil
+}
+
 // Overridable in tests to exercise the passwd-unavailable fallback.
 var (
 	rootConfigDirResolver = rootConfigDir
 	rootCacheDirResolver  = rootCacheDir
+	rootDataDirResolver   = rootDataDir
+	rootHomeDirResolver   = rootHomeDir
 )
 
 // currentUserHomeDir returns the current user's home from the passwd
@@ -907,6 +982,60 @@ func cacheDir() (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
+}
+
+// UserDataDir returns the per-user directory for pmg data that is neither
+// config nor regenerable cache, such as the shim scripts installed by
+// `pmg setup install`. Linux follows XDG_DATA_HOME; macOS and Windows have no
+// separate data location, so they reuse the config convention.
+func UserDataDir() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		baseDir := os.Getenv("LOCALAPPDATA")
+		if baseDir == "" {
+			baseDir = os.Getenv("USERPROFILE")
+			if baseDir == "" {
+				return "", fmt.Errorf("could not determine Windows user directory for data storage")
+			}
+		}
+		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
+	case "darwin", "linux":
+		if isSudoElevation() {
+			if base, err := rootDataDirResolver(); err == nil {
+				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+			} else {
+				// Same fallback rationale as configDir.
+				log.Warnf("failed to resolve root home for data dir, using environment: %v", err)
+			}
+		}
+
+		return userDataBaseDir()
+	default:
+		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+// userDataBaseDir mirrors os.UserConfigDir for data: XDG_DATA_HOME on Linux,
+// ~/Library/Application Support on macOS.
+func userDataBaseDir() (string, error) {
+	if runtime.GOOS == "darwin" {
+		userConfigDir, err := os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to retrieve user data directory: %w", err)
+		}
+		return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
+	}
+
+	base := os.Getenv(xdgDataHomeEnvKey)
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to retrieve user home directory: %w", err)
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+
+	return filepath.Join(base, pmgDefaultHomeRelativePath), nil
 }
 
 // sandboxProfileDir computes the path to the sandbox profile directory.

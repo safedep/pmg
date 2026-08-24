@@ -156,3 +156,76 @@ func TestCheckEventLogDirResult(t *testing.T) {
 		assert.Equal(t, expectedFix, result.Fix)
 	})
 }
+
+func TestCheckProxyRegistriesResult(t *testing.T) {
+	httpsRegistry := config.ProxyRegistryConfig{
+		Name:      "company-npm",
+		Ecosystem: config.ProxyRegistryEcosystemNpm,
+		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://packages.test/npm"}},
+	}
+	httpRegistry := config.ProxyRegistryConfig{
+		Name:      "plain-npm",
+		Ecosystem: config.ProxyRegistryEcosystemNpm,
+		Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "http://plain.test/npm"}},
+	}
+
+	tests := []struct {
+		name        string
+		loadErr     error
+		registries  []config.ProxyRegistryConfig
+		wantStatus  doctor.CheckStatus
+		wantMessage string
+	}{
+		{
+			name:        "load error fails",
+			loadErr:     assert.AnError,
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "fail closed",
+		},
+		{
+			name:        "no registries passes",
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "No custom registries",
+		},
+		{
+			name:        "https endpoints pass",
+			registries:  []config.ProxyRegistryConfig{httpsRegistry},
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "1 custom registry endpoint(s) configured",
+		},
+		{
+			name:        "plain http endpoint warns",
+			registries:  []config.ProxyRegistryConfig{httpsRegistry, httpRegistry},
+			wantStatus:  doctor.StatusWarn,
+			wantMessage: "http://plain.test/npm",
+		},
+		{
+			name: "endpoint on a built-in host fails like proxy startup",
+			registries: []config.ProxyRegistryConfig{{
+				Name:      "shadow-npm",
+				Ecosystem: config.ProxyRegistryEcosystemNpm,
+				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://registry.npmjs.org/npm-virtual"}},
+			}},
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "covered by the built-in",
+		},
+		{
+			name: "endpoint on a reserved go host fails like proxy startup",
+			registries: []config.ProxyRegistryConfig{{
+				Name:      "go-shadow",
+				Ecosystem: config.ProxyRegistryEcosystemNpm,
+				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://sum.golang.org/npm"}},
+			}},
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "reserved for PMG's built-in Go module handling",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkProxyRegistriesResult(tt.loadErr, tt.registries)
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.Contains(t, result.Message, tt.wantMessage)
+		})
+	}
+}
