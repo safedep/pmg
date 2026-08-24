@@ -124,6 +124,18 @@ reset_wrapper_captures() {
   done
 }
 
+# Assert that the uninstaller removed every per-user artifact for the given
+# home. It mirrors remove_user_state in pmg_uninstall_macos.sh. This makes the
+# end-of-scenario teardown a real reset boundary, not an assumed one.
+assert_user_state_removed() {
+  local home="$1"
+  assert_absent "${home}/Library/Application Support/safedep/pmg"
+  assert_absent "${home}/Library/Caches/safedep/pmg"
+  assert_absent "${home}/.pmg"
+  assert_absent "${home}/.pmg.rc"
+  assert_absent "${home}/.local/bin/pmg"
+}
+
 assert_login_recorded() {
   assert_equals $'cloud\nlogin\n--from-env' "$(cat "$LOGIN_ARGS")" \
     "cloud login argv"
@@ -178,7 +190,7 @@ assert_uninstalled() {
   assert_absent /usr/local/bin/pmg
   assert_absent /opt/homebrew/bin/pmg
   assert_absent "$GLOBAL_CONFIG"
-  assert_absent "$USER_CONFIG"
+  assert_user_state_removed "$HOME"
 }
 
 require_e2e_preconditions() {

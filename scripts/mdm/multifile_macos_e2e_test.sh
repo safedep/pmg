@@ -112,7 +112,7 @@ test_multifile_multi_user_install() {
 
   run_uninstaller "$UNINSTALLER"
   assert_logout_recorded
-  assert_absent "$E2E_USER_CONFIG"
+  assert_user_state_removed "$E2E_USER_HOME"
   assert_no_unexpected_cloud
   assert_uninstalled
 
