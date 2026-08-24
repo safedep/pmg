@@ -206,23 +206,32 @@ Run these checks from `scripts/mdm/`:
 ```sh
 bash ./generate_standalone_scripts_test.sh
 bash ./pmg_setup_install_macos_test.sh
+bash ./non_macos_guard_test.sh
 bash ./generate_standalone_scripts.sh --check
 shellcheck -x -P SCRIPTDIR \
   lib_macos.sh \
+  e2e_lib_macos.sh \
   pmg_setup_install_macos.sh \
   pmg_uninstall_macos.sh \
   generate_standalone_scripts.sh \
   generate_standalone_scripts_test.sh \
   pmg_setup_install_macos_test.sh \
+  non_macos_guard_test.sh \
   standalone_macos_e2e_test.sh \
+  multifile_macos_e2e_test.sh \
   standalone/pmg_setup_install_macos_standalone.sh \
   standalone/pmg_uninstall_macos_standalone.sh
 ```
 
-**Warning:** The standalone end-to-end test removes PMG state and temporarily renames Homebrew binaries.
+`non_macos_guard_test.sh` verifies that the scripts refuse to run on a non-macOS host. It skips on macOS.
 
-Run it only on a disposable macOS CI runner with passwordless `sudo`. The script rejects runs without both guards:
+**Warning:** The end-to-end tests remove PMG state. The standalone test temporarily renames Homebrew binaries. The multifile test creates and deletes a local user account.
+
+Run them only on a disposable macOS CI runner with passwordless `sudo`. Both scripts reject runs without both guards:
 
 ```sh
 CI=true PMG_MDM_E2E=1 bash ./standalone_macos_e2e_test.sh
+CI=true PMG_MDM_E2E=1 bash ./multifile_macos_e2e_test.sh
 ```
+
+The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `e2e_lib_macos.sh`.
