@@ -91,53 +91,6 @@ The installer consumes `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` at runtime. The
 | `PMG_CACHE_DIR` | Override the cache directory location (uninstall cleanup honors it) |
 | `PMG_KEEP_GLOBAL_CONFIG` | Uninstall only: when set, keep the globally managed config instead of removing it |
 
-## Standalone scripts (single-script MDM policies)
-
-Some MDMs accept only one shell script per policy, so use the prebuilt single-file scripts in [`standalone/`](standalone/):
-
-- `pmg_setup_install_macos_standalone.sh`
-- `pmg_uninstall_macos_standalone.sh`
-
-They contain no tenant config or cloud credentials, and are smaller than 1 MB (Intune's limit).
-
-### Config only
-
-Regenerate the installer with the managed config embedded:
-
-```sh
-./generate_standalone_scripts.sh \
-  --config /path/to/config.yml \
-  --output-dir /path/to/pmg-intune
-```
-
-The uninstaller never contains the embedded config.
-
-### Cloud credentials
-
-Single-script MDMs (like Intune) have no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables. Set them however you manage secrets (shell, CI, secrets manager):
-
-```sh
-SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
-  ./generate_standalone_scripts.sh \
-  --embed-cloud-credentials \
-  --output-dir /path/to/pmg-intune
-```
-
-With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: true` in it) to the same command.
-
-**Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. Use a scoped and revocable API key, and never commit the generated artifacts.
-
-The credential installer has mode `0700`. The uninstaller has no embedded credentials.
-
-### Intune example
-
-Create two shell-script policies ([Microsoft's procedure](https://learn.microsoft.com/en-us/intune/device-management/tools/run-shell-scripts-macos)):
-
-1. **Install policy**: upload `pmg_setup_install_macos_standalone.sh`, set **Run script as signed-in user** to **No**.
-2. **Uninstall policy**: upload `pmg_uninstall_macos_standalone.sh`, same setting.
-3. Assign to the device group. Do not assign both policies concurrently.
-
-Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip, so neither causes a nonzero exit for Intune retries.
 ## Jamf example
 
 Upload the `mdm/` folder as a script payload, or a package that drops the three files together, then invoke the entry script. Jamf runs scripts as root, which covers fleet-wide, multi-user deployment:
@@ -189,6 +142,54 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
    ```
 
 3. Assign the Command to the same device group and run it.
+
+## Standalone scripts (single-script MDM policies)
+
+Some MDMs accept only one shell script per policy, so use the prebuilt single-file scripts in [`standalone/`](standalone/):
+
+- `pmg_setup_install_macos_standalone.sh`
+- `pmg_uninstall_macos_standalone.sh`
+
+They contain no tenant config or cloud credentials, and are smaller than 1 MB (Intune's limit).
+
+### Config only
+
+Regenerate the installer with the managed config embedded:
+
+```sh
+./generate_standalone_scripts.sh \
+  --config /path/to/config.yml \
+  --output-dir /path/to/pmg-intune
+```
+
+The uninstaller never contains the embedded config.
+
+### Cloud credentials
+
+Single-script MDMs (like Intune) have no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables. Set them however you manage secrets (shell, CI, secrets manager):
+
+```sh
+SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
+  ./generate_standalone_scripts.sh \
+  --embed-cloud-credentials \
+  --output-dir /path/to/pmg-intune
+```
+
+With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: true` in it) to the same command.
+
+**Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. Use a scoped and revocable API key, and never commit the generated artifacts.
+
+The credential installer has mode `0700`. The uninstaller has no embedded credentials.
+
+### Intune example
+
+Create two shell-script policies ([Microsoft's procedure](https://learn.microsoft.com/en-us/intune/device-management/tools/run-shell-scripts-macos)):
+
+1. **Install policy**: upload `pmg_setup_install_macos_standalone.sh`, set **Run script as signed-in user** to **No**.
+2. **Uninstall policy**: upload `pmg_uninstall_macos_standalone.sh`, same setting.
+3. Assign to the device group. Do not assign both policies concurrently.
+
+Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip, so neither causes a nonzero exit for Intune retries.
 
 ## Limitations
 
