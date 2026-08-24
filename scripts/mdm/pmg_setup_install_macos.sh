@@ -65,6 +65,9 @@ load_embedded_cloud_credentials || exit 1
 install_via_brew() {
   local brew_bin="$1"
   log "Installing/updating pmg via Homebrew"
+  # Homebrew 6+ refuses to load items from untrusted taps. Trust the pmg cask
+  # (item-scoped, idempotent) so ls/upgrade/install work on fresh machines.
+  run_brew "$brew_bin" trust --cask safedep/tap/pmg || true
   # Remove a legacy formula install (pmg was a formula before the tap migrated
   # it to a cask) so its binary link does not conflict with the cask install.
   if run_brew "$brew_bin" ls --versions pmg &>/dev/null; then
@@ -74,7 +77,7 @@ install_via_brew() {
   if run_brew "$brew_bin" ls --cask --versions pmg &>/dev/null; then
     run_brew "$brew_bin" upgrade --cask safedep/tap/pmg || true
   else
-    run_brew "$brew_bin" install --cask safedep/tap/pmg
+    run_brew "$brew_bin" install safedep/tap/pmg
   fi
 }
 

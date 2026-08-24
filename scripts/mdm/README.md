@@ -193,6 +193,7 @@ Only the active GUI user can receive Keychain credentials during a run. Use a re
 
 ## Limitations
 
+- The scripts run `brew trust --cask safedep/tap/pmg` before brew operations. Homebrew 6+ refuses to load items from untrusted taps, and versioned casks like `pmg@edge` cannot self-trust through a fully qualified install. The trust is item-scoped, not whole-tap.
 - Installing PMG's MITM CA into the trust store (`pmg setup cert install`) is not supported via MDM on macOS. Adding a trusted root to the login keychain requires interactive authorization from the user's GUI session, which an MDM deployment cannot supply. Have each user run `pmg setup cert install` in their own session when they need it (only needed for tools that ignore the proxy's CA environment variables, such as Go on macOS).
 - The scripts can access only the active GUI user's Keychain. Inactive users' credentials remain. Complete their manual logout before the policy removes PMG.
 - Machine-scope steps under a non-root invocation need `sudo`. Without passwordless sudo in a non-interactive context, they fail with an error instead of hanging.

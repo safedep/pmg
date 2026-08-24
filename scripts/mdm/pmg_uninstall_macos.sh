@@ -50,6 +50,9 @@ done < <(each_target_user)
 remove_binary() {
   local brew_bin
   if brew_bin=$(find_brew); then
+    # Homebrew 6+ refuses to load items from untrusted taps. Trust the pmg
+    # cask (item-scoped, idempotent) so ls/uninstall work on fresh machines.
+    run_brew "$brew_bin" trust --cask safedep/tap/pmg || true
     # Remove a legacy formula install (pmg was a formula before the tap
     # migrated it to a cask); skipping it leaves a broken brew state behind.
     if run_brew "$brew_bin" ls --versions pmg &>/dev/null; then
