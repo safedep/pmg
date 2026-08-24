@@ -1,0 +1,12 @@
+# guarantee: a clean Go module fetch passes analysis and succeeds through the Go
+# interceptor. go get resolves the module through the pmg proxy and records it in
+# go.mod.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+mkdir $WORK/proj
+cd $WORK/proj
+
+exec go mod init example.com/pmg-acceptance
+exec pmg go get github.com/google/uuid@v1.6.0
+grep github.com/google/uuid go.mod

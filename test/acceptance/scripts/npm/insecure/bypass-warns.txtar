@@ -1,0 +1,12 @@
+# guarantee: turning protection off is always loud. With PMG_INSECURE_INSTALLATION
+# set, a known-malicious package installs (the block is bypassed), but pmg prints
+# a clear "protection bypassed" warning so the user knows analysis was skipped.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+env PMG_INSECURE_INSTALLATION=true
+exec pmg npm init -y
+exec pmg npm --no-cache --prefer-online install safedep-test-pkg@0.1.3
+stdout 'protection bypassed'
+exists node_modules/safedep-test-pkg

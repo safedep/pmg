@@ -67,6 +67,28 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+
+      - name: Install pipx
+        run: |
+          python3 -m pip install --upgrade pipx
+          pipx --version
+
       - name: Build PMG
         run: make
 
