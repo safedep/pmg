@@ -1,0 +1,125 @@
+name: cargo
+description: Sandbox policy for the Rust crates ecosystem (cargo command)
+package_managers:
+  - cargo
+
+# cargo run executes the built program in the foreground. The program may
+# need a TTY.
+allow_pty: true
+
+# Allow localhost-only listening, the same as go/npx/uvx. cargo test
+# commonly binds local test servers. cargo run workloads often serve
+# locally. This setting does not change non-localhost binds or outbound
+# traffic.
+allow_network_bind: true
+
+# The sandbox denies all non-loopback outbound traffic. Only the PMG
+# proxy's port is reachable. Loopback-to-loopback connects are also allowed
+# because this profile sets allow_network_bind. This is the main
+# containment for build scripts (build.rs) and proc macros. They run
+# arbitrary code at build time. Per-host control happens at the proxy.
+# Direct DNS is disabled because the proxy resolves names. This setting
+# requires the proxy flow. pmg fails closed when the proxy is not running.
+network_via_proxy_only: true
+
+# .git/config stays blocked (default). Some build scripts embed VCS
+# information with git. When git fails on the blocked config, set
+# allow_git_config: true in a custom profile.
+
+filesystem:
+  allow_read:
+    # Root read is required for toolchain discovery. rustc and cargo can
+    # live anywhere (rustup, distro packages, Homebrew, asdf). This is safe
+    # because deny rules have higher precedence. Mandatory deny patterns
+    # block dangerous files (.env, .ssh, .aws, .gnupg, and more).
+    - /
+    - ${CWD}/**
+    - ${HOME}/.cargo/**
+    - ${HOME}/.rustup/**
+
+  allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: On macOS, /tmp is a symlink to /private/tmp, so we need both
+    - /tmp/**
+    - /private/tmp/**
+    - /var/tmp/**
+    # cargo writes build output, the target directory, and Cargo.lock
+    # anywhere in the project. Mandatory deny patterns keep credential
+    # files inside the project blocked.
+    - ${CWD}/**
+    # Default CARGO_HOME. It holds the registry cache and index, git
+    # checkouts, and the cargo install target (bin).
+    - ${HOME}/.cargo/**
+    # Default RUSTUP_HOME. The rustup shim auto-installs toolchains here on
+    # first use (for example, a rust-toolchain.toml pin).
+    - ${HOME}/.rustup/**
+
+  deny_read: []
+
+  deny_write:
+    # Additional system directories to protect
+    - /etc/**
+    - /usr/**
+
+network:
+  # These hosts document the default crates.io endpoints. They are the
+  # future input to proxy-level per-host policy. They are NOT
+  # kernel-enforced. With network_via_proxy_only, the sandbox denies all
+  # non-loopback outbound traffic. The proxy controls registry traffic.
+  allow_outbound:
+    - index.crates.io:443
+    - static.crates.io:443
+    - crates.io:443
+
+  deny_outbound:
+    - "*:*"
+
+environment:
+  # Rust toolchain variables (CARGO_*, RUSTUP_*, RUSTFLAGS, CC, CXX) and
+  # the PMG-injected proxy and cert variables are not on the
+  # DANGEROUS_ENV_VARS scrub list. They pass through without an allow
+  # entry. CARGO_REGISTRY_TOKEN and CARGO_REGISTRIES_*_TOKEN ARE scrubbed.
+  # This profile does not re-allow them because build scripts have no
+  # business reading a publish token. Re-allow them in a custom profile
+  # when you run `cargo publish` under pmg.
+  allow: []
+
+process:
+  allow_exec:
+    # Rust toolchain: rustup shims, rustup-managed toolchains, distro
+    # packages, Homebrew
+    - ${HOME}/.cargo/bin/**
+    - ${HOME}/.rustup/toolchains/**
+    - /usr/local/bin/cargo
+    - /usr/local/bin/rustc
+    - /usr/bin/cargo
+    - /usr/bin/rustc
+    - /usr/lib/rust*/**
+    - /opt/homebrew/bin/cargo
+    - /opt/homebrew/bin/rustc
+    - /opt/homebrew/Cellar/rust/**
+    - /opt/homebrew/Cellar/rustup/**
+    # Version manager shims (e.g., asdf)
+    - ${HOME}/.asdf/shims/cargo
+    - ${HOME}/.asdf/shims/rustc
+    # Build scripts and test/run binaries execute from the target directory
+    # and from per-build temp work directories
+    - ${CWD}/target/**
+    - /tmp/**
+    - ${TMPDIR}/**
+    # rustc and build scripts invoke the linker and the cc crate toolchain.
+    # Some build scripts invoke git for VCS stamping.
+    - /usr/bin/gcc
+    - /usr/bin/clang
+    - /usr/bin/cc
+    - /usr/bin/ld
+    - /usr/bin/git
+    - /usr/local/bin/git
+    # Required for shims (e.g., asdf) that use #!/usr/bin/env bash
+    - /bin/bash
+    - /bin/sh
+    - /usr/bin/env
+
+  deny_exec:
+    - /usr/bin/curl
+    - /usr/bin/wget

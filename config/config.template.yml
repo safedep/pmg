@@ -193,6 +193,13 @@ sandbox:
       enabled: true
       profile: go
 
+    # Rust ecosystem (experimental). The cargo command is opt-in. It runs only
+    # when you invoke it as `pmg cargo ...`. The sandbox contains build
+    # scripts (build.rs) and proc macros. They run at build time.
+    cargo:
+      enabled: true
+      profile: cargo
+
 # Dependency cooldown blocks installation of package versions published within
 # a configurable time window.
 dependency_cooldown:

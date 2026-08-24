@@ -93,10 +93,13 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatal
 }
 
 func newBuiltInRegistryCatalog() *RegistryCatalog {
-	byEcosystem := make(map[packagev1.Ecosystem]registrySet, len(proxyEcosystems))
+	byEcosystem := make(map[packagev1.Ecosystem]registrySet, len(proxyEcosystems)+1)
 	for _, spec := range proxyEcosystems {
 		byEcosystem[spec.proto] = registrySet{entries: append([]registryEndpoint(nil), spec.builtIns...)}
 	}
+	// Cargo has built-in endpoints only. proxy.registries does not support
+	// custom cargo registries yet, so cargo is not in the spec table.
+	byEcosystem[packagev1.Ecosystem_ECOSYSTEM_CARGO] = registrySet{entries: append([]registryEndpoint(nil), cargoRegistryEndpoints...)}
 	return &RegistryCatalog{byEcosystem: byEcosystem}
 }
 

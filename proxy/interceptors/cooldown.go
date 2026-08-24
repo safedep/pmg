@@ -11,7 +11,19 @@ import (
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy"
 )
+
+// cooldownPackageVersion builds the PackageVersion used in cooldown audit
+// events and stats.
+func cooldownPackageVersion(ecosystem packagev1.Ecosystem, name, version string) *packagev1.PackageVersion {
+	pv := &packagev1.PackageVersion{}
+	pv.SetPackage(&packagev1.Package{})
+	pv.GetPackage().SetName(name)
+	pv.GetPackage().SetEcosystem(ecosystem)
+	pv.SetVersion(version)
+	return pv
+}
 
 // forceUncompressedNonConditionalResponse makes the upstream response
 // always a fresh, uncompressed body: a response modifier gets raw bytes
@@ -21,6 +33,70 @@ func forceUncompressedNonConditionalResponse(headers http.Header) {
 	headers.Set("Accept-Encoding", "identity")
 	headers.Del("If-None-Match")
 	headers.Del("If-Modified-Since")
+}
+
+// cooldownFetchClient fetches publish-time metadata out-of-band, straight to
+// the upstream registry rather than back through PMG's own in-process proxy
+// (which would re-intercept the request). It honors the process' own proxy
+// environment, not the child's injected one.
+var cooldownFetchClient = &http.Client{Timeout: 10 * time.Second}
+
+// cooldownCheckDownload runs the download-time cooldown gate shared by
+// ecosystems that enforce at download rather than by metadata stripping alone.
+// publishTime resolves the version's publish time (cache lookup plus any
+// out-of-band fetch); when it fails, cooldown fails open — malware analysis
+// still runs. handled=false lets the request continue to analysis.
+func cooldownCheckDownload(
+	ctx *proxy.RequestContext,
+	ecosystem packagev1.Ecosystem,
+	name, version string,
+	cooldownDays int,
+	statsCollector *AnalysisStatsCollector,
+	publishTime func() (time.Time, bool),
+) (*proxy.InterceptorResponse, bool) {
+	skip := pmgconfig.CooldownSkip(ecosystem, name)
+	if skip.SkipAll || pmgconfig.IsTrustedPackageRef(ecosystem, name, version) {
+		return nil, false
+	}
+
+	published, ok := publishTime()
+	if !ok {
+		log.Warnf("[%s] Cooldown: no publish time available for %s@%s; cooldown not enforced for this download", ctx.RequestID, name, version)
+		return nil, false
+	}
+
+	within, daysAgo, daysLeft := cooldownIsWithinWindow(published, cooldownDays)
+	if !within {
+		return nil, false
+	}
+
+	if skip.ExemptsVersion(version) {
+		auditCooldownSkips(ctx.RequestID, ecosystem, name, cooldownExemptions{skipListed: []string{version}})
+		return nil, false
+	}
+
+	log.Infof("[%s] Cooldown: blocking %s@%s published %d day(s) ago (%d day cooldown, %d remaining)",
+		ctx.RequestID, name, version, daysAgo, cooldownDays, daysLeft)
+
+	if statsCollector != nil {
+		statsCollector.RecordCooldownBlocked(name, version, published, daysAgo, daysLeft, cooldownDays)
+	}
+
+	audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, name, version), published, cooldownDays, daysAgo, daysLeft)
+
+	return &proxy.InterceptorResponse{
+		Action:      proxy.ActionBlock,
+		BlockCode:   http.StatusForbidden,
+		BlockReason: proxy.BlockReasonDependencyCooldown,
+		BlockContext: &proxy.BlockContext{
+			Ecosystem:        ecosystem,
+			PackageName:      name,
+			PackageVersion:   version,
+			CooldownDays:     cooldownDays,
+			CooldownDaysAgo:  daysAgo,
+			CooldownDaysLeft: daysLeft,
+		},
+	}, true
 }
 
 // cooldownExemptions describes the in-window versions that survive cooldown
@@ -69,13 +145,7 @@ func cooldownExemptVersions(ecosystem packagev1.Ecosystem, name string, skip pmg
 func auditCooldownSkips(requestID string, ecosystem packagev1.Ecosystem, name string, exempt cooldownExemptions) {
 	for _, version := range exempt.skipListed {
 		log.Infof("[%s] Cooldown: %s@%s exempt by %s", requestID, name, version, audit.CooldownSkipReason)
-
-		pv := &packagev1.PackageVersion{}
-		pv.SetPackage(&packagev1.Package{})
-		pv.GetPackage().SetName(name)
-		pv.GetPackage().SetEcosystem(ecosystem)
-		pv.SetVersion(version)
-		audit.LogCooldownSkipped(pv)
+		audit.LogCooldownSkipped(cooldownPackageVersion(ecosystem, name, version))
 	}
 }
 
@@ -122,13 +192,7 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 
 	logCooldown := func(version string, publishDate time.Time, daysAgo, daysLeft int) {
 		statsCollector.RecordCooldownBlocked(packageName, version, publishDate, daysAgo, daysLeft, cooldownDays)
-
-		pv := &packagev1.PackageVersion{}
-		pv.SetPackage(&packagev1.Package{})
-		pv.GetPackage().SetName(packageName)
-		pv.GetPackage().SetEcosystem(ecosystem)
-		pv.SetVersion(version)
-		audit.LogDependencyCooldown(pv, publishDate, cooldownDays, daysAgo, daysLeft)
+		audit.LogDependencyCooldown(cooldownPackageVersion(ecosystem, packageName, version), publishDate, cooldownDays, daysAgo, daysLeft)
 	}
 
 	if remaining == 0 {
