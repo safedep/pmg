@@ -26,6 +26,18 @@ E2E_USER_CONFIG="${E2E_USER_HOME}/Library/Application Support/safedep/pmg/config
 
 create_pmg_wrapper
 
+# macOS creates new home directories with mode 0700, so the runner user cannot
+# stat files inside the second user's home. Check those paths as root.
+assert_root_file() {
+  sudo -n test -f "$1" || fail "missing file: $1"
+}
+
+assert_root_absent() {
+  if sudo -n test -e "$1" || sudo -n test -L "$1"; then
+    fail "path still exists: $1"
+  fi
+}
+
 cleanup() {
   set +e
   sudo -n sysadminctl -deleteUser "$E2E_USER" >/dev/null 2>&1
@@ -104,8 +116,8 @@ test_multifile_multi_user_install() {
 
   pmg_bin=$(installed_pmg) || fail "multifile installer did not install pmg"
   assert_file "$USER_CONFIG"
-  assert_file "$E2E_USER_CONFIG"
-  assert_equals "$E2E_USER" "$(stat -f '%Su' "$E2E_USER_CONFIG")" \
+  assert_root_file "$E2E_USER_CONFIG"
+  assert_equals "$E2E_USER" "$(sudo -n stat -f '%Su' "$E2E_USER_CONFIG")" \
     "second user config owner"
   assert_equals "true" "$("$pmg_bin" config get cloud.enabled)" \
     "cloud configuration"
@@ -119,7 +131,7 @@ test_multifile_multi_user_install() {
   assert_file "$LOGOUT_ARGS"
   assert_equals $'cloud\nlogout' "$(cat "$LOGOUT_ARGS")" \
     "cloud logout argv"
-  assert_absent "$E2E_USER_CONFIG"
+  assert_root_absent "$E2E_USER_CONFIG"
   assert_absent "$UNEXPECTED_CLOUD"
   assert_uninstalled
 
