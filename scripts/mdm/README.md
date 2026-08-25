@@ -266,6 +266,9 @@ Run them only on a disposable CI runner with passwordless `sudo`. Both scripts r
 ```sh
 CI=true PMG_MDM_E2E=1 bash ./standalone_macos_e2e_test.sh
 CI=true PMG_MDM_E2E=1 bash ./multifile_macos_e2e_test.sh
+
+CI=true PMG_MDM_E2E=1 bash ./standalone_linux_e2e_test.sh
+CI=true PMG_MDM_E2E=1 bash ./multifile_linux_e2e_test.sh
 ```
 
 The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `e2e_lib_macos.sh`.
