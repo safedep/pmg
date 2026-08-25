@@ -157,6 +157,14 @@ EOF
     base64 | tr -d '\r\n'
   }
 
+  decode_base64() {
+    if printf '' | base64 --decode >/dev/null 2>&1; then
+      base64 --decode
+    else
+      base64 -D
+    fi
+  }
+
   run_credential_runtime() {
     local runtime_api_key="$1"
     local runtime_tenant_id="$2"
@@ -173,6 +181,25 @@ EOF
       # Stub uname so require_<os> passes on any host.
       uname() { printf '%s\n' "$os_uname"; }
       export -f uname
+
+      # Stub /usr/bin/base64 so the macOS installer works on GNU/Linux.
+      local shim_dir="${TEST_ROOT}/base64-shim"
+      mkdir -p "$shim_dir"
+      cat > "${shim_dir}/base64" <<'SHIM'
+#!/bin/bash
+if [[ "$1" == "-D" ]]; then
+  shift
+  if printf '' | base64 --decode >/dev/null 2>&1; then
+    base64 --decode
+  else
+    base64 -D
+  fi
+else
+  command base64 "$@"
+fi
+SHIM
+      chmod 0755 "${shim_dir}/base64"
+      PATH="${shim_dir}:${PATH}"
 
       source "$CREDENTIAL_RUNTIME"
 
