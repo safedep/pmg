@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -320,7 +321,14 @@ func (m *registryRequestMatcher) ShouldIntercept(ctx *proxy.RequestContext) bool
 // registry read-path flow.
 type registryRequestHandler interface {
 	handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error)
-	handleMetadataRequest(ctx *proxy.RequestContext, pkgInfo packageInfo) (*proxy.InterceptorResponse, error)
+	handleMetadataRequest(ctx *proxy.RequestContext, endpoint *registryEndpoint, pkgInfo packageInfo, requestURL *url.URL) (*proxy.InterceptorResponse, error)
+}
+
+// artifactDiscoverer is the optional half of registryRequestHandler. npm and
+// pypi implement it to resolve opaque download URLs from a registry-scoped
+// index that metadata responses populate. Cargo does not implement it.
+type artifactDiscoverer interface {
+	resolveIndexedArtifact(registryName string, requestURL *url.URL) (artifactIdentity, bool)
 }
 
 // handleRegistryRequest is the shared registry request flow: match the
@@ -356,10 +364,25 @@ func handleRegistryRequest(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
+	requestURL := registryAbsoluteRequestURL(ctx)
+
 	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
 
 	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
+		// Canonical parsing is authoritative and must never be overridden by
+		// metadata discovery, or a compromised registry could get a
+		// malicious artifact analyzed under a different, safe identity.
 		return handler.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+	}
+
+	// Canonical parsing failed or the path carries no complete identity.
+	// Fall back to the registry-scoped artifact index for ecosystems that
+	// support discovery. Built-in registries have an empty name and never
+	// index, so they never match here.
+	if discoverer, ok := handler.(artifactDiscoverer); ok {
+		if identity, ok := discoverer.resolveIndexedArtifact(endpoint.Name, requestURL); ok {
+			return handler.handleArtifact(ctx, identity.Name, identity.Version)
+		}
 	}
 
 	if parseErr != nil {
@@ -368,12 +391,12 @@ func handleRegistryRequest(
 	}
 
 	if !pkgInfo.IsFileDownload() {
-		return handler.handleMetadataRequest(ctx, pkgInfo)
+		return handler.handleMetadataRequest(ctx, endpoint, pkgInfo, requestURL)
 	}
 
-	// A file-download parse without a complete identity: nothing reliable
-	// to analyze against. URLs that carry no identity at all (opaque
-	// download URLs some registries serve) land here too and are allowed
-	// without analysis.
+	// A file-download parse without a complete identity, and no index match:
+	// nothing reliable to analyze against. URLs that carry no identity at all
+	// (opaque download URLs some registries serve) land here too and are
+	// allowed without analysis.
 	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 }
