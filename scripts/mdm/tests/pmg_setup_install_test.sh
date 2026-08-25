@@ -95,13 +95,17 @@ if [[ "${0##*/}" == "uname" ]]; then
   cat "$STARTUP_UNAME_FILE"
   exit 0
 fi
+if [[ "${0##*/}" == "base64" && "$1" == "-D" ]]; then
+  shift
+  exec /usr/bin/base64 --decode "$@"
+fi
 real_command="/usr/bin/${0##*/}"
 [[ -x "$real_command" ]] || real_command="/bin/${0##*/}"
 [[ -x "$real_command" ]] || exit 1
 exec "$real_command" "$@"
 EOF
   printf '%s\n' "$os_uname" > "$STARTUP_UNAME_FILE"
-  for command in dirname uname; do
+  for command in dirname uname base64; do
     cp "${STARTUP_PROBE_BIN}/probe" "${STARTUP_PROBE_BIN}/${command}"
     chmod 0755 "${STARTUP_PROBE_BIN}/${command}"
   done
@@ -181,25 +185,6 @@ EOF
       # Stub uname so require_<os> passes on any host.
       uname() { printf '%s\n' "$os_uname"; }
       export -f uname
-
-      # Stub /usr/bin/base64 so the macOS installer works on GNU/Linux.
-      local shim_dir="${TEST_ROOT}/base64-shim"
-      mkdir -p "$shim_dir"
-      cat > "${shim_dir}/base64" <<'SHIM'
-#!/bin/bash
-if [[ "$1" == "-D" ]]; then
-  shift
-  if printf '' | base64 --decode >/dev/null 2>&1; then
-    base64 --decode
-  else
-    base64 -D
-  fi
-else
-  command base64 "$@"
-fi
-SHIM
-      chmod 0755 "${shim_dir}/base64"
-      PATH="${shim_dir}:${PATH}"
 
       source "$CREDENTIAL_RUNTIME"
 
