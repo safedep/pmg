@@ -30,21 +30,28 @@ jobs:
       - name: Check generated standalone scripts
         run: bash scripts/mdm/generate_standalone_scripts.sh --check
 
+      - name: Test macOS-only refusal on Linux
+        run: bash scripts/mdm/non_macos_guard_test.sh
+
       - name: Lint MDM scripts
         run: |
           shellcheck -x -P SCRIPTDIR \
             scripts/mdm/lib_macos.sh \
+            scripts/mdm/e2e_lib_macos.sh \
             scripts/mdm/pmg_setup_install_macos.sh \
             scripts/mdm/pmg_uninstall_macos.sh \
             scripts/mdm/generate_standalone_scripts.sh \
             scripts/mdm/generate_standalone_scripts_test.sh \
             scripts/mdm/pmg_setup_install_macos_test.sh \
+            scripts/mdm/non_macos_guard_test.sh \
             scripts/mdm/standalone_macos_e2e_test.sh \
+            scripts/mdm/multifile_macos_e2e_test.sh \
             scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh \
             scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh
 
-  mdm-scripts-macos-e2e:
+  mdm-scripts-macos-multifile-e2e:
     runs-on: macos-latest
+    needs: mdm-scripts-test
     timeout-minutes: 20
     steps:
       - name: Checkout Source
@@ -53,8 +60,20 @@ jobs:
       - name: Test MDM installer behavior
         run: bash scripts/mdm/pmg_setup_install_macos_test.sh
 
+      - name: Test multifile scripts on macOS
+        env:
+          PMG_MDM_E2E: "1"
+        run: bash scripts/mdm/multifile_macos_e2e_test.sh
+
+  mdm-scripts-macos-standalone-e2e:
+    runs-on: macos-latest
+    needs: mdm-scripts-test
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Test standalone scripts on macOS
         env:
-          CI: "true"
           PMG_MDM_E2E: "1"
         run: bash scripts/mdm/standalone_macos_e2e_test.sh
