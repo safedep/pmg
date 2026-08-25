@@ -34,7 +34,7 @@ if [[ "$host" != "Darwin" ]]; then
     standalone/pmg_setup_install_macos_standalone.sh \
     standalone/pmg_uninstall_macos_standalone.sh
 else
-  echo "SKIP: macOS guard half runs on a non-macOS host"
+  echo "SKIP: macOS guard half requires a non-macOS host"
 fi
 
 if [[ "$host" != "Linux" ]]; then
@@ -44,7 +44,7 @@ if [[ "$host" != "Linux" ]]; then
     standalone/pmg_setup_install_linux_standalone.sh \
     standalone/pmg_uninstall_linux_standalone.sh
 else
-  echo "SKIP: Linux guard half runs on a non-Linux host"
+  echo "SKIP: Linux guard half requires a non-Linux host"
 fi
 
 echo "PASS"

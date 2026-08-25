@@ -33,7 +33,7 @@ running_as_root() { [[ "$EUID" -eq 0 ]]; }
 
 # Run a machine-scope command, elevating only if we are not already root.
 run_as_root() {
-  if running_as_root; then "$@"; else sudo "$@"; fi
+  if running_as_root; then "$@"; else sudo -n "$@"; fi
 }
 
 # Emit "user<TAB>uid<TAB>home" per target user.
