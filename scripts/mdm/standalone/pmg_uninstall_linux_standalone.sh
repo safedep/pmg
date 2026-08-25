@@ -69,21 +69,36 @@ user_has_session() {
   [[ -S "/run/user/${uid}/bus" ]]
 }
 
-# Run a file-scope command as the given user, with HOME set to their home.
+# Home directory of a local user, from the passwd file.
+user_home() {
+  awk -v u="$1" -F: '$1 == u { print $6; exit }' /etc/passwd
+}
+
+# Run a file-scope command as the given user. Force HOME to the user's passwd
+# home and drop leaked XDG_* vars, so pmg resolves per-user state under the
+# right home even when sudo preserves the caller's HOME (env_keep).
 run_user_file() {
   local user="$1"; shift
-  if running_as_root; then sudo -u "$user" -H -- "$@"; else "$@"; fi
+  if running_as_root; then
+    local home; home=$(user_home "$user")
+    sudo -u "$user" -H -- \
+      env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME -u XDG_DATA_HOME "HOME=$home" "$@"
+  else
+    "$@"
+  fi
 }
 
 # Run a session-scope command (e.g. Secret Service) with the user's D-Bus
 # session bus address set. Only call when user_has_session "$user" is true.
 run_user_session() {
   local user="$1"; shift
-  local uid
+  local uid home
   if running_as_root; then
     uid=$(id -u "$user")
+    home=$(user_home "$user")
     sudo -u "$user" -H -- \
-      env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus" "$@"
+      env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME -u XDG_DATA_HOME "HOME=$home" \
+      "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus" "$@"
   else
     "$@"
   fi

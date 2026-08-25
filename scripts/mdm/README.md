@@ -217,7 +217,7 @@ Intune for Linux supports shell scripts with the same single-script model. Uploa
 - Machine-scope steps under a non-root invocation need `sudo`. Without passwordless sudo in a non-interactive context, they fail with an error instead of hanging.
 - Linux: only systemd/logind systems are supported for session detection. Headless servers without a D-Bus session bus skip cloud credential steps.
 - Linux: no Homebrew path. The binary always comes from the GitHub release tarball.
-- Linux: uninstall removes per-user config and cache from `~/.config` and `~/.cache` (or the `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` overrides). The MDM runs uninstall through `sudo`, which drops `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. A user who set those variables and installed pmg in their own shell keeps state outside `~/.config`. Uninstall does not remove that state. Ask the user to run `pmg setup remove --config-file` in their own session.
+- Linux: the install and uninstall fan-out forces each user's `HOME` and clears `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, so per-user state stays under the passwd home (`~/.config`, `~/.cache`) or the `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` overrides. A user who installed pmg in their own shell with a custom `XDG_CONFIG_HOME` keeps state elsewhere. The uninstall does not remove that state. Ask the user to run `pmg setup remove --config-file` in their own session.
 
 ## Development
 
