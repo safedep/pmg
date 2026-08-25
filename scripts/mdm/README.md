@@ -225,8 +225,7 @@ Run these checks from `scripts/mdm/`:
 ```sh
 bash ./tests/generate_standalone_test.sh
 bash ./tests/pmg_setup_install_test.sh
-bash ./tests/non_macos_guard_test.sh
-bash ./tests/non_linux_guard_test.sh
+bash ./tests/os_guard_test.sh
 bash ./generate_standalone_macos.sh --check
 bash ./generate_standalone_linux.sh --check
 shellcheck -x -P SCRIPTDIR -P lib \
@@ -242,8 +241,7 @@ shellcheck -x -P SCRIPTDIR -P lib \
   generate_standalone_linux.sh \
   tests/generate_standalone_test.sh \
   tests/pmg_setup_install_test.sh \
-  tests/non_macos_guard_test.sh \
-  tests/non_linux_guard_test.sh \
+  tests/os_guard_test.sh \
   tests/e2e_lib_macos.sh \
   tests/e2e_lib_linux.sh \
   tests/standalone_macos_e2e_test.sh \
@@ -256,7 +254,7 @@ shellcheck -x -P SCRIPTDIR -P lib \
   standalone/pmg_uninstall_linux_standalone.sh
 ```
 
-`non_macos_guard_test.sh` verifies that the macOS scripts refuse to run on a non-macOS host. `non_linux_guard_test.sh` verifies that the Linux scripts refuse to run on a non-Linux host. Each skips on its own platform.
+`os_guard_test.sh` verifies that every entry script refuses to run on the wrong OS. It runs the macOS half on Linux and the Linux half on macOS, skipping whichever half matches the host.
 
 **Warning:** The end-to-end tests remove PMG state. The standalone test temporarily renames Homebrew binaries. The multifile test creates and deletes a local user account.
 

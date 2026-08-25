@@ -32,11 +32,8 @@ jobs:
           bash scripts/mdm/generate_standalone_macos.sh --check
           bash scripts/mdm/generate_standalone_linux.sh --check
 
-      - name: Test macOS-only refusal on Linux
-        run: bash scripts/mdm/tests/non_macos_guard_test.sh
-
-      - name: Test Linux-only refusal on non-Linux
-        run: bash scripts/mdm/tests/non_linux_guard_test.sh
+      - name: Test OS refusal guards
+        run: bash scripts/mdm/tests/os_guard_test.sh
 
       - name: Test installer behavior
         run: bash scripts/mdm/tests/pmg_setup_install_test.sh
@@ -56,8 +53,7 @@ jobs:
             scripts/mdm/generate_standalone_linux.sh \
             scripts/mdm/tests/generate_standalone_test.sh \
             scripts/mdm/tests/pmg_setup_install_test.sh \
-            scripts/mdm/tests/non_macos_guard_test.sh \
-            scripts/mdm/tests/non_linux_guard_test.sh \
+            scripts/mdm/tests/os_guard_test.sh \
             scripts/mdm/tests/e2e_lib_macos.sh \
             scripts/mdm/tests/e2e_lib_linux.sh \
             scripts/mdm/tests/standalone_macos_e2e_test.sh \
