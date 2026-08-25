@@ -191,4 +191,14 @@ assert_uninstalled() {
 require_e2e_preconditions() {
   [[ "$EXPECTED_UID" -ne 0 ]] || fail "Linux E2E must run from a non-root user"
   sudo -n true || fail "passwordless sudo is required"
+
+  # On CI runners without a logind session, create a real Unix domain socket
+  # at the session bus path so user_has_session reports a session for the
+  # current user. The wrapper already intercepts cloud calls, so the socket
+  # is only a gate, not a D-Bus connection.
+  if [[ ! -S "/run/user/${EXPECTED_UID}/bus" ]]; then
+    sudo -n mkdir -p "/run/user/${EXPECTED_UID}"
+    sudo -n python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('/run/user/${EXPECTED_UID}/bus')"
+    sudo -n chown "${EXPECTED_UID}:${EXPECTED_UID}" "/run/user/${EXPECTED_UID}/bus"
+  fi
 }
