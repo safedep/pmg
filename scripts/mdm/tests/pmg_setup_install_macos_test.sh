@@ -2,14 +2,14 @@
 # shellcheck disable=SC1090,SC2034,SC2317,SC2329,SC2016
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-INSTALL_SOURCE="${SCRIPT_DIR}/pmg_setup_install_linux.sh"
-LIB_SOURCE="${SCRIPT_DIR}/lib_linux.sh"
-TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/pmg-install-linux-test.XXXXXX")
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+INSTALL_SOURCE="${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh"
+LIB_SOURCE="${SCRIPT_DIR}/macos/lib_macos.sh"
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/pmg-install-test.XXXXXX")
 INSTALL_TAIL="${TEST_ROOT}/install_tail.sh"
 CONFIG_RUNTIME="${TEST_ROOT}/config_runtime.sh"
 CREDENTIAL_RUNTIME="${TEST_ROOT}/credential_runtime.sh"
-STARTUP_RUNTIME="${TEST_ROOT}/pmg_setup_install_linux.sh"
+STARTUP_RUNTIME="${TEST_ROOT}/pmg_setup_install_macos.sh"
 STARTUP_PROBE_BIN="${TEST_ROOT}/startup-probe-bin"
 STARTUP_ENV_LEAK_FILE="${TEST_ROOT}/startup-env-leak"
 STARTUP_CHILD_TRACE_FILE="${TEST_ROOT}/startup-child-trace"
@@ -57,7 +57,7 @@ exit "$PMG_LOGIN_STATUS"
 EOF
 chmod 0755 "$FAKE_PMG"
 
-cp "$LIB_SOURCE" "${TEST_ROOT}/lib_linux.sh"
+cp "$LIB_SOURCE" "${TEST_ROOT}/lib_macos.sh"
 awk '
   /^set -euo pipefail$/ { emit = 1 }
   emit { print }
@@ -81,7 +81,7 @@ if [[ -n "${SAFEDEP_API_KEY+x}" || -n "${SAFEDEP_TENANT_ID+x}" ||
   printf '%s\n' "${0##*/}" >> "$STARTUP_ENV_LEAK_FILE"
 fi
 if [[ "${0##*/}" == "uname" ]]; then
-  printf '%s\n' "Linux"
+  printf '%s\n' "Darwin"
   exit 0
 fi
 real_command="/usr/bin/${0##*/}"
@@ -157,10 +157,6 @@ run_credential_runtime() {
     EMBEDDED_SAFEDEP_API_KEY_B64="$embedded_api_key"
     EMBEDDED_SAFEDEP_TENANT_ID_B64="$embedded_tenant_id"
 
-    # Stub uname so require_linux passes on any host.
-    uname() { echo "Linux"; }
-    export -f uname
-
     source "$CREDENTIAL_RUNTIME"
 
     [[ -z "${SAFEDEP_API_KEY+x}" ]] ||
@@ -187,7 +183,7 @@ runtime_credentials=$(
 assert_equals $'runtime-api-key\truntime-tenant' "$runtime_credentials" \
   "complete runtime credential precedence"
 
-if [[ "$(uname -s)" == "Linux" ]]; then
+if [[ "$(uname -s)" == "Darwin" ]]; then
   embedded_credentials=$(
     run_credential_runtime "" "" "$embedded_api_key" "$embedded_tenant_id"
   )
@@ -215,10 +211,6 @@ assert_config_install() {
     GLOBAL_CONFIG_FILE="${case_dir}/global.yml"
     EMBEDDED_GLOBAL_CONFIG_B64="$encoded_config"
     TMPDIR="$case_dir"
-
-    # Stub uname so require_linux passes on any host.
-    uname() { echo "Linux"; }
-    export -f uname
 
     warn() { :; }
     install_global_config() {
@@ -286,7 +278,7 @@ run_install_tail() {
     }
     each_target_user() {
       if [[ "$users" == "yes" ]]; then
-        printf 'test-user\t1001\t/home/test-user\n'
+        printf 'test-user\t501\t/Users/test-user\n'
       fi
     }
 
@@ -312,7 +304,7 @@ run_install_tail() {
 
 inactive_output=$(run_install_tail yes yes 0 1) ||
   fail "cloud credentials without a user session should be skipped"
-[[ "$inactive_output" == *"no active session"* ]] ||
+[[ "$inactive_output" == *"not logged in"* ]] ||
   fail "inactive user credential skip must be reported"
 
 run_install_tail yes no 0 0 ||

@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 GENERATOR="${SCRIPT_DIR}/generate_standalone_macos.sh"
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/pmg-generator-test.XXXXXX")
 
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
 # shellcheck source=test_lib.sh
-source "${SCRIPT_DIR}/test_lib.sh"
+source "${SCRIPT_DIR}/lib/test_lib.sh"
 
 TEST_API_KEY="pmg-generator-test-api-key"
 TEST_TENANT_ID="pmg-generator-test-tenant"
@@ -50,18 +50,21 @@ assert_fails "$GENERATOR" --output-dir "$DIRECTORY_TARGET_OUT"
 
 SOURCE_OVERWRITE_FIXTURE="${TEST_ROOT}/source-overwrite"
 mkdir -p "$SOURCE_OVERWRITE_FIXTURE"
+mkdir -p "${SOURCE_OVERWRITE_FIXTURE}/lib" "${SOURCE_OVERWRITE_FIXTURE}/macos"
 cp "$GENERATOR" \
-  "${SCRIPT_DIR}/generate_standalone_lib.sh" \
-  "${SCRIPT_DIR}/lib_macos.sh" \
-  "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
-  "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
   "$SOURCE_OVERWRITE_FIXTURE"
+cp "${SCRIPT_DIR}/lib/generate_standalone_lib.sh" \
+  "${SOURCE_OVERWRITE_FIXTURE}/lib/"
+cp "${SCRIPT_DIR}/macos/lib_macos.sh" \
+  "${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh" \
+  "${SCRIPT_DIR}/macos/pmg_uninstall_macos.sh" \
+  "${SOURCE_OVERWRITE_FIXTURE}/macos/"
 "${SOURCE_OVERWRITE_FIXTURE}/generate_standalone_macos.sh" \
   --output-dir "$SOURCE_OVERWRITE_FIXTURE"
-cmp "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
-  "${SOURCE_OVERWRITE_FIXTURE}/pmg_setup_install_macos.sh"
-cmp "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
-  "${SOURCE_OVERWRITE_FIXTURE}/pmg_uninstall_macos.sh"
+cmp "${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh" \
+  "${SOURCE_OVERWRITE_FIXTURE}/macos/pmg_setup_install_macos.sh"
+cmp "${SCRIPT_DIR}/macos/pmg_uninstall_macos.sh" \
+  "${SOURCE_OVERWRITE_FIXTURE}/macos/pmg_uninstall_macos.sh"
 assert_file "${SOURCE_OVERWRITE_FIXTURE}/pmg_setup_install_macos_standalone.sh"
 assert_file "${SOURCE_OVERWRITE_FIXTURE}/pmg_uninstall_macos_standalone.sh"
 
@@ -90,22 +93,25 @@ embedded_line=$(grep -Fnm1 'EMBEDDED_GLOBAL_CONFIG_B64=' "$CONFIG_INSTALL" | cut
 
 MARKER_FIXTURE="${TEST_ROOT}/marker-fixture"
 mkdir -p "$MARKER_FIXTURE"
+mkdir -p "${MARKER_FIXTURE}/lib" "${MARKER_FIXTURE}/macos"
 cp "$GENERATOR" \
-  "${SCRIPT_DIR}/generate_standalone_lib.sh" \
-  "${SCRIPT_DIR}/lib_macos.sh" \
-  "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
-  "${SCRIPT_DIR}/pmg_uninstall_macos.sh" \
   "$MARKER_FIXTURE"
+cp "${SCRIPT_DIR}/lib/generate_standalone_lib.sh" \
+  "${MARKER_FIXTURE}/lib/"
+cp "${SCRIPT_DIR}/macos/lib_macos.sh" \
+  "${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh" \
+  "${SCRIPT_DIR}/macos/pmg_uninstall_macos.sh" \
+  "${MARKER_FIXTURE}/macos/"
 awk '
   NR > 1 && /^#/ && $0 != "# shellcheck source=lib_macos.sh" {
     printf "# Fixture installer prose %d\n", NR
     next
   }
   { print }
-' "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
-  > "${MARKER_FIXTURE}/pmg_setup_install_macos.sh"
+' "${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh" \
+  > "${MARKER_FIXTURE}/macos/pmg_setup_install_macos.sh"
 if cmp -s \
-  "${SCRIPT_DIR}/pmg_setup_install_macos.sh" \
+  "${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh" \
   "${MARKER_FIXTURE}/pmg_setup_install_macos.sh"; then
   fail "marker-independence fixture did not change installer prose"
 fi

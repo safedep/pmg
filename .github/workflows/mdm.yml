@@ -26,8 +26,8 @@ jobs:
 
       - name: Test standalone script generation
         run: |
-          bash scripts/mdm/generate_standalone_macos_test.sh
-          bash scripts/mdm/generate_standalone_linux_test.sh
+          bash scripts/mdm/tests/generate_standalone_macos_test.sh
+          bash scripts/mdm/tests/generate_standalone_linux_test.sh
 
       - name: Check generated standalone scripts
         run: |
@@ -35,38 +35,39 @@ jobs:
           bash scripts/mdm/generate_standalone_linux.sh --check
 
       - name: Test macOS-only refusal on Linux
-        run: bash scripts/mdm/non_macos_guard_test.sh
+        run: bash scripts/mdm/tests/non_macos_guard_test.sh
 
       - name: Test Linux-only refusal on non-Linux
-        run: bash scripts/mdm/non_linux_guard_test.sh
+        run: bash scripts/mdm/tests/non_linux_guard_test.sh
 
       - name: Test Linux installer behavior
-        run: bash scripts/mdm/pmg_setup_install_linux_test.sh
+        run: bash scripts/mdm/tests/pmg_setup_install_linux_test.sh
 
       - name: Lint MDM scripts
         run: |
-          shellcheck -x -P SCRIPTDIR \
-            scripts/mdm/lib_macos.sh \
-            scripts/mdm/lib_linux.sh \
-            scripts/mdm/e2e_lib_macos.sh \
-            scripts/mdm/e2e_lib_linux.sh \
-            scripts/mdm/pmg_setup_install_macos.sh \
-            scripts/mdm/pmg_uninstall_macos.sh \
-            scripts/mdm/pmg_setup_install_linux.sh \
-            scripts/mdm/pmg_uninstall_linux.sh \
-            scripts/mdm/generate_standalone_lib.sh \
+          shellcheck -x -P SCRIPTDIR -P scripts/mdm/lib \
+            scripts/mdm/macos/lib_macos.sh \
+            scripts/mdm/linux/lib_linux.sh \
+            scripts/mdm/macos/pmg_setup_install_macos.sh \
+            scripts/mdm/macos/pmg_uninstall_macos.sh \
+            scripts/mdm/linux/pmg_setup_install_linux.sh \
+            scripts/mdm/linux/pmg_uninstall_linux.sh \
+            scripts/mdm/lib/generate_standalone_lib.sh \
+            scripts/mdm/lib/test_lib.sh \
             scripts/mdm/generate_standalone_macos.sh \
             scripts/mdm/generate_standalone_linux.sh \
-            scripts/mdm/generate_standalone_macos_test.sh \
-            scripts/mdm/generate_standalone_linux_test.sh \
-            scripts/mdm/pmg_setup_install_macos_test.sh \
-            scripts/mdm/pmg_setup_install_linux_test.sh \
-            scripts/mdm/non_macos_guard_test.sh \
-            scripts/mdm/non_linux_guard_test.sh \
-            scripts/mdm/standalone_macos_e2e_test.sh \
-            scripts/mdm/multifile_macos_e2e_test.sh \
-            scripts/mdm/standalone_linux_e2e_test.sh \
-            scripts/mdm/multifile_linux_e2e_test.sh \
+            scripts/mdm/tests/generate_standalone_macos_test.sh \
+            scripts/mdm/tests/generate_standalone_linux_test.sh \
+            scripts/mdm/tests/pmg_setup_install_macos_test.sh \
+            scripts/mdm/tests/pmg_setup_install_linux_test.sh \
+            scripts/mdm/tests/non_macos_guard_test.sh \
+            scripts/mdm/tests/non_linux_guard_test.sh \
+            scripts/mdm/tests/e2e_lib_macos.sh \
+            scripts/mdm/tests/e2e_lib_linux.sh \
+            scripts/mdm/tests/standalone_macos_e2e_test.sh \
+            scripts/mdm/tests/standalone_linux_e2e_test.sh \
+            scripts/mdm/tests/multifile_macos_e2e_test.sh \
+            scripts/mdm/tests/multifile_linux_e2e_test.sh \
             scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh \
             scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh \
             scripts/mdm/standalone/pmg_setup_install_linux_standalone.sh \
@@ -81,12 +82,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Test MDM installer behavior
-        run: bash scripts/mdm/pmg_setup_install_macos_test.sh
+        run: bash scripts/mdm/tests/pmg_setup_install_macos_test.sh
 
       - name: Test multifile scripts on macOS
         env:
           PMG_MDM_E2E: "1"
-        run: bash scripts/mdm/multifile_macos_e2e_test.sh
+        run: bash scripts/mdm/tests/multifile_macos_e2e_test.sh
 
   mdm-scripts-macos-standalone-e2e:
     runs-on: macos-latest
@@ -99,7 +100,7 @@ jobs:
       - name: Test standalone scripts on macOS
         env:
           PMG_MDM_E2E: "1"
-        run: bash scripts/mdm/standalone_macos_e2e_test.sh
+        run: bash scripts/mdm/tests/standalone_macos_e2e_test.sh
 
   mdm-scripts-linux-multifile-e2e:
     runs-on: ubuntu-latest
@@ -112,7 +113,7 @@ jobs:
       - name: Test multifile scripts on Linux
         env:
           PMG_MDM_E2E: "1"
-        run: bash scripts/mdm/multifile_linux_e2e_test.sh
+        run: bash scripts/mdm/tests/multifile_linux_e2e_test.sh
 
   mdm-scripts-linux-standalone-e2e:
     runs-on: ubuntu-latest
@@ -125,4 +126,4 @@ jobs:
       - name: Test standalone scripts on Linux
         env:
           PMG_MDM_E2E: "1"
-        run: bash scripts/mdm/standalone_linux_e2e_test.sh
+        run: bash scripts/mdm/tests/standalone_linux_e2e_test.sh

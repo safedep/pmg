@@ -6,7 +6,7 @@ if [[ "${CI:-}" != "true" || "${PMG_MDM_E2E:-}" != "1" ]]; then
   exit 1
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 GENERATOR="${SCRIPT_DIR}/generate_standalone_scripts.sh"
 INSTALLER="${SCRIPT_DIR}/standalone/pmg_setup_install_macos_standalone.sh"
 UNINSTALLER="${SCRIPT_DIR}/standalone/pmg_uninstall_macos_standalone.sh"
@@ -14,7 +14,7 @@ UNINSTALLER="${SCRIPT_DIR}/standalone/pmg_uninstall_macos_standalone.sh"
 TEST_ROOT=$(mktemp -d /tmp/pmg-mdm-e2e.XXXXXX)
 chmod 0755 "$TEST_ROOT"
 # shellcheck source=e2e_lib_macos.sh
-source "${SCRIPT_DIR}/e2e_lib_macos.sh"
+source "${BASH_SOURCE[0]%/*}/e2e_lib_macos.sh"
 
 CONFIG="${TEST_ROOT}/config.yml"
 CONFIGURED_OUTPUT="${TEST_ROOT}/configured"

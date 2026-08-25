@@ -2,16 +2,15 @@
 
 Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS and Linux fleets through an MDM (Jamf, Mosyle, Kandji, Intune, JumpCloud).
 
-| File | Purpose |
+## Layout
+
+| Directory | Purpose |
 | --- | --- |
-| `pmg_setup_install_macos.sh` | macOS: install the binary and configure every user (config, aliases, shims, optional cloud sync) |
-| `pmg_uninstall_macos.sh` | macOS: remove per-user state, active GUI user credentials, and the binary |
-| `lib_macos.sh` | macOS: shared helpers. Deploy it alongside the other two. |
-| `pmg_setup_install_linux.sh` | Linux: install the binary and configure every user (config, aliases, shims, optional cloud sync) |
-| `pmg_uninstall_linux.sh` | Linux: remove per-user state, active session keyring credentials, and the binary |
-| `lib_linux.sh` | Linux: shared helpers. Deploy it alongside the other two. |
-| `standalone/pmg_*_standalone.sh` | Generated single-file installers and uninstallers for MDM policies that accept one script |
-| `generate_standalone_lib.sh` | Shared engine for the standalone generators |
+| `macos/` | macOS deployment scripts: `lib_macos.sh`, `pmg_setup_install_macos.sh`, `pmg_uninstall_macos.sh` |
+| `linux/` | Linux deployment scripts: `lib_linux.sh`, `pmg_setup_install_linux.sh`, `pmg_uninstall_linux.sh` |
+| `standalone/` | Generated single-file installers and uninstallers for MDM policies that accept one script |
+| `lib/` | Shared engine for the standalone generators and test helpers |
+| `tests/` | Test scripts and E2E helpers |
 | `generate_standalone_macos.sh` | Regenerates macOS standalone scripts; optionally embeds `config.yml` and cloud credentials |
 | `generate_standalone_linux.sh` | Regenerates Linux standalone scripts; optionally embeds `config.yml` and cloud credentials |
 | `config.yml` *(optional)* | When present in the package, the install script deploys it as the machine-wide globally managed config |
@@ -104,7 +103,7 @@ The installer consumes `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` at runtime. The
 
 ## Jamf example (macOS)
 
-Upload the `mdm/` folder as a script payload, or a package that drops the three files together, then invoke the entry script. Jamf runs scripts as root, which covers fleet-wide, multi-user deployment:
+Upload the `macos/` folder as a script payload, or a package that drops the three files together, then invoke the entry script. Jamf runs scripts as root, which covers fleet-wide, multi-user deployment:
 
 ```sh
 #!/bin/sh
@@ -121,7 +120,7 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
 ### Install
 
 1. In the JumpCloud Admin Console, create a new **Command** and set **Run As** to `root`.
-2. Upload the shared lib and install script for your platform (`lib_macos.sh` + `pmg_setup_install_macos.sh`, or `lib_linux.sh` + `pmg_setup_install_linux.sh`). Optionally upload `config.yml` to deploy a globally managed config. Set the **File Destination** to `/tmp/pmg-mdm/` for each file.
+2. Upload the shared lib and install script for your platform (`macos/lib_macos.sh` + `macos/pmg_setup_install_macos.sh`, or `linux/lib_linux.sh` + `linux/pmg_setup_install_linux.sh`). Optionally upload `config.yml` to deploy a globally managed config. Set the **File Destination** to `/tmp/pmg-mdm/` for each file.
 3. Set **Timeout After** to at least 900 seconds so installs on slow networks aren't killed mid-run.
 4. To enable cloud sync, define the Command Variables `safedep_api_key` and `safedep_tenant_id`, and mark the API key as a Secret variable.
 5. Set the Command body to:
@@ -224,33 +223,37 @@ Intune for Linux supports shell scripts with the same single-script model. Uploa
 Run these checks from `scripts/mdm/`:
 
 ```sh
-bash ./generate_standalone_macos_test.sh
-bash ./generate_standalone_linux_test.sh
-bash ./pmg_setup_install_macos_test.sh
-bash ./pmg_setup_install_linux_test.sh
-bash ./non_macos_guard_test.sh
-bash ./non_linux_guard_test.sh
+bash ./tests/generate_standalone_macos_test.sh
+bash ./tests/generate_standalone_linux_test.sh
+bash ./tests/pmg_setup_install_macos_test.sh
+bash ./tests/pmg_setup_install_linux_test.sh
+bash ./tests/non_macos_guard_test.sh
+bash ./tests/non_linux_guard_test.sh
 bash ./generate_standalone_macos.sh --check
 bash ./generate_standalone_linux.sh --check
-shellcheck -x -P SCRIPTDIR \
-  lib_macos.sh \
-  lib_linux.sh \
-  e2e_lib_macos.sh \
-  pmg_setup_install_macos.sh \
-  pmg_uninstall_macos.sh \
-  pmg_setup_install_linux.sh \
-  pmg_uninstall_linux.sh \
-  generate_standalone_lib.sh \
+shellcheck -x -P SCRIPTDIR -P lib \
+  macos/lib_macos.sh \
+  linux/lib_linux.sh \
+  macos/pmg_setup_install_macos.sh \
+  macos/pmg_uninstall_macos.sh \
+  linux/pmg_setup_install_linux.sh \
+  linux/pmg_uninstall_linux.sh \
+  lib/generate_standalone_lib.sh \
+  lib/test_lib.sh \
   generate_standalone_macos.sh \
   generate_standalone_linux.sh \
-  generate_standalone_macos_test.sh \
-  generate_standalone_linux_test.sh \
-  pmg_setup_install_macos_test.sh \
-  pmg_setup_install_linux_test.sh \
-  non_macos_guard_test.sh \
-  non_linux_guard_test.sh \
-  standalone_macos_e2e_test.sh \
-  multifile_macos_e2e_test.sh \
+  tests/generate_standalone_macos_test.sh \
+  tests/generate_standalone_linux_test.sh \
+  tests/pmg_setup_install_macos_test.sh \
+  tests/pmg_setup_install_linux_test.sh \
+  tests/non_macos_guard_test.sh \
+  tests/non_linux_guard_test.sh \
+  tests/e2e_lib_macos.sh \
+  tests/e2e_lib_linux.sh \
+  tests/standalone_macos_e2e_test.sh \
+  tests/standalone_linux_e2e_test.sh \
+  tests/multifile_macos_e2e_test.sh \
+  tests/multifile_linux_e2e_test.sh \
   standalone/pmg_setup_install_macos_standalone.sh \
   standalone/pmg_uninstall_macos_standalone.sh \
   standalone/pmg_setup_install_linux_standalone.sh \
@@ -264,11 +267,11 @@ shellcheck -x -P SCRIPTDIR \
 Run them only on a disposable CI runner with passwordless `sudo`. Both scripts reject runs without both guards:
 
 ```sh
-CI=true PMG_MDM_E2E=1 bash ./standalone_macos_e2e_test.sh
-CI=true PMG_MDM_E2E=1 bash ./multifile_macos_e2e_test.sh
+CI=true PMG_MDM_E2E=1 bash ./tests/standalone_macos_e2e_test.sh
+CI=true PMG_MDM_E2E=1 bash ./tests/multifile_macos_e2e_test.sh
 
-CI=true PMG_MDM_E2E=1 bash ./standalone_linux_e2e_test.sh
-CI=true PMG_MDM_E2E=1 bash ./multifile_linux_e2e_test.sh
+CI=true PMG_MDM_E2E=1 bash ./tests/standalone_linux_e2e_test.sh
+CI=true PMG_MDM_E2E=1 bash ./tests/multifile_linux_e2e_test.sh
 ```
 
-The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `e2e_lib_macos.sh`.
+The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `tests/e2e_lib_macos.sh` and `tests/e2e_lib_linux.sh`.

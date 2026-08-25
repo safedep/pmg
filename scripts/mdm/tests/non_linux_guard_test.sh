@@ -4,7 +4,7 @@
 # runner (or any non-Linux host).
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 fail() {
   echo "FAIL: $*" >&2
@@ -17,8 +17,8 @@ if [[ "$(uname -s)" == "Linux" ]]; then
 fi
 
 SCRIPTS=(
-  pmg_setup_install_linux.sh
-  pmg_uninstall_linux.sh
+  linux/pmg_setup_install_linux.sh
+  linux/pmg_uninstall_linux.sh
   standalone/pmg_setup_install_linux_standalone.sh
   standalone/pmg_uninstall_linux_standalone.sh
 )

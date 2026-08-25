@@ -3,7 +3,7 @@
 # on a non-macOS host before it makes any change. Run on a Linux CI runner.
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 fail() {
   echo "FAIL: $*" >&2
@@ -16,8 +16,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 
 SCRIPTS=(
-  pmg_setup_install_macos.sh
-  pmg_uninstall_macos.sh
+  macos/pmg_setup_install_macos.sh
+  macos/pmg_uninstall_macos.sh
   standalone/pmg_setup_install_macos_standalone.sh
   standalone/pmg_uninstall_macos_standalone.sh
 )

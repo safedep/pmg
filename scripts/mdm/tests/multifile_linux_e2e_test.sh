@@ -9,15 +9,15 @@ if [[ "${CI:-}" != "true" || "${PMG_MDM_E2E:-}" != "1" ]]; then
   exit 1
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-INSTALLER="${SCRIPT_DIR}/pmg_setup_install_linux.sh"
-UNINSTALLER="${SCRIPT_DIR}/pmg_uninstall_linux.sh"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+INSTALLER="${SCRIPT_DIR}/linux/pmg_setup_install_linux.sh"
+UNINSTALLER="${SCRIPT_DIR}/linux/pmg_uninstall_linux.sh"
 # The fan-out scenario runs the pmg wrapper as a second user. That user cannot
 # traverse the caller's private TMPDIR. /tmp is open to every user.
 TEST_ROOT=$(mktemp -d /tmp/pmg-mdm-e2e.XXXXXX)
 chmod 0755 "$TEST_ROOT"
 # shellcheck source=e2e_lib_linux.sh
-source "${SCRIPT_DIR}/e2e_lib_linux.sh"
+source "${BASH_SOURCE[0]%/*}/e2e_lib_linux.sh"
 
 STAGE_DIR="${TEST_ROOT}/staged"
 E2E_USER="pmge2e"
