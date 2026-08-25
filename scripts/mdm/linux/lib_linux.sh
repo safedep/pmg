@@ -45,7 +45,7 @@ each_target_user() {
     return
   fi
   local uid_min
-  uid_min=$(awk '/^UID_MIN/{print $2}' /etc/login.defs 2>/dev/null)
+  uid_min=$(awk '/^UID_MIN/{print $2}' /etc/login.defs 2>/dev/null || true)
   [[ "$uid_min" =~ ^[0-9]+$ ]] || uid_min=1000
   local user uid home
   while IFS=: read -r user _ uid _ _ home _; do
@@ -53,7 +53,7 @@ each_target_user() {
     [[ -n "$home" && -d "$home" ]] || continue
     case "$home" in /home/*) ;; *) continue ;; esac
     printf '%s\t%s\t%s\n' "$user" "$uid" "$home"
-  done < <(getent passwd)
+  done < /etc/passwd
 }
 
 # True if this user has a reachable D-Bus session bus (a live login session).

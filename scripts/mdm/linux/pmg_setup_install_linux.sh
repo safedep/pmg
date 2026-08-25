@@ -73,7 +73,7 @@ install_via_release() {
     *) echo "Error: unsupported architecture: $(uname -m)" >&2; exit 1 ;;
   esac
 
-  tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" | sed 's|.*/||')
+  tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" | sed 's|.*/||') || true
   [[ -n "$tag" ]] || { echo "Error: could not determine latest release" >&2; exit 1; }
   log "Latest release: $tag"
 
@@ -88,7 +88,7 @@ install_via_release() {
   curl -fsSL -o "${tmpdir}/${asset}" "$url"
   curl -fsSL -o "${tmpdir}/checksums.txt" "$checksums_url"
 
-  expected=$(grep "  ${asset}$" "${tmpdir}/checksums.txt" | cut -d' ' -f1)
+  expected=$(grep "  ${asset}$" "${tmpdir}/checksums.txt" | cut -d' ' -f1) || true
   [[ -n "$expected" ]] || { echo "Error: no checksum entry found for ${asset}" >&2; exit 1; }
   actual=$(sha256sum "${tmpdir}/${asset}" | cut -d' ' -f1)
   if [[ "$actual" != "$expected" ]]; then

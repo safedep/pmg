@@ -46,7 +46,7 @@ each_target_user() {
     return
   fi
   local uid_min
-  uid_min=$(awk '/^UID_MIN/{print $2}' /etc/login.defs 2>/dev/null)
+  uid_min=$(awk '/^UID_MIN/{print $2}' /etc/login.defs 2>/dev/null || true)
   [[ "$uid_min" =~ ^[0-9]+$ ]] || uid_min=1000
   local user uid home
   while IFS=: read -r user _ uid _ _ home _; do
@@ -54,7 +54,7 @@ each_target_user() {
     [[ -n "$home" && -d "$home" ]] || continue
     case "$home" in /home/*) ;; *) continue ;; esac
     printf '%s\t%s\t%s\n' "$user" "$uid" "$home"
-  done < <(getent passwd)
+  done < /etc/passwd
 }
 
 # True if this user has a reachable D-Bus session bus (a live login session).
@@ -202,7 +202,7 @@ install_via_release() {
     *) echo "Error: unsupported architecture: $(uname -m)" >&2; exit 1 ;;
   esac
 
-  tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" | sed 's|.*/||')
+  tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" | sed 's|.*/||') || true
   [[ -n "$tag" ]] || { echo "Error: could not determine latest release" >&2; exit 1; }
   log "Latest release: $tag"
 
@@ -217,7 +217,7 @@ install_via_release() {
   curl -fsSL -o "${tmpdir}/${asset}" "$url"
   curl -fsSL -o "${tmpdir}/checksums.txt" "$checksums_url"
 
-  expected=$(grep "  ${asset}$" "${tmpdir}/checksums.txt" | cut -d' ' -f1)
+  expected=$(grep "  ${asset}$" "${tmpdir}/checksums.txt" | cut -d' ' -f1) || true
   [[ -n "$expected" ]] || { echo "Error: no checksum entry found for ${asset}" >&2; exit 1; }
   actual=$(sha256sum "${tmpdir}/${asset}" | cut -d' ' -f1)
   if [[ "$actual" != "$expected" ]]; then
