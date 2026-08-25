@@ -110,8 +110,8 @@ EOF
     "${SCRIPT_DIR}/${os}/pmg_setup_install_${os}.sh" \
     "${SCRIPT_DIR}/${os}/pmg_uninstall_${os}.sh" \
     "${MARKER_FIXTURE}/${os}/"
-  awk '
-    NR > 1 && /^#/ && $0 != "# shellcheck source=lib_${os}.sh" {
+  awk -v shellcheck_line="# shellcheck source=lib_${os}.sh" '
+    NR > 1 && /^#/ && $0 != shellcheck_line {
       printf "# Fixture installer prose %d\n", NR
       next
     }

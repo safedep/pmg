@@ -42,7 +42,7 @@ test_multifile_configured_install() {
   mkdir -p "$STAGE_DIR"
   # The installer reads a sibling config.yml. Stage it in a temp dir so the
   # repo stays clean and the fan-out scenario can run without a sibling config.
-  cp "${SCRIPT_DIR}/lib_linux.sh" "$INSTALLER" "$STAGE_DIR/"
+  cp "${SCRIPT_DIR}/linux/lib_linux.sh" "$INSTALLER" "$STAGE_DIR/"
   cat > "${STAGE_DIR}/config.yml" <<'EOF'
 paranoid: true
 EOF

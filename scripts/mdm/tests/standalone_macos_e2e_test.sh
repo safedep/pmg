@@ -7,7 +7,7 @@ if [[ "${CI:-}" != "true" || "${PMG_MDM_E2E:-}" != "1" ]]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-GENERATOR="${SCRIPT_DIR}/generate_standalone_scripts.sh"
+GENERATOR="${SCRIPT_DIR}/generate_standalone_macos.sh"
 INSTALLER="${SCRIPT_DIR}/standalone/pmg_setup_install_macos_standalone.sh"
 UNINSTALLER="${SCRIPT_DIR}/standalone/pmg_uninstall_macos_standalone.sh"
 # Keep the wrapper dir traversable by every local user. See e2e_lib_macos.sh.

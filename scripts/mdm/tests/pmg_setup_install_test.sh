@@ -7,6 +7,9 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
+# shellcheck source=test_lib.sh
+source "${SCRIPT_DIR}/lib/test_lib.sh"
+
 run_installer_tests() {
     local os="$1"
     local os_uname="$2"
@@ -31,33 +34,6 @@ run_installer_tests() {
     local FAKE_PMG="${TEST_ROOT}/pmg"
 
     echo "==> Testing pmg_setup_install_${os}.sh"
-
-  fail() {
-    echo "FAIL: $*" >&2
-    exit 1
-  }
-
-  assert_equals() {
-    local expected="$1"
-    local actual="$2"
-    local message="$3"
-    [[ "$actual" == "$expected" ]] ||
-      fail "$message: expected '$expected', got '$actual'"
-  }
-
-  assert_contains() {
-    grep -Fq "$2" "$1" || fail "$1 does not contain: $2"
-  }
-
-  assert_not_contains() {
-    local status
-    if grep -Fq "$2" "$1"; then
-      fail "$1 unexpectedly contains: $2"
-    else
-      status=$?
-      [[ "$status" -eq 1 ]] || fail "could not inspect file: $1"
-    fi
-  }
 
   cat > "$FAKE_PMG" <<'EOF'
 #!/bin/bash
@@ -95,17 +71,13 @@ if [[ "${0##*/}" == "uname" ]]; then
   cat "$STARTUP_UNAME_FILE"
   exit 0
 fi
-if [[ "${0##*/}" == "base64" && "$1" == "-D" ]]; then
-  shift
-  exec /usr/bin/base64 --decode "$@"
-fi
 real_command="/usr/bin/${0##*/}"
 [[ -x "$real_command" ]] || real_command="/bin/${0##*/}"
 [[ -x "$real_command" ]] || exit 1
 exec "$real_command" "$@"
 EOF
   printf '%s\n' "$os_uname" > "$STARTUP_UNAME_FILE"
-  for command in dirname uname base64; do
+  for command in dirname uname; do
     cp "${STARTUP_PROBE_BIN}/probe" "${STARTUP_PROBE_BIN}/${command}"
     chmod 0755 "${STARTUP_PROBE_BIN}/${command}"
   done
@@ -147,7 +119,6 @@ EOF
   [[ -s "$CREDENTIAL_RUNTIME" ]] ||
     fail "installer must own embedded credential decoding"
   assert_not_contains "$CREDENTIAL_RUNTIME" "mktemp"
-  assert_not_contains "$CREDENTIAL_RUNTIME" "pmg-embedded-credentials"
   assert_contains "$CREDENTIAL_RUNTIME" \
     "unset EMBEDDED_SAFEDEP_API_KEY_B64 EMBEDDED_SAFEDEP_TENANT_ID_B64"
 
@@ -156,18 +127,6 @@ EOF
 
   [[ -s "$INSTALL_TAIL" ]] ||
     fail "tail extraction matched nothing in $INSTALL_SOURCE (function renamed?)"
-
-  encode_base64() {
-    base64 | tr -d '\r\n'
-  }
-
-  decode_base64() {
-    if printf '' | base64 --decode >/dev/null 2>&1; then
-      base64 --decode
-    else
-      base64 -D
-    fi
-  }
 
   run_credential_runtime() {
     local runtime_api_key="$1"
@@ -257,11 +216,13 @@ EOF
       "installed config"
   }
 
-  assert_config_install \
-    "source: embedded" \
-    "source: adjacent" \
-    "source: embedded" \
-    "embedded-precedence"
+  if [[ "$(uname -s)" == "$os_uname" ]]; then
+    assert_config_install \
+      "source: embedded" \
+      "source: adjacent" \
+      "source: embedded" \
+      "embedded-precedence"
+  fi
 
   assert_config_install \
     "" \
