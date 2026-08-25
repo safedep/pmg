@@ -18,7 +18,11 @@ permissions:
 
 jobs:
   mdm-scripts-test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
       - name: Checkout Source
@@ -39,6 +43,7 @@ jobs:
         run: bash scripts/mdm/tests/pmg_setup_install_test.sh
 
       - name: Lint MDM scripts
+        if: matrix.os == 'ubuntu-latest'
         run: |
           shellcheck -x -P SCRIPTDIR -P scripts/mdm/lib \
             scripts/mdm/macos/lib_macos.sh \
