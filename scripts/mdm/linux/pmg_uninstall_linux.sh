@@ -30,7 +30,7 @@ remove_user_state() {
 
   run_user_file "$user" rm -rf \
     "$(pmg_config_dir "$home")" "$(pmg_cache_dir "$home")" \
-    "$home/.pmg" "$home/.pmg.rc" "$home/.local/bin/pmg" \
+    "$home/.local/share/safedep/pmg" "$home/.pmg" "$home/.pmg.rc" \
     || warn "failed to remove pmg directories for $user"
 
   if [[ -z "$PMG_BIN" ]]; then
