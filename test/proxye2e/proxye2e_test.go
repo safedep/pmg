@@ -1031,28 +1031,33 @@ func TestProxyFlow_Cargo(t *testing.T) {
 				assert.Empty(t, out.Headers.Get("ETag"), "filtered body must carry no upstream validator")
 			},
 		},
-		{
-			// Surviving lines must be byte-identical to upstream so cargo's
-			// cksum verification of downloaded crates stays intact.
-			Name:   "cooldown keeps surviving index lines byte-identical",
-			Config: cooldownEnabled(7),
-			Setup: func(h *Harness) {
-				h.Registry.AddCargo(CargoCrate{Name: "fresh", Versions: []CargoVersion{
-					{Version: "1.0.0", PublishedAt: old()},
-					{Version: "1.1.0", PublishedAt: recent()},
-				}})
-			},
-			Exec: func(h *Harness) ExecResult { return ExecResult{} },
-			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				index := h.Cargo().FetchIndex("fresh")
-				require.NoError(t, index.Outcome.Err)
+		// Setup and Assert must share one publish time. Two old() reads can
+		// straddle a whole-second boundary and break the byte-identical check.
+		func() TestCase {
+			pub, rec := old(), recent()
+			return TestCase{
+				// Surviving lines must be byte-identical to upstream so cargo's
+				// cksum verification of downloaded crates stays intact.
+				Name:   "cooldown keeps surviving index lines byte-identical",
+				Config: cooldownEnabled(7),
+				Setup: func(h *Harness) {
+					h.Registry.AddCargo(CargoCrate{Name: "fresh", Versions: []CargoVersion{
+						{Version: "1.0.0", PublishedAt: pub},
+						{Version: "1.1.0", PublishedAt: rec},
+					}})
+				},
+				Exec: func(h *Harness) ExecResult { return ExecResult{} },
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					index := h.Cargo().FetchIndex("fresh")
+					require.NoError(t, index.Outcome.Err)
 
-				survivorOnly := buildCargoIndex(CargoCrate{Name: "fresh", Versions: []CargoVersion{
-					{Version: "1.0.0", PublishedAt: old()},
-				}})
-				assert.Equal(t, string(survivorOnly), index.Outcome.Body)
-			},
-		},
+					survivorOnly := buildCargoIndex(CargoCrate{Name: "fresh", Versions: []CargoVersion{
+						{Version: "1.0.0", PublishedAt: pub},
+					}})
+					assert.Equal(t, string(survivorOnly), index.Outcome.Body)
+				},
+			}
+		}(),
 		{
 			Name: "index config.json passes through unmodified",
 			Exec: func(h *Harness) ExecResult {
