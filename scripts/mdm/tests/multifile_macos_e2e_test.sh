@@ -9,15 +9,15 @@ if [[ "${CI:-}" != "true" || "${PMG_MDM_E2E:-}" != "1" ]]; then
   exit 1
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-INSTALLER="${SCRIPT_DIR}/pmg_setup_install_macos.sh"
-UNINSTALLER="${SCRIPT_DIR}/pmg_uninstall_macos.sh"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+INSTALLER="${SCRIPT_DIR}/macos/pmg_setup_install_macos.sh"
+UNINSTALLER="${SCRIPT_DIR}/macos/pmg_uninstall_macos.sh"
 # The fan-out scenario runs the pmg wrapper as a second user. That user cannot
 # traverse the caller's private TMPDIR. /tmp is open to every user.
 TEST_ROOT=$(mktemp -d /tmp/pmg-mdm-e2e.XXXXXX)
 chmod 0755 "$TEST_ROOT"
 # shellcheck source=e2e_lib_macos.sh
-source "${SCRIPT_DIR}/e2e_lib_macos.sh"
+source "${BASH_SOURCE[0]%/*}/e2e_lib_macos.sh"
 
 STAGE_DIR="${TEST_ROOT}/staged"
 E2E_USER="pmge2e"
@@ -42,7 +42,7 @@ test_multifile_configured_install() {
   mkdir -p "$STAGE_DIR"
   # The installer reads a sibling config.yml. Stage it in a temp dir so the
   # repo stays clean and the fan-out scenario can run without a sibling config.
-  cp "${SCRIPT_DIR}/lib_macos.sh" "$INSTALLER" "$STAGE_DIR/"
+  cp "${SCRIPT_DIR}/macos/lib_macos.sh" "$INSTALLER" "$STAGE_DIR/"
   cat > "${STAGE_DIR}/config.yml" <<'EOF'
 paranoid: true
 EOF

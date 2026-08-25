@@ -1,26 +1,27 @@
 #!/bin/bash
+# Run the standalone Linux MDM scripts end to end on a disposable Linux CI
+# runner. The test uses dummy cloud credentials. A pmg wrapper on PATH records
+# cloud login and logout instead of reaching SafeDep Cloud.
 set -euo pipefail
 
 if [[ "${CI:-}" != "true" || "${PMG_MDM_E2E:-}" != "1" ]]; then
-  echo "Error: standalone macOS E2E requires CI=true and PMG_MDM_E2E=1" >&2
+  echo "Error: standalone Linux E2E requires CI=true and PMG_MDM_E2E=1" >&2
   exit 1
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-GENERATOR="${SCRIPT_DIR}/generate_standalone_scripts.sh"
-INSTALLER="${SCRIPT_DIR}/standalone/pmg_setup_install_macos_standalone.sh"
-UNINSTALLER="${SCRIPT_DIR}/standalone/pmg_uninstall_macos_standalone.sh"
-# Keep the wrapper dir traversable by every local user. See e2e_lib_macos.sh.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+GENERATOR="${SCRIPT_DIR}/generate_standalone_linux.sh"
+INSTALLER="${SCRIPT_DIR}/standalone/pmg_setup_install_linux_standalone.sh"
+UNINSTALLER="${SCRIPT_DIR}/standalone/pmg_uninstall_linux_standalone.sh"
+# Keep the wrapper dir traversable by every local user. See e2e_lib_linux.sh.
 TEST_ROOT=$(mktemp -d /tmp/pmg-mdm-e2e.XXXXXX)
 chmod 0755 "$TEST_ROOT"
-# shellcheck source=e2e_lib_macos.sh
-source "${SCRIPT_DIR}/e2e_lib_macos.sh"
+# shellcheck source=e2e_lib_linux.sh
+source "${BASH_SOURCE[0]%/*}/e2e_lib_linux.sh"
 
 CONFIG="${TEST_ROOT}/config.yml"
 CONFIGURED_OUTPUT="${TEST_ROOT}/configured"
 CREDENTIAL_OUTPUT="${TEST_ROOT}/credentials"
-OPT_BREW_DISABLED=0
-USR_BREW_DISABLED=0
 
 create_pmg_wrapper
 
@@ -28,35 +29,8 @@ run_installer() {
   sudo -n /usr/bin/env PATH="$WRAPPER_PATH" "$@"
 }
 
-disable_brew() {
-  local disabled=0
-  if [[ -e /opt/homebrew/bin/brew || -L /opt/homebrew/bin/brew ]]; then
-    sudo -n mv /opt/homebrew/bin/brew /opt/homebrew/bin/brew.pmg-macos-e2e-disabled
-    OPT_BREW_DISABLED=1
-    disabled=1
-  fi
-  if [[ -e /usr/local/bin/brew || -L /usr/local/bin/brew ]]; then
-    sudo -n mv /usr/local/bin/brew /usr/local/bin/brew.pmg-macos-e2e-disabled
-    USR_BREW_DISABLED=1
-    disabled=1
-  fi
-  [[ "$disabled" -eq 1 ]] || fail "Homebrew is required to verify the release fallback"
-}
-
-restore_brew() {
-  if [[ "$OPT_BREW_DISABLED" -eq 1 ]]; then
-    sudo -n mv /opt/homebrew/bin/brew.pmg-macos-e2e-disabled /opt/homebrew/bin/brew
-    OPT_BREW_DISABLED=0
-  fi
-  if [[ "$USR_BREW_DISABLED" -eq 1 ]]; then
-    sudo -n mv /usr/local/bin/brew.pmg-macos-e2e-disabled /usr/local/bin/brew
-    USR_BREW_DISABLED=0
-  fi
-}
-
 cleanup() {
   set +e
-  restore_brew
   run_uninstaller "$UNINSTALLER" >/dev/null 2>&1
   rm -rf "$TEST_ROOT"
 }
@@ -65,12 +39,11 @@ trap cleanup EXIT
 test_standalone_release_install() {
   local pmg_bin
 
-  log "Testing standalone release fallback without Homebrew"
+  log "Testing standalone release install"
   reset_wrapper_captures
-  disable_brew
   run_installer "$INSTALLER"
-  pmg_bin=$(installed_pmg) || fail "release fallback did not install pmg"
-  assert_equals "/usr/local/bin/pmg" "$pmg_bin" "release fallback install path"
+  pmg_bin=$(installed_pmg) || fail "standalone installer did not install pmg"
+  assert_equals "/usr/local/bin/pmg" "$pmg_bin" "standalone install path"
   "$pmg_bin" version >/dev/null
   assert_absent "$GLOBAL_CONFIG"
   assert_file "$USER_CONFIG"
@@ -80,7 +53,6 @@ test_standalone_release_install() {
   run_uninstaller "$UNINSTALLER"
   assert_no_unexpected_cloud
   assert_uninstalled
-  restore_brew
 }
 
 test_configured_install() {
@@ -96,8 +68,8 @@ EOF
 paranoid: false
 EOF
 
-  local configured_installer="${CONFIGURED_OUTPUT}/pmg_setup_install_macos_standalone.sh"
-  local configured_uninstaller="${CONFIGURED_OUTPUT}/pmg_uninstall_macos_standalone.sh"
+  local configured_installer="${CONFIGURED_OUTPUT}/pmg_setup_install_linux_standalone.sh"
+  local configured_uninstaller="${CONFIGURED_OUTPUT}/pmg_uninstall_linux_standalone.sh"
 
   run_installer "$configured_installer"
   pmg_bin=$(installed_pmg) || fail "configured installer did not install pmg"
@@ -125,8 +97,8 @@ test_cloud_credentials_install() {
     --embed-cloud-credentials \
     --output-dir "$CREDENTIAL_OUTPUT"
 
-  local credential_installer="${CREDENTIAL_OUTPUT}/pmg_setup_install_macos_standalone.sh"
-  local credential_uninstaller="${CREDENTIAL_OUTPUT}/pmg_uninstall_macos_standalone.sh"
+  local credential_installer="${CREDENTIAL_OUTPUT}/pmg_setup_install_linux_standalone.sh"
+  local credential_uninstaller="${CREDENTIAL_OUTPUT}/pmg_uninstall_linux_standalone.sh"
 
   run_installer "$credential_installer"
   pmg_bin=$(installed_pmg) || fail "credential installer did not install pmg"
