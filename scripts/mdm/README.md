@@ -223,10 +223,8 @@ Intune for Linux supports shell scripts with the same single-script model. Uploa
 Run these checks from `scripts/mdm/`:
 
 ```sh
-bash ./tests/generate_standalone_macos_test.sh
-bash ./tests/generate_standalone_linux_test.sh
-bash ./tests/pmg_setup_install_macos_test.sh
-bash ./tests/pmg_setup_install_linux_test.sh
+bash ./tests/generate_standalone_test.sh
+bash ./tests/pmg_setup_install_test.sh
 bash ./tests/non_macos_guard_test.sh
 bash ./tests/non_linux_guard_test.sh
 bash ./generate_standalone_macos.sh --check
@@ -242,10 +240,8 @@ shellcheck -x -P SCRIPTDIR -P lib \
   lib/test_lib.sh \
   generate_standalone_macos.sh \
   generate_standalone_linux.sh \
-  tests/generate_standalone_macos_test.sh \
-  tests/generate_standalone_linux_test.sh \
-  tests/pmg_setup_install_macos_test.sh \
-  tests/pmg_setup_install_linux_test.sh \
+  tests/generate_standalone_test.sh \
+  tests/pmg_setup_install_test.sh \
   tests/non_macos_guard_test.sh \
   tests/non_linux_guard_test.sh \
   tests/e2e_lib_macos.sh \
