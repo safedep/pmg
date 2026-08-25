@@ -25,29 +25,49 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Test standalone script generation
-        run: bash scripts/mdm/generate_standalone_scripts_test.sh
+        run: |
+          bash scripts/mdm/generate_standalone_macos_test.sh
+          bash scripts/mdm/generate_standalone_linux_test.sh
 
       - name: Check generated standalone scripts
-        run: bash scripts/mdm/generate_standalone_scripts.sh --check
+        run: |
+          bash scripts/mdm/generate_standalone_macos.sh --check
+          bash scripts/mdm/generate_standalone_linux.sh --check
 
       - name: Test macOS-only refusal on Linux
         run: bash scripts/mdm/non_macos_guard_test.sh
+
+      - name: Test Linux-only refusal on non-Linux
+        run: bash scripts/mdm/non_linux_guard_test.sh
+
+      - name: Test Linux installer behavior
+        run: bash scripts/mdm/pmg_setup_install_linux_test.sh
 
       - name: Lint MDM scripts
         run: |
           shellcheck -x -P SCRIPTDIR \
             scripts/mdm/lib_macos.sh \
+            scripts/mdm/lib_linux.sh \
             scripts/mdm/e2e_lib_macos.sh \
             scripts/mdm/pmg_setup_install_macos.sh \
             scripts/mdm/pmg_uninstall_macos.sh \
-            scripts/mdm/generate_standalone_scripts.sh \
-            scripts/mdm/generate_standalone_scripts_test.sh \
+            scripts/mdm/pmg_setup_install_linux.sh \
+            scripts/mdm/pmg_uninstall_linux.sh \
+            scripts/mdm/generate_standalone_lib.sh \
+            scripts/mdm/generate_standalone_macos.sh \
+            scripts/mdm/generate_standalone_linux.sh \
+            scripts/mdm/generate_standalone_macos_test.sh \
+            scripts/mdm/generate_standalone_linux_test.sh \
             scripts/mdm/pmg_setup_install_macos_test.sh \
+            scripts/mdm/pmg_setup_install_linux_test.sh \
             scripts/mdm/non_macos_guard_test.sh \
+            scripts/mdm/non_linux_guard_test.sh \
             scripts/mdm/standalone_macos_e2e_test.sh \
             scripts/mdm/multifile_macos_e2e_test.sh \
             scripts/mdm/standalone/pmg_setup_install_macos_standalone.sh \
-            scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh
+            scripts/mdm/standalone/pmg_uninstall_macos_standalone.sh \
+            scripts/mdm/standalone/pmg_setup_install_linux_standalone.sh \
+            scripts/mdm/standalone/pmg_uninstall_linux_standalone.sh
 
   mdm-scripts-macos-multifile-e2e:
     runs-on: macos-latest
