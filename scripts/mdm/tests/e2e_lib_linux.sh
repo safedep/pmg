@@ -133,6 +133,7 @@ assert_user_state_removed() {
   assert_absent "${home}/.local/share/safedep/pmg"
   assert_absent "${home}/.pmg"
   assert_absent "${home}/.pmg.rc"
+  assert_absent "${home}/.local/bin/pmg"
 }
 
 assert_login_recorded() {
