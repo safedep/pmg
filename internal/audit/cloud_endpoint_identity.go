@@ -1,6 +1,8 @@
 package audit
 
 import (
+	"fmt"
+
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 )
 
@@ -43,4 +45,40 @@ func ciProviderIDPrefix(provider controltowerv1.EndpointCIProvider) string {
 	default:
 		return ""
 	}
+}
+
+// kubernetesEndpointID formats a stable endpoint identity for a Kubernetes
+// workload. All replicas of one workload share this identity. It returns empty
+// when namespace or workload name is absent, so the caller keeps the existing
+// machine identity. It adds the cluster prefix only when the platform provides
+// one.
+func kubernetesEndpointID(ctx *cloudSinkKubernetesContext) string {
+	if ctx == nil || ctx.Namespace == "" || ctx.WorkloadName == "" {
+		return ""
+	}
+	if ctx.Cluster != "" {
+		return fmt.Sprintf("k8s:%s/%s/%s", ctx.Cluster, ctx.Namespace, ctx.WorkloadName)
+	}
+	return fmt.Sprintf("k8s:%s/%s", ctx.Namespace, ctx.WorkloadName)
+}
+
+// defaultKubernetesEndpointID resolves the process Kubernetes context and
+// formats its endpoint identity. It returns empty outside Kubernetes or when
+// required fields are absent.
+func defaultKubernetesEndpointID() string {
+	return kubernetesEndpointID(newCloudSinkKubernetesContext())
+}
+
+// resolveCloudEndpointID selects the endpoint identity in priority order. A
+// configured value wins first. A hosted CI identity wins next. A Kubernetes
+// identity wins next. It returns empty when none applies, so the caller keeps
+// DRY's existing machine identity.
+func resolveCloudEndpointID(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	if id := defaultCIEndpointID(); id != "" {
+		return id
+	}
+	return defaultKubernetesEndpointID()
 }

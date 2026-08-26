@@ -146,10 +146,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 
 	transport := endpointsync.NewGrpcTransport(cloudClient.Connection())
 
-	endpointID := cfg.Config.Cloud.EndpointID
-	if endpointID == "" {
-		endpointID = defaultCIEndpointID()
-	}
+	endpointID := resolveCloudEndpointID(cfg.Config.Cloud.EndpointID)
 
 	var identityOpts []endpointsync.EndpointIdentityOption
 	if endpointID != "" {
