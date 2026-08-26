@@ -119,6 +119,72 @@ func TestResolveKubernetesContextUsesFallbacks(t *testing.T) {
 	})
 }
 
+func TestKubernetesWorkloadName(t *testing.T) {
+	cases := []struct {
+		name       string
+		podName    string
+		want       string
+		wantStable bool
+	}{
+		{name: "Deployment", podName: "checkout-75d84f5bdf-abc12", want: "checkout", wantStable: true},
+		{name: "StatefulSet", podName: "database-2", want: "database", wantStable: true},
+		{name: "CronJob", podName: "cleanup-4111706356-x7p9q", want: "cleanup", wantStable: true},
+		{name: "indexed Job", podName: "worker-12-x7p9q", want: "worker", wantStable: true},
+		{name: "DaemonSet", podName: "scanner-x7p9q", want: "scanner", wantStable: true},
+		{name: "bare name", podName: "unusualpod", want: "unusualpod", wantStable: false},
+		{name: "unrecognized suffix", podName: "my-pod", want: "my-pod", wantStable: false},
+		{name: "empty", podName: "", want: "", wantStable: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			name, stable := kubernetesWorkloadName(tc.podName)
+			assert.Equal(t, tc.want, name)
+			assert.Equal(t, tc.wantStable, stable)
+		})
+	}
+}
+
+func TestResolveKubernetesContextWarns(t *testing.T) {
+	t.Run("full pod-name fallback warns and recommends KUBE_WORKLOAD_NAME", func(t *testing.T) {
+		env := map[string]string{
+			"KUBERNETES_SERVICE_HOST": "10.0.0.1",
+			"KUBE_POD_NAME":           "my-pod",
+		}
+		var warnings []string
+		ctx := resolveKubernetesContext(kubernetesTestResolverDeps(env, "payments", nil, "", nil, &warnings))
+		require.NotNil(t, ctx)
+		assert.Equal(t, "my-pod", ctx.WorkloadName)
+		require.Len(t, warnings, 1)
+		assert.Contains(t, warnings[0], "KUBE_WORKLOAD_NAME")
+	})
+
+	t.Run("recognized suffix does not warn", func(t *testing.T) {
+		env := map[string]string{
+			"KUBERNETES_SERVICE_HOST": "10.0.0.1",
+			"KUBE_POD_NAME":           "checkout-75d84f5bdf-abc12",
+		}
+		var warnings []string
+		ctx := resolveKubernetesContext(kubernetesTestResolverDeps(env, "payments", nil, "", nil, &warnings))
+		require.NotNil(t, ctx)
+		assert.Equal(t, "checkout", ctx.WorkloadName)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("explicit workload does not warn", func(t *testing.T) {
+		env := map[string]string{
+			"KUBERNETES_SERVICE_HOST": "10.0.0.1",
+			"KUBE_POD_NAME":           "my-pod",
+			"KUBE_WORKLOAD_NAME":      "checkout",
+		}
+		var warnings []string
+		ctx := resolveKubernetesContext(kubernetesTestResolverDeps(env, "payments", nil, "", nil, &warnings))
+		require.NotNil(t, ctx)
+		assert.Equal(t, "checkout", ctx.WorkloadName)
+		assert.Empty(t, warnings)
+	})
+}
+
 func kubernetesTestResolverDeps(env map[string]string, namespace string, namespaceErr error, hostname string, hostnameErr error, warnings *[]string) kubernetesResolverDeps {
 	return kubernetesResolverDeps{
 		getenv: func(key string) string {
