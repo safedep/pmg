@@ -206,3 +206,27 @@ func mapPackageManager(name string) controltowerv1.PmgPackageManager {
 		return controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED
 	}
 }
+
+// mapKubernetesWorkloadKind maps the platform-injected KUBE_WORKLOAD_KIND to
+// the typed enum. PMG does not infer the kind, so a custom or CRD-based
+// controller falls through to UNSPECIFIED.
+func mapKubernetesWorkloadKind(kind string) controltowerv1.EndpointKubernetesWorkloadKind {
+	switch kind {
+	case "Deployment":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DEPLOYMENT
+	case "DaemonSet":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DAEMON_SET
+	case "StatefulSet":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_STATEFUL_SET
+	case "Job":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_JOB
+	case "CronJob":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_CRON_JOB
+	case "ReplicaSet":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_REPLICA_SET
+	case "Pod":
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_POD
+	default:
+		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_UNSPECIFIED
+	}
+}
