@@ -98,15 +98,25 @@ func (b *SyncClientBundle) CheckIn(ctx context.Context) error {
 // cloud-sync.lastrun, the file records every attempt, so a failing endpoint
 // or an old server does not retry on every sync.
 func checkInWithRateLimit(ctx context.Context, cfg *config.RuntimeConfig, checkIn func(context.Context) error) error {
-	if !SyncCooldownElapsed(cfg.CloudCheckInLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
+	lastRunPath := cfg.CloudCheckInLastRunPath()
+	minInterval := cfg.Config.Cloud.AutoSync.MinInterval
+
+	if !SyncCooldownElapsed(lastRunPath, minInterval) {
+		log.Debugf("cloud check-in skipped: last attempt %s ago, min interval %s",
+			time.Since(ReadLastSyncAttempt(lastRunPath)).Round(time.Second), minInterval)
 		return nil
 	}
 
-	if err := WriteLastSyncAttempt(cfg.CloudCheckInLastRunPath()); err != nil {
+	if err := WriteLastSyncAttempt(lastRunPath); err != nil {
 		return fmt.Errorf("update check-in lastrun: %w", err)
 	}
 
-	return checkIn(ctx)
+	if err := checkIn(ctx); err != nil {
+		return err
+	}
+
+	log.Debugf("cloud check-in sent")
+	return nil
 }
 
 func (b *SyncClientBundle) Close() error {

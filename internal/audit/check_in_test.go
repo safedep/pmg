@@ -1,10 +1,12 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
+	drylog "github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,5 +68,20 @@ func TestCheckInWithRateLimit(t *testing.T) {
 		assert.Equal(t, codes.Unavailable, status.Code(err))
 		require.NoError(t, checkInWithRateLimit(ctx, cfg, checkIn))
 		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("logs the check-in and the rate-limited skip", func(t *testing.T) {
+		var logs bytes.Buffer
+		restore := drylog.SwapGlobalForTest(&logs)
+		defer restore()
+
+		cfg := newCheckInConfig(t)
+		checkIn := func(context.Context) error { return nil }
+
+		require.NoError(t, checkInWithRateLimit(ctx, cfg, checkIn))
+		assert.Contains(t, logs.String(), "cloud check-in sent")
+
+		require.NoError(t, checkInWithRateLimit(ctx, cfg, checkIn))
+		assert.Contains(t, logs.String(), "cloud check-in skipped")
 	})
 }
