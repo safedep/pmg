@@ -131,13 +131,14 @@ func selectorFromEnv() Selector {
 	return sel
 }
 
-// forwardCloudCredentials copies the SafeDep Cloud credential variables set in
-// the host environment into the testscript environment, so cloud-category scripts
-// reach the authenticated analyzer. testscript does not forward host env, so
-// community-category scripts (which never call this) keep their unauthenticated
-// community path.
+// forwardCloudCredentials copies the SafeDep Cloud env vars from the host into
+// the testscript environment. testscript does not forward host env. Cloud-category
+// scripts need these to reach the authenticated analyzer. PMG_CLOUD_ENDPOINT_ID
+// gives every hosted runner one stable endpoint identity. Without it each
+// ephemeral runner registers a new endpoint. Community-category scripts never
+// call this, so they keep their unauthenticated community path.
 func forwardCloudCredentials(env *testscript.Env) {
-	for _, key := range []string{"SAFEDEP_API_KEY", "SAFEDEP_TENANT_ID", "PMG_CLOUD_ENABLED"} {
+	for _, key := range []string{"SAFEDEP_API_KEY", "SAFEDEP_TENANT_ID", "PMG_CLOUD_ENABLED", "PMG_CLOUD_ENDPOINT_ID"} {
 		if v, ok := os.LookupEnv(key); ok && v != "" {
 			env.Setenv(key, v)
 		}

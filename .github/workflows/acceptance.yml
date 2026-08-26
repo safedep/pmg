@@ -42,6 +42,9 @@ jobs:
       SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
       SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
       PMG_CLOUD_ENABLED: "true"
+      # All hosted runners share one stable endpoint. Without this each
+      # ephemeral runner registers a new endpoint on every acceptance run.
+      PMG_CLOUD_ENDPOINT_ID: "gh:${{ github.repository }}"
     defaults:
       run:
         shell: bash
