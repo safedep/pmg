@@ -48,11 +48,27 @@ The install script:
 1. Installs or updates `pmg` (Homebrew on macOS if present; otherwise the GitHub release tarball with SHA-256 verification).
 2. If the package includes a `config.yml`, installs it as the globally managed config (see below).
 3. Runs `pmg setup install` for each target user to create aliases and shims (and a per-user config, unless a globally managed config is active).
-4. If both cloud variables are set, configures cloud sync for the active GUI user.
+4. If both cloud variables are set, enables cloud sync and runs `pmg cloud sync` for each target user.
 
-Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. It then stores credentials in the user's keychain.
+Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. It stores credentials in the keychain when the user has an active session. It then runs cloud sync with the credentials from the environment.
 
-The installer reports and skips cloud setup for users without an active session. This skip is nonfatal. A cloud login failure is also nonfatal.
+An inactive session prevents keychain storage. It does not prevent cloud sync. A cloud login or cloud sync failure is nonfatal during installation.
+
+## Cloud sync only
+
+Use `--cloud-sync-only` to skip installation and setup. The script checks for an existing PMG installation and runs `pmg cloud sync` for each target user.
+
+```sh
+SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
+  sudo ./pmg_setup_install_macos.sh --cloud-sync-only
+
+SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
+  sudo ./pmg_setup_install_linux.sh --cloud-sync-only
+```
+
+The standalone installers support the same option. A standalone installer can use credentials embedded by its generator.
+
+The script exits successfully without work when credentials are not configured or PMG is not installed. PMG must have cloud sync enabled in its user or managed config. Each user sync has a one-minute timeout. The script attempts every user and returns a nonzero status if any sync fails.
 
 ## Uninstall
 
@@ -82,7 +98,7 @@ Include a `config.yml` next to the scripts to centrally manage PMG configuration
 
 - By default the global config is an overridable baseline: users can still override its values at runtime with `PMG_*` env vars and CLI flags. Set `global_lockdown: true` in the bundled `config.yml` to forbid those overrides. See [Globally Managed Configuration](../../docs/config.md#globally-managed-configuration) for the full behaviour.
 - The file can be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to user values.
-- To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The installer skips the refused per-user config change. It still stores credentials for the active session.
+- To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The installer skips the refused per-user config change. It stores credentials for the active session and syncs each target user.
 - Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config.
 - Re-deploying the package overwrites the global config, keeping it in sync with the package.
 - Uninstall removes the global config whenever it is present, regardless of whether the uninstall package ships a `config.yml`. Set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it.
@@ -203,7 +219,7 @@ Create two shell-script policies ([Microsoft's procedure](https://learn.microsof
 2. **Uninstall policy**: upload `pmg_uninstall_macos_standalone.sh`, same setting.
 3. Assign to the device group. Do not assign both policies concurrently.
 
-Only the active GUI user can receive Keychain credentials during a run. Use a recurring install frequency to cover later users. A missing GUI session or a cloud login failure is a nonfatal skip, so neither causes a nonzero exit for Intune retries.
+Only the active GUI user can receive Keychain credentials during a run. The installer can still sync every target user with its embedded credentials. A missing GUI session, cloud login failure, or cloud sync failure does not cause a nonzero install exit for Intune retries.
 
 ### Intune example (Linux)
 
