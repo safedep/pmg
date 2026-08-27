@@ -14,11 +14,15 @@ PMG_WRAPPER="${PMG_WRAPPER_DIR}/pmg"
 LOGIN_ARGS="${PMG_WRAPPER_DIR}/cloud-login.args"
 LOGIN_ENV="${PMG_WRAPPER_DIR}/cloud-login.env"
 LOGIN_IDENTITY="${PMG_WRAPPER_DIR}/cloud-login.identity"
+SYNC_ARGS="${PMG_WRAPPER_DIR}/cloud-sync.args"
+SYNC_ENV="${PMG_WRAPPER_DIR}/cloud-sync.env"
+SYNC_IDENTITY="${PMG_WRAPPER_DIR}/cloud-sync.identity"
 LOGOUT_ARGS="${PMG_WRAPPER_DIR}/cloud-logout.args"
 LOGOUT_IDENTITY="${PMG_WRAPPER_DIR}/cloud-logout.identity"
 UNEXPECTED_CLOUD="${PMG_WRAPPER_DIR}/unexpected-cloud.args"
 CAPTURE_FILES=(
   "$LOGIN_ARGS" "$LOGIN_ENV" "$LOGIN_IDENTITY"
+  "$SYNC_ARGS" "$SYNC_ENV" "$SYNC_IDENTITY"
   "$LOGOUT_ARGS" "$LOGOUT_IDENTITY" "$UNEXPECTED_CLOUD"
 )
 WRAPPER_PATH="${PMG_WRAPPER_DIR}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -64,7 +68,7 @@ assert_owner() {
   assert_equals "$1" "$(sudo -n stat -c '%U' "$2")" "$3"
 }
 
-# The wrapper shadows pmg on PATH. It records cloud login and logout calls
+# The wrapper shadows pmg on PATH. It records cloud login, sync, and logout calls
 # instead of reaching SafeDep Cloud. It forwards every other call to the
 # installed binary. The root fan-out runs the wrapper as each local user.
 # reset_wrapper_captures pre-creates the capture files world-writable, so the
@@ -90,6 +94,14 @@ if [[ "${1:-}" == "cloud" ]]; then
   if [[ "$#" -eq 2 && "${2:-}" == "logout" ]]; then
     printf '%s\n' "$@" >> "${WRAPPER_DIR}/cloud-logout.args"
     printf '%s\n' "$identity" >> "${WRAPPER_DIR}/cloud-logout.identity"
+    exit 0
+  fi
+  if [[ "$#" -eq 4 && "${2:-}" == "sync" &&
+    "${3:-}" == "--timeout" && "${4:-}" == "1m" ]]; then
+    printf '%s\n' "$*" >> "${WRAPPER_DIR}/cloud-sync.args"
+    printf '%s\t%s\n' "${SAFEDEP_API_KEY:-}" "${SAFEDEP_TENANT_ID:-}" \
+      >> "${WRAPPER_DIR}/cloud-sync.env"
+    printf '%s\n' "$identity" >> "${WRAPPER_DIR}/cloud-sync.identity"
     exit 0
   fi
   printf '%s\t%s\n' "$identity" "$*" >> "${WRAPPER_DIR}/unexpected-cloud.args"
@@ -151,8 +163,21 @@ assert_logout_recorded() {
     "cloud logout user context"
 }
 
+assert_sync_recorded_for() {
+  grep -Fqx "$1" "$SYNC_IDENTITY" ||
+    fail "cloud sync did not run as expected identity: $1"
+  grep -Fqx "cloud sync --timeout 1m" "$SYNC_ARGS" ||
+    fail "cloud sync argv was not recorded"
+  grep -Fqx "${TEST_API_KEY}"$'\t'"${TEST_TENANT_ID}" "$SYNC_ENV" ||
+    fail "cloud sync credentials were not recorded"
+}
+
 assert_no_login_recorded() {
   [[ ! -s "$LOGIN_ARGS" ]] || fail "unexpected cloud login: $(cat "$LOGIN_ARGS")"
+}
+
+assert_no_sync_recorded() {
+  [[ ! -s "$SYNC_ARGS" ]] || fail "unexpected cloud sync: $(cat "$SYNC_ARGS")"
 }
 
 assert_no_unexpected_cloud() {

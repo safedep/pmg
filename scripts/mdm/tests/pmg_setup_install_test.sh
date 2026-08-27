@@ -37,10 +37,20 @@ run_installer_tests() {
 
   cat > "$FAKE_PMG" <<'EOF'
 #!/bin/bash
-printf '%s\n' "$@" > "$PMG_LOGIN_ARGS_FILE"
-printf '%s\t%s\n' "$SAFEDEP_API_KEY" "$SAFEDEP_TENANT_ID" \
-  > "$PMG_LOGIN_CREDENTIALS_FILE"
-exit "$PMG_LOGIN_STATUS"
+if [[ "${1:-}" == "cloud" && "${2:-}" == "login" ]]; then
+  printf '%s\n' "$@" > "$PMG_LOGIN_ARGS_FILE"
+  printf '%s\t%s\n' "$SAFEDEP_API_KEY" "$SAFEDEP_TENANT_ID" \
+    > "$PMG_LOGIN_CREDENTIALS_FILE"
+  exit "$PMG_LOGIN_STATUS"
+fi
+if [[ "${1:-}" == "cloud" && "${2:-}" == "sync" ]]; then
+  printf '%s\n' "$@" > "$PMG_SYNC_ARGS_FILE"
+  printf '%s\t%s\n' "$SAFEDEP_API_KEY" "$SAFEDEP_TENANT_ID" \
+    > "$PMG_SYNC_CREDENTIALS_FILE"
+  printf '%s\n' "$PMG_SYNC_USER" > "$PMG_SYNC_IDENTITY_FILE"
+  exit "$PMG_SYNC_STATUS"
+fi
+exit 99
 EOF
   chmod 0755 "$FAKE_PMG"
 
@@ -122,8 +132,14 @@ EOF
   assert_contains "$CREDENTIAL_RUNTIME" \
     "unset EMBEDDED_SAFEDEP_API_KEY_B64 EMBEDDED_SAFEDEP_TENANT_ID_B64"
 
-  awk '/^(cloud_login|configure_user)\(\)/ { emit = 1 } emit' \
-    "$INSTALL_SOURCE" > "$INSTALL_TAIL"
+  {
+    awk '
+      /^cloud_sync\(\)/ { emit = 1 }
+      /^if \[\[ "\$CLOUD_SYNC_ONLY" -eq 1 \]\]; then$/ { exit }
+      emit { print }
+    ' "$INSTALL_SOURCE"
+    awk '/^cloud_login\(\)/ { emit = 1 } emit' "$INSTALL_SOURCE"
+  } > "$INSTALL_TAIL"
 
   [[ -s "$INSTALL_TAIL" ]] ||
     fail "tail extraction matched nothing in $INSTALL_SOURCE (function renamed?)"
@@ -145,6 +161,7 @@ EOF
       uname() { printf '%s\n' "$os_uname"; }
       export -f uname
 
+      set --
       source "$CREDENTIAL_RUNTIME"
 
       [[ -z "${SAFEDEP_API_KEY+x}" ]] ||
@@ -236,6 +253,7 @@ EOF
     local setup_status="$3"
     local session_status="$4"
     local cloud_login_status="${5:-0}"
+    local cloud_sync_status="${6:-0}"
 
     (
       set -euo pipefail
@@ -244,8 +262,15 @@ EOF
       PMG_LOGIN_ARGS_FILE="${TEST_ROOT}/cloud-login.args"
       PMG_LOGIN_CREDENTIALS_FILE="${TEST_ROOT}/cloud-login.credentials"
       PMG_LOGIN_STATUS="$cloud_login_status"
+      PMG_SYNC_ARGS_FILE="${TEST_ROOT}/cloud-sync.args"
+      PMG_SYNC_CREDENTIALS_FILE="${TEST_ROOT}/cloud-sync.credentials"
+      PMG_SYNC_IDENTITY_FILE="${TEST_ROOT}/cloud-sync.identity"
+      PMG_SYNC_STATUS="$cloud_sync_status"
       export PMG_LOGIN_ARGS_FILE PMG_LOGIN_CREDENTIALS_FILE PMG_LOGIN_STATUS
+      export PMG_SYNC_ARGS_FILE PMG_SYNC_CREDENTIALS_FILE PMG_SYNC_IDENTITY_FILE
+      export PMG_SYNC_STATUS
       rm -f "$PMG_LOGIN_ARGS_FILE" "$PMG_LOGIN_CREDENTIALS_FILE"
+      rm -f "$PMG_SYNC_ARGS_FILE" "$PMG_SYNC_CREDENTIALS_FILE" "$PMG_SYNC_IDENTITY_FILE"
       if [[ "$credentials" == "yes" ]]; then
         CLOUD_API_KEY="test-api-key"
         CLOUD_TENANT_ID="test-tenant"
@@ -256,7 +281,17 @@ EOF
 
       log() { printf 'log:%s\n' "$*"; }
       warn() { printf 'warning:%s\n' "$*"; }
-      run_user_file() { return "$setup_status"; }
+      run_user_file() {
+        local user="$1"
+        shift
+        if [[ "${1:-}" == "$PMG_BIN" && "${2:-}" == "setup" ]]; then
+          return "$setup_status"
+        fi
+        if [[ "${1:-}" == "$PMG_BIN" && "${2:-}" == "config" ]]; then
+          return 0
+        fi
+        PMG_SYNC_USER="$user" "$@"
+      }
       user_has_session() { return "$session_status"; }
       run_user_session() {
         assert_equals "test-user" "$1" "cloud login user"
@@ -289,6 +324,20 @@ EOF
           printf 'cloud-login-attempted:%s\n' "$cloud_login_status"
         fi
       fi
+      if [[ "$credentials" == "yes" && "$users" == "yes" &&
+        "$setup_status" -eq 0 ]]; then
+        assert_equals $'cloud\nsync\n--timeout\n1m' \
+          "$(cat "$PMG_SYNC_ARGS_FILE")" \
+          "cloud sync command"
+        assert_equals $'test-api-key\ttest-tenant' \
+          "$(cat "$PMG_SYNC_CREDENTIALS_FILE")" \
+          "cloud sync environment"
+        assert_equals "test-user" "$(cat "$PMG_SYNC_IDENTITY_FILE")" \
+          "cloud sync user"
+        if [[ "$cloud_sync_status" -ne 0 ]]; then
+          printf 'cloud-sync-attempted:%s\n' "$cloud_sync_status"
+        fi
+      fi
       [[ -z "${CLOUD_API_KEY+x}" ]] ||
         fail "cloud API key must be unset after user configuration"
       [[ -z "${CLOUD_TENANT_ID+x}" ]] ||
@@ -314,10 +363,110 @@ EOF
   [[ "$cloud_login_output" == *"warning:cloud login failed for test-user"* ]] ||
     fail "failed cloud login must be reported"
 
+  cloud_sync_output=$(run_install_tail yes yes 0 0 0 1) ||
+    fail "failed cloud sync should remain nonfatal during installation"
+  [[ "$cloud_sync_output" == *"cloud-sync-attempted:1"* ]] ||
+    fail "failed cloud sync was not exercised"
+  [[ "$cloud_sync_output" == *"warning:cloud sync failed for test-user"* ]] ||
+    fail "failed cloud sync must be reported"
+
   run_install_tail no yes 0 0 ||
     fail "successful setup without cloud credentials should succeed"
 
   assert_contains "$INSTALL_TAIL" 'exec "$1" cloud login --from-env'
+  assert_contains "$INSTALL_TAIL" 'exec "$1" cloud sync --timeout 1m'
+
+  test_cloud_sync_only() {
+    local case_dir="${TEST_ROOT}/cloud-sync-only"
+    local runtime="${case_dir}/pmg_setup_install_${os}.sh"
+    local fake_pmg="${case_dir}/pmg"
+    local trace="${case_dir}/sync.trace"
+    local users no_credentials_output missing_pmg_output invalid_output
+
+    mkdir -p "$case_dir"
+    cp "$INSTALL_SOURCE" "$runtime"
+    cat > "${case_dir}/lib_${os}.sh" <<'EOF'
+require_macos() { :; }
+require_linux() { :; }
+log() { printf 'log:%s\n' "$*"; }
+warn() { printf 'warning:%s\n' "$*"; }
+resolve_pmg() {
+  [[ "${PMG_TEST_INSTALLED:-0}" -eq 1 ]] || return 1
+  printf '%s\n' "$PMG_TEST_PMG"
+}
+each_target_user() { printf '%s\n' "$PMG_TEST_USERS"; }
+run_user_file() {
+  local user="$1"
+  shift
+  PMG_SYNC_USER="$user" "$@"
+}
+EOF
+    cat > "$fake_pmg" <<'EOF'
+#!/bin/bash
+printf '%s\t%s\t%s\t%s\n' \
+  "$PMG_SYNC_USER" "$*" "$SAFEDEP_API_KEY" "$SAFEDEP_TENANT_ID" \
+  >> "$PMG_TEST_TRACE"
+[[ "$PMG_SYNC_USER" != "${PMG_TEST_FAIL_USER:-}" ]]
+EOF
+    chmod 0755 "$fake_pmg"
+
+    if [[ "$os" == "macos" ]]; then
+      users=$'test-user\t501\t/Users/test-user\nsecond-user\t502\t/Users/second-user'
+    else
+      users=$'test-user\t1001\t/home/test-user\nsecond-user\t1002\t/home/second-user'
+    fi
+
+    no_credentials_output=$(
+      env -u SAFEDEP_API_KEY -u SAFEDEP_TENANT_ID \
+        PMG_TEST_INSTALLED=1 PMG_TEST_PMG="$fake_pmg" PMG_TEST_USERS="$users" \
+        PMG_TEST_TRACE="$trace" /bin/bash "$runtime" --cloud-sync-only
+    )
+    [[ "$no_credentials_output" == *"Cloud credentials are not configured; skipping cloud sync"* ]] ||
+      fail "sync-only mode must report missing credentials: $no_credentials_output"
+    [[ ! -e "$trace" ]] || fail "sync-only mode must not run without credentials"
+
+    missing_pmg_output=$(
+      SAFEDEP_API_KEY="test-api-key" SAFEDEP_TENANT_ID="test-tenant" \
+        PMG_TEST_INSTALLED=0 PMG_TEST_PMG="$fake_pmg" PMG_TEST_USERS="$users" \
+        PMG_TEST_TRACE="$trace" /bin/bash "$runtime" --cloud-sync-only
+    )
+    [[ "$missing_pmg_output" == *"pmg is not installed; skipping cloud sync"* ]] ||
+      fail "sync-only mode must report a missing PMG installation"
+    [[ ! -e "$trace" ]] || fail "sync-only mode must not run when PMG is missing"
+
+    SAFEDEP_API_KEY="test-api-key" SAFEDEP_TENANT_ID="test-tenant" \
+      PMG_TEST_INSTALLED=1 PMG_TEST_PMG="$fake_pmg" PMG_TEST_USERS="$users" \
+      PMG_TEST_TRACE="$trace" /bin/bash "$runtime" --cloud-sync-only >/dev/null
+    assert_equals "2" "$(wc -l < "$trace" | tr -d ' ')" \
+      "sync-only user count"
+    assert_equals \
+      $'test-user\tcloud sync --timeout 1m\ttest-api-key\ttest-tenant\nsecond-user\tcloud sync --timeout 1m\ttest-api-key\ttest-tenant' \
+      "$(cat "$trace")" "sync-only calls"
+
+    : > "$trace"
+    if SAFEDEP_API_KEY="test-api-key" SAFEDEP_TENANT_ID="test-tenant" \
+      PMG_TEST_INSTALLED=1 PMG_TEST_PMG="$fake_pmg" PMG_TEST_USERS="$users" \
+      PMG_TEST_TRACE="$trace" PMG_TEST_FAIL_USER="test-user" \
+      /bin/bash "$runtime" --cloud-sync-only >/dev/null; then
+      fail "sync-only mode must fail when a user sync fails"
+    fi
+    assert_equals "2" "$(wc -l < "$trace" | tr -d ' ')" \
+      "sync-only failure fan-out"
+
+    if invalid_output=$(/bin/bash "$runtime" --unknown 2>&1); then
+      fail "installer must reject an unknown argument"
+    fi
+    [[ "$invalid_output" == *"unknown argument: --unknown"* ]] ||
+      fail "installer must report an unknown argument"
+
+    if invalid_output=$(/bin/bash "$runtime" --cloud-sync-only extra 2>&1); then
+      fail "installer must reject multiple arguments"
+    fi
+    [[ "$invalid_output" == *"expected no arguments or --cloud-sync-only"* ]] ||
+      fail "installer must report multiple arguments"
+  }
+
+  test_cloud_sync_only
 }
 
 run_installer_tests macos Darwin $'test-user\t501\t/Users/test-user' "not logged in"
