@@ -381,7 +381,7 @@ EOF
     local runtime="${case_dir}/pmg_setup_install_${os}.sh"
     local fake_pmg="${case_dir}/pmg"
     local trace="${case_dir}/sync.trace"
-    local users no_credentials_output missing_pmg_output invalid_output
+    local users no_credentials_output missing_pmg_output
 
     mkdir -p "$case_dir"
     cp "$INSTALL_SOURCE" "$runtime"
@@ -436,7 +436,8 @@ EOF
 
     SAFEDEP_API_KEY="test-api-key" SAFEDEP_TENANT_ID="test-tenant" \
       PMG_TEST_INSTALLED=1 PMG_TEST_PMG="$fake_pmg" PMG_TEST_USERS="$users" \
-      PMG_TEST_TRACE="$trace" /bin/bash "$runtime" --cloud-sync-only >/dev/null
+      PMG_TEST_TRACE="$trace" /bin/bash "$runtime" \
+      "/" "computer" "user" --cloud-sync-only "custom" >/dev/null
     assert_equals "2" "$(wc -l < "$trace" | tr -d ' ')" \
       "sync-only user count"
     assert_equals \
@@ -452,18 +453,6 @@ EOF
     fi
     assert_equals "2" "$(wc -l < "$trace" | tr -d ' ')" \
       "sync-only failure fan-out"
-
-    if invalid_output=$(/bin/bash "$runtime" --unknown 2>&1); then
-      fail "installer must reject an unknown argument"
-    fi
-    [[ "$invalid_output" == *"unknown argument: --unknown"* ]] ||
-      fail "installer must report an unknown argument"
-
-    if invalid_output=$(/bin/bash "$runtime" --cloud-sync-only extra 2>&1); then
-      fail "installer must reject multiple arguments"
-    fi
-    [[ "$invalid_output" == *"expected no arguments or --cloud-sync-only"* ]] ||
-      fail "installer must report multiple arguments"
   }
 
   test_cloud_sync_only

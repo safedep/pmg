@@ -68,7 +68,11 @@ SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
 
 The standalone installers support the same option. A standalone installer can use credentials embedded by its generator.
 
-The script exits successfully without work when credentials are not configured or PMG is not installed. PMG must have cloud sync enabled in its user or managed config. Each user sync has a one-minute timeout. The script attempts every user and returns a nonzero status if any sync fails.
+The installer finds `--cloud-sync-only` in any argument position and ignores other arguments. This behavior supports MDM-provided arguments such as the three built-in Jamf parameters.
+
+The MDM must pass script arguments or invoke an installer that already exists at a fixed path. A direct standalone upload in Intune, Mosyle, or Kandji cannot select sync-only mode.
+
+The script exits successfully without work when credentials are not configured or PMG is not installed. PMG must have cloud sync enabled in each target user's config or in the managed config. If cloud sync is disabled for a target user, the script returns a nonzero status. Run the normal installer to configure new users, or use a managed config with `cloud.enabled: true`. Each user sync has a one-minute timeout. The script attempts every user and returns a nonzero status if any sync fails.
 
 ## Uninstall
 

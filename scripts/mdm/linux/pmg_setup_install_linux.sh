@@ -22,20 +22,12 @@ export -n CLOUD_API_KEY CLOUD_TENANT_ID
 unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID
 
 CLOUD_SYNC_ONLY=0
-case "$#" in
-  0) ;;
-  1)
-    if [[ "$1" != "--cloud-sync-only" ]]; then
-      echo "Error: unknown argument: $1" >&2
-      exit 1
-    fi
+for arg in "$@"; do
+  if [[ "$arg" == "--cloud-sync-only" ]]; then
     CLOUD_SYNC_ONLY=1
-    ;;
-  *)
-    echo "Error: expected no arguments or --cloud-sync-only" >&2
-    exit 1
-    ;;
-esac
+    break
+  fi
+done
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib_linux.sh

@@ -130,7 +130,7 @@ test_cloud_credentials_install() {
   local credential_installer="${CREDENTIAL_OUTPUT}/pmg_setup_install_macos_standalone.sh"
   local credential_uninstaller="${CREDENTIAL_OUTPUT}/pmg_uninstall_macos_standalone.sh"
 
-  run_installer "$credential_installer"
+  run_installer "$credential_installer" "/" "computer" "user"
   pmg_bin=$(installed_pmg) || fail "credential installer did not install pmg"
   assert_login_recorded
   assert_sync_recorded_for "$EXPECTED_IDENTITY"
@@ -139,7 +139,8 @@ test_cloud_credentials_install() {
     "cloud configuration"
 
   reset_wrapper_captures
-  run_installer "$credential_installer" --cloud-sync-only
+  run_installer "$credential_installer" \
+    "/" "computer" "user" --cloud-sync-only "custom"
   assert_no_login_recorded
   assert_sync_recorded_for "$EXPECTED_IDENTITY"
   assert_no_unexpected_cloud
