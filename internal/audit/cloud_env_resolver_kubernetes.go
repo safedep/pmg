@@ -8,7 +8,14 @@ import (
 	"github.com/safedep/dry/log"
 )
 
-const kubernetesServiceAccountNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+// Kubernetes runtime seams. Production uses the real calls. Tests override
+// these package vars, following the auditGeteuid pattern in cloud_sink.go.
+// os.Getenv needs no seam because tests use t.Setenv.
+var (
+	kubernetesNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	kubernetesHostname      = os.Hostname
+	kubernetesWarnf         = log.Warnf
+)
 
 // Kubernetes generated-name patterns. The pod-template hash uses the reduced
 // alphabet that Kubernetes applies to avoid vowels. The five-character suffix
@@ -28,31 +35,18 @@ type cloudSinkKubernetesContext struct {
 	PodUID       string
 }
 
-type kubernetesResolverDeps struct {
-	getenv   func(string) string
-	readFile func(string) ([]byte, error)
-	hostname func() (string, error)
-	warnf    func(string, ...any)
-}
-
 func newCloudSinkKubernetesContext() *cloudSinkKubernetesContext {
-	return resolveKubernetesContext(kubernetesResolverDeps{
-		getenv:   os.Getenv,
-		readFile: os.ReadFile,
-		hostname: os.Hostname,
-		warnf:    log.Warnf,
-	})
+	return resolveKubernetesContext()
 }
 
-func resolveKubernetesContext(deps kubernetesResolverDeps) *cloudSinkKubernetesContext {
+func resolveKubernetesContext() *cloudSinkKubernetesContext {
 	env := func(key string) string {
-		return strings.TrimSpace(deps.getenv(key))
+		return strings.TrimSpace(os.Getenv(key))
 	}
 
-	namespaceBytes, namespaceErr := deps.readFile(kubernetesServiceAccountNamespacePath)
 	fileNamespace := ""
-	if namespaceErr == nil {
-		fileNamespace = strings.TrimSpace(string(namespaceBytes))
+	if data, err := os.ReadFile(kubernetesNamespacePath); err == nil {
+		fileNamespace = strings.TrimSpace(string(data))
 	}
 
 	namespace := fileNamespace
@@ -68,7 +62,7 @@ func resolveKubernetesContext(deps kubernetesResolverDeps) *cloudSinkKubernetesC
 
 	podName := env("KUBE_POD_NAME")
 	if podName == "" {
-		if hostname, err := deps.hostname(); err == nil {
+		if hostname, err := kubernetesHostname(); err == nil {
 			podName = strings.TrimSpace(hostname)
 		}
 	}
@@ -78,7 +72,7 @@ func resolveKubernetesContext(deps kubernetesResolverDeps) *cloudSinkKubernetesC
 		derived, stable := kubernetesWorkloadName(podName)
 		workloadName = derived
 		if !stable {
-			deps.warnf("PMG cannot derive a stable Kubernetes workload name from Pod %q. Set KUBE_WORKLOAD_NAME.", podName)
+			kubernetesWarnf("PMG cannot derive a stable Kubernetes workload name from Pod %q. Set KUBE_WORKLOAD_NAME.", podName)
 		}
 	}
 
@@ -97,17 +91,22 @@ func resolveKubernetesContext(deps kubernetesResolverDeps) *cloudSinkKubernetesC
 // reports whether a known suffix was recognized. It returns the full Pod name
 // with false when no rule matches, so the caller can warn and still produce an
 // endpoint ID. It does not infer the workload kind.
+//
+// The two-segment strippers run before the single ordinal rule. A Deployment
+// Pod is <workload>-<pod-template-hash>-<random5>, and the random suffix can be
+// all digits. If the ordinal rule ran first, it would strip only that suffix
+// and keep the hash, which churns on every rollout.
 func kubernetesWorkloadName(podName string) (string, bool) {
 	segments := strings.Split(podName, "-")
 	last := len(segments) - 1
 
 	switch {
-	case len(segments) >= 2 && kubernetesOrdinalPattern.MatchString(segments[last]):
-		return strings.Join(segments[:last], "-"), true
 	case len(segments) >= 3 && kubernetesPodTemplateHash.MatchString(segments[last-1]):
 		return strings.Join(segments[:last-1], "-"), true
 	case len(segments) >= 3 && kubernetesOrdinalPattern.MatchString(segments[last-1]) && kubernetesGeneratedPodSuffix.MatchString(segments[last]):
 		return strings.Join(segments[:last-1], "-"), true
+	case len(segments) >= 2 && kubernetesOrdinalPattern.MatchString(segments[last]):
+		return strings.Join(segments[:last], "-"), true
 	case len(segments) >= 2 && kubernetesGeneratedPodSuffix.MatchString(segments[last]):
 		return strings.Join(segments[:last], "-"), true
 	default:
