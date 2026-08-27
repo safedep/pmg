@@ -2,6 +2,7 @@ package audit
 
 import (
 	"fmt"
+	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 )
@@ -57,7 +58,11 @@ func kubernetesEndpointID(ctx *cloudSinkKubernetesContext) string {
 		return ""
 	}
 	if ctx.Cluster != "" {
-		return fmt.Sprintf("k8s:%s/%s/%s", ctx.Cluster, ctx.Namespace, ctx.WorkloadName)
+		// KUBE_CLUSTER_NAME is free-form operator env. A "/" would make the ID
+		// ambiguous against the 3-part form, so replace it. Namespace and
+		// workload cannot hold a "/".
+		cluster := strings.ReplaceAll(ctx.Cluster, "/", "_")
+		return fmt.Sprintf("k8s:%s/%s/%s", cluster, ctx.Namespace, ctx.WorkloadName)
 	}
 	return fmt.Sprintf("k8s:%s/%s", ctx.Namespace, ctx.WorkloadName)
 }

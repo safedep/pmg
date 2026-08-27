@@ -67,6 +67,8 @@ func TestKubernetesEndpointID(t *testing.T) {
 		kubernetesEndpointID(&cloudSinkKubernetesContext{Namespace: "payments", WorkloadName: "checkout"}))
 	assert.Equal(t, "k8s:prod-eu/payments/checkout",
 		kubernetesEndpointID(&cloudSinkKubernetesContext{Cluster: "prod-eu", Namespace: "payments", WorkloadName: "checkout"}))
+	assert.Equal(t, "k8s:prod_eu/payments/checkout",
+		kubernetesEndpointID(&cloudSinkKubernetesContext{Cluster: "prod/eu", Namespace: "payments", WorkloadName: "checkout"}))
 	assert.Empty(t, kubernetesEndpointID(&cloudSinkKubernetesContext{Namespace: "payments"}))
 	assert.Empty(t, kubernetesEndpointID(&cloudSinkKubernetesContext{WorkloadName: "checkout"}))
 	assert.Empty(t, kubernetesEndpointID(nil))
@@ -132,6 +134,8 @@ func TestResolveCloudEndpointID(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			clearKubernetesEnv(t)
+			setKubernetesNamespaceFile(t, false, "")
 			for key, value := range tc.env {
 				t.Setenv(key, value)
 			}
