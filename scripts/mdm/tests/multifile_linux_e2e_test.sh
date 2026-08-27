@@ -45,6 +45,8 @@ test_multifile_configured_install() {
   cp "${SCRIPT_DIR}/linux/lib_linux.sh" "$INSTALLER" "$STAGE_DIR/"
   cat > "${STAGE_DIR}/config.yml" <<'EOF'
 paranoid: true
+cloud:
+  enabled: true
 EOF
 
   sudo -n /usr/bin/env \
@@ -60,6 +62,7 @@ EOF
   assert_equals "true" "$("$pmg_bin" config get paranoid)" \
     "global config value"
   assert_login_recorded
+  assert_sync_recorded_for "$EXPECTED_IDENTITY"
   assert_no_unexpected_cloud
 
   run_uninstaller "$UNINSTALLER"
@@ -102,8 +105,11 @@ test_multifile_multi_user_install() {
   # Cloud login runs only for the session user. A login recorded for any other
   # user adds a second identity line and fails assert_login_recorded.
   assert_login_recorded
+  assert_sync_recorded_for "$EXPECTED_IDENTITY"
+  assert_sync_recorded_for \
+    "$(id -u "$E2E_USER")"$'\t'"${E2E_USER}"$'\t'"${E2E_USER_HOME}"
   [[ "$install_output" == *"${E2E_USER} has no active session"* ]] ||
-    fail "installer did not report the cloud skip for the second user"
+    fail "installer did not report skipped credential storage for the second user"
   [[ "$install_output" != *"cloud login failed"* ]] ||
     fail "installer reported a cloud login failure"
   assert_no_unexpected_cloud
