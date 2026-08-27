@@ -115,9 +115,14 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
-			// The proxy daemon delivers events itself. Remove commands delete the
-			// files that a detached sync child needs.
-			if shouldSuppressBackgroundSync(cmd) {
+			// The proxy daemon delivers events itself (periodic sync + shutdown
+			// flush), so suppress the detached background auto-sync for proxy
+			// commands. It would otherwise spawn a redundant child that contends
+			// for the sync lock and, from `pmg proxy stop`, routes through the
+			// now-stopped proxy. We suppress the spawn directly rather than
+			// flipping AutoSync.Enabled, because the daemon's periodic sync
+			// honors that flag.
+			if isProxyCommand(cmd) {
 				audit.SuppressBackgroundSync()
 			}
 
@@ -260,16 +265,4 @@ func isProxyCommand(cmd *cobra.Command) bool {
 		}
 	}
 	return false
-}
-
-func shouldSuppressBackgroundSync(cmd *cobra.Command) bool {
-	if isProxyCommand(cmd) {
-		return true
-	}
-	if cmd.Name() != "remove" {
-		return false
-	}
-
-	parent := cmd.Parent()
-	return parent != nil && (parent.Name() == "pmg" || parent.Name() == "setup")
 }
