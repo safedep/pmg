@@ -1,12 +1,13 @@
 package audit
 
 import (
+	"bytes"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	drylog "github.com/safedep/dry/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,17 +45,6 @@ func setKubernetesHostname(t *testing.T, name string, err error) {
 	orig := kubernetesHostname
 	t.Cleanup(func() { kubernetesHostname = orig })
 	kubernetesHostname = func() (string, error) { return name, err }
-}
-
-func captureKubernetesWarnings(t *testing.T) *[]string {
-	t.Helper()
-	orig := kubernetesWarnf
-	t.Cleanup(func() { kubernetesWarnf = orig })
-	var warnings []string
-	kubernetesWarnf = func(format string, args ...any) {
-		warnings = append(warnings, fmt.Sprintf(format, args...))
-	}
-	return &warnings
 }
 
 func TestResolveKubernetesContextDetection(t *testing.T) {
@@ -101,7 +91,6 @@ func TestResolveKubernetesContextDetection(t *testing.T) {
 			}
 			setKubernetesNamespaceFile(t, tc.hasNSFile, tc.nsFile)
 			setKubernetesHostname(t, "host-pod", nil)
-			captureKubernetesWarnings(t)
 
 			ctx := resolveKubernetesContext()
 			if tc.wantNil {
@@ -124,7 +113,6 @@ func TestResolveKubernetesContextSourcePrecedence(t *testing.T) {
 	t.Setenv("KUBE_POD_UID", " pod-uid ")
 	setKubernetesNamespaceFile(t, true, " file-namespace\n")
 	setKubernetesHostname(t, "hostname-pod", nil)
-	captureKubernetesWarnings(t)
 
 	ctx := resolveKubernetesContext()
 	require.NotNil(t, ctx)
@@ -144,7 +132,6 @@ func TestResolveKubernetesContextUsesFallbacks(t *testing.T) {
 		t.Setenv("KUBE_WORKLOAD_NAME", "api")
 		setKubernetesNamespaceFile(t, false, "")
 		setKubernetesHostname(t, "api-host", nil)
-		captureKubernetesWarnings(t)
 
 		ctx := resolveKubernetesContext()
 		require.NotNil(t, ctx)
@@ -157,7 +144,6 @@ func TestResolveKubernetesContextUsesFallbacks(t *testing.T) {
 		t.Setenv("KUBE_WORKLOAD_NAME", "api")
 		setKubernetesNamespaceFile(t, true, "payments")
 		setKubernetesHostname(t, "api-host", nil)
-		captureKubernetesWarnings(t)
 
 		ctx := resolveKubernetesContext()
 		require.NotNil(t, ctx)
@@ -170,7 +156,6 @@ func TestResolveKubernetesContextUsesFallbacks(t *testing.T) {
 		t.Setenv("KUBE_WORKLOAD_NAME", "api")
 		setKubernetesNamespaceFile(t, true, "payments")
 		setKubernetesHostname(t, "", errors.New("hostname unavailable"))
-		captureKubernetesWarnings(t)
 
 		ctx := resolveKubernetesContext()
 		require.NotNil(t, ctx)
@@ -213,13 +198,15 @@ func TestResolveKubernetesContextWarns(t *testing.T) {
 		t.Setenv("KUBE_POD_NAME", "my-pod")
 		setKubernetesNamespaceFile(t, true, "payments")
 		setKubernetesHostname(t, "", nil)
-		warnings := captureKubernetesWarnings(t)
+
+		var logs bytes.Buffer
+		restore := drylog.SwapGlobalForTest(&logs)
+		defer restore()
 
 		ctx := resolveKubernetesContext()
 		require.NotNil(t, ctx)
 		assert.Equal(t, "my-pod", ctx.WorkloadName)
-		require.Len(t, *warnings, 1)
-		assert.Contains(t, (*warnings)[0], "KUBE_WORKLOAD_NAME")
+		assert.Contains(t, logs.String(), "KUBE_WORKLOAD_NAME")
 	})
 
 	t.Run("recognized suffix does not warn", func(t *testing.T) {
@@ -228,12 +215,15 @@ func TestResolveKubernetesContextWarns(t *testing.T) {
 		t.Setenv("KUBE_POD_NAME", "checkout-75d84f5bdf-abc12")
 		setKubernetesNamespaceFile(t, true, "payments")
 		setKubernetesHostname(t, "", nil)
-		warnings := captureKubernetesWarnings(t)
+
+		var logs bytes.Buffer
+		restore := drylog.SwapGlobalForTest(&logs)
+		defer restore()
 
 		ctx := resolveKubernetesContext()
 		require.NotNil(t, ctx)
 		assert.Equal(t, "checkout", ctx.WorkloadName)
-		assert.Empty(t, *warnings)
+		assert.Empty(t, logs.String())
 	})
 
 	t.Run("explicit workload does not warn", func(t *testing.T) {
@@ -243,11 +233,14 @@ func TestResolveKubernetesContextWarns(t *testing.T) {
 		t.Setenv("KUBE_WORKLOAD_NAME", "checkout")
 		setKubernetesNamespaceFile(t, true, "payments")
 		setKubernetesHostname(t, "", nil)
-		warnings := captureKubernetesWarnings(t)
+
+		var logs bytes.Buffer
+		restore := drylog.SwapGlobalForTest(&logs)
+		defer restore()
 
 		ctx := resolveKubernetesContext()
 		require.NotNil(t, ctx)
 		assert.Equal(t, "checkout", ctx.WorkloadName)
-		assert.Empty(t, *warnings)
+		assert.Empty(t, logs.String())
 	})
 }

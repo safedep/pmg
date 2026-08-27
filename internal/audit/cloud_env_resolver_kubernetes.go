@@ -10,11 +10,11 @@ import (
 
 // Kubernetes runtime seams. Production uses the real calls. Tests override
 // these package vars, following the auditGeteuid pattern in cloud_sink.go.
-// os.Getenv needs no seam because tests use t.Setenv.
+// os.Getenv needs no seam because tests use t.Setenv, and log.Warnf needs
+// none because tests use drylog.SwapGlobalForTest.
 var (
 	kubernetesNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 	kubernetesHostname      = os.Hostname
-	kubernetesWarnf         = log.Warnf
 )
 
 // Kubernetes generated-name patterns. The pod-template hash uses the reduced
@@ -72,7 +72,7 @@ func resolveKubernetesContext() *cloudSinkKubernetesContext {
 		derived, stable := kubernetesWorkloadName(podName)
 		workloadName = derived
 		if !stable {
-			kubernetesWarnf("PMG cannot derive a stable Kubernetes workload name from Pod %q. Set KUBE_WORKLOAD_NAME.", podName)
+			log.Warnf("PMG cannot derive a stable Kubernetes workload name from Pod %q. Set KUBE_WORKLOAD_NAME.", podName)
 		}
 	}
 
