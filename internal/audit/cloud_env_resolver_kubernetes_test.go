@@ -179,6 +179,7 @@ func TestKubernetesWorkloadName(t *testing.T) {
 		{name: "DaemonSet", podName: "scanner-x7p9q", want: "scanner", wantStable: true},
 		{name: "bare name", podName: "unusualpod", want: "unusualpod", wantStable: false},
 		{name: "unrecognized suffix", podName: "my-pod", want: "my-pod", wantStable: false},
+		{name: "vowel word suffix stays whole", podName: "redis-cache", want: "redis-cache", wantStable: false},
 		{name: "empty", podName: "", want: "", wantStable: false},
 	}
 

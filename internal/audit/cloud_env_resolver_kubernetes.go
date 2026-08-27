@@ -17,13 +17,16 @@ var (
 	kubernetesHostname      = os.Hostname
 )
 
-// Kubernetes generated-name patterns. The pod-template hash uses the reduced
-// alphabet that Kubernetes applies to avoid vowels. The five-character suffix
-// is the random tail on ReplicaSet, Job, and DaemonSet Pods.
+// Kubernetes generated-name patterns. Kubernetes builds the pod-template hash
+// and the five-character Pod suffix from one reduced alphabet that omits vowels
+// and 0/1/3, so a random tail never spells a real word. Matching that alphabet
+// keeps a legitimate word segment (for example "cache") from looking like a
+// generated suffix.
 var (
+	kubernetesGeneratedAlphabet  = `bcdfghjklmnpqrstvwxz2456789`
 	kubernetesOrdinalPattern     = regexp.MustCompile(`^\d+$`)
-	kubernetesPodTemplateHash    = regexp.MustCompile(`^[bcdfghjklmnpqrstvwxz2456789]{6,10}$`)
-	kubernetesGeneratedPodSuffix = regexp.MustCompile(`^[a-z0-9]{5}$`)
+	kubernetesPodTemplateHash    = regexp.MustCompile(`^[` + kubernetesGeneratedAlphabet + `]{6,10}$`)
+	kubernetesGeneratedPodSuffix = regexp.MustCompile(`^[` + kubernetesGeneratedAlphabet + `]{5}$`)
 )
 
 type cloudSinkKubernetesContext struct {
