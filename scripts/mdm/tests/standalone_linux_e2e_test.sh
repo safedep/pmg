@@ -48,6 +48,7 @@ test_standalone_release_install() {
   assert_absent "$GLOBAL_CONFIG"
   assert_file "$USER_CONFIG"
   assert_no_login_recorded
+  assert_no_sync_recorded
   assert_no_unexpected_cloud
 
   run_uninstaller "$UNINSTALLER"
@@ -79,6 +80,7 @@ EOF
   assert_equals "true" "$("$pmg_bin" config get paranoid)" \
     "global config value"
   assert_no_login_recorded
+  assert_no_sync_recorded
   assert_no_unexpected_cloud
 
   run_uninstaller "$configured_uninstaller"
@@ -103,9 +105,16 @@ test_cloud_credentials_install() {
   run_installer "$credential_installer"
   pmg_bin=$(installed_pmg) || fail "credential installer did not install pmg"
   assert_login_recorded
+  assert_sync_recorded_for "$EXPECTED_IDENTITY"
   assert_no_unexpected_cloud
   assert_equals "true" "$("$pmg_bin" config get cloud.enabled)" \
     "cloud configuration"
+
+  reset_wrapper_captures
+  run_installer "$credential_installer" --cloud-sync-only
+  assert_no_login_recorded
+  assert_sync_recorded_for "$EXPECTED_IDENTITY"
+  assert_no_unexpected_cloud
 
   run_uninstaller "$credential_uninstaller"
   assert_logout_recorded
