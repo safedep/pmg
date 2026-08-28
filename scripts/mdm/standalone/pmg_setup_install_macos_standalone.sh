@@ -157,13 +157,16 @@ remove_global_config() {
 #
 # Deploy via Jamf or any MDM, alongside lib_macos.sh in the same directory.
 # Run as root, it installs the machine-wide binary and configures every local
-# user (config, aliases, shims). Cloud credentials are stored in the logged-in
-# user's Keychain when SAFEDEP_API_KEY and SAFEDEP_TENANT_ID are set. Run as a
-# user, it configures just that user. See lib_macos.sh for the model.
+# user (config, aliases, shims). When cloud credentials are set, the script
+# syncs each user and stores credentials for the logged-in user. Run as a user,
+# it configures just that user. See lib_macos.sh for the model.
 #
 # Environment variables:
 #   SAFEDEP_API_KEY    — SafeDep Cloud API key (with tenant ID, enables cloud sync)
 #   SAFEDEP_TENANT_ID  — SafeDep Cloud tenant ID
+#
+# Options:
+#   --cloud-sync-only  — Skip installation and sync every user's cloud data
 
 set -euo pipefail
 
@@ -171,6 +174,14 @@ CLOUD_API_KEY="${SAFEDEP_API_KEY:-}"
 CLOUD_TENANT_ID="${SAFEDEP_TENANT_ID:-}"
 export -n CLOUD_API_KEY CLOUD_TENANT_ID
 unset SAFEDEP_API_KEY SAFEDEP_TENANT_ID
+
+CLOUD_SYNC_ONLY=0
+for arg in "$@"; do
+  if [[ "$arg" == "--cloud-sync-only" ]]; then
+    CLOUD_SYNC_ONLY=1
+    break
+  fi
+done
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
@@ -213,6 +224,61 @@ load_embedded_cloud_credentials() {
 }
 
 load_embedded_cloud_credentials || exit 1
+
+cloud_sync() {
+  local user="$1"
+
+  # shellcheck disable=SC2016
+  printf '%s\0%s\0' "$CLOUD_API_KEY" "$CLOUD_TENANT_ID" |
+    run_user_file "$user" /bin/bash -c '
+      IFS= read -r -d "" SAFEDEP_API_KEY || exit 1
+      IFS= read -r -d "" SAFEDEP_TENANT_ID || exit 1
+      export SAFEDEP_API_KEY SAFEDEP_TENANT_ID
+      exec "$1" cloud sync --timeout 1m
+    ' _ "$PMG_BIN"
+}
+
+sync_all_users() {
+  local user total=0 failed=0
+
+  while IFS=$'\t' read -r user _ _; do
+    total=$((total + 1))
+    log "Syncing pmg cloud data for $user"
+    if ! cloud_sync "$user"; then
+      warn "cloud sync failed for $user"
+      failed=$((failed + 1))
+    fi
+  done < <(each_target_user)
+
+  if [[ "$total" -eq 0 ]]; then
+    log "No users found for cloud sync"
+    return 0
+  fi
+  if [[ "$failed" -ne 0 ]]; then
+    warn "cloud sync failed for $failed of $total users"
+    return 1
+  fi
+
+  log "pmg cloud sync complete for $total users"
+}
+
+if [[ "$CLOUD_SYNC_ONLY" -eq 1 ]]; then
+  if [[ -z "$CLOUD_API_KEY" || -z "$CLOUD_TENANT_ID" ]]; then
+    log "Cloud credentials are not configured; skipping cloud sync"
+    unset CLOUD_API_KEY CLOUD_TENANT_ID
+    exit 0
+  fi
+  if ! PMG_BIN=$(resolve_pmg); then
+    log "pmg is not installed; skipping cloud sync"
+    unset CLOUD_API_KEY CLOUD_TENANT_ID
+    exit 0
+  fi
+
+  sync_status=0
+  sync_all_users || sync_status=$?
+  unset CLOUD_API_KEY CLOUD_TENANT_ID
+  exit "$sync_status"
+fi
 
 install_via_brew() {
   local brew_bin="$1"
@@ -330,16 +396,17 @@ configure_user() {
   run_user_file "$user" "$PMG_BIN" setup install || { warn "setup failed for $user"; return; }
 
   [[ -n "$CLOUD_API_KEY" && -n "$CLOUD_TENANT_ID" ]] || return 0
-  if ! user_has_session "$user"; then
-    log "  $user is not logged in; run 'pmg cloud login' in their session to enable cloud sync"
-    return
-  fi
   # When config is globally managed, `cloud.enabled` comes from the global file;
   # per-user `config set` is refused. Per-user credentials still go to the Keychain.
   if [[ ! -f "$GLOBAL_CONFIG_FILE" ]]; then
     run_user_file "$user" "$PMG_BIN" config set cloud.enabled true || warn "could not enable cloud sync for $user"
   fi
-  cloud_login "$user" || warn "cloud login failed for $user"
+  if user_has_session "$user"; then
+    cloud_login "$user" || warn "cloud login failed for $user"
+  else
+    log "  $user is not logged in; cloud credentials were not stored in their Keychain"
+  fi
+  cloud_sync "$user" || warn "cloud sync failed for $user"
 }
 
 while IFS=$'\t' read -r user _ _; do
