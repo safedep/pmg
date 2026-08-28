@@ -30,6 +30,13 @@ var DANGEROUS_FILES = []string{
 	".git-credentials",
 	".pgpass",
 	".config/gh",
+	// The entries below are not credentials. They are auto-exec surfaces of
+	// a writable project tree. CI workflow definitions execute with repo
+	// secrets. VS Code workspace tasks with runOn: folderOpen execute when
+	// the project opens. Users opt out per direction via allow_read /
+	// allow_write like any other entry.
+	".github/workflows",
+	".vscode",
 }
 
 // DANGEROUS_ENV_VARS are credential-bearing environment variables scrubbed from

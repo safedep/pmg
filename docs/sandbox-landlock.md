@@ -112,6 +112,17 @@ and execve kills sibling threads, so the open always pins the live mm.
 covers the path itself and anything beneath `entry+"/"`, so `~/.ssh/id_rsa` is caught.
 Trailing-slash entries still prefix-match.
 
+### Write denies under a writable project tree run through the supervisor
+
+Landlock cannot subtract a subpath from a broad grant. When a profile allows
+writes to `${CWD}/**` (the default for the built-in package manager profiles),
+the Landlock layer permits writes to `${CWD}/.env` and the other CWD-anchored
+mandatory deny targets. The seccomp supervisor blocks them instead: it traps
+`openat`/`openat2` and matches the path against the deny list. Writes that do
+not pass through `openat`/`openat2` (rename, unlink, mkdir) are not trapped.
+Treat the supervisor layer as the enforcement boundary for credential files
+inside a writable project tree.
+
 ### Network lockdown (`network_via_proxy_only`)
 
 Landlock's own network rules (ABI V4) filter TCP ports only: no destination

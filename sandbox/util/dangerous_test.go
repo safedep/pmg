@@ -204,6 +204,29 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 		assert.Empty(t, r.SuppressedRead)
 	})
 
+	t.Run("broad write glob does NOT suppress", func(t *testing.T) {
+		broad := filepath.Join(cwd, "**")
+		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+			AllowWrite: []string{cwd, broad},
+		})
+
+		assert.Empty(t, r.SuppressedWrite)
+		assert.Contains(t, r.DenyWrite, cwdEnv)
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".github/workflows"))
+	})
+
+	t.Run("github workflows suppressible via exact allow", func(t *testing.T) {
+		cwdWorkflows := filepath.Join(cwd, ".github/workflows")
+		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+			AllowWrite: []string{cwdWorkflows},
+		})
+
+		assert.NotContains(t, r.DenyWrite, cwdWorkflows)
+		assert.Contains(t, r.SuppressedWrite, cwdWorkflows)
+		assert.Contains(t, r.DenyRead, cwdWorkflows,
+			"write-side suppression leaves the read side denied")
+	})
+
 	t.Run("git config CWD form suppressible via allow_write", func(t *testing.T) {
 		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
 			AllowGitConfig: false,

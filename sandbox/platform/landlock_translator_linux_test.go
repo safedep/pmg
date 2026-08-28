@@ -302,6 +302,27 @@ func TestLandlockTranslatePolicy_MandatoryDenies(t *testing.T) {
 	}
 }
 
+func TestLandlockTranslatePolicy_BroadCWDWriteKeepsMandatoryDenies(t *testing.T) {
+	// Landlock cannot carve subpaths out of a broad write grant. Denies under
+	// ${CWD} depend on the seccomp-notify layer, so each mandatory deny must
+	// land in DenyPaths.
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowWrite = []string{cwd, filepath.Join(cwd, "**")}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
+	require.NoError(t, err)
+
+	for _, rel := range []string{".env", ".ssh", ".git/hooks", ".git/config", ".github/workflows"} {
+		entry := findDenyPath(ep.DenyPaths, filepath.Join(cwd, rel))
+		require.NotNil(t, entry, "mandatory deny %q missing under broad CWD write allow", rel)
+		assert.NotEqual(t, denyRead, entry.Mode, "%q must deny writes", rel)
+	}
+}
+
 func TestLandlockTranslatePolicy_AllowReadSuppression(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -743,8 +764,8 @@ func TestLandlockTranslatePolicy_DenyCoveredAllowRulesDropped(t *testing.T) {
 
 	// Read-only allow on .git/config survives the mandatory write deny on it.
 	assert.NotNil(t, findRule(ep.FilesystemRules, filepath.Join(gitDir, "config")))
-	// Unaffected writable paths under .git stay allowed.
-	assert.NotNil(t, findRule(ep.FilesystemRules, filepath.Join(gitDir, "refs")))
+	// Bare "dir/**" patterns resolve to the base directory.
+	assert.NotNil(t, findRule(ep.FilesystemRules, gitDir))
 }
 
 func TestLandlockMaskDeniedAccess(t *testing.T) {

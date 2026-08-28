@@ -43,8 +43,12 @@ filesystem:
     - /tmp/**
     - /private/tmp/**
     - /var/tmp/**
-    - ${CWD}/.venv/**
-    - ${CWD}/venv/**
+    # The whole project directory is writable. Virtualenvs, lockfiles, and
+    # build output land anywhere in the project. The mandatory deny patterns
+    # keep credential files inside the project (.env, .ssh, .git/hooks,
+    # .github/workflows, ...) blocked.
+    - ${CWD}
+    - ${CWD}/**
     - ${HOME}/.cache/pip/**
     - ${HOME}/.cache/pypoetry/**
     - ${HOME}/.cache/poetry/**

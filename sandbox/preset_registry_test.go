@@ -147,7 +147,7 @@ presets: [git, astro]
 		assert.Equal(t, []string{"git", "astro"}, policy.Presets, "names kept for provenance")
 
 		// Inherited base profile rules are still present
-		assert.Contains(t, policy.Filesystem.AllowWrite, "${CWD}/node_modules/**")
+		assert.Contains(t, policy.Filesystem.AllowWrite, "${CWD}/**")
 	})
 
 	t.Run("unknown preset in profile is a hard error", func(t *testing.T) {

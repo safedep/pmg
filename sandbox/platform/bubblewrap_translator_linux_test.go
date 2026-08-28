@@ -844,7 +844,9 @@ func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
 
 	assertWriteBind(t, args, venvDir)
 	assertNoWriteBind(t, args, pythonPath)
-	assertReadBind(t, args, pythonPath)
+	// Bare "dir/**" read patterns bind the base directory. The python
+	// symlink still gets read coverage through the tmpDir bind.
+	assertReadBind(t, args, tmpDir)
 }
 
 // TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback

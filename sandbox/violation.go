@@ -185,11 +185,14 @@ func isSensitiveProjectFile(target string) bool {
 		return true
 	case base == ".aws", base == ".ssh", base == ".kube", base == ".gnupg":
 		return true
+	case base == ".vscode":
+		return true
 	default:
 		return strings.Contains(target, string(filepath.Separator)+".ssh") ||
 			strings.Contains(target, string(filepath.Separator)+".aws") ||
 			strings.Contains(target, string(filepath.Separator)+".kube") ||
-			strings.Contains(target, string(filepath.Separator)+".gnupg")
+			strings.Contains(target, string(filepath.Separator)+".gnupg") ||
+			strings.Contains(target, ".github/workflows")
 	}
 }
 

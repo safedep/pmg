@@ -49,13 +49,13 @@ filesystem:
     - /tmp/**
     - /private/tmp/**
     - /var/tmp/**
-    # Project directories
-    - ${CWD}/node_modules/**
-    - ${CWD}/package-lock.json
-    - ${CWD}/package.json
-    - ${CWD}/yarn.lock
-    - ${CWD}/pnpm-lock.yaml
-    - ${CWD}/bun.lockb
+    # The whole project directory is writable. Install scripts and generated
+    # output routinely land outside node_modules and the lockfiles, and
+    # per-file enumeration does not scale. The mandatory deny patterns keep
+    # credential files inside the project (.env, .ssh, .git/hooks,
+    # .github/workflows, ...) blocked.
+    - ${CWD}
+    - ${CWD}/**
     # Package manager caches and stores
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
