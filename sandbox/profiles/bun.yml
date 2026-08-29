@@ -17,3 +17,8 @@ environment:
     - npm_config_*
     - NPM_CONFIG_*
     - NODE_EXTRA_CA_CERTS
+    # Location overrides. The defaults ($TMPDIR, ~/.bun/install) are writable
+    # by the base profile, but passing them through lets users relocate the
+    # cache without rebuilding the profile.
+    - BUN_TMPDIR
+    - BUN_INSTALL

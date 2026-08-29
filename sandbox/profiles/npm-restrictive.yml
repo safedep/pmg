@@ -36,7 +36,7 @@ filesystem:
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
-    - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.bun/install/**
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
@@ -62,7 +62,7 @@ filesystem:
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
-    - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.bun/install/**
 
   # Additional deny rules (optional - credentials are automatically blocked)
   # Automatically blocked for security:
@@ -110,7 +110,7 @@ process:
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
-    - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.bun/install/**
     - ${HOME}/.asdf/shims/npm
     - ${HOME}/.asdf/shims/pnpm
     - ${HOME}/.asdf/shims/yarn
