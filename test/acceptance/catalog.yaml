@@ -171,6 +171,13 @@
   guarantee: "Under --sandbox --sandbox-enforce, a clean install completes without a false denial."
   labels: [sandbox, clean]
 
+- id: sandbox/observe/env-scrub-recorded
+  title: "sandbox records env scrubs to the violation cache"
+  category: sandbox
+  tier: P1
+  guarantee: "After a failed sandboxed run, `pmg sandbox violations list --json` names the scrubbed variable and `pmg sandbox explain --last --json` suggests `pmg sandbox allow env=NAME`. The value is never recorded."
+  labels: [sandbox, observe]
+
 # cloud
 - id: cloud/analyzer/bad-creds-fall-back-to-community
   title: "invalid cloud creds fall back to community analyzer"

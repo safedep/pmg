@@ -1,0 +1,32 @@
+# guarantee: after a failed sandboxed run, the scrubbed variable name is
+# recorded. `pmg sandbox violations list --json` names it and
+# `pmg sandbox explain --last --json` suggests `pmg sandbox allow env=NAME`.
+# The value never appears in either output.
+#
+# The npm script exits non-zero exactly when GOOGLE_APPLICATION_CREDENTIALS is
+# missing, so the scrub causes the failure. This is the failure mode from the
+# incident behind this guarantee.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env GOOGLE_APPLICATION_CREDENTIALS=value-must-never-be-recorded
+
+! exec pmg --sandbox --sandbox-enforce npm run check-env
+
+exec pmg sandbox violations list --json
+stdout GOOGLE_APPLICATION_CREDENTIALS
+! stdout value-must-never-be-recorded
+
+exec pmg sandbox explain --last --json
+stdout 'pmg sandbox allow env=GOOGLE_APPLICATION_CREDENTIALS'
+! stdout value-must-never-be-recorded
+
+-- package.json --
+{
+  "name": "env-scrub-acceptance",
+  "version": "1.0.0",
+  "scripts": {
+    "check-env": "node -e \"process.exit(process.env.GOOGLE_APPLICATION_CREDENTIALS ? 0 : 1)\""
+  }
+}
