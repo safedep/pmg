@@ -212,3 +212,103 @@ func TestEnvScrubOnOutputDerivedReportSuggestsNothing(t *testing.T) {
 	assert.Empty(t, BuildAllOverrides(report))
 	assert.Equal(t, []string{"GOOGLE_APPLICATION_CREDENTIALS"}, EnvScrubNames(report))
 }
+
+func TestMergeEnvScrubBackfillsReportIdentity(t *testing.T) {
+	got := MergeEnvScrub(&ViolationReport{
+		Violations: []Violation{{Kind: ViolationKindGenericDeny}},
+	}, EnvScrub{
+		Names:       []string{"AWS_PROFILE"},
+		SandboxName: DriverLandlock,
+		PolicyName:  "npm",
+	})
+
+	require.NotNil(t, got)
+	assert.Equal(t, DriverLandlock, got.SandboxName)
+	assert.Equal(t, "npm", got.PolicyName)
+}
+
+func TestIsSecretEnvName(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"AWS_SECRET_ACCESS_KEY", true},
+		{"AWS_ACCESS_KEY_ID", true},
+		{"GITHUB_TOKEN", true},
+		{"NPM_TOKEN", true},
+		{"TWINE_PASSWORD", true},
+		{"NODE_AUTH_TOKEN", true},
+		{"github_token", true},
+		{"GOOGLE_APPLICATION_CREDENTIALS", false},
+		{"AWS_PROFILE", false},
+		{"TWINE_USERNAME", false},
+		{"AZURE_CLIENT_ID", false},
+		{"MY_KEYBOARD_LAYOUT", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsSecretEnvName(tt.name))
+		})
+	}
+}
+
+func TestNeedsForceToPersist(t *testing.T) {
+	tests := []struct {
+		name string
+		sugg *OverrideSuggestion
+		want bool
+	}{
+		{"nil", nil, false},
+		{"secret env name", &OverrideSuggestion{Kind: ViolationKindEnvScrub, Target: "GITHUB_TOKEN"}, true},
+		{"credential-file env name", &OverrideSuggestion{Kind: ViolationKindEnvScrub, Target: "GOOGLE_APPLICATION_CREDENTIALS"}, false},
+		{"sensitive path", &OverrideSuggestion{Kind: ViolationKindFSRead, Target: "./.env"}, true},
+		{"plain path", &OverrideSuggestion{Kind: ViolationKindFSRead, Target: "/tmp/build"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, NeedsForceToPersist(tt.sugg))
+		})
+	}
+}
+
+func TestBuildExplanationAdditionalDenialsExcludesScrubs(t *testing.T) {
+	denials := []Violation{
+		{Kind: ViolationKindFSRead, Target: "/etc/hosts", RuleTarget: "/etc/hosts"},
+		{Kind: ViolationKindExec, Target: "/usr/bin/curl", RuleTarget: "/usr/bin/curl"},
+	}
+
+	t.Run("denial primary", func(t *testing.T) {
+		report := MergeEnvScrub(&ViolationReport{
+			SandboxName: DriverLandlock,
+			Violations:  denials,
+		}, EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}})
+
+		exp := BuildExplanation(report)
+
+		require.NotNil(t, exp.Primary)
+		assert.NotEqual(t, ViolationKindEnvScrub, exp.Primary.Kind)
+		assert.Equal(t, 1, exp.AdditionalDenials)
+	})
+
+	t.Run("scrub primary counts every denial", func(t *testing.T) {
+		report := MergeEnvScrub(&ViolationReport{
+			SandboxName: DriverLandlock,
+			Violations:  []Violation{{Kind: ViolationKindGenericDeny}},
+		}, EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY"}})
+
+		exp := BuildExplanation(report)
+
+		require.NotNil(t, exp.Primary)
+		assert.Equal(t, ViolationKindEnvScrub, exp.Primary.Kind)
+		assert.Equal(t, 1, exp.AdditionalDenials)
+	})
+
+	t.Run("only scrubs", func(t *testing.T) {
+		report := MergeEnvScrub(nil, EnvScrub{Names: []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}})
+
+		assert.Equal(t, 0, BuildExplanation(report).AdditionalDenials)
+	})
+}

@@ -23,8 +23,9 @@ type Explanation struct {
 	// CLI flag, an API hint, etc.
 	Override *OverrideSuggestion
 
-	// AdditionalDenials counts violations beyond Primary so callers can show
-	// "+N more" without re-walking the report.
+	// AdditionalDenials counts denials beyond Primary so callers can show
+	// "+N more" without re-walking the report. Env scrubs are not denials
+	// and are excluded.
 	AdditionalDenials int
 }
 
@@ -45,8 +46,18 @@ func BuildExplanation(report *ViolationReport) Explanation {
 		if !report.OutputDerived {
 			exp.Override = overrideSuggestion(*primary)
 		}
-		if len(report.Violations) > 1 {
-			exp.AdditionalDenials = len(report.Violations) - 1
+
+		denials := 0
+		for _, v := range report.Violations {
+			if v.Kind != ViolationKindEnvScrub {
+				denials++
+			}
+		}
+		if primary.Kind != ViolationKindEnvScrub {
+			denials--
+		}
+		if denials > 0 {
+			exp.AdditionalDenials = denials
 		}
 	}
 	return exp
@@ -55,6 +66,13 @@ func BuildExplanation(report *ViolationReport) Explanation {
 // Suggestions are rendered into a shell command, so env names are held to the
 // conventional form rather than everything execve permits in a variable name.
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// IsConventionalEnvName reports whether name has the conventional environment
+// variable form. The suggestion gate and the render site both hold names to
+// this form before a name goes into a shell command.
+func IsConventionalEnvName(name string) bool {
+	return envNameRe.MatchString(name)
+}
 
 func overrideSuggestion(v Violation) *OverrideSuggestion {
 	switch v.Kind {
@@ -66,7 +84,7 @@ func overrideSuggestion(v Violation) *OverrideSuggestion {
 			return nil
 		}
 	case ViolationKindEnvScrub:
-		if !envNameRe.MatchString(v.Target) {
+		if !IsConventionalEnvName(v.Target) {
 			return nil
 		}
 	default:
