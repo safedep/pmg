@@ -71,7 +71,7 @@ func newAllowCommand(factory allowFactory) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&opts.last, "last", false, "Promote allowances from the most recent cached violation report")
 	cmd.Flags().BoolVar(&opts.all, "all", false, "With --last: promote every safe FS, exec and env violation (default: primary only)")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "Allow saving entries that touch sensitive paths (.env, .npmrc, .ssh, ...)")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "Allow saving entries that touch sensitive paths (.env, .npmrc, .ssh, ...) or env names that hold secrets")
 	return cmd
 }
 
@@ -279,6 +279,20 @@ func guardSensitiveEntries(entries []pmgsandbox.OverlayAllow, force bool) error 
 		// Preset values are names, not paths. Preset content is validated
 		// against sensitive targets when the preset itself is loaded.
 		if e.Type == config.SandboxAllowPreset {
+			continue
+		}
+
+		// The sandbox scrubbed this variable because its value is a secret.
+		// A saved allowance gives the secret to every future sandboxed run
+		// in this repo, so ask for --force.
+		if e.Type == config.SandboxAllowEnv {
+			if pmgsandbox.IsSecretEnvName(e.Value) {
+				return usefulerror.NewUsefulError().
+					WithCode(errcodes.PermissionDenied).
+					WithHumanError(fmt.Sprintf("refusing to allow secret variable: %s", e.Value)).
+					WithHelp("Re-run with --force to save this entry, after you confirm the child process needs the secret.").
+					Wrap(errors.New("secret variable"))
+			}
 			continue
 		}
 

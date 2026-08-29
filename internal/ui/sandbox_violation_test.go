@@ -69,6 +69,14 @@ func TestFormatSandboxAllowCommand(t *testing.T) {
 			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindFSRead, Target: "./.env"},
 		},
 		{
+			name: "secret env name is not suggested",
+			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindEnvScrub, Target: "AWS_SECRET_ACCESS_KEY"},
+		},
+		{
+			name: "odd env name is not rendered",
+			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindEnvScrub, Target: "WEIRD/NAME"},
+		},
+		{
 			name: "unsupported kind",
 			sugg: &pmgsandbox.OverrideSuggestion{Kind: pmgsandbox.ViolationKindGenericDeny, Target: "/tmp/build"},
 		},

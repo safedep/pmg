@@ -276,7 +276,7 @@ func TestExplainLastJSONEnvRemediationOmitsOddNames(t *testing.T) {
 	dir := t.TempDir()
 	cache := pmgsandbox.NewViolationCache(dir)
 	_, err := cache.Write(pmgsandbox.MergeEnvScrub(sampleReport(), pmgsandbox.EnvScrub{
-		Names: []string{"WEIRD/NAME", "NPM_TOKEN"},
+		Names: []string{"WEIRD/NAME", "AWS_PROFILE"},
 	}))
 	require.NoError(t, err)
 
@@ -286,5 +286,26 @@ func TestExplainLastJSONEnvRemediationOmitsOddNames(t *testing.T) {
 	var payload explainJSONOutput
 	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
 
-	assert.Equal(t, []string{"pmg sandbox allow env=NPM_TOKEN"}, payload.EnvRemediations)
+	assert.Equal(t, []string{"pmg sandbox allow env=AWS_PROFILE"}, payload.EnvRemediations)
+}
+
+// The value of AWS_SECRET_ACCESS_KEY is a secret, so explain does not suggest
+// a save command for it. The name stays visible in scrubbed_env.
+func TestExplainLastJSONEnvRemediationOmitsSecretNames(t *testing.T) {
+	dir := t.TempDir()
+	cache := pmgsandbox.NewViolationCache(dir)
+	_, err := cache.Write(pmgsandbox.MergeEnvScrub(sampleReport(), pmgsandbox.EnvScrub{
+		Names: []string{"AWS_SECRET_ACCESS_KEY", "GOOGLE_APPLICATION_CREDENTIALS"},
+	}))
+	require.NoError(t, err)
+
+	stdout, _, err := runExplainCmd(t, func() *pmgsandbox.ViolationCache { return cache }, []string{"--last", "--json"}, "")
+	require.NoError(t, err)
+
+	var payload explainJSONOutput
+	require.NoError(t, json.Unmarshal([]byte(stdout), &payload))
+
+	assert.Equal(t,
+		[]string{"pmg sandbox allow env=GOOGLE_APPLICATION_CREDENTIALS"},
+		payload.EnvRemediations)
 }

@@ -259,3 +259,25 @@ func TestAllow_LastPromotesEnvScrub(t *testing.T) {
 	assert.Equal(t, config.SandboxAllowEnv, overlay.Allow[0].Type)
 	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", overlay.Allow[0].Value)
 }
+
+func TestAllow_SecretEnvNameNeedsForce(t *testing.T) {
+	deps := newAllowDeps(t)
+
+	_, _, err := runAllowCmd(t, deps, "env=GITHUB_TOKEN")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "secret variable")
+
+	overlay, _, err := pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	assert.Nil(t, overlay)
+
+	_, stderr, err := runAllowCmd(t, deps, "--force", "env=GITHUB_TOKEN")
+	require.NoError(t, err, "stderr: %s", stderr)
+
+	overlay, _, err = pmgsandbox.LoadOverlayForRepo(deps.overlayDir, deps.repoRoot)
+	require.NoError(t, err)
+	require.NotNil(t, overlay)
+	require.Len(t, overlay.Allow, 1)
+	assert.Equal(t, config.SandboxAllowEnv, overlay.Allow[0].Type)
+	assert.Equal(t, "GITHUB_TOKEN", overlay.Allow[0].Value)
+}
