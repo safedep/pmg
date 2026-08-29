@@ -41,12 +41,25 @@ var secretEnvSegments = map[string]bool{
 	"AUTH":     true,
 }
 
+// Known secret-value names the segment rule misses. GOOGLE_CREDENTIALS can
+// hold the service account key JSON inline, unlike
+// GOOGLE_APPLICATION_CREDENTIALS, which holds a path.
+var secretEnvNames = map[string]bool{
+	"GOOGLE_CREDENTIALS": true,
+}
+
 // IsSecretEnvName reports whether the value of the variable named name is
 // likely a secret. It matches whole underscore-separated segments without
 // regard to case, so AWS_SECRET_ACCESS_KEY matches and
-// GOOGLE_APPLICATION_CREDENTIALS does not.
+// GOOGLE_APPLICATION_CREDENTIALS does not. Known secret-value names that the
+// segment rule misses match directly.
 func IsSecretEnvName(name string) bool {
-	for _, segment := range strings.Split(strings.ToUpper(name), "_") {
+	upper := strings.ToUpper(name)
+	if secretEnvNames[upper] {
+		return true
+	}
+
+	for _, segment := range strings.Split(upper, "_") {
 		if secretEnvSegments[segment] {
 			return true
 		}

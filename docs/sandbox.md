@@ -69,7 +69,8 @@ values never reach the cache.
 
 A variable whose value is a secret gets no suggestion to save it. PMG treats a name as secret
 when one of its underscore-separated segments is `SECRET`, `TOKEN`, `KEY`, `APIKEY`,
-`PASSWORD`, `PASSWD` or `AUTH`. `pmg sandbox allow` refuses such a name without `--force`.
+`PASSWORD`, `PASSWD` or `AUTH`. PMG also treats `GOOGLE_CREDENTIALS` as secret, since it can
+hold the service account key inline. `pmg sandbox allow` refuses such a name without `--force`.
 A name that only points at a credential file, such as `GOOGLE_APPLICATION_CREDENTIALS`, keeps
 the normal suggestion. The sandbox still controls access to the file.
 

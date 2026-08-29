@@ -239,6 +239,8 @@ func TestIsSecretEnvName(t *testing.T) {
 		{"TWINE_PASSWORD", true},
 		{"NODE_AUTH_TOKEN", true},
 		{"github_token", true},
+		{"GOOGLE_CREDENTIALS", true},
+		{"google_credentials", true},
 		{"GOOGLE_APPLICATION_CREDENTIALS", false},
 		{"AWS_PROFILE", false},
 		{"TWINE_USERNAME", false},
