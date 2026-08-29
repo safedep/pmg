@@ -87,6 +87,9 @@ var DANGEROUS_ENV_VARS = []string{
 	"GEM_HOST_API_KEY",
 	"RUBYGEMS_API_KEY",
 	"CARGO_REGISTRY_TOKEN",
+	// Per-registry token form (registries.<name>.token) for alternative
+	// cargo registries.
+	"CARGO_REGISTRIES_*_TOKEN",
 	"COMPOSER_AUTH",
 	"HEX_API_KEY",
 	"NUGET_API_KEY",

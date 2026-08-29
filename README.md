@@ -296,16 +296,6 @@ PMG builds are reproducible and signed.
 
 If PMG saved you from a bad package, [star this repo](https://github.com/safedep/pmg). It helps others find it.
 
-## Star History
-
-<a href="https://star-history.com/#safedep/pmg&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=safedep/pmg&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=safedep/pmg&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=safedep/pmg&type=Date" />
-  </picture>
-</a>
-
 ## Contributing
 
 Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test instructions.

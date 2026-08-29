@@ -22,6 +22,12 @@ func TestScrubEnv(t *testing.T) {
 			wantRemoved: []string{"AWS_SECRET_ACCESS_KEY"},
 		},
 		{
+			name:        "built-in deny scrubs per-registry cargo token",
+			env:         []string{"CARGO_REGISTRIES_ACME_TOKEN=abc", "CARGO_TERM_COLOR=always"},
+			wantKept:    []string{"CARGO_TERM_COLOR=always"},
+			wantRemoved: []string{"CARGO_REGISTRIES_ACME_TOKEN"},
+		},
+		{
 			name:        "case-insensitive match",
 			env:         []string{"aws_secret_access_key=abc"},
 			wantKept:    []string{},

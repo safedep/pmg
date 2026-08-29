@@ -10,6 +10,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -137,6 +138,7 @@ func NewRemoveCommand() *cobra.Command {
 		Short:        "Removes pmg aliases and shims from the user's shell config.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			audit.SuppressBackgroundSync()
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 			return remove(system, removeConfig)
 		},
