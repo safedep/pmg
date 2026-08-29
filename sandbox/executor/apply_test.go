@@ -451,10 +451,6 @@ network_via_proxy_only: true
 }
 
 func TestApplySandboxRecordsEnvScrub(t *testing.T) {
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "scrub-me")
-	t.Setenv("GITHUB_TOKEN", "scrub-me-too")
-	t.Setenv("NPM_TOKEN", "keep-me")
-
 	profile := filepath.Join(t.TempDir(), "envscrub.yml")
 	require.NoError(t, os.WriteFile(profile, []byte(`
 name: envscrub-apply-test
@@ -476,10 +472,23 @@ environment:
 	cfg.Config.Sandbox.Enabled = true
 	cfg.SandboxProfileOverride = profile
 
-	result, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm",
+	// The test sets the env on the command, so deny-listed variables from
+	// the host environment cannot leak into the assertion.
+	cmd := exec.Command("npm")
+	cmd.Env = []string{
+		"GITHUB_TOKEN=scrub-me",
+		"AWS_SECRET_ACCESS_KEY=scrub-me-too",
+		"NPM_TOKEN=keep-me",
+		"PATH=/usr/bin",
+	}
+
+	result, err := ApplySandbox(context.Background(), cmd, "npm",
 		WithSandbox(&fakeApplySandbox{}))
 	require.NoError(t, err)
 	require.NotNil(t, result)
+
+	assert.Contains(t, cmd.Env, "NPM_TOKEN=keep-me")
+	assert.NotContains(t, cmd.Env, "GITHUB_TOKEN=scrub-me")
 
 	scrub := result.EnvScrub()
 	assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, scrub.Names)
