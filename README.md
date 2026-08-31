@@ -1,5 +1,5 @@
 <div align="center">
-    <h1>Package Manager Guard (PMG)</h1>
+<img width="240" alt="PMG-8-19-2026 (2)" src="https://github.com/user-attachments/assets/ede41f8b-d558-4e62-b369-58464e39286e" />
 </div>
 
 <p align="center">
