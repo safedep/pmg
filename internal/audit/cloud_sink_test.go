@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/stretchr/testify/assert"
@@ -166,6 +167,67 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
 	assert.NotEmpty(t, invCtx.GetUsername())
 	assert.NotEmpty(t, invCtx.GetUsernameUid())
+}
+
+func TestCloudSinkSetsKubernetesContextOnSessionSummary(t *testing.T) {
+	sink, walPath := newTestCloudSink(t)
+	sink.kubernetes = &cloudSinkKubernetesContext{
+		Cluster:      "prod-eu",
+		Namespace:    "payments",
+		WorkloadName: "checkout",
+		WorkloadKind: "Deployment",
+		PodName:      "checkout-75d84f5bdf-abc12",
+		PodUID:       "pod-uid-123",
+	}
+
+	ctx := context.Background()
+
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type:           EventTypeInstallStarted,
+		Timestamp:      time.Now(),
+		PackageManager: "npm",
+		Args:           []string{"install", "express"},
+	}))
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type:      EventTypeMalwareBlocked,
+		Timestamp: time.Now(),
+		Message:   "blocked malware package",
+	}))
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type:      EventTypeSessionComplete,
+		Timestamp: time.Now(),
+		SessionData: &SessionData{
+			PackageManager: "npm",
+			FlowType:       FlowTypeProxy,
+			Outcome:        OutcomeBlocked,
+			TotalAnalyzed:  1,
+			BlockedCount:   1,
+		},
+	}))
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	synced := drainWAL(t, walPath, transport)
+	require.Equal(t, 2, synced)
+	require.Equal(t, 1, len(transport.requests))
+
+	events := transport.requests[0].GetEvents()
+	require.Equal(t, 2, len(events))
+
+	// Per-package events share the invocation ID and carry no invocation
+	// context. The backend reads Kubernetes details from the summary once.
+	assert.Nil(t, events[0].GetInvocationContext(), "per-package events must not duplicate invocation context")
+
+	invCtx := events[1].GetInvocationContext()
+	require.NotNil(t, invCtx, "session summary must carry invocation context")
+	k8s := invCtx.GetKubernetes()
+	require.NotNil(t, k8s, "session summary invocation context must include Kubernetes details")
+	assert.Equal(t, "prod-eu", k8s.GetCluster())
+	assert.Equal(t, "payments", k8s.GetNamespace())
+	assert.Equal(t, "checkout", k8s.GetWorkloadName())
+	assert.Equal(t, controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DEPLOYMENT, k8s.GetWorkloadKind())
+	assert.Equal(t, "checkout-75d84f5bdf-abc12", k8s.GetPodName())
+	assert.Equal(t, "pod-uid-123", k8s.GetPodUid())
 }
 
 func TestInvokingUserIgnoresSudoUserWhenNotElevated(t *testing.T) {

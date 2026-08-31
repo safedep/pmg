@@ -204,7 +204,7 @@ sandbox:
 # a configurable time window.
 dependency_cooldown:
   enabled: true
-  days: 5
+  days: 2
 
   # Per-control skip list of packages exempt from the cooldown window.
   # Packages here are STILL malware-scanned — only the cooldown wait is waived.
