@@ -261,6 +261,30 @@ func TestMapPackageManager(t *testing.T) {
 	}
 }
 
+func TestMapKubernetesWorkloadKind(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected controltowerv1.EndpointKubernetesWorkloadKind
+	}{
+		{"deployment", "Deployment", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DEPLOYMENT},
+		{"daemonset", "DaemonSet", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_DAEMON_SET},
+		{"statefulset", "StatefulSet", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_STATEFUL_SET},
+		{"job", "Job", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_JOB},
+		{"cronjob", "CronJob", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_CRON_JOB},
+		{"replicaset", "ReplicaSet", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_REPLICA_SET},
+		{"pod", "Pod", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_POD},
+		{"empty", "", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_UNSPECIFIED},
+		{"crd falls through", "Rollout", controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_UNSPECIFIED},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, mapKubernetesWorkloadKind(tc.input))
+		})
+	}
+}
+
 func TestTranslateSessionComplete(t *testing.T) {
 	event := AuditEvent{
 		Type: EventTypeSessionComplete,

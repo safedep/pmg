@@ -146,3 +146,50 @@ PMG reads `global_lockdown` straight from the global file, so a user cannot flip
 ### Deploying via MDM (macOS)
 
 Scripts to install or update PMG and deploy a global config across a macOS fleet (Jamf, Mosyle, Kandji, Intune) live in [`scripts/mdm`](../scripts/mdm). Bundle a `config.yml` next to the scripts. The installer places it at the global path, and the uninstaller removes it. See the [`scripts/mdm` README](../scripts/mdm/README.md) for details.
+
+## Endpoint identity
+
+PMG groups its cloud events under an endpoint identity. By default PMG uses the machine identity. Set an explicit identity with `cloud.endpoint_id` (or `PMG_CLOUD_ENDPOINT_ID`). PMG also derives a stable identity in CI and Kubernetes.
+
+Precedence (highest to lowest):
+
+1. The configured `cloud.endpoint_id` or `PMG_CLOUD_ENDPOINT_ID`.
+2. A hosted CI identity.
+3. A Kubernetes identity.
+4. The machine identity.
+
+### GitHub Actions
+
+On a hosted GitHub Actions runner, PMG derives `gh:<owner>/<repo>` (for example `gh:safedep/pmg`). All jobs of one repository then sync as one endpoint, instead of a fresh machine identity for each job. A self-hosted runner keeps its machine identity. Set `cloud.endpoint_id` for finer segmentation.
+
+### Kubernetes
+
+PMG derives a stable identity for each workload, so you do not set `cloud.endpoint_id` per workload. The identity has one of these forms:
+
+- `k8s:<namespace>/<workload>`
+- `k8s:<cluster>/<namespace>/<workload>`
+
+PMG detects Kubernetes from `KUBERNETES_SERVICE_HOST`, the service account namespace file, or the `KUBE_*` variables below. With no `KUBE_*` variable, PMG reads the namespace from the service account file and derives the workload name from the Pod hostname.
+
+The `KUBE_*` variables are a PMG convention, not automatic Kubernetes environment. A platform team injects them through the Downward API for explicit context or a stable workload name.
+
+| Variable | Purpose | Downward API field |
+|---|---|---|
+| `KUBE_NAMESPACE` | Namespace | `metadata.namespace` |
+| `KUBE_POD_NAME` | Pod name | `metadata.name` |
+| `KUBE_POD_UID` | Pod UID | `metadata.uid` |
+| `KUBE_WORKLOAD_NAME` | Stable workload name | set to the workload name |
+| `KUBE_WORKLOAD_KIND` | Workload kind (for example Deployment) | set to the workload kind |
+| `KUBE_CLUSTER_NAME` | Cluster name | set for a multi-cluster tenant |
+
+```yaml
+env:
+  - name: KUBE_NAMESPACE
+    valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+  - name: KUBE_POD_NAME
+    valueFrom: { fieldRef: { fieldPath: metadata.name } }
+  - name: KUBE_WORKLOAD_NAME
+    value: checkout
+```
+
+Set `KUBE_WORKLOAD_NAME` for a stable identity. Without it, PMG derives the workload name from the Pod hostname and warns when it cannot recognize a generated controller suffix.

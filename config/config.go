@@ -484,7 +484,7 @@ func DefaultConfig() RuntimeConfig {
 			},
 			DependencyCooldown: DependencyCooldownConfig{
 				Enabled: true,
-				Days:    5,
+				Days:    2,
 			},
 			AnalysisCache: AnalysisCacheConfig{
 				Malysis: MalysisCacheConfig{

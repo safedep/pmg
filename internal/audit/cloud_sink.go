@@ -20,6 +20,7 @@ type cloudSink struct {
 	emitter      *endpointsync.EventEmitterClient
 	invocationID string
 	ciResolver   CloudSinkCIResolver
+	kubernetes   *cloudSinkKubernetesContext
 	command      string
 	workingDir   string
 }
@@ -51,6 +52,7 @@ func newCloudSink(cfg *config.RuntimeConfig, ciResolver CloudSinkCIResolver) (*c
 		emitter:      emitter,
 		invocationID: invocationID.String(),
 		ciResolver:   ciResolver,
+		kubernetes:   newCloudSinkKubernetesContext(),
 		workingDir:   wd,
 	}, nil
 }
@@ -74,8 +76,10 @@ func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
 
 		toolEvent.SetPmgEvent(pmgEvent)
 		toolEvent.SetInvocationId(s.invocationID)
-		// Invocation context (CI, command, working dir) is set once per
-		// execution on the session summary event to avoid redundancy.
+		// Invocation context (CI, command, working dir, Kubernetes) is set once
+		// per execution on the session summary event. Every event shares the
+		// invocation ID, so the backend joins the context without storing it on
+		// each event.
 		if event.Type == EventTypeSessionComplete {
 			toolEvent.SetInvocationContext(s.buildInvocationContext())
 		}
@@ -115,6 +119,17 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 			ci.SetMetadata(metadata)
 		}
 		ctx.SetCi(ci)
+	}
+
+	if s.kubernetes != nil {
+		k := &controltowerv1.EndpointKubernetesContext{}
+		k.SetCluster(s.kubernetes.Cluster)
+		k.SetNamespace(s.kubernetes.Namespace)
+		k.SetWorkloadName(s.kubernetes.WorkloadName)
+		k.SetWorkloadKind(mapKubernetesWorkloadKind(s.kubernetes.WorkloadKind))
+		k.SetPodName(s.kubernetes.PodName)
+		k.SetPodUid(s.kubernetes.PodUID)
+		ctx.SetKubernetes(k)
 	}
 
 	return ctx

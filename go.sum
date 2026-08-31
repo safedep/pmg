@@ -4,8 +4,12 @@ buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-202604152011
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260415201107-50325440f8f2.1/go.mod h1:TCt1lluMFnctISJXvkIQ4x3ABrPuUKCWKyjKdkJNBpw=
 buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260819151225-edc87f21aeac.1 h1:aU7pnHb9RV/9wr4nZ+4gJkFuqobatbtoJkV088uMO+Y=
 buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260819151225-edc87f21aeac.1/go.mod h1:AGFLm7/sUIKsfxFuLJ+JsbqX8fXyAk23eQGUBG7pmTg=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260826120427-ec18ccc8cb1d.1 h1:fnKsArFkXmNUKCpTSY5muQtqZQ+4RxywiUkvF6bCb4I=
+buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260826120427-ec18ccc8cb1d.1/go.mod h1:zlvOWAbMdgYMzOOzwZ0Ft9g9LAWbumEUKwFMEr0Rhl8=
 buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260819151225-edc87f21aeac.1 h1:WZWz7gEX+QDh+DcX2ICJWkERAt9BQRdqJ+ytwkbYhHA=
 buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260819151225-edc87f21aeac.1/go.mod h1:NugBwafT1reaWNql+nCCbiObpwyfyo+631WnRlO7Hqo=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260826120427-ec18ccc8cb1d.1 h1:XATW2aPDrJXqmyO7JGzgVweq6N1zYk57xoy0WlOpie4=
+buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260826120427-ec18ccc8cb1d.1/go.mod h1:NugBwafT1reaWNql+nCCbiObpwyfyo+631WnRlO7Hqo=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/Masterminds/semver v1.5.0 h1:H65muMkzWKEuNDnfl9d70GUjFniHKHRbFPGBuZ3QEww=
