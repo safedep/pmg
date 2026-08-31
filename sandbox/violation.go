@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -22,8 +23,9 @@ type Explanation struct {
 	// CLI flag, an API hint, etc.
 	Override *OverrideSuggestion
 
-	// AdditionalDenials counts violations beyond Primary so callers can show
-	// "+N more" without re-walking the report.
+	// AdditionalDenials counts denials beyond Primary so callers can show
+	// "+N more" without re-walking the report. Env scrubs are not denials
+	// and are excluded.
 	AdditionalDenials int
 }
 
@@ -44,27 +46,52 @@ func BuildExplanation(report *ViolationReport) Explanation {
 		if !report.OutputDerived {
 			exp.Override = overrideSuggestion(*primary)
 		}
-		if len(report.Violations) > 1 {
-			exp.AdditionalDenials = len(report.Violations) - 1
+
+		denials := 0
+		for _, v := range report.Violations {
+			if v.Kind != ViolationKindEnvScrub {
+				denials++
+			}
+		}
+		if primary.Kind != ViolationKindEnvScrub {
+			denials--
+		}
+		if denials > 0 {
+			exp.AdditionalDenials = denials
 		}
 	}
 	return exp
 }
 
-func overrideSuggestion(v Violation) *OverrideSuggestion {
-	if !isSafeOverrideTarget(v.Target) {
-		return nil
-	}
+// Suggestions are rendered into a shell command, so env names are held to the
+// conventional form rather than everything execve permits in a variable name.
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// IsConventionalEnvName reports whether name has the conventional environment
+// variable form. The suggestion gate and the render site both hold names to
+// this form before a name goes into a shell command.
+func IsConventionalEnvName(name string) bool {
+	return envNameRe.MatchString(name)
+}
+
+func overrideSuggestion(v Violation) *OverrideSuggestion {
 	switch v.Kind {
 	case ViolationKindFSRead,
 		ViolationKindFSWrite,
 		ViolationKindFSDeleteOrRename,
 		ViolationKindExec:
-		return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
+		if !isSafeOverrideTarget(v.Target) {
+			return nil
+		}
+	case ViolationKindEnvScrub:
+		if !IsConventionalEnvName(v.Target) {
+			return nil
+		}
 	default:
 		return nil
 	}
+
+	return &OverrideSuggestion{Kind: v.Kind, Target: v.Target}
 }
 
 func primaryViolation(report *ViolationReport) *Violation {
@@ -88,6 +115,12 @@ func primaryViolation(report *ViolationReport) *Violation {
 }
 
 func scoreViolation(driver DriverName, v Violation, cwd string) int {
+	// Preemptive, not observed: ranks below every driver denial, and the
+	// modifiers below read a path and say nothing about a variable name.
+	if v.Kind == ViolationKindEnvScrub {
+		return 45
+	}
+
 	score := 0
 
 	switch v.Kind {
