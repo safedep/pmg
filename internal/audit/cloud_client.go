@@ -166,7 +166,7 @@ func NewSyncClientBundle(cfg *config.RuntimeConfig) (*SyncClientBundle, error) {
 	identity := endpointsync.NewEndpointIdentityResolver(identityOpts...)
 
 	syncClient, err := endpointsync.NewSyncClient("pmg", pmgToolVersion(), transport, identity,
-		endpointsync.WithWALPath(cfg.CloudSyncDBPath()))
+		cloudSyncOptions(cfg.CloudSyncDBPath())...)
 	if err != nil {
 		if closeErr := cloudClient.Close(); closeErr != nil {
 			log.Warnf("failed to close cloud client after sync client init failure: %v", closeErr)
