@@ -69,7 +69,7 @@ func toolEventWithPmgEvent(event *controltowerv1.PmgEvent) *servicev1.ToolEvent 
 }
 
 func TestCloudSyncOptionsAreValid(t *testing.T) {
-	client, err := newTestEventEmitter(t.TempDir()+"/cloud-sync.db", cloudSyncOptions)
+	client, err := newTestEventEmitter(t.TempDir() + "/cloud-sync.db")
 	require.NoError(t, err)
 	require.NoError(t, client.Close())
 }
