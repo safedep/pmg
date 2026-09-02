@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"os/user"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,14 +40,25 @@ func (m *mockTransport) Close() error {
 func newTestCloudSink(t *testing.T) (*cloudSink, string) {
 	t.Helper()
 	walPath := t.TempDir() + "/test-sync.db"
-	emitter, err := endpointsync.NewEventEmitterClient("pmg", "test",
-		endpointsync.WithWALPath(walPath))
+	sink := newTestCloudSinkAtPath(t, walPath, cloudSyncOptions)
+	return sink, walPath
+}
+
+type cloudSyncOptionsFunc func(string) []endpointsync.SyncOption
+
+func newTestEventEmitter(walPath string, options cloudSyncOptionsFunc) (*endpointsync.EventEmitterClient, error) {
+	return endpointsync.NewEventEmitterClient("pmg", "test", options(walPath)...)
+}
+
+func newTestCloudSinkAtPath(t *testing.T, walPath string, options cloudSyncOptionsFunc) *cloudSink {
+	t.Helper()
+	emitter, err := newTestEventEmitter(walPath, options)
 	require.NoError(t, err)
 	return &cloudSink{
 		emitter:      emitter,
 		invocationID: "test-invocation",
 		workingDir:   t.TempDir(),
-	}, walPath
+	}
 }
 
 // drainWAL closes the sink (mirroring the real lifecycle, where audit.Close()
@@ -55,7 +67,7 @@ func newTestCloudSink(t *testing.T) (*cloudSink, string) {
 func drainWAL(t *testing.T, walPath string, transport endpointsync.EventTransport) int {
 	t.Helper()
 	syncClient, err := endpointsync.NewSyncClient("pmg", "test", transport,
-		endpointsync.NewEndpointIdentityResolver(), endpointsync.WithWALPath(walPath))
+		endpointsync.NewEndpointIdentityResolver(), cloudSyncOptions(walPath)...)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, syncClient.Close())
@@ -112,6 +124,152 @@ func TestCloudSinkEmitAndSync(t *testing.T) {
 
 	assert.Equal(t, 1, synced)
 	assert.Equal(t, 1, len(transport.requests))
+}
+
+func TestCloudSinkDeduplicatesOnlyMatchingHostObservations(t *testing.T) {
+	sink, walPath := newTestCloudSink(t)
+	ctx := context.Background()
+
+	for range 3 {
+		require.NoError(t, sink.Handle(ctx, AuditEvent{
+			Type:     EventTypeProxyHostObserved,
+			Hostname: "registry.example.com",
+			Method:   "CONNECT",
+		}))
+	}
+
+	require.NoError(t, sink.Handle(ctx, AuditEvent{
+		Type:     EventTypeProxyHostObserved,
+		Hostname: "registry.example.com",
+		Method:   "GET",
+	}))
+
+	for range 2 {
+		require.NoError(t, sink.Handle(ctx, AuditEvent{
+			Type:      EventTypeMalwareBlocked,
+			Timestamp: time.Now(),
+			Message:   "blocked malware package",
+		}))
+	}
+
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	assert.Equal(t, 4, drainWAL(t, walPath, transport))
+
+	var hostObservations int
+	var packageDecisions int
+	for _, req := range transport.requests {
+		for _, event := range req.GetEvents() {
+			switch event.GetPmgEvent().GetEventType() {
+			case controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION:
+				hostObservations++
+			case controltowerv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION:
+				packageDecisions++
+			}
+		}
+	}
+
+	assert.Equal(t, 2, hostObservations)
+	assert.Equal(t, 2, packageDecisions)
+}
+
+func TestCloudSinkDeduplicatesAcrossInvocations(t *testing.T) {
+	walPath := t.TempDir() + "/test-sync.db"
+
+	first := newTestCloudSinkAtPath(t, walPath, cloudSyncOptions)
+	require.NoError(t, first.Handle(context.Background(), AuditEvent{
+		Type:     EventTypeProxyHostObserved,
+		Hostname: "registry.example.com",
+		Method:   "CONNECT",
+	}))
+	require.NoError(t, first.Close())
+
+	second := newTestCloudSinkAtPath(t, walPath, cloudSyncOptions)
+	second.invocationID = "second-invocation"
+	require.NoError(t, second.Handle(context.Background(), AuditEvent{
+		Type:     EventTypeProxyHostObserved,
+		Hostname: "registry.example.com",
+		Method:   "CONNECT",
+	}))
+	require.NoError(t, second.Close())
+
+	transport := &mockTransport{}
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+}
+
+func TestCloudSinkDeduplicatesConcurrentInvocations(t *testing.T) {
+	walPath := t.TempDir() + "/test-sync.db"
+	first := newTestCloudSinkAtPath(t, walPath, cloudSyncOptions)
+	second := newTestCloudSinkAtPath(t, walPath, cloudSyncOptions)
+
+	start := make(chan struct{})
+	errs := make(chan error, 40)
+	var wg sync.WaitGroup
+	for _, sink := range []*cloudSink{first, second} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range 20 {
+				errs <- sink.Handle(context.Background(), AuditEvent{
+					Type:     EventTypeProxyHostObserved,
+					Hostname: "registry.example.com",
+					Method:   "CONNECT",
+				})
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.NoError(t, first.Close())
+	require.NoError(t, second.Close())
+
+	transport := &mockTransport{}
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+}
+
+func TestCloudSinkFlushesRepeatCountAfterWindow(t *testing.T) {
+	const window = 100 * time.Millisecond
+	options := func(walPath string) []endpointsync.SyncOption {
+		rule := hostObservationDedupRule()
+		rule.Window = window
+		return []endpointsync.SyncOption{
+			endpointsync.WithWALPath(walPath),
+			endpointsync.WithDedupRules(rule),
+		}
+	}
+
+	walPath := t.TempDir() + "/test-sync.db"
+	sink := newTestCloudSinkAtPath(t, walPath, options)
+	for range 4 {
+		require.NoError(t, sink.Handle(context.Background(), AuditEvent{
+			Type:     EventTypeProxyHostObserved,
+			Hostname: "registry.example.com",
+			Method:   "CONNECT",
+		}))
+	}
+
+	time.Sleep(4 * window)
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	assert.Equal(t, 2, drainWAL(t, walPath, transport))
+
+	var repeatCounts []uint64
+	for _, req := range transport.requests {
+		for _, event := range req.GetEvents() {
+			if context := event.GetDedupContext(); context != nil {
+				repeatCounts = append(repeatCounts, context.GetRepeatCount())
+			}
+		}
+	}
+	assert.Equal(t, []uint64{3}, repeatCounts)
 }
 
 func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
