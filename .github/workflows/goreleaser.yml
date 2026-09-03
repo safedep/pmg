@@ -72,6 +72,10 @@ jobs:
         run: pnpm nx run pmg:build-release
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          # Without this goreleaser picks the current tag from the tags that
+          # point at HEAD. A stable tag and an edge tag on the same commit then
+          # release the edge tag twice.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - name: Attest Go binary provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
