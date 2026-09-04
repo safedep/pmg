@@ -385,10 +385,19 @@ jobs:
           test -d node_modules/express
           test -d node_modules/lodash
 
-          echo "Testing aubr script run..."
+          echo "Testing aubr auto-install through the proxy..."
+          # A fresh store and cache force aubr to download the dependencies
+          # again instead of linking them from the store filled above.
+          rm -rf node_modules
           npm pkg set scripts.hello="echo hello-from-aubr"
-          pmg aubr hello | tee aubr-output.txt
+          AUBE_STORE_DIR="$(mktemp -d)" AUBE_CACHE_DIR="$(mktemp -d)" \
+            pmg aubr hello | tee aubr-output.txt
+
+          # Verification: aubr installed the dependencies through pmg, then ran the script
           grep -q "hello-from-aubr" aubr-output.txt
+          grep -q "packages analyzed" aubr-output.txt
+          test -d node_modules/express
+          test -d node_modules/lodash
           cd - && rm -rf "$AUBE_TESTDIR"
 
       - name: Test safedep-test-pkg is Blocked using aube Proxy mode
@@ -800,6 +809,11 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
+
       - name: Build PMG
         run: make
 
@@ -836,6 +850,27 @@ jobs:
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
 
+      # aube and aubx run under their own leaf profiles. Bubblewrap binds a
+      # store or cache directory only when it exists, so create them first, as
+      # a first aube run outside the sandbox would.
+      - name: Run aube Sandbox E2E Test
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          mkdir -p ~/.local/share/aube ~/.cache/aube
+          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          npm init -y
+
+          echo "Testing aube add under the aube sandbox profile..."
+          pmg --sandbox --sandbox-enforce aube add lodash@4.17.21
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aubx under the aubx sandbox profile..."
+          pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
+          grep -q "Hello from sandboxed aubx" aubx-output.txt
+          cd - && rm -rf "$AUBE_TESTDIR"
+
   sandbox-e2e-linux:
     name: Sandbox E2E - Linux (Bubblewrap)
     runs-on: ubuntu-latest
@@ -865,6 +900,11 @@ jobs:
 
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
 
       - name: Install Bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
@@ -916,6 +956,27 @@ jobs:
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
 
+      # aube and aubx run under their own leaf profiles. Bubblewrap binds a
+      # store or cache directory only when it exists, so create them first, as
+      # a first aube run outside the sandbox would.
+      - name: Run aube Sandbox E2E Test
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          mkdir -p ~/.local/share/aube ~/.cache/aube
+          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          npm init -y
+
+          echo "Testing aube add under the aube sandbox profile..."
+          pmg --sandbox --sandbox-enforce aube add lodash@4.17.21
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aubx under the aubx sandbox profile..."
+          pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
+          grep -q "Hello from sandboxed aubx" aubx-output.txt
+          cd - && rm -rf "$AUBE_TESTDIR"
+
   sandbox-e2e-linux-landlock:
     name: Sandbox E2E - Linux (Landlock)
     runs-on: ubuntu-latest
@@ -951,6 +1012,11 @@ jobs:
 
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
 
       - name: Build PMG
         run: make
@@ -1007,6 +1073,27 @@ jobs:
 
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
+
+      # aube and aubx run under their own leaf profiles. Bubblewrap binds a
+      # store or cache directory only when it exists, so create them first, as
+      # a first aube run outside the sandbox would.
+      - name: Run aube Sandbox E2E Test
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          mkdir -p ~/.local/share/aube ~/.cache/aube
+          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          npm init -y
+
+          echo "Testing aube add under the aube sandbox profile..."
+          pmg --sandbox --sandbox-enforce aube add lodash@4.17.21
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aubx under the aubx sandbox profile..."
+          pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
+          grep -q "Hello from sandboxed aubx" aubx-output.txt
+          cd - && rm -rf "$AUBE_TESTDIR"
 
   # Linux system-wide install: root install, ENV PATH (Docker-style), non-root user,
   # managed config, and remove. Profile.d login shells are covered by sourcing the snippet.
