@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"net/url"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -67,10 +69,14 @@ func (i *CargoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pr
 }
 
 // handleMetadataRequest applies dependency cooldown to a sparse-index
-// request. The registry config.json passes through untouched.
+// request. The registry config.json passes through untouched. Cargo has no
+// custom registries and no artifact discovery, so it ignores endpoint and
+// requestURL.
 func (i *CargoRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	_ *registryEndpoint,
 	pkgInfo packageInfo,
+	_ *url.URL,
 ) (*proxy.InterceptorResponse, error) {
 	info, ok := pkgInfo.(*cargoCrateInfo)
 	if !ok || info.requestType != cargoRequestIndex {

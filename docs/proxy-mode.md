@@ -106,7 +106,11 @@ A request on a configured host whose path matches no endpoint passes through unc
 
 ### How PMG identifies a package
 
-PMG reads a package name and version directly from the request URL: the npm tarball path shape, or the PyPI distribution filename. When the URL carries no identity, PMG fails open: it allows the download without analysis and never blocks on a guess. This covers opaque download URLs such as `.../download/opaque?id=42` and any path shape PMG does not recognize. Support to identify these downloads from registry metadata is planned.
+PMG prefers to read a package name and version directly from the request URL. It reads the npm tarball path shape, or the PyPI distribution filename. This covers most registries and needs no extra state.
+
+Some registries use opaque download URLs that carry no name or version, for example `.../download/opaque?id=42`. For a URL like this, PMG remembers the name and version that a metadata response advertised for it. PMG reuses that mapping when the download request arrives. The mapping is scoped to one registry. It expires after 15 minutes. It holds at most 10,000 entries.
+
+A URL that PMG can already identify from its own shape always wins. Registry metadata can never override an identity PMG derived from the URL itself. A path shape PMG cannot identify from the URL or the metadata index still fails open. PMG allows that download without analysis and never blocks on a guess.
 
 ### npm registry requirements
 
