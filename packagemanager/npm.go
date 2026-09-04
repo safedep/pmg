@@ -13,7 +13,20 @@ import (
 type NpmPackageManagerConfig struct {
 	InstallCommands     []string
 	NonDownloadCommands []string
-	CommandName         string
+
+	// InstallBoolFlags are the boolean flags of the install commands. pflag
+	// treats an unknown flag as one that takes a value, so an unregistered
+	// boolean flag would consume the package name that follows it.
+	InstallBoolFlags []BoolFlag
+
+	CommandName string
+}
+
+// BoolFlag names a boolean command-line flag and its optional one-letter
+// shorthand.
+type BoolFlag struct {
+	Name      string
+	Shorthand string
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
@@ -30,6 +43,10 @@ func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 			"ls", "list", "outdated", "view", "info", "show", "search",
 			"config", "ping", "whoami", "version", "help",
 		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "save-dev", Shorthand: "D"},
+			{Name: "global", Shorthand: "g"},
+		},
 		CommandName: "npm",
 	}
 }
@@ -42,6 +59,10 @@ func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 			"prune", "link", "unlink",
 			"ls", "list", "outdated", "info", "view", "config", "why",
 		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "save-dev", Shorthand: "D"},
+			{Name: "global", Shorthand: "g"},
+		},
 		CommandName: "pnpm",
 	}
 }
@@ -52,6 +73,10 @@ func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 		NonDownloadCommands: []string{
 			// Removal
 			"remove", "rm",
+		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "dev", Shorthand: "d"},
+			{Name: "global", Shorthand: "g"},
 		},
 		CommandName: "bun",
 	}
@@ -64,8 +89,73 @@ func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 			"remove", "unlink",
 			"ls", "list", "outdated", "info", "config", "why",
 		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "dev", Shorthand: "D"},
+			{Name: "global", Shorthand: "g"},
+		},
 		CommandName: "yarn",
 	}
+}
+
+// DefaultAubePackageManagerConfig configures aube (https://aube.sh), an
+// npm-compatible package manager. Its `install` takes no package names,
+// `add` does.
+func DefaultAubePackageManagerConfig() NpmPackageManagerConfig {
+	return NpmPackageManagerConfig{
+		InstallCommands: []string{"install", "i", "add", "a", "ci", "clean-install", "ic", "install-clean"},
+		// Commands that never download a package tarball. `remove` is absent:
+		// aube re-resolves the tree after a removal. `store` is absent: `store
+		// add` downloads packages, and only the first argument is inspected.
+		NonDownloadCommands: []string{
+			// Inspection of the local tree or of registry metadata
+			"list", "ls", "why", "w", "outdated", "view", "info", "show", "v",
+			// Local operations
+			"config", "c", "cache", "link", "ln", "unlink", "dislink",
+			"pack", "prune", "rebuild", "rb", "version", "help", "doctor",
+			"bin", "root", "prefix", "completion",
+		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "save-dev", Shorthand: "D"},
+			{Name: "save-exact", Shorthand: "E"},
+			{Name: "save-optional", Shorthand: "O"},
+			{Name: "save-peer"},
+			{Name: "save-catalog"},
+			{Name: "save-workspace-protocol"},
+			{Name: "no-save-workspace-protocol"},
+			{Name: "no-save"},
+			{Name: "global", Shorthand: "g"},
+			{Name: "workspace", Shorthand: "w"},
+			{Name: "ignore-workspace-root-check", Shorthand: "W"},
+			{Name: "recursive", Shorthand: "r"},
+			{Name: "dev"},
+			{Name: "prod", Shorthand: "P"},
+			{Name: "allow-low-downloads"},
+			{Name: "dangerously-allow-all-builds"},
+			{Name: "ignore-scripts"},
+			{Name: "ignore-pnpmfile"},
+			{Name: "no-optional"},
+			{Name: "offline"},
+			{Name: "prefer-offline"},
+			{Name: "force"},
+			{Name: "dry-run"},
+			{Name: "lockfile-only"},
+			{Name: "fix-lockfile"},
+			{Name: "frozen-lockfile"},
+			{Name: "no-frozen-lockfile"},
+			{Name: "prefer-frozen-lockfile"},
+			{Name: "enable-global-virtual-store"},
+			{Name: "disable-global-virtual-store"},
+		},
+		CommandName: "aube",
+	}
+}
+
+// DefaultAubrPackageManagerConfig configures aubr, the aube shorthand for
+// `aube run`. A script run installs missing or stale dependencies first, so
+// every aubr command may download packages and no argument is an install
+// command or a package name.
+func DefaultAubrPackageManagerConfig() NpmPackageManagerConfig {
+	return NpmPackageManagerConfig{CommandName: "aubr"}
 }
 
 type npmPackageManager struct {
@@ -126,39 +216,21 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// Extract arguments after the install command
 	installArgs := args[installCmdIndex+1:]
 
-	// Extract packages from args
-	var packages []string
-	var isManifestInstall bool
-	var devPackages []string
-
 	flagSet := pflag.NewFlagSet(npm.Config.CommandName, pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
-	switch npm.Config.CommandName {
-	case "npm", "pnpm":
-		flagSet.StringArrayVarP(&devPackages, "save-dev", "D", nil, "Install dev packages")
-	case "bun":
-		flagSet.StringArrayVarP(&devPackages, "dev", "d", nil, "Install dev packages")
-	case "yarn":
-		flagSet.StringArrayVarP(&devPackages, "dev", "D", nil, "Install dev packages")
+	for _, flag := range npm.Config.InstallBoolFlags {
+		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
 	}
 
-	// Known only to prevent UnknownFlags mode from swallowing the next package arg.
-	flagSet.BoolP("global", "g", false, "Install packages globally")
-
-	err := flagSet.Parse(installArgs)
-	if err != nil {
+	if err := flagSet.Parse(installArgs); err != nil {
 		return &ParsedCommand{Command: command}, nil
 	}
 
-	packages = flagSet.Args()
-
-	// If install command was found but no explicit packages,
-	// this is a manifest-based installation
-	if installCmdIndex != -1 && len(packages) == 0 {
-		isManifestInstall = true
-	}
+	// An install command without explicit packages installs from the manifest
+	packages := flagSet.Args()
+	isManifestInstall := len(packages) == 0
 
 	// Yarn-specific validation: yarn install does not accept package names
 	if npm.Config.CommandName == "yarn" && args[installCmdIndex] == "install" && len(packages) > 0 {
@@ -166,14 +238,6 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			Command: command,
 		}, nil
 	}
-
-	// No packages found and not a manifest install
-	if len(packages) == 0 && !isManifestInstall {
-		return &ParsedCommand{
-			Command: command,
-		}, nil
-	}
-	packages = append(packages, devPackages...)
 
 	// Process all package arguments
 	var installTargets []*PackageInstallTarget

@@ -25,6 +25,14 @@ func DefaultPnpxPackageExecutorConfig() NpmPackageExecutorConfig {
 	}
 }
 
+// DefaultAubxPackageExecutorConfig configures aubx, the aube shorthand for
+// `aube dlx`.
+func DefaultAubxPackageExecutorConfig() NpmPackageExecutorConfig {
+	return NpmPackageExecutorConfig{
+		CommandName: "aubx",
+	}
+}
+
 type npmPackageExecutor struct {
 	Config NpmPackageExecutorConfig
 }
@@ -46,7 +54,7 @@ func (n *npmPackageExecutor) Ecosystem() packagev1.Ecosystem {
 }
 
 func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && (args[0] == "npx" || args[0] == "pnpx") {
+	if len(args) > 0 && args[0] == n.Config.CommandName {
 		args = args[1:]
 	}
 
@@ -68,6 +76,10 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
 	case "pnpx":
 		flagSet.StringArrayVar(&packages, "package", []string{}, "Package List")
+	case "aubx":
+		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
+		// Registered so that the command after -c is not consumed as a flag value.
+		flagSet.BoolP("shell-mode", "c", false, "Run the command line through sh -c")
 	}
 
 	err := flagSet.Parse(args)
@@ -82,7 +94,7 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		}
 	}
 
-	// For both npx and pnpx, the first positional argument is typically
+	// For npx, pnpx and aubx, the first positional argument is typically
 	// the package to execute (e.g., `npx cowsay@1.6.0` or `pnpx cowsay@1.6.0`).
 	// However, if -p/--package flags are provided, the first positional arg
 	// is the binary to run, not the package (e.g., `npx -p typescript tsc`).

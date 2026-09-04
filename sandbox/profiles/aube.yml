@@ -1,0 +1,64 @@
+name: aube
+description: Profile for aube and aubr, extending npm-restrictive with aube lockfile paths and environment variables
+inherits: npm-restrictive
+
+package_managers:
+  - aube
+  - aubr
+
+environment:
+  # The npm-restrictive base allows no environment variables. aube uses the
+  # npm auth and config conventions (.npmrc with env interpolation,
+  # npm_config_*) and loads NODE_EXTRA_CA_CERTS into its TLS client. Sibling
+  # tokens (YARN_NPM_AUTH_*, BUN_AUTH_TOKEN) stay scrubbed.
+  allow:
+    - NPM_TOKEN
+    - NPM_AUTH_TOKEN
+    - NODE_AUTH_TOKEN
+    - npm_config_*
+    - NPM_CONFIG_*
+    - NODE_EXTRA_CA_CERTS
+
+filesystem:
+  allow_write:
+    # aube writes its own lockfile, and updates an existing npm, pnpm, yarn or
+    # bun lockfile in place. The base profile covers package-lock.json,
+    # pnpm-lock.yaml and yarn.lock.
+    - ${CWD}/aube-lock.yaml
+    - ${CWD}/npm-shrinkwrap.json
+    - ${CWD}/bun.lock
+
+    # Per-branch lockfiles (gitBranchLockfile), e.g. aube-lock.feature-x.yaml
+    - ${CWD}/aube-lock.*.yaml
+
+    # `aube add --allow-build` records the approval in the workspace manifest
+    - ${CWD}/aube-workspace.yaml
+    - ${CWD}/pnpm-workspace.yaml
+
+    # Every manifest and lockfile write goes through a sibling temp file
+    # named <file>.tmp.<pid>.<nanos>.<n> followed by a rename.
+    - ${CWD}/package.json.tmp.*
+    - ${CWD}/aube-lock.yaml.tmp.*
+    - ${CWD}/aube-lock.*.yaml.tmp.*
+    - ${CWD}/package-lock.json.tmp.*
+    - ${CWD}/npm-shrinkwrap.json.tmp.*
+    - ${CWD}/pnpm-lock.yaml.tmp.*
+    - ${CWD}/yarn.lock.tmp.*
+    - ${CWD}/bun.lock.tmp.*
+    - ${CWD}/aube-workspace.yaml.tmp.*
+    - ${CWD}/pnpm-workspace.yaml.tmp.*
+
+    # Workspaces (monorepos): aube creates a node_modules inside every
+    # workspace package. The bare **/node_modules form is required in
+    # addition to **/node_modules/** because the parent contains a glob, so
+    # mkdir of the directory itself must be matched explicitly.
+    - ${CWD}/**/node_modules
+    - ${CWD}/**/node_modules/**
+
+network:
+  allow_outbound:
+    # aube's own supply-chain checks: OSV malicious-package advisories and
+    # weekly download counts.
+    - api.osv.dev:443
+    - api.npmjs.org:443
+    - osv-vulnerabilities.storage.googleapis.com:443

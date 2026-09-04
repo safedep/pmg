@@ -232,3 +232,97 @@ func TestPnpxExecutorParseCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestAubxExecutorParseCommand(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		assert  func(t *testing.T, parsed *ParsedCommand, err error)
+	}{
+		{
+			name:    "bare aubx invocation",
+			command: "aubx",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.NotNil(t, parsed)
+				assert.Empty(t, parsed.InstallTargets)
+			},
+		},
+		{
+			name:    "package with version as first positional arg",
+			command: "aubx cowsay@1.6.0 hello",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "cowsay", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.6.0", parsed.InstallTargets[0].PackageVersion.Version)
+				assert.Equal(t, []string{"cowsay@1.6.0", "hello"}, parsed.Command.Args)
+			},
+		},
+		{
+			name:    "package flag with a different binary",
+			command: "aubx -p typescript tsc --version",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsed.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "scoped package via long package flag",
+			command: "aubx --package=@types/node",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "@types/node", parsed.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "repeated package flags",
+			command: "aubx -p cowsay@1.6.0 -p lolcat cowsay hi",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 2)
+				assert.Equal(t, "cowsay", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.6.0", parsed.InstallTargets[0].PackageVersion.Version)
+				assert.Equal(t, "lolcat", parsed.InstallTargets[1].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "shell mode flag does not consume the command",
+			command: "aubx -c cowsay hello",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "cowsay", parsed.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "value flag consumes only its value",
+			command: "aubx --registry https://registry.example.com cowsay",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "cowsay", parsed.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "scoped package with version as command",
+			command: "aubx @scope/cli@1.0.0 init",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "@scope/cli", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.0.0", parsed.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &npmPackageExecutor{Config: DefaultAubxPackageExecutorConfig()}
+			parsed, err := exec.ParseCommand(strings.Split(tc.command, " "))
+			tc.assert(t, parsed, err)
+		})
+	}
+}

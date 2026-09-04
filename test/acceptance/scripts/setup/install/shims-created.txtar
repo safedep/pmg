@@ -9,4 +9,5 @@ mkdir $WORK/home
 exec pmg setup install
 exists $WORK/home/.local/share/safedep/pmg/bin
 exists $WORK/home/.local/share/safedep/pmg/bin/npm
+exists $WORK/home/.local/share/safedep/pmg/bin/aube
 exists $WORK/home/.config/safedep/pmg/config.yml
