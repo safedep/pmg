@@ -1,13 +1,12 @@
 name: npx
-description: Profile for npx/pnpx/aubx generators with write access to current directory
+description: Profile for npx/pnpx generators with write access to current directory
 inherits: npm-restrictive
 
 package_managers:
   - npx
   - pnpx
-  - aubx
 
-# npx, pnpx and aubx require PTY access to work, especially for commands like:
+# npx and pnpx require PTY access to work, especially for commands like:
 # npx create-next-app@latest
 #
 # Explicitly setting this so that it is enabled even if we decide to turn this off
@@ -18,8 +17,8 @@ allow_pty: true
 allow_network_bind: true
 
 environment:
-  # The npm-restrictive base allows no environment variables. npx, pnpx and
-  # aubx execute npm-ecosystem packages and use the npm auth and config
+  # The npm-restrictive base allows no environment variables. npx and pnpx
+  # execute npm-ecosystem packages and use the npm auth and config
   # conventions. Sibling tokens (YARN_NPM_AUTH_*, BUN_AUTH_TOKEN) stay
   # scrubbed.
   allow:

@@ -75,8 +75,8 @@ A name that only points at a credential file, such as `GOOGLE_APPLICATION_CREDEN
 the normal suggestion. The sandbox still controls access to the file.
 
 The shared base profiles (`npm-restrictive`, `pypi-restrictive`) allow no environment variables.
-Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `aube`, `npx`, `pip`, `pipx`,
-`uv`, `uvx`, `poetry`) re-allows only the variables that package manager legitimately needs via an
+Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `aube`, `npx`, `aubx`, `pip`,
+`pipx`, `uv`, `uvx`, `poetry`) re-allows only the variables that package manager legitimately needs via an
 `environment.allow` block, so package managers keep working:
 
 ```yaml

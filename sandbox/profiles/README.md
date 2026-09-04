@@ -6,7 +6,7 @@ This directory contains built-in sandbox policies for PMG package managers.
 
 ### npm-restrictive
 
-Restrictive policy for the npm ecosystem (npm, pnpm, yarn, bun, aube).
+Restrictive policy for the npm ecosystem (npm, pnpm, yarn, bun).
 
 ### pypi-restrictive
 

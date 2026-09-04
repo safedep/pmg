@@ -169,10 +169,10 @@ sandbox:
       enabled: true
       profile: aube
 
-    # aubx is the aube shorthand for `aube dlx`. It shares the npx profile.
+    # aubx is the aube shorthand for `aube dlx`.
     aubx:
       enabled: true
-      profile: npx
+      profile: aubx
 
     # PyPI ecosystem. pypi-restrictive is the shared base profile; each
     # package manager maps to a leaf profile that re-allows only its own

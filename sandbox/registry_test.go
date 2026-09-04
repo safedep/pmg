@@ -133,7 +133,7 @@ func TestBuiltinProfileInheritance(t *testing.T) {
 	assert.Empty(t, npxProfile.Inherits)
 
 	// Verify package managers are from child (not parent)
-	assert.ElementsMatch(t, []string{"npx", "pnpx", "aubx"}, npxProfile.PackageManagers)
+	assert.ElementsMatch(t, []string{"npx", "pnpx"}, npxProfile.PackageManagers)
 
 	// Get the parent profile for comparison
 	npmRestrictive, err := registry.GetProfile("npm-restrictive")
