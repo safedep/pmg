@@ -858,7 +858,9 @@ jobs:
           AUBE_UPDATE_NOTIFIER: "false"
         run: |
           mkdir -p ~/.local/share/aube ~/.cache/aube
-          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          # Outside /tmp: the inherited /tmp/** write rule would mask a missing
+          # workspace rule.
+          AUBE_TESTDIR=$(mktemp -d "$HOME/aube-sandbox-e2e.XXXXXX") && cd "$AUBE_TESTDIR"
           npm init -y
 
           echo "Testing aube add under the aube sandbox profile..."
@@ -964,7 +966,9 @@ jobs:
           AUBE_UPDATE_NOTIFIER: "false"
         run: |
           mkdir -p ~/.local/share/aube ~/.cache/aube
-          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          # Outside /tmp: the inherited /tmp/** write rule would mask a missing
+          # workspace rule.
+          AUBE_TESTDIR=$(mktemp -d "$HOME/aube-sandbox-e2e.XXXXXX") && cd "$AUBE_TESTDIR"
           npm init -y
 
           echo "Testing aube add under the aube sandbox profile..."
@@ -1082,7 +1086,9 @@ jobs:
           AUBE_UPDATE_NOTIFIER: "false"
         run: |
           mkdir -p ~/.local/share/aube ~/.cache/aube
-          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          # Outside /tmp: the inherited /tmp/** write rule would mask a missing
+          # workspace rule.
+          AUBE_TESTDIR=$(mktemp -d "$HOME/aube-sandbox-e2e.XXXXXX") && cd "$AUBE_TESTDIR"
           npm init -y
 
           echo "Testing aube add under the aube sandbox profile..."

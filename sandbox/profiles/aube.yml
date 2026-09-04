@@ -31,39 +31,13 @@ filesystem:
     - ${HOME}/.local/share/aube/**
     - ${HOME}/.cache/aube/**
 
-    # aube writes its own lockfile, and updates an existing npm, pnpm, yarn or
-    # bun lockfile in place. The base profile covers package-lock.json,
-    # pnpm-lock.yaml and yarn.lock.
-    - ${CWD}/aube-lock.yaml
-    - ${CWD}/npm-shrinkwrap.json
-    - ${CWD}/bun.lock
-
-    # Per-branch lockfiles (gitBranchLockfile), e.g. aube-lock.feature-x.yaml
-    - ${CWD}/aube-lock.*.yaml
-
-    # `aube add --allow-build` records the approval in the workspace manifest
-    - ${CWD}/aube-workspace.yaml
-    - ${CWD}/pnpm-workspace.yaml
-
-    # Every manifest and lockfile write goes through a sibling temp file
-    # named <file>.tmp.<pid>.<nanos>.<n> followed by a rename.
-    - ${CWD}/package.json.tmp.*
-    - ${CWD}/aube-lock.yaml.tmp.*
-    - ${CWD}/aube-lock.*.yaml.tmp.*
-    - ${CWD}/package-lock.json.tmp.*
-    - ${CWD}/npm-shrinkwrap.json.tmp.*
-    - ${CWD}/pnpm-lock.yaml.tmp.*
-    - ${CWD}/yarn.lock.tmp.*
-    - ${CWD}/bun.lock.tmp.*
-    - ${CWD}/aube-workspace.yaml.tmp.*
-    - ${CWD}/pnpm-workspace.yaml.tmp.*
-
-    # Workspaces (monorepos): aube creates a node_modules inside every
-    # workspace package. The bare **/node_modules form is required in
-    # addition to **/node_modules/** because the parent contains a glob, so
-    # mkdir of the directory itself must be matched explicitly.
-    - ${CWD}/**/node_modules
-    - ${CWD}/**/node_modules/**
+    # The whole project tree. aube writes package.json and every lockfile
+    # through a sibling temp file and a rename. The rename needs create and
+    # remove access on the directory, and Landlock grants access per
+    # subtree only. Workspaces also get a node_modules in every package,
+    # and Landlock accepts one ** per pattern. The base profile still
+    # denies ${CWD}/.env and ${CWD}/.env.*.
+    - ${CWD}/**
 
 network:
   allow_outbound:
