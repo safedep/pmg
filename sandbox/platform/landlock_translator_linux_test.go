@@ -827,8 +827,15 @@ func TestLandlockTranslatePolicy_AubeProfileGrantsProjectDirectory(t *testing.T)
 	ep, err := landlockTranslatePolicy(policy, newLandlockABI(3), nil)
 	require.NoError(t, err)
 
-	rule := findRule(ep.FilesystemRules, projectDir)
-	require.NotNil(t, rule, "the aube profile must grant a write rule on the project directory")
-	assert.NotZero(t, rule.Access&uint64(llsyscall.AccessFSMakeReg), "MakeReg is needed to create the temp file")
-	assert.NotZero(t, rule.Access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
+	// Landlock grants the union of all rules for a path. The read and write
+	// rules for the project directory come from separate profile entries.
+	var access uint64
+	for _, rule := range ep.FilesystemRules {
+		if rule.Path == projectDir {
+			access |= rule.Access
+		}
+	}
+	require.NotZero(t, access, "the aube profile must grant a rule on the project directory")
+	assert.NotZero(t, access&uint64(llsyscall.AccessFSMakeReg), "MakeReg is needed to create the temp file")
+	assert.NotZero(t, access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
 }
