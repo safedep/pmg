@@ -11,6 +11,11 @@ import (
 
 type NpmPackageExecutorConfig struct {
 	CommandName string
+
+	// BoolFlags are the boolean flags of the executor. pflag treats an unknown
+	// flag as one that takes a value, so an unregistered boolean flag would
+	// consume the package name that follows it.
+	BoolFlags []BoolFlag
 }
 
 func DefaultNpxPackageExecutorConfig() NpmPackageExecutorConfig {
@@ -30,6 +35,9 @@ func DefaultPnpxPackageExecutorConfig() NpmPackageExecutorConfig {
 func DefaultAubxPackageExecutorConfig() NpmPackageExecutorConfig {
 	return NpmPackageExecutorConfig{
 		CommandName: "aubx",
+		BoolFlags: slices.Concat(aubeGlobalBoolFlags, aubeLockfileBoolFlags, []BoolFlag{
+			{Name: "shell-mode", Shorthand: "c"},
+		}),
 	}
 }
 
@@ -78,8 +86,10 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		flagSet.StringArrayVar(&packages, "package", []string{}, "Package List")
 	case "aubx":
 		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
-		// Registered so that the command after -c is not consumed as a flag value.
-		flagSet.BoolP("shell-mode", "c", false, "Run the command line through sh -c")
+	}
+
+	for _, flag := range n.Config.BoolFlags {
+		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
 	}
 
 	err := flagSet.Parse(args)

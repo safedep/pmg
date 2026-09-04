@@ -97,6 +97,30 @@ func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 	}
 }
 
+// aubeGlobalBoolFlags are the boolean flags aube accepts before or after any
+// subcommand. The aube and aubx parsers both register them.
+var aubeGlobalBoolFlags = []BoolFlag{
+	{Name: "recursive", Shorthand: "r"},
+	{Name: "verbose", Shorthand: "v"},
+	{Name: "color"},
+	{Name: "no-color"},
+	{Name: "silent"},
+	{Name: "workspace-root"},
+	{Name: "fail-if-no-match"},
+}
+
+// aubeLockfileBoolFlags are the lockfile and virtual store flags shared by
+// aube add, install, ci and dlx.
+var aubeLockfileBoolFlags = []BoolFlag{
+	{Name: "frozen-lockfile"},
+	{Name: "no-frozen-lockfile"},
+	{Name: "prefer-frozen-lockfile"},
+	{Name: "enable-global-virtual-store"},
+	{Name: "enable-gvs"},
+	{Name: "disable-global-virtual-store"},
+	{Name: "disable-gvs"},
+}
+
 // DefaultAubePackageManagerConfig configures aube (https://aube.sh), an
 // npm-compatible package manager. Its `install` takes no package names,
 // `add` does.
@@ -114,7 +138,8 @@ func DefaultAubePackageManagerConfig() NpmPackageManagerConfig {
 			"pack", "prune", "rebuild", "rb", "version", "help", "doctor",
 			"bin", "root", "prefix", "completion",
 		},
-		InstallBoolFlags: []BoolFlag{
+		InstallBoolFlags: slices.Concat(aubeGlobalBoolFlags, aubeLockfileBoolFlags, []BoolFlag{
+			// add
 			{Name: "save-dev", Shorthand: "D"},
 			{Name: "save-exact", Shorthand: "E"},
 			{Name: "save-optional", Shorthand: "O"},
@@ -126,11 +151,11 @@ func DefaultAubePackageManagerConfig() NpmPackageManagerConfig {
 			{Name: "global", Shorthand: "g"},
 			{Name: "workspace", Shorthand: "w"},
 			{Name: "ignore-workspace-root-check", Shorthand: "W"},
-			{Name: "recursive", Shorthand: "r"},
-			{Name: "dev"},
-			{Name: "prod", Shorthand: "P"},
 			{Name: "allow-low-downloads"},
 			{Name: "dangerously-allow-all-builds"},
+			// install and ci
+			{Name: "dev"},
+			{Name: "prod", Shorthand: "P"},
 			{Name: "ignore-scripts"},
 			{Name: "ignore-pnpmfile"},
 			{Name: "no-optional"},
@@ -140,12 +165,13 @@ func DefaultAubePackageManagerConfig() NpmPackageManagerConfig {
 			{Name: "dry-run"},
 			{Name: "lockfile-only"},
 			{Name: "fix-lockfile"},
-			{Name: "frozen-lockfile"},
-			{Name: "no-frozen-lockfile"},
-			{Name: "prefer-frozen-lockfile"},
-			{Name: "enable-global-virtual-store"},
-			{Name: "disable-global-virtual-store"},
-		},
+			{Name: "merge-git-branch-lockfiles"},
+			{Name: "shamefully-hoist"},
+			{Name: "side-effects-cache"},
+			{Name: "no-side-effects-cache"},
+			{Name: "verify-store-integrity"},
+			{Name: "no-verify-store-integrity"},
+		}),
 		CommandName: "aube",
 	}
 }

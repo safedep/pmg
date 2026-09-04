@@ -543,6 +543,35 @@ func TestAubeParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "global boolean flags before the package",
+			command: "aube add --color --no-color --verbose --silent --workspace-root --fail-if-no-match safedep-test-pkg@0.1.3",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "safedep-test-pkg", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "0.1.3", parsedCommand.InstallTargets[0].PackageVersion.Version)
+				assert.True(t, parsedCommand.InstallTargets[0].IsExplicitVersion)
+			},
+		},
+		{
+			name:    "global shorthand flags before the package",
+			command: "aube add -v -r react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "lockfile and virtual store flags before the package",
+			command: "aube add --frozen-lockfile --disable-global-virtual-store --enable-gvs react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
 			name:    "value flags consume only their value",
 			command: "aube add --registry https://registry.example.com --save-catalog-name web --allow-build=esbuild react",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {

@@ -298,6 +298,27 @@ func TestAubxExecutorParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "lockfile flag before the package",
+			command: "aubx --frozen-lockfile safedep-test-pkg@0.1.3",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "safedep-test-pkg", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "0.1.3", parsed.InstallTargets[0].PackageVersion.Version)
+				assert.True(t, parsed.InstallTargets[0].IsExplicitVersion)
+			},
+		},
+		{
+			name:    "global boolean flags before the package",
+			command: "aubx --color --verbose -r --no-frozen-lockfile cowsay@1.6.0 hello",
+			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, parsed.InstallTargets, 1)
+				assert.Equal(t, "cowsay", parsed.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "1.6.0", parsed.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
 			name:    "value flag consumes only its value",
 			command: "aubx --registry https://registry.example.com cowsay",
 			assert: func(t *testing.T, parsed *ParsedCommand, err error) {
