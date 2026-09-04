@@ -844,7 +844,68 @@ func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
 
 	assertWriteBind(t, args, venvDir)
 	assertNoWriteBind(t, args, pythonPath)
-	assertReadBind(t, args, pythonPath)
+	// The file is reachable through the writable venv bind and gets no mount of its own.
+	assertNoReadBind(t, args, pythonPath)
+}
+
+// A bind mount on a file blocks rename(2) onto it inside the sandbox. aube and
+// pnpm write package.json and lockfiles through a sibling temp file and a
+// rename, so a file below a directory that is already bound read-write must
+// not get a mount of its own.
+func TestBubblewrapSkipsFileBindsUnderWritableDir(t *testing.T) {
+	projectDir := t.TempDir()
+	// The translator always binds the process temp dir read-write, so keep the
+	// project outside it.
+	t.Setenv("TMPDIR", t.TempDir())
+
+	manifest := filepath.Join(projectDir, "package.json")
+	require.NoError(t, os.WriteFile(manifest, []byte("{}"), 0o644))
+	lockfile := filepath.Join(projectDir, "aube-lock.yaml")
+	require.NoError(t, os.WriteFile(lockfile, []byte(""), 0o644))
+	missingLockfile := filepath.Join(projectDir, "pnpm-lock.yaml")
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-atomic-manifest-writes",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{projectDir + "/**"},
+			AllowWrite: []string{manifest, lockfile, missingLockfile, projectDir + "/**/node_modules/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assertWriteBind(t, args, projectDir)
+	for _, file := range []string{manifest, lockfile, missingLockfile} {
+		assertNoWriteBind(t, args, file)
+		assertNoReadBind(t, args, file)
+	}
+}
+
+// npm writes package.json in place and its profile binds only node_modules as
+// a directory, so the manifest keeps its own read-write bind.
+func TestBubblewrapKeepsFileBindWithoutWritableParent(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+
+	manifest := filepath.Join(projectDir, "package.json")
+	require.NoError(t, os.WriteFile(manifest, []byte("{}"), 0o644))
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-in-place-manifest-writes",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{projectDir + "/**"},
+			AllowWrite: []string{manifest, projectDir + "/node_modules/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assertWriteBind(t, args, manifest)
+	assertNoWriteBind(t, args, projectDir)
 }
 
 // TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback
@@ -1185,6 +1246,15 @@ func assertWriteBind(t *testing.T, args []string, path string) {
 		}
 	}
 	t.Fatalf("expected --bind-try %q %q, not found in args: %v", path, path, args)
+}
+
+func assertNoReadBind(t *testing.T, args []string, path string) {
+	t.Helper()
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--ro-bind" || args[i] == "--ro-bind-try") && args[i+1] == path && args[i+2] == path {
+			t.Fatalf("unexpected read-only bind at %q in args: %v", path, args)
+		}
+	}
 }
 
 func assertNoWriteBind(t *testing.T, args []string, path string) {
