@@ -441,7 +441,10 @@ For the architecture, design tradeoffs, and known limitations see
 
 **Deny enforcement**: Deny rules (DenyRead, DenyWrite, DenyExec) are enforced via seccomp
 user notifications. This introduces a small TOCTOU window (microseconds) between reading
-the path and responding.
+the path and responding. The supervisor traps open, rename, link, unlink, mkdir, symlink
+and truncate, and resolves symlinks before it matches a path, so a broad `allow_write`
+such as `${CWD}/**` cannot be used to move, link or alias a protected file out from under
+a deny rule. See [sandbox-landlock.md](./sandbox-landlock.md) for the exact rules.
 
 **Deny enforcement across the process tree**: seccomp-notify resolves the path argument of
 an intercepted `openat(2)` by reading `/proc/<pid>/mem` of the trapping process. PMG ships
@@ -505,6 +508,18 @@ coarse-grained fallback strategies when glob patterns match many files.
 
 **Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific
 filtering is not enforced.
+
+**Deny targets are mount points**: a denied file is masked with `/dev/null` and a denied directory
+with a tmpfs. A mount point cannot be renamed or removed (`EBUSY`), which also blocks a rename of
+the protected file to an unprotected name. rename(2) of an ancestor directory succeeds and takes
+the overlay with it, so PMG also binds every directory between a writable base and a protected
+path onto itself (`${CWD}/.git` under `allow_write: ${CWD}/**`). A process cannot move `.git`
+aside and create a fresh `.git/hooks`.
+
+**A deny target that does not exist is not enforced**: bwrap creates a missing mount point on the
+host, which would leave an empty `.env` or `.github/workflows` in the project. PMG skips such
+targets. Under a writable project tree a process can therefore create `.github/workflows` when the
+repository has none. The Landlock driver denies the path by name and has no such gap.
 
 **Per-direction mandatory deny is asymmetric on Linux**: bwrap has no primitive that allows writes
 while denying reads for the same path. `--bind` exposes both directions; `--tmpfs` and
