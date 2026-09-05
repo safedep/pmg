@@ -250,6 +250,17 @@ func readSyscallFlags(op pathSyscall, args [6]uint64, memFd *os.File) int {
 	return int(binary.LittleEndian.Uint64(buf))
 }
 
+// openAccessFlags returns the flags an open is matched with. O_CREAT and
+// O_TRUNC write to the path even with O_RDONLY (the file is created, or
+// truncated on Linux), so they raise the access mode to O_RDWR and a write
+// deny fires on them.
+func openAccessFlags(flags int) int {
+	if flags&(unix.O_CREAT|unix.O_TRUNC) != 0 && flags&unix.O_ACCMODE == unix.O_RDONLY {
+		return flags&^unix.O_ACCMODE | unix.O_RDWR
+	}
+	return flags
+}
+
 // followsLeaf reports whether the kernel follows a symlink in the final
 // component of the operand for this syscall and flags.
 func followsLeaf(op pathSyscall, operand pathOperand, flags int) bool {
@@ -296,6 +307,9 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	defer closeMemFd(memFd)
 
 	flags := readSyscallFlags(op, notif.Data.Args, memFd)
+	if op.kind == pathOpOpen {
+		flags = openAccessFlags(flags)
+	}
 
 	src, err := s.resolveOperand(notif, memFd, op.src, followsLeaf(op, op.src, flags))
 	if err != nil {

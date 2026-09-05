@@ -326,6 +326,29 @@ func TestCanonicalPath(t *testing.T) {
 	}
 }
 
+func TestOpenAccessFlags(t *testing.T) {
+	tests := []struct {
+		name  string
+		flags int
+		want  int
+	}{
+		{"read only", unix.O_RDONLY, unix.O_RDONLY},
+		{"create with read only counts as a write", unix.O_RDONLY | unix.O_CREAT, unix.O_RDWR | unix.O_CREAT},
+		{"truncate with read only counts as a write", unix.O_RDONLY | unix.O_TRUNC, unix.O_RDWR | unix.O_TRUNC},
+		{"write only create unchanged", unix.O_WRONLY | unix.O_CREAT, unix.O_WRONLY | unix.O_CREAT},
+		{"nofollow kept", unix.O_RDONLY | unix.O_CREAT | unix.O_NOFOLLOW, unix.O_RDWR | unix.O_CREAT | unix.O_NOFOLLOW},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, openAccessFlags(tc.flags))
+		})
+	}
+
+	deny := []denyPathEntry{{Path: "/proj/.git/config", Mode: denyWrite}}
+	_, denied := matchDeniedPath("/proj/.git/config", openAccessFlags(unix.O_RDONLY|unix.O_CREAT), deny)
+	assert.True(t, denied, "a write deny must block a read-only open that creates")
+}
+
 func TestFollowsLeaf(t *testing.T) {
 	open := seccompPathSyscalls[unix.SYS_OPENAT]
 	link := seccompPathSyscalls[unix.SYS_LINKAT]
