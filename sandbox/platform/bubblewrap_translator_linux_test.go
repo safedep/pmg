@@ -844,7 +844,10 @@ func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
 
 	assertWriteBind(t, args, venvDir)
 	assertNoWriteBind(t, args, pythonPath)
-	// The file is reachable through the writable venv bind and gets no mount of its own.
+	// Bare "dir/**" read patterns bind the base directory. The python
+	// symlink is reachable through the tmpDir read bind and the writable
+	// venv bind and gets no mount of its own.
+	assertReadBind(t, args, tmpDir)
 	assertNoReadBind(t, args, pythonPath)
 }
 
@@ -1321,4 +1324,109 @@ func TestBubblewrapMandatoryWriteDenySurvivesWritableParent(t *testing.T) {
 		"mandatory write deny for .git/config must be re-applied even when the path is in allow_read")
 	assert.Greater(t, lastROConfigBind, lastWritableGitBind,
 		"read-only .git/config bind must come after the writable .git bind (bwrap last mount wins)")
+}
+
+// rename(2) of a directory that holds a deny overlay succeeds and carries the
+// overlay along, so the directories between a writable base and a protected
+// path must be mount points of their own, bound before the overlays.
+func TestBubblewrapPinsAncestorsOfProtectedPaths(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Chdir(projectDir)
+
+	gitDir := filepath.Join(projectDir, ".git")
+	hooksDir := filepath.Join(gitDir, "hooks")
+	require.NoError(t, os.MkdirAll(hooksDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".env"), []byte("x"), 0o600))
+	workflowsDir := filepath.Join(projectDir, ".github", "workflows")
+	require.NoError(t, os.MkdirAll(workflowsDir, 0o755))
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-pin-ancestors",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{projectDir + "/**"},
+			AllowWrite: []string{projectDir, projectDir + "/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assertWriteBind(t, args, projectDir)
+	assertWriteBind(t, args, gitDir)
+	assertWriteBind(t, args, filepath.Join(projectDir, ".github"))
+	assertTmpfsAt(t, args, hooksDir)
+	assertReadOnlyBindAfterWritableBind(t, args, workflowsDir, projectDir)
+	assertDevNullMount(t, args, filepath.Join(projectDir, ".env"))
+
+	// The pin must come before the overlays, or the new .git mount hides them.
+	assert.Less(t, indexOfBind(args, gitDir), indexOfTmpfs(args, hooksDir))
+
+	// The base is never pinned twice and the protected paths get no writable bind.
+	assert.Equal(t, 1, countWriteBinds(args, gitDir))
+	assertNoWriteBind(t, args, hooksDir)
+	assertNoWriteBind(t, args, workflowsDir)
+}
+
+func TestBubblewrapPinsNothingWithoutWritableParent(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Chdir(projectDir)
+
+	gitDir := filepath.Join(projectDir, ".git")
+	require.NoError(t, os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755))
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-no-pin",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{projectDir + "/**"},
+			AllowWrite: []string{projectDir + "/node_modules/**"},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assertNoWriteBind(t, args, gitDir)
+}
+
+func TestDenyTargets(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".env.local"), []byte("x"), 0o600))
+
+	assert.Equal(t, []string{filepath.Join(dir, ".env")}, denyTargets(filepath.Join(dir, ".env")))
+	assert.Equal(t, []string{filepath.Join(dir, ".env.local")}, denyTargets(filepath.Join(dir, ".env.*")))
+	assert.Equal(t, []string{filepath.Join(dir, ".git", "hooks")}, denyTargets(filepath.Join(dir, ".git", "hooks", "**")))
+	assert.Nil(t, denyTargets("**/.env"), "a globstar without a base hides nothing")
+}
+
+func indexOfBind(args []string, path string) int {
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == path && args[i+2] == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func indexOfTmpfs(args []string, path string) int {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--tmpfs" && args[i+1] == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func countWriteBinds(args []string, path string) int {
+	n := 0
+	for i := 0; i+2 < len(args); i++ {
+		if (args[i] == "--bind" || args[i] == "--bind-try") && args[i+1] == path && args[i+2] == path {
+			n++
+		}
+	}
+	return n
 }

@@ -36,7 +36,7 @@ filesystem:
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
-    - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.bun/install/**
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
@@ -49,20 +49,20 @@ filesystem:
     - /tmp/**
     - /private/tmp/**
     - /var/tmp/**
-    # Project directories
-    - ${CWD}/node_modules/**
-    - ${CWD}/package-lock.json
-    - ${CWD}/package.json
-    - ${CWD}/yarn.lock
-    - ${CWD}/pnpm-lock.yaml
-    - ${CWD}/bun.lockb
+    # The whole project directory is writable. Install scripts and generated
+    # output routinely land outside node_modules and the lockfiles, and
+    # per-file enumeration does not scale. The mandatory deny patterns keep
+    # credential files inside the project (.env, .ssh, .git/hooks,
+    # .github/workflows, ...) blocked.
+    - ${CWD}
+    - ${CWD}/**
     # Package manager caches and stores
     - ${HOME}/.npm/**
     - ${HOME}/.pnpm-store/**
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
-    - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.bun/install/**
 
   # Additional deny rules (optional - credentials are automatically blocked)
   # Automatically blocked for security:
@@ -110,7 +110,7 @@ process:
     - ${HOME}/.cache/pnpm/**
     - ${HOME}/.cache/yarn/**
     - ${HOME}/.yarn/cache/**
-    - ${HOME}/.bun/install/cache/**
+    - ${HOME}/.bun/install/**
     - ${HOME}/.asdf/shims/npm
     - ${HOME}/.asdf/shims/pnpm
     - ${HOME}/.asdf/shims/yarn

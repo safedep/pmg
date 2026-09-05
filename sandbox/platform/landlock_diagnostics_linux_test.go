@@ -389,3 +389,28 @@ func TestBestEffortViolationHelperNeverConnected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, report)
 }
+
+func TestLandlockViolationKind_PathSyscalls(t *testing.T) {
+	tests := []struct {
+		syscall string
+		access  string
+		want    sandbox.ViolationKind
+	}{
+		{"openat", "read", sandbox.ViolationKindFSRead},
+		{"openat2", "write", sandbox.ViolationKindFSWrite},
+		{"renameat2", "write", sandbox.ViolationKindFSDeleteOrRename},
+		{"linkat", "write", sandbox.ViolationKindFSDeleteOrRename},
+		{"unlinkat", "write", sandbox.ViolationKindFSDeleteOrRename},
+		{"mkdirat", "write", sandbox.ViolationKindFSWrite},
+		{"symlinkat", "write", sandbox.ViolationKindFSWrite},
+		{"truncate", "write", sandbox.ViolationKindFSWrite},
+		{"execve", "", sandbox.ViolationKindExec},
+		{"connect", "", sandbox.ViolationKindNetworkConnect},
+		{"io_uring_setup", "", sandbox.ViolationKindGenericDeny},
+	}
+	for _, tc := range tests {
+		t.Run(tc.syscall, func(t *testing.T) {
+			assert.Equal(t, tc.want, landlockViolationKind(auditEvent{Syscall: tc.syscall, Access: tc.access}))
+		})
+	}
+}

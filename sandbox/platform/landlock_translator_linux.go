@@ -150,8 +150,7 @@ func landlockMaskDeniedAccess(r landlockPathRule, denies []denyPathEntry) uint64
 	access := r.Access
 	path := filepath.Clean(r.Path)
 	for _, d := range denies {
-		denyPath := filepath.Clean(d.Path)
-		if path != denyPath && !strings.HasPrefix(path, denyPath+"/") {
+		if !pathCoveredBy(path, d) {
 			continue
 		}
 		switch d.Mode {
@@ -187,6 +186,26 @@ func landlockGlobMatches(pattern string) ([]string, error) {
 		return expandGlobstarPattern(pattern, landlockGlobstarMaxDepth, landlockGlobstarMaxPaths)
 	}
 	return filepath.Glob(pattern)
+}
+
+// appendDenyPaths adds the deny entries for one expanded pattern. A
+// globstar pattern is expanded now (a bare dir/** becomes the directory).
+// Any other glob is kept as a pattern: the supervisor matches it at syscall
+// time, so a file such as .env.local created after setup is still covered.
+func appendDenyPaths(entries []denyPathEntry, pattern string, mode denyMode) []denyPathEntry {
+	if !strings.Contains(pattern, "**") {
+		return append(entries, denyPathEntry{Path: pattern, Mode: mode})
+	}
+
+	matches, err := expandGlobstarPattern(pattern, landlockGlobstarMaxDepth, landlockGlobstarMaxPaths)
+	if err != nil {
+		log.Warnf("Failed to expand deny glob '%s': %v", pattern, err)
+		return entries
+	}
+	for _, m := range matches {
+		entries = append(entries, denyPathEntry{Path: m, Mode: mode})
+	}
+	return entries
 }
 
 // landlockIsWithinWritableArea checks if a path (or glob pattern) falls within
@@ -314,18 +333,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 			log.Warnf("Dropping /proc deny entry '%s': Landlock cannot deny /proc sub-paths reliably", expanded)
 			continue
 		}
-		if util.ContainsGlob(expanded) {
-			matches, err := landlockGlobMatches(expanded)
-			if err != nil {
-				log.Warnf("Failed to expand deny_read glob '%s': %v", expanded, err)
-				continue
-			}
-			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: denyRead})
-			}
-		} else {
-			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: expanded, Mode: denyRead})
-		}
+		ep.DenyPaths = appendDenyPaths(ep.DenyPaths, expanded, denyRead)
 	}
 
 	// Landlock already prevents writes outside allow_write, so deny_write is
@@ -345,18 +353,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		if !landlockIsWithinWritableArea(expanded, writablePrefixes) {
 			continue
 		}
-		if util.ContainsGlob(expanded) {
-			matches, err := landlockGlobMatches(expanded)
-			if err != nil {
-				log.Warnf("Failed to expand deny_write glob '%s': %v", expanded, err)
-				continue
-			}
-			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: denyWrite})
-			}
-		} else {
-			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: expanded, Mode: denyWrite})
-		}
+		ep.DenyPaths = appendDenyPaths(ep.DenyPaths, expanded, denyWrite)
 	}
 
 	for _, pattern := range policy.Process.DenyExec {
@@ -414,18 +411,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		}
 	}
 	appendDeny := func(pattern string, mode denyMode) {
-		if util.ContainsGlob(pattern) {
-			matches, err := landlockGlobMatches(pattern)
-			if err != nil {
-				log.Warnf("Failed to expand mandatory deny glob '%s': %v", pattern, err)
-				return
-			}
-			for _, m := range matches {
-				ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: m, Mode: mode})
-			}
-			return
-		}
-		ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Path: pattern, Mode: mode})
+		ep.DenyPaths = appendDenyPaths(ep.DenyPaths, pattern, mode)
 	}
 
 	for _, p := range mandatoryResult.DenyRead {

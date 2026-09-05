@@ -17,9 +17,9 @@ import (
 // path and a suffix, walks the base with a depth limit, and collects entries
 // whose path ends with the suffix.
 //
-// If the base path does not yet exist, returns []string{basePath} so callers
-// can still grant coverage to the parent directory (matters for fresh
-// node_modules / pnpm caches that haven't been created yet).
+// If the base path does not yet exist, or the pattern is a bare "base/**"
+// (empty suffix), returns []string{basePath} so callers grant the whole tree
+// directly instead of walking it.
 func expandGlobstarPattern(pattern string, maxDepth, maxPaths int) ([]string, error) {
 	parts := strings.Split(pattern, "**")
 	if len(parts) != 2 {
@@ -39,6 +39,10 @@ func expandGlobstarPattern(pattern string, maxDepth, maxPaths int) ([]string, er
 		return nil, fmt.Errorf("failed to expand base path: %w", err)
 	}
 	basePath = expandedBase
+
+	if suffix == "" {
+		return []string{basePath}, nil
+	}
 
 	if _, err := os.Stat(basePath); os.IsNotExist(err) {
 		return []string{basePath}, nil

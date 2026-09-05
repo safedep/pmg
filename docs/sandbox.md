@@ -10,7 +10,9 @@ that we use.
 
 The sandbox is default-deny. Every operation is blocked unless the policy allows it, and deny rules
 win over allow rules when both match. PMG ships mandatory denies for credential files (`.env`,
-`.ssh`, `.aws`, `.gcloud` and more). See [dangerous.go](../sandbox/dangerous.go) for the full list.
+`.ssh`, `.aws`, `.gcloud` and more). It also denies writes to the project-root directories whose
+contents execute outside the sandbox (`.github/workflows`, `.vscode`). See
+[dangerous.go](../sandbox/util/dangerous.go) for the full list.
 This protects against accidental credential leaks and some classes of supply chain attacks that
 attempt to access credentials. To allow legitimate access, you can opt out of a mandatory deny
 via an exact match entry in `allow_read` or `allow_write` (in the policy or via `--sandbox-allow`).
@@ -23,6 +25,7 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Credential and sensitive file protection**: The sandbox blocks read and write access to known list of credential files by default.
 - **Git hooks are always blocked**: Write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks.
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
+- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files, `.git/hooks` and `.git/config` inside the project, and writes to `.github/workflows` and `.vscode` at the project root.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
 - **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`) in the child override the parent.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
@@ -33,7 +36,7 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 ### Mandatory Credential Protection
 
 PMG maintains a known list of credential and sensitive files at
-[dangerous.go](../sandbox/dangerous.go) that are blocked by default in the sandbox. PMG injects three deny patterns per file:
+[dangerous.go](../sandbox/util/dangerous.go) that are blocked by default in the sandbox. PMG injects three deny patterns per file:
 
 - The path under `${CWD}`
 - The path under `${HOME}`
@@ -439,7 +442,10 @@ For the architecture, design tradeoffs, and known limitations see
 
 **Deny enforcement**: Deny rules (DenyRead, DenyWrite, DenyExec) are enforced via seccomp
 user notifications. This introduces a small TOCTOU window (microseconds) between reading
-the path and responding.
+the path and responding. The supervisor traps open, rename, link, unlink, mkdir, symlink
+and truncate, and resolves symlinks before it matches a path, so a broad `allow_write`
+such as `${CWD}/**` cannot be used to move, link or alias a protected file out from under
+a deny rule. See [sandbox-landlock.md](./sandbox-landlock.md) for the exact rules.
 
 **Deny enforcement across the process tree**: seccomp-notify resolves the path argument of
 an intercepted `openat(2)` by reading `/proc/<pid>/mem` of the trapping process. PMG ships
@@ -503,6 +509,18 @@ coarse-grained fallback strategies when glob patterns match many files.
 
 **Network filtering**: All-or-nothing network isolation (via `--unshare-net`). Host-specific
 filtering is not enforced.
+
+**Deny targets are mount points**: a denied file is masked with `/dev/null` and a denied directory
+with a tmpfs. A mount point cannot be renamed or removed (`EBUSY`), which also blocks a rename of
+the protected file to an unprotected name. rename(2) of an ancestor directory succeeds and takes
+the overlay with it, so PMG also binds every directory between a writable base and a protected
+path onto itself (`${CWD}/.git` under `allow_write: ${CWD}/**`). A process cannot move `.git`
+aside and create a fresh `.git/hooks`.
+
+**A deny target that does not exist is not enforced**: bwrap creates a missing mount point on the
+host, which would leave an empty `.env` or `.github/workflows` in the project. PMG skips such
+targets. Under a writable project tree a process can therefore create `.github/workflows` when the
+repository has none. The Landlock driver denies the path by name and has no such gap.
 
 **Per-direction mandatory deny is asymmetric on Linux**: bwrap has no primitive that allows writes
 while denying reads for the same path. `--bind` exposes both directions; `--tmpfs` and

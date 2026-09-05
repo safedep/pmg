@@ -32,6 +32,19 @@ var DANGEROUS_FILES = []string{
 	".config/gh",
 }
 
+// PROJECT_AUTOEXEC_DIRS are directories at the root of a project whose
+// contents execute outside the sandbox: CI workflow definitions run with
+// repository secrets, and VS Code tasks with runOn: folderOpen run when the
+// project opens. They are denied for write only, and only at ${CWD} and
+// ${HOME}. GitHub and VS Code read these directories at the root alone, so a
+// copy inside node_modules or a workspace package is inert, and a **/ form
+// would only stop packages that ship such a directory from extracting.
+// Users opt out with an exact allow_write entry.
+var PROJECT_AUTOEXEC_DIRS = []string{
+	".github/workflows",
+	".vscode",
+}
+
 // DANGEROUS_ENV_VARS are credential-bearing environment variables scrubbed from
 // the child process by default when the sandbox is enabled (see ScrubEnv). This
 // is an explicit, curated list of known secret names. There are deliberately
@@ -216,6 +229,7 @@ type MandatoryDenyResult struct {
 //
 // .git/hooks is never suppressed (arbitrary code execution risk).
 // .git/config is emitted only when !AllowGitConfig and may be suppressed.
+// PROJECT_AUTOEXEC_DIRS are emitted on the write side only.
 func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	allowReadSet := toSet(opts.AllowRead)
 	allowWriteSet := toSet(opts.AllowWrite)
@@ -265,6 +279,14 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 		}
 	}
 
+	writeOnly := []string{}
+	for _, dir := range PROJECT_AUTOEXEC_DIRS {
+		writeOnly = append(writeOnly, filepath.Join(cwd, dir))
+		if home != "" {
+			writeOnly = append(writeOnly, filepath.Join(home, dir))
+		}
+	}
+
 	if !opts.AllowGitConfig {
 		suppressible = append(suppressible, filepath.Join(cwd, GitConfigPath))
 		if home != "" {
@@ -284,6 +306,15 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 		}
 
 		if allowWriteSet[cleaned] || writeGlobAlsoSuppressed[cleaned] {
+			result.SuppressedWrite = append(result.SuppressedWrite, cleaned)
+		} else {
+			result.DenyWrite = append(result.DenyWrite, cleaned)
+		}
+	}
+
+	for _, pattern := range writeOnly {
+		cleaned := filepath.Clean(pattern)
+		if allowWriteSet[cleaned] {
 			result.SuppressedWrite = append(result.SuppressedWrite, cleaned)
 		} else {
 			result.DenyWrite = append(result.DenyWrite, cleaned)
