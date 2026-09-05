@@ -213,11 +213,14 @@ run installs missing or stale dependencies first. `pmg aubx` guards `aubx`, the
 aube shorthand for `aube dlx`. aube trusts the PMG CA through
 `NODE_EXTRA_CA_CERTS`, so no trust store setup is required.
 
-aube reads its proxy settings from `.npmrc` and `npm_config_*` before it reads
-`HTTPS_PROXY`, as npm does. An `https-proxy` or `noproxy` entry in those
-sources sends registry traffic around PMG. aube also runs its own checks
-(OSV advisories, weekly download counts) before it downloads a tarball, so
-aube can reject a package before PMG analyzes it.
+aube reads `npm_config_https_proxy` and `npm_config_noproxy` from the
+environment and `https-proxy` from the user `~/.npmrc` before it reads
+`HTTPS_PROXY`, as npm does. PMG sets the `npm_config_*` proxy variables in the
+child environment, and the environment wins over the file, so these settings
+cannot send registry traffic around PMG. aube ignores `https-proxy` and
+`noproxy` in a project `.npmrc`. aube also runs its own checks (OSV advisories,
+weekly download counts) before it downloads a tarball, so aube can reject a
+package before PMG analyzes it.
 
 `aube add` writes the new dependency to `package.json` before it downloads the
 tarball. When PMG blocks the package, or when you reject a suspicious package at
