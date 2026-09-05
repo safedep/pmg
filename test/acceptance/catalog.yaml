@@ -171,6 +171,55 @@
   guarantee: "Under --sandbox --sandbox-enforce, a clean install completes without a false denial."
   labels: [sandbox, clean]
 
+- id: sandbox/exec/runs-command-transparently
+  title: "sandbox exec runs a program with its own output and exit status"
+  category: sandbox
+  tier: P1
+  guarantee: "`pmg sandbox exec -- <cmd>` passes stdout and the exit status through, and program flags pass without `--`."
+  labels: [sandbox, exec, clean]
+- id: sandbox/exec/requires-command
+  title: "sandbox exec without a program fails with usage help"
+  category: sandbox
+  tier: P2
+  guarantee: "`pmg sandbox exec` with no program exits non-zero with usage help and runs nothing."
+  labels: [sandbox, exec, offline]
+- id: sandbox/exec/blocks-credential-read
+  title: "sandbox exec blocks credential file reads"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, a read of ~/.aws/credentials fails and its content never reaches stdout."
+  labels: [sandbox, exec, block]
+- id: sandbox/exec/blocks-git-hook-write
+  title: "sandbox exec blocks git hook writes"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, a write to .git/hooks fails while a write elsewhere in the repository works."
+  labels: [sandbox, exec, block]
+- id: sandbox/exec/protects-agent-hook-config
+  title: "sandbox exec denies writes to agent hook configuration"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, a write to an agent hook configuration file fails even with the agent preset applied."
+  labels: [sandbox, exec, block, agent]
+- id: sandbox/exec/scrubs-model-api-key
+  title: "sandbox exec scrubs model API keys unless a preset re-allows them"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, ANTHROPIC_API_KEY is absent by default, present with preset=claude, and OPENAI_API_KEY stays absent."
+  labels: [sandbox, exec, block, agent]
+- id: sandbox/exec/profile-override-contains-writes
+  title: "sandbox exec honours a custom profile and refuses one that does not list exec"
+  category: sandbox
+  tier: P1
+  guarantee: "With `--sandbox-profile`, a repository-only profile blocks a write to $HOME, and a profile without the exec workload is refused."
+  labels: [sandbox, exec, block]
+- id: sandbox/exec/fails-closed-when-disabled
+  title: "sandbox exec fails closed when the exec policy is disabled"
+  category: sandbox
+  tier: P0
+  guarantee: "With sandbox.policies.exec.enabled false, `pmg sandbox exec` exits non-zero before running the program."
+  labels: [sandbox, exec, block, offline]
+
 - id: sandbox/observe/env-scrub-recorded
   title: "sandbox records env scrubs to the violation cache"
   category: sandbox

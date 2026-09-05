@@ -17,6 +17,11 @@ Restrictive policy for the PyPI ecosystem (pip, pip3, pipx, poetry, uv, uvx).
 Policy for the Go module ecosystem (go). Standalone profile: Go has a single
 package manager, so there is no shared base to inherit from.
 
+### exec
+
+Base profile for `pmg sandbox exec`. `exec` is a reserved workload name, not a
+package manager. See [sandbox-exec.md](../../docs/sandbox-exec.md).
+
 ## Custom Policies
 
 You can create custom sandbox policies by:

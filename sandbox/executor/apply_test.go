@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -496,4 +498,63 @@ environment:
 	assert.Equal(t, "envscrub-apply-test", scrub.PolicyName)
 	assert.Equal(t, "npm", scrub.Process)
 	assert.Equal(t, 2, result.ScrubbedEnvCount())
+}
+
+func TestApplySandboxEnvScrubUsesProcessLabel(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "exec.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: exec-apply-test
+package_managers: ["exec"]
+filesystem:
+  allow_read: ["/tmp"]
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	cmd := exec.Command("claude")
+	cmd.Env = []string{"ANTHROPIC_API_KEY=scrub-me", "PATH=/usr/bin"}
+
+	result, err := ApplySandbox(context.Background(), cmd, "exec",
+		WithSandbox(&fakeApplySandbox{}), WithProcessLabel("claude"))
+	require.NoError(t, err)
+
+	scrub := result.EnvScrub()
+	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, scrub.Names)
+	assert.Equal(t, "claude", scrub.Process)
+}
+
+func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	oldPolicies := cfg.Config.Sandbox.Policies
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+		cfg.Config.Sandbox.Policies = oldPolicies
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = ""
+	cfg.Config.Sandbox.Policies = map[string]config.SandboxPolicyRef{
+		sandbox.WorkloadExec: {Enabled: false, Profile: "exec"},
+	}
+
+	result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+		WithSandbox(&fakeApplySandbox{}))
+	require.NoError(t, err, "without RequireSandbox a disabled policy skips the sandbox")
+	assert.True(t, result.ShouldRun())
+
+	_, err = ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+		WithSandbox(&fakeApplySandbox{}), WithRequireSandbox())
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
 }

@@ -1,0 +1,23 @@
+# guarantee: the exec profile denies writes to agent hook configuration even
+# when an agent preset allows the agent's state directory. Deny wins over a
+# preset allow, so a sandboxed agent cannot add a hook or unhook Gryph.
+
+env HOME=$WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo x >> $HOME/.claude/settings.json'
+grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
+
+! exec pmg sandbox exec -- sh -c 'echo x >> $HOME/.codex/hooks.json'
+grep '^{}$' $WORK/home/.codex/hooks.json
+
+# The preset still lets the agent write its own state.
+exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo y > $HOME/.claude/todo.txt'
+exists $WORK/home/.claude/todo.txt
+
+-- home/.claude/settings.json --
+{"hooks":{}}
+-- home/.codex/hooks.json --
+{}
+-- proj/.keep --

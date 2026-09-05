@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -52,6 +53,16 @@ type ExecuteOptions struct {
 	PreparePTYSession func(*PTYRuntime) error
 
 	IsInteractive func() bool
+
+	// ProcessLabel names the child in exit notices and in the env scrub
+	// record. It defaults to PackageManagerName. `pmg sandbox exec` sets it
+	// to the program name, since its PackageManagerName is the exec workload
+	// used for policy lookup.
+	ProcessLabel string
+
+	// RequireSandbox makes a disabled sandbox policy an error instead of a
+	// run without a sandbox.
+	RequireSandbox bool
 }
 
 type PTYRuntime struct {
@@ -108,8 +119,17 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 		}
 	}
 
-	result, err := executor.ApplySandbox(ctx, cmd, opts.PackageManagerName,
-		executor.WithExecutionContext(&sandbox.ExecutionContext{ProxyAddr: opts.SandboxProxyAddr}))
+	label := cmp.Or(opts.ProcessLabel, opts.PackageManagerName)
+
+	sandboxOpts := []executor.ApplySandboxOpt{
+		executor.WithExecutionContext(&sandbox.ExecutionContext{ProxyAddr: opts.SandboxProxyAddr}),
+		executor.WithProcessLabel(label),
+	}
+	if opts.RequireSandbox {
+		sandboxOpts = append(sandboxOpts, executor.WithRequireSandbox())
+	}
+
+	result, err := executor.ApplySandbox(ctx, cmd, opts.PackageManagerName, sandboxOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to apply sandbox: %w", err)
 	}
@@ -122,9 +142,9 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	switch mode {
 	case ExecutionModePTY:
-		return runPTY(ctx, cmd, cmd.Env, result, opts.PackageManagerName, opts.PreparePTYSession)
+		return runPTY(ctx, cmd, cmd.Env, result, label, opts.PreparePTYSession)
 	default:
-		return runDirect(cmd, result, opts.PackageManagerName)
+		return runDirect(cmd, result, label)
 	}
 }
 

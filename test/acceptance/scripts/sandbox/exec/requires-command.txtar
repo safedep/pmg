@@ -1,0 +1,9 @@
+# guarantee: `pmg sandbox exec` without a program fails with usage help and
+# runs nothing.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+! exec pmg sandbox exec
+stderr 'no command to run'
+stderr 'pmg sandbox exec -- <command>'

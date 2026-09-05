@@ -1,0 +1,126 @@
+name: exec
+description: Base profile for `pmg sandbox exec`. Runs a developer tool, such as a coding agent, with credential protection and write containment.
+package_managers:
+  - exec
+
+# The workload is an interactive tool. Coding agents are TUIs and spawn
+# dev servers, so both PTY access and loopback listening are on.
+allow_pty: true
+allow_network_bind: true
+
+# This profile is deliberately broad on read and exec. Its value is the set
+# of deny rules below plus PMG's mandatory denies: credential files (.env,
+# .ssh, .aws, ...), .git/hooks, .git/config, and the credential environment
+# variable scrub. A coding agent execs dozens of binaries and reads the
+# whole toolchain, so a narrow allow list would only produce false denials.
+#
+# Add the footprint of a specific agent with a preset, for example:
+#   pmg sandbox allow preset=claude
+filesystem:
+  allow_read:
+    # Root read is required for toolchain discovery. Deny rules win, so the
+    # mandatory credential denies still apply everywhere under /.
+    - /
+
+  allow_write:
+    # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
+    # Note: On macOS, /tmp is a symlink to /private/tmp, so we need both
+    - /tmp/**
+    - /private/tmp/**
+    - /var/tmp/**
+    - ${TMPDIR}/**
+    # The repository is the agent's workspace. Credential files inside it
+    # stay blocked by the mandatory deny patterns.
+    - ${CWD}/**
+    # Tool caches (npm, pip, uv, go, cargo registries, Homebrew downloads)
+    - ${HOME}/.cache/**
+    - ${HOME}/Library/Caches/**
+    # Gryph (https://github.com/safedep/gryph) hooks run inside the agent
+    # process tree and write their event database here. Its policy files in
+    # the same tree stay blocked by deny_write below.
+    - ${HOME}/.local/share/safedep/gryph/**
+    - ${HOME}/Library/Application Support/safedep/gryph/**
+
+  deny_read: []
+
+  deny_write:
+    # System directories
+    - /etc/**
+    - /usr/**
+    - /bin/**
+    - /sbin/**
+
+    # Agent hook configuration. A hook runs an arbitrary command on every
+    # tool call, so a write here is code execution and a way to unhook an
+    # agent security layer such as Gryph. The list mirrors Gryph's
+    # HookConfigGlobs plus the settings files that hold hooks. A tool that
+    # needs to edit its own settings while sandboxed gets an exact-match
+    # opt-out: --sandbox-allow write=${HOME}/.claude/settings.json
+    - ${HOME}/.claude/settings.json
+    - ${HOME}/.claude/hooks/**
+    - ${CWD}/.claude/settings.json
+    - ${CWD}/.claude/hooks/**
+    - ${HOME}/.cursor/hooks.json
+    - ${HOME}/.codex/hooks.json
+    - ${HOME}/.gemini/settings.json
+    - ${HOME}/.gemini/hooks/**
+    - ${HOME}/.config/devin/config.json
+    - ${HOME}/.config/opencode/plugins/**
+    - ${HOME}/.openclaw/extensions/**
+    - ${HOME}/.codeium/windsurf/hooks.json
+    - ${HOME}/.pi/agent/extensions/**
+
+    # Gryph policy surface: config, policy files and receipt keys. Gryph's
+    # threat model asks for a kernel control on these. The event database in
+    # the same directory stays writable (see allow_write).
+    - ${HOME}/.config/safedep/gryph/config.yml
+    - ${HOME}/.config/safedep/gryph/policy.yaml
+    - ${HOME}/.config/safedep/gryph/policies/**
+    - ${HOME}/.config/safedep/gryph/keys/**
+    - ${HOME}/Library/Application Support/safedep/gryph/config.yml
+    - ${HOME}/Library/Application Support/safedep/gryph/policy.yaml
+    - ${HOME}/Library/Application Support/safedep/gryph/policies/**
+    - ${HOME}/Library/Application Support/safedep/gryph/keys/**
+
+    # PMG's own configuration and sandbox definitions. A sandboxed agent must
+    # not loosen the sandbox for its next run. Default locations only. A
+    # PMG_CONFIG_DIR override is not covered.
+    - ${HOME}/.config/safedep/pmg/config.yml
+    - ${HOME}/.config/safedep/pmg/sandbox/**
+    - ${HOME}/Library/Application Support/safedep/pmg/config.yml
+    - ${HOME}/Library/Application Support/safedep/pmg/sandbox/**
+
+network:
+  # Current drivers cannot filter outbound traffic per host. A single allow
+  # rule means blanket outbound access, which an agent needs for its model
+  # API. Use a custom profile with network_via_proxy_only for egress control.
+  allow_outbound:
+    - "*:*"
+
+  deny_outbound: []
+
+environment:
+  # Everything in DANGEROUS_ENV_VARS is scrubbed, including the model API
+  # keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY). An agent preset
+  # re-allows only its own key. See sandbox/presets/claude.yml.
+  allow: []
+
+process:
+  # Exec is broad on purpose. Agents run node, python, go, git, rg, make,
+  # docker and whatever the repository's tooling needs, from system paths
+  # and from version managers under ${HOME}.
+  allow_exec:
+    - /usr/**
+    - /bin/**
+    - /sbin/**
+    - /opt/**
+    - /Library/**
+    - /System/**
+    - /private/**
+    - /tmp/**
+    - /var/**
+    - ${TMPDIR}/**
+    - ${CWD}/**
+    - ${HOME}/**
+
+  deny_exec: []

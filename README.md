@@ -291,6 +291,7 @@ PMG builds are reproducible and signed.
 - [Persistent Proxy Server](docs/persistent-proxy.md)
 - [Certificate Authority](docs/cert.md)
 - [Sandboxing](docs/sandbox.md)
+- [Sandbox exec for coding agents](docs/sandbox-exec.md)
 
 ## Support
 

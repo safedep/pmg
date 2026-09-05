@@ -172,6 +172,24 @@ func TestLogInstallStartedInitializesSession(t *testing.T) {
 	assert.Equal(t, []string{"install", "requests"}, sess.args)
 }
 
+func TestLogExecStartedInitializesSession(t *testing.T) {
+	s := &mockSink{}
+	a := newAuditor(s)
+	setGlobal(a)
+	defer resetGlobal()
+
+	LogExecStarted("exec", "claude", []string{"--resume"})
+
+	sess := a.getSession()
+	require.NotNil(t, sess)
+	assert.Equal(t, "exec", sess.packageManager)
+
+	require.Len(t, s.events, 1)
+	assert.Equal(t, EventTypeExecStarted, s.events[0].Type)
+	assert.Equal(t, "claude", s.events[0].Details["command"])
+	assert.Equal(t, []string{"claude", "--resume"}, s.events[0].Args)
+}
+
 func TestLogInstallAllowedIncrementsSession(t *testing.T) {
 	s := &mockSink{}
 	a := newAuditor(s)

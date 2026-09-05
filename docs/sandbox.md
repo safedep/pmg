@@ -162,6 +162,16 @@ Run sandbox with custom policy file:
 pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 ```
 
+### Run any program in the sandbox
+
+`pmg sandbox exec -- <command>` runs a program, such as a coding agent, under the built-in
+`exec` profile. See [sandbox-exec.md](./sandbox-exec.md).
+
+```bash
+pmg sandbox exec -- claude
+pmg sandbox exec --sandbox-allow preset=codex -- codex
+```
+
 ### Sandbox Profile Commands
 
 Use profile commands to inspect, create, and validate sandbox profiles.

@@ -47,16 +47,13 @@ func requireBubblewrap(t *testing.T) *bubblewrapSandbox {
 	return b
 }
 
-// bubblewrapE2EWorkdir returns a project directory outside the sandbox tmpdir.
-// The translator binds os.TempDir() read-write as its final step, so a deny rule
-// under it would be overridden by that later mount.
+// bubblewrapE2EWorkdir returns a project directory under the sandbox tmpdir,
+// which the translator binds read-write. A deny rule under it must still win,
+// so every test here also proves the tmpdir bind is ordered before the denies.
 func bubblewrapE2EWorkdir(t *testing.T) string {
 	t.Helper()
 
-	workdir := t.TempDir()
-	t.Setenv("TMPDIR", t.TempDir())
-
-	return workdir
+	return t.TempDir()
 }
 
 func bubblewrapE2EPolicy(t *testing.T, workdir string) *sandbox.SandboxPolicy {

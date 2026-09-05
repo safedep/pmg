@@ -15,6 +15,8 @@ const (
 	eventCommandGo     = "pmg_command_go"
 	eventCommandCargo  = "pmg_command_cargo"
 
+	eventCommandSandboxExec = "pmg_command_sandbox_exec"
+
 	eventCommandNpx  = "pmg_command_npx"
 	eventCommandPnpx = "pmg_command_pnpx"
 
@@ -29,6 +31,10 @@ func TrackCommandRun() {
 
 func TrackCommandNpm() {
 	TrackEvent(eventCommandNpm)
+}
+
+func TrackCommandSandboxExec() {
+	TrackEvent(eventCommandSandboxExec)
 }
 
 func TrackCommandNpx() {

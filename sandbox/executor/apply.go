@@ -1,7 +1,9 @@
 package executor
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,15 +23,18 @@ import (
 )
 
 type applySandboxConfig struct {
-	sb sandbox.Sandbox
-	rt *sandbox.ExecutionContext
+	sb             sandbox.Sandbox
+	rt             *sandbox.ExecutionContext
+	processLabel   string
+	requireSandbox bool
 }
 
-type applySandboxOpt func(*applySandboxConfig)
+// ApplySandboxOpt configures ApplySandbox.
+type ApplySandboxOpt func(*applySandboxConfig)
 
 // WithSandbox sets the sandbox to use for the command.
 // When not set, the sandbox will be determined by the platform.
-func WithSandbox(sb sandbox.Sandbox) applySandboxOpt {
+func WithSandbox(sb sandbox.Sandbox) ApplySandboxOpt {
 	return func(c *applySandboxConfig) {
 		c.sb = sb
 	}
@@ -37,9 +42,26 @@ func WithSandbox(sb sandbox.Sandbox) applySandboxOpt {
 
 // WithExecutionContext provides runtime data known only at spawn time
 // (e.g. the PMG proxy address) to the sandbox driver.
-func WithExecutionContext(rt *sandbox.ExecutionContext) applySandboxOpt {
+func WithExecutionContext(rt *sandbox.ExecutionContext) ApplySandboxOpt {
 	return func(c *applySandboxConfig) {
 		c.rt = rt
+	}
+}
+
+// WithProcessLabel names the child in the env scrub record. It defaults to
+// the policy lookup name, which is the program name for package managers but
+// the exec workload for `pmg sandbox exec`.
+func WithProcessLabel(label string) ApplySandboxOpt {
+	return func(c *applySandboxConfig) {
+		c.processLabel = label
+	}
+}
+
+// WithRequireSandbox makes a disabled policy an error instead of a run without
+// a sandbox. `pmg sandbox exec` sets it: the user asked for the sandbox by name.
+func WithRequireSandbox() ApplySandboxOpt {
+	return func(c *applySandboxConfig) {
+		c.requireSandbox = true
 	}
 }
 
@@ -48,7 +70,7 @@ func WithExecutionContext(rt *sandbox.ExecutionContext) applySandboxOpt {
 //
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.
-func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...applySandboxOpt) (*sandbox.ExecutionResult, error) {
+func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
 	cfg := config.Get()
 
 	if !cfg.Config.Sandbox.Enabled {
@@ -106,6 +128,15 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 
 		// The policy is explicitly disabled for this package manager, so we skip sandbox
 		if !policyRef.Enabled {
+			if applyConfig.requireSandbox {
+				msg := fmt.Sprintf("the %s sandbox policy is disabled in the PMG config", pmName)
+				return nil, usefulerror.NewUsefulError().
+					WithCode(errcodes.SandboxPolicyDisabled).
+					WithHumanError(msg).
+					WithHelp(fmt.Sprintf("This command never runs without a sandbox. Set sandbox.policies.%s.enabled to true.", pmName)).
+					Wrap(errors.New(msg))
+			}
+
 			log.Warnf("sandbox policy %s is explicitly disabled for %s, skipping sandbox", policyRef.Profile, pmName)
 			return sandbox.NewExecutionResult(), nil
 		}
@@ -203,7 +234,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...app
 		Names:       scrubbedNames,
 		SandboxName: sb.Name(),
 		PolicyName:  policy.Name,
-		Process:     pmName,
+		Process:     cmp.Or(applyConfig.processLabel, pmName),
 	})
 
 	return result, nil

@@ -1,0 +1,25 @@
+schema_version: 1
+kind: preset
+name: pi
+description: Pi coding agent state and credentials for `pmg sandbox exec -- pi`
+
+metadata:
+  author: SafeDep
+  labels: [agent, pi-agent]
+
+# Threat notes:
+# - allow_write on ~/.pi/** covers agent settings, auth and sessions. The
+#   extension directory ~/.pi/agent/extensions stays blocked: the exec
+#   profile denies it and deny wins over a preset allow.
+# - Pi talks to several model providers, so it re-allows the three common
+#   provider keys. Copy this preset and keep one key to narrow it. See
+#   docs/sandbox-exec.md for the trade-off.
+filesystem:
+  allow_write:
+    - ${HOME}/.pi/**
+
+environment:
+  allow:
+    - ANTHROPIC_API_KEY
+    - OPENAI_API_KEY
+    - GEMINI_API_KEY

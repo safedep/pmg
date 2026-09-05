@@ -1,0 +1,38 @@
+# guarantee: `--sandbox-profile` selects a custom exec profile. With a profile
+# that allows writes only inside the repository, a write to $HOME fails and a
+# write inside the repository works.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+! exec pmg sandbox exec --sandbox-profile $WORK/cwd-only.yml -- sh -c 'echo x > $HOME/escape.txt'
+! exists $WORK/home/escape.txt
+
+exec pmg sandbox exec --sandbox-profile $WORK/cwd-only.yml -- sh -c 'echo ok > out.txt'
+grep ok out.txt
+
+# A profile that does not list the exec workload is refused.
+! exec pmg sandbox exec --sandbox-profile npm -- sh -c 'echo ran > ran.txt'
+! exists ran.txt
+stderr 'does not apply to exec'
+
+-- proj/.keep --
+-- cwd-only.yml --
+name: cwd-only
+description: exec profile that writes only inside the repository
+package_managers: [exec]
+allow_pty: true
+filesystem:
+  allow_read:
+    - /
+  allow_write:
+    - ${CWD}/**
+network:
+  allow_outbound:
+    - "*:*"
+process:
+  allow_exec:
+    - /usr/**
+    - /bin/**

@@ -1,0 +1,24 @@
+schema_version: 1
+kind: preset
+name: codex
+description: OpenAI Codex CLI state and credentials for `pmg sandbox exec -- codex`
+
+metadata:
+  author: SafeDep
+  labels: [agent, codex, openai]
+
+# Threat notes:
+# - allow_write on ~/.codex/** covers auth.json, config.toml, sessions and
+#   history. The hook configuration in ~/.codex/hooks.json stays blocked:
+#   the exec profile denies it and deny wins over a preset allow.
+# - config.toml can name MCP servers, which run commands on the next start.
+#   Accepted: Codex writes its own config and refuses to run without it.
+# - OPENAI_API_KEY is re-allowed so an API-key login keeps working. See
+#   docs/sandbox-exec.md for the trade-off.
+filesystem:
+  allow_write:
+    - ${HOME}/.codex/**
+
+environment:
+  allow:
+    - OPENAI_API_KEY

@@ -1,0 +1,29 @@
+schema_version: 1
+kind: preset
+name: claude
+description: Claude Code state and credentials for `pmg sandbox exec -- claude`
+
+metadata:
+  author: SafeDep
+  labels: [agent, claude-code, anthropic]
+
+# Threat notes:
+# - allow_write on ~/.claude/** covers sessions, todos, project memory and,
+#   on Linux, the OAuth credential file. The hook configuration in
+#   ~/.claude/settings.json and ~/.claude/hooks stays blocked: the exec
+#   profile denies it and deny wins over a preset allow.
+# - ~/.claude.json holds global state (onboarding, MCP servers, per project
+#   flags). MCP server entries run commands, so a write here is code
+#   execution on the next start. Accepted: Claude Code rewrites this file
+#   on nearly every run and refuses to start without it.
+# - ANTHROPIC_API_KEY is re-allowed so an API-key login keeps working. OAuth
+#   logins do not need it. See docs/sandbox-exec.md for the trade-off.
+filesystem:
+  allow_write:
+    - ${HOME}/.claude/**
+    - ${HOME}/.claude.json
+    - ${HOME}/.claude.json.backup
+
+environment:
+  allow:
+    - ANTHROPIC_API_KEY

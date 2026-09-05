@@ -613,6 +613,23 @@ func TestBubblewrapTranslatorProcessDenyWriteRule(t *testing.T) {
 		assert.NotContains(t, argsStr, nonExistentPath)
 	})
 
+	t.Run("globstar binds the base directory read-only without a walk", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testDir := filepath.Join(tmpDir, "etc")
+		require.NoError(t, os.MkdirAll(testDir, 0o755))
+		nestedFile := filepath.Join(testDir, "hosts")
+		require.NoError(t, os.WriteFile(nestedFile, []byte("x"), 0o644))
+
+		args := translateForTest(t, &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				DenyWrite: []string{testDir + "/**"},
+			},
+		})
+
+		assert.GreaterOrEqual(t, lastIndexOfTriple(args, "--ro-bind-try", testDir, testDir), 0)
+		assert.NotContains(t, args, nestedFile, "no per-file bind for a subtree deny")
+	})
+
 	t.Run("existing directory is mounted read-only", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
@@ -637,6 +654,69 @@ func TestBubblewrapTranslatorProcessDenyWriteRule(t *testing.T) {
 		assert.Contains(t, argsStr, "--ro-bind-try")
 		assert.Contains(t, argsStr, testDir)
 	})
+}
+
+func TestBubblewrapDenyUnderTmpdirOutlivesTmpdirBind(t *testing.T) {
+	tmpDir := os.TempDir()
+	dir := t.TempDir()
+	require.True(t, strings.HasPrefix(dir, tmpDir), "test dir must live under the sandbox tmpdir")
+
+	denyWrite := filepath.Join(dir, "settings.json")
+	denyRead := filepath.Join(dir, "credentials")
+	require.NoError(t, os.WriteFile(denyWrite, []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(denyRead, []byte("secret"), 0o600))
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Name:            "test",
+		PackageManagers: []string{"exec"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead: []string{"/"},
+			DenyRead:  []string{denyRead},
+			DenyWrite: []string{denyWrite},
+		},
+	})
+
+	assertReadOnlyBindAfterWritableBind(t, args, denyWrite, tmpDir)
+
+	tmpBind := lastIndexOfTriple(args, "--bind", tmpDir, tmpDir)
+	hideBind := lastIndexOfTriple(args, "--ro-bind", "/dev/null", denyRead)
+	require.GreaterOrEqual(t, hideBind, 0, "expected a /dev/null bind for the deny_read path")
+	assert.Greater(t, hideBind, tmpBind, "deny_read under tmpdir must come after the tmpdir bind")
+}
+
+func TestBubblewrapTmpfsHideAnchorsRelativeGlobMatches(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "sub", ".aws")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+	t.Chdir(dir)
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Name:            "test",
+		PackageManagers: []string{"exec"},
+		Filesystem:      sandbox.FilesystemPolicy{AllowRead: []string{"/"}},
+	})
+
+	assertTmpfsAt(t, args, nested)
+	assert.NotContains(t, args, filepath.Join("sub", ".aws"), "no relative mount point may reach bwrap")
+}
+
+func TestBubblewrapHiddenCredentialDirIsReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	hooks := filepath.Join(dir, ".git", "hooks")
+	require.NoError(t, os.MkdirAll(hooks, 0o755))
+	t.Chdir(dir)
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Name:            "test",
+		PackageManagers: []string{"exec"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{"/"},
+			AllowWrite: []string{dir + "/**"},
+		},
+	})
+
+	assert.Contains(t, argSliceToString(args), "--tmpfs "+hooks+" --remount-ro "+hooks+" ",
+		"the hidden directory must be remounted read-only so a write fails instead of vanishing")
 }
 
 func TestBubblewrapTranslatorTmpdirSupport(t *testing.T) {

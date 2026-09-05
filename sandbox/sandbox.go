@@ -54,6 +54,11 @@ func ValidateNetworkLockdown(policy *SandboxPolicy, rt *ExecutionContext) (strin
 	return port, nil
 }
 
+// WorkloadExec is the reserved workload name for `pmg sandbox exec`. It is
+// not a package manager. It is the key under sandbox.policies and the value a
+// profile lists in package_managers so the existing policy lookup applies.
+const WorkloadExec = "exec"
+
 // DriverName identifies a sandbox driver implementation. Returned by
 // Sandbox.Name() and used wherever code needs to refer to a specific driver.
 type DriverName string

@@ -28,6 +28,9 @@ const (
 	// policy enables network_via_proxy_only but no PMG proxy is running to
 	// confine traffic to.
 	SandboxRequiresProxy = "SandboxRequiresProxy"
+	// SandboxPolicyDisabled is returned when `pmg sandbox exec` finds its
+	// policy disabled in the config. The command never runs unsandboxed.
+	SandboxPolicyDisabled = "SandboxPolicyDisabled"
 
 	// Proxy error codes. ProxyPolicyViolation is returned when the proxy blocked
 	// one or more packages by policy (malware, dependency cooldown, or a denied

@@ -1,0 +1,16 @@
+# guarantee: under `pmg sandbox exec`, a program cannot plant a git hook.
+# .git/hooks is a mandatory write deny on every driver, so the write fails
+# and the hook does not appear. A write elsewhere in the repository works.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+! exec pmg sandbox exec -- sh -c 'echo evil > .git/hooks/pre-commit'
+! exists .git/hooks/pre-commit
+
+exec pmg sandbox exec -- sh -c 'echo ok > out.txt'
+grep ok out.txt
+
+-- proj/.git/hooks/.keep --

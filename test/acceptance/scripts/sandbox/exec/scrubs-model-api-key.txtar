@@ -1,0 +1,21 @@
+# guarantee: `pmg sandbox exec` scrubs model API keys from the program's
+# environment by default. The claude preset re-allows ANTHROPIC_API_KEY and
+# only that key.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+env ANTHROPIC_API_KEY=anthropic-value-must-not-leak
+env OPENAI_API_KEY=openai-value-must-not-leak
+
+! exec pmg sandbox exec -- printenv ANTHROPIC_API_KEY
+! stdout anthropic-value-must-not-leak
+
+exec pmg sandbox exec --sandbox-allow preset=claude -- printenv ANTHROPIC_API_KEY
+stdout anthropic-value-must-not-leak
+
+! exec pmg sandbox exec --sandbox-allow preset=claude -- printenv OPENAI_API_KEY
+! stdout openai-value-must-not-leak
+
+-- proj/.keep --

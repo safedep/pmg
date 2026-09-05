@@ -200,6 +200,13 @@ sandbox:
       enabled: true
       profile: cargo
 
+    # `pmg sandbox exec -- <command>` runs any program under the exec profile.
+    # exec is a reserved workload name, not a package manager. The command
+    # fails when this entry is missing or disabled. It never runs unsandboxed.
+    exec:
+      enabled: true
+      profile: exec
+
 # Dependency cooldown blocks installation of package versions published within
 # a configurable time window.
 dependency_cooldown:

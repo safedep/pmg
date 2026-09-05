@@ -66,11 +66,7 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 		args = append(args, ptyArgs...)
 	}
 
-	// 5. Add tmpdir support (package managers need writable temp directory)
-	tmpdirArgs := t.addTmpdirSupport()
-	args = append(args, tmpdirArgs...)
-
-	// 6. Check total argument limit and log warning if exceeded
+	// 5. Check total argument limit and log warning if exceeded
 	// Do not fail, let bwrap fail naturally if it does.
 	if len(args) > t.config.totalArgsLimit {
 		log.Warnf("Total bwrap arguments (%d) exceeds safety limit (%d), sandbox may fail with 'Argument list too long' error",
@@ -176,8 +172,11 @@ func (t *bubblewrapPolicyTranslator) addIsolationNamespaces(policy *sandbox.Sand
 //     This establishes the base filesystem view (e.g., "/" for full access)
 //  3. Add user-specified allow_write paths SECOND (read-write bind mounts)
 //     These OVERRIDE earlier read-only binds (bwrap: later mounts win)
-//  4. Handle deny patterns by mounting /dev/null or read-only for directories
-//  5. Add mandatory deny patterns
+//  4. Bind the writable tmpdir. It is an allow, so it must come before every
+//     deny: a deny under the tmpdir (a repository checked out in /tmp) is
+//     shadowed when the tmpdir bind comes later.
+//  5. Handle deny patterns by mounting /dev/null or read-only for directories
+//  6. Add mandatory deny patterns
 func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
 
@@ -235,6 +234,10 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		args = append(args, writeArgs...)
 	}
+
+	// The writable tmpdir is an allow, so it sits before every deny. --bind,
+	// not --bind-try, so a missing tmpdir fails loudly.
+	args = append(args, "--bind", tmpDir, tmpDir)
 
 	// Essential devices are bound after the allow mounts but before the deny
 	// overlays: bwrap mounts in argument order, so a broad allow_read rule
@@ -347,10 +350,13 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, denyArgs...)
 	}
 
-	// 4. Tmpfs-hide credential directories. Tmpfs blocks both directions, so
-	// only paths denied on both sides qualify.
+	// 4. Tmpfs-hide credential directories. Only paths denied on both sides
+	// qualify. A bare tmpfs is writable, so a write into a hidden directory
+	// would succeed into the void and report success. --remount-ro makes it
+	// fail like it does on the other drivers.
 	tmpfsCandidates := intersectStrings(mandatoryResult.DenyRead, mandatoryResult.DenyWrite)
 	hiddenDirs := make(map[string]bool)
+	cwd, cwdErr := os.Getwd()
 	for _, pattern := range tmpfsCandidates {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -370,12 +376,23 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 
 		for _, dir := range dirsToHide {
+			// A "**/<file>" pattern globs relative to the working directory.
+			// bwrap resolves a relative mount point against its read-only new
+			// root and fails to start, so anchor the match to that directory.
+			if !filepath.IsAbs(dir) {
+				if cwdErr != nil {
+					log.Warnf("sandbox: skipping credential directory %q: %v", dir, cwdErr)
+					continue
+				}
+				dir = filepath.Join(cwd, dir)
+			}
+
 			if hiddenDirs[dir] {
 				continue
 			}
 
 			if info, err := os.Stat(dir); err == nil && info.IsDir() {
-				args = append(args, "--tmpfs", dir)
+				args = append(args, "--tmpfs", dir, "--remount-ro", dir)
 				hiddenDirs[dir] = true
 
 				log.Debugf("Hiding credential directory '%s' with tmpfs", dir)
@@ -467,6 +484,18 @@ func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string) ([]string
 	args := []string{}
 
 	if util.ContainsGlob(path) {
+		// "<dir>/**" denies the whole subtree. One read-only bind of the base
+		// directory covers every file, including files created later, and
+		// skips a walk that per-file binds would need (and would truncate).
+		if strings.Contains(path, "**") {
+			baseDir := extractGlobstarWriteBaseDir(path)
+			if _, err := os.Stat(baseDir); err == nil {
+				args = append(args, "--ro-bind-try", baseDir, baseDir)
+				log.Debugf("Deny write rule: mounted '%s' as read-only", baseDir)
+			}
+			return args, nil
+		}
+
 		paths, _, err := t.expandGlobPattern(path, t.config.mandatoryDenyScanDepth, t.config.maxGlobPaths)
 		if err != nil {
 			return args, nil
@@ -747,17 +776,6 @@ func (t *bubblewrapPolicyTranslator) addPTYSupport() []string {
 
 // addTmpdirSupport adds arguments for temporary directory access.
 // Package managers need writable temp space for downloads, extraction, etc.
-func (t *bubblewrapPolicyTranslator) addTmpdirSupport() []string {
-	args := []string{}
-	tmpDir := os.TempDir()
-
-	// Bind tmp directory as writable
-	// Use --bind instead of --bind-try to ensure it's available
-	args = append(args, "--bind", tmpDir, tmpDir)
-
-	return args
-}
-
 func expandAll(patterns []string) ([]string, error) {
 	out := make([]string, 0, len(patterns))
 	for _, p := range patterns {
