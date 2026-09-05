@@ -18,6 +18,10 @@ const (
 	eventCommandNpx  = "pmg_command_npx"
 	eventCommandPnpx = "pmg_command_pnpx"
 
+	eventCommandAube = "pmg_command_aube"
+	eventCommandAubr = "pmg_command_aubr"
+	eventCommandAubx = "pmg_command_aubx"
+
 	eventPmgGenerateEnvDocker        = "pmg_command_generate_env_docker"
 	eventPmgGenerateEnvGitHubActions = "pmg_command_generate_env_github_actions"
 	eventPmgGenerateEnvGitLabCI      = "pmg_command_generate_env_gitlab_ci"
@@ -49,6 +53,18 @@ func TrackCommandPnpm() {
 
 func TrackCommandYarn() {
 	TrackEvent(eventCommandYarn)
+}
+
+func TrackCommandAube() {
+	TrackEvent(eventCommandAube)
+}
+
+func TrackCommandAubr() {
+	TrackEvent(eventCommandAubr)
+}
+
+func TrackCommandAubx() {
+	TrackEvent(eventCommandAubx)
 }
 
 func TrackCommandPip() {

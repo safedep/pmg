@@ -11,6 +11,11 @@ import (
 
 type NpmPackageExecutorConfig struct {
 	CommandName string
+
+	// BoolFlags are the boolean flags of the executor. pflag treats an unknown
+	// flag as one that takes a value, so an unregistered boolean flag would
+	// consume the package name that follows it.
+	BoolFlags []BoolFlag
 }
 
 func DefaultNpxPackageExecutorConfig() NpmPackageExecutorConfig {
@@ -22,6 +27,17 @@ func DefaultNpxPackageExecutorConfig() NpmPackageExecutorConfig {
 func DefaultPnpxPackageExecutorConfig() NpmPackageExecutorConfig {
 	return NpmPackageExecutorConfig{
 		CommandName: "pnpx",
+	}
+}
+
+// DefaultAubxPackageExecutorConfig configures aubx, the aube shorthand for
+// `aube dlx`.
+func DefaultAubxPackageExecutorConfig() NpmPackageExecutorConfig {
+	return NpmPackageExecutorConfig{
+		CommandName: "aubx",
+		BoolFlags: slices.Concat(aubeGlobalBoolFlags, aubeLockfileBoolFlags, []BoolFlag{
+			{Name: "shell-mode", Shorthand: "c"},
+		}),
 	}
 }
 
@@ -46,7 +62,7 @@ func (n *npmPackageExecutor) Ecosystem() packagev1.Ecosystem {
 }
 
 func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error) {
-	if len(args) > 0 && (args[0] == "npx" || args[0] == "pnpx") {
+	if len(args) > 0 && args[0] == n.Config.CommandName {
 		args = args[1:]
 	}
 
@@ -68,6 +84,12 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
 	case "pnpx":
 		flagSet.StringArrayVar(&packages, "package", []string{}, "Package List")
+	case "aubx":
+		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
+	}
+
+	for _, flag := range n.Config.BoolFlags {
+		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
 	}
 
 	err := flagSet.Parse(args)
@@ -82,7 +104,7 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		}
 	}
 
-	// For both npx and pnpx, the first positional argument is typically
+	// For npx, pnpx and aubx, the first positional argument is typically
 	// the package to execute (e.g., `npx cowsay@1.6.0` or `pnpx cowsay@1.6.0`).
 	// However, if -p/--package flags are provided, the first positional arg
 	// is the binary to run, not the package (e.g., `npx -p typescript tsc`).

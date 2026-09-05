@@ -2,7 +2,7 @@
 # coverage is derived (a script whose path-id matches => covered), never authored.
 #
 # category is one of:
-#   npm|pnpm|bun|yarn|npx|pnpx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|setup|sandbox|cloud|config|version|audit
+#   npm|pnpm|bun|yarn|aube|aubr|npx|pnpx|aubx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|setup|sandbox|cloud|config|version|audit
 # The category is also the first path segment of the script id.
 # tier is P0 (incident) | P1 (important) | P2 (tracked). Tier is metadata in Part 1;
 # it records the Part 2 gate policy and gates nothing yet.
@@ -76,6 +76,24 @@
   tier: P1
   guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
   labels: [malware, block, execute]
+- id: aube/guard/malware-block
+  title: "aube add of a known-malicious package is blocked"
+  category: aube
+  tier: P0
+  guarantee: "A package with a malware verdict is never installed; pmg exits non-zero."
+  labels: [malware, block, community]
+- id: aubx/guard/malware-block
+  title: "aubx of a known-malicious package is blocked"
+  category: aubx
+  tier: P1
+  guarantee: "A package with a malware verdict is never executed; pmg exits non-zero."
+  labels: [malware, block, execute]
+- id: aubr/guard/malware-block
+  title: "aubr auto-install of a known-malicious dependency is blocked"
+  category: aubr
+  tier: P1
+  guarantee: "aubr installs missing dependencies before the script runs; a dependency with a malware verdict is never installed and the script never runs."
+  labels: [malware, block, community]
 - id: npm/insecure/bypass-warns
   title: "insecure mode installs but warns that protection is bypassed"
   category: npm

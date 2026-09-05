@@ -170,12 +170,22 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "npm install with dev flag but no packages",
+			name:    "npm install with dev flag but no packages installs the manifest",
 			command: "npm install --save-dev",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
 				assert.NoError(t, err)
 				assert.Equal(t, 0, len(parsedCommand.InstallTargets))
-				assert.Equal(t, false, parsedCommand.IsManifestInstall) // with no package name, npm won’t add or install anything new
+				assert.True(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "dev flag after the package name",
+			command: "npm install @types/node -D",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(parsedCommand.InstallTargets))
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsManifestInstall)
 			},
 		},
 		{
@@ -465,6 +475,209 @@ func TestBunParseCommand(t *testing.T) {
 	}
 }
 
+func TestAubeParseCommand(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		assert  func(t *testing.T, parsedCommand *ParsedCommand, err error)
+	}{
+		{
+			name:    "add a single package",
+			command: "aube add react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Empty(t, parsedCommand.InstallTargets[0].PackageVersion.Version)
+				assert.False(t, parsedCommand.IsManifestInstall)
+				assert.True(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "add alias with an explicit version",
+			command: "aube a react@18.2.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "18.2.0", parsedCommand.InstallTargets[0].PackageVersion.Version)
+				assert.True(t, parsedCommand.InstallTargets[0].IsExplicitVersion)
+			},
+		},
+		{
+			name:    "add a scoped package with a version",
+			command: "aube add @types/node@20.1.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "20.1.0", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "dev flag before the package",
+			command: "aube add -D typescript",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "dev flag after the package",
+			command: "aube add typescript --save-dev",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "boolean flags do not consume the package name",
+			command: "aube add -E -O --save-peer --no-save -w -W --allow-low-downloads react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "global boolean flags before the package",
+			command: "aube add --color --no-color --verbose --silent --workspace-root --fail-if-no-match safedep-test-pkg@0.1.3",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "safedep-test-pkg", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "0.1.3", parsedCommand.InstallTargets[0].PackageVersion.Version)
+				assert.True(t, parsedCommand.InstallTargets[0].IsExplicitVersion)
+			},
+		},
+		{
+			name:    "global shorthand flags before the package",
+			command: "aube add -v -r react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "lockfile and virtual store flags before the package",
+			command: "aube add --frozen-lockfile --disable-global-virtual-store --enable-gvs react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "value flags consume only their value",
+			command: "aube add --registry https://registry.example.com --save-catalog-name web --allow-build=esbuild react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "global add",
+			command: "aube add -g prettier",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "prettier", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "multiple packages",
+			command: "aube add react react-dom@18.2.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 2)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "react-dom", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
+				assert.Equal(t, "18.2.0", parsedCommand.InstallTargets[1].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "global flag with a value before the subcommand",
+			command: "aube -C packages/web add react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "manifest install",
+			command: "aube install",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsManifestInstall)
+				assert.True(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "manifest install short form with dev-only flag",
+			command: "aube i -D",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "manifest install with production and lockfile flags",
+			command: "aube install --prod --frozen-lockfile --ignore-scripts",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "clean install",
+			command: "aube ci",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.True(t, parsedCommand.IsManifestInstall)
+				assert.True(t, parsedCommand.IsInstallationCommand())
+			},
+		},
+		{
+			name:    "clean install alias",
+			command: "aube clean-install",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.True(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "bare aube runs with the proxy",
+			command: "aube",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.False(t, parsedCommand.IsInstallationCommand())
+				assert.True(t, parsedCommand.MayDownloadPackages())
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			aube, err := NewNpmPackageManager(DefaultAubePackageManagerConfig())
+			require.NoError(t, err)
+
+			parsedCommand, err := aube.ParseCommand(strings.Split(tc.command, " "))
+			tc.assert(t, parsedCommand, err)
+		})
+	}
+}
+
 func TestNpmProxyBehavior(t *testing.T) {
 	cases := []struct {
 		name                     string
@@ -607,6 +820,151 @@ func TestNpmProxyBehavior(t *testing.T) {
 			name:                  "npm publish --tag version — proxy runs (version is flag value, not subcommand)",
 			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultNpmPackageManagerConfig()) },
 			command:               "npm publish --tag version",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		// aube: commands that may download run with the proxy
+		{
+			name:                  "aube remove — proxy runs (re-resolves the tree after removal)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube remove react",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			// The install verb is matched anywhere in the arguments, so the
+			// package after `store add` is recorded as an install target.
+			name:                  "aube store add — proxy runs (downloads into the store)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube store add react",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: true,
+		},
+		{
+			name:                  "aube dlx — proxy runs (downloads and runs package)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube dlx cowsay hello",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube create — proxy runs (starter kit via dlx)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube create vite my-app",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube update — proxy runs (may download)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube up react",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube run — proxy runs (installs stale dependencies first)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube run build",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube exec — proxy runs (installs stale dependencies first)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube x tsc --noEmit",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube fetch — proxy runs (downloads into the store)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube fetch",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube runtime — proxy runs (downloads a Node.js runtime)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube runtime set node 22",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube -C dir ls — proxy runs (dir is read as the subcommand, fail safe)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube -C packages/web ls",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		// aube: commands known not to download packages
+		{
+			name:                  "aube ls — proxy skipped (lists installed packages)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube ls",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube why — proxy skipped (dependency reason lookup)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube why react",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube view — proxy skipped (registry metadata only)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube view react version",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube outdated — proxy skipped (registry metadata only)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube outdated",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube config get — proxy skipped (local config)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube config get registry",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube cache list — proxy skipped (local cache)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube cache list",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aube rebuild — proxy skipped (never auto-installs)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubePackageManagerConfig()) },
+			command:               "aube rb",
+			isKnownNonDownloadCmd: true,
+			isInstallationCommand: false,
+		},
+		// aubr: every script run may install dependencies first
+		{
+			name:                  "aubr test — proxy runs (script run installs stale dependencies)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubrPackageManagerConfig()) },
+			command:               "aubr test",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "aubr add — proxy runs (add is a script name, not an install)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubrPackageManagerConfig()) },
+			command:               "aubr add react",
+			isKnownNonDownloadCmd: false,
+			isInstallationCommand: false,
+		},
+		{
+			name:                  "bare aubr — proxy runs (interactive script picker)",
+			pm:                    func() (*npmPackageManager, error) { return NewNpmPackageManager(DefaultAubrPackageManagerConfig()) },
+			command:               "aubr",
 			isKnownNonDownloadCmd: false,
 			isInstallationCommand: false,
 		},
