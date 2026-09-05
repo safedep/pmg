@@ -435,6 +435,15 @@ func TestPnpmParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "uppercase and lowercase save shorthands before the package name",
+			command: "pnpm add -D -P -O -e react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
 			name:    "workspace and global boolean flags before the package name",
 			command: "pnpm add -w -r --ignore-scripts --save-peer react@18.2.0",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {

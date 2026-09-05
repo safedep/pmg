@@ -31,6 +31,22 @@ type NpmPackageManagerConfig struct {
 type BoolFlag struct {
 	Name      string
 	Shorthand string
+
+	// AltShorthand is a second one-letter form the tool accepts for the same
+	// flag, such as pnpm's -d and -D for --save-dev. pflag binds one
+	// shorthand per name, so registerBoolFlags binds it under a hidden name.
+	AltShorthand string
+}
+
+// registerBoolFlags registers flags on flagSet so that none of them consumes
+// the argument that follows it.
+func registerBoolFlags(flagSet *pflag.FlagSet, flags []BoolFlag) {
+	for _, flag := range flags {
+		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
+		if flag.AltShorthand != "" {
+			flagSet.BoolP(flag.Name+"."+flag.AltShorthand, flag.AltShorthand, false, "")
+		}
+	}
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
@@ -95,17 +111,16 @@ func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 			"ls", "list", "outdated", "info", "view", "config", "why",
 		},
 		// pnpm accepts both letter cases for its save shorthands (-d/-D,
-		// -p/-P, -o/-O, -e/-E). pflag binds one shorthand per flag, so the
-		// add form takes the case its help prints and the install form takes
-		// the other. -O and -e stay unbound.
+		// -p/-P, -o/-O, -e/-E). The install-only --dev and --prod share -D
+		// and -P with them.
 		InstallBoolFlags: []BoolFlag{
-			{Name: "save-dev", Shorthand: "d"},
-			{Name: "dev", Shorthand: "D"},
-			{Name: "save-prod", Shorthand: "p"},
-			{Name: "prod", Shorthand: "P"},
-			{Name: "save-optional", Shorthand: "o"},
+			{Name: "save-dev", Shorthand: "d", AltShorthand: "D"},
+			{Name: "dev"},
+			{Name: "save-prod", Shorthand: "p", AltShorthand: "P"},
+			{Name: "prod"},
+			{Name: "save-optional", Shorthand: "o", AltShorthand: "O"},
 			{Name: "save-peer"},
-			{Name: "save-exact", Shorthand: "E"},
+			{Name: "save-exact", Shorthand: "E", AltShorthand: "e"},
 			{Name: "save-catalog"},
 			{Name: "save-workspace-protocol"},
 			{Name: "global", Shorthand: "g"},
@@ -162,8 +177,7 @@ func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 			"remove", "rm",
 		},
 		InstallBoolFlags: []BoolFlag{
-			{Name: "dev", Shorthand: "d"},
-			{Name: "development", Shorthand: "D"},
+			{Name: "dev", Shorthand: "d", AltShorthand: "D"},
 			{Name: "optional"},
 			{Name: "peer"},
 			{Name: "exact", Shorthand: "E"},
@@ -416,9 +430,7 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	flagSet.SetOutput(io.Discard)
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
-	for _, flag := range npm.Config.InstallBoolFlags {
-		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
-	}
+	registerBoolFlags(flagSet, npm.Config.InstallBoolFlags)
 
 	if err := flagSet.Parse(installArgs); err != nil {
 		return &ParsedCommand{Command: command}, nil

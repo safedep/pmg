@@ -86,9 +86,7 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 		flagSet.StringArrayVar(&packages, "package", []string{}, "Package List")
 	}
 
-	for _, flag := range n.Config.BoolFlags {
-		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
-	}
+	registerBoolFlags(flagSet, n.Config.BoolFlags)
 
 	err := flagSet.Parse(args)
 	if err != nil {
