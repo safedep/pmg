@@ -40,10 +40,14 @@ filesystem_rules (16):
   - path: /tmp
     access: write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
 
-deny_paths (36):
+deny_paths (38):
   - path: /src/sandbox/platform/.env
     mode: both
   - path: /root/.env
+    mode: both
+  - path: /src/sandbox/platform/.env.*
+    mode: both
+  - path: /root/.env.*
     mode: both
   - path: /src/sandbox/platform/.aws
     mode: both

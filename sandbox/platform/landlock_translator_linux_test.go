@@ -860,3 +860,29 @@ func TestLandlockTranslatePolicy_AubeProfileGrantsProjectDirectory(t *testing.T)
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSMakeReg), "MakeReg is needed to create the temp file")
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
 }
+
+// A glob deny must survive translation as a pattern. Expanding it against
+// the filesystem at setup would leave .env.local unprotected when the
+// install script creates it later.
+func TestLandlockTranslatePolicy_GlobDenyKeptAsPattern(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowWrite = []string{cwd, filepath.Join(cwd, "**")}
+	policy.Filesystem.DenyWrite = []string{"${CWD}/*.secret"}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
+	require.NoError(t, err)
+
+	entry := findDenyPath(ep.DenyPaths, filepath.Join(cwd, ".env.*"))
+	require.NotNil(t, entry, "mandatory .env.* glob must stay a pattern")
+	assert.Equal(t, denyBoth, entry.Mode)
+
+	entry = findDenyPath(ep.DenyPaths, filepath.Join(cwd, "*.secret"))
+	require.NotNil(t, entry, "profile glob must stay a pattern")
+	assert.Equal(t, denyWrite, entry.Mode)
+
+	assert.Nil(t, findDenyPath(ep.DenyPaths, "**/.env"), "a globstar without a base is dropped")
+}

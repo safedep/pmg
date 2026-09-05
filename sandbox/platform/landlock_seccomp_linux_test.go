@@ -1030,3 +1030,62 @@ func TestReadSyscallFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestPathCoveredBy_Glob(t *testing.T) {
+	entry := denyPathEntry{Path: "/proj/.env.*", Mode: denyBoth}
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/proj/.env.local", true},
+		{"/proj/.env.local/nested", true},
+		{"/proj/.env", false},
+		{"/proj/sub/.env.local", false},
+		{"/proj/.envrc", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.want, pathCoveredBy(tc.path, entry))
+		})
+	}
+
+	// A file created after setup is denied through the pattern.
+	_, denied := matchDeniedPath("/proj/.env.local", unix.O_WRONLY|unix.O_CREAT, []denyPathEntry{entry})
+	assert.True(t, denied)
+	assert.False(t, pathCoveredBy("/proj/x", denyPathEntry{Path: "/proj/[", Mode: denyBoth}), "malformed pattern matches nothing")
+}
+
+func TestResolveDenyEntries(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	real := filepath.Join(root, "dotfiles", "ssh")
+	require.NoError(t, os.MkdirAll(real, 0o700))
+	home := filepath.Join(root, "home")
+	require.NoError(t, os.Mkdir(home, 0o755))
+	require.NoError(t, os.Symlink(real, filepath.Join(home, ".ssh")))
+	require.NoError(t, os.Symlink(home, filepath.Join(root, "homelink")))
+
+	pid := uint32(os.Getpid())
+	entries := resolveDenyEntries(pid, []denyPathEntry{
+		{Path: filepath.Join(home, ".ssh"), Mode: denyBoth},
+		{Path: filepath.Join(root, "homelink", ".env.*"), Mode: denyWrite},
+		{Path: filepath.Join(home, "plain"), Mode: denyRead},
+	})
+
+	assert.Equal(t, []denyPathEntry{
+		{Path: filepath.Join(home, ".ssh"), Mode: denyBoth},
+		{Path: real, Mode: denyBoth},
+		{Path: filepath.Join(root, "homelink", ".env.*"), Mode: denyWrite},
+		{Path: filepath.Join(home, ".env.*"), Mode: denyWrite},
+		{Path: filepath.Join(home, "plain"), Mode: denyRead},
+	}, entries)
+
+	// The canonical syscall path of ~/.ssh/id_rsa now matches.
+	_, denied := matchDeniedPath(filepath.Join(real, "id_rsa"), unix.O_RDONLY, entries)
+	assert.True(t, denied)
+
+	assert.Equal(t, []string{filepath.Join(root, "homelink", "curl"), filepath.Join(home, "curl")},
+		resolveDenyExec(pid, []string{filepath.Join(root, "homelink", "curl")}))
+}

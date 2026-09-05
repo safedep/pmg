@@ -350,8 +350,8 @@ func (s *seccompSupervisor) Enforce(childPID int, denyPaths []denyPathEntry, den
 	p := &seccompPhase{
 		enforcing:   true,
 		childPID:    uint32(childPID),
-		denyPaths:   denyPaths,
-		denyExec:    denyExec,
+		denyPaths:   resolveDenyEntries(uint32(childPID), denyPaths),
+		denyExec:    resolveDenyExec(uint32(childPID), denyExec),
 		network:     network,
 		auditWriter: auditWriter,
 	}
@@ -499,7 +499,7 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 
 	if rule, denied := matchDeniedExec(resolved, phase.denyExec); denied {
 		if phase.auditWriter != nil {
-			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+			if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 				Type:     auditSeccompDeny,
 				Syscall:  syscallName(notif.Data.Nr),
 				Path:     resolved,
@@ -507,7 +507,9 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 				Comm:     procComm(notif.PID),
 				PID:      int(notif.PID),
 				Ts:       time.Now().UnixNano(),
-			})
+			}); err != nil {
+				log.Warnf("sandbox: failed to record a denial: %v", err)
+			}
 		}
 		traceSeccompDecision("deny %s pid=%d path=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, rule)
 		s.deny(notif.ID)
@@ -529,14 +531,16 @@ func (s *seccompSupervisor) handleIoUringSetup(notif *seccompNotification, phase
 		return
 	}
 	if phase.auditWriter != nil {
-		_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 			Type:    auditNetworkDeny,
 			Syscall: syscallName(notif.Data.Nr),
 			Message: "io_uring_setup denied under network_via_proxy_only",
 			Comm:    procComm(notif.PID),
 			PID:     int(notif.PID),
 			Ts:      time.Now().UnixNano(),
-		})
+		}); err != nil {
+			log.Warnf("sandbox: failed to record a denial: %v", err)
+		}
 	}
 	traceSeccompDecision("deny %s pid=%d reason=io_uring_setup denied under network_via_proxy_only", syscallName(notif.Data.Nr), notif.PID)
 	if err := respondErrno(s.notifyFd, notif.ID, unix.EPERM); err != nil {
@@ -767,7 +771,7 @@ func netSockaddrAddr(notif *seccompNotification, openMem func() *os.File) (addrP
 // familiar "connection refused" rather than a filesystem-flavored EACCES.
 func (s *seccompSupervisor) denyNetworkConnect(notif *seccompNotification, phase *seccompPhase, target, message string) {
 	if phase.auditWriter != nil {
-		_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 			Type:    auditNetworkDeny,
 			Syscall: syscallName(notif.Data.Nr),
 			Path:    target,
@@ -775,7 +779,9 @@ func (s *seccompSupervisor) denyNetworkConnect(notif *seccompNotification, phase
 			Comm:    procComm(notif.PID),
 			PID:     int(notif.PID),
 			Ts:      time.Now().UnixNano(),
-		})
+		}); err != nil {
+			log.Warnf("sandbox: failed to record a denial: %v", err)
+		}
 	}
 	s.denyConnRefused(notif.ID)
 }

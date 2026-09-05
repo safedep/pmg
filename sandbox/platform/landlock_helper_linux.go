@@ -157,11 +157,13 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		if errors.As(err, &pathErr) &&
 			(errors.Is(pathErr.Err, unix.EPERM) || errors.Is(pathErr.Err, unix.EINVAL)) &&
 			extraCloneFlags != 0 {
-			_ = landlockWriteAuditEvent(auditWriter, auditEvent{
+			if err := landlockWriteAuditEvent(auditWriter, auditEvent{
 				Type:    auditNamespaceUnavailable,
 				Message: fmt.Sprintf("namespace clone failed (%v), retrying without PID/IPC ns", err),
 				Ts:      time.Now().UnixNano(),
-			})
+			}); err != nil {
+				log.Warnf("sandbox: failed to record a denial: %v", err)
+			}
 			fmt.Fprintf(os.Stderr, "pmg: warning: PID/IPC namespace unavailable (%v), continuing without\n", err)
 			cmd.SysProcAttr.Cloneflags &^= extraCloneFlags
 			if err := cmd.Start(); err != nil {
@@ -198,13 +200,15 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		_ = cmd.Process.Signal(unix.SIGKILL)
 		_ = cmd.Wait()
 		_ = supervisor.Stop()
-		_ = landlockWriteAuditEvent(auditWriter, auditEvent{
+		if err := landlockWriteAuditEvent(auditWriter, auditEvent{
 			Type:    auditMemFdOpenFailed,
 			PID:     childPID,
 			Error:   err.Error(),
 			Message: "failed to open /proc/<pid>/mem, killing child (fail-close)",
 			Ts:      time.Now().UnixNano(),
-		})
+		}); err != nil {
+			log.Warnf("sandbox: failed to record a denial: %v", err)
+		}
 		return fmt.Errorf("open /proc/%d/mem (fail-close): %w", childPID, err)
 	}
 

@@ -145,6 +145,19 @@ component is followed for open and truncate, and kept for the syscalls that
 act on the link itself. Without this a process could read `${CWD}/.env`
 through `ln -s .env x` or through `/proc/self/cwd/.env`.
 
+The deny list is matched in both forms. `Enforce` adds the canonical form of
+every deny entry next to its lexical form, so `~/.ssh` still matches when
+`~/.ssh` is a symlink into a dotfiles checkout, or when the project lives
+under a symlinked home. The lexical form stays for a target that becomes a
+symlink after setup.
+
+A deny glob without `**` (`${CWD}/.env.*`) stays a pattern in the deny list.
+The supervisor matches it against the path and each of its ancestors at
+syscall time, so `.env.local` is covered when the install script creates
+it. A `**` pattern is expanded when the policy is built: `dir/**` becomes
+`dir`, and a pattern with no base (`**/.env`) is dropped, which is a known
+gap of this driver.
+
 ### The filter kills foreign-ABI syscalls
 
 The BPF program compares syscall numbers, and those differ per ABI. A process

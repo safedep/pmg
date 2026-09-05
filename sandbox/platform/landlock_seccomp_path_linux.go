@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/sandbox/util"
 	"golang.org/x/sys/unix"
 )
 
@@ -166,12 +168,82 @@ func canonicalPath(pid uint32, path string, followLeaf bool) string {
 
 // pathCoveredBy reports whether path is the deny entry or lies beneath it.
 // An entry with a trailing slash prefix-matches; one without covers the
-// path itself and anything beneath entry+"/".
+// path itself and anything beneath entry+"/". A glob entry (${CWD}/.env.*)
+// covers every path whose own name or ancestor name matches the pattern,
+// so it also covers a file that did not exist when the policy was built.
 func pathCoveredBy(path string, entry denyPathEntry) bool {
+	if util.ContainsGlob(entry.Path) {
+		return globCoversPath(entry.Path, path)
+	}
 	if strings.HasSuffix(entry.Path, "/") {
 		return strings.HasPrefix(path, entry.Path)
 	}
 	return path == entry.Path || strings.HasPrefix(path, entry.Path+"/")
+}
+
+// globCoversPath reports whether pattern matches path or one of its
+// ancestors. filepath.Match keeps "*" within one component. A malformed
+// pattern matches nothing.
+func globCoversPath(pattern, path string) bool {
+	for p := path; ; p = filepath.Dir(p) {
+		if ok, err := filepath.Match(pattern, p); err != nil {
+			return false
+		} else if ok {
+			return true
+		}
+		if p == "/" || p == "." {
+			return false
+		}
+	}
+}
+
+// resolveDenyEntries adds the canonical form of every deny entry next to
+// its lexical form. The supervisor matches canonical syscall paths, so an
+// entry under a symlinked directory (~/.ssh -> ~/dotfiles/ssh, a project
+// under a symlinked home) would never match by its lexical path alone. The
+// lexical form stays for a target that becomes a symlink later.
+func resolveDenyEntries(pid uint32, entries []denyPathEntry) []denyPathEntry {
+	out := make([]denyPathEntry, 0, 2*len(entries))
+	for _, entry := range entries {
+		out = append(out, entry)
+		if resolved := canonicalDenyPath(pid, entry.Path); resolved != entry.Path {
+			out = append(out, denyPathEntry{Path: resolved, Mode: entry.Mode})
+		}
+	}
+	return out
+}
+
+// resolveDenyExec is resolveDenyEntries for the deny_exec list.
+func resolveDenyExec(pid uint32, entries []string) []string {
+	out := make([]string, 0, 2*len(entries))
+	for _, entry := range entries {
+		out = append(out, entry)
+		if resolved := canonicalDenyPath(pid, entry); resolved != entry {
+			out = append(out, resolved)
+		}
+	}
+	return out
+}
+
+// canonicalDenyPath resolves the symlinks in a deny path. For a glob
+// pattern only the literal directory before the first glob component is
+// resolved, and the pattern is re-attached.
+func canonicalDenyPath(pid uint32, path string) string {
+	if !util.ContainsGlob(path) {
+		return canonicalPath(pid, path, true)
+	}
+
+	components := strings.Split(path, "/")
+	for i, component := range components {
+		if util.ContainsGlob(component) {
+			base := strings.Join(components[:i], "/")
+			if base == "" {
+				return path
+			}
+			return filepath.Join(canonicalPath(pid, base, true), strings.Join(components[i:], "/"))
+		}
+	}
+	return path
 }
 
 // pathAboveDeny reports whether a deny entry lies strictly beneath path.
@@ -350,7 +422,7 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 		access = denyAccessLabel(entry.Mode, flags)
 	}
 	if phase.auditWriter != nil {
-		_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+		err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 			Type:     auditSeccompDeny,
 			Syscall:  op.name,
 			Path:     target,
@@ -360,6 +432,9 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 			PID:      int(notif.PID),
 			Ts:       time.Now().UnixNano(),
 		})
+		if err != nil {
+			log.Warnf("sandbox: failed to record the %s denial of %s: %v", op.name, target, err)
+		}
 	}
 	traceSeccompDecision("deny %s pid=%d path=%s access=%s rule=%s", op.name, notif.PID, target, access, entry.Path)
 	s.deny(notif.ID)
