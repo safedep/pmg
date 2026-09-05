@@ -97,14 +97,6 @@ deny_paths (38):
     mode: both
   - path: /root/.config/gh
     mode: both
-  - path: /src/sandbox/platform/.github/workflows
-    mode: both
-  - path: /root/.github/workflows
-    mode: both
-  - path: /src/sandbox/platform/.vscode
-    mode: both
-  - path: /root/.vscode
-    mode: both
   - path: /src/sandbox/platform/.git/config
     mode: both
   - path: /root/.git/config
@@ -117,6 +109,14 @@ deny_paths (38):
     mode: both
   - path: /root/.git/hooks
     mode: both
+  - path: /src/sandbox/platform/.github/workflows
+    mode: write
+  - path: /root/.github/workflows
+    mode: write
+  - path: /src/sandbox/platform/.vscode
+    mode: write
+  - path: /root/.vscode
+    mode: write
 
 deny_exec_paths (1):
   - /bin/sh

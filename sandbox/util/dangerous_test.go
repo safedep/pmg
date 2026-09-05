@@ -223,8 +223,23 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 
 		assert.NotContains(t, r.DenyWrite, cwdWorkflows)
 		assert.Contains(t, r.SuppressedWrite, cwdWorkflows)
-		assert.Contains(t, r.DenyRead, cwdWorkflows,
-			"write-side suppression leaves the read side denied")
+		assert.NotContains(t, r.DenyRead, cwdWorkflows)
+	})
+
+	t.Run("auto-exec dirs are write-only and root-scoped", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		r := GetMandatoryDenyPatterns(emptyOpts())
+
+		for _, dir := range PROJECT_AUTOEXEC_DIRS {
+			assert.Contains(t, r.DenyWrite, filepath.Join(cwd, dir))
+			assert.Contains(t, r.DenyWrite, filepath.Join(home, dir))
+			assert.NotContains(t, r.DenyWrite, filepath.Join("**", dir),
+				"a package that ships %s must still extract", dir)
+			assert.NotContains(t, r.DenyRead, filepath.Join(cwd, dir))
+			assert.NotContains(t, r.DenyRead, filepath.Join(home, dir))
+		}
 	})
 
 	t.Run("git config CWD form suppressible via allow_write", func(t *testing.T) {

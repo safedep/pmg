@@ -10,7 +10,8 @@ that we use.
 
 The sandbox is default-deny. Every operation is blocked unless the policy allows it, and deny rules
 win over allow rules when both match. PMG ships mandatory denies for credential files (`.env`,
-`.ssh`, `.aws`, `.gcloud` and more) and for CI workflow definitions (`.github/workflows`). See
+`.ssh`, `.aws`, `.gcloud` and more). It also denies writes to the project-root directories whose
+contents execute outside the sandbox (`.github/workflows`, `.vscode`). See
 [dangerous.go](../sandbox/util/dangerous.go) for the full list.
 This protects against accidental credential leaks and some classes of supply chain attacks that
 attempt to access credentials. To allow legitimate access, you can opt out of a mandatory deny
@@ -24,7 +25,7 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Credential and sensitive file protection**: The sandbox blocks read and write access to known list of credential files by default.
 - **Git hooks are always blocked**: Write access to `.git/hooks/` in both `$CWD` and `$HOME` is always denied to prevent arbitrary code execution via repository hooks.
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
-- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files, `.git/hooks`, `.git/config`, and `.github/workflows` inside the project.
+- **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files, `.git/hooks` and `.git/config` inside the project, and writes to `.github/workflows` and `.vscode` at the project root.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
 - **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`) in the child override the parent.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.

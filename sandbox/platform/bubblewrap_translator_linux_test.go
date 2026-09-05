@@ -1358,7 +1358,7 @@ func TestBubblewrapPinsAncestorsOfProtectedPaths(t *testing.T) {
 	assertWriteBind(t, args, gitDir)
 	assertWriteBind(t, args, filepath.Join(projectDir, ".github"))
 	assertTmpfsAt(t, args, hooksDir)
-	assertTmpfsAt(t, args, workflowsDir)
+	assertReadOnlyBindAfterWritableBind(t, args, workflowsDir, projectDir)
 	assertDevNullMount(t, args, filepath.Join(projectDir, ".env"))
 
 	// The pin must come before the overlays, or the new .git mount hides them.
