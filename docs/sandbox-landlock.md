@@ -116,12 +116,43 @@ Trailing-slash entries still prefix-match.
 
 Landlock cannot subtract a subpath from a broad grant. When a profile allows
 writes to `${CWD}/**` (the default for the built-in package manager profiles),
-the Landlock layer permits writes to `${CWD}/.env` and the other CWD-anchored
-mandatory deny targets. The seccomp supervisor blocks them instead: it traps
-`openat`/`openat2` and matches the path against the deny list. Writes that do
-not pass through `openat`/`openat2` (rename, unlink, mkdir) are not trapped.
-Treat the supervisor layer as the enforcement boundary for credential files
-inside a writable project tree.
+the Landlock layer permits every write to `${CWD}/.env`, `${CWD}/.git/hooks`
+and the other CWD-anchored mandatory deny targets, including rename, link and
+unlink. The seccomp supervisor is the enforcement boundary for those paths.
+
+The supervisor traps every syscall that names a path (`seccompPathSyscalls` in
+`landlock_seccomp_path_linux.go`): `open`, `creat`, `openat`, `openat2`,
+`rename`, `renameat`, `renameat2`, `link`, `linkat`, `unlink`, `unlinkat`,
+`rmdir`, `mkdir`, `mkdirat`, `symlink`, `symlinkat` and `truncate`. The legacy
+forms exist only on amd64. The rules per operation:
+
+- An open or truncate is denied when the path is a deny entry or below one,
+  in the direction the entry denies.
+- A remove or create (unlink, rmdir, mkdir, the link path of a symlink) is
+  denied when the path is a write-denied entry or below one.
+- A rename or hard link is denied when the source is any deny entry, below
+  one, or an ancestor of one (moving `${CWD}/.git` carries `.git/hooks` with
+  it, and a read-denied file under a new name is readable). The destination
+  is denied when it is a write-denied entry, below one, or an ancestor of any
+  entry (a prepared tree renamed onto `.git` replaces `.git/hooks`).
+  `RENAME_EXCHANGE` applies the source rule to both paths.
+
+The supervisor canonicalizes every path before the match. It resolves the
+path component by component like the kernel does: a symlink is followed
+before the components after it, `..` applies to the symlink target, and
+`/proc/self` names the notifying process, not the supervisor. The final
+component is followed for open and truncate, and kept for the syscalls that
+act on the link itself. Without this a process could read `${CWD}/.env`
+through `ln -s .env x` or through `/proc/self/cwd/.env`.
+
+### The filter kills foreign-ABI syscalls
+
+The BPF program compares syscall numbers, and those differ per ABI. A process
+that enters 32-bit mode (`int 0x80`) or uses the x32 ABI would issue `openat`
+under a number the filter does not trap. The filter checks `seccomp_data.arch`
+against the native arch and, on amd64, the x32 bit in the number, and returns
+`SECCOMP_RET_KILL_PROCESS` for both. Package managers do not ship 32-bit
+helpers, so nothing legitimate is lost.
 
 ### Network lockdown (`network_via_proxy_only`)
 
@@ -230,5 +261,12 @@ constant tax that maps to most of the decisions above:
   not used yet; they would be a race-free backstop for the passthrough cases.
 - **PID/IPC namespace isolation is best-effort.** Retried without on EPERM.
 - **Audit events are dropped.** Wired but consumed by `io.Discard`.
-- **TOCTOU between path read and deny response.** Microseconds. Adequate for benign
-  install scripts; not a hardened defense.
+- **TOCTOU between path read and deny response.** Microseconds. A process can
+  rewrite the path bytes in its memory, or swap a symlink on disk, after the
+  supervisor read them and before the kernel resolves the path. Adequate for
+  benign install scripts; not a hardened defense.
+- **`io_uring` file operations bypass the path traps.** `IORING_OP_OPENAT`
+  and friends never enter the trapped syscalls. `io_uring_setup` is refused
+  only under network lockdown.
+- **Metadata writes are not trapped.** `chmod`, `chown` and `utimensat` on a
+  protected path go through Landlock alone, which does not govern them.

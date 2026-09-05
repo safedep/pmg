@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -122,17 +121,37 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 	return nil
 }
 
+// Offsets into struct seccomp_data.
+const (
+	seccompDataNrOffset   = 0
+	seccompDataArchOffset = 4
+)
+
 // landlockBuildNotifyFilter builds a classic BPF program returning
 // SECCOMP_RET_USER_NOTIF for the given syscalls and SECCOMP_RET_ALLOW for
 // everything else. Shared by the shim (which installs it inside the user
 // namespace without NNP) and tests.
 //
-// Layout: [0] load syscall nr, [1..n] JEQ per syscall jumping to RET
-// USER_NOTIF, [n+1] RET ALLOW, [n+2] RET USER_NOTIF. The JEQ at index 1+i
-// therefore jumps (n+2)-(1+i)-1 = n-i instructions forward.
+// Layout: an arch check that kills the process on a foreign ABI (the
+// syscall numbers would not match the table), load syscall nr, on amd64 a
+// kill for x32 numbers, [1..n] JEQ per syscall jumping to RET USER_NOTIF,
+// then RET ALLOW, RET USER_NOTIF. The JEQ for syscall i therefore jumps n-i
+// instructions forward.
 func landlockBuildNotifyFilter(syscalls ...uint32) *unix.SockFprog {
-	filter := []unix.SockFilter{
-		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 0},
+	var filter []unix.SockFilter
+	if seccompNativeArch != 0 {
+		filter = append(filter,
+			unix.SockFilter{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: seccompDataArchOffset},
+			unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, K: seccompNativeArch},
+			unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_KILL_PROCESS},
+		)
+	}
+	filter = append(filter, unix.SockFilter{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: seccompDataNrOffset})
+	if seccompX32SyscallBit != 0 {
+		filter = append(filter,
+			unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, Jf: 1, K: seccompX32SyscallBit},
+			unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_KILL_PROCESS},
+		)
 	}
 	for i, sc := range syscalls {
 		filter = append(filter, unix.SockFilter{
@@ -152,14 +171,15 @@ func landlockBuildNotifyFilter(syscalls ...uint32) *unix.SockFprog {
 
 // landlockNotifySyscalls computes the syscall set the seccomp filter traps
 // for the given policy. execve/execveat are always trapped (deny-exec
-// enforcement); openat/openat2 only when fs deny rules exist;
-// connect/sendto/sendmsg (and io_uring_setup — see handleIoUringSetup) only
-// under network lockdown. sendmsg covers Go's WriteMsgUDP datagrams; sendmmsg
-// batched destinations are a documented gap (see docs/sandbox-landlock.md).
-func landlockNotifySyscalls(network landlockNetworkPolicy, interceptOpen bool) []uint32 {
+// enforcement); the path syscalls (seccompPathSyscalls) only when fs deny
+// rules exist; connect/sendto/sendmsg (and io_uring_setup — see
+// handleIoUringSetup) only under network lockdown. sendmsg covers Go's
+// WriteMsgUDP datagrams; sendmmsg batched destinations are a documented gap
+// (see docs/sandbox-landlock.md).
+func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) []uint32 {
 	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
-	if interceptOpen {
-		syscalls = append(syscalls, uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2))
+	if interceptPaths {
+		syscalls = append(syscalls, pathSyscallNumbers()...)
 	}
 	if network.Lockdown {
 		syscalls = append(syscalls,
@@ -181,16 +201,7 @@ func matchDeniedPath(path string, flags int, denyPaths []denyPathEntry) (denyPat
 	accessMode := flags & unix.O_ACCMODE
 
 	for _, entry := range denyPaths {
-		matched := false
-		if strings.HasSuffix(entry.Path, "/") {
-			// Directory prefix match: path must start with the deny prefix.
-			matched = strings.HasPrefix(path, entry.Path)
-		} else {
-			// Exact match OR any path under this entry as a directory.
-			matched = path == entry.Path || strings.HasPrefix(path, entry.Path+"/")
-		}
-
-		if !matched {
+		if !pathCoveredBy(path, entry) {
 			continue
 		}
 		switch entry.Mode {
@@ -260,10 +271,7 @@ func readPathFromMem(memFd *os.File, addr uintptr) (string, error) {
 		idx++
 	}
 
-	if idx == 0 {
-		return "", fmt.Errorf("empty path at 0x%x", addr)
-	}
-
+	// An empty path is valid with AT_EMPTY_PATH: the dirfd is the target.
 	return string(buf[:idx]), nil
 }
 
@@ -274,59 +282,6 @@ const (
 	_AT_FDCWD_32 = 0xFFFFFF9C
 	_AT_FDCWD_64 = 0xFFFFFFFFFFFFFF9C
 )
-
-// resolveNotifPath resolves a path from seccomp notification arguments.
-// Handles AT_FDCWD and dirfd-relative paths via os.Readlink on /proc/<pid>/cwd
-// and /proc/<pid>/fd/<dirfd>. readlinkat syscall is NOT intercepted.
-func resolveNotifPath(pid uint32, dirfd int, rawPath string) (string, error) {
-	// Absolute path: return as-is.
-	if filepath.IsAbs(rawPath) {
-		return filepath.Clean(rawPath), nil
-	}
-
-	var base string
-
-	// Check for AT_FDCWD (which is -100, but may be sign-extended in uint64).
-	if dirfd == -100 {
-		cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
-		if err != nil {
-			return "", fmt.Errorf("readlink /proc/%d/cwd: %w", pid, err)
-		}
-		base = cwd
-	} else {
-		fdPath, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, dirfd))
-		if err != nil {
-			return "", fmt.Errorf("readlink /proc/%d/fd/%d: %w", pid, dirfd, err)
-		}
-		base = fdPath
-	}
-
-	return filepath.Clean(filepath.Join(base, rawPath)), nil
-}
-
-// classifyOpenFlags extracts O_ACCMODE from openat flags.
-// For openat(2): flags are in args[2] directly.
-// For openat2(2): args[2] is a pointer to an open_how struct where the first
-// uint64 field is the flags. We read those from process memory.
-func classifyOpenFlags(nr int32, args [6]uint64, memFd *os.File) int {
-	if nr == int32(unix.SYS_OPENAT) {
-		return int(args[2]) & unix.O_ACCMODE
-	}
-
-	// openat2: args[2] is a pointer to struct open_how { u64 flags; u64 mode; u64 resolve; }
-	if nr == int32(unix.SYS_OPENAT2) && memFd != nil {
-		buf := make([]byte, 8)
-		_, err := memFd.ReadAt(buf, int64(args[2]))
-		if err != nil {
-			// Cannot read open_how struct; default to read-only (conservative).
-			return unix.O_RDONLY
-		}
-		flags := binary.LittleEndian.Uint64(buf)
-		return int(flags) & unix.O_ACCMODE
-	}
-
-	return unix.O_RDONLY
-}
 
 // dirfdFromArgs extracts the dirfd from seccomp args, handling AT_FDCWD
 // sign-extension from uint64.
@@ -484,7 +439,7 @@ func (s *seccompSupervisor) loop() {
 		}
 
 		// Enforce for the direct child AND all descendants. A memfd per
-		// notifying PID is resolved lazily in handleOpen/handleExec — we do
+		// notifying PID is resolved lazily in handlePathOp/handleExec — we do
 		// NOT skip descendants here, because npm-style flows spawn real work
 		// (node, python, etc.) as grandchildren and the deny list must apply
 		// to them too.
@@ -492,13 +447,15 @@ func (s *seccompSupervisor) loop() {
 		switch notif.Data.Nr {
 		case int32(unix.SYS_EXECVE), int32(unix.SYS_EXECVEAT):
 			s.handleExec(notif, phase)
-		case int32(unix.SYS_OPENAT), int32(unix.SYS_OPENAT2):
-			s.handleOpen(notif, phase)
 		case int32(unix.SYS_CONNECT), int32(unix.SYS_SENDTO), int32(unix.SYS_SENDMSG):
 			s.handleConnect(notif, phase)
 		case int32(unix.SYS_IO_URING_SETUP):
 			s.handleIoUringSetup(notif, phase)
 		default:
+			if op, ok := seccompPathSyscalls[uint32(notif.Data.Nr)]; ok {
+				s.handlePathOp(notif, phase, op)
+				continue
+			}
 			s.continueSyscall(notif.ID)
 		}
 	}
@@ -534,7 +491,7 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 		return
 	}
 
-	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath)
+	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath, true)
 	if err != nil {
 		s.continueSyscall(notif.ID)
 		return
@@ -553,60 +510,6 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 			})
 		}
 		traceSeccompDecision("deny %s pid=%d path=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, rule)
-		s.deny(notif.ID)
-		return
-	}
-
-	traceSeccompDecision("allow %s pid=%d path=%s", syscallName(notif.Data.Nr), notif.PID, resolved)
-	s.continueSyscall(notif.ID)
-}
-
-func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccompPhase) {
-	dirfd := dirfdFromArgs(notif.Data.Args[0])
-	pathAddr := uintptr(notif.Data.Args[1])
-
-	memFd := phase.memFdFor(notif.PID)
-	if memFd == nil {
-		// Can't read the target's memory — typically because an execve in the
-		// process chain with NO_NEW_PRIVS set makes /proc/<pid>/mem owner-RW
-		// only via CAP_SYS_PTRACE (dumpable=0). Fail open rather than deny
-		// every openat from the process, but this is a real enforcement gap
-		// for grandchild processes. See docs/sandbox.md.
-		s.continueSyscall(notif.ID)
-		return
-	}
-	defer closeMemFd(memFd)
-
-	rawPath, err := readPathFromMem(memFd, pathAddr)
-	if err != nil {
-		// Same fail-open path as above; memfd exists but read returned EIO
-		// or similar (stale fd after execve).
-		s.continueSyscall(notif.ID)
-		return
-	}
-
-	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath)
-	if err != nil {
-		s.continueSyscall(notif.ID)
-		return
-	}
-
-	flags := classifyOpenFlags(notif.Data.Nr, notif.Data.Args, memFd)
-
-	if entry, denied := matchDeniedPath(resolved, flags, phase.denyPaths); denied {
-		if phase.auditWriter != nil {
-			_ = landlockWriteAuditEvent(phase.auditWriter, auditEvent{
-				Type:     auditSeccompDeny,
-				Syscall:  syscallName(notif.Data.Nr),
-				Path:     resolved,
-				Access:   denyAccessLabel(entry.Mode, flags),
-				RulePath: entry.Path,
-				Comm:     procComm(notif.PID),
-				PID:      int(notif.PID),
-				Ts:       time.Now().UnixNano(),
-			})
-		}
-		traceSeccompDecision("deny %s pid=%d path=%s access=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, denyAccessLabel(entry.Mode, flags), entry.Path)
 		s.deny(notif.ID)
 		return
 	}
@@ -879,11 +782,10 @@ func (s *seccompSupervisor) denyNetworkConnect(notif *seccompNotification, phase
 
 // syscallName returns a human-readable name for known intercepted syscalls.
 func syscallName(nr int32) string {
+	if op, ok := seccompPathSyscalls[uint32(nr)]; ok {
+		return op.name
+	}
 	switch nr {
-	case int32(unix.SYS_OPENAT):
-		return "openat"
-	case int32(unix.SYS_OPENAT2):
-		return "openat2"
 	case int32(unix.SYS_EXECVE):
 		return "execve"
 	case int32(unix.SYS_EXECVEAT):

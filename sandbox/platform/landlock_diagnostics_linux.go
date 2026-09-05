@@ -166,14 +166,23 @@ func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
 	switch e.Syscall {
 	case "execve", "execveat":
 		return sandbox.ViolationKindExec
-	case "openat", "openat2":
+	case "connect", "sendto", "sendmsg":
+		return sandbox.ViolationKindNetworkConnect
+	}
+
+	kind, ok := pathOpKindForSyscall(e.Syscall)
+	if !ok {
+		return sandbox.ViolationKindGenericDeny
+	}
+	switch kind {
+	case pathOpOpen:
 		if e.Access == "read" {
 			return sandbox.ViolationKindFSRead
 		}
 		return sandbox.ViolationKindFSWrite
-	case "connect", "sendto", "sendmsg":
-		return sandbox.ViolationKindNetworkConnect
+	case pathOpRename, pathOpLink, pathOpRemove:
+		return sandbox.ViolationKindFSDeleteOrRename
 	default:
-		return sandbox.ViolationKindGenericDeny
+		return sandbox.ViolationKindFSWrite
 	}
 }

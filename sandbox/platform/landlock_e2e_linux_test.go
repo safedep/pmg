@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -543,4 +544,75 @@ func TestLandlockHelper_DenyOverlappingAllowRuleDoesNotWedgeShim(t *testing.T) {
 	stdout, stderr, exit := runHelper(t, policyPath)
 	assert.Equal(t, 0, exit, "shim must survive a deny/allow overlap: stderr=%s", stderr)
 	assert.Contains(t, stdout, "shim-survived")
+}
+
+// TestLandlockHelper_DenyBlocksMoveLinkAndSymlink covers the routes around
+// an openat-only deny under a broad Landlock write grant: rename the
+// protected file to a new name, hard-link it, or read it through a symlink.
+// The Landlock rule on $home grants every write right, so the supervisor
+// is the only layer that can refuse.
+func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh not found")
+	}
+
+	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	secretDir := filepath.Join(home, "secrets")
+	require.NoError(t, os.Mkdir(secretDir, 0o700))
+	secretPath := filepath.Join(secretDir, "token")
+	const secret = "MOVE-LINK-SECRET"
+	require.NoError(t, os.WriteFile(secretPath, []byte(secret), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "git", "hooks"), 0o755))
+
+	script := strings.Join([]string{
+		"mv " + secretDir + " " + home + "/moved || echo MOVE_DENIED",
+		"ln " + secretPath + " " + home + "/hardlink || echo LINK_DENIED",
+		"ln -s " + secretPath + " " + home + "/symlink",
+		"cat " + home + "/symlink || echo SYMLINK_READ_DENIED",
+		"mv " + home + "/git " + home + "/gitx || echo ANCESTOR_MOVE_DENIED",
+		"rm " + secretPath + " || echo UNLINK_DENIED",
+		"echo evil > " + home + "/evil && mv " + home + "/evil " + home + "/git/hooks/pre-commit || echo MOVE_INTO_DENIED",
+		"mv " + home + "/symlink " + home + "/symlink2 && echo UNRELATED_MOVE_OK",
+	}, "\n")
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: home, Access: landlockReadAccess | landlockWriteAccessFull},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: secretDir, Mode: denyBoth},
+			{Path: filepath.Join(home, "git", "hooks"), Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/sh",
+		Args:             []string{"-c", script},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, _ := runHelper(t, policyPath)
+	combined := stdout + stderr
+
+	for _, marker := range []string{
+		"MOVE_DENIED", "LINK_DENIED", "SYMLINK_READ_DENIED", "ANCESTOR_MOVE_DENIED",
+		"UNLINK_DENIED", "MOVE_INTO_DENIED", "UNRELATED_MOVE_OK",
+	} {
+		assert.Contains(t, stdout, marker, "stdout=%q stderr=%q", stdout, stderr)
+	}
+	assert.NotContains(t, combined, secret, "the secret must not leak through a link")
+
+	_, err = os.Stat(secretPath)
+	assert.NoError(t, err, "the protected file must stay in place")
+	_, err = os.Stat(filepath.Join(home, "hardlink"))
+	assert.True(t, os.IsNotExist(err), "no hard link to the protected file")
+	_, err = os.Stat(filepath.Join(home, "git", "hooks", "pre-commit"))
+	assert.True(t, os.IsNotExist(err), "nothing moved into the protected directory")
 }
