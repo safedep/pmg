@@ -179,6 +179,35 @@ func TestNpmParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "boolean flags before the package name",
+			command: "npm install --legacy-peer-deps --save-exact --no-audit --ignore-scripts react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "shorthand boolean flags before the package name",
+			command: "npm install -P -B -f -S react@18.2.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "18.2.0", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "value flags consume only their value",
+			command: "npm install --omit dev --registry https://registry.example.com react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
 			name:    "dev flag after the package name",
 			command: "npm install @types/node -D",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
@@ -293,6 +322,34 @@ func TestYarnParseCommand(t *testing.T) {
 			},
 		},
 		{
+			name:    "boolean flags before the package name",
+			command: "yarn add -E -T --ignore-engines --prefer-offline react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "berry boolean flags before the package name",
+			command: "yarn add --cached -C -i react@18.2.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "18.2.0", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "manifest install with boolean flags",
+			command: "yarn install --immutable --frozen-lockfile",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
 			name:    "skip intermediate flags",
 			command: "yarn --x -y add @types/node",
 			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
@@ -365,6 +422,44 @@ func TestPnpmParseCommand(t *testing.T) {
 				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 				assert.Equal(t, "@types/react", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "lowercase save shorthands before the package name",
+			command: "pnpm add -d -E --frozen-lockfile react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.False(t, parsedCommand.IsManifestInstall)
+			},
+		},
+		{
+			name:    "workspace and global boolean flags before the package name",
+			command: "pnpm add -w -r --ignore-scripts --save-peer react@18.2.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "18.2.0", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "value flags consume only their value",
+			command: "pnpm add -C packages/web --registry https://registry.example.com react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "manifest install with boolean flags",
+			command: "pnpm install -P --frozen-lockfile --ignore-scripts",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				assert.Empty(t, parsedCommand.InstallTargets)
+				assert.True(t, parsedCommand.IsManifestInstall)
 			},
 		},
 		{
@@ -451,6 +546,34 @@ func TestBunParseCommand(t *testing.T) {
 				assert.Equal(t, 2, len(parsedCommand.InstallTargets))
 				assert.Equal(t, "@types/node", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 				assert.Equal(t, "@types/react", parsedCommand.InstallTargets[1].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "uppercase development shorthand before the package name",
+			command: "bun add -D typescript",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "typescript", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+			},
+		},
+		{
+			name:    "boolean flags before the package name",
+			command: "bun add -E --trust --no-save --frozen-lockfile react@18.2.0",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
+				assert.Equal(t, "18.2.0", parsedCommand.InstallTargets[0].PackageVersion.Version)
+			},
+		},
+		{
+			name:    "value flags consume only their value",
+			command: "bun add --cwd . --registry https://registry.example.com react",
+			assert: func(t *testing.T, parsedCommand *ParsedCommand, err error) {
+				require.NoError(t, err)
+				require.Len(t, parsedCommand.InstallTargets, 1)
+				assert.Equal(t, "react", parsedCommand.InstallTargets[0].PackageVersion.Package.Name)
 			},
 		},
 		{
