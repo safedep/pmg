@@ -657,7 +657,13 @@ func writeBoundDirs(allowWrite []string) map[string]bool {
 
 		switch {
 		case strings.Contains(expanded, "**"):
-			dirs[extractGlobstarWriteBaseDir(expanded)] = true
+			// processWriteRule binds the base with --bind-try, which bubblewrap
+			// skips when the directory is missing. Only a directory that exists
+			// covers the files below it.
+			base := extractGlobstarWriteBaseDir(expanded)
+			if info, err := os.Stat(base); err == nil && info.IsDir() {
+				dirs[base] = true
+			}
 		case util.ContainsGlob(expanded):
 			// Matches are bound one by one; they never cover a subtree.
 		default:
