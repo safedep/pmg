@@ -91,7 +91,7 @@ func TestScrubEnv_RemovesDeniedKeepsAllowed(t *testing.T) {
 
 	scrubbed := scrubEnv(cmd, policy)
 
-	assert.Equal(t, 2, scrubbed)
+	assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, scrubbed)
 	assert.Contains(t, cmd.Env, "PATH=/usr/bin")
 	assert.Contains(t, cmd.Env, "NPM_TOKEN=keep-me")
 	assert.NotContains(t, cmd.Env, "AWS_SECRET_ACCESS_KEY=scrub-me")
@@ -109,8 +109,36 @@ func TestScrubEnv_AllowOverrideUnscrubs(t *testing.T) {
 	cmd := &exec.Cmd{Env: []string{"AWS_SESSION_TOKEN=kept"}}
 	scrubbed := scrubEnv(cmd, policy)
 
-	assert.Equal(t, 0, scrubbed)
+	assert.Empty(t, scrubbed)
 	assert.Contains(t, cmd.Env, "AWS_SESSION_TOKEN=kept")
+}
+
+func TestScrubEnv_ReturnsSortedNames(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{Name: "test"}
+
+	tests := []struct {
+		name string
+		env  []string
+	}{
+		{
+			name: "reverse order",
+			env:  []string{"NPM_TOKEN=c", "GITHUB_TOKEN=b", "AWS_SECRET_ACCESS_KEY=a"},
+		},
+		{
+			name: "interleaved with kept entries",
+			env:  []string{"NPM_TOKEN=c", "PATH=/usr/bin", "AWS_SECRET_ACCESS_KEY=a", "HOME=/home/x", "GITHUB_TOKEN=b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &exec.Cmd{Env: tt.env}
+
+			assert.Equal(t,
+				[]string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "NPM_TOKEN"},
+				scrubEnv(cmd, policy))
+		})
+	}
 }
 
 func TestScrubEnv_NilEnvPopulatedThenScrubbed(t *testing.T) {
@@ -420,4 +448,52 @@ network_via_proxy_only: true
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, rt, fake.rt)
+}
+
+func TestApplySandboxRecordsEnvScrub(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "envscrub.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: envscrub-apply-test
+package_managers: ["npm"]
+filesystem:
+  allow_read: ["/tmp"]
+environment:
+  allow:
+    - NPM_TOKEN
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	// The test sets the env on the command, so deny-listed variables from
+	// the host environment cannot leak into the assertion.
+	cmd := exec.Command("npm")
+	cmd.Env = []string{
+		"GITHUB_TOKEN=scrub-me",
+		"AWS_SECRET_ACCESS_KEY=scrub-me-too",
+		"NPM_TOKEN=keep-me",
+		"PATH=/usr/bin",
+	}
+
+	result, err := ApplySandbox(context.Background(), cmd, "npm",
+		WithSandbox(&fakeApplySandbox{}))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Contains(t, cmd.Env, "NPM_TOKEN=keep-me")
+	assert.NotContains(t, cmd.Env, "GITHUB_TOKEN=scrub-me")
+
+	scrub := result.EnvScrub()
+	assert.Equal(t, []string{"AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"}, scrub.Names)
+	assert.Equal(t, sandbox.DriverName("fake"), scrub.SandboxName)
+	assert.Equal(t, "envscrub-apply-test", scrub.PolicyName)
+	assert.Equal(t, "npm", scrub.Process)
+	assert.Equal(t, 2, result.ScrubbedEnvCount())
 }

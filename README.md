@@ -152,8 +152,11 @@ PMG supports the tools you already use:
 |             | `pnpm`   | `pnpm add <pkg>`    |
 |             | `yarn`   | `yarn add <pkg>`    |
 |             | `bun`    | `bun add <pkg>`     |
+|             | `aube`   | `aube add <pkg>`    |
 |             | `npx`    | `npx <pkg>`         |
 |             | `pnpx`   | `pnpx <pkg>`        |
+|             | `aubx`   | `aubx <pkg>`        |
+|             | `aubr`   | `aubr <script>`     |
 | **Python**  | `pip`    | `pip install <pkg>` |
 |             | `pipx`   | `pipx run <pkg>`    |
 |             | `poetry` | `poetry add <pkg>`  |

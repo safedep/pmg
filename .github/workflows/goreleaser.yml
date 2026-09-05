@@ -72,6 +72,10 @@ jobs:
         run: pnpm nx run pmg:build-release
         env:
           GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          # Without this goreleaser picks the current tag from the tags that
+          # point at HEAD. A stable tag and an edge tag on the same commit then
+          # release the edge tag twice.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - name: Attest Go binary provenance
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
@@ -108,12 +112,18 @@ jobs:
 
       - name: Wait for package on registry
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # The registry makes the wrapper and the platform packages visible in
+          # any order, so wait for the platform package this runner needs too.
+          plat=$(node -p "process.platform + '-' + process.arch")
           for i in $(seq 1 20); do
-            npm view "@safedep/pmg@${{ steps.version.outputs.version }}" version > /dev/null 2>&1 && break
-            echo "Waiting... ($i/20)"
+            npm view "@safedep/pmg@${VERSION}" version > /dev/null 2>&1 \
+              && npm view "@safedep/pmg-${plat}@${VERSION}" version > /dev/null 2>&1 && break
+            echo "Waiting for @safedep/pmg and @safedep/pmg-${plat} at ${VERSION}... ($i/20)"
             sleep 30
-            [ "$i" -eq 20 ] && echo "Package not available after 10 minutes" && exit 1
+            [ "$i" -eq 20 ] && echo "Packages not available after 10 minutes" && exit 1
           done
 
       - name: Install

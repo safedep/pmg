@@ -63,9 +63,22 @@ and runs as the last step before launch, after project overlays and `--sandbox-a
 merged. Scrubbed variable **names** (never values) are logged at info level. Run with `--debug` to
 see what was removed.
 
+When a sandboxed command fails, the scrubbed names are also recorded to the violation cache as
+`env_scrub` violations, so `pmg sandbox violations list` and `pmg sandbox explain --last` can name
+them after the run. For a conventionally named variable, `explain` suggests
+`pmg sandbox allow env=NAME`, and `pmg sandbox allow --last` persists it. Only names are recorded;
+values never reach the cache.
+
+A variable whose value is a secret gets no suggestion to save it. PMG treats a name as secret
+when one of its underscore-separated segments is `SECRET`, `TOKEN`, `KEY`, `APIKEY`,
+`PASSWORD`, `PASSWD` or `AUTH`. PMG also treats `GOOGLE_CREDENTIALS` as secret, since it can
+hold the service account key inline. `pmg sandbox allow` refuses such a name without `--force`.
+A name that only points at a credential file, such as `GOOGLE_APPLICATION_CREDENTIALS`, keeps
+the normal suggestion. The sandbox still controls access to the file.
+
 The shared base profiles (`npm-restrictive`, `pypi-restrictive`) allow no environment variables.
-Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `npx`, `pip`, `pipx`, `uv`,
-`uvx`, `poetry`) re-allows only the variables that package manager legitimately needs via an
+Each package manager's leaf profile (`npm`, `yarn`, `bun`, `pnpm`, `aube`, `npx`, `aubx`, `pip`,
+`pipx`, `uv`, `uvx`, `poetry`) re-allows only the variables that package manager legitimately needs via an
 `environment.allow` block, so package managers keep working:
 
 ```yaml
@@ -228,6 +241,10 @@ seccomp, so they are likewise not reported. Operational degradation events on th
 today; they may be added later. The Bubblewrap driver reports denials it can recognise in the
 sandboxed command's own error output; see its platform section below for what that covers.
 
+Environment scrubs are the exception to all of this: they are recorded by PMG's executor before the
+child is spawned rather than observed by a driver, so `env_scrub` violations appear on every
+platform and driver.
+
 ### Runtime Allow Overrides
 
 Use `--sandbox-allow` to make one-off exceptions without creating a custom profile. This is useful
@@ -291,7 +308,7 @@ pmg sandbox allow env=AWS_PROFILE
 # Promote the primary violation from the most recent cached report
 pmg sandbox allow --last
 
-# Promote every safe FS/exec violation from that report
+# Promote every safe FS, exec and env violation from that report
 pmg sandbox allow --last --all
 
 # Allow a sensitive path (e.g. .env, .npmrc) explicitly

@@ -196,6 +196,8 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 	tmpDir := os.TempDir()
 	writeBoundPaths[tmpDir] = true
 
+	rwDirs := writeBoundDirs(policy.Filesystem.AllowWrite)
+
 	// 1. Process allow_read rules FIRST (read-only bind mounts)
 	// This establishes the base read-only filesystem view (including "/" if specified)
 	for _, pattern := range policy.Filesystem.AllowRead {
@@ -206,7 +208,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 
 		// Glob chars are handled by the processReadRule function.
-		readArgs, err := t.processReadRule(expanded, readBoundPaths)
+		readArgs, err := t.processReadRule(expanded, readBoundPaths, rwDirs)
 		if err != nil {
 			log.Warnf("Failed to process allow_read rule '%s': %v", expanded, err)
 			continue
@@ -227,7 +229,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 
 		// Glob chars are handled by the processWriteRule function.
-		writeArgs, err := t.processWriteRule(expanded, writeBoundPaths)
+		writeArgs, err := t.processWriteRule(expanded, writeBoundPaths, rwDirs)
 		if err != nil {
 			log.Warnf("Failed to process allow_write rule '%s': %v", expanded, err)
 			continue
@@ -493,7 +495,8 @@ func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string) ([]string
 }
 
 // processReadRule handles a single allow_read rule, expanding globs and creating ro-bind mounts.
-func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map[string]bool) ([]string, error) {
+// A file below a directory in rwDirs gets no mount of its own (see writeBoundDirs).
+func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map[string]bool, rwDirs map[string]bool) ([]string, error) {
 	args := []string{}
 
 	// Check if path contains glob pattern
@@ -523,6 +526,10 @@ func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map
 		} else {
 			// Fine-grained: bind individual paths
 			for _, p := range paths {
+				if isFileUnderBoundDir(p, rwDirs) {
+					log.Debugf("Skipping read bind for '%s': a parent directory is bound read-write", p)
+					continue
+				}
 				if !boundPaths[p] {
 					args = append(args, "--ro-bind-try", p, p)
 					boundPaths[p] = true
@@ -531,6 +538,10 @@ func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map
 		}
 	} else {
 		// Literal path - create read-only bind
+		if isFileUnderBoundDir(path, rwDirs) {
+			log.Debugf("Skipping read bind for '%s': a parent directory is bound read-write", path)
+			return args, nil
+		}
 		if !boundPaths[path] {
 			args = append(args, "--ro-bind-try", path, path)
 			boundPaths[path] = true
@@ -541,7 +552,8 @@ func (t *bubblewrapPolicyTranslator) processReadRule(path string, boundPaths map
 }
 
 // processWriteRule handles a single allow_write rule, expanding globs and creating rw-bind mounts.
-func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths map[string]bool) ([]string, error) {
+// A file below a directory in rwDirs gets no mount of its own (see writeBoundDirs).
+func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths map[string]bool, rwDirs map[string]bool) ([]string, error) {
 	args := []string{}
 
 	// Check if path contains glob pattern
@@ -586,6 +598,11 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 		} else {
 			// Fine-grained: bind individual paths
 			for _, p := range paths {
+				if isFileUnderBoundDir(p, rwDirs) {
+					log.Debugf("Skipping write bind for '%s': a parent directory is bound read-write", p)
+					continue
+				}
+
 				// Check if path exists - if not, bind parent directory instead
 				// This allows creating new directories (e.g., node_modules/** when node_modules doesn't exist)
 				pathToBind := p
@@ -610,6 +627,10 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 		}
 	} else {
 		// Literal path - create read-write bind
+		if isFileUnderBoundDir(path, rwDirs) {
+			log.Debugf("Skipping write bind for '%s': a parent directory is bound read-write", path)
+			return args, nil
+		}
 		if !boundPaths[path] {
 			args = append(args, "--bind-try", path, path)
 			boundPaths[path] = true
@@ -617,6 +638,53 @@ func (t *bubblewrapPolicyTranslator) processWriteRule(path string, boundPaths ma
 	}
 
 	return args, nil
+}
+
+// writeBoundDirs returns the directories that allow_write rules bind
+// read-write as a whole: the base of every globstar pattern and every literal
+// directory. A path below one of them is writable through that mount and must
+// not get a mount of its own: a bind mount on a file blocks rename(2) onto it
+// inside the sandbox, which breaks package managers that write package.json
+// and lockfiles through a sibling temp file and a rename (aube, pnpm).
+// Variable expansion errors are reported by the caller's rule loop.
+func writeBoundDirs(allowWrite []string) map[string]bool {
+	dirs := make(map[string]bool, len(allowWrite))
+	for _, pattern := range allowWrite {
+		expanded, err := util.ExpandVariables(pattern)
+		if err != nil {
+			continue
+		}
+
+		switch {
+		case strings.Contains(expanded, "**"):
+			dirs[extractGlobstarWriteBaseDir(expanded)] = true
+		case util.ContainsGlob(expanded):
+			// Matches are bound one by one; they never cover a subtree.
+		default:
+			if info, err := os.Stat(expanded); err == nil && info.IsDir() {
+				dirs[expanded] = true
+			}
+		}
+	}
+
+	return dirs
+}
+
+// isFileUnderBoundDir reports whether path is not a directory and lies below
+// one of dirs. A missing path counts as a file: it is created inside the
+// writable directory.
+func isFileUnderBoundDir(path string, dirs map[string]bool) bool {
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return false
+	}
+
+	for dir := range dirs {
+		if strings.HasPrefix(path, dir+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // processDenyRule handles deny rules by mounting /dev/null to prevent file access.

@@ -3,8 +3,8 @@ module github.com/safedep/pmg
 go 1.25.1
 
 require (
-	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260826120427-ec18ccc8cb1d.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260826120427-ec18ccc8cb1d.1
+	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260905083613-06738df16199.1
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260905083613-06738df16199.1
 	github.com/Masterminds/semver v1.5.0
 	github.com/elazarl/goproxy v1.8.1
 	github.com/fatih/color v1.18.0
@@ -16,7 +16,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/posthog/posthog-go v1.5.12
 	github.com/rogpeppe/go-internal v1.14.1
-	github.com/safedep/dry v0.0.0-20260819161839-ede65db71771
+	github.com/safedep/dry v0.0.0-20260902122517-5c323129f964
 	github.com/safedep/ptyx v0.2.1-0.20260529140457-d1f745842a6a
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1

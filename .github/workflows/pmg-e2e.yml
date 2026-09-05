@@ -55,6 +55,11 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
+
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -85,7 +90,7 @@ jobs:
           shims_dir="${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin"
           test -f "$config_dir/pmg.rc"
           test -d "$shims_dir"
-          for shim in npm pip pip3 pnpm bun uv uvx yarn poetry npx pnpx; do
+          for shim in npm pip pip3 pnpm bun uv uvx yarn poetry npx pnpx aube aubr aubx; do
             test -x "$shims_dir/$shim" || { echo "Missing shim: $shim"; exit 1; }
           done
           # A fresh install must not create the legacy layout.
@@ -348,6 +353,86 @@ jobs:
           test -d node_modules/lodash
           cd .. && rm -rf bun-test
 
+      - name: Test aube - Single Package & Manifest
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          echo "Testing aube single package installation..."
+          AUBE_TESTDIR=$(mktemp -d) && cd "$AUBE_TESTDIR"
+          npm init -y
+          pmg aube add express@5.2.1
+          pmg aube add lodash@4.17.21
+
+          # Verification: aube packages installed and lockfile created
+          test -d node_modules/express
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aube manifest installation..."
+          rm -rf node_modules aube-lock.yaml
+          pmg aube install
+
+          # Verification: aube lockfile and modules exist after manifest install
+          test -f aube-lock.yaml
+          test -d node_modules/express
+          test -d node_modules/lodash
+
+          echo "Testing aube clean install with aube ci..."
+          rm -rf node_modules
+          pmg aube ci
+
+          # Verification: modules exist after the frozen clean install
+          test -d node_modules/express
+          test -d node_modules/lodash
+
+          echo "Testing aubr auto-install through the proxy..."
+          # A fresh store and cache force aubr to download the dependencies
+          # again instead of linking them from the store filled above.
+          rm -rf node_modules
+          npm pkg set scripts.hello="echo hello-from-aubr"
+          AUBE_STORE_DIR="$(mktemp -d)" AUBE_CACHE_DIR="$(mktemp -d)" \
+            pmg aubr hello | tee aubr-output.txt
+
+          # Verification: aubr installed the dependencies through pmg, then ran the script
+          grep -q "hello-from-aubr" aubr-output.txt
+          grep -q "packages analyzed" aubr-output.txt
+          test -d node_modules/express
+          test -d node_modules/lodash
+          cd - && rm -rf "$AUBE_TESTDIR"
+
+      - name: Test safedep-test-pkg is Blocked using aube Proxy mode
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          echo "Testing that safedep-test-pkg is blocked with aube in proxy mode..."
+          AUBE_BLOCK_TESTDIR=$(mktemp -d) && cd "$AUBE_BLOCK_TESTDIR"
+          npm init -y
+
+          # --allow-low-downloads skips aube's own low-download refusal, which
+          # in CI would fail the add before any tarball is fetched.
+          # A non-zero exit alone is not enough — aube could fail for unrelated
+          # reasons (setup, network, CA trust) and falsely pass. Require PMG's
+          # malware block signal in the output.
+          if output=$(pmg aube add --allow-low-downloads safedep-test-pkg@0.1.3 2>&1); then
+            echo "$output"
+            echo "ERROR: safedep-test-pkg was not blocked with aube!"
+            exit 1
+          fi
+          echo "$output"
+          if ! echo "$output" | grep -q "Malicious package blocked"; then
+            echo "ERROR: aube add failed, but not due to a PMG malware block"
+            exit 1
+          fi
+          echo "SUCCESS: safedep-test-pkg correctly blocked with aube"
+
+          if [ -d "node_modules/safedep-test-pkg" ]; then
+            echo "ERROR: safedep-test-pkg found in node_modules!"
+            exit 1
+          else
+            echo "SUCCESS: safedep-test-pkg not present in node_modules"
+          fi
+          cd - && rm -rf "$AUBE_BLOCK_TESTDIR"
+
       # Runs before the classic-yarn step so corepack's Berry shim stays the `yarn`
       # on PATH (the later `npm install -g yarn@1.22.22` would shadow it).
       - name: Test safedep-test-pkg is Blocked using Yarn (Berry) Proxy mode
@@ -465,6 +550,33 @@ jobs:
           ! grep -q '\^__\^' pnpx-dry-output.txt
 
           cd - && rm -rf "$PNPX_TESTDIR"
+
+      - name: Test AUBX - Package Execution
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          echo "Testing aubx package execution..."
+          AUBX_TESTDIR=$(mktemp -d) && cd "$AUBX_TESTDIR"
+
+          echo "Testing aubx with a simple package..."
+          pmg aubx cowsay@1.6.0 "Hello from pmg aubx" | tee aubx-output.txt
+
+          # Verification: cowsay output contains our message
+          grep -q "Hello from pmg aubx" aubx-output.txt
+
+          echo "Testing aubx with --package flag..."
+          pmg aubx --package cowsay@1.6.0 -- cowsay "Hello with package flag" | tee aubx-pkg-output.txt
+
+          # Verification: package flag execution produces expected output
+          grep -q "Hello with package flag" aubx-pkg-output.txt
+
+          echo "Testing aubx dry-run mode..."
+          pmg --dry-run aubx cowsay@1.6.0 "This should not execute" | tee aubx-dry-output.txt
+
+          # Verification: dry-run should NOT produce cowsay ASCII art (cow face ^__^ should not appear)
+          ! grep -q '\^__\^' aubx-dry-output.txt
+
+          cd - && rm -rf "$AUBX_TESTDIR"
 
       - name: Test UVX - Package Execution
         run: |
@@ -697,6 +809,11 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
+
       - name: Build PMG
         run: make
 
@@ -733,6 +850,29 @@ jobs:
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
 
+      # aube and aubx run under their own leaf profiles. Bubblewrap binds a
+      # store or cache directory only when it exists, so create them first, as
+      # a first aube run outside the sandbox would.
+      - name: Run aube Sandbox E2E Test
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          mkdir -p ~/.local/share/aube ~/.cache/aube
+          # Outside /tmp: the inherited /tmp/** write rule would mask a missing
+          # workspace rule.
+          AUBE_TESTDIR=$(mktemp -d "$HOME/aube-sandbox-e2e.XXXXXX") && cd "$AUBE_TESTDIR"
+          npm init -y
+
+          echo "Testing aube add under the aube sandbox profile..."
+          pmg --sandbox --sandbox-enforce aube add lodash@4.17.21
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aubx under the aubx sandbox profile..."
+          pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
+          grep -q "Hello from sandboxed aubx" aubx-output.txt
+          cd - && rm -rf "$AUBE_TESTDIR"
+
   sandbox-e2e-linux:
     name: Sandbox E2E - Linux (Bubblewrap)
     runs-on: ubuntu-latest
@@ -762,6 +902,11 @@ jobs:
 
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
 
       - name: Install Bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
@@ -813,6 +958,29 @@ jobs:
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
 
+      # aube and aubx run under their own leaf profiles. Bubblewrap binds a
+      # store or cache directory only when it exists, so create them first, as
+      # a first aube run outside the sandbox would.
+      - name: Run aube Sandbox E2E Test
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          mkdir -p ~/.local/share/aube ~/.cache/aube
+          # Outside /tmp: the inherited /tmp/** write rule would mask a missing
+          # workspace rule.
+          AUBE_TESTDIR=$(mktemp -d "$HOME/aube-sandbox-e2e.XXXXXX") && cd "$AUBE_TESTDIR"
+          npm init -y
+
+          echo "Testing aube add under the aube sandbox profile..."
+          pmg --sandbox --sandbox-enforce aube add lodash@4.17.21
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aubx under the aubx sandbox profile..."
+          pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
+          grep -q "Hello from sandboxed aubx" aubx-output.txt
+          cd - && rm -rf "$AUBE_TESTDIR"
+
   sandbox-e2e-linux-landlock:
     name: Sandbox E2E - Linux (Landlock)
     runs-on: ubuntu-latest
@@ -848,6 +1016,11 @@ jobs:
 
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube
+          aube --version
 
       - name: Build PMG
         run: make
@@ -904,6 +1077,29 @@ jobs:
 
       - name: Run Package Manager E2E Test
         run: pmg --sandbox --sandbox-enforce npm exec -- node test/pm-e2e.js
+
+      # aube and aubx run under their own leaf profiles. Bubblewrap binds a
+      # store or cache directory only when it exists, so create them first, as
+      # a first aube run outside the sandbox would.
+      - name: Run aube Sandbox E2E Test
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          mkdir -p ~/.local/share/aube ~/.cache/aube
+          # Outside /tmp: the inherited /tmp/** write rule would mask a missing
+          # workspace rule.
+          AUBE_TESTDIR=$(mktemp -d "$HOME/aube-sandbox-e2e.XXXXXX") && cd "$AUBE_TESTDIR"
+          npm init -y
+
+          echo "Testing aube add under the aube sandbox profile..."
+          pmg --sandbox --sandbox-enforce aube add lodash@4.17.21
+          test -d node_modules/lodash
+          test -f aube-lock.yaml
+
+          echo "Testing aubx under the aubx sandbox profile..."
+          pmg --sandbox --sandbox-enforce aubx cowsay@1.6.0 "Hello from sandboxed aubx" | tee aubx-output.txt
+          grep -q "Hello from sandboxed aubx" aubx-output.txt
+          cd - && rm -rf "$AUBE_TESTDIR"
 
   # Linux system-wide install: root install, ENV PATH (Docker-style), non-root user,
   # managed config, and remove. Profile.d login shells are covered by sourcing the snippet.
@@ -983,7 +1179,7 @@ jobs:
           test -f /etc/safedep/pmg/config.yml
           test -f /etc/profile.d/pmg.sh
           grep -q '/usr/local/lib/pmg/bin' /etc/profile.d/pmg.sh
-          for shim in npm pip pip3 pipx pnpm bun uv uvx yarn poetry npx pnpx; do
+          for shim in npm pip pip3 pipx pnpm bun uv uvx yarn poetry npx pnpx aube aubr aubx; do
             test -x "/usr/local/lib/pmg/bin/$shim" || { echo "Missing shim: $shim"; exit 1; }
           done
 

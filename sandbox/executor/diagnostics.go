@@ -7,9 +7,10 @@ import (
 )
 
 // ObserveViolations collects any sandbox violation report associated with the
-// run, persists it to the violation cache for forensic review (via
+// run, folds in the environment scrubs recorded by the executor, persists the
+// result to the violation cache for forensic review (via
 // `pmg sandbox violations list` / `pmg sandbox explain`), and returns the number
-// of violations observed. Failures are logged and swallowed; observability MUST
+// of violations recorded. Failures are logged and swallowed; observability MUST
 // NOT affect command exit.
 //
 // This is the sandbox package's only stake in command-failure handling. It
@@ -23,9 +24,13 @@ func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
 
 	report, diagErr := result.BestEffortViolation(runErr)
 	if diagErr != nil {
+		// Env scrubs come from the executor, not the driver, so a failed
+		// collection must not discard them.
 		log.Warnf("failed to collect sandbox diagnostics: %v", diagErr)
-		return 0
+		report = nil
 	}
+
+	report = sandbox.MergeEnvScrub(report, result.EnvScrub())
 	if report == nil || len(report.Violations) == 0 {
 		return 0
 	}

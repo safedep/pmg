@@ -195,12 +195,35 @@ pip config debug
 | `pnpx`          | ✅      |
 | `bun`           | ✅      |
 | `yarn`          | ✅      |
+| `aube`          | ✅      |
+| `aubr`          | ✅      |
+| `aubx`          | ✅      |
 | `pip`           | ✅      |
 | `uv`            | ✅      |
 | `uvx`           | ✅      |
 | `poetry`        | ✅      |
 | `go`            | 🧪 experimental |
 | `cargo`         | 🧪 experimental |
+
+### aube
+
+`pmg aube` guards [aube](https://aube.sh) through the same proxy flow as npm.
+`pmg aubr` guards `aubr`, the aube shorthand for `aube run`, because a script
+run installs missing or stale dependencies first. `pmg aubx` guards `aubx`, the
+aube shorthand for `aube dlx`. aube trusts the PMG CA through
+`NODE_EXTRA_CA_CERTS`, so no trust store setup is required.
+
+aube reads its proxy settings from `.npmrc` and `npm_config_*` before it reads
+`HTTPS_PROXY`, as npm does. An `https-proxy` or `noproxy` entry in those
+sources sends registry traffic around PMG. aube also runs its own checks
+(OSV advisories, weekly download counts) before it downloads a tarball, so
+aube can reject a package before PMG analyzes it.
+
+`aube add` writes the new dependency to `package.json` before it downloads the
+tarball. When PMG blocks the package, or when you reject a suspicious package at
+the confirmation prompt, aube exits with an error. The dependency stays in
+`package.json` but is not installed in `node_modules`. Run
+`aube remove <package>` to remove the entry, or edit `package.json`.
 
 ### Go (experimental)
 

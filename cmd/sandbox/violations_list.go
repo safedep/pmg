@@ -150,6 +150,7 @@ type violationsListJSONEntry struct {
 	SandboxName    string                     `json:"sandbox_name,omitempty"`
 	PolicyName     string                     `json:"policy_name,omitempty"`
 	Primary        *violationsListJSONPrimary `json:"primary,omitempty"`
+	ScrubbedEnv    []string                   `json:"scrubbed_env,omitempty"`
 	ViolationCount int                        `json:"violation_count"`
 }
 
@@ -170,6 +171,7 @@ func writeViolationsListJSON(out io.Writer, entries []pmgsandbox.ViolationCacheE
 			item.SandboxName = string(e.Record.Report.SandboxName)
 			item.PolicyName = e.Record.Report.PolicyName
 			item.ViolationCount = len(e.Record.Report.Violations)
+			item.ScrubbedEnv = pmgsandbox.EnvScrubNames(e.Record.Report)
 
 			primary := pmgsandbox.BuildExplanation(e.Record.Report).Primary
 			if primary != nil {

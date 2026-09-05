@@ -831,3 +831,32 @@ func TestLandlockMaskDeniedAccess(t *testing.T) {
 		})
 	}
 }
+
+// aube replaces package.json and its lockfiles through a sibling temp file
+// and a rename. Landlock allows that only through a rule on the directory,
+// and it rejects patterns with two globstars. The profile therefore grants
+// the project tree itself.
+func TestLandlockTranslatePolicy_AubeProfileGrantsProjectDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
+
+	registry, err := sandbox.NewProfileRegistry()
+	require.NoError(t, err)
+	policy, err := registry.GetProfile("aube")
+	require.NoError(t, err)
+
+	ep, err := landlockTranslatePolicy(policy, newLandlockABI(3), nil)
+	require.NoError(t, err)
+
+	// Landlock grants the union of all rules for a path. The read and write
+	// rules for the project directory come from separate profile entries.
+	var access uint64
+	for _, rule := range ep.FilesystemRules {
+		if rule.Path == projectDir {
+			access |= rule.Access
+		}
+	}
+	require.NotZero(t, access, "the aube profile must grant a rule on the project directory")
+	assert.NotZero(t, access&uint64(llsyscall.AccessFSMakeReg), "MakeReg is needed to create the temp file")
+	assert.NotZero(t, access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
+}

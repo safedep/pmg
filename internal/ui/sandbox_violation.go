@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,18 +16,46 @@ import (
 // The flag name lives here (not in sandbox/) because it is CLI-surface owned
 // by the cmd layer; the sandbox package only knows kind + target.
 func FormatSandboxOverrideFlag(o *pmgsandbox.OverrideSuggestion) string {
+	arg := sandboxAllowArg(o)
+	if arg == "" {
+		return ""
+	}
+
+	return "--sandbox-allow " + arg
+}
+
+// FormatSandboxAllowCommand renders an OverrideSuggestion as the `pmg sandbox
+// allow` command that persists the same allowance for this repository. Returns
+// "" for sensitive targets, which that command refuses without --force.
+func FormatSandboxAllowCommand(o *pmgsandbox.OverrideSuggestion) string {
+	arg := sandboxAllowArg(o)
+	if arg == "" || pmgsandbox.NeedsForceToPersist(o) {
+		return ""
+	}
+
+	return "pmg sandbox allow " + arg
+}
+
+func sandboxAllowArg(o *pmgsandbox.OverrideSuggestion) string {
 	if o == nil {
 		return ""
 	}
 
-	quoted := shellQuote(o.Target)
 	switch o.Kind {
 	case pmgsandbox.ViolationKindFSRead:
-		return "--sandbox-allow read=" + quoted
+		return "read=" + shellQuote(o.Target)
 	case pmgsandbox.ViolationKindFSWrite, pmgsandbox.ViolationKindFSDeleteOrRename:
-		return "--sandbox-allow write=" + quoted
+		return "write=" + shellQuote(o.Target)
 	case pmgsandbox.ViolationKindExec:
-		return "--sandbox-allow exec=" + quoted
+		return "exec=" + shellQuote(o.Target)
+	case pmgsandbox.ViolationKindEnvScrub:
+		// The suggestion gate already holds names to this form. Check again
+		// here so a caller that skips the gate cannot put an odd name into
+		// a suggested shell command.
+		if !pmgsandbox.IsConventionalEnvName(o.Target) {
+			return ""
+		}
+		return "env=" + o.Target
 	default:
 		return ""
 	}
@@ -80,8 +109,8 @@ func FormatSandboxDetails(report *pmgsandbox.ViolationReport, primary *pmgsandbo
 		lines = append(lines, "Raw log: "+primary.RawLog)
 	}
 
-	if len(report.Violations) > 1 {
-		lines = append(lines, fmt.Sprintf("Additional denials observed: %d", len(report.Violations)-1))
+	if n := pmgsandbox.BuildExplanation(report).AdditionalDenials; n > 0 {
+		lines = append(lines, fmt.Sprintf("Additional denials observed: %d", n))
 	}
 
 	return strings.Join(lines, "\n")
@@ -146,6 +175,26 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		}
 	}
 
+	// The primary is rendered in full below, so drop it here.
+	names := pmgsandbox.EnvScrubNames(rec.Report)
+	if exp.Primary != nil && exp.Primary.Kind == pmgsandbox.ViolationKindEnvScrub {
+		names = slices.DeleteFunc(names, func(n string) bool { return n == exp.Primary.Target })
+	}
+
+	if len(names) > 0 {
+		if _, err := fmt.Fprintln(out, Colors.Bold("Environment variables scrubbed:")); err != nil {
+			return err
+		}
+		for _, name := range names {
+			if _, err := fmt.Fprintf(out, "  %s\n", name); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+
 	if flag := FormatSandboxOverrideFlag(exp.Override); flag != "" {
 		if _, err := fmt.Fprintln(out, Colors.Bold("Suggested override:")); err != nil {
 			return err
@@ -158,7 +207,7 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 		}
 		// `pmg sandbox allow` refuses sensitive targets without --force, so
 		// do not suggest a command that would immediately fail.
-		if !pmgsandbox.IsSensitiveProjectTarget(exp.Override.Target) {
+		if !pmgsandbox.NeedsForceToPersist(exp.Override) {
 			if _, err := fmt.Fprintln(out, Colors.Dim("Remember for this project: pmg sandbox allow --last --all")); err != nil {
 				return err
 			}

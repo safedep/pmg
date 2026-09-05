@@ -27,7 +27,7 @@ type cloudSink struct {
 
 func newCloudSink(cfg *config.RuntimeConfig, ciResolver CloudSinkCIResolver) (*cloudSink, error) {
 	emitter, err := endpointsync.NewEventEmitterClient("pmg", pmgToolVersion(),
-		endpointsync.WithWALPath(cfg.CloudSyncDBPath()))
+		cloudSyncOptions(cfg.CloudSyncDBPath())...)
 	if err != nil {
 		return nil, err
 	}
