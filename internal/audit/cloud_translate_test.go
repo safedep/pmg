@@ -251,10 +251,9 @@ func TestMapPackageManager(t *testing.T) {
 		{"uv", "uv", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UV},
 		{"uvx", "uvx", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UV},
 		{"unknown", "cargo", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED},
-		// The API has no aube value yet, so aube reports as unspecified.
-		{"aube", "aube", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED},
-		{"aubr", "aubr", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED},
-		{"aubx", "aubx", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED},
+		{"aube", "aube", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_AUBE},
+		{"aubr", "aubr", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_AUBE},
+		{"aubx", "aubx", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_AUBE},
 		{"empty", "", controltowerv1.PmgPackageManager_PMG_PACKAGE_MANAGER_UNSPECIFIED},
 	}
 
