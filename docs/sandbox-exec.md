@@ -132,6 +132,8 @@ do under the working directory.
   this as a warning on purpose.
 - Landlock does not stop a rename into a denied path. `mv x.json ~/.claude/settings.json`
   succeeds there, because the supervisor traps only `open`. Bubblewrap and Seatbelt deny it.
+  This includes `.git/config`. `git config` writes a lock file and renames it, so
+  `core.hooksPath` can be set there.
   [safedep/pmg#444](https://github.com/safedep/pmg/pull/444) traps the rename and link
   syscalls and closes this.
 - Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
