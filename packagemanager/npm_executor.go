@@ -80,17 +80,13 @@ func (n *npmPackageExecutor) ParseCommand(args []string) (*ParsedCommand, error)
 
 	var packages []string
 	switch n.Config.CommandName {
-	case "npx":
+	case "npx", "aubx":
 		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
 	case "pnpx":
 		flagSet.StringArrayVar(&packages, "package", []string{}, "Package List")
-	case "aubx":
-		flagSet.StringArrayVarP(&packages, "package", "p", []string{}, "Package List")
 	}
 
-	for _, flag := range n.Config.BoolFlags {
-		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
-	}
+	registerBoolFlags(flagSet, n.Config.BoolFlags)
 
 	err := flagSet.Parse(args)
 	if err != nil {

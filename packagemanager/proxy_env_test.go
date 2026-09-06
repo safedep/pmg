@@ -65,3 +65,19 @@ func TestEnvVarForProxyAlwaysEmitsCertVars(t *testing.T) {
 		assert.Equal(t, "/tmp/ca.pem", env[key], "%s must point at the CA bundle", key)
 	}
 }
+
+// TestEnvVarForProxyOverridesNpmConfig proves that npm config proxy settings
+// cannot route npm or aube around PMG. Both clients read npm_config_https_proxy
+// and npm_config_noproxy before HTTPS_PROXY and NO_PROXY, and a user-level
+// ~/.npmrc https-proxy entry also wins over HTTPS_PROXY. The env form beats
+// the file, so PMG sets it in both letter cases npm accepts.
+func TestEnvVarForProxyOverridesNpmConfig(t *testing.T) {
+	env := envToMap(EnvVarForProxy("127.0.0.1:54321", "/tmp/pmg-ca-cert.pem"))
+
+	for _, key := range []string{"npm_config_proxy", "npm_config_https_proxy", "NPM_CONFIG_PROXY", "NPM_CONFIG_HTTPS_PROXY"} {
+		assert.Equal(t, "http://127.0.0.1:54321", env[key], "%s must point at the PMG proxy", key)
+	}
+	for _, key := range []string{"npm_config_noproxy", "NPM_CONFIG_NOPROXY"} {
+		assert.Equal(t, "localhost,127.0.0.1,::1", env[key], "%s must not exempt any registry host", key)
+	}
+}
