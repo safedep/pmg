@@ -24,6 +24,12 @@ filesystem:
     # ones it can name: the home and repository roots, plus the repository
     # tree up to three levels deep.
     - /
+    # git reads .git/config on every command and Landlock and Seatbelt fail
+    # the command on the mandatory read deny. This exact match opts out of
+    # the read deny only, as the git preset does. Writes stay denied, so a
+    # credential helper cannot be planted. Accepted: a remote URL in the
+    # config can embed a credential.
+    - ${CWD}/.git/config
 
   allow_write:
     # Note: ${TMPDIR} is automatically allowed when write restrictions are enabled (macOS)
