@@ -13,7 +13,40 @@ import (
 type NpmPackageManagerConfig struct {
 	InstallCommands     []string
 	NonDownloadCommands []string
-	CommandName         string
+
+	// InstallBoolFlags are the boolean flags of the install commands. pflag
+	// treats an unknown flag as one that takes a value, so an unregistered
+	// boolean flag would consume the package name that follows it.
+	InstallBoolFlags []BoolFlag
+
+	CommandName string
+}
+
+// BoolFlag names a boolean command-line flag and its optional one-letter
+// shorthand. The lists below were checked against the help output of npm
+// 10.9, pnpm 11.25, yarn 1.22, bun 1.4 and aube 2.2.4, plus the yarn Berry
+// docs. A flag that is missing costs the explicit install target and the
+// pinned-version cooldown report, not the block: the proxy still analyzes
+// every tarball.
+type BoolFlag struct {
+	Name      string
+	Shorthand string
+
+	// AltShorthand is a second one-letter form the tool accepts for the same
+	// flag, such as pnpm's -d and -D for --save-dev. pflag binds one
+	// shorthand per name, so registerBoolFlags binds it under a hidden name.
+	AltShorthand string
+}
+
+// registerBoolFlags registers flags on flagSet so that none of them consumes
+// the argument that follows it.
+func registerBoolFlags(flagSet *pflag.FlagSet, flags []BoolFlag) {
+	for _, flag := range flags {
+		flagSet.BoolP(flag.Name, flag.Shorthand, false, "")
+		if flag.AltShorthand != "" {
+			flagSet.BoolP(flag.Name+"."+flag.AltShorthand, flag.AltShorthand, false, "")
+		}
+	}
 }
 
 func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
@@ -30,6 +63,41 @@ func DefaultNpmPackageManagerConfig() NpmPackageManagerConfig {
 			"ls", "list", "outdated", "view", "info", "show", "search",
 			"config", "ping", "whoami", "version", "help",
 		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "save", Shorthand: "S"},
+			{Name: "no-save"},
+			{Name: "save-prod", Shorthand: "P"},
+			{Name: "save-dev", Shorthand: "D"},
+			{Name: "save-optional", Shorthand: "O"},
+			{Name: "save-peer"},
+			{Name: "save-bundle", Shorthand: "B"},
+			{Name: "save-exact", Shorthand: "E"},
+			{Name: "global", Shorthand: "g"},
+			{Name: "global-style"},
+			{Name: "legacy-bundling"},
+			{Name: "legacy-peer-deps"},
+			{Name: "strict-peer-deps"},
+			{Name: "prefer-dedupe"},
+			{Name: "no-package-lock"},
+			{Name: "package-lock-only"},
+			{Name: "foreground-scripts"},
+			{Name: "ignore-scripts"},
+			{Name: "no-audit"},
+			{Name: "no-bin-links"},
+			{Name: "no-fund"},
+			{Name: "dry-run"},
+			{Name: "workspaces"},
+			{Name: "include-workspace-root"},
+			{Name: "install-links"},
+			{Name: "force", Shorthand: "f"},
+			{Name: "production"},
+			{Name: "offline"},
+			{Name: "prefer-offline"},
+			{Name: "prefer-online"},
+			{Name: "no-optional"},
+			{Name: "silent"},
+			{Name: "json"},
+		},
 		CommandName: "npm",
 	}
 }
@@ -42,6 +110,61 @@ func DefaultPnpmPackageManagerConfig() NpmPackageManagerConfig {
 			"prune", "link", "unlink",
 			"ls", "list", "outdated", "info", "view", "config", "why",
 		},
+		// pnpm accepts both letter cases for its save shorthands (-d/-D,
+		// -p/-P, -o/-O, -e/-E). The install-only --dev and --prod share -D
+		// and -P with them.
+		InstallBoolFlags: []BoolFlag{
+			{Name: "save-dev", Shorthand: "d", AltShorthand: "D"},
+			{Name: "dev"},
+			{Name: "save-prod", Shorthand: "p", AltShorthand: "P"},
+			{Name: "prod"},
+			{Name: "save-optional", Shorthand: "o", AltShorthand: "O"},
+			{Name: "save-peer"},
+			{Name: "save-exact", Shorthand: "E", AltShorthand: "e"},
+			{Name: "save-catalog"},
+			{Name: "save-workspace-protocol"},
+			{Name: "global", Shorthand: "g"},
+			{Name: "workspace"},
+			{Name: "workspace-root", Shorthand: "w"},
+			{Name: "recursive", Shorthand: "r"},
+			{Name: "silent", Shorthand: "s"},
+			{Name: "yes", Shorthand: "y"},
+			{Name: "config"},
+			{Name: "color"},
+			{Name: "no-color"},
+			{Name: "stream"},
+			{Name: "aggregate-output"},
+			{Name: "use-stderr"},
+			{Name: "fail-if-no-match"},
+			{Name: "ignore-scripts"},
+			{Name: "ignore-pnpmfile"},
+			{Name: "ignore-workspace"},
+			{Name: "offline"},
+			{Name: "prefer-offline"},
+			{Name: "frozen-lockfile"},
+			{Name: "no-frozen-lockfile"},
+			{Name: "prefer-frozen-lockfile"},
+			{Name: "fix-lockfile"},
+			{Name: "lockfile-only"},
+			{Name: "no-lockfile"},
+			{Name: "trust-lockfile"},
+			{Name: "merge-git-branch-lockfiles"},
+			{Name: "frozen-store"},
+			{Name: "force"},
+			{Name: "dry-run"},
+			{Name: "no-hoist"},
+			{Name: "shamefully-hoist"},
+			{Name: "no-optional"},
+			{Name: "no-runtime"},
+			{Name: "optimistic-repeat-install"},
+			{Name: "resolution-only"},
+			{Name: "side-effects-cache"},
+			{Name: "side-effects-cache-readonly"},
+			{Name: "strict-peer-dependencies"},
+			{Name: "no-strict-peer-dependencies"},
+			{Name: "update-checksums"},
+			{Name: "dangerously-allow-all-builds"},
+		},
 		CommandName: "pnpm",
 	}
 }
@@ -52,6 +175,35 @@ func DefaultBunPackageManagerConfig() NpmPackageManagerConfig {
 		NonDownloadCommands: []string{
 			// Removal
 			"remove", "rm",
+		},
+		InstallBoolFlags: []BoolFlag{
+			{Name: "dev", Shorthand: "d", AltShorthand: "D"},
+			{Name: "optional"},
+			{Name: "peer"},
+			{Name: "exact", Shorthand: "E"},
+			{Name: "global", Shorthand: "g"},
+			{Name: "production", Shorthand: "p"},
+			{Name: "yarn", Shorthand: "y"},
+			{Name: "force", Shorthand: "f"},
+			{Name: "analyze", Shorthand: "a"},
+			{Name: "save"},
+			{Name: "no-save"},
+			{Name: "save-text-lockfile"},
+			{Name: "lockfile-only"},
+			{Name: "frozen-lockfile"},
+			{Name: "dry-run"},
+			{Name: "no-cache"},
+			{Name: "offline"},
+			{Name: "prefer-offline"},
+			{Name: "ignore-scripts"},
+			{Name: "trust"},
+			{Name: "only-missing"},
+			{Name: "silent"},
+			{Name: "quiet"},
+			{Name: "verbose"},
+			{Name: "no-progress"},
+			{Name: "no-summary"},
+			{Name: "no-verify"},
 		},
 		CommandName: "bun",
 	}
@@ -64,8 +216,156 @@ func DefaultYarnPackageManagerConfig() NpmPackageManagerConfig {
 			"remove", "unlink",
 			"ls", "list", "outdated", "info", "config", "why",
 		},
+		// Classic (1.x) and Berry share the parser. Classic's deprecated
+		// install aliases (--save-dev, ...) reuse the add shorthands, so
+		// they are listed without one.
+		InstallBoolFlags: []BoolFlag{
+			{Name: "dev", Shorthand: "D"},
+			{Name: "peer", Shorthand: "P"},
+			{Name: "optional", Shorthand: "O"},
+			{Name: "exact", Shorthand: "E"},
+			{Name: "tilde", Shorthand: "T"},
+			{Name: "caret", Shorthand: "C"},
+			{Name: "fixed", Shorthand: "F"},
+			{Name: "interactive", Shorthand: "i"},
+			{Name: "audit", Shorthand: "A"},
+			{Name: "ignore-workspace-root-check", Shorthand: "W"},
+			{Name: "silent", Shorthand: "s"},
+			{Name: "global", Shorthand: "g"},
+			{Name: "save", Shorthand: "S"},
+			{Name: "save-dev"},
+			{Name: "save-peer"},
+			{Name: "save-optional"},
+			{Name: "save-exact"},
+			{Name: "save-tilde"},
+			{Name: "prefer-dev"},
+			{Name: "cached"},
+			{Name: "verbose"},
+			{Name: "json"},
+			{Name: "offline"},
+			{Name: "prefer-offline"},
+			{Name: "pnp"},
+			{Name: "enable-pnp"},
+			{Name: "disable-pnp"},
+			{Name: "strict-semver"},
+			{Name: "ignore-scripts"},
+			{Name: "ignore-platform"},
+			{Name: "ignore-engines"},
+			{Name: "ignore-optional"},
+			{Name: "har"},
+			{Name: "force"},
+			{Name: "skip-integrity-check"},
+			{Name: "check-files"},
+			{Name: "no-bin-links"},
+			{Name: "flat"},
+			{Name: "prod"},
+			{Name: "production"},
+			{Name: "no-lockfile"},
+			{Name: "pure-lockfile"},
+			{Name: "frozen-lockfile"},
+			{Name: "immutable"},
+			{Name: "immutable-cache"},
+			{Name: "refresh-lockfile"},
+			{Name: "check-cache"},
+			{Name: "check-resolutions"},
+			{Name: "inline-builds"},
+			{Name: "update-checksums"},
+			{Name: "link-duplicates"},
+			{Name: "no-progress"},
+			{Name: "non-interactive"},
+			{Name: "no-node-version-check"},
+			{Name: "focus"},
+			{Name: "no-default-rc"},
+		},
 		CommandName: "yarn",
 	}
+}
+
+// aubeGlobalBoolFlags are the boolean flags aube accepts before or after any
+// subcommand. The aube and aubx parsers both register them.
+var aubeGlobalBoolFlags = []BoolFlag{
+	{Name: "recursive", Shorthand: "r"},
+	{Name: "verbose", Shorthand: "v"},
+	{Name: "color"},
+	{Name: "no-color"},
+	{Name: "silent"},
+	{Name: "workspace-root"},
+	{Name: "fail-if-no-match"},
+}
+
+// aubeLockfileBoolFlags are the lockfile and virtual store flags shared by
+// aube add, install, ci and dlx.
+var aubeLockfileBoolFlags = []BoolFlag{
+	{Name: "frozen-lockfile"},
+	{Name: "no-frozen-lockfile"},
+	{Name: "prefer-frozen-lockfile"},
+	{Name: "enable-global-virtual-store"},
+	{Name: "enable-gvs"},
+	{Name: "disable-global-virtual-store"},
+	{Name: "disable-gvs"},
+}
+
+// DefaultAubePackageManagerConfig configures aube (https://aube.sh), an
+// npm-compatible package manager. Its `install` takes no package names,
+// `add` does.
+func DefaultAubePackageManagerConfig() NpmPackageManagerConfig {
+	return NpmPackageManagerConfig{
+		InstallCommands: []string{"install", "i", "add", "a", "ci", "clean-install", "ic", "install-clean"},
+		// Commands that never download a package tarball. `remove` is absent:
+		// aube re-resolves the tree after a removal. `store` is absent: `store
+		// add` downloads packages, and only the first argument is inspected.
+		NonDownloadCommands: []string{
+			// Inspection of the local tree or of registry metadata
+			"list", "ls", "why", "w", "outdated", "view", "info", "show", "v",
+			// Local operations
+			"config", "c", "cache", "link", "ln", "unlink", "dislink",
+			"pack", "prune", "rebuild", "rb", "version", "help", "doctor",
+			"bin", "root", "prefix", "completion",
+		},
+		InstallBoolFlags: slices.Concat(aubeGlobalBoolFlags, aubeLockfileBoolFlags, []BoolFlag{
+			// add
+			{Name: "save-dev", Shorthand: "D"},
+			{Name: "save-exact", Shorthand: "E"},
+			{Name: "save-optional", Shorthand: "O"},
+			{Name: "save-peer"},
+			{Name: "save-catalog"},
+			{Name: "save-workspace-protocol"},
+			{Name: "no-save-workspace-protocol"},
+			{Name: "no-save"},
+			{Name: "global", Shorthand: "g"},
+			{Name: "workspace", Shorthand: "w"},
+			{Name: "ignore-workspace-root-check", Shorthand: "W"},
+			{Name: "allow-low-downloads"},
+			{Name: "dangerously-allow-all-builds"},
+			// install and ci
+			{Name: "dev"},
+			{Name: "prod", Shorthand: "P"},
+			{Name: "ignore-scripts"},
+			{Name: "ignore-pnpmfile"},
+			{Name: "no-optional"},
+			{Name: "offline"},
+			{Name: "prefer-offline"},
+			{Name: "force"},
+			{Name: "dry-run"},
+			{Name: "lockfile-only"},
+			{Name: "fix-lockfile"},
+			{Name: "merge-git-branch-lockfiles"},
+			{Name: "shamefully-hoist"},
+			{Name: "side-effects-cache"},
+			{Name: "no-side-effects-cache"},
+			{Name: "verify-store-integrity"},
+			{Name: "no-verify-store-integrity"},
+		}),
+		CommandName: "aube",
+	}
+}
+
+// DefaultAubrPackageManagerConfig configures aubr, the aube shorthand for
+// `aube run`. A script run installs missing or stale dependencies first, so
+// every aubr command may download packages and no argument is an install
+// command or a package name.
+func DefaultAubrPackageManagerConfig() NpmPackageManagerConfig {
+	return NpmPackageManagerConfig{CommandName: "aubr"}
 }
 
 type npmPackageManager struct {
@@ -126,39 +426,19 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 	// Extract arguments after the install command
 	installArgs := args[installCmdIndex+1:]
 
-	// Extract packages from args
-	var packages []string
-	var isManifestInstall bool
-	var devPackages []string
-
 	flagSet := pflag.NewFlagSet(npm.Config.CommandName, pflag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
 	flagSet.ParseErrorsAllowlist.UnknownFlags = true
 
-	switch npm.Config.CommandName {
-	case "npm", "pnpm":
-		flagSet.StringArrayVarP(&devPackages, "save-dev", "D", nil, "Install dev packages")
-	case "bun":
-		flagSet.StringArrayVarP(&devPackages, "dev", "d", nil, "Install dev packages")
-	case "yarn":
-		flagSet.StringArrayVarP(&devPackages, "dev", "D", nil, "Install dev packages")
-	}
+	registerBoolFlags(flagSet, npm.Config.InstallBoolFlags)
 
-	// Known only to prevent UnknownFlags mode from swallowing the next package arg.
-	flagSet.BoolP("global", "g", false, "Install packages globally")
-
-	err := flagSet.Parse(installArgs)
-	if err != nil {
+	if err := flagSet.Parse(installArgs); err != nil {
 		return &ParsedCommand{Command: command}, nil
 	}
 
-	packages = flagSet.Args()
-
-	// If install command was found but no explicit packages,
-	// this is a manifest-based installation
-	if installCmdIndex != -1 && len(packages) == 0 {
-		isManifestInstall = true
-	}
+	// An install command without explicit packages installs from the manifest
+	packages := flagSet.Args()
+	isManifestInstall := len(packages) == 0
 
 	// Yarn-specific validation: yarn install does not accept package names
 	if npm.Config.CommandName == "yarn" && args[installCmdIndex] == "install" && len(packages) > 0 {
@@ -166,14 +446,6 @@ func (npm *npmPackageManager) ParseCommand(args []string) (*ParsedCommand, error
 			Command: command,
 		}, nil
 	}
-
-	// No packages found and not a manifest install
-	if len(packages) == 0 && !isManifestInstall {
-		return &ParsedCommand{
-			Command: command,
-		}, nil
-	}
-	packages = append(packages, devPackages...)
 
 	// Process all package arguments
 	var installTargets []*PackageInstallTarget

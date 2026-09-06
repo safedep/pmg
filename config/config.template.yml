@@ -160,6 +160,20 @@ sandbox:
       enabled: true
       profile: bun
 
+    aube:
+      enabled: true
+      profile: aube
+
+    # aubr is the aube shorthand for `aube run`. It shares the aube profile.
+    aubr:
+      enabled: true
+      profile: aube
+
+    # aubx is the aube shorthand for `aube dlx`.
+    aubx:
+      enabled: true
+      profile: aubx
+
     # PyPI ecosystem. pypi-restrictive is the shared base profile; each
     # package manager maps to a leaf profile that re-allows only its own
     # environment variables.

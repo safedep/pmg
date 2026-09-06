@@ -1,0 +1,55 @@
+name: aube
+description: Profile for aube and aubr, extending npm-restrictive with the aube store, lockfile paths and environment variables
+inherits: npm-restrictive
+
+package_managers:
+  - aube
+  - aubr
+
+environment:
+  # The npm-restrictive base allows no environment variables. aube uses the
+  # npm auth and config conventions (.npmrc with env interpolation,
+  # npm_config_*) and loads NODE_EXTRA_CA_CERTS into its TLS client. Sibling
+  # tokens (YARN_NPM_AUTH_*, BUN_AUTH_TOKEN) stay scrubbed.
+  allow:
+    - NPM_TOKEN
+    - NPM_AUTH_TOKEN
+    - NODE_AUTH_TOKEN
+    - npm_config_*
+    - NPM_CONFIG_*
+    - NODE_EXTRA_CA_CERTS
+
+filesystem:
+  allow_read:
+    # aube content-addressable store and global installs (XDG data dir) and
+    # its metadata cache and global virtual store (XDG cache dir). aube uses
+    # these paths on every platform.
+    - ${HOME}/.local/share/aube/**
+    - ${HOME}/.cache/aube/**
+
+  allow_write:
+    - ${HOME}/.local/share/aube/**
+    - ${HOME}/.cache/aube/**
+
+    # The whole project tree. aube writes package.json and every lockfile
+    # through a sibling temp file and a rename. The rename needs create and
+    # remove access on the directory, and Landlock grants access per
+    # subtree only. Workspaces also get a node_modules in every package,
+    # and Landlock accepts one ** per pattern. The base profile still
+    # denies ${CWD}/.env and ${CWD}/.env.*.
+    - ${CWD}/**
+
+network:
+  allow_outbound:
+    # aube's own supply-chain checks: OSV malicious-package advisories and
+    # weekly download counts.
+    - api.osv.dev:443
+    - api.npmjs.org:443
+    - osv-vulnerabilities.storage.googleapis.com:443
+
+process:
+  allow_exec:
+    # With the global virtual store, node_modules entries link into the aube
+    # cache, so package binaries execute from there.
+    - ${HOME}/.local/share/aube/**
+    - ${HOME}/.cache/aube/**

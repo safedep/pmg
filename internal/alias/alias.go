@@ -121,7 +121,7 @@ func DefaultConfig() AliasConfig {
 
 	return AliasConfig{
 		RcFileName:      RcFileName,
-		PackageManagers: []string{"npm", "pip", "pip3", "pipx", "pnpm", "bun", "uv", "uvx", "yarn", "poetry", "npx", "pnpx"},
+		PackageManagers: []string{"npm", "pip", "pip3", "pipx", "pnpm", "bun", "uv", "uvx", "yarn", "poetry", "npx", "pnpx", "aube", "aubr", "aubx"},
 		Shells:          shells,
 	}
 }

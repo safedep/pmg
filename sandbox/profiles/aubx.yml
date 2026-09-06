@@ -1,0 +1,57 @@
+name: aubx
+description: Profile for aubx (aube dlx) generators with write access to current directory and the aube store
+inherits: npm-restrictive
+
+package_managers:
+  - aubx
+
+# aubx runs generators such as `aubx create-vite my-app`, which need a PTY.
+allow_pty: true
+
+# Generators and dev servers frequently need to bind to localhost ports.
+allow_network_bind: true
+
+environment:
+  # The npm-restrictive base allows no environment variables. aubx executes
+  # npm-ecosystem packages and uses the npm auth and config conventions.
+  # Sibling tokens (YARN_NPM_AUTH_*, BUN_AUTH_TOKEN) stay scrubbed.
+  allow:
+    - NPM_TOKEN
+    - NPM_AUTH_TOKEN
+    - NODE_AUTH_TOKEN
+    - npm_config_*
+    - NPM_CONFIG_*
+    - NODE_EXTRA_CA_CERTS
+
+filesystem:
+  allow_read:
+    # aube content-addressable store (XDG data dir) and its metadata cache,
+    # dlx cache and global virtual store (XDG cache dir).
+    - ${HOME}/.local/share/aube/**
+    - ${HOME}/.cache/aube/**
+
+  allow_write:
+    - ${HOME}/.local/share/aube/**
+    - ${HOME}/.cache/aube/**
+
+    # Generator outputs
+    - ${CWD}/**
+
+  deny_write:
+    - ${CWD}/.env
+    - ${CWD}/.env.*
+
+network:
+  allow_outbound:
+    # aube's own supply-chain checks: OSV malicious-package advisories and
+    # weekly download counts.
+    - api.osv.dev:443
+    - api.npmjs.org:443
+    - osv-vulnerabilities.storage.googleapis.com:443
+
+process:
+  allow_exec:
+    # dlx materializes the package in the aube cache and runs its binary
+    # from there.
+    - ${HOME}/.local/share/aube/**
+    - ${HOME}/.cache/aube/**
