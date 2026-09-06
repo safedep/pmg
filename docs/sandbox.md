@@ -162,6 +162,19 @@ Run sandbox with custom policy file:
 pmg --sandbox --sandbox-profile=/path/to/custom-policy.yml npm install express
 ```
 
+A profile grants a package manager store or cache under `${HOME}` only when that directory
+exists. On a first run the package manager has not created it yet, so the sandboxed command
+fails when it tries to. Run the package manager once outside the sandbox, or create the
+directories by hand. For aube:
+
+```bash
+mkdir -p ~/.local/share/aube ~/.cache/aube
+```
+
+The aube profile uses these default paths. `XDG_DATA_HOME`, `AUBE_STORE_DIR` and
+`AUBE_CACHE_DIR` move them, and the profile then denies the new location. Add the new paths
+with `--sandbox-allow write=...` or a project overlay.
+
 ### Sandbox Profile Commands
 
 Use profile commands to inspect, create, and validate sandbox profiles.

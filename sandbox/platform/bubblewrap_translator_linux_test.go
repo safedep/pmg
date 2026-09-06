@@ -908,6 +908,31 @@ func TestBubblewrapKeepsFileBindWithoutWritableParent(t *testing.T) {
 	assertNoWriteBind(t, args, projectDir)
 }
 
+// A globstar base that does not exist gets no mount, so a file rule below it
+// must keep its own bind instead of being skipped as covered.
+func TestBubblewrapKeepsFileBindUnderMissingGlobstarBase(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+
+	missingStore := filepath.Join(projectDir, "store")
+	lockfile := filepath.Join(missingStore, "lock.yaml")
+
+	translator := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig())
+	policy := &sandbox.SandboxPolicy{
+		Name: "test-missing-globstar-base",
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{projectDir + "/**"},
+			AllowWrite: []string{missingStore + "/**", lockfile},
+		},
+	}
+
+	args, err := translator.translate(policy)
+	require.NoError(t, err)
+
+	assertWriteBind(t, args, missingStore)
+	assertWriteBind(t, args, lockfile)
+}
+
 // TestGlobNoFallbackSmallPattern tests that small patterns don't trigger fallback
 func TestGlobNoFallbackSmallPattern(t *testing.T) {
 	tmpDir := t.TempDir()

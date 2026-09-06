@@ -15,7 +15,8 @@ const proxyNoProxyList = "localhost,127.0.0.1,::1"
 // the supported package managers through the proxy at proxyAddr and make them
 // trust its MITM CA at certPath. It encodes per-package-manager quirks: yarn
 // Berry ignores HTTP_PROXY and needs YARN_* (#319); pip/requests and Node each
-// read their own CA-bundle var; cargo's libcurl reads only CARGO_HTTP_CAINFO.
+// read their own CA-bundle var; cargo's libcurl reads only CARGO_HTTP_CAINFO;
+// npm and aube let npm_config_* and ~/.npmrc override HTTPS_PROXY.
 //
 // The cert-path variables are always emitted, never skipped based on OS
 // trust-store status. Whether a tool trusts the OS store varies by tool,
@@ -38,6 +39,16 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		fmt.Sprintf("NO_PROXY=%s", proxyNoProxyList),
 		fmt.Sprintf("no_proxy=%s", proxyNoProxyList),
 		fmt.Sprintf("PIP_PROXY=%s", proxyURL),
+		// npm-family clients (npm, aube) read npm config before the standard
+		// proxy vars: npm_config_* in the environment beats HTTPS_PROXY and
+		// the user ~/.npmrc, and a noproxy entry sends registry traffic
+		// around the proxy. Both letter cases are read, so both are set.
+		fmt.Sprintf("npm_config_proxy=%s", proxyURL),
+		fmt.Sprintf("npm_config_https_proxy=%s", proxyURL),
+		fmt.Sprintf("npm_config_noproxy=%s", proxyNoProxyList),
+		fmt.Sprintf("NPM_CONFIG_PROXY=%s", proxyURL),
+		fmt.Sprintf("NPM_CONFIG_HTTPS_PROXY=%s", proxyURL),
+		fmt.Sprintf("NPM_CONFIG_NOPROXY=%s", proxyNoProxyList),
 		fmt.Sprintf("YARN_HTTP_PROXY=%s", proxyURL),
 		fmt.Sprintf("YARN_HTTPS_PROXY=%s", proxyURL),
 		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", certPath),

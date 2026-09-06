@@ -83,7 +83,7 @@ jobs:
 
       - name: Setup aube
         run: |
-          npm install -g --ignore-scripts=false @endevco/aube
+          npm install -g --ignore-scripts=false @endevco/aube@2.2.4
           aube --version
 
       - name: Setup uv

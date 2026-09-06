@@ -94,6 +94,18 @@
   tier: P1
   guarantee: "aubr installs missing dependencies before the script runs; a dependency with a malware verdict is never installed and the script never runs."
   labels: [malware, block, community]
+- id: npm/guard/npm-config-proxy-override
+  title: "npm config proxy settings cannot route npm around PMG"
+  category: npm
+  tier: P0
+  guarantee: "npm_config_https_proxy and npm_config_noproxy in the environment are overridden, so a malicious package is still blocked."
+  labels: [malware, block, bypass, proxy]
+- id: aube/guard/npm-config-proxy-override
+  title: "npm config proxy settings cannot route aube around PMG"
+  category: aube
+  tier: P0
+  guarantee: "npm_config_https_proxy and npm_config_noproxy in the environment are overridden, so a malicious package is still blocked."
+  labels: [malware, block, bypass, proxy]
 - id: npm/insecure/bypass-warns
   title: "insecure mode installs but warns that protection is bypassed"
   category: npm
