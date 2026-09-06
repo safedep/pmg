@@ -40,7 +40,7 @@ filesystem_rules (16):
   - path: /tmp
     access: write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
 
-deny_paths (38):
+deny_paths (40):
   - path: /src/sandbox/platform/.env
     mode: both
   - path: /root/.env
@@ -116,6 +116,10 @@ deny_paths (38):
   - path: /src/sandbox/platform/.vscode
     mode: write
   - path: /root/.vscode
+    mode: write
+  - path: /src/sandbox/platform/.git
+    mode: write
+  - path: /root/.git
     mode: write
 
 deny_exec_paths (1):

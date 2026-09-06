@@ -25,8 +25,10 @@ const (
 	pathOpRename                     // rename, renameat, renameat2
 	pathOpLink                       // link, linkat
 	pathOpRemove                     // unlink, unlinkat, rmdir
-	pathOpCreate                     // mkdir, mkdirat, symlink, symlinkat
+	pathOpCreate                     // mkdir, mkdirat, mknod, mknodat
+	pathOpSymlink                    // symlink, symlinkat
 	pathOpTruncate                   // truncate
+	pathOpChroot                     // chroot, always denied
 )
 
 // pathOperand locates one path operand in the syscall arguments. A dirfd
@@ -71,8 +73,10 @@ func buildPathSyscalls() map[uint32]pathSyscall {
 		unix.SYS_LINKAT:    {name: "linkat", kind: pathOpLink, src: pathOperand{dirfd: 0, path: 1}, dst: pathOperand{dirfd: 2, path: 3}, flags: 4},
 		unix.SYS_UNLINKAT:  {name: "unlinkat", kind: pathOpRemove, src: pathOperand{dirfd: 0, path: 1}, flags: 2},
 		unix.SYS_MKDIRAT:   {name: "mkdirat", kind: pathOpCreate, src: pathOperand{dirfd: 0, path: 1}, flags: -1},
-		unix.SYS_SYMLINKAT: {name: "symlinkat", kind: pathOpCreate, src: pathOperand{dirfd: 1, path: 2}, flags: -1},
+		unix.SYS_MKNODAT:   {name: "mknodat", kind: pathOpCreate, src: pathOperand{dirfd: 0, path: 1}, flags: -1},
+		unix.SYS_SYMLINKAT: {name: "symlinkat", kind: pathOpSymlink, src: pathOperand{dirfd: 1, path: 2}, flags: -1},
 		unix.SYS_TRUNCATE:  {name: "truncate", kind: pathOpTruncate, src: pathOperand{dirfd: -1, path: 0}, flags: -1},
+		unix.SYS_CHROOT:    {name: "chroot", kind: pathOpChroot, src: pathOperand{dirfd: -1, path: 0}, flags: -1},
 	}
 	for nr, op := range archPathSyscalls() {
 		table[nr] = op
@@ -300,26 +304,37 @@ func matchDeniedMove(src, dst string, exchange bool, denyPaths []denyPathEntry) 
 	return denyPathEntry{}, "", false
 }
 
+// openat2Args are the fields of struct open_how the supervisor acts on.
+type openat2Args struct {
+	flags   int
+	resolve uint64
+}
+
 // readSyscallFlags returns the flags argument of a path syscall, reading
-// struct open_how from process memory for openat2. A failed read yields the
-// syscall's implied flags, which for openat2 means read-only and follow.
-func readSyscallFlags(op pathSyscall, args [6]uint64, memFd *os.File) int {
+// struct open_how from process memory for openat2. A failed open_how read
+// fails open like every other unreadable process state: the open is
+// matched as a read-only open in the caller's root, so a write deny does
+// not fire on it.
+func readSyscallFlags(op pathSyscall, args [6]uint64, memFd *os.File) openat2Args {
 	if op.flags < 0 {
-		return op.fixedFlags
+		return openat2Args{flags: op.fixedFlags}
 	}
 	if !op.openHow {
-		return int(args[op.flags])
+		return openat2Args{flags: int(args[op.flags])}
 	}
 	if memFd == nil {
-		return op.fixedFlags
+		return openat2Args{flags: op.fixedFlags}
 	}
 
 	// struct open_how { u64 flags; u64 mode; u64 resolve; }
-	buf := make([]byte, 8)
+	buf := make([]byte, unix.SizeofOpenHow)
 	if _, err := memFd.ReadAt(buf, int64(args[op.flags])); err != nil {
-		return op.fixedFlags
+		return openat2Args{flags: op.fixedFlags}
 	}
-	return int(binary.LittleEndian.Uint64(buf))
+	return openat2Args{
+		flags:   int(binary.LittleEndian.Uint64(buf[0:8])),
+		resolve: binary.LittleEndian.Uint64(buf[16:24]),
+	}
 }
 
 // openAccessFlags returns the flags an open is matched with. O_CREAT and
@@ -339,7 +354,7 @@ func followsLeaf(op pathSyscall, operand pathOperand, flags int) bool {
 	switch op.kind {
 	case pathOpOpen:
 		return flags&unix.O_NOFOLLOW == 0
-	case pathOpTruncate:
+	case pathOpTruncate, pathOpChroot:
 		return true
 	case pathOpLink:
 		return operand == op.src && flags&unix.AT_SYMLINK_FOLLOW != 0
@@ -349,8 +364,10 @@ func followsLeaf(op pathSyscall, operand pathOperand, flags int) bool {
 }
 
 // resolveOperand reads one path operand from the notifying process and
-// canonicalizes it.
-func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os.File, operand pathOperand, followLeaf bool) (string, error) {
+// canonicalizes it. With RESOLVE_IN_ROOT (openat2) the kernel treats an
+// absolute path as relative to dirfd, so the leading slash is dropped
+// before the path is anchored there.
+func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os.File, operand pathOperand, followLeaf bool, resolve uint64) (string, error) {
 	rawPath, err := readPathFromMem(memFd, uintptr(notif.Data.Args[operand.path]))
 	if err != nil {
 		return "", err
@@ -361,7 +378,17 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 		dirfd = dirfdFromArgs(notif.Data.Args[operand.dirfd])
 	}
 
-	return resolveNotifPath(notif.PID, dirfd, rawPath, followLeaf)
+	return resolveNotifPath(notif.PID, dirfd, anchorInRoot(rawPath, resolve), followLeaf)
+}
+
+// anchorInRoot applies openat2's RESOLVE_IN_ROOT: an absolute path is
+// interpreted relative to dirfd, so its leading slash goes. RESOLVE_BENEATH
+// needs nothing, the kernel rejects an absolute path under it.
+func anchorInRoot(rawPath string, resolve uint64) string {
+	if resolve&unix.RESOLVE_IN_ROOT != 0 {
+		return strings.TrimLeft(rawPath, "/")
+	}
+	return rawPath
 }
 
 // handlePathOp enforces the deny list for one trapped path syscall. Every
@@ -378,12 +405,13 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	}
 	defer closeMemFd(memFd)
 
-	flags := readSyscallFlags(op, notif.Data.Args, memFd)
+	args := readSyscallFlags(op, notif.Data.Args, memFd)
+	flags := args.flags
 	if op.kind == pathOpOpen {
 		flags = openAccessFlags(flags)
 	}
 
-	src, err := s.resolveOperand(notif, memFd, op.src, followsLeaf(op, op.src, flags))
+	src, err := s.resolveOperand(notif, memFd, op.src, followsLeaf(op, op.src, flags), args.resolve)
 	if err != nil {
 		s.continueSyscall(notif.ID)
 		return
@@ -401,14 +429,31 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 		entry, denied = matchDeniedPath(src, unix.O_WRONLY, phase.denyPaths)
 	case pathOpRemove, pathOpCreate:
 		entry, denied = matchDeniedWriteTarget(src, false, phase.denyPaths)
+	case pathOpSymlink:
+		// A symlink planted at an ancestor of a protected path (.github
+		// when it does not exist yet) would redirect the whole subtree.
+		entry, denied = matchDeniedWriteTarget(src, true, phase.denyPaths)
 	case pathOpRename, pathOpLink:
-		dst, err := s.resolveOperand(notif, memFd, op.dst, followsLeaf(op, op.dst, flags))
+		dst, err := s.resolveOperand(notif, memFd, op.dst, followsLeaf(op, op.dst, flags), args.resolve)
 		if err != nil {
 			s.continueSyscall(notif.ID)
 			return
 		}
 		exchange := op.kind == pathOpRename && flags&unix.RENAME_EXCHANGE != 0
 		entry, target, denied = matchDeniedMove(src, dst, exchange, phase.denyPaths)
+	case pathOpChroot:
+		// Landlock does not hook chroot, and root in the user namespace
+		// keeps CAP_SYS_CHROOT. A new root would make every absolute path
+		// the supervisor sees mean something else, so chroot is refused.
+		entry, denied = denyPathEntry{Path: src, Mode: denyWrite}, true
+	}
+
+	// The process state read above belongs to the notifying task only while
+	// the notification is live. A recycled pid must not be judged on another
+	// process's cwd or fds.
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
+		return
 	}
 
 	if !denied {
@@ -441,12 +486,23 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 }
 
 // resolveNotifPath turns a syscall path operand into a canonical absolute
-// path. A relative path is anchored at /proc/<pid>/cwd or the dirfd's
-// /proc/<pid>/fd entry (readlinkat is not intercepted). An empty path with
-// a dirfd names the dirfd itself (AT_EMPTY_PATH).
+// path as the supervisor sees the filesystem. A relative path is anchored
+// at /proc/<pid>/cwd or the dirfd's /proc/<pid>/fd entry, and an absolute
+// path at /proc/<pid>/root, which is not "/" once the process has changed
+// its root (readlinkat is not intercepted, and /proc reports every link
+// against the reader's root). An empty path with a dirfd names the dirfd
+// itself (AT_EMPTY_PATH).
 func resolveNotifPath(pid uint32, dirfd int, rawPath string, followLeaf bool) (string, error) {
 	joined := rawPath
-	if !filepath.IsAbs(rawPath) {
+	if filepath.IsAbs(rawPath) {
+		root, err := os.Readlink(fmt.Sprintf("/proc/%d/root", pid))
+		if err != nil {
+			return "", fmt.Errorf("readlink /proc/%d/root: %w", pid, err)
+		}
+		if root != "/" {
+			joined = root + rawPath
+		}
+	} else {
 		var base string
 		if dirfd == -100 {
 			cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))

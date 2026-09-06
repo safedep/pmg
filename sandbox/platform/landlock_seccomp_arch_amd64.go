@@ -27,6 +27,7 @@ func archPathSyscalls() map[uint32]pathSyscall {
 		unix.SYS_UNLINK:   {name: "unlink", kind: pathOpRemove, src: pathOperand{dirfd: -1, path: 0}, flags: -1},
 		unix.SYS_RMDIR:    {name: "rmdir", kind: pathOpRemove, src: pathOperand{dirfd: -1, path: 0}, flags: -1},
 		unix.SYS_MKDIR:    {name: "mkdir", kind: pathOpCreate, src: pathOperand{dirfd: -1, path: 0}, flags: -1},
-		unix.SYS_SYMLINK:  {name: "symlink", kind: pathOpCreate, src: pathOperand{dirfd: -1, path: 1}, flags: -1},
+		unix.SYS_MKNOD:    {name: "mknod", kind: pathOpCreate, src: pathOperand{dirfd: -1, path: 0}, flags: -1},
+		unix.SYS_SYMLINK:  {name: "symlink", kind: pathOpSymlink, src: pathOperand{dirfd: -1, path: 1}, flags: -1},
 	}
 }

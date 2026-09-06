@@ -164,7 +164,8 @@ func TestSeccompPathSyscalls_Coverage(t *testing.T) {
 	trapped := landlockNotifySyscalls(landlockNetworkPolicy{}, true)
 	for _, nr := range []uint32{
 		unix.SYS_OPENAT, unix.SYS_OPENAT2, unix.SYS_RENAMEAT2, unix.SYS_LINKAT,
-		unix.SYS_UNLINKAT, unix.SYS_MKDIRAT, unix.SYS_SYMLINKAT, unix.SYS_TRUNCATE,
+		unix.SYS_UNLINKAT, unix.SYS_MKDIRAT, unix.SYS_MKNODAT, unix.SYS_SYMLINKAT,
+		unix.SYS_TRUNCATE, unix.SYS_CHROOT,
 	} {
 		assert.Contains(t, trapped, nr, "syscall %d (%s) must be trapped", nr, syscallName(int32(nr)))
 	}
@@ -186,6 +187,12 @@ func TestSeccompPathSyscalls_Coverage(t *testing.T) {
 	assert.True(t, sort.SliceIsSorted(pathSyscallNumbers(), func(i, j int) bool {
 		return pathSyscallNumbers()[i] < pathSyscallNumbers()[j]
 	}))
+
+	// The BPF jump offset is a byte.
+	full := landlockNotifySyscalls(landlockNetworkPolicy{Lockdown: true}, true)
+	assert.Less(t, len(full), 200)
+	assert.NotPanics(t, func() { landlockBuildNotifyFilter(full...) })
+	assert.Panics(t, func() { landlockBuildNotifyFilter(make([]uint32, 256)...) })
 }
 
 func TestPathOpKindForSyscall(t *testing.T) {
@@ -199,8 +206,10 @@ func TestPathOpKindForSyscall(t *testing.T) {
 		{"linkat", pathOpLink, true},
 		{"unlinkat", pathOpRemove, true},
 		{"mkdirat", pathOpCreate, true},
-		{"symlinkat", pathOpCreate, true},
+		{"mknodat", pathOpCreate, true},
+		{"symlinkat", pathOpSymlink, true},
 		{"truncate", pathOpTruncate, true},
+		{"chroot", pathOpChroot, true},
 		{"execve", 0, false},
 	}
 	for _, tc := range tests {
@@ -360,6 +369,8 @@ func TestFollowsLeaf(t *testing.T) {
 	assert.True(t, followsLeaf(link, link.src, unix.AT_SYMLINK_FOLLOW))
 	assert.False(t, followsLeaf(link, link.dst, unix.AT_SYMLINK_FOLLOW))
 	assert.False(t, followsLeaf(rename, rename.src, 0))
+	assert.True(t, followsLeaf(seccompPathSyscalls[unix.SYS_CHROOT], pathOperand{dirfd: -1, path: 0}, 0))
+	assert.False(t, followsLeaf(seccompPathSyscalls[unix.SYS_SYMLINKAT], pathOperand{dirfd: 1, path: 2}, 0))
 }
 
 func TestDenyMode_Values(t *testing.T) {
@@ -719,12 +730,14 @@ func TestReadPathFromMem_Offset(t *testing.T) {
 }
 
 func TestResolveNotifPath_Absolute(t *testing.T) {
-	// Absolute paths need no /proc lookup, whatever the dirfd or pid.
-	result, err := resolveNotifPath(1, -100, "/nonexistent-pmg/user/.env", true)
+	// An absolute path is anchored at the process root, which is "/" here,
+	// so the dirfd plays no part.
+	pid := uint32(os.Getpid())
+	result, err := resolveNotifPath(pid, 12345, "/nonexistent-pmg/user/.env", true)
 	require.NoError(t, err)
 	assert.Equal(t, "/nonexistent-pmg/user/.env", result)
 
-	result, err = resolveNotifPath(1, -100, "/nonexistent-pmg/user/../user/.env", true)
+	result, err = resolveNotifPath(pid, -100, "/nonexistent-pmg/user/../user/.env", true)
 	require.NoError(t, err)
 	assert.Equal(t, "/nonexistent-pmg/user/.env", result)
 }
@@ -1019,16 +1032,53 @@ func TestReadSyscallFlags(t *testing.T) {
 	renameat2 := seccompPathSyscalls[unix.SYS_RENAMEAT2]
 	mkdirat := seccompPathSyscalls[unix.SYS_MKDIRAT]
 
-	assert.Equal(t, unix.O_WRONLY|unix.O_CREAT, readSyscallFlags(openat, [6]uint64{0, 0, uint64(unix.O_WRONLY | unix.O_CREAT)}, nil))
-	assert.Equal(t, unix.RENAME_EXCHANGE, readSyscallFlags(renameat2, [6]uint64{0, 0, 0, 0, unix.RENAME_EXCHANGE}, nil))
-	assert.Equal(t, 0, readSyscallFlags(mkdirat, [6]uint64{0, 0, 0x777}, nil), "no flags argument")
-	assert.Equal(t, unix.O_RDONLY, readSyscallFlags(openat2, [6]uint64{0, 0, 0x1234}, nil), "unreadable open_how defaults to read-only")
+	assert.Equal(t, openat2Args{flags: unix.O_WRONLY | unix.O_CREAT}, readSyscallFlags(openat, [6]uint64{0, 0, uint64(unix.O_WRONLY | unix.O_CREAT)}, nil))
+	assert.Equal(t, openat2Args{flags: unix.RENAME_EXCHANGE}, readSyscallFlags(renameat2, [6]uint64{0, 0, 0, 0, unix.RENAME_EXCHANGE}, nil))
+	assert.Equal(t, openat2Args{}, readSyscallFlags(mkdirat, [6]uint64{0, 0, 0x777}, nil), "no flags argument")
+	assert.Equal(t, openat2Args{flags: unix.O_RDONLY}, readSyscallFlags(openat2, [6]uint64{0, 0, 0x1234}, nil), "unreadable open_how defaults to read-only")
 
 	for nr, op := range archPathSyscalls() {
 		if op.name == "creat" {
-			assert.Equal(t, unix.O_WRONLY|unix.O_CREAT|unix.O_TRUNC, readSyscallFlags(op, [6]uint64{}, nil), "syscall %d", nr)
+			assert.Equal(t, openat2Args{flags: unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC}, readSyscallFlags(op, [6]uint64{}, nil), "syscall %d", nr)
 		}
 	}
+}
+
+// readSyscallFlags must read the resolve field of struct open_how, not only
+// the flags: RESOLVE_IN_ROOT changes what an absolute path means.
+func TestReadSyscallFlags_Openat2ReadsResolve(t *testing.T) {
+	var how [unix.SizeofOpenHow]byte
+	binary.LittleEndian.PutUint64(how[0:8], uint64(unix.O_WRONLY))
+	binary.LittleEndian.PutUint64(how[16:24], unix.RESOLVE_IN_ROOT)
+
+	memFd, err := os.Open(fmt.Sprintf("/proc/%d/mem", os.Getpid()))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, memFd.Close()) })
+
+	openat2 := seccompPathSyscalls[unix.SYS_OPENAT2]
+	got := readSyscallFlags(openat2, [6]uint64{0, 0, uint64(uintptr(unsafe.Pointer(&how[0])))}, memFd)
+	runtime.KeepAlive(&how)
+	assert.Equal(t, openat2Args{flags: unix.O_WRONLY, resolve: unix.RESOLVE_IN_ROOT}, got)
+}
+
+func TestAnchorInRoot(t *testing.T) {
+	assert.Equal(t, ".env", anchorInRoot("/.env", unix.RESOLVE_IN_ROOT))
+	assert.Equal(t, "a/.env", anchorInRoot("//a/.env", unix.RESOLVE_IN_ROOT))
+	assert.Equal(t, "/.env", anchorInRoot("/.env", 0))
+	assert.Equal(t, "/.env", anchorInRoot("/.env", unix.RESOLVE_BENEATH))
+	assert.Equal(t, "rel", anchorInRoot("rel", unix.RESOLVE_IN_ROOT))
+}
+
+func TestResolveNotifPath_UsesProcessRoot(t *testing.T) {
+	// The test process has the supervisor's root, so /proc/self/root is "/"
+	// and an absolute path resolves unchanged. A chrooted target reports its
+	// root there and gets its absolute paths anchored under it.
+	got, err := resolveNotifPath(uint32(os.Getpid()), -100, "/nonexistent-pmg/.env", true)
+	require.NoError(t, err)
+	assert.Equal(t, "/nonexistent-pmg/.env", got)
+
+	_, err = resolveNotifPath(4294967295, -100, "/.env", true)
+	assert.Error(t, err, "an unreadable root must not fall back to the supervisor's root")
 }
 
 func TestPathCoveredBy_Glob(t *testing.T) {

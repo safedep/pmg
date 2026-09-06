@@ -226,6 +226,27 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 		assert.NotContains(t, r.DenyRead, cwdWorkflows)
 	})
 
+	t.Run("git dir is write-denied unless allow_git_config", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+		cwdGit := filepath.Join(cwd, ".git")
+
+		r := GetMandatoryDenyPatterns(emptyOpts())
+		assert.Contains(t, r.DenyWrite, cwdGit)
+		assert.Contains(t, r.DenyWrite, filepath.Join(home, ".git"))
+		assert.NotContains(t, r.DenyRead, cwdGit)
+
+		r = GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowGitConfig: true})
+		assert.NotContains(t, r.DenyWrite, cwdGit)
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/hooks"), "hooks stay denied")
+
+		r = GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowWrite: []string{cwdGit}})
+		assert.NotContains(t, r.DenyWrite, cwdGit)
+		assert.Contains(t, r.SuppressedWrite, cwdGit)
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/hooks"), "the git preset opt-out keeps hooks denied")
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/config"))
+	})
+
 	t.Run("auto-exec dirs are write-only and root-scoped", func(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)

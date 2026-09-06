@@ -182,6 +182,8 @@ func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
 		return sandbox.ViolationKindFSWrite
 	case pathOpRename, pathOpLink, pathOpRemove:
 		return sandbox.ViolationKindFSDeleteOrRename
+	case pathOpChroot:
+		return sandbox.ViolationKindGenericDeny
 	default:
 		return sandbox.ViolationKindFSWrite
 	}

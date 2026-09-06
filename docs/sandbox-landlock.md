@@ -136,6 +136,13 @@ forms exist only on amd64. The rules per operation:
   is denied when it is a write-denied entry, below one, or an ancestor of any
   entry (a prepared tree renamed onto `.git` replaces `.git/hooks`).
   `RENAME_EXCHANGE` applies the source rule to both paths.
+- A symlink is denied at the same places as a rename destination. A link
+  planted at `${CWD}/.github` before the directory exists would redirect
+  `.github/workflows` elsewhere. `mkdir` and `mknod` are denied only at or
+  below a write-denied entry, or `git init` could not create `.git`.
+- `chroot` is always denied. Landlock does not hook it, root in the user
+  namespace keeps `CAP_SYS_CHROOT`, and a new root would change what every
+  absolute path means.
 
 The supervisor canonicalizes every path before the match. It resolves the
 path component by component like the kernel does: a symlink is followed
@@ -144,6 +151,15 @@ before the components after it, `..` applies to the symlink target, and
 component is followed for open and truncate, and kept for the syscalls that
 act on the link itself. Without this a process could read `${CWD}/.env`
 through `ln -s .env x` or through `/proc/self/cwd/.env`.
+
+Every path is read as the supervisor sees the filesystem. An absolute path
+is anchored at `/proc/<pid>/root`, a relative one at `/proc/<pid>/cwd` or
+the dirfd, and `openat2` with `RESOLVE_IN_ROOT` drops the leading slash so
+the path is anchored at the dirfd, as the kernel does. The supervisor reads
+the full `struct open_how` for that. After it has read any `/proc/<pid>`
+state and before it answers, it checks `SECCOMP_IOCTL_NOTIF_ID_VALID` so a
+recycled pid is never judged on another process's cwd or fds. A stale
+notification is denied.
 
 The deny list is matched in both forms. `Enforce` adds the canonical form of
 every deny entry next to its lexical form, so `~/.ssh` still matches when
@@ -165,7 +181,9 @@ that enters 32-bit mode (`int 0x80`) or uses the x32 ABI would issue `openat`
 under a number the filter does not trap. The filter checks `seccomp_data.arch`
 against the native arch and, on amd64, the x32 bit in the number, and returns
 `SECCOMP_RET_KILL_PROCESS` for both. Package managers do not ship 32-bit
-helpers, so nothing legitimate is lost.
+helpers, so nothing legitimate is lost. The kill happens in the kernel, so
+the supervisor never sees it: the process ends with `SIGKILL` and the
+violation summary has no entry for it.
 
 ### Network lockdown (`network_via_proxy_only`)
 
@@ -278,6 +296,16 @@ constant tax that maps to most of the decisions above:
   rewrite the path bytes in its memory, or swap a symlink on disk, after the
   supervisor read them and before the kernel resolves the path. Adequate for
   benign install scripts; not a hardened defense.
+- **`**/<file>` mandatory denies are inert on this driver.** A pattern with no
+  base directory cannot be expanded and cannot be matched against an
+  absolute path, so only the `${CWD}` and `${HOME}` forms are enforced.
+  Seatbelt matches them with a regex. A credential file inside
+  `node_modules` is protected on macOS and not on Linux.
+- **The target keeps its user-namespace capabilities.** The shim maps the
+  host uid to root in a new user namespace to install seccomp, and the
+  capabilities survive the exec. `chroot` is refused by the supervisor and
+  mount and pivot_root by Landlock, so no known route uses them. Dropping
+  the bounding set before the exec would remove the class.
 - **`io_uring` file operations bypass the path traps.** `IORING_OP_OPENAT`
   and friends never enter the trapped syscalls. `io_uring_setup` is refused
   only under network lockdown.

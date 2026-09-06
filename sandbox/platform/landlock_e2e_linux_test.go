@@ -616,3 +616,46 @@ func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {
 	_, err = os.Stat(filepath.Join(home, "git", "hooks", "pre-commit"))
 	assert.True(t, os.IsNotExist(err), "nothing moved into the protected directory")
 }
+
+// TestLandlockHelper_DenyBlocksChroot: Landlock does not hook chroot and root
+// in the user namespace keeps CAP_SYS_CHROOT, so without the supervisor a
+// process could chroot into the project and open "/.env".
+func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not found")
+	}
+
+	home := t.TempDir()
+	home, err = filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	const secret = "CHROOT-SECRET"
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".env"), []byte(secret), 0o600))
+
+	script := "import os\n" +
+		"try:\n    os.chroot(" + strconv.Quote(home) + ")\nexcept PermissionError:\n    print('CHROOT_DENIED')\nelse:\n    print(open('/.env').read())\n"
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: home, Access: landlockReadAccess | landlockWriteAccessFull},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: filepath.Join(home, ".env"), Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          python,
+		Args:             []string{"-c", script},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, _ := runHelper(t, policyPath)
+	assert.Contains(t, stdout, "CHROOT_DENIED", "stdout=%q stderr=%q", stdout, stderr)
+	assert.NotContains(t, stdout+stderr, secret)
+}

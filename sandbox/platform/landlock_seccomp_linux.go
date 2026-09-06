@@ -24,8 +24,9 @@ import (
 // ioctl constants for seccomp-notify, from Linux kernel UAPI include/uapi/linux/seccomp.h.
 // These are _IOWR('!', N, struct) values.
 const (
-	_SECCOMP_IOCTL_NOTIF_RECV = 0xc0502100
-	_SECCOMP_IOCTL_NOTIF_SEND = 0xc0182101
+	_SECCOMP_IOCTL_NOTIF_RECV     = 0xc0502100
+	_SECCOMP_IOCTL_NOTIF_SEND     = 0xc0182101
+	_SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40082102
 )
 
 // seccomp constants available in golang.org/x/sys/unix, aliased here for clarity.
@@ -138,6 +139,12 @@ const (
 // then RET ALLOW, RET USER_NOTIF. The JEQ for syscall i therefore jumps n-i
 // instructions forward.
 func landlockBuildNotifyFilter(syscalls ...uint32) *unix.SockFprog {
+	// Jt is a byte. The trapped set is static and far below the limit, so
+	// a violation is a programming error, not a runtime condition.
+	if len(syscalls) > 255 {
+		panic(fmt.Sprintf("seccomp filter: %d trapped syscalls exceed the BPF jump range", len(syscalls)))
+	}
+
 	var filter []unix.SockFilter
 	if seccompNativeArch != 0 {
 		filter = append(filter,
@@ -494,6 +501,11 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath, true)
 	if err != nil {
 		s.continueSyscall(notif.ID)
+		return
+	}
+
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
 		return
 	}
 
@@ -895,6 +907,25 @@ func recvNotification(fd int) (*seccompNotification, error) {
 
 // A failed SEND means the notification could not be answered (typically the
 // process already exited) — logged rather than dropped so it stays visible.
+// notifValid reports whether the notification is still live, which means
+// the pid the supervisor read /proc state from is still the notifying task.
+// seccomp_unotify(2) asks for this check between reading the target's
+// state and answering.
+func (s *seccompSupervisor) notifValid(id uint64) bool {
+	for {
+		_, _, errno := unix.Syscall(
+			unix.SYS_IOCTL,
+			uintptr(s.notifyFd),
+			_SECCOMP_IOCTL_NOTIF_ID_VALID,
+			uintptr(unsafe.Pointer(&id)),
+		)
+		if errno == unix.EINTR {
+			continue
+		}
+		return errno == 0
+	}
+}
+
 func (s *seccompSupervisor) continueSyscall(id uint64) {
 	if err := respondContinue(s.notifyFd, id); err != nil {
 		log.Warnf("seccomp continue for notif %d failed: %v", id, err)
