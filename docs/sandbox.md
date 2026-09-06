@@ -455,12 +455,11 @@ For the architecture, design tradeoffs, and known limitations see
 
 **Deny enforcement**: Deny rules (DenyRead, DenyWrite, DenyExec) are enforced via seccomp
 user notifications. This introduces a small TOCTOU window (microseconds) between reading
-the path and responding. The supervisor traps open, rename, link, unlink, mkdir, mknod,
-symlink, truncate and chroot, and resolves symlinks and the process root before it matches
-a path, so a broad `allow_write` such as `${CWD}/**` cannot be used to move, link, alias or
-re-root a protected file out from under a deny rule. The `**/<file>` forms of the mandatory
-denies are not enforced by this driver, only the `${CWD}` and `${HOME}` forms. See
-[sandbox-landlock.md](./sandbox-landlock.md) for the exact rules.
+the path and responding. A broad `allow_write` such as `${CWD}/**` does not weaken the deny
+rules: the supervisor traps every syscall that names a path and resolves it as the kernel does.
+The `**/<file>` forms of the mandatory denies are not enforced by this driver, only the
+`${CWD}` and `${HOME}` forms. See [sandbox-landlock.md](./sandbox-landlock.md) for the edge
+cases.
 
 **Deny enforcement across the process tree**: seccomp-notify resolves the path argument of
 an intercepted `openat(2)` by reading `/proc/<pid>/mem` of the trapping process. PMG ships

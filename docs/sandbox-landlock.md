@@ -114,91 +114,43 @@ Trailing-slash entries still prefix-match.
 
 ### Write denies under a writable project tree run through the supervisor
 
-Landlock cannot subtract a subpath from a broad grant: rules inside a layer
-are additive, and a second layer would have to enumerate the children of
-`${CWD}` and would miss anything created later. When a profile allows writes
-to `${CWD}/**` (the default for the built-in package manager profiles), the
-Landlock layer permits every write to `${CWD}/.env`, `${CWD}/.git/hooks` and
-the other CWD-anchored mandatory deny targets, including rename, link and
-unlink. Only the seccomp supervisor stands between a process and those paths,
-and it is best-effort: it emulates the kernel's path resolution and answers
-inside a TOCTOU window. Treat the in-project denies under a broad write grant
-as a strong default, not a hard barrier. Nothing should lean on them as one.
+Landlock rules inside a layer are additive, so `${CWD}/**` cannot exclude
+`${CWD}/.env` or `${CWD}/.git/hooks`. Under the built-in profiles only the
+seccomp supervisor stands between a process and those paths. It emulates the
+kernel's path resolution and answers inside a TOCTOU window, so treat these
+denies as a strong default, not a hard barrier.
 
-The supervisor traps every syscall that names a path (`seccompPathSyscalls` in
-`landlock_seccomp_path_linux.go`): `open`, `creat`, `openat`, `openat2`,
-`rename`, `renameat`, `renameat2`, `link`, `linkat`, `unlink`, `unlinkat`,
-`rmdir`, `mkdir`, `mkdirat`, `symlink`, `symlinkat` and `truncate`. The legacy
-forms exist only on amd64. The rules per operation:
+The supervisor traps every syscall that names a path (`seccompPathSyscalls`)
+and matches the canonical path against the deny list. The edge cases that
+shaped the rules:
 
-- An open or truncate is denied when the path is a deny entry or below one,
-  in the direction the entry denies.
-- A remove or create (unlink, rmdir, mkdir, the link path of a symlink) is
-  denied when the path is a write-denied entry or below one.
-- A rename or hard link is denied when the source is any deny entry, below
-  one, or an ancestor of one (moving `${CWD}/.git` carries `.git/hooks` with
-  it, and a read-denied file under a new name is readable). The destination
-  is denied when it is a write-denied entry, below one, or an ancestor of any
-  entry (a prepared tree renamed onto `.git` replaces `.git/hooks`).
-  `RENAME_EXCHANGE` applies the source rule to both paths.
-- A symlink is denied at the same places as a rename destination. A link
-  planted at `${CWD}/.github` before the directory exists would redirect
-  `.github/workflows` elsewhere. `mkdir` and `mknod` are denied only at or
-  below a write-denied entry, or `git init` could not create `.git`.
-- `chroot` is always denied. Landlock does not hook it, root in the user
-  namespace keeps `CAP_SYS_CHROOT`, and a new root would change what every
-  absolute path means.
-
-The supervisor canonicalizes every path before the match. It resolves the
-path component by component like the kernel does: a symlink is followed
-before the components after it, `..` applies to the symlink target, and
-`/proc/self` names the notifying process, not the supervisor. The final
-component is followed for open and truncate, and kept for the syscalls that
-act on the link itself. Without this a process could read `${CWD}/.env`
-through `ln -s .env x` or through `/proc/self/cwd/.env`.
-
-Every path is read as the supervisor sees the filesystem. An absolute path
-is anchored at `/proc/<pid>/root`, a relative one at `/proc/<pid>/cwd` or
-the dirfd. The walk has a floor: `..` stops at the process root and an
-absolute symlink target restarts there, as under `chroot(2)`. `openat2` with
-`RESOLVE_IN_ROOT` makes the dirfd that floor and a leading slash mean the
-dirfd, which is the same rule applied per open. The supervisor reads the
-full `struct open_how` for that. After it has read any `/proc/<pid>` state
-and before it answers, it checks `SECCOMP_IOCTL_NOTIF_ID_VALID` so a recycled
-pid is never judged on another process's cwd or fds. A stale notification is
-denied.
-
-`TestResolveSyscallPath_MatchesKernel` drives one path set through the
-resolver and through the kernel, via `openat2` and the `/proc/self/fd` link
-of the opened file, and requires both to agree: symlink chains, `..` past a
-floor, `/proc/self` and `/proc/<pid>/fd/<n>`, each `RESOLVE_*` flag,
-`AT_FDCWD` against a real dirfd, trailing slashes, and a leaf that does not
-exist yet. It runs on every Linux CI job, Landlock or not. A new divergence
-between the emulation and the kernel belongs there first.
-
-The deny list is matched in both forms. `Enforce` adds the canonical form of
-every deny entry next to its lexical form, so `~/.ssh` still matches when
-`~/.ssh` is a symlink into a dotfiles checkout, or when the project lives
-under a symlinked home. The lexical form stays for a target that becomes a
-symlink after setup.
-
-A deny glob without `**` (`${CWD}/.env.*`) stays a pattern in the deny list.
-The supervisor matches it against the path and each of its ancestors at
-syscall time, so `.env.local` is covered when the install script creates
-it. A `**` pattern is expanded when the policy is built: `dir/**` becomes
-`dir`, and a pattern with no base (`**/.env`) is dropped, which is a known
-gap of this driver.
+- A rename or hard-link source is denied when it is above a deny entry too:
+  moving `${CWD}/.git` carries `.git/hooks` with it. A destination is denied
+  when it is above any entry: a prepared tree renamed onto `.git` replaces
+  `.git/hooks`. A symlink follows the destination rule. `mkdir` does not, or
+  `git init` could not create `.git`.
+- `O_RDONLY|O_CREAT` and `O_RDONLY|O_TRUNC` count as writes.
+- `chroot` is always denied. Landlock does not hook it and root in the user
+  namespace keeps `CAP_SYS_CHROOT`.
+- Paths resolve as the kernel resolves them: a symlink before the components
+  after it, `..` after the symlink it follows, `/proc/self` as the notifying
+  process. The walk is floored at `/proc/<pid>/root`, or at the dirfd under
+  `RESOLVE_IN_ROOT`: `..` stops there and an absolute symlink target restarts
+  there.
+- `SECCOMP_IOCTL_NOTIF_ID_VALID` is checked after every `/proc/<pid>` read,
+  so a recycled pid is never judged on another process's state.
+- Deny entries match in lexical and canonical form, so `~/.ssh` still matches
+  when it is a symlink into a dotfiles checkout.
+- A deny glob without `**` (`${CWD}/.env.*`) stays a pattern and covers a
+  file created after setup.
 
 ### The filter kills foreign-ABI syscalls
 
-The BPF program compares syscall numbers, and those differ per ABI. A process
-that enters 32-bit mode (`int 0x80`) or uses the x32 ABI would issue `openat`
+Syscall numbers differ per ABI, so `int 0x80` or x32 would reach `openat`
 under a number the filter does not trap. The filter checks `seccomp_data.arch`
-against the native arch and, on amd64, the x32 bit in the number, and returns
-`SECCOMP_RET_KILL_PROCESS` for both. Package managers do not ship 32-bit
-helpers, so nothing legitimate is lost. The kill happens in the kernel, so
-the supervisor never sees it: the process ends with `SIGKILL` and the
-violation summary has no entry for it.
+and, on amd64, the x32 bit, and returns `SECCOMP_RET_KILL_PROCESS`. The kill
+happens in the kernel: the process ends with `SIGKILL` and no violation is
+recorded.
 
 ### Network lockdown (`network_via_proxy_only`)
 
@@ -316,11 +268,9 @@ constant tax that maps to most of the decisions above:
   absolute path, so only the `${CWD}` and `${HOME}` forms are enforced.
   Seatbelt matches them with a regex. A credential file inside
   `node_modules` is protected on macOS and not on Linux.
-- **The target keeps its user-namespace capabilities.** The shim maps the
-  host uid to root in a new user namespace to install seccomp, and the
-  capabilities survive the exec. `chroot` is refused by the supervisor and
-  mount and pivot_root by Landlock, so no known route uses them. Dropping
-  the bounding set before the exec would remove the class.
+- **The target keeps its user-namespace capabilities.** They survive the
+  exec. `chroot` is refused by the supervisor and mount and pivot_root by
+  Landlock, so no known route uses them.
 - **`io_uring` file operations bypass the path traps.** `IORING_OP_OPENAT`
   and friends never enter the trapped syscalls. `io_uring_setup` is refused
   only under network lockdown.
