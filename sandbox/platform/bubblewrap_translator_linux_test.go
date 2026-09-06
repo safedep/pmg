@@ -1520,3 +1520,33 @@ func TestBubblewrapDeniesMissingSubtreeBelowWritableParent(t *testing.T) {
 		assert.Contains(t, argSliceToString(args), "--tmpfs "+gitHooks+" --remount-ro "+gitHooks+" ")
 	})
 }
+
+func TestBubblewrapDenyMissingSubtreeNeedsDirectoryParent(t *testing.T) {
+	worktree := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: /elsewhere\n"), 0o644))
+	t.Chdir(worktree)
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowWrite: []string{worktree + "/**"},
+		},
+	})
+
+	assertNoTmpfsAt(t, args, filepath.Join(worktree, ".git", "hooks"))
+}
+
+func TestBubblewrapSubtreeShortcutSkipsGlobBase(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "locked"), 0o755))
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowWrite: []string{dir + "/**"},
+			DenyWrite:  []string{dir + "/*/**"},
+		},
+	})
+
+	for _, arg := range args {
+		assert.NotContains(t, arg, "/*", "a glob must never reach bwrap as a mount point")
+	}
+}

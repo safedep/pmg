@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/proc"
@@ -69,6 +70,8 @@ type session struct {
 	console  ptyx.Console
 	spawn    ptyx.Session
 	oldState ptyx.RawState // Saved terminal state for restoration
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // SessionConfig holds options for creating a session
@@ -128,11 +131,39 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 		return nil, fmt.Errorf("failed to spawn: %w", err)
 	}
 
-	return &session{
+	sess := &session{
 		console:  c,
 		spawn:    s,
 		oldState: oldState,
-	}, nil
+		done:     make(chan struct{}),
+	}
+	go sess.forwardResize()
+
+	return sess, nil
+}
+
+// forwardResize passes terminal size changes to the child. A TUI agent
+// keeps its launch size otherwise. The console closes the channel on Close,
+// and done covers a console that does not.
+func (s *session) forwardResize() {
+	ch := s.console.OnResize()
+	if ch == nil {
+		return
+	}
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+			cols, rows := s.console.Size()
+			if err := s.spawn.Resize(cols, rows); err != nil {
+				log.Warnf("failed to resize pty: %v", err)
+			}
+		case <-s.done:
+			return
+		}
+	}
 }
 
 func (s *session) PtyWriter() io.Writer { return s.spawn.PtyWriter() }
@@ -163,6 +194,8 @@ func (s *session) Wait() error {
 }
 
 func (s *session) Close() error {
+	s.stopOnce.Do(func() { close(s.done) })
+
 	// Always restore terminal state
 	if s.oldState != nil {
 		_ = s.console.Restore(s.oldState)

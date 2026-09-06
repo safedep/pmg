@@ -116,6 +116,13 @@ PMG strips its own shim directories from the child's `PATH`. An `npm install` th
 inside `pmg sandbox exec` reaches the real npm, not the PMG proxy. Malware analysis and dependency
 cooldown do not apply to it. The sandbox still applies.
 
+## Git worktrees
+
+In a linked worktree or a submodule, `.git` is a file that points at a directory outside the
+checkout. PMG repeats every `.git` rule of the profile for that directory and for the main
+checkout's `.git`, so `git commit` works, while `hooks` and `config` there stay denied like they
+do under the working directory.
+
 ## Limits
 
 - Windows is not supported. The sandbox drivers are macOS Seatbelt and Linux Landlock or
@@ -123,6 +130,10 @@ cooldown do not apply to it. The sandbox still applies.
 - Network is allow-all. See above.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
   this as a warning on purpose.
+- Landlock does not stop a rename into a denied path. `mv x.json ~/.claude/settings.json`
+  succeeds there, because the supervisor traps only `open`. Bubblewrap and Seatbelt deny it.
+  [safedep/pmg#444](https://github.com/safedep/pmg/pull/444) traps the rename and link
+  syscalls and closes this.
 - Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
   in the repository up to three levels deep. Landlock and Seatbelt deny them at any depth. A
   denied file that does not exist yet, such as `~/.codex/hooks.json` before Codex creates it,

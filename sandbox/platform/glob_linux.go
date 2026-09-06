@@ -5,8 +5,9 @@ package platform
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -58,17 +59,55 @@ func pathDepth(root, path string) int {
 	return len(strings.Split(rel, string(filepath.Separator)))
 }
 
-// matchSuffix keeps the paths whose tail segments match suffix, a glob such
-// as ".env.*" or ".docker/config.json".
-func matchSuffix(paths []string, suffix string) []string {
-	re := regexp.MustCompile(util.GlobToRegex("**/" + suffix))
-	out := []string{}
+// cwdIndex answers "which paths end in <suffix>" from one listing. The
+// mandatory denies ask this once per credential name and again for the
+// tmpfs pass, so paths are keyed by base name and answers are cached.
+type cwdIndex struct {
+	byBase  map[string][]string
+	answers map[string][]string
+}
+
+func newCwdIndex(paths []string) *cwdIndex {
+	idx := &cwdIndex{
+		byBase:  make(map[string][]string),
+		answers: make(map[string][]string),
+	}
 	for _, p := range paths {
-		if re.MatchString(p) {
-			out = append(out, p)
+		base := filepath.Base(p)
+		idx.byBase[base] = append(idx.byBase[base], p)
+	}
+	return idx
+}
+
+// matchSuffix returns the paths whose tail segments match suffix, a glob
+// such as ".env.*" or ".docker/config.json". Only the last segment may hold
+// a glob.
+func (idx *cwdIndex) matchSuffix(suffix string) []string {
+	if cached, ok := idx.answers[suffix]; ok {
+		return cached
+	}
+
+	last := path.Base(suffix)
+	var candidates []string
+	if util.ContainsGlob(last) {
+		for base, paths := range idx.byBase {
+			if ok, err := path.Match(last, base); err == nil && ok {
+				candidates = append(candidates, paths...)
+			}
+		}
+	} else {
+		candidates = idx.byBase[last]
+	}
+
+	matches := []string{}
+	for _, p := range candidates {
+		if last == suffix || strings.HasSuffix(filepath.Dir(p), "/"+path.Dir(suffix)) {
+			matches = append(matches, p)
 		}
 	}
-	return out
+	sort.Strings(matches)
+	idx.answers[suffix] = matches
+	return matches
 }
 
 func expandGlobstarPattern(pattern string, maxDepth, maxPaths int) ([]string, error) {

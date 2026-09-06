@@ -18,6 +18,11 @@ metadata:
 #   on nearly every run and refuses to start without it.
 # - ANTHROPIC_API_KEY is re-allowed so an API-key login keeps working. OAuth
 #   logins do not need it. See docs/sandbox-exec.md for the trade-off.
+# - allow_write on ~/.claude/** also covers ~/.claude/plugins. An installed
+#   plugin can carry hooks, so a plugin the agent installs during the session
+#   runs commands from the next start. Accepted: Claude Code writes plugin
+#   and marketplace state here on its own. Deny
+#   ${HOME}/.claude/plugins/** in a custom profile to refuse plugin installs.
 filesystem:
   allow_write:
     - ${HOME}/.claude/**

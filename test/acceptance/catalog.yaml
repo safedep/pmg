@@ -243,6 +243,12 @@
   tier: P1
   guarantee: "With `--sandbox-profile`, a repository-only profile blocks a write to $HOME, and a profile without the exec workload is refused."
   labels: [sandbox, exec, block]
+- id: sandbox/exec/commits-from-git-worktree
+  title: "sandbox exec can commit from a linked git worktree"
+  category: sandbox
+  tier: P1
+  guarantee: "In a linked worktree, `pmg sandbox exec -- git commit` succeeds and the main checkout's .git/hooks stays read-only."
+  labels: [sandbox, exec, clean, git]
 - id: sandbox/exec/fails-closed-when-disabled
   title: "sandbox exec fails closed when the exec policy is disabled"
   category: sandbox

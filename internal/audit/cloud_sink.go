@@ -58,8 +58,12 @@ func newCloudSink(cfg *config.RuntimeConfig, ciResolver CloudSinkCIResolver) (*c
 }
 
 func (s *cloudSink) Handle(ctx context.Context, event AuditEvent) error {
-	if event.Type == EventTypeInstallStarted {
+	switch event.Type {
+	case EventTypeInstallStarted:
 		s.command = buildCommand(event.PackageManager, event.Args)
+		return nil
+	case EventTypeExecStarted:
+		s.command = strings.Join(event.Args, " ")
 		return nil
 	}
 

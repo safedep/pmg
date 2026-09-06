@@ -456,3 +456,17 @@ func TestInvokingUserKeepsSudoAttributionWithoutPasswdEntry(t *testing.T) {
 	assert.Equal(t, "no-such-user-xyz", got.Username)
 	assert.Equal(t, "0", got.Uid)
 }
+
+func TestCloudSinkCapturesExecCommand(t *testing.T) {
+	sink, _ := newTestCloudSink(t)
+
+	err := sink.Handle(context.Background(), AuditEvent{
+		Type:           EventTypeExecStarted,
+		Timestamp:      time.Now(),
+		PackageManager: "exec",
+		Args:           []string{"claude", "--resume"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude --resume", sink.command)
+}

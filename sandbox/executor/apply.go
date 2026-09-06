@@ -190,6 +190,10 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 		logSandboxOverrides(policy.Name, cfg.SandboxAllowOverrides)
 	}
 
+	if sandbox.ApplyWorktreeGitDirs(policy, cwd) {
+		log.Debugf("Sandbox: applied linked worktree git directories for %s", cwd)
+	}
+
 	if !policy.AppliesToPackageManager(pmName) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
 	}
@@ -331,13 +335,14 @@ func scrubEnv(cmd *exec.Cmd, policy *sandbox.SandboxPolicy) []string {
 	return result.Removed
 }
 
-// removeExactMatch removes entries from the slice that exactly match the given value.
-// Glob patterns and wildcards in the slice are never matched. Only literal string
-// equality is used. This keeps broad deny rules intact while allowing targeted overrides.
+// removeExactMatch removes the entries that name the override's path, as
+// written or once ${HOME}, ${CWD} and ${TMPDIR} are expanded. Glob patterns
+// and wildcards are never matched, so a broad deny stays intact while the
+// user opts one exact path out.
 func removeExactMatch(slice []string, value string) []string {
 	result := make([]string, 0, len(slice))
 	for _, entry := range slice {
-		if entry == value {
+		if entry == value || expandsTo(entry, value) {
 			log.Infof("Sandbox override: removing conflicting deny rule for %s", value)
 			continue
 		}
@@ -346,6 +351,11 @@ func removeExactMatch(slice []string, value string) []string {
 	}
 
 	return result
+}
+
+func expandsTo(entry, value string) bool {
+	expanded, err := util.ExpandVariables(entry)
+	return err == nil && expanded == value
 }
 
 // applyProjectOverlay loads the per-repo overlay (when one exists) and feeds

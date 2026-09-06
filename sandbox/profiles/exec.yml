@@ -47,11 +47,11 @@ filesystem:
   deny_read: []
 
   deny_write:
-    # System directories
+    # System directories. /bin and /sbin are symlinks into /usr on merged
+    # systems and bubblewrap refuses to mount on a symlink, so they are not
+    # listed. Nothing above allows writes there.
     - /etc/**
     - /usr/**
-    - /bin/**
-    - /sbin/**
 
     # Agent hook configuration. A hook runs an arbitrary command on every
     # tool call, so a write here is code execution and a way to unhook an
@@ -62,6 +62,7 @@ filesystem:
     - ${HOME}/.claude/settings.json
     - ${HOME}/.claude/hooks/**
     - ${CWD}/.claude/settings.json
+    - ${CWD}/.claude/settings.local.json
     - ${CWD}/.claude/hooks/**
     - ${HOME}/.cursor/hooks.json
     - ${HOME}/.codex/hooks.json

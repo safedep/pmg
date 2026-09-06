@@ -28,10 +28,10 @@ type bubblewrapPolicyTranslator struct {
 	config *bubblewrapConfig
 
 	// cwd anchors the "**/<file>" mandatory denies, which bwrap can only
-	// enforce on paths it can name. cwdTree caches one bounded listing of
+	// enforce on paths it can name. cwdIndex caches one bounded listing of
 	// the working directory for all of them.
-	cwd     string
-	cwdTree []string
+	cwd      string
+	cwdIndex *cwdIndex
 }
 
 // newBubblewrapPolicyTranslator creates a new translator with the given config.
@@ -51,7 +51,7 @@ func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([
 		log.Warnf("sandbox: working directory unknown, nested credential files are not hidden: %v", err)
 	}
 	t.cwd = cwd
-	t.cwdTree = nil
+	t.cwdIndex = nil
 
 	// 1. Add essential system permissions (filesystem, proc)
 	systemArgs, err := t.addEssentialSystemPermissions()
@@ -492,8 +492,7 @@ func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string, rwDirs ma
 		// skips a walk that per-file binds would need (and would truncate).
 		// Other globstar forms ("**/<file>", "<dir>/**/<name>") name a subset
 		// of the tree, so they keep the per-match expansion below.
-		if strings.HasSuffix(path, "/**") {
-			baseDir := extractGlobstarWriteBaseDir(path)
+		if baseDir := subtreeBase(path); baseDir != "" {
 			if _, err := os.Stat(baseDir); err == nil {
 				args = append(args, "--ro-bind-try", baseDir, baseDir)
 				log.Debugf("Deny write rule: mounted '%s' as read-only", baseDir)
@@ -737,10 +736,8 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string, rwDirs map[str
 
 	// For glob patterns, expand and deny each path
 	if util.ContainsGlob(path) {
-		if strings.HasSuffix(path, "/**") {
-			if baseDir := extractGlobstarWriteBaseDir(path); !pathExists(baseDir) {
-				return denyMissingSubtreeArgs(baseDir, rwDirs), nil
-			}
+		if baseDir := subtreeBase(path); baseDir != "" && !pathExists(baseDir) {
+			return denyMissingSubtreeArgs(baseDir, rwDirs), nil
 		}
 
 		// For deny rules, we scan for existing files matching the pattern
@@ -857,15 +854,15 @@ func (t *bubblewrapPolicyTranslator) matchUnderCwd(suffix string, maxDepth, maxP
 		return nil
 	}
 
-	if t.cwdTree == nil {
+	if t.cwdIndex == nil {
 		tree, complete := scanTree(t.cwd, maxDepth, t.config.cwdScanMaxEntries)
 		if !complete {
 			log.Warnf("sandbox: nested credential scan of %s stopped at %d entries, deeper files are not hidden", t.cwd, len(tree))
 		}
-		t.cwdTree = tree
+		t.cwdIndex = newCwdIndex(tree)
 	}
 
-	matches := matchSuffix(t.cwdTree, suffix)
+	matches := t.cwdIndex.matchSuffix(suffix)
 	if len(matches) > maxPaths {
 		matches = matches[:maxPaths]
 	}
@@ -876,11 +873,12 @@ func (t *bubblewrapPolicyTranslator) matchUnderCwd(suffix string, maxDepth, maxP
 // directory below a writable bind needs it: the sandboxed process could
 // create it and every file inside. bwrap creates the mount point, so an
 // empty read-only directory is what the process sees, and an empty
-// directory stays on the host after the run. The direct parent must exist:
-// creating a chain such as .git/hooks in a directory that is not a
-// repository would leave a stray .git behind.
+// directory stays on the host after the run. The direct parent must be an
+// existing directory: creating a chain such as .git/hooks in a directory
+// that is not a repository would leave a stray .git behind, and in a linked
+// worktree or a submodule .git is a file that bwrap cannot mkdir into.
 func denyMissingSubtreeArgs(dir string, rwDirs map[string]bool) []string {
-	if !pathExists(filepath.Dir(dir)) {
+	if info, err := os.Stat(filepath.Dir(dir)); err != nil || !info.IsDir() {
 		return nil
 	}
 	for parent := range rwDirs {
@@ -942,4 +940,18 @@ func intersectStrings(a, b []string) []string {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// subtreeBase returns the directory a "<dir>/**" deny covers, or "" when the
+// pattern is not a plain subtree. A glob in the base, as in "<dir>/*/**",
+// names several directories and keeps the per-match expansion.
+func subtreeBase(pattern string) string {
+	if !strings.HasSuffix(pattern, "/**") {
+		return ""
+	}
+	base := extractGlobstarWriteBaseDir(pattern)
+	if util.ContainsGlob(base) {
+		return ""
+	}
+	return base
 }

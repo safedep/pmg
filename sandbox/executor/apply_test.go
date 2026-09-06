@@ -321,20 +321,19 @@ func TestApplyRuntimeOverrides_PreservesGlobDenyPatterns(t *testing.T) {
 	assert.Equal(t, []string{"/usr/bin/*"}, policy.Process.DenyExec)
 }
 
-func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testing.T) {
-	// Known limitation: deny entries using ${CWD} or ${HOME} variables are NOT
-	// removed by overrides that resolve to absolute paths. removeExactMatch uses
-	// literal string comparison, so "${CWD}/blocked.txt" != "/actual/cwd/blocked.txt".
-	// The override still adds the path to the allow list, but the unexpanded deny
-	// entry remains and will take precedence once the translator expands it.
+func TestApplyRuntimeOverrides_VariableDenyRemovedByAbsoluteOverride(t *testing.T) {
+	// An override resolves to an absolute path. A deny written with ${CWD}
+	// names the same file once expanded, so the opt-out must remove it, or
+	// the deny wins on every driver and the documented
+	// `pmg sandbox allow write=...` opt-out does nothing.
 	cwd, err := os.Getwd()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	absolutePath := filepath.Join(cwd, "blocked.txt")
 
 	policy := &sandbox.SandboxPolicy{
 		Filesystem: sandbox.FilesystemPolicy{
-			DenyWrite: []string{"${CWD}/blocked.txt"},
+			DenyWrite: []string{"${CWD}/blocked.txt", "${CWD}/other.txt", "${CWD}/**"},
 		},
 	}
 
@@ -342,12 +341,9 @@ func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testi
 		{Type: config.SandboxAllowWrite, Value: absolutePath, Raw: "write=./blocked.txt"},
 	}, nil)
 
-	// The override is added to the allow list
 	assert.Contains(t, policy.Filesystem.AllowWrite, absolutePath)
-
-	// But the ${CWD} deny entry is NOT removed because the strings don't match literally.
-	// This means the deny rule will still shadow the allow after variable expansion.
-	assert.Equal(t, []string{"${CWD}/blocked.txt"}, policy.Filesystem.DenyWrite)
+	assert.Equal(t, []string{"${CWD}/other.txt", "${CWD}/**"}, policy.Filesystem.DenyWrite,
+		"only the deny that expands to the override's path is removed")
 }
 
 func TestApplyProjectOverlayAppendsEntries(t *testing.T) {
