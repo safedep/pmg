@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -20,6 +21,56 @@ import (
 // If the base path does not yet exist, returns []string{basePath} so callers
 // can still grant coverage to the parent directory (matters for fresh
 // node_modules / pnpm caches that haven't been created yet).
+// scanTree lists every path below root up to maxDepth, at most maxEntries.
+// It reports whether the listing is complete. One listing serves every
+// "**/<file>" mandatory deny, which would otherwise each walk the tree.
+func scanTree(root string, maxDepth, maxEntries int) ([]string, bool) {
+	paths := []string{}
+	complete := true
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		if len(paths) >= maxEntries {
+			complete = false
+			return filepath.SkipAll
+		}
+		paths = append(paths, path)
+		if d.IsDir() && pathDepth(root, path) >= maxDepth {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return paths, false
+	}
+	return paths, complete
+}
+
+func pathDepth(root, path string) int {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return 0
+	}
+	return len(strings.Split(rel, string(filepath.Separator)))
+}
+
+// matchSuffix keeps the paths whose tail segments match suffix, a glob such
+// as ".env.*" or ".docker/config.json".
+func matchSuffix(paths []string, suffix string) []string {
+	re := regexp.MustCompile(util.GlobToRegex("**/" + suffix))
+	out := []string{}
+	for _, p := range paths {
+		if re.MatchString(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func expandGlobstarPattern(pattern string, maxDepth, maxPaths int) ([]string, error) {
 	parts := strings.Split(pattern, "**")
 	if len(parts) != 2 {

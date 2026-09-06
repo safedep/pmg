@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/sandbox/util"
 	"golang.org/x/sys/unix"
 )
 
@@ -79,6 +81,60 @@ const (
 type denyPathEntry struct {
 	Path string
 	Mode denyMode
+
+	// Pattern is a glob such as "**/.env" that denies a matching path, and
+	// everything below it, at any depth. The mandatory credential denies use
+	// it instead of Path, since a credential file lives anywhere in a tree.
+	// Enforce compiles it once. The mandatory list is the only source, so a
+	// pattern that does not compile is a programming error.
+	Pattern string `json:",omitempty"`
+	re      *regexp.Regexp
+}
+
+// target names the rule in audit output.
+func (e denyPathEntry) target() string {
+	if e.Pattern != "" {
+		return e.Pattern
+	}
+	return e.Path
+}
+
+// matches reports whether path is the entry's target or lies below it.
+//   - Exact match: /home/user/.env matches deny /home/user/.env
+//   - Directory subtree: /home/user/.ssh/id_rsa matches deny /home/user/.ssh
+//     or deny /home/user/.ssh/ (either with or without trailing slash)
+//   - Must NOT match partial names: /home/.envrc does NOT match deny /home/.env
+//   - Pattern: /repo/packages/app/.env matches deny "**/.env"
+func (e denyPathEntry) matches(path string) bool {
+	if e.Pattern != "" {
+		re := e.re
+		if re == nil {
+			re = compileDenyPattern(e.Pattern)
+		}
+		return re.MatchString(path)
+	}
+
+	if strings.HasSuffix(e.Path, "/") {
+		return strings.HasPrefix(path, e.Path)
+	}
+	return path == e.Path || strings.HasPrefix(path, e.Path+"/")
+}
+
+// compileDenyPattern turns a glob into a regexp that also matches every path
+// below a match, so a pattern for a directory covers its contents.
+func compileDenyPattern(pattern string) *regexp.Regexp {
+	return regexp.MustCompile(strings.TrimSuffix(util.GlobToRegex(pattern), "$") + "(/.*)?$")
+}
+
+func compileDenyPatterns(entries []denyPathEntry) []denyPathEntry {
+	out := make([]denyPathEntry, len(entries))
+	for i, e := range entries {
+		if e.Pattern != "" {
+			e.re = compileDenyPattern(e.Pattern)
+		}
+		out[i] = e
+	}
+	return out
 }
 
 // auditEventType categorizes security audit events.
@@ -171,26 +227,12 @@ func landlockNotifySyscalls(network landlockNetworkPolicy, interceptOpen bool) [
 
 // matchDeniedPath returns the deny entry that denies opening path with the
 // given flags, if any. flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY,
-// O_RDWR). Matching rules:
-//   - Exact match: /home/user/.env matches deny /home/user/.env
-//   - Directory subtree: /home/user/.ssh/id_rsa matches deny /home/user/.ssh
-//     or deny /home/user/.ssh/ (either with or without trailing slash — a
-//     deny entry without slash is treated as "this path OR anything beneath it")
-//   - Must NOT match partial names: /home/.envrc does NOT match deny /home/.env
+// O_RDWR). See denyPathEntry.matches for the matching rules.
 func matchDeniedPath(path string, flags int, denyPaths []denyPathEntry) (denyPathEntry, bool) {
 	accessMode := flags & unix.O_ACCMODE
 
 	for _, entry := range denyPaths {
-		matched := false
-		if strings.HasSuffix(entry.Path, "/") {
-			// Directory prefix match: path must start with the deny prefix.
-			matched = strings.HasPrefix(path, entry.Path)
-		} else {
-			// Exact match OR any path under this entry as a directory.
-			matched = path == entry.Path || strings.HasPrefix(path, entry.Path+"/")
-		}
-
-		if !matched {
+		if !entry.matches(path) {
 			continue
 		}
 		switch entry.Mode {
@@ -395,7 +437,7 @@ func (s *seccompSupervisor) Enforce(childPID int, denyPaths []denyPathEntry, den
 	p := &seccompPhase{
 		enforcing:   true,
 		childPID:    uint32(childPID),
-		denyPaths:   denyPaths,
+		denyPaths:   compileDenyPatterns(denyPaths),
 		denyExec:    denyExec,
 		network:     network,
 		auditWriter: auditWriter,
@@ -600,13 +642,13 @@ func (s *seccompSupervisor) handleOpen(notif *seccompNotification, phase *seccom
 				Syscall:  syscallName(notif.Data.Nr),
 				Path:     resolved,
 				Access:   denyAccessLabel(entry.Mode, flags),
-				RulePath: entry.Path,
+				RulePath: entry.target(),
 				Comm:     procComm(notif.PID),
 				PID:      int(notif.PID),
 				Ts:       time.Now().UnixNano(),
 			})
 		}
-		traceSeccompDecision("deny %s pid=%d path=%s access=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, denyAccessLabel(entry.Mode, flags), entry.Path)
+		traceSeccompDecision("deny %s pid=%d path=%s access=%s rule=%s", syscallName(notif.Data.Nr), notif.PID, resolved, denyAccessLabel(entry.Mode, flags), entry.target())
 		s.deny(notif.ID)
 		return
 	}

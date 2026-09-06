@@ -19,7 +19,10 @@ allow_network_bind: true
 filesystem:
   allow_read:
     # Root read is required for toolchain discovery. Deny rules win, so the
-    # mandatory credential denies still apply everywhere under /.
+    # mandatory credential denies still apply everywhere under /. Landlock
+    # and Seatbelt deny a credential file at any depth. Bubblewrap hides the
+    # ones it can name: the home and repository roots, plus the repository
+    # tree up to three levels deep.
     - /
 
   allow_write:

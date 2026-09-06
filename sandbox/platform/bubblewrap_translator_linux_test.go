@@ -1451,3 +1451,72 @@ func TestBubblewrapMandatoryWriteDenySurvivesWritableParent(t *testing.T) {
 	assert.Greater(t, lastROConfigBind, lastWritableGitBind,
 		"read-only .git/config bind must come after the writable .git bind (bwrap last mount wins)")
 }
+
+func TestBubblewrapHidesNestedCredentialFilesUnderCwd(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "packages", "app", ".env")
+	deep := filepath.Join(dir, "a", "b", "c", "d", ".env")
+	require.NoError(t, os.MkdirAll(filepath.Dir(nested), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(deep), 0o755))
+	require.NoError(t, os.WriteFile(nested, []byte("secret"), 0o600))
+	require.NoError(t, os.WriteFile(deep, []byte("secret"), 0o600))
+	t.Chdir(dir)
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Name:            "test",
+		PackageManagers: []string{"exec"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{"/"},
+			AllowWrite: []string{dir + "/**"},
+		},
+	})
+
+	assert.GreaterOrEqual(t, lastIndexOfTriple(args, "--ro-bind", "/dev/null", nested), 0,
+		"a credential file below the working directory must be masked")
+	assert.Equal(t, -1, lastIndexOfTriple(args, "--ro-bind", "/dev/null", deep),
+		"the scan stops at mandatoryDenyScanDepth")
+}
+
+func TestBubblewrapDeniesMissingSubtreeBelowWritableParent(t *testing.T) {
+	home := t.TempDir()
+	claude := filepath.Join(home, ".claude")
+	require.NoError(t, os.MkdirAll(claude, 0o755))
+	hooks := filepath.Join(claude, "hooks")
+
+	t.Run("writable parent gets a read-only placeholder", func(t *testing.T) {
+		args := translateForTest(t, &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowWrite: []string{claude + "/**"},
+				DenyWrite:  []string{hooks + "/**"},
+			},
+		})
+
+		assert.Contains(t, argSliceToString(args), "--tmpfs "+hooks+" --remount-ro "+hooks+" ")
+	})
+
+	t.Run("read-only parent needs nothing", func(t *testing.T) {
+		args := translateForTest(t, &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowRead: []string{claude},
+				DenyWrite: []string{hooks + "/**"},
+			},
+		})
+
+		assertNoTmpfsAt(t, args, hooks)
+	})
+
+	t.Run("mandatory git hooks deny below a writable .git", func(t *testing.T) {
+		repo := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+		t.Chdir(repo)
+
+		args := translateForTest(t, &sandbox.SandboxPolicy{
+			Filesystem: sandbox.FilesystemPolicy{
+				AllowWrite: []string{repo + "/.git/**"},
+			},
+		})
+
+		gitHooks := filepath.Join(repo, ".git", "hooks")
+		assert.Contains(t, argSliceToString(args), "--tmpfs "+gitHooks+" --remount-ro "+gitHooks+" ")
+	})
+}

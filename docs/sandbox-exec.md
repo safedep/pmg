@@ -123,3 +123,9 @@ cooldown do not apply to it. The sandbox still applies.
 - Network is allow-all. See above.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
   this as a warning on purpose.
+- Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
+  in the repository up to three levels deep. Landlock and Seatbelt deny them at any depth. A
+  denied file that does not exist yet, such as `~/.codex/hooks.json` before Codex creates it,
+  can be created under Bubblewrap when its parent is writable. A denied directory that does
+  not exist yet, such as `~/.claude/hooks`, gets an empty read-only placeholder that stays on
+  the host after the run.

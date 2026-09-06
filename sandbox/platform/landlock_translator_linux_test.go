@@ -839,3 +839,29 @@ func TestLandlockTranslatePolicy_AubeProfileGrantsProjectDirectory(t *testing.T)
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSMakeReg), "MakeReg is needed to create the temp file")
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
 }
+
+func TestLandlockTranslateEmitsAnyDepthPatternDenies(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Name:            "pattern-deny",
+		PackageManagers: []string{"exec"},
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowRead:  []string{"/"},
+			AllowWrite: []string{"/tmp"},
+		},
+	}
+
+	ep, err := landlockTranslatePolicy(policy, &landlockABI{Version: 1}, nil)
+	require.NoError(t, err)
+
+	patterns := map[string]denyMode{}
+	for _, d := range ep.DenyPaths {
+		if d.Pattern != "" {
+			assert.Empty(t, d.Path, "a pattern entry carries no concrete path")
+			patterns[d.Pattern] = d.Mode
+		}
+	}
+
+	assert.Equal(t, denyBoth, patterns["**/.env"])
+	assert.Equal(t, denyBoth, patterns["**/.ssh"])
+	assert.Contains(t, patterns, "**/.env.*")
+}

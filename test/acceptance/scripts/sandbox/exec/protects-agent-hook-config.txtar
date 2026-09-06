@@ -12,6 +12,11 @@ grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
 ! exec pmg sandbox exec -- sh -c 'echo x >> $HOME/.codex/hooks.json'
 grep '^{}$' $WORK/home/.codex/hooks.json
 
+# The hooks directory does not exist yet and the preset makes ~/.claude
+# writable. A hook script still cannot land there.
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'mkdir -p $HOME/.claude/hooks && echo evil > $HOME/.claude/hooks/evil.sh'
+! exists $WORK/home/.claude/hooks/evil.sh
+
 # The preset still lets the agent write its own state.
 exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo y > $HOME/.claude/todo.txt'
 exists $WORK/home/.claude/todo.txt

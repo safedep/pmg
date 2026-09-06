@@ -26,6 +26,12 @@ import (
 // - Essential system permissions
 type bubblewrapPolicyTranslator struct {
 	config *bubblewrapConfig
+
+	// cwd anchors the "**/<file>" mandatory denies, which bwrap can only
+	// enforce on paths it can name. cwdTree caches one bounded listing of
+	// the working directory for all of them.
+	cwd     string
+	cwdTree []string
 }
 
 // newBubblewrapPolicyTranslator creates a new translator with the given config.
@@ -39,6 +45,13 @@ func newBubblewrapPolicyTranslator(config *bubblewrapConfig) *bubblewrapPolicyTr
 // Returns a slice of arguments to pass to the bwrap command.
 func (t *bubblewrapPolicyTranslator) translate(policy *sandbox.SandboxPolicy) ([]string, error) {
 	args := []string{}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Warnf("sandbox: working directory unknown, nested credential files are not hidden: %v", err)
+	}
+	t.cwd = cwd
+	t.cwdTree = nil
 
 	// 1. Add essential system permissions (filesystem, proc)
 	systemArgs, err := t.addEssentialSystemPermissions()
@@ -312,7 +325,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 			continue
 		}
 
-		denyArgs, err := t.processDenyWriteRule(expanded)
+		denyArgs, err := t.processDenyWriteRule(expanded, rwDirs)
 		if err != nil {
 			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
 			continue
@@ -340,9 +353,9 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		var denyArgs []string
 		if allowReadSet[filepath.Clean(pattern)] {
-			denyArgs, err = t.processDenyWriteRule(expanded)
+			denyArgs, err = t.processDenyWriteRule(expanded, rwDirs)
 		} else {
-			denyArgs, err = t.processDenyRule(expanded)
+			denyArgs, err = t.processDenyRule(expanded, rwDirs, allowReadSet)
 		}
 		if err != nil {
 			log.Debugf("Deny rule '%s' skipped: %v", expanded, err)
@@ -358,7 +371,6 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 	// fail like it does on the other drivers.
 	tmpfsCandidates := intersectStrings(mandatoryResult.DenyRead, mandatoryResult.DenyWrite)
 	hiddenDirs := make(map[string]bool)
-	cwd, cwdErr := os.Getwd()
 	for _, pattern := range tmpfsCandidates {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -367,7 +379,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 
 		var dirsToHide []string
 		if util.ContainsGlob(expanded) {
-			matches, err := filepath.Glob(expanded)
+			matches, _, err := t.expandGlobPattern(expanded, t.config.mandatoryDenyScanDepth, t.config.maxGlobPaths)
 			if err != nil {
 				continue
 			}
@@ -378,17 +390,6 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 
 		for _, dir := range dirsToHide {
-			// A "**/<file>" pattern globs relative to the working directory.
-			// bwrap resolves a relative mount point against its read-only new
-			// root and fails to start, so anchor the match to that directory.
-			if !filepath.IsAbs(dir) {
-				if cwdErr != nil {
-					log.Warnf("sandbox: skipping credential directory %q: %v", dir, cwdErr)
-					continue
-				}
-				dir = filepath.Join(cwd, dir)
-			}
-
 			if hiddenDirs[dir] {
 				continue
 			}
@@ -482,7 +483,7 @@ func (t *bubblewrapPolicyTranslator) processDenyReadRule(path string) ([]string,
 
 // processDenyWriteRule handles deny_write rules without masking reads. Files
 // and directories are mounted read-only over any earlier writable parent bind.
-func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string) ([]string, error) {
+func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string, rwDirs map[string]bool) ([]string, error) {
 	args := []string{}
 
 	if util.ContainsGlob(path) {
@@ -496,6 +497,8 @@ func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string) ([]string
 			if _, err := os.Stat(baseDir); err == nil {
 				args = append(args, "--ro-bind-try", baseDir, baseDir)
 				log.Debugf("Deny write rule: mounted '%s' as read-only", baseDir)
+			} else {
+				args = append(args, denyMissingSubtreeArgs(baseDir, rwDirs)...)
 			}
 			return args, nil
 		}
@@ -726,11 +729,20 @@ func isFileUnderBoundDir(path string, dirs map[string]bool) bool {
 
 // processDenyRule handles deny rules by mounting /dev/null to prevent file access.
 // This technique is borrowed from Anthropic's sandbox-runtime.
-func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, error) {
+// readAllowed lists the paths the policy opted into reading. A match on one of
+// them keeps its read-only bind instead of the /dev/null mask, so a glob deny
+// never overrides an exact-match read opt-out.
+func (t *bubblewrapPolicyTranslator) processDenyRule(path string, rwDirs map[string]bool, readAllowed map[string]bool) ([]string, error) {
 	args := []string{}
 
 	// For glob patterns, expand and deny each path
 	if util.ContainsGlob(path) {
+		if strings.HasSuffix(path, "/**") {
+			if baseDir := extractGlobstarWriteBaseDir(path); !pathExists(baseDir) {
+				return denyMissingSubtreeArgs(baseDir, rwDirs), nil
+			}
+		}
+
 		// For deny rules, we scan for existing files matching the pattern
 		// Note: For deny rules, we ignore the fallback indicator since we want to
 		// deny all matched paths individually for maximum security
@@ -743,11 +755,11 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 		for _, p := range paths {
 			info, err := os.Stat(p)
 			if err == nil {
-				if info.IsDir() {
+				if info.IsDir() || readAllowed[p] {
 					// For directories, mount as read-only to prevent writes
 					// This overrides any previous writable bind of parent directories
 					args = append(args, "--ro-bind-try", p, p)
-					log.Debugf("Deny rule: mounted directory '%s' as read-only", p)
+					log.Debugf("Deny rule: mounted '%s' as read-only", p)
 				} else {
 					// For files, mount /dev/null to prevent access
 					args = append(args, "--ro-bind", "/dev/null", p)
@@ -757,11 +769,11 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 	} else {
 		// For literal paths, check if they exist
 		if info, err := os.Stat(path); err == nil {
-			if info.IsDir() {
+			if info.IsDir() || readAllowed[path] {
 				// For directories, mount as read-only to prevent writes
 				// This overrides any previous writable bind of parent directories
 				args = append(args, "--ro-bind-try", path, path)
-				log.Debugf("Deny rule: mounted directory '%s' as read-only", path)
+				log.Debugf("Deny rule: mounted '%s' as read-only", path)
 			} else {
 				// File exists - mount /dev/null over it
 				args = append(args, "--ro-bind", "/dev/null", path)
@@ -786,6 +798,10 @@ func (t *bubblewrapPolicyTranslator) processDenyRule(path string) ([]string, err
 // Returns (paths, useFallback, error) where useFallback indicates if
 // coarse-grained parent directory fallback should be used.
 func (t *bubblewrapPolicyTranslator) expandGlobPattern(pattern string, maxDepth int, maxPaths int) ([]string, bool, error) {
+	if suffix, ok := strings.CutPrefix(pattern, "**/"); ok {
+		return t.matchUnderCwd(suffix, maxDepth, maxPaths), false, nil
+	}
+
 	// Handle ** globstar patterns specially
 	if strings.Contains(pattern, "**") {
 		paths, err := t.expandGlobstarPattern(pattern, maxDepth, maxPaths)
@@ -830,6 +846,50 @@ func (t *bubblewrapPolicyTranslator) expandGlobPattern(pattern string, maxDepth 
 
 func (t *bubblewrapPolicyTranslator) expandGlobstarPattern(pattern string, maxDepth, maxPaths int) ([]string, error) {
 	return expandGlobstarPattern(pattern, maxDepth, maxPaths)
+}
+
+// matchUnderCwd resolves a "**/<file>" pattern below the working directory.
+// The listing is bounded by depth and entry count, so a credential file
+// deeper than mandatoryDenyScanDepth or beyond the entry cap stays visible
+// under bwrap. Landlock and Seatbelt match the pattern at any depth.
+func (t *bubblewrapPolicyTranslator) matchUnderCwd(suffix string, maxDepth, maxPaths int) []string {
+	if t.cwd == "" {
+		return nil
+	}
+
+	if t.cwdTree == nil {
+		tree, complete := scanTree(t.cwd, maxDepth, t.config.cwdScanMaxEntries)
+		if !complete {
+			log.Warnf("sandbox: nested credential scan of %s stopped at %d entries, deeper files are not hidden", t.cwd, len(tree))
+		}
+		t.cwdTree = tree
+	}
+
+	matches := matchSuffix(t.cwdTree, suffix)
+	if len(matches) > maxPaths {
+		matches = matches[:maxPaths]
+	}
+	return matches
+}
+
+// denyMissingSubtreeArgs hides a deny target that does not exist yet. Only a
+// directory below a writable bind needs it: the sandboxed process could
+// create it and every file inside. bwrap creates the mount point, so an
+// empty read-only directory is what the process sees, and an empty
+// directory stays on the host after the run. The direct parent must exist:
+// creating a chain such as .git/hooks in a directory that is not a
+// repository would leave a stray .git behind.
+func denyMissingSubtreeArgs(dir string, rwDirs map[string]bool) []string {
+	if !pathExists(filepath.Dir(dir)) {
+		return nil
+	}
+	for parent := range rwDirs {
+		if strings.HasPrefix(dir, parent+string(filepath.Separator)) {
+			log.Debugf("Deny rule: hiding missing directory '%s' below writable '%s'", dir, parent)
+			return []string{"--tmpfs", dir, "--remount-ro", dir}
+		}
+	}
+	return nil
 }
 
 func (t *bubblewrapPolicyTranslator) extractParentDir(pattern string) string {
@@ -877,4 +937,9 @@ func intersectStrings(a, b []string) []string {
 		}
 	}
 	return out
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

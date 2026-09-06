@@ -786,3 +786,37 @@ func TestClassifyOpenFlags_Openat(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchDeniedPathPattern(t *testing.T) {
+	denies := compileDenyPatterns([]denyPathEntry{
+		{Pattern: "**/.env", Mode: denyBoth},
+		{Pattern: "**/.env.*", Mode: denyBoth},
+		{Pattern: "**/.ssh", Mode: denyBoth},
+		{Pattern: "**/.docker/config.json", Mode: denyBoth},
+	})
+
+	cases := []struct {
+		path   string
+		denied bool
+	}{
+		{"/repo/.env", true},
+		{"/repo/packages/app/.env", true},
+		{"/repo/packages/app/.env.local", true},
+		{"/home/user/projects/x/.ssh/id_ed25519", true},
+		{"/home/user/.docker/config.json", true},
+		{"/repo/.envrc", false},
+		{"/repo/packages/app/env", false},
+		{"/home/user/.docker/daemon.json", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.denied, isPathDenied(tc.path, unix.O_RDONLY, denies))
+		})
+	}
+}
+
+func TestDenyPathEntryTargetNamesThePattern(t *testing.T) {
+	assert.Equal(t, "**/.env", denyPathEntry{Pattern: "**/.env"}.target())
+	assert.Equal(t, "/repo/.env", denyPathEntry{Path: "/repo/.env"}.target())
+}

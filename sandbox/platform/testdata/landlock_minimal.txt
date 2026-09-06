@@ -40,56 +40,84 @@ filesystem_rules (16):
   - path: /tmp
     access: write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
 
-deny_paths (32):
+deny_paths (46):
   - path: /src/sandbox/platform/.env
+    mode: both
+  - pattern: **/.env
     mode: both
   - path: /root/.env
     mode: both
+  - pattern: **/.env.*
+    mode: both
   - path: /src/sandbox/platform/.aws
+    mode: both
+  - pattern: **/.aws
     mode: both
   - path: /root/.aws
     mode: both
   - path: /src/sandbox/platform/.azure
     mode: both
+  - pattern: **/.azure
+    mode: both
   - path: /root/.azure
     mode: both
   - path: /src/sandbox/platform/.gcloud
+    mode: both
+  - pattern: **/.gcloud
     mode: both
   - path: /root/.gcloud
     mode: both
   - path: /src/sandbox/platform/.config/gcloud
     mode: both
+  - pattern: **/.config/gcloud
+    mode: both
   - path: /root/.config/gcloud
     mode: both
   - path: /src/sandbox/platform/.kube
+    mode: both
+  - pattern: **/.kube
     mode: both
   - path: /root/.kube
     mode: both
   - path: /src/sandbox/platform/.ssh
     mode: both
+  - pattern: **/.ssh
+    mode: both
   - path: /root/.ssh
     mode: both
   - path: /src/sandbox/platform/.gnupg
+    mode: both
+  - pattern: **/.gnupg
     mode: both
   - path: /root/.gnupg
     mode: both
   - path: /src/sandbox/platform/.docker/config.json
     mode: both
+  - pattern: **/.docker/config.json
+    mode: both
   - path: /root/.docker/config.json
     mode: both
   - path: /src/sandbox/platform/.netrc
+    mode: both
+  - pattern: **/.netrc
     mode: both
   - path: /root/.netrc
     mode: both
   - path: /src/sandbox/platform/.git-credentials
     mode: both
+  - pattern: **/.git-credentials
+    mode: both
   - path: /root/.git-credentials
     mode: both
   - path: /src/sandbox/platform/.pgpass
     mode: both
+  - pattern: **/.pgpass
+    mode: both
   - path: /root/.pgpass
     mode: both
   - path: /src/sandbox/platform/.config/gh
+    mode: both
+  - pattern: **/.config/gh
     mode: both
   - path: /root/.config/gh
     mode: both

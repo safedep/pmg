@@ -150,6 +150,9 @@ func landlockMaskDeniedAccess(r landlockPathRule, denies []denyPathEntry) uint64
 	access := r.Access
 	path := filepath.Clean(r.Path)
 	for _, d := range denies {
+		if d.Path == "" {
+			continue
+		}
 		denyPath := filepath.Clean(d.Path)
 		if path != denyPath && !strings.HasPrefix(path, denyPath+"/") {
 			continue
@@ -414,6 +417,13 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		}
 	}
 	appendDeny := func(pattern string, mode denyMode) {
+		// "**/<file>" has no base to walk. The supervisor matches it as a
+		// pattern against every opened path, so a nested credential file is
+		// denied at any depth without a scan.
+		if strings.HasPrefix(pattern, "**/") {
+			ep.DenyPaths = append(ep.DenyPaths, denyPathEntry{Pattern: pattern, Mode: mode})
+			return
+		}
 		if util.ContainsGlob(pattern) {
 			matches, err := landlockGlobMatches(pattern)
 			if err != nil {
