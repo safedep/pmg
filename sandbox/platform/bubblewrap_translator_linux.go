@@ -489,7 +489,9 @@ func (t *bubblewrapPolicyTranslator) processDenyWriteRule(path string) ([]string
 		// "<dir>/**" denies the whole subtree. One read-only bind of the base
 		// directory covers every file, including files created later, and
 		// skips a walk that per-file binds would need (and would truncate).
-		if strings.Contains(path, "**") {
+		// Other globstar forms ("**/<file>", "<dir>/**/<name>") name a subset
+		// of the tree, so they keep the per-match expansion below.
+		if strings.HasSuffix(path, "/**") {
 			baseDir := extractGlobstarWriteBaseDir(path)
 			if _, err := os.Stat(baseDir); err == nil {
 				args = append(args, "--ro-bind-try", baseDir, baseDir)

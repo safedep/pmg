@@ -630,6 +630,30 @@ func TestBubblewrapTranslatorProcessDenyWriteRule(t *testing.T) {
 		assert.NotContains(t, args, nestedFile, "no per-file bind for a subtree deny")
 	})
 
+	t.Run("non-subtree globstar keeps per-match expansion", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		nested := filepath.Join(tmpDir, "sub", "locked")
+		require.NoError(t, os.MkdirAll(nested, 0o755))
+		t.Chdir(tmpDir)
+
+		cases := map[string]string{
+			"leading globstar":   "**/locked",
+			"globstar in middle": tmpDir + "/**/locked",
+		}
+		for name, pattern := range cases {
+			t.Run(name, func(t *testing.T) {
+				args := translateForTest(t, &sandbox.SandboxPolicy{
+					Filesystem: sandbox.FilesystemPolicy{
+						DenyWrite: []string{pattern},
+					},
+				})
+
+				assert.Equal(t, -1, lastIndexOfTriple(args, "--ro-bind-try", ".", "."), "must not bind the working directory")
+				assert.Equal(t, -1, lastIndexOfTriple(args, "--ro-bind-try", tmpDir, tmpDir), "must not bind the whole tree")
+			})
+		}
+	})
+
 	t.Run("existing directory is mounted read-only", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
