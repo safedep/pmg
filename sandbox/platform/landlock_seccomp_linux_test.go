@@ -322,7 +322,7 @@ func TestCanonicalPath(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := canonicalPath(pid, tc.path, tc.followLeaf)
+			got := canonicalPath(pid, "/", tc.path, tc.followLeaf)
 			if strings.HasPrefix(tc.want, "/proc/") {
 				// /proc/<pid>/cwd is itself a magic link the walker resolves.
 				cwd, err := os.Getwd()
@@ -1061,12 +1061,178 @@ func TestReadSyscallFlags_Openat2ReadsResolve(t *testing.T) {
 	assert.Equal(t, openat2Args{flags: unix.O_WRONLY, resolve: unix.RESOLVE_IN_ROOT}, got)
 }
 
-func TestAnchorInRoot(t *testing.T) {
-	assert.Equal(t, ".env", anchorInRoot("/.env", unix.RESOLVE_IN_ROOT))
-	assert.Equal(t, "a/.env", anchorInRoot("//a/.env", unix.RESOLVE_IN_ROOT))
-	assert.Equal(t, "/.env", anchorInRoot("/.env", 0))
-	assert.Equal(t, "/.env", anchorInRoot("/.env", unix.RESOLVE_BENEATH))
-	assert.Equal(t, "rel", anchorInRoot("rel", unix.RESOLVE_IN_ROOT))
+// Under a root floor ".." stops at the root and an absolute symlink target
+// restarts there, as with chroot(2) and RESOLVE_IN_ROOT.
+func TestCanonicalPath_RootFloor(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("x"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(root, "sub"), 0o755))
+	require.NoError(t, os.Symlink("/.env", filepath.Join(root, "absroot")))
+	require.NoError(t, os.Symlink("/sub/../.env", filepath.Join(root, "sub", "climb")))
+
+	pid := uint32(os.Getpid())
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"dotdot stops at the root", root + "/../.env", root + "/.env"},
+		{"dotdot chain stops at the root", root + "/sub/../../../.env", root + "/.env"},
+		{"absolute symlink restarts at the root", root + "/absroot", root + "/.env"},
+		{"absolute symlink with dotdot", root + "/sub/climb", root + "/.env"},
+		{"proc self is literal under a floor", root + "/proc/self/x", root + "/proc/self/x"},
+		{"missing tail cannot escape", root + "/nope/../../../etc/passwd", root},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, canonicalPath(pid, root, tc.path, true))
+		})
+	}
+}
+
+func TestResolveSyscallPath_ResolveInRoot(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("x"), 0o600))
+	require.NoError(t, os.Symlink("/.env", filepath.Join(root, "absroot")))
+	dir, err := os.Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, dir.Close()) })
+
+	pid := uint32(os.Getpid())
+	for _, raw := range []string{"/.env", "../.env", "absroot", "//.env", "./../../.env"} {
+		got, err := resolveSyscallPath(pid, int(dir.Fd()), raw, true, unix.RESOLVE_IN_ROOT)
+		require.NoError(t, err, raw)
+		assert.Equal(t, filepath.Join(root, ".env"), got, raw)
+	}
+
+	// Without the flag the same operands leave the directory.
+	got, err := resolveSyscallPath(pid, int(dir.Fd()), "/.env", true, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "/.env", got)
+	got, err = resolveSyscallPath(pid, int(dir.Fd()), "../.env", true, unix.RESOLVE_BENEATH)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(filepath.Dir(root), ".env"), got)
+}
+
+// TestResolveSyscallPath_MatchesKernel drives one path set through the
+// supervisor's resolver and through the kernel, via openat2 and the
+// /proc/self/fd link of the opened file, and requires the two to agree.
+// Every review round so far found a case where the emulation and the
+// kernel differed. This suite is where the next one fails first.
+func TestResolveSyscallPath_MatchesKernel(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	if _, err := unix.Openat2(unix.AT_FDCWD, root, &unix.OpenHow{Flags: unix.O_PATH}); err != nil {
+		t.Skipf("openat2 unavailable: %v", err)
+	}
+
+	mk := func(rel string) string { return filepath.Join(root, rel) }
+	require.NoError(t, os.WriteFile(mk(".env"), []byte("x"), 0o600))
+	require.NoError(t, os.MkdirAll(mk("dir/deep"), 0o755))
+	require.NoError(t, os.WriteFile(mk("dir/file"), []byte("x"), 0o600))
+	require.NoError(t, os.Symlink(".env", mk("lnk")))
+	require.NoError(t, os.Symlink("lnk", mk("chain")))
+	require.NoError(t, os.Symlink(mk(".env"), mk("abs")))
+	require.NoError(t, os.Symlink("/.env", mk("absroot")))
+	require.NoError(t, os.Symlink("dir", mk("dirlnk")))
+	require.NoError(t, os.Symlink("..", mk("dir/up")))
+	require.NoError(t, os.Symlink("loop", mk("loop")))
+	require.NoError(t, os.Symlink("/proc/self/cwd/.env", mk("viaproc")))
+
+	t.Chdir(root)
+	rootFd, err := os.Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, rootFd.Close()) })
+
+	const (
+		cwd = -100
+		dir = -1 // stands for the root directory fd
+	)
+	type kase struct {
+		dirfd   int
+		path    string
+		flags   int
+		resolve uint64
+	}
+	cases := []kase{
+		{cwd, ".env", unix.O_PATH, 0},
+		{cwd, root + "/.env", unix.O_PATH, 0},
+		{cwd, "lnk", unix.O_PATH, 0},
+		{cwd, "lnk", unix.O_PATH | unix.O_NOFOLLOW, 0},
+		{cwd, "chain", unix.O_PATH, 0},
+		{cwd, "abs", unix.O_PATH, 0},
+		{cwd, "dirlnk/file", unix.O_PATH, 0},
+		{cwd, "dirlnk/", unix.O_PATH, 0},
+		{cwd, "dir/up/.env", unix.O_PATH, 0},
+		{cwd, "dir/deep/../up/.env", unix.O_PATH, 0},
+		{cwd, "dirlnk/../.env", unix.O_PATH, 0},
+		{cwd, "viaproc", unix.O_PATH, 0},
+		{cwd, "/proc/self/cwd/dir/file", unix.O_PATH, 0},
+		{cwd, "/proc/self/fd/" + strconv.Itoa(int(rootFd.Fd())) + "/dir/file", unix.O_PATH, 0},
+		{cwd, "dir/newfile", unix.O_WRONLY | unix.O_CREAT, 0},
+		{cwd, "dirlnk/newfile2", unix.O_WRONLY | unix.O_CREAT, 0},
+		{cwd, "dir/up/newfile3", unix.O_WRONLY | unix.O_CREAT, 0},
+		{dir, ".env", unix.O_PATH, 0},
+		{dir, "dir/../lnk", unix.O_PATH, 0},
+		{dir, "/.env", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "../.env", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "absroot", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/up/../../../.env", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/../lnk", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/newfile4", unix.O_WRONLY | unix.O_CREAT, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/../.env", unix.O_PATH, unix.RESOLVE_BENEATH},
+		{dir, "lnk", unix.O_PATH, unix.RESOLVE_BENEATH},
+		{cwd, "dir/file", unix.O_PATH, unix.RESOLVE_NO_SYMLINKS},
+		{cwd, "dir/file", unix.O_PATH, unix.RESOLVE_NO_MAGICLINKS},
+		// The kernel refuses these. The supervisor must still answer
+		// without a panic, and the answer is irrelevant.
+		{cwd, "loop", unix.O_PATH, 0},
+		{cwd, "lnk/", unix.O_PATH, 0},
+		{dir, "../.env", unix.O_PATH, unix.RESOLVE_BENEATH},
+		{cwd, "lnk", unix.O_PATH, unix.RESOLVE_NO_SYMLINKS},
+		{cwd, "viaproc", unix.O_PATH, unix.RESOLVE_NO_MAGICLINKS},
+	}
+
+	compared := 0
+	pid := uint32(os.Getpid())
+	for _, c := range cases {
+		name := fmt.Sprintf("dirfd=%d path=%s flags=%#x resolve=%#x", c.dirfd, c.path, c.flags, c.resolve)
+		t.Run(name, func(t *testing.T) {
+			dirfd := c.dirfd
+			if dirfd == dir {
+				dirfd = int(rootFd.Fd())
+			}
+
+			got, err := resolveSyscallPath(pid, dirfd, c.path, c.flags&unix.O_NOFOLLOW == 0, c.resolve)
+			require.NoError(t, err)
+
+			how := &unix.OpenHow{Flags: uint64(c.flags | unix.O_CLOEXEC), Resolve: c.resolve}
+			if c.flags&unix.O_CREAT != 0 {
+				// openat2 rejects a mode on an open that cannot create.
+				how.Mode = 0o600
+			}
+			fd, err := unix.Openat2(dirfd, c.path, how)
+			if err != nil {
+				t.Logf("kernel refused: %v", err)
+				return
+			}
+			defer func() { assert.NoError(t, unix.Close(fd)) }()
+			kernel, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
+			require.NoError(t, err)
+			if c.flags&unix.O_CREAT != 0 {
+				defer func() { assert.NoError(t, os.Remove(kernel)) }()
+			}
+
+			assert.Equal(t, kernel, got)
+			compared++
+		})
+	}
+	assert.GreaterOrEqual(t, compared, 25, "most cases must reach the comparison")
 }
 
 func TestResolveNotifPath_UsesProcessRoot(t *testing.T) {

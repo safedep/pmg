@@ -116,16 +116,22 @@ func pathOpKindForSyscall(name string) (pathOpKind, bool) {
 // followLeaf is false for the syscalls that act on a link itself (rename,
 // link, unlink, mkdir, symlink) and for opens with O_NOFOLLOW.
 //
+// root is the floor of the walk: ".." stops there and an absolute symlink
+// target restarts there, as under chroot(2) and openat2's RESOLVE_IN_ROOT.
+// It is "/" for an unconfined process. Under any other root /proc/self is
+// left alone: the host procfs is not what the process sees there.
+//
 // The supervisor reads the filesystem after the process issued the syscall
 // and before the kernel resolves it. A process that swaps a symlink in that
 // window defeats the check. This is the TOCTOU window every seccomp-notify
 // path filter has (see docs/sandbox-landlock.md).
-func canonicalPath(pid uint32, path string, followLeaf bool) string {
+func canonicalPath(pid uint32, root, path string, followLeaf bool) string {
 	const maxLinks = 40 // matches the kernel's ELOOP limit
 	procSelf := "/proc/" + strconv.FormatUint(uint64(pid), 10)
 
-	resolved := "/"
-	rest := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	root = filepath.Clean(root)
+	resolved := root
+	rest := strings.Split(pathBelowRoot(root, path), "/")
 	links := 0
 
 	for len(rest) > 0 {
@@ -136,19 +142,21 @@ func canonicalPath(pid uint32, path string, followLeaf bool) string {
 		case "", ".":
 			continue
 		case "..":
-			resolved = filepath.Dir(resolved)
+			if resolved != root {
+				resolved = filepath.Dir(resolved)
+			}
 			continue
 		}
 
 		next := filepath.Join(resolved, component)
-		if next == "/proc/self" || next == "/proc/thread-self" {
+		if root == "/" && (next == "/proc/self" || next == "/proc/thread-self") {
 			resolved = procSelf
 			continue
 		}
 
 		info, err := os.Lstat(next)
 		if err != nil {
-			return filepath.Join(append([]string{next}, rest...)...)
+			return clampToRoot(root, filepath.Join(append([]string{next}, rest...)...))
 		}
 
 		if info.Mode()&os.ModeSymlink == 0 || (!followLeaf && len(rest) == 0) {
@@ -159,15 +167,40 @@ func canonicalPath(pid uint32, path string, followLeaf bool) string {
 		links++
 		target, err := os.Readlink(next)
 		if links > maxLinks || err != nil {
-			return filepath.Join(append([]string{next}, rest...)...)
+			return clampToRoot(root, filepath.Join(append([]string{next}, rest...)...))
 		}
 		if filepath.IsAbs(target) {
-			resolved = "/"
+			resolved = root
 		}
 		rest = append(strings.Split(strings.TrimPrefix(target, "/"), "/"), rest...)
 	}
 
 	return resolved
+}
+
+// pathBelowRoot returns path relative to root, or path itself when it does
+// not lie below root.
+func pathBelowRoot(root, path string) string {
+	if root == "/" {
+		return strings.TrimPrefix(path, "/")
+	}
+	if path == root {
+		return ""
+	}
+	if strings.HasPrefix(path, root+"/") {
+		return path[len(root)+1:]
+	}
+	return strings.TrimPrefix(path, "/")
+}
+
+// clampToRoot keeps a lexically joined tail from escaping the floor through
+// ".." components. The kernel fails such a lookup with ENOENT, so the exact
+// answer does not matter, only that it stays below root.
+func clampToRoot(root, path string) string {
+	if root == "/" || path == root || strings.HasPrefix(path, root+"/") {
+		return path
+	}
+	return root
 }
 
 // pathCoveredBy reports whether path is the deny entry or lies beneath it.
@@ -234,7 +267,7 @@ func resolveDenyExec(pid uint32, entries []string) []string {
 // resolved, and the pattern is re-attached.
 func canonicalDenyPath(pid uint32, path string) string {
 	if !util.ContainsGlob(path) {
-		return canonicalPath(pid, path, true)
+		return canonicalPath(pid, "/", path, true)
 	}
 
 	components := strings.Split(path, "/")
@@ -244,7 +277,7 @@ func canonicalDenyPath(pid uint32, path string) string {
 			if base == "" {
 				return path
 			}
-			return filepath.Join(canonicalPath(pid, base, true), strings.Join(components[i:], "/"))
+			return filepath.Join(canonicalPath(pid, "/", base, true), strings.Join(components[i:], "/"))
 		}
 	}
 	return path
@@ -364,9 +397,7 @@ func followsLeaf(op pathSyscall, operand pathOperand, flags int) bool {
 }
 
 // resolveOperand reads one path operand from the notifying process and
-// canonicalizes it. With RESOLVE_IN_ROOT (openat2) the kernel treats an
-// absolute path as relative to dirfd, so the leading slash is dropped
-// before the path is anchored there.
+// canonicalizes it.
 func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os.File, operand pathOperand, followLeaf bool, resolve uint64) (string, error) {
 	rawPath, err := readPathFromMem(memFd, uintptr(notif.Data.Args[operand.path]))
 	if err != nil {
@@ -378,17 +409,7 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 		dirfd = dirfdFromArgs(notif.Data.Args[operand.dirfd])
 	}
 
-	return resolveNotifPath(notif.PID, dirfd, anchorInRoot(rawPath, resolve), followLeaf)
-}
-
-// anchorInRoot applies openat2's RESOLVE_IN_ROOT: an absolute path is
-// interpreted relative to dirfd, so its leading slash goes. RESOLVE_BENEATH
-// needs nothing, the kernel rejects an absolute path under it.
-func anchorInRoot(rawPath string, resolve uint64) string {
-	if resolve&unix.RESOLVE_IN_ROOT != 0 {
-		return strings.TrimLeft(rawPath, "/")
-	}
-	return rawPath
+	return resolveSyscallPath(notif.PID, dirfd, rawPath, followLeaf, resolve)
 }
 
 // handlePathOp enforces the deny list for one trapped path syscall. Every
@@ -485,42 +506,64 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	s.deny(notif.ID)
 }
 
-// resolveNotifPath turns a syscall path operand into a canonical absolute
-// path as the supervisor sees the filesystem. A relative path is anchored
-// at /proc/<pid>/cwd or the dirfd's /proc/<pid>/fd entry, and an absolute
-// path at /proc/<pid>/root, which is not "/" once the process has changed
-// its root (readlinkat is not intercepted, and /proc reports every link
-// against the reader's root). An empty path with a dirfd names the dirfd
-// itself (AT_EMPTY_PATH).
-func resolveNotifPath(pid uint32, dirfd int, rawPath string, followLeaf bool) (string, error) {
-	joined := rawPath
-	if filepath.IsAbs(rawPath) {
-		root, err := os.Readlink(fmt.Sprintf("/proc/%d/root", pid))
-		if err != nil {
-			return "", fmt.Errorf("readlink /proc/%d/root: %w", pid, err)
-		}
-		if root != "/" {
-			joined = root + rawPath
-		}
-	} else {
-		var base string
+// resolveSyscallPath turns a syscall path operand into the canonical
+// absolute path the kernel will act on, as the supervisor sees the
+// filesystem. A relative path is anchored at /proc/<pid>/cwd or the dirfd's
+// /proc/<pid>/fd entry, and an absolute path at /proc/<pid>/root, which is
+// not "/" once the process has changed its root. /proc reports every link
+// against the reader's root, and readlinkat is not intercepted. The
+// process root is also the floor for ".." and absolute symlinks. With
+// openat2's RESOLVE_IN_ROOT the dirfd is that floor instead and a leading
+// slash means the dirfd, as the kernel does. An empty path with a dirfd
+// names the dirfd itself (AT_EMPTY_PATH).
+func resolveSyscallPath(pid uint32, dirfd int, rawPath string, followLeaf bool, resolve uint64) (string, error) {
+	root, err := procLink(pid, "root")
+	if err != nil {
+		return "", err
+	}
+
+	dirPath := func() (string, error) {
 		if dirfd == -100 {
-			cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
-			if err != nil {
-				return "", fmt.Errorf("readlink /proc/%d/cwd: %w", pid, err)
-			}
-			base = cwd
-		} else {
-			fdPath, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, dirfd))
-			if err != nil {
-				return "", fmt.Errorf("readlink /proc/%d/fd/%d: %w", pid, dirfd, err)
-			}
-			base = fdPath
+			return procLink(pid, "cwd")
+		}
+		return procLink(pid, "fd/"+strconv.Itoa(dirfd))
+	}
+
+	floor := root
+	var joined string
+	switch {
+	case resolve&unix.RESOLVE_IN_ROOT != 0:
+		base, err := dirPath()
+		if err != nil {
+			return "", err
+		}
+		floor = base
+		joined = base + "/" + strings.TrimLeft(rawPath, "/")
+	case filepath.IsAbs(rawPath):
+		joined = strings.TrimSuffix(root, "/") + rawPath
+	default:
+		base, err := dirPath()
+		if err != nil {
+			return "", err
 		}
 		// Join without Clean: ".." must apply after the symlink before it
 		// is followed, which canonicalPath does component by component.
 		joined = base + "/" + rawPath
 	}
 
-	return canonicalPath(pid, joined, followLeaf), nil
+	return canonicalPath(pid, floor, joined, followLeaf), nil
+}
+
+// resolveNotifPath is resolveSyscallPath for syscalls without resolve flags.
+func resolveNotifPath(pid uint32, dirfd int, rawPath string, followLeaf bool) (string, error) {
+	return resolveSyscallPath(pid, dirfd, rawPath, followLeaf, 0)
+}
+
+func procLink(pid uint32, name string) (string, error) {
+	link := fmt.Sprintf("/proc/%d/%s", pid, name)
+	target, err := os.Readlink(link)
+	if err != nil {
+		return "", fmt.Errorf("readlink %s: %w", link, err)
+	}
+	return target, nil
 }

@@ -659,3 +659,50 @@ func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
 	assert.Contains(t, stdout, "CHROOT_DENIED", "stdout=%q stderr=%q", stdout, stderr)
 	assert.NotContains(t, stdout+stderr, secret)
 }
+
+// TestLandlockHelper_DefaultNamespacesKeepAbsolutePaths runs the production
+// layout (PID and mount namespaces on) that the other cases skip. The
+// supervisor anchors every absolute path at /proc/<pid>/root, which must
+// read "/" for a child in its own mount namespace: an allowed absolute read
+// must succeed and a denied one must fail. The helper retries without the
+// namespaces when the kernel refuses them, so a host without them passes
+// the case on the fallback layout.
+func TestLandlockHelper_DefaultNamespacesKeepAbsolutePaths(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh not found")
+	}
+
+	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	const public = "PUBLIC-CONTENT"
+	const secret = "NAMESPACED-SECRET"
+	require.NoError(t, os.WriteFile(filepath.Join(home, "public.txt"), []byte(public), 0o644))
+	secretDir := filepath.Join(home, "secrets")
+	require.NoError(t, os.Mkdir(secretDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(secretDir, "token"), []byte(secret), 0o600))
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: home, Access: landlockRuleReadExec},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: secretDir, Mode: denyBoth},
+		},
+		Command: "/bin/sh",
+		Args: []string{"-c",
+			"cat " + home + "/public.txt && echo && cat " + secretDir + "/token || echo SECRET_DENIED"},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, _ := runHelper(t, policyPath)
+	assert.Contains(t, stdout, public, "an allowed absolute path must resolve; stderr=%q", stderr)
+	assert.Contains(t, stdout, "SECRET_DENIED", "stderr=%q", stderr)
+	assert.NotContains(t, stdout+stderr, secret)
+}

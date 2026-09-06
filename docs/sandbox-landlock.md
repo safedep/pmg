@@ -114,11 +114,16 @@ Trailing-slash entries still prefix-match.
 
 ### Write denies under a writable project tree run through the supervisor
 
-Landlock cannot subtract a subpath from a broad grant. When a profile allows
-writes to `${CWD}/**` (the default for the built-in package manager profiles),
-the Landlock layer permits every write to `${CWD}/.env`, `${CWD}/.git/hooks`
-and the other CWD-anchored mandatory deny targets, including rename, link and
-unlink. The seccomp supervisor is the enforcement boundary for those paths.
+Landlock cannot subtract a subpath from a broad grant: rules inside a layer
+are additive, and a second layer would have to enumerate the children of
+`${CWD}` and would miss anything created later. When a profile allows writes
+to `${CWD}/**` (the default for the built-in package manager profiles), the
+Landlock layer permits every write to `${CWD}/.env`, `${CWD}/.git/hooks` and
+the other CWD-anchored mandatory deny targets, including rename, link and
+unlink. Only the seccomp supervisor stands between a process and those paths,
+and it is best-effort: it emulates the kernel's path resolution and answers
+inside a TOCTOU window. Treat the in-project denies under a broad write grant
+as a strong default, not a hard barrier. Nothing should lean on them as one.
 
 The supervisor traps every syscall that names a path (`seccompPathSyscalls` in
 `landlock_seccomp_path_linux.go`): `open`, `creat`, `openat`, `openat2`,
@@ -154,12 +159,22 @@ through `ln -s .env x` or through `/proc/self/cwd/.env`.
 
 Every path is read as the supervisor sees the filesystem. An absolute path
 is anchored at `/proc/<pid>/root`, a relative one at `/proc/<pid>/cwd` or
-the dirfd, and `openat2` with `RESOLVE_IN_ROOT` drops the leading slash so
-the path is anchored at the dirfd, as the kernel does. The supervisor reads
-the full `struct open_how` for that. After it has read any `/proc/<pid>`
-state and before it answers, it checks `SECCOMP_IOCTL_NOTIF_ID_VALID` so a
-recycled pid is never judged on another process's cwd or fds. A stale
-notification is denied.
+the dirfd. The walk has a floor: `..` stops at the process root and an
+absolute symlink target restarts there, as under `chroot(2)`. `openat2` with
+`RESOLVE_IN_ROOT` makes the dirfd that floor and a leading slash mean the
+dirfd, which is the same rule applied per open. The supervisor reads the
+full `struct open_how` for that. After it has read any `/proc/<pid>` state
+and before it answers, it checks `SECCOMP_IOCTL_NOTIF_ID_VALID` so a recycled
+pid is never judged on another process's cwd or fds. A stale notification is
+denied.
+
+`TestResolveSyscallPath_MatchesKernel` drives one path set through the
+resolver and through the kernel, via `openat2` and the `/proc/self/fd` link
+of the opened file, and requires both to agree: symlink chains, `..` past a
+floor, `/proc/self` and `/proc/<pid>/fd/<n>`, each `RESOLVE_*` flag,
+`AT_FDCWD` against a real dirfd, trailing slashes, and a leaf that does not
+exist yet. It runs on every Linux CI job, Landlock or not. A new divergence
+between the emulation and the kernel belongs there first.
 
 The deny list is matched in both forms. `Enforce` adds the canonical form of
 every deny entry next to its lexical form, so `~/.ssh` still matches when

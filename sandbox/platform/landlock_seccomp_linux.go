@@ -727,6 +727,11 @@ func (s *seccompSupervisor) handleConnect(notif *seccompNotification, phase *sec
 		return
 	}
 
+	if !s.notifValid(notif.ID) {
+		s.deny(notif.ID)
+		return
+	}
+
 	if phase.network.allowOutbound(peer.family, peer.addr, peer.port) {
 		traceSeccompDecision("allow %s pid=%d peer=%s", syscallName(notif.Data.Nr), notif.PID, peer)
 		s.continueSyscall(notif.ID)
