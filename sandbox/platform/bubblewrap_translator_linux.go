@@ -286,12 +286,9 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 	}
 
-	// A deny overlay pins only its target. rename(2) of an ancestor directory
-	// succeeds and carries the overlay along, so a process could move
-	// ${CWD}/.git aside and create a fresh .git/hooks in the writable project
-	// tree. A directory that is itself a mount point cannot be renamed
-	// (EBUSY), so every directory between a writable base and a protected
-	// path is bound onto itself before the overlays go on top of it.
+	// A rename of a directory carries the deny overlays below it along. A
+	// mount point cannot be renamed, so the directories between a writable
+	// base and a deny target are bound onto themselves before the overlays.
 	protected := append([]string{}, mandatoryResult.DenyRead...)
 	protected = append(protected, mandatoryResult.DenyWrite...)
 	protected = append(protected, policy.Filesystem.DenyRead...)
@@ -710,11 +707,9 @@ func isStrictlyUnderBoundDir(path string, dirs map[string]bool) bool {
 	return false
 }
 
-// pinProtectedAncestors binds every directory between a read-write bound
-// base and an existing deny target onto itself, once each. The base is
-// never pinned: its parent is not writable, so it cannot be renamed. A
-// pattern that fails to expand is skipped here and reported by the deny
-// loops that process the same list.
+// pinProtectedAncestors binds each directory between a writable base and an
+// existing deny target onto itself. The base is not pinned: its parent is
+// not writable. The deny loops report a pattern that fails to expand.
 func (t *bubblewrapPolicyTranslator) pinProtectedAncestors(denyPatterns []string, rwDirs map[string]bool) []string {
 	args := []string{}
 	pinned := make(map[string]bool)
@@ -744,9 +739,8 @@ func (t *bubblewrapPolicyTranslator) pinProtectedAncestors(denyPatterns []string
 	return args
 }
 
-// denyTargets lists the concrete paths a deny pattern overlays: the path
-// itself, its glob matches, or for a globstar the directory the deny rules
-// hide (see processDenyReadRule).
+// denyTargets lists the paths a deny pattern overlays. A globstar maps to
+// the directory the deny rules hide.
 func denyTargets(expanded string) []string {
 	if !util.ContainsGlob(expanded) {
 		return []string{expanded}

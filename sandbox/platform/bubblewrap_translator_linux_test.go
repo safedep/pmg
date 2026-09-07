@@ -844,9 +844,8 @@ func TestBubblewrapAllowWriteGlobstarBindsParentOnly(t *testing.T) {
 
 	assertWriteBind(t, args, venvDir)
 	assertNoWriteBind(t, args, pythonPath)
-	// Bare "dir/**" read patterns bind the base directory. The python
-	// symlink is reachable through the tmpDir read bind and the writable
-	// venv bind and gets no mount of its own.
+	// A bare "dir/**" read pattern binds the base directory, not the files
+	// below it.
 	assertReadBind(t, args, tmpDir)
 	assertNoReadBind(t, args, pythonPath)
 }
@@ -1351,9 +1350,8 @@ func TestBubblewrapMandatoryWriteDenySurvivesWritableParent(t *testing.T) {
 		"read-only .git/config bind must come after the writable .git bind (bwrap last mount wins)")
 }
 
-// rename(2) of a directory that holds a deny overlay succeeds and carries the
-// overlay along, so the directories between a writable base and a protected
-// path must be mount points of their own, bound before the overlays.
+// A rename of an ancestor directory carries a deny overlay along. The
+// ancestors must be mount points, bound before the overlays.
 func TestBubblewrapPinsAncestorsOfProtectedPaths(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Setenv("TMPDIR", t.TempDir())
@@ -1390,7 +1388,6 @@ func TestBubblewrapPinsAncestorsOfProtectedPaths(t *testing.T) {
 	// The pin must come before the overlays, or the new .git mount hides them.
 	assert.Less(t, indexOfBind(args, gitDir), indexOfTmpfs(args, hooksDir))
 
-	// The base is never pinned twice and the protected paths get no writable bind.
 	assert.Equal(t, 1, countWriteBinds(args, gitDir))
 	assertNoWriteBind(t, args, hooksDir)
 	assertNoWriteBind(t, args, workflowsDir)

@@ -13,9 +13,8 @@ metadata:
 #   workload runs git (repo discovery requires reading config).
 # - allow_write on .git/** lets a sandboxed process tamper with refs/objects
 #   (data, not code execution). The exact ${CWD}/.git entry opts out of the
-#   mandatory write deny on the directory itself. The mandatory write denies
-#   on .git/config and all .git/hooks rules are NOT suppressed by either
-#   entry: hook injection and config tampering stay blocked.
+#   write deny on the directory. The denies on .git/config and .git/hooks are
+#   not suppressed by either entry.
 filesystem:
   allow_read:
     - ${CWD}/.git/config

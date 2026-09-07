@@ -2,8 +2,7 @@
 
 package platform
 
-// No audit arch is known for this architecture, so the filter skips the
-// arch check. PMG does not ship the Landlock driver here.
+// No audit arch is known here, so the filter skips the arch check.
 const seccompNativeArch = 0
 
 const seccompX32SyscallBit = 0

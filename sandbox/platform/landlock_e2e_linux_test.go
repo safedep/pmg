@@ -546,11 +546,8 @@ func TestLandlockHelper_DenyOverlappingAllowRuleDoesNotWedgeShim(t *testing.T) {
 	assert.Contains(t, stdout, "shim-survived")
 }
 
-// TestLandlockHelper_DenyBlocksMoveLinkAndSymlink covers the routes around
-// an openat-only deny under a broad Landlock write grant: rename the
-// protected file to a new name, hard-link it, or read it through a symlink.
-// The Landlock rule on $home grants every write right, so the supervisor
-// is the only layer that can refuse.
+// The Landlock rule on $home grants every write right, so only the
+// supervisor can refuse a rename, a hard link or a read through a symlink.
 func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
@@ -617,9 +614,8 @@ func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "nothing moved into the protected directory")
 }
 
-// TestLandlockHelper_DenyBlocksChroot: Landlock does not hook chroot and root
-// in the user namespace keeps CAP_SYS_CHROOT, so without the supervisor a
-// process could chroot into the project and open "/.env".
+// Landlock does not hook chroot and root in the user namespace keeps
+// CAP_SYS_CHROOT. Only the supervisor stops "chroot(project); open(/.env)".
 func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
@@ -660,13 +656,9 @@ func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
 	assert.NotContains(t, stdout+stderr, secret)
 }
 
-// TestLandlockHelper_DefaultNamespacesKeepAbsolutePaths runs the production
-// layout (PID and mount namespaces on) that the other cases skip. The
-// supervisor anchors every absolute path at /proc/<pid>/root, which must
-// read "/" for a child in its own mount namespace: an allowed absolute read
-// must succeed and a denied one must fail. The helper retries without the
-// namespaces when the kernel refuses them, so a host without them passes
-// the case on the fallback layout.
+// The production layout keeps PID and mount namespaces on. /proc/<pid>/root
+// must read "/" for a child in its own mount namespace, or every absolute
+// path is mangled. The helper falls back without the namespaces on EPERM.
 func TestLandlockHelper_DefaultNamespacesKeepAbsolutePaths(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")

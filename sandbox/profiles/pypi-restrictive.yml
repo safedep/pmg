@@ -43,10 +43,9 @@ filesystem:
     - /tmp/**
     - /private/tmp/**
     - /var/tmp/**
-    # The whole project directory is writable. Virtualenvs, lockfiles, and
-    # build output land anywhere in the project. The mandatory deny patterns
-    # keep credential files inside the project (.env, .ssh, .git/hooks,
-    # .github/workflows, ...) blocked.
+    # The whole project directory is writable. Install output lands anywhere
+    # in the project, and per-file enumeration does not scale. The mandatory
+    # denies keep credential files and auto-exec directories blocked.
     - ${CWD}
     - ${CWD}/**
     - ${HOME}/.cache/pip/**

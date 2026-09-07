@@ -133,14 +133,11 @@ const (
 // everything else. Shared by the shim (which installs it inside the user
 // namespace without NNP) and tests.
 //
-// Layout: an arch check that kills the process on a foreign ABI (the
-// syscall numbers would not match the table), load syscall nr, on amd64 a
-// kill for x32 numbers, [1..n] JEQ per syscall jumping to RET USER_NOTIF,
-// then RET ALLOW, RET USER_NOTIF. The JEQ for syscall i therefore jumps n-i
-// instructions forward.
+// Layout: arch check (kill on a foreign ABI), load nr, x32 kill on amd64,
+// one JEQ per syscall that jumps to RET USER_NOTIF, RET ALLOW, RET
+// USER_NOTIF.
 func landlockBuildNotifyFilter(syscalls ...uint32) *unix.SockFprog {
-	// Jt is a byte. The trapped set is static and far below the limit, so
-	// a violation is a programming error, not a runtime condition.
+	// Jt is a byte.
 	if len(syscalls) > 255 {
 		panic(fmt.Sprintf("seccomp filter: %d trapped syscalls exceed the BPF jump range", len(syscalls)))
 	}
@@ -912,10 +909,8 @@ func recvNotification(fd int) (*seccompNotification, error) {
 
 // A failed SEND means the notification could not be answered (typically the
 // process already exited) — logged rather than dropped so it stays visible.
-// notifValid reports whether the notification is still live, which means
-// the pid the supervisor read /proc state from is still the notifying task.
-// seccomp_unotify(2) asks for this check between reading the target's
-// state and answering.
+// notifValid reports whether the notification is still live, so the /proc
+// state read for its pid belongs to the notifying task.
 func (s *seccompSupervisor) notifValid(id uint64) bool {
 	for {
 		_, _, errno := unix.Syscall(
