@@ -207,6 +207,12 @@
   tier: P1
   guarantee: "`pmg sandbox exec -- <cmd>` passes stdout and the exit status through, and program flags pass without `--`."
   labels: [sandbox, exec, clean]
+- id: sandbox/exec/protects-worktree-pointers
+  title: "sandbox exec keeps git worktree pointers read-only"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, the .git file and the gitdir and commondir files of a linked worktree cannot be rewritten, and a .git file that names the home directory or another repository grants no write there."
+  labels: [sandbox, exec, block]
 - id: sandbox/exec/requires-command
   title: "sandbox exec without a program fails with usage help"
   category: sandbox

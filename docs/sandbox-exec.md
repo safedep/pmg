@@ -123,6 +123,12 @@ checkout. PMG repeats every `.git` rule of the profile for that directory and fo
 checkout's `.git`, so `git commit` works, while `hooks` and `config` there stay denied like they
 do under the working directory.
 
+The pointer files are repository content, so PMG trusts them only when the git directory names
+this checkout as its worktree, the way git wrote it. A `.git` file that points at the home
+directory or at another repository grants nothing. The `.git` file and the `gitdir` and
+`commondir` files of the worktree are read-only inside the sandbox, so `git worktree move` and
+`git worktree repair` fail there.
+
 ## Limits
 
 - Windows is not supported. The sandbox drivers are macOS Seatbelt and Linux Landlock or
