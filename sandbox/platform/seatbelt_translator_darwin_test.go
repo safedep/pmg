@@ -457,21 +457,22 @@ func TestSeatbeltPinRules(t *testing.T) {
 	cases := []struct {
 		name     string
 		patterns []string
+		bases    []string
 		want     []string
 	}{
 		{
-			name:     "literal file pins itself and every directory above it",
+			name:     "literal file pins itself and every directory up to the writable base",
 			patterns: []string{"/home/u/.claude/settings.json"},
+			bases:    []string{"/home/u/.claude"},
 			want: []string{
 				pin(`subpath "/home/u/.claude/settings.json"`, "/home/u/.claude/settings.json"),
 				pin(`literal "/home/u/.claude"`, "/home/u/.claude"),
-				pin(`literal "/home/u"`, "/home/u"),
-				pin(`literal "/home"`, "/home"),
 			},
 		},
 		{
 			name:     "subtree glob pins its base as a subpath",
 			patterns: []string{"/repo/.git/hooks/**"},
+			bases:    []string{"/repo"},
 			want: []string{
 				pin(`subpath "/repo/.git/hooks"`, "/repo/.git/hooks"),
 				pin(`literal "/repo/.git"`, "/repo/.git"),
@@ -481,19 +482,28 @@ func TestSeatbeltPinRules(t *testing.T) {
 		{
 			name:     "name glob pins the matches and its directory as a literal",
 			patterns: []string{"/repo/.env.*"},
+			bases:    []string{"/repo"},
 			want: []string{
-				pin(`regex #"^/repo/\.env\.[^/]*$"`, "/repo/.env.*"),
+				pin(`regex #"^/repo/\.env\.[^/]*$"`, "/repo"),
 				pin(`literal "/repo"`, "/repo"),
 			},
 		},
 		{
 			name:     "any-depth pattern needs no pin",
 			patterns: []string{"**/.env", "**/.docker/config.json"},
+			bases:    []string{"/"},
+			want:     []string{},
+		},
+		{
+			name:     "a target above every writable base cannot move and needs no pin",
+			patterns: []string{"/home/u/.aws", "/home/u/.claude/settings.json"},
+			bases:    []string{"/tmp", "/repo"},
 			want:     []string{},
 		},
 		{
 			name:     "shared ancestors are pinned once",
 			patterns: []string{"/repo/.claude/settings.local.json", "/repo/.git/hooks"},
+			bases:    []string{"/repo"},
 			want: []string{
 				pin(`subpath "/repo/.claude/settings.local.json"`, "/repo/.claude/settings.local.json"),
 				pin(`literal "/repo/.claude"`, "/repo/.claude"),
@@ -506,7 +516,7 @@ func TestSeatbeltPinRules(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, seatbeltPinRules(tt.patterns, "test"))
+			assert.Equal(t, tt.want, seatbeltPinRules(tt.patterns, tt.bases, "test"))
 		})
 	}
 }
@@ -514,7 +524,7 @@ func TestSeatbeltPinRules(t *testing.T) {
 // A node_modules tree carries no deny target, so nothing under it is pinned
 // and a package manager can rename its staging directories.
 func TestSeatbeltPinRulesLeaveNodeModulesAlone(t *testing.T) {
-	rules := seatbeltPinRules([]string{"/repo/.env", "**/.env", "/repo/.git/hooks/**"}, "test")
+	rules := seatbeltPinRules([]string{"/repo/.env", "**/.env", "/repo/.git/hooks/**"}, []string{"/repo"}, "test")
 	for _, rule := range rules {
 		assert.NotContains(t, rule, "node_modules")
 	}
@@ -527,8 +537,9 @@ func TestFilesystemTranslationPinsDenyTargets(t *testing.T) {
 		Description:     "test with pinned deny targets",
 		PackageManagers: []string{"npm"},
 		Filesystem: sandbox.FilesystemPolicy{
-			DenyRead:  []string{"/private/sensitive"},
-			DenyWrite: []string{"/usr/local/bin"},
+			AllowWrite: []string{"/private/**", "/usr/local/**"},
+			DenyRead:   []string{"/private/sensitive"},
+			DenyWrite:  []string{"/usr/local/bin"},
 		},
 	}
 
@@ -541,7 +552,7 @@ func TestFilesystemTranslationPinsDenyTargets(t *testing.T) {
 	assert.Contains(t, actual, "(deny file-write-unlink (literal \"/private\") (with message")
 	assert.Contains(t, actual, "(deny file-write-unlink (subpath \"/usr/local/bin\") (with message")
 	assert.Contains(t, actual, "(deny file-write-unlink (literal \"/usr/local\") (with message")
-	assert.Contains(t, actual, "(deny file-write-unlink (literal \"/usr\") (with message")
+	assert.NotContains(t, actual, "(deny file-write-unlink (literal \"/usr\")", "a directory above every writable base is not pinned")
 
 	// The pins come after the allow rules, so they win under last-match-wins.
 	assert.Less(t, strings.LastIndex(actual, "(allow file-write*"), strings.Index(actual, "(deny file-write-unlink"))

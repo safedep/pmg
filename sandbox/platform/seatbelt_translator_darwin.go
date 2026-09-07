@@ -170,14 +170,27 @@ func writeSeatbeltDenyRule(sb *strings.Builder, operation, matcher, value, messa
 // prepared tree can be renamed into the parent's place. Every directory
 // above a target is pinned with a literal deny, and a target is pinned as a
 // subpath so a read-denied file cannot be moved to a name the deny does not
-// cover. A "**/" pattern matches by name at any depth, so a move cannot
-// take a file out from under it, and it needs no pin. The rules name
-// directories only, so a package manager that renames files inside
-// node_modules is not affected.
-func seatbeltPinRules(denyPaths []string, logTag string) []string {
+// cover. Only a path at or below an allow_write base can be renamed at all,
+// so only those are pinned, which keeps the rules free of machine-specific
+// directories above the project. A "**/" pattern matches by name at any
+// depth, so a move cannot take a file out from under it, and it needs no
+// pin. The rules name directories only, so a package manager that renames
+// files inside node_modules is not affected.
+func seatbeltPinRules(denyPaths, writeBases []string, logTag string) []string {
 	rules := []string{}
 	seen := make(map[string]bool)
+	writable := func(path string) bool {
+		for _, base := range writeBases {
+			if path == base || strings.HasPrefix(path, strings.TrimSuffix(base, "/")+"/") {
+				return true
+			}
+		}
+		return false
+	}
 	add := func(clause, target string) {
+		if !writable(target) {
+			return
+		}
 		rule := fmt.Sprintf("(deny file-write-unlink (%s) (with message \"%s\"))", clause, seatbeltLogMessage(logTag, "file-write-unlink", target))
 		if seen[rule] {
 			return
@@ -201,7 +214,7 @@ func seatbeltPinRules(denyPaths []string, logTag string) []string {
 		case strings.HasSuffix(pattern, "/**"):
 			add(fmt.Sprintf("subpath \"%s\"", base), base)
 		default:
-			add(fmt.Sprintf("regex #\"%s\"", util.GlobToRegex(pattern)), pattern)
+			add(fmt.Sprintf("regex #\"%s\"", util.GlobToRegex(pattern)), base)
 			add(fmt.Sprintf("literal \"%s\"", base), base)
 		}
 		for _, dir := range getAncestorDirectories(base) {
@@ -455,6 +468,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 	// Auto-allow TMPDIR parent on macOS when write restrictions are enabled
 	// This is necessary because package managers need temp file access
+	writeBases := []string{}
 	hasWriteRestrictions := len(policy.Filesystem.AllowWrite) > 0
 	if hasWriteRestrictions {
 		tmpdirParents := util.GetTmpdirParent()
@@ -464,6 +478,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 				sb.WriteString("(allow file-write* (subpath \"")
 				sb.WriteString(parent)
 				sb.WriteString("\"))\n")
+				writeBases = append(writeBases, parent)
 			}
 			sb.WriteString("\n")
 		}
@@ -475,6 +490,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		if err != nil {
 			return fmt.Errorf("failed to expand pattern %s: %w", pattern, err)
 		}
+		writeBases = append(writeBases, extractBaseDir(expanded))
 
 		// Use regex matching for glob patterns, subpath for literals
 		if util.ContainsGlob(expanded) {
@@ -593,7 +609,7 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 	}
 
 	pinned := append(append([]string{}, expandedDenyRead...), expandedDenyWrite...)
-	if pins := seatbeltPinRules(pinned, t.logTag); len(pins) > 0 {
+	if pins := seatbeltPinRules(pinned, writeBases, t.logTag); len(pins) > 0 {
 		sb.WriteString(";; Pin the paths that hold a deny target against a move\n")
 		for _, rule := range pins {
 			sb.WriteString(rule + "\n")

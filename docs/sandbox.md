@@ -599,9 +599,9 @@ it. The Go profile ships with lockdown enabled.
 
 **Deny targets are pinned against a move**: Seatbelt checks a rename against its source and its
 destination only, so a denied file would move along with its parent directory and a prepared
-directory could be renamed into the parent's place. PMG denies `file-write-unlink` on every
-directory above a deny target and on the target itself, so `mv ~/.claude ~/.cache/old` fails
-under the claude preset. A parent that does not exist yet cannot be pinned, because Seatbelt
+directory could be renamed into the parent's place. PMG denies `file-write-unlink` on the target
+and on every directory above it up to the `allow_write` base that makes it movable, so
+`mv ~/.claude ~/.cache/old` fails under the claude preset. A parent that does not exist yet cannot be pinned, because Seatbelt
 cannot tell a rename onto it from the `mkdir` the agent needs.
 
 Lockdown is fail-closed: it requires the proxy flow, and pmg errors out rather than running
