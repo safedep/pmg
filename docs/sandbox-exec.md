@@ -24,7 +24,7 @@ denials. The value is in the deny rules:
 
 - The mandatory credential denies: `.env`, `.ssh`, `.aws`, `.gcloud`, `.kube`, `.gnupg`,
   `.netrc` and the rest of the list in [dangerous.go](../sandbox/util/dangerous.go).
-- `.git/hooks` is never writable. `.git/config` is not writable.
+- `git add` and `git commit` work. `.git/hooks` is never writable. `.git/config` is not writable.
 - Credential environment variables are scrubbed, including model API keys such as
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY`.
 - Writes land only in the repository, temp directories, tool caches and the state directories the

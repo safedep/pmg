@@ -41,6 +41,11 @@ filesystem:
     # The repository is the agent's workspace. Credential files inside it
     # stay blocked by the mandatory deny patterns.
     - ${CWD}/**
+    # The mandatory write deny on .git is lifted only by this exact entry,
+    # never by the glob above. Without it git cannot create index.lock, so
+    # git add and git commit fail. .git/hooks and .git/config stay denied.
+    - ${CWD}/.git
+    - ${CWD}/.git/**
     # Tool caches (npm, pip, uv, go, cargo registries, Homebrew downloads)
     - ${HOME}/.cache/**
     - ${HOME}/Library/Caches/**

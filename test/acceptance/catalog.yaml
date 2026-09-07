@@ -229,7 +229,7 @@
   title: "sandbox exec blocks git hook writes"
   category: sandbox
   tier: P0
-  guarantee: "Under `pmg sandbox exec`, a write, a rename into .git/hooks, and a `git config` rewrite of .git/config fail while a write elsewhere in the repository works."
+  guarantee: "Under `pmg sandbox exec`, a write, a rename into .git/hooks, and a `git config` rewrite of .git/config fail while a commit in an ordinary checkout works."
   labels: [sandbox, exec, block]
 - id: sandbox/exec/protects-agent-hook-config
   title: "sandbox exec denies writes to agent hook configuration"
