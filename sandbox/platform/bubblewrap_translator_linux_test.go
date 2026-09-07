@@ -1523,6 +1523,26 @@ func TestBubblewrapDeniesMissingSubtreeBelowWritableParent(t *testing.T) {
 	})
 }
 
+// In a linked worktree .git is a file that names the repository. The
+// write-only mandatory deny on ${CWD}/.git must leave it readable.
+func TestBubblewrapWorktreeGitFileStaysReadable(t *testing.T) {
+	worktree := t.TempDir()
+	gitFile := filepath.Join(worktree, ".git")
+	require.NoError(t, os.WriteFile(gitFile, []byte("gitdir: /elsewhere\n"), 0o644))
+	t.Chdir(worktree)
+
+	args := translateForTest(t, &sandbox.SandboxPolicy{
+		Filesystem: sandbox.FilesystemPolicy{
+			AllowWrite: []string{worktree + "/**"},
+		},
+	})
+
+	assert.Equal(t, -1, lastIndexOfTriple(args, "--ro-bind", "/dev/null", gitFile),
+		"the .git file must not be masked")
+	assert.GreaterOrEqual(t, lastIndexOfTriple(args, "--ro-bind-try", gitFile, gitFile), 0,
+		"the .git file must be re-bound read-only")
+}
+
 func TestBubblewrapDenyMissingSubtreeNeedsDirectoryParent(t *testing.T) {
 	worktree := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: /elsewhere\n"), 0o644))

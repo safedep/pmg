@@ -343,15 +343,21 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		args = append(args, denyArgs...)
 	}
 
-	// Mandatory write denies for paths in allow_read must keep reads working,
-	// so they get a read-only re-bind instead of the read-blocking
-	// processDenyRule overlay. The earlier allow_read --ro-bind is not
-	// sufficient: a later writable parent bind (allow_write ${CWD}/.git/**
+	// A mandatory deny on both sides masks a file with /dev/null. A write-only
+	// deny, or one the policy opted into reading, must keep reads working, so
+	// it gets a read-only re-bind instead. The earlier allow_read --ro-bind is
+	// not sufficient: a later writable parent bind (allow_write ${CWD}/.git/**
 	// over allow_read ${CWD}/.git/config) wins in bwrap's last-mount-wins
-	// ordering, so the re-bind must come after all allow_write mounts.
+	// ordering, so the re-bind must come after all allow_write mounts. The
+	// write-only case matters for a linked worktree, where .git is a file
+	// that names the repository.
 	allowReadSet := make(map[string]bool, len(expandedAllowRead))
 	for _, p := range expandedAllowRead {
 		allowReadSet[filepath.Clean(p)] = true
+	}
+	denyReadSet := make(map[string]bool, len(mandatoryResult.DenyRead))
+	for _, p := range mandatoryResult.DenyRead {
+		denyReadSet[p] = true
 	}
 	for _, pattern := range mandatoryResult.DenyWrite {
 		expanded, err := util.ExpandVariables(pattern)
@@ -361,7 +367,7 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 
 		var denyArgs []string
-		if allowReadSet[filepath.Clean(pattern)] {
+		if allowReadSet[filepath.Clean(pattern)] || !denyReadSet[pattern] {
 			denyArgs, err = t.processDenyWriteRule(expanded, rwDirs)
 		} else {
 			denyArgs, err = t.processDenyRule(expanded, rwDirs, allowReadSet)
