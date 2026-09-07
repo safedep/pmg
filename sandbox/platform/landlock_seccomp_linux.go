@@ -471,10 +471,14 @@ func (s *seccompSupervisor) loop() {
 func (s *seccompSupervisor) denyUnverifiable(notif *seccompNotification, phase *seccompPhase, reason string) {
 	name := syscallName(notif.Data.Nr)
 	if phase.auditWriter != nil {
+		// The reason goes in Message, not Access. Access is the read or write
+		// label for open events, and the diagnostics classify the violation
+		// by it. Path holds a placeholder because the real path is unknown.
 		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
 			Type:    auditSeccompDeny,
 			Syscall: name,
-			Access:  reason,
+			Path:    "<unverifiable>",
+			Message: reason,
 			Comm:    procComm(notif.PID),
 			PID:     int(notif.PID),
 			Ts:      time.Now().UnixNano(),
