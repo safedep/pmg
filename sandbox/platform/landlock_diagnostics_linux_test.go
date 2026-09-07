@@ -415,4 +415,9 @@ func TestLandlockViolationKind_PathSyscalls(t *testing.T) {
 			assert.Equal(t, tc.want, landlockViolationKind(auditEvent{Syscall: tc.syscall, Access: tc.access}))
 		})
 	}
+
+	// An unverifiable openat is a generic deny, not a write. The supervisor
+	// could not read the path, so the direction is unknown.
+	assert.Equal(t, sandbox.ViolationKindGenericDeny,
+		landlockViolationKind(auditEvent{Syscall: "openat", Unverifiable: true}))
 }

@@ -410,8 +410,10 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *seccompPhase, op pathSyscall) {
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		// Unreadable after an execve that cleared dumpable. See docs/sandbox.md.
-		s.continueSyscall(notif.ID)
+		// The supervisor cannot read the memory that holds the path. Deny it
+		// so a process cannot read a denied path by making its own memory
+		// unreadable. See denyUnverifiable.
+		s.denyUnverifiable(notif, phase, "unreadable process memory")
 		return
 	}
 	defer closeMemFd(memFd)
@@ -424,7 +426,7 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 
 	src, err := s.resolveOperand(notif, memFd, op.src, followsLeaf(op, op.src, flags), args.resolve)
 	if err != nil {
-		s.continueSyscall(notif.ID)
+		s.denyUnverifiable(notif, phase, "unresolvable path")
 		return
 	}
 
@@ -446,7 +448,7 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	case pathOpRename, pathOpLink:
 		dst, err := s.resolveOperand(notif, memFd, op.dst, followsLeaf(op, op.dst, flags), args.resolve)
 		if err != nil {
-			s.continueSyscall(notif.ID)
+			s.denyUnverifiable(notif, phase, "unresolvable rename or link target")
 			return
 		}
 		exchange := op.kind == pathOpRename && flags&unix.RENAME_EXCHANGE != 0

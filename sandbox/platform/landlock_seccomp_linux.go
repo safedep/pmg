@@ -102,7 +102,11 @@ type auditEvent struct {
 	PID      int            `json:"pid,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Error    string         `json:"error,omitempty"`
-	Ts       int64          `json:"ts"`
+	// Unverifiable marks a deny the supervisor could not evaluate because it
+	// could not read the target. The diagnostics report it as a generic deny,
+	// not a read or a write, since the direction and the path are unknown.
+	Unverifiable bool  `json:"unverifiable,omitempty"`
+	Ts           int64 `json:"ts"`
 }
 
 // writeAuditEvent JSON-encodes an audit event and writes it as a single line to w.
@@ -460,6 +464,37 @@ func (s *seccompSupervisor) loop() {
 	}
 }
 
+// denyUnverifiable denies a trapped syscall when the supervisor cannot read
+// or resolve its target. A process must not read or write a denied path by
+// making its own memory unreadable with prctl(PR_SET_DUMPABLE, 0). A dead or
+// recycled task also reaches this path. handleConnect already denies an
+// unreadable sockaddr under lockdown. This does the same for a path or an
+// exec. A tool that sets dumpable=0, such as gpg-agent or ssh-agent, loses
+// file access on the Landlock driver. The Bubblewrap driver enforces at the
+// mount layer and is not affected.
+func (s *seccompSupervisor) denyUnverifiable(notif *seccompNotification, phase *seccompPhase, reason string) {
+	name := syscallName(notif.Data.Nr)
+	if phase.auditWriter != nil {
+		// The reason goes in Message, not Access. Access is the read or write
+		// label for open events, and the diagnostics classify the violation
+		// by it. Path holds a placeholder because the real path is unknown.
+		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+			Type:         auditSeccompDeny,
+			Syscall:      name,
+			Path:         "<unverifiable>",
+			Message:      reason,
+			Unverifiable: true,
+			Comm:         procComm(notif.PID),
+			PID:          int(notif.PID),
+			Ts:           time.Now().UnixNano(),
+		}); err != nil {
+			log.Warnf("sandbox: failed to record a denial: %v", err)
+		}
+	}
+	traceSeccompDecision("deny %s pid=%d reason=%s", name, notif.PID, reason)
+	s.deny(notif.ID)
+}
+
 func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccompPhase) {
 	// For execve: args[0] is filename pointer.
 	// For execveat: args[0] is dirfd, args[1] is filename pointer.
@@ -476,23 +511,23 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		// Process gone or /proc/<pid>/mem unreadable — fail-closed would
-		// kill the process; fail-open to avoid breaking legit flows.
-		s.continueSyscall(notif.ID)
+		// The supervisor cannot read the memory. The startup probe proved it
+		// can read the child, so the task made itself unreadable (dumpable=0)
+		// or died. Deny it. See denyUnverifiable.
+		s.denyUnverifiable(notif, phase, "unreadable process memory")
 		return
 	}
 	defer closeMemFd(memFd)
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
-		// Cannot read memory (EIO, ESRCH) — process may have died. Continue.
-		s.continueSyscall(notif.ID)
+		s.denyUnverifiable(notif, phase, "unreadable exec path")
 		return
 	}
 
 	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath, true)
 	if err != nil {
-		s.continueSyscall(notif.ID)
+		s.denyUnverifiable(notif, phase, "unresolvable exec path")
 		return
 	}
 
