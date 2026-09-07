@@ -9,7 +9,11 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -38,15 +42,33 @@ func TestSeccompStructSizes(t *testing.T) {
 	}
 }
 
+// filterNrLoadIndex is the index of the instruction that loads the syscall
+// number: it follows the arch check.
+func filterNrLoadIndex() int {
+	if seccompNativeArch != 0 {
+		return 3
+	}
+	return 0
+}
+
+// filterPrefixLen is the number of instructions before the per-syscall
+// comparisons: the arch check, the nr load and the x32 guard.
+func filterPrefixLen() int {
+	n := filterNrLoadIndex() + 1
+	if seccompX32SyscallBit != 0 {
+		n += 2
+	}
+	return n
+}
+
 func TestLandlockBuildNotifyFilter(t *testing.T) {
 	tests := []struct {
 		name     string
 		syscalls []uint32
-		wantLen  int
 	}{
-		{"no syscalls", nil, 3},
-		{"exec only", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}, 5},
-		{"exec + open", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2)}, 7},
+		{"no syscalls", nil},
+		{"exec only", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}},
+		{"exec + open", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2)}},
 	}
 
 	for _, tc := range tests {
@@ -54,8 +76,32 @@ func TestLandlockBuildNotifyFilter(t *testing.T) {
 			prog := landlockBuildNotifyFilter(tc.syscalls...)
 			require.NotNil(t, prog)
 			require.NotNil(t, prog.Filter)
-			assert.Equal(t, uint16(tc.wantLen), prog.Len)
+			assert.Equal(t, uint16(filterPrefixLen()+len(tc.syscalls)+2), prog.Len)
 		})
+	}
+}
+
+func TestLandlockBuildNotifyFilter_ArchGuard(t *testing.T) {
+	if seccompNativeArch == 0 {
+		t.Skip("no native audit arch on this architecture")
+	}
+	prog := landlockBuildNotifyFilter(uint32(unix.SYS_EXECVE))
+	instructions := unsafe.Slice(prog.Filter, prog.Len)
+
+	assert.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), instructions[0].Code)
+	assert.Equal(t, uint32(seccompDataArchOffset), instructions[0].K)
+	assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), instructions[1].Code)
+	assert.Equal(t, uint32(seccompNativeArch), instructions[1].K)
+	assert.Equal(t, uint8(1), instructions[1].Jt, "native arch skips the kill")
+	assert.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), instructions[2].Code)
+	assert.Equal(t, uint32(unix.SECCOMP_RET_KILL_PROCESS), instructions[2].K)
+	assert.Equal(t, uint32(seccompDataNrOffset), instructions[3].K)
+
+	if seccompX32SyscallBit != 0 {
+		assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JGE|unix.BPF_K), instructions[4].Code)
+		assert.Equal(t, uint32(seccompX32SyscallBit), instructions[4].K)
+		assert.Equal(t, uint8(1), instructions[4].Jf, "a native number skips the kill")
+		assert.Equal(t, uint32(unix.SECCOMP_RET_KILL_PROCESS), instructions[5].K)
 	}
 }
 
@@ -64,19 +110,19 @@ func TestLandlockBuildNotifyFilter_InstructionTypes(t *testing.T) {
 	prog := landlockBuildNotifyFilter(syscalls...)
 
 	instructions := unsafe.Slice(prog.Filter, prog.Len)
+	prefix := filterPrefixLen()
 
-	// First instruction loads the syscall number.
-	firstCode := instructions[0].Code
-	expectedFirst := uint16(unix.BPF_LD | unix.BPF_W | unix.BPF_ABS)
-	assert.Equal(t, expectedFirst, firstCode)
+	load := instructions[filterNrLoadIndex()]
+	assert.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), load.Code)
+	assert.Equal(t, uint32(seccompDataNrOffset), load.K)
 
 	// Each comparison jumps to the final notify instruction on match.
 	for i, sc := range syscalls {
-		cmp := instructions[1+i]
-		assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), cmp.Code, "instruction %d", 1+i)
-		assert.Equal(t, sc, cmp.K, "instruction %d", 1+i)
-		assert.Equal(t, uint8(len(syscalls)-i), cmp.Jt, "instruction %d must land on RET USER_NOTIF", 1+i)
-		assert.Equal(t, uint8(0), cmp.Jf, "instruction %d falls through on mismatch", 1+i)
+		cmp := instructions[prefix+i]
+		assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), cmp.Code, "instruction %d", prefix+i)
+		assert.Equal(t, sc, cmp.K, "instruction %d", prefix+i)
+		assert.Equal(t, uint8(len(syscalls)-i), cmp.Jt, "instruction %d must land on RET USER_NOTIF", prefix+i)
+		assert.Equal(t, uint8(0), cmp.Jf, "instruction %d falls through on mismatch", prefix+i)
 	}
 
 	// Second-to-last allows, last notifies.
@@ -93,22 +139,237 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 	execOnly := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 
 	tests := []struct {
-		name          string
-		network       landlockNetworkPolicy
-		interceptOpen bool
-		want          []uint32
+		name           string
+		network        landlockNetworkPolicy
+		interceptPaths bool
+		want           []uint32
 	}{
 		{"exec always", landlockNetworkPolicy{}, false, execOnly},
-		{"open when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2))},
+		{"path syscalls when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), pathSyscallNumbers()...)},
 		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG), uint32(unix.SYS_IO_URING_SETUP))},
 		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, landlockNotifySyscalls(tc.network, tc.interceptOpen))
+			assert.Equal(t, tc.want, landlockNotifySyscalls(tc.network, tc.interceptPaths))
 		})
 	}
+}
+
+// Every syscall that can move, link, remove or create a path must be
+// trapped. The names are unique because the diagnostics map them back.
+func TestSeccompPathSyscalls_Coverage(t *testing.T) {
+	trapped := landlockNotifySyscalls(landlockNetworkPolicy{}, true)
+	for _, nr := range []uint32{
+		unix.SYS_OPENAT, unix.SYS_OPENAT2, unix.SYS_RENAMEAT2, unix.SYS_LINKAT,
+		unix.SYS_UNLINKAT, unix.SYS_MKDIRAT, unix.SYS_MKNODAT, unix.SYS_SYMLINKAT,
+		unix.SYS_TRUNCATE, unix.SYS_CHROOT,
+	} {
+		assert.Contains(t, trapped, nr, "syscall %d (%s) must be trapped", nr, syscallName(int32(nr)))
+	}
+	for nr, op := range archPathSyscalls() {
+		assert.Contains(t, trapped, nr, "arch syscall %d (%s) must be trapped", nr, op.name)
+	}
+	_, ok := pathOpKindForSyscall("renameat")
+	assert.True(t, ok, "renameat is trapped on amd64 and arm64")
+
+	names := make(map[string]bool)
+	for nr, op := range seccompPathSyscalls {
+		assert.False(t, names[op.name], "duplicate syscall name %q", op.name)
+		names[op.name] = true
+		assert.Equal(t, op.name, syscallName(int32(nr)))
+		if op.hasDst() {
+			assert.NotEqual(t, op.src, op.dst, "%s operands must differ", op.name)
+		}
+	}
+	assert.True(t, sort.SliceIsSorted(pathSyscallNumbers(), func(i, j int) bool {
+		return pathSyscallNumbers()[i] < pathSyscallNumbers()[j]
+	}))
+
+	// The BPF jump offset is a byte.
+	full := landlockNotifySyscalls(landlockNetworkPolicy{Lockdown: true}, true)
+	assert.Less(t, len(full), 200)
+	assert.NotPanics(t, func() { landlockBuildNotifyFilter(full...) })
+	assert.Panics(t, func() { landlockBuildNotifyFilter(make([]uint32, 256)...) })
+}
+
+func TestPathOpKindForSyscall(t *testing.T) {
+	tests := []struct {
+		name string
+		want pathOpKind
+		ok   bool
+	}{
+		{"openat", pathOpOpen, true},
+		{"renameat2", pathOpRename, true},
+		{"linkat", pathOpLink, true},
+		{"unlinkat", pathOpRemove, true},
+		{"mkdirat", pathOpCreate, true},
+		{"mknodat", pathOpCreate, true},
+		{"symlinkat", pathOpSymlink, true},
+		{"truncate", pathOpTruncate, true},
+		{"chroot", pathOpChroot, true},
+		{"execve", 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, ok := pathOpKindForSyscall(tc.name)
+			assert.Equal(t, tc.ok, ok)
+			if ok {
+				assert.Equal(t, tc.want, kind)
+			}
+		})
+	}
+}
+
+func TestMatchDeniedWriteTarget(t *testing.T) {
+	deny := []denyPathEntry{
+		{Path: "/proj/.git/hooks", Mode: denyBoth},
+		{Path: "/proj/.git/config", Mode: denyWrite},
+		{Path: "/proj/readonly", Mode: denyRead},
+	}
+
+	tests := []struct {
+		name      string
+		path      string
+		ancestors bool
+		want      bool
+	}{
+		{"file under both-mode dir", "/proj/.git/hooks/pre-commit", false, true},
+		{"the write-denied file", "/proj/.git/config", false, true},
+		{"read-only deny allows writes", "/proj/readonly/x", false, false},
+		{"sibling", "/proj/.git/index", false, false},
+		{"ancestor without ancestor rule", "/proj/.git", false, false},
+		{"ancestor with ancestor rule", "/proj/.git", true, true},
+		{"ancestor of read-only deny with ancestor rule", "/proj", true, true},
+		{"partial name is not an ancestor", "/proj/.gi", true, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, denied := matchDeniedWriteTarget(tc.path, tc.ancestors, deny)
+			assert.Equal(t, tc.want, denied)
+		})
+	}
+}
+
+func TestMatchDeniedMove(t *testing.T) {
+	deny := []denyPathEntry{
+		{Path: "/proj/.env", Mode: denyBoth},
+		{Path: "/proj/.git/hooks", Mode: denyBoth},
+		{Path: "/proj/.git/config", Mode: denyRead},
+	}
+
+	tests := []struct {
+		name     string
+		src, dst string
+		exchange bool
+		want     bool
+		wantPath string
+	}{
+		{"rename protected file away", "/proj/.env", "/proj/env.txt", false, true, "/proj/.env"},
+		{"rename onto protected path", "/proj/tmp", "/proj/.env", false, true, "/proj/.env"},
+		{"rename into protected dir", "/proj/evil", "/proj/.git/hooks/pre-commit", false, true, "/proj/.git/hooks/pre-commit"},
+		{"move ancestor of protected dir away", "/proj/.git", "/proj/gitx", false, true, "/proj/.git"},
+		{"move a tree onto the ancestor of a protected path", "/proj/prepared", "/proj/.git", false, true, "/proj/.git"},
+		{"read-denied file gets a new name", "/proj/.git/config", "/proj/cfg", false, true, "/proj/.git/config"},
+		{"write onto read-only deny is allowed", "/proj/.git/config.lock", "/proj/.git/config", false, false, ""},
+		{"exchange with protected path", "/proj/a", "/proj/.env", true, true, "/proj/.env"},
+		{"unrelated rename", "/proj/package.json.tmp", "/proj/package.json", false, false, ""},
+		{"rename inside node_modules", "/proj/node_modules/.x", "/proj/node_modules/y", false, false, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, path, denied := matchDeniedMove(tc.src, tc.dst, tc.exchange, deny)
+			assert.Equal(t, tc.want, denied)
+			assert.Equal(t, tc.wantPath, path)
+		})
+	}
+}
+
+func TestCanonicalPath(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "proj", "node_modules"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "elsewhere", "deep"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "proj", ".env"), []byte("x"), 0o600))
+	require.NoError(t, os.Symlink(".env", filepath.Join(root, "proj", "lnk")))
+	require.NoError(t, os.Symlink(filepath.Join(root, "elsewhere", "deep"), filepath.Join(root, "proj", "away")))
+	require.NoError(t, os.Symlink("..", filepath.Join(root, "proj", "node_modules", "up")))
+	require.NoError(t, os.Symlink("loop", filepath.Join(root, "proj", "loop")))
+
+	proj := filepath.Join(root, "proj")
+	pid := uint32(os.Getpid())
+
+	tests := []struct {
+		name       string
+		path       string
+		followLeaf bool
+		want       string
+	}{
+		{"plain", proj + "/.env", true, proj + "/.env"},
+		{"dot and empty components", proj + "//./node_modules/./", true, proj + "/node_modules"},
+		{"leaf symlink followed", proj + "/lnk", true, proj + "/.env"},
+		{"leaf symlink kept for rename", proj + "/lnk", false, proj + "/lnk"},
+		{"symlink in the middle is always followed", proj + "/node_modules/up/.env", false, proj + "/.env"},
+		{"dotdot applies after the symlink target", proj + "/away/../x", true, root + "/elsewhere/x"},
+		{"missing leaf keeps its real parent", proj + "/node_modules/up/new.txt", true, proj + "/new.txt"},
+		{"missing tail appended lexically", proj + "/nope/a/../b", true, proj + "/nope/b"},
+		{"proc self resolves to the notifying process", "/proc/self/cwd/x", true, "/proc/" + strconv.Itoa(os.Getpid()) + "/cwd/x"},
+		{"symlink loop stops", proj + "/loop", true, proj + "/loop"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := canonicalPath(pid, "/", tc.path, tc.followLeaf)
+			if strings.HasPrefix(tc.want, "/proc/") {
+				// /proc/<pid>/cwd is itself a magic link the walker resolves.
+				cwd, err := os.Getwd()
+				require.NoError(t, err)
+				assert.Equal(t, filepath.Join(cwd, "x"), got)
+				return
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestOpenAccessFlags(t *testing.T) {
+	tests := []struct {
+		name  string
+		flags int
+		want  int
+	}{
+		{"read only", unix.O_RDONLY, unix.O_RDONLY},
+		{"create with read only counts as a write", unix.O_RDONLY | unix.O_CREAT, unix.O_RDWR | unix.O_CREAT},
+		{"truncate with read only counts as a write", unix.O_RDONLY | unix.O_TRUNC, unix.O_RDWR | unix.O_TRUNC},
+		{"write only create unchanged", unix.O_WRONLY | unix.O_CREAT, unix.O_WRONLY | unix.O_CREAT},
+		{"nofollow kept", unix.O_RDONLY | unix.O_CREAT | unix.O_NOFOLLOW, unix.O_RDWR | unix.O_CREAT | unix.O_NOFOLLOW},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, openAccessFlags(tc.flags))
+		})
+	}
+
+	deny := []denyPathEntry{{Path: "/proj/.git/config", Mode: denyWrite}}
+	_, denied := matchDeniedPath("/proj/.git/config", openAccessFlags(unix.O_RDONLY|unix.O_CREAT), deny)
+	assert.True(t, denied, "a write deny must block a read-only open that creates")
+}
+
+func TestFollowsLeaf(t *testing.T) {
+	open := seccompPathSyscalls[unix.SYS_OPENAT]
+	link := seccompPathSyscalls[unix.SYS_LINKAT]
+	rename := seccompPathSyscalls[unix.SYS_RENAMEAT2]
+
+	assert.True(t, followsLeaf(open, open.src, unix.O_RDONLY))
+	assert.False(t, followsLeaf(open, open.src, unix.O_RDONLY|unix.O_NOFOLLOW))
+	assert.False(t, followsLeaf(link, link.src, 0))
+	assert.True(t, followsLeaf(link, link.src, unix.AT_SYMLINK_FOLLOW))
+	assert.False(t, followsLeaf(link, link.dst, unix.AT_SYMLINK_FOLLOW))
+	assert.False(t, followsLeaf(rename, rename.src, 0))
+	assert.True(t, followsLeaf(seccompPathSyscalls[unix.SYS_CHROOT], pathOperand{dirfd: -1, path: 0}, 0))
+	assert.False(t, followsLeaf(seccompPathSyscalls[unix.SYS_SYMLINKAT], pathOperand{dirfd: 1, path: 2}, 0))
 }
 
 func TestDenyMode_Values(t *testing.T) {
@@ -468,23 +729,28 @@ func TestReadPathFromMem_Offset(t *testing.T) {
 }
 
 func TestResolveNotifPath_Absolute(t *testing.T) {
-	// Absolute paths should be returned cleaned, regardless of dirfd/pid.
-	result, err := resolveNotifPath(1, -100, "/home/user/.env")
-	if err != nil {
-		t.Fatalf("resolveNotifPath() error: %v", err)
-	}
-	if result != "/home/user/.env" {
-		t.Errorf("resolveNotifPath() = %q, want %q", result, "/home/user/.env")
-	}
+	// The process root is "/" here, so the dirfd plays no part.
+	pid := uint32(os.Getpid())
+	result, err := resolveNotifPath(pid, 12345, "/nonexistent-pmg/user/.env", true)
+	require.NoError(t, err)
+	assert.Equal(t, "/nonexistent-pmg/user/.env", result)
 
-	// With .. components that should be cleaned.
-	result, err = resolveNotifPath(1, -100, "/home/user/../user/.env")
-	if err != nil {
-		t.Fatalf("resolveNotifPath() error: %v", err)
-	}
-	if result != "/home/user/.env" {
-		t.Errorf("resolveNotifPath() = %q, want %q", result, "/home/user/.env")
-	}
+	result, err = resolveNotifPath(pid, -100, "/nonexistent-pmg/user/../user/.env", true)
+	require.NoError(t, err)
+	assert.Equal(t, "/nonexistent-pmg/user/.env", result)
+}
+
+func TestResolveNotifPath_EmptyPathNamesDirfd(t *testing.T) {
+	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	f, err := os.Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, f.Close()) })
+
+	result, err := resolveNotifPath(uint32(os.Getpid()), int(f.Fd()), "", false)
+	require.NoError(t, err)
+	assert.Equal(t, dir, result)
 }
 
 func TestResolveNotifPath_AT_FDCWD(t *testing.T) {
@@ -496,15 +762,9 @@ func TestResolveNotifPath_AT_FDCWD(t *testing.T) {
 	}
 
 	cwd, _ := os.Getwd()
-	result, err := resolveNotifPath(uint32(pid), -100, "relative/path")
-	if err != nil {
-		t.Fatalf("resolveNotifPath() error: %v", err)
-	}
-
-	expected := cwd + "/relative/path"
-	if result != expected {
-		t.Errorf("resolveNotifPath() = %q, want %q", result, expected)
-	}
+	result, err := resolveNotifPath(uint32(pid), -100, "relative/path", true)
+	require.NoError(t, err)
+	assert.Equal(t, cwd+"/relative/path", result)
 }
 
 func TestDirfdFromArgs(t *testing.T) {
@@ -764,25 +1024,306 @@ func TestMemFdForOpensFreshFdPerCall(t *testing.T) {
 	runtime.KeepAlive(&probe)
 }
 
-func TestClassifyOpenFlags_Openat(t *testing.T) {
-	tests := []struct {
-		name     string
-		flags    uint64
-		expected int
-	}{
-		{"O_RDONLY", uint64(unix.O_RDONLY), unix.O_RDONLY},
-		{"O_WRONLY", uint64(unix.O_WRONLY), unix.O_WRONLY},
-		{"O_RDWR", uint64(unix.O_RDWR), unix.O_RDWR},
-		{"O_WRONLY|O_CREAT", uint64(unix.O_WRONLY | unix.O_CREAT), unix.O_WRONLY},
-	}
+func TestReadSyscallFlags(t *testing.T) {
+	openat := seccompPathSyscalls[unix.SYS_OPENAT]
+	openat2 := seccompPathSyscalls[unix.SYS_OPENAT2]
+	renameat2 := seccompPathSyscalls[unix.SYS_RENAMEAT2]
+	mkdirat := seccompPathSyscalls[unix.SYS_MKDIRAT]
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := [6]uint64{0, 0, tt.flags, 0, 0, 0}
-			got := classifyOpenFlags(int32(unix.SYS_OPENAT), args, nil)
-			if got != tt.expected {
-				t.Errorf("classifyOpenFlags() = %d, want %d", got, tt.expected)
-			}
+	assert.Equal(t, openat2Args{flags: unix.O_WRONLY | unix.O_CREAT}, readSyscallFlags(openat, [6]uint64{0, 0, uint64(unix.O_WRONLY | unix.O_CREAT)}, nil))
+	assert.Equal(t, openat2Args{flags: unix.RENAME_EXCHANGE}, readSyscallFlags(renameat2, [6]uint64{0, 0, 0, 0, unix.RENAME_EXCHANGE}, nil))
+	assert.Equal(t, openat2Args{}, readSyscallFlags(mkdirat, [6]uint64{0, 0, 0x777}, nil), "no flags argument")
+	assert.Equal(t, openat2Args{flags: unix.O_RDONLY}, readSyscallFlags(openat2, [6]uint64{0, 0, 0x1234}, nil), "unreadable open_how defaults to read-only")
+
+	for nr, op := range archPathSyscalls() {
+		if op.name == "creat" {
+			assert.Equal(t, openat2Args{flags: unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC}, readSyscallFlags(op, [6]uint64{}, nil), "syscall %d", nr)
+		}
+	}
+}
+
+// readSyscallFlags must read the resolve field of struct open_how, not only
+// the flags: RESOLVE_IN_ROOT changes what an absolute path means.
+func TestReadSyscallFlags_Openat2ReadsResolve(t *testing.T) {
+	var how [unix.SizeofOpenHow]byte
+	binary.LittleEndian.PutUint64(how[0:8], uint64(unix.O_WRONLY))
+	binary.LittleEndian.PutUint64(how[16:24], unix.RESOLVE_IN_ROOT)
+
+	memFd, err := os.Open(fmt.Sprintf("/proc/%d/mem", os.Getpid()))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, memFd.Close()) })
+
+	openat2 := seccompPathSyscalls[unix.SYS_OPENAT2]
+	got := readSyscallFlags(openat2, [6]uint64{0, 0, uint64(uintptr(unsafe.Pointer(&how[0])))}, memFd)
+	runtime.KeepAlive(&how)
+	assert.Equal(t, openat2Args{flags: unix.O_WRONLY, resolve: unix.RESOLVE_IN_ROOT}, got)
+}
+
+// Under a root floor ".." stops at the root and an absolute symlink target
+// restarts there, as with chroot(2) and RESOLVE_IN_ROOT.
+func TestCanonicalPath_RootFloor(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("x"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(root, "sub"), 0o755))
+	require.NoError(t, os.Symlink("/.env", filepath.Join(root, "absroot")))
+	require.NoError(t, os.Symlink("/sub/../.env", filepath.Join(root, "sub", "climb")))
+
+	pid := uint32(os.Getpid())
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"dotdot stops at the root", root + "/../.env", root + "/.env"},
+		{"dotdot chain stops at the root", root + "/sub/../../../.env", root + "/.env"},
+		{"absolute symlink restarts at the root", root + "/absroot", root + "/.env"},
+		{"absolute symlink with dotdot", root + "/sub/climb", root + "/.env"},
+		{"proc self is literal under a floor", root + "/proc/self/x", root + "/proc/self/x"},
+		{"missing tail cannot escape", root + "/nope/../../../etc/passwd", root},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, canonicalPath(pid, root, tc.path, true))
 		})
 	}
+}
+
+func TestResolveSyscallPath_ResolveInRoot(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".env"), []byte("x"), 0o600))
+	require.NoError(t, os.Symlink("/.env", filepath.Join(root, "absroot")))
+	dir, err := os.Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, dir.Close()) })
+
+	pid := uint32(os.Getpid())
+	for _, raw := range []string{"/.env", "../.env", "absroot", "//.env", "./../../.env"} {
+		got, err := resolveSyscallPath(pid, int(dir.Fd()), raw, true, unix.RESOLVE_IN_ROOT)
+		require.NoError(t, err, raw)
+		assert.Equal(t, filepath.Join(root, ".env"), got, raw)
+	}
+
+	// Without the flag the same operands leave the directory.
+	got, err := resolveSyscallPath(pid, int(dir.Fd()), "/.env", true, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "/.env", got)
+	got, err = resolveSyscallPath(pid, int(dir.Fd()), "../.env", true, unix.RESOLVE_BENEATH)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(filepath.Dir(root), ".env"), got)
+}
+
+// One path set goes through the resolver and through openat2 plus the
+// /proc/self/fd link of the opened file. Both must agree.
+func TestResolveSyscallPath_MatchesKernel(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	if _, err := unix.Openat2(unix.AT_FDCWD, root, &unix.OpenHow{Flags: unix.O_PATH}); err != nil {
+		t.Skipf("openat2 unavailable: %v", err)
+	}
+
+	mk := func(rel string) string { return filepath.Join(root, rel) }
+	require.NoError(t, os.WriteFile(mk(".env"), []byte("x"), 0o600))
+	require.NoError(t, os.MkdirAll(mk("dir/deep"), 0o755))
+	require.NoError(t, os.WriteFile(mk("dir/file"), []byte("x"), 0o600))
+	require.NoError(t, os.Symlink(".env", mk("lnk")))
+	require.NoError(t, os.Symlink("lnk", mk("chain")))
+	require.NoError(t, os.Symlink(mk(".env"), mk("abs")))
+	require.NoError(t, os.Symlink("/.env", mk("absroot")))
+	require.NoError(t, os.Symlink("dir", mk("dirlnk")))
+	require.NoError(t, os.Symlink("..", mk("dir/up")))
+	require.NoError(t, os.Symlink("loop", mk("loop")))
+	require.NoError(t, os.Symlink("/proc/self/cwd/.env", mk("viaproc")))
+
+	t.Chdir(root)
+	rootFd, err := os.Open(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, rootFd.Close()) })
+
+	const (
+		cwd = -100
+		dir = -1 // stands for the root directory fd
+	)
+	type kase struct {
+		dirfd   int
+		path    string
+		flags   int
+		resolve uint64
+	}
+	cases := []kase{
+		{cwd, ".env", unix.O_PATH, 0},
+		{cwd, root + "/.env", unix.O_PATH, 0},
+		{cwd, "lnk", unix.O_PATH, 0},
+		{cwd, "lnk", unix.O_PATH | unix.O_NOFOLLOW, 0},
+		{cwd, "chain", unix.O_PATH, 0},
+		{cwd, "abs", unix.O_PATH, 0},
+		{cwd, "dirlnk/file", unix.O_PATH, 0},
+		{cwd, "dirlnk/", unix.O_PATH, 0},
+		{cwd, "dir/up/.env", unix.O_PATH, 0},
+		{cwd, "dir/deep/../up/.env", unix.O_PATH, 0},
+		{cwd, "dirlnk/../.env", unix.O_PATH, 0},
+		{cwd, "viaproc", unix.O_PATH, 0},
+		{cwd, "/proc/self/cwd/dir/file", unix.O_PATH, 0},
+		{cwd, "/proc/self/fd/" + strconv.Itoa(int(rootFd.Fd())) + "/dir/file", unix.O_PATH, 0},
+		{cwd, "dir/newfile", unix.O_WRONLY | unix.O_CREAT, 0},
+		{cwd, "dirlnk/newfile2", unix.O_WRONLY | unix.O_CREAT, 0},
+		{cwd, "dir/up/newfile3", unix.O_WRONLY | unix.O_CREAT, 0},
+		{dir, ".env", unix.O_PATH, 0},
+		{dir, "dir/../lnk", unix.O_PATH, 0},
+		{dir, "/.env", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "../.env", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "absroot", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/up/../../../.env", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/../lnk", unix.O_PATH, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/newfile4", unix.O_WRONLY | unix.O_CREAT, unix.RESOLVE_IN_ROOT},
+		{dir, "dir/../.env", unix.O_PATH, unix.RESOLVE_BENEATH},
+		{dir, "lnk", unix.O_PATH, unix.RESOLVE_BENEATH},
+		{cwd, "dir/file", unix.O_PATH, unix.RESOLVE_NO_SYMLINKS},
+		{cwd, "dir/file", unix.O_PATH, unix.RESOLVE_NO_MAGICLINKS},
+		// The kernel refuses these. The supervisor must still answer
+		// without a panic, and the answer is irrelevant.
+		{cwd, "loop", unix.O_PATH, 0},
+		{cwd, "lnk/", unix.O_PATH, 0},
+		{dir, "../.env", unix.O_PATH, unix.RESOLVE_BENEATH},
+		{cwd, "lnk", unix.O_PATH, unix.RESOLVE_NO_SYMLINKS},
+		{cwd, "viaproc", unix.O_PATH, unix.RESOLVE_NO_MAGICLINKS},
+	}
+
+	compared := 0
+	pid := uint32(os.Getpid())
+	for _, c := range cases {
+		name := fmt.Sprintf("dirfd=%d path=%s flags=%#x resolve=%#x", c.dirfd, c.path, c.flags, c.resolve)
+		t.Run(name, func(t *testing.T) {
+			dirfd := c.dirfd
+			if dirfd == dir {
+				dirfd = int(rootFd.Fd())
+			}
+
+			got, err := resolveSyscallPath(pid, dirfd, c.path, c.flags&unix.O_NOFOLLOW == 0, c.resolve)
+			require.NoError(t, err)
+
+			how := &unix.OpenHow{Flags: uint64(c.flags | unix.O_CLOEXEC), Resolve: c.resolve}
+			if c.flags&unix.O_CREAT != 0 {
+				// openat2 rejects a mode on an open that cannot create.
+				how.Mode = 0o600
+			}
+			fd, err := unix.Openat2(dirfd, c.path, how)
+			if err != nil {
+				t.Logf("kernel refused: %v", err)
+				return
+			}
+			defer func() { assert.NoError(t, unix.Close(fd)) }()
+			kernel, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
+			require.NoError(t, err)
+			if c.flags&unix.O_CREAT != 0 {
+				defer func() { assert.NoError(t, os.Remove(kernel)) }()
+			}
+
+			assert.Equal(t, kernel, got)
+			compared++
+		})
+	}
+	assert.GreaterOrEqual(t, compared, 25, "most cases must reach the comparison")
+}
+
+func TestResolveNotifPath_UsesProcessRoot(t *testing.T) {
+	// /proc/self/root is "/" here, so an absolute path resolves unchanged.
+	got, err := resolveNotifPath(uint32(os.Getpid()), -100, "/nonexistent-pmg/.env", true)
+	require.NoError(t, err)
+	assert.Equal(t, "/nonexistent-pmg/.env", got)
+
+	_, err = resolveNotifPath(4294967295, -100, "/.env", true)
+	assert.Error(t, err, "an unreadable root must not fall back to the supervisor's root")
+}
+
+func TestPathCoveredBy_Glob(t *testing.T) {
+	entry := denyPathEntry{Path: "/proj/.env.*", Mode: denyBoth}
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/proj/.env.local", true},
+		{"/proj/.env.local/nested", true},
+		{"/proj/.env", false},
+		{"/proj/sub/.env.local", false},
+		{"/proj/.envrc", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.want, pathCoveredBy(tc.path, entry))
+		})
+	}
+
+	// A file created after setup is denied through the pattern.
+	_, denied := matchDeniedPath("/proj/.env.local", unix.O_WRONLY|unix.O_CREAT, []denyPathEntry{entry})
+	assert.True(t, denied)
+	assert.False(t, pathCoveredBy("/proj/x", denyPathEntry{Path: "/proj/[", Mode: denyBoth}), "malformed pattern matches nothing")
+}
+
+func TestPathCoveredBy_Anywhere(t *testing.T) {
+	tests := []struct {
+		entry string
+		path  string
+		want  bool
+	}{
+		{"**/.env", "/home/u/proj/.env", true},
+		{"**/.env", "/home/u/proj/node_modules/pkg/.env", true},
+		{"**/.env", "/home/u/proj/.envrc", false},
+		{"**/.env.*", "/home/u/proj/.env.local", true},
+		{"**/.env.*", "/home/u/proj/.env", false},
+		{"**/.ssh", "/home/u/.ssh/id_rsa", true},
+		{"**/.ssh", "/home/u/.sshd/x", false},
+		{"**/.config/gh", "/home/u/.config/gh/hosts.yml", true},
+		{"**/.config/gh", "/home/u/.config/ghost", false},
+		{"**/.config/gh", "/home/u/gh/.config", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.entry+" "+tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.want, pathCoveredBy(tc.path, denyPathEntry{Path: tc.entry, Mode: denyBoth}))
+		})
+	}
+
+	// A directory rename is not an ancestor move for an anywhere entry.
+	assert.False(t, pathAboveDeny("/home/u/proj", denyPathEntry{Path: "**/.env", Mode: denyBoth}))
+	_, _, denied := matchDeniedMove("/home/u/proj/node_modules/.x", "/home/u/proj/node_modules/y", false, []denyPathEntry{{Path: "**/.env", Mode: denyBoth}})
+	assert.False(t, denied)
+}
+
+func TestResolveDenyEntries(t *testing.T) {
+	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	real := filepath.Join(root, "dotfiles", "ssh")
+	require.NoError(t, os.MkdirAll(real, 0o700))
+	home := filepath.Join(root, "home")
+	require.NoError(t, os.Mkdir(home, 0o755))
+	require.NoError(t, os.Symlink(real, filepath.Join(home, ".ssh")))
+	require.NoError(t, os.Symlink(home, filepath.Join(root, "homelink")))
+
+	pid := uint32(os.Getpid())
+	entries := resolveDenyEntries(pid, []denyPathEntry{
+		{Path: filepath.Join(home, ".ssh"), Mode: denyBoth},
+		{Path: filepath.Join(root, "homelink", ".env.*"), Mode: denyWrite},
+		{Path: filepath.Join(home, "plain"), Mode: denyRead},
+	})
+
+	assert.Equal(t, []denyPathEntry{
+		{Path: filepath.Join(home, ".ssh"), Mode: denyBoth},
+		{Path: real, Mode: denyBoth},
+		{Path: filepath.Join(root, "homelink", ".env.*"), Mode: denyWrite},
+		{Path: filepath.Join(home, ".env.*"), Mode: denyWrite},
+		{Path: filepath.Join(home, "plain"), Mode: denyRead},
+	}, entries)
+
+	// The canonical syscall path of ~/.ssh/id_rsa now matches.
+	_, denied := matchDeniedPath(filepath.Join(real, "id_rsa"), unix.O_RDONLY, entries)
+	assert.True(t, denied)
+
+	assert.Equal(t, []string{filepath.Join(root, "homelink", "curl"), filepath.Join(home, "curl")},
+		resolveDenyExec(pid, []string{filepath.Join(root, "homelink", "curl")}))
 }

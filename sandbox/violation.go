@@ -205,6 +205,12 @@ func IsSensitiveProjectTarget(target string) bool {
 	return isSensitiveProjectFile(target)
 }
 
+// sensitiveProjectDirs are directories whose contents an allowance must not
+// cover implicitly: credential stores and the auto-exec surfaces of a
+// project tree. A target matches when the directory is one of its path
+// segments.
+var sensitiveProjectDirs = []string{".aws", ".ssh", ".kube", ".gnupg", ".vscode", ".github/workflows"}
+
 func isSensitiveProjectFile(target string) bool {
 	if target == "" || isParentRelativePath(target) {
 		return false
@@ -216,14 +222,17 @@ func isSensitiveProjectFile(target string) bool {
 		return true
 	case base == ".npmrc", base == ".pypirc", base == ".netrc":
 		return true
-	case base == ".aws", base == ".ssh", base == ".kube", base == ".gnupg":
-		return true
-	default:
-		return strings.Contains(target, string(filepath.Separator)+".ssh") ||
-			strings.Contains(target, string(filepath.Separator)+".aws") ||
-			strings.Contains(target, string(filepath.Separator)+".kube") ||
-			strings.Contains(target, string(filepath.Separator)+".gnupg")
 	}
+
+	clean := filepath.ToSlash(filepath.Clean(target))
+	for _, dir := range sensitiveProjectDirs {
+		if clean == dir || strings.HasPrefix(clean, dir+"/") ||
+			strings.HasSuffix(clean, "/"+dir) || strings.Contains(clean, "/"+dir+"/") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isParentRelativePath(target string) bool {

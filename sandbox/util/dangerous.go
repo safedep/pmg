@@ -6,9 +6,12 @@ import (
 	"strings"
 )
 
-// GitConfigPath and GitHooksPath are the git-specific mandatory deny
-// targets, relative to a repository root ($CWD or $HOME).
+// GitDirPath, GitConfigPath and GitHooksPath are the git mandatory deny
+// targets, relative to $CWD or $HOME. Hooks and config also live under
+// .git/modules and .git/worktrees, so the whole directory is write-denied
+// unless allow_git_config is set.
 const (
+	GitDirPath    = ".git"
 	GitConfigPath = ".git/config"
 	GitHooksPath  = ".git/hooks"
 )
@@ -30,6 +33,18 @@ var DANGEROUS_FILES = []string{
 	".git-credentials",
 	".pgpass",
 	".config/gh",
+}
+
+// PROJECT_AUTOEXEC_DIRS are project-root directories whose contents execute
+// outside the sandbox: CI workflows with repository secrets, VS Code tasks
+// on folder open. They are write-denied at ${CWD} and ${HOME} only. A copy
+// inside node_modules is inert, and a **/ form would stop packages that
+// ship the directory from extracting. Not yet reviewed for friction: agent
+// hook directories (.claude, .cursor, .gemini), .devcontainer, .idea, the
+// git-hook manager files. .husky is regenerated on every install.
+var PROJECT_AUTOEXEC_DIRS = []string{
+	".github/workflows",
+	".vscode",
 }
 
 // DANGEROUS_ENV_VARS are credential-bearing environment variables scrubbed from
@@ -216,6 +231,8 @@ type MandatoryDenyResult struct {
 //
 // .git/hooks is never suppressed (arbitrary code execution risk).
 // .git/config is emitted only when !AllowGitConfig and may be suppressed.
+// PROJECT_AUTOEXEC_DIRS, and the whole .git directory when !AllowGitConfig,
+// are emitted on the write side only.
 func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	allowReadSet := toSet(opts.AllowRead)
 	allowWriteSet := toSet(opts.AllowWrite)
@@ -265,6 +282,20 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 		}
 	}
 
+	writeOnly := []string{}
+	for _, dir := range PROJECT_AUTOEXEC_DIRS {
+		writeOnly = append(writeOnly, filepath.Join(cwd, dir))
+		if home != "" {
+			writeOnly = append(writeOnly, filepath.Join(home, dir))
+		}
+	}
+	if !opts.AllowGitConfig {
+		writeOnly = append(writeOnly, filepath.Join(cwd, GitDirPath))
+		if home != "" {
+			writeOnly = append(writeOnly, filepath.Join(home, GitDirPath))
+		}
+	}
+
 	if !opts.AllowGitConfig {
 		suppressible = append(suppressible, filepath.Join(cwd, GitConfigPath))
 		if home != "" {
@@ -284,6 +315,15 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 		}
 
 		if allowWriteSet[cleaned] || writeGlobAlsoSuppressed[cleaned] {
+			result.SuppressedWrite = append(result.SuppressedWrite, cleaned)
+		} else {
+			result.DenyWrite = append(result.DenyWrite, cleaned)
+		}
+	}
+
+	for _, pattern := range writeOnly {
+		cleaned := filepath.Clean(pattern)
+		if allowWriteSet[cleaned] {
 			result.SuppressedWrite = append(result.SuppressedWrite, cleaned)
 		} else {
 			result.DenyWrite = append(result.DenyWrite, cleaned)

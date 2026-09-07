@@ -302,6 +302,25 @@ func TestLandlockTranslatePolicy_MandatoryDenies(t *testing.T) {
 	}
 }
 
+func TestLandlockTranslatePolicy_BroadCWDWriteKeepsMandatoryDenies(t *testing.T) {
+	// Denies under ${CWD} depend on the supervisor, so each must reach DenyPaths.
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowWrite = []string{cwd, filepath.Join(cwd, "**")}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
+	require.NoError(t, err)
+
+	for _, rel := range []string{".env", ".ssh", ".git/hooks", ".git/config", ".github/workflows"} {
+		entry := findDenyPath(ep.DenyPaths, filepath.Join(cwd, rel))
+		require.NotNil(t, entry, "mandatory deny %q missing under broad CWD write allow", rel)
+		assert.NotEqual(t, denyRead, entry.Mode, "%q must deny writes", rel)
+	}
+}
+
 func TestLandlockTranslatePolicy_AllowReadSuppression(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -743,8 +762,8 @@ func TestLandlockTranslatePolicy_DenyCoveredAllowRulesDropped(t *testing.T) {
 
 	// Read-only allow on .git/config survives the mandatory write deny on it.
 	assert.NotNil(t, findRule(ep.FilesystemRules, filepath.Join(gitDir, "config")))
-	// Unaffected writable paths under .git stay allowed.
-	assert.NotNil(t, findRule(ep.FilesystemRules, filepath.Join(gitDir, "refs")))
+	// Bare "dir/**" patterns resolve to the base directory.
+	assert.NotNil(t, findRule(ep.FilesystemRules, gitDir))
 }
 
 func TestLandlockMaskDeniedAccess(t *testing.T) {
@@ -838,4 +857,30 @@ func TestLandlockTranslatePolicy_AubeProfileGrantsProjectDirectory(t *testing.T)
 	require.NotZero(t, access, "the aube profile must grant a rule on the project directory")
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSMakeReg), "MakeReg is needed to create the temp file")
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
+}
+
+// A glob deny stays a pattern, or a .env.local created later is unprotected.
+func TestLandlockTranslatePolicy_GlobDenyKeptAsPattern(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	policy := newTestPolicy()
+	policy.Filesystem.AllowWrite = []string{cwd, filepath.Join(cwd, "**")}
+	policy.Filesystem.DenyWrite = []string{"${CWD}/*.secret"}
+	abi := newLandlockABI(3)
+
+	ep, err := landlockTranslatePolicy(policy, abi, nil)
+	require.NoError(t, err)
+
+	entry := findDenyPath(ep.DenyPaths, filepath.Join(cwd, ".env.*"))
+	require.NotNil(t, entry, "mandatory .env.* glob must stay a pattern")
+	assert.Equal(t, denyBoth, entry.Mode)
+
+	entry = findDenyPath(ep.DenyPaths, filepath.Join(cwd, "*.secret"))
+	require.NotNil(t, entry, "profile glob must stay a pattern")
+	assert.Equal(t, denyWrite, entry.Mode)
+
+	entry = findDenyPath(ep.DenyPaths, "**/.env")
+	require.NotNil(t, entry, "the anywhere form stays a pattern")
+	assert.Equal(t, denyBoth, entry.Mode)
 }

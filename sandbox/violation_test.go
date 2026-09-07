@@ -247,3 +247,26 @@ func TestOutputDerivedReportYieldsNoOverrides(t *testing.T) {
 	assert.NotNil(t, BuildExplanation(report).Override)
 	assert.Len(t, BuildAllOverrides(report), 1)
 }
+
+func TestIsSensitiveProjectFileMatchesDirectorySegments(t *testing.T) {
+	tests := []struct {
+		target string
+		want   bool
+	}{
+		{"/repo/.vscode", true},
+		{"/repo/.vscode/tasks.json", true},
+		{".vscode/settings.json", true},
+		{"/repo/.github/workflows", true},
+		{"/repo/.github/workflows/ci.yml", true},
+		{".github/workflows/ci.yml", true},
+		{"/repo/.github/dependabot.yml", false},
+		{"/repo/foo.github/workflowsbar", false},
+		{"/repo/.sshfoo/x", false},
+		{"/repo/node_modules/pkg/.ssh/id", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.target, func(t *testing.T) {
+			assert.Equal(t, tc.want, isSensitiveProjectFile(tc.target))
+		})
+	}
+}
