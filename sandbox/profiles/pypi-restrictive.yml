@@ -43,8 +43,11 @@ filesystem:
     - /tmp/**
     - /private/tmp/**
     - /var/tmp/**
-    - ${CWD}/.venv/**
-    - ${CWD}/venv/**
+    # The whole project directory is writable. Install output lands anywhere
+    # in the project, and per-file enumeration does not scale. The mandatory
+    # denies keep credential files and auto-exec directories blocked.
+    - ${CWD}
+    - ${CWD}/**
     - ${HOME}/.cache/pip/**
     - ${HOME}/.cache/pypoetry/**
     - ${HOME}/.cache/poetry/**

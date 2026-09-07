@@ -112,6 +112,47 @@ and execve kills sibling threads, so the open always pins the live mm.
 covers the path itself and anything beneath `entry+"/"`, so `~/.ssh/id_rsa` is caught.
 Trailing-slash entries still prefix-match.
 
+### Write denies under a writable project tree run through the supervisor
+
+Landlock has allow rules only. An allow on `${CWD}` grants every path below
+it, and no rule can take `${CWD}/.env` or `${CWD}/.git/hooks` back out of
+that grant. Under the built-in profiles the deny rules for those paths are
+enforced by the seccomp supervisor alone. It emulates the kernel's path
+resolution and answers inside a TOCTOU window, so treat these denies as a
+strong default, not a hard barrier.
+
+The supervisor traps every syscall that names a path and matches the
+canonical path against the deny list. The edge cases that shaped the rules:
+
+- A rename or hard-link source is denied when it is above a deny entry too:
+  moving `${CWD}/.git` carries `.git/hooks` with it. A destination is denied
+  when it is above any entry: a prepared tree renamed onto `.git` replaces
+  `.git/hooks`. A symlink follows the destination rule. `mkdir` does not, or
+  `git init` could not create `.git`.
+- `O_RDONLY|O_CREAT` and `O_RDONLY|O_TRUNC` count as writes.
+- `chroot` is always denied. Landlock does not hook it and root in the user
+  namespace keeps `CAP_SYS_CHROOT`.
+- Paths resolve as the kernel resolves them: a symlink before the components
+  after it, `..` after the symlink it follows, `/proc/self` as the notifying
+  process. The walk is floored at `/proc/<pid>/root`, or at the dirfd under
+  `RESOLVE_IN_ROOT`: `..` stops there and an absolute symlink target restarts
+  there.
+- `SECCOMP_IOCTL_NOTIF_ID_VALID` is checked after every `/proc/<pid>` read,
+  so a recycled pid is never judged on another process's state.
+- Deny entries match in lexical and canonical form, so `~/.ssh` still matches
+  when it is a symlink into a dotfiles checkout.
+- A deny glob (`${CWD}/.env.*`, `**/.ssh`) stays a pattern and covers a
+  file created after setup. A `**/<name>` entry matches the name at any
+  depth, as the Seatbelt regex does.
+
+### The filter kills foreign-ABI syscalls
+
+Syscall numbers differ per ABI, so `int 0x80` or x32 would reach `openat`
+under a number the filter does not trap. The filter checks `seccomp_data.arch`
+and, on amd64, the x32 bit, and returns `SECCOMP_RET_KILL_PROCESS`. The kill
+happens in the kernel: the process ends with `SIGKILL` and no violation is
+recorded.
+
 ### Network lockdown (`network_via_proxy_only`)
 
 Landlock's own network rules (ABI V4) filter TCP ports only: no destination
@@ -219,5 +260,15 @@ constant tax that maps to most of the decisions above:
   not used yet; they would be a race-free backstop for the passthrough cases.
 - **PID/IPC namespace isolation is best-effort.** Retried without on EPERM.
 - **Audit events are dropped.** Wired but consumed by `io.Discard`.
-- **TOCTOU between path read and deny response.** Microseconds. Adequate for benign
-  install scripts; not a hardened defense.
+- **TOCTOU between path read and deny response.** Microseconds. A process can
+  rewrite the path bytes in its memory, or swap a symlink on disk, after the
+  supervisor read them and before the kernel resolves the path. Adequate for
+  benign install scripts; not a hardened defense.
+- **The target keeps its user-namespace capabilities.** They survive the
+  exec. `chroot` is refused by the supervisor and mount and pivot_root by
+  Landlock, so no known route uses them.
+- **`io_uring` file operations bypass the path traps.** `IORING_OP_OPENAT`
+  and friends never enter the trapped syscalls. `io_uring_setup` is refused
+  only under network lockdown.
+- **Metadata writes are not trapped.** `chmod`, `chown` and `utimensat` on a
+  protected path go through Landlock alone, which does not govern them.

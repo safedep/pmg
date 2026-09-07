@@ -69,10 +69,6 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 
 	fmt.Fprintf(&sb, "\ndeny_paths (%d):\n", len(ep.DenyPaths))
 	for _, d := range ep.DenyPaths {
-		if d.Pattern != "" {
-			fmt.Fprintf(&sb, "  - pattern: %s\n    mode: %s\n", d.Pattern, landlockDenyModeString(d.Mode))
-			continue
-		}
 		fmt.Fprintf(&sb, "  - path: %s\n    mode: %s\n", d.Path, landlockDenyModeString(d.Mode))
 	}
 

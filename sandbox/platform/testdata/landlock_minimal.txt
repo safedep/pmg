@@ -40,84 +40,88 @@ filesystem_rules (16):
   - path: /tmp
     access: write_file|truncate|make_reg|make_dir|make_sock|make_fifo|make_block|make_char|make_sym|remove_file|remove_dir|refer
 
-deny_paths (46):
+deny_paths (54):
   - path: /src/sandbox/platform/.env
     mode: both
-  - pattern: **/.env
+  - path: **/.env
     mode: both
   - path: /root/.env
     mode: both
-  - pattern: **/.env.*
+  - path: /src/sandbox/platform/.env.*
+    mode: both
+  - path: **/.env.*
+    mode: both
+  - path: /root/.env.*
     mode: both
   - path: /src/sandbox/platform/.aws
     mode: both
-  - pattern: **/.aws
+  - path: **/.aws
     mode: both
   - path: /root/.aws
     mode: both
   - path: /src/sandbox/platform/.azure
     mode: both
-  - pattern: **/.azure
+  - path: **/.azure
     mode: both
   - path: /root/.azure
     mode: both
   - path: /src/sandbox/platform/.gcloud
     mode: both
-  - pattern: **/.gcloud
+  - path: **/.gcloud
     mode: both
   - path: /root/.gcloud
     mode: both
   - path: /src/sandbox/platform/.config/gcloud
     mode: both
-  - pattern: **/.config/gcloud
+  - path: **/.config/gcloud
     mode: both
   - path: /root/.config/gcloud
     mode: both
   - path: /src/sandbox/platform/.kube
     mode: both
-  - pattern: **/.kube
+  - path: **/.kube
     mode: both
   - path: /root/.kube
     mode: both
   - path: /src/sandbox/platform/.ssh
     mode: both
-  - pattern: **/.ssh
+  - path: **/.ssh
     mode: both
   - path: /root/.ssh
     mode: both
   - path: /src/sandbox/platform/.gnupg
     mode: both
-  - pattern: **/.gnupg
+  - path: **/.gnupg
     mode: both
   - path: /root/.gnupg
     mode: both
   - path: /src/sandbox/platform/.docker/config.json
     mode: both
-  - pattern: **/.docker/config.json
+  - path: **/.docker/config.json
     mode: both
   - path: /root/.docker/config.json
     mode: both
   - path: /src/sandbox/platform/.netrc
     mode: both
-  - pattern: **/.netrc
+  - path: **/.netrc
     mode: both
   - path: /root/.netrc
     mode: both
   - path: /src/sandbox/platform/.git-credentials
     mode: both
-  - pattern: **/.git-credentials
+  - path: **/.git-credentials
     mode: both
   - path: /root/.git-credentials
     mode: both
   - path: /src/sandbox/platform/.pgpass
     mode: both
-  - pattern: **/.pgpass
+  - path: **/.pgpass
     mode: both
   - path: /root/.pgpass
     mode: both
   - path: /src/sandbox/platform/.config/gh
     mode: both
-  - pattern: **/.config/gh
+  - path: **/.config/gh
     mode: both
   - path: /root/.config/gh
     mode: both
@@ -133,6 +137,18 @@ deny_paths (46):
     mode: both
   - path: /root/.git/hooks
     mode: both
+  - path: /src/sandbox/platform/.github/workflows
+    mode: write
+  - path: /root/.github/workflows
+    mode: write
+  - path: /src/sandbox/platform/.vscode
+    mode: write
+  - path: /root/.vscode
+    mode: write
+  - path: /src/sandbox/platform/.git
+    mode: write
+  - path: /root/.git
+    mode: write
 
 deny_exec_paths (1):
   - /bin/sh

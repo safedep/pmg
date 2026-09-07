@@ -204,6 +204,65 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 		assert.Empty(t, r.SuppressedRead)
 	})
 
+	t.Run("broad write glob does NOT suppress", func(t *testing.T) {
+		broad := filepath.Join(cwd, "**")
+		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+			AllowWrite: []string{cwd, broad},
+		})
+
+		assert.Empty(t, r.SuppressedWrite)
+		assert.Contains(t, r.DenyWrite, cwdEnv)
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".github/workflows"))
+	})
+
+	t.Run("github workflows suppressible via exact allow", func(t *testing.T) {
+		cwdWorkflows := filepath.Join(cwd, ".github/workflows")
+		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+			AllowWrite: []string{cwdWorkflows},
+		})
+
+		assert.NotContains(t, r.DenyWrite, cwdWorkflows)
+		assert.Contains(t, r.SuppressedWrite, cwdWorkflows)
+		assert.NotContains(t, r.DenyRead, cwdWorkflows)
+	})
+
+	t.Run("git dir is write-denied unless allow_git_config", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+		cwdGit := filepath.Join(cwd, ".git")
+
+		r := GetMandatoryDenyPatterns(emptyOpts())
+		assert.Contains(t, r.DenyWrite, cwdGit)
+		assert.Contains(t, r.DenyWrite, filepath.Join(home, ".git"))
+		assert.NotContains(t, r.DenyRead, cwdGit)
+
+		r = GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowGitConfig: true})
+		assert.NotContains(t, r.DenyWrite, cwdGit)
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/hooks"), "hooks stay denied")
+
+		r = GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowWrite: []string{cwdGit}})
+		assert.NotContains(t, r.DenyWrite, cwdGit)
+		assert.Contains(t, r.SuppressedWrite, cwdGit)
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/hooks"), "the git preset opt-out keeps hooks denied")
+		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/config"))
+	})
+
+	t.Run("auto-exec dirs are write-only and root-scoped", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		r := GetMandatoryDenyPatterns(emptyOpts())
+
+		for _, dir := range PROJECT_AUTOEXEC_DIRS {
+			assert.Contains(t, r.DenyWrite, filepath.Join(cwd, dir))
+			assert.Contains(t, r.DenyWrite, filepath.Join(home, dir))
+			assert.NotContains(t, r.DenyWrite, filepath.Join("**", dir),
+				"a package that ships %s must still extract", dir)
+			assert.NotContains(t, r.DenyRead, filepath.Join(cwd, dir))
+			assert.NotContains(t, r.DenyRead, filepath.Join(home, dir))
+		}
+	})
+
 	t.Run("git config CWD form suppressible via allow_write", func(t *testing.T) {
 		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
 			AllowGitConfig: false,

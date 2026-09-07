@@ -302,6 +302,15 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 		}
 	}
 
+	// A rename of a directory carries the deny overlays below it along. A
+	// mount point cannot be renamed, so the directories between a writable
+	// base and a deny target are bound onto themselves before the overlays.
+	protected := append([]string{}, mandatoryResult.DenyRead...)
+	protected = append(protected, mandatoryResult.DenyWrite...)
+	protected = append(protected, policy.Filesystem.DenyRead...)
+	protected = append(protected, policy.Filesystem.DenyWrite...)
+	args = append(args, t.pinProtectedAncestors(protected, rwDirs)...)
+
 	for _, pattern := range policy.Filesystem.DenyRead {
 		expanded, err := util.ExpandVariables(pattern)
 		if err != nil {
@@ -717,6 +726,11 @@ func isFileUnderBoundDir(path string, dirs map[string]bool) bool {
 		return false
 	}
 
+	return isStrictlyUnderBoundDir(path, dirs)
+}
+
+// isStrictlyUnderBoundDir reports whether path lies below one of dirs.
+func isStrictlyUnderBoundDir(path string, dirs map[string]bool) bool {
 	for dir := range dirs {
 		if strings.HasPrefix(path, dir+string(filepath.Separator)) {
 			return true
@@ -724,6 +738,60 @@ func isFileUnderBoundDir(path string, dirs map[string]bool) bool {
 	}
 
 	return false
+}
+
+// pinProtectedAncestors binds each directory between a writable base and an
+// existing deny target onto itself. The base is not pinned: its parent is
+// not writable. The deny loops report a pattern that fails to expand.
+func (t *bubblewrapPolicyTranslator) pinProtectedAncestors(denyPatterns []string, rwDirs map[string]bool) []string {
+	args := []string{}
+	pinned := make(map[string]bool)
+
+	for _, pattern := range denyPatterns {
+		expanded, err := util.ExpandVariables(pattern)
+		if err != nil {
+			continue
+		}
+
+		for _, target := range denyTargets(expanded) {
+			if _, err := os.Stat(target); err != nil {
+				continue
+			}
+
+			for dir := filepath.Dir(target); isStrictlyUnderBoundDir(dir, rwDirs); dir = filepath.Dir(dir) {
+				if pinned[dir] {
+					continue
+				}
+				pinned[dir] = true
+				args = append(args, "--bind-try", dir, dir)
+				log.Debugf("Pinned '%s' as a mount point: it holds the protected path '%s'", dir, target)
+			}
+		}
+	}
+
+	return args
+}
+
+// denyTargets lists the paths a deny pattern overlays. A globstar maps to
+// the directory the deny rules hide.
+func denyTargets(expanded string) []string {
+	if !util.ContainsGlob(expanded) {
+		return []string{expanded}
+	}
+
+	if strings.Contains(expanded, "**") {
+		parent := extractGlobParentDir(expanded)
+		if parent == "." {
+			return nil
+		}
+		return []string{parent}
+	}
+
+	matches, err := filepath.Glob(expanded)
+	if err != nil {
+		return nil
+	}
+	return matches
 }
 
 // processDenyRule handles deny rules by mounting /dev/null to prevent file access.
