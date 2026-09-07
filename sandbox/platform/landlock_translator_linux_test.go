@@ -303,9 +303,7 @@ func TestLandlockTranslatePolicy_MandatoryDenies(t *testing.T) {
 }
 
 func TestLandlockTranslatePolicy_BroadCWDWriteKeepsMandatoryDenies(t *testing.T) {
-	// Landlock cannot carve subpaths out of a broad write grant. Denies under
-	// ${CWD} depend on the seccomp-notify layer, so each mandatory deny must
-	// land in DenyPaths.
+	// Denies under ${CWD} depend on the supervisor, so each must reach DenyPaths.
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 
@@ -861,9 +859,7 @@ func TestLandlockTranslatePolicy_AubeProfileGrantsProjectDirectory(t *testing.T)
 	assert.NotZero(t, access&uint64(llsyscall.AccessFSRemoveFile), "RemoveFile is needed to rename over package.json")
 }
 
-// A glob deny must survive translation as a pattern. Expanding it against
-// the filesystem at setup would leave .env.local unprotected when the
-// install script creates it later.
+// A glob deny stays a pattern, or a .env.local created later is unprotected.
 func TestLandlockTranslatePolicy_GlobDenyKeptAsPattern(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
@@ -884,5 +880,7 @@ func TestLandlockTranslatePolicy_GlobDenyKeptAsPattern(t *testing.T) {
 	require.NotNil(t, entry, "profile glob must stay a pattern")
 	assert.Equal(t, denyWrite, entry.Mode)
 
-	assert.Nil(t, findDenyPath(ep.DenyPaths, "**/.env"), "a globstar without a base is dropped")
+	entry = findDenyPath(ep.DenyPaths, "**/.env")
+	require.NotNil(t, entry, "the anywhere form stays a pattern")
+	assert.Equal(t, denyBoth, entry.Mode)
 }

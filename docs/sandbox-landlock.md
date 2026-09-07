@@ -114,15 +114,15 @@ Trailing-slash entries still prefix-match.
 
 ### Write denies under a writable project tree run through the supervisor
 
-Landlock rules inside a layer are additive, so `${CWD}/**` cannot exclude
-`${CWD}/.env` or `${CWD}/.git/hooks`. Under the built-in profiles only the
-seccomp supervisor stands between a process and those paths. It emulates the
-kernel's path resolution and answers inside a TOCTOU window, so treat these
-denies as a strong default, not a hard barrier.
+Landlock has allow rules only. An allow on `${CWD}` grants every path below
+it, and no rule can take `${CWD}/.env` or `${CWD}/.git/hooks` back out of
+that grant. Under the built-in profiles the deny rules for those paths are
+enforced by the seccomp supervisor alone. It emulates the kernel's path
+resolution and answers inside a TOCTOU window, so treat these denies as a
+strong default, not a hard barrier.
 
-The supervisor traps every syscall that names a path (`seccompPathSyscalls`)
-and matches the canonical path against the deny list. The edge cases that
-shaped the rules:
+The supervisor traps every syscall that names a path and matches the
+canonical path against the deny list. The edge cases that shaped the rules:
 
 - A rename or hard-link source is denied when it is above a deny entry too:
   moving `${CWD}/.git` carries `.git/hooks` with it. A destination is denied
@@ -141,8 +141,9 @@ shaped the rules:
   so a recycled pid is never judged on another process's state.
 - Deny entries match in lexical and canonical form, so `~/.ssh` still matches
   when it is a symlink into a dotfiles checkout.
-- A deny glob without `**` (`${CWD}/.env.*`) stays a pattern and covers a
-  file created after setup.
+- A deny glob (`${CWD}/.env.*`, `**/.ssh`) stays a pattern and covers a
+  file created after setup. A `**/<name>` entry matches the name at any
+  depth, as the Seatbelt regex does.
 
 ### The filter kills foreign-ABI syscalls
 
@@ -263,11 +264,6 @@ constant tax that maps to most of the decisions above:
   rewrite the path bytes in its memory, or swap a symlink on disk, after the
   supervisor read them and before the kernel resolves the path. Adequate for
   benign install scripts; not a hardened defense.
-- **`**/<file>` mandatory denies are inert on this driver.** A pattern with no
-  base directory cannot be expanded and cannot be matched against an
-  absolute path, so only the `${CWD}` and `${HOME}` forms are enforced.
-  Seatbelt matches them with a regex. A credential file inside
-  `node_modules` is protected on macOS and not on Linux.
 - **The target keeps its user-namespace capabilities.** They survive the
   exec. `chroot` is refused by the supervisor and mount and pivot_root by
   Landlock, so no known route uses them.

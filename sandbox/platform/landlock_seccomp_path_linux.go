@@ -32,17 +32,15 @@ const (
 )
 
 // pathOperand locates one path operand in the syscall arguments. A dirfd
-// index of -1 means the syscall has none and resolves against the cwd.
+// index of -1 means AT_FDCWD.
 type pathOperand struct {
 	dirfd int
 	path  int
 }
 
-// pathSyscall describes one trapped syscall that names a filesystem path.
-// dst is set only for the two-path kinds (rename, link). flags is the index
-// of the flags argument, or -1. openHow marks openat2, whose flags live in
-// the struct open_how the argument points at. fixedFlags supplies the open
-// flags a syscall implies when it has no flags argument (creat).
+// pathSyscall describes one trapped syscall. flags is the index of the
+// flags argument, or -1. openHow marks openat2. fixedFlags are the open
+// flags creat implies.
 type pathSyscall struct {
 	name       string
 	kind       pathOpKind
@@ -57,12 +55,9 @@ func (p pathSyscall) hasDst() bool {
 	return p.kind == pathOpRename || p.kind == pathOpLink
 }
 
-// seccompPathSyscalls is every syscall the supervisor traps for path denies:
-// the *at forms every Linux architecture has, plus the forms of the running
-// architecture (renameat is absent on riscv64, the legacy non-at forms on
-// every arch but amd64). Landlock cannot subtract a protected subpath from a
-// broad grant such as ${CWD}/**, so a process could rename, hard-link or
-// remove a protected file if only openat were trapped.
+// seccompPathSyscalls is every syscall the supervisor traps for path denies.
+// Landlock cannot take a subpath out of a broad grant, so rename, link and
+// unlink must be trapped as well as open.
 var seccompPathSyscalls = buildPathSyscalls()
 
 func buildPathSyscalls() map[uint32]pathSyscall {
@@ -84,8 +79,8 @@ func buildPathSyscalls() map[uint32]pathSyscall {
 	return table
 }
 
-// pathSyscallNumbers returns the trapped path syscall numbers in ascending
-// order so the BPF program is deterministic.
+// pathSyscallNumbers returns the trapped syscall numbers in ascending order,
+// so the BPF program is deterministic.
 func pathSyscallNumbers() []uint32 {
 	nrs := make([]uint32, 0, len(seccompPathSyscalls))
 	for nr := range seccompPathSyscalls {
@@ -95,9 +90,8 @@ func pathSyscallNumbers() []uint32 {
 	return nrs
 }
 
-// pathOpKindForSyscall maps an audited syscall name back to its kind so the
-// diagnostics layer classifies the violation. ok is false for syscalls that
-// are not path operations (execve, connect).
+// pathOpKindForSyscall maps an audited syscall name to its kind. ok is false
+// for a syscall that is not a path operation.
 func pathOpKindForSyscall(name string) (pathOpKind, bool) {
 	for _, op := range seccompPathSyscalls {
 		if op.name == name {
@@ -107,24 +101,13 @@ func pathOpKindForSyscall(name string) (pathOpKind, bool) {
 	return 0, false
 }
 
-// canonicalPath resolves path the way the kernel resolves it during lookup:
-// one component at a time, following each symlink before the components
-// after it (so "link/.." lands in the link target's parent), and treating
-// /proc/self as the notifying process rather than the supervisor. A
-// component that does not exist ends resolution and the rest is appended
-// lexically, so a path about to be created resolves to its real parent.
-// followLeaf is false for the syscalls that act on a link itself (rename,
-// link, unlink, mkdir, symlink) and for opens with O_NOFOLLOW.
-//
-// root is the floor of the walk: ".." stops there and an absolute symlink
-// target restarts there, as under chroot(2) and openat2's RESOLVE_IN_ROOT.
-// It is "/" for an unconfined process. Under any other root /proc/self is
-// left alone: the host procfs is not what the process sees there.
-//
-// The supervisor reads the filesystem after the process issued the syscall
-// and before the kernel resolves it. A process that swaps a symlink in that
-// window defeats the check. This is the TOCTOU window every seccomp-notify
-// path filter has (see docs/sandbox-landlock.md).
+// canonicalPath resolves path as the kernel does: one component at a time,
+// each symlink before the components after it, /proc/self as the notifying
+// process. A missing component ends the walk and the rest is appended
+// lexically. root is the floor: ".." stops there and an absolute symlink
+// target restarts there, as under chroot(2) and RESOLVE_IN_ROOT. Under a
+// root other than "/" /proc/self is left alone. followLeaf is false for the
+// syscalls that act on a link itself and for O_NOFOLLOW.
 func canonicalPath(pid uint32, root, path string, followLeaf bool) string {
 	const maxLinks = 40 // matches the kernel's ELOOP limit
 	procSelf := "/proc/" + strconv.FormatUint(uint64(pid), 10)
@@ -193,9 +176,8 @@ func pathBelowRoot(root, path string) string {
 	return strings.TrimPrefix(path, "/")
 }
 
-// clampToRoot keeps a lexically joined tail from escaping the floor through
-// ".." components. The kernel fails such a lookup with ENOENT, so the exact
-// answer does not matter, only that it stays below root.
+// clampToRoot keeps a lexical tail from escaping the floor through "..". The
+// kernel fails such a lookup, so only the floor matters.
 func clampToRoot(root, path string) string {
 	if root == "/" || path == root || strings.HasPrefix(path, root+"/") {
 		return path
@@ -204,11 +186,12 @@ func clampToRoot(root, path string) string {
 }
 
 // pathCoveredBy reports whether path is the deny entry or lies beneath it.
-// An entry with a trailing slash prefix-matches; one without covers the
-// path itself and anything beneath entry+"/". A glob entry (${CWD}/.env.*)
-// covers every path whose own name or ancestor name matches the pattern,
-// so it also covers a file that did not exist when the policy was built.
+// A trailing slash prefix-matches. A glob entry covers a path whose name or
+// ancestor name matches, so a file created after setup is covered.
 func pathCoveredBy(path string, entry denyPathEntry) bool {
+	if strings.HasPrefix(entry.Path, "**/") {
+		return anywhereCoversPath(strings.TrimPrefix(entry.Path, "**/"), path)
+	}
 	if util.ContainsGlob(entry.Path) {
 		return globCoversPath(entry.Path, path)
 	}
@@ -218,9 +201,8 @@ func pathCoveredBy(path string, entry denyPathEntry) bool {
 	return path == entry.Path || strings.HasPrefix(path, entry.Path+"/")
 }
 
-// globCoversPath reports whether pattern matches path or one of its
-// ancestors. filepath.Match keeps "*" within one component. A malformed
-// pattern matches nothing.
+// globCoversPath matches pattern against path and each ancestor. A
+// malformed pattern matches nothing.
 func globCoversPath(pattern, path string) bool {
 	for p := path; ; p = filepath.Dir(p) {
 		if ok, err := filepath.Match(pattern, p); err != nil {
@@ -234,11 +216,9 @@ func globCoversPath(pattern, path string) bool {
 	}
 }
 
-// resolveDenyEntries adds the canonical form of every deny entry next to
-// its lexical form. The supervisor matches canonical syscall paths, so an
-// entry under a symlinked directory (~/.ssh -> ~/dotfiles/ssh, a project
-// under a symlinked home) would never match by its lexical path alone. The
-// lexical form stays for a target that becomes a symlink later.
+// resolveDenyEntries adds the canonical form of each entry next to the
+// lexical one. Syscall paths are canonical, so an entry under a symlinked
+// directory (~/.ssh -> ~/dotfiles/ssh) would not match by its lexical path.
 func resolveDenyEntries(pid uint32, entries []denyPathEntry) []denyPathEntry {
 	out := make([]denyPathEntry, 0, 2*len(entries))
 	for _, entry := range entries {
@@ -262,9 +242,8 @@ func resolveDenyExec(pid uint32, entries []string) []string {
 	return out
 }
 
-// canonicalDenyPath resolves the symlinks in a deny path. For a glob
-// pattern only the literal directory before the first glob component is
-// resolved, and the pattern is re-attached.
+// canonicalDenyPath resolves the symlinks in a deny path. For a glob only
+// the directory before the first glob component is resolved.
 func canonicalDenyPath(pid uint32, path string) string {
 	if !util.ContainsGlob(path) {
 		return canonicalPath(pid, "/", path, true)
@@ -283,17 +262,38 @@ func canonicalDenyPath(pid uint32, path string) string {
 	return path
 }
 
-// pathAboveDeny reports whether a deny entry lies strictly beneath path.
-// Moving or replacing such a directory relocates the protected content.
+// anywhereCoversPath matches a "**/<name>" deny against every run of
+// components in path: "**/.ssh" covers /home/u/.ssh/id_rsa.
+func anywhereCoversPath(name, path string) bool {
+	want := strings.Split(name, "/")
+	have := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	for start := 0; start+len(want) <= len(have); start++ {
+		matched := true
+		for i, w := range want {
+			if ok, err := filepath.Match(w, have[start+i]); err != nil || !ok {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// pathAboveDeny reports whether a deny entry lies strictly beneath path. A
+// "**/" entry can lie beneath any directory, so it never counts.
 func pathAboveDeny(path string, entry denyPathEntry) bool {
+	if strings.HasPrefix(entry.Path, "**/") {
+		return false
+	}
 	return strings.HasPrefix(strings.TrimSuffix(entry.Path, "/"), path+"/")
 }
 
-// matchDeniedWriteTarget returns the deny entry that forbids creating,
-// removing, truncating or writing path: a write or both-mode entry that
-// covers it. With includeAncestors, any entry beneath path also matches,
-// which is the rule for a rename or link destination: replacing ${CWD}/.git
-// would replace .git/hooks with it.
+// matchDeniedWriteTarget returns the write or both-mode entry that covers
+// path. With includeAncestors an entry beneath path matches too: a tree
+// renamed onto ${CWD}/.git replaces .git/hooks.
 func matchDeniedWriteTarget(path string, includeAncestors bool, denyPaths []denyPathEntry) (denyPathEntry, bool) {
 	for _, entry := range denyPaths {
 		if entry.Mode != denyRead && pathCoveredBy(path, entry) {
@@ -306,10 +306,9 @@ func matchDeniedWriteTarget(path string, includeAncestors bool, denyPaths []deny
 	return denyPathEntry{}, false
 }
 
-// matchDeniedMoveSource returns the deny entry that forbids moving or
-// hard-linking path to a new name. Any entry counts, whatever its mode: a
-// read-denied file under a new name is readable, and a moved ancestor
-// directory carries the protected content with it.
+// matchDeniedMoveSource returns the entry that forbids moving or linking
+// path away. Any mode counts: a read-denied file under a new name is
+// readable, and a moved ancestor carries the protected content.
 func matchDeniedMoveSource(path string, denyPaths []denyPathEntry) (denyPathEntry, bool) {
 	for _, entry := range denyPaths {
 		if pathCoveredBy(path, entry) || pathAboveDeny(path, entry) {
@@ -319,9 +318,8 @@ func matchDeniedMoveSource(path string, denyPaths []denyPathEntry) (denyPathEntr
 	return denyPathEntry{}, false
 }
 
-// matchDeniedMove checks a rename or link from src to dst. With exchange
-// (RENAME_EXCHANGE) both paths move, so both take the source rule. The
-// returned path is the operand that matched, for the audit event.
+// matchDeniedMove checks a rename or link from src to dst. RENAME_EXCHANGE
+// moves both paths, so both take the source rule.
 func matchDeniedMove(src, dst string, exchange bool, denyPaths []denyPathEntry) (denyPathEntry, string, bool) {
 	if entry, denied := matchDeniedMoveSource(src, denyPaths); denied {
 		return entry, src, true
@@ -343,11 +341,9 @@ type openat2Args struct {
 	resolve uint64
 }
 
-// readSyscallFlags returns the flags argument of a path syscall, reading
-// struct open_how from process memory for openat2. A failed open_how read
-// fails open like every other unreadable process state: the open is
-// matched as a read-only open in the caller's root, so a write deny does
-// not fire on it.
+// readSyscallFlags returns the flags of a path syscall, reading struct
+// open_how for openat2. An unreadable open_how fails open as a read-only
+// open in the caller's root.
 func readSyscallFlags(op pathSyscall, args [6]uint64, memFd *os.File) openat2Args {
 	if op.flags < 0 {
 		return openat2Args{flags: op.fixedFlags}
@@ -370,10 +366,8 @@ func readSyscallFlags(op pathSyscall, args [6]uint64, memFd *os.File) openat2Arg
 	}
 }
 
-// openAccessFlags returns the flags an open is matched with. O_CREAT and
-// O_TRUNC write to the path even with O_RDONLY (the file is created, or
-// truncated on Linux), so they raise the access mode to O_RDWR and a write
-// deny fires on them.
+// openAccessFlags raises O_RDONLY to O_RDWR when O_CREAT or O_TRUNC is set.
+// Both write to the path, and Linux truncates on O_RDONLY|O_TRUNC.
 func openAccessFlags(flags int) int {
 	if flags&(unix.O_CREAT|unix.O_TRUNC) != 0 && flags&unix.O_ACCMODE == unix.O_RDONLY {
 		return flags&^unix.O_ACCMODE | unix.O_RDWR
@@ -382,7 +376,7 @@ func openAccessFlags(flags int) int {
 }
 
 // followsLeaf reports whether the kernel follows a symlink in the final
-// component of the operand for this syscall and flags.
+// component of the operand.
 func followsLeaf(op pathSyscall, operand pathOperand, flags int) bool {
 	switch op.kind {
 	case pathOpOpen:
@@ -396,8 +390,7 @@ func followsLeaf(op pathSyscall, operand pathOperand, flags int) bool {
 	}
 }
 
-// resolveOperand reads one path operand from the notifying process and
-// canonicalizes it.
+// resolveOperand reads one path operand from the notifying process.
 func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os.File, operand pathOperand, followLeaf bool, resolve uint64) (string, error) {
 	rawPath, err := readPathFromMem(memFd, uintptr(notif.Data.Args[operand.path]))
 	if err != nil {
@@ -412,15 +405,12 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 	return resolveSyscallPath(notif.PID, dirfd, rawPath, followLeaf, resolve)
 }
 
-// handlePathOp enforces the deny list for one trapped path syscall. Every
-// failure to read the process state fails open, as handleOpen always did:
-// a denial would break the process on a supervisor fault rather than on
-// policy.
+// handlePathOp enforces the deny list for one trapped path syscall.
+// Unreadable process state fails open, as the open handler always did.
 func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *seccompPhase, op pathSyscall) {
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		// /proc/<pid>/mem is unreadable, typically after an execve that
-		// cleared dumpable. See docs/sandbox.md for the enforcement gap.
+		// Unreadable after an execve that cleared dumpable. See docs/sandbox.md.
 		s.continueSyscall(notif.ID)
 		return
 	}
@@ -451,8 +441,7 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	case pathOpRemove, pathOpCreate:
 		entry, denied = matchDeniedWriteTarget(src, false, phase.denyPaths)
 	case pathOpSymlink:
-		// A symlink planted at an ancestor of a protected path (.github
-		// when it does not exist yet) would redirect the whole subtree.
+		// A symlink at an ancestor of a protected path redirects the subtree.
 		entry, denied = matchDeniedWriteTarget(src, true, phase.denyPaths)
 	case pathOpRename, pathOpLink:
 		dst, err := s.resolveOperand(notif, memFd, op.dst, followsLeaf(op, op.dst, flags), args.resolve)
@@ -463,15 +452,12 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 		exchange := op.kind == pathOpRename && flags&unix.RENAME_EXCHANGE != 0
 		entry, target, denied = matchDeniedMove(src, dst, exchange, phase.denyPaths)
 	case pathOpChroot:
-		// Landlock does not hook chroot, and root in the user namespace
-		// keeps CAP_SYS_CHROOT. A new root would make every absolute path
-		// the supervisor sees mean something else, so chroot is refused.
+		// Landlock does not hook chroot and root in the user namespace keeps
+		// CAP_SYS_CHROOT. A new root changes what every absolute path means.
 		entry, denied = denyPathEntry{Path: src, Mode: denyWrite}, true
 	}
 
-	// The process state read above belongs to the notifying task only while
-	// the notification is live. A recycled pid must not be judged on another
-	// process's cwd or fds.
+	// A recycled pid must not be judged on another process's /proc state.
 	if !s.notifValid(notif.ID) {
 		s.deny(notif.ID)
 		return
@@ -506,16 +492,11 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	s.deny(notif.ID)
 }
 
-// resolveSyscallPath turns a syscall path operand into the canonical
-// absolute path the kernel will act on, as the supervisor sees the
-// filesystem. A relative path is anchored at /proc/<pid>/cwd or the dirfd's
-// /proc/<pid>/fd entry, and an absolute path at /proc/<pid>/root, which is
-// not "/" once the process has changed its root. /proc reports every link
-// against the reader's root, and readlinkat is not intercepted. The
-// process root is also the floor for ".." and absolute symlinks. With
-// openat2's RESOLVE_IN_ROOT the dirfd is that floor instead and a leading
-// slash means the dirfd, as the kernel does. An empty path with a dirfd
-// names the dirfd itself (AT_EMPTY_PATH).
+// resolveSyscallPath turns a path operand into the canonical absolute path
+// the kernel will act on. A relative path is anchored at /proc/<pid>/cwd or
+// the dirfd, an absolute one at /proc/<pid>/root. The root is the floor for
+// ".." and absolute symlinks. Under RESOLVE_IN_ROOT the dirfd is the floor
+// and a leading slash means the dirfd. An empty path names the dirfd.
 func resolveSyscallPath(pid uint32, dirfd int, rawPath string, followLeaf bool, resolve uint64) (string, error) {
 	root, err := procLink(pid, "root")
 	if err != nil {
@@ -546,8 +527,7 @@ func resolveSyscallPath(pid uint32, dirfd int, rawPath string, followLeaf bool, 
 		if err != nil {
 			return "", err
 		}
-		// Join without Clean: ".." must apply after the symlink before it
-		// is followed, which canonicalPath does component by component.
+		// No Clean: ".." must apply after the symlink before it.
 		joined = base + "/" + rawPath
 	}
 

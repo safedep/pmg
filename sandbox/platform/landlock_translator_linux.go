@@ -188,12 +188,11 @@ func landlockGlobMatches(pattern string) ([]string, error) {
 	return filepath.Glob(pattern)
 }
 
-// appendDenyPaths adds the deny entries for one expanded pattern. A
-// globstar pattern is expanded now (a bare dir/** becomes the directory).
-// Any other glob is kept as a pattern: the supervisor matches it at syscall
-// time, so a file such as .env.local created after setup is still covered.
+// appendDenyPaths adds the deny entries for one pattern. A globstar with a
+// base becomes its directory. Every other glob stays a pattern for the
+// supervisor, so a file created after setup is covered.
 func appendDenyPaths(entries []denyPathEntry, pattern string, mode denyMode) []denyPathEntry {
-	if !strings.Contains(pattern, "**") {
+	if !strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "**/") {
 		return append(entries, denyPathEntry{Path: pattern, Mode: mode})
 	}
 

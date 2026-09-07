@@ -158,8 +158,7 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 }
 
 // Every syscall that can move, link, remove or create a path must be
-// trapped, or a broad Landlock write grant lets a process route around the
-// deny list. The names are unique because the diagnostics map them back.
+// trapped. The names are unique because the diagnostics map them back.
 func TestSeccompPathSyscalls_Coverage(t *testing.T) {
 	trapped := landlockNotifySyscalls(landlockNetworkPolicy{}, true)
 	for _, nr := range []uint32{
@@ -730,8 +729,7 @@ func TestReadPathFromMem_Offset(t *testing.T) {
 }
 
 func TestResolveNotifPath_Absolute(t *testing.T) {
-	// An absolute path is anchored at the process root, which is "/" here,
-	// so the dirfd plays no part.
+	// The process root is "/" here, so the dirfd plays no part.
 	pid := uint32(os.Getpid())
 	result, err := resolveNotifPath(pid, 12345, "/nonexistent-pmg/user/.env", true)
 	require.NoError(t, err)
@@ -1118,11 +1116,8 @@ func TestResolveSyscallPath_ResolveInRoot(t *testing.T) {
 	assert.Equal(t, filepath.Join(filepath.Dir(root), ".env"), got)
 }
 
-// TestResolveSyscallPath_MatchesKernel drives one path set through the
-// supervisor's resolver and through the kernel, via openat2 and the
-// /proc/self/fd link of the opened file, and requires the two to agree.
-// Every review round so far found a case where the emulation and the
-// kernel differed. This suite is where the next one fails first.
+// One path set goes through the resolver and through openat2 plus the
+// /proc/self/fd link of the opened file. Both must agree.
 func TestResolveSyscallPath_MatchesKernel(t *testing.T) {
 	root := t.TempDir()
 	root, err := filepath.EvalSymlinks(root)
@@ -1236,9 +1231,7 @@ func TestResolveSyscallPath_MatchesKernel(t *testing.T) {
 }
 
 func TestResolveNotifPath_UsesProcessRoot(t *testing.T) {
-	// The test process has the supervisor's root, so /proc/self/root is "/"
-	// and an absolute path resolves unchanged. A chrooted target reports its
-	// root there and gets its absolute paths anchored under it.
+	// /proc/self/root is "/" here, so an absolute path resolves unchanged.
 	got, err := resolveNotifPath(uint32(os.Getpid()), -100, "/nonexistent-pmg/.env", true)
 	require.NoError(t, err)
 	assert.Equal(t, "/nonexistent-pmg/.env", got)
@@ -1270,6 +1263,35 @@ func TestPathCoveredBy_Glob(t *testing.T) {
 	_, denied := matchDeniedPath("/proj/.env.local", unix.O_WRONLY|unix.O_CREAT, []denyPathEntry{entry})
 	assert.True(t, denied)
 	assert.False(t, pathCoveredBy("/proj/x", denyPathEntry{Path: "/proj/[", Mode: denyBoth}), "malformed pattern matches nothing")
+}
+
+func TestPathCoveredBy_Anywhere(t *testing.T) {
+	tests := []struct {
+		entry string
+		path  string
+		want  bool
+	}{
+		{"**/.env", "/home/u/proj/.env", true},
+		{"**/.env", "/home/u/proj/node_modules/pkg/.env", true},
+		{"**/.env", "/home/u/proj/.envrc", false},
+		{"**/.env.*", "/home/u/proj/.env.local", true},
+		{"**/.env.*", "/home/u/proj/.env", false},
+		{"**/.ssh", "/home/u/.ssh/id_rsa", true},
+		{"**/.ssh", "/home/u/.sshd/x", false},
+		{"**/.config/gh", "/home/u/.config/gh/hosts.yml", true},
+		{"**/.config/gh", "/home/u/.config/ghost", false},
+		{"**/.config/gh", "/home/u/gh/.config", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.entry+" "+tc.path, func(t *testing.T) {
+			assert.Equal(t, tc.want, pathCoveredBy(tc.path, denyPathEntry{Path: tc.entry, Mode: denyBoth}))
+		})
+	}
+
+	// A directory rename is not an ancestor move for an anywhere entry.
+	assert.False(t, pathAboveDeny("/home/u/proj", denyPathEntry{Path: "**/.env", Mode: denyBoth}))
+	_, _, denied := matchDeniedMove("/home/u/proj/node_modules/.x", "/home/u/proj/node_modules/y", false, []denyPathEntry{{Path: "**/.env", Mode: denyBoth}})
+	assert.False(t, denied)
 }
 
 func TestResolveDenyEntries(t *testing.T) {
