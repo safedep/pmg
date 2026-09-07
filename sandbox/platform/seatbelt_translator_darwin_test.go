@@ -449,87 +449,82 @@ func TestGetAncestorDirectories(t *testing.T) {
 	}
 }
 
-func TestGenerateMoveBlockingRules(t *testing.T) {
+func TestSeatbeltPinRules(t *testing.T) {
+	pin := func(clause, target string) string {
+		return fmt.Sprintf("(deny file-write-unlink (%s) (with message \"%s\"))", clause, seatbeltLogMessage("test", "file-write-unlink", target))
+	}
+
 	cases := []struct {
 		name     string
 		patterns []string
-		logTag   string
-		assert   func(t *testing.T, rules []string)
+		want     []string
 	}{
 		{
-			name:     "single literal path",
-			patterns: []string{"/sensitive/data"},
-			logTag:   "test",
-			assert: func(t *testing.T, rules []string) {
-				// Should block moving the path itself
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/sensitive/data\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/sensitive/data")))
-				// Should block moving the parent directory
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/sensitive\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/sensitive")))
+			name:     "literal file pins itself and every directory above it",
+			patterns: []string{"/home/u/.claude/settings.json"},
+			want: []string{
+				pin(`subpath "/home/u/.claude/settings.json"`, "/home/u/.claude/settings.json"),
+				pin(`literal "/home/u/.claude"`, "/home/u/.claude"),
+				pin(`literal "/home/u"`, "/home/u"),
+				pin(`literal "/home"`, "/home"),
 			},
 		},
 		{
-			name:     "glob pattern",
-			patterns: []string{"/path/to/*.txt"},
-			logTag:   "test",
-			assert: func(t *testing.T, rules []string) {
-				// Should block moving the base directory
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/path/to\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/path/to")))
-				// Should block moving ancestor directories
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/path\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/path")))
+			name:     "subtree glob pins its base as a subpath",
+			patterns: []string{"/repo/.git/hooks/**"},
+			want: []string{
+				pin(`subpath "/repo/.git/hooks"`, "/repo/.git/hooks"),
+				pin(`literal "/repo/.git"`, "/repo/.git"),
+				pin(`literal "/repo"`, "/repo"),
 			},
 		},
 		{
-			name:     "multiple paths",
-			patterns: []string{"/tmp/test", "/var/log/app"},
-			logTag:   "test",
-			assert: func(t *testing.T, rules []string) {
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/tmp/test\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/tmp/test")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/tmp\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/tmp")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/var/log/app\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/var/log/app")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/var/log\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/var/log")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/var\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/var")))
+			name:     "name glob pins the matches and its directory as a literal",
+			patterns: []string{"/repo/.env.*"},
+			want: []string{
+				pin(`regex #"^/repo/\.env\.[^/]*$"`, "/repo/.env.*"),
+				pin(`literal "/repo"`, "/repo"),
 			},
 		},
 		{
-			name:     "deep nested path",
-			patterns: []string{"/a/b/c/d/e/file.txt"},
-			logTag:   "test",
-			assert: func(t *testing.T, rules []string) {
-				// Should have rules for all ancestors
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b/c/d/e\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b/c/d/e")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b/c/d\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b/c/d")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b/c\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b/c")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a/b\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a/b")))
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/a\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/a")))
-			},
+			name:     "any-depth pattern needs no pin",
+			patterns: []string{"**/.env", "**/.docker/config.json"},
+			want:     []string{},
 		},
 		{
-			name:     "root level path",
-			patterns: []string{"/file"},
-			logTag:   "test",
-			assert: func(t *testing.T, rules []string) {
-				// Should only have the file itself, no ancestors
-				assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (subpath \"/file\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/file")))
-				// Should not contain root as ancestor
-				for _, rule := range rules {
-					assert.NotContains(t, rule, "(deny file-write-unlink (literal \"/\"))")
-				}
+			name:     "shared ancestors are pinned once",
+			patterns: []string{"/repo/.claude/settings.local.json", "/repo/.git/hooks"},
+			want: []string{
+				pin(`subpath "/repo/.claude/settings.local.json"`, "/repo/.claude/settings.local.json"),
+				pin(`literal "/repo/.claude"`, "/repo/.claude"),
+				pin(`literal "/repo"`, "/repo"),
+				pin(`subpath "/repo/.git/hooks"`, "/repo/.git/hooks"),
+				pin(`literal "/repo/.git"`, "/repo/.git"),
 			},
 		},
 	}
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			rules := generateMoveBlockingRules(tt.patterns, tt.logTag)
-			tt.assert(t, rules)
+			assert.Equal(t, tt.want, seatbeltPinRules(tt.patterns, "test"))
 		})
 	}
 }
 
-func TestFilesystemTranslationWithMoveProtection(t *testing.T) {
+// A node_modules tree carries no deny target, so nothing under it is pinned
+// and a package manager can rename its staging directories.
+func TestSeatbeltPinRulesLeaveNodeModulesAlone(t *testing.T) {
+	rules := seatbeltPinRules([]string{"/repo/.env", "**/.env", "/repo/.git/hooks/**"}, "test")
+	for _, rule := range rules {
+		assert.NotContains(t, rule, "node_modules")
+	}
+	assert.Contains(t, rules, fmt.Sprintf("(deny file-write-unlink (literal \"/repo\") (with message \"%s\"))", seatbeltLogMessage("test", "file-write-unlink", "/repo")))
+}
+
+func TestFilesystemTranslationPinsDenyTargets(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Name:            "test",
-		Description:     "test with move protection",
+		Description:     "test with pinned deny targets",
 		PackageManagers: []string{"npm"},
 		Filesystem: sandbox.FilesystemPolicy{
 			DenyRead:  []string{"/private/sensitive"},
@@ -538,27 +533,18 @@ func TestFilesystemTranslationWithMoveProtection(t *testing.T) {
 	}
 
 	translator := newSeatbeltPolicyTranslator()
-	translator.enableMoveBlockingMitigation = true
-
 	actual, err := translator.translate(policy, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	// Should contain deny read rule
-	assert.Contains(t, actual, "(deny file-read* (subpath \"/private/sensitive\") (with message")
-
-	// Should contain move protection for deny read
-	assert.Contains(t, actual, ";; Prevent bypassing read restrictions via file movement")
+	assert.Contains(t, actual, ";; Pin the paths that hold a deny target against a move")
 	assert.Contains(t, actual, "(deny file-write-unlink (subpath \"/private/sensitive\") (with message")
 	assert.Contains(t, actual, "(deny file-write-unlink (literal \"/private\") (with message")
-
-	// Should contain deny write rule
-	assert.Contains(t, actual, "(deny file-write* (subpath \"/usr/local/bin\") (with message")
-
-	// Should contain move protection for deny write
-	assert.Contains(t, actual, ";; Prevent bypassing write restrictions via file movement")
 	assert.Contains(t, actual, "(deny file-write-unlink (subpath \"/usr/local/bin\") (with message")
 	assert.Contains(t, actual, "(deny file-write-unlink (literal \"/usr/local\") (with message")
 	assert.Contains(t, actual, "(deny file-write-unlink (literal \"/usr\") (with message")
+
+	// The pins come after the allow rules, so they win under last-match-wins.
+	assert.Less(t, strings.LastIndex(actual, "(allow file-write*"), strings.Index(actual, "(deny file-write-unlink"))
 }
 
 func TestPTYSupport(t *testing.T) {

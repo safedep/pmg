@@ -13,6 +13,17 @@ grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
 ! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo x > $HOME/.claude/new.json && mv $HOME/.claude/new.json $HOME/.claude/settings.json'
 grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
 
+# The directory that holds the file cannot be moved aside, so a prepared
+# directory cannot take its place. The cache is writable, so the move fails
+# on the source and not on the destination.
+exec mkdir -p $WORK/home/.cache
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'mv $HOME/.claude $HOME/.cache/claude-old'
+grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
+
+# The same holds for the project settings under the writable repository.
+! exec pmg sandbox exec -- sh -c 'mv .claude .claude-old'
+grep '^{"hooks":{}}$' .claude/settings.local.json
+
 ! exec pmg sandbox exec -- sh -c 'echo x >> $HOME/.codex/hooks.json'
 grep '^{}$' $WORK/home/.codex/hooks.json
 
@@ -29,4 +40,5 @@ exists $WORK/home/.claude/todo.txt
 {"hooks":{}}
 -- home/.codex/hooks.json --
 {}
--- proj/.keep --
+-- proj/.claude/settings.local.json --
+{"hooks":{}}

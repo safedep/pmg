@@ -241,7 +241,7 @@
   title: "sandbox exec denies writes to agent hook configuration"
   category: sandbox
   tier: P0
-  guarantee: "Under `pmg sandbox exec`, a write or a rename onto an agent hook configuration file fails even with the agent preset applied."
+  guarantee: "Under `pmg sandbox exec`, a write or a rename onto an agent hook configuration file fails, and the directory that holds it cannot be moved aside, even with the agent preset applied."
   labels: [sandbox, exec, block, agent]
 - id: sandbox/exec/scrubs-model-api-key
   title: "sandbox exec scrubs model API keys unless a preset re-allows them"

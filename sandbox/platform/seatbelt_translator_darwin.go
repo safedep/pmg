@@ -17,9 +17,8 @@ import (
 )
 
 type seatbeltPolicyTranslator struct {
-	logTag                       string
-	enableMoveBlockingMitigation bool
-	enableDangerousFileBlocking  bool
+	logTag                      string
+	enableDangerousFileBlocking bool
 }
 
 // generateLogTag generates a unique log tag for tracking sandbox violations
@@ -44,10 +43,6 @@ func newSeatbeltPolicyTranslator() *seatbeltPolicyTranslator {
 	return &seatbeltPolicyTranslator{
 		logTag:                      generateLogTag(),
 		enableDangerousFileBlocking: true,
-
-		// We will keep this disabled for now. There are some issues with npm
-		// that needs investigation.
-		enableMoveBlockingMitigation: false,
 	}
 }
 
@@ -169,43 +164,48 @@ func writeSeatbeltDenyRule(sb *strings.Builder, operation, matcher, value, messa
 	sb.WriteString("\"))\n")
 }
 
-// generateMoveBlockingRules generates deny rules for file movement (file-write-unlink) to protect paths.
-// This prevents bypassing read or write restrictions by moving files/directories.
-//
-// For each protected path pattern:
-// - Blocks moving/renaming the path itself (via subpath or regex)
-// - Blocks moving ancestor directories to prevent bypass
-//
-// Attack scenario this prevents:
-//
-//	Policy denies write to /sensitive/file
-//	Attacker tries: mv /sensitive /tmp/renamed && echo "data" > /tmp/renamed/file && mv /tmp/renamed /sensitive
-//	This blocks the initial "mv /sensitive" operation
-func generateMoveBlockingRules(pathPatterns []string, logTag string) []string {
+// seatbeltPinRules returns file-write-unlink denies for the paths that hold
+// a deny target. Seatbelt checks a rename against its source and its
+// destination only, so a denied file moves along with its parent, and a
+// prepared tree can be renamed into the parent's place. Every directory
+// above a target is pinned with a literal deny, and a target is pinned as a
+// subpath so a read-denied file cannot be moved to a name the deny does not
+// cover. A "**/" pattern matches by name at any depth, so a move cannot
+// take a file out from under it, and it needs no pin. The rules name
+// directories only, so a package manager that renames files inside
+// node_modules is not affected.
+func seatbeltPinRules(denyPaths []string, logTag string) []string {
 	rules := []string{}
+	seen := make(map[string]bool)
+	add := func(clause, target string) {
+		rule := fmt.Sprintf("(deny file-write-unlink (%s) (with message \"%s\"))", clause, seatbeltLogMessage(logTag, "file-write-unlink", target))
+		if seen[rule] {
+			return
+		}
+		seen[rule] = true
+		rules = append(rules, rule)
+	}
 
-	for _, pathPattern := range pathPatterns {
-		if util.ContainsGlob(pathPattern) {
-			// For glob patterns, use regex matching for precise pattern enforcement
-			regexPattern := util.GlobToRegex(pathPattern)
-			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (regex #\"%s\") (with message \"%s\"))", regexPattern, seatbeltLogMessage(logTag, "file-write-unlink", pathPattern)))
+	for _, pattern := range denyPaths {
+		if strings.HasPrefix(pattern, "**/") {
+			continue
+		}
+		base := extractBaseDir(pattern)
+		if !filepath.IsAbs(base) {
+			continue
+		}
 
-			// Also block moving the base directory to prevent bypass
-			baseDir := extractBaseDir(pathPattern)
-			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (subpath \"%s\") (with message \"%s\"))", baseDir, seatbeltLogMessage(logTag, "file-write-unlink", baseDir)))
-
-			// Block moving ancestor directories
-			for _, ancestorDir := range getAncestorDirectories(baseDir) {
-				rules = append(rules, fmt.Sprintf("(deny file-write-unlink (literal \"%s\") (with message \"%s\"))", ancestorDir, seatbeltLogMessage(logTag, "file-write-unlink", ancestorDir)))
-			}
-		} else {
-			// For literal paths, use subpath matching
-			rules = append(rules, fmt.Sprintf("(deny file-write-unlink (subpath \"%s\") (with message \"%s\"))", pathPattern, seatbeltLogMessage(logTag, "file-write-unlink", pathPattern)))
-
-			// Block moving ancestor directories
-			for _, ancestorDir := range getAncestorDirectories(pathPattern) {
-				rules = append(rules, fmt.Sprintf("(deny file-write-unlink (literal \"%s\") (with message \"%s\"))", ancestorDir, seatbeltLogMessage(logTag, "file-write-unlink", ancestorDir)))
-			}
+		switch {
+		case !util.ContainsGlob(pattern):
+			add(fmt.Sprintf("subpath \"%s\"", pattern), pattern)
+		case strings.HasSuffix(pattern, "/**"):
+			add(fmt.Sprintf("subpath \"%s\"", base), base)
+		default:
+			add(fmt.Sprintf("regex #\"%s\"", util.GlobToRegex(pattern)), pattern)
+			add(fmt.Sprintf("literal \"%s\"", base), base)
+		}
+		for _, dir := range getAncestorDirectories(base) {
+			add(fmt.Sprintf("literal \"%s\"", dir), dir)
 		}
 	}
 
@@ -512,14 +512,6 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 		expandedDenyRead = append(expandedDenyRead, expanded)
 	}
 
-	// Add file movement protection for deny read paths
-	if t.enableMoveBlockingMitigation && (len(expandedDenyRead) > 0) {
-		sb.WriteString("\n;; Prevent bypassing read restrictions via file movement\n")
-		for _, rule := range generateMoveBlockingRules(expandedDenyRead, t.logTag) {
-			sb.WriteString(rule + "\n")
-		}
-	}
-
 	sb.WriteString("\n")
 
 	expandedDenyWrite := []string{}
@@ -594,15 +586,16 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 			} else {
 				writeSeatbeltDenyRule(sb, "file-read", "subpath", expanded, seatbeltLogMessage(t.logTag, "file-read", expanded))
 			}
+			expandedDenyRead = append(expandedDenyRead, expanded)
 		}
 
 		sb.WriteString("\n")
 	}
 
-	// Add file movement protection for all deny write paths (user + mandatory)
-	if t.enableMoveBlockingMitigation && (len(expandedDenyWrite) > 0) {
-		sb.WriteString(";; Prevent bypassing write restrictions via file movement\n")
-		for _, rule := range generateMoveBlockingRules(expandedDenyWrite, t.logTag) {
+	pinned := append(append([]string{}, expandedDenyRead...), expandedDenyWrite...)
+	if pins := seatbeltPinRules(pinned, t.logTag); len(pins) > 0 {
+		sb.WriteString(";; Pin the paths that hold a deny target against a move\n")
+		for _, rule := range pins {
 			sb.WriteString(rule + "\n")
 		}
 	}
