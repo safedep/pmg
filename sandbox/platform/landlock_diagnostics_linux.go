@@ -163,6 +163,12 @@ func landlockDenyKey(e auditEvent) string {
 }
 
 func landlockViolationKind(e auditEvent) sandbox.ViolationKind {
+	// The supervisor could not read the target, so the direction and the path
+	// are unknown. Report a generic deny, not a read or a write.
+	if e.Unverifiable {
+		return sandbox.ViolationKindGenericDeny
+	}
+
 	switch e.Syscall {
 	case "execve", "execveat":
 		return sandbox.ViolationKindExec

@@ -102,7 +102,11 @@ type auditEvent struct {
 	PID      int            `json:"pid,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Error    string         `json:"error,omitempty"`
-	Ts       int64          `json:"ts"`
+	// Unverifiable marks a deny the supervisor could not evaluate because it
+	// could not read the target. The diagnostics report it as a generic deny,
+	// not a read or a write, since the direction and the path are unknown.
+	Unverifiable bool  `json:"unverifiable,omitempty"`
+	Ts           int64 `json:"ts"`
 }
 
 // writeAuditEvent JSON-encodes an audit event and writes it as a single line to w.
@@ -475,13 +479,14 @@ func (s *seccompSupervisor) denyUnverifiable(notif *seccompNotification, phase *
 		// label for open events, and the diagnostics classify the violation
 		// by it. Path holds a placeholder because the real path is unknown.
 		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
-			Type:    auditSeccompDeny,
-			Syscall: name,
-			Path:    "<unverifiable>",
-			Message: reason,
-			Comm:    procComm(notif.PID),
-			PID:     int(notif.PID),
-			Ts:      time.Now().UnixNano(),
+			Type:         auditSeccompDeny,
+			Syscall:      name,
+			Path:         "<unverifiable>",
+			Message:      reason,
+			Unverifiable: true,
+			Comm:         procComm(notif.PID),
+			PID:          int(notif.PID),
+			Ts:           time.Now().UnixNano(),
 		}); err != nil {
 			log.Warnf("sandbox: failed to record a denial: %v", err)
 		}
