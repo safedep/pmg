@@ -219,6 +219,12 @@
   tier: P0
   guarantee: "Under `pmg sandbox exec`, a read of ~/.aws/credentials fails and its content never reaches stdout."
   labels: [sandbox, exec, block]
+- id: sandbox/exec/blocks-link-and-syscall-bypass
+  title: "sandbox exec denies credential reads through links and legacy open"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, a credential read through a relative or absolute symlink, a hard link, or the legacy open(2) syscall never reaches stdout."
+  labels: [sandbox, exec, block]
 - id: sandbox/exec/blocks-git-hook-write
   title: "sandbox exec blocks git hook writes"
   category: sandbox

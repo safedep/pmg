@@ -130,6 +130,9 @@ do under the working directory.
 - Network is allow-all. See above.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
   this as a warning on purpose.
+- A hard link to a credential file that exists before the run is a second name for the same
+  inode. Landlock and Bubblewrap check names, so a read through that name succeeds. A hard link
+  made inside the sandbox is refused.
 - Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
   in the repository up to three levels deep. Landlock and Seatbelt deny them at any depth. A
   denied file that does not exist yet, such as `~/.codex/hooks.json` before Codex creates it,
