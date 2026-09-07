@@ -40,7 +40,8 @@ PMG maintains a known list of credential and sensitive files at
 
 - The path under `${CWD}`
 - The path under `${HOME}`
-- A `**/<file>` glob.
+- A `**/<file>` glob. Seatbelt and Landlock match it at any depth. Bubblewrap cannot express
+  it with mount overlays and enforces only the two anchored forms.
 
 To opt out, list the literal path in `allow_read` or `allow_write` in your policy, or pass
 `--sandbox-allow read=...` / `write=...` at runtime. Listing a CWD-absolute or HOME-absolute path

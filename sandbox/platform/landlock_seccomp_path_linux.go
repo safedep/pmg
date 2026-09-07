@@ -494,15 +494,12 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 
 // resolveSyscallPath turns a path operand into the canonical absolute path
 // the kernel will act on. A relative path is anchored at /proc/<pid>/cwd or
-// the dirfd, an absolute one at /proc/<pid>/root. The root is the floor for
-// ".." and absolute symlinks. Under RESOLVE_IN_ROOT the dirfd is the floor
-// and a leading slash means the dirfd. An empty path names the dirfd.
+// the dirfd, an absolute one at /proc/<pid>/root. Under RESOLVE_IN_ROOT the
+// dirfd is the floor and a leading slash means the dirfd. An empty path
+// names the dirfd. The supervisor refuses chroot, so the root is read only
+// for an absolute path, where it is the anchor, and "/" is the floor
+// elsewhere.
 func resolveSyscallPath(pid uint32, dirfd int, rawPath string, followLeaf bool, resolve uint64) (string, error) {
-	root, err := procLink(pid, "root")
-	if err != nil {
-		return "", err
-	}
-
 	dirPath := func() (string, error) {
 		if dirfd == -100 {
 			return procLink(pid, "cwd")
@@ -510,7 +507,7 @@ func resolveSyscallPath(pid uint32, dirfd int, rawPath string, followLeaf bool, 
 		return procLink(pid, "fd/"+strconv.Itoa(dirfd))
 	}
 
-	floor := root
+	floor := "/"
 	var joined string
 	switch {
 	case resolve&unix.RESOLVE_IN_ROOT != 0:
@@ -521,6 +518,11 @@ func resolveSyscallPath(pid uint32, dirfd int, rawPath string, followLeaf bool, 
 		floor = base
 		joined = base + "/" + strings.TrimLeft(rawPath, "/")
 	case filepath.IsAbs(rawPath):
+		root, err := procLink(pid, "root")
+		if err != nil {
+			return "", err
+		}
+		floor = root
 		joined = strings.TrimSuffix(root, "/") + rawPath
 	default:
 		base, err := dirPath()
