@@ -27,10 +27,7 @@ func newExecCommand(run execRunner, getConfig func() *config.RuntimeConfig) *cob
 		Use:   "exec [--] <command> [args...]",
 		Short: "Run any command in the PMG sandbox",
 		Long: `Run a program under the exec sandbox profile. The program keeps its own stdin,
-stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.
-Put -- before a program name that starts with a dash.
-
-See https://github.com/safedep/pmg/blob/main/docs/sandbox-exec.md`,
+stdout, stderr and exit code. Flag parsing stops at the first non-flag argument.`,
 		Example: `  pmg sandbox exec -- claude
   pmg sandbox exec --sandbox-allow preset=codex -- codex
   pmg sandbox exec --sandbox-profile ./my-exec.yml -- make test`,
