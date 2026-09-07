@@ -293,7 +293,7 @@ PMG builds are reproducible and signed.
 - [Proxy Mode Architecture](docs/proxy-mode.md)
 - [Persistent Proxy Server](docs/persistent-proxy.md)
 - [Certificate Authority](docs/cert.md)
-- [Sandboxing](docs/sandbox.md)
+- [Sandbox install for package managers](docs/sandbox.md)
 - [Sandbox exec for coding agents](docs/sandbox-exec.md)
 
 ## Support

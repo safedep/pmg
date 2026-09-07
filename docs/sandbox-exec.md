@@ -4,6 +4,9 @@
 stdout, stderr and exit code. PMG blocks credential files, scrubs credential environment
 variables, protects agent hook configuration and contains writes to the repository.
 
+> `pmg sandbox exec` is experimental. SafeDep improves and hardens it actively, so its behavior
+> and defaults can change between releases.
+
 The first use is a coding agent. Claude Code, Codex and Pi run dozens of tool calls per session.
 Under `pmg sandbox exec` every process the agent spawns runs under the same kernel policy.
 
@@ -31,11 +34,12 @@ denials. The value is in the deny rules:
 - Agent hook configuration is read-only. A hook runs an arbitrary command on every tool call, so a
   write there is code execution and a way to unhook an agent security layer such as
   [Gryph](https://github.com/safedep/gryph).
-- Gryph's policy files and receipt keys and PMG's own config and sandbox definitions are
-  read-only. A sandboxed agent cannot loosen the sandbox for its next run.
 
 Network is not filtered. The current drivers cannot filter outbound traffic per host, and an
 agent needs its model API. Use a custom profile with `network_via_proxy_only` for egress control.
+
+A future version may add a proxy flow built for `pmg sandbox exec`, separate from the package
+manager proxy, to observe agent traffic and apply policy to it.
 
 Show the full profile with `pmg sandbox profile show exec`.
 
@@ -109,6 +113,10 @@ PMG strips its own shim directories from the child's `PATH`. An `npm install` th
 inside `pmg sandbox exec` reaches the real npm, not the PMG proxy. Malware analysis and dependency
 cooldown do not apply to it. The sandbox still applies.
 
+A future version may keep the shim on `PATH` and instead disable the PMG-in-PMG guard with an
+environment variable, so an `npm install` inside `pmg sandbox exec` keeps malware analysis and
+cooldown.
+
 ## Git worktrees
 
 In a linked worktree or a submodule, `.git` is a file that points at a directory outside the
@@ -127,6 +135,8 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 - Windows is not supported. The sandbox drivers are macOS Seatbelt and Linux Landlock or
   Bubblewrap.
 - Network is allow-all. See above.
+- `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands
+  outside the working directory, which the profile does not grant. This is future work.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
   this as a warning on purpose.
 - A hard link to a credential file that exists before the run is a second name for the same
