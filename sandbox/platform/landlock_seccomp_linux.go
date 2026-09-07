@@ -460,6 +460,32 @@ func (s *seccompSupervisor) loop() {
 	}
 }
 
+// denyUnverifiable denies a trapped syscall whose target the supervisor
+// could not read or resolve. A process that blinds the supervisor to its own
+// memory (prctl(PR_SET_DUMPABLE, 0), or a dead or recycled task) must not
+// thereby slip a path or an exec past the deny list. This matches
+// handleConnect, which already fails closed on an unreadable sockaddr under
+// lockdown. A hardening tool that sets dumpable=0 (gpg-agent, ssh-agent)
+// loses file access on the Landlock driver as a result; the Bubblewrap driver
+// enforces at the mount layer and is not affected.
+func (s *seccompSupervisor) denyUnverifiable(notif *seccompNotification, phase *seccompPhase, reason string) {
+	name := syscallName(notif.Data.Nr)
+	if phase.auditWriter != nil {
+		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
+			Type:    auditSeccompDeny,
+			Syscall: name,
+			Access:  reason,
+			Comm:    procComm(notif.PID),
+			PID:     int(notif.PID),
+			Ts:      time.Now().UnixNano(),
+		}); err != nil {
+			log.Warnf("sandbox: failed to record a denial: %v", err)
+		}
+	}
+	traceSeccompDecision("deny %s pid=%d reason=%s", name, notif.PID, reason)
+	s.deny(notif.ID)
+}
+
 func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccompPhase) {
 	// For execve: args[0] is filename pointer.
 	// For execveat: args[0] is dirfd, args[1] is filename pointer.
@@ -476,23 +502,23 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		// Process gone or /proc/<pid>/mem unreadable — fail-closed would
-		// kill the process; fail-open to avoid breaking legit flows.
-		s.continueSyscall(notif.ID)
+		// Unreadable process memory. The startup probe proved the supervisor
+		// can read the child, so this is a self-blinded (dumpable=0) or dead
+		// task, not a hostile host. Fail closed. See denyUnverifiable.
+		s.denyUnverifiable(notif, phase, "unreadable process memory")
 		return
 	}
 	defer closeMemFd(memFd)
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
-		// Cannot read memory (EIO, ESRCH) — process may have died. Continue.
-		s.continueSyscall(notif.ID)
+		s.denyUnverifiable(notif, phase, "unreadable exec path")
 		return
 	}
 
 	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath, true)
 	if err != nil {
-		s.continueSyscall(notif.ID)
+		s.denyUnverifiable(notif, phase, "unresolvable exec path")
 		return
 	}
 

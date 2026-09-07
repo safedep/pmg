@@ -485,6 +485,16 @@ descendant (grandchildren, great-grandchildren, etc.):
    reset `dumpable` to 0, so the helper can keep opening `/proc/<pid>/mem` for any
    descendant. Deny rules like `~/.ssh` are enforced for the full process tree.
 
+**Fail closed when memory is unreadable**: the supervisor probes `/proc/<child>/mem` at
+startup and refuses to run if it cannot read it, so a host that blocks the read (a `hidepid`
+proc mount, `kernel.yama.ptrace_scope=3`, or a hardening LSM) fails to start rather than
+enforce nothing. It does not fall back to Bubblewrap; Bubblewrap may not be installed. At
+runtime, a trapped path or exec syscall whose memory the supervisor cannot read is **denied**,
+not allowed, so a process cannot slip a path past the deny list by blinding the supervisor to
+its own memory with `prctl(PR_SET_DUMPABLE, 0)`. A hardening tool that sets `dumpable=0`
+(gpg-agent, ssh-agent) therefore loses file access on the Landlock driver; run it under the
+Bubblewrap driver, which enforces at the mount layer with no memory read.
+
 The user namespace is purely a capability vehicle. Host uid/gid are preserved through the
 mapping, so targets see the same filesystem ownership they normally would. Tools that
 refuse to run as root (npm's root-in-container warning) are unaffected because the

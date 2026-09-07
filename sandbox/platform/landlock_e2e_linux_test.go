@@ -657,6 +657,61 @@ func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "nothing moved into the protected directory")
 }
 
+// A process that blinds the supervisor to its own memory with
+// prctl(PR_SET_DUMPABLE, 0) must not thereby read a denied file. The
+// supervisor cannot read the path of the trapped openat, so it fails closed.
+func TestLandlockHelper_DumpableZeroFailsClosed(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not found")
+	}
+
+	home := t.TempDir()
+	home, err = filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	const secret = "DUMPABLE-SECRET"
+	secretPath := filepath.Join(home, ".env")
+	require.NoError(t, os.WriteFile(secretPath, []byte(secret), 0o600))
+
+	// PR_SET_DUMPABLE = 4. Set dumpable=0, then read the denied file. The
+	// read must fail whether the supervisor loses the memory read (fail
+	// closed) or keeps it and matches the deny by path. Either way, no leak.
+	script := `import ctypes, os
+libc = ctypes.CDLL(None, use_errno=True)
+print('DUMPABLE_SET' if libc.prctl(4, 0, 0, 0, 0) == 0 else 'PRCTL_FAILED')
+try:
+    data = open(` + strconv.Quote(secretPath) + `).read()
+    print('LEAK:' + data)
+except OSError:
+    print('DENIED')
+`
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: home, Access: landlockRuleReadExec},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: secretPath, Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          python,
+		Args:             []string{"-c", script},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, _ := runHelper(t, policyPath)
+	assert.Contains(t, stdout, "DUMPABLE_SET", "stdout=%q stderr=%q", stdout, stderr)
+	assert.Contains(t, stdout, "DENIED", "the read after dumpable=0 must be denied; stdout=%q stderr=%q", stdout, stderr)
+	assert.NotContains(t, stdout+stderr, secret, "the denied file must not leak")
+}
+
 // Landlock does not hook chroot and root in the user namespace keeps
 // CAP_SYS_CHROOT. Only the supervisor stops "chroot(project); open(/.env)".
 func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
