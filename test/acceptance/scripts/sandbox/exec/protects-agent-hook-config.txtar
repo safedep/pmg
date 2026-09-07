@@ -9,6 +9,10 @@ cd $WORK/proj
 ! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo x >> $HOME/.claude/settings.json'
 grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
 
+# A rename over the file is denied as well.
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo x > $HOME/.claude/new.json && mv $HOME/.claude/new.json $HOME/.claude/settings.json'
+grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
+
 ! exec pmg sandbox exec -- sh -c 'echo x >> $HOME/.codex/hooks.json'
 grep '^{}$' $WORK/home/.codex/hooks.json
 

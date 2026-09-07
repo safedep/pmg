@@ -130,12 +130,6 @@ do under the working directory.
 - Network is allow-all. See above.
 - The exec profile grants exec access under `${HOME}`. `pmg sandbox profile lint exec` reports
   this as a warning on purpose.
-- Landlock does not stop a rename into a denied path. `mv x.json ~/.claude/settings.json`
-  succeeds there, because the supervisor traps only `open`. Bubblewrap and Seatbelt deny it.
-  This includes `.git/config`. `git config` writes a lock file and renames it, so
-  `core.hooksPath` can be set there.
-  [safedep/pmg#444](https://github.com/safedep/pmg/pull/444) traps the rename and link
-  syscalls and closes this.
 - Bubblewrap works with mounts, so it denies only paths it can name. It hides credential files
   in the repository up to three levels deep. Landlock and Seatbelt deny them at any depth. A
   denied file that does not exist yet, such as `~/.codex/hooks.json` before Codex creates it,
