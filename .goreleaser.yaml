@@ -63,8 +63,6 @@ homebrew_casks:
     license: "Apache-2.0"
     binaries:
       - pmg
-    url:
-      verified: github.com/safedep/pmg
     hooks:
       post:
         install: |
