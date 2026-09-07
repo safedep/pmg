@@ -1,0 +1,44 @@
+# guarantee: the exec profile denies writes to agent hook configuration even
+# when an agent preset allows the agent's state directory. Deny wins over a
+# preset allow, so a sandboxed agent cannot add a hook or unhook Gryph.
+
+env HOME=$WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo x >> $HOME/.claude/settings.json'
+grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
+
+# A rename over the file is denied as well.
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo x > $HOME/.claude/new.json && mv $HOME/.claude/new.json $HOME/.claude/settings.json'
+grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
+
+# The directory that holds the file cannot be moved aside, so a prepared
+# directory cannot take its place. The cache is writable, so the move fails
+# on the source and not on the destination.
+exec mkdir -p $WORK/home/.cache
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'mv $HOME/.claude $HOME/.cache/claude-old'
+grep '^{"hooks":{}}$' $WORK/home/.claude/settings.json
+
+# The same holds for the project settings under the writable repository.
+! exec pmg sandbox exec -- sh -c 'mv .claude .claude-old'
+grep '^{"hooks":{}}$' .claude/settings.local.json
+
+! exec pmg sandbox exec -- sh -c 'echo x >> $HOME/.codex/hooks.json'
+grep '^{}$' $WORK/home/.codex/hooks.json
+
+# The hooks directory does not exist yet and the preset makes ~/.claude
+# writable. A hook script still cannot land there.
+! exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'mkdir -p $HOME/.claude/hooks && echo evil > $HOME/.claude/hooks/evil.sh'
+! exists $WORK/home/.claude/hooks/evil.sh
+
+# The preset still lets the agent write its own state.
+exec pmg sandbox exec --sandbox-allow preset=claude -- sh -c 'echo y > $HOME/.claude/todo.txt'
+exists $WORK/home/.claude/todo.txt
+
+-- home/.claude/settings.json --
+{"hooks":{}}
+-- home/.codex/hooks.json --
+{}
+-- proj/.claude/settings.local.json --
+{"hooks":{}}

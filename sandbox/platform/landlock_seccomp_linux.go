@@ -195,12 +195,7 @@ func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) 
 
 // matchDeniedPath returns the deny entry that denies opening path with the
 // given flags, if any. flags uses O_ACCMODE constants (O_RDONLY, O_WRONLY,
-// O_RDWR). Matching rules:
-//   - Exact match: /home/user/.env matches deny /home/user/.env
-//   - Directory subtree: /home/user/.ssh/id_rsa matches deny /home/user/.ssh
-//     or deny /home/user/.ssh/ (either with or without trailing slash — a
-//     deny entry without slash is treated as "this path OR anything beneath it")
-//   - Must NOT match partial names: /home/.envrc does NOT match deny /home/.env
+// O_RDWR). See pathCoveredBy for the matching rules.
 func matchDeniedPath(path string, flags int, denyPaths []denyPathEntry) (denyPathEntry, bool) {
 	accessMode := flags & unix.O_ACCMODE
 

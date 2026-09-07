@@ -28,6 +28,8 @@ type FlowType string
 
 const (
 	FlowTypeProxy FlowType = "proxy"
+	// FlowTypeExec is a `pmg sandbox exec` run. No proxy, no analyzer.
+	FlowTypeExec FlowType = "exec"
 )
 
 // Outcome describes the final result of a PMG invocation.
@@ -50,6 +52,7 @@ const (
 	EventTypeInstallAllowed        EventType = "install_allowed"
 	EventTypeInstallTrustedAllowed EventType = "install_trusted_allowed"
 	EventTypeInstallStarted        EventType = "install_started"
+	EventTypeExecStarted           EventType = "exec_started"
 	EventTypeDependencyResolved    EventType = "dependency_resolved"
 	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
 	EventTypeProxyHostObserved     EventType = "proxy_host_observed"

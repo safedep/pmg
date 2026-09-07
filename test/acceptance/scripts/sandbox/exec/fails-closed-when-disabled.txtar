@@ -1,0 +1,20 @@
+# guarantee: `pmg sandbox exec` never runs a program without a sandbox. When
+# the config disables the exec policy, the command fails before it runs
+# anything.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+! exec pmg sandbox exec -- sh -c 'echo ran > ran.txt'
+! exists ran.txt
+stderr 'exec sandbox policy is disabled'
+
+-- proj/.keep --
+-- config/config.yml --
+sandbox:
+  policies:
+    exec:
+      enabled: false
+      profile: exec

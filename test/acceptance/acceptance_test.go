@@ -67,6 +67,8 @@ func TestAcceptance(t *testing.T) {
 				Files: scripts,
 				Setup: func(env *testscript.Env) error {
 					env.Setenv("PATH", binDir+string(os.PathListSeparator)+env.Getenv("PATH"))
+					// The CI driver matrix picks the Linux sandbox driver for the run.
+					forwardEnv(env, "PMG_SANDBOX_DRIVER")
 					// Only cloud-category scripts get SafeDep Cloud credentials, so the
 					// community-category scripts keep exercising the unauthenticated
 					// community-api.safedep.io path. testscript does not forward host
@@ -138,7 +140,11 @@ func selectorFromEnv() Selector {
 // ephemeral runner registers a new endpoint. Community-category scripts never
 // call this, so they keep their unauthenticated community path.
 func forwardCloudCredentials(env *testscript.Env) {
-	for _, key := range []string{"SAFEDEP_API_KEY", "SAFEDEP_TENANT_ID", "PMG_CLOUD_ENABLED", "PMG_CLOUD_ENDPOINT_ID"} {
+	forwardEnv(env, "SAFEDEP_API_KEY", "SAFEDEP_TENANT_ID", "PMG_CLOUD_ENABLED", "PMG_CLOUD_ENDPOINT_ID")
+}
+
+func forwardEnv(env *testscript.Env, keys ...string) {
+	for _, key := range keys {
 		if v, ok := os.LookupEnv(key); ok && v != "" {
 			env.Setenv(key, v)
 		}

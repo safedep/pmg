@@ -16,14 +16,11 @@ import (
 
 const ExitCodeProbeFailure = 2
 
+// sandboxErrorExit is the exit seam for every subcommand. A child that exited
+// on its own under `pmg sandbox exec` is mirrored transparently. Tests replace
+// it to capture the error.
 var sandboxErrorExit = func(_ *cobra.Command, err error) error {
-	type exitCoder interface{ ExitCode() int }
-	if ec, ok := err.(exitCoder); ok {
-		ui.ErrorExitWithCode(err, ec.ExitCode())
-		return nil
-	}
-
-	ui.ErrorExit(err)
+	ui.ExitFromCommandError(err)
 	return nil
 }
 

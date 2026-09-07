@@ -1,0 +1,21 @@
+# guarantee: `pmg sandbox exec` runs the program with its own stdout and
+# exit status. A zero exit stays silent. A non-zero exit is mirrored and
+# PMG adds one dim notice naming the program, never its own error framing.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec pmg sandbox exec -- sh -c 'echo hello-from-sandbox'
+stdout hello-from-sandbox
+
+! exec pmg sandbox exec -- sh -c 'exit 7'
+stderr 'sh exited with code 7'
+! stderr 'Failed to execute'
+
+# Program flags pass through without --.
+exec pmg sandbox exec sh -c 'echo no-dash-ok'
+stdout no-dash-ok
+
+-- proj/.keep --

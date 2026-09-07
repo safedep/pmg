@@ -1,0 +1,44 @@
+# guarantee: under `pmg sandbox exec`, a credential deny holds against the
+# read-side bypasses a name-based check misses. A symlink made on the host
+# or in the sandbox, relative or absolute, resolves to the denied file and
+# the read fails. A hard link made in the sandbox is refused, or reads
+# nothing. The legacy open(2) syscall is denied like openat(2).
+
+env HOME=$WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec ln -s .env host-rel
+exec ln -s $WORK/proj/.env host-abs
+
+exec pmg sandbox exec -- sh -c 'cat host-rel; cat host-abs; true'
+! stdout value-must-never-be-read
+
+exec pmg sandbox exec -- sh -c 'ln -s .env rel; ln -s $PWD/.env abs; cat rel; cat abs; true'
+! stdout value-must-never-be-read
+
+exec pmg sandbox exec -- sh -c 'ln .env hard; cat hard; true'
+! stdout value-must-never-be-read
+
+exec pmg sandbox exec -- python3 legacy_open.py
+! stdout value-must-never-be-read
+
+exec pmg sandbox exec -- cat readme.txt
+stdout readable
+
+-- proj/.env --
+API_KEY=value-must-never-be-read
+-- proj/readme.txt --
+readable
+-- proj/legacy_open.py --
+import ctypes
+import os
+import platform
+
+# The open syscall number on x86_64. Other architectures have only openat.
+NR_OPEN = {"x86_64": 2, "AMD64": 2}.get(platform.machine())
+if NR_OPEN is not None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.syscall(NR_OPEN, b".env", os.O_RDONLY)
+    if fd >= 0:
+        print(os.read(fd, 4096).decode(errors="replace"))

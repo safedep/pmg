@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -319,20 +321,19 @@ func TestApplyRuntimeOverrides_PreservesGlobDenyPatterns(t *testing.T) {
 	assert.Equal(t, []string{"/usr/bin/*"}, policy.Process.DenyExec)
 }
 
-func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testing.T) {
-	// Known limitation: deny entries using ${CWD} or ${HOME} variables are NOT
-	// removed by overrides that resolve to absolute paths. removeExactMatch uses
-	// literal string comparison, so "${CWD}/blocked.txt" != "/actual/cwd/blocked.txt".
-	// The override still adds the path to the allow list, but the unexpanded deny
-	// entry remains and will take precedence once the translator expands it.
+func TestApplyRuntimeOverrides_VariableDenyRemovedByAbsoluteOverride(t *testing.T) {
+	// An override resolves to an absolute path. A deny written with ${CWD}
+	// names the same file once expanded, so the opt-out must remove it, or
+	// the deny wins on every driver and the documented
+	// `pmg sandbox allow write=...` opt-out does nothing.
 	cwd, err := os.Getwd()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	absolutePath := filepath.Join(cwd, "blocked.txt")
 
 	policy := &sandbox.SandboxPolicy{
 		Filesystem: sandbox.FilesystemPolicy{
-			DenyWrite: []string{"${CWD}/blocked.txt"},
+			DenyWrite: []string{"${CWD}/blocked.txt", "${CWD}/other.txt", "${CWD}/**"},
 		},
 	}
 
@@ -340,12 +341,9 @@ func TestApplyRuntimeOverrides_VariableDenyNotRemovedByAbsoluteOverride(t *testi
 		{Type: config.SandboxAllowWrite, Value: absolutePath, Raw: "write=./blocked.txt"},
 	}, nil)
 
-	// The override is added to the allow list
 	assert.Contains(t, policy.Filesystem.AllowWrite, absolutePath)
-
-	// But the ${CWD} deny entry is NOT removed because the strings don't match literally.
-	// This means the deny rule will still shadow the allow after variable expansion.
-	assert.Equal(t, []string{"${CWD}/blocked.txt"}, policy.Filesystem.DenyWrite)
+	assert.Equal(t, []string{"${CWD}/other.txt", "${CWD}/**"}, policy.Filesystem.DenyWrite,
+		"only the deny that expands to the override's path is removed")
 }
 
 func TestApplyProjectOverlayAppendsEntries(t *testing.T) {
@@ -496,4 +494,63 @@ environment:
 	assert.Equal(t, "envscrub-apply-test", scrub.PolicyName)
 	assert.Equal(t, "npm", scrub.Process)
 	assert.Equal(t, 2, result.ScrubbedEnvCount())
+}
+
+func TestApplySandboxEnvScrubUsesProcessLabel(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "exec.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: exec-apply-test
+package_managers: ["exec"]
+filesystem:
+  allow_read: ["/tmp"]
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	cmd := exec.Command("claude")
+	cmd.Env = []string{"ANTHROPIC_API_KEY=scrub-me", "PATH=/usr/bin"}
+
+	result, err := ApplySandbox(context.Background(), cmd, "exec",
+		WithSandbox(&fakeApplySandbox{}), WithProcessLabel("claude"))
+	require.NoError(t, err)
+
+	scrub := result.EnvScrub()
+	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, scrub.Names)
+	assert.Equal(t, "claude", scrub.Process)
+}
+
+func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	oldPolicies := cfg.Config.Sandbox.Policies
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+		cfg.Config.Sandbox.Policies = oldPolicies
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = ""
+	cfg.Config.Sandbox.Policies = map[string]config.SandboxPolicyRef{
+		sandbox.WorkloadExec: {Enabled: false, Profile: "exec"},
+	}
+
+	result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+		WithSandbox(&fakeApplySandbox{}))
+	require.NoError(t, err, "without RequireSandbox a disabled policy skips the sandbox")
+	assert.True(t, result.ShouldRun())
+
+	_, err = ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+		WithSandbox(&fakeApplySandbox{}), WithRequireSandbox())
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
 }

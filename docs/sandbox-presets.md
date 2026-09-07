@@ -56,6 +56,9 @@ updates the allowances everywhere the preset is used.
 | `vite`   | Vite dev server and build              |
 | `nextjs` | Next.js dev server and build           |
 | `asdf`   | asdf version manager tool installs     |
+| `claude` | Claude Code under `pmg sandbox exec`   |
+| `codex`  | Codex CLI under `pmg sandbox exec`     |
+| `pi`     | Pi agent under `pmg sandbox exec`      |
 
 ## Creating your own preset
 

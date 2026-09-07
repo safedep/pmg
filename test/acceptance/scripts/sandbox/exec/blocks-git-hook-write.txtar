@@ -1,0 +1,34 @@
+# guarantee: under `pmg sandbox exec`, a program cannot plant a git hook,
+# and git still works in an ordinary checkout. .git/hooks and .git/config
+# are mandatory write denies on every driver. A direct write, a rename into
+# the directory, and `git config` (which writes a lock file and renames it
+# over .git/config) all fail. A commit, which writes the index, objects and
+# refs under .git, works.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env GIT_AUTHOR_NAME=pmg
+env GIT_AUTHOR_EMAIL=pmg@example.com
+env GIT_COMMITTER_NAME=pmg
+env GIT_COMMITTER_EMAIL=pmg@example.com
+cd $WORK/proj
+exec git init -q .
+
+exec pmg sandbox exec -- sh -c 'git add .keep && git commit -q -m sandboxed'
+exec git log --oneline -1
+stdout sandboxed
+
+! exec pmg sandbox exec -- sh -c 'echo evil > .git/hooks/pre-commit'
+! exists .git/hooks/pre-commit
+
+! exec pmg sandbox exec -- sh -c 'echo evil > evil.sh && mv evil.sh .git/hooks/pre-commit'
+! exists .git/hooks/pre-commit
+
+! exec pmg sandbox exec -- git config core.hooksPath $WORK/evil
+! grep hooksPath .git/config
+
+exec pmg sandbox exec -- sh -c 'echo ok > out.txt'
+grep ok out.txt
+
+-- proj/.keep --

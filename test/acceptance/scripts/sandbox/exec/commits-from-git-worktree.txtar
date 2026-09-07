@@ -1,0 +1,23 @@
+# guarantee: `pmg sandbox exec` can commit from a linked git worktree. git
+# keeps the index and objects under the main checkout's .git there, outside
+# the working directory. The main checkout's hooks stay read-only.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env GIT_AUTHOR_NAME=pmg
+env GIT_AUTHOR_EMAIL=pmg@example.com
+env GIT_COMMITTER_NAME=pmg
+env GIT_COMMITTER_EMAIL=pmg@example.com
+
+exec git init -q $WORK/main
+exec git -C $WORK/main commit -q --allow-empty -m init
+exec git -C $WORK/main worktree add -q $WORK/wt
+cd $WORK/wt
+
+exec pmg sandbox exec -- git commit -q --allow-empty -m sandboxed
+exec git log --oneline -1
+stdout sandboxed
+
+! exec pmg sandbox exec -- sh -c 'echo evil > ../main/.git/hooks/pre-commit'
+! exists $WORK/main/.git/hooks/pre-commit

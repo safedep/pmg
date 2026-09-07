@@ -179,6 +179,16 @@ The aube profile uses these default paths. `XDG_DATA_HOME`, `AUBE_STORE_DIR` and
 `AUBE_CACHE_DIR` move them, and the profile then denies the new location. Add the new paths
 with `--sandbox-allow write=...` or a project overlay.
 
+### Run any program in the sandbox
+
+`pmg sandbox exec -- <command>` runs a program, such as a coding agent, under the built-in
+`exec` profile. See [sandbox-exec.md](./sandbox-exec.md).
+
+```bash
+pmg sandbox exec -- claude
+pmg sandbox exec --sandbox-allow preset=codex -- codex
+```
+
 ### Sandbox Profile Commands
 
 Use profile commands to inspect, create, and validate sandbox profiles.
@@ -586,6 +596,13 @@ loopback↔loopback connects open. Raw sockets, QUIC, and arbitrary non-loopback
 at the kernel.
 Direct DNS is disabled by default (the proxy resolves names); `allow_direct_dns: true` re-opens
 it. The Go profile ships with lockdown enabled.
+
+**Deny targets are pinned against a move**: Seatbelt checks a rename against its source and its
+destination only, so a denied file would move along with its parent directory and a prepared
+directory could be renamed into the parent's place. PMG denies `file-write-unlink` on the target
+and on every directory above it up to the `allow_write` base that makes it movable, so
+`mv ~/.claude ~/.cache/old` fails under the claude preset. A parent that does not exist yet cannot be pinned, because Seatbelt
+cannot tell a rename onto it from the `mkdir` the agent needs.
 
 Lockdown is fail-closed: it requires the proxy flow, and pmg errors out rather than running
 without confinement when no proxy is available. Linux enforces the same contract with the

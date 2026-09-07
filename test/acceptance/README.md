@@ -7,6 +7,8 @@ hermetic.
 The suite runs three ways: on manual dispatch, on a nightly schedule, and as an advisory check on
 pull requests that change code. The pull-request check does not block a merge. Keep it out of the
 required checks, so a stale fixture or a backend outage never blocks an unrelated pull request.
+The main job runs on Linux under Landlock. A second job runs the `sandbox` category under Seatbelt
+on macOS and under Bubblewrap on Linux, with `PMG_SANDBOX_DRIVER` forwarded to the scripts.
 
 `test/proxye2e` stays separate. `proxye2e` runs in process and owns proxy-flow correctness. This
 suite owns the real-binary guarantees. The two do not overlap.

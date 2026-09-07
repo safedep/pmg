@@ -176,6 +176,25 @@ func LogInstallStarted(packageManager string, args []string) {
 	}
 }
 
+// LogExecStarted records the start of a `pmg sandbox exec` session. The
+// session is keyed by the exec workload so LogSessionComplete can close it.
+func LogExecStarted(workload, command string, args []string) {
+	logEvent(AuditEvent{
+		Type:    EventTypeExecStarted,
+		Message: fmt.Sprintf("Starting sandboxed command %s", command),
+		Details: map[string]any{
+			"command":   command,
+			"arguments": args,
+		},
+		PackageManager: workload,
+		Args:           append([]string{command}, args...),
+	})
+
+	if global != nil {
+		global.startSession(workload, args)
+	}
+}
+
 // LogProxyHostObserved records an outbound host observed by the proxy that is not a known registry.
 func LogProxyHostObserved(hostname, method, reason string, details map[string]any) {
 	base := map[string]any{

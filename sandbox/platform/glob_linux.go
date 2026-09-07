@@ -5,7 +5,9 @@ package platform
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -127,4 +129,92 @@ func extractGlobstarWriteBaseDir(pattern string) string {
 		return base
 	}
 	return extractGlobParentDir(pattern)
+}
+
+// scanTree lists every path below root up to maxDepth, at most maxEntries.
+// It reports whether the listing is complete. One listing serves every
+// "**/<file>" mandatory deny, which would otherwise each walk the tree.
+func scanTree(root string, maxDepth, maxEntries int) ([]string, bool) {
+	paths := []string{}
+	complete := true
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		if len(paths) >= maxEntries {
+			complete = false
+			return filepath.SkipAll
+		}
+		paths = append(paths, path)
+		if d.IsDir() && pathDepth(root, path) >= maxDepth {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return paths, false
+	}
+	return paths, complete
+}
+
+func pathDepth(root, path string) int {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return 0
+	}
+	return len(strings.Split(rel, string(filepath.Separator)))
+}
+
+// cwdIndex answers "which paths end in <suffix>" from one listing. The
+// mandatory denies ask this once per credential name and again for the
+// tmpfs pass, so paths are keyed by base name and answers are cached.
+type cwdIndex struct {
+	byBase  map[string][]string
+	answers map[string][]string
+}
+
+func newCwdIndex(paths []string) *cwdIndex {
+	idx := &cwdIndex{
+		byBase:  make(map[string][]string),
+		answers: make(map[string][]string),
+	}
+	for _, p := range paths {
+		base := filepath.Base(p)
+		idx.byBase[base] = append(idx.byBase[base], p)
+	}
+	return idx
+}
+
+// matchSuffix returns the paths whose tail segments match suffix, a glob
+// such as ".env.*" or ".docker/config.json". Only the last segment may hold
+// a glob.
+func (idx *cwdIndex) matchSuffix(suffix string) []string {
+	if cached, ok := idx.answers[suffix]; ok {
+		return cached
+	}
+
+	last := path.Base(suffix)
+	var candidates []string
+	if util.ContainsGlob(last) {
+		for base, paths := range idx.byBase {
+			if ok, err := path.Match(last, base); err == nil && ok {
+				candidates = append(candidates, paths...)
+			}
+		}
+	} else {
+		candidates = idx.byBase[last]
+	}
+
+	matches := []string{}
+	for _, p := range candidates {
+		if last == suffix || strings.HasSuffix(filepath.Dir(p), "/"+path.Dir(suffix)) {
+			matches = append(matches, p)
+		}
+	}
+	sort.Strings(matches)
+	idx.answers[suffix] = matches
+	return matches
 }

@@ -12,7 +12,7 @@ func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox",
 		Short: "Inspect and manage PMG sandbox configuration",
-		Long:  "Tools for diagnosing the host sandbox environment and (in future PRs) managing sandbox profiles.",
+		Long:  "Tools for diagnosing the host sandbox environment, managing sandbox profiles, and running any command in the sandbox.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -25,5 +25,6 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(NewAllowCommand())
 	cmd.AddCommand(NewProjectCommand())
 	cmd.AddCommand(NewPresetCommand())
+	cmd.AddCommand(NewExecCommand())
 	return cmd
 }

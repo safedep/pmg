@@ -65,6 +65,10 @@ type bubblewrapConfig struct {
 	// Maximum depth to scan for mandatory deny patterns (e.g., .env files in subdirectories)
 	// Set to 0 to only check literal paths, higher values scan subdirectories.
 	mandatoryDenyScanDepth int
+
+	// cwdScanMaxEntries bounds the working directory listing that resolves
+	// the "**/<file>" mandatory denies.
+	cwdScanMaxEntries int
 }
 
 // seccompConfig contains seccomp-bpf filter settings
@@ -167,6 +171,7 @@ func newDefaultBubblewrapConfig() *bubblewrapConfig {
 
 		// Scan depth for finding dangerous files in project directories
 		mandatoryDenyScanDepth: 3,
+		cwdScanMaxEntries:      200000,
 	}
 }
 

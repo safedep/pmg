@@ -546,6 +546,49 @@ func TestLandlockHelper_DenyOverlappingAllowRuleDoesNotWedgeShim(t *testing.T) {
 	assert.Contains(t, stdout, "shim-survived")
 }
 
+// TestLandlockHelper_PatternDenyBlocksNestedRead covers the "**/.env"
+// mandatory deny: a credential file nested below the allowed tree is denied
+// by pattern, with no concrete path in the policy.
+func TestLandlockHelper_PatternDenyBlocksNestedRead(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	if _, err := os.Stat("/usr/bin/cat"); err != nil {
+		t.Skip("/usr/bin/cat not found")
+	}
+
+	repo := t.TempDir()
+	secretPath := filepath.Join(repo, "packages", "app", ".env")
+	require.NoError(t, os.MkdirAll(filepath.Dir(secretPath), 0o755))
+	const secret = "NESTED-SECRET-CONTENT"
+	require.NoError(t, os.WriteFile(secretPath, []byte(secret), 0o600))
+
+	policy := &landlockExecPolicy{
+		FilesystemRules: append(baseRules(),
+			landlockPathRule{Path: repo, Access: landlockRuleReadExec},
+		),
+		DenyPaths: []denyPathEntry{
+			{Path: "**/.env", Mode: denyBoth},
+		},
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/usr/bin/cat",
+		Args:             []string{secretPath},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelper(t, policyPath)
+	assert.NotEqual(t, 0, exit, "cat should have failed; stdout=%q", stdout)
+	assert.NotContains(t, stdout, secret, "secret content must not leak")
+	combined := stdout + stderr
+	assert.True(t,
+		bytesContainsAny(combined, []string{"Permission denied", "EACCES"}),
+		"expected a permission-denied error; got: %q", combined)
+}
+
 // The Landlock rule on $home grants every write right, so only the
 // supervisor can refuse a rename, a hard link or a read through a symlink.
 func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {

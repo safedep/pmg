@@ -48,17 +48,7 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: read policy: %w", err)
 	}
 
-	var rules []landlock.Rule
-	for _, r := range policy.FilesystemRules {
-		access := landlockAdjustAccessForPath(r.Path, r.Access)
-		if access == 0 {
-			// A zero-access rule is a no-op; go-landlock errors on it.
-			continue
-		}
-		rules = append(rules, landlock.PathAccess(
-			landlock.AccessFSSet(access), r.Path,
-		).IgnoreIfMissing())
-	}
+	rules := shimFilesystemRules(policy.FilesystemRules)
 	cfg := landlockSelectConfig(policy)
 	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
 		return fmt.Errorf("shim: landlock restrict: %w", err)
@@ -153,4 +143,27 @@ func sendFdToSocket(sockFd, fd int) error {
 		return fmt.Errorf("sendmmsg: short write (%d of %d bytes)", mmsg.Len, len(buf))
 	}
 	return nil
+}
+
+// shimFilesystemRules builds the Landlock rules. A rule binds to the inode
+// at restrict time, so a path that cannot be opened grants nothing.
+// IgnoreIfMissing covers a missing path, but a path through a file, such as
+// .git/config in a linked worktree where .git is a file, fails with ENOTDIR
+// and would abort the sandbox. Skip every path that does not stat.
+func shimFilesystemRules(fsRules []landlockPathRule) []landlock.Rule {
+	var rules []landlock.Rule
+	for _, r := range fsRules {
+		access := landlockAdjustAccessForPath(r.Path, r.Access)
+		if access == 0 {
+			// A zero-access rule is a no-op; go-landlock errors on it.
+			continue
+		}
+		if _, err := os.Stat(r.Path); err != nil {
+			continue
+		}
+		rules = append(rules, landlock.PathAccess(
+			landlock.AccessFSSet(access), r.Path,
+		))
+	}
+	return rules
 }
