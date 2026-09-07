@@ -22,18 +22,14 @@ The built-in `exec` profile is deliberately broad on read and exec. A coding age
 toolchain and runs whatever the repository needs, so a narrow allow list only produces false
 denials. The value is in the deny rules:
 
-- The mandatory credential denies: `.env`, `.ssh`, `.aws`, `.gcloud`, `.kube`, `.gnupg`,
-  `.netrc` and the rest of the list in [dangerous.go](../sandbox/util/dangerous.go).
-- `git add` and `git commit` work. `.git/hooks` is never writable. `.git/config` is not writable.
-- Credential environment variables are scrubbed, including model API keys such as
-  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY`.
+- Credential files are denied for read and write, anywhere in the repository and the home
+  directory. The mandatory deny list in the sandbox source names them.
+- `git add` and `git commit` work. Git hooks and the repository config are read-only.
+- Credential environment variables are scrubbed, model API keys included.
 - Writes land only in the repository, temp directories, tool caches and the state directories the
-  presets add.
-- System directories are read-only.
-- Agent hook configuration is read-only: `~/.claude/settings.json`, `~/.claude/hooks`,
-  `~/.cursor/hooks.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`, and the equivalent
-  files for Devin, OpenCode, Windsurf and Pi. A hook runs an arbitrary command on every tool call,
-  so a write here is code execution and a way to unhook an agent security layer such as
+  presets add. System directories are read-only.
+- Agent hook configuration is read-only. A hook runs an arbitrary command on every tool call, so a
+  write there is code execution and a way to unhook an agent security layer such as
   [Gryph](https://github.com/safedep/gryph).
 - Gryph's policy files and receipt keys and PMG's own config and sandbox definitions are
   read-only. A sandboxed agent cannot loosen the sandbox for its next run.
@@ -48,11 +44,8 @@ Show the full profile with `pmg sandbox profile show exec`.
 A preset adds the footprint of one agent: its state directory and its own API key. Deny rules win
 over a preset allow, so the hook configuration stays read-only.
 
-| Preset   | Writes                             | Re-allows                                          |
-| -------- | ---------------------------------- | -------------------------------------------------- |
-| `claude` | `~/.claude/**`, `~/.claude.json`   | `ANTHROPIC_API_KEY`                                |
-| `codex`  | `~/.codex/**`                      | `OPENAI_API_KEY`                                   |
-| `pi`     | `~/.pi/**`                         | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` |
+The presets are `claude`, `codex` and `pi`. Each one grants the agent's state directory and
+re-allows the agent's own API key. Read a preset with `pmg sandbox preset show claude`.
 
 Apply a preset for one run, or save it for the current repository:
 
