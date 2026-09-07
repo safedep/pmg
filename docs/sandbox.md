@@ -485,15 +485,16 @@ descendant (grandchildren, great-grandchildren, etc.):
    reset `dumpable` to 0, so the helper can keep opening `/proc/<pid>/mem` for any
    descendant. Deny rules like `~/.ssh` are enforced for the full process tree.
 
-**Fail closed when memory is unreadable**: the supervisor probes `/proc/<child>/mem` at
-startup and refuses to run if it cannot read it, so a host that blocks the read (a `hidepid`
-proc mount, `kernel.yama.ptrace_scope=3`, or a hardening LSM) fails to start rather than
-enforce nothing. It does not fall back to Bubblewrap; Bubblewrap may not be installed. At
-runtime, a trapped path or exec syscall whose memory the supervisor cannot read is **denied**,
-not allowed, so a process cannot slip a path past the deny list by blinding the supervisor to
-its own memory with `prctl(PR_SET_DUMPABLE, 0)`. A hardening tool that sets `dumpable=0`
-(gpg-agent, ssh-agent) therefore loses file access on the Landlock driver; run it under the
-Bubblewrap driver, which enforces at the mount layer with no memory read.
+**Fail closed when memory is unreadable**: the supervisor reads `/proc/<child>/mem` at
+startup. If it cannot read it, the run stops. So a host that blocks the read stops the run
+instead of running with no enforcement. Examples are a `hidepid` proc mount,
+`kernel.yama.ptrace_scope=3`, and a hardening LSM. PMG does not fall back to Bubblewrap here.
+Bubblewrap may not be installed. At runtime the supervisor denies a trapped path or exec
+syscall when it cannot read the memory that holds the path. So a process cannot read a denied
+file by making its own memory unreadable with `prctl(PR_SET_DUMPABLE, 0)`. A tool that sets
+`dumpable=0`, such as gpg-agent or ssh-agent, loses file access on the Landlock driver. Run it
+under the Bubblewrap driver. Bubblewrap enforces at the mount layer and does not read process
+memory.
 
 The user namespace is purely a capability vehicle. Host uid/gid are preserved through the
 mapping, so targets see the same filesystem ownership they normally would. Tools that

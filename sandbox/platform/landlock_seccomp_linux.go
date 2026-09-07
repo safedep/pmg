@@ -460,14 +460,14 @@ func (s *seccompSupervisor) loop() {
 	}
 }
 
-// denyUnverifiable denies a trapped syscall whose target the supervisor
-// could not read or resolve. A process that blinds the supervisor to its own
-// memory (prctl(PR_SET_DUMPABLE, 0), or a dead or recycled task) must not
-// thereby slip a path or an exec past the deny list. This matches
-// handleConnect, which already fails closed on an unreadable sockaddr under
-// lockdown. A hardening tool that sets dumpable=0 (gpg-agent, ssh-agent)
-// loses file access on the Landlock driver as a result; the Bubblewrap driver
-// enforces at the mount layer and is not affected.
+// denyUnverifiable denies a trapped syscall when the supervisor cannot read
+// or resolve its target. A process must not read or write a denied path by
+// making its own memory unreadable with prctl(PR_SET_DUMPABLE, 0). A dead or
+// recycled task also reaches this path. handleConnect already denies an
+// unreadable sockaddr under lockdown. This does the same for a path or an
+// exec. A tool that sets dumpable=0, such as gpg-agent or ssh-agent, loses
+// file access on the Landlock driver. The Bubblewrap driver enforces at the
+// mount layer and is not affected.
 func (s *seccompSupervisor) denyUnverifiable(notif *seccompNotification, phase *seccompPhase, reason string) {
 	name := syscallName(notif.Data.Nr)
 	if phase.auditWriter != nil {
@@ -502,9 +502,9 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		// Unreadable process memory. The startup probe proved the supervisor
-		// can read the child, so this is a self-blinded (dumpable=0) or dead
-		// task, not a hostile host. Fail closed. See denyUnverifiable.
+		// The supervisor cannot read the memory. The startup probe proved it
+		// can read the child, so the task made itself unreadable (dumpable=0)
+		// or died. Deny it. See denyUnverifiable.
 		s.denyUnverifiable(notif, phase, "unreadable process memory")
 		return
 	}

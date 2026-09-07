@@ -657,9 +657,9 @@ func TestLandlockHelper_DenyBlocksMoveLinkAndSymlink(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "nothing moved into the protected directory")
 }
 
-// A process that blinds the supervisor to its own memory with
-// prctl(PR_SET_DUMPABLE, 0) must not thereby read a denied file. The
-// supervisor cannot read the path of the trapped openat, so it fails closed.
+// A process must not read a denied file by making its own memory unreadable
+// with prctl(PR_SET_DUMPABLE, 0). The supervisor cannot read the path of the
+// trapped openat, so it denies the read.
 func TestLandlockHelper_DumpableZeroFailsClosed(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
@@ -679,9 +679,10 @@ func TestLandlockHelper_DumpableZeroFailsClosed(t *testing.T) {
 	secretPath := filepath.Join(home, ".env")
 	require.NoError(t, os.WriteFile(secretPath, []byte(secret), 0o600))
 
-	// PR_SET_DUMPABLE = 4. Set dumpable=0, then read the denied file. The
-	// read must fail whether the supervisor loses the memory read (fail
-	// closed) or keeps it and matches the deny by path. Either way, no leak.
+	// PR_SET_DUMPABLE = 4. Set dumpable=0, then read the denied file. The read
+	// fails two ways. The supervisor loses the memory read and denies it. Or
+	// the supervisor keeps the read and matches the deny by path. No leak
+	// either way.
 	script := `import ctypes, os
 libc = ctypes.CDLL(None, use_errno=True)
 print('DUMPABLE_SET' if libc.prctl(4, 0, 0, 0, 0) == 0 else 'PRCTL_FAILED')

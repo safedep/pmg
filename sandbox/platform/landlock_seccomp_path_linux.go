@@ -410,9 +410,9 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *seccompPhase, op pathSyscall) {
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
-		// Unreadable process memory (self-blinded dumpable=0, or a dead task).
-		// Fail closed so a process cannot slip a path past the deny list by
-		// making its own memory unreadable. See denyUnverifiable.
+		// The supervisor cannot read the memory that holds the path. Deny it
+		// so a process cannot read a denied path by making its own memory
+		// unreadable. See denyUnverifiable.
 		s.denyUnverifiable(notif, phase, "unreadable process memory")
 		return
 	}
