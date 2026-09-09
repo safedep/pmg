@@ -23,10 +23,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// One test, standalone and slow: it spawns about 70 processes. It is the only
-// thing that proves the launch contract, because exec_windows_test.go proves
-// only that PMG builds the command line it means to, and cmd.exe, PowerShell
-// and CommandLineToArgvW each parse it again.
+// One test: for the same typed command, the argv a package manager receives
+// through the .cmd shim and PMG must equal the argv it receives with no PMG.
+// It runs each case from cmd.exe and from PowerShell, in the direct mode and
+// in the PTY mode.
+//
+// This is the only thing that proves the launch contract.
+// exec_windows_test.go proves only that PMG builds the command line it means
+// to, and cmd.exe, PowerShell and CommandLineToArgvW each parse it again.
+// Standalone and slow: about 70 process spawns.
 //
 // The test binary plays three roles, selected by PMG_TEST_ROLE:
 //
