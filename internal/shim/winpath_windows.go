@@ -56,7 +56,26 @@ func unregisterUserPath(dir string) error {
 			kept = append(kept, entry)
 		}
 	}
+	if len(kept) == 0 {
+		// The shim entry was the only one. Before the install there was no
+		// value, so leave none behind.
+		return deleteUserPath()
+	}
 	return writeUserPath(kept, expand)
+}
+
+func deleteUserPath() error {
+	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("failed to open HKCU\\%s for writing: %w", userEnvironmentKey, err)
+	}
+	defer key.Close()
+
+	if err := key.DeleteValue(pathValueName); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		return fmt.Errorf("failed to delete the user PATH: %w", err)
+	}
+	broadcastEnvironmentChange()
+	return nil
 }
 
 func userPathContains(dir string) (bool, error) {

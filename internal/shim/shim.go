@@ -34,9 +34,10 @@ type ShimConfig struct {
 	PMGBin          string
 	PackageManagers []string
 	Shells          []alias.Shell
-	// SkipShellRc skips per-user shell rc PATH edits. Used by system install,
+	// SkipUserPath skips the per-user PATH registration: the shell rc edits
+	// on Unix, the HKCU\Environment write on Windows. Used by system install,
 	// which relies on the system profile or ENV PATH instead.
-	SkipShellRc bool
+	SkipUserPath bool
 	// SystemProfile installs and removes the OS login-shell PATH snippet
 	// (Linux: /etc/profile.d/pmg.sh) with Install/Remove, and marks this
 	// manager as a system-wide install: Install then also validates the pmg
@@ -128,7 +129,7 @@ func (m *ShimManager) Install() error {
 		}
 	}
 
-	if m.config.SkipShellRc {
+	if m.config.SkipUserPath {
 		return nil
 	}
 
@@ -163,7 +164,7 @@ func (m *ShimManager) Remove() error {
 		}
 	}
 
-	if !m.config.SkipShellRc {
+	if !m.config.SkipUserPath {
 		if err := m.removePath(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to remove shims from PATH: %w", err))
 		}

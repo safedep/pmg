@@ -22,13 +22,19 @@ func shimScript(pmgBin, pm string) string {
 		"@echo off",
 		"rem " + shimScriptMarker,
 		"setlocal DisableDelayedExpansion",
+		// Inside quotes a ) or & in a path is literal. Unquoted, a ) ends the
+		// block early and a & starts a second command.
 		fmt.Sprintf(`if not exist "%s" (`, bin),
-		fmt.Sprintf(`  echo [pmg] error: PMG binary not found: %s 1>&2`, bin),
-		`  echo [pmg] error: reinstall PMG and run 'pmg setup install', or delete %~dp0 to remove the shims 1>&2`,
+		fmt.Sprintf(`  echo [pmg] error: PMG binary not found: "%s" 1>&2`, bin),
+		`  echo [pmg] error: reinstall PMG and run 'pmg setup install', or delete "%~dp0" to remove the shims 1>&2`,
 		"  exit /b 127",
 		")",
 		fmt.Sprintf(`set "%s=%%~f0"`, pmgShimPathEnv),
-		fmt.Sprintf(`set "%s=%%*"`, pmgRawArgsEnv),
+		// No wrapping quotes here. A set "VAR=%*" would invert the quote
+		// state of the tail, so a > or & the user put inside quotes becomes
+		// live. Without them the set line has the same quote parity as the
+		// launch line below, and an empty tail clears the variable.
+		fmt.Sprintf(`set %s=%%*`, pmgRawArgsEnv),
 		fmt.Sprintf(`"%s" %s %%*`, bin, pm),
 		"exit /b %ERRORLEVEL%",
 		"",

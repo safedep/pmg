@@ -36,8 +36,10 @@ func TestShimManagerInstallWritesCmdShims(t *testing.T) {
 	isolateUserPath(t)
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, "safedep", "pmg", "bin")
-	// A percent sign in the binary path must not start a batch expansion.
-	pmgBin := filepath.Join(homeDir, "100%", "pmg.exe")
+	// A percent sign in the binary path must not start a batch expansion. A
+	// closing parenthesis must not end the if block, and an ampersand must
+	// not start a second command.
+	pmgBin := filepath.Join(homeDir, "100% (x86) & co", "pmg.exe")
 
 	mgr := NewShimManager(ShimConfig{
 		BinDir:          binDir,
@@ -56,10 +58,11 @@ func TestShimManagerInstallWritesCmdShims(t *testing.T) {
 		assert.Contains(t, body, "rem "+shimScriptMarker+"\r\n")
 		assert.Contains(t, body, "setlocal DisableDelayedExpansion\r\n")
 		assert.Contains(t, body, `set "PMG_SHIM_PATH=%~f0"`+"\r\n")
-		assert.Contains(t, body, `set "PMG_RAW_ARGS=%*"`+"\r\n")
+		assert.Contains(t, body, "set PMG_RAW_ARGS=%*\r\n")
 		assert.Contains(t, body, fmt.Sprintf(`"%s" %s %%*`+"\r\n", strings.ReplaceAll(pmgBin, "%", "%%"), pm))
 		assert.Contains(t, body, fmt.Sprintf(`if not exist "%s" (`+"\r\n", strings.ReplaceAll(pmgBin, "%", "%%")))
-		assert.Contains(t, body, "or delete %~dp0 to remove the shims 1>&2\r\n")
+		assert.Contains(t, body, fmt.Sprintf(`PMG binary not found: "%s" 1>&2`+"\r\n", strings.ReplaceAll(pmgBin, "%", "%%")))
+		assert.Contains(t, body, `or delete "%~dp0" to remove the shims 1>&2`+"\r\n")
 		assert.Contains(t, body, "  exit /b 127\r\n")
 		assert.True(t, strings.HasSuffix(body, "exit /b %ERRORLEVEL%\r\n"))
 	}
@@ -141,5 +144,15 @@ func TestUserPathRegistry(t *testing.T) {
 		found, err := userPathContains(shimDir)
 		require.NoError(t, err)
 		assert.True(t, found)
+	})
+
+	t.Run("removing the only entry leaves no value behind", func(t *testing.T) {
+		require.NoError(t, unregisterUserPath(shimDir))
+
+		key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.QUERY_VALUE)
+		require.NoError(t, err)
+		defer key.Close()
+		_, _, err = key.GetStringValue(pathValueName)
+		assert.ErrorIs(t, err, registry.ErrNotExist)
 	})
 }

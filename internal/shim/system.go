@@ -65,7 +65,7 @@ func NewSystemShimManager() (*ShimManager, error) {
 			BinDir:          SystemBinDir(),
 			PMGBin:          pmgBin,
 			PackageManagers: aliasCfg.PackageManagers,
-			SkipShellRc:     true,
+			SkipUserPath:    true,
 			SystemProfile:   true,
 		},
 	}, nil
