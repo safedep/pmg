@@ -53,20 +53,25 @@ func FilterPMGFromPath(pathEnv string) string {
 	entries := filepath.SplitList(pathEnv)
 	filtered := make([]string, 0, len(entries))
 
-entries:
 	for _, entry := range entries {
-		if strings.HasSuffix(entry, pmgBinSuffix) || strings.HasSuffix(entry, pmgDataBinSuffix) {
-			continue
+		if !isShimDir(entry, shimDirs) {
+			filtered = append(filtered, entry)
 		}
-		for _, dir := range shimDirs {
-			if fsutil.SamePath(entry, dir) {
-				continue entries
-			}
-		}
-		filtered = append(filtered, entry)
 	}
 
 	return strings.Join(filtered, string(os.PathListSeparator))
+}
+
+func isShimDir(entry string, shimDirs []string) bool {
+	if strings.HasSuffix(entry, pmgBinSuffix) || strings.HasSuffix(entry, pmgDataBinSuffix) {
+		return true
+	}
+	for _, dir := range shimDirs {
+		if fsutil.SamePath(entry, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // userBinDirs lists both per-user shim directories. The suffix constants
