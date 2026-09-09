@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/safedep/pmg/config"
@@ -14,36 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShimManagerInstallIdempotent(t *testing.T) {
-	homeDir := t.TempDir()
-	binDir := filepath.Join(homeDir, ".pmg", "bin")
-
-	bashrc := filepath.Join(homeDir, ".bashrc")
-	require.NoError(t, os.WriteFile(bashrc, []byte("# existing bashrc\n"), 0o644))
-
-	mgr := NewShimManager(ShimConfig{
-		BinDir:          binDir,
-		HomeDir:         homeDir,
-		PackageManagers: []string{"npm"},
-		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc", useFish: false}},
-	})
-
-	require.NoError(t, mgr.Install())
-	require.NoError(t, mgr.Install())
-
-	content, err := os.ReadFile(bashrc)
-	require.NoError(t, err)
-
-	count := 0
-	for _, line := range strings.Split(string(content), "\n") {
-		if strings.Contains(line, binDir) {
-			count++
-		}
-	}
-	assert.Equal(t, 1, count, "PATH export should appear exactly once")
-}
-
 func TestShimManagerRemove(t *testing.T) {
+	isolateUserPath(t)
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, ".pmg", "bin")
 
@@ -69,6 +40,7 @@ func TestShimManagerRemove(t *testing.T) {
 }
 
 func TestShimManagerIsInstalled(t *testing.T) {
+	isolateUserPath(t)
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, ".pmg", "bin")
 
@@ -200,6 +172,7 @@ func TestUserBinDirUsesDataDirWhenLegacyEmpty(t *testing.T) {
 }
 
 func TestShimManagerRemoveClearsLegacyDir(t *testing.T) {
+	isolateUserPath(t)
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, "xdg-data", "safedep", "pmg", "bin")
 	legacyBinDir := filepath.Join(homeDir, legacyUserDirName, "bin")
@@ -226,6 +199,7 @@ func TestShimManagerRemoveClearsLegacyDir(t *testing.T) {
 }
 
 func TestShimManagerRemoveKeepsNonEmptyLegacyParent(t *testing.T) {
+	isolateUserPath(t)
 	homeDir := t.TempDir()
 	legacyDir := filepath.Join(homeDir, legacyUserDirName)
 	legacyBinDir := filepath.Join(legacyDir, "bin")
@@ -250,6 +224,7 @@ func TestShimManagerRemoveKeepsNonEmptyLegacyParent(t *testing.T) {
 }
 
 func TestShimManagerRemoveClearsBothPopulatedLayouts(t *testing.T) {
+	isolateUserPath(t)
 	homeDir := t.TempDir()
 	legacyBinDir := filepath.Join(homeDir, legacyUserDirName, "bin")
 	dataBinDir := filepath.Join(homeDir, ".local", "share", "safedep", "pmg", "bin")

@@ -25,9 +25,13 @@ func PrintInfoSection(title string, entries map[string]string) {
 	}
 }
 
+// PrintSetupInstallCmdInfo reports what setup wrote. aliasPath is empty on
+// Windows, where PMG installs no shell alias.
 func PrintSetupInstallCmdInfo(aliasPath, shimBinDir, configPath string) {
 	fmt.Printf("%s %s\n", Colors.Green("✓"), "PMG installed successfully")
-	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Aliases: %s", aliasPath)))
+	if aliasPath != "" {
+		fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Aliases: %s", aliasPath)))
+	}
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Shims:   %s", shimBinDir)))
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Config:  %s", configPath)))
 	fmt.Printf("   %s\n", Colors.Dim("Restart your terminal for changes to take effect"))
