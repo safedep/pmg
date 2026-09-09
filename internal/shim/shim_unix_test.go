@@ -5,6 +5,7 @@ package shim
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/safedep/pmg/internal/alias"
@@ -12,8 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The sh body, the executable bit and the rc-file PATH export are the Unix
-// half of the shim.
+// isolateUserPath is a no-op off Windows. The shim directory reaches PATH
+// through rc files in the test's home directory.
+func isolateUserPath(t *testing.T) { t.Helper() }
+
+// The sh body and the rc-file PATH export are the Unix half of the shim.
+// Windows writes a .cmd and a registry entry, tested in shim_windows_test.go.
 func TestShimManagerInstall(t *testing.T) {
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, ".pmg", "bin")
@@ -68,6 +73,35 @@ func TestShimManagerInstall(t *testing.T) {
 	fishContent, err := os.ReadFile(filepath.Join(fishConfig, "config.fish"))
 	require.NoError(t, err)
 	assert.Contains(t, string(fishContent), binDir)
+}
+
+func TestShimManagerInstallIdempotent(t *testing.T) {
+	homeDir := t.TempDir()
+	binDir := filepath.Join(homeDir, ".pmg", "bin")
+
+	bashrc := filepath.Join(homeDir, ".bashrc")
+	require.NoError(t, os.WriteFile(bashrc, []byte("# existing bashrc\n"), 0o644))
+
+	mgr := NewShimManager(ShimConfig{
+		BinDir:          binDir,
+		HomeDir:         homeDir,
+		PackageManagers: []string{"npm"},
+		Shells:          []alias.Shell{&stubShell{name: "bash", path: ".bashrc", useFish: false}},
+	})
+
+	require.NoError(t, mgr.Install())
+	require.NoError(t, mgr.Install())
+
+	content, err := os.ReadFile(bashrc)
+	require.NoError(t, err)
+
+	count := 0
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.Contains(line, binDir) {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "PATH export should appear exactly once")
 }
 
 // os.RemoveAll under a file parent returns nil on Windows, so this only

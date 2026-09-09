@@ -73,23 +73,21 @@ func install(system bool) error {
 			fmt.Sprintf("Using globally managed config: %s", config.Get().ConfigFilePath()))
 	}
 
-	if runtime.GOOS == "windows" {
-		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config written successfully")
-		fmt.Printf("   %s\n", ui.Colors.Dim(fmt.Sprintf("Config:  %s", config.Get().ConfigDir())))
-		fmt.Printf("\n%s Shell aliases and PATH shims are not supported on Windows. Use WSL for full shell integration.\n",
-			ui.Colors.Yellow("⚠"))
-		return nil
-	}
+	// PMG installs no shell alias on Windows. The .cmd shims on PATH are the
+	// whole interception layer there.
+	var aliasPath string
+	if runtime.GOOS != "windows" {
+		cfg := alias.DefaultConfig()
+		rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
+		if err != nil {
+			return fmt.Errorf("failed to create alias manager: %w", err)
+		}
 
-	cfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
-	if err != nil {
-		return fmt.Errorf("failed to create alias manager: %w", err)
-	}
-
-	aliasManager := alias.New(cfg, rcFileManager)
-	if err := aliasManager.Install(); err != nil {
-		return fmt.Errorf("failed to install aliases: %w", err)
+		aliasManager := alias.New(cfg, rcFileManager)
+		if err := aliasManager.Install(); err != nil {
+			return fmt.Errorf("failed to install aliases: %w", err)
+		}
+		aliasPath = aliasManager.GetRcPath()
 	}
 
 	shimMgr, err := shim.NewDefaultShimManager()
@@ -101,7 +99,7 @@ func install(system bool) error {
 		return fmt.Errorf("failed to install shims: %w", err)
 	}
 
-	ui.PrintSetupInstallCmdInfo(aliasManager.GetRcPath(), shimMgr.GetBinDir(), config.Get().ConfigDir())
+	ui.PrintSetupInstallCmdInfo(aliasPath, shimMgr.GetBinDir(), config.Get().ConfigDir())
 	return nil
 }
 
@@ -165,20 +163,14 @@ func remove(system, removeConfig bool) error {
 		}
 	}
 
-	if runtime.GOOS == "windows" {
-		if len(errs) > 0 {
-			return errors.Join(errs...)
+	if runtime.GOOS != "windows" {
+		cfg := alias.DefaultConfig()
+		rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
+		if err != nil {
+			errs = append(errs, err)
+		} else if err := alias.New(cfg, rcFileManager).Remove(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove aliases: %w", err))
 		}
-		fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG config removed. No aliases or shims to clean up on Windows.")
-		return nil
-	}
-
-	cfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
-	if err != nil {
-		errs = append(errs, err)
-	} else if err := alias.New(cfg, rcFileManager).Remove(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to remove aliases: %w", err))
 	}
 
 	shimMgr, err := shim.NewDefaultShimManager()

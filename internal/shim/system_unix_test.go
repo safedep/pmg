@@ -39,7 +39,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 
 	mgr, err := NewSystemShimManager()
 	require.NoError(t, err)
-	assert.True(t, mgr.config.SkipShellRc)
+	assert.True(t, mgr.config.SkipUserPath)
 	assert.True(t, mgr.config.SystemProfile)
 	assert.Equal(t, SystemBinDir(), mgr.GetBinDir())
 

@@ -34,9 +34,10 @@ type ShimConfig struct {
 	PMGBin          string
 	PackageManagers []string
 	Shells          []alias.Shell
-	// SkipShellRc skips per-user shell rc PATH edits. Used by system install,
+	// SkipUserPath skips the per-user PATH registration: the shell rc edits
+	// on Unix, the HKCU\Environment write on Windows. Used by system install,
 	// which relies on the system profile or ENV PATH instead.
-	SkipShellRc bool
+	SkipUserPath bool
 	// SystemProfile installs and removes the OS login-shell PATH snippet
 	// (Linux: /etc/profile.d/pmg.sh) with Install/Remove, and marks this
 	// manager as a system-wide install: Install then also validates the pmg
@@ -128,12 +129,12 @@ func (m *ShimManager) Install() error {
 		}
 	}
 
-	if m.config.SkipShellRc {
+	if m.config.SkipUserPath {
 		return nil
 	}
 
-	if err := m.addPathToShells(); err != nil {
-		return fmt.Errorf("failed to update shell configs: %w", err)
+	if err := m.installPath(); err != nil {
+		return fmt.Errorf("failed to add shims to PATH: %w", err)
 	}
 
 	return nil
@@ -163,9 +164,9 @@ func (m *ShimManager) Remove() error {
 		}
 	}
 
-	if !m.config.SkipShellRc {
-		if err := m.removePathFromShells(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to clean shell configs: %w", err))
+	if !m.config.SkipUserPath {
+		if err := m.removePath(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove shims from PATH: %w", err))
 		}
 	}
 
@@ -173,24 +174,7 @@ func (m *ShimManager) Remove() error {
 }
 
 func (m *ShimManager) IsInstalled() (bool, error) {
-	for _, shell := range m.config.Shells {
-		for _, configPath := range shell.CandidateRcFiles(m.config.HomeDir) {
-			data, err := os.ReadFile(configPath)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				log.Warnf("Warning: could not read %s (%s)", configPath, err)
-				continue
-			}
-
-			if strings.Contains(string(data), shimMarker) {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
+	return m.pathInstalled()
 }
 
 func (m *ShimManager) GetBinDir() string {
@@ -235,21 +219,8 @@ func LegacyUserBinDir() (string, error) {
 }
 
 func (m *ShimManager) writeShimScript(pm string) error {
-	shimPath := filepath.Join(m.config.BinDir, pm)
-	pmgBin := shellQuote(m.config.PMGBin)
-
-	content := fmt.Sprintf(`#!/bin/sh
-%[1]s
-%[2]s=%[3]s
-if [ ! -x "$%[2]s" ]; then
-  echo "[pmg] error: PMG binary not found or not executable: $%[2]s" >&2
-  echo "[pmg] error: run 'pmg setup install' again or remove shims with 'pmg setup remove'" >&2
-  exit 127
-fi
-PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
-export PMG_SHIM_PATH
-exec "$%[2]s" %[4]s "$@"
-`, shimScriptMarker, shimPMGBinVar, pmgBin, pm)
+	shimPath := filepath.Join(m.config.BinDir, shimFileName(pm))
+	content := shimScript(m.config.PMGBin, pm)
 
 	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
 		return err
