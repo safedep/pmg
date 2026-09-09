@@ -9,12 +9,14 @@ mkdir $WORK/home
 env PMG_CACHE_DIR=$WORK/cache
 cd $WORK/proj
 
-# A denied read records a violation in the cache.
+# A denied read records a violation in the cache. The error text and the
+# primary violation differ per driver, so assert only the non-zero exit.
 ! exec pmg sandbox exec -- cat .env
-stderr 'Permission denied'
 
+# explain resolves the newest entry and renders it. The header is stable
+# across drivers. The secret content never appears.
 exec sh -c 'pmg sandbox violations list --json | pmg sandbox explain -'
-stdout 'read access denied'
+stdout 'Reason:'
 ! stdout value-must-never-be-read
 
 -- proj/.env --

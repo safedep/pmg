@@ -3,7 +3,11 @@
 # link. The supervisor must allow that read. It could not resolve the path
 # of a short-lived /proc reader, so it denied the read and `ps` aborted with
 # "fatal library error, lookup self". The read now passes.
+#
+# This guards a Landlock regression. macOS has no /proc and Seatbelt blocks
+# exec of the setgid /bin/ps, so this runs on Linux only.
 
+[!linux] skip
 [!exec:ps] skip
 
 env HOME=$WORK/home
