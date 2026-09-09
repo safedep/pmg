@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -122,8 +123,11 @@ func TestArgvDifferential(t *testing.T) {
 		{"unicode", `install héllo-wörld`},
 		{"percent variable", `install %USERNAME%`},
 		{"delayed-expansion marker", `install !USERNAME!`},
-		{"escaped ampersand", `install a^&b`},
-		{"parentheses", `install (x)`},
+		// Quoted, because that is how a person passes these to a shell. An
+		// unquoted & or ( splits the line in cmd.exe before any shim runs.
+		{"quoted ampersand", `install "a&b"`},
+		{"quoted pipe", `install "x | y"`},
+		{"quoted parentheses", `install "(x)"`},
 		{"percent-encoded URL", `install https://example.com/pkg%20name.tgz`},
 		{"near the length limit", `install ` + strings.Repeat("a", 7000)},
 	}
@@ -196,9 +200,25 @@ func runCase(t *testing.T, commandLine string, env []string, underPTY bool) []st
 		sess, err := ptyx.Spawn(ctx, ptyx.SpawnOpts{Prog: prog, CmdLine: commandLine, Env: env, Cols: 120, Rows: 30})
 		require.NoError(t, err)
 		defer sess.Close()
-		go io.Copy(io.Discard, sess.PtyReader())
-		if err := sess.Wait(); err != nil {
-			t.Logf("pty run exited with: %v", err)
+
+		// The reader must drain the PTY, or the child blocks on a full pipe.
+		// Its output is the only diagnostic when the pmg role fails.
+		var out bytes.Buffer
+		go io.Copy(&out, sess.PtyReader())
+
+		// ptyx.Spawn does not stop the child when ctx ends, so a hung child
+		// would hold the whole package's test budget.
+		done := make(chan error, 1)
+		go func() { done <- sess.Wait() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Logf("pty run exited with: %v\n%s", err, out.String())
+			}
+		case <-ctx.Done():
+			_ = sess.Kill()
+			<-done
+			t.Logf("pty run timed out\n%s", out.String())
 		}
 	} else {
 		cmd := exec.CommandContext(ctx, prog)
