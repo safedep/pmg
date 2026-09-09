@@ -161,7 +161,7 @@ func readRecordFromStdin(in io.Reader, factory cacheFactory) (*pmgsandbox.Violat
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, newExplainFailError(
 			errcodes.InvalidArgument,
-			"stdin is empty: pipe a ViolationCacheRecord JSON document",
+			"stdin is empty: pipe a violation record or `pmg sandbox violations list --json` output",
 			explainUsageHelp(),
 		)
 	}
@@ -177,7 +177,7 @@ func readRecordFromStdin(in io.Reader, factory cacheFactory) (*pmgsandbox.Violat
 		return nil, newExplainFailError(
 			errcodes.InvalidArgument,
 			fmt.Sprintf("parse stdin JSON: %v", err),
-			"Pipe a valid ViolationCacheRecord JSON document to `pmg sandbox explain -`.",
+			"Pipe a violation record or `pmg sandbox violations list --json` output to `pmg sandbox explain -`.",
 		)
 	}
 
@@ -258,7 +258,7 @@ func validateViolationCacheRecord(rec *pmgsandbox.ViolationCacheRecord, source s
 }
 
 func explainUsageHelp() string {
-	return "Use `pmg sandbox explain --last` or pipe a violation record JSON with `pmg sandbox explain -`."
+	return "Use `pmg sandbox explain --last`, or pipe a violation record or `pmg sandbox violations list --json` output to `pmg sandbox explain -`."
 }
 
 // --- Human rendering ----------------------------------------------------

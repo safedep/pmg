@@ -191,12 +191,23 @@ func (c *ViolationCache) Read(path string) (*ViolationCacheRecord, error) {
 		return nil, errors.New("violationcache: empty cache directory")
 	}
 
-	dir, err := filepath.Abs(c.dir)
+	// Resolve symlinks on both sides before the containment check. A lexical
+	// check passes a symlink inside the cache directory, but os.ReadFile would
+	// follow it to a file outside. EvalSymlinks also fails a missing file.
+	absDir, err := filepath.Abs(c.dir)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: resolve dir: %w", err)
+	}
+	dir, err := filepath.EvalSymlinks(absDir)
 	if err != nil {
 		return nil, fmt.Errorf("violationcache: resolve dir: %w", err)
 	}
 
-	abs, err := filepath.Abs(path)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: resolve path: %w", err)
+	}
+	abs, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("violationcache: resolve path: %w", err)
 	}

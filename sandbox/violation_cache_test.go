@@ -181,6 +181,20 @@ func TestViolationCacheReadRejectsPathOutsideDir(t *testing.T) {
 	assert.Contains(t, err.Error(), "outside the cache directory")
 }
 
+func TestViolationCacheReadRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	require.NoError(t, os.WriteFile(outside, []byte(`{"schema_version":1}`), 0o644))
+
+	link := filepath.Join(dir, "violation-escape.json")
+	require.NoError(t, os.Symlink(outside, link))
+
+	c := NewViolationCache(dir)
+	_, err := c.Read(link)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside the cache directory")
+}
+
 func TestViolationCacheReadMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	c := NewViolationCache(dir)
