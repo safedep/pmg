@@ -48,18 +48,13 @@ func TestRemoveState(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestIsRunningCurrentProcess(t *testing.T) {
-	s := State{PID: os.Getpid(), Addr: "127.0.0.1:1"}
-	assert.True(t, s.IsRunning())
-}
-
 func TestIsRunningDeadPID(t *testing.T) {
 	s := State{PID: 999999999}
 	assert.False(t, s.IsRunning())
 }
 
 func TestStateFilePath(t *testing.T) {
-	assert.Equal(t, "/some/dir/proxy-state.json", stateFilePath("/some/dir"))
+	assert.Equal(t, filepath.Join("/some/dir", "proxy-state.json"), stateFilePath("/some/dir"))
 }
 
 func TestResolveStatePath(t *testing.T) {

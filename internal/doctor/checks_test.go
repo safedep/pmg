@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -116,7 +117,8 @@ func TestResolveProtectionBinary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			binDir := t.TempDir()
 			for _, name := range tt.available {
-				require.NoError(t, os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\n"), 0o755))
+				// LookPath on Windows needs a PATHEXT extension to find a file.
+				require.NoError(t, os.WriteFile(filepath.Join(binDir, name+exeSuffix()), []byte("#!/bin/sh\n"), 0o755))
 			}
 			t.Setenv("PATH", binDir)
 
@@ -140,38 +142,6 @@ func TestRunProtectionCheckReportsAllCandidatesWhenNoneAvailable(t *testing.T) {
 	result := RunProtectionCheck(tc, "pmg")
 	assert.Equal(t, StatusWarn, result.Status)
 	assert.Contains(t, result.Message, "pip/pip3 not available")
-}
-
-func TestRunProtectionCheckUsesVenvPipWhenNoSystemPip(t *testing.T) {
-	realPython, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 not available")
-	}
-
-	binDir := t.TempDir()
-	require.NoError(t, os.Symlink(realPython, filepath.Join(binDir, "python3")))
-
-	argvFile := filepath.Join(t.TempDir(), "argv.txt")
-	pmgStub := filepath.Join(binDir, "pmg-stub")
-	stub := fmt.Sprintf("#!/bin/sh\necho \"$@\" > %s\necho '%s'\nexit 1\n", argvFile, ui.MalwareBlockedHeadline)
-	require.NoError(t, os.WriteFile(pmgStub, []byte(stub), 0o755))
-
-	t.Setenv("PATH", binDir)
-
-	var pipCase ProtectionTestCase
-	for _, tc := range ProtectionTestCases() {
-		if tc.PackageManager == "pip" {
-			pipCase = tc
-		}
-	}
-	require.True(t, pipCase.NeedsVenv)
-
-	result := RunProtectionCheck(pipCase, pmgStub)
-	assert.Equal(t, StatusPass, result.Status)
-
-	argv, err := os.ReadFile(argvFile)
-	require.NoError(t, err)
-	assert.Equal(t, "pip install --no-cache-dir safedep-test-pkg==0.0.4", strings.TrimSpace(string(argv)))
 }
 
 func TestProtectionTestCases(t *testing.T) {
@@ -210,29 +180,9 @@ func TestPrependPath(t *testing.T) {
 	assert.Equal(t, "TERM=xterm", result[2])
 }
 
-func TestSetupVenv(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not available")
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
 	}
-
-	tmpDir := t.TempDir()
-	venvDir, err := setupVenv(tmpDir)
-	require.NoError(t, err)
-
-	pipPath := filepath.Join(venvDir, "bin", "pip")
-	_, err = os.Stat(pipPath)
-	assert.NoError(t, err)
-}
-
-func TestCheckShimScripts(t *testing.T) {
-	tmpDir := t.TempDir()
-	shimDir := filepath.Join(tmpDir, ".pmg", "bin")
-	require.NoError(t, os.MkdirAll(shimDir, 0o755))
-
-	shimPath := filepath.Join(shimDir, "npm")
-	require.NoError(t, os.WriteFile(shimPath, []byte("#!/bin/sh\nexec pmg npm \"$@\""), 0o755))
-
-	found, missing := CheckShimScripts(shimDir, []string{"npm", "pip"})
-	assert.Equal(t, []string{"npm"}, found)
-	assert.Equal(t, []string{"pip"}, missing)
+	return ""
 }

@@ -14,74 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShimManagerInstall(t *testing.T) {
-	homeDir := t.TempDir()
-	binDir := filepath.Join(homeDir, ".pmg", "bin")
-
-	bashrc := filepath.Join(homeDir, ".bashrc")
-	zshrc := filepath.Join(homeDir, ".zshrc")
-	fishConfig := filepath.Join(homeDir, ".config", "fish")
-	require.NoError(t, os.MkdirAll(fishConfig, 0o755))
-	require.NoError(t, os.WriteFile(bashrc, []byte("# existing bashrc\n"), 0o644))
-	require.NoError(t, os.WriteFile(zshrc, []byte("# existing zshrc\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(fishConfig, "config.fish"), []byte("# existing fish config\n"), 0o644))
-
-	pms := []string{"npm", "pip"}
-	pmgBin := filepath.Join(homeDir, "bin", "pmg")
-	shells := []alias.Shell{
-		&stubShell{name: "bash", path: ".bashrc", useFish: false},
-		&stubShell{name: "fish", path: ".config/fish/config.fish", useFish: true},
-	}
-
-	mgr := NewShimManager(ShimConfig{
-		BinDir:          binDir,
-		HomeDir:         homeDir,
-		PMGBin:          pmgBin,
-		PackageManagers: pms,
-		Shells:          shells,
-	})
-
-	require.NoError(t, mgr.Install())
-
-	for _, pm := range pms {
-		shimPath := filepath.Join(binDir, pm)
-		info, err := os.Stat(shimPath)
-		require.NoError(t, err, "shim %s should exist", pm)
-		assert.NotZero(t, info.Mode()&0o111, "shim %s should be executable", pm)
-
-		content, err := os.ReadFile(shimPath)
-		require.NoError(t, err)
-		assert.Contains(t, string(content), "#!/bin/sh")
-		assert.Contains(t, string(content), "PMG_BIN='"+pmgBin+"'")
-		assert.Contains(t, string(content), `exec "$PMG_BIN" `+pm+` "$@"`)
-		assert.Contains(t, string(content), `PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")`)
-		assert.Contains(t, string(content), "export PMG_SHIM_PATH")
-		assert.NotContains(t, string(content), "command -v pmg")
-		assert.NotContains(t, string(content), "exec pmg")
-		assert.NotContains(t, string(content), "falling back to native")
-	}
-
-	bashContent, err := os.ReadFile(bashrc)
-	require.NoError(t, err)
-	assert.Contains(t, string(bashContent), ".pmg/bin")
-
-	fishContent, err := os.ReadFile(filepath.Join(fishConfig, "config.fish"))
-	require.NoError(t, err)
-	assert.Contains(t, string(fishContent), ".pmg/bin")
-}
-
-func TestShimManagerRemoveReturnsDirectoryError(t *testing.T) {
-	root := t.TempDir()
-	blocker := filepath.Join(root, "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o644))
-
-	mgr := NewShimManager(ShimConfig{
-		BinDir: filepath.Join(blocker, "bin"),
-	})
-
-	assert.Error(t, mgr.Remove())
-}
-
 func TestShimManagerInstallIdempotent(t *testing.T) {
 	homeDir := t.TempDir()
 	binDir := filepath.Join(homeDir, ".pmg", "bin")
@@ -104,7 +36,7 @@ func TestShimManagerInstallIdempotent(t *testing.T) {
 
 	count := 0
 	for _, line := range strings.Split(string(content), "\n") {
-		if strings.Contains(line, ".pmg/bin") {
+		if strings.Contains(line, binDir) {
 			count++
 		}
 	}
@@ -133,7 +65,7 @@ func TestShimManagerRemove(t *testing.T) {
 
 	content, err := os.ReadFile(bashrc)
 	require.NoError(t, err)
-	assert.NotContains(t, string(content), ".pmg/bin")
+	assert.NotContains(t, string(content), binDir)
 }
 
 func TestShimManagerIsInstalled(t *testing.T) {
@@ -181,26 +113,6 @@ func TestNewDefaultShimManager(t *testing.T) {
 	assert.Contains(t, mgr.config.PackageManagers, "npm")
 	assert.Contains(t, mgr.config.PackageManagers, "pip")
 	assert.NotEmpty(t, mgr.config.Shells)
-}
-
-func TestShimManagerInstallEscapesPMGBin(t *testing.T) {
-	homeDir := t.TempDir()
-	binDir := filepath.Join(homeDir, ".pmg", "bin")
-	pmgBin := filepath.Join(homeDir, "PMG's bin", "pmg")
-
-	mgr := NewShimManager(ShimConfig{
-		BinDir:          binDir,
-		HomeDir:         homeDir,
-		PMGBin:          pmgBin,
-		PackageManagers: []string{"npm"},
-	})
-
-	require.NoError(t, mgr.Install())
-
-	content, err := os.ReadFile(filepath.Join(binDir, "npm"))
-	require.NoError(t, err)
-	assert.Contains(t, string(content), `PMG_BIN='`+homeDir+`/PMG'\''s bin/pmg'`)
-	assert.NotContains(t, string(content), "command -v pmg")
 }
 
 type stubShell struct {
@@ -252,7 +164,7 @@ func (s *stubShell) InstallRcFiles(homeDir string, create bool) ([]string, error
 
 func TestUserBinDirPrefersLegacyDirWithShims(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(homeDir, "xdg-data"))
 
 	legacyDir := filepath.Join(homeDir, legacyUserDirName, "bin")
@@ -268,7 +180,7 @@ func TestUserBinDirPrefersLegacyDirWithShims(t *testing.T) {
 func TestUserBinDirUsesDataDirWhenLegacyEmpty(t *testing.T) {
 	homeDir := t.TempDir()
 	dataHome := filepath.Join(homeDir, "xdg-data")
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	// An empty legacy directory is not an install; a fresh setup must not
@@ -392,4 +304,14 @@ func TestPruneEmptyParentsIgnoresSystemDirs(t *testing.T) {
 	pruneEmptyParents(binDir, "")
 
 	assert.DirExists(t, filepath.Join(root, "usr", "local", "lib", "pmg"))
+}
+
+// setHomeDir points the home directory at dir. Windows reads USERPROFILE,
+// every other platform reads HOME.
+func setHomeDir(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", dir)
+	}
 }

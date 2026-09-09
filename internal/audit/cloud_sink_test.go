@@ -459,6 +459,9 @@ func TestInvokingUserKeepsSudoAttributionWithoutPasswdEntry(t *testing.T) {
 
 func TestCloudSinkCapturesExecCommand(t *testing.T) {
 	sink, _ := newTestCloudSink(t)
+	// Windows cannot delete the sqlite file while the emitter holds it open,
+	// and t.TempDir cleanup fails on that.
+	defer func() { require.NoError(t, sink.Close()) }()
 
 	err := sink.Handle(context.Background(), AuditEvent{
 		Type:           EventTypeExecStarted,

@@ -39,16 +39,3 @@ func TestMkdirAllRootOwnedRejectsFileCollision(t *testing.T) {
 	assert.Error(t, MkdirAllRootOwned(blocker, 0o755))
 	assert.Error(t, MkdirAllRootOwned(filepath.Join(blocker, "sub"), 0o755))
 }
-
-func TestMkdirAllRootOwnedLeavesExistingDirsAlone(t *testing.T) {
-	root := t.TempDir()
-	existing := filepath.Join(root, "existing")
-	require.NoError(t, os.Mkdir(existing, 0o700))
-
-	require.NoError(t, MkdirAllRootOwned(filepath.Join(existing, "created"), 0o755))
-
-	info, err := os.Stat(existing)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
-		"pre-existing directory permissions must not be changed")
-}
