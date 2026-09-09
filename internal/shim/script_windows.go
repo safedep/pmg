@@ -22,18 +22,26 @@ func shimScript(pmgBin, pm string) string {
 		"@echo off",
 		"rem " + shimScriptMarker,
 		"setlocal DisableDelayedExpansion",
-		// Inside quotes a ) or & in a path is literal. Unquoted, a ) ends the
-		// block early and a & starts a second command.
+		// The paths in the echo lines are quoted. cmd.exe reads the whole
+		// `( ... )` block before it runs the `if`. An unquoted `)` in a path
+		// such as `Program Files (x86)` would end the block early, and an
+		// unquoted `&` would start a second command. Inside double quotes
+		// both characters are plain text.
 		fmt.Sprintf(`if not exist "%s" (`, bin),
 		fmt.Sprintf(`  echo [pmg] error: PMG binary not found: "%s" 1>&2`, bin),
 		`  echo [pmg] error: reinstall PMG and run 'pmg setup install', or delete "%~dp0" to remove the shims 1>&2`,
 		"  exit /b 127",
 		")",
 		fmt.Sprintf(`set "%s=%%~f0"`, pmgShimPathEnv),
-		// No wrapping quotes here. A set "VAR=%*" would invert the quote
-		// state of the tail, so a > or & the user put inside quotes becomes
-		// live. Without them the set line has the same quote parity as the
-		// launch line below, and an empty tail clears the variable.
+		// The value is not wrapped in quotes on purpose. cmd.exe flips an
+		// "inside quotes" flag at every double quote, and the characters
+		// `>`, `<`, `&` and `|` act only outside quotes. With
+		// `set "VAR=%*"` the wrapping quote makes the user's own quotes
+		// close instead of open: for `install "lodash@>=4"` the `>` lands
+		// outside quotes, cmd.exe writes a file named `=4`, and the variable
+		// holds a truncated tail. Without the wrapping quotes this line reads
+		// the tail exactly as the launch line below does. A bare command
+		// sets an empty value, which cmd.exe treats as unset.
 		fmt.Sprintf(`set %s=%%*`, pmgRawArgsEnv),
 		fmt.Sprintf(`"%s" %s %%*`, bin, pm),
 		"exit /b %ERRORLEVEL%",
