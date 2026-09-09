@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/safedep/pmg/config"
@@ -142,6 +143,9 @@ func TestCheckEventLogDirResult(t *testing.T) {
 	t.Run("unwritable directory fails with triaged remedy", func(t *testing.T) {
 		if os.Geteuid() == 0 {
 			t.Skip("running as root: directory permissions are not enforced")
+		}
+		if runtime.GOOS == "windows" {
+			t.Skip("os.Chmod does not make a directory unwritable on Windows")
 		}
 		dir := t.TempDir()
 		require.NoError(t, os.Chmod(dir, 0o555))

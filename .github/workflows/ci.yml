@@ -81,7 +81,7 @@ jobs:
         run: |
           go mod tidy
           go build -o pmg.exe main.go
-          go test -v ./internal/flows/...
+          go test -count=1 -v ./...
 
   e2e-test:
     runs-on: ubuntu-latest

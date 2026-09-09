@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"os/exec"
+	"runtime"
 	"testing"
 
 	"github.com/safedep/dry/usefulerror"
@@ -14,6 +15,7 @@ import (
 
 func TestExtractExit(t *testing.T) {
 	t.Run("direct non-zero exit resolves the real code", func(t *testing.T) {
+		requireSh(t)
 		err := exec.Command("sh", "-c", "exit 2").Run()
 		require.Error(t, err)
 
@@ -24,6 +26,7 @@ func TestExtractExit(t *testing.T) {
 	})
 
 	t.Run("direct signal termination resolves to 128+signum", func(t *testing.T) {
+		requireSh(t)
 		err := exec.Command("sh", "-c", "kill -INT $$").Run()
 		require.Error(t, err)
 
@@ -109,4 +112,12 @@ func TestClassifyTransparentChildExit(t *testing.T) {
 	require.True(t, errors.As(err, &ce))
 	assert.Equal(t, 1, ce.ExitCode())
 	assert.Equal(t, "npm", ce.PMName)
+}
+
+// requireSh skips a case that drives sh and Unix signals.
+func requireSh(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh and Unix exit semantics")
+	}
 }

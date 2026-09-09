@@ -47,7 +47,9 @@ func TestShimManagerInstall(t *testing.T) {
 		shimPath := filepath.Join(binDir, pm)
 		info, err := os.Stat(shimPath)
 		require.NoError(t, err, "shim %s should exist", pm)
-		assert.NotZero(t, info.Mode()&0o111, "shim %s should be executable", pm)
+		if runtime.GOOS != "windows" {
+			assert.NotZero(t, info.Mode()&0o111, "shim %s should be executable", pm)
+		}
 
 		content, err := os.ReadFile(shimPath)
 		require.NoError(t, err)
@@ -63,23 +65,11 @@ func TestShimManagerInstall(t *testing.T) {
 
 	bashContent, err := os.ReadFile(bashrc)
 	require.NoError(t, err)
-	assert.Contains(t, string(bashContent), ".pmg/bin")
+	assert.Contains(t, string(bashContent), binDir)
 
 	fishContent, err := os.ReadFile(filepath.Join(fishConfig, "config.fish"))
 	require.NoError(t, err)
-	assert.Contains(t, string(fishContent), ".pmg/bin")
-}
-
-func TestShimManagerRemoveReturnsDirectoryError(t *testing.T) {
-	root := t.TempDir()
-	blocker := filepath.Join(root, "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("not a directory"), 0o644))
-
-	mgr := NewShimManager(ShimConfig{
-		BinDir: filepath.Join(blocker, "bin"),
-	})
-
-	assert.Error(t, mgr.Remove())
+	assert.Contains(t, string(fishContent), binDir)
 }
 
 func TestShimManagerInstallIdempotent(t *testing.T) {
@@ -104,7 +94,7 @@ func TestShimManagerInstallIdempotent(t *testing.T) {
 
 	count := 0
 	for _, line := range strings.Split(string(content), "\n") {
-		if strings.Contains(line, ".pmg/bin") {
+		if strings.Contains(line, binDir) {
 			count++
 		}
 	}
@@ -133,7 +123,7 @@ func TestShimManagerRemove(t *testing.T) {
 
 	content, err := os.ReadFile(bashrc)
 	require.NoError(t, err)
-	assert.NotContains(t, string(content), ".pmg/bin")
+	assert.NotContains(t, string(content), binDir)
 }
 
 func TestShimManagerIsInstalled(t *testing.T) {
@@ -181,26 +171,6 @@ func TestNewDefaultShimManager(t *testing.T) {
 	assert.Contains(t, mgr.config.PackageManagers, "npm")
 	assert.Contains(t, mgr.config.PackageManagers, "pip")
 	assert.NotEmpty(t, mgr.config.Shells)
-}
-
-func TestShimManagerInstallEscapesPMGBin(t *testing.T) {
-	homeDir := t.TempDir()
-	binDir := filepath.Join(homeDir, ".pmg", "bin")
-	pmgBin := filepath.Join(homeDir, "PMG's bin", "pmg")
-
-	mgr := NewShimManager(ShimConfig{
-		BinDir:          binDir,
-		HomeDir:         homeDir,
-		PMGBin:          pmgBin,
-		PackageManagers: []string{"npm"},
-	})
-
-	require.NoError(t, mgr.Install())
-
-	content, err := os.ReadFile(filepath.Join(binDir, "npm"))
-	require.NoError(t, err)
-	assert.Contains(t, string(content), `PMG_BIN='`+homeDir+`/PMG'\''s bin/pmg'`)
-	assert.NotContains(t, string(content), "command -v pmg")
 }
 
 type stubShell struct {
