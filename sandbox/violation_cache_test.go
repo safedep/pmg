@@ -160,6 +160,34 @@ func TestViolationCacheListEmptyMissingDir(t *testing.T) {
 	assert.Nil(t, latest)
 }
 
+func TestViolationCacheReadWithinDir(t *testing.T) {
+	dir := t.TempDir()
+	c := NewViolationCache(dir, WithClock(newFixedClock(time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC))))
+
+	path, err := c.Write(sampleCacheReport("rule-a"))
+	require.NoError(t, err)
+
+	rec, err := c.Read(path)
+	require.NoError(t, err)
+	require.NotNil(t, rec.Report)
+	assert.Equal(t, ViolationCacheSchemaVersion, rec.SchemaVersion)
+	assert.Equal(t, "rule-a", rec.Report.Violations[0].RuleLabel)
+}
+
+func TestViolationCacheReadRejectsPathOutsideDir(t *testing.T) {
+	c := NewViolationCache(t.TempDir())
+	_, err := c.Read("/etc/passwd")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside the cache directory")
+}
+
+func TestViolationCacheReadMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	c := NewViolationCache(dir)
+	_, err := c.Read(filepath.Join(dir, "violation-missing.json"))
+	require.Error(t, err)
+}
+
 func writeViolationCacheRecord(t *testing.T, dir, name string, rec ViolationCacheRecord) {
 	t.Helper()
 

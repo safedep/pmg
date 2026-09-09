@@ -41,7 +41,7 @@ func newExplainCommand(factory cacheFactory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "explain [--last | -]",
 		Short:         "Explain a sandbox violation from the local cache or piped JSON",
-		Example:       "  pmg sandbox explain --last\n  pmg sandbox explain - < violation.json",
+		Example:       "  pmg sandbox explain --last\n  pmg sandbox explain - < violation.json\n  pmg sandbox violations list --json | pmg sandbox explain -",
 		SilenceErrors: false,
 		Args:          cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -111,7 +111,7 @@ func runExplain(out io.Writer, in io.Reader, args []string, opts *explainOptions
 	if opts.last {
 		record, err = readLatestFromCache(factory)
 	} else {
-		record, err = readRecordFromStdin(in)
+		record, err = readRecordFromStdin(in, factory)
 	}
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func readLatestFromCache(factory cacheFactory) (*pmgsandbox.ViolationCacheRecord
 	return &rec, nil
 }
 
-func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error) {
+func readRecordFromStdin(in io.Reader, factory cacheFactory) (*pmgsandbox.ViolationCacheRecord, error) {
 	data, err := io.ReadAll(in)
 	if err != nil {
 		return nil, newExplainFailError(
@@ -166,6 +166,12 @@ func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error)
 		)
 	}
 
+	// Accept the `violations list --json` envelope. It carries summaries, not
+	// full records, so explain the newest entry through its cache path.
+	if rec, ok, err := recordFromListEnvelope(data, factory); ok {
+		return rec, err
+	}
+
 	var rec pmgsandbox.ViolationCacheRecord
 	if err := json.Unmarshal(data, &rec); err != nil {
 		return nil, newExplainFailError(
@@ -180,6 +186,58 @@ func readRecordFromStdin(in io.Reader) (*pmgsandbox.ViolationCacheRecord, error)
 	}
 
 	return &rec, nil
+}
+
+// listEnvelope is the `violations list --json` shape explain reads on stdin.
+// A single ViolationCacheRecord has no "entries" field, so a nil pointer
+// tells explain to fall back to the record shape.
+type listEnvelope struct {
+	Entries *[]struct {
+		Path string `json:"path"`
+	} `json:"entries"`
+}
+
+// recordFromListEnvelope loads the newest entry of a `violations list --json`
+// envelope. ok is false when the input is not an envelope, so the caller
+// tries the record shape and keeps its error message.
+func recordFromListEnvelope(data []byte, factory cacheFactory) (*pmgsandbox.ViolationCacheRecord, bool, error) {
+	var env listEnvelope
+	if err := json.Unmarshal(data, &env); err != nil || env.Entries == nil {
+		return nil, false, nil
+	}
+
+	entries := *env.Entries
+	if len(entries) == 0 {
+		return nil, true, newExplainFailError(
+			errcodes.NotFound,
+			"the violation list is empty — run a sandboxed command first",
+			explainUsageHelp(),
+		)
+	}
+
+	path := entries[0].Path
+	if path == "" {
+		return nil, true, newExplainFailError(
+			errcodes.InvalidArgument,
+			"the first list entry has no path",
+			explainUsageHelp(),
+		)
+	}
+
+	rec, err := factory().Read(path)
+	if err != nil {
+		return nil, true, newExplainFailError(
+			errcodes.InvalidArgument,
+			fmt.Sprintf("read the violation record: %v", err),
+			explainUsageHelp(),
+		)
+	}
+
+	if err := validateViolationCacheRecord(rec, "cache JSON"); err != nil {
+		return nil, true, err
+	}
+
+	return rec, true, nil
 }
 
 func validateViolationCacheRecord(rec *pmgsandbox.ViolationCacheRecord, source string) error {

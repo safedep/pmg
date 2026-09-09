@@ -1,0 +1,21 @@
+# guarantee: `pmg sandbox violations list --json` output pipes into
+# `pmg sandbox explain -`. The list holds summaries, not full records, so
+# explain resolves the newest entry through its cache path and explains it.
+
+[!exec:sh] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+# A denied read records a violation in the cache.
+! exec pmg sandbox exec -- cat .env
+stderr 'Permission denied'
+
+exec sh -c 'pmg sandbox violations list --json | pmg sandbox explain -'
+stdout 'read access denied'
+! stdout value-must-never-be-read
+
+-- proj/.env --
+API_KEY=value-must-never-be-read

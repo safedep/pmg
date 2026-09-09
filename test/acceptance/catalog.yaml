@@ -280,6 +280,12 @@
   tier: P1
   guarantee: "After a failed sandboxed run, `pmg sandbox violations list --json` names the scrubbed variable and `pmg sandbox explain --last --json` suggests `pmg sandbox allow env=NAME`. The value is never recorded."
   labels: [sandbox, observe]
+- id: sandbox/observe/explain-reads-list-json
+  title: "sandbox explain reads violations list JSON from stdin"
+  category: sandbox
+  tier: P2
+  guarantee: "`pmg sandbox violations list --json` output pipes into `pmg sandbox explain -`, which explains the newest entry."
+  labels: [sandbox, observe]
 
 # cloud
 - id: cloud/analyzer/bad-creds-fall-back-to-community
