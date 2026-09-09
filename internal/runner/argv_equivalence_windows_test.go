@@ -23,14 +23,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// This file holds one test, and it is the only thing that decides whether
+// the Windows launch contract is correct.
+//
+// The contract in exec_windows.go starts a .cmd manager through cmd.exe and
+// replays the argument tail the shim captured, rather than serialising the
+// arguments a second time. Whether that is right cannot be argued from the
+// code: cmd.exe parses its own metacharacters, PowerShell and cmd.exe quote
+// differently, and CreateProcess and CommandLineToArgvW add rules of their
+// own. `exec_windows_test.go` proves only that PMG builds the command line
+// it means to build.
+//
+// So this test measures the property that matters instead. For one typed
+// command it captures the argv the manager receives with no PMG at all, then
+// the argv it receives through the real .cmd shim and PMG, and requires the
+// two arrays to be equal. It repeats that from cmd.exe and from PowerShell,
+// in the direct mode and in the PTY mode under a conpty.
+//
+// Three things about its shape are deliberate:
+//
+//   - The final process is a native program that writes its own argv. A .cmd
+//     that echoes would report a shell representation, not what the process
+//     received.
+//   - The PTY mode is covered because `runPTY` builds its session from
+//     cmd.Path and cmd.Args and would silently drop SysProcAttr. That is the
+//     regression this test exists to catch.
+//   - It spawns about 70 processes and is slow by nature. That is the cost of
+//     measuring a real parse rather than modelling one.
+//
+// It is standalone: it shares no state with the other tests in this package,
+// and it needs no fixture beyond a temporary directory.
+//
 // The test binary plays three roles, selected by PMG_TEST_ROLE:
 //
 //   - unset: the test itself.
 //   - pmg:   the binary the shim starts. It runs ExecuteWithOptions for
 //     os.Args[1:], the way `pmg npm ...` does.
 //   - dump:  the native program the fake npm.cmd forwards to. It writes its
-//     own argv as JSON. Echo output would be a shell representation
-//     and would not prove what the process received.
+//     own argv as JSON.
 const (
 	roleEnv     = "PMG_TEST_ROLE"
 	modeEnv     = "PMG_TEST_MODE"
@@ -79,12 +109,10 @@ func runAsPMG() {
 	os.Exit(0)
 }
 
-// TestArgvDifferential proves the launch contract on a real cmd.exe: the
-// argv the manager receives through the shim and PMG equals the argv it
-// receives with no PMG at all. Each case runs from cmd.exe and from
-// PowerShell, in direct mode and in PTY mode. This is the test that would
-// have caught runPTY dropping SysProcAttr.
-func TestArgvDifferential(t *testing.T) {
+// TestArgvEquivalence requires the argv a manager receives through the shim
+// and PMG to equal the argv it receives with no PMG, for the same typed
+// command, in both shells and both execution modes.
+func TestArgvEquivalence(t *testing.T) {
 	testBin, err := os.Executable()
 	require.NoError(t, err)
 
