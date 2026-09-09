@@ -37,4 +37,4 @@ func checkShimDirectoryFiles(shimDir string) doctor.CheckResult {
 func warnShadowedManagers(string) {}
 
 // shadowedFix is empty on Unix, so the doctor table keeps its usual hint.
-func shadowedFix([]string, func(string) (string, error)) string { return "" }
+func shadowedFix([]managerResolution) string { return "" }

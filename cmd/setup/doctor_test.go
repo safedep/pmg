@@ -54,31 +54,35 @@ func TestShimInPathImpliesInterception(t *testing.T) {
 	assert.True(t, isInterceptionActive(results))
 }
 
-func TestClassifyPackageManagerResolutions(t *testing.T) {
+func TestResolveManagers(t *testing.T) {
 	shimDir := "/usr/local/lib/pmg/bin"
+	calls := map[string]int{}
 	lookPath := func(name string) (string, error) {
+		calls[name]++
 		switch name {
 		case "npm":
 			return shimDir + "/npm", nil
 		case "pip":
 			return "/usr/bin/pip", nil
-		case "uv":
-			return "", exec.ErrNotFound
 		default:
 			return "", exec.ErrNotFound
 		}
 	}
 
-	under, shadowed := classifyPackageManagerResolutions(
-		[]string{"npm", "pip", "uv"},
-		[]string{shimDir},
-		lookPath,
-	)
-	assert.Equal(t, []string{"npm"}, under)
-	assert.Equal(t, []string{"pip"}, shadowed)
+	resolutions := resolveManagers([]string{"npm", "pip", "uv"}, []string{shimDir}, lookPath)
+
+	assert.Equal(t, []managerResolution{
+		{Name: "npm", Path: shimDir + "/npm", UnderShim: true},
+		{Name: "pip", Path: "/usr/bin/pip", UnderShim: false},
+	}, resolutions, "a manager that does not resolve is omitted")
+	assert.Equal(t, map[string]int{"npm": 1, "pip": 1, "uv": 1}, calls, "each manager resolves once")
+
+	under, shadowed := partitionResolutions(resolutions)
+	assert.Equal(t, []string{"npm"}, managerNames(under))
+	assert.Equal(t, []string{"pip"}, managerNames(shadowed))
 }
 
-func TestClassifyPackageManagerResolutionsAcceptsEitherShimDir(t *testing.T) {
+func TestResolveManagersAcceptsEitherShimDir(t *testing.T) {
 	systemDir := "/usr/local/lib/pmg/bin"
 	userDir := "/home/dev/.pmg/bin"
 	lookPath := func(name string) (string, error) {
@@ -92,13 +96,13 @@ func TestClassifyPackageManagerResolutionsAcceptsEitherShimDir(t *testing.T) {
 		}
 	}
 
-	under, shadowed := classifyPackageManagerResolutions(
+	under, shadowed := partitionResolutions(resolveManagers(
 		[]string{"npm", "pip", "yarn"},
 		[]string{systemDir, userDir},
 		lookPath,
-	)
-	assert.ElementsMatch(t, []string{"npm", "pip"}, under)
-	assert.Equal(t, []string{"yarn"}, shadowed)
+	))
+	assert.ElementsMatch(t, []string{"npm", "pip"}, managerNames(under))
+	assert.Equal(t, []string{"yarn"}, managerNames(shadowed))
 }
 
 func TestCheckSystemBinaryResult(t *testing.T) {

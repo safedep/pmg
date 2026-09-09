@@ -113,16 +113,15 @@ func checkShimDirectoryFiles(shimDir string) doctor.CheckResult {
 // Node.js MSI puts npm under C:\Program Files\nodejs) sits ahead of a user
 // PATH entry, and install alone cannot change that.
 func warnShadowedManagers(binDir string) {
-	lookPath := shimLookPath(shimPathEntries())
-	_, shadowed := classifyPackageManagerResolutions(
-		alias.DefaultConfig().PackageManagers, []string{binDir}, lookPath)
+	_, shadowed := partitionResolutions(resolveManagers(
+		alias.DefaultConfig().PackageManagers, []string{binDir}, shimLookPath(shimPathEntries())))
 	if len(shadowed) == 0 {
 		return
 	}
 
 	fmt.Printf("\n%s A new shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
 		ui.Colors.Yellow("⚠"))
-	for _, line := range resolvedPaths(shadowed, lookPath) {
+	for _, line := range shadowedLines(shadowed) {
 		fmt.Printf("   %s\n", line)
 	}
 	fmt.Printf("   %s\n", shadowedActions)
@@ -133,20 +132,16 @@ func warnShadowedManagers(binDir string) {
 // option for a manager that a machine-wide installer put there.
 const shadowedActions = "Run them as `pmg <manager>`, or install that manager for your user only, so it lands on the user PATH behind the shims."
 
-// shadowedFix fills the doctor Fix column with the resolved path of each
-// shadowed manager and the actions.
-func shadowedFix(shadowed []string, lookPath func(string) (string, error)) string {
-	return strings.Join(append(resolvedPaths(shadowed, lookPath), shadowedActions), " ")
+// shadowedFix fills the doctor Fix column with the same lines the install
+// warning prints, joined with the actions.
+func shadowedFix(shadowed []managerResolution) string {
+	return strings.Join(append(shadowedLines(shadowed), shadowedActions), " ")
 }
 
-func resolvedPaths(managers []string, lookPath func(string) (string, error)) []string {
-	lines := make([]string, 0, len(managers))
-	for _, pm := range managers {
-		resolved, err := lookPath(pm)
-		if err != nil {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("%s is %s.", pm, resolved))
+func shadowedLines(shadowed []managerResolution) []string {
+	lines := make([]string, 0, len(shadowed))
+	for _, r := range shadowed {
+		lines = append(lines, fmt.Sprintf("%s is %s.", r.Name, r.Path))
 	}
 	return lines
 }

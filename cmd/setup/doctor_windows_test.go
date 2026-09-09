@@ -102,21 +102,26 @@ func TestCheckShimDirectoryFiles(t *testing.T) {
 	})
 }
 
-// The fix must name where each shadowed manager resolves, and must not tell
-// the user to reorder PATH, which cannot put a user entry ahead of a machine
+// The install warning and the doctor Fix column print the same lines from
+// the same resolutions, so they cannot disagree on a path. Neither tells the
+// user to reorder PATH, which cannot put a user entry ahead of a machine
 // entry.
-func TestShadowedFixNamesTheResolvedPath(t *testing.T) {
-	lookPath := func(name string) (string, error) {
-		if name == "npm" {
-			return `C:\Program Files\nodejs\npm.cmd`, nil
-		}
-		return "", exec.ErrNotFound
+func TestShadowedFixAndWarningShareTheResolvedPath(t *testing.T) {
+	shadowed := []managerResolution{
+		{Name: "npm", Path: `C:\Program Files\nodejs\npm.cmd`},
+		{Name: "npx", Path: `C:\Program Files\nodejs\npx.cmd`},
 	}
 
-	fix := shadowedFix([]string{"npm", "npx"}, lookPath)
+	lines := shadowedLines(shadowed)
+	fix := shadowedFix(shadowed)
 
-	assert.Contains(t, fix, `npm is C:\Program Files\nodejs\npm.cmd.`)
-	assert.NotContains(t, fix, "npx is")
+	assert.Equal(t, []string{
+		`npm is C:\Program Files\nodejs\npm.cmd.`,
+		`npx is C:\Program Files\nodejs\npx.cmd.`,
+	}, lines)
+	for _, line := range lines {
+		assert.Contains(t, fix, line)
+	}
 	assert.Contains(t, fix, "Run them as `pmg <manager>`")
 	assert.NotContains(t, fix, "Move")
 }

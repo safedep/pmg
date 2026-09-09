@@ -12,6 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The Windows fix text does not apply off Windows, so the doctor table keeps
+// its usual hint for a shadowed manager.
+func TestShadowedFixIsEmptyOffWindows(t *testing.T) {
+	assert.Equal(t, "", shadowedFix([]managerResolution{{Name: "npm", Path: "/usr/bin/npm"}}))
+}
+
 // os.Chmod cannot make a directory unwritable on Windows, so the probe
 // succeeds there and the failure path never runs.
 func TestCheckEventLogDirResultUnwritable(t *testing.T) {

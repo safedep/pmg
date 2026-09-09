@@ -353,24 +353,51 @@ func pathContainsDir(pathEntries []string, dir string) bool {
 	return false
 }
 
-// classifyPackageManagerResolutions splits package managers by where they
-// resolve on PATH: underShim means the command runs through a pmg shim (so it
-// is intercepted), shadowed means a real npm/pip sits ahead of the shims (so
-// interception is bypassed and the user should be warned).
-func classifyPackageManagerResolutions(packageManagers []string, shimDirs []string, lookPath func(string) (string, error)) (underShim, shadowed []string) {
+// managerResolution is where one package manager resolves on PATH. UnderShim
+// means the command runs through a pmg shim, so it is intercepted. Otherwise
+// a real npm or pip sits ahead of the shims and the user should be warned.
+type managerResolution struct {
+	Name      string
+	Path      string
+	UnderShim bool
+}
+
+// resolveManagers looks each manager up once. A manager that does not resolve
+// is omitted. The install warning and the doctor check both read from this
+// result, so neither resolves a manager a second time.
+func resolveManagers(packageManagers []string, shimDirs []string, lookPath func(string) (string, error)) []managerResolution {
+	resolutions := make([]managerResolution, 0, len(packageManagers))
 	for _, pm := range packageManagers {
 		resolved, err := lookPath(pm)
 		if err != nil {
 			continue
 		}
+		resolutions = append(resolutions, managerResolution{
+			Name:      pm,
+			Path:      resolved,
+			UnderShim: resolvesUnderAny(resolved, shimDirs),
+		})
+	}
+	return resolutions
+}
 
-		if resolvesUnderAny(resolved, shimDirs) {
-			underShim = append(underShim, pm)
-			continue
+func partitionResolutions(resolutions []managerResolution) (underShim, shadowed []managerResolution) {
+	for _, r := range resolutions {
+		if r.UnderShim {
+			underShim = append(underShim, r)
+		} else {
+			shadowed = append(shadowed, r)
 		}
-		shadowed = append(shadowed, pm)
 	}
 	return underShim, shadowed
+}
+
+func managerNames(resolutions []managerResolution) []string {
+	names := make([]string, 0, len(resolutions))
+	for _, r := range resolutions {
+		names = append(names, r.Name)
+	}
+	return names
 }
 
 func resolvesUnderAny(path string, dirs []string) bool {
@@ -397,19 +424,18 @@ func shimDirs() []string {
 // shimDirs(); shimDir/pathLabel only select the PATH-membership fallback and
 // the display label, not which directories count as intercepting.
 func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
-	lookPath := shimLookPath(pathEntries)
-	underShim, shadowed := classifyPackageManagerResolutions(
+	underShim, shadowed := partitionResolutions(resolveManagers(
 		alias.DefaultConfig().PackageManagers,
 		shimDirs(),
-		lookPath,
-	)
+		shimLookPath(pathEntries),
+	))
 
 	if len(shadowed) > 0 {
 		if pathContainsDir(pathEntries, shimDir) || len(underShim) > 0 {
 			return doctor.CheckResult{
 				Status:  doctor.StatusWarn,
-				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(shadowed, ", "), pathLabel),
-				Fix:     shadowedFix(shadowed, lookPath),
+				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(managerNames(shadowed), ", "), pathLabel),
+				Fix:     shadowedFix(shadowed),
 			}
 		}
 		return doctor.CheckResult{
