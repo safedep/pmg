@@ -5,6 +5,7 @@ package shim
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"unsafe"
@@ -28,20 +29,19 @@ var (
 
 const pathValueName = "Path"
 
-// registryPathEntries returns the PATH a new process receives: the machine
-// entries, then the user entries, with %VAR% references expanded. It reads
-// the registry rather than the process environment, because the shell that
-// ran `pmg setup install` still carries the PATH from before it.
-func registryPathEntries() ([]string, error) {
-	machine, err := readExpandedPath(machineEnvironmentRoot, machineEnvironmentKey)
+// registryPathHalves returns the two halves of the PATH a new process
+// receives, machine first. The caller keeps them apart because PMG can
+// reorder the user half and nothing else.
+func registryPathHalves() (machine, user []string, err error) {
+	machine, err = readExpandedPath(machineEnvironmentRoot, machineEnvironmentKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	user, err := readExpandedPath(registry.CURRENT_USER, userEnvironmentKey)
+	user, err = readExpandedPath(registry.CURRENT_USER, userEnvironmentKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(machine, user...), nil
+	return machine, user, nil
 }
 
 func readExpandedPath(root registry.Key, keyPath string) ([]string, error) {
@@ -59,21 +59,17 @@ func readExpandedPath(root registry.Key, keyPath string) ([]string, error) {
 		return nil, fmt.Errorf("failed to read PATH under %s: %w", keyPath, err)
 	}
 
+	// ExpandString reads %VAR% from this process's environment. A machine
+	// PATH that names a per-user variable therefore expands to this user's
+	// value, which is what a shell for this user would get.
 	expanded, err := registry.ExpandString(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand PATH under %s: %w", keyPath, err)
 	}
-	return splitPath(expanded), nil
-}
-
-func splitPath(value string) []string {
-	var entries []string
-	for _, entry := range strings.Split(value, ";") {
-		if entry != "" {
-			entries = append(entries, entry)
-		}
-	}
-	return entries
+	// SplitList, not a plain split on the separator, because it also strips
+	// the quotes a PATH entry may carry. A quoted entry would otherwise read
+	// as a directory that does not exist.
+	return filepath.SplitList(expanded), nil
 }
 
 var (
@@ -89,10 +85,21 @@ func registerUserPath(dir string) error {
 	if err != nil {
 		return err
 	}
-	if containsPath(entries, dir) {
+	if len(entries) > 0 && fsutil.SamePath(entries[0], dir) {
 		return nil
 	}
-	return writeUserPath(append([]string{dir}, entries...), expand)
+
+	// The shim directory has to be first, or a manager on an entry ahead of
+	// it wins. A per-user installer that prepends its own directory, as the
+	// python.org installer does, would otherwise shadow the shims until the
+	// user edited PATH by hand. A re-run of `pmg setup install` fixes it.
+	kept := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !fsutil.SamePath(entry, dir) {
+			kept = append(kept, entry)
+		}
+	}
+	return writeUserPath(append([]string{dir}, kept...), expand)
 }
 
 // unregisterUserPath removes every entry that names dir from the user PATH.
@@ -168,7 +175,20 @@ func readUserPath() (entries []string, expand bool, err error) {
 		return nil, false, fmt.Errorf("failed to read the user PATH: %w", err)
 	}
 
-	return splitPath(value), valueType == registry.EXPAND_SZ, nil
+	return splitRawPath(value), valueType == registry.EXPAND_SZ, nil
+}
+
+// splitRawPath keeps each entry exactly as the registry holds it, quotes and
+// all, so a read, edit and write-back does not rewrite entries PMG does not
+// own.
+func splitRawPath(value string) []string {
+	var entries []string
+	for _, entry := range strings.Split(value, ";") {
+		if entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
 }
 
 func writeUserPath(entries []string, expand bool) error {

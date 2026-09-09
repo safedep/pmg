@@ -355,17 +355,9 @@ func pathContainsDir(pathEntries []string, dir string) bool {
 
 // checkShimDirectoryResult maps the shim inspection to a status. A shim from
 // an older install can name a pmg binary that moved or is gone, so a stale
-// shim fails the check like a missing one.
+// shim gets a status of its own.
 func checkShimDirectoryResult(shimDir string, managers []string) doctor.CheckResult {
-	pmgBin, err := os.Executable()
-	if err != nil {
-		return doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: fmt.Sprintf("Could not resolve the pmg binary: %v", err),
-		}
-	}
-
-	inspection, err := shim.InspectShimFiles(shimDir, managers, pmgBin)
+	inspection, err := shim.InspectShimFiles(shimDir, managers)
 	if err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusWarn,
@@ -373,23 +365,34 @@ func checkShimDirectoryResult(shimDir string, managers []string) doctor.CheckRes
 		}
 	}
 
-	switch {
-	case len(inspection.Missing) == len(managers):
+	if len(inspection.Missing) == len(managers) {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: "Shim directory not found",
-		}
-	case len(inspection.Stale) > 0:
-		return doctor.CheckResult{
-			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("Shims for %s name another pmg binary", strings.Join(inspection.Stale, ", ")),
-		}
-	case len(inspection.Missing) > 0:
-		return doctor.CheckResult{
-			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("Shims missing for %s", strings.Join(inspection.Missing, ", ")),
+			Message: "No shims found",
 		}
 	}
+
+	// A shim with no file and a shim that names a pmg binary which is gone
+	// both break the command, one with nothing on PATH and one with exit 127.
+	// `pmg setup install` is the fix for each, so they report together.
+	if broken := append(inspection.Missing, inspection.BinaryMissing...); len(broken) > 0 {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("Shims missing or broken for %s", strings.Join(broken, ", ")),
+		}
+	}
+
+	// A shim that names another pmg binary still intercepts, through that
+	// binary. That happens with two installs, or when doctor runs from a
+	// local build. It is worth reporting and it is not a failure.
+	if len(inspection.BinaryDiffers) > 0 {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("Shims for %s name another pmg binary", strings.Join(inspection.BinaryDiffers, ", ")),
+			Fix:     "Run `pmg setup install` to point the shims at this pmg binary",
+		}
+	}
+
 	return doctor.CheckResult{
 		Status:  doctor.StatusPass,
 		Message: "Shims found, each names this pmg binary",

@@ -12,11 +12,10 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 )
 
-// warnShadowedManagers reports the package managers a new shell would still
-// resolve outside the shim directory. Windows builds PATH as the machine
-// value, then the user value, so a manager installed for the machine (the
-// Node.js MSI puts npm under C:\Program Files\nodejs) sits ahead of a user
-// PATH entry, and install alone cannot change that.
+// warnShadowedManagers reports the package managers a shell resolves outside
+// the shim directory, and what to do about each. Windows builds PATH as the
+// machine value then the user value, and a shell profile can prepend more,
+// so `pmg setup install` alone cannot always win.
 func warnShadowedManagers(binDir string) {
 	inspection, err := shim.InspectInterception(alias.DefaultConfig().PackageManagers, []string{binDir})
 	if err != nil {
@@ -28,29 +27,36 @@ func warnShadowedManagers(binDir string) {
 		return
 	}
 
-	fmt.Printf("\n%s A new shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
+	fmt.Printf("\n%s A shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
 		ui.Colors.Yellow("⚠"))
 	for _, line := range shadowedLines(shadowed) {
 		fmt.Printf("   %s\n", line)
 	}
-	fmt.Printf("   %s\n", shadowedActions)
 }
 
-// shadowedActions names what a user can do today. A user PATH entry can
-// never move ahead of a machine PATH entry, so "reorder PATH" is not an
-// option for a manager that a machine-wide installer put there.
-const shadowedActions = "Run them as `pmg <manager>`, or install that manager for your user only, so it lands on the user PATH behind the shims."
-
 // shadowedFix fills the doctor Fix column with the same lines the install
-// warning prints, joined with the actions.
+// warning prints, so the two cannot disagree.
 func shadowedFix(shadowed []shim.ManagerResolution) string {
-	return strings.Join(append(shadowedLines(shadowed), shadowedActions), " ")
+	return strings.Join(shadowedLines(shadowed), " ")
 }
 
 func shadowedLines(shadowed []shim.ManagerResolution) []string {
 	lines := make([]string, 0, len(shadowed))
 	for _, r := range shadowed {
-		lines = append(lines, fmt.Sprintf("%s is %s.", r.Name, r.Path))
+		lines = append(lines, fmt.Sprintf("%s is %s. %s", r.Name, r.Path, shadowedAction(r)))
 	}
 	return lines
+}
+
+// shadowedAction names what the user can do, which depends on where the
+// winning PATH entry came from. Only the user PATH is one PMG can reorder.
+func shadowedAction(r shim.ManagerResolution) string {
+	switch r.Origin {
+	case shim.OriginUser:
+		return "Run `pmg setup install` again to move the shims ahead of it."
+	case shim.OriginProfile:
+		return fmt.Sprintf("A shell profile puts that directory on PATH, where PMG cannot reorder it. Run it as `pmg %s`, or drop that line from the profile.", r.Name)
+	default:
+		return fmt.Sprintf("It is on the machine PATH, which no per-user install can move behind the shims. Run it as `pmg %s`.", r.Name)
+	}
 }

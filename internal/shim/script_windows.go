@@ -11,9 +11,24 @@ import (
 // PowerShell and Go's exec.LookPath.
 func shimFileName(pm string) string { return pm + ".cmd" }
 
-// shimNamesBinary reports whether a .cmd shim body starts pmgBin.
-func shimNamesBinary(content, pmgBin string) bool {
-	return strings.Contains(strings.ToUpper(content), strings.ToUpper(`"`+batchEscape(pmgBin)+`" `))
+// parseShimBinary reads the pmg path out of the launch line, the one line
+// that starts with a quote. A substring search over the whole body would
+// match inside the echo line and would reject a path that differs only in
+// separator or case, which fsutil.SamePath accepts.
+func parseShimBinary(content string) (string, bool) {
+	for line := range strings.SplitSeq(content, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"`) {
+			continue
+		}
+		end := strings.Index(line[1:], `"`)
+		if end < 0 {
+			return "", false
+		}
+		// writeShimScript doubled every percent sign in the path.
+		return strings.ReplaceAll(line[1:1+end], "%%", "%"), true
+	}
+	return "", false
 }
 
 // shimScript is the batch body. setlocal alone inherits delayed expansion

@@ -165,7 +165,6 @@ func isolateMachinePath(t *testing.T) {
 	keyPath := `Software\pmg-test-machine-` + strings.ReplaceAll(t.Name(), "/", "_")
 	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
 	require.NoError(t, err)
-	require.NoError(t, key.SetExpandStringValue(pathValueName, `C:\Program Files\nodejs;%SystemRoot%\System32`))
 	require.NoError(t, key.Close())
 
 	origRoot, origKey := machineEnvironmentRoot, machineEnvironmentKey
@@ -179,18 +178,43 @@ func isolateMachinePath(t *testing.T) {
 // Windows builds a new process's PATH as the machine value, then the user
 // value. A manager installed for the machine therefore sits ahead of a user
 // PATH entry, and the doctor must see that order.
-func TestRegistryPathEntries(t *testing.T) {
+func TestRegistryPathHalves(t *testing.T) {
 	isolateUserPath(t)
 	isolateMachinePath(t)
-	require.NoError(t, writeUserPath([]string{`%LOCALAPPDATA%\safedep\pmg\bin`, `C:\Tools`}, true))
+	setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey,
+		`C:\Program Files\nodejs;%SystemRoot%\System32`)
+	require.NoError(t, writeUserPath([]string{`%LOCALAPPDATA%\safedep\pmg\bin`, `"C:\Quoted Tools"`}, true))
 
-	entries, err := registryPathEntries()
+	machine, user, err := registryPathHalves()
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
 		`C:\Program Files\nodejs`,
 		filepath.Join(os.Getenv("SystemRoot"), "System32"),
+	}, machine, "%VAR% expands from this process's environment")
+	assert.Equal(t, []string{
 		filepath.Join(os.Getenv("LOCALAPPDATA"), `safedep\pmg\bin`),
-		`C:\Tools`,
-	}, entries)
+		`C:\Quoted Tools`,
+	}, user, "SplitList strips the quotes a PATH entry may carry")
+}
+
+// registerUserPath moves the shim directory to the front when an installer
+// prepended its own directory after the last `pmg setup install`.
+func TestRegisterUserPathMovesTheShimDirectoryToTheFront(t *testing.T) {
+	isolateUserPath(t)
+	shimDir := `C:\Users\dev\AppData\Local\safedep\pmg\bin`
+	pythonDir := `C:\Users\dev\AppData\Local\Programs\Python\Python312\Scripts`
+
+	require.NoError(t, writeUserPath([]string{pythonDir, shimDir, `C:\Tools`}, true))
+	require.NoError(t, registerUserPath(shimDir))
+
+	entries, _, err := readUserPath()
+	require.NoError(t, err)
+	assert.Equal(t, []string{shimDir, pythonDir, `C:\Tools`}, entries)
+
+	// Already first, so a second run writes nothing new.
+	require.NoError(t, registerUserPath(shimDir))
+	entries, _, err = readUserPath()
+	require.NoError(t, err)
+	assert.Equal(t, []string{shimDir, pythonDir, `C:\Tools`}, entries)
 }

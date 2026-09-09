@@ -8,15 +8,13 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/internal/fsutil"
 )
 
 func shimFileName(pm string) string { return pm }
 
-// shimNamesBinary reports whether the PMG_BIN line of a sh shim names pmgBin.
-func shimNamesBinary(content, pmgBin string) bool {
-	bin, ok := parseShimPMGBin(content)
-	return ok && fsutil.SamePath(bin, pmgBin)
+// parseShimBinary reads the pmg path out of the PMG_BIN line of a sh shim.
+func parseShimBinary(content string) (string, bool) {
+	return parseShimPMGBin(content)
 }
 
 func shimScript(pmgBin, pm string) string {

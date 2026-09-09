@@ -112,8 +112,9 @@ func TestCheckShimDirResolution(t *testing.T) {
 	}
 }
 
-// checkShimDirectoryResult reads real shims, so a stale one fails on every
-// platform. A stale shim names a pmg binary other than the one running.
+// checkShimDirectoryResult reads real shims, so it catches a shim that names
+// a pmg binary other than the one running. A binary that is gone breaks the
+// command and fails. One that still runs intercepts through it and warns.
 func TestCheckShimDirectoryResult(t *testing.T) {
 	pmgBin, err := os.Executable()
 	require.NoError(t, err)
@@ -137,68 +138,43 @@ func TestCheckShimDirectoryResult(t *testing.T) {
 		assert.Equal(t, doctor.StatusPass, result.Status)
 	})
 
-	t.Run("a shim from another install fails", func(t *testing.T) {
+	t.Run("a shim naming another binary that runs warns", func(t *testing.T) {
 		dir := t.TempDir()
 		writeShims(t, dir, pmgBin, managers)
-		writeShims(t, dir, filepath.Join(t.TempDir(), "old", "pmg"), []string{"npm"})
+
+		other := filepath.Join(t.TempDir(), "pmg")
+		require.NoError(t, os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755))
+		writeShims(t, dir, other, []string{"npm"})
 
 		result := checkShimDirectoryResult(dir, managers)
-		assert.Equal(t, doctor.StatusFail, result.Status)
+		assert.Equal(t, doctor.StatusWarn, result.Status, "that shim still intercepts, through the other binary")
 		assert.Equal(t, "Shims for npm name another pmg binary", result.Message)
+		assert.NotEmpty(t, result.Fix)
 	})
 
-	t.Run("a missing shim fails and is named", func(t *testing.T) {
+	t.Run("a shim naming a binary that is gone fails", func(t *testing.T) {
 		dir := t.TempDir()
-		writeShims(t, dir, pmgBin, []string{"npm"})
+		writeShims(t, dir, pmgBin, managers)
+		writeShims(t, dir, filepath.Join(t.TempDir(), "removed", "pmg"), []string{"npm"})
 
 		result := checkShimDirectoryResult(dir, managers)
 		assert.Equal(t, doctor.StatusFail, result.Status)
-		assert.Equal(t, "Shims missing for pip", result.Message)
+		assert.Equal(t, "Shims missing or broken for npm", result.Message)
 	})
 
-	t.Run("an empty directory reads as not found", func(t *testing.T) {
+	t.Run("a missing shim and a broken one report together", func(t *testing.T) {
+		dir := t.TempDir()
+		writeShims(t, dir, filepath.Join(t.TempDir(), "removed", "pmg"), []string{"npm"})
+
+		result := checkShimDirectoryResult(dir, managers)
+		assert.Equal(t, doctor.StatusFail, result.Status)
+		assert.Equal(t, "Shims missing or broken for pip, npm", result.Message)
+	})
+
+	t.Run("an empty directory reads as no shims", func(t *testing.T) {
 		result := checkShimDirectoryResult(t.TempDir(), managers)
 		assert.Equal(t, doctor.StatusFail, result.Status)
-		assert.Equal(t, "Shim directory not found", result.Message)
-	})
-}
-
-func TestCheckSystemBinaryResult(t *testing.T) {
-	// No system shims installed -> could not determine binary (Warn).
-	result := checkSystemBinaryResult()
-	// On a dev machine with no /usr/local/lib/pmg/bin shims, SystemShimBinary
-	// returns !ok, so we get a Warn rather than a spurious Fail.
-	assert.Contains(t, []doctor.CheckStatus{doctor.StatusWarn, doctor.StatusPass, doctor.StatusFail}, result.Status)
-	if result.Status == doctor.StatusWarn {
-		assert.Equal(t, "Could not determine system shim binary", result.Message)
-	}
-}
-
-func TestCheckEventLogDirResult(t *testing.T) {
-	configDir := "/home/dev/.config/safedep/pmg"
-
-	t.Run("skipped when event logging disabled", func(t *testing.T) {
-		result := checkEventLogDirResult(true, t.TempDir(), configDir)
-		assert.Equal(t, doctor.StatusWarn, result.Status)
-	})
-
-	t.Run("missing directory fails", func(t *testing.T) {
-		result := checkEventLogDirResult(false, filepath.Join(t.TempDir(), "absent"), configDir)
-		assert.Equal(t, doctor.StatusFail, result.Status)
-		assert.Equal(t, "Event log directory not found", result.Message)
-	})
-
-	t.Run("file instead of directory fails", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "logs")
-		require.NoError(t, os.WriteFile(path, []byte("x"), 0o644))
-
-		result := checkEventLogDirResult(false, path, configDir)
-		assert.Equal(t, doctor.StatusFail, result.Status)
-	})
-
-	t.Run("writable directory passes", func(t *testing.T) {
-		result := checkEventLogDirResult(false, t.TempDir(), configDir)
-		assert.Equal(t, doctor.StatusPass, result.Status)
+		assert.Equal(t, "No shims found", result.Message)
 	})
 }
 
