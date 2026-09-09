@@ -12,6 +12,11 @@ import (
 
 func shimFileName(pm string) string { return pm }
 
+// parseShimBinary reads the pmg path out of the PMG_BIN line of a sh shim.
+func parseShimBinary(content string) (string, bool) {
+	return parseShimPMGBin(content)
+}
+
 func shimScript(pmgBin, pm string) string {
 	return fmt.Sprintf(`#!/bin/sh
 %[1]s

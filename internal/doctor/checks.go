@@ -165,16 +165,3 @@ func isExecutableNotFound(err error) bool {
 	}
 	return false
 }
-
-func CheckShimScripts(shimDir string, managers []string) (found []string, missing []string) {
-	for _, pm := range managers {
-		shimPath := filepath.Join(shimDir, pm)
-		info, err := os.Stat(shimPath)
-		if err != nil || info.Mode()&0o111 == 0 {
-			missing = append(missing, pm)
-			continue
-		}
-		found = append(found, pm)
-	}
-	return found, missing
-}

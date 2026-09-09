@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -171,18 +171,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: fmt.Sprintf("Could not check shims: %v", err),
 					}
 				}
-				shimDir := sm.GetBinDir()
-				info, err := os.Stat(shimDir)
-				if err != nil || !info.IsDir() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Shim directory not found",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Shim directory found",
-				}
+				return checkShimDirectoryResult(sm.GetBinDir(), alias.DefaultConfig().PackageManagers)
 			},
 		},
 		{
@@ -261,6 +250,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				return evaluateCACheck(cfg.ConfigDir(), user, system, truststore.UserScopeSupported())
 			},
 		},
+	}
+
+	// PMG installs no shell alias on Windows, and a check for a layer that
+	// does not exist would report a false problem.
+	if runtime.GOOS == "windows" {
+		checks = slices.DeleteFunc(checks, func(c doctor.Check) bool { return c.Name == checkShellAliases })
 	}
 
 	// System-only: the binary every user's shim execs must stay root-owned and
@@ -358,33 +353,58 @@ func pathContainsDir(pathEntries []string, dir string) bool {
 	return false
 }
 
-// classifyPackageManagerResolutions splits package managers by where they
-// resolve on PATH: underShim means the command runs through a pmg shim (so it
-// is intercepted), shadowed means a real npm/pip sits ahead of the shims (so
-// interception is bypassed and the user should be warned).
-func classifyPackageManagerResolutions(packageManagers []string, shimDirs []string, lookPath func(string) (string, error)) (underShim, shadowed []string) {
-	for _, pm := range packageManagers {
-		resolved, err := lookPath(pm)
-		if err != nil {
-			continue
+// checkShimDirectoryResult maps the shim inspection to a status. A shim from
+// an older install can name a pmg binary that moved or is gone, so a stale
+// shim gets a status of its own.
+func checkShimDirectoryResult(shimDir string, managers []string) doctor.CheckResult {
+	inspection, err := shim.InspectShimFiles(shimDir, managers)
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("Could not check shims: %v", err),
 		}
-
-		if resolvesUnderAny(resolved, shimDirs) {
-			underShim = append(underShim, pm)
-			continue
-		}
-		shadowed = append(shadowed, pm)
 	}
-	return underShim, shadowed
+
+	if len(inspection.Missing) == len(managers) {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "No shims found",
+		}
+	}
+
+	// A shim with no file and a shim that names a pmg binary which is gone
+	// both break the command, one with nothing on PATH and one with exit 127.
+	// `pmg setup install` is the fix for each, so they report together.
+	if broken := append(inspection.Missing, inspection.BinaryMissing...); len(broken) > 0 {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("Shims missing or broken for %s", strings.Join(broken, ", ")),
+		}
+	}
+
+	// A shim that names another pmg binary still intercepts, through that
+	// binary. That happens with two installs, or when doctor runs from a
+	// local build. It is worth reporting and it is not a failure.
+	if len(inspection.BinaryDiffers) > 0 {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("Shims for %s name another pmg binary", strings.Join(inspection.BinaryDiffers, ", ")),
+			Fix:     "Run `pmg setup install` to point the shims at this pmg binary",
+		}
+	}
+
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: "Shims found, each names this pmg binary",
+	}
 }
 
-func resolvesUnderAny(path string, dirs []string) bool {
-	for _, dir := range dirs {
-		if fsutil.PathWithinDir(path, dir) {
-			return true
-		}
+func managerNames(resolutions []shim.ManagerResolution) []string {
+	names := make([]string, 0, len(resolutions))
+	for _, r := range resolutions {
+		names = append(names, r.Name)
 	}
-	return false
+	return names
 }
 
 // shimDirs lists every directory a package manager may legitimately resolve
@@ -401,18 +421,16 @@ func shimDirs() []string {
 // checkShimDirResolution classifies interception against all shim dirs via
 // shimDirs(); shimDir/pathLabel only select the PATH-membership fallback and
 // the display label, not which directories count as intercepting.
-func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
-	underShim, shadowed := classifyPackageManagerResolutions(
-		alias.DefaultConfig().PackageManagers,
-		shimDirs(),
-		exec.LookPath,
-	)
+func checkShimDirResolution(shimDir, pathLabel string, inspection shim.InterceptionInspection) doctor.CheckResult {
+	pathEntries := inspection.PathEntries
+	underShim, shadowed := inspection.Partition()
 
 	if len(shadowed) > 0 {
 		if pathContainsDir(pathEntries, shimDir) || len(underShim) > 0 {
 			return doctor.CheckResult{
 				Status:  doctor.StatusWarn,
-				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(shadowed, ", "), pathLabel),
+				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(managerNames(shadowed), ", "), pathLabel),
+				Fix:     shadowedFix(shadowed),
 			}
 		}
 		return doctor.CheckResult{
@@ -441,7 +459,13 @@ func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doc
 }
 
 func checkShimInPathResult() doctor.CheckResult {
-	pathEntries := filepath.SplitList(os.Getenv("PATH"))
+	inspection, err := shim.InspectInterception(alias.DefaultConfig().PackageManagers, shimDirs())
+	if err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: fmt.Sprintf("Could not resolve package managers on PATH: %v", err),
+		}
+	}
 
 	// The primary directory only picks the label and PATH-membership target;
 	// classification accepts resolution into either shim dir regardless.
@@ -457,7 +481,7 @@ func checkShimInPathResult() doctor.CheckResult {
 		shimDir, pathLabel = userDir, "Shim directory"
 	}
 
-	return checkShimDirResolution(shimDir, pathLabel, pathEntries)
+	return checkShimDirResolution(shimDir, pathLabel, inspection)
 }
 
 func runProtectionChecks(coreResults []doctor.CheckResult) []doctor.CheckResult {

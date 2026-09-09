@@ -5,6 +5,7 @@ package shim
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"unsafe"
@@ -19,7 +20,57 @@ import (
 // point it at a scratch key. There is intentionally no env var or flag.
 var userEnvironmentKey = `Environment`
 
+// machineEnvironmentRoot and machineEnvironmentKey locate the machine PATH.
+// Tests point them at a scratch key under HKCU.
+var (
+	machineEnvironmentRoot = registry.LOCAL_MACHINE
+	machineEnvironmentKey  = `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
+)
+
 const pathValueName = "Path"
+
+// registryPathHalves returns the two halves of the PATH a new process
+// receives, machine first. The caller keeps them apart because PMG can
+// reorder the user half and nothing else.
+func registryPathHalves() (machine, user []string, err error) {
+	machine, err = readExpandedPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	user, err = readExpandedPath(registry.CURRENT_USER, userEnvironmentKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return machine, user, nil
+}
+
+func readExpandedPath(root registry.Key, keyPath string) ([]string, error) {
+	key, err := registry.OpenKey(root, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", keyPath, err)
+	}
+	defer key.Close()
+
+	value, _, err := key.GetStringValue(pathValueName)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PATH under %s: %w", keyPath, err)
+	}
+
+	// ExpandString reads %VAR% from this process's environment. A machine
+	// PATH that names a per-user variable therefore expands to this user's
+	// value, which is what a shell for this user would get.
+	expanded, err := registry.ExpandString(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand PATH under %s: %w", keyPath, err)
+	}
+	// SplitList, not a plain split on the separator, because it also strips
+	// the quotes a PATH entry may carry. A quoted entry would otherwise read
+	// as a directory that does not exist.
+	return filepath.SplitList(expanded), nil
+}
 
 var (
 	user32                  = windows.NewLazySystemDLL("user32.dll")
@@ -34,10 +85,21 @@ func registerUserPath(dir string) error {
 	if err != nil {
 		return err
 	}
-	if containsPath(entries, dir) {
+	if len(entries) > 0 && fsutil.SamePath(entries[0], dir) {
 		return nil
 	}
-	return writeUserPath(append([]string{dir}, entries...), expand)
+
+	// The shim directory has to be first, or a manager on an entry ahead of
+	// it wins. A per-user installer that prepends its own directory, as the
+	// python.org installer does, would otherwise shadow the shims until the
+	// user edited PATH by hand. A re-run of `pmg setup install` fixes it.
+	kept := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !fsutil.SamePath(entry, dir) {
+			kept = append(kept, entry)
+		}
+	}
+	return writeUserPath(append([]string{dir}, kept...), expand)
 }
 
 // unregisterUserPath removes every entry that names dir from the user PATH.
@@ -113,12 +175,20 @@ func readUserPath() (entries []string, expand bool, err error) {
 		return nil, false, fmt.Errorf("failed to read the user PATH: %w", err)
 	}
 
+	return splitRawPath(value), valueType == registry.EXPAND_SZ, nil
+}
+
+// splitRawPath keeps each entry exactly as the registry holds it, quotes and
+// all, so a read, edit and write-back does not rewrite entries PMG does not
+// own.
+func splitRawPath(value string) []string {
+	var entries []string
 	for _, entry := range strings.Split(value, ";") {
 		if entry != "" {
 			entries = append(entries, entry)
 		}
 	}
-	return entries, valueType == registry.EXPAND_SZ, nil
+	return entries
 }
 
 func writeUserPath(entries []string, expand bool) error {
