@@ -815,8 +815,12 @@ func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 			`Fix leaked env: export XDG_CONFIG_HOME="$HOME/.config"`
 	default:
 		if runtime.GOOS == "windows" {
-			takeown := fmt.Sprintf("takeown /R /F %s", dir)
-			return fmt.Sprintf("If an elevated run created it, restore ownership: %s", takeown), takeown
+			// The path is quoted because most profile paths hold a space.
+			// /D Y answers the per-directory prompt takeown shows for a
+			// directory the user cannot list. Ownership alone does not
+			// restore write access, so icacls grants it.
+			takeown := fmt.Sprintf(`takeown /R /D Y /F "%s" && icacls "%s" /grant "%%USERNAME%%":(OI)(CI)F /T`, dir, dir)
+			return fmt.Sprintf("If an elevated run created it, restore ownership from an elevated prompt: %s", takeown), takeown
 		}
 		chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
 		return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown

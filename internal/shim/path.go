@@ -75,16 +75,17 @@ func isShimDir(entry string, shimDirs []string) bool {
 }
 
 // userBinDirs lists both per-user shim directories. The suffix constants
-// above are written with forward slashes and never match a Windows path, and
-// doctor and a direct `pmg npm` run without PMG_SHIM_PATH. Without this
-// comparison ResolveRealBinary finds PMG's own shim on Windows and PMG
-// re-enters itself.
+// above do not match a backslash path, and doctor and a direct `pmg npm`
+// run without PMG_SHIM_PATH. Without this comparison ResolveRealBinary finds
+// PMG's own shim on Windows and PMG re-enters itself.
 func userBinDirs() []string {
 	var dirs []string
-	if dir, err := LegacyUserBinDir(); err == nil {
-		dirs = append(dirs, dir)
-	}
-	if dir, err := DataUserBinDir(); err == nil {
+	for _, resolve := range []func() (string, error){LegacyUserBinDir, DataUserBinDir} {
+		dir, err := resolve()
+		if err != nil {
+			log.Warnf("failed to resolve a per-user shim directory, PATH filtering may keep it: %v", err)
+			continue
+		}
 		dirs = append(dirs, dir)
 	}
 	return dirs

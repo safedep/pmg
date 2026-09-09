@@ -10,14 +10,16 @@ import (
 )
 
 // comparablePath returns the key that SamePath and PathWithinDir compare.
-// It is a cleaned path, lower-cased on Windows, where C:\Users\Dev and
-// C:\Users\dev name one directory. A Unix path is case-sensitive, so the
-// key keeps its case there. The key is for comparison only. It resolves no
-// symlink and is not a path to open.
+// It is a cleaned path, upper-cased on Windows, where C:\Users\Dev and
+// C:\Users\dev name one directory and NTFS compares names through an upcase
+// table. The key keeps its case everywhere else: only Windows guarantees
+// case-insensitivity, and a false match on a case-sensitive volume would
+// strip a directory PMG does not own. The key is for comparison only. It
+// resolves no symlink and is not a path to open.
 func comparablePath(path string) string {
 	cleaned := filepath.Clean(path)
 	if runtime.GOOS == "windows" {
-		return strings.ToLower(cleaned)
+		return strings.ToUpper(cleaned)
 	}
 	return cleaned
 }

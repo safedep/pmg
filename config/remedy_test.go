@@ -7,17 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// The remedy names the command and the variable of the platform it runs on.
-var (
-	ownershipCommand = "sudo chown -R"
-	leakedEnvVar     = "XDG_CONFIG_HOME"
-)
-
-func init() {
+// platformRemedy returns the command and the variable the remedy names on
+// the platform the test runs on.
+func platformRemedy() (ownershipCommand, leakedEnvVar string) {
 	if runtime.GOOS == "windows" {
-		ownershipCommand = "takeown"
-		leakedEnvVar = "APPDATA"
+		return "takeown", "APPDATA"
 	}
+	return "sudo chown -R", "XDG_CONFIG_HOME"
 }
 
 func withCurrentUserHome(t *testing.T, home string) {
@@ -28,6 +24,8 @@ func withCurrentUserHome(t *testing.T, home string) {
 }
 
 func TestUnwritableConfigDirRemedy(t *testing.T) {
+	ownershipCommand, leakedEnvVar := platformRemedy()
+
 	t.Run("dir inside real home suggests chown", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "")
 		withCurrentUserHome(t, "/home/alice")

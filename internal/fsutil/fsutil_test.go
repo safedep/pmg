@@ -19,8 +19,8 @@ func TestPathWithinDir(t *testing.T) {
 	assert.False(t, PathWithinDir("", "/usr/local/bin"))
 }
 
-// Windows names one directory whatever the casing. A Unix path is
-// case-sensitive, so the same pair must not match there.
+// Windows guarantees that one directory answers to every casing. No other
+// platform does, so the same pair must not match there.
 func TestPathComparisonFoldsCaseOnWindowsOnly(t *testing.T) {
 	foldsCase := runtime.GOOS == "windows"
 

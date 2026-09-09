@@ -351,7 +351,7 @@ func otherUserBinDirs(binDir string) ([]string, error) {
 
 	var dirs []string
 	for _, dir := range []string{legacyBinDir, dataBinDir} {
-		if filepath.Clean(dir) != filepath.Clean(binDir) {
+		if !fsutil.SamePath(dir, binDir) {
 			dirs = append(dirs, dir)
 		}
 	}
