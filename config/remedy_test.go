@@ -1,10 +1,24 @@
 package config
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// The remedy names the command and the variable of the platform it runs on.
+var (
+	ownershipCommand = "sudo chown -R"
+	leakedEnvVar     = "XDG_CONFIG_HOME"
+)
+
+func init() {
+	if runtime.GOOS == "windows" {
+		ownershipCommand = "takeown"
+		leakedEnvVar = "APPDATA"
+	}
+}
 
 func withCurrentUserHome(t *testing.T, home string) {
 	t.Helper()
@@ -19,9 +33,9 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 		withCurrentUserHome(t, "/home/alice")
 
 		help, fix := UnwritableConfigDirRemedy("/home/alice/.config/safedep/pmg")
-		assert.Contains(t, help, "sudo chown -R")
+		assert.Contains(t, help, ownershipCommand)
 		assert.Contains(t, help, "/home/alice/.config/safedep/pmg")
-		assert.Contains(t, fix, "sudo chown -R")
+		assert.Contains(t, fix, ownershipCommand)
 	})
 
 	t.Run("dir outside real home blames leaked env, never suggests chown", func(t *testing.T) {
@@ -29,10 +43,10 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 		withCurrentUserHome(t, "/home/pmgtest")
 
 		help, fix := UnwritableConfigDirRemedy("/home/runner/.config/safedep/pmg")
-		assert.Contains(t, help, "XDG_CONFIG_HOME")
-		assert.NotContains(t, help, "chown")
-		assert.Contains(t, fix, "XDG_CONFIG_HOME")
-		assert.NotContains(t, fix, "chown")
+		assert.Contains(t, help, leakedEnvVar)
+		assert.NotContains(t, help, ownershipCommand)
+		assert.Contains(t, fix, leakedEnvVar)
+		assert.NotContains(t, fix, ownershipCommand)
 	})
 
 	t.Run("explicit PMG_CONFIG_DIR gets its own remedy", func(t *testing.T) {
@@ -41,9 +55,9 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 
 		help, fix := UnwritableConfigDirRemedy("/srv/pmg")
 		assert.Contains(t, help, "PMG_CONFIG_DIR")
-		assert.NotContains(t, help, "chown")
+		assert.NotContains(t, help, ownershipCommand)
 		assert.Contains(t, fix, "PMG_CONFIG_DIR")
-		assert.NotContains(t, fix, "chown")
+		assert.NotContains(t, fix, ownershipCommand)
 	})
 
 	t.Run("sibling dir with home prefix is outside home", func(t *testing.T) {
@@ -51,7 +65,7 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 		withCurrentUserHome(t, "/home/alice")
 
 		help, _ := UnwritableConfigDirRemedy("/home/alice-evil/.config/safedep/pmg")
-		assert.NotContains(t, help, "chown")
+		assert.NotContains(t, help, ownershipCommand)
 	})
 
 	t.Run("unresolvable home falls back to chown for own dir", func(t *testing.T) {
@@ -61,7 +75,7 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 		t.Cleanup(func() { currentUserHomeDir = orig })
 
 		help, _ := UnwritableConfigDirRemedy("/home/alice/.config/safedep/pmg")
-		assert.Contains(t, help, "chown")
+		assert.Contains(t, help, ownershipCommand)
 	})
 }
 

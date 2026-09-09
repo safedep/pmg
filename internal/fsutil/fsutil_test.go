@@ -3,6 +3,7 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,16 @@ func TestPathWithinDir(t *testing.T) {
 	assert.False(t, PathWithinDir("/usr/local/lib/pmg/bin-extra/npm", "/usr/local/lib/pmg/bin"))
 	assert.False(t, PathWithinDir("/usr/local/bin/npm", ""))
 	assert.False(t, PathWithinDir("", "/usr/local/bin"))
+}
+
+// Windows names one directory whatever the casing. A Unix path is
+// case-sensitive, so the same pair must not match there.
+func TestPathComparisonFoldsCaseOnWindowsOnly(t *testing.T) {
+	foldsCase := runtime.GOOS == "windows"
+
+	assert.Equal(t, foldsCase, SamePath("/Users/Dev/.pmg/bin", "/users/dev/.pmg/bin"))
+	assert.Equal(t, foldsCase, PathWithinDir("/Users/Dev/.pmg/bin/npm", "/users/dev/.pmg/bin"))
+	assert.True(t, SamePath("/Users/Dev/.pmg/bin", "/Users/Dev/.pmg/bin/"))
 }
 
 func TestMkdirAllRootOwnedCreatesMissingChain(t *testing.T) {

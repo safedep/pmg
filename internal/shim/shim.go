@@ -377,8 +377,7 @@ func pruneEmptyParents(dir, stopAt string) {
 		return
 	}
 
-	prefix := filepath.Clean(stopAt) + string(os.PathSeparator)
-	for parent := filepath.Dir(dir); strings.HasPrefix(parent, prefix) && pmgOwnedDirNames[filepath.Base(parent)]; parent = filepath.Dir(parent) {
+	for parent := filepath.Dir(dir); fsutil.PathWithinDir(parent, stopAt) && !fsutil.SamePath(parent, stopAt) && pmgOwnedDirNames[filepath.Base(parent)]; parent = filepath.Dir(parent) {
 		if err := os.Remove(parent); err != nil {
 			return
 		}

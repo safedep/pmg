@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
 const (
@@ -44,28 +45,44 @@ func FilterPMGFromPath(pathEnv string) string {
 		return ""
 	}
 
-	var shimDir string
+	shimDirs := append([]string{SystemBinDir()}, userBinDirs()...)
 	if shimPath := os.Getenv(pmgShimPathEnv); shimPath != "" {
-		shimDir = filepath.Clean(filepath.Dir(shimPath))
+		shimDirs = append(shimDirs, filepath.Dir(shimPath))
 	}
 
 	entries := filepath.SplitList(pathEnv)
 	filtered := make([]string, 0, len(entries))
 
+entries:
 	for _, entry := range entries {
 		if strings.HasSuffix(entry, pmgBinSuffix) || strings.HasSuffix(entry, pmgDataBinSuffix) {
 			continue
 		}
-		if filepath.Clean(entry) == filepath.Clean(SystemBinDir()) {
-			continue
-		}
-		if shimDir != "" && filepath.Clean(entry) == shimDir {
-			continue
+		for _, dir := range shimDirs {
+			if fsutil.SamePath(entry, dir) {
+				continue entries
+			}
 		}
 		filtered = append(filtered, entry)
 	}
 
 	return strings.Join(filtered, string(os.PathListSeparator))
+}
+
+// userBinDirs lists both per-user shim directories. The suffix constants
+// above are written with forward slashes and never match a Windows path, and
+// doctor and a direct `pmg npm` run without PMG_SHIM_PATH. Without this
+// comparison ResolveRealBinary finds PMG's own shim on Windows and PMG
+// re-enters itself.
+func userBinDirs() []string {
+	var dirs []string
+	if dir, err := LegacyUserBinDir(); err == nil {
+		dirs = append(dirs, dir)
+	}
+	if dir, err := DataUserBinDir(); err == nil {
+		dirs = append(dirs, dir)
+	}
+	return dirs
 }
 
 // ResolveRealBinary finds the real binary path for a command by searching

@@ -84,6 +84,13 @@ func TestFilterPMGFromPath(t *testing.T) {
 			expected: "/usr/bin",
 		},
 		{
+			// A Unix path is case-sensitive, so this is a different directory.
+			name:     "env var does not strip an entry that differs only in case",
+			path:     "/Shims:/usr/bin",
+			shimEnv:  "/shims/npm",
+			expected: "/Shims:/usr/bin",
+		},
+		{
 			name:     "env var unset falls back to legacy suffix only",
 			path:     "/shims:/home/user/.pmg/bin:/usr/bin",
 			shimEnv:  "",

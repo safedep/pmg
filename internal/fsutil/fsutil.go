@@ -5,8 +5,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+// foldPath returns the form of a cleaned path that a lexical comparison
+// uses. Windows names one directory whatever the casing, so C:\Users\Dev
+// and C:\Users\dev must compare equal there. A Unix path is
+// case-sensitive, and folding would report a false match.
+func foldPath(cleaned string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(cleaned)
+	}
+	return cleaned
+}
+
+// SamePath reports whether a and b name the same path lexically.
+func SamePath(a, b string) bool {
+	return foldPath(filepath.Clean(a)) == foldPath(filepath.Clean(b))
+}
 
 // PathWithinDir reports whether path is dir itself or lexically inside it.
 func PathWithinDir(path, dir string) bool {
@@ -14,7 +31,7 @@ func PathWithinDir(path, dir string) bool {
 		return false
 	}
 
-	cleanPath, cleanDir := filepath.Clean(path), filepath.Clean(dir)
+	cleanPath, cleanDir := foldPath(filepath.Clean(path)), foldPath(filepath.Clean(dir))
 	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
 }
 
