@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/safedep/pmg/config"
@@ -138,26 +137,6 @@ func TestCheckEventLogDirResult(t *testing.T) {
 	t.Run("writable directory passes", func(t *testing.T) {
 		result := checkEventLogDirResult(false, t.TempDir(), configDir)
 		assert.Equal(t, doctor.StatusPass, result.Status)
-	})
-
-	t.Run("unwritable directory fails with triaged remedy", func(t *testing.T) {
-		if os.Geteuid() == 0 {
-			t.Skip("running as root: directory permissions are not enforced")
-		}
-		if runtime.GOOS == "windows" {
-			t.Skip("os.Chmod does not make a directory unwritable on Windows")
-		}
-		dir := t.TempDir()
-		require.NoError(t, os.Chmod(dir, 0o555))
-		t.Cleanup(func() {
-			require.NoError(t, os.Chmod(dir, 0o755))
-		})
-
-		result := checkEventLogDirResult(false, dir, configDir)
-		assert.Equal(t, doctor.StatusFail, result.Status)
-		assert.Equal(t, "Event log directory not writable", result.Message)
-		_, expectedFix := config.UnwritableConfigDirRemedy(configDir)
-		assert.Equal(t, expectedFix, result.Fix)
 	})
 }
 

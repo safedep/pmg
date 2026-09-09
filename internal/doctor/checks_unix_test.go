@@ -65,3 +65,18 @@ func TestSetupVenv(t *testing.T) {
 	_, err = os.Stat(pipPath)
 	assert.NoError(t, err)
 }
+
+// CheckShimScripts reads the executable bit, which Windows does not have.
+// The Windows form of the shim-directory check owns that case.
+func TestCheckShimScripts(t *testing.T) {
+	tmpDir := t.TempDir()
+	shimDir := filepath.Join(tmpDir, ".pmg", "bin")
+	require.NoError(t, os.MkdirAll(shimDir, 0o755))
+
+	shimPath := filepath.Join(shimDir, "npm")
+	require.NoError(t, os.WriteFile(shimPath, []byte("#!/bin/sh\nexec pmg npm \"$@\""), 0o755))
+
+	found, missing := CheckShimScripts(shimDir, []string{"npm", "pip"})
+	assert.Equal(t, []string{"npm"}, found)
+	assert.Equal(t, []string{"pip"}, missing)
+}
