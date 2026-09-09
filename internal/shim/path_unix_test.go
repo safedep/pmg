@@ -326,6 +326,18 @@ func TestFilterPMGFromEnv(t *testing.T) {
 				"Path=/usr/bin",
 			},
 		},
+		{
+			// A nested pmg that inherits the raw tail would replay the outer
+			// arguments.
+			name: "drops PMG_RAW_ARGS from child env",
+			env: []string{
+				"PMG_RAW_ARGS=install lodash",
+				"HOME=/home/user",
+			},
+			expected: []string{
+				"HOME=/home/user",
+			},
+		},
 	}
 
 	for _, tc := range tests {

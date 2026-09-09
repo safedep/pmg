@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,26 +66,29 @@ func executeSetupInfo() error {
 	ui.PrintInfoSection("Configuration", configEntries)
 
 	// Shell Integration section
-	aliasCfg := alias.DefaultConfig()
-	rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
-	if err != nil {
-		return fmt.Errorf("failed to create alias manager: %w", err)
-	}
-
-	aliasManager := alias.New(aliasCfg, rcFileManager)
-	isInstalled, err := aliasManager.IsInstalled()
-	if err != nil {
-		isInstalled = false
-	}
-
 	shellEntries := make(map[string]string)
 	shell, err := alias.DetectShell()
 	if err != nil {
 		shell = "unknown"
 	}
-
 	shellEntries["Detected Shell"] = shell
-	shellEntries["Aliases"] = installedState(isInstalled, aliasManager.GetRcPath())
+
+	// PMG installs no shell alias on Windows, so there is no row to report.
+	if runtime.GOOS != "windows" {
+		aliasCfg := alias.DefaultConfig()
+		rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
+		if err != nil {
+			return fmt.Errorf("failed to create alias manager: %w", err)
+		}
+
+		aliasManager := alias.New(aliasCfg, rcFileManager)
+		isInstalled, err := aliasManager.IsInstalled()
+		if err != nil {
+			isInstalled = false
+		}
+		shellEntries["Aliases"] = installedState(isInstalled, aliasManager.GetRcPath())
+	}
+
 	userBinDir, err := shim.UserBinDir()
 	if err != nil {
 		userBinDir = ""

@@ -36,6 +36,11 @@ const (
 	// cause FilterPMGFromPath to strip the wrong directory from PATH lookup
 	// and could prevent pmg from resolving the real package manager.
 	pmgShimPathEnv = "PMG_SHIM_PATH"
+
+	// pmgRawArgsEnv is the env var the Windows .cmd shim exports with the
+	// argument tail byte for byte. The launch contract replays it to cmd.exe
+	// so the manager sees one parse, not two.
+	pmgRawArgsEnv = "PMG_RAW_ARGS"
 )
 
 var resolverMu sync.Mutex
@@ -133,9 +138,10 @@ func FilterPMGFromEnv(env []string) []string {
 			result = append(result, key+"="+FilterPMGFromPath(value))
 			continue
 		}
-		// Drop PMG_SHIM_PATH so child processes don't inherit a stale marker
-		// from the shim invocation that triggered this exec.
-		if ok && strings.EqualFold(key, pmgShimPathEnv) {
+		// Drop the shim marker and the raw tail so child processes don't
+		// inherit stale values from the shim invocation that triggered this
+		// exec. A nested pmg would otherwise replay the outer arguments.
+		if ok && (strings.EqualFold(key, pmgShimPathEnv) || strings.EqualFold(key, pmgRawArgsEnv)) {
 			continue
 		}
 		result = append(result, entry)

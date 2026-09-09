@@ -18,7 +18,8 @@ import (
 // a test never edits the real HKCU\Environment.
 func isolateUserPath(t *testing.T) {
 	t.Helper()
-	keyPath := fmt.Sprintf(`Software\safedep\pmg-test\%s`, strings.ReplaceAll(t.Name(), "/", "_"))
+	// One flat key per test, so deleting it leaves no parent behind.
+	keyPath := `Software\pmg-test-` + strings.ReplaceAll(t.Name(), "/", "_")
 	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
 	require.NoError(t, err)
 	require.NoError(t, key.Close())
@@ -57,6 +58,8 @@ func TestShimManagerInstallWritesCmdShims(t *testing.T) {
 		assert.Contains(t, body, `set "PMG_SHIM_PATH=%~f0"`+"\r\n")
 		assert.Contains(t, body, `set "PMG_RAW_ARGS=%*"`+"\r\n")
 		assert.Contains(t, body, fmt.Sprintf(`"%s" %s %%*`+"\r\n", strings.ReplaceAll(pmgBin, "%", "%%"), pm))
+		assert.Contains(t, body, fmt.Sprintf(`if not exist "%s" (`+"\r\n", strings.ReplaceAll(pmgBin, "%", "%%")))
+		assert.Contains(t, body, "  exit /b 127\r\n")
 		assert.True(t, strings.HasSuffix(body, "exit /b %ERRORLEVEL%\r\n"))
 	}
 

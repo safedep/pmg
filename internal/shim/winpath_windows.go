@@ -5,6 +5,7 @@ package shim
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"unsafe"
 
@@ -139,8 +140,18 @@ func broadcastEnvironmentChange() {
 		return
 	}
 
+	// Find keeps Call from panicking on a build with no user32.dll, such as
+	// Nano Server.
+	if err := procSendMessageTimeoutW.Find(); err != nil {
+		log.Warnf("failed to broadcast the PATH change: %v", err)
+		return
+	}
+
 	r1, _, callErr := procSendMessageTimeoutW.Call(hwndBroadcast, wmSettingChange, 0,
 		uintptr(unsafe.Pointer(section)), smtoAbortIfHung, timeoutMillis, 0)
+	// LazyProc.Call is not the syscall form the compiler recognises, so the
+	// pointer needs an explicit hold until the call returns.
+	runtime.KeepAlive(section)
 	if r1 == 0 {
 		log.Warnf("failed to broadcast the PATH change: %v", callErr)
 	}
