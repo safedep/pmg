@@ -8,10 +8,16 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
-// ShimFileName is the shim file for a package manager.
-func ShimFileName(pm string) string { return pm }
+func shimFileName(pm string) string { return pm }
+
+// shimNamesBinary reports whether the PMG_BIN line of a sh shim names pmgBin.
+func shimNamesBinary(content, pmgBin string) bool {
+	bin, ok := parseShimPMGBin(content)
+	return ok && fsutil.SamePath(bin, pmgBin)
+}
 
 func shimScript(pmgBin, pm string) string {
 	return fmt.Sprintf(`#!/bin/sh

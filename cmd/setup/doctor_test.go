@@ -2,12 +2,12 @@ package setup
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/doctor"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,55 +54,113 @@ func TestShimInPathImpliesInterception(t *testing.T) {
 	assert.True(t, isInterceptionActive(results))
 }
 
-func TestResolveManagers(t *testing.T) {
+// checkShimDirResolution maps an inspection to a status. The inspection is
+// fabricated here, so the mapping is tested on every platform.
+func TestCheckShimDirResolution(t *testing.T) {
 	shimDir := "/usr/local/lib/pmg/bin"
-	calls := map[string]int{}
-	lookPath := func(name string) (string, error) {
-		calls[name]++
-		switch name {
-		case "npm":
-			return shimDir + "/npm", nil
-		case "pip":
-			return "/usr/bin/pip", nil
-		default:
-			return "", exec.ErrNotFound
-		}
+	entriesWithShim := []string{"/usr/bin", shimDir}
+	entriesWithout := []string{"/usr/bin"}
+
+	tests := []struct {
+		name       string
+		inspection shim.InterceptionInspection
+		wantStatus doctor.CheckStatus
+		wantActive bool
+		wantMsg    string
+	}{
+		{
+			name: "every manager under a shim passes and implies interception",
+			inspection: shim.InterceptionInspection{PathEntries: entriesWithShim, Resolutions: []shim.ManagerResolution{
+				{Name: "npm", Path: shimDir + "/npm", UnderShim: true},
+			}},
+			wantStatus: doctor.StatusPass, wantActive: true, wantMsg: "Package managers resolve to Shim directory",
+		},
+		{
+			name: "a shadowed manager warns when the shim directory is on PATH",
+			inspection: shim.InterceptionInspection{PathEntries: entriesWithShim, Resolutions: []shim.ManagerResolution{
+				{Name: "npm", Path: shimDir + "/npm", UnderShim: true},
+				{Name: "pip", Path: "/usr/bin/pip"},
+			}},
+			wantStatus: doctor.StatusWarn, wantMsg: "pip resolved outside Shim directory",
+		},
+		{
+			name: "only shadowed managers and no shim directory on PATH fails",
+			inspection: shim.InterceptionInspection{PathEntries: entriesWithout, Resolutions: []shim.ManagerResolution{
+				{Name: "pip", Path: "/usr/bin/pip"},
+			}},
+			wantStatus: doctor.StatusFail, wantMsg: "Shim directory not in PATH",
+		},
+		{
+			name:       "no manager installed but the shim directory on PATH passes",
+			inspection: shim.InterceptionInspection{PathEntries: entriesWithShim},
+			wantStatus: doctor.StatusPass, wantActive: true, wantMsg: "Shim directory is in PATH",
+		},
+		{
+			name:       "nothing resolves and no shim directory fails",
+			inspection: shim.InterceptionInspection{PathEntries: entriesWithout},
+			wantStatus: doctor.StatusFail, wantMsg: "Shim directory not in PATH",
+		},
 	}
 
-	resolutions := resolveManagers([]string{"npm", "pip", "uv"}, []string{shimDir}, lookPath)
-
-	assert.Equal(t, []managerResolution{
-		{Name: "npm", Path: shimDir + "/npm", UnderShim: true},
-		{Name: "pip", Path: "/usr/bin/pip", UnderShim: false},
-	}, resolutions, "a manager that does not resolve is omitted")
-	assert.Equal(t, map[string]int{"npm": 1, "pip": 1, "uv": 1}, calls, "each manager resolves once")
-
-	under, shadowed := partitionResolutions(resolutions)
-	assert.Equal(t, []string{"npm"}, managerNames(under))
-	assert.Equal(t, []string{"pip"}, managerNames(shadowed))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkShimDirResolution(shimDir, "Shim directory", tt.inspection)
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.Equal(t, tt.wantActive, result.ImpliesInterception)
+			assert.Equal(t, tt.wantMsg, result.Message)
+		})
+	}
 }
 
-func TestResolveManagersAcceptsEitherShimDir(t *testing.T) {
-	systemDir := "/usr/local/lib/pmg/bin"
-	userDir := "/home/dev/.pmg/bin"
-	lookPath := func(name string) (string, error) {
-		switch name {
-		case "npm":
-			return systemDir + "/npm", nil
-		case "pip":
-			return userDir + "/pip", nil
-		default:
-			return "/usr/bin/" + name, nil
-		}
+// checkShimDirectoryResult reads real shims, so a stale one fails on every
+// platform. A stale shim names a pmg binary other than the one running.
+func TestCheckShimDirectoryResult(t *testing.T) {
+	pmgBin, err := os.Executable()
+	require.NoError(t, err)
+	managers := []string{"npm", "pip"}
+
+	writeShims := func(t *testing.T, dir, bin string, pms []string) {
+		t.Helper()
+		require.NoError(t, shim.NewShimManager(shim.ShimConfig{
+			BinDir:          dir,
+			PMGBin:          bin,
+			PackageManagers: pms,
+			SkipUserPath:    true,
+		}).Install())
 	}
 
-	under, shadowed := partitionResolutions(resolveManagers(
-		[]string{"npm", "pip", "yarn"},
-		[]string{systemDir, userDir},
-		lookPath,
-	))
-	assert.ElementsMatch(t, []string{"npm", "pip"}, managerNames(under))
-	assert.Equal(t, []string{"yarn"}, managerNames(shadowed))
+	t.Run("every shim names this pmg binary", func(t *testing.T) {
+		dir := t.TempDir()
+		writeShims(t, dir, pmgBin, managers)
+
+		result := checkShimDirectoryResult(dir, managers)
+		assert.Equal(t, doctor.StatusPass, result.Status)
+	})
+
+	t.Run("a shim from another install fails", func(t *testing.T) {
+		dir := t.TempDir()
+		writeShims(t, dir, pmgBin, managers)
+		writeShims(t, dir, filepath.Join(t.TempDir(), "old", "pmg"), []string{"npm"})
+
+		result := checkShimDirectoryResult(dir, managers)
+		assert.Equal(t, doctor.StatusFail, result.Status)
+		assert.Equal(t, "Shims for npm name another pmg binary", result.Message)
+	})
+
+	t.Run("a missing shim fails and is named", func(t *testing.T) {
+		dir := t.TempDir()
+		writeShims(t, dir, pmgBin, []string{"npm"})
+
+		result := checkShimDirectoryResult(dir, managers)
+		assert.Equal(t, doctor.StatusFail, result.Status)
+		assert.Equal(t, "Shims missing for pip", result.Message)
+	})
+
+	t.Run("an empty directory reads as not found", func(t *testing.T) {
+		result := checkShimDirectoryResult(t.TempDir(), managers)
+		assert.Equal(t, doctor.StatusFail, result.Status)
+		assert.Equal(t, "Shim directory not found", result.Message)
+	})
 }
 
 func TestCheckSystemBinaryResult(t *testing.T) {

@@ -28,11 +28,11 @@ var (
 
 const pathValueName = "Path"
 
-// RegistryPathEntries returns the PATH a new process receives: the machine
+// registryPathEntries returns the PATH a new process receives: the machine
 // entries, then the user entries, with %VAR% references expanded. It reads
 // the registry rather than the process environment, because the shell that
 // ran `pmg setup install` still carries the PATH from before it.
-func RegistryPathEntries() ([]string, error) {
+func registryPathEntries() ([]string, error) {
 	machine, err := readExpandedPath(machineEnvironmentRoot, machineEnvironmentKey)
 	if err != nil {
 		return nil, err

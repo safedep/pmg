@@ -7,14 +7,12 @@ import (
 	"strings"
 )
 
-// ShimFileName is the shim file for a package manager. A .cmd file is what
-// every caller that applies PATHEXT finds: cmd.exe, PowerShell and Go's
-// exec.LookPath.
-func ShimFileName(pm string) string { return pm + ".cmd" }
+// A .cmd file is what every caller that applies PATHEXT finds: cmd.exe,
+// PowerShell and Go's exec.LookPath.
+func shimFileName(pm string) string { return pm + ".cmd" }
 
-// ShimNamesBinary reports whether a .cmd shim body starts pmgBin. Doctor
-// uses it to find a shim that an older install left pointing elsewhere.
-func ShimNamesBinary(content, pmgBin string) bool {
+// shimNamesBinary reports whether a .cmd shim body starts pmgBin.
+func shimNamesBinary(content, pmgBin string) bool {
 	return strings.Contains(strings.ToUpper(content), strings.ToUpper(`"`+batchEscape(pmgBin)+`" `))
 }
 

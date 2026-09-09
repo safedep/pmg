@@ -184,7 +184,7 @@ func TestRegistryPathEntries(t *testing.T) {
 	isolateMachinePath(t)
 	require.NoError(t, writeUserPath([]string{`%LOCALAPPDATA%\safedep\pmg\bin`, `C:\Tools`}, true))
 
-	entries, err := RegistryPathEntries()
+	entries, err := registryPathEntries()
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{

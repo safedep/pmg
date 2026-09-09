@@ -219,7 +219,7 @@ func LegacyUserBinDir() (string, error) {
 }
 
 func (m *ShimManager) writeShimScript(pm string) error {
-	shimPath := filepath.Join(m.config.BinDir, ShimFileName(pm))
+	shimPath := filepath.Join(m.config.BinDir, shimFileName(pm))
 	content := shimScript(m.config.PMGBin, pm)
 
 	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
