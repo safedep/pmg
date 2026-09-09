@@ -405,12 +405,10 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 	return resolveSyscallPath(notif.PID, dirfd, rawPath, followLeaf, resolve)
 }
 
-// handlePathOp enforces the deny list for one trapped path syscall. An
-// unreadable memory fails closed. See denyUnverifiable. A readable memory
-// with an unresolvable path fails open. The memory read proved the
-// supervisor has ptrace access to the task, so an unresolvable path is a
-// /proc race with a task that exits, not the dumpable=0 bypass. A tool that
-// reads /proc/self while it exits, such as ps, hits this race.
+// handlePathOp enforces the deny list for one trapped path syscall. The
+// supervisor denies the syscall when it cannot read the memory that holds the
+// path or cannot resolve the path. A process must not read or write a denied
+// path by making its target unverifiable. See denyUnverifiable.
 func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *seccompPhase, op pathSyscall) {
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
@@ -430,8 +428,7 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 
 	src, err := s.resolveOperand(notif, memFd, op.src, followsLeaf(op, op.src, flags), args.resolve)
 	if err != nil {
-		traceSeccompDecision("allow %s pid=%d unresolvable src: %v", op.name, notif.PID, err)
-		s.continueSyscall(notif.ID)
+		s.denyUnverifiable(notif, phase, "unresolvable path")
 		return
 	}
 
@@ -453,8 +450,7 @@ func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *secc
 	case pathOpRename, pathOpLink:
 		dst, err := s.resolveOperand(notif, memFd, op.dst, followsLeaf(op, op.dst, flags), args.resolve)
 		if err != nil {
-			traceSeccompDecision("allow %s pid=%d unresolvable dst: %v", op.name, notif.PID, err)
-			s.continueSyscall(notif.ID)
+			s.denyUnverifiable(notif, phase, "unresolvable rename or link target")
 			return
 		}
 		exchange := op.kind == pathOpRename && flags&unix.RENAME_EXCHANGE != 0

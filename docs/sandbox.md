@@ -496,12 +496,6 @@ file by making its own memory unreadable with `prctl(PR_SET_DUMPABLE, 0)`. A too
 under the Bubblewrap driver. Bubblewrap enforces at the mount layer and does not read process
 memory.
 
-The memory read is the check. When the supervisor reads the memory but cannot resolve the
-path, it allows the syscall. A readable memory proves the supervisor has ptrace access to the
-task, so an unresolvable path is a `/proc` race with a task that exits, not the `dumpable=0`
-bypass. A tool that reads its own `/proc` entry while it exits, such as `ps`, hits this race
-and still works.
-
 The user namespace is purely a capability vehicle. Host uid/gid are preserved through the
 mapping, so targets see the same filesystem ownership they normally would. Tools that
 refuse to run as root (npm's root-in-container warning) are unaffected because the
