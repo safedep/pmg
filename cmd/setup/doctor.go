@@ -350,9 +350,8 @@ func pathContainsDir(pathEntries []string, dir string) bool {
 	if dir == "" {
 		return false
 	}
-	cleanDir := filepath.Clean(dir)
 	for _, entry := range pathEntries {
-		if filepath.Clean(entry) == cleanDir {
+		if fsutil.SamePath(entry, dir) {
 			return true
 		}
 	}

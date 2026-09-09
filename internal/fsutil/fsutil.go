@@ -5,8 +5,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
+
+// comparablePath returns the key that SamePath and PathWithinDir compare.
+// It is a cleaned path, upper-cased on Windows, where C:\Users\Dev and
+// C:\Users\dev name one directory and NTFS compares names through an upcase
+// table. The key keeps its case everywhere else: only Windows guarantees
+// case-insensitivity, and a false match on a case-sensitive volume would
+// strip a directory PMG does not own. The key is for comparison only. It
+// resolves no symlink and is not a path to open.
+func comparablePath(path string) string {
+	cleaned := filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(cleaned)
+	}
+	return cleaned
+}
+
+// SamePath reports whether a and b name the same path lexically.
+func SamePath(a, b string) bool {
+	return comparablePath(a) == comparablePath(b)
+}
 
 // PathWithinDir reports whether path is dir itself or lexically inside it.
 func PathWithinDir(path, dir string) bool {
@@ -14,8 +35,8 @@ func PathWithinDir(path, dir string) bool {
 		return false
 	}
 
-	cleanPath, cleanDir := filepath.Clean(path), filepath.Clean(dir)
-	return cleanPath == cleanDir || strings.HasPrefix(cleanPath, cleanDir+string(os.PathSeparator))
+	keyPath, keyDir := comparablePath(path), comparablePath(dir)
+	return keyPath == keyDir || strings.HasPrefix(keyPath, keyDir+string(os.PathSeparator))
 }
 
 // ForceRootOwned sets root ownership and mode on a path pmg created or fully

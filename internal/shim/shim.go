@@ -351,7 +351,7 @@ func otherUserBinDirs(binDir string) ([]string, error) {
 
 	var dirs []string
 	for _, dir := range []string{legacyBinDir, dataBinDir} {
-		if filepath.Clean(dir) != filepath.Clean(binDir) {
+		if !fsutil.SamePath(dir, binDir) {
 			dirs = append(dirs, dir)
 		}
 	}
@@ -377,12 +377,17 @@ func pruneEmptyParents(dir, stopAt string) {
 		return
 	}
 
-	prefix := filepath.Clean(stopAt) + string(os.PathSeparator)
-	for parent := filepath.Dir(dir); strings.HasPrefix(parent, prefix) && pmgOwnedDirNames[filepath.Base(parent)]; parent = filepath.Dir(parent) {
+	for parent := filepath.Dir(dir); pmgOwnedDirNames[filepath.Base(parent)] && insideDir(parent, stopAt); parent = filepath.Dir(parent) {
 		if err := os.Remove(parent); err != nil {
 			return
 		}
 	}
+}
+
+// insideDir reports whether path is strictly inside dir, so dir itself is
+// never removed.
+func insideDir(path, dir string) bool {
+	return fsutil.PathWithinDir(path, dir) && !fsutil.SamePath(path, dir)
 }
 
 // UserShimsInstalled reports whether the per-user shim directory contains at

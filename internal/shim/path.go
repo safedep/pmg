@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
 const (
@@ -44,28 +45,50 @@ func FilterPMGFromPath(pathEnv string) string {
 		return ""
 	}
 
-	var shimDir string
+	shimDirs := append([]string{SystemBinDir()}, userBinDirs()...)
 	if shimPath := os.Getenv(pmgShimPathEnv); shimPath != "" {
-		shimDir = filepath.Clean(filepath.Dir(shimPath))
+		shimDirs = append(shimDirs, filepath.Dir(shimPath))
 	}
 
 	entries := filepath.SplitList(pathEnv)
 	filtered := make([]string, 0, len(entries))
 
 	for _, entry := range entries {
-		if strings.HasSuffix(entry, pmgBinSuffix) || strings.HasSuffix(entry, pmgDataBinSuffix) {
-			continue
+		if !isShimDir(entry, shimDirs) {
+			filtered = append(filtered, entry)
 		}
-		if filepath.Clean(entry) == filepath.Clean(SystemBinDir()) {
-			continue
-		}
-		if shimDir != "" && filepath.Clean(entry) == shimDir {
-			continue
-		}
-		filtered = append(filtered, entry)
 	}
 
 	return strings.Join(filtered, string(os.PathListSeparator))
+}
+
+func isShimDir(entry string, shimDirs []string) bool {
+	if strings.HasSuffix(entry, pmgBinSuffix) || strings.HasSuffix(entry, pmgDataBinSuffix) {
+		return true
+	}
+	for _, dir := range shimDirs {
+		if fsutil.SamePath(entry, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// userBinDirs lists both per-user shim directories. The suffix constants
+// above do not match a backslash path, and doctor and a direct `pmg npm`
+// run without PMG_SHIM_PATH. Without this comparison ResolveRealBinary finds
+// PMG's own shim on Windows and PMG re-enters itself.
+func userBinDirs() []string {
+	var dirs []string
+	for _, resolve := range []func() (string, error){LegacyUserBinDir, DataUserBinDir} {
+		dir, err := resolve()
+		if err != nil {
+			log.Warnf("failed to resolve a per-user shim directory, PATH filtering may keep it: %v", err)
+			continue
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs
 }
 
 // ResolveRealBinary finds the real binary path for a command by searching
@@ -101,15 +124,18 @@ func ResolveRealBinary(name string) (string, error) {
 func FilterPMGFromEnv(env []string) []string {
 	result := make([]string, 0, len(env))
 
+	// Windows os.Environ() returns `Path=`, so the key match folds case. A
+	// prefix match kept the shim directory on the child PATH, and an npm
+	// lifecycle script that called npm re-entered the shim and PMG.
 	for _, entry := range env {
-		if pathValue, ok := strings.CutPrefix(entry, "PATH="); ok {
-			filtered := FilterPMGFromPath(pathValue)
-			result = append(result, "PATH="+filtered)
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			result = append(result, key+"="+FilterPMGFromPath(value))
 			continue
 		}
 		// Drop PMG_SHIM_PATH so child processes don't inherit a stale marker
 		// from the shim invocation that triggered this exec.
-		if strings.HasPrefix(entry, pmgShimPathEnv+"=") {
+		if ok && strings.EqualFold(key, pmgShimPathEnv) {
 			continue
 		}
 		result = append(result, entry)

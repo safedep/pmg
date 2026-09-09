@@ -84,6 +84,17 @@ func TestFilterPMGFromPath(t *testing.T) {
 			expected: "/usr/bin",
 		},
 		{
+			// PMG folds case only where the OS guarantees insensitivity. On a
+			// case-sensitive volume this is a different directory, and on a
+			// case-insensitive macOS volume $0 carries the PATH entry's own
+			// casing, so under-stripping can only cause a re-entry, never a
+			// bypass.
+			name:     "env var does not strip an entry that differs only in case",
+			path:     "/Shims:/usr/bin",
+			shimEnv:  "/shims/npm",
+			expected: "/Shims:/usr/bin",
+		},
+		{
 			name:     "env var unset falls back to legacy suffix only",
 			path:     "/shims:/home/user/.pmg/bin:/usr/bin",
 			shimEnv:  "",
@@ -303,6 +314,18 @@ func TestFilterPMGFromEnv(t *testing.T) {
 				"PATH=/usr/bin",
 			},
 		},
+		{
+			// Windows os.Environ() spells the key `Path`. The key keeps its
+			// spelling so the child sees the variable it expects.
+			name: "filters a Path entry and drops a lower-case marker",
+			env: []string{
+				"Path=/home/user/.pmg/bin:/usr/bin",
+				"pmg_shim_path=/home/user/.pmg/bin/npm",
+			},
+			expected: []string{
+				"Path=/usr/bin",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -351,4 +374,17 @@ func TestFilterPMGFromPathStripsDataDirShims(t *testing.T) {
 			assert.Equal(t, tt.expected, FilterPMGFromPath(tt.path))
 		})
 	}
+}
+
+// Every row above hits the suffix rule. This is the directory comparison:
+// a spelling of PMG's own per-user shim directory that no suffix matches,
+// with no PMG_SHIM_PATH set.
+func TestFilterPMGFromPathStripsUserBinDirSpellings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(pmgShimPathEnv, "")
+
+	legacy := filepath.Join(home, legacyUserDirName, "bin")
+	got := FilterPMGFromPath(legacy + "/:" + legacy + "/.:/usr/bin")
+	assert.Equal(t, "/usr/bin", got)
 }
