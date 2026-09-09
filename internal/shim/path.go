@@ -123,15 +123,18 @@ func ResolveRealBinary(name string) (string, error) {
 func FilterPMGFromEnv(env []string) []string {
 	result := make([]string, 0, len(env))
 
+	// Windows os.Environ() returns `Path=`, so the key match folds case. A
+	// prefix match kept the shim directory on the child PATH, and an npm
+	// lifecycle script that called npm re-entered the shim and PMG.
 	for _, entry := range env {
-		if pathValue, ok := strings.CutPrefix(entry, "PATH="); ok {
-			filtered := FilterPMGFromPath(pathValue)
-			result = append(result, "PATH="+filtered)
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			result = append(result, key+"="+FilterPMGFromPath(value))
 			continue
 		}
 		// Drop PMG_SHIM_PATH so child processes don't inherit a stale marker
 		// from the shim invocation that triggered this exec.
-		if strings.HasPrefix(entry, pmgShimPathEnv+"=") {
+		if ok && strings.EqualFold(key, pmgShimPathEnv) {
 			continue
 		}
 		result = append(result, entry)

@@ -310,6 +310,18 @@ func TestFilterPMGFromEnv(t *testing.T) {
 				"PATH=/usr/bin",
 			},
 		},
+		{
+			// Windows os.Environ() spells the key `Path`. The key keeps its
+			// spelling so the child sees the variable it expects.
+			name: "filters a Path entry and drops a lower-case marker",
+			env: []string{
+				"Path=/home/user/.pmg/bin:/usr/bin",
+				"pmg_shim_path=/home/user/.pmg/bin/npm",
+			},
+			expected: []string{
+				"Path=/usr/bin",
+			},
+		},
 	}
 
 	for _, tc := range tests {
