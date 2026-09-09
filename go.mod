@@ -17,7 +17,7 @@ require (
 	github.com/posthog/posthog-go v1.5.12
 	github.com/rogpeppe/go-internal v1.14.1
 	github.com/safedep/dry v0.0.0-20260902122517-5c323129f964
-	github.com/safedep/ptyx v0.2.1-0.20260529140457-d1f745842a6a
+	github.com/safedep/ptyx v0.2.1-0.20260909105230-dd649ef656c4
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.10
