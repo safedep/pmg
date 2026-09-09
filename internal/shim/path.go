@@ -45,6 +45,14 @@ const (
 
 var resolverMu sync.Mutex
 
+// ShimInvocation reports whether a shim started this process, and the raw
+// argument tail the Windows shim captured. The tail is empty for a bare
+// command, because cmd.exe unsets a variable set to nothing, so a caller
+// keys "via shim" off the marker and never off the tail.
+func ShimInvocation() (rawArgs string, viaShim bool) {
+	return os.Getenv(pmgRawArgsEnv), os.Getenv(pmgShimPathEnv) != ""
+}
+
 func FilterPMGFromPath(pathEnv string) string {
 	if pathEnv == "" {
 		return ""

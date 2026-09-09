@@ -107,7 +107,7 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	mode := executionMode(opts)
 
-	cmd := exec.CommandContext(ctx, realBinary, pc.Command.Args...)
+	cmd := launchCommand(ctx, realBinary, pc.Command.Args)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -185,6 +185,12 @@ func runPTY(
 	log.Debugf("Running command with args: %s: %v", cmdExe, cmdArgs)
 
 	sessionConfig := pty.NewSessionConfig(cmdExe, cmdArgs, env)
+	// A Windows launch through cmd.exe is one raw command line. The PTY path
+	// hands ptyx that same line, or the manager sees a second parse.
+	if cmdLine := rawCommandLine(cmd); cmdLine != "" {
+		sessionConfig.Args = nil
+		sessionConfig.CmdLine = cmdLine
+	}
 	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create pty session: %w", err)
