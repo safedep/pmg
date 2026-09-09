@@ -79,6 +79,12 @@ type SessionConfig struct {
 	Command string
 	Args    []string
 	Env     []string
+
+	// CmdLine is the raw Windows command line, passed to ptyx and then to
+	// CreateProcess with no escaping. Set it when the CommandLineToArgvW
+	// rules that Args follows are the wrong rules, for example to start a
+	// batch file through cmd.exe. Windows only, and exclusive with Args.
+	CmdLine string
 }
 
 func NewSessionConfig(cmd string, args, env []string) SessionConfig {
@@ -92,8 +98,8 @@ func NewSessionConfig(cmd string, args, env []string) SessionConfig {
 // NewSession creates a new interactive PTY session.
 // The terminal is put into raw mode automatically.
 func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, error) {
-	if cfg.Command == "" {
-		return nil, fmt.Errorf("pty session requires command")
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 
 	// 1. Create console
@@ -116,13 +122,7 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	cols, rows := c.Size()
 
 	// 4. Spawn the process
-	s, err := ptyx.Spawn(ctx, ptyx.SpawnOpts{
-		Prog: cfg.Command,
-		Args: cfg.Args,
-		Cols: cols,
-		Rows: rows,
-		Env:  cfg.Env,
-	})
+	s, err := ptyx.Spawn(ctx, cfg.spawnOpts(cols, rows))
 	if err != nil {
 		// We are already in error state, restore and close is best effort.
 		_ = c.Restore(oldState)
@@ -140,6 +140,27 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	go sess.forwardResize()
 
 	return sess, nil
+}
+
+func (cfg SessionConfig) validate() error {
+	if cfg.Command == "" {
+		return fmt.Errorf("pty session requires command")
+	}
+	if cfg.CmdLine != "" && len(cfg.Args) > 0 {
+		return fmt.Errorf("pty session accepts CmdLine or Args, not both")
+	}
+	return nil
+}
+
+func (cfg SessionConfig) spawnOpts(cols, rows int) ptyx.SpawnOpts {
+	return ptyx.SpawnOpts{
+		Prog:    cfg.Command,
+		Args:    cfg.Args,
+		CmdLine: cfg.CmdLine,
+		Cols:    cols,
+		Rows:    rows,
+		Env:     cfg.Env,
+	}
 }
 
 // forwardResize passes terminal size changes to the child. A TUI agent

@@ -1,9 +1,12 @@
 package pty
 
 import (
+	"context"
 	"testing"
 
+	"github.com/safedep/ptyx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsInteractiveTerminal(t *testing.T) {
@@ -46,4 +49,32 @@ func TestIsInteractiveTerminal(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// Without this the field can stop at the PMG layer and no other test notices.
+func TestSessionConfigCmdLineReachesSpawnOpts(t *testing.T) {
+	cfg := SessionConfig{
+		Command: `C:\Windows\System32\cmd.exe`,
+		CmdLine: `cmd.exe /d /s /v:off /c ""C:\npm.cmd" install lodash"`,
+		Env:     []string{"A=B"},
+	}
+
+	assert.Equal(t, ptyx.SpawnOpts{
+		Prog:    cfg.Command,
+		CmdLine: cfg.CmdLine,
+		Cols:    120,
+		Rows:    40,
+		Env:     cfg.Env,
+	}, cfg.spawnOpts(120, 40))
+}
+
+func TestNewSessionRejectsCmdLineWithArgs(t *testing.T) {
+	// The guard runs before the console opens, so this holds without a TTY.
+	_, err := NewSession(context.Background(), SessionConfig{
+		Command: "cmd.exe",
+		Args:    []string{"/c", "dir"},
+		CmdLine: `cmd.exe /c dir`,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CmdLine or Args, not both")
 }
