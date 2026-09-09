@@ -267,6 +267,12 @@
   tier: P0
   guarantee: "With sandbox.policies.exec.enabled false, `pmg sandbox exec` exits non-zero before running the program."
   labels: [sandbox, exec, block, offline]
+- id: sandbox/exec/lists-processes
+  title: "sandbox exec lets a program read its own /proc entry"
+  category: sandbox
+  tier: P1
+  guarantee: "Under `pmg sandbox exec`, `ps aux` runs without the \"lookup self\" abort and a read of /proc/self/stat works."
+  labels: [sandbox, exec, clean]
 
 - id: sandbox/observe/env-scrub-recorded
   title: "sandbox records env scrubs to the violation cache"

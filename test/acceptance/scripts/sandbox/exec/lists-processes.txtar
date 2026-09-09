@@ -1,0 +1,21 @@
+# guarantee: under `pmg sandbox exec`, a program that reads its own /proc
+# entry works. procps `ps` opens /proc/self/stat through the /proc/self
+# link. The supervisor must allow that read. It could not resolve the path
+# of a short-lived /proc reader, so it denied the read and `ps` aborted with
+# "fatal library error, lookup self". The read now passes.
+
+[!exec:ps] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec pmg sandbox exec -- ps aux
+stdout PID
+! stderr 'lookup self'
+
+exec pmg sandbox exec -- sh -c 'cat /proc/self/stat; echo READ-OK'
+stdout READ-OK
+
+-- proj/.keep --

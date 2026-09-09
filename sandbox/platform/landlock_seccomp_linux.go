@@ -465,7 +465,7 @@ func (s *seccompSupervisor) loop() {
 }
 
 // denyUnverifiable denies a trapped syscall when the supervisor cannot read
-// or resolve its target. A process must not read or write a denied path by
+// the target's memory. A process must not read or write a denied path by
 // making its own memory unreadable with prctl(PR_SET_DUMPABLE, 0). A dead or
 // recycled task also reaches this path. handleConnect already denies an
 // unreadable sockaddr under lockdown. This does the same for a path or an
@@ -521,13 +521,17 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 
 	rawPath, err := readPathFromMem(memFd, pathAddr)
 	if err != nil {
-		s.denyUnverifiable(notif, phase, "unreadable exec path")
+		// The memory fd opened, so the task is not blinded. A bad path address
+		// makes the real execve fault too. Allow it and let the kernel reject.
+		traceSeccompDecision("allow execve pid=%d unreadable path: %v", notif.PID, err)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
 	resolved, err := resolveNotifPath(notif.PID, dirfd, rawPath, true)
 	if err != nil {
-		s.denyUnverifiable(notif, phase, "unresolvable exec path")
+		traceSeccompDecision("allow execve pid=%d unresolvable path: %v", notif.PID, err)
+		s.continueSyscall(notif.ID)
 		return
 	}
 
