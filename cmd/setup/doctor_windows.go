@@ -45,10 +45,12 @@ func pathExtensions() []string {
 	return strings.Split(exts, ";")
 }
 
+// lookInDirs lower-cases each extension, as exec.LookPath does, so a
+// resolved path reads `npm.cmd` rather than `npm.CMD`.
 func lookInDirs(name string, dirs, exts []string) (string, error) {
 	for _, dir := range dirs {
 		for _, ext := range exts {
-			candidate := filepath.Join(dir, name+ext)
+			candidate := filepath.Join(dir, name+strings.ToLower(ext))
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 				return candidate, nil
 			}
