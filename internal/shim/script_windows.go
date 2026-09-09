@@ -24,7 +24,7 @@ func shimScript(pmgBin, pm string) string {
 		"setlocal DisableDelayedExpansion",
 		fmt.Sprintf(`if not exist "%s" (`, bin),
 		fmt.Sprintf(`  echo [pmg] error: PMG binary not found: %s 1>&2`, bin),
-		`  echo [pmg] error: run 'pmg setup install' again or remove shims with 'pmg setup remove' 1>&2`,
+		`  echo [pmg] error: reinstall PMG and run 'pmg setup install', or delete %~dp0 to remove the shims 1>&2`,
 		"  exit /b 127",
 		")",
 		fmt.Sprintf(`set "%s=%%~f0"`, pmgShimPathEnv),
