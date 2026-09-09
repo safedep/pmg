@@ -52,9 +52,7 @@ func cmdExeCommandLine(binary string, viaShim bool, rawArgs string) (string, boo
 	if !viaShim {
 		return "", false
 	}
-	switch strings.ToLower(filepath.Ext(binary)) {
-	case ".cmd", ".bat":
-	default:
+	if ext := strings.ToLower(filepath.Ext(binary)); ext != ".cmd" && ext != ".bat" {
 		return "", false
 	}
 
