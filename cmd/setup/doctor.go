@@ -397,10 +397,11 @@ func shimDirs() []string {
 // shimDirs(); shimDir/pathLabel only select the PATH-membership fallback and
 // the display label, not which directories count as intercepting.
 func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doctor.CheckResult {
+	lookPath := shimLookPath(pathEntries)
 	underShim, shadowed := classifyPackageManagerResolutions(
 		alias.DefaultConfig().PackageManagers,
 		shimDirs(),
-		shimLookPath(pathEntries),
+		lookPath,
 	)
 
 	if len(shadowed) > 0 {
@@ -408,6 +409,7 @@ func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doc
 			return doctor.CheckResult{
 				Status:  doctor.StatusWarn,
 				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(shadowed, ", "), pathLabel),
+				Fix:     shadowedFix(shadowed, lookPath),
 			}
 		}
 		return doctor.CheckResult{

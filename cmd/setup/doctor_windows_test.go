@@ -101,3 +101,22 @@ func TestCheckShimDirectoryFiles(t *testing.T) {
 		assert.Equal(t, "Shim directory not found", result.Message)
 	})
 }
+
+// The fix must name where each shadowed manager resolves, and must not tell
+// the user to reorder PATH, which cannot put a user entry ahead of a machine
+// entry.
+func TestShadowedFixNamesTheResolvedPath(t *testing.T) {
+	lookPath := func(name string) (string, error) {
+		if name == "npm" {
+			return `C:\Program Files\nodejs\npm.cmd`, nil
+		}
+		return "", exec.ErrNotFound
+	}
+
+	fix := shadowedFix([]string{"npm", "npx"}, lookPath)
+
+	assert.Contains(t, fix, `npm is C:\Program Files\nodejs\npm.cmd.`)
+	assert.NotContains(t, fix, "npx is")
+	assert.Contains(t, fix, "Run them as `pmg <manager>`")
+	assert.NotContains(t, fix, "Move")
+}

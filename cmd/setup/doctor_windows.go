@@ -113,15 +113,40 @@ func checkShimDirectoryFiles(shimDir string) doctor.CheckResult {
 // Node.js MSI puts npm under C:\Program Files\nodejs) sits ahead of a user
 // PATH entry, and install alone cannot change that.
 func warnShadowedManagers(binDir string) {
-	entries := shimPathEntries()
+	lookPath := shimLookPath(shimPathEntries())
 	_, shadowed := classifyPackageManagerResolutions(
-		alias.DefaultConfig().PackageManagers, []string{binDir}, shimLookPath(entries))
+		alias.DefaultConfig().PackageManagers, []string{binDir}, lookPath)
 	if len(shadowed) == 0 {
 		return
 	}
 
-	fmt.Printf("\n%s %s resolve from a directory ahead of the shims on PATH. PMG does not intercept them.\n",
-		ui.Colors.Yellow("⚠"), strings.Join(shadowed, ", "))
-	fmt.Printf("   Move that directory behind %s in the machine PATH, or run them as `pmg <manager>`.\n", binDir)
-	fmt.Printf("   `pmg setup doctor` shows which directory it is.\n")
+	fmt.Printf("\n%s A new shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
+		ui.Colors.Yellow("⚠"))
+	for _, line := range resolvedPaths(shadowed, lookPath) {
+		fmt.Printf("   %s\n", line)
+	}
+	fmt.Printf("   %s\n", shadowedActions)
+}
+
+// shadowedActions names what a user can do today. A user PATH entry can
+// never move ahead of a machine PATH entry, so "reorder PATH" is not an
+// option for a manager that a machine-wide installer put there.
+const shadowedActions = "Run them as `pmg <manager>`, or install that manager for your user only, so it lands on the user PATH behind the shims."
+
+// shadowedFix fills the doctor Fix column with the resolved path of each
+// shadowed manager and the actions.
+func shadowedFix(shadowed []string, lookPath func(string) (string, error)) string {
+	return strings.Join(append(resolvedPaths(shadowed, lookPath), shadowedActions), " ")
+}
+
+func resolvedPaths(managers []string, lookPath func(string) (string, error)) []string {
+	lines := make([]string, 0, len(managers))
+	for _, pm := range managers {
+		resolved, err := lookPath(pm)
+		if err != nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s is %s.", pm, resolved))
+	}
+	return lines
 }
