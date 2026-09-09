@@ -33,6 +33,24 @@ const (
 // after the child exits before forcing it to stop.
 const outputDrainGrace = 2 * time.Second
 
+// inputDrainGrace bounds how long we wait for the PTY input reader to notice
+// cancellation. A read on the Windows console cannot be cancelled, so an
+// unbounded wait held the process open until the developer pressed a key.
+const inputDrainGrace = 200 * time.Millisecond
+
+// waitForInputReader waits for the stdin reader to return, but never past the
+// grace. The reader owns nothing the process needs at exit, so leaving it
+// parked on a read that cannot be cancelled is the right trade against a
+// teardown that never finishes. On Unix the read is a poll loop that ends
+// within its own timeout, so the grace does not fire.
+func waitForInputReader(inputDone <-chan struct{}) {
+	select {
+	case <-inputDone:
+	case <-time.After(inputDrainGrace):
+		log.Debugf("input drain grace exceeded, leaving the stdin reader to exit with the process")
+	}
+}
+
 type ExecuteOptions struct {
 	PackageManagerName string
 	DryRun             bool
@@ -243,7 +261,7 @@ func runPTY(
 	}()
 	defer func() {
 		cancelInput()
-		<-inputDone
+		waitForInputReader(inputDone)
 	}()
 
 	if beforeWait != nil {
