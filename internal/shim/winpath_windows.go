@@ -19,7 +19,62 @@ import (
 // point it at a scratch key. There is intentionally no env var or flag.
 var userEnvironmentKey = `Environment`
 
+// machineEnvironmentRoot and machineEnvironmentKey locate the machine PATH.
+// Tests point them at a scratch key under HKCU.
+var (
+	machineEnvironmentRoot = registry.LOCAL_MACHINE
+	machineEnvironmentKey  = `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
+)
+
 const pathValueName = "Path"
+
+// RegistryPathEntries returns the PATH a new process receives: the machine
+// entries, then the user entries, with %VAR% references expanded. It reads
+// the registry rather than the process environment, because the shell that
+// ran `pmg setup install` still carries the PATH from before it.
+func RegistryPathEntries() ([]string, error) {
+	machine, err := readExpandedPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+	user, err := readExpandedPath(registry.CURRENT_USER, userEnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+	return append(machine, user...), nil
+}
+
+func readExpandedPath(root registry.Key, keyPath string) ([]string, error) {
+	key, err := registry.OpenKey(root, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", keyPath, err)
+	}
+	defer key.Close()
+
+	value, _, err := key.GetStringValue(pathValueName)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PATH under %s: %w", keyPath, err)
+	}
+
+	expanded, err := registry.ExpandString(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand PATH under %s: %w", keyPath, err)
+	}
+	return splitPath(expanded), nil
+}
+
+func splitPath(value string) []string {
+	var entries []string
+	for _, entry := range strings.Split(value, ";") {
+		if entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
 
 var (
 	user32                  = windows.NewLazySystemDLL("user32.dll")
@@ -113,12 +168,7 @@ func readUserPath() (entries []string, expand bool, err error) {
 		return nil, false, fmt.Errorf("failed to read the user PATH: %w", err)
 	}
 
-	for _, entry := range strings.Split(value, ";") {
-		if entry != "" {
-			entries = append(entries, entry)
-		}
-	}
-	return entries, valueType == registry.EXPAND_SZ, nil
+	return splitPath(value), valueType == registry.EXPAND_SZ, nil
 }
 
 func writeUserPath(entries []string, expand bool) error {

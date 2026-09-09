@@ -156,3 +156,41 @@ func TestUserPathRegistry(t *testing.T) {
 		assert.ErrorIs(t, err, registry.ErrNotExist)
 	})
 }
+
+// isolateMachinePath points the machine PATH reader at a scratch key under
+// HKCU. HKLM needs elevation, and the reader does not care which root it
+// opens.
+func isolateMachinePath(t *testing.T) {
+	t.Helper()
+	keyPath := `Software\pmg-test-machine-` + strings.ReplaceAll(t.Name(), "/", "_")
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
+	require.NoError(t, err)
+	require.NoError(t, key.SetExpandStringValue(pathValueName, `C:\Program Files\nodejs;%SystemRoot%\System32`))
+	require.NoError(t, key.Close())
+
+	origRoot, origKey := machineEnvironmentRoot, machineEnvironmentKey
+	machineEnvironmentRoot, machineEnvironmentKey = registry.CURRENT_USER, keyPath
+	t.Cleanup(func() {
+		machineEnvironmentRoot, machineEnvironmentKey = origRoot, origKey
+		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
+	})
+}
+
+// Windows builds a new process's PATH as the machine value, then the user
+// value. A manager installed for the machine therefore sits ahead of a user
+// PATH entry, and the doctor must see that order.
+func TestRegistryPathEntries(t *testing.T) {
+	isolateUserPath(t)
+	isolateMachinePath(t)
+	require.NoError(t, writeUserPath([]string{`%LOCALAPPDATA%\safedep\pmg\bin`, `C:\Tools`}, true))
+
+	entries, err := RegistryPathEntries()
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		`C:\Program Files\nodejs`,
+		filepath.Join(os.Getenv("SystemRoot"), "System32"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), `safedep\pmg\bin`),
+		`C:\Tools`,
+	}, entries)
+}

@@ -10,7 +10,8 @@ import (
 	"github.com/safedep/dry/log"
 )
 
-func shimFileName(pm string) string { return pm }
+// ShimFileName is the shim file for a package manager.
+func ShimFileName(pm string) string { return pm }
 
 func shimScript(pmgBin, pm string) string {
 	return fmt.Sprintf(`#!/bin/sh

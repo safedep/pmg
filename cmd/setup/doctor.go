@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -171,18 +171,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 						Message: fmt.Sprintf("Could not check shims: %v", err),
 					}
 				}
-				shimDir := sm.GetBinDir()
-				info, err := os.Stat(shimDir)
-				if err != nil || !info.IsDir() {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Shim directory not found",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: "Shim directory found",
-				}
+				return checkShimDirectoryFiles(sm.GetBinDir())
 			},
 		},
 		{
@@ -261,6 +250,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 				return evaluateCACheck(cfg.ConfigDir(), user, system, truststore.UserScopeSupported())
 			},
 		},
+	}
+
+	// PMG installs no shell alias on Windows, and a check for a layer that
+	// does not exist would report a false problem.
+	if runtime.GOOS == "windows" {
+		checks = slices.DeleteFunc(checks, func(c doctor.Check) bool { return c.Name == checkShellAliases })
 	}
 
 	// System-only: the binary every user's shim execs must stay root-owned and
@@ -405,7 +400,7 @@ func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doc
 	underShim, shadowed := classifyPackageManagerResolutions(
 		alias.DefaultConfig().PackageManagers,
 		shimDirs(),
-		exec.LookPath,
+		shimLookPath(pathEntries),
 	)
 
 	if len(shadowed) > 0 {
@@ -441,7 +436,7 @@ func checkShimDirResolution(shimDir, pathLabel string, pathEntries []string) doc
 }
 
 func checkShimInPathResult() doctor.CheckResult {
-	pathEntries := filepath.SplitList(os.Getenv("PATH"))
+	pathEntries := shimPathEntries()
 
 	// The primary directory only picks the label and PATH-membership target;
 	// classification accepts resolution into either shim dir regardless.
