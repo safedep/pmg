@@ -3,6 +3,7 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,6 +48,10 @@ func TestMkdirAllRootOwnedLeavesExistingDirsAlone(t *testing.T) {
 
 	require.NoError(t, MkdirAllRootOwned(filepath.Join(existing, "created"), 0o755))
 
+	if runtime.GOOS == "windows" {
+		// Windows has no Unix permission bits to preserve.
+		return
+	}
 	info, err := os.Stat(existing)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(),

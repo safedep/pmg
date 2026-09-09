@@ -360,10 +360,10 @@ func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testi
 	candidates := systemCABundleCandidatesForOS(goosWindows)
 	joined := strings.Join(candidates, "|")
 
-	assert.Contains(t, joined, `Git/mingw64/ssl/certs/ca-bundle.crt`)
-	assert.Contains(t, joined, `Git/usr/ssl/certs/ca-bundle.crt`)
-	assert.Contains(t, joined, `Git/mingw32/ssl/certs/ca-bundle.crt`)
-	assert.Contains(t, joined, `System32/curl-ca-bundle.crt`)
+	assert.Contains(t, joined, filepath.FromSlash("Git/mingw64/ssl/certs/ca-bundle.crt"))
+	assert.Contains(t, joined, filepath.FromSlash("Git/usr/ssl/certs/ca-bundle.crt"))
+	assert.Contains(t, joined, filepath.FromSlash("Git/mingw32/ssl/certs/ca-bundle.crt"))
+	assert.Contains(t, joined, filepath.FromSlash("System32/curl-ca-bundle.crt"))
 }
 
 func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing.T) {

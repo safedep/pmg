@@ -24,7 +24,7 @@ func TestConfigHasDefaultValues(t *testing.T) {
 		assert.Equal(t, false, config.Config.Paranoid)
 		assert.Len(t, config.Config.TrustedPackages, 1)
 		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist", config.configDir)
-		assert.Equal(t, "/tmp/pmg-test/random-does-not-exist/config.yml", config.configFilePath)
+		assert.Equal(t, filepath.Join("/tmp/pmg-test/random-does-not-exist", "config.yml"), config.configFilePath)
 		assert.Equal(t, false, config.Config.Proxy.InstallOnly)
 	})
 

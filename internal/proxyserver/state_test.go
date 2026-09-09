@@ -3,6 +3,7 @@ package proxyserver
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,6 +50,12 @@ func TestRemoveState(t *testing.T) {
 }
 
 func TestIsRunningCurrentProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// IsRunning probes with Signal(0), which Windows does not support.
+		// The daemon is not supported on Windows, and its liveness check is
+		// its own issue.
+		t.Skip("Signal(0) liveness probe is Unix only")
+	}
 	s := State{PID: os.Getpid(), Addr: "127.0.0.1:1"}
 	assert.True(t, s.IsRunning())
 }
@@ -59,7 +66,7 @@ func TestIsRunningDeadPID(t *testing.T) {
 }
 
 func TestStateFilePath(t *testing.T) {
-	assert.Equal(t, "/some/dir/proxy-state.json", stateFilePath("/some/dir"))
+	assert.Equal(t, filepath.Join("/some/dir", "proxy-state.json"), stateFilePath("/some/dir"))
 }
 
 func TestResolveStatePath(t *testing.T) {

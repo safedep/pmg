@@ -16,7 +16,7 @@ func TestGetDefaultLogDir(t *testing.T) {
 	assert.NoError(t, err, "failed to get default log directory")
 
 	assert.NotEmpty(t, logDir, "log directory should not be empty")
-	assert.Contains(t, logDir, "safedep/pmg/logs")
+	assert.Contains(t, logDir, filepath.Join("safedep", "pmg", "logs"))
 }
 
 func TestLoggerInitialization(t *testing.T) {

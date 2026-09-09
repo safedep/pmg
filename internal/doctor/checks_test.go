@@ -181,6 +181,11 @@ func TestPrependPath(t *testing.T) {
 }
 
 func TestCheckShimScripts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// CheckShimScripts reads the executable bit, which Windows does not
+		// have. The Windows form of the shim-directory check owns this.
+		t.Skip("executable bit is Unix only")
+	}
 	tmpDir := t.TempDir()
 	shimDir := filepath.Join(tmpDir, ".pmg", "bin")
 	require.NoError(t, os.MkdirAll(shimDir, 0o755))

@@ -222,7 +222,7 @@ func (s *stubShell) InstallRcFiles(homeDir string, create bool) ([]string, error
 
 func TestUserBinDirPrefersLegacyDirWithShims(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(homeDir, "xdg-data"))
 
 	legacyDir := filepath.Join(homeDir, legacyUserDirName, "bin")
@@ -238,7 +238,7 @@ func TestUserBinDirPrefersLegacyDirWithShims(t *testing.T) {
 func TestUserBinDirUsesDataDirWhenLegacyEmpty(t *testing.T) {
 	homeDir := t.TempDir()
 	dataHome := filepath.Join(homeDir, "xdg-data")
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	// An empty legacy directory is not an install; a fresh setup must not
@@ -362,4 +362,14 @@ func TestPruneEmptyParentsIgnoresSystemDirs(t *testing.T) {
 	pruneEmptyParents(binDir, "")
 
 	assert.DirExists(t, filepath.Join(root, "usr", "local", "lib", "pmg"))
+}
+
+// setHomeDir points the home directory at dir. Windows reads USERPROFILE,
+// every other platform reads HOME.
+func setHomeDir(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", dir)
+	}
 }
