@@ -19,7 +19,7 @@ exec pmg sandbox exec -- ps aux
 stdout PID
 ! stderr 'lookup self'
 
-exec pmg sandbox exec -- sh -c 'cat /proc/self/stat; echo READ-OK'
+exec pmg sandbox exec -- sh -c 'cat /proc/self/stat && echo READ-OK'
 stdout READ-OK
 
 -- proj/.keep --
