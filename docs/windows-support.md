@@ -47,7 +47,7 @@ PMG also writes aube, aubr and aubx shims, but aube is not part of the initial W
 
 ## How a shim starts the manager
 
-When you type `npm install lodash`, the shell finds `npm.cmd` in the shim directory and runs it. The shim does two things:
+When you type `npm install lodash`, the shell finds `npm.cmd` in the shim directory and runs it. `cmd.exe` and PowerShell both resolve it this way, through `PATH` and `PATHEXT`. The shim does two things:
 
 1. It stores your argument text, unchanged, in the environment variable `PMG_RAW_ARGS`.
 2. It runs `pmg npm` with the same arguments.
@@ -64,7 +64,7 @@ A `PATH` shim does not intercept everything. `pmg setup doctor` reports the stat
 
 - **Current directory.** `cmd.exe` searches the current directory before `PATH`. A repository that holds its own `npm.cmd` runs that file, not the shim.
 - **Programs that skip the shell.** A program that starts `npm` directly, with no shell, appends `.exe` only and never finds a `.cmd` shim. On a stock machine it finds no `npm` at all, so this is missing coverage rather than a bypass. An IDE task that does not run through a shell behaves the same way.
-- **Machine PATH.** Windows builds a process `PATH` as the machine value, then the user value, so a user `PATH` entry can never move ahead of a machine one. `npm` from the Node.js MSI, under `C:\Program Files\nodejs`, is the common case. Run it as `pmg npm`, or move that directory behind `%LOCALAPPDATA%\safedep\pmg\bin` in the machine `PATH`, which needs an administrator.
+- **Node.js from the MSI is not intercepted.** The nodejs.org installer, `winget install OpenJS.NodeJS` and Chocolatey put `C:\Program Files\nodejs` on the machine `PATH`. Windows builds a process `PATH` as the machine value, then the user value, so the per-user shim directory can never move ahead of it. On such a machine a bare `npm install` runs Node's own `npm`. `pmg setup install` and `pmg setup doctor` report this. Until PMG can write the machine `PATH`, tracked in [safedep/pmg#457](https://github.com/safedep/pmg/issues/457), you have two options: run it as `pmg npm`, or from a terminal started as administrator move `%LOCALAPPDATA%\safedep\pmg\bin` ahead of `C:\Program Files\nodejs` in the machine `PATH`.
 - **User PATH.** A per-user installer can prepend its own directory. The python.org installer does. Run `pmg setup install` again: it moves the shim directory back to the front of the user `PATH`.
 - **Shell profile.** `fnm env | Invoke-Expression` in `$PROFILE` prepends the directory that holds `npm`, and PMG cannot reorder a profile. Run it as `pmg npm`, or drop that line from the profile. `pmg setup install` and `pmg setup doctor` name each manager that resolves ahead of the shims, where it resolves, and what to do.
 - **Git Bash.** Git Bash does not apply `PATHEXT`, so it never runs a `.cmd` shim and resolves `npm` to Node's own `npm` shell script. Run `pmg npm ...` in Git Bash, or use PowerShell or `cmd.exe`.
