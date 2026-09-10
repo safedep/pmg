@@ -7,14 +7,18 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/winacl"
 	"golang.org/x/sys/windows"
 )
 
-// defaultSystemBinDir is the machine-wide shim directory. Program Files
-// inherits an ACL that only administrators can write, which is what makes
-// the directory safe at the front of the machine PATH. The known folder is
-// asked, not the environment, which the caller's shell controls.
+// The system install lives at fixed paths under Program Files, which only
+// administrators can write. The known folder is asked, not the
+// environment, which the caller's shell controls.
+//
+//	%ProgramFiles%\safedep            vendor directory
+//	%ProgramFiles%\safedep\pmg        product directory, holds pmg.exe
+//	%ProgramFiles%\safedep\pmg\bin    shim directory
 func defaultSystemBinDir() string {
 	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
 	if err != nil {
@@ -26,14 +30,92 @@ func defaultSystemBinDir() string {
 // Windows has no profile.d. The machine PATH carries the shim directory.
 func defaultSystemProfilePath() string { return "" }
 
+func systemProductDir(binDir string) string { return filepath.Dir(binDir) }
+
+func systemBinaryPath(binDir string) string {
+	return filepath.Join(systemProductDir(binDir), "pmg.exe")
+}
+
+// systemObjects lists every PMG-owned object of a system install, parents
+// first, so the same list serves protection and verification.
+func systemObjects(binDir string) ([]string, error) {
+	product := systemProductDir(binDir)
+	objects := []string{filepath.Dir(product), product, binDir, systemBinaryPath(binDir)}
+	entries, err := os.ReadDir(binDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list the shim directory %s: %w", binDir, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			objects = append(objects, filepath.Join(binDir, entry.Name()))
+		}
+	}
+	return objects, nil
+}
+
+// validateSystemExecutable requires the running binary to be the canonical
+// one. Every system shim runs that path as whichever user typed the
+// command, so it must sit where only administrators can write, and no
+// component on the way may be a link.
+func validateSystemExecutable(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("failed to inspect pmg executable %s: %w", path, err)
+	}
+	if !systemExecutableOwnershipCheck {
+		return nil
+	}
+	want := systemBinaryPath(SystemBinDir())
+	if !fsutil.SamePath(path, want) {
+		return fmt.Errorf("pmg runs from %s. A system install needs it at %s. Unpack the release there and run the install again", path, want)
+	}
+	product := systemProductDir(SystemBinDir())
+	for _, p := range []string{filepath.Dir(product), product, path} {
+		if err := winacl.RequireNotReparsePoint(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// protectSystemObjects puts the PMG descriptor on the vendor directory, the
+// product directory, the shim directory and the binary. The shims get it
+// as they are written. A directory a standard user pre-created, or a file
+// that kept an old descriptor when it was overwritten, is repaired here.
+func protectSystemObjects(binDir, pmgBin string) error {
+	product := systemProductDir(binDir)
+	for _, p := range []string{filepath.Dir(product), product, binDir, pmgBin} {
+		if err := winacl.Protect(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSystemInstall requires the PMG descriptor on every object, the
+// shims included. Install runs it before the shim directory goes on the
+// machine PATH, and doctor runs it to report drift.
+func validateSystemInstall(binDir string) error {
+	if !systemExecutableOwnershipCheck {
+		return nil
+	}
+	objects, err := systemObjects(binDir)
+	if err != nil {
+		return err
+	}
+	for _, p := range objects {
+		if err := winacl.RequireProtected(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // installSystemPath puts the shim directory first on the machine PATH, and
-// the binary's directory on it too, so `pmg` itself resolves in every
-// terminal. The shims are checked first: a file a standard user can write
-// must not be the first `npm` on the machine PATH, where an elevated process
-// would run it. The binary's directory passed the same checks in
-// validateSystemExecutable.
+// the product directory on it too, so `pmg` itself resolves in every
+// terminal. Nothing goes on the PATH until every object is protected: the
+// first `npm` on the machine PATH runs for elevated processes as well.
 func installSystemPath(binDir, pmgBin string) error {
-	if err := validateSystemShimDir(binDir); err != nil {
+	if err := validateSystemInstall(binDir); err != nil {
 		return err
 	}
 	if err := machinePath.prepend(binDir); err != nil {
@@ -43,65 +125,11 @@ func installSystemPath(binDir, pmgBin string) error {
 }
 
 // removeSystemPath takes the shim directory off the machine PATH. The
-// binary's directory stays, as /usr/local/bin does on Linux: the binary is
-// still there, and the entry may predate PMG.
+// product directory stays, as /usr/local/bin does on Linux: the binary is
+// still there.
 func removeSystemPath(binDir, _ string) error { return machinePath.remove(binDir) }
 
 func systemPathInstalled(binDir string) bool {
 	found, err := machinePath.contains(binDir)
 	return err == nil && found
-}
-
-// validateSystemExecutable rejects a binary a standard user could replace.
-// Every system shim runs this path as whichever user typed the command, so
-// the file and its directory must be writable by administrators only, no
-// ancestor may let a standard user swap a path component, and every user
-// must be able to run the file. Symbolic links and junctions are resolved
-// first, so the checks apply to the file that runs.
-func validateSystemExecutable(path string) error {
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("failed to inspect pmg executable %s: %w", path, err)
-	}
-	if !systemExecutableOwnershipCheck {
-		return nil
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return fmt.Errorf("failed to resolve pmg executable %s: %w", path, err)
-	}
-	if err := winacl.RequireAdminOnlyWritable(resolved); err != nil {
-		return err
-	}
-	if err := winacl.RequireProtectedDir(filepath.Dir(resolved)); err != nil {
-		return err
-	}
-	return winacl.RequireExecutableByAll(resolved)
-}
-
-// validateSystemShimDir applies the binary's rules to the shim directory
-// and every shim in it. A shim overwritten in place keeps the DACL it had,
-// so the files are checked one by one, not through the directory.
-func validateSystemShimDir(dir string) error {
-	if !systemExecutableOwnershipCheck {
-		return nil
-	}
-	if err := winacl.RequireNotReparsePoint(dir); err != nil {
-		return err
-	}
-	if err := winacl.RequireProtectedDir(dir); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("failed to list the shim directory %s: %w", dir, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if err := winacl.RequireAdminOnlyWritable(filepath.Join(dir, entry.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
 }

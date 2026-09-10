@@ -34,7 +34,8 @@ func TestGlobalConfigDirIgnoresTheEnvironment(t *testing.T) {
 
 // A config a standard user dropped into the managed path before setup must
 // not seed the machine policy. The file in the temp directory carries the
-// user's own full-control entry, which is the shape of that attack.
+// directory's inherited descriptor, not PMG's, which is the shape of that
+// attack. It is rejected before it is read, and left in place.
 func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 	dir := useGlobalConfigDir(t)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -43,6 +44,7 @@ func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 
 	err := WriteSystemTemplateConfig()
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not carry the PMG security descriptor")
 	assert.Contains(t, err.Error(), "Inspect the file, delete it, and run the install again")
 
 	content, err := os.ReadFile(path)
@@ -51,7 +53,7 @@ func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 }
 
 // A junction in place of the managed directory would send the writes and
-// the ACL changes to a target of the user's choosing.
+// the descriptor changes to a target of the user's choosing.
 func TestWriteSystemTemplateConfigRejectsAJunction(t *testing.T) {
 	dir := useGlobalConfigDir(t)
 	target := filepath.Join(t.TempDir(), "elsewhere")
@@ -65,8 +67,10 @@ func TestWriteSystemTemplateConfigRejectsAJunction(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(target, "config.yml"))
 }
 
-// The full elevated path: a fresh write leaves an administrator-only file,
-// and a second run merges it because it is trusted.
+// The elevated path. A fresh install protects the vendor directory, the
+// product directory and the file it writes. A second run merges the file,
+// because it carries the PMG descriptor. A file whose descriptor drifted
+// after that is rejected again.
 func TestWriteSystemTemplateConfigProtectsWhatItWrites(t *testing.T) {
 	if !winacl.ProcessIsElevated() {
 		t.Skip("setting the owner needs an elevated process")
@@ -75,10 +79,24 @@ func TestWriteSystemTemplateConfigProtectsWhatItWrites(t *testing.T) {
 	path := filepath.Join(dir, "config.yml")
 
 	require.NoError(t, WriteSystemTemplateConfig())
-	assert.NoError(t, winacl.RequireAdminOnlyWritable(filepath.Dir(dir)))
-	assert.NoError(t, winacl.RequireAdminOnlyWritable(dir))
-	assert.NoError(t, winacl.RequireAdminOnlyWritable(path))
+	assert.NoError(t, winacl.RequireProtected(filepath.Dir(dir)))
+	assert.NoError(t, winacl.RequireProtected(dir))
+	assert.NoError(t, winacl.RequireProtected(path))
 
 	require.NoError(t, WriteSystemTemplateConfig())
-	assert.NoError(t, winacl.RequireAdminOnlyWritable(path))
+	assert.NoError(t, winacl.RequireProtected(path))
+
+	drifted, err := windows.SecurityDescriptorFromString("O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;BU)")
+	require.NoError(t, err)
+	owner, _, err := drifted.Owner()
+	require.NoError(t, err)
+	dacl, _, err := drifted.DACL()
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner, nil, dacl, nil))
+
+	err = WriteSystemTemplateConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has 4 entries, not 3")
 }

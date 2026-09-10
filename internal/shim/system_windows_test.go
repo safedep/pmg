@@ -14,18 +14,37 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Two real paths pin validateSystemExecutable to the operating system.
-// cmd.exe is what a system binary must look like. A file in the temp
-// directory is what a user-scope install looks like.
-func TestValidateSystemExecutableOnRealFiles(t *testing.T) {
-	cmdExe := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
-	assert.NoError(t, validateSystemExecutable(cmdExe))
+func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {
+	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
 
-	userFile := filepath.Join(t.TempDir(), "pmg.exe")
-	require.NoError(t, os.WriteFile(userFile, []byte("binary"), 0o755))
-	err := validateSystemExecutable(userFile)
+	// The environment does not steer it. A caller's shell controls the
+	// environment, and a directory of their choosing must not become the
+	// first entry of the machine PATH.
+	t.Setenv("ProgramFiles", `C:\Users\dev\evil`)
+	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
+}
+
+// The binary must be the canonical one. Every other location is rejected
+// with the path to use.
+func TestValidateSystemExecutableRequiresTheCanonicalPath(t *testing.T) {
+	root := t.TempDir()
+	systemBinDirOverride = filepath.Join(root, "bin")
+	t.Cleanup(func() { systemBinDirOverride = "" })
+
+	canonical := filepath.Join(root, "pmg.exe")
+	require.NoError(t, os.WriteFile(canonical, []byte("binary"), 0o755))
+	assert.NoError(t, validateSystemExecutable(canonical))
+	assert.NoError(t, validateSystemExecutable(strings.ToUpper(canonical)), "case does not matter on NTFS")
+
+	elsewhere := filepath.Join(t.TempDir(), "pmg.exe")
+	require.NoError(t, os.WriteFile(elsewhere, []byte("binary"), 0o755))
+	err := validateSystemExecutable(elsewhere)
 	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "failed to", "the file was read, and rejected on its rights")
+	assert.Contains(t, err.Error(), "A system install needs it at "+canonical)
+
+	assert.ErrorContains(t, validateSystemExecutable(filepath.Join(root, "missing.exe")), "failed to inspect")
 }
 
 func TestMachinePathScope(t *testing.T) {
@@ -92,28 +111,33 @@ func TestMachinePathScope(t *testing.T) {
 	})
 }
 
-// useSystemPaths is the Windows twin of the Unix helper. The temp directory
-// is user-owned, so the ACL checks are off and covered by winacl's tests.
-func useSystemPaths(t *testing.T, dir string) {
+// useSystemPaths is the Windows twin of the Unix helper. The layout under
+// the temp directory mirrors Program Files: root\safedep\pmg\pmg.exe and
+// root\safedep\pmg\bin. Install protects the objects, which needs elevation,
+// so every caller skips without it.
+func useSystemPaths(t *testing.T) string {
 	t.Helper()
+	if !winacl.ProcessIsElevated() {
+		t.Skip("Install protects the objects, which needs an elevated process")
+	}
 	isolateMachinePath(t)
-	systemBinDirOverride = filepath.Join(dir, "bin")
-	systemExecutableOwnershipCheck = false
+	product := filepath.Join(t.TempDir(), "safedep", "pmg")
+	require.NoError(t, os.MkdirAll(product, 0o755))
+	systemBinDirOverride = filepath.Join(product, "bin")
 
-	exe := filepath.Join(dir, "pmg.exe")
+	exe := filepath.Join(product, "pmg.exe")
 	require.NoError(t, os.WriteFile(exe, []byte("binary"), 0o755))
 	resolveExecutable = func() (string, error) { return exe, nil }
 
 	t.Cleanup(func() {
 		systemBinDirOverride = ""
-		systemExecutableOwnershipCheck = true
 		resolveExecutable = currentExecutable
 	})
+	return product
 }
 
 func TestSystemShimManagerInstallAndRemove(t *testing.T) {
-	root := t.TempDir()
-	useSystemPaths(t, root)
+	product := useSystemPaths(t)
 	setRegistryPath(t, machinePath, `C:\Program Files\nodejs\`)
 
 	mgr, err := NewSystemShimManager()
@@ -125,25 +149,26 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	require.NoError(t, mgr.Install())
 	assert.True(t, SystemShimsInstalled())
 	assert.True(t, SystemPathInstalled())
+	assert.NoError(t, ValidateSystemInstall(), "every object carries the PMG descriptor")
 
 	entries, _, err := machinePath.read()
 	require.NoError(t, err)
-	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, root}, entries,
-		"the shim directory goes first and the binary's directory last, so `pmg` itself resolves")
+	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, product}, entries,
+		"the shim directory goes first and the product directory last, so `pmg` itself resolves")
 
 	content, err := os.ReadFile(filepath.Join(SystemBinDir(), "npm.cmd"))
 	require.NoError(t, err)
-	assert.Contains(t, string(content), filepath.Join(root, "pmg.exe"))
+	assert.Contains(t, string(content), filepath.Join(product, "pmg.exe"))
 
 	bin, ok := SystemShimBinary()
 	require.True(t, ok)
-	assert.Equal(t, filepath.Join(root, "pmg.exe"), bin)
+	assert.Equal(t, filepath.Join(product, "pmg.exe"), bin)
 
 	// A second install is a no-op on the PATH and rewrites the shims.
 	require.NoError(t, mgr.Install())
 	entries, _, err = machinePath.read()
 	require.NoError(t, err)
-	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, root}, entries)
+	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, product}, entries)
 
 	require.NoError(t, mgr.Remove())
 	assert.False(t, SystemShimsInstalled())
@@ -152,42 +177,47 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 
 	entries, _, err = machinePath.read()
 	require.NoError(t, err)
-	assert.Equal(t, []string{`C:\Program Files\nodejs\`, root}, entries, "the binary stays, so its directory stays on PATH")
+	assert.Equal(t, []string{`C:\Program Files\nodejs\`, product}, entries, "the binary stays, so its directory stays on PATH")
 }
 
-// An elevated install writes administrator-only shims. This is the path a
-// real install takes.
-func TestSystemShimManagerInstallForcesAdminOnlyShims(t *testing.T) {
-	if !winacl.ProcessIsElevated() {
-		t.Skip("needs an elevated process")
-	}
-	root := t.TempDir()
-	useSystemPaths(t, root)
+// Doctor reports a drifted descriptor on any object, and a reinstall
+// restores it. The drift is applied the way an administrator would, through
+// the security API, on a shim, on the shim directory and on the binary.
+func TestSystemInstallDetectsAndRepairsDrift(t *testing.T) {
+	product := useSystemPaths(t)
 	setRegistryPath(t, machinePath, `C:\Tools`)
 
 	mgr, err := NewSystemShimManager()
 	require.NoError(t, err)
 	require.NoError(t, mgr.Install())
+	require.NoError(t, ValidateSystemInstall())
 
-	// Not validateSystemShimDir: its ancestor walk reaches the user's
-	// profile, which they own. The directory and every shim are checked.
-	assert.NoError(t, winacl.RequireAdminOnlyWritable(SystemBinDir()))
-	entries, err := os.ReadDir(SystemBinDir())
-	require.NoError(t, err)
-	require.NotEmpty(t, entries)
-	for _, entry := range entries {
-		assert.NoError(t, winacl.RequireAdminOnlyWritable(filepath.Join(SystemBinDir(), entry.Name())), entry.Name())
+	loose := "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;BU)"
+	looseDir := "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)"
+	for _, drift := range []struct{ path, sddl string }{
+		{filepath.Join(SystemBinDir(), "npm.cmd"), loose},
+		{SystemBinDir(), looseDir},
+		{filepath.Join(product, "pmg.exe"), loose},
+	} {
+		applySDDL(t, drift.path, drift.sddl)
+		err := ValidateSystemInstall()
+		require.Error(t, err, drift.path)
+		assert.Contains(t, err.Error(), drift.path)
+
+		require.NoError(t, mgr.Install())
+		assert.NoError(t, ValidateSystemInstall(), "reinstall repairs %s", drift.path)
 	}
 }
 
-func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {
-	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
+func applySDDL(t *testing.T, path, sddl string) {
+	t.Helper()
+	sd, err := windows.SecurityDescriptorFromString(sddl)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
-
-	// The environment does not steer it. A caller's shell controls the
-	// environment, and a directory of their choosing must not become the
-	// first entry of the machine PATH.
-	t.Setenv("ProgramFiles", `C:\Users\dev\evil`)
-	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
+	owner, _, err := sd.Owner()
+	require.NoError(t, err)
+	dacl, _, err := sd.DACL()
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner, nil, dacl, nil))
 }

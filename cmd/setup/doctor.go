@@ -287,11 +287,11 @@ func checkSystemBinaryResult() doctor.CheckResult {
 			Fix:     "Reinstall with pmg setup install --system, or restore root ownership/permissions",
 		}
 	}
-	if err := shim.ValidateSystemShimDir(); err != nil {
+	if err := shim.ValidateSystemInstall(); err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("System shims unsafe: %v", err),
-			Fix:     "Reinstall with pmg setup install --system, which rewrites the shims administrator-only",
+			Message: fmt.Sprintf("System install unsafe: %v", err),
+			Fix:     "Reinstall with pmg setup install --system, which restores the PMG security descriptor on every object",
 		}
 	}
 	return doctor.CheckResult{

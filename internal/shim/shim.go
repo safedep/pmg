@@ -108,12 +108,8 @@ func (m *ShimManager) Install() error {
 	}
 
 	if m.config.SystemProfile {
-		// Both directories are pmg's own (…/pmg and …/pmg/bin): force root
-		// ownership even when pre-created, so weaker modes are not inherited.
-		for _, dir := range []string{filepath.Dir(m.config.BinDir), m.config.BinDir} {
-			if err := fsutil.ForceRootOwned(dir, 0o755); err != nil {
-				return err
-			}
+		if err := protectSystemObjects(m.config.BinDir, m.config.PMGBin); err != nil {
+			return err
 		}
 	}
 

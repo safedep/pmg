@@ -12,9 +12,9 @@ On Windows, run the same command from a terminal started as administrator:
 pmg setup install --system
 ```
 
-**Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
+**Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg\pmg.exe` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
 
-`--system` enforces this because every user's shims run the PMG binary by absolute path. On Linux it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it). On Windows it checks that the binary and its directory are **owned by Administrators, SYSTEM or TrustedInstaller**, that no entry in their ACL lets Users, Everyone or Authenticated Users write, and that Users can execute the binary. A stock `Program Files` directory passes.
+`--system` enforces this because every user's shims run the PMG binary by absolute path. On Linux it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it). On Windows the binary must be at that exact path, and no component of it may be a link or a junction. The install then puts one security descriptor on every object it owns, `%ProgramFiles%\safedep`, `%ProgramFiles%\safedep\pmg`, `pmg.exe`, the shim directory and each shim: owner Administrators, full control for SYSTEM and Administrators, read and execute for Users, inheritance blocked. The shim directory goes on the machine `PATH` only after every object carries it. `pmg setup doctor` reports any object whose descriptor differs, and a second `pmg setup install --system` restores it.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
 
@@ -109,7 +109,7 @@ The system config file is authoritative for every user. A per-user `config.yml` 
 
 `pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or as an administrator on Windows, or redeploy it through your image or configuration management.
 
-On Windows, `pmg setup install --system` sets the owner and ACL of `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file to administrators only, even when a standard user created them first. `ProgramData` lets any user create a directory there, and a directory created that way would otherwise stay under that user's control. A `config.yml` that already exists there is kept only when it is administrator-only. A file a standard user can write stops the install with a message that names it. Inspect it, delete it, and run the install again. A link or junction anywhere in that path stops the install too.
+On Windows, `pmg setup install --system` puts the same security descriptor on `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file, even when a standard user created them first. `ProgramData` lets any user create a directory there, and a directory created that way would otherwise stay under that user's control. A `config.yml` that already exists there is read and merged only when it carries that descriptor exactly. Any other file stops the install with a message that names it. Inspect it, delete it, and run the install again. A link or junction anywhere in that path stops the install too.
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 

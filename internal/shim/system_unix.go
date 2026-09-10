@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
 // System install is Linux-only among the Unix platforms (enforced in
@@ -27,9 +29,22 @@ func removeSystemPath(string, string) error { return removeSystemProfile() }
 
 func systemPathInstalled(string) bool { return SystemProfileInstalled() }
 
-// validateSystemShimDir is a Windows check. On Linux ForceRootOwned sets
-// the mode of the shim directory and Install writes every shim 0755.
-func validateSystemShimDir(string) error { return nil }
+// protectSystemObjects forces root ownership on both directories pmg owns
+// (…/pmg and …/pmg/bin) even when pre-created, so weaker modes are not
+// inherited. The shims are written 0755 and the binary is the user's to
+// place.
+func protectSystemObjects(binDir, _ string) error {
+	for _, dir := range []string{filepath.Dir(binDir), binDir} {
+		if err := fsutil.ForceRootOwned(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSystemInstall is a Windows check. On Linux the binary check above
+// and the modes ForceRootOwned sets are the whole contract.
+func validateSystemInstall(string) error { return nil }
 
 // validateSystemExecutable rejects binaries unsafe for system-wide shims.
 // Shims hard-code this path, so the binary must be executable by all users,

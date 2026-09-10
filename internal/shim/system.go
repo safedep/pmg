@@ -115,10 +115,10 @@ func ValidateSystemBinary(path string) error {
 	return validateSystemExecutable(path)
 }
 
-// ValidateSystemShimDir re-runs the checks on the system shim directory and
-// its shims, for `pmg setup doctor`.
-func ValidateSystemShimDir() error {
-	return validateSystemShimDir(SystemBinDir())
+// ValidateSystemInstall re-runs the checks on every object of the system
+// install, for `pmg setup doctor`.
+func ValidateSystemInstall() error {
+	return validateSystemInstall(SystemBinDir())
 }
 
 func shimsPresent(dir string) bool {
