@@ -909,6 +909,9 @@ jobs:
           if ($output -notmatch 'Malicious package blocked') { throw "npm failed, but not because PMG blocked the package" }
           if (Test-Path node_modules\safedep-test-pkg) { throw "safedep-test-pkg found in node_modules" }
           Set-Location ..; Remove-Item -Recurse -Force block-test
+          # The step exits with the last native exit code, which the expected
+          # failure left non-zero.
+          exit 0
 
       - name: Test Malicious Package Detection
         run: |
@@ -917,6 +920,7 @@ jobs:
           npm install nyc-config@10.0.0 2>&1 | Out-String | Write-Host
           if ($LASTEXITCODE -eq 0) { throw "malicious package was not blocked" }
           Set-Location ..; Remove-Item -Recurse -Force malicious-test
+          exit 0
 
       - name: Test PNPM - Single Package & Manifest
         run: |
@@ -956,6 +960,7 @@ jobs:
           if ($output -notmatch 'Malicious package blocked') { throw "yarn add failed, but not because PMG blocked the package" }
           if (Test-Path node_modules\safedep-test-pkg) { throw "safedep-test-pkg found in node_modules" }
           Set-Location ..; Remove-Item -Recurse -Force yarn-berry-test
+          exit 0
 
       - name: Test Yarn - Single Package & Manifest
         env:
