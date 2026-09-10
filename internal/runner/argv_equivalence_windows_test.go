@@ -23,6 +23,7 @@ import (
 	"github.com/safedep/ptyx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 // One test: for the same typed command, the argv a package manager receives
@@ -136,39 +137,63 @@ func TestArgvEquivalence(t *testing.T) {
 
 	// A slice, not a map, so the subtest order is the same on every run.
 	shells := []struct {
-		name        string
-		commandLine func(tail string) string
+		name    string
+		command func(tail string) shellCommand
 	}{
-		{"cmd", func(tail string) string {
-			return `"` + interpreterPath() + `" /d /c npm ` + tail
+		{"cmd", func(tail string) shellCommand {
+			return shellCommand{
+				prog: interpreterPath(),
+				line: `"` + interpreterPath() + `" /d /c npm ` + tail,
+			}
 		}},
 		// -EncodedCommand, because -Command is parsed by the Windows command
 		// line rules before PowerShell starts, and those consume the quotes.
 		// `-Command npm install "a&b"` would reach PowerShell as
 		// `npm install a&b` and fail with a ParserError, before any PMG code
 		// runs. Base64 of UTF-16LE carries any tail verbatim.
-		{"powershell", func(tail string) string {
-			script := utf16LEBase64("npm " + tail)
-			return `powershell.exe -NoProfile -NonInteractive -EncodedCommand ` + script
+		{"powershell", func(tail string) shellCommand {
+			powershell := powershellPath(t)
+			return shellCommand{
+				prog: powershell,
+				line: `"` + powershell + `" -NoProfile -NonInteractive -EncodedCommand ` + utf16LEBase64("npm "+tail),
+			}
 		}},
 	}
 
 	for _, shell := range shells {
 		for _, tc := range cases {
 			t.Run(shell.name+"/"+tc.name, func(t *testing.T) {
-				line := shell.commandLine(tc.tail)
+				command := shell.command(tc.tail)
 
-				baseline := runCase(t, line, childEnv(managerDir, "", ""), false)
+				baseline := runCase(t, command, childEnv(managerDir, "", ""), false)
 				require.NotNil(t, baseline, "the baseline must produce an argv, or the comparison is empty")
 
-				direct := runCase(t, line, childEnv(shimDir+";"+managerDir, "pmg", "direct"), false)
+				direct := runCase(t, command, childEnv(shimDir+";"+managerDir, "pmg", "direct"), false)
 				assert.Equal(t, baseline, direct, "direct mode")
 
-				pty := runCase(t, line, childEnv(shimDir+";"+managerDir, "pmg", "pty"), true)
+				pty := runCase(t, command, childEnv(shimDir+";"+managerDir, "pmg", "pty"), true)
 				assert.Equal(t, baseline, pty, "pty mode")
 			})
 		}
 	}
+}
+
+// shellCommand is what CreateProcess takes: the program to start, and the
+// command line it receives. Windows keeps those separate, and both
+// exec.Cmd and ptyx.SpawnOpts do too, so the test carries both rather than
+// recovering one from the other.
+type shellCommand struct {
+	prog string
+	line string
+}
+
+// powershellPath returns the absolute path of Windows PowerShell, so no case
+// depends on PATH resolution.
+func powershellPath(t *testing.T) string {
+	t.Helper()
+	systemDir, err := windows.GetSystemDirectory()
+	require.NoError(t, err)
+	return filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe")
 }
 
 // utf16LEBase64 encodes a script the way PowerShell's -EncodedCommand wants
@@ -217,8 +242,11 @@ func TestPTYIgnoresACmdExeInTheWorkingDirectory(t *testing.T) {
 	}, "\r\n")
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "cmd.exe"), []byte(hijack), 0o755))
 
-	line := `"` + interpreterPath() + `" /d /c npm install lodash`
-	argv := runCaseIn(t, line, childEnv(shimDir+";"+managerDir, "pmg", "pty"), true, workDir)
+	command := shellCommand{
+		prog: interpreterPath(),
+		line: `"` + interpreterPath() + `" /d /c npm install lodash`,
+	}
+	argv := runCaseIn(t, command, childEnv(shimDir+";"+managerDir, "pmg", "pty"), true, workDir)
 
 	assert.NoFileExists(t, marker, "PMG ran a cmd.exe from the working directory")
 	assert.Equal(t, []string{"install", "lodash"}, argv)
@@ -264,15 +292,15 @@ func childEnv(pathPrefix, role, mode string) []string {
 	return env
 }
 
-func runCase(t *testing.T, commandLine string, env []string, underPTY bool) []string {
+func runCase(t *testing.T, command shellCommand, env []string, underPTY bool) []string {
 	t.Helper()
-	return runCaseIn(t, commandLine, env, underPTY, t.TempDir())
+	return runCaseIn(t, command, env, underPTY, t.TempDir())
 }
 
-// runCaseIn starts commandLine verbatim in workDir, waits for it, and returns
-// the argv the dumper wrote. It returns nil when nothing was written. The PTY
-// run spawns under a conpty so the pmg role has a console to attach to.
-func runCaseIn(t *testing.T, commandLine string, env []string, underPTY bool, workDir string) []string {
+// runCaseIn starts command verbatim in workDir, waits for it, and returns the
+// argv the dumper wrote. It returns nil when nothing was written. The PTY run
+// spawns under a conpty so the pmg role has a console to attach to.
+func runCaseIn(t *testing.T, command shellCommand, env []string, underPTY bool, workDir string) []string {
 	t.Helper()
 	dumpFile := filepath.Join(t.TempDir(), "argv.json")
 	env = append(env, dumpFileEnv+"="+dumpFile)
@@ -280,10 +308,9 @@ func runCaseIn(t *testing.T, commandLine string, env []string, underPTY bool, wo
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	prog, _, _ := strings.Cut(strings.TrimPrefix(commandLine, `"`), `"`)
 	if underPTY {
 		sess, err := ptyx.Spawn(ctx, ptyx.SpawnOpts{
-			Prog: prog, CmdLine: commandLine, Env: env, Dir: workDir, Cols: 120, Rows: 30,
+			Prog: command.prog, CmdLine: command.line, Env: env, Dir: workDir, Cols: 120, Rows: 30,
 		})
 		require.NoError(t, err)
 		defer sess.Close()
@@ -325,8 +352,8 @@ func runCaseIn(t *testing.T, commandLine string, env []string, underPTY bool, wo
 			t.Logf("pty run exited with: %v\n%s", waitErr, out.String())
 		}
 	} else {
-		cmd := exec.CommandContext(ctx, prog)
-		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: commandLine}
+		cmd := exec.CommandContext(ctx, command.prog)
+		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: command.line}
 		cmd.Env = env
 		cmd.Dir = workDir
 		out, err := cmd.CombinedOutput()
