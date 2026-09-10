@@ -884,6 +884,9 @@ func userConfigFilePath() (string, error) {
 // and bypass the globally managed config.
 var globalConfigDirOverride string
 
+// programDataDir is set on Windows from the ProgramData known folder.
+var programDataDir string
+
 // globalConfigDir returns the OS-level directory for a globally managed config
 // file, or "" when the platform has no such location.
 func globalConfigDir() string {
@@ -897,7 +900,7 @@ func globalConfigDir() string {
 	case "linux":
 		return "/etc/safedep/pmg"
 	case "windows":
-		return filepath.Join(programDataDir(), "safedep", "pmg")
+		return filepath.Join(programDataDir, "safedep", "pmg")
 	}
 
 	return ""
