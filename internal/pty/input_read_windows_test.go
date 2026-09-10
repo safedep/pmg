@@ -24,7 +24,7 @@ func consoleInput(t *testing.T) (*os.File, windows.Handle) {
 	t.Helper()
 	require.NoError(t, procAllocConsole.Find())
 	if r1, _, err := procAllocConsole.Call(); r1 == 0 {
-		t.Logf("AllocConsole: %v (a console may already exist)", err)
+		t.Logf("AllocConsole: %v (the process already has a console)", err)
 	}
 
 	name, err := windows.UTF16PtrFromString("CONIN$")
@@ -48,11 +48,13 @@ func consoleInput(t *testing.T) (*os.File, windows.Handle) {
 }
 
 // INPUT_RECORD is 20 bytes: a WORD, two bytes of padding, and a 16-byte
-// KEY_EVENT_RECORD. A wrong layout writes a record Windows misreads.
+// KEY_EVENT_RECORD whose DWORD dwControlKeyState sits at offset 12. A wrong
+// layout writes a record Windows misreads.
 func TestInputRecordMatchesWin32Layout(t *testing.T) {
 	assert.Equal(t, uintptr(20), unsafe.Sizeof(inputRecord{}))
 	assert.Equal(t, uintptr(4), unsafe.Offsetof(inputRecord{}.event))
-	assert.Equal(t, uintptr(16), unsafe.Offsetof(keyEventRecord{}.controlKeyState))
+	assert.Equal(t, uintptr(16), unsafe.Sizeof(keyEventRecord{}))
+	assert.Equal(t, uintptr(12), unsafe.Offsetof(keyEventRecord{}.controlKeyState))
 }
 
 func pendingEvents(t *testing.T, handle windows.Handle) uint32 {
