@@ -5,6 +5,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
@@ -102,16 +104,7 @@ func TestArgvEquivalence(t *testing.T) {
 	shimDir := filepath.Join(root, "shims")
 	require.NoError(t, os.Mkdir(managerDir, 0o755))
 
-	// The fake npm.cmd has the shape of the real one: a batch file that
-	// forwards %* to a native program.
-	fakeNpm := strings.Join([]string{
-		"@echo off",
-		`set "` + roleEnv + `=dump"`,
-		`"` + testBin + `" %*`,
-		"exit /b %ERRORLEVEL%",
-		"",
-	}, "\r\n")
-	require.NoError(t, os.WriteFile(filepath.Join(managerDir, "npm.cmd"), []byte(fakeNpm), 0o644))
+	writeFakeNpm(t, managerDir, testBin)
 
 	require.NoError(t, shim.NewShimManager(shim.ShimConfig{
 		BinDir:          shimDir,
@@ -141,19 +134,29 @@ func TestArgvEquivalence(t *testing.T) {
 		{"near the length limit", `install ` + strings.Repeat("a", 7000)},
 	}
 
-	shells := map[string]func(tail string) string{
-		"cmd": func(tail string) string {
-			return comspec() + ` /d /c npm ` + tail
-		},
-		"powershell": func(tail string) string {
-			return `powershell.exe -NoProfile -NonInteractive -Command npm ` + tail
-		},
+	// A slice, not a map, so the subtest order is the same on every run.
+	shells := []struct {
+		name        string
+		commandLine func(tail string) string
+	}{
+		{"cmd", func(tail string) string {
+			return `"` + interpreterPath() + `" /d /c npm ` + tail
+		}},
+		// -EncodedCommand, because -Command is parsed by the Windows command
+		// line rules before PowerShell starts, and those consume the quotes.
+		// `-Command npm install "a&b"` would reach PowerShell as
+		// `npm install a&b` and fail with a ParserError, before any PMG code
+		// runs. Base64 of UTF-16LE carries any tail verbatim.
+		{"powershell", func(tail string) string {
+			script := utf16LEBase64("npm " + tail)
+			return `powershell.exe -NoProfile -NonInteractive -EncodedCommand ` + script
+		}},
 	}
 
-	for shell, commandLine := range shells {
+	for _, shell := range shells {
 		for _, tc := range cases {
-			t.Run(shell+"/"+tc.name, func(t *testing.T) {
-				line := commandLine(tc.tail)
+			t.Run(shell.name+"/"+tc.name, func(t *testing.T) {
+				line := shell.commandLine(tc.tail)
 
 				baseline := runCase(t, line, childEnv(managerDir, "", ""), false)
 				require.NotNil(t, baseline, "the baseline must produce an argv, or the comparison is empty")
@@ -166,6 +169,74 @@ func TestArgvEquivalence(t *testing.T) {
 			})
 		}
 	}
+}
+
+// utf16LEBase64 encodes a script the way PowerShell's -EncodedCommand wants
+// it.
+func utf16LEBase64(script string) string {
+	units := utf16.Encode([]rune(script))
+	buf := make([]byte, 0, len(units)*2)
+	for _, u := range units {
+		buf = append(buf, byte(u), byte(u>>8))
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// PMG hands the PTY path one raw command line, and ptyx passes nil for
+// lpApplicationName, so CreateProcess resolves the first token itself and
+// its search order puts the current directory ahead of System32. The
+// interpreter is therefore named by absolute path. A repository that carries
+// a cmd.exe must not run on `npm install`.
+func TestPTYIgnoresACmdExeInTheWorkingDirectory(t *testing.T) {
+	testBin, err := os.Executable()
+	require.NoError(t, err)
+
+	root := t.TempDir()
+	managerDir := filepath.Join(root, "manager")
+	shimDir := filepath.Join(root, "shims")
+	workDir := filepath.Join(root, "repo")
+	for _, dir := range []string{managerDir, workDir} {
+		require.NoError(t, os.Mkdir(dir, 0o755))
+	}
+
+	writeFakeNpm(t, managerDir, testBin)
+	require.NoError(t, shim.NewShimManager(shim.ShimConfig{
+		BinDir:          shimDir,
+		PMGBin:          testBin,
+		PackageManagers: []string{"npm"},
+		SkipUserPath:    true,
+	}).Install())
+
+	// A cmd.exe in the working directory that reports itself if it ever runs.
+	marker := filepath.Join(root, "hijacked.txt")
+	hijack := strings.Join([]string{
+		"@echo off",
+		`echo hijacked > "` + marker + `"`,
+		"exit /b 0",
+		"",
+	}, "\r\n")
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "cmd.exe"), []byte(hijack), 0o755))
+
+	line := `"` + interpreterPath() + `" /d /c npm install lodash`
+	argv := runCaseIn(t, line, childEnv(shimDir+";"+managerDir, "pmg", "pty"), true, workDir)
+
+	assert.NoFileExists(t, marker, "PMG ran a cmd.exe from the working directory")
+	assert.Equal(t, []string{"install", "lodash"}, argv)
+}
+
+// writeFakeNpm writes a batch file with the shape of the real npm.cmd: it
+// forwards %* to a native program, which is what makes the tail worth
+// measuring.
+func writeFakeNpm(t *testing.T, dir, testBin string) {
+	t.Helper()
+	body := strings.Join([]string{
+		"@echo off",
+		`set "` + roleEnv + `=dump"`,
+		`"` + testBin + `" %*`,
+		"exit /b %ERRORLEVEL%",
+		"",
+	}, "\r\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "npm.cmd"), []byte(body), 0o644))
 }
 
 // childEnv is the process environment for one run. PATH puts the given
@@ -193,10 +264,15 @@ func childEnv(pathPrefix, role, mode string) []string {
 	return env
 }
 
-// runCase starts commandLine verbatim, waits for it, and returns the argv
-// the dumper wrote. It returns nil when nothing was written. The PTY run
-// spawns under a conpty so the pmg role has a console to attach to.
 func runCase(t *testing.T, commandLine string, env []string, underPTY bool) []string {
+	t.Helper()
+	return runCaseIn(t, commandLine, env, underPTY, t.TempDir())
+}
+
+// runCaseIn starts commandLine verbatim in workDir, waits for it, and returns
+// the argv the dumper wrote. It returns nil when nothing was written. The PTY
+// run spawns under a conpty so the pmg role has a console to attach to.
+func runCaseIn(t *testing.T, commandLine string, env []string, underPTY bool, workDir string) []string {
 	t.Helper()
 	dumpFile := filepath.Join(t.TempDir(), "argv.json")
 	env = append(env, dumpFileEnv+"="+dumpFile)
@@ -204,35 +280,55 @@ func runCase(t *testing.T, commandLine string, env []string, underPTY bool) []st
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	prog, _, _ := strings.Cut(commandLine, " ")
+	prog, _, _ := strings.Cut(strings.TrimPrefix(commandLine, `"`), `"`)
 	if underPTY {
-		sess, err := ptyx.Spawn(ctx, ptyx.SpawnOpts{Prog: prog, CmdLine: commandLine, Env: env, Cols: 120, Rows: 30})
+		sess, err := ptyx.Spawn(ctx, ptyx.SpawnOpts{
+			Prog: prog, CmdLine: commandLine, Env: env, Dir: workDir, Cols: 120, Rows: 30,
+		})
 		require.NoError(t, err)
 		defer sess.Close()
 
 		// The reader must drain the PTY, or the child blocks on a full pipe.
-		// Its output is the only diagnostic when the pmg role fails.
+		// Its output is the only diagnostic when the pmg role fails, and
+		// copyDone hands the buffer over so nothing reads it while the
+		// copier still writes.
 		var out bytes.Buffer
-		go io.Copy(&out, sess.PtyReader())
+		copyDone := make(chan struct{})
+		go func() {
+			defer close(copyDone)
+			_, _ = io.Copy(&out, sess.PtyReader())
+		}()
 
 		// ptyx.Spawn does not stop the child when ctx ends, so a hung child
 		// would hold the whole package's test budget.
-		done := make(chan error, 1)
-		go func() { done <- sess.Wait() }()
+		waitDone := make(chan error, 1)
+		go func() { waitDone <- sess.Wait() }()
+
+		var waitErr error
+		timedOut := false
 		select {
-		case err := <-done:
-			if err != nil {
-				t.Logf("pty run exited with: %v\n%s", err, out.String())
-			}
+		case waitErr = <-waitDone:
 		case <-ctx.Done():
+			timedOut = true
 			_ = sess.Kill()
-			<-done
+			<-waitDone
+		}
+
+		// Close before reading out: the copier ends when the PTY reports EOF.
+		_ = sess.Close()
+		<-copyDone
+
+		switch {
+		case timedOut:
 			t.Logf("pty run timed out\n%s", out.String())
+		case waitErr != nil:
+			t.Logf("pty run exited with: %v\n%s", waitErr, out.String())
 		}
 	} else {
 		cmd := exec.CommandContext(ctx, prog)
 		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: commandLine}
 		cmd.Env = env
+		cmd.Dir = workDir
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("run exited with: %v\n%s", err, out)

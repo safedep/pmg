@@ -14,7 +14,9 @@ import (
 // for byte. PMG writes no quoting algorithm and rejects no argument.
 func TestCmdExeCommandLine(t *testing.T) {
 	const npm = `C:\Program Files\nodejs\npm.cmd`
-	prefix := `cmd.exe /d /s /v:off /c ""` + npm + `"`
+	// The interpreter is named by absolute path, so CreateProcess cannot
+	// resolve a cmd.exe from the current directory.
+	prefix := `"` + interpreterPath() + `" /d /s /v:off /c ""` + npm + `"`
 
 	tails := []struct {
 		name string

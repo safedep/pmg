@@ -11,7 +11,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/shim"
+	"golang.org/x/sys/windows"
 )
 
 // launchCommand builds the command PMG starts for the resolved manager.
@@ -30,7 +32,7 @@ func launchCommand(ctx context.Context, binary string, args []string) *exec.Cmd 
 		return exec.CommandContext(ctx, binary, args...)
 	}
 
-	cmd := exec.CommandContext(ctx, comspec())
+	cmd := exec.CommandContext(ctx, interpreterPath())
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: line}
 	return cmd
 }
@@ -48,6 +50,12 @@ func rawCommandLine(cmd *exec.Cmd) string {
 // controls how cmd.exe strips the outer quote pair, which is why the whole
 // command carries one. /v:off holds delayed expansion off whatever the
 // parent enabled. The tail is appended byte for byte and never quoted.
+//
+// The interpreter is named by absolute path. The PTY path hands this line to
+// ptyx, which passes nil for lpApplicationName, so CreateProcess would
+// resolve a bare `cmd.exe` by its own search order, and that order puts the
+// current directory ahead of System32. A repository carrying a cmd.exe would
+// then run on `npm install`.
 func cmdExeCommandLine(binary string, viaShim bool, rawArgs string) (string, bool) {
 	if !viaShim {
 		return "", false
@@ -60,12 +68,23 @@ func cmdExeCommandLine(binary string, viaShim bool, rawArgs string) (string, boo
 	if rawArgs != "" {
 		tail = " " + rawArgs
 	}
-	return fmt.Sprintf(`cmd.exe /d /s /v:off /c ""%s"%s"`, binary, tail), true
+	return fmt.Sprintf(`"%s" /d /s /v:off /c ""%s"%s"`, interpreterPath(), binary, tail), true
 }
 
-func comspec() string {
-	if c := os.Getenv("COMSPEC"); c != "" {
+// interpreterPath returns the absolute path of the command interpreter.
+// COMSPEC is honoured only when it is already absolute, because a relative
+// value would put the search back in the caller's hands. The system
+// directory is the fallback, rather than a PATH lookup, because neither PATH
+// nor the current directory can influence it.
+func interpreterPath() string {
+	if c := os.Getenv("COMSPEC"); filepath.IsAbs(c) {
 		return c
 	}
-	return "cmd.exe"
+
+	systemDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		log.Warnf("failed to resolve the system directory: %v", err)
+		return `C:\Windows\System32\cmd.exe`
+	}
+	return filepath.Join(systemDir, "cmd.exe")
 }
