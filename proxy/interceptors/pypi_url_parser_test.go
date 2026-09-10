@@ -404,6 +404,32 @@ func TestParseWheelFilename(t *testing.T) {
 		wantErr     bool
 	}{
 		{
+			name:     "hyphenated name",
+			filename: "Flask-RESTful-0.3.10-py2.py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid build tag",
+			filename: "demo-1.0.0-local1-py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:     "extra components",
+			filename: "pkg-1.0.0-1local-1-py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid version",
+			filename: "demo-invalid-py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:        "epoch version",
+			filename:    "demo-1!2.0-1local-py3-none-any.whl",
+			wantName:    "demo",
+			wantVersion: "1!2.0",
+		},
+		{
 			name:        "wheel with build suffix",
 			filename:    "wheel_canary-1.0.0-1local-py3-none-any.whl",
 			wantName:    "wheel-canary",

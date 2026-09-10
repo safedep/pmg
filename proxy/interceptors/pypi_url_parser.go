@@ -225,58 +225,22 @@ func parseDistributionFilename(filename string) (*pypiPackageInfo, error) {
 // - numpy-1.24.0-cp311-cp311-linux_x86_64.whl
 // - package_name-1.0.0-1-py3-none-any.whl (with build tag)
 func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
-	// Remove .whl extension
 	basename := strings.TrimSuffix(filename, ".whl")
-
-	// Split by '-' to get components
-	// Minimum: name-version-python-abi-platform (5 parts)
-	// With build tag: name-version-build-python-abi-platform (6 parts)
 	parts := strings.Split(basename, "-")
 
-	if len(parts) < 5 {
-		return nil, fmt.Errorf("invalid wheel filename: not enough components in %s", filename)
+	if len(parts) != 5 && len(parts) != 6 {
+		return nil, fmt.Errorf("wheel filename %q must have five or six components", filename)
 	}
-
-	// The last 3 parts are always: python_tag, abi_tag, platform_tag
-	// Before that is either: name, version OR name, version, build_tag
-	// We need to find where the version is
-
-	// Work backwards: last 3 are tags
-	// If 6+ parts, could have build tag
-	// If 5 parts, no build tag
-
-	var name, version string
-
-	if len(parts) == 5 {
-		// name-version-python-abi-platform
-		name = parts[0]
-		version = parts[1]
-	} else if len(parts) == 6 {
-		// Could be:
-		// - name-version-build-python-abi-platform (6 parts, with build tag)
-		// - name_with_underscore-version-python-abi-platform (can't be this, underscores in names are normalized)
-		// PEP 427 build tags start with a digit.
-		if isBuildTag(parts[2]) {
-			name = parts[0]
-			version = parts[1]
-		} else {
-			// The name might contain a hyphen that wasn't normalized
-			// This shouldn't happen with properly normalized names, but handle it
-			name = parts[0] + "_" + parts[1]
-			version = parts[2]
-		}
-	} else {
-		// More than 6 parts - name contains hyphens or there's a build tag
-		// Try to find version by looking for semver-like pattern
-		name, version = extractNameVersionFromParts(parts[:len(parts)-3])
-		if name == "" || version == "" {
-			return nil, fmt.Errorf("could not parse wheel filename: %s", filename)
-		}
+	if parts[0] == "" || !pypiSdistVersionPattern.MatchString(parts[1]) {
+		return nil, fmt.Errorf("wheel filename %q has an invalid package name or version", filename)
+	}
+	if len(parts) == 6 && !isBuildTag(parts[2]) {
+		return nil, fmt.Errorf("wheel filename %q has an invalid build tag", filename)
 	}
 
 	return &pypiPackageInfo{
-		name:       denormalizePyPIPackageName(name),
-		version:    version,
+		name:       denormalizePyPIPackageName(parts[0]),
+		version:    parts[1],
 		isDownload: true,
 		fileType:   "wheel",
 	}, nil
@@ -340,34 +304,6 @@ func extractNameVersionFromSdist(basename string) (string, string) {
 	}
 
 	return "", ""
-}
-
-// extractNameVersionFromParts extracts name and version from wheel filename parts
-// (excluding the python-abi-platform tags)
-func extractNameVersionFromParts(parts []string) (string, string) {
-	if len(parts) < 2 {
-		return "", ""
-	}
-
-	// Version pattern for wheels
-	versionPattern := regexp.MustCompile(`^\d+(\.\d+)*([._]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\d*)*(\+[a-zA-Z0-9._]+)?$`)
-
-	// Try from the end, looking for version-like parts
-	for i := len(parts) - 1; i > 0; i-- {
-		if versionPattern.MatchString(parts[i]) {
-			// Check if the next part is a build tag.
-			if i+1 < len(parts) && isBuildTag(parts[i+1]) {
-				// This is the version, parts[i+1] is build tag
-				name := strings.Join(parts[:i], "_")
-				return name, parts[i]
-			}
-			name := strings.Join(parts[:i], "_")
-			return name, parts[i]
-		}
-	}
-
-	// Fallback: assume first part is name, second is version
-	return parts[0], parts[1]
 }
 
 // denormalizePyPIPackageName converts a normalized package name back to a more canonical form

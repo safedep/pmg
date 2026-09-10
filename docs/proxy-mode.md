@@ -22,10 +22,10 @@ proxy:
   install_only: false
 ```
 
-| Key | Default | Description |
-|---|---|---|
-| `install_only` | `false` | When `true`, only install commands are proxied. Other commands (e.g., `npm ls`, `pip list`) bypass the proxy and execute directly. |
-| `skip_commands` | `{}` | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`. |
+| Key             | Default | Description                                                                                                                        |
+| --------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `install_only`  | `false` | When `true`, only install commands are proxied. Other commands (e.g., `npm ls`, `pip list`) bypass the proxy and execute directly. |
+| `skip_commands` | `{}`    | Per-package-manager commands to bypass the proxy. Only applies when `install_only` is `true`.                                      |
 
 ### Per-package-manager skip commands
 
@@ -43,8 +43,8 @@ Commands in `skip_commands` are matched against the first non-flag argument. For
 
 ### Environment variables
 
-| Variable | Description |
-|---|---|
+| Variable                 | Description                   |
+| ------------------------ | ----------------------------- |
 | `PMG_PROXY_INSTALL_ONLY` | Override `proxy.install_only` |
 
 The legacy flat config key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
@@ -77,10 +77,10 @@ proxy:
 
 Both PyPI URLs belong to one logical registry. List every metadata and artifact endpoint you want PMG to analyze. PMG does not trust hosts that it discovers through metadata links or redirects.
 
-| Key | Description |
-|---|---|
-| `name` | A unique label for the registry. Used in logs. |
-| `ecosystem` | `npm` or `pypi`. No other ecosystem is supported. |
+| Key               | Description                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`            | A unique label for the registry. Used in logs.                                                                                                        |
+| `ecosystem`       | `npm` or `pypi`. No other ecosystem is supported.                                                                                                     |
 | `endpoints[].url` | The base URL PMG matches requests against. Must be absolute. Must use `http` or `https`. Must not contain credentials, a query string, or a fragment. |
 
 ### How PMG matches a request
@@ -106,7 +106,9 @@ A request on a configured host whose path matches no endpoint passes through unc
 
 ### How PMG identifies a package
 
-PMG reads a package name and version directly from the request URL: the npm tarball path shape, or the PyPI distribution filename. When the URL carries no identity, PMG fails open: it allows the download without analysis and never blocks on a guess. This covers opaque download URLs such as `.../download/opaque?id=42` and any path shape PMG does not recognize. Support to identify these downloads from registry metadata is planned.
+PMG reads the package name and version (identity) from the registry URL.
+Default mode allows requests without analysis when PMG cannot resolve the package identity.
+Paranoid mode returns HTTP 403 when an enabled registry parser fails or an artifact identity is incomplete.
 
 ### npm registry requirements
 
@@ -187,21 +189,21 @@ pip config debug
 
 ## Supported Package Managers
 
-| Package Manager | Status |
-| --------------- | ------ |
-| `npm`           | ✅      |
-| `npx`           | ✅      |
-| `pnpm`          | ✅      |
-| `pnpx`          | ✅      |
-| `bun`           | ✅      |
-| `yarn`          | ✅      |
-| `aube`          | ✅      |
-| `aubr`          | ✅      |
-| `aubx`          | ✅      |
-| `pip`           | ✅      |
-| `uv`            | ✅      |
-| `uvx`           | ✅      |
-| `poetry`        | ✅      |
+| Package Manager | Status          |
+| --------------- | --------------- |
+| `npm`           | ✅              |
+| `npx`           | ✅              |
+| `pnpm`          | ✅              |
+| `pnpx`          | ✅              |
+| `bun`           | ✅              |
+| `yarn`          | ✅              |
+| `aube`          | ✅              |
+| `aubr`          | ✅              |
+| `aubx`          | ✅              |
+| `pip`           | ✅              |
+| `uv`            | ✅              |
+| `uvx`           | ✅              |
+| `poetry`        | ✅              |
 | `go`            | 🧪 experimental |
 | `cargo`         | 🧪 experimental |
 

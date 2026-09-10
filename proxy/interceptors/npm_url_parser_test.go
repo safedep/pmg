@@ -4,7 +4,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestNpmRegistryAPIPaths(t *testing.T) {
+	for _, path := range []string{
+		"/-/v1/search",
+		"/-/package/demo/dist-tags",
+		"/-/package/@scope/demo/dist-tags",
+		"/-/ping",
+	} {
+		t.Run(path, func(t *testing.T) {
+			info, err := (npmParser{}).ParseURL(path)
+			require.NoError(t, err)
+			assert.Empty(t, info.GetName())
+			assert.Empty(t, info.GetVersion())
+			assert.False(t, info.IsFileDownload())
+		})
+	}
+}
 
 func TestParseNpmRegistryURL(t *testing.T) {
 	tests := []struct {

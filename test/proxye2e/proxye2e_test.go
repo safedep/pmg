@@ -483,6 +483,8 @@ func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
 		{name: "PyPI artifact", host: "files.pythonhosted.org", path: "/packages/invalid.whl"},
 		{name: "PyPI Simple API artifact", host: "pypi.org", path: "/simple/demo/invalid.whl"},
 		{name: "npm artifact", host: "registry.npmjs.org", path: "/demo/-/invalid.tgz"},
+		{name: "hyphenated wheel", host: "files.pythonhosted.org", path: "/packages/Flask-RESTful-0.3.10-py2.py3-none-any.whl"},
+		{name: "wheel with extra components", host: "files.pythonhosted.org", path: "/packages/pkg-1.0.0-1local-1-py3-none-any.whl"},
 	} {
 		for _, mode := range []struct {
 			name     string
@@ -529,6 +531,33 @@ func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
 			assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.0.0"))
 		},
 	})
+	RunCases(t, cases)
+}
+
+func TestProxyFlow_NpmRegistryAPI(t *testing.T) {
+	var cases []TestCase
+	for _, path := range []string{"/-/v1/search", "/-/package/demo/dist-tags", "/-/package/@scope/demo/dist-tags", "/-/ping"} {
+		cases = append(cases, TestCase{
+			Name: path,
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.Paranoid = true
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.get("https://registry.npmjs.org"+path, nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 1)
+				require.NoError(t, res.Requests[0].Err)
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.Requested("registry.npmjs.org", path))
+				assert.Empty(t, h.Analyzer.Calls())
+				assert.Empty(t, h.CooldownBlocks())
+			},
+		})
+	}
 	RunCases(t, cases)
 }
 
