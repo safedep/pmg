@@ -228,7 +228,15 @@ func (m *ShimManager) writeShimScript(pm string) error {
 
 	// WriteFile honors the process umask (e.g. root umask 077 births the shim
 	// as 0700); chmod so the shim stays executable by every user.
-	return os.Chmod(shimPath, 0o755)
+	if err := os.Chmod(shimPath, 0o755); err != nil {
+		return err
+	}
+	if !m.config.SystemProfile {
+		return nil
+	}
+	// A shim overwritten in place keeps the ownership and ACL it had, so a
+	// system shim is forced administrator-only whatever was there before.
+	return fsutil.ForceRootOwned(shimPath, 0o755)
 }
 
 func currentExecutable() (string, error) {

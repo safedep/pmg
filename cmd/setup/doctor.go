@@ -287,9 +287,16 @@ func checkSystemBinaryResult() doctor.CheckResult {
 			Fix:     "Reinstall with pmg setup install --system, or restore root ownership/permissions",
 		}
 	}
+	if err := shim.ValidateSystemShimDir(); err != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: fmt.Sprintf("System shims unsafe: %v", err),
+			Fix:     "Reinstall with pmg setup install --system, which rewrites the shims administrator-only",
+		}
+	}
 	return doctor.CheckResult{
 		Status:  doctor.StatusPass,
-		Message: fmt.Sprintf("System binary is protected from other users (%s)", path),
+		Message: fmt.Sprintf("System binary and shims are protected from other users (%s)", path),
 	}
 }
 

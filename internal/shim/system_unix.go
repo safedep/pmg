@@ -27,6 +27,10 @@ func removeSystemPath(string, string) error { return removeSystemProfile() }
 
 func systemPathInstalled(string) bool { return SystemProfileInstalled() }
 
+// validateSystemShimDir is a Windows check. On Linux ForceRootOwned sets
+// the mode of the shim directory and Install writes every shim 0755.
+func validateSystemShimDir(string) error { return nil }
+
 // validateSystemExecutable rejects binaries unsafe for system-wide shims.
 // Shims hard-code this path, so the binary must be executable by all users,
 // not writable by group/others, and owned by root in a root-owned, non-world-

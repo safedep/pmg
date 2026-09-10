@@ -1169,8 +1169,21 @@ func WriteSystemTemplateConfig() error {
 	// by non-root users — silently disabling the system-wide policy for
 	// them. Only directories created here and the file we write are touched;
 	// pre-existing directories keep their permissions.
-	if err := fsutil.MkdirAllRootOwned(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := fsutil.MkdirAllRootOwned(dir, 0o755); err != nil {
 		return err
+	}
+
+	// ProgramData lets a standard user create a directory, and one created
+	// that way stays theirs, so on Windows both PMG-owned components are
+	// forced administrator-only even when they already exist. /etc has no
+	// such hole, so Linux keeps pre-existing directories as they are.
+	if runtime.GOOS == "windows" {
+		for _, d := range []string{filepath.Dir(dir), dir} {
+			if err := fsutil.ForceRootOwned(d, 0o755); err != nil {
+				return err
+			}
+		}
 	}
 
 	if err := writeTemplateConfigFile(path); err != nil {

@@ -25,6 +25,8 @@ sudo pmg setup remove --system
 sudo pmg setup remove --system --config-file   # also remove the system config file
 ```
 
+On Windows, run the same two commands without `sudo`, from a terminal started as administrator.
+
 ## Files created
 
 
@@ -103,9 +105,11 @@ PMG running on the Docker host cannot inspect package installations inside `dock
 
 ## Configuration
 
-The system config file is authoritative for every user. A per-user `config.yml` is ignored while `/etc/safedep/pmg/config.yml` exists.
+The system config file is authoritative for every user. A per-user `config.yml` is ignored while `/etc/safedep/pmg/config.yml` exists. On Windows the file is `%PROGRAMDATA%\safedep\pmg\config.yml`.
 
-`pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or redeploy it through your image or configuration management.
+`pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or as an administrator on Windows, or redeploy it through your image or configuration management.
+
+On Windows, `pmg setup install --system` sets the owner and ACL of `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file to administrators only, even when a standard user created them first. `ProgramData` lets any user create a directory there, and a directory created that way would otherwise stay under that user's control.
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 

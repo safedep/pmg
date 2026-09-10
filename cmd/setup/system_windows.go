@@ -7,13 +7,13 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
-	"github.com/safedep/pmg/internal/shim"
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
 // requireSystemPrivilege needs UAC elevation. Program Files and the machine
 // PATH are writable by administrators only.
 func requireSystemPrivilege() error {
-	if shim.ProcessIsElevated() {
+	if fsutil.ProcessIsElevated() {
 		return nil
 	}
 	return usefulerror.NewUsefulError().

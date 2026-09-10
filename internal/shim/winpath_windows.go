@@ -153,10 +153,6 @@ func containsPath(entries []string, dir string) bool {
 	return slices.ContainsFunc(entries, func(entry string) bool { return fsutil.SamePath(entry, dir) })
 }
 
-// ProcessIsElevated reports whether UAC elevated this process. Only an
-// elevated process can write the machine PATH and Program Files.
-func ProcessIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
-
 // registerMachinePath puts dir first on the machine PATH, ahead of every
 // directory a machine-wide installer added, and moves it there when a later
 // installer pushed it back. The caller vouches that dir is writable by

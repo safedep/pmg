@@ -3,6 +3,7 @@
 package shim
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,10 +14,11 @@ import (
 
 // defaultSystemBinDir is the machine-wide shim directory. Program Files
 // inherits an ACL that only administrators can write, which is what makes
-// the directory safe at the front of the machine PATH.
+// the directory safe at the front of the machine PATH. The known folder is
+// asked, not the environment, which the caller's shell controls.
 func defaultSystemBinDir() string {
-	programFiles := os.Getenv("ProgramFiles")
-	if programFiles == "" {
+	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
+	if err != nil {
 		programFiles = `C:\Program Files`
 	}
 	return filepath.Join(programFiles, "safedep", "pmg", "bin")
@@ -27,12 +29,12 @@ func defaultSystemProfilePath() string { return "" }
 
 // installSystemPath puts the shim directory first on the machine PATH, and
 // the binary's directory on it too, so `pmg` itself resolves in every
-// terminal. The shim directory is checked first: a directory a standard user
-// can write must not sit ahead of Program Files, where an elevated process
-// would find a planted binary. The binary's directory passed the same check
-// in validateSystemExecutable.
+// terminal. The shims are checked first: a file a standard user can write
+// must not be the first `npm` on the machine PATH, where an elevated process
+// would run it. The binary's directory passed the same checks in
+// validateSystemExecutable.
 func installSystemPath(binDir, pmgBin string) error {
-	if err := requireAdminOnlyWritable(binDir); err != nil {
+	if err := validateSystemShimDir(binDir); err != nil {
 		return err
 	}
 	if err := registerMachinePath(binDir); err != nil {
@@ -53,8 +55,10 @@ func systemPathInstalled(binDir string) bool {
 
 // validateSystemExecutable rejects a binary a standard user could replace.
 // Every system shim runs this path as whichever user typed the command, so
-// the file and its directory must be writable by administrators only, and
-// the file must be executable by everyone.
+// the file and its directory must be writable by administrators only, no
+// ancestor may let a standard user swap a path component, and every user
+// must be able to run the file. Symbolic links and junctions are resolved
+// first, so the checks apply to the file that runs.
 func validateSystemExecutable(path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("failed to inspect pmg executable %s: %w", path, err)
@@ -62,13 +66,57 @@ func validateSystemExecutable(path string) error {
 	if !systemExecutableOwnershipCheck {
 		return nil
 	}
-	if err := requireAdminOnlyWritable(path); err != nil {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve pmg executable %s: %w", path, err)
+	}
+	if err := requireAdminOnlyWritable(resolved); err != nil {
 		return err
 	}
-	if err := requireAdminOnlyWritable(filepath.Dir(path)); err != nil {
+	if err := requireProtectedDir(filepath.Dir(resolved)); err != nil {
 		return err
 	}
-	return requireExecutableByAll(path)
+	return requireExecutableByAll(resolved)
+}
+
+// validateSystemShimDir applies the binary's rules to the shim directory
+// and every shim in it. A shim overwritten in place keeps the DACL it had,
+// so the files are checked one by one, not through the directory.
+func validateSystemShimDir(dir string) error {
+	if !systemExecutableOwnershipCheck {
+		return nil
+	}
+	if err := requireProtectedDir(dir); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("failed to list the shim directory %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if err := requireAdminOnlyWritable(filepath.Join(dir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireProtectedDir checks the directory itself and then every ancestor
+// up to the volume root. An ancestor a standard user can delete from, or
+// rename, lets them replace a protected directory with their own.
+func requireProtectedDir(dir string) error {
+	if err := requireAdminOnlyWritable(dir); err != nil {
+		return err
+	}
+	for parent := filepath.Dir(dir); parent != dir; dir, parent = parent, filepath.Dir(parent) {
+		if err := requireNotReplaceable(parent); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func requireAdminOnlyWritable(path string) error {
@@ -77,6 +125,14 @@ func requireAdminOnlyWritable(path string) error {
 		return err
 	}
 	return validateAdminOnlyWritable(sd, path)
+}
+
+func requireNotReplaceable(path string) error {
+	sd, err := securityDescriptor(path)
+	if err != nil {
+		return err
+	}
+	return validateNotReplaceable(sd, path)
 }
 
 func requireExecutableByAll(path string) error {
@@ -96,32 +152,39 @@ func securityDescriptor(path string) (*windows.SECURITY_DESCRIPTOR, error) {
 	return sd, nil
 }
 
-// writeRights are the rights that let an account change or replace a file,
-// or add to and delete from a directory.
+const fileDeleteChild = 0x40
+
+// writeRights let an account change or replace a file, or add to and delete
+// from a directory. Adding to the binary's directory counts, because a DLL
+// planted next to pmg.exe loads with it.
 const writeRights = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | windows.FILE_WRITE_EA |
 	windows.FILE_WRITE_ATTRIBUTES | fileDeleteChild | windows.DELETE | windows.WRITE_DAC |
 	windows.WRITE_OWNER | windows.GENERIC_WRITE | windows.GENERIC_ALL
 
-const fileDeleteChild = 0x40
+// replaceRights let an account rename or delete an entry of a directory, or
+// take the directory over. Adding entries is not among them: the root of a
+// volume lets every user create a folder, and that swaps nothing that
+// exists.
+const replaceRights = fileDeleteChild | windows.DELETE | windows.WRITE_DAC |
+	windows.WRITE_OWNER | windows.GENERIC_WRITE | windows.GENERIC_ALL
 
 const executeRights = windows.FILE_EXECUTE | windows.GENERIC_ALL | windows.GENERIC_EXECUTE
 
-// validateAdminOnlyWritable checks the owner and every allow ACE. The owner
+// validateAdminOnlyWritable checks the owner and every allow entry. The owner
 // can rewrite the DACL, so an owner outside the administrator set fails
-// even when the DACL is tight today. Inherit-only ACEs on a directory count,
-// because they shape the files created inside it.
+// even when the DACL is tight today. Inherit-only entries on a directory
+// count, because they shape the files created inside it.
 func validateAdminOnlyWritable(sd *windows.SECURITY_DESCRIPTOR, path string) error {
-	owner, _, err := sd.Owner()
+	if err := requireAdministrativeOwner(sd, path); err != nil {
+		return err
+	}
+	aces, err := daclAces(sd, path)
 	if err != nil {
-		return fmt.Errorf("failed to read the owner of %s: %w", path, err)
+		return err
 	}
-	if !isAdministrativeSid(owner) {
-		return fmt.Errorf("%s must be owned by Administrators, SYSTEM or TrustedInstaller, not %s", path, sidName(owner))
-	}
-
-	for _, ace := range allowAces(sd, path) {
+	for _, ace := range aces {
 		sid := aceSid(ace)
-		if isAdministrativeSid(sid) || isCreatorOwnerTemplate(ace, sid) || ace.Mask&writeRights == 0 {
+		if !isAllow(ace) || isAdministrativeSid(sid) || isCreatorOwnerTemplate(ace, sid) || ace.Mask&writeRights == 0 {
 			continue
 		}
 		return fmt.Errorf("%s is writable by %s, so a standard user could replace it", path, sidName(sid))
@@ -129,48 +192,103 @@ func validateAdminOnlyWritable(sd *windows.SECURITY_DESCRIPTOR, path string) err
 	return nil
 }
 
+// validateNotReplaceable is the ancestor rule. Only entries that apply to
+// the directory itself matter, so inherit-only ones are skipped.
+func validateNotReplaceable(sd *windows.SECURITY_DESCRIPTOR, path string) error {
+	if err := requireAdministrativeOwner(sd, path); err != nil {
+		return err
+	}
+	aces, err := daclAces(sd, path)
+	if err != nil {
+		return err
+	}
+	for _, ace := range aces {
+		sid := aceSid(ace)
+		if !isAllow(ace) || isInheritOnly(ace) || isAdministrativeSid(sid) || ace.Mask&replaceRights == 0 {
+			continue
+		}
+		return fmt.Errorf("%s lets %s rename or delete its entries, so a standard user could replace a protected directory under it", path, sidName(sid))
+	}
+	return nil
+}
+
+// validateExecutableByAll requires an allow entry that lets every user run
+// the file, with no deny entry for them ahead of it. Windows reads the DACL
+// in order and a deny wins over a later allow, so the walk stops at the
+// first entry that decides.
+func validateExecutableByAll(sd *windows.SECURITY_DESCRIPTOR, path string) error {
+	aces, err := daclAces(sd, path)
+	if err != nil {
+		return err
+	}
+	for _, ace := range aces {
+		if isInheritOnly(ace) || !isEveryoneSid(aceSid(ace)) || ace.Mask&executeRights == 0 {
+			continue
+		}
+		if isAllow(ace) {
+			return nil
+		}
+		return fmt.Errorf("pmg executable %s denies execution to %s", path, sidName(aceSid(ace)))
+	}
+	return fmt.Errorf("pmg executable %s is not executable by all users", path)
+}
+
+func requireAdministrativeOwner(sd *windows.SECURITY_DESCRIPTOR, path string) error {
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("failed to read the owner of %s: %w", path, err)
+	}
+	if owner == nil {
+		return fmt.Errorf("%s has no owner", path)
+	}
+	if !isAdministrativeSid(owner) {
+		return fmt.Errorf("%s must be owned by Administrators, SYSTEM or TrustedInstaller, not %s", path, sidName(owner))
+	}
+	return nil
+}
+
+// daclAces returns every entry of the DACL. A missing DACL means full
+// access for everyone, so it is an error, and so is an entry that cannot be
+// read, because a check that skips entries is no check.
+func daclAces(sd *windows.SECURITY_DESCRIPTOR, path string) ([]*windows.ACCESS_ALLOWED_ACE, error) {
+	dacl, _, err := sd.DACL()
+	if err != nil && !errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
+		return nil, fmt.Errorf("failed to read the DACL of %s: %w", path, err)
+	}
+	if dacl == nil {
+		return nil, fmt.Errorf("%s has no DACL, which grants every user full access", path)
+	}
+	aces := make([]*windows.ACCESS_ALLOWED_ACE, 0, dacl.AceCount)
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, i, &ace); err != nil {
+			return nil, fmt.Errorf("failed to read entry %d of the DACL of %s: %w", i, path, err)
+		}
+		aces = append(aces, ace)
+	}
+	return aces, nil
+}
+
+// Allow and deny entries share one layout. Object-specific types do not
+// occur on files.
+func isAllow(ace *windows.ACCESS_ALLOWED_ACE) bool {
+	return ace.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE
+}
+
+func isInheritOnly(ace *windows.ACCESS_ALLOWED_ACE) bool {
+	return ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0
+}
+
+func aceSid(ace *windows.ACCESS_ALLOWED_ACE) *windows.SID {
+	return (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+}
+
 // isCreatorOwnerTemplate matches the inherit-only CREATOR OWNER entry that
 // Program Files carries. It grants nothing on the directory itself and
 // becomes an entry for whoever creates a file inside, which under Program
 // Files is an administrator.
 func isCreatorOwnerTemplate(ace *windows.ACCESS_ALLOWED_ACE, sid *windows.SID) bool {
-	return ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 && sid.IsWellKnown(windows.WinCreatorOwnerSid)
-}
-
-// validateExecutableByAll requires one allow ACE that lets every user run
-// the file, or every shim exits 127 for a standard user.
-func validateExecutableByAll(sd *windows.SECURITY_DESCRIPTOR, path string) error {
-	for _, ace := range allowAces(sd, path) {
-		if ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
-			continue
-		}
-		if isEveryoneSid(aceSid(ace)) && ace.Mask&executeRights != 0 {
-			return nil
-		}
-	}
-	return fmt.Errorf("pmg executable %s is not executable by all users", path)
-}
-
-func allowAces(sd *windows.SECURITY_DESCRIPTOR, path string) []*windows.ACCESS_ALLOWED_ACE {
-	dacl, _, err := sd.DACL()
-	if err != nil || dacl == nil {
-		return nil
-	}
-	var aces []*windows.ACCESS_ALLOWED_ACE
-	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
-		var ace *windows.ACCESS_ALLOWED_ACE
-		if err := windows.GetAce(dacl, i, &ace); err != nil {
-			continue
-		}
-		if ace.Header.AceType == windows.ACCESS_ALLOWED_ACE_TYPE {
-			aces = append(aces, ace)
-		}
-	}
-	return aces
-}
-
-func aceSid(ace *windows.ACCESS_ALLOWED_ACE) *windows.SID {
-	return (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+	return isInheritOnly(ace) && sid.IsWellKnown(windows.WinCreatorOwnerSid)
 }
 
 // trustedInstallerSid has no well-known constant. It owns most of Program
