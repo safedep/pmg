@@ -787,8 +787,13 @@ jobs:
   # Windows has its own job in pwsh, the shell a Windows developer types into.
   # The steps type the bare manager command, so every install goes through the
   # .cmd shim and the cmd.exe launch contract. One step runs `pmg npm` directly
-  # to cover that path too. Bun, aube, Go modules and the sandbox are not part
-  # of the Windows support.
+  # to cover that path too. Each step works in RUNNER_TEMP, because the repo
+  # root carries a pnpm-workspace.yaml and pnpm writes a workspace member's
+  # lockfile at the root.
+  #
+  # `pmg go` needs `pmg setup cert install` first, since Go reads the OS trust
+  # store only, and the sandbox does not run on Windows. Everything else PMG
+  # shims is here.
   e2e-windows:
     name: PMG E2E Tests - Windows
     runs-on: windows-latest
@@ -817,6 +822,16 @@ jobs:
       - name: Setup PNPM
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Setup aube
+        run: |
+          npm install -g --ignore-scripts=false @endevco/aube@2.2.4
+          aube --version
+
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -824,6 +839,9 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a
 
       - name: Build PMG
         run: go build -o bin\pmg.exe .
@@ -861,7 +879,7 @@ jobs:
       - name: Test NPM - Through the Shim
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory npm-test | Out-Null; Set-Location npm-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "npm-test") -Force)
           npm init -y
           npm install express@5.2.1
           npm install lodash@4.17.21
@@ -878,14 +896,14 @@ jobs:
           Write-Host "Testing a scoped package through the shim..."
           npm install "@types/node@18.0.0"
           if (-not (Test-Path node_modules\@types\node)) { throw "@types/node not installed" }
-          Set-Location ..; Remove-Item -Recurse -Force npm-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "npm-test"
 
       # A typed `pmg npm ...` has no shim in front of it and takes the direct
       # launch path. Both paths must work.
       - name: Test NPM - Direct pmg npm
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory npm-direct-test | Out-Null; Set-Location npm-direct-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "npm-direct-test") -Force)
           pmg npm init -y
           pmg npm install express@5.2.1
           if (-not (Test-Path node_modules\express)) { throw "express not installed" }
@@ -895,11 +913,11 @@ jobs:
           pmg --dry-run npm install
           if (Test-Path node_modules) { throw "dry-run created node_modules" }
           if (Test-Path package-lock.json) { throw "dry-run created package-lock.json" }
-          Set-Location ..; Remove-Item -Recurse -Force npm-direct-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "npm-direct-test"
 
       - name: Test safedep-test-pkg is Blocked through the Shim
         run: |
-          New-Item -ItemType Directory block-test | Out-Null; Set-Location block-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "block-test") -Force)
           npm init -y
           # A non-zero exit alone is not enough. npm could fail for another
           # reason and falsely pass, so the block message is required.
@@ -908,24 +926,24 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "safedep-test-pkg was not blocked" }
           if ($output -notmatch 'Malicious package blocked') { throw "npm failed, but not because PMG blocked the package" }
           if (Test-Path node_modules\safedep-test-pkg) { throw "safedep-test-pkg found in node_modules" }
-          Set-Location ..; Remove-Item -Recurse -Force block-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "block-test"
           # The step exits with the last native exit code, which the expected
           # failure left non-zero.
           exit 0
 
       - name: Test Malicious Package Detection
         run: |
-          New-Item -ItemType Directory malicious-test | Out-Null; Set-Location malicious-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "malicious-test") -Force)
           npm init -y
           npm install nyc-config@10.0.0 2>&1 | Out-String | Write-Host
           if ($LASTEXITCODE -eq 0) { throw "malicious package was not blocked" }
-          Set-Location ..; Remove-Item -Recurse -Force malicious-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "malicious-test"
           exit 0
 
       - name: Test PNPM - Single Package & Manifest
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory pnpm-test | Out-Null; Set-Location pnpm-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "pnpm-test") -Force)
           # Not `pnpm init`: it writes devEngines.packageManager with
           # onFail:download, and the following `pnpm add` then fails.
           npm init -y
@@ -939,7 +957,7 @@ jobs:
           pnpm install
           if (-not (Test-Path pnpm-lock.yaml)) { throw "pnpm-lock.yaml not written from the manifest" }
           if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
-          Set-Location ..; Remove-Item -Recurse -Force pnpm-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "pnpm-test"
 
       # Runs before the classic-yarn step so corepack's Berry shim stays the
       # `yarn` behind our shim. The later `npm install -g yarn@1.22.22` shadows it.
@@ -950,7 +968,7 @@ jobs:
           YARN_ENABLE_HARDENED_MODE: "0"
           YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
         run: |
-          New-Item -ItemType Directory yarn-berry-test | Out-Null; Set-Location yarn-berry-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "yarn-berry-test") -Force)
           npm init -y
           npm pkg set packageManager=yarn@4.16.0
           yarn --version
@@ -959,7 +977,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "safedep-test-pkg was not blocked with Yarn Berry" }
           if ($output -notmatch 'Malicious package blocked') { throw "yarn add failed, but not because PMG blocked the package" }
           if (Test-Path node_modules\safedep-test-pkg) { throw "safedep-test-pkg found in node_modules" }
-          Set-Location ..; Remove-Item -Recurse -Force yarn-berry-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "yarn-berry-test"
           exit 0
 
       - name: Test Yarn - Single Package & Manifest
@@ -969,7 +987,7 @@ jobs:
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           npm install -g yarn@1.22.22
           yarn --version
-          New-Item -ItemType Directory yarn-test | Out-Null; Set-Location yarn-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "yarn-test") -Force)
           yarn init -y
           yarn add express@5.2.1
           yarn add lodash@4.17.21
@@ -981,12 +999,12 @@ jobs:
           yarn install
           if (-not (Test-Path yarn.lock)) { throw "yarn.lock not written from the manifest" }
           if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
-          Set-Location ..; Remove-Item -Recurse -Force yarn-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "yarn-test"
 
       - name: Test NPX - Package Execution
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory npx-test | Out-Null; Set-Location npx-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "npx-test") -Force)
           $output = npx cowsay@1.6.0 "Hello from pmg npx" | Out-String
           Write-Host $output
           if ($output -notmatch 'Hello from pmg npx') { throw "npx output missing the message" }
@@ -997,26 +1015,26 @@ jobs:
           Write-Host "Testing dry-run does not run the package..."
           $output = pmg --dry-run npx cowsay@1.6.0 "This should not execute" | Out-String
           if ($output -match '\^__\^') { throw "dry-run executed cowsay" }
-          Set-Location ..; Remove-Item -Recurse -Force npx-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "npx-test"
 
       - name: Test PNPX - Package Execution
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory pnpx-test | Out-Null; Set-Location pnpx-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "pnpx-test") -Force)
           $output = pnpx cowsay@1.6.0 "Hello from pmg pnpx" | Out-String
           Write-Host $output
           if ($output -notmatch 'Hello from pmg pnpx') { throw "pnpx output missing the message" }
 
           $output = pmg --dry-run pnpx cowsay@1.6.0 "This should not execute" | Out-String
           if ($output -match '\^__\^') { throw "dry-run executed cowsay" }
-          Set-Location ..; Remove-Item -Recurse -Force pnpx-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "pnpx-test"
 
       # A venv puts its own pip.exe ahead of the shims, so pip runs as `pmg pip`
       # here, as it does on Linux and macOS.
       - name: Test Pip and Pip3 - Single Package & Manifest
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory pip-test | Out-Null; Set-Location pip-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "pip-test") -Force)
           python -m venv venv
           .\venv\Scripts\Activate.ps1
           pmg pip install requests==2.32.4
@@ -1037,12 +1055,12 @@ jobs:
           pmg pip3 install requests==2.32.4
           python -c "import requests; print('pip3 ok:', requests.__version__)"
           deactivate
-          Set-Location ..; Remove-Item -Recurse -Force pip-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "pip-test"
 
       - name: Test UV - Single Package & Manifest
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory uv-test | Out-Null; Set-Location uv-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "uv-test") -Force)
           uv init --no-readme
           uv add requests==2.32.4
           uv add numpy==2.3.5
@@ -1059,12 +1077,12 @@ jobs:
           uv pip freeze | Where-Object { $_ -notmatch '^PMG:' } | Set-Content requirements.txt
           uv pip install -r requirements.txt
           uv pip show requests | Out-Null
-          Set-Location ..; Remove-Item -Recurse -Force uv-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "uv-test"
 
       - name: Test UVX - Package Execution
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory uvx-test | Out-Null; Set-Location uvx-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "uvx-test") -Force)
           $output = uvx ruff@0.6.9 --version | Out-String
           if ($output -notmatch '0\.6\.9') { throw "uvx did not run the pinned ruff" }
 
@@ -1073,12 +1091,64 @@ jobs:
 
           $output = pmg --dry-run uvx --from cowsay cowsay -t "This should not execute" | Out-String
           if ($output -match '\^__\^') { throw "dry-run executed cowsay" }
-          Set-Location ..; Remove-Item -Recurse -Force uvx-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "uvx-test"
+
+      # bun is a native .exe, so it takes PMG's direct launch path rather than
+      # the cmd.exe contract every .cmd manager uses. Nothing else in this job
+      # covers that branch.
+      - name: Test Bun - Single Package & Manifest
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "bun-test") -Force)
+          bun init -y
+          bun add express@5.2.1
+          bun add lodash@4.17.21
+          if (-not (Test-Path node_modules\express)) { throw "express not installed" }
+          if (-not (Test-Path bun.lock)) { throw "bun.lock not written" }
+
+          Write-Host "Testing manifest installation..."
+          Remove-Item -Recurse -Force node_modules, bun.lock
+          bun install
+          if (-not (Test-Path bun.lock)) { throw "bun.lock not written from the manifest" }
+          if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "bun-test"
+
+      - name: Test aube - Single Package & Manifest
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "aube-test") -Force)
+          npm init -y
+          aube add express@5.2.1
+          aube add lodash@4.17.21
+          if (-not (Test-Path node_modules\express)) { throw "express not installed" }
+          if (-not (Test-Path aube-lock.yaml)) { throw "aube-lock.yaml not written" }
+
+          Write-Host "Testing manifest installation..."
+          Remove-Item -Recurse -Force node_modules, aube-lock.yaml
+          aube install
+          if (-not (Test-Path aube-lock.yaml)) { throw "aube-lock.yaml not written from the manifest" }
+          if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "aube-test"
+
+      - name: Test Poetry - Single Package & Manifest
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "poetry-test") -Force)
+          poetry init --name poetry-test --no-interaction --quiet
+          poetry add requests==2.32.4
+          if (-not (Select-String -Quiet 'requests' pyproject.toml)) { throw "requests missing from pyproject.toml" }
+
+          Write-Host "Testing manifest installation..."
+          Remove-Item -Recurse -Force poetry.lock
+          poetry install --no-root
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "poetry-test"
 
       - name: Test PMG Modes
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          New-Item -ItemType Directory pmg-modes-test | Out-Null; Set-Location pmg-modes-test
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "pmg-modes-test") -Force)
           pmg npm init -y
           pmg --dry-run npm install express
           if (Test-Path node_modules) { throw "dry-run created node_modules" }
@@ -1093,7 +1163,7 @@ jobs:
           Remove-Item -Recurse -Force node_modules, package-lock.json
           pmg --debug --log debug.json npm install express
           if (-not (Test-Path debug.json)) { throw "--log wrote no file" }
-          Set-Location ..; Remove-Item -Recurse -Force pmg-modes-test
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "pmg-modes-test"
 
       # The spec names both shells. Doctor must pass in each on a configured
       # machine. Warnings are allowed, a failed check is not.
