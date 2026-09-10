@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+var pypiSdistVersionPattern = regexp.MustCompile(`^(\d+!)?\d+(\.\d+)*([._-]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\.?\d*)*(\+[a-zA-Z0-9._-]+)?$`)
+
 // pypiPackageInfo represents parsed package information from a PyPI registry URL
 type pypiPackageInfo struct {
 	name       string
@@ -306,8 +308,6 @@ func parseSdistFilename(filename string) (*pypiPackageInfo, error) {
 // The challenge is that package names can contain hyphens, so we need to find
 // where the name ends and the version begins
 func extractNameVersionFromSdist(basename string) (string, string) {
-	versionPattern := regexp.MustCompile(`^(\d+!)?\d+(\.\d+)*([._-]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\.?\d*)*(\+[a-zA-Z0-9._-]+)?$`)
-
 	// Split by hyphen and try to find where version starts
 	parts := strings.Split(basename, "-")
 
@@ -315,13 +315,13 @@ func extractNameVersionFromSdist(basename string) (string, string) {
 	for i := len(parts) - 1; i > 0; i-- {
 		potentialVersion := strings.Join(parts[i:], "-")
 		// Check if this could be a version
-		if versionPattern.MatchString(potentialVersion) {
+		if pypiSdistVersionPattern.MatchString(potentialVersion) {
 			name := strings.Join(parts[:i], "-")
 			return name, potentialVersion
 		}
 
 		// Also try just the single part as version
-		if versionPattern.MatchString(parts[i]) {
+		if pypiSdistVersionPattern.MatchString(parts[i]) {
 			name := strings.Join(parts[:i], "-")
 			return name, parts[i]
 		}
