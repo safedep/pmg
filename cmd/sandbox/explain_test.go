@@ -199,6 +199,39 @@ func TestExplainStdinSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestExplainStdinListEnvelope(t *testing.T) {
+	dir := t.TempDir()
+	cache := writeFixtureCache(t, dir)
+	entries, err := cache.List()
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	body, err := json.Marshal(map[string]any{
+		"entries": []map[string]string{{"path": entries[0].Path}},
+	})
+	require.NoError(t, err)
+
+	factory := func() *pmgsandbox.ViolationCache { return pmgsandbox.NewViolationCache(dir) }
+	stdout, _, err := runExplainCmd(t, factory, []string{"-"}, string(body))
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "/Users/dev/project/.env")
+}
+
+func TestExplainStdinListEnvelopeEmpty(t *testing.T) {
+	factory := func() *pmgsandbox.ViolationCache { return pmgsandbox.NewViolationCache(t.TempDir()) }
+	_, _, err := runExplainCmd(t, factory, []string{"-"}, `{"entries":[]}`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the violation list is empty")
+}
+
+func TestExplainStdinListEnvelopeRejectsPathOutsideCache(t *testing.T) {
+	dir := t.TempDir()
+	factory := func() *pmgsandbox.ViolationCache { return pmgsandbox.NewViolationCache(dir) }
+	_, _, err := runExplainCmd(t, factory, []string{"-"}, `{"entries":[{"path":"/etc/passwd"}]}`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside the cache directory")
+}
+
 func TestExplainMutualExclusion(t *testing.T) {
 	factory := func() *pmgsandbox.ViolationCache { return nil }
 	_, _, err := runExplainCmd(t, factory, []string{"--last", "-"}, "")

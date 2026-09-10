@@ -405,8 +405,10 @@ func (s *seccompSupervisor) resolveOperand(notif *seccompNotification, memFd *os
 	return resolveSyscallPath(notif.PID, dirfd, rawPath, followLeaf, resolve)
 }
 
-// handlePathOp enforces the deny list for one trapped path syscall.
-// Unreadable process state fails open, as the open handler always did.
+// handlePathOp enforces the deny list for one trapped path syscall. The
+// supervisor denies the syscall when it cannot read the memory that holds the
+// path or cannot resolve the path. A process must not read or write a denied
+// path by making its target unverifiable. See denyUnverifiable.
 func (s *seccompSupervisor) handlePathOp(notif *seccompNotification, phase *seccompPhase, op pathSyscall) {
 	memFd := phase.memFdFor(notif.PID)
 	if memFd == nil {
