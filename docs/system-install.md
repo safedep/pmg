@@ -109,7 +109,7 @@ The system config file is authoritative for every user. A per-user `config.yml` 
 
 `pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or as an administrator on Windows, or redeploy it through your image or configuration management.
 
-On Windows, `pmg setup install --system` sets the owner and ACL of `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file to administrators only, even when a standard user created them first. `ProgramData` lets any user create a directory there, and a directory created that way would otherwise stay under that user's control.
+On Windows, `pmg setup install --system` sets the owner and ACL of `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file to administrators only, even when a standard user created them first. `ProgramData` lets any user create a directory there, and a directory created that way would otherwise stay under that user's control. A `config.yml` that already exists there is kept only when it is administrator-only. A file a standard user can write stops the install with a message that names it. Inspect it, delete it, and run the install again. A link or junction anywhere in that path stops the install too.
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 

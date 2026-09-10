@@ -28,3 +28,10 @@ func ForceRootOwned(path string, mode os.FileMode) error {
 
 // ProcessIsElevated is a Windows concept. Unix asks for root instead.
 func ProcessIsElevated() bool { return false }
+
+// The Windows ACL checks have no Unix form. The system paths on Linux live
+// under /etc and /usr/local, which only root can write, so a standard user
+// cannot pre-create or link anything there.
+func RequireNotReparsePoint(string) error { return nil }
+
+func RequireTrustedExisting(string) error { return nil }
