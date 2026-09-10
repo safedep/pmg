@@ -831,6 +831,29 @@ jobs:
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a
 
+      # The action installs Poetry but does not put it on PATH on Windows,
+      # and its own output says to do that yourself. It also expects bash,
+      # which this job is not.
+      - name: Put Poetry on the job PATH
+        run: '"$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8'
+
+      # Every manager this job drives, checked in one place before PMG is
+      # installed, so a tool this job cannot set up on Windows fails here
+      # with the whole list rather than one per run, thirty steps in. pip and
+      # pip3 are not here: their step makes its own venv.
+      - name: Verify the package managers are installed
+        run: |
+          $missing = @()
+          foreach ($tool in 'node','npm','npx','pnpm','pnpx','yarn','python','uv','uvx','bun','poetry') {
+            $resolved = Get-Command $tool -ErrorAction SilentlyContinue
+            if ($resolved) {
+              Write-Host "$tool -> $($resolved.Source)"
+            } else {
+              $missing += $tool
+            }
+          }
+          if ($missing.Count -gt 0) { throw "not on PATH: $($missing -join ', ')" }
+
       - name: Build PMG
         run: go build -o bin\pmg.exe .
 
