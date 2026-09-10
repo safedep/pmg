@@ -69,6 +69,4 @@ A `PATH` shim does not intercept everything. `pmg setup doctor` reports the stat
 - **Unquoted metacharacters.** The shim forwards your arguments to `cmd.exe`, which reads an unquoted `&`, `|`, `<` or `>` as its own. `npm.cmd` behaves the same way, so PMG changes nothing here. Quote the argument.
 - **No sandbox.** Windows has no Landlock or Seatbelt equivalent that fits the current policy model. See [sandbox.md](./sandbox.md).
 - **No proxy daemon.** `pmg proxy start --daemon` needs a detached process, a liveness check and a stop path that Windows does not share with Unix. Foreground mode works. See [persistent-proxy.md](./persistent-proxy.md).
-- **No system install.** `pmg setup install --system` needs an ownership check that PMG does not implement on Windows. See [system-install.md](./system-install.md).
-- **No GitHub Action.** The PMG GitHub Action refuses every non-Linux runner.
 - **WSL.** PMG under WSL runs the Linux build with every Linux capability, the sandbox included. It protects package managers inside WSL only. A native Windows toolchain needs the Windows build.
