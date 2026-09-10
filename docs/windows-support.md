@@ -39,7 +39,9 @@ The managed configuration file exists only when an administrator deploys one.
 
 ## Supported package managers
 
-npm, npx, pnpm, pnpx, yarn, pip, pip3, pipx, poetry, uv, uvx, bun, aube, aubr and aubx get a shim. Each one trusts PMG's ephemeral certificate authority through the environment variables PMG injects, so no certificate goes into the Windows certificate store.
+npm, npx, pnpm, pnpx, yarn, pip, pip3, pipx, poetry, uv, uvx and bun get a shim. Each one trusts PMG's ephemeral certificate authority through the environment variables PMG injects, so no certificate goes into the Windows certificate store.
+
+PMG also writes aube, aubr and aubx shims, but aube is not part of the initial Windows version. See [safedep/pmg#457](https://github.com/safedep/pmg/issues/457).
 
 `pmg go` is the exception. Go reads the OS trust store only, so run `pmg setup cert install` once before `pmg go get`. macOS has the same requirement. See [cert.md](./cert.md).
 
