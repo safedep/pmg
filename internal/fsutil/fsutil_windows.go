@@ -6,9 +6,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/safedep/pmg/internal/winacl"
+	"golang.org/x/sys/windows"
 )
+
+// KnownFolder resolves a shell known folder once. The shell knows where the
+// folder is. The matching environment variable in a user's process is theirs
+// to set, so it is never consulted.
+func KnownFolder(id *windows.KNOWNFOLDERID, fallback string) func() string {
+	return sync.OnceValue(func() string {
+		dir, err := windows.KnownFolderPath(id, 0)
+		if err != nil {
+			return fallback
+		}
+		return dir
+	})
+}
 
 // SecureSystemPath makes a path pmg created or fully manages safe for every
 // user to read and for administrators alone to write. The two platforms
