@@ -32,7 +32,7 @@ sudo pmg setup remove --system --config-file   # also remove the system config f
 | --------------------- | ----------------------------- | --------------------------------------- |
 | Configuration         | `/etc/safedep/pmg/config.yml` | `%PROGRAMDATA%\safedep\pmg\config.yml`  |
 | Package-manager shims | `/usr/local/lib/pmg/bin`      | `%ProgramFiles%\safedep\pmg\bin\*.cmd`  |
-| PATH                  | `/etc/profile.d/pmg.sh`       | First entry of the machine `PATH`       |
+| PATH                  | `/etc/profile.d/pmg.sh`       | Machine `PATH`: shim directory first, `pmg.exe` directory appended |
 
 
 ## Making shims visible on PATH
@@ -41,7 +41,7 @@ Processes only use the shims when the shim directory is on `PATH` ahead of the r
 
 ### Windows
 
-`pmg setup install --system` puts `%ProgramFiles%\safedep\pmg\bin` first on the machine `PATH`. Windows builds every process `PATH` as the machine value, then the user value, so the shims sit ahead of `npm` from the Node.js MSI and every other machine-wide installer. Open a new terminal after the install. `pmg setup remove --system` deletes the entry.
+`pmg setup install --system` puts `%ProgramFiles%\safedep\pmg\bin` first on the machine `PATH`. Windows builds every process `PATH` as the machine value, then the user value, so the shims sit ahead of `npm` from the Node.js MSI and every other machine-wide installer. It also appends the directory that holds `pmg.exe`, so `pmg` itself resolves in every terminal. Open a new terminal after the install. `pmg setup remove --system` deletes the shim entry and leaves the `pmg.exe` entry, because the binary stays.
 
 A per-user install cannot do this. A user `PATH` entry never moves ahead of a machine one, and a user-writable directory must not sit on the machine `PATH`, where an elevated process would run a binary a standard user planted. That is why the system shims live under `Program Files`.
 

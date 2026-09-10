@@ -19,9 +19,11 @@ func defaultSystemBinDir() string      { return linuxSystemBinDir }
 func defaultSystemProfilePath() string { return linuxSystemProfilePath }
 
 // The login-shell PATH snippet is how the shim directory reaches every user.
-func installSystemPath(binDir string) error { return writeSystemProfile(binDir) }
+// The binary sits in a directory such as /usr/local/bin that PATH already
+// has.
+func installSystemPath(binDir, _ string) error { return writeSystemProfile(binDir) }
 
-func removeSystemPath(string) error { return removeSystemProfile() }
+func removeSystemPath(string, string) error { return removeSystemProfile() }
 
 func systemPathInstalled(string) bool { return SystemProfileInstalled() }
 

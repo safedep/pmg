@@ -204,7 +204,8 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 
 	entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
 	require.NoError(t, err)
-	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`}, entries, "the shim directory goes first")
+	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, root}, entries,
+		"the shim directory goes first and the binary's directory last, so `pmg` itself resolves")
 
 	content, err := os.ReadFile(filepath.Join(SystemBinDir(), "npm.cmd"))
 	require.NoError(t, err)
@@ -218,6 +219,10 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	assert.False(t, SystemShimsInstalled())
 	assert.False(t, SystemPathInstalled())
 	require.NoError(t, mgr.Remove())
+
+	entries, _, err = readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	require.NoError(t, err)
+	assert.Equal(t, []string{`C:\Program Files\nodejs\`, root}, entries, "the binary stays, so its directory stays on PATH")
 }
 
 func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {

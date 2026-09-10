@@ -25,18 +25,26 @@ func defaultSystemBinDir() string {
 // Windows has no profile.d. The machine PATH carries the shim directory.
 func defaultSystemProfilePath() string { return "" }
 
-// installSystemPath puts the shim directory first on the machine PATH. The
-// directory is checked first: a directory a standard user can write must not
-// sit ahead of Program Files, where an elevated process would find a planted
-// binary.
-func installSystemPath(binDir string) error {
+// installSystemPath puts the shim directory first on the machine PATH, and
+// the binary's directory on it too, so `pmg` itself resolves in every
+// terminal. The shim directory is checked first: a directory a standard user
+// can write must not sit ahead of Program Files, where an elevated process
+// would find a planted binary. The binary's directory passed the same check
+// in validateSystemExecutable.
+func installSystemPath(binDir, pmgBin string) error {
 	if err := requireAdminOnlyWritable(binDir); err != nil {
 		return err
 	}
-	return registerMachinePath(binDir)
+	if err := registerMachinePath(binDir); err != nil {
+		return err
+	}
+	return appendMachinePath(filepath.Dir(pmgBin))
 }
 
-func removeSystemPath(binDir string) error { return unregisterMachinePath(binDir) }
+// removeSystemPath takes the shim directory off the machine PATH. The
+// binary's directory stays, as /usr/local/bin does on Linux: the binary is
+// still there, and the entry may predate PMG.
+func removeSystemPath(binDir, _ string) error { return unregisterMachinePath(binDir) }
 
 func systemPathInstalled(binDir string) bool {
 	found, err := machinePathContains(binDir)

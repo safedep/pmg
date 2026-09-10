@@ -173,6 +173,19 @@ func registerMachinePath(dir string) error {
 	return writeRawPath(machineEnvironmentRoot, machineEnvironmentKey, append([]string{dir}, kept...), expand)
 }
 
+// appendMachinePath adds dir to the end of the machine PATH when it is not
+// on it yet. Nothing moves.
+func appendMachinePath(dir string) error {
+	entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(entries, func(e string) bool { return sameMachineEntry(e, dir) }) {
+		return nil
+	}
+	return writeRawPath(machineEnvironmentRoot, machineEnvironmentKey, append(slices.Clone(entries), dir), expand)
+}
+
 // unregisterMachinePath removes dir from the machine PATH. The value itself
 // is never deleted, because the machine PATH is not PMG's to remove.
 func unregisterMachinePath(dir string) error {
