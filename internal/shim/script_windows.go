@@ -77,9 +77,27 @@ func batchEscape(value string) string {
 }
 
 // The shim directory reaches PATH through HKCU\Environment, which every new
-// shell reads.
-func (m *ShimManager) installPath() error { return registerUserPath(m.config.BinDir) }
+// shell reads. Windows puts the machine PATH ahead of that, so an elevated
+// install registers the directory there too, as a per-user variable
+// reference. Without elevation the user PATH is all PMG can write.
+func (m *ShimManager) installPath() error {
+	if err := registerUserPath(m.config.BinDir); err != nil {
+		return err
+	}
+	if !isElevated() {
+		return nil
+	}
+	return registerMachinePath(machinePathEntry(m.config.BinDir))
+}
 
-func (m *ShimManager) removePath() error { return unregisterUserPath(m.config.BinDir) }
+func (m *ShimManager) removePath() error {
+	if err := unregisterUserPath(m.config.BinDir); err != nil {
+		return err
+	}
+	if !isElevated() {
+		return nil
+	}
+	return unregisterMachinePath(machinePathEntry(m.config.BinDir))
+}
 
 func (m *ShimManager) pathInstalled() (bool, error) { return userPathContains(m.config.BinDir) }

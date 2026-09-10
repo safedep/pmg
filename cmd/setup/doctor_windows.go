@@ -29,34 +29,59 @@ func warnShadowedManagers(binDir string) {
 
 	fmt.Printf("\n%s A shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
 		ui.Colors.Yellow("⚠"))
-	for _, line := range shadowedLines(shadowed) {
+	for _, line := range shadowedLines(shadowed, machinePathRegistered(binDir)) {
 		fmt.Printf("   %s\n", line)
 	}
 }
 
-// shadowedFix fills the doctor Fix column with the same lines the install
-// warning prints, so the two cannot disagree.
-func shadowedFix(shadowed []shim.ManagerResolution) string {
-	return strings.Join(shadowedLines(shadowed), " ")
+// warnMachinePathLeft tells a user who ran `pmg setup remove` without
+// elevation that the machine PATH entry is still there.
+func warnMachinePathLeft(binDir string) {
+	if !machinePathRegistered(binDir) {
+		return
+	}
+	fmt.Printf("%s %s\n", ui.Colors.Yellow("⚠"),
+		"The shim directory is still on the machine PATH. Run `pmg setup remove` from a terminal started as administrator to delete that entry.")
 }
 
-func shadowedLines(shadowed []shim.ManagerResolution) []string {
+// machinePathRegistered reads as false on a read failure, which yields the
+// stricter advice.
+func machinePathRegistered(binDir string) bool {
+	registered, err := shim.MachinePathRegistered(binDir)
+	if err != nil {
+		log.Warnf("failed to read the machine PATH: %v", err)
+		return false
+	}
+	return registered
+}
+
+// shadowedFix fills the doctor Fix column with the same lines the install
+// warning prints, so the two cannot disagree.
+func shadowedFix(binDir string, shadowed []shim.ManagerResolution) string {
+	return strings.Join(shadowedLines(shadowed, machinePathRegistered(binDir)), " ")
+}
+
+func shadowedLines(shadowed []shim.ManagerResolution, machineRegistered bool) []string {
 	lines := make([]string, 0, len(shadowed))
 	for _, r := range shadowed {
-		lines = append(lines, fmt.Sprintf("%s is %s. %s", r.Name, r.Path, shadowedAction(r)))
+		lines = append(lines, fmt.Sprintf("%s is %s. %s", r.Name, r.Path, shadowedAction(r, machineRegistered)))
 	}
 	return lines
 }
 
 // shadowedAction names what the user can do, which depends on where the
-// winning PATH entry came from. Only the user PATH is one PMG can reorder.
-func shadowedAction(r shim.ManagerResolution) string {
+// winning PATH entry came from. PMG reorders the user PATH on its own and
+// the machine PATH only when elevated.
+func shadowedAction(r shim.ManagerResolution, machineRegistered bool) string {
 	switch r.Origin {
 	case shim.OriginUser:
 		return "Run `pmg setup install` again to move the shims ahead of it."
 	case shim.OriginProfile:
 		return fmt.Sprintf("A shell profile puts that directory on PATH, where PMG cannot reorder it. Run it as `pmg %s`, or drop that line from the profile.", r.Name)
 	default:
-		return fmt.Sprintf("It is on the machine PATH, which no per-user install can move behind the shims. Run it as `pmg %s`.", r.Name)
+		if machineRegistered {
+			return "It is on the machine PATH, and the shim directory is now registered ahead of it. Open a new terminal."
+		}
+		return "It is on the machine PATH, ahead of the user PATH. Run `pmg setup install` from a terminal started as administrator to put the shims ahead of it."
 	}
 }

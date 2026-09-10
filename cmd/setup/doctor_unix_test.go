@@ -16,7 +16,7 @@ import (
 // The Windows fix text does not apply off Windows, so the doctor table keeps
 // its usual hint for a shadowed manager.
 func TestShadowedFixIsEmptyOffWindows(t *testing.T) {
-	assert.Equal(t, "", shadowedFix([]shim.ManagerResolution{{Name: "npm", Path: "/usr/bin/npm"}}))
+	assert.Equal(t, "", shadowedFix("/usr/local/lib/pmg/bin", []shim.ManagerResolution{{Name: "npm", Path: "/usr/bin/npm"}}))
 }
 
 // os.Chmod cannot make a directory unwritable on Windows, so the probe

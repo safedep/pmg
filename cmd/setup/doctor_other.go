@@ -8,5 +8,8 @@ import "github.com/safedep/pmg/internal/shim"
 // shim directory to PATH, so no machine-wide entry sits ahead of it.
 func warnShadowedManagers(string) {}
 
+// warnMachinePathLeft is Windows only. Unix has no machine PATH entry.
+func warnMachinePathLeft(string) {}
+
 // shadowedFix is empty on Unix, so the doctor table keeps its usual hint.
-func shadowedFix([]shim.ManagerResolution) string { return "" }
+func shadowedFix(string, []shim.ManagerResolution) string { return "" }

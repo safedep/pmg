@@ -186,6 +186,7 @@ func remove(system, removeConfig bool) error {
 	}
 
 	fmt.Printf("%s %s\n", ui.Colors.Green("✓"), "PMG aliases and shims removed. Restart your terminal for changes to take effect")
+	warnMachinePathLeft(shimMgr.GetBinDir())
 	return nil
 }
 

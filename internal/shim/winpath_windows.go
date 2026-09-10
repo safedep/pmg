@@ -5,8 +5,10 @@ package shim
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -93,12 +95,7 @@ func registerUserPath(dir string) error {
 	// it wins. A per-user installer that prepends its own directory, as the
 	// python.org installer does, would otherwise shadow the shims until the
 	// user edited PATH by hand. A re-run of `pmg setup install` fixes it.
-	kept := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !fsutil.SamePath(entry, dir) {
-			kept = append(kept, entry)
-		}
-	}
+	kept := withoutPath(entries, dir)
 	return writeUserPath(append([]string{dir}, kept...), expand)
 }
 
@@ -112,12 +109,7 @@ func unregisterUserPath(dir string) error {
 		return nil
 	}
 
-	kept := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !fsutil.SamePath(entry, dir) {
-			kept = append(kept, entry)
-		}
-	}
+	kept := withoutPath(entries, dir)
 	if len(kept) == 0 {
 		// The shim entry was the only one. Before the install there was no
 		// value, so leave none behind.
@@ -149,21 +141,120 @@ func userPathContains(dir string) (bool, error) {
 }
 
 func containsPath(entries []string, dir string) bool {
-	for _, entry := range entries {
-		if fsutil.SamePath(entry, dir) {
-			return true
+	return slices.ContainsFunc(entries, func(entry string) bool { return fsutil.SamePath(entry, dir) })
+}
+
+func withoutPath(entries []string, dir string) []string {
+	return slices.DeleteFunc(slices.Clone(entries), func(entry string) bool { return fsutil.SamePath(entry, dir) })
+}
+
+// isElevated reports whether UAC elevated this process. Only an elevated
+// process can write the machine PATH.
+func isElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
+
+// machinePathEntry is the machine PATH form of a per-user shim directory:
+// the per-user prefix folded back into its variable, so Windows expands the
+// entry for each user and no shared directory is involved. A directory under
+// neither variable is kept as it is.
+func machinePathEntry(binDir string) string {
+	for _, name := range []string{"LOCALAPPDATA", "USERPROFILE"} {
+		prefix := os.Getenv(name)
+		if prefix == "" || !fsutil.PathWithinDir(binDir, prefix) {
+			continue
+		}
+		rel, err := filepath.Rel(prefix, binDir)
+		if err != nil {
+			continue
+		}
+		return `%` + name + `%\` + rel
+	}
+	return binDir
+}
+
+// registerMachinePath adds entry to the machine PATH, which Windows puts
+// ahead of the user PATH, so a manager from a machine-wide installer no
+// longer beats the shims. The value becomes REG_EXPAND_SZ whatever it was,
+// because the entry names a variable.
+func registerMachinePath(entry string) error {
+	entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return err
+	}
+	if containsRawEntry(entries, entry) {
+		return nil
+	}
+	return writeRawPath(machineEnvironmentRoot, machineEnvironmentKey,
+		insertAfterSystemRoot(entries, entry, os.Getenv("SystemRoot")), true)
+}
+
+// unregisterMachinePath removes entry from the machine PATH. The value is
+// never deleted, because the machine PATH is not PMG's to remove.
+func unregisterMachinePath(entry string) error {
+	entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return err
+	}
+	if !containsRawEntry(entries, entry) {
+		return nil
+	}
+	kept := slices.DeleteFunc(slices.Clone(entries), func(e string) bool { return sameRawEntry(e, entry) })
+	return writeRawPath(machineEnvironmentRoot, machineEnvironmentKey, kept, expand)
+}
+
+// MachinePathRegistered reports whether the machine PATH carries the entry
+// for binDir.
+func MachinePathRegistered(binDir string) (bool, error) {
+	entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return false, err
+	}
+	return containsRawEntry(entries, machinePathEntry(binDir)), nil
+}
+
+// insertAfterSystemRoot places entry after the last %SystemRoot% entry, or
+// first when there is none. Ahead of System32 a user-writable directory
+// would be a PATH hijack for an elevated process. After the Windows entries
+// it still beats every directory a third-party installer added.
+func insertAfterSystemRoot(entries []string, entry, systemRoot string) []string {
+	at := 0
+	for i, e := range entries {
+		if isSystemRootEntry(e, systemRoot) {
+			at = i + 1
 		}
 	}
-	return false
+	return slices.Insert(slices.Clone(entries), at, entry)
+}
+
+func isSystemRootEntry(entry, systemRoot string) bool {
+	upper := strings.ToUpper(entry)
+	if strings.HasPrefix(upper, "%SYSTEMROOT%") {
+		return true
+	}
+	return systemRoot != "" && strings.HasPrefix(upper, strings.ToUpper(systemRoot))
+}
+
+// containsRawEntry compares the unexpanded text. The machine PATH holds the
+// variable reference, and an expansion would only match this user's
+// directory.
+func containsRawEntry(entries []string, entry string) bool {
+	return slices.ContainsFunc(entries, func(e string) bool { return sameRawEntry(e, entry) })
+}
+
+func sameRawEntry(a, b string) bool {
+	return strings.EqualFold(strings.TrimRight(a, `\`), strings.TrimRight(b, `\`))
 }
 
 // readUserPath returns the raw PATH entries and whether the value is
 // REG_EXPAND_SZ. The raw form keeps %USERPROFILE% style references that
 // other tools wrote, so a write does not flatten them.
 func readUserPath() (entries []string, expand bool, err error) {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.QUERY_VALUE)
+	return readRawPath(registry.CURRENT_USER, userEnvironmentKey)
+}
+
+func readRawPath(root registry.Key, keyPath string) (entries []string, expand bool, err error) {
+	key, err := registry.OpenKey(root, keyPath, registry.QUERY_VALUE)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to open HKCU\\%s: %w", userEnvironmentKey, err)
+		return nil, false, fmt.Errorf("failed to open %s: %w", keyPath, err)
 	}
 	defer key.Close()
 
@@ -172,7 +263,7 @@ func readUserPath() (entries []string, expand bool, err error) {
 		return nil, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to read the user PATH: %w", err)
+		return nil, false, fmt.Errorf("failed to read PATH under %s: %w", keyPath, err)
 	}
 
 	return splitRawPath(value), valueType == registry.EXPAND_SZ, nil
@@ -192,9 +283,13 @@ func splitRawPath(value string) []string {
 }
 
 func writeUserPath(entries []string, expand bool) error {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.SET_VALUE)
+	return writeRawPath(registry.CURRENT_USER, userEnvironmentKey, entries, expand)
+}
+
+func writeRawPath(root registry.Key, keyPath string, entries []string, expand bool) error {
+	key, err := registry.OpenKey(root, keyPath, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("failed to open HKCU\\%s for writing: %w", userEnvironmentKey, err)
+		return fmt.Errorf("failed to open %s for writing: %w", keyPath, err)
 	}
 	defer key.Close()
 
@@ -205,7 +300,7 @@ func writeUserPath(entries []string, expand bool) error {
 		err = key.SetStringValue(pathValueName, value)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to write the user PATH: %w", err)
+		return fmt.Errorf("failed to write PATH under %s: %w", keyPath, err)
 	}
 
 	broadcastEnvironmentChange()

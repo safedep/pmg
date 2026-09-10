@@ -430,7 +430,7 @@ func checkShimDirResolution(shimDir, pathLabel string, inspection shim.Intercept
 			return doctor.CheckResult{
 				Status:  doctor.StatusWarn,
 				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(managerNames(shadowed), ", "), pathLabel),
-				Fix:     shadowedFix(shadowed),
+				Fix:     shadowedFix(shimDir, shadowed),
 			}
 		}
 		return doctor.CheckResult{

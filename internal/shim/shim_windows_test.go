@@ -15,7 +15,9 @@ import (
 )
 
 // isolateUserPath points the user PATH code at a throwaway registry key, so
-// a test never edits the real HKCU\Environment.
+// a test never edits the real HKCU\Environment. It isolates the machine PATH
+// too, because an elevated install writes there and the CI runner is
+// elevated.
 func isolateUserPath(t *testing.T) {
 	t.Helper()
 	// One flat key per test, so deleting it leaves no parent behind.
@@ -30,6 +32,7 @@ func isolateUserPath(t *testing.T) {
 		userEnvironmentKey = orig
 		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
 	})
+	isolateMachinePath(t)
 }
 
 func TestShimManagerInstallWritesCmdShims(t *testing.T) {
@@ -217,4 +220,131 @@ func TestRegisterUserPathMovesTheShimDirectoryToTheFront(t *testing.T) {
 	entries, _, err = readUserPath()
 	require.NoError(t, err)
 	assert.Equal(t, []string{shimDir, pythonDir, `C:\Tools`}, entries)
+}
+
+// The machine PATH form of the shim directory names the per-user variable,
+// so one machine entry expands to each user's own directory.
+func TestMachinePathEntry(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", `C:\Users\dev\AppData\Local`)
+	t.Setenv("USERPROFILE", `C:\Users\dev`)
+
+	tests := []struct {
+		name, binDir, want string
+	}{
+		{"data directory", `C:\Users\dev\AppData\Local\safedep\pmg\bin`, `%LOCALAPPDATA%\safedep\pmg\bin`},
+		{"legacy home directory", `C:\Users\dev\.pmg\bin`, `%USERPROFILE%\.pmg\bin`},
+		{"case of the prefix does not matter", `c:\users\DEV\appdata\local\safedep\pmg\bin`, `%LOCALAPPDATA%\safedep\pmg\bin`},
+		{"a directory under neither variable stays literal", `D:\tools\pmg\bin`, `D:\tools\pmg\bin`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, machinePathEntry(tt.binDir))
+		})
+	}
+}
+
+// The entry goes after the Windows directories, never ahead of System32,
+// and before every directory an installer added.
+func TestInsertAfterSystemRoot(t *testing.T) {
+	entry := `%LOCALAPPDATA%\safedep\pmg\bin`
+	tests := []struct {
+		name    string
+		entries []string
+		want    []string
+	}{
+		{
+			name: "stock machine PATH",
+			entries: []string{`%SystemRoot%\system32`, `%SystemRoot%`, `%SystemRoot%\System32\Wbem`,
+				`%SYSTEMROOT%\System32\WindowsPowerShell\v1.0\`, `C:\Program Files\nodejs\`},
+			want: []string{`%SystemRoot%\system32`, `%SystemRoot%`, `%SystemRoot%\System32\Wbem`,
+				`%SYSTEMROOT%\System32\WindowsPowerShell\v1.0\`, entry, `C:\Program Files\nodejs\`},
+		},
+		{
+			name:    "expanded Windows directories count too",
+			entries: []string{`C:\WINDOWS\system32`, `C:\Windows`, `C:\Program Files\Git\cmd`},
+			want:    []string{`C:\WINDOWS\system32`, `C:\Windows`, entry, `C:\Program Files\Git\cmd`},
+		},
+		{
+			name:    "no Windows directory puts it first",
+			entries: []string{`C:\Program Files\nodejs\`},
+			want:    []string{entry, `C:\Program Files\nodejs\`},
+		},
+		{
+			name: "empty",
+			want: []string{entry},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, insertAfterSystemRoot(tt.entries, entry, `C:\Windows`))
+		})
+	}
+}
+
+func TestMachinePathRegistry(t *testing.T) {
+	isolateMachinePath(t)
+	entry := `%LOCALAPPDATA%\safedep\pmg\bin`
+	binDir := filepath.Join(os.Getenv("LOCALAPPDATA"), `safedep\pmg\bin`)
+
+	t.Run("registers once after the Windows directories and forces REG_EXPAND_SZ", func(t *testing.T) {
+		require.NoError(t, writeRawPath(machineEnvironmentRoot, machineEnvironmentKey,
+			[]string{`%SystemRoot%\system32`, `C:\Program Files\nodejs\`}, false))
+
+		require.NoError(t, registerMachinePath(entry))
+		require.NoError(t, registerMachinePath(entry))
+
+		entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		require.NoError(t, err)
+		assert.Equal(t, []string{`%SystemRoot%\system32`, entry, `C:\Program Files\nodejs\`}, entries)
+		assert.True(t, expand)
+
+		registered, err := MachinePathRegistered(binDir)
+		require.NoError(t, err)
+		assert.True(t, registered)
+	})
+
+	t.Run("contains folds case and a trailing separator", func(t *testing.T) {
+		assert.True(t, containsRawEntry([]string{strings.ToUpper(entry) + `\`}, entry))
+		assert.False(t, containsRawEntry([]string{`%LOCALAPPDATA%\safedep\pmg`}, entry))
+	})
+
+	t.Run("unregister removes only the entry and keeps the value", func(t *testing.T) {
+		require.NoError(t, unregisterMachinePath(entry))
+		require.NoError(t, unregisterMachinePath(entry))
+
+		entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		require.NoError(t, err)
+		assert.Equal(t, []string{`%SystemRoot%\system32`, `C:\Program Files\nodejs\`}, entries)
+
+		registered, err := MachinePathRegistered(binDir)
+		require.NoError(t, err)
+		assert.False(t, registered)
+	})
+}
+
+// An elevated install registers the machine entry and an elevated remove
+// deletes it. The GitHub Windows runner is elevated, so this runs in CI.
+func TestShimManagerElevatedInstallRegistersMachinePath(t *testing.T) {
+	if !isElevated() {
+		t.Skip("needs an elevated process")
+	}
+	isolateUserPath(t)
+	homeDir := t.TempDir()
+	binDir := filepath.Join(homeDir, "safedep", "pmg", "bin")
+
+	mgr := NewShimManager(ShimConfig{
+		BinDir:          binDir,
+		HomeDir:         homeDir,
+		PMGBin:          filepath.Join(homeDir, "pmg.exe"),
+		PackageManagers: []string{"npm"},
+	})
+	require.NoError(t, mgr.Install())
+	registered, err := MachinePathRegistered(binDir)
+	require.NoError(t, err)
+	assert.True(t, registered)
+
+	require.NoError(t, mgr.Remove())
+	registered, err = MachinePathRegistered(binDir)
+	require.NoError(t, err)
+	assert.False(t, registered)
 }
