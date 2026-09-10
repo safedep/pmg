@@ -123,7 +123,12 @@ func installSystem() error {
 		return fmt.Errorf("failed to write system config: %w", err)
 	}
 
-	ui.PrintSetupSystemInstallCmdInfo(shimMgr.GetBinDir(), config.SystemConfigDir(), shim.SystemProfilePath())
+	ui.PrintSetupSystemInstallCmdInfo(ui.SystemInstallSummary{
+		ShimBinDir:  shimMgr.GetBinDir(),
+		ConfigDir:   config.SystemConfigDir(),
+		ProfilePath: shim.SystemProfilePath(),
+		MachinePath: runtime.GOOS == "windows",
+	})
 	return nil
 }
 

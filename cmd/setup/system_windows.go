@@ -10,10 +10,12 @@ import (
 	"github.com/safedep/pmg/internal/winacl"
 )
 
+var setupIsElevated = winacl.ProcessIsElevated
+
 // requireSystemPrivilege needs UAC elevation. Program Files and the machine
 // PATH are writable by administrators only.
 func requireSystemPrivilege() error {
-	if winacl.ProcessIsElevated() {
+	if setupIsElevated() {
 		return nil
 	}
 	return usefulerror.NewUsefulError().

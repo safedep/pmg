@@ -38,11 +38,11 @@ type ShimConfig struct {
 	// on Unix, the HKCU\Environment write on Windows. Used by system install,
 	// which relies on the system profile or ENV PATH instead.
 	SkipUserPath bool
-	// SystemProfile installs and removes the OS login-shell PATH snippet
-	// (Linux: /etc/profile.d/pmg.sh) with Install/Remove, and marks this
-	// manager as a system-wide install: Install then also validates the pmg
-	// binary for multi-user use and forces root ownership on the shim dirs.
-	SystemProfile bool
+	// System marks a system-wide install and names its layout. Install then
+	// validates the pmg binary for multi-user use, protects the objects it
+	// owns, hardens every shim and puts the shim directory on every user's
+	// PATH. nil for a per-user install.
+	System *systemLayout
 }
 
 type ShimManager struct {
@@ -94,11 +94,11 @@ func (m *ShimManager) Install() error {
 		m.config.PMGBin = pmgBin
 	}
 
-	if m.config.SystemProfile {
+	if sys := m.config.System; sys != nil {
 		// System shims hard-code this binary path for every user; validating
 		// here (not at construction) keeps Remove usable when the installed
 		// binary is no longer suitable.
-		if err := validateSystemExecutable(m.config.PMGBin); err != nil {
+		if err := sys.validateBinary(m.config.PMGBin); err != nil {
 			return err
 		}
 	}
@@ -107,8 +107,8 @@ func (m *ShimManager) Install() error {
 		return fmt.Errorf("failed to create shim directory %s: %w", m.config.BinDir, err)
 	}
 
-	if m.config.SystemProfile {
-		if err := protectSystemObjects(m.config.BinDir, m.config.PMGBin); err != nil {
+	if sys := m.config.System; sys != nil {
+		if err := sys.protect(); err != nil {
 			return err
 		}
 	}
@@ -119,8 +119,8 @@ func (m *ShimManager) Install() error {
 		}
 	}
 
-	if m.config.SystemProfile {
-		if err := installSystemPath(m.config.BinDir, m.config.PMGBin); err != nil {
+	if sys := m.config.System; sys != nil {
+		if err := sys.installPath(); err != nil {
 			return fmt.Errorf("failed to put the system shims on PATH: %w", err)
 		}
 	}
@@ -154,8 +154,8 @@ func (m *ShimManager) Remove() error {
 		pruneEmptyParents(dir, m.config.HomeDir)
 	}
 
-	if m.config.SystemProfile {
-		if err := removeSystemPath(m.config.BinDir, m.config.PMGBin); err != nil {
+	if sys := m.config.System; sys != nil {
+		if err := sys.removePath(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to remove the system shims from PATH: %w", err))
 		}
 	}
@@ -170,6 +170,9 @@ func (m *ShimManager) Remove() error {
 }
 
 func (m *ShimManager) IsInstalled() (bool, error) {
+	if sys := m.config.System; sys != nil {
+		return sys.pathInstalled(), nil
+	}
 	return m.pathInstalled()
 }
 
@@ -227,12 +230,12 @@ func (m *ShimManager) writeShimScript(pm string) error {
 	if err := os.Chmod(shimPath, 0o755); err != nil {
 		return err
 	}
-	if !m.config.SystemProfile {
+	if m.config.System == nil {
 		return nil
 	}
 	// A shim overwritten in place keeps the ownership and ACL it had, so a
-	// system shim is forced administrator-only whatever was there before.
-	return fsutil.ForceRootOwned(shimPath, 0o755)
+	// system shim is secured whatever was there before.
+	return fsutil.SecureSystemPath(shimPath, 0o755)
 }
 
 func currentExecutable() (string, error) {

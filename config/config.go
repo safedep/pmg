@@ -12,7 +12,6 @@ import (
 	_ "embed"
 
 	"github.com/safedep/pmg/internal/fsutil"
-	"github.com/safedep/pmg/internal/winacl"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -884,28 +883,6 @@ func userConfigFilePath() (string, error) {
 // and bypass the globally managed config.
 var globalConfigDirOverride string
 
-// programDataDir is set on Windows from the ProgramData known folder.
-var programDataDir string
-
-// globalConfigDir returns the OS-level directory for a globally managed config
-// file, or "" when the platform has no such location.
-func globalConfigDir() string {
-	if globalConfigDirOverride != "" {
-		return globalConfigDirOverride
-	}
-
-	switch runtime.GOOS {
-	case "darwin":
-		return "/Library/Application Support/safedep/pmg"
-	case "linux":
-		return "/etc/safedep/pmg"
-	case "windows":
-		return filepath.Join(programDataDir, "safedep", "pmg")
-	}
-
-	return ""
-}
-
 // globalConfigFilePath returns the path to the globally managed config file, or
 // "" when the platform has no global config location.
 func globalConfigFilePath() string {
@@ -1166,25 +1143,28 @@ func WriteSystemTemplateConfig() error {
 
 	// MkdirAll and WriteFile honor the process umask, so a hardened root
 	// umask (e.g. 077) would otherwise leave the managed config unreadable
-	// by non-root users — silently disabling the system-wide policy for
-	// them. Only directories created here and the file we write are touched;
-	// pre-existing directories keep their permissions.
-	// An existing config file is merged only when it is already
-	// administrator-only. An owner set afterwards would not make contents a
-	// standard user wrote trustworthy. Unix has no way for a standard user
-	// to put a file here, so the check is a no-op there.
-	if err := winacl.RequireTrustedExisting(path); err != nil {
-		return fmt.Errorf("%w. Inspect the file, delete it, and run the install again", err)
-	}
+	// by non-root users, which would silently disable the system-wide policy
+	// for them. The directories are secured before the file is checked: the
+	// owner of an unprotected parent could otherwise rename a checked file
+	// away between the check and the read. An existing config file is merged
+	// only when PMG wrote it. A descriptor set afterwards would not make
+	// contents a standard user wrote trustworthy.
 	if err := fsutil.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
+	}
+	if err := fsutil.RequireTrustedSystemFile(path); err != nil {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
+			WithHelp("Inspect the file, delete it, and run the install again").
+			Wrap(err)
 	}
 
 	if err := writeTemplateConfigFile(path); err != nil {
 		return err
 	}
 
-	return fsutil.ForceRootOwned(path, 0o644)
+	return fsutil.SecureSystemPath(path, 0o644)
 }
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing

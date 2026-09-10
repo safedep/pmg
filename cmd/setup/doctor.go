@@ -273,25 +273,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 }
 
 func checkSystemBinaryResult() doctor.CheckResult {
-	path, ok := shim.SystemShimBinary()
-	if !ok {
-		return doctor.CheckResult{
-			Status:  doctor.StatusWarn,
-			Message: "Could not determine system shim binary",
-		}
-	}
-	if err := shim.ValidateSystemBinary(path); err != nil {
-		return doctor.CheckResult{
-			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("System binary unsafe: %v", err),
-			Fix:     "Reinstall with pmg setup install --system, or restore root ownership/permissions",
-		}
-	}
-	if err := shim.ValidateSystemInstall(); err != nil {
+	path, err := shim.ValidateSystemInstall()
+	if err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: fmt.Sprintf("System install unsafe: %v", err),
-			Fix:     "Reinstall with pmg setup install --system, which restores the PMG security descriptor on every object",
+			Fix:     "Reinstall with pmg setup install --system, which restores the expected ownership and permissions",
 		}
 	}
 	return doctor.CheckResult{

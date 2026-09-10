@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -33,6 +34,18 @@ const (
 	protectedFileSDDL = "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)"
 )
 
+// descriptor is the PMG descriptor parsed once, with its DACL entries.
+type descriptor struct {
+	owner *windows.SID
+	dacl  *windows.ACL
+	aces  []*windows.ACCESS_ALLOWED_ACE
+}
+
+var (
+	fileDescriptor = sync.OnceValues(func() (descriptor, error) { return parseDescriptor(protectedFileSDDL) })
+	dirDescriptor  = sync.OnceValues(func() (descriptor, error) { return parseDescriptor(protectedDirSDDL) })
+)
+
 // Protect replaces the owner and the DACL of path with the PMG descriptor.
 // SetNamedSecurityInfo needs the owner SID in the caller's token with the
 // owner right, which an elevated administrator token has and a standard
@@ -42,25 +55,13 @@ func Protect(path string) error {
 	if !ProcessIsElevated() {
 		return fmt.Errorf("cannot protect %s: the process is not elevated", path)
 	}
-	isDir, err := isDirectory(path)
+	want, err := expected(path)
 	if err != nil {
 		return err
-	}
-	want, err := expected(isDir)
-	if err != nil {
-		return err
-	}
-	owner, _, err := want.Owner()
-	if err != nil {
-		return fmt.Errorf("failed to read the owner of the PMG descriptor: %w", err)
-	}
-	dacl, _, err := want.DACL()
-	if err != nil {
-		return fmt.Errorf("failed to read the DACL of the PMG descriptor: %w", err)
 	}
 	err = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		owner, nil, dacl, nil)
+		want.owner, nil, want.dacl, nil)
 	if err != nil {
 		return fmt.Errorf("failed to protect %s: %w", path, err)
 	}
@@ -74,7 +75,7 @@ func RequireProtected(path string) error {
 	if err := RequireNotReparsePoint(path); err != nil {
 		return err
 	}
-	isDir, err := isDirectory(path)
+	want, err := expected(path)
 	if err != nil {
 		return err
 	}
@@ -82,10 +83,6 @@ func RequireProtected(path string) error {
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return fmt.Errorf("failed to read the security descriptor of %s: %w", path, err)
-	}
-	want, err := expected(isDir)
-	if err != nil {
-		return err
 	}
 	if err := compare(got, want); err != nil {
 		return fmt.Errorf("%s does not carry the PMG security descriptor: %w", path, err)
@@ -129,43 +126,66 @@ func RequireTrustedExisting(path string) error {
 	return RequireProtected(path)
 }
 
-func isDirectory(path string) (bool, error) {
+// expected returns the PMG descriptor for a path, by whether it is a
+// directory.
+func expected(path string) (descriptor, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return false, fmt.Errorf("failed to inspect %s: %w", path, err)
+		return descriptor{}, fmt.Errorf("failed to inspect %s: %w", path, err)
 	}
-	return info.IsDir(), nil
+	if info.IsDir() {
+		return dirDescriptor()
+	}
+	return fileDescriptor()
 }
 
-func expected(isDir bool) (*windows.SECURITY_DESCRIPTOR, error) {
-	sddl := protectedFileSDDL
-	if isDir {
-		sddl = protectedDirSDDL
-	}
+func parseDescriptor(sddl string) (descriptor, error) {
 	sd, err := windows.SecurityDescriptorFromString(sddl)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build the PMG descriptor: %w", err)
+		return descriptor{}, fmt.Errorf("failed to build the PMG descriptor: %w", err)
 	}
-	return sd, nil
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return descriptor{}, fmt.Errorf("failed to read the owner of the PMG descriptor: %w", err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return descriptor{}, fmt.Errorf("failed to read the DACL of the PMG descriptor: %w", err)
+	}
+	entries, err := aces(dacl)
+	if err != nil {
+		return descriptor{}, fmt.Errorf("failed to read the PMG descriptor: %w", err)
+	}
+	return descriptor{owner: owner, dacl: dacl, aces: entries}, nil
 }
 
-// compare checks owner, the protected control bit, and every DACL entry in
-// order. SetNamedSecurityInfo does not reorder explicit entries, so order
-// is stable. A missing DACL grants everyone full access and fails.
-func compare(got, want *windows.SECURITY_DESCRIPTOR) error {
-	gotOwner, _, err := got.Owner()
-	if err != nil || gotOwner == nil {
+// compare checks owner, the DACL, the protected control bit, and every DACL
+// entry in order. SetNamedSecurityInfo does not reorder explicit entries, so
+// order is stable. A missing DACL grants everyone full access and fails.
+func compare(got *windows.SECURITY_DESCRIPTOR, want descriptor) error {
+	owner, _, err := got.Owner()
+	if err != nil {
+		return fmt.Errorf("failed to read its owner: %w", err)
+	}
+	if owner == nil {
 		return errors.New("it has no owner")
 	}
-	wantOwner, _, _ := want.Owner()
-	if !gotOwner.Equals(wantOwner) {
-		return fmt.Errorf("the owner is %s, not Administrators", gotOwner)
+	if !owner.Equals(want.owner) {
+		return fmt.Errorf("the owner is %s, not Administrators", owner)
 	}
 
-	gotAces, err := aces(got)
+	dacl, _, err := got.DACL()
+	if err != nil && !errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
+		return fmt.Errorf("failed to read its DACL: %w", err)
+	}
+	if dacl == nil {
+		return errors.New("it has no DACL, which grants every user full access")
+	}
+	entries, err := aces(dacl)
 	if err != nil {
 		return err
 	}
+
 	control, _, err := got.Control()
 	if err != nil {
 		return fmt.Errorf("failed to read its control flags: %w", err)
@@ -174,26 +194,18 @@ func compare(got, want *windows.SECURITY_DESCRIPTOR) error {
 		return errors.New("its DACL inherits from the parent")
 	}
 
-	wantAces, _ := aces(want)
-	if len(gotAces) != len(wantAces) {
-		return fmt.Errorf("its DACL has %d entries, not %d", len(gotAces), len(wantAces))
+	if len(entries) != len(want.aces) {
+		return fmt.Errorf("its DACL has %d entries, not %d", len(entries), len(want.aces))
 	}
-	for i := range wantAces {
-		if !sameAce(gotAces[i], wantAces[i]) {
+	for i := range want.aces {
+		if !sameAce(entries[i], want.aces[i]) {
 			return fmt.Errorf("DACL entry %d differs", i+1)
 		}
 	}
 	return nil
 }
 
-func aces(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.ACCESS_ALLOWED_ACE, error) {
-	dacl, _, err := sd.DACL()
-	if err != nil && !errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
-		return nil, fmt.Errorf("failed to read its DACL: %w", err)
-	}
-	if dacl == nil {
-		return nil, errors.New("it has no DACL, which grants every user full access")
-	}
+func aces(dacl *windows.ACL) ([]*windows.ACCESS_ALLOWED_ACE, error) {
 	out := make([]*windows.ACCESS_ALLOWED_ACE, 0, dacl.AceCount)
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE

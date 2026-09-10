@@ -9,6 +9,9 @@ import (
 	"github.com/safedep/pmg/errcodes"
 )
 
+// setupIsElevated is a Windows concept. Tests set it on every platform.
+var setupIsElevated = func() bool { return false }
+
 func requireSystemPrivilege() error {
 	if setupGeteuid() == 0 {
 		return nil

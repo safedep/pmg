@@ -40,7 +40,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	mgr, err := NewSystemShimManager()
 	require.NoError(t, err)
 	assert.True(t, mgr.config.SkipUserPath)
-	assert.True(t, mgr.config.SystemProfile)
+	assert.NotNil(t, mgr.config.System)
 	assert.Equal(t, SystemBinDir(), mgr.GetBinDir())
 
 	require.NoError(t, mgr.Install())
@@ -115,7 +115,7 @@ func TestWriteSystemProfileRepairsStalePath(t *testing.T) {
 	))
 
 	binDir := filepath.Join(root, "custom-bin")
-	require.NoError(t, writeSystemProfile(binDir))
+	require.NoError(t, writeSystemProfile(SystemProfilePath(), binDir))
 
 	content, err := os.ReadFile(SystemProfilePath())
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestValidateSystemExecutableRejectsPrivateBinary(t *testing.T) {
 	privateExecutable := filepath.Join(privateDir, "pmg")
 	require.NoError(t, os.WriteFile(privateExecutable, []byte("binary"), 0o700))
 
-	err := validateSystemExecutable(privateExecutable)
+	err := systemLayout{}.validateBinary(privateExecutable)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not executable by all users")
@@ -147,7 +147,7 @@ func TestValidateSystemExecutableRejectsGroupWritable(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("binary"), 0o755))
 	require.NoError(t, os.Chmod(path, 0o775))
 
-	err := validateSystemExecutable(path)
+	err := systemLayout{}.validateBinary(path)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "writable by group or others")
@@ -165,7 +165,7 @@ func TestValidateSystemExecutableRejectsNonRootOwner(t *testing.T) {
 	path := filepath.Join(dir, "pmg")
 	require.NoError(t, os.WriteFile(path, []byte("binary"), 0o755))
 
-	err := validateSystemExecutable(path)
+	err := systemLayout{}.validateBinary(path)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be owned by root")

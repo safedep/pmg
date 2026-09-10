@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,28 +34,9 @@ func TestGlobalConfigDirIgnoresTheEnvironment(t *testing.T) {
 	assert.Equal(t, filepath.Join(programData, `safedep\pmg`), globalConfigDir())
 }
 
-// A config a standard user dropped into the managed path before setup must
-// not seed the machine policy. The file in the temp directory carries the
-// directory's inherited descriptor, not PMG's, which is the shape of that
-// attack. It is rejected before it is read, and left in place.
-func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
-	dir := useGlobalConfigDir(t)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	path := filepath.Join(dir, "config.yml")
-	require.NoError(t, os.WriteFile(path, []byte("paranoid: false\n"), 0o644))
-
-	err := WriteSystemTemplateConfig()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not carry the PMG security descriptor")
-	assert.Contains(t, err.Error(), "Inspect the file, delete it, and run the install again")
-
-	content, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, "paranoid: false\n", string(content), "the file is left as evidence")
-}
-
 // A junction in place of the managed directory would send the writes and
-// the descriptor changes to a target of the user's choosing.
+// the descriptor changes to a target of the user's choosing. It is rejected
+// before anything is protected or written.
 func TestWriteSystemTemplateConfigRejectsAJunction(t *testing.T) {
 	dir := useGlobalConfigDir(t)
 	target := filepath.Join(t.TempDir(), "elsewhere")
@@ -65,6 +48,35 @@ func TestWriteSystemTemplateConfigRejectsAJunction(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "link or a junction")
 	assert.NoFileExists(t, filepath.Join(target, "config.yml"))
+}
+
+// A config a standard user dropped into the managed path before setup must
+// not seed the machine policy. The file carries the directory's inherited
+// descriptor, not PMG's, which is the shape of that attack. The directories
+// are secured first, then the file is rejected before it is read, and left
+// in place.
+func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
+	if !winacl.ProcessIsElevated() {
+		t.Skip("securing the directories needs an elevated process")
+	}
+	dir := useGlobalConfigDir(t)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("paranoid: false\n"), 0o644))
+
+	err := WriteSystemTemplateConfig()
+	require.Error(t, err)
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, errcodes.PermissionDenied, usefulErr.Code())
+	assert.Contains(t, usefulErr.HumanError(), path)
+	assert.Contains(t, usefulErr.Help(), "Inspect the file, delete it, and run the install again")
+	assert.Contains(t, err.Error(), "does not carry the PMG security descriptor")
+
+	assert.NoError(t, winacl.RequireProtected(dir), "the directories are secured before the file is checked")
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "paranoid: false\n", string(content), "the file is left as evidence")
 }
 
 // The elevated path. A fresh install protects the vendor directory, the

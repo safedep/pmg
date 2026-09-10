@@ -43,7 +43,10 @@ func TestCompare(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := windows.SecurityDescriptorFromString(tt.sddl)
 			require.NoError(t, err)
-			want, err := expected(tt.isDir)
+			want, err := fileDescriptor()
+			if tt.isDir {
+				want, err = dirDescriptor()
+			}
 			require.NoError(t, err)
 
 			err = compare(got, want)

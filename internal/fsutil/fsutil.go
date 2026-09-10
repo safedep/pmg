@@ -64,5 +64,5 @@ func MkdirAllRootOwned(dir string, mode os.FileMode) error {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
-	return ForceRootOwned(dir, mode)
+	return SecureSystemPath(dir, mode)
 }

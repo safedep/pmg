@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,25 +28,40 @@ func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {
 	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
 }
 
+// tempLayout mirrors the Program Files layout under the temp directory:
+// root\safedep\pmg\pmg.exe and root\safedep\pmg\bin.
+func tempLayout(t *testing.T) systemLayout {
+	t.Helper()
+	product := filepath.Join(t.TempDir(), "safedep", "pmg")
+	require.NoError(t, os.MkdirAll(product, 0o755))
+	layout := systemLayout{
+		BinDir:     filepath.Join(product, "bin"),
+		ProductDir: product,
+		Binary:     filepath.Join(product, "pmg.exe"),
+	}
+	require.NoError(t, os.WriteFile(layout.Binary, []byte("binary"), 0o755))
+	return layout
+}
+
 // The binary must be the canonical one. Every other location is rejected
 // with the path to use.
-func TestValidateSystemExecutableRequiresTheCanonicalPath(t *testing.T) {
-	root := t.TempDir()
-	systemBinDirOverride = filepath.Join(root, "bin")
-	t.Cleanup(func() { systemBinDirOverride = "" })
+func TestValidateBinaryRequiresTheCanonicalPath(t *testing.T) {
+	layout := tempLayout(t)
 
-	canonical := filepath.Join(root, "pmg.exe")
-	require.NoError(t, os.WriteFile(canonical, []byte("binary"), 0o755))
-	assert.NoError(t, validateSystemExecutable(canonical))
-	assert.NoError(t, validateSystemExecutable(strings.ToUpper(canonical)), "case does not matter on NTFS")
+	assert.NoError(t, layout.validateBinary(layout.Binary))
+	assert.NoError(t, layout.validateBinary(strings.ToUpper(layout.Binary)), "case does not matter on NTFS")
 
 	elsewhere := filepath.Join(t.TempDir(), "pmg.exe")
 	require.NoError(t, os.WriteFile(elsewhere, []byte("binary"), 0o755))
-	err := validateSystemExecutable(elsewhere)
+	err := layout.validateBinary(elsewhere)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "A system install needs it at "+canonical)
+	usefulErr, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, errcodes.PermissionDenied, usefulErr.Code())
+	assert.Contains(t, usefulErr.HumanError(), layout.Binary)
+	assert.Contains(t, usefulErr.Help(), layout.ProductDir)
 
-	assert.ErrorContains(t, validateSystemExecutable(filepath.Join(root, "missing.exe")), "failed to inspect")
+	assert.ErrorContains(t, layout.validateBinary(filepath.Join(layout.ProductDir, "missing.exe")), "failed to inspect")
 }
 
 func TestMachinePathScope(t *testing.T) {
@@ -111,101 +128,91 @@ func TestMachinePathScope(t *testing.T) {
 	})
 }
 
-// useSystemPaths is the Windows twin of the Unix helper. The layout under
-// the temp directory mirrors Program Files: root\safedep\pmg\pmg.exe and
-// root\safedep\pmg\bin. Install protects the objects, which needs elevation,
-// so every caller skips without it.
-func useSystemPaths(t *testing.T) string {
+// useSystemLayout builds a layout under the temp directory and points the
+// package-level lookups at it, so ValidateSystemInstall and
+// SystemShimsInstalled read the same layout the manager writes. Install
+// protects the objects, which needs elevation, so every caller skips
+// without it.
+func useSystemLayout(t *testing.T) systemLayout {
 	t.Helper()
 	if !winacl.ProcessIsElevated() {
 		t.Skip("Install protects the objects, which needs an elevated process")
 	}
 	isolateMachinePath(t)
-	product := filepath.Join(t.TempDir(), "safedep", "pmg")
-	require.NoError(t, os.MkdirAll(product, 0o755))
-	systemBinDirOverride = filepath.Join(product, "bin")
-
-	exe := filepath.Join(product, "pmg.exe")
-	require.NoError(t, os.WriteFile(exe, []byte("binary"), 0o755))
-	resolveExecutable = func() (string, error) { return exe, nil }
-
-	t.Cleanup(func() {
-		systemBinDirOverride = ""
-		resolveExecutable = currentExecutable
-	})
-	return product
+	layout := tempLayout(t)
+	systemBinDirOverride = layout.BinDir
+	t.Cleanup(func() { systemBinDirOverride = "" })
+	return layout
 }
 
 func TestSystemShimManagerInstallAndRemove(t *testing.T) {
-	product := useSystemPaths(t)
+	layout := useSystemLayout(t)
 	setRegistryPath(t, machinePath, `C:\Program Files\nodejs\`)
 
-	mgr, err := NewSystemShimManager()
-	require.NoError(t, err)
+	mgr := newSystemShimManager(layout, layout.Binary)
 	assert.True(t, mgr.config.SkipUserPath)
-	assert.True(t, mgr.config.SystemProfile)
-	assert.Equal(t, "", SystemProfilePath())
+	assert.NotNil(t, mgr.config.System)
+	assert.Equal(t, "", layout.ProfilePath)
 
 	require.NoError(t, mgr.Install())
 	assert.True(t, SystemShimsInstalled())
-	assert.True(t, SystemPathInstalled())
-	assert.NoError(t, ValidateSystemInstall(), "every object carries the PMG descriptor")
+	assert.True(t, layout.pathInstalled())
+	binary, err := ValidateSystemInstall()
+	require.NoError(t, err, "every object carries the PMG descriptor")
+	assert.Equal(t, layout.Binary, binary)
 
 	entries, _, err := machinePath.read()
 	require.NoError(t, err)
-	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, product}, entries,
+	assert.Equal(t, []string{layout.BinDir, `C:\Program Files\nodejs\`, layout.ProductDir}, entries,
 		"the shim directory goes first and the product directory last, so `pmg` itself resolves")
 
-	content, err := os.ReadFile(filepath.Join(SystemBinDir(), "npm.cmd"))
+	content, err := os.ReadFile(filepath.Join(layout.BinDir, "npm.cmd"))
 	require.NoError(t, err)
-	assert.Contains(t, string(content), filepath.Join(product, "pmg.exe"))
-
-	bin, ok := SystemShimBinary()
-	require.True(t, ok)
-	assert.Equal(t, filepath.Join(product, "pmg.exe"), bin)
+	assert.Contains(t, string(content), layout.Binary)
 
 	// A second install is a no-op on the PATH and rewrites the shims.
 	require.NoError(t, mgr.Install())
 	entries, _, err = machinePath.read()
 	require.NoError(t, err)
-	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, product}, entries)
+	assert.Equal(t, []string{layout.BinDir, `C:\Program Files\nodejs\`, layout.ProductDir}, entries)
 
 	require.NoError(t, mgr.Remove())
 	assert.False(t, SystemShimsInstalled())
-	assert.False(t, SystemPathInstalled())
+	assert.False(t, layout.pathInstalled())
 	require.NoError(t, mgr.Remove())
 
 	entries, _, err = machinePath.read()
 	require.NoError(t, err)
-	assert.Equal(t, []string{`C:\Program Files\nodejs\`, product}, entries, "the binary stays, so its directory stays on PATH")
+	assert.Equal(t, []string{`C:\Program Files\nodejs\`, layout.ProductDir}, entries, "the binary stays, so its directory stays on PATH")
 }
 
 // Doctor reports a drifted descriptor on any object, and a reinstall
 // restores it. The drift is applied the way an administrator would, through
 // the security API, on a shim, on the shim directory and on the binary.
 func TestSystemInstallDetectsAndRepairsDrift(t *testing.T) {
-	product := useSystemPaths(t)
+	layout := useSystemLayout(t)
 	setRegistryPath(t, machinePath, `C:\Tools`)
 
-	mgr, err := NewSystemShimManager()
-	require.NoError(t, err)
+	mgr := newSystemShimManager(layout, layout.Binary)
 	require.NoError(t, mgr.Install())
-	require.NoError(t, ValidateSystemInstall())
+	_, err := ValidateSystemInstall()
+	require.NoError(t, err)
 
 	loose := "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;BU)"
 	looseDir := "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)"
 	for _, drift := range []struct{ path, sddl string }{
-		{filepath.Join(SystemBinDir(), "npm.cmd"), loose},
-		{SystemBinDir(), looseDir},
-		{filepath.Join(product, "pmg.exe"), loose},
+		{filepath.Join(layout.BinDir, "npm.cmd"), loose},
+		{layout.BinDir, looseDir},
+		{layout.Binary, loose},
 	} {
 		applySDDL(t, drift.path, drift.sddl)
-		err := ValidateSystemInstall()
+		_, err := ValidateSystemInstall()
 		require.Error(t, err, drift.path)
 		assert.Contains(t, err.Error(), drift.path)
 
 		require.NoError(t, mgr.Install())
-		assert.NoError(t, ValidateSystemInstall(), "reinstall repairs %s", drift.path)
+		_, err = ValidateSystemInstall()
+		assert.NoError(t, err, "reinstall repairs %s", drift.path)
 	}
 }
 
