@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -28,77 +28,72 @@ func TestValidateSystemExecutableOnRealFiles(t *testing.T) {
 	assert.NotContains(t, err.Error(), "failed to", "the file was read, and rejected on its rights")
 }
 
-func TestMachinePathRegistry(t *testing.T) {
+func TestMachinePathScope(t *testing.T) {
 	isolateMachinePath(t)
 	shimDir := `C:\Program Files\safedep\pmg\bin`
 
-	t.Run("registers first and keeps the value type", func(t *testing.T) {
-		setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey,
-			`%SystemRoot%\system32;C:\Program Files\nodejs\`)
+	t.Run("prepends once and keeps the value type", func(t *testing.T) {
+		setRegistryPath(t, machinePath, `%SystemRoot%\system32;C:\Program Files\nodejs\`)
 
-		require.NoError(t, registerMachinePath(shimDir))
-		require.NoError(t, registerMachinePath(shimDir))
+		require.NoError(t, machinePath.prepend(shimDir))
+		require.NoError(t, machinePath.prepend(shimDir))
 
-		entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		entries, expand, err := machinePath.read()
 		require.NoError(t, err)
 		assert.Equal(t, []string{shimDir, `%SystemRoot%\system32`, `C:\Program Files\nodejs\`}, entries)
 		assert.True(t, expand)
 	})
 
 	t.Run("moves the directory back to the front", func(t *testing.T) {
-		require.NoError(t, writeRawPath(machineEnvironmentRoot, machineEnvironmentKey,
-			[]string{`C:\Program Files\nodejs\`, shimDir + `\`}, true))
+		require.NoError(t, machinePath.write([]string{`C:\Program Files\nodejs\`, shimDir + `\`}, true))
 
-		require.NoError(t, registerMachinePath(shimDir))
+		require.NoError(t, machinePath.prepend(shimDir))
 
-		entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		entries, _, err := machinePath.read()
 		require.NoError(t, err)
 		assert.Equal(t, []string{shimDir, `C:\Program Files\nodejs\`}, entries)
 	})
 
 	t.Run("an entry written through a variable counts as present", func(t *testing.T) {
-		require.NoError(t, writeRawPath(machineEnvironmentRoot, machineEnvironmentKey,
-			[]string{`%ProgramFiles%\safedep\pmg\bin`, `C:\Tools`}, true))
+		require.NoError(t, machinePath.write([]string{`%ProgramFiles%\safedep\pmg\bin`, `C:\Tools`}, true))
 
-		found, err := machinePathContains(filepath.Join(os.Getenv("ProgramFiles"), `safedep\pmg\bin`))
+		found, err := machinePath.contains(filepath.Join(os.Getenv("ProgramFiles"), `safedep\pmg\bin`))
 		require.NoError(t, err)
 		assert.True(t, found)
 	})
 
 	t.Run("append adds once at the end and moves nothing", func(t *testing.T) {
-		require.NoError(t, writeRawPath(machineEnvironmentRoot, machineEnvironmentKey,
-			[]string{shimDir, `C:\Tools`}, true))
+		require.NoError(t, machinePath.write([]string{shimDir, `C:\Tools`}, true))
 
-		require.NoError(t, appendMachinePath(`C:\Program Files\safedep\pmg`))
-		require.NoError(t, appendMachinePath(`C:\Program Files\safedep\pmg`))
-		require.NoError(t, appendMachinePath(`c:\tools`))
+		require.NoError(t, machinePath.append(`C:\Program Files\safedep\pmg`))
+		require.NoError(t, machinePath.append(`C:\Program Files\safedep\pmg`))
+		require.NoError(t, machinePath.append(`c:\tools`))
 
-		entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		entries, _, err := machinePath.read()
 		require.NoError(t, err)
 		assert.Equal(t, []string{shimDir, `C:\Tools`, `C:\Program Files\safedep\pmg`}, entries)
 	})
 
-	t.Run("unregister removes only the directory and never the value", func(t *testing.T) {
-		require.NoError(t, writeRawPath(machineEnvironmentRoot, machineEnvironmentKey,
-			[]string{shimDir, `C:\Tools`}, false))
+	t.Run("remove drops only the directory and never the value", func(t *testing.T) {
+		require.NoError(t, machinePath.write([]string{shimDir, `C:\Tools`}, false))
 
-		require.NoError(t, unregisterMachinePath(strings.ToLower(shimDir)))
-		require.NoError(t, unregisterMachinePath(shimDir))
+		require.NoError(t, machinePath.remove(strings.ToLower(shimDir)))
+		require.NoError(t, machinePath.remove(shimDir))
 
-		entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		entries, expand, err := machinePath.read()
 		require.NoError(t, err)
 		assert.Equal(t, []string{`C:\Tools`}, entries)
 		assert.False(t, expand, "a REG_SZ value stays REG_SZ")
 
-		require.NoError(t, unregisterMachinePath(`C:\Tools`))
-		entries, _, err = readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+		require.NoError(t, machinePath.remove(`C:\Tools`))
+		entries, _, err = machinePath.read()
 		require.NoError(t, err)
 		assert.Empty(t, entries)
 	})
 }
 
 // useSystemPaths is the Windows twin of the Unix helper. The temp directory
-// is user-owned, so the ACL checks are off and covered by their own tests.
+// is user-owned, so the ACL checks are off and covered by winacl's tests.
 func useSystemPaths(t *testing.T, dir string) {
 	t.Helper()
 	isolateMachinePath(t)
@@ -119,7 +114,7 @@ func useSystemPaths(t *testing.T, dir string) {
 func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	root := t.TempDir()
 	useSystemPaths(t, root)
-	setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey, `C:\Program Files\nodejs\`)
+	setRegistryPath(t, machinePath, `C:\Program Files\nodejs\`)
 
 	mgr, err := NewSystemShimManager()
 	require.NoError(t, err)
@@ -131,7 +126,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	assert.True(t, SystemShimsInstalled())
 	assert.True(t, SystemPathInstalled())
 
-	entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	entries, _, err := machinePath.read()
 	require.NoError(t, err)
 	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, root}, entries,
 		"the shim directory goes first and the binary's directory last, so `pmg` itself resolves")
@@ -146,7 +141,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 
 	// A second install is a no-op on the PATH and rewrites the shims.
 	require.NoError(t, mgr.Install())
-	entries, _, err = readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	entries, _, err = machinePath.read()
 	require.NoError(t, err)
 	assert.Equal(t, []string{SystemBinDir(), `C:\Program Files\nodejs\`, root}, entries)
 
@@ -155,7 +150,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	assert.False(t, SystemPathInstalled())
 	require.NoError(t, mgr.Remove())
 
-	entries, _, err = readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	entries, _, err = machinePath.read()
 	require.NoError(t, err)
 	assert.Equal(t, []string{`C:\Program Files\nodejs\`, root}, entries, "the binary stays, so its directory stays on PATH")
 }
@@ -163,12 +158,12 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 // An elevated install writes administrator-only shims. This is the path a
 // real install takes.
 func TestSystemShimManagerInstallForcesAdminOnlyShims(t *testing.T) {
-	if !fsutil.ProcessIsElevated() {
+	if !winacl.ProcessIsElevated() {
 		t.Skip("needs an elevated process")
 	}
 	root := t.TempDir()
 	useSystemPaths(t, root)
-	setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey, `C:\Tools`)
+	setRegistryPath(t, machinePath, `C:\Tools`)
 
 	mgr, err := NewSystemShimManager()
 	require.NoError(t, err)
@@ -176,12 +171,12 @@ func TestSystemShimManagerInstallForcesAdminOnlyShims(t *testing.T) {
 
 	// Not validateSystemShimDir: its ancestor walk reaches the user's
 	// profile, which they own. The directory and every shim are checked.
-	assert.NoError(t, fsutil.RequireAdminOnlyWritable(SystemBinDir()))
+	assert.NoError(t, winacl.RequireAdminOnlyWritable(SystemBinDir()))
 	entries, err := os.ReadDir(SystemBinDir())
 	require.NoError(t, err)
 	require.NotEmpty(t, entries)
 	for _, entry := range entries {
-		assert.NoError(t, fsutil.RequireAdminOnlyWritable(filepath.Join(SystemBinDir(), entry.Name())), entry.Name())
+		assert.NoError(t, winacl.RequireAdminOnlyWritable(filepath.Join(SystemBinDir(), entry.Name())), entry.Name())
 	}
 }
 

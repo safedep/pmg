@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/winacl"
 	"golang.org/x/sys/windows"
 )
 
@@ -36,19 +36,19 @@ func installSystemPath(binDir, pmgBin string) error {
 	if err := validateSystemShimDir(binDir); err != nil {
 		return err
 	}
-	if err := registerMachinePath(binDir); err != nil {
+	if err := machinePath.prepend(binDir); err != nil {
 		return err
 	}
-	return appendMachinePath(filepath.Dir(pmgBin))
+	return machinePath.append(filepath.Dir(pmgBin))
 }
 
 // removeSystemPath takes the shim directory off the machine PATH. The
 // binary's directory stays, as /usr/local/bin does on Linux: the binary is
 // still there, and the entry may predate PMG.
-func removeSystemPath(binDir, _ string) error { return unregisterMachinePath(binDir) }
+func removeSystemPath(binDir, _ string) error { return machinePath.remove(binDir) }
 
 func systemPathInstalled(binDir string) bool {
-	found, err := machinePathContains(binDir)
+	found, err := machinePath.contains(binDir)
 	return err == nil && found
 }
 
@@ -69,13 +69,13 @@ func validateSystemExecutable(path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve pmg executable %s: %w", path, err)
 	}
-	if err := fsutil.RequireAdminOnlyWritable(resolved); err != nil {
+	if err := winacl.RequireAdminOnlyWritable(resolved); err != nil {
 		return err
 	}
-	if err := fsutil.RequireProtectedDir(filepath.Dir(resolved)); err != nil {
+	if err := winacl.RequireProtectedDir(filepath.Dir(resolved)); err != nil {
 		return err
 	}
-	return fsutil.RequireExecutableByAll(resolved)
+	return winacl.RequireExecutableByAll(resolved)
 }
 
 // validateSystemShimDir applies the binary's rules to the shim directory
@@ -85,10 +85,10 @@ func validateSystemShimDir(dir string) error {
 	if !systemExecutableOwnershipCheck {
 		return nil
 	}
-	if err := fsutil.RequireNotReparsePoint(dir); err != nil {
+	if err := winacl.RequireNotReparsePoint(dir); err != nil {
 		return err
 	}
-	if err := fsutil.RequireProtectedDir(dir); err != nil {
+	if err := winacl.RequireProtectedDir(dir); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(dir)
@@ -99,7 +99,7 @@ func validateSystemShimDir(dir string) error {
 		if entry.IsDir() {
 			continue
 		}
-		if err := fsutil.RequireAdminOnlyWritable(filepath.Join(dir, entry.Name())); err != nil {
+		if err := winacl.RequireAdminOnlyWritable(filepath.Join(dir, entry.Name())); err != nil {
 			return err
 		}
 	}

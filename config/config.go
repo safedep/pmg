@@ -12,6 +12,7 @@ import (
 	_ "embed"
 
 	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/winacl"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -1165,35 +1166,15 @@ func WriteSystemTemplateConfig() error {
 	// by non-root users — silently disabling the system-wide policy for
 	// them. Only directories created here and the file we write are touched;
 	// pre-existing directories keep their permissions.
-	dir := filepath.Dir(path)
-
-	// ProgramData lets a standard user create a directory, and one created
-	// that way stays theirs. On Windows both PMG-owned components are
-	// therefore forced administrator-only even when they already exist, and
-	// nothing in the path may be a link, or the writes below would land
-	// where that user pointed them. An existing config file is merged only
-	// when it is already administrator-only: an owner set afterwards would
-	// not make contents a standard user wrote trustworthy. /etc has no such
-	// hole, so on Linux these checks are no-ops and pre-existing directories
-	// keep their permissions.
-	for _, d := range []string{filepath.Dir(dir), dir} {
-		if err := fsutil.RequireNotReparsePoint(d); err != nil {
-			return err
-		}
-	}
-	if err := fsutil.RequireTrustedExisting(path); err != nil {
+	// An existing config file is merged only when it is already
+	// administrator-only. An owner set afterwards would not make contents a
+	// standard user wrote trustworthy. Unix has no way for a standard user
+	// to put a file here, so the check is a no-op there.
+	if err := winacl.RequireTrustedExisting(path); err != nil {
 		return fmt.Errorf("%w. Inspect the file, delete it, and run the install again", err)
 	}
-
-	if err := fsutil.MkdirAllRootOwned(dir, 0o755); err != nil {
+	if err := fsutil.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
-	}
-	if runtime.GOOS == "windows" {
-		for _, d := range []string{filepath.Dir(dir), dir} {
-			if err := fsutil.ForceRootOwned(d, 0o755); err != nil {
-				return err
-			}
-		}
 	}
 
 	if err := writeTemplateConfigFile(path); err != nil {

@@ -1,6 +1,6 @@
 //go:build windows
 
-package fsutil
+package winacl
 
 import (
 	"os"
@@ -13,58 +13,88 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// The ACL rules are checked on descriptors built from SDDL, so every case
-// runs without elevation. BA is Administrators, SY is SYSTEM, BU is Users,
-// WD is Everyone, AU is Authenticated Users, CO is CREATOR OWNER. FA is full
+// The rules are checked on descriptors built from SDDL, so every case runs
+// without elevation. BA is Administrators, SY is SYSTEM, BU is Users, WD is
+// Everyone, AU is Authenticated Users, CO is CREATOR OWNER. FA is full
 // access, FR read, FX execute, FW write, SD delete, LC add subdirectory,
 // 0x1200a9 read and execute. A is allow, D is deny, XA is a conditional
 // allow. IO marks an inherit-only entry.
-func TestValidateAdminOnlyWritable(t *testing.T) {
+//
+// The "stock" descriptors are written from what icacls prints on a default
+// install. They are reconstructions, not copies of a Microsoft document. The
+// real-file test below is what checks the code against the runner's actual
+// defaults.
+func TestValidateNoOutsiderRights(t *testing.T) {
 	tests := []struct {
 		name    string
 		sddl    string
+		mask    windows.ACCESS_MASK
 		wantErr string
 	}{
 		{
 			name: "stock Program Files",
 			sddl: "O:SYD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;OICIIO;FA;;;CO)",
+			mask: writeRights,
 		},
 		{
 			name: "Administrators own, Users read and execute",
 			sddl: "O:BAD:(A;;FA;;;BA)(A;;0x1200a9;;;BU)",
+			mask: writeRights,
 		},
 		{
-			name: "a deny entry for Users is not a write",
+			name: "a deny entry for Users is not a grant",
 			sddl: "O:BAD:(D;;FW;;;BU)(A;;FA;;;BA)",
+			mask: writeRights,
+		},
+		{
+			name: "an inherit-only entry does not apply to the object",
+			sddl: "O:BAD:(A;;FA;;;BA)(A;OICIIO;FW;;;AU)",
+			mask: writeRights,
+		},
+		{
+			name: "stock volume root lets every user add a folder, which replaces nothing",
+			sddl: "O:SYD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;;LC;;;AU)(A;OICIIO;SDGXGWGR;;;AU)",
+			mask: replaceRights,
+		},
+		{
+			name: "stock ProgramData",
+			sddl: "O:SYD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;CI;LC;;;BU)(A;OICIIO;FA;;;CO)",
+			mask: replaceRights,
 		},
 		{
 			name:    "Users may write",
 			sddl:    "O:BAD:(A;;FA;;;BA)(A;;FW;;;BU)",
-			wantErr: "writable by BUILTIN\\Users",
+			mask:    writeRights,
+			wantErr: "lets BUILTIN\\Users write it",
 		},
 		{
 			name:    "Everyone may delete",
 			sddl:    "O:BAD:(A;;FA;;;BA)(A;;SD;;;WD)",
-			wantErr: "writable by Everyone",
+			mask:    writeRights,
+			wantErr: "lets Everyone write it",
 		},
 		{
-			name:    "Authenticated Users may write through an inherit-only entry",
-			sddl:    "O:BAD:(A;;FA;;;BA)(A;OICIIO;FW;;;AU)",
-			wantErr: "writable by NT AUTHORITY\\Authenticated Users",
+			name:    "Users may delete children of an ancestor",
+			sddl:    "O:BAD:(A;;FA;;;BA)(A;;0x40;;;BU)",
+			mask:    replaceRights,
+			wantErr: "lets BUILTIN\\Users rename or delete its entries",
 		},
 		{
 			name:    "a standard user owns it",
 			sddl:    "O:S-1-5-21-1-2-3-1001D:(A;;FA;;;BA)",
+			mask:    writeRights,
 			wantErr: "must be owned by Administrators, SYSTEM or TrustedInstaller",
 		},
 		{
 			name:    "no DACL is full access for everyone",
 			sddl:    "O:BA",
+			mask:    writeRights,
 			wantErr: "has no DACL",
 		},
 		{
 			name:    "a conditional entry is not evaluated, so it fails",
 			sddl:    `O:BAD:(A;;FA;;;BA)(XA;;FW;;;BU;(Member_of {SID(BA)}))`,
+			mask:    writeRights,
 			wantErr: "which PMG does not evaluate",
 		},
 	}
@@ -74,57 +104,11 @@ func TestValidateAdminOnlyWritable(t *testing.T) {
 			sd, err := windows.SecurityDescriptorFromString(tt.sddl)
 			require.NoError(t, err)
 
-			err = validateAdminOnlyWritable(sd, `C:\Program Files\safedep\pmg\pmg.exe`)
-			if tt.wantErr == "" {
-				assert.NoError(t, err)
-				return
+			verb := "write it"
+			if tt.mask == replaceRights {
+				verb = "rename or delete its entries"
 			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-		})
-	}
-}
-
-// The ancestor rule: a directory a standard user can rename or delete from
-// lets them replace a protected directory under it. Adding entries is fine,
-// which is what the root of a volume grants every user.
-func TestValidateNotReplaceable(t *testing.T) {
-	tests := []struct {
-		name    string
-		sddl    string
-		wantErr string
-	}{
-		{
-			name: "stock volume root",
-			sddl: "O:SYD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;;LC;;;AU)(A;OICIIO;SDGXGWGR;;;AU)",
-		},
-		{
-			name: "stock ProgramData",
-			sddl: "O:SYD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;CI;LC;;;BU)(A;OICIIO;FA;;;CO)",
-		},
-		{
-			name:    "Users may delete children",
-			sddl:    "O:BAD:(A;;FA;;;BA)(A;;0x40;;;BU)",
-			wantErr: "rename or delete its entries",
-		},
-		{
-			name:    "Everyone may delete the directory",
-			sddl:    "O:BAD:(A;;FA;;;BA)(A;;SD;;;WD)",
-			wantErr: "rename or delete its entries",
-		},
-		{
-			name:    "a standard user owns it",
-			sddl:    "O:S-1-5-21-1-2-3-1001D:(A;;FA;;;BA)",
-			wantErr: "must be owned by",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sd, err := windows.SecurityDescriptorFromString(tt.sddl)
-			require.NoError(t, err)
-
-			err = validateNotReplaceable(sd, `C:\Program Files`)
+			err = validateNoOutsiderRights(sd, `C:\Program Files\safedep\pmg`, tt.mask, verb)
 			if tt.wantErr == "" {
 				assert.NoError(t, err)
 				return
@@ -202,7 +186,7 @@ func TestRequireNotReparsePoint(t *testing.T) {
 
 // RequireTrustedExisting is what stops setup from merging a config a
 // standard user pre-created. A missing file passes, a user-writable file
-// does not, and the same file passes once ForceRootOwned ran on it.
+// does not, and the same file passes once Protect ran on it.
 func TestRequireTrustedExisting(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "config.yml")
 	assert.NoError(t, RequireTrustedExisting(file))
@@ -213,14 +197,14 @@ func TestRequireTrustedExisting(t *testing.T) {
 	if !ProcessIsElevated() {
 		t.Skip("setting the owner needs an elevated process")
 	}
-	require.NoError(t, ForceRootOwned(file, 0o644))
+	require.NoError(t, Protect(file))
 	assert.NoError(t, RequireTrustedExisting(file))
 }
 
-// ForceRootOwned is what makes a pre-created directory or an overwritten
-// shim pass the checks. Setting the owner to Administrators needs
-// elevation, which the CI runner has.
-func TestForceRootOwnedMakesAPathAdminOnly(t *testing.T) {
+// Protect is what makes a pre-created directory or an overwritten shim pass
+// the checks. Setting the owner to Administrators needs elevation, which
+// the CI runner has.
+func TestProtectMakesAPathAdminOnly(t *testing.T) {
 	if !ProcessIsElevated() {
 		t.Skip("needs an elevated process")
 	}
@@ -230,8 +214,8 @@ func TestForceRootOwnedMakesAPathAdminOnly(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte("@echo off\r\n"), 0o755))
 	require.Error(t, RequireAdminOnlyWritable(file), "a file under the temp directory is user-writable")
 
-	require.NoError(t, ForceRootOwned(dir, 0o755))
-	require.NoError(t, ForceRootOwned(file, 0o755))
+	require.NoError(t, Protect(dir))
+	require.NoError(t, Protect(file))
 
 	// The ancestor walk is not asserted here: the temp directory sits under
 	// the user's profile, which they own.

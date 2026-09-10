@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -68,17 +68,17 @@ func TestWriteSystemTemplateConfigRejectsAJunction(t *testing.T) {
 // The full elevated path: a fresh write leaves an administrator-only file,
 // and a second run merges it because it is trusted.
 func TestWriteSystemTemplateConfigProtectsWhatItWrites(t *testing.T) {
-	if !fsutil.ProcessIsElevated() {
+	if !winacl.ProcessIsElevated() {
 		t.Skip("setting the owner needs an elevated process")
 	}
 	dir := useGlobalConfigDir(t)
 	path := filepath.Join(dir, "config.yml")
 
 	require.NoError(t, WriteSystemTemplateConfig())
-	assert.NoError(t, fsutil.RequireAdminOnlyWritable(filepath.Dir(dir)))
-	assert.NoError(t, fsutil.RequireAdminOnlyWritable(dir))
-	assert.NoError(t, fsutil.RequireAdminOnlyWritable(path))
+	assert.NoError(t, winacl.RequireAdminOnlyWritable(filepath.Dir(dir)))
+	assert.NoError(t, winacl.RequireAdminOnlyWritable(dir))
+	assert.NoError(t, winacl.RequireAdminOnlyWritable(path))
 
 	require.NoError(t, WriteSystemTemplateConfig())
-	assert.NoError(t, fsutil.RequireAdminOnlyWritable(path))
+	assert.NoError(t, winacl.RequireAdminOnlyWritable(path))
 }

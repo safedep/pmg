@@ -6,7 +6,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
-	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +21,7 @@ func TestRequireSystemInstallSupported(t *testing.T) {
 	setupGeteuid = func() int { return 0 }
 	err := requireSystemInstallSupported()
 	switch {
-	case runtime.GOOS == "linux", runtime.GOOS == "windows" && fsutil.ProcessIsElevated():
+	case runtime.GOOS == "linux", runtime.GOOS == "windows" && winacl.ProcessIsElevated():
 		assert.NoError(t, err)
 	case runtime.GOOS == "windows":
 		assertUsefulCode(t, err, errcodes.PermissionDenied)
@@ -34,7 +34,7 @@ func TestRequireSystemInstallSupported(t *testing.T) {
 	switch {
 	case runtime.GOOS == "linux":
 		assertUsefulCode(t, err, errcodes.PermissionDenied)
-	case runtime.GOOS == "windows" && fsutil.ProcessIsElevated():
+	case runtime.GOOS == "windows" && winacl.ProcessIsElevated():
 		assert.NoError(t, err, "Windows does not consult the uid")
 	case runtime.GOOS == "windows":
 		assertUsefulCode(t, err, errcodes.PermissionDenied)
@@ -44,7 +44,7 @@ func TestRequireSystemInstallSupported(t *testing.T) {
 }
 
 func TestInstallSystemRequiresRoot(t *testing.T) {
-	if runtime.GOOS == "windows" && fsutil.ProcessIsElevated() {
+	if runtime.GOOS == "windows" && winacl.ProcessIsElevated() {
 		t.Skip("an elevated process would install for real")
 	}
 	orig := setupGeteuid

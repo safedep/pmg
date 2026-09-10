@@ -78,8 +78,8 @@ func batchEscape(value string) string {
 
 // The shim directory reaches PATH through HKCU\Environment, which every new
 // shell reads.
-func (m *ShimManager) installPath() error { return registerUserPath(m.config.BinDir) }
+func (m *ShimManager) installPath() error { return userPath.prepend(m.config.BinDir) }
 
-func (m *ShimManager) removePath() error { return unregisterUserPath(m.config.BinDir) }
+func (m *ShimManager) removePath() error { return userPath.remove(m.config.BinDir) }
 
-func (m *ShimManager) pathInstalled() (bool, error) { return userPathContains(m.config.BinDir) }
+func (m *ShimManager) pathInstalled() (bool, error) { return userPath.contains(m.config.BinDir) }
