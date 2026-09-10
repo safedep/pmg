@@ -791,9 +791,14 @@ jobs:
   # root carries a pnpm-workspace.yaml and pnpm writes a workspace member's
   # lockfile at the root.
   #
-  # Only `pmg go`, which needs `pmg setup cert install` first because Go reads
-  # the OS trust store, and the sandbox, which does not run on Windows, are
-  # out. Everything else PMG shims is here.
+  # Three managers are out. `pmg go` needs `pmg setup cert install` first,
+  # because Go reads the OS trust store. The sandbox does not run on Windows.
+  # And aube cannot be driven from PowerShell: its installer writes bin/aube
+  # as a shebang naming bin/aube.exe, and npm's .ps1 shim appends the Windows
+  # exe suffix to the shebang interpreter, so the wrapper resolves
+  # aube.exe.exe. PMG still writes the aube, aubr and aubx shims, and
+  # exec.LookPath uses PATHEXT, which has no .ps1, so PMG itself is
+  # unaffected. Everything else PMG shims is here.
   e2e-windows:
     name: PMG E2E Tests - Windows
     runs-on: windows-latest
@@ -826,14 +831,6 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
-
-      # --allow-scripts, not --ignore-scripts=false: aube's preinstall script
-      # is what fetches @endevco/aube-win32-x64, which carries the binary, and
-      # npm's allow-scripts policy blocks it otherwise.
-      - name: Setup aube
-        run: |
-          npm install -g --allow-scripts=@endevco/aube @endevco/aube@2.2.4
-          aube --version
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -1125,25 +1122,6 @@ jobs:
           if (-not (Test-Path bun.lock)) { throw "bun.lock not written from the manifest" }
           if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
           Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "bun-test"
-
-      - name: Test aube - Single Package & Manifest
-        env:
-          AUBE_UPDATE_NOTIFIER: "false"
-        run: |
-          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
-          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "aube-test") -Force)
-          npm init -y
-          aube add express@5.2.1
-          aube add lodash@4.17.21
-          if (-not (Test-Path node_modules\express)) { throw "express not installed" }
-          if (-not (Test-Path aube-lock.yaml)) { throw "aube-lock.yaml not written" }
-
-          Write-Host "Testing manifest installation..."
-          Remove-Item -Recurse -Force node_modules, aube-lock.yaml
-          aube install
-          if (-not (Test-Path aube-lock.yaml)) { throw "aube-lock.yaml not written from the manifest" }
-          if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
-          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "aube-test"
 
       - name: Test Poetry - Single Package & Manifest
         run: |
