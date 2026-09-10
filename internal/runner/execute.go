@@ -249,7 +249,7 @@ func runPTY(
 	}()
 	defer func() {
 		cancelInput()
-		<-inputDone
+		waitForInputReader(inputDone)
 	}()
 
 	if beforeWait != nil {
