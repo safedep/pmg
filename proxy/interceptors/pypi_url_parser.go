@@ -251,7 +251,7 @@ func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
 		// Could be:
 		// - name-version-build-python-abi-platform (6 parts, with build tag)
 		// - name_with_underscore-version-python-abi-platform (can't be this, underscores in names are normalized)
-		// Build tags are numeric (PEP 427)
+		// PEP 427 build tags start with a digit.
 		if isBuildTag(parts[2]) {
 			name = parts[0]
 			version = parts[1]
@@ -278,17 +278,8 @@ func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
 	}, nil
 }
 
-// isBuildTag checks if a string looks like a wheel build tag (numeric)
 func isBuildTag(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return len(s) > 0 && s[0] >= '0' && s[0] <= '9'
 }
 
 // parseSdistFilename parses a source distribution filename to extract package info
@@ -325,8 +316,7 @@ func parseSdistFilename(filename string) (*pypiPackageInfo, error) {
 // The challenge is that package names can contain hyphens, so we need to find
 // where the name ends and the version begins
 func extractNameVersionFromSdist(basename string) (string, string) {
-	// Version pattern: starts with a digit, may contain digits, dots, and pre-release suffixes
-	versionPattern := regexp.MustCompile(`^\d+(\.\d+)*([._-]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\.?\d*)*(\+[a-zA-Z0-9._-]+)?$`)
+	versionPattern := regexp.MustCompile(`^(\d+!)?\d+(\.\d+)*([._-]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\.?\d*)*(\+[a-zA-Z0-9._-]+)?$`)
 
 	// Split by hyphen and try to find where version starts
 	parts := strings.Split(basename, "-")
@@ -363,7 +353,7 @@ func extractNameVersionFromParts(parts []string) (string, string) {
 	// Try from the end, looking for version-like parts
 	for i := len(parts) - 1; i > 0; i-- {
 		if versionPattern.MatchString(parts[i]) {
-			// Check if next part is a build tag (numeric only)
+			// Check if the next part is a build tag.
 			if i+1 < len(parts) && isBuildTag(parts[i+1]) {
 				// This is the version, parts[i+1] is build tag
 				name := strings.Join(parts[:i], "_")

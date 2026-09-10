@@ -476,6 +476,56 @@ func TestProxyFlow_NonMitmHostStaysHermetic(t *testing.T) {
 func TestProxyFlow_Pypi(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
+			Name: "epoch sdist malware is blocked",
+			Setup: func(h *Harness) {
+				h.Analyzer.SetPypi("epoch-canary", "1!2.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.get("https://files.pythonhosted.org/packages/source/epoch_canary-1!2.0.tar.gz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("epoch-canary", "1!2.0"))
+				assert.False(t, h.Registry.Requested("files.pythonhosted.org", "/packages/source/epoch_canary-1!2.0.tar.gz"))
+			},
+		},
+		{
+			Name: "wheel malware with a build suffix is blocked",
+			Setup: func(h *Harness) {
+				h.Analyzer.SetPypi("wheel-canary", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.get("https://files.pythonhosted.org/packages/source/wheel_canary-1.0.0-1local-py3-none-any.whl", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("wheel-canary", "1.0.0"))
+				assert.Len(t, h.Analyzer.Calls(), 1)
+				assert.False(t, h.Registry.Requested("files.pythonhosted.org", "/packages/source/wheel_canary-1.0.0-1local-py3-none-any.whl"))
+			},
+		},
+		{
+			Name:   "cooldown removes a recent epoch release",
+			Config: cooldownEnabled(2),
+			Setup: func(h *Harness) {
+				h.Registry.AddPypi(PypiPackage{Name: "epoch_canary", Versions: []PypiVersion{
+					{Version: "2.0", PublishedAt: old()},
+					{Version: "1!2.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install("epoch_canary", "1!2.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				simple := h.Pypi().FetchSimple("epoch_canary")
+				assert.False(t, simple.HasVersion("epoch_canary", "1!2.0"))
+				assert.True(t, simple.HasVersion("epoch_canary", "2.0"))
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
 			Name: "clean package is analyzed and allowed",
 			Setup: func(h *Harness) {
 				h.Registry.AddPypi(PypiPackage{Name: "requests",

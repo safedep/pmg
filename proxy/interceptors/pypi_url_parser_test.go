@@ -362,6 +362,18 @@ func TestParseWheelFilename(t *testing.T) {
 		wantErr     bool
 	}{
 		{
+			name:        "wheel with build suffix",
+			filename:    "wheel_canary-1.0.0-1local-py3-none-any.whl",
+			wantName:    "wheel-canary",
+			wantVersion: "1.0.0",
+		},
+		{
+			name:        "wheel with multiple build digits and suffix",
+			filename:    "wheel_canary-1.0.0-12local-py3-none-any.whl",
+			wantName:    "wheel-canary",
+			wantVersion: "1.0.0",
+		},
+		{
 			name:        "simple wheel",
 			filename:    "requests-2.28.0-py3-none-any.whl",
 			wantName:    "requests",
@@ -407,11 +419,29 @@ func TestParseWheelFilename(t *testing.T) {
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, got.GetName())
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.True(t, got.IsFileDownload())
 			assert.Equal(t, "wheel", got.FileType())
+		})
+	}
+}
+
+func TestIsBuildTag(t *testing.T) {
+	for _, tt := range []struct {
+		tag  string
+		want bool
+	}{
+		{tag: "", want: false},
+		{tag: "1", want: true},
+		{tag: "0local", want: true},
+		{tag: "12local", want: true},
+		{tag: "local1", want: false},
+		{tag: "١local", want: false},
+	} {
+		t.Run(tt.tag, func(t *testing.T) {
+			assert.Equal(t, tt.want, isBuildTag(tt.tag))
 		})
 	}
 }
@@ -424,6 +454,28 @@ func TestParseSdistFilename(t *testing.T) {
 		wantVersion string
 		wantErr     bool
 	}{
+		{
+			name:        "epoch version",
+			filename:    "epoch_canary-1!2.0.tar.gz",
+			wantName:    "epoch-canary",
+			wantVersion: "1!2.0",
+		},
+		{
+			name:        "epoch with release suffixes",
+			filename:    "epoch_canary-12!2.0rc1.post2.dev3+local.zip",
+			wantName:    "epoch-canary",
+			wantVersion: "12!2.0rc1.post2.dev3+local",
+		},
+		{
+			name:     "missing epoch digits",
+			filename: "epoch_canary-!2.0.tar.gz",
+			wantErr:  true,
+		},
+		{
+			name:     "multiple epochs",
+			filename: "epoch_canary-1!2!2.0.tar.gz",
+			wantErr:  true,
+		},
 		{
 			name:        "simple tar.gz",
 			filename:    "requests-2.28.0.tar.gz",
@@ -470,7 +522,7 @@ func TestParseSdistFilename(t *testing.T) {
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, got.GetName())
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.True(t, got.IsFileDownload())
