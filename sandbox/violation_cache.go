@@ -183,6 +183,53 @@ func (c *ViolationCache) Latest() (*ViolationCacheEntry, error) {
 	return &e, nil
 }
 
+// Read loads one cache record by path. The path must lie inside the cache
+// directory. This lets `explain -` resolve an entry from `violations list
+// --json` without reading an arbitrary path from stdin.
+func (c *ViolationCache) Read(path string) (*ViolationCacheRecord, error) {
+	if c.dir == "" {
+		return nil, errors.New("violationcache: empty cache directory")
+	}
+
+	// Resolve symlinks on both sides before the containment check. A lexical
+	// check passes a symlink inside the cache directory, but os.ReadFile would
+	// follow it to a file outside. EvalSymlinks also fails a missing file.
+	absDir, err := filepath.Abs(c.dir)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: resolve dir: %w", err)
+	}
+	dir, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: resolve dir: %w", err)
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: resolve path: %w", err)
+	}
+	abs, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: resolve path: %w", err)
+	}
+
+	rel, err := filepath.Rel(dir, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("violationcache: path %q is outside the cache directory", path)
+	}
+
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("violationcache: read: %w", err)
+	}
+
+	var rec ViolationCacheRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil, fmt.Errorf("violationcache: parse %q: %w", path, err)
+	}
+
+	return &rec, nil
+}
+
 func (c *ViolationCache) prune() error {
 	dirents, err := os.ReadDir(c.dir)
 	if err != nil {
