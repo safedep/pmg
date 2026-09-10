@@ -45,11 +45,16 @@ npm, npx, pnpm, pnpx, yarn, pip, pip3, pipx, poetry, uv, uvx, bun, aube, aubr an
 
 ## How a shim starts the manager
 
-A Node manager installed through npm is a `.cmd` file. A batch file is not a program, so PMG starts it through `cmd.exe` and hands it the argument text exactly as the shim received it. PMG adds no quoting of its own. The manager sees the result of one parse, the same as when you run it with no PMG. PMG's own tests compare the two, argument by argument, in `cmd.exe` and in PowerShell.
+When you type `npm install lodash`, the shell finds `npm.cmd` in the shim directory and runs it. The shim does two things:
 
-`pmg npm install ...` typed by hand also works, and it takes a different route: the shell has already split your text into arguments, so PMG passes those to `cmd.exe` and your text is quoted twice. For an argument that carries a quote or a caret, prefer the shim, where it is quoted once.
+1. It stores your argument text, unchanged, in the environment variable `PMG_RAW_ARGS`.
+2. It runs `pmg npm` with the same arguments.
 
-An argument PMG replays can hold a variable reference. `%USERNAME%` is expanded before PMG sees it, so it is safe. A variable whose value itself contains `%..%` is expanded a second time.
+PMG then locates the real `npm`. On Windows that is `npm.cmd`, a batch file, and a batch file is not a program. PMG starts it through `cmd.exe` and passes it the text from `PMG_RAW_ARGS` as it is. PMG adds no quoting of its own. The real `npm` reads your arguments after one parse, the same as when you run it with no PMG. PMG's tests compare the two, argument by argument, in `cmd.exe` and in PowerShell.
+
+`pmg npm install lodash` typed by hand takes a different route. The shell splits your text into arguments before PMG starts, so there is no raw text to pass on. PMG quotes each argument again for `cmd.exe`, so your text is parsed twice. The result is the same for normal arguments. For an argument that carries a quote or a caret, prefer the shim, where the text is parsed once.
+
+`cmd.exe` expands `%NAME%` in the text before the real `npm` reads it. `%USERNAME%` is expanded before PMG sees it, so PMG passes the value, not the reference. A variable whose value itself contains `%NAME%` is expanded a second time.
 
 ## Limitations
 
