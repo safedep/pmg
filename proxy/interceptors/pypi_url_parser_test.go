@@ -7,6 +7,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPypiCoreMetadata(t *testing.T) {
+	for _, tt := range []struct {
+		filename string
+		version  string
+		wantErr  bool
+	}{
+		{filename: "demo-1.0-py3-none-any.whl.metadata", version: "1.0"},
+		{filename: "demo-1.0-1local-py3-none-any.whl.metadata", version: "1.0"},
+		{filename: "demo-1!2.0.tar.gz.metadata", version: "1!2.0"},
+		{filename: "invalid.metadata", wantErr: true},
+		{filename: "demo-1.0-py3-none-any.whl.metadata.metadata", wantErr: true},
+	} {
+		for _, route := range []struct {
+			name   string
+			parser registryURLParser
+			prefix string
+		}{
+			{name: "files", parser: pypiFilesParser{}, prefix: "/packages/ab/cd/"},
+			{name: "simple", parser: pypiOrgParser{}, prefix: "/simple/demo/"},
+			{name: "custom", parser: pypiCustomParser{}, prefix: "/files/"},
+		} {
+			t.Run(route.name+"/"+tt.filename, func(t *testing.T) {
+				info, err := route.parser.ParseURL(route.prefix + tt.filename)
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, "demo", info.GetName())
+				assert.Equal(t, tt.version, info.GetVersion())
+				assert.False(t, info.IsFileDownload())
+				assert.False(t, pypiIsSimpleAPIMetadataRequest(info))
+			})
+		}
+	}
+}
+
 func TestPypiFilesParser_ParseURL(t *testing.T) {
 	tests := []struct {
 		name           string

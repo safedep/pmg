@@ -188,6 +188,18 @@ func parseJSONAPIURL(segments []string) (*pypiPackageInfo, error) {
 
 // parseFilename extracts package name and version from a PyPI distribution filename
 func parseFilename(filename string) (*pypiPackageInfo, error) {
+	isMetadata := strings.HasSuffix(filename, ".metadata")
+	info, err := parseDistributionFilename(strings.TrimSuffix(filename, ".metadata"))
+	if err != nil {
+		return nil, err
+	}
+	if isMetadata {
+		info.isDownload = false
+	}
+	return info, nil
+}
+
+func parseDistributionFilename(filename string) (*pypiPackageInfo, error) {
 	// Try to parse as wheel first
 	if strings.HasSuffix(filename, ".whl") {
 		return parseWheelFilename(filename)

@@ -532,6 +532,64 @@ func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
 	RunCases(t, cases)
 }
 
+func TestProxyFlow_PypiCoreMetadata(t *testing.T) {
+	const filename = "demo-1.0.0-py3-none-any.whl"
+	const filePath = "/packages/source/d/demo/" + filename
+	const metadata = "Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n\n"
+	var cases []TestCase
+	for _, tt := range []struct {
+		name    string
+		verdict Verdict
+		blocked bool
+	}{
+		{name: "clean wheel", verdict: Clean()},
+		{name: "malicious wheel", verdict: VerifiedMalware(), blocked: true},
+	} {
+		cases = append(cases, TestCase{
+			Name: tt.name,
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.Paranoid = true
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{{
+					Version: "1.0.0", PublishedAt: old(), Filename: filename, CoreMetadata: []byte(metadata),
+				}}})
+				h.Analyzer.SetPypi("demo", "1.0.0", tt.verdict)
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				simple := h.Pypi().FetchSimple("demo")
+				require.NoError(h.t, simple.Outcome.Err)
+				require.Equal(h.t, http.StatusOK, simple.Outcome.StatusCode)
+				require.Len(h.t, simple.Files, 1)
+				require.Contains(h.t, simple.Outcome.Body, `"core-metadata":true`)
+				res.add(simple.Outcome)
+				core := h.Pypi().Download(simple.Files[0].URL + ".metadata")
+				require.NoError(h.t, core.Err)
+				require.Equal(h.t, http.StatusOK, core.StatusCode)
+				require.Equal(h.t, metadata, core.Body)
+				require.Empty(h.t, h.Analyzer.Calls())
+				res.add(core)
+				res.add(h.Pypi().Download(simple.Files[0].URL))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 3)
+				require.NoError(t, res.Requests[2].Err)
+				assert.Equal(t, tt.blocked, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.0.0"))
+				assert.True(t, h.Registry.Requested("files.pythonhosted.org", filePath+".metadata"))
+				assert.Equal(t, !tt.blocked, h.Registry.Requested("files.pythonhosted.org", filePath))
+				if !tt.blocked {
+					assert.Equal(t, http.StatusOK, res.Requests[2].StatusCode)
+				}
+			},
+		})
+	}
+	RunCases(t, cases)
+}
+
 func TestProxyFlow_Pypi(t *testing.T) {
 	RunCases(t, []TestCase{
 		{

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/safedep/dry/log"
 	"golang.org/x/mod/module"
 )
 
@@ -31,13 +32,22 @@ type NpmPackage struct {
 }
 
 type PypiVersion struct {
-	Version     string
-	PublishedAt time.Time
-	Bytes       []byte
+	Version      string
+	PublishedAt  time.Time
+	Bytes        []byte
+	Filename     string
+	CoreMetadata []byte
 
 	// FileURL overrides the canonical hash-directory file URL a custom pypi
 	// mount would otherwise generate, mirroring NpmVersion.TarballURL.
 	FileURL string
+}
+
+func (v PypiVersion) filename(name string) string {
+	if v.Filename != "" {
+		return v.Filename
+	}
+	return fmt.Sprintf("%s-%s.tar.gz", name, v.Version)
 }
 
 type PypiPackage struct {
@@ -559,7 +569,24 @@ func (r *Registry) serveCustomPypi(w http.ResponseWriter, req *http.Request, m m
 	_, _ = w.Write(buildPypiSimple(pkg, filesBase))
 }
 
-func (r *Registry) servePypiFile(w http.ResponseWriter, _ *http.Request) {
+func (r *Registry) servePypiFile(w http.ResponseWriter, req *http.Request) {
+	if strings.HasSuffix(req.URL.Path, ".metadata") {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for _, pkg := range r.pypi {
+			for _, v := range pkg.Versions {
+				if v.CoreMetadata != nil && strings.HasSuffix(req.URL.Path, "/"+v.filename(normalizePypiName(pkg.Name))+".metadata") {
+					w.Header().Set("Content-Type", "text/plain")
+					if _, err := w.Write(v.CoreMetadata); err != nil {
+						log.Warnf("Failed to write test core metadata: %v", err)
+					}
+					return
+				}
+			}
+		}
+		http.NotFound(w, req)
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	_, _ = w.Write([]byte("e2e-wheel"))
 }
@@ -624,13 +651,17 @@ func buildPypiSimple(pkg PypiPackage, filesBase string) []byte {
 	norm := normalizePypiName(pkg.Name)
 	files := []map[string]any{}
 	for _, v := range pkg.Versions {
-		filename := fmt.Sprintf("%s-%s.tar.gz", norm, v.Version)
-		files = append(files, map[string]any{
+		filename := v.filename(norm)
+		file := map[string]any{
 			"filename":    filename,
 			"url":         pypiFileURL(v.FileURL, filesBase, norm, filename),
 			"hashes":      map[string]string{},
 			"upload-time": v.PublishedAt.UTC().Format(time.RFC3339Nano),
-		})
+		}
+		if v.CoreMetadata != nil {
+			file["core-metadata"] = true
+		}
+		files = append(files, file)
 	}
 
 	doc := map[string]any{
