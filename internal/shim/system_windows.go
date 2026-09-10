@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
@@ -15,15 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// The known folder is asked, not the environment, which the caller's shell
-// controls.
-var programFiles = sync.OnceValue(func() string {
-	dir, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
-	if err != nil {
-		return `C:\Program Files`
-	}
-	return dir
-})
+var programFiles = fsutil.KnownFolder(windows.FOLDERID_ProgramFiles, `C:\Program Files`)
 
 func defaultSystemBinDir() string {
 	return filepath.Join(programFiles(), "safedep", "pmg", "bin")
