@@ -76,12 +76,26 @@ func TestCheckShimDirResolution(t *testing.T) {
 			wantStatus: doctor.StatusPass, wantActive: true, wantMsg: "Package managers resolve to Shim directory",
 		},
 		{
-			name: "a shadowed manager warns when the shim directory is on PATH",
+			// A shadowed manager is worth a warning, and it must still imply
+			// interception: npm here runs through the shim, and the
+			// protection checks report a failure when nothing implies it.
+			name: "a shadowed manager warns and still implies interception",
 			inspection: shim.InterceptionInspection{PathEntries: entriesWithShim, Resolutions: []shim.ManagerResolution{
 				{Name: "npm", Path: shimDir + "/npm", UnderShim: true},
 				{Name: "pip", Path: "/usr/bin/pip"},
 			}},
-			wantStatus: doctor.StatusWarn, wantMsg: "pip resolved outside Shim directory",
+			wantStatus: doctor.StatusWarn, wantActive: true, wantMsg: "pip resolved outside Shim directory",
+		},
+		{
+			// Every manager shadowed, but the shim directory is registered,
+			// so a manager installed later is intercepted. The branch below
+			// treats that as interception when no manager resolves at all,
+			// so it does here too.
+			name: "every manager shadowed warns and implies interception when the directory is on PATH",
+			inspection: shim.InterceptionInspection{PathEntries: entriesWithShim, Resolutions: []shim.ManagerResolution{
+				{Name: "npm", Path: "/usr/bin/npm"},
+			}},
+			wantStatus: doctor.StatusWarn, wantActive: true, wantMsg: "npm resolved outside Shim directory",
 		},
 		{
 			name: "only shadowed managers and no shim directory on PATH fails",

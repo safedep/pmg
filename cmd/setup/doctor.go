@@ -427,10 +427,18 @@ func checkShimDirResolution(shimDir, pathLabel string, inspection shim.Intercept
 
 	if len(shadowed) > 0 {
 		if pathContainsDir(pathEntries, shimDir) || len(underShim) > 0 {
+			// Some managers resolve under a shim, or the shim directory is
+			// registered, so interception is installed and the protection
+			// checks are worth running. Without this the checks report
+			// "Aliases and shims not active" as a failure, and doctor exits
+			// non-zero on any machine with one shadowed manager. Windows
+			// puts the machine PATH ahead of the user PATH, so a stock Node
+			// install shadows npm and every doctor run failed.
 			return doctor.CheckResult{
-				Status:  doctor.StatusWarn,
-				Message: fmt.Sprintf("%s resolved outside %s", strings.Join(managerNames(shadowed), ", "), pathLabel),
-				Fix:     shadowedFix(shadowed),
+				Status:              doctor.StatusWarn,
+				Message:             fmt.Sprintf("%s resolved outside %s", strings.Join(managerNames(shadowed), ", "), pathLabel),
+				Fix:                 shadowedFix(shadowed),
+				ImpliesInterception: true,
 			}
 		}
 		return doctor.CheckResult{

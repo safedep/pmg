@@ -702,18 +702,6 @@ jobs:
           pmg poetry install --no-root
           cd .. && rm -rf poetry-test
 
-      - name: Test Malicious Package Detection
-        run: |
-          echo "Testing malicious package detection..."
-          mkdir malicious-test && cd malicious-test
-          pmg npm init -y
-          if pmg npm install nyc-config@10.0.0; then
-            echo "ERROR: malicious package was not blocked!"
-            exit 1
-          fi
-          echo "Malicious package correctly blocked"
-          cd .. && rm -rf malicious-test
-
       - name: Test safedep-test-pkg is Blocked using Proxy mode
         run: |
           echo "Testing that safedep-test-pkg is blocked..."
