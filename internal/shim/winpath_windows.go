@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -149,21 +150,72 @@ func userPathContains(dir string) (bool, error) {
 }
 
 func containsPath(entries []string, dir string) bool {
-	for _, entry := range entries {
-		if fsutil.SamePath(entry, dir) {
-			return true
-		}
+	return slices.ContainsFunc(entries, func(entry string) bool { return fsutil.SamePath(entry, dir) })
+}
+
+// ProcessIsElevated reports whether UAC elevated this process. Only an
+// elevated process can write the machine PATH and Program Files.
+func ProcessIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
+
+// registerMachinePath puts dir first on the machine PATH, ahead of every
+// directory a machine-wide installer added, and moves it there when a later
+// installer pushed it back. The caller vouches that dir is writable by
+// administrators only. The value keeps its type.
+func registerMachinePath(dir string) error {
+	entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return err
 	}
-	return false
+	if len(entries) > 0 && sameMachineEntry(entries[0], dir) {
+		return nil
+	}
+	kept := slices.DeleteFunc(slices.Clone(entries), func(e string) bool { return sameMachineEntry(e, dir) })
+	return writeRawPath(machineEnvironmentRoot, machineEnvironmentKey, append([]string{dir}, kept...), expand)
+}
+
+// unregisterMachinePath removes dir from the machine PATH. The value itself
+// is never deleted, because the machine PATH is not PMG's to remove.
+func unregisterMachinePath(dir string) error {
+	entries, expand, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return err
+	}
+	kept := slices.DeleteFunc(slices.Clone(entries), func(e string) bool { return sameMachineEntry(e, dir) })
+	if len(kept) == len(entries) {
+		return nil
+	}
+	return writeRawPath(machineEnvironmentRoot, machineEnvironmentKey, kept, expand)
+}
+
+func machinePathContains(dir string) (bool, error) {
+	entries, _, err := readRawPath(machineEnvironmentRoot, machineEnvironmentKey)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(entries, func(e string) bool { return sameMachineEntry(e, dir) }), nil
+}
+
+// sameMachineEntry expands a raw entry first, so an administrator who wrote
+// %ProgramFiles%\safedep\pmg\bin by hand is not given a duplicate.
+func sameMachineEntry(raw, dir string) bool {
+	expanded, err := registry.ExpandString(raw)
+	if err != nil {
+		expanded = raw
+	}
+	return fsutil.SamePath(strings.Trim(expanded, `"`), dir)
 }
 
 // readUserPath returns the raw PATH entries and whether the value is
 // REG_EXPAND_SZ. The raw form keeps %USERPROFILE% style references that
 // other tools wrote, so a write does not flatten them.
 func readUserPath() (entries []string, expand bool, err error) {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.QUERY_VALUE)
+	return readRawPath(registry.CURRENT_USER, userEnvironmentKey)
+}
+
+func readRawPath(root registry.Key, keyPath string) (entries []string, expand bool, err error) {
+	key, err := registry.OpenKey(root, keyPath, registry.QUERY_VALUE)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to open HKCU\\%s: %w", userEnvironmentKey, err)
+		return nil, false, fmt.Errorf("failed to open %s: %w", keyPath, err)
 	}
 	defer key.Close()
 
@@ -172,7 +224,7 @@ func readUserPath() (entries []string, expand bool, err error) {
 		return nil, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to read the user PATH: %w", err)
+		return nil, false, fmt.Errorf("failed to read PATH under %s: %w", keyPath, err)
 	}
 
 	return splitRawPath(value), valueType == registry.EXPAND_SZ, nil
@@ -192,9 +244,13 @@ func splitRawPath(value string) []string {
 }
 
 func writeUserPath(entries []string, expand bool) error {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.SET_VALUE)
+	return writeRawPath(registry.CURRENT_USER, userEnvironmentKey, entries, expand)
+}
+
+func writeRawPath(root registry.Key, keyPath string, entries []string, expand bool) error {
+	key, err := registry.OpenKey(root, keyPath, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("failed to open HKCU\\%s for writing: %w", userEnvironmentKey, err)
+		return fmt.Errorf("failed to open %s for writing: %w", keyPath, err)
 	}
 	defer key.Close()
 
@@ -205,7 +261,7 @@ func writeUserPath(entries []string, expand bool) error {
 		err = key.SetStringValue(pathValueName, value)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to write the user PATH: %w", err)
+		return fmt.Errorf("failed to write PATH under %s: %w", keyPath, err)
 	}
 
 	broadcastEnvironmentChange()

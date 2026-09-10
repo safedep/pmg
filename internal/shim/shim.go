@@ -124,8 +124,8 @@ func (m *ShimManager) Install() error {
 	}
 
 	if m.config.SystemProfile {
-		if err := writeSystemProfile(m.config.BinDir); err != nil {
-			return fmt.Errorf("failed to write system profile: %w", err)
+		if err := installSystemPath(m.config.BinDir); err != nil {
+			return fmt.Errorf("failed to put the system shims on PATH: %w", err)
 		}
 	}
 
@@ -159,8 +159,8 @@ func (m *ShimManager) Remove() error {
 	}
 
 	if m.config.SystemProfile {
-		if err := removeSystemProfile(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to remove system profile: %w", err))
+		if err := removeSystemPath(m.config.BinDir); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove the system shims from PATH: %w", err))
 		}
 	}
 

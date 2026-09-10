@@ -1,14 +1,20 @@
-# System Install (Linux)
+# System Install
 
-Use system install when one machine or image should protect every user account: shared VMs, golden Docker images, and similar setups.
+Use system install when one machine or image should protect every user account: shared VMs, golden Docker images, MDM fleets, and similar setups. It runs on Linux and Windows.
 
 ```bash
 sudo pmg setup install --system
 ```
 
-**Requires Linux and root.** Install PMG as root into a standard system path such as `/usr/local/bin`. A user-local build (e.g. `~/go/bin/pmg`) is rejected.
+On Windows, run the same command from a terminal started as administrator:
 
-`--system` enforces this because every user's shims run the PMG binary by absolute path. Before installing, it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it).
+```powershell
+pmg setup install --system
+```
+
+**Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
+
+`--system` enforces this because every user's shims run the PMG binary by absolute path. On Linux it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it). On Windows it checks that the binary and its directory are **owned by Administrators, SYSTEM or TrustedInstaller**, that no entry in their ACL lets Users, Everyone or Authenticated Users write, and that Users can execute the binary. A stock `Program Files` directory passes.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
 
@@ -22,16 +28,29 @@ sudo pmg setup remove --system --config-file   # also remove the system config f
 ## Files created
 
 
-| Item                  | Path                          |
-| --------------------- | ----------------------------- |
-| Configuration         | `/etc/safedep/pmg/config.yml` |
-| Package-manager shims | `/usr/local/lib/pmg/bin`      |
-| Shell PATH snippet    | `/etc/profile.d/pmg.sh`       |
+| Item                  | Linux                         | Windows                                 |
+| --------------------- | ----------------------------- | --------------------------------------- |
+| Configuration         | `/etc/safedep/pmg/config.yml` | `%PROGRAMDATA%\safedep\pmg\config.yml`  |
+| Package-manager shims | `/usr/local/lib/pmg/bin`      | `%ProgramFiles%\safedep\pmg\bin\*.cmd`  |
+| PATH                  | `/etc/profile.d/pmg.sh`       | First entry of the machine `PATH`       |
 
 
 ## Making shims visible on PATH
 
-System install writes shims to `/usr/local/lib/pmg/bin`. Processes only use them when that directory is on `PATH` ahead of the real `npm`, `pip`, and other package managers.
+Processes only use the shims when the shim directory is on `PATH` ahead of the real `npm`, `pip`, and other package managers. On Linux that directory is `/usr/local/lib/pmg/bin`.
+
+### Windows
+
+`pmg setup install --system` puts `%ProgramFiles%\safedep\pmg\bin` first on the machine `PATH`. Windows builds every process `PATH` as the machine value, then the user value, so the shims sit ahead of `npm` from the Node.js MSI and every other machine-wide installer. Open a new terminal after the install. `pmg setup remove --system` deletes the entry.
+
+A per-user install cannot do this. A user `PATH` entry never moves ahead of a machine one, and a user-writable directory must not sit on the machine `PATH`, where an elevated process would run a binary a standard user planted. That is why the system shims live under `Program Files`.
+
+Confirm with:
+
+```powershell
+Get-Command npm    # should resolve under %ProgramFiles%\safedep\pmg\bin
+pmg setup doctor
+```
 
 ### Linux VMs and login shells
 

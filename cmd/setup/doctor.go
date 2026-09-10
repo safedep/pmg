@@ -289,7 +289,7 @@ func checkSystemBinaryResult() doctor.CheckResult {
 	}
 	return doctor.CheckResult{
 		Status:  doctor.StatusPass,
-		Message: fmt.Sprintf("System binary is root-owned and safe (%s)", path),
+		Message: fmt.Sprintf("System binary is protected from other users (%s)", path),
 	}
 }
 

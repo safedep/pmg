@@ -37,10 +37,18 @@ func PrintSetupInstallCmdInfo(aliasPath, shimBinDir, configPath string) {
 	fmt.Printf("   %s\n", Colors.Dim("Restart your terminal for changes to take effect"))
 }
 
+// PrintSetupSystemInstallCmdInfo reports what a system install wrote.
+// profilePath is empty on Windows, where the machine PATH carries the shim
+// directory and there is no profile.d.
 func PrintSetupSystemInstallCmdInfo(shimBinDir, configDir, profilePath string) {
 	fmt.Printf("%s %s\n", Colors.Green("✓"), "PMG system install completed")
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Shims:   %s", shimBinDir)))
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Config:  %s", configDir)))
+	if profilePath == "" {
+		fmt.Printf("   %s\n", Colors.Dim("PATH:    machine PATH, first entry"))
+		fmt.Printf("   %s\n", Colors.Dim("Per-user config files are now ignored. Open a new terminal."))
+		return
+	}
 	fmt.Printf("   %s\n", Colors.Dim(fmt.Sprintf("Profile: %s", profilePath)))
 	fmt.Printf("   %s\n", Colors.Dim("Per-user config files are now ignored."))
 	fmt.Printf("\n%s For Docker builds (RUN does not source profile.d), add:\n", Colors.Dim("ℹ"))
