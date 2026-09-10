@@ -162,6 +162,10 @@ func compare(got, want *windows.SECURITY_DESCRIPTOR) error {
 		return fmt.Errorf("the owner is %s, not Administrators", gotOwner)
 	}
 
+	gotAces, err := aces(got)
+	if err != nil {
+		return err
+	}
 	control, _, err := got.Control()
 	if err != nil {
 		return fmt.Errorf("failed to read its control flags: %w", err)
@@ -170,10 +174,6 @@ func compare(got, want *windows.SECURITY_DESCRIPTOR) error {
 		return errors.New("its DACL inherits from the parent")
 	}
 
-	gotAces, err := aces(got)
-	if err != nil {
-		return err
-	}
 	wantAces, _ := aces(want)
 	if len(gotAces) != len(wantAces) {
 		return fmt.Errorf("its DACL has %d entries, not %d", len(gotAces), len(wantAces))
