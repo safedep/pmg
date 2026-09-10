@@ -241,6 +241,10 @@ func runPTY(
 		defer close(inputDone)
 		inputRouter.ReadLoopContext(inputCtx, os.Stdin)
 	}()
+	// This defer runs before sess.Close restores the console, so the reader is
+	// cancelled while the console is still raw. The Windows reader depends on
+	// that order: its wake key returns a raw-mode read at once, and a
+	// line-mode read only on Enter.
 	defer func() {
 		cancelInput()
 		waitForInputReader(inputDone)
