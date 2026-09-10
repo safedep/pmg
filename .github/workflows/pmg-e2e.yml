@@ -791,13 +791,9 @@ jobs:
   # root carries a pnpm-workspace.yaml and pnpm writes a workspace member's
   # lockfile at the root.
   #
-  # `pmg go` needs `pmg setup cert install` first, since Go reads the OS trust
-  # store only, and the sandbox does not run on Windows. aube is out because
-  # it does not install on Windows: its bin entries are extensionless, so
-  # npm's generated .ps1 wrapper resolves `aube.exe.exe`, and its preinstall
-  # script, the only thing that fetches the platform binary, is blocked by
-  # npm's allow-scripts policy. PMG still writes the aube shims. Everything
-  # else PMG shims is here.
+  # Only `pmg go`, which needs `pmg setup cert install` first because Go reads
+  # the OS trust store, and the sandbox, which does not run on Windows, are
+  # out. Everything else PMG shims is here.
   e2e-windows:
     name: PMG E2E Tests - Windows
     runs-on: windows-latest
@@ -830,6 +826,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
+
+      # --allow-scripts, not --ignore-scripts=false: aube's preinstall script
+      # is what fetches @endevco/aube-win32-x64, which carries the binary, and
+      # npm's allow-scripts policy blocks it otherwise.
+      - name: Setup aube
+        run: |
+          npm install -g --allow-scripts=@endevco/aube @endevco/aube@2.2.4
+          aube --version
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -934,8 +938,12 @@ jobs:
         run: |
           Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "malicious-test") -Force)
           npm init -y
-          npm install nyc-config@10.0.0 2>&1 | Out-String | Write-Host
+          # A non-zero exit alone is not enough. npm could fail for another
+          # reason and falsely pass, so the block message is required too.
+          $output = npm install nyc-config@10.0.0 2>&1 | Out-String
+          Write-Host $output
           if ($LASTEXITCODE -eq 0) { throw "malicious package was not blocked" }
+          if ($output -notmatch 'Malicious package blocked') { throw "npm failed, but not because PMG blocked the package" }
           Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "malicious-test"
           exit 0
 
@@ -984,9 +992,15 @@ jobs:
           YARN_ENABLE_HARDENED_MODE: "0"
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          # corepack's yarn.cmd lives in the node directory, and the npm
+          # global prefix is a separate directory behind it on PATH, so a
+          # global install cannot shadow it here the way it does on Linux.
+          corepack disable
           npm install -g yarn@1.22.22
-          yarn --version
+          # Into RUNNER_TEMP before the first yarn call: the checkout's
+          # package.json pins pnpm, and yarn refuses to run in that project.
           Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "yarn-test") -Force)
+          yarn --version
           yarn init -y
           yarn add express@5.2.1
           yarn add lodash@4.17.21
@@ -1112,6 +1126,25 @@ jobs:
           if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
           Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "bun-test"
 
+      - name: Test aube - Single Package & Manifest
+        env:
+          AUBE_UPDATE_NOTIFIER: "false"
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "aube-test") -Force)
+          npm init -y
+          aube add express@5.2.1
+          aube add lodash@4.17.21
+          if (-not (Test-Path node_modules\express)) { throw "express not installed" }
+          if (-not (Test-Path aube-lock.yaml)) { throw "aube-lock.yaml not written" }
+
+          Write-Host "Testing manifest installation..."
+          Remove-Item -Recurse -Force node_modules, aube-lock.yaml
+          aube install
+          if (-not (Test-Path aube-lock.yaml)) { throw "aube-lock.yaml not written from the manifest" }
+          if (-not (Test-Path node_modules\lodash)) { throw "lodash not installed from the manifest" }
+          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "aube-test"
+
       - name: Test Poetry - Single Package & Manifest
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
@@ -1146,7 +1179,10 @@ jobs:
           Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "pmg-modes-test"
 
       # The spec names both shells. Doctor must pass in each on a configured
-      # machine. Warnings are allowed, a failed check is not.
+      # machine. Warnings are allowed, a failed check is not: doctor exits
+      # non-zero on a Fail, which stops the pwsh step through
+      # $PSNativeCommandUseErrorActionPreference and the cmd step through
+      # cmd's own default.
       - name: Test PMG Doctor - PowerShell
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
