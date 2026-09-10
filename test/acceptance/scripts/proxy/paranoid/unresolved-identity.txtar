@@ -1,0 +1,16 @@
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec sh check.sh
+stdout 'PMG could not identify the package from the URL'
+
+-- check.sh --
+set -eu
+pmg proxy start --daemon --port 0 --paranoid --state "$PWD/proxy-state.json"
+trap 'pmg proxy stop --state "$PWD/proxy-state.json"' EXIT
+eval "$(pmg proxy env --export --state "$PWD/proxy-state.json")"
+status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output response.txt --write-out '%{http_code}' \
+  https://files.pythonhosted.org/packages/invalid.whl)
+test "$status" = 403
+cat response.txt

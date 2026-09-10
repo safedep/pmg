@@ -473,6 +473,65 @@ func TestProxyFlow_NonMitmHostStaysHermetic(t *testing.T) {
 		"non-MITM CONNECT tunnel must be dialed through the mock override")
 }
 
+func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
+	var cases []TestCase
+	for _, endpoint := range []struct {
+		name string
+		host string
+		path string
+	}{
+		{name: "PyPI artifact", host: "files.pythonhosted.org", path: "/packages/invalid.whl"},
+		{name: "PyPI Simple API artifact", host: "pypi.org", path: "/simple/demo/invalid.whl"},
+		{name: "npm artifact", host: "registry.npmjs.org", path: "/demo/-/invalid.tgz"},
+	} {
+		for _, mode := range []struct {
+			name     string
+			paranoid bool
+		}{
+			{name: "default"},
+			{name: "paranoid", paranoid: true},
+		} {
+			cases = append(cases, TestCase{
+				Name: endpoint.name + " in " + mode.name + " mode",
+				Config: func(rc *config.RuntimeConfig) {
+					rc.Config.Paranoid = mode.paranoid
+				},
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					res.add(h.get("https://"+endpoint.host+endpoint.path, nil))
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					require.Len(t, res.Requests, 1)
+					require.NoError(t, res.Requests[0].Err)
+					assert.Equal(t, mode.paranoid, res.Blocked())
+					assert.Equal(t, !mode.paranoid, h.Registry.Requested(endpoint.host, endpoint.path))
+					assert.Empty(t, h.Analyzer.Calls())
+					if mode.paranoid {
+						assert.Contains(t, res.Requests[0].Body, "could not identify the package")
+					}
+				},
+			})
+		}
+	}
+	cases = append(cases, TestCase{
+		Name: "paranoid mode permits a clean PyPI install",
+		Config: func(rc *config.RuntimeConfig) {
+			rc.Config.Paranoid = true
+		},
+		Setup: func(h *Harness) {
+			h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{{Version: "1.0.0", PublishedAt: old()}}})
+			h.Analyzer.SetPypi("demo", "1.0.0", Clean())
+		},
+		Exec: func(h *Harness) ExecResult { return h.Pypi().Install("demo", "1.0.0") },
+		Assert: func(t *testing.T, h *Harness, res ExecResult) {
+			assert.False(t, res.Blocked())
+			assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.0.0"))
+		},
+	})
+	RunCases(t, cases)
+}
+
 func TestProxyFlow_Pypi(t *testing.T) {
 	RunCases(t, []TestCase{
 		{

@@ -150,17 +150,7 @@ func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
 
 	// Simple API might include filename (for redirects): /simple/{package}/{filename}
 	if len(segments) == 2 {
-		filename := segments[1]
-		info, err := parseFilename(filename)
-		if err != nil {
-			// If we can't parse the filename, treat it as a non-download request
-			return &pypiPackageInfo{
-				name:        denormalizePyPIPackageName(packageName),
-				isDownload:  false,
-				isSimpleAPI: true,
-			}, nil
-		}
-		return info, nil
+		return parseFilename(segments[1])
 	}
 
 	return nil, fmt.Errorf("invalid Simple API URL format: too many segments")

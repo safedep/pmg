@@ -240,6 +240,11 @@ func TestPypiOrgParser_ParseURL(t *testing.T) {
 		wantIsDownload bool
 		wantErr        bool
 	}{
+		{
+			name:    "invalid Simple API artifact",
+			urlPath: "/simple/demo/invalid.whl",
+			wantErr: true,
+		},
 		// Simple API
 		{
 			name:           "simple api package index",
