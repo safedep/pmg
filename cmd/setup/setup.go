@@ -100,6 +100,7 @@ func install(system bool) error {
 	}
 
 	ui.PrintSetupInstallCmdInfo(aliasPath, shimMgr.GetBinDir(), config.Get().ConfigDir())
+	warnShadowedManagers(shimMgr.GetBinDir())
 	return nil
 }
 

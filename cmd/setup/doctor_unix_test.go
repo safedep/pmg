@@ -8,9 +8,16 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/doctor"
+	"github.com/safedep/pmg/internal/shim"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// The Windows fix text does not apply off Windows, so the doctor table keeps
+// its usual hint for a shadowed manager.
+func TestShadowedFixIsEmptyOffWindows(t *testing.T) {
+	assert.Equal(t, "", shadowedFix([]shim.ManagerResolution{{Name: "npm", Path: "/usr/bin/npm"}}))
+}
 
 // os.Chmod cannot make a directory unwritable on Windows, so the probe
 // succeeds there and the failure path never runs.
