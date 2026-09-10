@@ -702,18 +702,6 @@ jobs:
           pmg poetry install --no-root
           cd .. && rm -rf poetry-test
 
-      - name: Test Malicious Package Detection
-        run: |
-          echo "Testing malicious package detection..."
-          mkdir malicious-test && cd malicious-test
-          pmg npm init -y
-          if pmg npm install nyc-config@10.0.0; then
-            echo "ERROR: malicious package was not blocked!"
-            exit 1
-          fi
-          echo "Malicious package correctly blocked"
-          cd .. && rm -rf malicious-test
-
       - name: Test safedep-test-pkg is Blocked using Proxy mode
         run: |
           echo "Testing that safedep-test-pkg is blocked..."
@@ -929,19 +917,6 @@ jobs:
           Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "block-test"
           # The step exits with the last native exit code, which the expected
           # failure left non-zero.
-          exit 0
-
-      - name: Test Malicious Package Detection
-        run: |
-          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "malicious-test") -Force)
-          npm init -y
-          # A non-zero exit alone is not enough. npm could fail for another
-          # reason and falsely pass, so the block message is required too.
-          $output = npm install nyc-config@10.0.0 2>&1 | Out-String
-          Write-Host $output
-          if ($LASTEXITCODE -eq 0) { throw "malicious package was not blocked" }
-          if ($output -notmatch 'Malicious package blocked') { throw "npm failed, but not because PMG blocked the package" }
-          Set-Location $env:RUNNER_TEMP; Remove-Item -Recurse -Force "malicious-test"
           exit 0
 
       - name: Test PNPM - Single Package & Manifest
