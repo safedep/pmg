@@ -108,7 +108,9 @@ func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "config.yml")
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
-	require.NoError(t, winacl.Protect(path))
+	for _, p := range []string{filepath.Dir(dir), dir, path} {
+		require.NoError(t, winacl.Protect(p))
+	}
 
 	got, err := resolveConfigFile()
 	require.NoError(t, err)
