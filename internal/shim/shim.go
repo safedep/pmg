@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 const (
@@ -256,7 +257,7 @@ func replaceSystemShim(shimPath, content string) error {
 		err = os.Chmod(tmp, 0o755)
 	}
 	if err == nil {
-		err = fsutil.SecureSystemPath(tmp, 0o755)
+		err = platform.ProtectSystemPath(tmp, 0o755)
 	}
 	if err == nil {
 		err = os.Rename(tmp, shimPath)

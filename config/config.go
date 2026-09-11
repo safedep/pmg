@@ -867,7 +867,7 @@ func resolveConfigFile() (string, error) {
 		// and the check is a no-op.
 		dir := filepath.Dir(global)
 		for _, p := range []string{filepath.Dir(dir), dir, global} {
-			if err := fsutil.RequireSystemControlled(p); err != nil {
+			if err := platform.RequireSystemControlled(p); err != nil {
 				log.Warnf("Ignoring the managed config at %s: %v", global, err)
 				return userConfigFilePath()
 			}
@@ -1054,10 +1054,10 @@ func WriteSystemTemplateConfig() error {
 	// away between the check and the read. An existing config file is merged
 	// only when PMG wrote it. A descriptor set afterwards would not make
 	// contents a standard user wrote trustworthy.
-	if err := fsutil.PrepareSystemDir(filepath.Dir(path)); err != nil {
+	if err := platform.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	if err := fsutil.RequireTrustedSystemFile(path); err != nil {
+	if err := platform.RequireTrustedSystemFile(path); err != nil {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.PermissionDenied).
 			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
@@ -1069,7 +1069,7 @@ func WriteSystemTemplateConfig() error {
 		return err
 	}
 
-	return fsutil.SecureSystemPath(path, 0o644)
+	return platform.ProtectSystemPath(path, 0o644)
 }
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing
@@ -1080,7 +1080,7 @@ func RemoveSystemConfigFile() error {
 		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
 	}
 
-	return fsutil.RemoveSystemFile(path)
+	return platform.RemoveSystemFile(path)
 }
 
 // SystemConfigDir returns the OS-level managed config directory, or "" when

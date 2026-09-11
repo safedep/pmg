@@ -2,7 +2,6 @@
 package fsutil
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,32 +29,4 @@ func pathWithinDir(path, dir string) bool {
 
 	keyPath, keyDir := comparablePath(path), comparablePath(dir)
 	return keyPath == keyDir || strings.HasPrefix(keyPath, keyDir+string(os.PathSeparator))
-}
-
-// mkdirAllRootOwned creates dir and any missing parents like os.MkdirAll,
-// forcing root ownership and mode on every component this call creates.
-// Pre-existing directories are left untouched: pmg only manages permissions
-// of artifacts it creates.
-func mkdirAllRootOwned(dir string, mode os.FileMode) error {
-	if info, err := os.Stat(dir); err == nil {
-		if info.IsDir() {
-			return nil
-		}
-		return fmt.Errorf("%s exists and is not a directory", dir)
-	}
-
-	if parent := filepath.Dir(dir); parent != dir {
-		if err := mkdirAllRootOwned(parent, mode); err != nil {
-			return err
-		}
-	}
-
-	if err := os.Mkdir(dir, mode); err != nil {
-		if os.IsExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
-	}
-
-	return secureSystemPath(dir, mode)
 }

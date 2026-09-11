@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 const systemProfileMarker = "PMG system shims"
@@ -38,7 +38,7 @@ func systemInstallPresent() bool { return SystemShimsInstalled() }
 // pre-created, so weaker modes are not inherited.
 func (l systemLayout) protect() error {
 	for _, dir := range []string{l.ProductDir, l.BinDir} {
-		if err := fsutil.SecureSystemPath(dir, 0o755); err != nil {
+		if err := platform.ProtectSystemPath(dir, 0o755); err != nil {
 			return err
 		}
 	}
@@ -180,7 +180,7 @@ export PATH="%s:$PATH"
 
 	data, err := os.ReadFile(path)
 	if err == nil && string(data) == content {
-		return fsutil.SecureSystemPath(path, 0o644)
+		return platform.ProtectSystemPath(path, 0o644)
 	}
 
 	if err != nil && !os.IsNotExist(err) {
@@ -193,7 +193,7 @@ export PATH="%s:$PATH"
 
 	// The snippet must stay world-readable regardless of root's umask so every
 	// user's login shell can source it.
-	return fsutil.SecureSystemPath(path, 0o644)
+	return platform.ProtectSystemPath(path, 0o644)
 }
 
 func removeSystemProfile(path string) error {
