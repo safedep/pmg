@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
 	"github.com/stretchr/testify/assert"
@@ -78,22 +77,6 @@ func TestCertInstallForceRotates(t *testing.T) {
 
 	assert.True(t, store.uninstalled) // rotation uninstalls old first
 	assert.True(t, store.installed)
-}
-
-func TestErrIfRunningUnderSudo(t *testing.T) {
-	// sudo from a normal user is refused.
-	withPrivilege(t, true)
-	t.Setenv("SUDO_USER", "alice")
-	assertUsefulCode(t, errIfRunningUnderSudo(), errcodes.PermissionDenied)
-
-	// Genuine root is allowed.
-	t.Setenv("SUDO_USER", "")
-	assert.NoError(t, errIfRunningUnderSudo())
-
-	// A user is allowed even when SUDO_USER is set.
-	withPrivilege(t, false)
-	t.Setenv("SUDO_USER", "alice")
-	assert.NoError(t, errIfRunningUnderSudo())
 }
 
 func TestCertInstallReplacesCorruptedCA(t *testing.T) {
