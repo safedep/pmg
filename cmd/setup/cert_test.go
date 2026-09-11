@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
 	"github.com/stretchr/testify/assert"
@@ -80,20 +81,17 @@ func TestCertInstallForceRotates(t *testing.T) {
 }
 
 func TestErrIfRunningUnderSudo(t *testing.T) {
-	orig := geteuid
-	t.Cleanup(func() { geteuid = orig })
-
-	// root + SUDO_USER set → refused (sudo from a normal user).
-	geteuid = func() int { return 0 }
+	// sudo from a normal user is refused.
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "alice")
-	assert.Error(t, errIfRunningUnderSudo())
+	assertUsefulCode(t, errIfRunningUnderSudo(), errcodes.PermissionDenied)
 
-	// root without SUDO_USER → genuine root, allowed.
+	// Genuine root is allowed.
 	t.Setenv("SUDO_USER", "")
 	assert.NoError(t, errIfRunningUnderSudo())
 
-	// non-root → allowed even if SUDO_USER somehow set.
-	geteuid = func() int { return 1000 }
+	// A user is allowed even when SUDO_USER is set.
+	withPrivilege(t, false)
 	t.Setenv("SUDO_USER", "alice")
 	assert.NoError(t, errIfRunningUnderSudo())
 }

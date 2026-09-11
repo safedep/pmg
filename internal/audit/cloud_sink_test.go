@@ -11,6 +11,7 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/cloud/endpointsync"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -417,18 +418,18 @@ func TestInvokingUserIgnoresSudoUserWhenNotElevated(t *testing.T) {
 	current, err := user.Current()
 	require.NoError(t, err)
 
-	orig := auditGeteuid
-	t.Cleanup(func() { auditGeteuid = orig })
+	orig := platform.IsPrivileged
+	t.Cleanup(func() { platform.IsPrivileged = orig })
 
 	// Non-root process: SUDO_USER must be ignored, else attribution is spoofable.
-	auditGeteuid = func() int { return 1000 }
+	platform.IsPrivileged = func() bool { return false }
 	t.Setenv("SUDO_USER", "root")
 	got := invokingUser()
 	require.NotNil(t, got)
 	assert.Equal(t, current.Username, got.Username, "SUDO_USER must not override attribution when not elevated")
 
-	// Elevated (euid 0): SUDO_USER is trusted and used.
-	auditGeteuid = func() int { return 0 }
+	// Privileged: SUDO_USER is trusted and used.
+	platform.IsPrivileged = func() bool { return true }
 	t.Setenv("SUDO_USER", current.Username)
 	got = invokingUser()
 	require.NotNil(t, got)
@@ -436,10 +437,10 @@ func TestInvokingUserIgnoresSudoUserWhenNotElevated(t *testing.T) {
 }
 
 func TestInvokingUserKeepsSudoAttributionWithoutPasswdEntry(t *testing.T) {
-	orig := auditGeteuid
-	t.Cleanup(func() { auditGeteuid = orig })
+	orig := platform.IsPrivileged
+	t.Cleanup(func() { platform.IsPrivileged = orig })
 
-	auditGeteuid = func() int { return 0 }
+	platform.IsPrivileged = func() bool { return true }
 	t.Setenv("SUDO_USER", "no-such-user-xyz")
 	t.Setenv("SUDO_UID", "4242")
 

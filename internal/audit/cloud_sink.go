@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"strconv"
 	"strings"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -14,6 +13,7 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 type cloudSink struct {
@@ -139,28 +139,24 @@ func (s *cloudSink) buildInvocationContext() *controltowerv1.EndpointInvocationC
 	return ctx
 }
 
-var auditGeteuid = os.Geteuid
-
 // invokingUser resolves the human behind the command. SUDO_USER is honored
-// only when the process is actually elevated (euid 0); otherwise any user
-// could set SUDO_USER to spoof cloud-audit attribution to another account.
+// only when the process is actually privileged; otherwise any user could set
+// SUDO_USER to spoof cloud-audit attribution to another account.
 func invokingUser() *user.User {
-	if auditGeteuid() == 0 {
-		if name := os.Getenv("SUDO_USER"); name != "" {
-			if u, err := user.Lookup(name); err == nil {
-				return u
-			}
-			// No passwd entry for the sudo user (minimal containers): keep
-			// the attribution sudo recorded rather than reporting root. When
-			// SUDO_UID is also absent, fall back to the effective uid (0) —
-			// a non-root username with uid 0 is correct and signals the
-			// command ran under sudo.
-			uid := os.Getenv("SUDO_UID")
-			if uid == "" {
-				uid = strconv.Itoa(auditGeteuid())
-			}
-			return &user.User{Username: name, Uid: uid}
+	if platform.IsSudo() {
+		name := os.Getenv("SUDO_USER")
+		if u, err := user.Lookup(name); err == nil {
+			return u
 		}
+		// No passwd entry for the sudo user (minimal containers): keep the
+		// attribution sudo recorded rather than reporting root. When SUDO_UID
+		// is also absent, fall back to root's uid: a non-root username with
+		// uid 0 is correct and signals the command ran under sudo.
+		uid := os.Getenv("SUDO_UID")
+		if uid == "" {
+			uid = "0"
+		}
+		return &user.User{Username: name, Uid: uid}
 	}
 	u, err := user.Current()
 	if err != nil {

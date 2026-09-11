@@ -10,6 +10,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,7 +130,7 @@ func TestMachinePathScope(t *testing.T) {
 // without it.
 func useSystemLayout(t *testing.T) systemLayout {
 	t.Helper()
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("Install protects the objects, which needs an elevated process")
 	}
 	isolateMachinePath(t)

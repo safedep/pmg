@@ -1,5 +1,6 @@
-// Package platform holds the directory conventions of each operating system
-// that PMG runs on. It imports nothing from config, shim or cmd.
+// Package platform holds the directory and privilege conventions of each
+// operating system that PMG runs on. It imports nothing from config, shim or
+// cmd.
 package platform
 
 // Dirs are the base directories of one account, in the convention of the OS.

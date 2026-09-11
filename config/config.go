@@ -659,10 +659,6 @@ func loadConfig() error {
 	return nil
 }
 
-// configGeteuid is overridable in tests to exercise root path resolution
-// without running as root.
-var configGeteuid = os.Geteuid
-
 // rootHomeDir returns root's home from the passwd database. Path resolution
 // for root must not consult HOME or XDG_*: sudo and su can preserve the
 // invoking user's environment (GitHub runners, sudo -E, su without -), which
@@ -694,7 +690,7 @@ func rootDirs() (platform.Dirs, error) {
 // environment: without a passwd database there is no user switching, so the
 // cross-user poisoning the diversion prevents cannot occur.
 func sudoRootDirs() (platform.Dirs, bool) {
-	if !isSudoElevation() {
+	if !platform.IsSudo() {
 		return platform.Dirs{}, false
 	}
 	dirs, err := rootDirs()
@@ -712,7 +708,7 @@ func sudoRootDirs() (platform.Dirs, bool) {
 // paths that sit alongside the config directory must use this rather than
 // os.UserHomeDir, otherwise the two can disagree under sudo.
 func UserHomeDir() (string, error) {
-	if isSudoElevation() {
+	if platform.IsSudo() {
 		if home, err := rootHomeDirResolver(); err == nil {
 			return home, nil
 		} else {
@@ -805,19 +801,6 @@ func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 		chown := fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
 		return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", chown), chown
 	}
-}
-
-// isSudoElevation reports whether pmg is running as root via sudo, i.e. a
-// non-root user elevated and sudo may have preserved that user's HOME/XDG_*.
-// Only then do per-user paths divert to root's own home, so root does not
-// create state inside the invoking user's home. Running genuinely as root
-// (no sudo) keeps honoring HOME/XDG_*, which is legitimate and intended (e.g.
-// golden Docker images that set HOME/XDG_CONFIG_HOME on purpose). This mirrors
-// the SUDO_USER guard used elsewhere (cmd/setup/cert.go). su without sudo does
-// not set SUDO_USER and is not covered; the unwritable-dir remedy still guides
-// the user if such a run poisons a directory.
-func isSudoElevation() bool {
-	return configGeteuid() == 0 && os.Getenv("SUDO_USER") != ""
 }
 
 // configDir computes the path to the config directory.
