@@ -55,21 +55,27 @@ function Remove-Binary {
   Remove-MachinePathEntry -Directory $ProductDir
 }
 
+$Elevated = Test-Elevated
+
+# The system removal runs first. It keeps pmg.exe for the per-user steps,
+# and every pmg run writes state under the invoking user, which the user
+# loop then deletes.
+if ($Elevated -and (Test-Path -LiteralPath $PmgBinary)) {
+  if ((Invoke-Native -FilePath $PmgBinary -ArgumentList @('setup', 'remove', '--system')) -ne 0) {
+    Write-Warn 'pmg setup remove --system failed'
+  }
+}
+
 foreach ($user in @(Get-TargetUser)) {
   Remove-UserState -User $user
 }
 
-if (-not (Test-Elevated)) {
+if (-not $Elevated) {
   Write-Warn 'not elevated; machine-scope steps skipped'
   Write-Info 'pmg uninstall complete'
   exit 0
 }
 
-if (Test-Path -LiteralPath $PmgBinary) {
-  if ((Invoke-Native -FilePath $PmgBinary -ArgumentList @('setup', 'remove', '--system')) -ne 0) {
-    Write-Warn 'pmg setup remove --system failed'
-  }
-}
 Remove-Binary
 Remove-GlobalConfig
 

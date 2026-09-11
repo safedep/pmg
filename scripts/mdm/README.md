@@ -108,7 +108,7 @@ Credentials for inactive users remain in their keychains. For full credential cl
 
 It then removes the machine-wide binary and the globally managed config if present (set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it).
 
-On Windows, steps 1 and 3 run for logged-on users only. For every local profile, the script deletes `%APPDATA%\safedep\pmg`, `%LOCALAPPDATA%\safedep\pmg` and `%USERPROFILE%\.pmg`. It then runs `pmg setup remove --system`, deletes `pmg.exe` and its machine `PATH` entry, and removes the managed config.
+On Windows, the script runs `pmg setup remove --system` first. Steps 1 and 3 then run for logged-on users only, and for every local profile the script deletes `%APPDATA%\safedep\pmg`, `%LOCALAPPDATA%\safedep\pmg` and `%USERPROFILE%\.pmg`. Last, it deletes `pmg.exe` and its machine `PATH` entry, and removes the managed config.
 
 ## Globally managed config
 
