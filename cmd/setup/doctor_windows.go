@@ -27,10 +27,9 @@ func warnShadowedManagers(binDir string) {
 		return
 	}
 
-	fmt.Printf("\n%s A shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
-		ui.Colors.Yellow("⚠"))
+	fmt.Printf("\n%s ", ui.Colors.Yellow("⚠"))
 	for _, line := range shadowedLines(shadowed) {
-		fmt.Printf("   %s\n", line)
+		fmt.Printf("%s\n", line)
 	}
 }
 
@@ -40,64 +39,20 @@ func shadowedFix(shadowed []shim.ManagerResolution) string {
 	return strings.Join(shadowedLines(shadowed), " ")
 }
 
-// shadowedLines groups the managers by the PATH half that wins. Four
-// shadowed managers then read as one reason and one action, not four.
+// shadowedLines names the managers once, then gives one action. The path
+// of each manager is in `pmg setup doctor --json` for whoever needs it.
 func shadowedLines(shadowed []shim.ManagerResolution) []string {
-	var order []shim.PathOrigin
-	groups := map[shim.PathOrigin][]shim.ManagerResolution{}
+	names := make([]string, 0, len(shadowed))
+	profile := false
 	for _, r := range shadowed {
-		if _, seen := groups[r.Origin]; !seen {
-			order = append(order, r.Origin)
-		}
-		groups[r.Origin] = append(groups[r.Origin], r)
+		names = append(names, r.Name)
+		profile = profile || r.Origin == shim.OriginProfile
 	}
-
-	var lines []string
-	for _, origin := range order {
-		group := groups[origin]
-		entries := make([]string, 0, len(group))
-		names := make([]string, 0, len(group))
-		for _, r := range group {
-			entries = append(entries, fmt.Sprintf("%s (%s)", r.Name, r.Path))
-			names = append(names, r.Name)
-		}
-		lines = append(lines, fmt.Sprintf("%s: %s", shadowedReason(origin), strings.Join(entries, ", ")))
-		lines = append(lines, shadowedAction(origin, names))
+	lines := []string{fmt.Sprintf("PMG does not intercept %s. Another copy is ahead of the shims on PATH.", strings.Join(names, ", "))}
+	if profile {
+		lines = append(lines, "A shell profile puts it there. Prefix the command with `pmg`, as in `pmg npm install`, or drop that line from the profile.")
+	} else {
+		lines = append(lines, "Run `pmg setup install --system` from a terminal started as administrator, or prefix the command with `pmg`, as in `pmg npm install`.")
 	}
 	return lines
-}
-
-func shadowedReason(origin shim.PathOrigin) string {
-	switch origin {
-	case shim.OriginUser:
-		return "On the user PATH, ahead of the shims"
-	case shim.OriginProfile:
-		return "Put on PATH by a shell profile, where PMG cannot reorder it"
-	default:
-		return "On the machine PATH, ahead of the user PATH"
-	}
-}
-
-// shadowedAction names what the user can do, which depends on where the
-// winning PATH entry came from. Only the user PATH is one PMG can reorder.
-func shadowedAction(origin shim.PathOrigin, names []string) string {
-	switch origin {
-	case shim.OriginUser:
-		return "Run `pmg setup install` again to move the shims ahead."
-	case shim.OriginProfile:
-		return fmt.Sprintf("Run %s, or drop that line from the profile.", asPmgCommands(names))
-	default:
-		return fmt.Sprintf("Run `pmg setup install --system` from a terminal started as administrator, or run %s.", asPmgCommands(names))
-	}
-}
-
-func asPmgCommands(names []string) string {
-	commands := make([]string, 0, len(names))
-	for _, name := range names {
-		commands = append(commands, fmt.Sprintf("`pmg %s`", name))
-	}
-	if len(commands) == 1 {
-		return "it as " + commands[0]
-	}
-	return "them as " + strings.Join(commands, ", ")
 }
