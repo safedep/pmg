@@ -39,7 +39,7 @@ func TestRegistryIdentityPolicy(t *testing.T) {
 		{name: "missing name", info: &pypiPackageInfo{version: "1.0", isDownload: true}},
 		{name: "missing result"},
 		{name: "head request", method: http.MethodHead, err: fmt.Errorf("invalid filename")},
-		{name: "write request", method: http.MethodPost, allow: true},
+		{name: "POST bypasses identity policy", method: http.MethodPost, allow: true},
 		{name: "analysis disabled", disabled: true, allow: true},
 		{name: "insecure bypass", insecure: true, allow: true},
 	} {

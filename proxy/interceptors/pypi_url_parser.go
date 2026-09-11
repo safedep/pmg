@@ -2,11 +2,8 @@ package interceptors
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
-
-var pypiSdistVersionPattern = regexp.MustCompile(`^(\d+!)?\d+(\.\d+)*([._-]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\.?\d*)*(\+[a-zA-Z0-9._-]+)?$`)
 
 // pypiPackageInfo represents parsed package information from a PyPI registry URL
 type pypiPackageInfo struct {
@@ -231,7 +228,8 @@ func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
 	if len(parts) != 5 && len(parts) != 6 {
 		return nil, fmt.Errorf("wheel filename %q must have five or six components", filename)
 	}
-	if parts[0] == "" || !pypiSdistVersionPattern.MatchString(parts[1]) {
+	version, valid := normalizePypiVersion(parts[1])
+	if parts[0] == "" || !valid {
 		return nil, fmt.Errorf("wheel filename %q has an invalid package name or version", filename)
 	}
 	if len(parts) == 6 && !isBuildTag(parts[2]) {
@@ -240,7 +238,7 @@ func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
 
 	return &pypiPackageInfo{
 		name:       denormalizePyPIPackageName(parts[0]),
-		version:    parts[1],
+		version:    version,
 		isDownload: true,
 		fileType:   "wheel",
 	}, nil
@@ -291,15 +289,15 @@ func extractNameVersionFromSdist(basename string) (string, string) {
 	for i := len(parts) - 1; i > 0; i-- {
 		potentialVersion := strings.Join(parts[i:], "-")
 		// Check if this could be a version
-		if pypiSdistVersionPattern.MatchString(potentialVersion) {
+		if version, valid := normalizePypiVersion(potentialVersion); valid {
 			name := strings.Join(parts[:i], "-")
-			return name, potentialVersion
+			return name, version
 		}
 
 		// Also try just the single part as version
-		if pypiSdistVersionPattern.MatchString(parts[i]) {
+		if version, valid := normalizePypiVersion(parts[i]); valid {
 			name := strings.Join(parts[:i], "-")
-			return name, parts[i]
+			return name, version
 		}
 	}
 

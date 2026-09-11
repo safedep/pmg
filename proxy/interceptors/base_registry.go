@@ -377,7 +377,8 @@ func handleRegistryRequest(
 }
 
 func unresolvedRegistryIdentity(ctx *proxy.RequestContext) *proxy.InterceptorResponse {
-	if config.Get().Config.Paranoid && !config.Get().InsecureInstallation {
+	rc := config.Get()
+	if rc.Config.Paranoid && !rc.InsecureInstallation {
 		log.Warnf("[%s] Paranoid mode blocked a registry request with an unresolved package identity", ctx.RequestID)
 		return &proxy.InterceptorResponse{
 			Action:       proxy.ActionBlock,

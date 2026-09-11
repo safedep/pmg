@@ -619,6 +619,40 @@ func TestProxyFlow_PypiCoreMetadata(t *testing.T) {
 	RunCases(t, cases)
 }
 
+func TestProxyFlow_PypiVersionNormalization(t *testing.T) {
+	var cases []TestCase
+	for _, version := range []struct {
+		raw  string
+		want string
+	}{
+		{raw: "0!1.0", want: "1.0"},
+		{raw: "1.0RC1", want: "1.0rc1"},
+		{raw: "1.0.0", want: "1.0.0"},
+	} {
+		for _, suffix := range []string{".tar.gz", "-1local-py3-none-any.whl"} {
+			path := "/packages/demo-" + version.raw + suffix
+			cases = append(cases, TestCase{
+				Name: path,
+				Setup: func(h *Harness) {
+					h.Analyzer.SetPypi("demo", version.want, VerifiedMalware())
+				},
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					res.add(h.get("https://files.pythonhosted.org"+path, nil))
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					assert.True(t, res.Blocked())
+					assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", version.want))
+					assert.Len(t, h.Analyzer.Calls(), 1)
+					assert.False(t, h.Registry.Requested("files.pythonhosted.org", path))
+				},
+			})
+		}
+	}
+	RunCases(t, cases)
+}
+
 func TestProxyFlow_Pypi(t *testing.T) {
 	RunCases(t, []TestCase{
 		{
