@@ -140,9 +140,10 @@ function Test-UserSession {
 #
 # Elevated, a temporary scheduled task with the Interactive logon type runs
 # the command inside the user's logon, so Credential Manager and DPAPI work.
-# The job file holds the credentials for the seconds the task runs. It lives
-# in the user's own Temp directory, which only that user, SYSTEM and
-# Administrators can read, and is deleted before this function returns.
+# The job file holds the credentials until the task reads it, which is its
+# first step. It lives in the user's own Temp directory, which only that
+# user, SYSTEM and Administrators can read, and the whole directory is
+# deleted before this function returns.
 function Invoke-AsUser {
   param(
     [Parameter(Mandatory)]$User,
@@ -217,6 +218,7 @@ $AsUserRunner = @'
 param([Parameter(Mandatory)][string]$WorkDir)
 $ErrorActionPreference = 'Stop'
 $job = Get-Content -LiteralPath (Join-Path $WorkDir 'job.json') -Raw | ConvertFrom-Json
+Remove-Item -LiteralPath (Join-Path $WorkDir 'job.json') -Force
 foreach ($variable in $job.Env.PSObject.Properties) {
   Set-Item -Path "Env:$($variable.Name)" -Value $variable.Value
 }

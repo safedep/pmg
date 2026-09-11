@@ -79,9 +79,11 @@ function Invoke-CloudLogin {
 function Sync-EveryUser {
   $synced = 0
   $failed = 0
+  $skipped = 0
   foreach ($user in @(Get-TargetUser)) {
     if (-not (Test-UserSession -User $user)) {
       Write-Info "  $($user.Name) has no active session; cloud sync skipped"
+      $skipped++
       continue
     }
     Write-Info "Syncing pmg cloud data for $($user.Name)"
@@ -93,7 +95,11 @@ function Sync-EveryUser {
     }
   }
   if ($synced -eq 0 -and $failed -eq 0) {
-    Write-Info 'No users found for cloud sync'
+    if ($skipped -eq 0) {
+      Write-Info 'No users found for cloud sync'
+    } else {
+      Write-Info "No logged-on users to sync; $skipped skipped"
+    }
     return $true
   }
   if ($failed -ne 0) {
@@ -128,7 +134,9 @@ function Copy-Binary {
   Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue
   try {
     Copy-Item -LiteralPath $Source -Destination $PmgBinary -Force
-  } catch [IO.IOException] {
+  } catch {
+    # A running image, a read-only attribute or a scanner's handle each
+    # raise a different exception. The rename works for all of them.
     Move-Item -LiteralPath $PmgBinary -Destination $stale -Force
     Copy-Item -LiteralPath $Source -Destination $PmgBinary -Force
   }

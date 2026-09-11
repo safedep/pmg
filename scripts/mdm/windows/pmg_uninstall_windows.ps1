@@ -52,6 +52,10 @@ function Remove-Binary {
     Remove-Item -LiteralPath $ProductDir -Recurse -Force
   }
   Remove-EmptyDirectory (Split-Path $ProductDir)
+  # `pmg setup remove --system` drops the shim entry, but it did not run
+  # when pmg.exe was already gone or when it failed. The directory is gone
+  # in every case, so the entry goes too.
+  Remove-MachinePathEntry -Directory "$ProductDir\bin"
   Remove-MachinePathEntry -Directory $ProductDir
 }
 

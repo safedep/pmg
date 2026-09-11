@@ -248,6 +248,14 @@ $env:PMG_TEST_USERS = ''
 Assert-Equal $true (Sync-EveryUser) 'no users is a success'
 Assert-LineMatch (Get-CaptureLine $TestLog) 'No users found for cloud sync' 'empty user list is reported'
 
+Reset-Capture
+$env:PMG_TEST_USERS = 'test-user,second-user'
+$env:PMG_TEST_SESSIONS = ''
+Assert-Equal $true (Sync-EveryUser) 'every user logged off is a success'
+Assert-Equal 0 (Get-CaptureLine $Trace).Count 'no sync runs when every user is logged off'
+Assert-LineMatch (Get-CaptureLine $TestLog) 'No logged-on users to sync; 2 skipped' 'logged-off users are counted'
+Assert-NoLineMatch (Get-CaptureLine $TestLog) 'No users found for cloud sync' 'existing users are not reported as missing'
+
 # Whole-installer runs in a child host: --cloud-sync-only in any argument
 # position, the credential environment is cleared before helpers run, and
 # an unelevated run does the cloud steps for the current user only.

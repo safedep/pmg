@@ -52,6 +52,17 @@ function Test-ElevatedInstall {
   Assert-CloudCredential -Identity $ExpectedIdentity
   Assert-NoUnexpectedCloud
 
+  # A redeploy replaces the binary in place and rewrites the managed config.
+  Write-Step 'Testing a second install over the first'
+  Reset-WrapperCapture
+  Set-Content -LiteralPath "$StageDir\config.yml" -Value "paranoid: true`ncloud:`n  enabled: true`ndisable_telemetry: true" -Encoding Ascii
+  Assert-Equal 0 (Invoke-Script -Path $Installer -Environment $Credentials) 'second installer exit code'
+  Assert-Installed -ConfigSource "$StageDir\config.yml"
+  $telemetry = Invoke-Pmg -ArgumentList @('config', 'get', 'disable_telemetry')
+  Assert-Equal 'true' ($telemetry.Output | Where-Object { $_ -in 'true', 'false' } | Select-Object -First 1) 'redeployed config value'
+  Assert-PathAbsent "$PmgExe.old"
+  Assert-NoUnexpectedCloud
+
   Write-Step 'Testing --cloud-sync-only'
   Reset-WrapperCapture
   Assert-Equal 0 (Invoke-Script -Path $Installer -ArgumentList '--cloud-sync-only' -Environment $Credentials) 'sync-only exit code'
@@ -77,8 +88,12 @@ function Test-SystemInstall {
   Assert-CloudCredential -Identity $ExpectedIdentity
   Assert-NoUnexpectedCloud
 
+  # A partial uninstall or a deleted binary leaves no pmg.exe to run
+  # `pmg setup remove --system`. The uninstaller still clears the PATH.
+  Write-Step 'Testing the uninstall without pmg.exe'
   Reset-WrapperCapture
-  Assert-Equal 0 (Invoke-Script -Path $Uninstaller) 'uninstaller exit code after the SYSTEM install'
+  Remove-Item -LiteralPath $PmgExe -Force
+  Assert-Equal 0 (Invoke-Script -Path $Uninstaller) 'uninstaller exit code without pmg.exe'
   Assert-Uninstalled
 }
 
