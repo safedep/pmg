@@ -527,7 +527,9 @@ jobs:
       - name: Verify every object carries the PMG descriptor
         run: |
           $ErrorActionPreference = 'Stop'
-          $objects = @("C:\Program Files\safedep", $env:PMG_PRODUCT, "$env:PMG_PRODUCT\bin", "$env:PMG_PRODUCT\pmg.exe", "$env:PMG_PRODUCT\bin\npm.cmd", "C:\ProgramData\safedep", (Split-Path $env:PMG_CONFIG), $env:PMG_CONFIG)
+          $shims = Get-ChildItem "$env:PMG_PRODUCT\bin" -Filter *.cmd | ForEach-Object { $_.FullName }
+          if ($shims.Count -lt 10) { throw "only $($shims.Count) shims were written" }
+          $objects = @("C:\Program Files\safedep", $env:PMG_PRODUCT, "$env:PMG_PRODUCT\bin", "$env:PMG_PRODUCT\pmg.exe", "C:\ProgramData\safedep", (Split-Path $env:PMG_CONFIG), $env:PMG_CONFIG) + $shims
           foreach ($object in $objects) {
             $acl = Get-Acl $object
             if ($acl.Owner -ne 'BUILTIN\Administrators') { throw "$object is owned by $($acl.Owner)" }
@@ -599,19 +601,29 @@ jobs:
           icacls $workDir /grant 'BUILTIN\Users:(OI)(CI)F' | Out-Null
           Set-Content -Path "$workDir\package.json" -Value '{"name":"pmg-standard-user","version":"1.0.0"}'
           $credential = New-Object System.Management.Automation.PSCredential('pmgtest', (ConvertTo-SecureString $password -AsPlainText -Force))
+          # The commands live in batch files, so no quoting passes through
+          # Start-Process and cmd.exe, and the output comes back through the
+          # redirect parameters rather than a shell redirect.
+          Set-Content -Path "$workDir\diag.cmd" -Value "@echo off`r`necho PATH=%PATH%`r`necho USERPROFILE=%USERPROFILE%`r`nwhere npm`r`nwhere pmg`r`npmg version"
+          Set-Content -Path "$workDir\block.cmd" -Value "@echo off`r`ncall npm --no-cache --prefer-online i safedep-test-pkg@0.1.3`r`nexit /b %ERRORLEVEL%"
+          $run = {
+            param($script, $log)
+            $p = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList '/d', '/c', $script `
+              -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -Wait -PassThru -WindowStyle Hidden `
+              -RedirectStandardOutput "$log.out" -RedirectStandardError "$log.err"
+            $text = (Get-Content "$log.out" -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
+            Write-Host $text
+            return @{ ExitCode = $p.ExitCode; Output = $text }
+          }
+
           # What that logon sees: its PATH, which npm it resolves, and whether
           # pmg runs for it at all. Printed before the assertion, so a failure
           # says which of the three went wrong.
-          Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
-            -ArgumentList '/d', '/c', "(echo PATH=%PATH% & echo USERPROFILE=%USERPROFILE% & where npm & where pmg & pmg version) > `"$workDir\diag.txt`" 2>&1" `
-            -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -Wait -WindowStyle Hidden
-          Write-Host (Get-Content "$workDir\diag.txt" -Raw)
+          & $run "$workDir\diag.cmd" "$workDir\diag" | Out-Null
 
-          $process = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
-            -ArgumentList '/d', '/c', "npm --no-cache --prefer-online i safedep-test-pkg@0.1.3 > `"$workDir\out.txt`" 2>&1" `
-            -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -Wait -PassThru -WindowStyle Hidden
-          $output = Get-Content "$workDir\out.txt" -Raw
-          Write-Host $output
+          $result = & $run "$workDir\block.cmd" "$workDir\block"
+          $process = @{ ExitCode = $result.ExitCode }
+          $output = $result.Output
           if ($process.ExitCode -eq 0) { throw "safedep-test-pkg was not blocked for the standard user" }
           if ($output -notmatch 'Malicious package blocked') { throw "npm failed for the standard user, but not because PMG blocked the package" }
 
