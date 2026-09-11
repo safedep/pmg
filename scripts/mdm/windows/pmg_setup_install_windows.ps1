@@ -190,16 +190,16 @@ function Install-RequestedGlobalConfig {
     return
   }
 
-  $decoded = New-TemporaryFile
+  $decoded = [IO.Path]::GetTempFileName()
   try {
     try {
-      [IO.File]::WriteAllBytes($decoded.FullName, [Convert]::FromBase64String($embeddedConfig))
+      [IO.File]::WriteAllBytes($decoded, [Convert]::FromBase64String($embeddedConfig))
     } catch {
       Fail 'could not decode embedded global config'
     }
-    Install-GlobalConfig -Source $decoded.FullName
+    Install-GlobalConfig -Source $decoded
   } finally {
-    Remove-Item -LiteralPath $decoded.FullName -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $decoded -Force -ErrorAction SilentlyContinue
   }
 }
 

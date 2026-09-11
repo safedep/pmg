@@ -84,12 +84,13 @@ function Invoke-Native {
     $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -Wait -PassThru
     return $process.ExitCode
   }
-  $output = New-TemporaryFile
+  # Not New-TemporaryFile: some Windows PowerShell hosts lack it.
+  $output = [IO.Path]::GetTempFileName()
   try {
-    $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -Wait -PassThru -RedirectStandardOutput $output.FullName
-    return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = @(Get-Content -LiteralPath $output.FullName) }
+    $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -Wait -PassThru -RedirectStandardOutput $output
+    return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = @(Get-Content -LiteralPath $output -Encoding UTF8) }
   } finally {
-    Remove-Item -LiteralPath $output.FullName -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -193,7 +194,7 @@ function Invoke-AsUser {
     foreach ($stream in 'stdout', 'stderr') {
       $log = Join-Path $workDir "$stream.log"
       if (Test-Path -LiteralPath $log) {
-        foreach ($line in Get-Content -LiteralPath $log) { Write-Host "  $line" }
+        foreach ($line in Get-Content -LiteralPath $log -Encoding UTF8) { Write-Host "  $line" }
       }
     }
     if (-not (Test-Path -LiteralPath $exitFile)) {
