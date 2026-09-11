@@ -136,9 +136,16 @@ function Copy-Binary {
     Copy-Item -LiteralPath $Source -Destination $PmgBinary -Force
   } catch {
     # A running image, a read-only attribute or a scanner's handle each
-    # raise a different exception. The rename works for all of them.
+    # raise a different exception. The rename works for all of them. When
+    # the second copy fails too, the old file goes back, so the shims that
+    # call this path keep a binary.
     Move-Item -LiteralPath $PmgBinary -Destination $stale -Force
-    Copy-Item -LiteralPath $Source -Destination $PmgBinary -Force
+    try {
+      Copy-Item -LiteralPath $Source -Destination $PmgBinary -Force
+    } catch {
+      Move-Item -LiteralPath $stale -Destination $PmgBinary -Force
+      throw
+    }
   }
 }
 
@@ -194,6 +201,7 @@ function Install-RequestedGlobalConfig {
     $sibling = Join-Path $PSScriptRoot 'config.yml'
     if (Test-Path -LiteralPath $sibling -PathType Leaf) {
       Install-GlobalConfig -Source $sibling
+      Assert-ManagedConfigReadable
     }
     return
   }
@@ -208,6 +216,16 @@ function Install-RequestedGlobalConfig {
     Install-GlobalConfig -Source $decoded
   } finally {
     Remove-Item -LiteralPath $decoded -Force -ErrorAction SilentlyContinue
+  }
+  Assert-ManagedConfigReadable
+}
+
+# The managed config governs every account, so a bundled file pmg cannot
+# parse breaks pmg for the whole machine. One read catches that while the
+# MDM run can still report a failure.
+function Assert-ManagedConfigReadable {
+  if ((Invoke-Native -FilePath $PmgBinary -ArgumentList @('config', 'get', 'paranoid') -Capture).ExitCode -ne 0) {
+    Fail 'pmg cannot read the managed config; check the bundled config.yml'
   }
 }
 

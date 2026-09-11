@@ -69,12 +69,25 @@ function Test-ElevatedInstall {
   Assert-CloudCall -Identity $ExpectedIdentity -Expected @('cloud sync --timeout 1m') 'sync-only calls'
   Assert-NoUnexpectedCloud
 
-  Write-Step 'Testing the uninstall'
+  # A standard user may shape their own state tree. A junction at its root
+  # and one inside it point at a directory the uninstall must not touch.
+  Write-Step 'Testing the uninstall with junctions in the user state'
   Reset-WrapperCapture
+  $victim = "$TestRoot\victim"
+  New-Item -ItemType Directory -Path $victim | Out-Null
+  Set-Content -LiteralPath "$victim\keep.txt" -Value 'keep'
+  $roaming = "$env:APPDATA\safedep\pmg"
+  if (Test-Path -LiteralPath $roaming) { [IO.Directory]::Delete($roaming, $true) }
+  New-Item -ItemType Directory -Path (Split-Path $roaming) -Force | Out-Null
+  & cmd /c mklink /J $roaming $victim | Out-Null
+  $local = "$env:LOCALAPPDATA\safedep\pmg"
+  New-Item -ItemType Directory -Path $local -Force | Out-Null
+  & cmd /c mklink /J "$local\planted" $victim | Out-Null
   Assert-Equal 0 (Invoke-Script -Path $Uninstaller) 'uninstaller exit code'
   Assert-CloudCall -Identity $ExpectedIdentity -Expected @('cloud logout') 'logout for the logged-on user'
   Assert-NoUnexpectedCloud
   Assert-Uninstalled
+  Assert-PathPresent "$victim\keep.txt"
 }
 
 # Intune runs the script as SYSTEM. SYSTEM is not a target user, so the only
@@ -97,12 +110,34 @@ function Test-SystemInstall {
   Assert-Uninstalled
 }
 
+# A user in the middle of an install holds pmg.exe open. Windows refuses
+# the delete, so the uninstaller moves the file aside and finishes.
+function Test-UninstallUnderRunningBinary {
+  Write-Step 'Testing the uninstall while pmg.exe runs'
+  Reset-WrapperCapture
+  Assert-Equal 0 (Invoke-Script -Path $Installer) 'installer exit code'
+  $proxy = Start-Process -FilePath $PmgExe -ArgumentList 'proxy', 'start', '--port', '0' -PassThru -WindowStyle Hidden
+  try {
+    Start-Sleep -Seconds 5
+    if ($proxy.HasExited) { Stop-OnFailure "pmg proxy start exited with $($proxy.ExitCode) before the uninstall" }
+    Assert-Equal 0 (Invoke-Script -Path $Uninstaller) 'uninstaller exit code under a running pmg.exe'
+    Assert-Uninstalled
+    $stale = @(Get-ChildItem -Path "$env:SystemRoot\Temp" -Filter 'pmg-*.exe')
+    if ($stale.Count -ne 1) { Stop-OnFailure "expected one moved-aside pmg.exe, found $($stale.Count)" }
+  } finally {
+    Stop-Process -Id $proxy.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    Get-ChildItem -Path "$env:SystemRoot\Temp" -Filter 'pmg-*.exe' | Remove-Item -Force -ErrorAction SilentlyContinue
+  }
+}
+
 try {
   Invoke-Script -Path $Uninstaller | Out-Null
   Assert-Uninstalled
 
   Test-ElevatedInstall
   Test-SystemInstall
+  Test-UninstallUnderRunningBinary
   Write-Host 'PASS'
 } finally {
   Invoke-Cleanup

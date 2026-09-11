@@ -32,10 +32,12 @@ function Remove-UserState {
     Write-Warn "pmg binary not found; a per-user PATH entry for $($User.Name) may remain"
   }
 
+  # The tree is the user's, so a junction in it may point anywhere.
+  # Remove-Tree deletes such a link without following it.
   foreach ($dir in Get-UserStateDir -UserHome $User.Home) {
     if (Test-Path -LiteralPath $dir) {
       try {
-        Remove-Item -LiteralPath $dir -Recurse -Force
+        Remove-Tree -Path $dir
       } catch {
         Write-Warn "failed to remove $dir for $($User.Name): $($_.Exception.Message)"
       }
@@ -46,7 +48,15 @@ function Remove-UserState {
 function Remove-Binary {
   if (Test-Path -LiteralPath $PmgBinary) {
     Write-Info "Removing $PmgBinary"
-    Remove-Item -LiteralPath $PmgBinary -Force
+    try {
+      Remove-Item -LiteralPath $PmgBinary -Force
+    } catch {
+      # Windows refuses to delete a running image but allows a rename. A
+      # user in the middle of an install keeps the old file until it exits.
+      $stale = Join-Path $env:SystemRoot ('Temp\pmg-' + [guid]::NewGuid().ToString('N') + '.exe')
+      Move-Item -LiteralPath $PmgBinary -Destination $stale -Force
+      Write-Warn "pmg.exe is in use; moved it to $stale"
+    }
   }
   if (Test-Path -LiteralPath $ProductDir) {
     Remove-Item -LiteralPath $ProductDir -Recurse -Force

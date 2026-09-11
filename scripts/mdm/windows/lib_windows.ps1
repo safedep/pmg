@@ -94,34 +94,44 @@ function Invoke-Native {
   }
 }
 
+# Get-ProfileEntry lists the profiles Windows knows, as Sid and Home. It is
+# its own function so a test can feed the list.
+function Get-ProfileEntry {
+  foreach ($entry in Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList') {
+    [pscustomobject]@{ Sid = $entry.PSChildName; Home = (Get-ItemProperty -LiteralPath $entry.PSPath).ProfileImagePath }
+  }
+}
+
 # Emit one object per target user with Name, Sid and Home.
-#   - elevated: every local profile with a domain or machine SID and a home
-#     under \Users. That is the passwd equivalent of a human account.
+#   - elevated: every profile with a local or domain SID (S-1-5-21) or an
+#     Entra ID SID (S-1-12-1) and a home under \Users. Service profiles
+#     live under %SystemRoot%, so the home check drops them.
 #   - unelevated: the current user only (the MDM ran us in user context).
 function Get-TargetUser {
   if (-not (Test-Elevated)) {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     return [pscustomobject]@{ Name = $identity.Name; Sid = $identity.User.Value; Home = $env:USERPROFILE }
   }
-  $usersRoot = Join-Path $env:SystemDrive 'Users'
-  $profiles = Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
-  foreach ($entry in $profiles) {
-    $sid = $entry.PSChildName
-    if ($sid -notlike 'S-1-5-21-*') { continue }
-    $profileHome = (Get-ItemProperty -LiteralPath $entry.PSPath).ProfileImagePath
+  $usersRoot = "$env:SystemDrive\Users"
+  foreach ($entry in @(Get-ProfileEntry)) {
+    if ($entry.Sid -notlike 'S-1-5-21-*' -and $entry.Sid -notlike 'S-1-12-1-*') { continue }
+    $profileHome = [string]$entry.Home
     if (-not $profileHome) { continue }
     if (-not $profileHome.StartsWith($usersRoot, [StringComparison]::OrdinalIgnoreCase)) { continue }
     if (-not (Test-Path -LiteralPath $profileHome -PathType Container)) { continue }
     try {
-      $name = (New-Object Security.Principal.SecurityIdentifier($sid)).Translate([Security.Principal.NTAccount]).Value
+      $name = (New-Object Security.Principal.SecurityIdentifier($entry.Sid)).Translate([Security.Principal.NTAccount]).Value
     } catch {
       $name = Split-Path $profileHome -Leaf
     }
-    [pscustomobject]@{ Name = $name; Sid = $sid; Home = $profileHome }
+    [pscustomobject]@{ Name = $name; Sid = $entry.Sid; Home = $profileHome }
   }
 }
 
-# True if this user has a live interactive logon. Their desktop shell runs.
+# True if this user has a live interactive logon, read as "their desktop
+# shell runs". A replacement shell or a crashed Explorer reads as logged
+# off. Win32_LogonSession is the direct question, and the Explorer check is
+# enough for the desktop fleet this targets.
 function Test-UserSession {
   param([Parameter(Mandatory)]$User)
   if (-not (Test-Elevated)) {
@@ -140,10 +150,11 @@ function Test-UserSession {
 #
 # Elevated, a temporary scheduled task with the Interactive logon type runs
 # the command inside the user's logon, so Credential Manager and DPAPI work.
-# The job file holds the credentials until the task reads it, which is its
-# first step. It lives in the user's own Temp directory, which only that
-# user, SYSTEM and Administrators can read, and the whole directory is
-# deleted before this function returns.
+# The work directory sits under the product directory in ProgramData, which
+# the system install owns, not under a path the user controls. Its ACL
+# names SYSTEM, Administrators and that user only. The job file holds the
+# credentials until the task reads it, which is its first step, and the
+# whole directory is deleted before this function returns.
 function Invoke-AsUser {
   param(
     [Parameter(Mandatory)]$User,
@@ -161,10 +172,10 @@ function Invoke-AsUser {
   }
 
   $taskName = 'pmg-mdm-' + [guid]::NewGuid().ToString('N')
-  $workDir = Join-Path $User.Home "AppData\Local\Temp\$taskName"
+  $workDir = "$GlobalConfigDir\mdm\$taskName"
   $exitFile = Join-Path $workDir 'exit.txt'
-  New-Item -ItemType Directory -Path $workDir -Force | Out-Null
   try {
+    New-UserWorkDirectory -Path $workDir -UserSid $User.Sid
     $job = [ordered]@{ Exe = $PmgBin; Args = @($ArgumentList); Env = $Environment }
     Set-Content -LiteralPath (Join-Path $workDir 'job.json') -Value ($job | ConvertTo-Json -Compress) -Encoding UTF8
     Set-Content -LiteralPath (Join-Path $workDir 'run.ps1') -Value $script:AsUserRunner -Encoding UTF8
@@ -208,8 +219,52 @@ function Invoke-AsUser {
     return $false
   } finally {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $workDir) { Remove-Tree -Path $workDir }
   }
+}
+
+# New-UserWorkDirectory creates the work directory of one hop. The two
+# directories above it must be the system install's: they exist, they are
+# no reparse points, Administrators or SYSTEM own them and nothing is
+# inherited. Then the new directory gets its own ACL for SYSTEM,
+# Administrators and the user.
+function New-UserWorkDirectory {
+  param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$UserSid)
+  foreach ($dir in (Split-Path $GlobalConfigDir), $GlobalConfigDir) {
+    $item = Get-Item -LiteralPath $dir -Force -ErrorAction Stop
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "$dir is a link or a junction" }
+    $acl = Get-Acl -LiteralPath $dir
+    if (-not (Test-AdministrativeOwner -Acl $acl) -or -not $acl.AreAccessRulesProtected) {
+      throw "$dir does not carry the PMG security descriptor; run pmg setup install --system first"
+    }
+  }
+  New-Item -ItemType Directory -Path (Split-Path $Path) -Force | Out-Null
+  New-Item -ItemType Directory -Path $Path | Out-Null
+  $acl = Get-Acl -LiteralPath $Path
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($grant in @(@('S-1-5-18', 'FullControl'), @('S-1-5-32-544', 'FullControl'), @($UserSid, 'Modify'))) {
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+          (New-Object Security.Principal.SecurityIdentifier($grant[0])), $grant[1], 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+  }
+  Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+# Test-AdministrativeOwner compares the owner SID, because the account name
+# is localized. Administrators or SYSTEM own what PMG writes, the same rule
+# as winacl in the binary.
+function Test-AdministrativeOwner {
+  param([Parameter(Mandatory)]$Acl)
+  $owner = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  return $owner -eq 'S-1-5-32-544' -or $owner -eq 'S-1-5-18'
+}
+
+# Remove-Tree deletes a directory that another account may have shaped.
+# .NET removes a junction or a symbolic link inside the tree, and at its
+# root, without following it. Remove-Item -Recurse in Windows PowerShell
+# follows both and would delete the target.
+function Remove-Tree {
+  param([Parameter(Mandatory)][string]$Path)
+  [IO.Directory]::Delete($Path, $true)
 }
 
 # The script the scheduled task runs as the user. It reads the job file, sets
@@ -238,7 +293,7 @@ function Install-GlobalConfig {
   }
   [IO.File]::WriteAllBytes($GlobalConfigFile, [IO.File]::ReadAllBytes($Source))
   $acl = Get-Acl -LiteralPath $GlobalConfigFile
-  if ($acl.Owner -ne 'BUILTIN\Administrators' -or -not $acl.AreAccessRulesProtected) {
+  if (-not (Test-AdministrativeOwner -Acl $acl) -or -not $acl.AreAccessRulesProtected) {
     Fail "the managed config lost the PMG security descriptor; delete it and run pmg setup install --system again"
   }
 }
@@ -269,8 +324,9 @@ function Remove-EmptyDirectory {
 
 # Remove-MachinePathEntry <dir> drops a directory from the machine PATH.
 # `pmg setup remove --system` keeps the pmg.exe entry by design, so the
-# uninstaller removes it once the binary is gone. The value stays
-# REG_EXPAND_SZ and other entries stay as written. A new logon reads the
+# uninstaller removes it once the binary is gone. The compare and the write
+# follow pathScope.remove in the binary: an entry may carry quotes, and the
+# value keeps its kind. Other entries stay as written. A new logon reads the
 # registry, so no broadcast is needed.
 function Remove-MachinePathEntry {
   param([Parameter(Mandatory)][string]$Directory)
@@ -278,10 +334,10 @@ function Remove-MachinePathEntry {
   $entries = @($key.GetValue('Path', '', 'DoNotExpandEnvironmentNames') -split ';' | Where-Object { $_ })
   $target = $Directory.TrimEnd('\')
   $kept = @($entries | Where-Object {
-      [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -ine $target
+      [Environment]::ExpandEnvironmentVariables($_.Trim('"')).TrimEnd('\') -ine $target
     })
   if ($kept.Count -eq $entries.Count) { return }
-  Set-ItemProperty -Path $key.PSPath -Name Path -Value ($kept -join ';') -Type ExpandString
+  Set-ItemProperty -Path $key.PSPath -Name Path -Value ($kept -join ';') -Type $key.GetValueKind('Path')
 }
 
 # Per-user pmg state directories: env overrides win, else the Windows layout.

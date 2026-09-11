@@ -176,14 +176,16 @@ function Get-MachinePathEntry {
 function Assert-PmgDescriptor {
   param([string]$Path)
   $acl = Get-Acl -LiteralPath $Path
-  if ($acl.Owner -ne 'BUILTIN\Administrators') { Stop-OnFailure "$Path is owned by $($acl.Owner)" }
+  # SIDs, because account names are localized.
+  $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($owner -ne 'S-1-5-32-544') { Stop-OnFailure "$Path is owned by $owner" }
   if (-not $acl.AreAccessRulesProtected) { Stop-OnFailure "$Path inherits its DACL" }
-  $rules = $acl.Access
+  $rules = @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))
   if ($rules.Count -ne 3) { Stop-OnFailure "$Path has $($rules.Count) entries, not 3" }
-  $users = $rules | Where-Object { $_.IdentityReference -eq 'BUILTIN\Users' }
+  $users = $rules | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-32-545' }
   if (-not $users -or $users.FileSystemRights -ne 'ReadAndExecute, Synchronize') { Stop-OnFailure "$Path gives Users $($users.FileSystemRights)" }
-  foreach ($admin in 'BUILTIN\Administrators', 'NT AUTHORITY\SYSTEM') {
-    $entry = $rules | Where-Object { $_.IdentityReference -eq $admin }
+  foreach ($admin in 'S-1-5-32-544', 'S-1-5-18') {
+    $entry = $rules | Where-Object { $_.IdentityReference.Value -eq $admin }
     if (-not $entry -or $entry.FileSystemRights -ne 'FullControl') { Stop-OnFailure "$Path does not give $admin full control" }
   }
 }

@@ -34,7 +34,7 @@ The scripts detect how the MDM invoked them:
 
 On macOS, Homebrew can't run as root, so the script runs brew commands as the owner of the Homebrew install. On Linux, the binary always comes from the GitHub release tarball.
 
-Windows differs in two ways. The system install covers every account through the machine `PATH` and the managed config, so the script runs no per-user `pmg setup install`. Windows has no `sudo -u`. To run `pmg cloud login` as a user, the script registers a temporary scheduled task for that user, runs it, waits for it, and deletes it. That works only for a logged-on user. A logged-off user has no logon token, so their credentials are not stored and their data is not synced. The next run of the installer or `--cloud-sync-only` covers them once they are logged on.
+Windows differs from the Unix scripts. The system install covers every account through the machine `PATH` and the managed config, so the script runs no per-user `pmg setup install`. Windows has no `sudo -u`. To run `pmg cloud login` as a user, the script registers a temporary scheduled task for that user, runs it, waits for it, and deletes it. The task's work directory lives under `%PROGRAMDATA%\safedep\pmg\mdm`, which the system install owns, with an ACL for SYSTEM, Administrators and that user. That works only for a logged-on user. A logged-off user has no logon token, so their credentials are not stored and their data is not synced. The next run of the installer or `--cloud-sync-only` covers them once they are logged on. Local and Entra ID accounts are both targets.
 
 ## Install
 
@@ -284,7 +284,7 @@ Intune for Linux supports shell scripts with the same single-script model. Uploa
 - Linux: no Homebrew path. The binary always comes from the GitHub release tarball.
 - Windows: only a logged-on user gets cloud credentials and a sync. The script has no logon token for a logged-off user. Run the installer again, or use `--cloud-sync-only`, once they are logged on.
 - Windows: the uninstall deletes the state directories of every local profile, but a per-user `PATH` entry from `pmg setup install` and Credential Manager credentials stay for a logged-off user. Have those users run `pmg setup remove` and `pmg cloud logout` before the policy removes PMG.
-- Windows: the install replaces `pmg.exe` under a running PMG by moving the old file aside. The stale copy is removed on the next run.
+- Windows: the install replaces `pmg.exe` under a running PMG by moving the old file aside. The stale copy is removed on the next run. The uninstall moves a running `pmg.exe` to `%SystemRoot%\Temp` and finishes the cleanup.
 - Windows: the release ships x86-64 only. A 32-bit Windows is refused. An ARM64 machine runs the x86-64 build under emulation.
 - Windows: `pmg cloud sync` needs `cloud.enabled: true` in the managed config. The system install always writes a managed config, so `pmg config set cloud.enabled true` is refused for every user. Set it in the bundled `config.yml`.
 - Linux: the install and uninstall fan-out forces each user's `HOME` and clears `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, so per-user state stays under the passwd home (`~/.config`, `~/.cache`) or the `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` overrides. A user who installed pmg in their own shell with a custom `XDG_CONFIG_HOME` keeps state elsewhere. The uninstall does not remove that state. Ask the user to run `pmg setup remove --config-file` in their own session.

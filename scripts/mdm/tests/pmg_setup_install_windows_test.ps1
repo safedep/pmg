@@ -92,8 +92,9 @@ function Invoke-AsUser {
 function Invoke-Native {
   param([string]$FilePath, [string[]]$ArgumentList, [switch]$Capture)
   Add-Content -LiteralPath $env:PMG_TEST_LOG -Value "native:$($ArgumentList -join ' ')"
-  if ($Capture) { return [pscustomobject]@{ ExitCode = 0; Output = @($env:PMG_TEST_NATIVE_OUTPUT -split ',') } }
-  return 0
+  $exit = if ($env:PMG_TEST_NATIVE_EXIT) { [int]$env:PMG_TEST_NATIVE_EXIT } else { 0 }
+  if ($Capture) { return [pscustomobject]@{ ExitCode = $exit; Output = @($env:PMG_TEST_NATIVE_OUTPUT -split ',') } }
+  return $exit
 }
 function Install-GlobalConfig { param([string]$Source) Copy-Item -LiteralPath $Source -Destination $env:PMG_TEST_CAPTURED_CONFIG }
 $ProductDir = 'C:\Program Files\safedep\pmg'
@@ -111,7 +112,7 @@ $env:PMG_TEST_CAPTURED_CONFIG = $CapturedConfig
 
 function Reset-Capture {
   Remove-Item -LiteralPath $TestLog, $Trace, $CapturedConfig -Force -ErrorAction SilentlyContinue
-  Remove-Item -Path Env:PMG_TEST_FAIL_ARGS, Env:PMG_TEST_USERS, Env:PMG_TEST_SESSIONS, Env:PMG_TEST_ELEVATED, Env:PMG_TEST_INSTALLED, Env:PMG_TEST_NATIVE_OUTPUT -ErrorAction SilentlyContinue
+  Remove-Item -Path Env:PMG_TEST_FAIL_ARGS, Env:PMG_TEST_USERS, Env:PMG_TEST_SESSIONS, Env:PMG_TEST_ELEVATED, Env:PMG_TEST_INSTALLED, Env:PMG_TEST_NATIVE_OUTPUT, Env:PMG_TEST_NATIVE_EXIT -ErrorAction SilentlyContinue
 }
 
 # Run the staged installer in a child host with the given environment.
@@ -188,6 +189,13 @@ if (Get-Variable -Name EMBEDDED_GLOBAL_CONFIG_B64 -ErrorAction SilentlyContinue)
 Reset-Capture
 Install-RequestedGlobalConfig
 Assert-Equal 'source: adjacent' (Get-Content -LiteralPath $CapturedConfig -Raw).Trim() 'sibling config is the fallback'
+Assert-LineMatch (Get-CaptureLine $TestLog) 'native:config get paranoid' 'the managed config is read back after the write'
+
+# A bundled config pmg cannot parse fails the install.
+Reset-Capture
+$env:PMG_TEST_NATIVE_EXIT = '1'
+try { Install-RequestedGlobalConfig; Stop-OnFailure 'an unreadable managed config must fail' } catch { Assert-Equal 'Error: pmg cannot read the managed config; check the bundled config.yml' $_.Exception.Message 'unreadable managed config' }
+Remove-Item -Path Env:PMG_TEST_NATIVE_EXIT
 
 Reset-Capture
 Remove-Item -LiteralPath (Join-Path $StageDir 'config.yml')
@@ -313,6 +321,26 @@ Assert-LineMatch (Get-CaptureLine $TestLog) 'error:pmg is not installed' 'missin
   if ($null -ne $env:SAFEDEP_API_KEY) { Stop-OnFailure 'Invoke-AsUser must clear the environment' }
   $env:PMG_TEST_FAIL_ARGS = 'cloud sync --timeout 1m'
   Assert-Equal $false (Invoke-AsUser -User $user -PmgBin $FakePmg -ArgumentList @('cloud', 'sync', '--timeout', '1m')) 'unelevated Invoke-AsUser reports failure'
+
+  # Local and Entra ID accounts with a home under \Users are targets. A
+  # service profile and a profile with no home directory are not.
+  Reset-Capture
+  function Test-Elevated { return $true }
+  $root = Join-Path $TestRoot 'drive'
+  New-Item -ItemType Directory -Path "$root\Users\local", "$root\Users\entra", "$root\Windows\ServiceProfiles\LocalService" | Out-Null
+  $env:SystemDrive = $root
+  function Get-ProfileEntry {
+    [pscustomobject]@{ Sid = 'S-1-5-21-1111-2222-3333-1001'; Home = "$root\Users\local" }
+    [pscustomobject]@{ Sid = 'S-1-12-1-4444-5555-6666-7777'; Home = "$root\Users\entra" }
+    [pscustomobject]@{ Sid = 'S-1-5-19'; Home = "$root\Windows\ServiceProfiles\LocalService" }
+    [pscustomobject]@{ Sid = 'S-1-5-21-1111-2222-3333-1002'; Home = "$root\Users\gone" }
+  }
+  $targets = @(Get-TargetUser)
+  Assert-Equal 2 $targets.Count 'target user count'
+  Assert-Equal 'S-1-5-21-1111-2222-3333-1001' $targets[0].Sid 'local account SID'
+  Assert-Equal 'S-1-12-1-4444-5555-6666-7777' $targets[1].Sid 'Entra ID account SID'
+  Assert-Equal 'entra' $targets[1].Name 'a SID that does not translate falls back to the folder name'
+  Remove-Item -Path Env:SystemDrive -ErrorAction SilentlyContinue
 
   $dirs = Get-UserStateDir -UserHome 'C:\Users\dev'
   Assert-Equal 'C:\Users\dev\AppData\Roaming\safedep\pmg' $dirs[0] 'default config dir'
