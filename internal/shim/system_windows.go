@@ -51,6 +51,9 @@ func newSystemLayout() (systemLayout, error) {
 	}, nil
 }
 
+// systemConfigFileOverride replaces the managed config path in tests.
+var systemConfigFileOverride string
+
 func systemConfigFile() string {
 	if systemConfigFileOverride != "" {
 		return systemConfigFileOverride

@@ -27,7 +27,6 @@ type systemLayout struct {
 var (
 	systemBinDirOverride      string
 	systemProfilePathOverride string
-	systemConfigFileOverride  string
 	// resolveExecutable resolves the running pmg binary for system install.
 	// Overridable in tests so validation does not run against the go-build test
 	// binary, which is group-writable under a 002 umask.
