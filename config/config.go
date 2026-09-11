@@ -693,13 +693,13 @@ func rootDirs() (platform.Dirs, error) {
 // minimal chroots) it reports false and the caller resolves from the
 // environment: without a passwd database there is no user switching, so the
 // cross-user poisoning the diversion prevents cannot occur.
-func sudoRootDirs(purpose string) (platform.Dirs, bool) {
+func sudoRootDirs() (platform.Dirs, bool) {
 	if !isSudoElevation() {
 		return platform.Dirs{}, false
 	}
 	dirs, err := rootDirs()
 	if err != nil {
-		log.Warnf("failed to resolve root home for %s dir, using environment: %v", purpose, err)
+		log.Warnf("failed to resolve root home, using environment: %v", err)
 		return platform.Dirs{}, false
 	}
 	return dirs, true
@@ -827,7 +827,7 @@ func configDir() (string, error) {
 		return dir, nil
 	}
 
-	if dirs, ok := sudoRootDirs("config"); ok {
+	if dirs, ok := sudoRootDirs(); ok {
 		return filepath.Join(dirs.Config, pmgDefaultHomeRelativePath), nil
 	}
 
@@ -924,7 +924,7 @@ func cacheDir() (string, error) {
 		return dir, nil
 	}
 
-	if dirs, ok := sudoRootDirs("cache"); ok {
+	if dirs, ok := sudoRootDirs(); ok {
 		return filepath.Join(dirs.Cache, pmgDefaultHomeRelativePath), nil
 	}
 
@@ -940,7 +940,7 @@ func cacheDir() (string, error) {
 // `pmg setup install`. Linux follows XDG_DATA_HOME; macOS and Windows have no
 // separate data location, so they reuse the config convention.
 func UserDataDir() (string, error) {
-	if dirs, ok := sudoRootDirs("data"); ok {
+	if dirs, ok := sudoRootDirs(); ok {
 		return filepath.Join(dirs.Data, pmgDefaultHomeRelativePath), nil
 	}
 
