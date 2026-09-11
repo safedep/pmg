@@ -14,11 +14,12 @@ Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS, Linux and Wind
 | `tests/` | Test scripts and E2E helpers |
 | `generate_standalone_macos.sh` | Regenerates macOS standalone scripts; optionally embeds `config.yml` and cloud credentials |
 | `generate_standalone_linux.sh` | Regenerates Linux standalone scripts; optionally embeds `config.yml` and cloud credentials |
+| `generate_standalone_windows.sh` | Regenerates Windows standalone scripts; optionally embeds `config.yml` and cloud credentials |
 | `config.yml` *(optional)* | When present in the package, the install script deploys it as the machine-wide globally managed config |
 
 For a multi-file MDM deployment, install the shared lib and both entry scripts as sibling files at a fixed path. Add an optional sibling `config.yml` for globally managed config. On Windows, add a sibling `pmg.exe` from the release zip, or the installer downloads the release.
 
-For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload the shared lib separately. Windows has no generated scripts yet, so a Windows deployment ships the three files together.
+For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload the shared lib separately.
 
 ## Execution model
 
@@ -207,16 +208,16 @@ Remove-Item -Recurse -Force C:\Windows\Temp\pmg-mdm
 
 For the uninstall Command, upload the lib and `pmg_uninstall_windows.ps1` and call that script instead.
 
-## Intune example (Windows)
+## Intune Win32 app example (Windows)
 
-An Intune PowerShell script policy accepts one file with no siblings, which the multi-file scripts cannot use. Package the three Windows files, `config.yml` and `pmg.exe` as a [Win32 app](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-win32-app-management) instead:
+A Win32 app carries sibling files, so it can ship `pmg.exe` for machines without access to GitHub. Package the three Windows files, `config.yml` and `pmg.exe` as a [Win32 app](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-win32-app-management):
 
 1. Put `lib_windows.ps1`, `pmg_setup_install_windows.ps1`, `pmg_uninstall_windows.ps1`, `pmg.exe` from the release zip and your `config.yml` in one folder and wrap it with the Content Prep Tool.
 2. Install command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File pmg_setup_install_windows.ps1`
 3. Uninstall command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File pmg_uninstall_windows.ps1`
 4. Install behavior: **System**. Detection rule: the file `%ProgramFiles%\safedep\pmg\pmg.exe` exists.
 
-The install runs as SYSTEM. Cloud credentials for the logged-on user come from `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` in the process environment, which a Win32 app does not set. Set `cloud.enabled: true` in the bundled `config.yml`, and have each user run `pmg cloud login` once, or run the installer with `--cloud-sync-only` from a tool that passes environment variables.
+A Win32 app sets no environment variables, so cloud credentials need the standalone installer below, or a user-run `pmg cloud login`.
 
 ## Standalone scripts (single-script MDM policies)
 
@@ -224,8 +225,9 @@ Some MDMs accept only one shell script per policy, so use the prebuilt single-fi
 
 - `pmg_setup_install_macos_standalone.sh` / `pmg_uninstall_macos_standalone.sh`
 - `pmg_setup_install_linux_standalone.sh` / `pmg_uninstall_linux_standalone.sh`
+- `pmg_setup_install_windows_standalone.ps1` / `pmg_uninstall_windows_standalone.ps1`
 
-They contain no tenant config or cloud credentials, and are smaller than 1 MB (Intune's limit).
+They contain no tenant config or cloud credentials, and are smaller than 1 MB (Intune's limit for shell scripts). Intune accepts a PowerShell script up to 200 KB. The Windows scripts are far below that, and an embedded `config.yml` must keep them there.
 
 ### Config only
 
@@ -239,9 +241,13 @@ Regenerate the installer with the managed config embedded:
 ./generate_standalone_linux.sh \
   --config /path/to/config.yml \
   --output-dir /path/to/pmg-intune
+
+./generate_standalone_windows.sh \
+  --config /path/to/config.yml \
+  --output-dir /path/to/pmg-intune
 ```
 
-The uninstaller never contains the embedded config.
+The uninstaller never contains the embedded config. The generators are bash scripts. On Windows, run them in Git Bash.
 
 ### Cloud credentials
 
@@ -274,6 +280,16 @@ Only the active GUI user can receive Keychain credentials during a run. The inst
 
 Intune for Linux supports shell scripts with the same single-script model. Upload the Linux standalone scripts and set the execution context to **root**.
 
+### Intune example (Windows)
+
+Create two [PowerShell script policies](https://learn.microsoft.com/en-us/intune/intune-service/apps/powershell-scripts):
+
+1. **Install policy**: upload `pmg_setup_install_windows_standalone.ps1`. Set **Run this script using the logged on credentials** to **No** and **Run script in 64 bit PowerShell Host** to **Yes**.
+2. **Uninstall policy**: upload `pmg_uninstall_windows_standalone.ps1` with the same settings.
+3. Assign to the device group. Do not assign both policies concurrently.
+
+The script runs as SYSTEM and downloads the latest release. Set `PMG_VERSION` in the script to pin a release. With embedded credentials, the installer stores them for the logged-on user and syncs. Other users get them on a later run, or through `--cloud-sync-only` from a tool that passes arguments.
+
 ## Limitations
 
 - macOS: the scripts run `brew trust --cask safedep/tap/pmg` before brew operations. Homebrew 6+ refuses to load items from untrusted taps, and versioned casks like `pmg@edge` cannot self-trust through a fully qualified install. The trust is item-scoped, not whole-tap.
@@ -300,6 +316,8 @@ bash ./tests/pmg_setup_install_test.sh
 bash ./tests/os_guard_test.sh
 bash ./generate_standalone_macos.sh --check
 bash ./generate_standalone_linux.sh --check
+bash ./generate_standalone_windows.sh --check
+bash ./tests/generate_standalone_windows_test.sh
 shellcheck -x -P SCRIPTDIR -P lib \
   macos/lib_macos.sh \
   linux/lib_linux.sh \
@@ -323,17 +341,20 @@ shellcheck -x -P SCRIPTDIR -P lib \
   standalone/pmg_setup_install_macos_standalone.sh \
   standalone/pmg_uninstall_macos_standalone.sh \
   standalone/pmg_setup_install_linux_standalone.sh \
-  standalone/pmg_uninstall_linux_standalone.sh
+  standalone/pmg_uninstall_linux_standalone.sh \
+  generate_standalone_windows.sh \
+  tests/generate_standalone_windows_test.sh
 ```
 
 `os_guard_test.sh` verifies that every entry script refuses to run on the wrong OS. It runs the macOS half on Linux and the Linux half on macOS, skipping whichever half matches the host.
 
-The Windows scripts have their own checks. The unit test runs on PowerShell 7 on any OS and on Windows PowerShell. The lint needs the PSScriptAnalyzer module.
+The Windows scripts have their own checks. The unit test runs on PowerShell 7 on any OS and on Windows PowerShell. The lint needs the PSScriptAnalyzer module. `generate_standalone_windows_test.sh` also runs every Windows script through `pwsh` on a non-Windows host and expects the Windows-only refusal.
 
 ```powershell
 pwsh -NoProfile -File ./tests/pmg_setup_install_windows_test.ps1
-Invoke-ScriptAnalyzer -Path ./windows -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
-Invoke-ScriptAnalyzer -Path ./tests -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+foreach ($dir in './windows', './standalone', './tests') {
+  Invoke-ScriptAnalyzer -Path $dir -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+}
 ```
 
 **Warning:** The end-to-end tests remove PMG state. The standalone test temporarily renames Homebrew binaries. The multifile test creates and deletes a local user account. The Windows test installs and removes the system install and runs the installer as SYSTEM.
@@ -349,9 +370,11 @@ CI=true PMG_MDM_E2E=1 bash ./tests/multifile_linux_e2e_test.sh
 ```
 
 ```powershell
-# Windows, elevated. PMG_E2E_BINARY names a built pmg.exe.
+# Windows, elevated. PMG_E2E_BINARY names a built pmg.exe. The standalone test
+# needs a generated installer with embedded config and credentials, see mdm.yml.
 $env:CI = 'true'; $env:PMG_MDM_E2E = '1'; $env:PMG_E2E_BINARY = 'C:\path\to\pmg.exe'
 pwsh -NoProfile -File ./tests/multifile_windows_e2e_test.ps1
+pwsh -NoProfile -File ./tests/standalone_windows_e2e_test.ps1
 ```
 
 The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `tests/e2e_lib_macos.sh`, `tests/e2e_lib_linux.sh` and `tests/e2e_lib_windows.ps1`.

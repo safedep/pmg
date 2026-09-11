@@ -138,7 +138,7 @@ jobs:
       - name: Lint Windows MDM scripts
         run: |
           $results = @()
-          foreach ($dir in 'scripts/mdm/windows', 'scripts/mdm/tests') {
+          foreach ($dir in 'scripts/mdm/windows', 'scripts/mdm/standalone', 'scripts/mdm/tests') {
             $results += Invoke-ScriptAnalyzer -Path $dir -Recurse -Settings scripts/mdm/windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
           }
           $results | Format-Table -AutoSize | Out-String | Write-Host
@@ -178,3 +178,57 @@ jobs:
           PMG_MDM_E2E: "1"
           PMG_E2E_BINARY: ${{ github.workspace }}\bin\pmg.exe
         run: pwsh -NoProfile -File scripts/mdm/tests/multifile_windows_e2e_test.ps1
+
+  # The Windows generator and its test are bash, so they run where the other
+  # generator tests run. pwsh on the runner covers the Windows-only guard.
+  mdm-scripts-windows-generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Test Windows standalone script generation
+        run: bash scripts/mdm/tests/generate_standalone_windows_test.sh
+
+      - name: Check generated Windows standalone scripts
+        run: bash scripts/mdm/generate_standalone_windows.sh --check
+
+      - name: Lint the Windows generator
+        run: |
+          shellcheck -x -P SCRIPTDIR -P scripts/mdm/lib \
+            scripts/mdm/generate_standalone_windows.sh \
+            scripts/mdm/tests/generate_standalone_windows_test.sh
+
+  mdm-scripts-windows-standalone-e2e:
+    runs-on: windows-latest
+    needs: [mdm-scripts-windows-test, mdm-scripts-windows-generate]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # Full history: the test installs the release of the nearest tag, so
+      # the download and checksum path runs before a stable release carries
+      # the Windows system install.
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Generate the standalone installer with embedded config and credentials
+        shell: bash
+        env:
+          SAFEDEP_API_KEY: pmg-mdm-e2e-api-key
+          SAFEDEP_TENANT_ID: pmg-mdm-e2e-tenant
+        run: |
+          printf 'paranoid: true\ncloud:\n  enabled: true\n' > "$RUNNER_TEMP/config.yml"
+          bash scripts/mdm/generate_standalone_windows.sh --config "$RUNNER_TEMP/config.yml" --embed-cloud-credentials --output-dir "$RUNNER_TEMP/standalone"
+          echo "PMG_VERSION=$(git describe --tags --abbrev=0)" >> "$GITHUB_ENV"
+
+      - name: Test standalone scripts on Windows
+        env:
+          PMG_MDM_E2E: "1"
+          PMG_E2E_STANDALONE_DIR: ${{ runner.temp }}\standalone
+          PMG_E2E_CONFIG: ${{ runner.temp }}\config.yml
+        run: pwsh -NoProfile -File scripts/mdm/tests/standalone_windows_e2e_test.ps1
