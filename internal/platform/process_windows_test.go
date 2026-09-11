@@ -16,9 +16,7 @@ import (
 func TestParentProcessName(t *testing.T) {
 	if os.Getenv("PMG_PARENT_PROCESS_CHILD") == "1" {
 		name, err := ParentProcessName()
-		if err != nil {
-			t.Fatalf("parent process name: %v", err)
-		}
+		require.NoError(t, err)
 		// A newline, because the test binary prints PASS after this.
 		_, _ = os.Stdout.WriteString(name + "\n")
 		return
