@@ -254,7 +254,7 @@ if (Test-Elevated) {
   if ((Invoke-Native -FilePath $PmgBinary -ArgumentList @('setup', 'install', '--system')) -ne 0) {
     Fail 'pmg setup install --system failed'
   }
-  $PmgBin = $PmgBinary
+  $PmgBin = Resolve-Pmg
   Write-InstalledVersion
   Install-RequestedGlobalConfig
 } else {
