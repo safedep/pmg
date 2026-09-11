@@ -237,7 +237,8 @@ function Invoke-AsUser {
 function New-UserWorkDirectory {
   param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$UserSid)
   foreach ($dir in (Split-Path $GlobalConfigDir), $GlobalConfigDir) {
-    $item = Get-Item -LiteralPath $dir -Force -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { throw "$dir does not exist; the system install is missing" }
+    $item = Get-Item -LiteralPath $dir -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "$dir is a link or a junction" }
     $acl = Get-Acl -LiteralPath $dir
     if (-not (Test-AdministrativeOwner -Acl $acl) -or -not $acl.AreAccessRulesProtected) {
@@ -264,13 +265,25 @@ function Test-AdministrativeOwner {
   return $owner -eq 'S-1-5-32-544' -or $owner -eq 'S-1-5-18'
 }
 
-# Remove-Tree deletes a directory that another account may have shaped.
-# .NET removes a junction or a symbolic link inside the tree, and at its
-# root, without following it. Remove-Item -Recurse in Windows PowerShell
-# follows both and would delete the target.
+# Remove-Tree deletes a directory that another account may have shaped. A
+# junction or a symbolic link, at the root or inside, is removed as a link
+# and never followed. Remove-Item -Recurse in Windows PowerShell follows
+# both, and .NET Framework's recursive Directory.Delete throws on a
+# junction, so the walk is explicit.
 function Remove-Tree {
   param([Parameter(Mandatory)][string]$Path)
-  [IO.Directory]::Delete($Path, $true)
+  if ([IO.File]::GetAttributes($Path) -band [IO.FileAttributes]::ReparsePoint) {
+    [IO.Directory]::Delete($Path)
+    return
+  }
+  foreach ($child in [IO.Directory]::GetDirectories($Path)) {
+    Remove-Tree -Path $child
+  }
+  foreach ($file in [IO.Directory]::GetFiles($Path)) {
+    [IO.File]::SetAttributes($file, [IO.FileAttributes]::Normal)
+    [IO.File]::Delete($file)
+  }
+  [IO.Directory]::Delete($Path)
 }
 
 # The script the scheduled task runs as the user. It reads the job file, sets

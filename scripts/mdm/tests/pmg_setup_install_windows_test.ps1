@@ -342,6 +342,26 @@ Assert-LineMatch (Get-CaptureLine $TestLog) 'error:pmg is not installed' 'missin
   Assert-Equal 'entra' $targets[1].Name 'a SID that does not translate falls back to the folder name'
   Remove-Item -Path Env:SystemDrive -ErrorAction SilentlyContinue
 
+  # Remove-Tree deletes a link inside the tree, and one at the root,
+  # without touching what it points at.
+  $victim = Join-Path $TestRoot 'victim'
+  New-Item -ItemType Directory -Path $victim | Out-Null
+  Set-Content -LiteralPath (Join-Path $victim 'keep.txt') -Value 'keep'
+  $tree = Join-Path $TestRoot 'tree'
+  New-Item -ItemType Directory -Path (Join-Path $tree 'nested') | Out-Null
+  Set-Content -LiteralPath (Join-Path $tree 'nested\file.txt') -Value 'x'
+  Set-ItemProperty -LiteralPath (Join-Path $tree 'nested\file.txt') -Name IsReadOnly -Value $true
+  $linkType = if ($env:OS -eq 'Windows_NT') { 'Junction' } else { 'SymbolicLink' }
+  New-Item -ItemType $linkType -Path (Join-Path $tree 'planted') -Target $victim | Out-Null
+  Remove-Tree -Path $tree
+  if (Test-Path -LiteralPath $tree) { Stop-OnFailure 'Remove-Tree left the tree' }
+  if (-not (Test-Path -LiteralPath (Join-Path $victim 'keep.txt'))) { Stop-OnFailure 'Remove-Tree followed the link inside the tree' }
+  $rootLink = Join-Path $TestRoot 'rootlink'
+  New-Item -ItemType $linkType -Path $rootLink -Target $victim | Out-Null
+  Remove-Tree -Path $rootLink
+  if (Test-Path -LiteralPath $rootLink) { Stop-OnFailure 'Remove-Tree left the root link' }
+  if (-not (Test-Path -LiteralPath (Join-Path $victim 'keep.txt'))) { Stop-OnFailure 'Remove-Tree followed the root link' }
+
   $dirs = Get-UserStateDir -UserHome 'C:\Users\dev'
   Assert-Equal 'C:\Users\dev\AppData\Roaming\safedep\pmg' $dirs[0] 'default config dir'
   Assert-Equal 'C:\Users\dev\AppData\Local\safedep\pmg' $dirs[1] 'default cache dir'
