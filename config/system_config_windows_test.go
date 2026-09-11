@@ -16,6 +16,21 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// secureManagedConfigForTest gives a test's managed config directory, and
+// the file in it when one exists, the descriptor the install writes, so the
+// runtime rule accepts the file. Setting the owner needs elevation.
+func secureManagedConfigForTest(t *testing.T, dir string) {
+	t.Helper()
+	if !winacl.ProcessIsElevated() {
+		t.Skip("a managed config the runtime trusts needs an elevated process to create")
+	}
+	require.NoError(t, winacl.Protect(dir))
+	file := filepath.Join(dir, "config.yml")
+	if _, err := os.Stat(file); err == nil {
+		require.NoError(t, winacl.Protect(file))
+	}
+}
+
 func useGlobalConfigDir(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "safedep", "pmg")
