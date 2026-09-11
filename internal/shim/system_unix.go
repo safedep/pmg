@@ -11,21 +11,12 @@ import (
 	"github.com/safedep/pmg/internal/fsutil"
 )
 
-// System install is Linux-only among the Unix platforms (enforced in
-// cmd/setup); these are Linux paths. macOS has no /etc/profile.d equivalent.
-const (
-	linuxSystemBinDir      = "/usr/local/lib/pmg/bin"
-	linuxSystemProfilePath = "/etc/profile.d/pmg.sh"
-	systemProfileMarker    = "PMG system shims"
-)
+const systemProfileMarker = "PMG system shims"
 
 // systemExecutableOwnershipCheck requires root ownership of the binary and
 // its parent directory. Disabled in tests that cannot create root-owned
 // files.
 var systemExecutableOwnershipCheck = true
-
-func defaultSystemBinDir() string      { return linuxSystemBinDir }
-func defaultSystemProfilePath() string { return linuxSystemProfilePath }
 
 // Linux accepts the binary at any root-owned path, so the layout names none.
 func newSystemLayout() (systemLayout, error) {
