@@ -653,7 +653,9 @@ jobs:
         run: |
           Set-Content -Path "$env:PMG_PRODUCT\bin\npm.cmd" -Value "@echo off`r`necho tampered"
           icacls "$env:PMG_PRODUCT\bin\npm.cmd" /grant 'BUILTIN\Users:(W)' | Out-Null
-          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor 2>&1 | Out-String
+          # The table view truncates the message, so the path is checked in
+          # the JSON view.
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor --json 2>&1 | Out-String
           Write-Host $output
           if ($LASTEXITCODE -eq 0) { throw "doctor passed with a tampered shim" }
           if ($output -notmatch 'npm\.cmd') { throw "doctor failed, but did not name the tampered shim" }
@@ -669,7 +671,7 @@ jobs:
       - name: A loosened managed config is reported, ignored and refused
         run: |
           icacls $env:PMG_CONFIG /grant 'BUILTIN\Users:(W)' | Out-Null
-          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor 2>&1 | Out-String
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor --json 2>&1 | Out-String
           Write-Host $output
           if ($LASTEXITCODE -eq 0) { throw "doctor passed with a user-writable managed config" }
           if ($output -notmatch 'config\.yml') { throw "doctor failed, but did not name the config" }
