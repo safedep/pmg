@@ -3,7 +3,6 @@ package setup
 import (
 	"errors"
 	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/safedep/dry/usefulerror"
@@ -11,13 +10,12 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
 	"github.com/spf13/cobra"
 )
-
-var setupGeteuid = os.Geteuid
 
 func NewSetupCommand() *cobra.Command {
 	setupCmd := &cobra.Command{
@@ -59,9 +57,9 @@ func install(system bool) error {
 		return installSystem()
 	}
 
-	if setupGeteuid() == 0 {
+	if platform.IsPrivileged() {
 		fmt.Printf("%s %s\n", ui.Colors.Yellow("⚠"),
-			"Running as root without --system does not protect other users. Use `pmg setup install --system` so all users are covered.")
+			"An elevated run without --system does not protect other users. Use `pmg setup install --system` so all users are covered.")
 	}
 
 	if err := config.WriteTemplateConfig(); err != nil {
@@ -232,5 +230,5 @@ func requireSystemInstallSupported() error {
 			WithHelp("Use `pmg setup install` without --system for per-user setup").
 			Wrap(errors.New("unsupported platform for --system"))
 	}
-	return requireSystemPrivilege()
+	return platform.RequirePrivilege("pmg setup install --system")
 }

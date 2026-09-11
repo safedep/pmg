@@ -5,12 +5,14 @@ package fsutil
 import (
 	"fmt"
 	"os"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // File creation honors the process umask.
 // Root repairs system artifacts while other users keep their configured umask.
 func secureSystemPath(path string, mode os.FileMode) error {
-	if os.Geteuid() != 0 {
+	if !platform.IsPrivileged() {
 		return nil
 	}
 

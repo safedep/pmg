@@ -9,10 +9,9 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/safedep/pmg/internal/platform"
 	"golang.org/x/sys/windows"
 )
-
-func processIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
 
 // The PMG descriptor, in SDDL. Administrators own the object. SYSTEM and
 // Administrators have full control, Users read and execute. P blocks
@@ -108,7 +107,7 @@ func (o *object) expected() (descriptor, error) {
 // SetSecurityInfo needs an owner SID that the caller may assign.
 // The elevation check avoids a partial security update.
 func protect(path string) error {
-	if !processIsElevated() {
+	if !platform.IsPrivileged() {
 		return fmt.Errorf("cannot protect %s: the process is not elevated", path)
 	}
 	o, err := open(path, windows.READ_CONTROL|windows.WRITE_DAC|windows.WRITE_OWNER)

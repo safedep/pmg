@@ -11,10 +11,6 @@
 // ACL reads and writes use one handle that does not follow links.
 package winacl
 
-// ProcessIsElevated reports whether UAC elevated this process.
-// Only an elevated process can write Program Files and the machine PATH.
-func ProcessIsElevated() bool { return processIsElevated() }
-
 // Protect replaces the owner and DACL of path with the PMG security descriptor.
 // It refuses a link or junction.
 // It refuses an object that a standard user owns.

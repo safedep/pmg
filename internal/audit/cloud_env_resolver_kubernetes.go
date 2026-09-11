@@ -9,7 +9,7 @@ import (
 )
 
 // Kubernetes runtime seams. Production uses the real calls. Tests override
-// these package vars, following the auditGeteuid pattern in cloud_sink.go.
+// these package vars.
 // os.Getenv needs no seam because tests use t.Setenv, and log.Warnf needs
 // none because tests use drylog.SwapGlobalForTest.
 var (

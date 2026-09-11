@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,15 +27,19 @@ func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
 	detectTrustTool = func() (linuxTrustTool, error) {
 		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
-	origEUID := euid
-	euid = func() int { return 0 } // run as root so no sudo prefix is added
+	origPrivileged := platform.IsPrivileged
+	platform.IsPrivileged = func() bool { return true } // run as root so no sudo prefix is added
 	var calls [][]string
 	origRunner := commandRunner
 	commandRunner = func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, append([]string{name}, args...))
 		return nil, nil
 	}
-	t.Cleanup(func() { detectTrustTool = origDetect; euid = origEUID; commandRunner = origRunner })
+	t.Cleanup(func() {
+		detectTrustTool = origDetect
+		platform.IsPrivileged = origPrivileged
+		commandRunner = origRunner
+	})
 
 	require.NoError(t, Install([]byte("PEM-BYTES"), ScopeSystem))
 
@@ -50,8 +55,8 @@ func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 	detectTrustTool = func() (linuxTrustTool, error) {
 		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
-	origEUID := euid
-	euid = func() int { return 1000 }
+	origPrivileged := platform.IsPrivileged
+	platform.IsPrivileged = func() bool { return false }
 	var firstName string
 	origRunner := commandRunner
 	commandRunner = func(name string, _ ...string) ([]byte, error) {
@@ -60,7 +65,11 @@ func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 		}
 		return nil, nil
 	}
-	t.Cleanup(func() { detectTrustTool = origDetect; euid = origEUID; commandRunner = origRunner })
+	t.Cleanup(func() {
+		detectTrustTool = origDetect
+		platform.IsPrivileged = origPrivileged
+		commandRunner = origRunner
+	})
 
 	require.NoError(t, Install([]byte("PEM"), ScopeSystem))
 	assert.Equal(t, "sudo", firstName)

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // systemLayout is where a system install lives. Each platform builds it in
@@ -38,7 +39,7 @@ func SystemBinDir() string {
 	if systemBinDirOverride != "" {
 		return systemBinDirOverride
 	}
-	return defaultSystemBinDir()
+	return platform.SystemBinDir()
 }
 
 // SystemProfilePath returns the path of the system profile.d snippet, or ""
@@ -47,7 +48,7 @@ func SystemProfilePath() string {
 	if systemProfilePathOverride != "" {
 		return systemProfilePathOverride
 	}
-	return defaultSystemProfilePath()
+	return platform.SystemProfilePath()
 }
 
 // NewSystemShimManager creates a shim manager for system-wide install. The
