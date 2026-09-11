@@ -33,10 +33,11 @@ func TestCompare(t *testing.T) {
 		{name: "no DACL", sddl: "O:BA", wantErr: "has no DACL"},
 		{name: "an extra write entry", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;WD)", wantErr: "has 4 entries, not 3"},
 		{name: "a missing Users entry", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)", wantErr: "has 2 entries, not 3"},
-		{name: "Users may write instead of read", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FW;;;BU)", wantErr: "entry 3 differs"},
-		{name: "a different order", sddl: "O:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)", wantErr: "entry 1 differs"},
-		{name: "a deny entry in place of an allow", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(D;;0x1200a9;;;BU)", wantErr: "entry 3 differs"},
-		{name: "file flags on a directory", sddl: protectedFileSDDL, isDir: true, wantErr: "entry 1 differs"},
+		{name: "Users may write instead of read", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FW;;;BU)", wantErr: "DACL entry 3 of the PMG descriptor is missing or changed"},
+		{name: "a different order is the same set", sddl: "O:BAD:P(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FA;;;SY)"},
+		{name: "a deny entry in place of an allow", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(D;;0x1200a9;;;BU)", wantErr: "DACL entry 3 of the PMG descriptor is missing or changed"},
+		{name: "one entry twice in place of another", sddl: "O:BAD:P(A;;FA;;;SY)(A;;FA;;;SY)(A;;0x1200a9;;;BU)", wantErr: "DACL entry 2 of the PMG descriptor is missing or changed"},
+		{name: "file flags on a directory", sddl: protectedFileSDDL, isDir: true, wantErr: "DACL entry 1 of the PMG descriptor is missing or changed"},
 	}
 
 	for _, tt := range tests {
@@ -60,6 +61,37 @@ func TestCompare(t *testing.T) {
 	}
 }
 
+// The runtime trusts the managed config on its owner alone, so the owner
+// rule is checked on descriptors built from SDDL.
+func TestRequireAdministrativeOwner(t *testing.T) {
+	tests := []struct {
+		name    string
+		sddl    string
+		wantErr string
+	}{
+		{name: "Administrators", sddl: "O:BAD:(A;;FA;;;BA)"},
+		{name: "SYSTEM", sddl: "O:SYD:(A;;FA;;;BA)"},
+		{name: "Users", sddl: "O:BUD:(A;;FA;;;BA)", wantErr: "owned by BUILTIN\\Users, not by Administrators or SYSTEM"},
+		{name: "a domain account", sddl: "O:S-1-5-21-1-2-3-1001D:(A;;FA;;;BA)", wantErr: "not by Administrators or SYSTEM"},
+		{name: "no owner", sddl: "D:(A;;FA;;;BA)", wantErr: "has no owner"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sd, err := windows.SecurityDescriptorFromString(tt.sddl)
+			require.NoError(t, err)
+
+			err = requireAdministrativeOwner(sd, `C:\ProgramData\safedep\pmg\config.yml`)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestRequireNotReparsePoint(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
@@ -73,6 +105,7 @@ func TestRequireNotReparsePoint(t *testing.T) {
 	require.NoError(t, exec.Command("cmd", "/c", "mklink", "/J", link, target).Run())
 	assert.ErrorContains(t, RequireNotReparsePoint(link), "link or a junction")
 	assert.ErrorContains(t, RequireProtected(link), "link or a junction")
+	assert.ErrorContains(t, RequireAdministrativeOwner(link), "link or a junction")
 }
 
 // A file the test created carries the temp directory's inherited descriptor,

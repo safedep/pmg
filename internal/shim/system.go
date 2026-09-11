@@ -53,11 +53,15 @@ func SystemProfilePath() string {
 // executable is validated by Install, not here, so Remove works even when
 // the installed binary is no longer suitable.
 func NewSystemShimManager() (*ShimManager, error) {
+	layout, err := newSystemLayout()
+	if err != nil {
+		return nil, err
+	}
 	pmgBin, err := resolveExecutable()
 	if err != nil {
 		return nil, err
 	}
-	return newSystemShimManager(newSystemLayout(), pmgBin), nil
+	return newSystemShimManager(layout, pmgBin), nil
 }
 
 func newSystemShimManager(layout systemLayout, pmgBin string) *ShimManager {
@@ -88,19 +92,29 @@ func SystemShimBinary() (string, bool) {
 	return parseShimBinary(content)
 }
 
-// ValidateSystemInstall re-checks the binary the system shims run and every
-// object of the system install, for `pmg setup doctor`. It returns the
-// binary path it checked.
+// ErrNoSystemBinary is returned when system shims exist but none names a
+// pmg binary. Doctor reports it as a warning, not a failure.
+var ErrNoSystemBinary = errors.New("no system shim names a pmg binary")
+
+// ValidateSystemInstall re-checks the binary the system shims run, every
+// object of the system install and the managed config, for `pmg setup
+// doctor`. It returns the binary path it checked.
 func ValidateSystemInstall() (string, error) {
 	binary, ok := SystemShimBinary()
 	if !ok {
-		return "", errors.New("no system shim names a pmg binary")
+		return "", ErrNoSystemBinary
 	}
-	layout := newSystemLayout()
+	layout, err := newSystemLayout()
+	if err != nil {
+		return binary, err
+	}
 	if err := layout.validateBinary(binary); err != nil {
 		return binary, err
 	}
-	return binary, layout.validate()
+	if err := layout.validate(); err != nil {
+		return binary, err
+	}
+	return binary, validateManagedConfig()
 }
 
 func shimsPresent(dir string) bool {

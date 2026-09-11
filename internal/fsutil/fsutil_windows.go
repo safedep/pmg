@@ -8,18 +8,21 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/winacl"
 	"golang.org/x/sys/windows"
 )
 
 // KnownFolder resolves a shell known folder once. The shell knows where the
 // folder is. The matching environment variable in a user's process is theirs
-// to set, so it is never consulted.
-func KnownFolder(id *windows.KNOWNFOLDERID, fallback string) func() string {
+// to set, so it is never consulted. When the shell cannot say, the result is
+// "", because a guessed drive would protect the wrong tree.
+func KnownFolder(id *windows.KNOWNFOLDERID) func() string {
 	return sync.OnceValue(func() string {
 		dir, err := windows.KnownFolderPath(id, 0)
 		if err != nil {
-			return fallback
+			log.Warnf("failed to resolve a Windows known folder: %v", err)
+			return ""
 		}
 		return dir
 	})
@@ -35,8 +38,9 @@ func SecureSystemPath(path string, _ os.FileMode) error { return winacl.Protect(
 // PrepareSystemDir creates a PMG-owned system directory and its vendor
 // parent. ProgramData lets a standard user create a directory, and one
 // created that way stays theirs, so both components get the PMG descriptor
-// even when they already exist, and neither may be a link, or the writes
-// that follow would land where that user pointed them.
+// even when they already exist. A component a standard user owns is refused
+// rather than repaired, and neither may be a link, or the writes that
+// follow would land where that user pointed them.
 func PrepareSystemDir(dir string) error {
 	components := []string{filepath.Dir(dir), dir}
 	for _, d := range components {
@@ -58,3 +62,8 @@ func PrepareSystemDir(dir string) error {
 // RequireTrustedSystemFile accepts a path that does not exist, and otherwise
 // requires a regular file that carries the PMG descriptor.
 func RequireTrustedSystemFile(path string) error { return winacl.RequireTrustedExisting(path) }
+
+// RequireSystemOwned requires that Administrators or SYSTEM own path and
+// that it is not a reparse point. The runtime applies it to the managed
+// config before it obeys the file.
+func RequireSystemOwned(path string) error { return winacl.RequireAdministrativeOwner(path) }

@@ -79,6 +79,32 @@ func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 	assert.Equal(t, "paranoid: false\n", string(content), "the file is left as evidence")
 }
 
+// The runtime obeys the managed config only when Administrators or SYSTEM
+// own it. A file an elevated process wrote has that owner, so it governs. A
+// junction at the path is not a regular file and never governs.
+func TestResolveConfigFileTrustsTheOwner(t *testing.T) {
+	if !winacl.ProcessIsElevated() {
+		t.Skip("a file with an administrative owner needs an elevated process")
+	}
+	dir := useGlobalConfigDir(t)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
+
+	got, err := resolveConfigFile()
+	require.NoError(t, err)
+	assert.Equal(t, path, got)
+
+	require.NoError(t, os.Remove(path))
+	target := filepath.Join(t.TempDir(), "elsewhere")
+	require.NoError(t, os.MkdirAll(target, 0o755))
+	require.NoError(t, exec.Command("cmd", "/c", "mklink", "/J", path, target).Run())
+
+	got, err = resolveConfigFile()
+	require.NoError(t, err)
+	assert.NotEqual(t, path, got, "a junction at the managed path is ignored")
+}
+
 // The elevated path. A fresh install protects the vendor directory, the
 // product directory and the file it writes. A second run merges the file,
 // because it carries the PMG descriptor. A file whose descriptor drifted

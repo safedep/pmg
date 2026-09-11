@@ -170,6 +170,11 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(content), layout.Binary)
 
+	// A file an administrator drops next to the shims is not PMG's to judge.
+	require.NoError(t, os.WriteFile(filepath.Join(layout.BinDir, "README.txt"), []byte("notes\n"), 0o644))
+	_, err = ValidateSystemInstall()
+	assert.NoError(t, err, "a foreign file in the shim directory is not a drift")
+
 	// A second install is a no-op on the PATH and rewrites the shims.
 	require.NoError(t, mgr.Install())
 	entries, _, err = machinePath.read()

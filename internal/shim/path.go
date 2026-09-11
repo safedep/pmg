@@ -58,7 +58,10 @@ func FilterPMGFromPath(pathEnv string) string {
 		return ""
 	}
 
-	shimDirs := append([]string{SystemBinDir()}, userBinDirs()...)
+	shimDirs := userBinDirs()
+	if systemDir := SystemBinDir(); systemDir != "" {
+		shimDirs = append(shimDirs, systemDir)
+	}
 	if shimPath := os.Getenv(pmgShimPathEnv); shimPath != "" {
 		shimDirs = append(shimDirs, filepath.Dir(shimPath))
 	}

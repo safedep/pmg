@@ -28,14 +28,18 @@ func defaultSystemBinDir() string      { return linuxSystemBinDir }
 func defaultSystemProfilePath() string { return linuxSystemProfilePath }
 
 // Linux accepts the binary at any root-owned path, so the layout names none.
-func newSystemLayout() systemLayout {
+func newSystemLayout() (systemLayout, error) {
 	binDir := SystemBinDir()
 	return systemLayout{
 		BinDir:      binDir,
 		ProductDir:  filepath.Dir(binDir),
 		ProfilePath: SystemProfilePath(),
-	}
+	}, nil
 }
+
+// validateManagedConfig is a Windows check. A standard user cannot put a
+// file under /etc.
+func validateManagedConfig() error { return nil }
 
 // protect forces root ownership on both directories pmg owns even when
 // pre-created, so weaker modes are not inherited.

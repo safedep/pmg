@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -274,6 +275,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 
 func checkSystemBinaryResult() doctor.CheckResult {
 	path, err := shim.ValidateSystemInstall()
+	if errors.Is(err, shim.ErrNoSystemBinary) {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Could not determine system shim binary",
+		}
+	}
 	if err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,

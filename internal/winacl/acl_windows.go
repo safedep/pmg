@@ -47,13 +47,20 @@ var (
 )
 
 // Protect replaces the owner and the DACL of path with the PMG descriptor.
-// SetNamedSecurityInfo needs the owner SID in the caller's token with the
-// owner right, which an elevated administrator token has and a standard
-// token does not, so the call is refused without elevation rather than left
-// to fail half way.
+// An object a standard user owns is refused, not repaired: between a check
+// by name and a write by name, that user can swap the object for a junction,
+// and the descriptor would land on a target of their choosing. An object
+// Administrators or SYSTEM own cannot be swapped by anyone else, so the
+// write is safe. SetNamedSecurityInfo needs the owner SID in the caller's
+// token with the owner right, which an elevated administrator token has and
+// a standard token does not, so the call is refused without elevation rather
+// than left to fail half way.
 func Protect(path string) error {
 	if !ProcessIsElevated() {
 		return fmt.Errorf("cannot protect %s: the process is not elevated", path)
+	}
+	if err := RequireAdministrativeOwner(path); err != nil {
+		return fmt.Errorf("%w. Delete it and run the install again", err)
 	}
 	want, err := expected(path)
 	if err != nil {
@@ -68,9 +75,23 @@ func Protect(path string) error {
 	return nil
 }
 
+// RequireAdministrativeOwner requires that path is not a reparse point and
+// that Administrators or SYSTEM own it. A standard user cannot set an owner
+// they are not without a privilege they do not have, so ownership alone
+// separates an object an administrator placed from one a user planted.
+func RequireAdministrativeOwner(path string) error {
+	if err := RequireNotReparsePoint(path); err != nil {
+		return err
+	}
+	got, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("failed to read the owner of %s: %w", path, err)
+	}
+	return requireAdministrativeOwner(got, path)
+}
+
 // RequireProtected requires that path is not a reparse point and carries
-// the PMG descriptor exactly: owner, protected DACL, and the same entries in
-// the same order.
+// the PMG descriptor exactly: owner, protected DACL, and the same entries.
 func RequireProtected(path string) error {
 	if err := RequireNotReparsePoint(path); err != nil {
 		return err
@@ -159,9 +180,33 @@ func parseDescriptor(sddl string) (descriptor, error) {
 	return descriptor{owner: owner, dacl: dacl, aces: entries}, nil
 }
 
-// compare checks owner, the DACL, the protected control bit, and every DACL
-// entry in order. SetNamedSecurityInfo does not reorder explicit entries, so
-// order is stable. A missing DACL grants everyone full access and fails.
+func requireAdministrativeOwner(sd *windows.SECURITY_DESCRIPTOR, path string) error {
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return fmt.Errorf("failed to read the owner of %s: %w", path, err)
+	}
+	if owner == nil {
+		return fmt.Errorf("%s has no owner", path)
+	}
+	if !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) && !owner.IsWellKnown(windows.WinLocalSystemSid) {
+		return fmt.Errorf("%s is owned by %s, not by Administrators or SYSTEM", path, ownerName(owner))
+	}
+	return nil
+}
+
+func ownerName(sid *windows.SID) string {
+	account, domain, _, err := sid.LookupAccount("")
+	if err != nil {
+		return sid.String()
+	}
+	return domain + `\` + account
+}
+
+// compare checks owner, the DACL, the protected control bit, and the DACL
+// entries as a set. Every entry PMG writes is an allow entry, so order
+// carries no meaning for access, and Explorer rewrites the order when an
+// administrator opens the security tab. A missing DACL grants everyone full
+// access and fails.
 func compare(got *windows.SECURITY_DESCRIPTOR, want descriptor) error {
 	owner, _, err := got.Owner()
 	if err != nil {
@@ -197,12 +242,24 @@ func compare(got *windows.SECURITY_DESCRIPTOR, want descriptor) error {
 	if len(entries) != len(want.aces) {
 		return fmt.Errorf("its DACL has %d entries, not %d", len(entries), len(want.aces))
 	}
-	for i := range want.aces {
-		if !sameAce(entries[i], want.aces[i]) {
-			return fmt.Errorf("DACL entry %d differs", i+1)
+	matched := make([]bool, len(entries))
+	for i, wanted := range want.aces {
+		if !matchAce(entries, matched, wanted) {
+			return fmt.Errorf("DACL entry %d of the PMG descriptor is missing or changed", i+1)
 		}
 	}
 	return nil
+}
+
+// matchAce marks and reports the first unmatched entry equal to wanted.
+func matchAce(entries []*windows.ACCESS_ALLOWED_ACE, matched []bool, wanted *windows.ACCESS_ALLOWED_ACE) bool {
+	for i, entry := range entries {
+		if !matched[i] && sameAce(entry, wanted) {
+			matched[i] = true
+			return true
+		}
+	}
+	return false
 }
 
 func aces(dacl *windows.ACL) ([]*windows.ACCESS_ALLOWED_ACE, error) {

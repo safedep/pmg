@@ -898,6 +898,13 @@ func globalConfigFilePath() string {
 // when present, is authoritative and the per-user file is ignored entirely.
 func resolveConfigFile() (string, error) {
 	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
+		// ProgramData lets any user create a file at the managed path. The
+		// file governs every account, so it is obeyed only when Administrators
+		// or SYSTEM own it. Unix has no such path, and the check is a no-op.
+		if err := fsutil.RequireSystemOwned(global); err != nil {
+			log.Warnf("Ignoring the managed config at %s: %v", global, err)
+			return userConfigFilePath()
+		}
 		return global, nil
 	}
 
@@ -1182,6 +1189,12 @@ func RemoveSystemConfigFile() error {
 // unsupported.
 func SystemConfigDir() string {
 	return globalConfigDir()
+}
+
+// SystemConfigFilePath returns the OS-level managed config file, or "" when
+// unsupported.
+func SystemConfigFilePath() string {
+	return globalConfigFilePath()
 }
 
 func writeTemplateConfigFile(configFilePath string) error {
