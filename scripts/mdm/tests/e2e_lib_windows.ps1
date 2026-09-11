@@ -99,7 +99,12 @@ function Reset-WrapperCapture {
 function Invoke-Script {
   param([string]$Path, [string[]]$ArgumentList = @(), [hashtable]$Environment = @{})
   $savedPath = $env:Path
+  $savedModulePath = $env:PSModulePath
   $env:Path = "$WrapperDir;$env:Path"
+  # This test runs in pwsh, which exports its own module path. Windows
+  # PowerShell cannot load those modules and then fails to autoload its own.
+  # An MDM starts Windows PowerShell fresh, so give it a fresh environment.
+  Remove-Item -Path Env:PSModulePath
   foreach ($name in $Environment.Keys) { Set-Item -Path "Env:$name" -Value $Environment[$name] }
   $stdout = "$TestRoot\script.out"
   $stderr = "$TestRoot\script.err"
@@ -109,6 +114,7 @@ function Invoke-Script {
       -RedirectStandardOutput $stdout -RedirectStandardError $stderr
   } finally {
     $env:Path = $savedPath
+    $env:PSModulePath = $savedModulePath
     foreach ($name in $Environment.Keys) { Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue }
   }
   Get-Content -LiteralPath $stdout | ForEach-Object { Write-Host "  | $_" }
