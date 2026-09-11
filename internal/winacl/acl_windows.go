@@ -45,10 +45,12 @@ const (
 	protectedFileSDDL = "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)"
 )
 
-// writeRights let an account change, replace or remove an object:
+// writeRights let an account change, replace or remove an object, or, on a
+// directory, remove or rename what is inside it. FILE_DELETE_CHILD is
+// 0x40 in winnt.h, which x/sys does not carry:
 // https://learn.microsoft.com/windows/win32/fileio/file-access-rights-constants
 const writeRights = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | windows.FILE_WRITE_EA |
-	windows.FILE_WRITE_ATTRIBUTES | windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER |
+	windows.FILE_WRITE_ATTRIBUTES | 0x40 | windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER |
 	windows.GENERIC_WRITE | windows.GENERIC_ALL
 
 // descriptor is the PMG descriptor parsed once, with its DACL entries.

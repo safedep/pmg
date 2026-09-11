@@ -135,6 +135,60 @@ func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 	assert.NotEqual(t, path, got, "a junction at the managed path is ignored")
 }
 
+// The runtime trusts the file only with both directories above it under
+// administrative control. A parent a standard user may write into is a
+// parent whose entries they can swap.
+func TestResolveConfigFileRequiresControlledParents(t *testing.T) {
+	if !winacl.ProcessIsElevated() {
+		t.Skip("a protected directory needs an elevated process")
+	}
+	dir := useGlobalConfigDir(t)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
+	for _, p := range []string{filepath.Dir(dir), dir, path} {
+		require.NoError(t, winacl.Protect(p))
+	}
+	got, err := resolveConfigFile()
+	require.NoError(t, err)
+	require.Equal(t, path, got)
+
+	applySDDL(t, filepath.Dir(dir), "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)")
+	got, err = resolveConfigFile()
+	require.NoError(t, err)
+	assert.NotEqual(t, path, got, "a managed config under a directory Users may write is ignored")
+}
+
+// Removal by name would follow a junction planted in place of the product
+// directory and delete a file of the planter's choosing. Removal refuses.
+func TestRemoveSystemConfigFileRefusesAJunctionParent(t *testing.T) {
+	dir := useGlobalConfigDir(t)
+	target := filepath.Join(t.TempDir(), "elsewhere")
+	require.NoError(t, os.MkdirAll(target, 0o755))
+	victim := filepath.Join(target, "config.yml")
+	require.NoError(t, os.WriteFile(victim, []byte("theirs\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Dir(dir), 0o755))
+	require.NoError(t, exec.Command("cmd", "/c", "mklink", "/J", dir, target).Run())
+
+	err := RemoveSystemConfigFile()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to remove")
+	assert.FileExists(t, victim, "the junction target was not touched")
+}
+
+func applySDDL(t *testing.T, path, sddl string) {
+	t.Helper()
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	require.NoError(t, err)
+	owner, _, err := sd.Owner()
+	require.NoError(t, err)
+	dacl, _, err := sd.DACL()
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner, nil, dacl, nil))
+}
+
 // The elevated path. A fresh install protects the vendor directory, the
 // product directory and the file it writes. A second run merges the file,
 // because it carries the PMG descriptor. A file whose descriptor drifted

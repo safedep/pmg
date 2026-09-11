@@ -63,6 +63,20 @@ func systemConfigFile() string {
 
 func (l systemLayout) vendorDir() string { return filepath.Dir(l.ProductDir) }
 
+// systemInstallPresent looks at the footprint: the shim directory on disk or
+// on the machine PATH. Either one means every user's shell resolves through
+// that directory, so its contents are doctor's to check, whatever they are.
+func systemInstallPresent() bool {
+	layout, err := newSystemLayout()
+	if err != nil {
+		return false
+	}
+	if _, err := os.Lstat(layout.BinDir); err == nil {
+		return true
+	}
+	return layout.pathInstalled()
+}
+
 // objects lists every PMG-owned object of a system install, parents first.
 // The shims are the expected set, one per supported manager by name, not
 // whatever the directory holds: a shim that lost its marker must still be

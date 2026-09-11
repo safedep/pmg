@@ -81,6 +81,12 @@ func SystemShimsInstalled() bool {
 	return shimsPresent(SystemBinDir())
 }
 
+// SystemInstallPresent reports whether a system install is on this machine
+// by its footprint, the shim directory or the PATH entry, not by the
+// contents of the shims. Doctor gates its security row on this, so a shim
+// stripped of its marker cannot switch the row off.
+func SystemInstallPresent() bool { return systemInstallPresent() }
+
 // SystemShimBinary returns the pmg binary path that installed system shims
 // execute. ok is false when no system shim with a resolvable binary is
 // present. All shims are written from the same template in one pass, so
@@ -101,13 +107,18 @@ var ErrNoSystemBinary = errors.New("no system shim names a pmg binary")
 // object of the system install and the managed config, for `pmg setup
 // doctor`. It returns the binary path it checked.
 func ValidateSystemInstall() (string, error) {
-	binary, ok := SystemShimBinary()
-	if !ok {
-		return "", ErrNoSystemBinary
-	}
 	layout, err := newSystemLayout()
 	if err != nil {
-		return binary, err
+		return "", err
+	}
+	// Where the platform fixes the binary path, the shims are not consulted
+	// for it: a shim is what doctor is checking, not what it trusts.
+	binary := layout.Binary
+	if binary == "" {
+		var ok bool
+		if binary, ok = SystemShimBinary(); !ok {
+			return "", ErrNoSystemBinary
+		}
 	}
 	if err := layout.validateBinary(binary); err != nil {
 		return binary, err

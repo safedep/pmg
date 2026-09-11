@@ -41,6 +41,8 @@ func newSystemLayout() (systemLayout, error) {
 // under /etc.
 func (systemLayout) validateConfig() error { return nil }
 
+func systemInstallPresent() bool { return SystemShimsInstalled() }
+
 // protect forces root ownership on both directories pmg owns even when
 // pre-created, so weaker modes are not inherited.
 func (l systemLayout) protect() error {

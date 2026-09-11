@@ -222,39 +222,50 @@ func (m *ShimManager) writeShimScript(pm string) error {
 	content := shimScript(m.config.PMGBin, pm)
 
 	if m.config.System != nil {
-		// A system shim is replaced, not overwritten. A write into what is
-		// there would follow a link planted under the shim's name and land on
-		// its target. Removing the entry removes a link rather than its
-		// target, and the exclusive create fails if anything reappears.
-		if err := os.Remove(shimPath); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		f, err := os.OpenFile(shimPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
-		if err != nil {
-			return err
-		}
-		_, err = f.WriteString(content)
-		if closeErr := f.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return err
-		}
-	} else if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
-		return err
+		return replaceSystemShim(shimPath, content)
 	}
 
-	// WriteFile honors the process umask (e.g. root umask 077 births the shim
-	// as 0700); chmod so the shim stays executable by every user.
-	if err := os.Chmod(shimPath, 0o755); err != nil {
+	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
 		return err
 	}
-	if m.config.System == nil {
-		return nil
+	// WriteFile honors the process umask (e.g. root umask 077 births the shim
+	// as 0700); chmod so the shim stays executable by every user.
+	return os.Chmod(shimPath, 0o755)
+}
+
+// replaceSystemShim writes and secures a sibling first, then renames it over
+// the live shim. The live shim is never absent or half written: a failure
+// before the rename leaves the old shim in place, and PATH never falls
+// through to the real manager. A write into the existing entry would follow
+// a link planted under the shim's name, and the rename replaces the entry
+// itself, link or file, without following it.
+func replaceSystemShim(shimPath, content string) error {
+	tmp := shimPath + ".tmp"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return err
 	}
-	// A shim overwritten in place keeps the ownership and ACL it had, so a
-	// system shim is secured whatever was there before.
-	return fsutil.SecureSystemPath(shimPath, 0o755)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(content)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o755)
+	}
+	if err == nil {
+		err = fsutil.SecureSystemPath(tmp, 0o755)
+	}
+	if err == nil {
+		err = os.Rename(tmp, shimPath)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func currentExecutable() (string, error) {

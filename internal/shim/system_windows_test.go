@@ -276,6 +276,40 @@ func TestSystemInstallDetectsATamperedOrMissingShim(t *testing.T) {
 	assert.Contains(t, err.Error(), npm)
 }
 
+// Doctor's gate is the install's footprint. With every marker stripped the
+// shims no longer identify themselves, and the security row must still run
+// and still name the shim whose descriptor is wrong. A reinstall leaves no
+// temporary sibling behind.
+func TestSystemInstallPresentDoesNotDependOnMarkers(t *testing.T) {
+	layout := useSystemLayout(t)
+	setRegistryPath(t, machinePath, `C:\Tools`)
+	mgr := newSystemShimManager(layout, layout.Binary)
+	require.NoError(t, mgr.Install())
+
+	shims, err := filepath.Glob(filepath.Join(layout.BinDir, "*.cmd"))
+	require.NoError(t, err)
+	require.NotEmpty(t, shims)
+	for _, shim := range shims {
+		require.NoError(t, os.WriteFile(shim, []byte("@echo off\r\necho tampered\r\n"), 0o755))
+	}
+	assert.False(t, SystemShimsInstalled(), "no shim identifies itself any more")
+	assert.True(t, SystemInstallPresent(), "the footprint is still there")
+
+	npm := filepath.Join(layout.BinDir, "npm.cmd")
+	applySDDL(t, npm, "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;BU)")
+	binary, err := ValidateSystemInstall()
+	require.Error(t, err)
+	assert.Equal(t, layout.Binary, binary, "the binary comes from the layout, not from a shim")
+	assert.Contains(t, err.Error(), npm)
+
+	require.NoError(t, mgr.Install())
+	_, err = ValidateSystemInstall()
+	require.NoError(t, err)
+	leftovers, err := filepath.Glob(filepath.Join(layout.BinDir, "*.tmp"))
+	require.NoError(t, err)
+	assert.Empty(t, leftovers)
+}
+
 // A link planted under a shim's name must not be followed. The install
 // removes the link and writes a regular file, and the link's target is
 // untouched.

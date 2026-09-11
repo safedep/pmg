@@ -39,3 +39,11 @@ func PrepareSystemDir(dir string) error { return MkdirAllRootOwned(dir, 0o755) }
 func RequireTrustedSystemFile(string) error { return nil }
 
 func RequireSystemControlled(string) error { return nil }
+
+// RemoveSystemFile deletes a PMG-owned file. A missing file is not an error.
+func RemoveSystemFile(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove config file %q: %w", path, err)
+	}
+	return nil
+}

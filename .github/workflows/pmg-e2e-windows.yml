@@ -647,11 +647,13 @@ jobs:
           $users = (Get-Acl "$env:PMG_PRODUCT\bin\npm.cmd").Access | Where-Object { $_.IdentityReference -eq 'BUILTIN\Users' }
           if ($users.FileSystemRights -ne 'ReadAndExecute, Synchronize') { throw "the reinstall left Users with $($users.FileSystemRights)" }
 
-      # A tampered shim may have lost the marker that identifies it. Doctor
-      # checks the expected shims by name, so it still reports the tampering.
+      # A tampered shim may have lost the marker that identifies it, and so
+      # may every other shim. Doctor gates on the install's footprint and
+      # checks the expected shims by name, so it still reports the one whose
+      # descriptor is wrong.
       - name: Doctor reports a tampered shim, and a reinstall replaces it
         run: |
-          Set-Content -Path "$env:PMG_PRODUCT\bin\npm.cmd" -Value "@echo off`r`necho tampered"
+          Get-ChildItem "$env:PMG_PRODUCT\bin" -Filter *.cmd | ForEach-Object { Set-Content -Path $_.FullName -Value "@echo off`r`necho tampered" }
           icacls "$env:PMG_PRODUCT\bin\npm.cmd" /grant 'BUILTIN\Users:(W)' | Out-Null
           # The table view truncates the message, so the path is checked in
           # the JSON view.

@@ -261,8 +261,10 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 
 	// System-only: the binary every user's shim execs must stay root-owned and
 	// non-writable. Validation runs at install; re-check it here to catch later
-	// permission/ownership drift (redeploy, chmod, image rebuild).
-	if shim.SystemShimsInstalled() {
+	// permission/ownership drift (redeploy, chmod, image rebuild). The gate is
+	// the install's footprint, not the shims' contents, which are what the
+	// check inspects.
+	if shim.SystemInstallPresent() {
 		checks = append(checks, doctor.Check{
 			Name:     checkSystemBinary,
 			Category: "Security",
