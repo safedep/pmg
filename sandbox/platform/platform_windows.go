@@ -14,3 +14,6 @@ import (
 func NewSandbox() (sandbox.Sandbox, error) {
 	return nil, errors.New("PMG has no sandbox on Windows")
 }
+
+// Supported reports whether PMG has a sandbox for this OS.
+func Supported() bool { return false }

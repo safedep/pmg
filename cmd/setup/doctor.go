@@ -224,8 +224,11 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Name:     checkSandbox,
 			Category: "Security",
 			Run: func() doctor.CheckResult {
+				if !platform.Supported() {
+					return evaluateSandboxCheck(nil, false, cfg.Config.Sandbox.Enabled)
+				}
 				sb, err := platform.NewSandbox()
-				return evaluateSandboxCheck(sb, err, cfg.Config.Sandbox.Enabled)
+				return evaluateSandboxCheck(sb, err == nil, cfg.Config.Sandbox.Enabled)
 			},
 		},
 		{
@@ -549,11 +552,11 @@ var checkFixes = map[string]string{
 	checkCA:                 "pmg setup cert install",
 }
 
-// evaluateSandboxCheck is the testable core of the sandbox doctor check. A
-// platform with no sandbox at all passes, because there is nothing to
-// enable, unless the config asks for one.
-func evaluateSandboxCheck(sb sandbox.Sandbox, platformErr error, enabled bool) doctor.CheckResult {
-	if platformErr != nil {
+// evaluateSandboxCheck is the testable core of the sandbox doctor check. An
+// OS with no sandbox passes, because there is nothing to enable, unless the
+// config asks for one. sb is nil when the driver did not construct.
+func evaluateSandboxCheck(sb sandbox.Sandbox, supported bool, enabled bool) doctor.CheckResult {
+	if !supported {
 		if enabled {
 			return doctor.CheckResult{
 				Status:  doctor.StatusFail,

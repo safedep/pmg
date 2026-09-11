@@ -47,3 +47,6 @@ func NewBubblewrapSandbox() (sandbox.Sandbox, error) {
 func NewLandlockSandbox() (sandbox.Sandbox, error) {
 	return newLandlockSandbox()
 }
+
+// Supported reports whether PMG has a sandbox for this OS.
+func Supported() bool { return true }

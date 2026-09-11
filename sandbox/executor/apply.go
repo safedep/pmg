@@ -83,20 +83,13 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 		opt(applyConfig)
 	}
 
-	// The driver comes first. On an OS with no sandbox, the profile load
-	// below would fail on an unrelated file and hide the real reason.
-	sb := applyConfig.sb
-	if sb == nil {
-		platformSandbox, err := platform.NewSandbox()
-		if err != nil {
-			return nil, usefulerror.NewUsefulError().
-				WithCode(errcodes.InvalidArgument).
-				WithHumanError(fmt.Sprintf("The sandbox is not supported on %s", runtime.GOOS)).
-				WithHelp("Set sandbox.enabled: false in the PMG config, or remove --sandbox from the command.").
-				WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md for the supported platforms.").
-				Wrap(err)
-		}
-		sb = platformSandbox
+	if !platform.Supported() {
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.InvalidArgument).
+			WithHumanError(fmt.Sprintf("The sandbox is not supported on %s", runtime.GOOS)).
+			WithHelp("Set sandbox.enabled: false in the PMG config, or remove --sandbox from the command.").
+			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md for the supported platforms.").
+			Wrap(fmt.Errorf("sandbox not supported on %s", runtime.GOOS))
 	}
 
 	presetRegistry, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))
@@ -213,6 +206,16 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 
 	if !policy.AppliesToPackageManager(pmName) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
+	}
+
+	var sb sandbox.Sandbox
+	if applyConfig.sb != nil {
+		sb = applyConfig.sb
+	} else {
+		sb, err = platform.NewSandbox()
+		if err != nil {
+			return nil, fmt.Errorf("sandbox not available on this platform: %v", err)
+		}
 	}
 
 	if !sb.IsAvailable() {
