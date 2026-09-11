@@ -262,7 +262,9 @@ func replaceSystemShim(shimPath, content string) error {
 		err = os.Rename(tmp, shimPath)
 	}
 	if err != nil {
-		os.Remove(tmp)
+		if rmErr := os.Remove(tmp); rmErr != nil && !os.IsNotExist(rmErr) {
+			err = errors.Join(err, rmErr)
+		}
 		return err
 	}
 	return nil
