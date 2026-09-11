@@ -309,3 +309,18 @@ func TestDetectShell(t *testing.T) {
 		})
 	}
 }
+
+func TestShellFromProcessName(t *testing.T) {
+	cases := map[string]string{
+		"pwsh.exe":       "pwsh",
+		"PowerShell.EXE": "powershell",
+		"cmd.exe":        "cmd",
+		"bash.exe":       "bash",
+		"go.exe":         "",
+		"explorer.exe":   "",
+		"":               "",
+	}
+	for image, want := range cases {
+		assert.Equal(t, want, shellFromProcessName(image), image)
+	}
+}

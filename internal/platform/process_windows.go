@@ -1,27 +1,10 @@
-//go:build windows
-
-package alias
+package platform
 
 import (
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sys/windows"
 )
-
-// parentShellName names the shell that started this process. Only a known
-// shell counts: an MDM agent, an IDE task or `go test` is a parent too.
-func parentShellName() string {
-	exe, err := parentProcessName()
-	if err != nil {
-		return ""
-	}
-	switch name := strings.ToLower(strings.TrimSuffix(exe, ".exe")); name {
-	case "pwsh", "powershell", "cmd", "bash":
-		return name
-	}
-	return ""
-}
 
 func parentProcessName() (string, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(windows.Getppid()))

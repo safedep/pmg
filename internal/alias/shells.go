@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 type Shell interface {
@@ -45,8 +47,10 @@ func defaultShellSource(rcPath string) string {
 func DetectShell() (string, error) {
 	shellEnv := os.Getenv("SHELL")
 	if shellEnv == "" {
-		if name := parentShellName(); name != "" {
-			return name, nil
+		if parent, err := platform.ParentProcessName(); err == nil {
+			if name := shellFromProcessName(parent); name != "" {
+				return name, nil
+			}
 		}
 		return "", fmt.Errorf("SHELL environment variable not set")
 	}
@@ -55,6 +59,16 @@ func DetectShell() (string, error) {
 	shellName := parts[len(parts)-1]
 
 	return shellName, nil
+}
+
+// shellFromProcessName maps a parent image name to a shell. Only a known
+// shell counts: an MDM agent, an IDE task or the go tool is a parent too.
+func shellFromProcessName(image string) string {
+	switch name := strings.TrimSuffix(strings.ToLower(image), ".exe"); name {
+	case "pwsh", "powershell", "cmd", "bash":
+		return name
+	}
+	return ""
 }
 
 // PrimaryShellName returns the user's main shell. It reads $SHELL and falls back
