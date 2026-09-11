@@ -35,7 +35,7 @@ This deletes the shims and the `PATH` entry. Per-user configuration and cache st
 | Event log, cache, data | `%LOCALAPPDATA%\safedep\pmg`                  |
 | Managed configuration  | `%PROGRAMDATA%\safedep\pmg\config.yml`        |
 
-The managed configuration file exists only when an administrator deploys one.
+The managed configuration file exists only when an administrator deploys one. For a fleet, the scripts in [`scripts/mdm`](../scripts/mdm) install PMG machine-wide and deploy it.
 
 ## Supported package managers
 

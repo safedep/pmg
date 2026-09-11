@@ -115,6 +115,8 @@ At run time, PMG obeys the managed config only when Administrators or SYSTEM own
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 
+For an MDM fleet, the scripts in [`scripts/mdm`](../scripts/mdm) run the system install and deploy a managed config on Linux and Windows.
+
 ## Limitations
 
 - **Virtualenv.** After `source .venv/bin/activate`, bare `pip` uses the venv binary and skips PMG shims. Call `pmg pip …` explicitly.
