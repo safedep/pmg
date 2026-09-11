@@ -110,8 +110,11 @@ function Test-SystemInstall {
   Assert-Uninstalled
 }
 
-# A user in the middle of an install holds pmg.exe open. Windows refuses
-# the delete, so the uninstaller moves the file aside and finishes.
+# A user in the middle of an install holds pmg.exe open, and that pmg holds
+# its own log and sync database open. Windows refuses those deletes, so the
+# uninstaller moves the binary aside, warns about the two files, and
+# finishes the machine scope. The next run, here after the process ends,
+# removes the rest.
 function Test-UninstallUnderRunningBinary {
   Write-Step 'Testing the uninstall while pmg.exe runs'
   Reset-WrapperCapture
@@ -121,7 +124,7 @@ function Test-UninstallUnderRunningBinary {
     Start-Sleep -Seconds 5
     if ($proxy.HasExited) { Stop-OnFailure "pmg proxy start exited with $($proxy.ExitCode) before the uninstall" }
     Assert-Equal 0 (Invoke-Script -Path $Uninstaller) 'uninstaller exit code under a running pmg.exe'
-    Assert-Uninstalled
+    Assert-MachineUninstalled
     $stale = @(Get-ChildItem -Path "$env:SystemRoot\Temp" -Filter 'pmg-*.exe')
     if ($stale.Count -ne 1) { Stop-OnFailure "expected one moved-aside pmg.exe, found $($stale.Count)" }
   } finally {
@@ -129,6 +132,9 @@ function Test-UninstallUnderRunningBinary {
     Start-Sleep -Seconds 1
     Get-ChildItem -Path "$env:SystemRoot\Temp" -Filter 'pmg-*.exe' | Remove-Item -Force -ErrorAction SilentlyContinue
   }
+  Write-Step 'Testing the uninstall retry after pmg.exe ended'
+  Assert-Equal 0 (Invoke-Script -Path $Uninstaller) 'uninstaller exit code on the retry'
+  Assert-Uninstalled
 }
 
 try {

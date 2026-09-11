@@ -207,12 +207,17 @@ function Assert-Installed {
   if ($set.ExitCode -eq 0) { Stop-OnFailure 'pmg config set must refuse under a managed config' }
 }
 
-function Assert-Uninstalled {
+# The machine scope: binary, shims, PATH entries and the managed config.
+function Assert-MachineUninstalled {
   Assert-PathAbsent $ProductDir
   $entries = Get-MachinePathEntry
   if ($entries | Where-Object { $_ -ieq "$ProductDir\bin" -or $_ -ieq $ProductDir }) { Stop-OnFailure "a PMG entry is still on the machine PATH: $($entries -join ';')" }
   Assert-PathAbsent $GlobalConfig
   Assert-PathAbsent "$env:ProgramData\safedep"
+}
+
+function Assert-Uninstalled {
+  Assert-MachineUninstalled
   Assert-PathAbsent "$env:APPDATA\safedep\pmg"
   Assert-PathAbsent "$env:LOCALAPPDATA\safedep\pmg"
 }
