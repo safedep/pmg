@@ -81,9 +81,10 @@ func TestProxyFlow_PypiNormalizedPolicyPins(t *testing.T) {
 				Config: func(rc *config.RuntimeConfig) {
 					rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
 					ref := config.TrustedPackage{Purl: "pkg:pypi/demo@" + version.raw}
-					if policy == "trusted" {
+					switch policy {
+					case "trusted":
 						rc.Config.TrustedPackages = []config.TrustedPackage{ref}
-					} else if policy == "skip" {
+					case "skip":
 						rc.Config.DependencyCooldown.Skip = []config.TrustedPackage{ref}
 					}
 				},
