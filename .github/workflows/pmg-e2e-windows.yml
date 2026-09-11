@@ -483,7 +483,7 @@ jobs:
           $output = & bin\pmg.exe setup install --system 2>&1 | Out-String
           Write-Host $output
           if ($LASTEXITCODE -eq 0) { throw "a binary outside Program Files was accepted" }
-          if ($output -notmatch 'needs it at') { throw "the error does not name the required path" }
+          if ($output -notmatch 'is not at C:\\Program Files\\safedep\\pmg\\pmg.exe') { throw "the error does not name the required path" }
           if (Test-Path "$env:PMG_PRODUCT\bin") { throw "shims were written for a rejected binary" }
           exit 0
 
@@ -504,8 +504,7 @@ jobs:
           $output = & "$env:PMG_PRODUCT\pmg.exe" setup install --system 2>&1 | Out-String
           Write-Host $output
           if ($LASTEXITCODE -eq 0) { throw "a config PMG did not write was accepted" }
-          if ($output -notmatch 'is not a file PMG wrote') { throw "the error does not say why the file is rejected" }
-          if ($output -notmatch 'Inspect the file, delete it') { throw "the error does not say what to do" }
+          if ($output -notmatch 'does not carry the PMG security descriptor') { throw "the error does not say why the file is rejected" }
           if ((Get-Content $env:PMG_CONFIG -Raw) -notmatch 'paranoid: false') { throw "the rejected file was changed" }
           Remove-Item $env:PMG_CONFIG
           exit 0
@@ -589,7 +588,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $password = 'Pmg-e2e-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '!'
-          net user pmgtest $password /add /y | Out-Null
+          net user pmgtest $password /add | Out-Null
           $workDir = 'C:\Users\Public\pmg-standard-user'
           New-Item -ItemType Directory -Force $workDir | Out-Null
           icacls $workDir /grant 'BUILTIN\Users:(OI)(CI)F' | Out-Null
