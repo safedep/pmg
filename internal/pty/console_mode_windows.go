@@ -3,6 +3,8 @@
 package pty
 
 import (
+	"errors"
+	"fmt"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -16,29 +18,41 @@ const disableNewlineAutoReturn = 0x0008
 // saveConsoleOutputMode returns a function that clears the newline flag on
 // stdout and stderr again, when it was clear before the session. The other
 // flags stay as they are at that time.
-func saveConsoleOutputMode() func() {
+func saveConsoleOutputMode() func() error {
 	type saved struct {
+		name   string
 		handle windows.Handle
 		mode   uint32
 	}
 	var modes []saved
-	for _, f := range []*os.File{os.Stdout, os.Stderr} {
-		handle := windows.Handle(f.Fd())
+	for _, output := range []struct {
+		name string
+		file *os.File
+	}{
+		{name: "stdout", file: os.Stdout},
+		{name: "stderr", file: os.Stderr},
+	} {
+		handle := windows.Handle(output.file.Fd())
 		var mode uint32
 		if windows.GetConsoleMode(handle, &mode) == nil {
-			modes = append(modes, saved{handle: handle, mode: mode})
+			modes = append(modes, saved{name: output.name, handle: handle, mode: mode})
 		}
 	}
-	return func() {
+	return func() error {
+		var errs []error
 		for _, s := range modes {
 			if s.mode&disableNewlineAutoReturn != 0 {
 				continue
 			}
 			var current uint32
-			if windows.GetConsoleMode(s.handle, &current) != nil {
+			if err := windows.GetConsoleMode(s.handle, &current); err != nil {
+				errs = append(errs, fmt.Errorf("failed to read %s console mode: %w", s.name, err))
 				continue
 			}
-			_ = windows.SetConsoleMode(s.handle, current&^disableNewlineAutoReturn)
+			if err := windows.SetConsoleMode(s.handle, current&^disableNewlineAutoReturn); err != nil {
+				errs = append(errs, fmt.Errorf("failed to restore %s console mode: %w", s.name, err))
+			}
 		}
+		return errors.Join(errs...)
 	}
 }
