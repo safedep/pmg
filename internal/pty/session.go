@@ -67,11 +67,12 @@ func IsInteractiveTerminal() bool {
 var _ InteractiveSession = &session{}
 
 type session struct {
-	console  ptyx.Console
-	spawn    ptyx.Session
-	oldState ptyx.RawState // Saved terminal state for restoration
-	done     chan struct{}
-	stopOnce sync.Once
+	console       ptyx.Console
+	spawn         ptyx.Session
+	oldState      ptyx.RawState // Saved terminal state for restoration
+	restoreOutput func()        // Undoes the console output flags the session set
+	done          chan struct{}
+	stopOnce      sync.Once
 }
 
 // SessionConfig holds options for creating a session
@@ -107,11 +108,13 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to create console: %w", err)
 	}
+	restoreOutput := saveConsoleOutputMode()
 	c.EnableVT()
 
 	// 2. Set raw mode, save old state
 	oldState, err := c.MakeRaw()
 	if err != nil {
+		restoreOutput()
 		if closeErr := c.Close(); closeErr != nil {
 			log.Warnf("failed to close console after MakeRaw error: %v", closeErr)
 		}
@@ -126,16 +129,18 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	if err != nil {
 		// We are already in error state, restore and close is best effort.
 		_ = c.Restore(oldState)
+		restoreOutput()
 		_ = c.Close()
 
 		return nil, fmt.Errorf("failed to spawn: %w", err)
 	}
 
 	sess := &session{
-		console:  c,
-		spawn:    s,
-		oldState: oldState,
-		done:     make(chan struct{}),
+		console:       c,
+		spawn:         s,
+		oldState:      oldState,
+		restoreOutput: restoreOutput,
+		done:          make(chan struct{}),
 	}
 	go sess.forwardResize()
 
@@ -220,6 +225,9 @@ func (s *session) Close() error {
 	// Always restore terminal state
 	if s.oldState != nil {
 		_ = s.console.Restore(s.oldState)
+	}
+	if s.restoreOutput != nil {
+		s.restoreOutput()
 	}
 
 	if s.spawn != nil {

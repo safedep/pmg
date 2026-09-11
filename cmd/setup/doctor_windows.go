@@ -40,23 +40,64 @@ func shadowedFix(shadowed []shim.ManagerResolution) string {
 	return strings.Join(shadowedLines(shadowed), " ")
 }
 
+// shadowedLines groups the managers by the PATH half that wins. Four
+// shadowed managers then read as one reason and one action, not four.
 func shadowedLines(shadowed []shim.ManagerResolution) []string {
-	lines := make([]string, 0, len(shadowed))
+	var order []shim.PathOrigin
+	groups := map[shim.PathOrigin][]shim.ManagerResolution{}
 	for _, r := range shadowed {
-		lines = append(lines, fmt.Sprintf("%s is %s. %s", r.Name, r.Path, shadowedAction(r)))
+		if _, seen := groups[r.Origin]; !seen {
+			order = append(order, r.Origin)
+		}
+		groups[r.Origin] = append(groups[r.Origin], r)
+	}
+
+	var lines []string
+	for _, origin := range order {
+		group := groups[origin]
+		entries := make([]string, 0, len(group))
+		names := make([]string, 0, len(group))
+		for _, r := range group {
+			entries = append(entries, fmt.Sprintf("%s (%s)", r.Name, r.Path))
+			names = append(names, r.Name)
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", shadowedReason(origin), strings.Join(entries, ", ")))
+		lines = append(lines, shadowedAction(origin, names))
 	}
 	return lines
 }
 
+func shadowedReason(origin shim.PathOrigin) string {
+	switch origin {
+	case shim.OriginUser:
+		return "On the user PATH, ahead of the shims"
+	case shim.OriginProfile:
+		return "Put on PATH by a shell profile, where PMG cannot reorder it"
+	default:
+		return "On the machine PATH, ahead of the user PATH"
+	}
+}
+
 // shadowedAction names what the user can do, which depends on where the
 // winning PATH entry came from. Only the user PATH is one PMG can reorder.
-func shadowedAction(r shim.ManagerResolution) string {
-	switch r.Origin {
+func shadowedAction(origin shim.PathOrigin, names []string) string {
+	switch origin {
 	case shim.OriginUser:
-		return "Run `pmg setup install` again to move the shims ahead of it."
+		return "Run `pmg setup install` again to move the shims ahead."
 	case shim.OriginProfile:
-		return fmt.Sprintf("A shell profile puts that directory on PATH, where PMG cannot reorder it. Run it as `pmg %s`, or drop that line from the profile.", r.Name)
+		return fmt.Sprintf("Run %s, or drop that line from the profile.", asPmgCommands(names))
 	default:
-		return fmt.Sprintf("It is on the machine PATH, ahead of the user PATH. Run `pmg setup install --system` from a terminal started as administrator, or run it as `pmg %s`.", r.Name)
+		return fmt.Sprintf("Run `pmg setup install --system` from a terminal started as administrator, or run %s.", asPmgCommands(names))
 	}
+}
+
+func asPmgCommands(names []string) string {
+	commands := make([]string, 0, len(names))
+	for _, name := range names {
+		commands = append(commands, fmt.Sprintf("`pmg %s`", name))
+	}
+	if len(commands) == 1 {
+		return "it as " + commands[0]
+	}
+	return "them as " + strings.Join(commands, ", ")
 }

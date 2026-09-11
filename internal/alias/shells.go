@@ -40,10 +40,14 @@ func defaultShellSource(rcPath string) string {
 	return fmt.Sprintf("%s \n[ -f '%s' ] && source '%s'  %s\n", commentForRemovingShellSource, rcPath, rcPath, aliasSourceMarker)
 }
 
-// DetectShell attempts to detect the current shell from the SHELL environment variable.
+// DetectShell attempts to detect the current shell from the SHELL environment
+// variable. Windows sets none, so the parent process names the shell there.
 func DetectShell() (string, error) {
 	shellEnv := os.Getenv("SHELL")
 	if shellEnv == "" {
+		if name := parentShellName(); name != "" {
+			return name, nil
+		}
 		return "", fmt.Errorf("SHELL environment variable not set")
 	}
 

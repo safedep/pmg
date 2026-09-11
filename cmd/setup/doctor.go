@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/internal/version"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/pmg/truststore"
 	"github.com/spf13/cobra"
@@ -224,23 +225,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Security",
 			Run: func() doctor.CheckResult {
 				sb, err := platform.NewSandbox()
-				available := err == nil && sb != nil && sb.IsAvailable()
-				if !cfg.Config.Sandbox.Enabled {
-					return doctor.CheckResult{
-						Status:  doctor.StatusWarn,
-						Message: "Sandbox is disabled",
-					}
-				}
-				if !available {
-					return doctor.CheckResult{
-						Status:  doctor.StatusFail,
-						Message: "Sandbox enabled but no driver available on this platform",
-					}
-				}
-				return doctor.CheckResult{
-					Status:  doctor.StatusPass,
-					Message: fmt.Sprintf("Sandbox enabled (%s)", sb.Name()),
-				}
+				return evaluateSandboxCheck(sb, err, cfg.Config.Sandbox.Enabled)
 			},
 		},
 		{
@@ -562,6 +547,41 @@ var checkFixes = map[string]string{
 	checkProtectionNpm:      "pmg setup install",
 	checkProtectionPip:      "pmg setup install",
 	checkCA:                 "pmg setup cert install",
+}
+
+// evaluateSandboxCheck is the testable core of the sandbox doctor check. A
+// platform with no sandbox at all passes, because there is nothing to
+// enable, unless the config asks for one.
+func evaluateSandboxCheck(sb sandbox.Sandbox, platformErr error, enabled bool) doctor.CheckResult {
+	if platformErr != nil {
+		if enabled {
+			return doctor.CheckResult{
+				Status:  doctor.StatusFail,
+				Message: fmt.Sprintf("Sandbox is enabled, but PMG has no sandbox on %s", runtime.GOOS),
+				Fix:     "Set sandbox.enabled: false in config",
+			}
+		}
+		return doctor.CheckResult{
+			Status:  doctor.StatusPass,
+			Message: fmt.Sprintf("PMG has no sandbox on %s", runtime.GOOS),
+		}
+	}
+	if !enabled {
+		return doctor.CheckResult{
+			Status:  doctor.StatusWarn,
+			Message: "Sandbox is disabled",
+		}
+	}
+	if sb == nil || !sb.IsAvailable() {
+		return doctor.CheckResult{
+			Status:  doctor.StatusFail,
+			Message: "Sandbox enabled but no driver available on this platform",
+		}
+	}
+	return doctor.CheckResult{
+		Status:  doctor.StatusPass,
+		Message: fmt.Sprintf("Sandbox enabled (%s)", sb.Name()),
+	}
 }
 
 // evaluateCACheck is the testable core of the CA doctor check. Trust booleans
