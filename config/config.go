@@ -883,29 +883,6 @@ func userConfigFilePath() (string, error) {
 // and bypass the globally managed config.
 var globalConfigDirOverride string
 
-// globalConfigDir returns the OS-level directory for a globally managed config
-// file, or "" when the platform has no such location.
-func globalConfigDir() string {
-	if globalConfigDirOverride != "" {
-		return globalConfigDirOverride
-	}
-
-	switch runtime.GOOS {
-	case "darwin":
-		return "/Library/Application Support/safedep/pmg"
-	case "linux":
-		return "/etc/safedep/pmg"
-	case "windows":
-		programData := os.Getenv("PROGRAMDATA")
-		if programData == "" {
-			programData = `C:\ProgramData`
-		}
-		return filepath.Join(programData, "safedep", "pmg")
-	}
-
-	return ""
-}
-
 // globalConfigFilePath returns the path to the globally managed config file, or
 // "" when the platform has no global config location.
 func globalConfigFilePath() string {
@@ -921,6 +898,18 @@ func globalConfigFilePath() string {
 // when present, is authoritative and the per-user file is ignored entirely.
 func resolveConfigFile() (string, error) {
 	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
+		// ProgramData lets any user create a directory or a file at the
+		// managed path. The file governs every account, so it is obeyed only
+		// when Administrators or SYSTEM own it, both directories above it,
+		// and nobody else may write any of the three. Unix has no such path,
+		// and the check is a no-op.
+		dir := filepath.Dir(global)
+		for _, p := range []string{filepath.Dir(dir), dir, global} {
+			if err := fsutil.RequireSystemControlled(p); err != nil {
+				log.Warnf("Ignoring the managed config at %s: %v", global, err)
+				return userConfigFilePath()
+			}
+		}
 		return global, nil
 	}
 
@@ -1166,18 +1155,28 @@ func WriteSystemTemplateConfig() error {
 
 	// MkdirAll and WriteFile honor the process umask, so a hardened root
 	// umask (e.g. 077) would otherwise leave the managed config unreadable
-	// by non-root users — silently disabling the system-wide policy for
-	// them. Only directories created here and the file we write are touched;
-	// pre-existing directories keep their permissions.
-	if err := fsutil.MkdirAllRootOwned(filepath.Dir(path), 0o755); err != nil {
+	// by non-root users, which would silently disable the system-wide policy
+	// for them. The directories are secured before the file is checked: the
+	// owner of an unprotected parent could otherwise rename a checked file
+	// away between the check and the read. An existing config file is merged
+	// only when PMG wrote it. A descriptor set afterwards would not make
+	// contents a standard user wrote trustworthy.
+	if err := fsutil.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
+	}
+	if err := fsutil.RequireTrustedSystemFile(path); err != nil {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
+			WithHelp("Inspect the file, delete it, and run the install again").
+			Wrap(err)
 	}
 
 	if err := writeTemplateConfigFile(path); err != nil {
 		return err
 	}
 
-	return fsutil.ForceRootOwned(path, 0o644)
+	return fsutil.SecureSystemPath(path, 0o644)
 }
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing
@@ -1188,13 +1187,19 @@ func RemoveSystemConfigFile() error {
 		return fmt.Errorf("system config is not supported on %s", runtime.GOOS)
 	}
 
-	return removeFileIfExists(path)
+	return fsutil.RemoveSystemFile(path)
 }
 
 // SystemConfigDir returns the OS-level managed config directory, or "" when
 // unsupported.
 func SystemConfigDir() string {
 	return globalConfigDir()
+}
+
+// SystemConfigFilePath returns the OS-level managed config file, or "" when
+// unsupported.
+func SystemConfigFilePath() string {
+	return globalConfigFilePath()
 }
 
 func writeTemplateConfigFile(configFilePath string) error {

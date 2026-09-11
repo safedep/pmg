@@ -39,25 +39,6 @@ func PathWithinDir(path, dir string) bool {
 	return keyPath == keyDir || strings.HasPrefix(keyPath, keyDir+string(os.PathSeparator))
 }
 
-// ForceRootOwned sets root ownership and mode on a path pmg created or fully
-// manages. os.WriteFile and os.Mkdir honor the process umask, so system-wide
-// artifacts must be repaired explicitly to stay usable by every user. No-op
-// when not running as root: chown would fail, and per-user artifacts follow
-// the invoking user's umask by design.
-func ForceRootOwned(path string, mode os.FileMode) error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-
-	if err := os.Chown(path, 0, 0); err != nil {
-		return fmt.Errorf("failed to set root ownership on %s: %w", path, err)
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		return fmt.Errorf("failed to set permissions on %s: %w", path, err)
-	}
-	return nil
-}
-
 // MkdirAllRootOwned creates dir and any missing parents like os.MkdirAll,
 // forcing root ownership and mode on every component this call creates.
 // Pre-existing directories are left untouched: pmg only manages permissions
@@ -83,5 +64,5 @@ func MkdirAllRootOwned(dir string, mode os.FileMode) error {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
-	return ForceRootOwned(dir, mode)
+	return SecureSystemPath(dir, mode)
 }

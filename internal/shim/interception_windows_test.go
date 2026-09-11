@@ -58,9 +58,9 @@ func TestPathExtensionsDropsAnEmptyEntry(t *testing.T) {
 }
 
 // setRegistryPath writes value as the PATH of one scratch key.
-func setRegistryPath(t *testing.T, root registry.Key, keyPath, value string) {
+func setRegistryPath(t *testing.T, scope pathScope, value string) {
 	t.Helper()
-	key, err := registry.OpenKey(root, keyPath, registry.SET_VALUE)
+	key, err := registry.OpenKey(scope.root, scope.key, registry.SET_VALUE)
 	require.NoError(t, err)
 	defer key.Close()
 	require.NoError(t, key.SetExpandStringValue(pathValueName, value))
@@ -88,8 +88,8 @@ func TestInspectInterception(t *testing.T) {
 		machineDir := newManagerDir(t, "npm")
 		shimDir := newManagerDir(t, "npm", "pnpm")
 
-		setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey, machineDir)
-		require.NoError(t, writeUserPath([]string{shimDir}, true))
+		setRegistryPath(t, machinePath, machineDir)
+		require.NoError(t, userPath.write([]string{shimDir}, true))
 		t.Setenv("PATH", joinPath(machineDir, shimDir))
 
 		inspection, err := InspectInterception([]string{"npm", "pnpm", "yarn"}, []string{shimDir})
@@ -110,8 +110,8 @@ func TestInspectInterception(t *testing.T) {
 		pythonDir := newManagerDir(t, "pip")
 		shimDir := newManagerDir(t, "pip")
 
-		setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey, `C:\Windows\System32`)
-		require.NoError(t, writeUserPath([]string{pythonDir, shimDir}, true))
+		setRegistryPath(t, machinePath, `C:\Windows\System32`)
+		require.NoError(t, userPath.write([]string{pythonDir, shimDir}, true))
 		t.Setenv("PATH", joinPath(`C:\Windows\System32`, pythonDir, shimDir))
 
 		inspection, err := InspectInterception([]string{"pip"}, []string{shimDir})
@@ -131,8 +131,8 @@ func TestInspectInterception(t *testing.T) {
 		profileDir := newManagerDir(t, "npm")
 		shimDir := newManagerDir(t, "npm")
 
-		setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey, `C:\Windows\System32`)
-		require.NoError(t, writeUserPath([]string{shimDir}, true))
+		setRegistryPath(t, machinePath, `C:\Windows\System32`)
+		require.NoError(t, userPath.write([]string{shimDir}, true))
 		t.Setenv("PATH", joinPath(profileDir, `C:\Windows\System32`, shimDir))
 
 		inspection, err := InspectInterception([]string{"npm"}, []string{shimDir})
@@ -152,8 +152,8 @@ func TestInspectInterception(t *testing.T) {
 		nodeDir := newManagerDir(t, "npm")
 		shimDir := newManagerDir(t, "npm")
 
-		setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey, nodeDir)
-		require.NoError(t, writeUserPath([]string{shimDir}, true))
+		setRegistryPath(t, machinePath, nodeDir)
+		require.NoError(t, userPath.write([]string{shimDir}, true))
 		// The shell started before the install, so it has no shim directory.
 		t.Setenv("PATH", nodeDir)
 
