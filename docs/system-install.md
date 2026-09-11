@@ -14,7 +14,7 @@ pmg setup install --system
 
 **Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg\pmg.exe` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
 
-`--system` enforces this because every user's shims run the PMG binary by absolute path. On Linux it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it). On Windows the binary must be at that exact path, and no component of it may be a link or a junction. The install then puts one security descriptor on every object it owns, `%ProgramFiles%\safedep`, `%ProgramFiles%\safedep\pmg`, `pmg.exe`, the shim directory and each shim: owner Administrators, full control for SYSTEM and Administrators, read and execute for Users, inheritance blocked. The shim directory goes on the machine `PATH` only after every object carries it. `pmg setup doctor` reports any object whose descriptor differs, and a second `pmg setup install --system` restores it.
+`--system` checks the binary because every user's shim runs it by absolute path. On Linux, root must own the binary and its directory, only root may write to them, and every user must be able to execute the binary. On Windows, the binary must be at the path above, with no link or junction in that path. The install then sets one security descriptor on each object it owns: Administrators as owner, full control for SYSTEM and Administrators, read and execute for Users, no inheritance. `pmg setup doctor` reports an object whose descriptor differs. A second `pmg setup install --system` restores it.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
 
@@ -43,9 +43,9 @@ Processes only use the shims when the shim directory is on `PATH` ahead of the r
 
 ### Windows
 
-`pmg setup install --system` puts `%ProgramFiles%\safedep\pmg\bin` first on the machine `PATH`. Windows builds every process `PATH` as the machine value, then the user value, so the shims sit ahead of `npm` from the Node.js MSI and every other machine-wide installer. It also appends the directory that holds `pmg.exe`, so `pmg` itself resolves in every terminal. Open a new terminal after the install. `pmg setup remove --system` deletes the shim entry and leaves the `pmg.exe` entry, because the binary stays.
+`pmg setup install --system` puts `%ProgramFiles%\safedep\pmg\bin` first on the machine `PATH`. Windows builds the process `PATH` from the machine value, then the user value. The shims are therefore ahead of `npm` from the Node.js MSI and other machine-wide installers. The install also appends the directory of `pmg.exe`, so `pmg` resolves in every terminal. Open a new terminal after the install. `pmg setup remove --system` deletes the shim entry and keeps the `pmg.exe` entry.
 
-A per-user install cannot do this. A user `PATH` entry never moves ahead of a machine one, and a user-writable directory must not sit on the machine `PATH`, where an elevated process would run a binary a standard user planted. That is why the system shims live under `Program Files`.
+A per-user install cannot do this. A user `PATH` entry never comes before a machine entry. A user-writable directory must not be on the machine `PATH`, because an elevated process could run a binary that a standard user put there.
 
 Confirm with:
 
@@ -109,9 +109,9 @@ The system config file is authoritative for every user. A per-user `config.yml` 
 
 `pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or as an administrator on Windows, or redeploy it through your image or configuration management.
 
-On Windows, `pmg setup install --system` puts the same security descriptor on `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file, even when a standard user created them first. `ProgramData` lets any user create a directory there, and a directory created that way would otherwise stay under that user's control. A `config.yml` that already exists there is read and merged only when it carries that descriptor exactly. Any other file stops the install with a message that names it. Inspect it, delete it, and run the install again. A link or junction anywhere in that path stops the install too, and so does a directory in that path that a standard user owns. For an MDM deployment, run `pmg setup install --system` before you place a config file, or let the install write the file and edit it afterwards.
+On Windows, the install sets the same security descriptor on `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file. A `config.yml` that already exists there is kept only when it carries that descriptor. Any other file stops the install with a message that names it. Inspect the file, delete it, and run the install again. For an MDM deployment, run `pmg setup install --system` first, then edit the file it writes.
 
-At run time, PMG on Windows obeys the managed config only when Administrators or SYSTEM own the file, no other account may write or delete it, and it is not a link or junction. A file at that path that fails any of these is ignored with a warning, so a file a standard user planted before any install, or one whose permissions were loosened afterwards, cannot become the machine policy. `pmg setup doctor` reports a managed config whose descriptor differs from the one the install wrote.
+At run time, PMG obeys the managed config only when Administrators or SYSTEM own the file and no other account can write it. Otherwise PMG ignores the file and prints a warning. `pmg setup doctor` reports a managed config whose descriptor differs from the one the install wrote.
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 
