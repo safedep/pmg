@@ -138,6 +138,9 @@ func (l systemLayout) validateConfig() error {
 			return err
 		}
 	}
+	if _, err := os.Lstat(l.ConfigFile); err != nil {
+		return fmt.Errorf("the managed config %s is missing: %w", l.ConfigFile, err)
+	}
 	return winacl.RequireTrustedExisting(l.ConfigFile)
 }
 

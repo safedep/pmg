@@ -421,5 +421,8 @@ func accountName(sid *windows.SID) string {
 	if err != nil {
 		return sid.String()
 	}
+	if domain == "" {
+		return account
+	}
 	return domain + `\` + account
 }
