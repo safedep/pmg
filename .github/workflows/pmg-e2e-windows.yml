@@ -599,6 +599,14 @@ jobs:
           icacls $workDir /grant 'BUILTIN\Users:(OI)(CI)F' | Out-Null
           Set-Content -Path "$workDir\package.json" -Value '{"name":"pmg-standard-user","version":"1.0.0"}'
           $credential = New-Object System.Management.Automation.PSCredential('pmgtest', (ConvertTo-SecureString $password -AsPlainText -Force))
+          # What that logon sees: its PATH, which npm it resolves, and whether
+          # pmg runs for it at all. Printed before the assertion, so a failure
+          # says which of the three went wrong.
+          Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
+            -ArgumentList '/d', '/c', "(echo PATH=%PATH% & echo USERPROFILE=%USERPROFILE% & where npm & where pmg & pmg version) > `"$workDir\diag.txt`" 2>&1" `
+            -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -Wait -WindowStyle Hidden
+          Write-Host (Get-Content "$workDir\diag.txt" -Raw)
+
           $process = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
             -ArgumentList '/d', '/c', "npm --no-cache --prefer-online i safedep-test-pkg@0.1.3 > `"$workDir\out.txt`" 2>&1" `
             -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -Wait -PassThru -WindowStyle Hidden
