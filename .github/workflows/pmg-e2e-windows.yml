@@ -601,15 +601,20 @@ jobs:
           icacls $workDir /grant 'BUILTIN\Users:(OI)(CI)F' | Out-Null
           Set-Content -Path "$workDir\package.json" -Value '{"name":"pmg-standard-user","version":"1.0.0"}'
           $credential = New-Object System.Management.Automation.PSCredential('pmgtest', (ConvertTo-SecureString $password -AsPlainText -Force))
-          # The commands live in batch files, so no quoting passes through
+          # Start-Process -Credential hands the child the caller's environment,
+          # which is the job's and predates the install. -UseNewEnvironment
+          # builds PATH from the registry instead, as a logon does, but sets no
+          # profile variables, so the batch files set the ones a logon would.
+          # The commands live in batch files so no quoting passes through
           # Start-Process and cmd.exe, and the output comes back through the
           # redirect parameters rather than a shell redirect.
-          Set-Content -Path "$workDir\diag.cmd" -Value "@echo off`r`necho PATH=%PATH%`r`necho USERPROFILE=%USERPROFILE%`r`nwhere npm`r`nwhere pmg`r`npmg version"
-          Set-Content -Path "$workDir\block.cmd" -Value "@echo off`r`ncall npm --no-cache --prefer-online i safedep-test-pkg@0.1.3`r`nexit /b %ERRORLEVEL%"
+          $profileEnv = "@echo off`r`nset `"USERPROFILE=C:\Users\pmgtest`"`r`nset `"USERNAME=pmgtest`"`r`nset `"APPDATA=%USERPROFILE%\AppData\Roaming`"`r`nset `"LOCALAPPDATA=%USERPROFILE%\AppData\Local`"`r`nset `"TEMP=%LOCALAPPDATA%\Temp`"`r`nset `"TMP=%TEMP%`"`r`nif not exist `"%TEMP%`" mkdir `"%TEMP%`"`r`n"
+          Set-Content -Path "$workDir\diag.cmd" -Value "${profileEnv}echo PATH=%PATH%`r`necho USERPROFILE=%USERPROFILE%`r`nwhere npm`r`nwhere pmg`r`npmg version"
+          Set-Content -Path "$workDir\block.cmd" -Value "${profileEnv}call npm --no-cache --prefer-online i safedep-test-pkg@0.1.3`r`nexit /b %ERRORLEVEL%"
           $run = {
             param($script, $log)
             $p = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList '/d', '/c', $script `
-              -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -Wait -PassThru -WindowStyle Hidden `
+              -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -UseNewEnvironment -Wait -PassThru -WindowStyle Hidden `
               -RedirectStandardOutput "$log.out" -RedirectStandardError "$log.err"
             $text = (Get-Content "$log.out" -Raw -ErrorAction SilentlyContinue) + (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
             Write-Host $text
