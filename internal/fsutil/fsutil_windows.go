@@ -6,23 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/winacl"
-	"golang.org/x/sys/windows"
 )
-
-func knownFolder(id *windows.KNOWNFOLDERID) func() string {
-	return sync.OnceValue(func() string {
-		dir, err := windows.KnownFolderPath(id, 0)
-		if err != nil {
-			log.Warnf("failed to resolve a Windows known folder: %v", err)
-			return ""
-		}
-		return dir
-	})
-}
 
 func secureSystemPath(path string, _ os.FileMode) error { return winacl.Protect(path) }
 

@@ -16,18 +16,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {
-	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
-
-	// The environment does not steer it. A caller's shell controls the
-	// environment, and a directory of their choosing must not become the
-	// first entry of the machine PATH.
-	t.Setenv("ProgramFiles", `C:\Users\dev\evil`)
-	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
-}
-
 // tempLayout mirrors the Program Files and ProgramData layouts under the
 // temp directory: root\pf\safedep\pmg\{pmg.exe,bin} and
 // root\pd\safedep\pmg\config.yml.

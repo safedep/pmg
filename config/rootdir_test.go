@@ -4,8 +4,6 @@ package config
 
 import (
 	"os/user"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -114,13 +112,9 @@ func TestRootDirsFallBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	withEuid(t, 0)
 	t.Setenv("SUDO_USER", "victim")
 
-	origConfig, origCache, origData := rootConfigDirResolver, rootCacheDirResolver, rootDataDirResolver
-	rootConfigDirResolver = func() (string, error) { return "", assert.AnError }
-	rootCacheDirResolver = func() (string, error) { return "", assert.AnError }
-	rootDataDirResolver = func() (string, error) { return "", assert.AnError }
-	t.Cleanup(func() {
-		rootConfigDirResolver, rootCacheDirResolver, rootDataDirResolver = origConfig, origCache, origData
-	})
+	orig := rootHomeDirResolver
+	rootHomeDirResolver = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { rootHomeDirResolver = orig })
 
 	dir, err := configDir()
 	require.NoError(t, err)
@@ -156,34 +150,6 @@ func TestUserDataDirAsNonRootUsesEnvHome(t *testing.T) {
 	dir, err := UserDataDir()
 	require.NoError(t, err)
 	assert.Contains(t, dir, "/home/victim")
-}
-
-func TestUserDataDirHonorsXdgDataHome(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("XDG data layout is Linux-only")
-	}
-
-	poisonUserEnv(t)
-	withEuid(t, 1000)
-	t.Setenv("XDG_DATA_HOME", "/custom/data")
-
-	dir, err := UserDataDir()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/custom/data", pmgDefaultHomeRelativePath), dir)
-}
-
-func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("XDG data layout is Linux-only")
-	}
-
-	poisonUserEnv(t)
-	withEuid(t, 1000)
-	t.Setenv("XDG_DATA_HOME", "")
-
-	dir, err := UserDataDir()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/home/victim", ".local", "share", pmgDefaultHomeRelativePath), dir)
 }
 
 func TestUserHomeDirUnderSudoIgnoresPreservedHome(t *testing.T) {

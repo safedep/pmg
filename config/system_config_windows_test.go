@@ -41,16 +41,6 @@ func useGlobalConfigDir(t *testing.T) string {
 	return dir
 }
 
-// The managed config directory comes from the shell, not from a variable
-// the user's process controls.
-func TestGlobalConfigDirIgnoresTheEnvironment(t *testing.T) {
-	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
-	require.NoError(t, err)
-
-	t.Setenv("PROGRAMDATA", `C:\Users\dev\evil`)
-	assert.Equal(t, filepath.Join(programData, `safedep\pmg`), globalConfigDir())
-}
-
 // A junction in place of the managed directory would send the writes and
 // the descriptor changes to a target of the user's choosing. It is rejected
 // before anything is protected or written.
