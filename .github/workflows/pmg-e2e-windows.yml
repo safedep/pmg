@@ -587,8 +587,13 @@ jobs:
       - name: Block a package as a standard user
         run: |
           $ErrorActionPreference = 'Stop'
-          $password = 'Pmg-e2e-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '!'
-          net user pmgtest $password /add | Out-Null
+          # Fourteen characters at most: for a longer one `net user` asks a
+          # yes/no question, and with no console to answer it, it creates
+          # nothing and exits zero.
+          $password = 'Pmg!' + [guid]::NewGuid().ToString('N').Substring(0, 10)
+          $created = net user pmgtest $password /add 2>&1 | Out-String
+          Write-Host $created
+          if ($LASTEXITCODE -ne 0 -or $created -notmatch 'completed successfully') { throw "net user did not create the account" }
           $workDir = 'C:\Users\Public\pmg-standard-user'
           New-Item -ItemType Directory -Force $workDir | Out-Null
           icacls $workDir /grant 'BUILTIN\Users:(OI)(CI)F' | Out-Null
