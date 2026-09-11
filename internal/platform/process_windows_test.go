@@ -19,7 +19,8 @@ func TestParentProcessName(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parent process name: %v", err)
 		}
-		_, _ = os.Stdout.WriteString(name)
+		// A newline, because the test binary prints PASS after this.
+		_, _ = os.Stdout.WriteString(name + "\n")
 		return
 	}
 
