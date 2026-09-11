@@ -11,6 +11,7 @@ import (
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/internal/pypi"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -213,8 +214,14 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 		strippedSet[v] = true
 	}
 
-	if pinnedVersion != "" && strippedSet[pinnedVersion] {
-		pinnedDate := dates[pinnedVersion]
+	lookupVersion := pinnedVersion
+	if ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
+		if normalized, valid := pypi.NormalizeVersion(pinnedVersion); valid {
+			lookupVersion = normalized
+		}
+	}
+	if pinnedVersion != "" && strippedSet[lookupVersion] {
+		pinnedDate := dates[lookupVersion]
 		_, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays)
 		logCooldown(pinnedVersion, pinnedDate, daysAgo, daysLeft)
 		return

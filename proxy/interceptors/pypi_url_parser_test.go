@@ -404,9 +404,10 @@ func TestParseWheelFilename(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name:     "hyphenated name",
-			filename: "Flask-RESTful-0.3.10-py2.py3-none-any.whl",
-			wantErr:  true,
+			name:        "hyphenated name",
+			filename:    "Flask-RESTful-0.3.10-py2.py3-none-any.whl",
+			wantName:    "flask-restful",
+			wantVersion: "0.3.10",
 		},
 		{
 			name:     "invalid build tag",

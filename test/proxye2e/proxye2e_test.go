@@ -483,7 +483,6 @@ func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
 		{name: "PyPI artifact", host: "files.pythonhosted.org", path: "/packages/invalid.whl"},
 		{name: "PyPI Simple API artifact", host: "pypi.org", path: "/simple/demo/invalid.whl"},
 		{name: "npm artifact", host: "registry.npmjs.org", path: "/demo/-/invalid.tgz"},
-		{name: "hyphenated wheel", host: "files.pythonhosted.org", path: "/packages/Flask-RESTful-0.3.10-py2.py3-none-any.whl"},
 		{name: "wheel with extra components", host: "files.pythonhosted.org", path: "/packages/pkg-1.0.0-1local-1-py3-none-any.whl"},
 	} {
 		for _, mode := range []struct {

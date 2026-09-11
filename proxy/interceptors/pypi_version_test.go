@@ -3,6 +3,7 @@ package interceptors
 import (
 	"testing"
 
+	"github.com/safedep/pmg/internal/pypi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,11 +42,11 @@ func TestNormalizePypiVersion(t *testing.T) {
 		{input: ""},
 	} {
 		t.Run(tt.input, func(t *testing.T) {
-			got, valid := normalizePypiVersion(tt.input)
+			got, valid := pypi.NormalizeVersion(tt.input)
 			assert.Equal(t, tt.want != "", valid)
 			assert.Equal(t, tt.want, got)
 			if valid {
-				again, ok := normalizePypiVersion(got)
+				again, ok := pypi.NormalizeVersion(got)
 				require.True(t, ok)
 				assert.Equal(t, got, again)
 			}

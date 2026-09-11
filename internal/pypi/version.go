@@ -1,4 +1,4 @@
-package interceptors
+package pypi
 
 import (
 	"regexp"
@@ -12,8 +12,8 @@ var pypiVersionPattern = regexp.MustCompile(`(?i)^v?(?:(?P<epoch>[0-9]+)!)?` +
 	`(?:[._-]?(?P<dev>dev)[._-]?(?P<devN>[0-9]+)?)?` +
 	`(?:\+(?P<local>[a-z0-9]+(?:[._-][a-z0-9]+)*))?$`)
 
-// normalizePypiVersion follows Python's str(Version(...)), which preserves release trailing zeros.
-func normalizePypiVersion(version string) (string, bool) {
+// NormalizeVersion preserves release trailing zeros, as Python's str(Version(...)) does.
+func NormalizeVersion(version string) (string, bool) {
 	matches := pypiVersionPattern.FindStringSubmatch(strings.TrimSpace(version))
 	if matches == nil {
 		return "", false

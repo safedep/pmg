@@ -2,7 +2,15 @@ package interceptors
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/safedep/pmg/internal/pypi"
+)
+
+var (
+	pypiEggFilename = regexp.MustCompile(`^([^-]+)-([^-]+)(?:-(?:py[0-9.]+|cp[0-9]+)(?:-[a-zA-Z0-9_.-]+)?)?\.egg$`)
+	pypiExeFilename = regexp.MustCompile(`^(.+)-([^-]+)\.(?:win32|win-amd64)(?:-py[0-9.]+)?\.exe$`)
 )
 
 // pypiPackageInfo represents parsed package information from a PyPI registry URL
@@ -139,7 +147,7 @@ func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
 	packageName := segments[0]
 
 	// Simple API index request: /simple/{package}/
-	if len(segments) == 1 {
+	if len(segments) == 1 || len(segments) == 2 && segments[1] == "index.html" {
 		return &pypiPackageInfo{
 			name:        denormalizePyPIPackageName(packageName),
 			isDownload:  false,
@@ -197,6 +205,18 @@ func parseFilename(filename string) (*pypiPackageInfo, error) {
 }
 
 func parseDistributionFilename(filename string) (*pypiPackageInfo, error) {
+	for _, legacy := range []struct {
+		pattern *regexp.Regexp
+		kind    string
+	}{{pypiEggFilename, "egg"}, {pypiExeFilename, "exe"}} {
+		if matches := legacy.pattern.FindStringSubmatch(filename); matches != nil {
+			version, valid := pypi.NormalizeVersion(matches[2])
+			if !valid {
+				return nil, fmt.Errorf("artifact filename %q has an invalid version", filename)
+			}
+			return &pypiPackageInfo{name: denormalizePyPIPackageName(matches[1]), version: version, isDownload: true, fileType: legacy.kind}, nil
+		}
+	}
 	// Try to parse as wheel first
 	if strings.HasSuffix(filename, ".whl") {
 		return parseWheelFilename(filename)
@@ -228,16 +248,26 @@ func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
 	if len(parts) != 5 && len(parts) != 6 {
 		return nil, fmt.Errorf("wheel filename %q must have five or six components", filename)
 	}
-	version, valid := normalizePypiVersion(parts[1])
-	if parts[0] == "" || !valid {
-		return nil, fmt.Errorf("wheel filename %q has an invalid package name or version", filename)
+	for _, part := range parts {
+		if part == "" {
+			return nil, fmt.Errorf("wheel filename %q has an empty component", filename)
+		}
 	}
-	if len(parts) == 6 && !isBuildTag(parts[2]) {
+	name := parts[0]
+	version, valid := pypi.NormalizeVersion(parts[1])
+	if len(parts) == 6 && !valid {
+		// Older indexes can serve wheel names with an unescaped hyphen.
+		name = strings.Join(parts[:2], "-")
+		version, valid = pypi.NormalizeVersion(parts[2])
+	} else if len(parts) == 6 && !isBuildTag(parts[2]) {
 		return nil, fmt.Errorf("wheel filename %q has an invalid build tag", filename)
+	}
+	if name == "" || !valid {
+		return nil, fmt.Errorf("wheel filename %q has an invalid package name or version", filename)
 	}
 
 	return &pypiPackageInfo{
-		name:       denormalizePyPIPackageName(parts[0]),
+		name:       denormalizePyPIPackageName(name),
 		version:    version,
 		isDownload: true,
 		fileType:   "wheel",
@@ -289,13 +319,13 @@ func extractNameVersionFromSdist(basename string) (string, string) {
 	for i := len(parts) - 1; i > 0; i-- {
 		potentialVersion := strings.Join(parts[i:], "-")
 		// Check if this could be a version
-		if version, valid := normalizePypiVersion(potentialVersion); valid {
+		if version, valid := pypi.NormalizeVersion(potentialVersion); valid {
 			name := strings.Join(parts[:i], "-")
 			return name, version
 		}
 
 		// Also try just the single part as version
-		if version, valid := normalizePypiVersion(parts[i]); valid {
+		if version, valid := pypi.NormalizeVersion(parts[i]); valid {
 			name := strings.Join(parts[:i], "-")
 			return name, version
 		}

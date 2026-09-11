@@ -31,6 +31,9 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 		return nil, fmt.Errorf("empty URL path")
 	}
 	segments := strings.Split(trimmed, "/")
+	if p.baseEndsInSimple && len(segments) == 2 && segments[1] == "index.html" {
+		return parseSimpleAPIURL(segments)
+	}
 
 	// A distribution filename is always the final path segment, at any
 	// depth (mirrors pypiFilesParser). Checking this first resolves a real
@@ -60,8 +63,6 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 				name:        denormalizePyPIPackageName(segments[0]),
 				isSimpleAPI: true,
 			}, nil
-		case 2:
-			return parseSimpleAPIURL(segments)
 		}
 	}
 

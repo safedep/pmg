@@ -605,7 +605,7 @@ func wantsHTML(req *http.Request) bool {
 }
 
 func isPypiDistFilename(name string) bool {
-	for _, ext := range []string{".whl", ".tar.gz", ".tar.bz2", ".tgz", ".zip"} {
+	for _, ext := range []string{".whl", ".tar.gz", ".tar.bz2", ".tgz", ".zip", ".egg", ".exe"} {
 		if strings.HasSuffix(name, ext) {
 			return true
 		}
