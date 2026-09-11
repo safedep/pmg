@@ -13,10 +13,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// knownFolder resolves a shell known folder once. The shell knows where the
-// folder is. The matching environment variable in a user's process is theirs
-// to set, so it is never consulted. When the shell cannot say, the result is
-// "", because a guessed drive would protect the wrong tree.
 func knownFolder(id *windows.KNOWNFOLDERID) func() string {
 	return sync.OnceValue(func() string {
 		dir, err := windows.KnownFolderPath(id, 0)
@@ -28,19 +24,10 @@ func knownFolder(id *windows.KNOWNFOLDERID) func() string {
 	})
 }
 
-// secureSystemPath makes a path pmg created or fully manages safe for every
-// user to read and for administrators alone to write. The two platforms
-// differ: Windows applies the PMG security descriptor, ignores mode, and
-// returns an error for a process that is not elevated. Unix sets root
-// ownership and mode, and is a no-op for a process that is not root.
 func secureSystemPath(path string, _ os.FileMode) error { return winacl.Protect(path) }
 
-// prepareSystemDir creates a PMG-owned system directory and its vendor
-// parent. ProgramData lets a standard user create a directory, and one
-// created that way stays theirs, so both components get the PMG descriptor
-// even when they already exist. A component a standard user owns is refused
-// rather than repaired, and neither may be a link, or the writes that
-// follow would land where that user pointed them.
+// ProgramData permits a standard user to create a directory.
+// PMG therefore checks and protects both managed components.
 func prepareSystemDir(dir string) error {
 	components := []string{filepath.Dir(dir), dir}
 	for _, d := range components {
@@ -59,15 +46,10 @@ func prepareSystemDir(dir string) error {
 	return nil
 }
 
-// requireTrustedSystemFile accepts a path that does not exist, and otherwise
-// requires a regular file that carries the PMG descriptor.
 func requireTrustedSystemFile(path string) error { return winacl.RequireTrustedExisting(path) }
 
-// removeSystemFile deletes a PMG-owned file by name after it has established
-// that the two directories above it are not links and are under
-// administrative control. A delete by name follows a junction a standard
-// user planted in place of a parent, and would remove a file of their
-// choosing. A missing file is not an error.
+// os.Remove deletes by name and can follow a junction in a parent path.
+// The parent checks prevent a user from redirecting the deletion.
 func removeSystemFile(path string) error {
 	dir := filepath.Dir(path)
 	for _, d := range []string{filepath.Dir(dir), dir} {
@@ -84,8 +66,4 @@ func removeSystemFile(path string) error {
 	return nil
 }
 
-// requireSystemControlled requires that Administrators or SYSTEM own path,
-// that no other principal may write or delete it, and that it is not a
-// link. The runtime applies it to the managed config before it obeys the
-// file.
 func requireSystemControlled(path string) error { return winacl.RequireAdministrativeControl(path) }
