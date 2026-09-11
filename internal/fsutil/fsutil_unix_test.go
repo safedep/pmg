@@ -17,7 +17,7 @@ func TestMkdirAllRootOwnedLeavesExistingDirsAlone(t *testing.T) {
 	existing := filepath.Join(root, "existing")
 	require.NoError(t, os.Mkdir(existing, 0o700))
 
-	require.NoError(t, MkdirAllRootOwned(filepath.Join(existing, "created"), 0o755))
+	require.NoError(t, mkdirAllRootOwned(filepath.Join(existing, "created"), 0o755))
 
 	info, err := os.Stat(existing)
 	require.NoError(t, err)
