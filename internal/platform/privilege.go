@@ -3,7 +3,6 @@ package platform
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
@@ -16,11 +15,13 @@ var IsPrivileged = isPrivileged
 
 // IsSudo reports whether a person elevated through sudo to reach root. sudo
 // sets SUDO_USER, and it can preserve that person's HOME and XDG_* too. The
-// marker counts only in a privileged process, because any user can set it.
-// Root without sudo is the intended user, such as a golden Docker image that
-// sets XDG_CONFIG_HOME on purpose. su without sudo sets no marker.
+// marker counts only in a privileged process, because any user can set it,
+// and only on Unix, because Windows has no sudo and an elevated process must
+// not act on a stray variable. Root without sudo is the intended user, such
+// as a golden Docker image that sets XDG_CONFIG_HOME on purpose. su without
+// sudo sets no marker.
 func IsSudo() bool {
-	return IsPrivileged() && os.Getenv("SUDO_USER") != ""
+	return IsPrivileged() && sudoUser() != ""
 }
 
 var errNotPrivileged = errors.New("the process is not privileged")
