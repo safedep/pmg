@@ -284,6 +284,7 @@ Intune for Linux supports shell scripts with the same single-script model. Uploa
 - Linux: no Homebrew path. The binary always comes from the GitHub release tarball.
 - Windows: only a logged-on user gets cloud credentials and a sync. The script has no logon token for a logged-off user. Run the installer again, or use `--cloud-sync-only`, once they are logged on.
 - Windows: the uninstall deletes the state directories of every local profile, but a per-user `PATH` entry from `pmg setup install` and Credential Manager credentials stay for a logged-off user. Have those users run `pmg setup remove` and `pmg cloud logout` before the policy removes PMG.
+- Windows: the per-user steps need the system install, because their scratch directory lives under `%PROGRAMDATA%\safedep\pmg`. On a machine with only a per-user `pmg` on the PATH, the scripts skip those steps with a warning.
 - Windows: the install replaces `pmg.exe` under a running PMG by moving the old file aside. The stale copy is removed on the next run. The uninstall moves a running `pmg.exe` to `%SystemRoot%\Temp` and finishes the cleanup.
 - Windows: the release ships x86-64 only. A 32-bit Windows is refused. An ARM64 machine runs the x86-64 build under emulation.
 - Windows: `pmg cloud sync` needs `cloud.enabled: true` in the managed config. The system install always writes a managed config, so `pmg config set cloud.enabled true` is refused for every user. Set it in the bundled `config.yml`.

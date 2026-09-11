@@ -212,6 +212,7 @@ function Assert-Uninstalled {
   $entries = Get-MachinePathEntry
   if ($entries | Where-Object { $_ -ieq "$ProductDir\bin" -or $_ -ieq $ProductDir }) { Stop-OnFailure "a PMG entry is still on the machine PATH: $($entries -join ';')" }
   Assert-PathAbsent $GlobalConfig
+  Assert-PathAbsent "$env:ProgramData\safedep"
   Assert-PathAbsent "$env:APPDATA\safedep\pmg"
   Assert-PathAbsent "$env:LOCALAPPDATA\safedep\pmg"
 }

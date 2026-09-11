@@ -219,7 +219,13 @@ function Invoke-AsUser {
     return $false
   } finally {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $workDir) { Remove-Tree -Path $workDir }
+    # The user has Modify on this directory, so a process of theirs can hold
+    # a file open. That must not end the run for the other users.
+    try {
+      if (Test-Path -LiteralPath $workDir) { Remove-Tree -Path $workDir }
+    } catch {
+      Write-Warn "could not remove ${workDir}: $($_.Exception.Message)"
+    }
   }
 }
 
@@ -300,7 +306,11 @@ function Install-GlobalConfig {
 
 # Remove-GlobalConfig removes the managed config when present, unless
 # PMG_KEEP_GLOBAL_CONFIG is set, then prunes the empty ProgramData directories.
+# The hops' scratch directory goes first in every case. It is the script's,
+# not the config's, and the tree is SYSTEM's, so a leftover from an aborted
+# run is safe to delete.
 function Remove-GlobalConfig {
+  if (Test-Path -LiteralPath "$GlobalConfigDir\mdm") { Remove-Tree -Path "$GlobalConfigDir\mdm" }
   if ($env:PMG_KEEP_GLOBAL_CONFIG) {
     if (Test-Path -LiteralPath $GlobalConfigFile) {
       Write-Info "Keeping globally managed config ($GlobalConfigFile); PMG_KEEP_GLOBAL_CONFIG is set"
