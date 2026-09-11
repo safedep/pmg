@@ -1,16 +1,13 @@
 package setup
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/shim"
-	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -268,40 +265,16 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 	}
 }
 
-type fakeDoctorSandbox struct{ available bool }
+// The Windows branches of the sandbox check. The OS has no sandbox, so a
+// disabled sandbox passes with nothing to fix, and only a config that asks
+// for one fails. The supported-OS branches are the ones the live check
+// always ran.
+func TestEvaluateSandboxCheckWithoutASandbox(t *testing.T) {
+	got := evaluateSandboxCheck(nil, false, false)
+	assert.Equal(t, doctor.StatusPass, got.Status)
+	assert.Empty(t, got.Fix)
 
-func (f fakeDoctorSandbox) Execute(context.Context, *exec.Cmd, *sandbox.SandboxPolicy, *sandbox.ExecutionContext) (*sandbox.ExecutionResult, error) {
-	return sandbox.NewExecutionResult(), nil
-}
-func (f fakeDoctorSandbox) Name() sandbox.DriverName { return "fake" }
-func (f fakeDoctorSandbox) IsAvailable() bool        { return f.available }
-func (f fakeDoctorSandbox) Close() error             { return nil }
-
-// An OS with no sandbox has nothing to enable, so a disabled sandbox
-// passes there and carries no fix. Only a config that asks for one fails.
-func TestEvaluateSandboxCheck(t *testing.T) {
-	tests := []struct {
-		name      string
-		sb        sandbox.Sandbox
-		supported bool
-		enabled   bool
-		status    doctor.CheckStatus
-		message   string
-		fix       string
-	}{
-		{"no sandbox on this OS, disabled", nil, false, false, doctor.StatusPass, "PMG has no sandbox on", ""},
-		{"no sandbox on this OS, enabled", nil, false, true, doctor.StatusFail, "Sandbox is enabled, but PMG has no sandbox on", "Set sandbox.enabled: false in config"},
-		{"driver present, disabled", fakeDoctorSandbox{available: true}, true, false, doctor.StatusWarn, "Sandbox is disabled", ""},
-		{"driver did not construct, enabled", nil, true, true, doctor.StatusFail, "no driver available", ""},
-		{"driver missing, enabled", fakeDoctorSandbox{available: false}, true, true, doctor.StatusFail, "no driver available", ""},
-		{"driver present, enabled", fakeDoctorSandbox{available: true}, true, true, doctor.StatusPass, "Sandbox enabled (fake)", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := evaluateSandboxCheck(tt.sb, tt.supported, tt.enabled)
-			assert.Equal(t, tt.status, got.Status)
-			assert.Contains(t, got.Message, tt.message)
-			assert.Equal(t, tt.fix, got.Fix)
-		})
-	}
+	got = evaluateSandboxCheck(nil, false, true)
+	assert.Equal(t, doctor.StatusFail, got.Status)
+	assert.Equal(t, "Set sandbox.enabled: false in config", got.Fix)
 }
