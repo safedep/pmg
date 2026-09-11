@@ -27,9 +27,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ProcessIsElevated reports whether UAC elevated this process. Only an
+// processIsElevated reports whether UAC elevated this process. Only an
 // elevated process can write Program Files and the machine PATH.
-func ProcessIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
+func processIsElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
 
 // The PMG descriptor, in SDDL. Administrators own the object. SYSTEM and
 // Administrators have full control, Users read and execute. P blocks
@@ -122,15 +122,15 @@ func (o *object) expected() (descriptor, error) {
 	return fileDescriptor()
 }
 
-// Protect replaces the owner and the DACL of path with the PMG descriptor,
+// protect replaces the owner and the DACL of path with the PMG descriptor,
 // through one handle, so the object that was checked is the object that is
 // written. An object a standard user owns is refused, not adopted.
 // SetSecurityInfo needs the owner SID in the caller's token with the owner
 // right, which an elevated administrator token has and a standard token
 // does not, so the call is refused without elevation rather than left to
 // fail half way.
-func Protect(path string) error {
-	if !ProcessIsElevated() {
+func protect(path string) error {
+	if !processIsElevated() {
 		return fmt.Errorf("cannot protect %s: the process is not elevated", path)
 	}
 	o, err := open(path, windows.READ_CONTROL|windows.WRITE_DAC|windows.WRITE_OWNER)
@@ -159,9 +159,9 @@ func Protect(path string) error {
 	return nil
 }
 
-// RequireProtected requires that path is not a link and carries the PMG
+// requireProtected requires that path is not a link and carries the PMG
 // descriptor exactly: owner, protected DACL, and the same entries.
-func RequireProtected(path string) error {
+func requireProtected(path string) error {
 	o, err := open(path, windows.READ_CONTROL)
 	if err != nil {
 		return err
@@ -182,13 +182,13 @@ func RequireProtected(path string) error {
 	return nil
 }
 
-// RequireAdministrativeControl requires that path is not a link, that
+// requireAdministrativeControl requires that path is not a link, that
 // Administrators or SYSTEM own it, and that no allow entry gives any other
 // principal a write or delete right. It is the trust rule for the managed
 // config at run time: a file an MDM copied into place has inherited entries
 // rather than the PMG descriptor, and passes. A file a standard user
 // planted, or one whose DACL an administrator loosened, fails.
-func RequireAdministrativeControl(path string) error {
+func requireAdministrativeControl(path string) error {
 	o, err := open(path, windows.READ_CONTROL)
 	if err != nil {
 		return err
@@ -202,10 +202,10 @@ func RequireAdministrativeControl(path string) error {
 	return validateAdministrativeControl(sd, path)
 }
 
-// RequireNotReparsePoint rejects a symbolic link or a junction at path. A
+// requireNotReparsePoint rejects a symbolic link or a junction at path. A
 // missing path passes. It is the check for a path that is about to be
 // created, where there is no object to open yet.
-func RequireNotReparsePoint(path string) error {
+func requireNotReparsePoint(path string) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -219,11 +219,11 @@ func RequireNotReparsePoint(path string) error {
 	return nil
 }
 
-// RequireTrustedExisting accepts a path that does not exist, and otherwise
+// requireTrustedExisting accepts a path that does not exist, and otherwise
 // requires a regular file that carries the PMG descriptor. Setup calls it
 // before it reads a managed file, because a descriptor set afterwards does
 // not make the contents trustworthy.
-func RequireTrustedExisting(path string) error {
+func requireTrustedExisting(path string) error {
 	o, err := open(path, windows.READ_CONTROL)
 	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
 		return nil
