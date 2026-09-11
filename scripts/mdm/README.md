@@ -331,7 +331,8 @@ The Windows scripts have their own checks. The unit test runs on PowerShell 7 on
 
 ```powershell
 pwsh -NoProfile -File ./tests/pmg_setup_install_windows_test.ps1
-Invoke-ScriptAnalyzer -Path ./windows, ./tests -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+Invoke-ScriptAnalyzer -Path ./windows -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+Invoke-ScriptAnalyzer -Path ./tests -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
 ```
 
 **Warning:** The end-to-end tests remove PMG state. The standalone test temporarily renames Homebrew binaries. The multifile test creates and deletes a local user account. The Windows test installs and removes the system install and runs the installer as SYSTEM.

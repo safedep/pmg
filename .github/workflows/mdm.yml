@@ -137,7 +137,10 @@ jobs:
 
       - name: Lint Windows MDM scripts
         run: |
-          $results = Invoke-ScriptAnalyzer -Path scripts/mdm/windows, scripts/mdm/tests -Recurse -Settings scripts/mdm/windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+          $results = @()
+          foreach ($dir in 'scripts/mdm/windows', 'scripts/mdm/tests') {
+            $results += Invoke-ScriptAnalyzer -Path $dir -Recurse -Settings scripts/mdm/windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+          }
           $results | Format-Table -AutoSize | Out-String | Write-Host
           if ($results) { throw "PSScriptAnalyzer reported $($results.Count) findings" }
 
