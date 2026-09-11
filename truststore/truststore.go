@@ -6,11 +6,11 @@ package truststore
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"runtime"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // Scope selects which trust store to operate on.
@@ -39,13 +39,11 @@ var commandRunner = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
 
-var euid = os.Geteuid
-
 // runElevated prefixes sudo on Unix (unless already root) so only the privileged
 // system-store write is elevated. Windows has no sudo and relies on an elevated
 // prompt, so the command runs as-is.
 func runElevated(name string, args ...string) ([]byte, error) {
-	if runtime.GOOS != "windows" && euid() != 0 {
+	if runtime.GOOS != "windows" && !platform.IsPrivileged() {
 		log.Infof("Elevating via sudo to modify the system trust store")
 		return commandRunner("sudo", append([]string{name}, args...)...)
 	}

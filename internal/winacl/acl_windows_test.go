@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -129,7 +130,7 @@ func TestRequireTrustedExistingRejectsWhatPMGDidNotWrite(t *testing.T) {
 }
 
 func TestProtectRefusesWithoutElevation(t *testing.T) {
-	if ProcessIsElevated() {
+	if platform.IsPrivileged() {
 		t.Skip("the process is elevated")
 	}
 	file := filepath.Join(t.TempDir(), "npm.cmd")
@@ -142,7 +143,7 @@ func TestProtectRefusesWithoutElevation(t *testing.T) {
 // file. Then a drift is applied and repaired. Setting the owner needs
 // elevation, which the CI runner has.
 func TestProtectRoundTripAndRepair(t *testing.T) {
-	if !ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("needs an elevated process")
 	}
 	dir := filepath.Join(t.TempDir(), "pmg")

@@ -1,61 +1,48 @@
 package setup
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Linux gates on root, Windows on UAC elevation, and macOS is unsupported
-// whoever runs it. Both signals are injected, so every row runs on every
-// platform and the process's own token never decides the result.
+func withPrivilege(t *testing.T, privileged bool) {
+	t.Helper()
+	orig := platform.IsPrivileged
+	platform.IsPrivileged = func() bool { return privileged }
+	t.Cleanup(func() { platform.IsPrivileged = orig })
+}
+
+// Linux and Windows gate on privilege, and macOS is unsupported whoever runs
+// it. The privilege is injected, so every row runs on every platform and the
+// process's own token never decides the result.
 func TestRequireSystemInstallSupported(t *testing.T) {
-	origUID, origElevated := setupGeteuid, setupIsElevated
-	t.Cleanup(func() { setupGeteuid, setupIsElevated = origUID, origElevated })
-
-	tests := []struct {
-		name     string
-		uid      int
-		elevated bool
-	}{
-		{name: "root and elevated", uid: 0, elevated: true},
-		{name: "root, not elevated", uid: 0, elevated: false},
-		{name: "user, elevated", uid: 1000, elevated: true},
-		{name: "user, not elevated", uid: 1000, elevated: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			setupGeteuid = func() int { return tt.uid }
-			setupIsElevated = func() bool { return tt.elevated }
+	for _, privileged := range []bool{true, false} {
+		t.Run(fmt.Sprintf("privileged=%t", privileged), func(t *testing.T) {
+			withPrivilege(t, privileged)
 
 			err := requireSystemInstallSupported()
 
 			switch {
-			case runtime.GOOS == "linux" && tt.uid == 0, runtime.GOOS == "windows" && tt.elevated:
-				assert.NoError(t, err)
-			case runtime.GOOS == "linux", runtime.GOOS == "windows":
-				assertUsefulCode(t, err, errcodes.PermissionDenied)
-			default:
+			case runtime.GOOS != "linux" && runtime.GOOS != "windows":
 				assertUsefulCode(t, err, errcodes.UnsupportedPlatform)
+			case privileged:
+				assert.NoError(t, err)
+			default:
+				assertUsefulCode(t, err, errcodes.PermissionDenied)
 			}
 		})
 	}
 }
 
-func TestInstallSystemRequiresRoot(t *testing.T) {
-	if runtime.GOOS == "windows" && setupIsElevated() {
-		t.Skip("an elevated process would install for real")
-	}
-	origUID, origElevated := setupGeteuid, setupIsElevated
-	t.Cleanup(func() { setupGeteuid, setupIsElevated = origUID, origElevated })
-
-	setupGeteuid = func() int { return 1000 }
-	setupIsElevated = func() bool { return false }
+func TestInstallSystemRequiresPrivilege(t *testing.T) {
+	withPrivilege(t, false)
 
 	err := install(true)
 	switch runtime.GOOS {
