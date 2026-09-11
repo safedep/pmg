@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -260,8 +261,10 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 
 	// System-only: the binary every user's shim execs must stay root-owned and
 	// non-writable. Validation runs at install; re-check it here to catch later
-	// permission/ownership drift (redeploy, chmod, image rebuild).
-	if shim.SystemShimsInstalled() {
+	// permission/ownership drift (redeploy, chmod, image rebuild). The gate is
+	// the install's footprint, not the shims' contents, which are what the
+	// check inspects.
+	if shim.SystemInstallPresent() {
 		checks = append(checks, doctor.Check{
 			Name:     checkSystemBinary,
 			Category: "Security",
@@ -273,23 +276,23 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 }
 
 func checkSystemBinaryResult() doctor.CheckResult {
-	path, ok := shim.SystemShimBinary()
-	if !ok {
+	path, err := shim.ValidateSystemInstall()
+	if errors.Is(err, shim.ErrNoSystemBinary) {
 		return doctor.CheckResult{
 			Status:  doctor.StatusWarn,
 			Message: "Could not determine system shim binary",
 		}
 	}
-	if err := shim.ValidateSystemBinary(path); err != nil {
+	if err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
-			Message: fmt.Sprintf("System binary unsafe: %v", err),
-			Fix:     "Reinstall with pmg setup install --system, or restore root ownership/permissions",
+			Message: fmt.Sprintf("System install unsafe: %v", err),
+			Fix:     "Reinstall with pmg setup install --system, which restores the expected ownership and permissions",
 		}
 	}
 	return doctor.CheckResult{
 		Status:  doctor.StatusPass,
-		Message: fmt.Sprintf("System binary is root-owned and safe (%s)", path),
+		Message: fmt.Sprintf("System binary and shims are protected from other users (%s)", path),
 	}
 }
 

@@ -57,6 +57,6 @@ func shadowedAction(r shim.ManagerResolution) string {
 	case shim.OriginProfile:
 		return fmt.Sprintf("A shell profile puts that directory on PATH, where PMG cannot reorder it. Run it as `pmg %s`, or drop that line from the profile.", r.Name)
 	default:
-		return fmt.Sprintf("It is on the machine PATH, which no per-user install can move behind the shims. Run it as `pmg %s`.", r.Name)
+		return fmt.Sprintf("It is on the machine PATH, ahead of the user PATH. Run `pmg setup install --system` from a terminal started as administrator, or run it as `pmg %s`.", r.Name)
 	}
 }

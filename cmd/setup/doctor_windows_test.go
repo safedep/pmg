@@ -20,10 +20,10 @@ func TestShadowedAction(t *testing.T) {
 		notWant    string
 	}{
 		{
-			name:       "a machine PATH entry cannot be moved behind the shims",
+			name:       "a machine PATH entry needs a system install",
 			resolution: shim.ManagerResolution{Name: "npm", Origin: shim.OriginMachine},
-			want:       "Run it as `pmg npm`.",
-			notWant:    "pmg setup install",
+			want:       "Run `pmg setup install --system` from a terminal started as administrator, or run it as `pmg npm`.",
+			notWant:    "again",
 		},
 		{
 			name:       "a user PATH entry is one install can reorder",

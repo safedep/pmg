@@ -1,14 +1,20 @@
-# System Install (Linux)
+# System Install
 
-Use system install when one machine or image should protect every user account: shared VMs, golden Docker images, and similar setups.
+Use system install when one machine or image should protect every user account: shared VMs, golden Docker images, MDM fleets, and similar setups. It runs on Linux and Windows.
 
 ```bash
 sudo pmg setup install --system
 ```
 
-**Requires Linux and root.** Install PMG as root into a standard system path such as `/usr/local/bin`. A user-local build (e.g. `~/go/bin/pmg`) is rejected.
+On Windows, run the same command from a terminal started as administrator:
 
-`--system` enforces this because every user's shims run the PMG binary by absolute path. Before installing, it checks that the binary is **root-owned**, world-executable, not group- or other-writable, located in a **root-owned directory** that isn't world-writable, and reachable through world-searchable directories (a binary under `/root`, mode 0700, is rejected because other users could never execute it).
+```powershell
+pmg setup install --system
+```
+
+**Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg\pmg.exe` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
+
+`--system` checks the binary because every user's shim runs it by absolute path. On Linux, root must own the binary and its directory, only root may write to them, and every user must be able to execute the binary. On Windows, the binary must be at the path above, with no link or junction in that path. The install then sets one security descriptor on each object it owns: Administrators as owner, full control for SYSTEM and Administrators, read and execute for Users, no inheritance. `pmg setup doctor` reports an object whose descriptor differs. A second `pmg setup install --system` restores it.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
 
@@ -19,19 +25,34 @@ sudo pmg setup remove --system
 sudo pmg setup remove --system --config-file   # also remove the system config file
 ```
 
+On Windows, run the same two commands without `sudo`, from a terminal started as administrator.
+
 ## Files created
 
 
-| Item                  | Path                          |
-| --------------------- | ----------------------------- |
-| Configuration         | `/etc/safedep/pmg/config.yml` |
-| Package-manager shims | `/usr/local/lib/pmg/bin`      |
-| Shell PATH snippet    | `/etc/profile.d/pmg.sh`       |
+| Item                  | Linux                         | Windows                                 |
+| --------------------- | ----------------------------- | --------------------------------------- |
+| Configuration         | `/etc/safedep/pmg/config.yml` | `%PROGRAMDATA%\safedep\pmg\config.yml`  |
+| Package-manager shims | `/usr/local/lib/pmg/bin`      | `%ProgramFiles%\safedep\pmg\bin\*.cmd`  |
+| PATH                  | `/etc/profile.d/pmg.sh`       | Machine `PATH`: shim directory first, `pmg.exe` directory appended |
 
 
 ## Making shims visible on PATH
 
-System install writes shims to `/usr/local/lib/pmg/bin`. Processes only use them when that directory is on `PATH` ahead of the real `npm`, `pip`, and other package managers.
+Processes only use the shims when the shim directory is on `PATH` ahead of the real `npm`, `pip`, and other package managers. On Linux that directory is `/usr/local/lib/pmg/bin`.
+
+### Windows
+
+`pmg setup install --system` puts `%ProgramFiles%\safedep\pmg\bin` first on the machine `PATH`. Windows builds the process `PATH` from the machine value, then the user value. The shims are therefore ahead of `npm` from the Node.js MSI and other machine-wide installers. The install also appends the directory of `pmg.exe`, so `pmg` resolves in every terminal. Open a new terminal after the install. `pmg setup remove --system` deletes the shim entry and keeps the `pmg.exe` entry.
+
+A per-user install cannot do this. A user `PATH` entry never comes before a machine entry. A user-writable directory must not be on the machine `PATH`, because an elevated process could run a binary that a standard user put there.
+
+Confirm with:
+
+```powershell
+Get-Command npm    # should resolve under %ProgramFiles%\safedep\pmg\bin
+pmg setup doctor
+```
 
 ### Linux VMs and login shells
 
@@ -84,9 +105,13 @@ PMG running on the Docker host cannot inspect package installations inside `dock
 
 ## Configuration
 
-The system config file is authoritative for every user. A per-user `config.yml` is ignored while `/etc/safedep/pmg/config.yml` exists.
+The system config file is authoritative for every user. A per-user `config.yml` is ignored while `/etc/safedep/pmg/config.yml` exists. On Windows the file is `%PROGRAMDATA%\safedep\pmg\config.yml`.
 
-`pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or redeploy it through your image or configuration management.
+`pmg config set` and `pmg config edit` fail under a system config. Update the file as root, or as an administrator on Windows, or redeploy it through your image or configuration management.
+
+On Windows, the install sets the same security descriptor on `%PROGRAMDATA%\safedep`, `%PROGRAMDATA%\safedep\pmg` and the config file. A `config.yml` that already exists there is kept only when it carries that descriptor. Any other file stops the install with a message that names it. Inspect the file, delete it, and run the install again. For an MDM deployment, run `pmg setup install --system` first, then edit the file it writes.
+
+At run time, PMG obeys the managed config only when Administrators or SYSTEM own the file and no other account can write it. Otherwise PMG ignores the file and prints a warning. `pmg setup doctor` reports a managed config whose descriptor differs from the one the install wrote.
 
 Optional lockdown (`global_lockdown: true`) is documented in [config.md](./config.md).
 

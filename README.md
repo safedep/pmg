@@ -103,7 +103,7 @@ pmg setup install
 
 > **Tip:** Re-run `pmg setup install` after upgrading PMG to pick up new configuration options.
 >
-> Linux all-users / golden images: `sudo pmg setup install --system` — see [docs/system-install.md](./docs/system-install.md).
+> All-users / golden images: `sudo pmg setup install --system` on Linux, or `pmg setup install --system` as administrator on Windows — see [docs/system-install.md](./docs/system-install.md).
 
 Validate your installation and verify protection is working:
 

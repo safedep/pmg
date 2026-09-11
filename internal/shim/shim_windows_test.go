@@ -24,10 +24,10 @@ func isolateUserPath(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, key.Close())
 
-	orig := userEnvironmentKey
-	userEnvironmentKey = keyPath
+	orig := userPath.key
+	userPath.key = keyPath
 	t.Cleanup(func() {
-		userEnvironmentKey = orig
+		userPath.key = orig
 		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
 	})
 }
@@ -101,55 +101,55 @@ func TestUserPathRegistry(t *testing.T) {
 	t.Run("prepends once and keeps the value type", func(t *testing.T) {
 		// Windows writes the default user PATH as REG_EXPAND_SZ so
 		// %USERPROFILE% style entries stay unexpanded.
-		require.NoError(t, writeUserPath([]string{`%USERPROFILE%\bin`, `C:\Tools`}, true))
+		require.NoError(t, userPath.write([]string{`%USERPROFILE%\bin`, `C:\Tools`}, true))
 
-		require.NoError(t, registerUserPath(shimDir))
-		require.NoError(t, registerUserPath(shimDir))
+		require.NoError(t, userPath.prepend(shimDir))
+		require.NoError(t, userPath.prepend(shimDir))
 
-		entries, expand, err := readUserPath()
+		entries, expand, err := userPath.read()
 		require.NoError(t, err)
 		assert.Equal(t, []string{shimDir, `%USERPROFILE%\bin`, `C:\Tools`}, entries)
 		assert.True(t, expand)
 	})
 
 	t.Run("contains folds case", func(t *testing.T) {
-		found, err := userPathContains(strings.ToUpper(shimDir))
+		found, err := userPath.contains(strings.ToUpper(shimDir))
 		require.NoError(t, err)
 		assert.True(t, found)
 	})
 
 	t.Run("removes only the shim entry", func(t *testing.T) {
-		require.NoError(t, unregisterUserPath(strings.ToLower(shimDir)))
+		require.NoError(t, userPath.remove(strings.ToLower(shimDir)))
 
-		entries, _, err := readUserPath()
+		entries, _, err := userPath.read()
 		require.NoError(t, err)
 		assert.Equal(t, []string{`%USERPROFILE%\bin`, `C:\Tools`}, entries)
 
-		found, err := userPathContains(shimDir)
+		found, err := userPath.contains(shimDir)
 		require.NoError(t, err)
 		assert.False(t, found)
 	})
 
 	t.Run("a missing Path value reads as empty", func(t *testing.T) {
-		key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.SET_VALUE)
+		key, err := registry.OpenKey(registry.CURRENT_USER, userPath.key, registry.SET_VALUE)
 		require.NoError(t, err)
 		require.NoError(t, key.DeleteValue(pathValueName))
 		require.NoError(t, key.Close())
 
-		entries, _, err := readUserPath()
+		entries, _, err := userPath.read()
 		require.NoError(t, err)
 		assert.Empty(t, entries)
 
-		require.NoError(t, registerUserPath(shimDir))
-		found, err := userPathContains(shimDir)
+		require.NoError(t, userPath.prepend(shimDir))
+		found, err := userPath.contains(shimDir)
 		require.NoError(t, err)
 		assert.True(t, found)
 	})
 
 	t.Run("removing the only entry leaves no value behind", func(t *testing.T) {
-		require.NoError(t, unregisterUserPath(shimDir))
+		require.NoError(t, userPath.remove(shimDir))
 
-		key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.QUERY_VALUE)
+		key, err := registry.OpenKey(registry.CURRENT_USER, userPath.key, registry.QUERY_VALUE)
 		require.NoError(t, err)
 		defer key.Close()
 		_, _, err = key.GetStringValue(pathValueName)
@@ -157,8 +157,8 @@ func TestUserPathRegistry(t *testing.T) {
 	})
 }
 
-// isolateMachinePath points the machine PATH reader at a scratch key under
-// HKCU. HKLM needs elevation, and the reader does not care which root it
+// isolateMachinePath points the machine PATH code at a scratch key under
+// HKCU. HKLM needs elevation, and the code does not care which root it
 // opens.
 func isolateMachinePath(t *testing.T) {
 	t.Helper()
@@ -167,10 +167,10 @@ func isolateMachinePath(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, key.Close())
 
-	origRoot, origKey := machineEnvironmentRoot, machineEnvironmentKey
-	machineEnvironmentRoot, machineEnvironmentKey = registry.CURRENT_USER, keyPath
+	orig := machinePath
+	machinePath.root, machinePath.key = registry.CURRENT_USER, keyPath
 	t.Cleanup(func() {
-		machineEnvironmentRoot, machineEnvironmentKey = origRoot, origKey
+		machinePath = orig
 		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
 	})
 }
@@ -181,9 +181,8 @@ func isolateMachinePath(t *testing.T) {
 func TestRegistryPathHalves(t *testing.T) {
 	isolateUserPath(t)
 	isolateMachinePath(t)
-	setRegistryPath(t, machineEnvironmentRoot, machineEnvironmentKey,
-		`C:\Program Files\nodejs;%SystemRoot%\System32`)
-	require.NoError(t, writeUserPath([]string{`%LOCALAPPDATA%\safedep\pmg\bin`, `"C:\Quoted Tools"`}, true))
+	setRegistryPath(t, machinePath, `C:\Program Files\nodejs;%SystemRoot%\System32`)
+	require.NoError(t, userPath.write([]string{`%LOCALAPPDATA%\safedep\pmg\bin`, `"C:\Quoted Tools"`}, true))
 
 	machine, user, err := registryPathHalves()
 	require.NoError(t, err)
@@ -198,23 +197,23 @@ func TestRegistryPathHalves(t *testing.T) {
 	}, user, "SplitList strips the quotes a PATH entry may carry")
 }
 
-// registerUserPath moves the shim directory to the front when an installer
-// prepended its own directory after the last `pmg setup install`.
-func TestRegisterUserPathMovesTheShimDirectoryToTheFront(t *testing.T) {
+// prepend moves the shim directory to the front when an installer prepended
+// its own directory after the last `pmg setup install`.
+func TestPrependMovesTheShimDirectoryToTheFront(t *testing.T) {
 	isolateUserPath(t)
 	shimDir := `C:\Users\dev\AppData\Local\safedep\pmg\bin`
 	pythonDir := `C:\Users\dev\AppData\Local\Programs\Python\Python312\Scripts`
 
-	require.NoError(t, writeUserPath([]string{pythonDir, shimDir, `C:\Tools`}, true))
-	require.NoError(t, registerUserPath(shimDir))
+	require.NoError(t, userPath.write([]string{pythonDir, shimDir, `C:\Tools`}, true))
+	require.NoError(t, userPath.prepend(shimDir))
 
-	entries, _, err := readUserPath()
+	entries, _, err := userPath.read()
 	require.NoError(t, err)
 	assert.Equal(t, []string{shimDir, pythonDir, `C:\Tools`}, entries)
 
 	// Already first, so a second run writes nothing new.
-	require.NoError(t, registerUserPath(shimDir))
-	entries, _, err = readUserPath()
+	require.NoError(t, userPath.prepend(shimDir))
+	entries, _, err = userPath.read()
 	require.NoError(t, err)
 	assert.Equal(t, []string{shimDir, pythonDir, `C:\Tools`}, entries)
 }

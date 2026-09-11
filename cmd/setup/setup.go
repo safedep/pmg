@@ -50,7 +50,7 @@ func NewInstallCommand() *cobra.Command {
 			return install(system)
 		},
 	}
-	cmd.Flags().BoolVar(&system, "system", false, "Install system-wide for all users (Linux, requires root)")
+	cmd.Flags().BoolVar(&system, "system", false, "Install system-wide for all users (Linux as root, Windows as administrator)")
 	return cmd
 }
 
@@ -123,7 +123,12 @@ func installSystem() error {
 		return fmt.Errorf("failed to write system config: %w", err)
 	}
 
-	ui.PrintSetupSystemInstallCmdInfo(shimMgr.GetBinDir(), config.SystemConfigDir(), shim.SystemProfilePath())
+	ui.PrintSetupSystemInstallCmdInfo(ui.SystemInstallSummary{
+		ShimBinDir:  shimMgr.GetBinDir(),
+		ConfigDir:   config.SystemConfigDir(),
+		ProfilePath: shim.SystemProfilePath(),
+		MachinePath: runtime.GOOS == "windows",
+	})
 	return nil
 }
 
@@ -144,7 +149,7 @@ func NewRemoveCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&removeConfig, "config-file", false, "Remove the config file")
-	cmd.Flags().BoolVar(&system, "system", false, "Remove system-wide install (Linux, requires root)")
+	cmd.Flags().BoolVar(&system, "system", false, "Remove system-wide install (Linux as root, Windows as administrator)")
 	return cmd
 }
 
@@ -220,19 +225,12 @@ func removeSystem(removeConfig bool) error {
 }
 
 func requireSystemInstallSupported() error {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.UnsupportedPlatform).
-			WithHumanError("system install is only supported on Linux").
-			WithHelp("Use `pmg setup install` without --system for per-user setup, or run on Linux").
+			WithHumanError("system install is only supported on Linux and Windows").
+			WithHelp("Use `pmg setup install` without --system for per-user setup").
 			Wrap(errors.New("unsupported platform for --system"))
 	}
-	if setupGeteuid() != 0 {
-		return usefulerror.NewUsefulError().
-			WithCode(errcodes.PermissionDenied).
-			WithHumanError("system install requires root").
-			WithHelp("Re-run as root, e.g. `sudo pmg setup install --system`").
-			Wrap(errors.New("not root"))
-	}
-	return nil
+	return requireSystemPrivilege()
 }

@@ -11,6 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// secureManagedConfigForTest is a Windows step. Unix trusts the managed
+// path by location.
+func secureManagedConfigForTest(*testing.T, string) {}
+
 func TestWriteSystemTemplateConfigReadableUnderRestrictiveUmask(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("mode repair only runs as root")

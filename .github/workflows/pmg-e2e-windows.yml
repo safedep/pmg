@@ -439,3 +439,273 @@ jobs:
           if (Test-Path $shims) { throw "shim directory still exists" }
           $userPath = (Get-ItemProperty -Path 'HKCU:\Environment' -Name Path -ErrorAction SilentlyContinue).Path
           if ($userPath -and ($userPath -split ';' | Where-Object { $_ -ieq $shims })) { throw "shim directory still on the user PATH: $userPath" }
+
+  # The machine-wide install, on the real paths. The runner is elevated, and
+  # its image ships Node from the MSI under Program Files on the machine PATH,
+  # which is the case the system install exists for. Steps that must see the
+  # PATH a new process gets build it from the registry, because GITHUB_PATH
+  # prepends to the job PATH and would hide the ordering under test.
+  e2e-windows-system:
+    name: PMG E2E Tests - Windows System Install
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PMG_PRODUCT: C:\Program Files\safedep\pmg
+      PMG_CONFIG: C:\ProgramData\safedep\pmg\config.yml
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify the image ships Node on the machine PATH
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          Write-Host "machine PATH: $machine"
+          if (-not (Test-Path "$env:ProgramFiles\nodejs\npm.cmd")) { throw "npm.cmd is not under Program Files\nodejs" }
+          if (($machine -split ';' | Where-Object { $_ -ieq "$env:ProgramFiles\nodejs\" -or $_ -ieq "$env:ProgramFiles\nodejs" }).Count -eq 0) {
+            throw "Program Files\nodejs is not on the machine PATH, so this job does not test the MSI case"
+          }
+
+      - name: Build PMG
+        run: go build -o bin\pmg.exe .
+
+      - name: Reject a binary outside the product directory
+        run: |
+          $output = & bin\pmg.exe setup install --system 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "a binary outside Program Files was accepted" }
+          if ($output -notmatch 'is not at C:\\Program Files\\safedep\\pmg\\pmg.exe') { throw "the error does not name the required path" }
+          if (Test-Path "$env:PMG_PRODUCT\bin") { throw "shims were written for a rejected binary" }
+          exit 0
+
+      - name: Place the binary under Program Files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force $env:PMG_PRODUCT | Out-Null
+          Copy-Item bin\pmg.exe "$env:PMG_PRODUCT\pmg.exe"
+
+      # The file carries the descriptor ProgramData hands out, not PMG's, which
+      # is what a file a user dropped in looks like. The install writes the
+      # shims and the PATH first, so both are in place afterwards, and the
+      # rejected file stays for inspection.
+      - name: Reject a pre-existing config that PMG did not write
+        run: |
+          New-Item -ItemType Directory -Force (Split-Path $env:PMG_CONFIG) | Out-Null
+          Set-Content -Path $env:PMG_CONFIG -Value "paranoid: false"
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup install --system 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "a config PMG did not write was accepted" }
+          if ($output -notmatch 'does not carry the PMG security descriptor') { throw "the error does not say why the file is rejected" }
+          if ((Get-Content $env:PMG_CONFIG -Raw) -notmatch 'paranoid: false') { throw "the rejected file was changed" }
+          Remove-Item $env:PMG_CONFIG
+          exit 0
+
+      - name: Install system-wide
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup install --system
+
+      - name: Verify the machine PATH
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $key = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+          if ($key.GetValueKind('Path') -ne 'ExpandString') { throw "the machine PATH is $($key.GetValueKind('Path')), not REG_EXPAND_SZ" }
+          $entries = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames') -split ';' | Where-Object { $_ }
+          Write-Host ($entries -join "`n")
+          if ($entries[0] -ine "$env:PMG_PRODUCT\bin") { throw "the shim directory is not the first machine PATH entry: $($entries[0])" }
+          if (($entries | Where-Object { $_ -ieq $env:PMG_PRODUCT }).Count -ne 1) { throw "the product directory is not on the machine PATH exactly once" }
+
+      - name: Verify every object carries the PMG descriptor
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $shims = Get-ChildItem "$env:PMG_PRODUCT\bin" -Filter *.cmd | ForEach-Object { $_.FullName }
+          if ($shims.Count -lt 10) { throw "only $($shims.Count) shims were written" }
+          $objects = @("C:\Program Files\safedep", $env:PMG_PRODUCT, "$env:PMG_PRODUCT\bin", "$env:PMG_PRODUCT\pmg.exe", "C:\ProgramData\safedep", (Split-Path $env:PMG_CONFIG), $env:PMG_CONFIG) + $shims
+          foreach ($object in $objects) {
+            $acl = Get-Acl $object
+            if ($acl.Owner -ne 'BUILTIN\Administrators') { throw "$object is owned by $($acl.Owner)" }
+            if (-not $acl.AreAccessRulesProtected) { throw "$object inherits its DACL" }
+            $rules = $acl.Access
+            if ($rules.Count -ne 3) { throw "$object has $($rules.Count) entries, not 3" }
+            foreach ($rule in $rules) {
+              if ($rule.AccessControlType -ne 'Allow') { throw "$object has a deny entry for $($rule.IdentityReference)" }
+            }
+            $users = $rules | Where-Object { $_.IdentityReference -eq 'BUILTIN\Users' }
+            if (-not $users) { throw "$object has no Users entry" }
+            if ($users.FileSystemRights -ne 'ReadAndExecute, Synchronize') { throw "$object gives Users $($users.FileSystemRights)" }
+            foreach ($admin in 'BUILTIN\Administrators', 'NT AUTHORITY\SYSTEM') {
+              $entry = $rules | Where-Object { $_.IdentityReference -eq $admin }
+              if (-not $entry -or $entry.FileSystemRights -ne 'FullControl') { throw "$object does not give $admin full control" }
+            }
+            Write-Host "ok  $object"
+          }
+
+      # A new process gets the machine PATH, then the user PATH. That PATH,
+      # not the job's, decides what a typed `npm` runs.
+      - name: Resolve npm and pmg through the registry PATH
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:Path = [Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User'))
+          $npm = (Get-Command npm).Source
+          $pmg = (Get-Command pmg).Source
+          Write-Host "npm -> $npm"
+          Write-Host "pmg -> $pmg"
+          if ($npm -ine "$env:PMG_PRODUCT\bin\npm.cmd") { throw "npm resolves to $npm, not to the system shim" }
+          if ($pmg -ine "$env:PMG_PRODUCT\pmg.exe") { throw "pmg resolves to $pmg, not to the system binary" }
+
+      - name: Install a package through the system shim
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          $env:Path = [Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User'))
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "system-npm-test") -Force)
+          npm init -y
+          npm install express@5.2.1
+          if (-not (Test-Path node_modules\express)) { throw "express not installed" }
+
+      - name: Block a package through the system shim
+        run: |
+          $env:Path = [Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User'))
+          Set-Location (New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "system-block-test") -Force)
+          npm init -y
+          $output = npm --no-cache --prefer-online i safedep-test-pkg@0.1.3 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "safedep-test-pkg was not blocked" }
+          if ($output -notmatch 'Malicious package blocked') { throw "npm failed, but not because PMG blocked the package" }
+          if (Test-Path node_modules\safedep-test-pkg) { throw "safedep-test-pkg found in node_modules" }
+          exit 0
+
+      # The shims exist for every account. A standard user with a fresh
+      # logon gets the machine PATH, so a bare npm runs through PMG and the
+      # block holds, with no per-user install on that account.
+      - name: Block a package as a standard user
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Fourteen characters at most: for a longer one `net user` asks a
+          # yes/no question, and with no console to answer it, it creates
+          # nothing and exits zero.
+          $password = 'Pmg!' + [guid]::NewGuid().ToString('N').Substring(0, 10)
+          $created = net user pmgtest $password /add 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0 -or $created -notmatch 'completed successfully') { throw "net user did not create the account: $created" }
+          $workDir = 'C:\Users\Public\pmg-standard-user'
+          New-Item -ItemType Directory -Force $workDir | Out-Null
+          icacls $workDir /grant 'BUILTIN\Users:(OI)(CI)F' | Out-Null
+
+          # Start-Process -Credential hands the child the caller's environment,
+          # which predates the install. -UseNewEnvironment builds PATH from the
+          # registry as a logon does, but sets no profile variables, so the
+          # batch file sets the ones npm and PMG need. The two `where` lines
+          # say what the logon resolved when the assertion fails.
+          $batch = @"
+          @echo off
+          set "USERPROFILE=C:\Users\pmgtest"
+          set "APPDATA=%USERPROFILE%\AppData\Roaming"
+          set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
+          set "TEMP=%LOCALAPPDATA%\Temp"
+          set "TMP=%TEMP%"
+          if not exist "%TEMP%" mkdir "%TEMP%"
+          where npm
+          where pmg
+          call npm --no-cache --prefer-online i safedep-test-pkg@0.1.3
+          exit /b %ERRORLEVEL%
+          "@
+          Set-Content -Path "$workDir\block.cmd" -Value (($batch -split "`n" | ForEach-Object { $_.Trim() }) -join "`r`n")
+
+          $credential = New-Object System.Management.Automation.PSCredential('pmgtest', (ConvertTo-SecureString $password -AsPlainText -Force))
+          $process = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList '/d', '/c', "$workDir\block.cmd" `
+            -WorkingDirectory $workDir -Credential $credential -LoadUserProfile -UseNewEnvironment -Wait -PassThru `
+            -RedirectStandardOutput "$workDir\block.out" -RedirectStandardError "$workDir\block.err"
+          $output = (Get-Content "$workDir\block.out" -Raw) + (Get-Content "$workDir\block.err" -Raw -ErrorAction SilentlyContinue)
+          Write-Host $output
+          if ($process.ExitCode -eq 0) { throw "safedep-test-pkg was not blocked for the standard user" }
+          if ($output -notmatch 'Malicious package blocked') { throw "npm failed for the standard user, but not because PMG blocked the package" }
+
+      - name: Doctor passes on a clean system install
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup doctor
+
+      - name: Doctor reports a drifted shim, and a reinstall repairs it
+        run: |
+          icacls "$env:PMG_PRODUCT\bin\npm.cmd" /grant 'BUILTIN\Users:(W)' | Out-Null
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "doctor passed with a user-writable shim" }
+          if ($output -notmatch 'System install unsafe') { throw "doctor failed, but not on the shim descriptor" }
+
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup install --system
+          & "$env:PMG_PRODUCT\pmg.exe" setup doctor
+          $users = (Get-Acl "$env:PMG_PRODUCT\bin\npm.cmd").Access | Where-Object { $_.IdentityReference -eq 'BUILTIN\Users' }
+          if ($users.FileSystemRights -ne 'ReadAndExecute, Synchronize') { throw "the reinstall left Users with $($users.FileSystemRights)" }
+
+      # A tampered shim may have lost the marker that identifies it, and so
+      # may every other shim. Doctor gates on the install's footprint and
+      # checks the expected shims by name, so it still reports the one whose
+      # descriptor is wrong.
+      - name: Doctor reports a tampered shim, and a reinstall replaces it
+        run: |
+          Get-ChildItem "$env:PMG_PRODUCT\bin" -Filter *.cmd | ForEach-Object { Set-Content -Path $_.FullName -Value "@echo off`r`necho tampered" }
+          icacls "$env:PMG_PRODUCT\bin\npm.cmd" /grant 'BUILTIN\Users:(W)' | Out-Null
+          # The table view truncates the message, so the path is checked in
+          # the JSON view.
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor --json 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "doctor passed with a tampered shim" }
+          if ($output -notmatch 'npm\.cmd') { throw "doctor failed, but did not name the tampered shim" }
+
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup install --system
+          & "$env:PMG_PRODUCT\pmg.exe" setup doctor
+          if ((Get-Content "$env:PMG_PRODUCT\bin\npm.cmd" -Raw) -notmatch 'PMG_RAW_ARGS') { throw "the reinstall did not replace the tampered shim" }
+
+      # A managed config whose permissions were loosened is not PMG's file any
+      # more. Doctor reports it, the runtime ignores it, and the install
+      # refuses to merge it until an administrator deletes it.
+      - name: A loosened managed config is reported, ignored and refused
+        run: |
+          icacls $env:PMG_CONFIG /grant 'BUILTIN\Users:(W)' | Out-Null
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor --json 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "doctor passed with a user-writable managed config" }
+          if ($output -notmatch 'config\.yml') { throw "doctor failed, but did not name the config" }
+
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup install --system 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "the install merged a user-writable managed config" }
+          if ($output -notmatch 'does not carry the PMG security descriptor') { throw "the install failed, but not on the config" }
+
+          Remove-Item $env:PMG_CONFIG
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup install --system
+          & "$env:PMG_PRODUCT\pmg.exe" setup doctor
+
+      - name: A second install leaves the machine PATH as it is
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $key = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+          $entries = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames') -split ';' | Where-Object { $_ }
+          if (($entries | Where-Object { $_ -ieq "$env:PMG_PRODUCT\bin" }).Count -ne 1) { throw "the shim directory is not on the machine PATH exactly once" }
+          if ($entries[0] -ine "$env:PMG_PRODUCT\bin") { throw "the shim directory is no longer first" }
+
+      - name: Remove the system install
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup remove --system
+          if (Test-Path "$env:PMG_PRODUCT\bin") { throw "the shim directory still exists" }
+          if (-not (Test-Path $env:PMG_CONFIG)) { throw "remove without --config-file deleted the managed config" }
+          $key = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+          $entries = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames') -split ';' | Where-Object { $_ }
+          if ($entries | Where-Object { $_ -ieq "$env:PMG_PRODUCT\bin" }) { throw "the shim directory is still on the machine PATH" }
+          if (-not ($entries | Where-Object { $_ -ieq $env:PMG_PRODUCT })) { throw "the product directory left the machine PATH, so a typed pmg would stop working" }
+
+          & "$env:PMG_PRODUCT\pmg.exe" setup remove --system --config-file
+          if (Test-Path $env:PMG_CONFIG) { throw "the managed config still exists" }

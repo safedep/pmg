@@ -10,7 +10,9 @@ import (
 )
 
 // useManagedConfigDir points the globally managed config at dir for the test,
-// and restores the default resolution afterwards.
+// and restores the default resolution afterwards. On Windows the runtime
+// obeys a managed config only under administrative control, so the
+// directory and its file are secured as the install would leave them.
 func useManagedConfigDir(t *testing.T, dir string) {
 	t.Helper()
 	globalConfigDirOverride = dir
@@ -18,6 +20,7 @@ func useManagedConfigDir(t *testing.T, dir string) {
 		globalConfigDirOverride = ""
 		initConfig()
 	})
+	secureManagedConfigForTest(t, dir)
 }
 
 func TestManagedConfigTakesPrecedenceAndIgnoresUserFile(t *testing.T) {

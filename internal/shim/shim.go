@@ -38,11 +38,11 @@ type ShimConfig struct {
 	// on Unix, the HKCU\Environment write on Windows. Used by system install,
 	// which relies on the system profile or ENV PATH instead.
 	SkipUserPath bool
-	// SystemProfile installs and removes the OS login-shell PATH snippet
-	// (Linux: /etc/profile.d/pmg.sh) with Install/Remove, and marks this
-	// manager as a system-wide install: Install then also validates the pmg
-	// binary for multi-user use and forces root ownership on the shim dirs.
-	SystemProfile bool
+	// System marks a system-wide install and names its layout. Install then
+	// validates the pmg binary for multi-user use, protects the objects it
+	// owns, hardens every shim and puts the shim directory on every user's
+	// PATH. nil for a per-user install.
+	System *systemLayout
 }
 
 type ShimManager struct {
@@ -94,11 +94,11 @@ func (m *ShimManager) Install() error {
 		m.config.PMGBin = pmgBin
 	}
 
-	if m.config.SystemProfile {
+	if sys := m.config.System; sys != nil {
 		// System shims hard-code this binary path for every user; validating
 		// here (not at construction) keeps Remove usable when the installed
 		// binary is no longer suitable.
-		if err := validateSystemExecutable(m.config.PMGBin); err != nil {
+		if err := sys.validateBinary(m.config.PMGBin); err != nil {
 			return err
 		}
 	}
@@ -107,13 +107,9 @@ func (m *ShimManager) Install() error {
 		return fmt.Errorf("failed to create shim directory %s: %w", m.config.BinDir, err)
 	}
 
-	if m.config.SystemProfile {
-		// Both directories are pmg's own (…/pmg and …/pmg/bin): force root
-		// ownership even when pre-created, so weaker modes are not inherited.
-		for _, dir := range []string{filepath.Dir(m.config.BinDir), m.config.BinDir} {
-			if err := fsutil.ForceRootOwned(dir, 0o755); err != nil {
-				return err
-			}
+	if sys := m.config.System; sys != nil {
+		if err := sys.protect(); err != nil {
+			return err
 		}
 	}
 
@@ -123,9 +119,9 @@ func (m *ShimManager) Install() error {
 		}
 	}
 
-	if m.config.SystemProfile {
-		if err := writeSystemProfile(m.config.BinDir); err != nil {
-			return fmt.Errorf("failed to write system profile: %w", err)
+	if sys := m.config.System; sys != nil {
+		if err := sys.installPath(); err != nil {
+			return fmt.Errorf("failed to put the system shims on PATH: %w", err)
 		}
 	}
 
@@ -158,9 +154,9 @@ func (m *ShimManager) Remove() error {
 		pruneEmptyParents(dir, m.config.HomeDir)
 	}
 
-	if m.config.SystemProfile {
-		if err := removeSystemProfile(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to remove system profile: %w", err))
+	if sys := m.config.System; sys != nil {
+		if err := sys.removePath(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove the system shims from PATH: %w", err))
 		}
 	}
 
@@ -174,6 +170,9 @@ func (m *ShimManager) Remove() error {
 }
 
 func (m *ShimManager) IsInstalled() (bool, error) {
+	if sys := m.config.System; sys != nil {
+		return sys.pathInstalled(), nil
+	}
 	return m.pathInstalled()
 }
 
@@ -222,13 +221,53 @@ func (m *ShimManager) writeShimScript(pm string) error {
 	shimPath := filepath.Join(m.config.BinDir, shimFileName(pm))
 	content := shimScript(m.config.PMGBin, pm)
 
+	if m.config.System != nil {
+		return replaceSystemShim(shimPath, content)
+	}
+
 	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
 		return err
 	}
-
 	// WriteFile honors the process umask (e.g. root umask 077 births the shim
 	// as 0700); chmod so the shim stays executable by every user.
 	return os.Chmod(shimPath, 0o755)
+}
+
+// replaceSystemShim writes and secures a sibling first, then renames it over
+// the live shim. The live shim is never absent or half written: a failure
+// before the rename leaves the old shim in place, and PATH never falls
+// through to the real manager. A write into the existing entry would follow
+// a link planted under the shim's name, and the rename replaces the entry
+// itself, link or file, without following it.
+func replaceSystemShim(shimPath, content string) error {
+	tmp := shimPath + ".tmp"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(content)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o755)
+	}
+	if err == nil {
+		err = fsutil.SecureSystemPath(tmp, 0o755)
+	}
+	if err == nil {
+		err = os.Rename(tmp, shimPath)
+	}
+	if err != nil {
+		if rmErr := os.Remove(tmp); rmErr != nil && !os.IsNotExist(rmErr) {
+			err = errors.Join(err, rmErr)
+		}
+		return err
+	}
+	return nil
 }
 
 func currentExecutable() (string, error) {

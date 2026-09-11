@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -16,154 +17,113 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// userEnvironmentKey is the HKCU subkey that holds the per-user PATH. Tests
-// point it at a scratch key. There is intentionally no env var or flag.
-var userEnvironmentKey = `Environment`
-
-// machineEnvironmentRoot and machineEnvironmentKey locate the machine PATH.
-// Tests point them at a scratch key under HKCU.
-var (
-	machineEnvironmentRoot = registry.LOCAL_MACHINE
-	machineEnvironmentKey  = `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
-)
-
 const pathValueName = "Path"
 
+// pathScope is one registry PATH value, the user's or the machine's. Both
+// are read, edited and written the same way. Tests point root and key at a
+// scratch key. There is intentionally no env var or flag for that.
+type pathScope struct {
+	root registry.Key
+	key  string
+	// The user PATH had no value before PMG's install, so removing the last
+	// entry leaves none behind. The machine PATH is not PMG's to delete.
+	deleteWhenEmpty bool
+}
+
+var (
+	userPath    = pathScope{root: registry.CURRENT_USER, key: `Environment`, deleteWhenEmpty: true}
+	machinePath = pathScope{root: registry.LOCAL_MACHINE, key: `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`}
+)
+
 // registryPathHalves returns the two halves of the PATH a new process
-// receives, machine first. The caller keeps them apart because PMG can
-// reorder the user half and nothing else.
+// receives, machine first. The caller keeps them apart because the remedy
+// for a shadowed manager depends on which half named it.
 func registryPathHalves() (machine, user []string, err error) {
-	machine, err = readExpandedPath(machineEnvironmentRoot, machineEnvironmentKey)
+	machine, err = machinePath.expanded()
 	if err != nil {
 		return nil, nil, err
 	}
-	user, err = readExpandedPath(registry.CURRENT_USER, userEnvironmentKey)
+	user, err = userPath.expanded()
 	if err != nil {
 		return nil, nil, err
 	}
 	return machine, user, nil
 }
 
-func readExpandedPath(root registry.Key, keyPath string) ([]string, error) {
-	key, err := registry.OpenKey(root, keyPath, registry.QUERY_VALUE)
+// expanded returns the entries as a shell for this user would see them.
+// ExpandString reads %VAR% from this process's environment, and SplitList
+// strips the quotes a PATH entry may carry.
+func (s pathScope) expanded() ([]string, error) {
+	entries, _, err := s.read()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open %s: %w", keyPath, err)
+		return nil, err
 	}
-	defer key.Close()
-
-	value, _, err := key.GetStringValue(pathValueName)
-	if errors.Is(err, registry.ErrNotExist) {
-		return nil, nil
-	}
+	value, err := registry.ExpandString(strings.Join(entries, ";"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read PATH under %s: %w", keyPath, err)
+		return nil, fmt.Errorf("failed to expand PATH under %s: %w", s.key, err)
 	}
-
-	// ExpandString reads %VAR% from this process's environment. A machine
-	// PATH that names a per-user variable therefore expands to this user's
-	// value, which is what a shell for this user would get.
-	expanded, err := registry.ExpandString(value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand PATH under %s: %w", keyPath, err)
-	}
-	// SplitList, not a plain split on the separator, because it also strips
-	// the quotes a PATH entry may carry. A quoted entry would otherwise read
-	// as a directory that does not exist.
-	return filepath.SplitList(expanded), nil
+	return filepath.SplitList(value), nil
 }
 
-var (
-	user32                  = windows.NewLazySystemDLL("user32.dll")
-	procSendMessageTimeoutW = user32.NewProc("SendMessageTimeoutW")
-)
-
-// registerUserPath prepends dir to the user PATH in the registry. It writes
-// the registry directly rather than through setx, which truncates a value at
-// 1024 characters and would corrupt a developer's PATH.
-func registerUserPath(dir string) error {
-	entries, expand, err := readUserPath()
+// prepend puts dir first, and moves it there when a later installer pushed
+// it back. The shim directory has to be first, or a manager on an entry
+// ahead of it wins. It writes the registry directly rather than through
+// setx, which truncates a value at 1024 characters and would corrupt a
+// developer's PATH.
+func (s pathScope) prepend(dir string) error {
+	entries, expand, err := s.read()
 	if err != nil {
 		return err
 	}
-	if len(entries) > 0 && fsutil.SamePath(entries[0], dir) {
+	if len(entries) > 0 && sameEntry(entries[0], dir) {
 		return nil
 	}
-
-	// The shim directory has to be first, or a manager on an entry ahead of
-	// it wins. A per-user installer that prepends its own directory, as the
-	// python.org installer does, would otherwise shadow the shims until the
-	// user edited PATH by hand. A re-run of `pmg setup install` fixes it.
-	kept := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !fsutil.SamePath(entry, dir) {
-			kept = append(kept, entry)
-		}
-	}
-	return writeUserPath(append([]string{dir}, kept...), expand)
+	return s.write(append([]string{dir}, without(entries, dir)...), expand)
 }
 
-// unregisterUserPath removes every entry that names dir from the user PATH.
-func unregisterUserPath(dir string) error {
-	entries, expand, err := readUserPath()
+// append adds dir at the end when it is not on the PATH yet. Nothing moves.
+func (s pathScope) append(dir string) error {
+	entries, expand, err := s.read()
 	if err != nil {
 		return err
 	}
-	if !containsPath(entries, dir) {
+	if slices.ContainsFunc(entries, func(e string) bool { return sameEntry(e, dir) }) {
 		return nil
 	}
-
-	kept := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !fsutil.SamePath(entry, dir) {
-			kept = append(kept, entry)
-		}
-	}
-	if len(kept) == 0 {
-		// The shim entry was the only one. Before the install there was no
-		// value, so leave none behind.
-		return deleteUserPath()
-	}
-	return writeUserPath(kept, expand)
+	return s.write(append(slices.Clone(entries), dir), expand)
 }
 
-func deleteUserPath() error {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.SET_VALUE)
+// remove drops every entry that names dir.
+func (s pathScope) remove(dir string) error {
+	entries, expand, err := s.read()
 	if err != nil {
-		return fmt.Errorf("failed to open HKCU\\%s for writing: %w", userEnvironmentKey, err)
+		return err
 	}
-	defer key.Close()
-
-	if err := key.DeleteValue(pathValueName); err != nil && !errors.Is(err, registry.ErrNotExist) {
-		return fmt.Errorf("failed to delete the user PATH: %w", err)
+	kept := without(entries, dir)
+	if len(kept) == len(entries) {
+		return nil
 	}
-	broadcastEnvironmentChange()
-	return nil
+	if len(kept) == 0 && s.deleteWhenEmpty {
+		return s.deleteValue()
+	}
+	return s.write(kept, expand)
 }
 
-func userPathContains(dir string) (bool, error) {
-	entries, _, err := readUserPath()
+func (s pathScope) contains(dir string) (bool, error) {
+	entries, _, err := s.read()
 	if err != nil {
 		return false, err
 	}
-	return containsPath(entries, dir), nil
+	return slices.ContainsFunc(entries, func(e string) bool { return sameEntry(e, dir) }), nil
 }
 
-func containsPath(entries []string, dir string) bool {
-	for _, entry := range entries {
-		if fsutil.SamePath(entry, dir) {
-			return true
-		}
-	}
-	return false
-}
-
-// readUserPath returns the raw PATH entries and whether the value is
-// REG_EXPAND_SZ. The raw form keeps %USERPROFILE% style references that
-// other tools wrote, so a write does not flatten them.
-func readUserPath() (entries []string, expand bool, err error) {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.QUERY_VALUE)
+// read returns the raw entries and whether the value is REG_EXPAND_SZ. The
+// raw form keeps %USERPROFILE% style references that other tools wrote, so
+// a write does not flatten them.
+func (s pathScope) read() (entries []string, expand bool, err error) {
+	key, err := registry.OpenKey(s.root, s.key, registry.QUERY_VALUE)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to open HKCU\\%s: %w", userEnvironmentKey, err)
+		return nil, false, fmt.Errorf("failed to open %s: %w", s.key, err)
 	}
 	defer key.Close()
 
@@ -172,29 +132,15 @@ func readUserPath() (entries []string, expand bool, err error) {
 		return nil, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to read the user PATH: %w", err)
+		return nil, false, fmt.Errorf("failed to read PATH under %s: %w", s.key, err)
 	}
-
 	return splitRawPath(value), valueType == registry.EXPAND_SZ, nil
 }
 
-// splitRawPath keeps each entry exactly as the registry holds it, quotes and
-// all, so a read, edit and write-back does not rewrite entries PMG does not
-// own.
-func splitRawPath(value string) []string {
-	var entries []string
-	for _, entry := range strings.Split(value, ";") {
-		if entry != "" {
-			entries = append(entries, entry)
-		}
-	}
-	return entries
-}
-
-func writeUserPath(entries []string, expand bool) error {
-	key, err := registry.OpenKey(registry.CURRENT_USER, userEnvironmentKey, registry.SET_VALUE)
+func (s pathScope) write(entries []string, expand bool) error {
+	key, err := registry.OpenKey(s.root, s.key, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("failed to open HKCU\\%s for writing: %w", userEnvironmentKey, err)
+		return fmt.Errorf("failed to open %s for writing: %w", s.key, err)
 	}
 	defer key.Close()
 
@@ -205,12 +151,58 @@ func writeUserPath(entries []string, expand bool) error {
 		err = key.SetStringValue(pathValueName, value)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to write the user PATH: %w", err)
+		return fmt.Errorf("failed to write PATH under %s: %w", s.key, err)
 	}
 
 	broadcastEnvironmentChange()
 	return nil
 }
+
+func (s pathScope) deleteValue() error {
+	key, err := registry.OpenKey(s.root, s.key, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("failed to open %s for writing: %w", s.key, err)
+	}
+	defer key.Close()
+
+	if err := key.DeleteValue(pathValueName); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		return fmt.Errorf("failed to delete PATH under %s: %w", s.key, err)
+	}
+	broadcastEnvironmentChange()
+	return nil
+}
+
+// sameEntry expands a raw entry first, so %ProgramFiles%\safedep\pmg\bin
+// written by hand matches the directory it names and is not duplicated.
+func sameEntry(raw, dir string) bool {
+	expanded, err := registry.ExpandString(raw)
+	if err != nil {
+		expanded = raw
+	}
+	return fsutil.SamePath(strings.Trim(expanded, `"`), dir)
+}
+
+func without(entries []string, dir string) []string {
+	return slices.DeleteFunc(slices.Clone(entries), func(e string) bool { return sameEntry(e, dir) })
+}
+
+// splitRawPath keeps each entry exactly as the registry holds it, quotes and
+// all, so a read, edit and write-back does not rewrite entries PMG does not
+// own.
+func splitRawPath(value string) []string {
+	var entries []string
+	for entry := range strings.SplitSeq(value, ";") {
+		if entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+var (
+	user32                  = windows.NewLazySystemDLL("user32.dll")
+	procSendMessageTimeoutW = user32.NewProc("SendMessageTimeoutW")
+)
 
 // broadcastEnvironmentChange tells every top-level window that the
 // environment changed, so a new shell started from Explorer sees the PATH
