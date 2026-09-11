@@ -63,17 +63,24 @@ func TestCompare(t *testing.T) {
 
 // The runtime trusts the managed config on its owner alone, so the owner
 // rule is checked on descriptors built from SDDL.
-func TestRequireAdministrativeOwner(t *testing.T) {
+func TestValidateAdministrativeControl(t *testing.T) {
 	tests := []struct {
 		name    string
 		sddl    string
 		wantErr string
 	}{
-		{name: "Administrators", sddl: "O:BAD:(A;;FA;;;BA)"},
-		{name: "SYSTEM", sddl: "O:SYD:(A;;FA;;;BA)"},
-		{name: "Users", sddl: "O:BUD:(A;;FA;;;BA)", wantErr: "owned by BUILTIN\\Users, not by Administrators or SYSTEM"},
-		{name: "a domain account", sddl: "O:S-1-5-21-1-2-3-1001D:(A;;FA;;;BA)", wantErr: "not by Administrators or SYSTEM"},
+		{name: "Administrators own, Users read and execute", sddl: "O:BAD:(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)"},
+		{name: "SYSTEM owns, inherited entries as an MDM copy has", sddl: "O:SYD:(A;ID;FA;;;SY)(A;ID;FA;;;BA)(A;ID;0x1200a9;;;BU)"},
+		{name: "a deny entry takes nothing away from the rule", sddl: "O:BAD:(D;;FW;;;BU)(A;;FA;;;BA)"},
+		{name: "an inherit-only entry does not apply to the file", sddl: "O:BAD:(A;;FA;;;BA)(A;OICIIO;FW;;;BU)"},
+		{name: "Users own", sddl: "O:BUD:(A;;FA;;;BA)", wantErr: "owned by BUILTIN\\Users, not by Administrators or SYSTEM"},
+		{name: "a domain account owns", sddl: "O:S-1-5-21-1-2-3-1001D:(A;;FA;;;BA)", wantErr: "not by Administrators or SYSTEM"},
 		{name: "no owner", sddl: "D:(A;;FA;;;BA)", wantErr: "has no owner"},
+		{name: "Users may write", sddl: "O:BAD:(A;;FA;;;BA)(A;;FW;;;BU)", wantErr: "lets BUILTIN\\Users write or delete it"},
+		{name: "Everyone may delete", sddl: "O:BAD:(A;;FA;;;BA)(A;;SD;;;WD)", wantErr: "lets Everyone write or delete it"},
+		{name: "a domain group may change the DACL", sddl: "O:BAD:(A;;FA;;;BA)(A;;WD;;;S-1-5-21-1-2-3-1105)", wantErr: "write or delete it"},
+		{name: "no DACL", sddl: "O:BA", wantErr: "has no DACL"},
+		{name: "an entry PMG does not evaluate", sddl: `O:BAD:(A;;FA;;;BA)(XA;;FW;;;BU;(Member_of {SID(BA)}))`, wantErr: "does not evaluate"},
 	}
 
 	for _, tt := range tests {
@@ -81,7 +88,7 @@ func TestRequireAdministrativeOwner(t *testing.T) {
 			sd, err := windows.SecurityDescriptorFromString(tt.sddl)
 			require.NoError(t, err)
 
-			err = requireAdministrativeOwner(sd, `C:\ProgramData\safedep\pmg\config.yml`)
+			err = validateAdministrativeControl(sd, `C:\ProgramData\safedep\pmg\config.yml`)
 			if tt.wantErr == "" {
 				assert.NoError(t, err)
 				return
@@ -105,7 +112,7 @@ func TestRequireNotReparsePoint(t *testing.T) {
 	require.NoError(t, exec.Command("cmd", "/c", "mklink", "/J", link, target).Run())
 	assert.ErrorContains(t, RequireNotReparsePoint(link), "link or a junction")
 	assert.ErrorContains(t, RequireProtected(link), "link or a junction")
-	assert.ErrorContains(t, RequireAdministrativeOwner(link), "link or a junction")
+	assert.ErrorContains(t, RequireAdministrativeControl(link), "link or a junction")
 }
 
 // A file the test created carries the temp directory's inherited descriptor,

@@ -63,7 +63,8 @@ func PrepareSystemDir(dir string) error {
 // requires a regular file that carries the PMG descriptor.
 func RequireTrustedSystemFile(path string) error { return winacl.RequireTrustedExisting(path) }
 
-// RequireSystemOwned requires that Administrators or SYSTEM own path and
-// that it is not a reparse point. The runtime applies it to the managed
-// config before it obeys the file.
-func RequireSystemOwned(path string) error { return winacl.RequireAdministrativeOwner(path) }
+// RequireSystemControlled requires that Administrators or SYSTEM own path,
+// that no other principal may write or delete it, and that it is not a
+// link. The runtime applies it to the managed config before it obeys the
+// file.
+func RequireSystemControlled(path string) error { return winacl.RequireAdministrativeControl(path) }

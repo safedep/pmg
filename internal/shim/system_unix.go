@@ -37,9 +37,9 @@ func newSystemLayout() (systemLayout, error) {
 	}, nil
 }
 
-// validateManagedConfig is a Windows check. A standard user cannot put a
-// file under /etc.
-func validateManagedConfig() error { return nil }
+// validateConfig is a Windows check. A standard user cannot put a file
+// under /etc.
+func (systemLayout) validateConfig() error { return nil }
 
 // protect forces root ownership on both directories pmg owns even when
 // pre-created, so weaker modes are not inherited.

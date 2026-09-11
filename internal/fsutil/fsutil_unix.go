@@ -34,8 +34,8 @@ func SecureSystemPath(path string, mode os.FileMode) error {
 // their permissions.
 func PrepareSystemDir(dir string) error { return MkdirAllRootOwned(dir, 0o755) }
 
-// RequireTrustedSystemFile and RequireSystemOwned are Windows checks. A
-// standard user cannot put a file under /etc.
+// RequireTrustedSystemFile and RequireSystemControlled are Windows checks.
+// A standard user cannot put a file under /etc.
 func RequireTrustedSystemFile(string) error { return nil }
 
-func RequireSystemOwned(string) error { return nil }
+func RequireSystemControlled(string) error { return nil }

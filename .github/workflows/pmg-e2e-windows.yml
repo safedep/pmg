@@ -647,6 +647,43 @@ jobs:
           $users = (Get-Acl "$env:PMG_PRODUCT\bin\npm.cmd").Access | Where-Object { $_.IdentityReference -eq 'BUILTIN\Users' }
           if ($users.FileSystemRights -ne 'ReadAndExecute, Synchronize') { throw "the reinstall left Users with $($users.FileSystemRights)" }
 
+      # A tampered shim may have lost the marker that identifies it. Doctor
+      # checks the expected shims by name, so it still reports the tampering.
+      - name: Doctor reports a tampered shim, and a reinstall replaces it
+        run: |
+          Set-Content -Path "$env:PMG_PRODUCT\bin\npm.cmd" -Value "@echo off`r`necho tampered"
+          icacls "$env:PMG_PRODUCT\bin\npm.cmd" /grant 'BUILTIN\Users:(W)' | Out-Null
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "doctor passed with a tampered shim" }
+          if ($output -notmatch 'npm\.cmd') { throw "doctor failed, but did not name the tampered shim" }
+
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup install --system
+          & "$env:PMG_PRODUCT\pmg.exe" setup doctor
+          if ((Get-Content "$env:PMG_PRODUCT\bin\npm.cmd" -Raw) -notmatch 'PMG_RAW_ARGS') { throw "the reinstall did not replace the tampered shim" }
+
+      # A managed config whose permissions were loosened is not PMG's file any
+      # more. Doctor reports it, the runtime ignores it, and the install
+      # refuses to merge it until an administrator deletes it.
+      - name: A loosened managed config is reported, ignored and refused
+        run: |
+          icacls $env:PMG_CONFIG /grant 'BUILTIN\Users:(W)' | Out-Null
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup doctor 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "doctor passed with a user-writable managed config" }
+          if ($output -notmatch 'config\.yml') { throw "doctor failed, but did not name the config" }
+
+          $output = & "$env:PMG_PRODUCT\pmg.exe" setup install --system 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -eq 0) { throw "the install merged a user-writable managed config" }
+          if ($output -notmatch 'does not carry the PMG security descriptor') { throw "the install failed, but not on the config" }
+
+          Remove-Item $env:PMG_CONFIG
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          & "$env:PMG_PRODUCT\pmg.exe" setup install --system
+          & "$env:PMG_PRODUCT\pmg.exe" setup doctor
+
       - name: A second install leaves the machine PATH as it is
         run: |
           $ErrorActionPreference = 'Stop'

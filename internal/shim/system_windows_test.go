@@ -28,18 +28,24 @@ func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {
 	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
 }
 
-// tempLayout mirrors the Program Files layout under the temp directory:
-// root\safedep\pmg\pmg.exe and root\safedep\pmg\bin.
+// tempLayout mirrors the Program Files and ProgramData layouts under the
+// temp directory: root\pf\safedep\pmg\{pmg.exe,bin} and
+// root\pd\safedep\pmg\config.yml.
 func tempLayout(t *testing.T) systemLayout {
 	t.Helper()
-	product := filepath.Join(t.TempDir(), "safedep", "pmg")
+	root := t.TempDir()
+	product := filepath.Join(root, "pf", "safedep", "pmg")
 	require.NoError(t, os.MkdirAll(product, 0o755))
+	configDir := filepath.Join(root, "pd", "safedep", "pmg")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
 	layout := systemLayout{
 		BinDir:     filepath.Join(product, "bin"),
 		ProductDir: product,
 		Binary:     filepath.Join(product, "pmg.exe"),
+		ConfigFile: filepath.Join(configDir, "config.yml"),
 	}
 	require.NoError(t, os.WriteFile(layout.Binary, []byte("binary"), 0o755))
+	require.NoError(t, os.WriteFile(layout.ConfigFile, []byte("paranoid: true\n"), 0o644))
 	return layout
 }
 
@@ -141,7 +147,14 @@ func useSystemLayout(t *testing.T) systemLayout {
 	isolateMachinePath(t)
 	layout := tempLayout(t)
 	systemBinDirOverride = layout.BinDir
-	t.Cleanup(func() { systemBinDirOverride = "" })
+	systemConfigFileOverride = layout.ConfigFile
+	t.Cleanup(func() { systemBinDirOverride, systemConfigFileOverride = "", "" })
+
+	// The config side is what WriteSystemTemplateConfig leaves behind.
+	configDir := filepath.Dir(layout.ConfigFile)
+	for _, p := range []string{filepath.Dir(configDir), configDir, layout.ConfigFile} {
+		require.NoError(t, winacl.Protect(p))
+	}
 	return layout
 }
 
@@ -232,4 +245,84 @@ func applySDDL(t *testing.T, path, sddl string) {
 	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		owner, nil, dacl, nil))
+}
+
+// Doctor checks the expected shims by name. A shim that lost its marker,
+// and a shim that is gone, are both reported, and a reinstall puts the
+// expected set back.
+func TestSystemInstallDetectsATamperedOrMissingShim(t *testing.T) {
+	layout := useSystemLayout(t)
+	setRegistryPath(t, machinePath, `C:\Tools`)
+	mgr := newSystemShimManager(layout, layout.Binary)
+	require.NoError(t, mgr.Install())
+
+	npm := filepath.Join(layout.BinDir, "npm.cmd")
+	require.NoError(t, os.WriteFile(npm, []byte("@echo off\r\necho tampered\r\n"), 0o755))
+	applySDDL(t, npm, "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;BU)")
+	_, err := ValidateSystemInstall()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), npm)
+
+	require.NoError(t, mgr.Install())
+	_, err = ValidateSystemInstall()
+	require.NoError(t, err)
+	content, err := os.ReadFile(npm)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "PMG_RAW_ARGS", "the reinstall replaced the tampered shim")
+
+	require.NoError(t, os.Remove(npm))
+	_, err = ValidateSystemInstall()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), npm)
+}
+
+// A link planted under a shim's name must not be followed. The install
+// removes the link and writes a regular file, and the link's target is
+// untouched.
+func TestSystemInstallReplacesAPlantedLink(t *testing.T) {
+	layout := useSystemLayout(t)
+	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, os.MkdirAll(layout.BinDir, 0o755))
+	decoy := filepath.Join(t.TempDir(), "decoy.cmd")
+	require.NoError(t, os.WriteFile(decoy, []byte("decoy\r\n"), 0o644))
+	npm := filepath.Join(layout.BinDir, "npm.cmd")
+	require.NoError(t, os.Symlink(decoy, npm))
+
+	require.NoError(t, newSystemShimManager(layout, layout.Binary).Install())
+
+	info, err := os.Lstat(npm)
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular(), "the link was replaced by a file")
+	decoyContent, err := os.ReadFile(decoy)
+	require.NoError(t, err)
+	assert.Equal(t, "decoy\r\n", string(decoyContent), "the link's target was not written through")
+	_, err = ValidateSystemInstall()
+	assert.NoError(t, err)
+}
+
+// Doctor checks the managed config and both of its directories, and
+// treats a missing file as a failure while system shims exist.
+func TestSystemInstallChecksTheManagedConfig(t *testing.T) {
+	layout := useSystemLayout(t)
+	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, newSystemShimManager(layout, layout.Binary).Install())
+	_, err := ValidateSystemInstall()
+	require.NoError(t, err)
+
+	applySDDL(t, layout.ConfigFile, "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;BU)")
+	_, err = ValidateSystemInstall()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), layout.ConfigFile)
+	require.NoError(t, winacl.Protect(layout.ConfigFile))
+
+	configDir := filepath.Dir(layout.ConfigFile)
+	applySDDL(t, filepath.Dir(configDir), "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)")
+	_, err = ValidateSystemInstall()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), filepath.Dir(configDir))
+	require.NoError(t, winacl.Protect(filepath.Dir(configDir)))
+
+	require.NoError(t, os.Remove(layout.ConfigFile))
+	_, err = ValidateSystemInstall()
+	assert.Error(t, err, "a missing managed config is not health while system shims exist")
 }

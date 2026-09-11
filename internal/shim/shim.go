@@ -221,7 +221,26 @@ func (m *ShimManager) writeShimScript(pm string) error {
 	shimPath := filepath.Join(m.config.BinDir, shimFileName(pm))
 	content := shimScript(m.config.PMGBin, pm)
 
-	if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
+	if m.config.System != nil {
+		// A system shim is replaced, not overwritten. A write into what is
+		// there would follow a link planted under the shim's name and land on
+		// its target. Removing the entry removes a link rather than its
+		// target, and the exclusive create fails if anything reappears.
+		if err := os.Remove(shimPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		f, err := os.OpenFile(shimPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+		if err != nil {
+			return err
+		}
+		_, err = f.WriteString(content)
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return err
+		}
+	} else if err := os.WriteFile(shimPath, []byte(content), 0o755); err != nil {
 		return err
 	}
 

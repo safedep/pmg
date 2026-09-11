@@ -80,9 +80,10 @@ func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 }
 
 // The runtime obeys the managed config only when Administrators or SYSTEM
-// own it. A file an elevated process wrote has that owner, so it governs. A
-// junction at the path is not a regular file and never governs.
-func TestResolveConfigFileTrustsTheOwner(t *testing.T) {
+// own it and nobody else may write it. A file the install protected
+// governs. The same file with a write grant for Users is ignored. A junction
+// at the path is not a regular file and never governs.
+func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 	if !winacl.ProcessIsElevated() {
 		t.Skip("a file with an administrative owner needs an elevated process")
 	}
@@ -90,10 +91,24 @@ func TestResolveConfigFileTrustsTheOwner(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	path := filepath.Join(dir, "config.yml")
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
+	require.NoError(t, winacl.Protect(path))
 
 	got, err := resolveConfigFile()
 	require.NoError(t, err)
 	assert.Equal(t, path, got)
+
+	loosened, err := windows.SecurityDescriptorFromString("O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;BU)")
+	require.NoError(t, err)
+	owner, _, err := loosened.Owner()
+	require.NoError(t, err)
+	dacl, _, err := loosened.DACL()
+	require.NoError(t, err)
+	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner, nil, dacl, nil))
+	got, err = resolveConfigFile()
+	require.NoError(t, err)
+	assert.NotEqual(t, path, got, "a managed config Users may write is ignored")
 
 	require.NoError(t, os.Remove(path))
 	target := filepath.Join(t.TempDir(), "elsewhere")

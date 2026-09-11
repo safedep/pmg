@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/winacl"
 	"golang.org/x/sys/windows"
@@ -47,32 +47,29 @@ func newSystemLayout() (systemLayout, error) {
 		BinDir:     binDir,
 		ProductDir: product,
 		Binary:     filepath.Join(product, "pmg.exe"),
+		ConfigFile: systemConfigFile(),
 	}, nil
+}
+
+func systemConfigFile() string {
+	if systemConfigFileOverride != "" {
+		return systemConfigFileOverride
+	}
+	return config.SystemConfigFilePath()
 }
 
 func (l systemLayout) vendorDir() string { return filepath.Dir(l.ProductDir) }
 
 // objects lists every PMG-owned object of a system install, parents first.
-// Only managed shims count among the files: a README an administrator
-// drops into the directory is not PMG's to judge.
-func (l systemLayout) objects() ([]string, error) {
+// The shims are the expected set, one per supported manager by name, not
+// whatever the directory holds: a shim that lost its marker must still be
+// checked, and a file an administrator dropped in is not PMG's to judge.
+func (l systemLayout) objects() []string {
 	objects := []string{l.vendorDir(), l.ProductDir, l.BinDir, l.Binary}
-	entries, err := os.ReadDir(l.BinDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list the shim directory %s: %w", l.BinDir, err)
+	for _, pm := range alias.DefaultConfig().PackageManagers {
+		objects = append(objects, filepath.Join(l.BinDir, shimFileName(pm)))
 	}
-	for _, entry := range entries {
-		path := filepath.Join(l.BinDir, entry.Name())
-		if !entry.IsDir() && isManagedShim(path) {
-			objects = append(objects, path)
-		}
-	}
-	return objects, nil
-}
-
-func isManagedShim(path string) bool {
-	content, err := os.ReadFile(path)
-	return err == nil && strings.Contains(string(content), shimScriptMarker)
+	return objects
 }
 
 // validateBinary requires the running binary to be the canonical one. Every
@@ -115,11 +112,7 @@ func (l systemLayout) protect() error {
 // Install runs it before the shim directory goes on the machine PATH, and
 // doctor runs it to report drift.
 func (l systemLayout) validate() error {
-	objects, err := l.objects()
-	if err != nil {
-		return err
-	}
-	for _, p := range objects {
+	for _, p := range l.objects() {
 		if err := winacl.RequireProtected(p); err != nil {
 			return err
 		}
@@ -127,19 +120,22 @@ func (l systemLayout) validate() error {
 	return nil
 }
 
-// validateManagedConfig is the doctor row for the managed config. The
-// runtime asks less of the file, an administrative owner, so an MDM that
+// validateConfig is the doctor row for the managed config: both ProgramData
+// directories and the file must exist and carry the PMG descriptor. The
+// runtime asks less of the file, administrative control, so an MDM that
 // copied it into place still governs. Doctor asks for the descriptor the
 // install writes and names the drift.
-func validateManagedConfig() error {
-	path := config.SystemConfigFilePath()
-	if path == "" {
+func (l systemLayout) validateConfig() error {
+	if l.ConfigFile == "" {
 		return nil
 	}
-	if _, err := os.Lstat(path); os.IsNotExist(err) {
-		return nil
+	dir := filepath.Dir(l.ConfigFile)
+	for _, p := range []string{filepath.Dir(dir), dir} {
+		if err := winacl.RequireProtected(p); err != nil {
+			return err
+		}
 	}
-	return winacl.RequireProtected(path)
+	return winacl.RequireTrustedExisting(l.ConfigFile)
 }
 
 // installPath puts the shim directory first on the machine PATH, and the

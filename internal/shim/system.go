@@ -19,6 +19,7 @@ type systemLayout struct {
 	// path that passes validateBinary is accepted.
 	Binary      string
 	ProfilePath string // login-shell snippet, "" where the platform has none
+	ConfigFile  string // managed config, "" where doctor does not check it
 }
 
 // These overrides replace OS-level system install paths in tests. There is
@@ -26,6 +27,7 @@ type systemLayout struct {
 var (
 	systemBinDirOverride      string
 	systemProfilePathOverride string
+	systemConfigFileOverride  string
 	// resolveExecutable resolves the running pmg binary for system install.
 	// Overridable in tests so validation does not run against the go-build test
 	// binary, which is group-writable under a 002 umask.
@@ -114,7 +116,7 @@ func ValidateSystemInstall() (string, error) {
 	if err := layout.validate(); err != nil {
 		return binary, err
 	}
-	return binary, validateManagedConfig()
+	return binary, layout.validateConfig()
 }
 
 func shimsPresent(dir string) bool {

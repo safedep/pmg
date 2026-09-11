@@ -900,8 +900,9 @@ func resolveConfigFile() (string, error) {
 	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
 		// ProgramData lets any user create a file at the managed path. The
 		// file governs every account, so it is obeyed only when Administrators
-		// or SYSTEM own it. Unix has no such path, and the check is a no-op.
-		if err := fsutil.RequireSystemOwned(global); err != nil {
+		// or SYSTEM own it and nobody else may write it. Unix has no such
+		// path, and the check is a no-op.
+		if err := fsutil.RequireSystemControlled(global); err != nil {
 			log.Warnf("Ignoring the managed config at %s: %v", global, err)
 			return userConfigFilePath()
 		}

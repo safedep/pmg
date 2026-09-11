@@ -1,9 +1,20 @@
 //go:build windows
 
-// Package winacl applies and verifies the one security descriptor that PMG
-// puts on every object of a Windows system install. PMG owns those objects,
-// so it does not evaluate arbitrary ACLs. An object either carries the
-// exact PMG descriptor or it is not trusted.
+// Package winacl applies and verifies the security of the objects a Windows
+// system install owns.
+//
+// The model, so a review can check it rather than search for gaps:
+//
+//   - The attacker is a standard user, before or after the install, with
+//     the default Program Files and ProgramData ACLs.
+//   - Administrators and SYSTEM are trusted, and only objects PMG can prove
+//     they control.
+//   - Every read or write of an object's security goes through one handle
+//     opened without following links. No check by name is followed by an
+//     act by name.
+//   - Objects PMG writes carry the exact PMG descriptor. The managed config,
+//     which an administrator or an MDM may write, must be controlled by the
+//     trusted set: owned by it, with no write or delete grant outside it.
 package winacl
 
 import (
@@ -34,6 +45,12 @@ const (
 	protectedFileSDDL = "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)"
 )
 
+// writeRights let an account change, replace or remove an object:
+// https://learn.microsoft.com/windows/win32/fileio/file-access-rights-constants
+const writeRights = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | windows.FILE_WRITE_EA |
+	windows.FILE_WRITE_ATTRIBUTES | windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER |
+	windows.GENERIC_WRITE | windows.GENERIC_ALL
+
 // descriptor is the PMG descriptor parsed once, with its DACL entries.
 type descriptor struct {
 	owner *windows.SID
@@ -46,27 +63,92 @@ var (
 	dirDescriptor  = sync.OnceValues(func() (descriptor, error) { return parseDescriptor(protectedDirSDDL) })
 )
 
-// Protect replaces the owner and the DACL of path with the PMG descriptor.
-// An object a standard user owns is refused, not repaired: between a check
-// by name and a write by name, that user can swap the object for a junction,
-// and the descriptor would land on a target of their choosing. An object
-// Administrators or SYSTEM own cannot be swapped by anyone else, so the
-// write is safe. SetNamedSecurityInfo needs the owner SID in the caller's
-// token with the owner right, which an elevated administrator token has and
-// a standard token does not, so the call is refused without elevation rather
-// than left to fail half way.
+// object is an open handle to a file or directory, with the facts the
+// checks need. Every check and every write goes through it, so what was
+// checked is what is written.
+type object struct {
+	handle windows.Handle
+	path   string
+	isDir  bool
+}
+
+// open opens path without following a link or a junction and refuses one.
+// FILE_FLAG_OPEN_REPARSE_POINT opens the reparse point itself rather than
+// its target, and FILE_FLAG_BACKUP_SEMANTICS lets a directory be opened:
+// https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilew
+func open(path string, access uint32) (*object, error) {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	handle, err := windows.CreateFile(name, access,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
+		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
+		windows.CloseHandle(handle)
+		return nil, fmt.Errorf("failed to inspect %s: %w", path, err)
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		windows.CloseHandle(handle)
+		return nil, fmt.Errorf("%s is a link or a junction, which PMG does not follow in a system path", path)
+	}
+	return &object{
+		handle: handle,
+		path:   path,
+		isDir:  info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0,
+	}, nil
+}
+
+func (o *object) close() { windows.CloseHandle(o.handle) }
+
+func (o *object) security(what windows.SECURITY_INFORMATION) (*windows.SECURITY_DESCRIPTOR, error) {
+	sd, err := windows.GetSecurityInfo(o.handle, windows.SE_FILE_OBJECT, what)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the security descriptor of %s: %w", o.path, err)
+	}
+	return sd, nil
+}
+
+func (o *object) expected() (descriptor, error) {
+	if o.isDir {
+		return dirDescriptor()
+	}
+	return fileDescriptor()
+}
+
+// Protect replaces the owner and the DACL of path with the PMG descriptor,
+// through one handle, so the object that was checked is the object that is
+// written. An object a standard user owns is refused, not adopted.
+// SetSecurityInfo needs the owner SID in the caller's token with the owner
+// right, which an elevated administrator token has and a standard token
+// does not, so the call is refused without elevation rather than left to
+// fail half way.
 func Protect(path string) error {
 	if !ProcessIsElevated() {
 		return fmt.Errorf("cannot protect %s: the process is not elevated", path)
 	}
-	if err := RequireAdministrativeOwner(path); err != nil {
-		return fmt.Errorf("%w. Delete it and run the install again", err)
-	}
-	want, err := expected(path)
+	o, err := open(path, windows.READ_CONTROL|windows.WRITE_DAC|windows.WRITE_OWNER)
 	if err != nil {
 		return err
 	}
-	err = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+	defer o.close()
+
+	sd, err := o.security(windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	if err := requireAdministrativeOwner(sd, path); err != nil {
+		return fmt.Errorf("%w. Delete it and run the install again", err)
+	}
+	want, err := o.expected()
+	if err != nil {
+		return err
+	}
+	err = windows.SetSecurityInfo(o.handle, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		want.owner, nil, want.dacl, nil)
 	if err != nil {
@@ -75,46 +157,52 @@ func Protect(path string) error {
 	return nil
 }
 
-// RequireAdministrativeOwner requires that path is not a reparse point and
-// that Administrators or SYSTEM own it. A standard user cannot set an owner
-// they are not without a privilege they do not have, so ownership alone
-// separates an object an administrator placed from one a user planted.
-func RequireAdministrativeOwner(path string) error {
-	if err := RequireNotReparsePoint(path); err != nil {
-		return err
-	}
-	got, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
-	if err != nil {
-		return fmt.Errorf("failed to read the owner of %s: %w", path, err)
-	}
-	return requireAdministrativeOwner(got, path)
-}
-
-// RequireProtected requires that path is not a reparse point and carries
-// the PMG descriptor exactly: owner, protected DACL, and the same entries.
+// RequireProtected requires that path is not a link and carries the PMG
+// descriptor exactly: owner, protected DACL, and the same entries.
 func RequireProtected(path string) error {
-	if err := RequireNotReparsePoint(path); err != nil {
-		return err
-	}
-	want, err := expected(path)
+	o, err := open(path, windows.READ_CONTROL)
 	if err != nil {
 		return err
 	}
-	got, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	defer o.close()
+
+	sd, err := o.security(windows.OWNER_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return fmt.Errorf("failed to read the security descriptor of %s: %w", path, err)
+		return err
 	}
-	if err := compare(got, want); err != nil {
+	want, err := o.expected()
+	if err != nil {
+		return err
+	}
+	if err := compare(sd, want); err != nil {
 		return fmt.Errorf("%s does not carry the PMG security descriptor: %w", path, err)
 	}
 	return nil
 }
 
+// RequireAdministrativeControl requires that path is not a link, that
+// Administrators or SYSTEM own it, and that no allow entry gives any other
+// principal a write or delete right. It is the trust rule for the managed
+// config at run time: a file an MDM copied into place has inherited entries
+// rather than the PMG descriptor, and passes. A file a standard user
+// planted, or one whose DACL an administrator loosened, fails.
+func RequireAdministrativeControl(path string) error {
+	o, err := open(path, windows.READ_CONTROL)
+	if err != nil {
+		return err
+	}
+	defer o.close()
+
+	sd, err := o.security(windows.OWNER_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	return validateAdministrativeControl(sd, path)
+}
+
 // RequireNotReparsePoint rejects a symbolic link or a junction at path. A
-// reparse point in a PMG-owned path would send every write, and every
-// descriptor change, to a target a standard user chose. A missing path
-// passes.
+// missing path passes. It is the check for a path that is about to be
+// created, where there is no object to open yet.
 func RequireNotReparsePoint(path string) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -134,30 +222,29 @@ func RequireNotReparsePoint(path string) error {
 // before it reads a managed file, because a descriptor set afterwards does
 // not make the contents trustworthy.
 func RequireTrustedExisting(path string) error {
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
+	o, err := open(path, windows.READ_CONTROL)
+	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("failed to inspect %s: %w", path, err)
+		return err
 	}
-	if !info.Mode().IsRegular() {
+	defer o.close()
+	if o.isDir {
 		return fmt.Errorf("%s is not a regular file", path)
 	}
-	return RequireProtected(path)
-}
-
-// expected returns the PMG descriptor for a path, by whether it is a
-// directory.
-func expected(path string) (descriptor, error) {
-	info, err := os.Stat(path)
+	sd, err := o.security(windows.OWNER_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return descriptor{}, fmt.Errorf("failed to inspect %s: %w", path, err)
+		return err
 	}
-	if info.IsDir() {
-		return dirDescriptor()
+	want, err := fileDescriptor()
+	if err != nil {
+		return err
 	}
-	return fileDescriptor()
+	if err := compare(sd, want); err != nil {
+		return fmt.Errorf("%s does not carry the PMG security descriptor: %w", path, err)
+	}
+	return nil
 }
 
 func parseDescriptor(sddl string) (descriptor, error) {
@@ -188,25 +275,41 @@ func requireAdministrativeOwner(sd *windows.SECURITY_DESCRIPTOR, path string) er
 	if owner == nil {
 		return fmt.Errorf("%s has no owner", path)
 	}
-	if !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) && !owner.IsWellKnown(windows.WinLocalSystemSid) {
-		return fmt.Errorf("%s is owned by %s, not by Administrators or SYSTEM", path, ownerName(owner))
+	if !isAdministrativeSid(owner) {
+		return fmt.Errorf("%s is owned by %s, not by Administrators or SYSTEM", path, accountName(owner))
 	}
 	return nil
 }
 
-func ownerName(sid *windows.SID) string {
-	account, domain, _, err := sid.LookupAccount("")
-	if err != nil {
-		return sid.String()
+// validateAdministrativeControl is the owner rule plus: no allow entry that
+// applies to the object gives a principal outside Administrators and SYSTEM
+// a write or delete right. Deny entries only take rights away and are
+// skipped. An entry of a type this code does not evaluate fails.
+func validateAdministrativeControl(sd *windows.SECURITY_DESCRIPTOR, path string) error {
+	if err := requireAdministrativeOwner(sd, path); err != nil {
+		return err
 	}
-	return domain + `\` + account
+	entries, err := daclEntries(sd)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	for _, ace := range entries {
+		if ace.Header.AceType == windows.ACCESS_DENIED_ACE_TYPE || ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
+			continue
+		}
+		sid := aceSid(ace)
+		if isAdministrativeSid(sid) || ace.Mask&writeRights == 0 {
+			continue
+		}
+		return fmt.Errorf("%s lets %s write or delete it", path, accountName(sid))
+	}
+	return nil
 }
 
 // compare checks owner, the DACL, the protected control bit, and the DACL
 // entries as a set. Every entry PMG writes is an allow entry, so order
 // carries no meaning for access, and Explorer rewrites the order when an
-// administrator opens the security tab. A missing DACL grants everyone full
-// access and fails.
+// administrator opens the security tab.
 func compare(got *windows.SECURITY_DESCRIPTOR, want descriptor) error {
 	owner, _, err := got.Owner()
 	if err != nil {
@@ -219,14 +322,7 @@ func compare(got *windows.SECURITY_DESCRIPTOR, want descriptor) error {
 		return fmt.Errorf("the owner is %s, not Administrators", owner)
 	}
 
-	dacl, _, err := got.DACL()
-	if err != nil && !errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
-		return fmt.Errorf("failed to read its DACL: %w", err)
-	}
-	if dacl == nil {
-		return errors.New("it has no DACL, which grants every user full access")
-	}
-	entries, err := aces(dacl)
+	entries, err := daclEntries(got)
 	if err != nil {
 		return err
 	}
@@ -262,6 +358,30 @@ func matchAce(entries []*windows.ACCESS_ALLOWED_ACE, matched []bool, wanted *win
 	return false
 }
 
+// daclEntries returns the DACL entries. A missing DACL grants everyone full
+// access and fails. An entry of a type this code does not evaluate, such as
+// a callback or conditional entry, fails, because a check that skips
+// entries is no check. Types: https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-ace_header
+func daclEntries(sd *windows.SECURITY_DESCRIPTOR) ([]*windows.ACCESS_ALLOWED_ACE, error) {
+	dacl, _, err := sd.DACL()
+	if err != nil && !errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND) {
+		return nil, fmt.Errorf("failed to read its DACL: %w", err)
+	}
+	if dacl == nil {
+		return nil, errors.New("it has no DACL, which grants every user full access")
+	}
+	entries, err := aces(dacl)
+	if err != nil {
+		return nil, err
+	}
+	for _, ace := range entries {
+		if t := ace.Header.AceType; t != windows.ACCESS_ALLOWED_ACE_TYPE && t != windows.ACCESS_DENIED_ACE_TYPE {
+			return nil, fmt.Errorf("its DACL carries an entry of type %d, which PMG does not evaluate", t)
+		}
+	}
+	return entries, nil
+}
+
 func aces(dacl *windows.ACL) ([]*windows.ACCESS_ALLOWED_ACE, error) {
 	out := make([]*windows.ACCESS_ALLOWED_ACE, 0, dacl.AceCount)
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
@@ -284,5 +404,22 @@ func sameAce(a, b *windows.ACCESS_ALLOWED_ACE) bool {
 	if a.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
 		return false
 	}
-	return (*windows.SID)(unsafe.Pointer(&a.SidStart)).Equals((*windows.SID)(unsafe.Pointer(&b.SidStart)))
+	return aceSid(a).Equals(aceSid(b))
+}
+
+// Allow and deny entries share one layout, and the SID follows the header.
+func aceSid(ace *windows.ACCESS_ALLOWED_ACE) *windows.SID {
+	return (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+}
+
+func isAdministrativeSid(sid *windows.SID) bool {
+	return sid.IsWellKnown(windows.WinBuiltinAdministratorsSid) || sid.IsWellKnown(windows.WinLocalSystemSid)
+}
+
+func accountName(sid *windows.SID) string {
+	account, domain, _, err := sid.LookupAccount("")
+	if err != nil {
+		return sid.String()
+	}
+	return domain + `\` + account
 }
