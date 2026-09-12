@@ -27,10 +27,9 @@ func warnShadowedManagers(binDir string) {
 		return
 	}
 
-	fmt.Printf("\n%s A shell resolves these managers ahead of the shims, so PMG does not intercept them:\n",
-		ui.Colors.Yellow("⚠"))
+	fmt.Printf("\n%s ", ui.Colors.Yellow("⚠"))
 	for _, line := range shadowedLines(shadowed) {
-		fmt.Printf("   %s\n", line)
+		fmt.Printf("%s\n", line)
 	}
 }
 
@@ -40,23 +39,20 @@ func shadowedFix(shadowed []shim.ManagerResolution) string {
 	return strings.Join(shadowedLines(shadowed), " ")
 }
 
+// shadowedLines names the managers once, then gives one action. The path
+// of each manager is in `pmg setup doctor --json` for whoever needs it.
 func shadowedLines(shadowed []shim.ManagerResolution) []string {
-	lines := make([]string, 0, len(shadowed))
+	names := make([]string, 0, len(shadowed))
+	profile := false
 	for _, r := range shadowed {
-		lines = append(lines, fmt.Sprintf("%s is %s. %s", r.Name, r.Path, shadowedAction(r)))
+		names = append(names, r.Name)
+		profile = profile || r.Origin == shim.OriginProfile
+	}
+	lines := []string{fmt.Sprintf("PMG does not intercept %s. Another copy is ahead of the shims on PATH.", strings.Join(names, ", "))}
+	if profile {
+		lines = append(lines, "A shell profile puts it there. Prefix the command with `pmg`, as in `pmg npm install`, or drop that line from the profile.")
+	} else {
+		lines = append(lines, "Run `pmg setup install --system` from a terminal started as administrator, or prefix the command with `pmg`, as in `pmg npm install`.")
 	}
 	return lines
-}
-
-// shadowedAction names what the user can do, which depends on where the
-// winning PATH entry came from. Only the user PATH is one PMG can reorder.
-func shadowedAction(r shim.ManagerResolution) string {
-	switch r.Origin {
-	case shim.OriginUser:
-		return "Run `pmg setup install` again to move the shims ahead of it."
-	case shim.OriginProfile:
-		return fmt.Sprintf("A shell profile puts that directory on PATH, where PMG cannot reorder it. Run it as `pmg %s`, or drop that line from the profile.", r.Name)
-	default:
-		return fmt.Sprintf("It is on the machine PATH, ahead of the user PATH. Run `pmg setup install --system` from a terminal started as administrator, or run it as `pmg %s`.", r.Name)
-	}
 }

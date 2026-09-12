@@ -2,6 +2,7 @@ package pty
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -67,11 +68,12 @@ func IsInteractiveTerminal() bool {
 var _ InteractiveSession = &session{}
 
 type session struct {
-	console  ptyx.Console
-	spawn    ptyx.Session
-	oldState ptyx.RawState // Saved terminal state for restoration
-	done     chan struct{}
-	stopOnce sync.Once
+	console       ptyx.Console
+	spawn         ptyx.Session
+	oldState      ptyx.RawState // Saved terminal state for restoration
+	restoreOutput func() error  // Undoes the console output flags the session set
+	done          chan struct{}
+	stopOnce      sync.Once
 }
 
 // SessionConfig holds options for creating a session
@@ -95,6 +97,21 @@ func NewSessionConfig(cmd string, args, env []string) SessionConfig {
 	}
 }
 
+func prepareConsole(
+	captureOutputMode func() func() error,
+	createConsole func() (ptyx.Console, error),
+) (ptyx.Console, func() error, error) {
+	restoreOutput := captureOutputMode()
+	c, err := createConsole()
+	if err != nil {
+		if restoreErr := restoreOutput(); restoreErr != nil {
+			err = errors.Join(err, fmt.Errorf("failed to restore console output mode: %w", restoreErr))
+		}
+		return nil, nil, err
+	}
+	return c, restoreOutput, nil
+}
+
 // NewSession creates a new interactive PTY session.
 // The terminal is put into raw mode automatically.
 func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, error) {
@@ -103,15 +120,17 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	}
 
 	// 1. Create console
-	c, err := ptyx.NewConsole()
+	c, restoreOutput, err := prepareConsole(saveConsoleOutputMode, ptyx.NewConsole)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create console: %w", err)
 	}
-	c.EnableVT()
 
 	// 2. Set raw mode, save old state
 	oldState, err := c.MakeRaw()
 	if err != nil {
+		if restoreErr := restoreOutput(); restoreErr != nil {
+			log.Warnf("failed to restore console output mode after MakeRaw error: %v", restoreErr)
+		}
 		if closeErr := c.Close(); closeErr != nil {
 			log.Warnf("failed to close console after MakeRaw error: %v", closeErr)
 		}
@@ -125,17 +144,25 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 	s, err := ptyx.Spawn(ctx, cfg.spawnOpts(cols, rows))
 	if err != nil {
 		// We are already in error state, restore and close is best effort.
-		_ = c.Restore(oldState)
-		_ = c.Close()
+		if restoreErr := c.Restore(oldState); restoreErr != nil {
+			log.Warnf("failed to restore console input mode after spawn error: %v", restoreErr)
+		}
+		if restoreErr := restoreOutput(); restoreErr != nil {
+			log.Warnf("failed to restore console output mode after spawn error: %v", restoreErr)
+		}
+		if closeErr := c.Close(); closeErr != nil {
+			log.Warnf("failed to close console after spawn error: %v", closeErr)
+		}
 
 		return nil, fmt.Errorf("failed to spawn: %w", err)
 	}
 
 	sess := &session{
-		console:  c,
-		spawn:    s,
-		oldState: oldState,
-		done:     make(chan struct{}),
+		console:       c,
+		spawn:         s,
+		oldState:      oldState,
+		restoreOutput: restoreOutput,
+		done:          make(chan struct{}),
 	}
 	go sess.forwardResize()
 
@@ -195,12 +222,23 @@ func (s *session) CopyOutputContext(ctx context.Context, dst io.Writer) error {
 }
 
 func (s *session) SetRawMode() error {
-	_, err := s.console.MakeRaw()
-	return err
+	if _, err := s.console.MakeRaw(); err != nil {
+		return err
+	}
+	s.console.EnableVT()
+	return nil
 }
 
 func (s *session) SetCookedMode() error {
-	return s.console.Restore(s.oldState)
+	if err := s.console.Restore(s.oldState); err != nil {
+		return err
+	}
+	if s.restoreOutput != nil {
+		if err := s.restoreOutput(); err != nil {
+			return fmt.Errorf("failed to restore console output mode: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *session) Wait() error {
@@ -217,20 +255,33 @@ func (s *session) Wait() error {
 func (s *session) Close() error {
 	s.stopOnce.Do(func() { close(s.done) })
 
+	var errs []error
+
 	// Always restore terminal state
 	if s.oldState != nil {
-		_ = s.console.Restore(s.oldState)
+		if err := s.console.Restore(s.oldState); err != nil {
+			errs = append(errs, fmt.Errorf("failed to restore console input mode: %w", err))
+		}
+	}
+	if s.restoreOutput != nil {
+		if err := s.restoreOutput(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to restore console output mode: %w", err))
+		}
 	}
 
 	if s.spawn != nil {
-		_ = s.spawn.Close()
+		if err := s.spawn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close pty session: %w", err))
+		}
 	}
 
 	if s.console != nil {
-		_ = s.console.Close()
+		if err := s.console.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close console: %w", err))
+		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // ExitError is returned when the child process exits with non-zero code

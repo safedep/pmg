@@ -9,7 +9,11 @@ import (
 	"github.com/safedep/pmg/sandbox"
 )
 
-// NewSandbox creates a platform-specific sandbox instance for Windows.
+// NewSandbox has no sandbox to create on Windows. Windows has no Landlock
+// or Seatbelt equivalent that fits the policy model.
 func NewSandbox() (sandbox.Sandbox, error) {
-	return nil, errors.New("sandbox not yet implemented for Windows")
+	return nil, errors.New("PMG has no sandbox on Windows")
 }
+
+// Supported reports whether PMG has a sandbox for this OS.
+func Supported() bool { return false }

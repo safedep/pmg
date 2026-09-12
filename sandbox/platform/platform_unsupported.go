@@ -13,3 +13,6 @@ import (
 func NewSandbox() (sandbox.Sandbox, error) {
 	return nil, errors.New("sandbox not supported on this platform")
 }
+
+// Supported reports whether PMG has a sandbox for this OS.
+func Supported() bool { return false }

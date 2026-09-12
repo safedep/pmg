@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -69,8 +70,9 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 			continue
 		}
 
-		profilePath := filepath.Join("profiles", entry.Name())
-		data, err := profilesFS.ReadFile(profilePath)
+		// embed.FS paths are always slash-separated, filepath.Join would
+		// break on Windows.
+		data, err := profilesFS.ReadFile(path.Join("profiles", entry.Name()))
 		if err != nil {
 			return fmt.Errorf("failed to read profile %s: %w", entry.Name(), err)
 		}
