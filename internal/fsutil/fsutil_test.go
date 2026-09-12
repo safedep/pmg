@@ -1,6 +1,7 @@
 package fsutil
 
 import (
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -24,4 +25,14 @@ func TestPathComparisonFoldsCaseOnWindowsOnly(t *testing.T) {
 	assert.Equal(t, foldsCase, SamePath("/Users/Dev/.pmg/bin", "/users/dev/.pmg/bin"))
 	assert.Equal(t, foldsCase, PathWithinDir("/Users/Dev/.pmg/bin/npm", "/users/dev/.pmg/bin"))
 	assert.True(t, SamePath("/Users/Dev/.pmg/bin", "/Users/Dev/.pmg/bin/"))
+}
+
+func TestPathWithinAny(t *testing.T) {
+	systemDir := filepath.Join("/", "usr", "local", "lib", "pmg", "bin")
+	userDir := filepath.Join("/", "home", "dev", ".pmg", "bin")
+	dirs := []string{systemDir, userDir}
+
+	assert.True(t, PathWithinAny(filepath.Join(systemDir, "npm"), dirs))
+	assert.True(t, PathWithinAny(filepath.Join(userDir, "pip"), dirs))
+	assert.False(t, PathWithinAny(filepath.Join("/", "usr", "bin", "yarn"), dirs))
 }

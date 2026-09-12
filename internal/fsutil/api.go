@@ -10,3 +10,14 @@ func SamePath(a, b string) bool { return samePath(a, b) }
 // It returns false when either path is empty.
 // It uses the same comparison rules as SamePath.
 func PathWithinDir(path, dir string) bool { return pathWithinDir(path, dir) }
+
+// PathWithinAny reports whether path sits inside any of dirs.
+// It uses the same comparison rules as PathWithinDir.
+func PathWithinAny(path string, dirs []string) bool {
+	for _, dir := range dirs {
+		if pathWithinDir(path, dir) {
+			return true
+		}
+	}
+	return false
+}
