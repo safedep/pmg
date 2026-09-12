@@ -121,3 +121,60 @@ jobs:
         env:
           PMG_MDM_E2E: "1"
         run: bash scripts/mdm/tests/standalone_linux_e2e_test.sh
+
+  # Windows has its own scripts, tests and lint. PSScriptAnalyzer ships on
+  # the runner image. The unit test runs in both hosts, because Intune runs
+  # Windows PowerShell and developers run PowerShell 7.
+  mdm-scripts-windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Lint Windows MDM scripts
+        run: |
+          $results = @()
+          foreach ($dir in 'scripts/mdm/windows', 'scripts/mdm/tests') {
+            $results += Invoke-ScriptAnalyzer -Path $dir -Recurse -Settings scripts/mdm/windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+          }
+          $results | Format-Table -AutoSize | Out-String | Write-Host
+          if ($results) { throw "PSScriptAnalyzer reported $($results.Count) findings" }
+
+      - name: Test installer behavior in PowerShell 7
+        run: pwsh -NoProfile -File scripts/mdm/tests/pmg_setup_install_windows_test.ps1
+
+      - name: Test installer behavior in Windows PowerShell
+        shell: powershell
+        run: powershell -NoProfile -File scripts/mdm/tests/pmg_setup_install_windows_test.ps1
+
+  mdm-scripts-windows-multifile-e2e:
+    runs-on: windows-latest
+    needs: mdm-scripts-windows-test
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The installer takes a sibling pmg.exe. The latest release does not
+      # carry the Windows system install yet, so the test installs this build.
+      - name: Build PMG
+        run: go build -o bin\pmg.exe .
+
+      - name: Test multifile scripts on Windows
+        env:
+          PMG_MDM_E2E: "1"
+          PMG_E2E_BINARY: ${{ github.workspace }}\bin\pmg.exe
+        run: pwsh -NoProfile -File scripts/mdm/tests/multifile_windows_e2e_test.ps1
