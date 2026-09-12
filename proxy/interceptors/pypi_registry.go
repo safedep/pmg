@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"net/url"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
@@ -21,6 +23,7 @@ type PypiRegistryInterceptor struct {
 	baseRegistryInterceptor
 	registryRequestMatcher
 	cooldownHandler *pypiCooldownHandler
+	artifacts       *artifactIndex
 }
 
 var _ proxy.Interceptor = (*PypiRegistryInterceptor)(nil)
@@ -52,6 +55,7 @@ func newPypiRegistryInterceptor(
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
 		cooldownHandler:        newPypiCooldownHandler(statsCollector),
+		artifacts:              newArtifactIndex(),
 	}
 }
 
@@ -66,21 +70,60 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 	return handleRegistryRequest(ctx, i.registries, "PyPI", i)
 }
 
-// handleMetadataRequest applies dependency cooldown to a metadata request.
-// Cooldown applies only to Simple API requests, since pip uses those, not
-// the JSON API, for version resolution.
+// resolveIndexedArtifact resolves an opaque download URL to an identity a
+// prior metadata response advertised for the same registry.
+func (i *PypiRegistryInterceptor) resolveIndexedArtifact(registryName string, requestURL *url.URL) (artifactIdentity, bool) {
+	return i.artifacts.Get(registryName, requestURL)
+}
+
+// handleMetadataRequest applies cooldown, artifact discovery, or both to a
+// metadata request. Discovery runs before cooldown so it always sees the
+// upstream index. Cooldown applies only to Simple API requests, since pip
+// uses those, not the JSON API, for version resolution.
 func (i *PypiRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	endpoint *registryEndpoint,
 	pkgInfo packageInfo,
+	requestURL *url.URL,
 ) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-	if !depCooldownConfig.Enabled || !pypiIsSimpleAPIMetadataRequest(pkgInfo) ||
-		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, denormalizePyPIPackageName(pkgInfo.GetName())) {
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	isSimpleAPIRequest := pypiIsSimpleAPIMetadataRequest(pkgInfo)
+
+	var cooldownModifier proxy.ResponseModifierFunc
+	if depCooldownConfig.Enabled && isSimpleAPIRequest {
+		canonicalName := denormalizePyPIPackageName(pkgInfo.GetName())
+		if !pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName) {
+			cooldownResp, err := i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+			if err != nil {
+				return nil, err
+			}
+			if cooldownResp.Action == proxy.ActionModifyResponse {
+				cooldownModifier = cooldownResp.ResponseModifier
+			}
+		}
 	}
 
-	return i.cooldownHandler.HandleMetadataRequest(ctx, pkgInfo.GetName(), depCooldownConfig.Days, i.execContext.PinnedVersions[pkgInfo.GetName()])
+	// Discovery applies only to a Simple API request on a custom registry.
+	// The JSON API and built-in registries never populate the index, so
+	// cooldown alone (or nothing) applies to them.
+	if endpoint.Source != registrySourceCustom || !isSimpleAPIRequest {
+		if cooldownModifier == nil {
+			log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
+			return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		}
+		return &proxy.InterceptorResponse{Action: proxy.ActionModifyResponse, ResponseModifier: cooldownModifier}, nil
+	}
+
+	// Discovery needs a parseable, always-fresh body even when cooldown does
+	// not run its own modifier, or the response could arrive compressed or
+	// as a bodyless 304.
+	forceUncompressedNonConditionalResponse(ctx.Headers)
+
+	discovery := pypiMetadataDiscoveryModifier(ctx, i.artifacts, i.registries, endpoint.Name, requestURL)
+	return &proxy.InterceptorResponse{
+		Action:           proxy.ActionModifyResponse,
+		ResponseModifier: chainResponseModifiers(discovery, cooldownModifier),
+	}, nil
 }
 
 // pypiIsSimpleAPIMetadataRequest reports whether a metadata request is

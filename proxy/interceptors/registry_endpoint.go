@@ -175,6 +175,22 @@ func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {
 	return &u
 }
 
+// registryURLHasCanonicalIdentity reports whether canonical parsing already
+// resolves u to a complete identity. Discovery must skip indexing such a
+// URL: canonical parsing is authoritative, and a stale or compromised index
+// entry must never be able to override it.
+func registryURLHasCanonicalIdentity(registries registrySet, u *url.URL) bool {
+	match := registries.MatchURL(u)
+	if match == nil {
+		return false
+	}
+	pkgInfo, err := match.Endpoint.Parser.ParseURL(match.RelativePath)
+	if err != nil {
+		return false
+	}
+	return packageInfoHasCompleteIdentity(pkgInfo)
+}
+
 func relativePath(path, basePath string) string {
 	relative := strings.TrimPrefix(path, basePath)
 	if relative == "" {
