@@ -10,17 +10,6 @@ import (
 	"github.com/safedep/pmg/internal/platform"
 )
 
-// PathOrigin is where the PATH entry that won a lookup came from. It aliases
-// the platform type, so doctor and its tests keep the shorter names.
-type PathOrigin = platform.PathOrigin
-
-const (
-	OriginUnknown = platform.PathOriginUnknown
-	OriginMachine = platform.PathOriginMachine
-	OriginUser    = platform.PathOriginUser
-	OriginProfile = platform.PathOriginProfile
-)
-
 // ManagerResolution is where one package manager resolves on the PATH a new
 // shell gets. UnderShim means the command runs through a pmg shim. Otherwise
 // a real npm or pip sits ahead of the shims and PMG does not see it.
@@ -28,7 +17,7 @@ type ManagerResolution struct {
 	Name      string
 	Path      string
 	UnderShim bool
-	Origin    PathOrigin
+	Origin    platform.PathOrigin
 }
 
 // InterceptionInspection is the PATH a new shell gets and where each
@@ -81,21 +70,11 @@ func InspectInterception(packageManagers, shimDirs []string) (InterceptionInspec
 		inspection.Resolutions = append(inspection.Resolutions, ManagerResolution{
 			Name:      pm,
 			Path:      resolved,
-			UnderShim: PathUnderAnyDir(resolved, shimDirs),
+			UnderShim: fsutil.PathWithinAny(resolved, shimDirs),
 			Origin:    origin,
 		})
 	}
 	return inspection, nil
-}
-
-// PathUnderAnyDir reports whether path sits inside one of dirs.
-func PathUnderAnyDir(path string, dirs []string) bool {
-	for _, dir := range dirs {
-		if fsutil.PathWithinDir(path, dir) {
-			return true
-		}
-	}
-	return false
 }
 
 // InspectShimFiles reads the shim of each package manager in shimDir and

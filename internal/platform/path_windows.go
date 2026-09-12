@@ -12,9 +12,10 @@ import (
 	"unsafe"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/internal/fsutil"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/safedep/pmg/internal/fsutil"
 )
 
 const pathValueName = "Path"
@@ -196,17 +197,16 @@ func NewShellPath() (ShellPath, error) {
 	}, nil
 }
 
-// A directory only the process PATH holds
+// LookPath resolves name the way a shell would and reports the PATH source
+// that held the winning directory. A directory only the process PATH holds
 // was added by a shell profile: `fnm env | Invoke-Expression` in $PROFILE
 // prepends a directory the registry never sees. Every shim directory is on
 // the registry PATH, so a shim never reads as profile-added. Anything else
 // takes the registry answer, so a shell started before the install does not
 // report a registered shim directory as absent.
-// LookPath resolves name the way a shell would and reports the PATH source
-// that held the winning directory.
 func (p ShellPath) LookPath(name string) (string, PathOrigin, error) {
 	if resolved, err := lookPathIn(name, p.process); err == nil &&
-		!pathWithinAny(resolved, p.machine) && !pathWithinAny(resolved, p.user) {
+		!fsutil.PathWithinAny(resolved, p.machine) && !fsutil.PathWithinAny(resolved, p.user) {
 		return resolved, PathOriginProfile, nil
 	}
 	resolved, err := lookPathIn(name, p.Entries)
@@ -219,23 +219,13 @@ func (p ShellPath) LookPath(name string) (string, PathOrigin, error) {
 // originOf names the PATH half that holds the directory of path. Windows
 // searches the machine half first, so it wins a directory in both.
 func originOf(path string, machine, user []string) PathOrigin {
-	if pathWithinAny(path, machine) {
+	if fsutil.PathWithinAny(path, machine) {
 		return PathOriginMachine
 	}
-	if pathWithinAny(path, user) {
+	if fsutil.PathWithinAny(path, user) {
 		return PathOriginUser
 	}
 	return PathOriginUnknown
-}
-
-// pathWithinAny reports whether path sits inside one of dirs.
-func pathWithinAny(path string, dirs []string) bool {
-	for _, dir := range dirs {
-		if fsutil.PathWithinDir(path, dir) {
-			return true
-		}
-	}
-	return false
 }
 
 // lookPathIn resolves a name over the given PATH entries with the PATHEXT
@@ -339,21 +329,48 @@ func broadcastEnvironmentChange() {
 	}
 }
 
-// RedirectUserPathForTest points the user PATH scope at a scratch key under
-// HKCU for a test, and returns a func that restores it. There is no env var
-// or flag for it; production never calls it.
-func RedirectUserPathForTest(key string) (restore func()) {
+// RedirectUserPathForTest creates a scratch key under HKCU, points the user
+// PATH scope at it, and returns a func that restores the scope and deletes
+// the key. There is no env var or flag for it; production never calls it.
+func RedirectUserPathForTest(key string) (restore func(), err error) {
+	if err := createScratchKey(key); err != nil {
+		return nil, err
+	}
 	orig := UserPath
 	UserPath.key = key
-	return func() { UserPath = orig }
+	return func() {
+		UserPath = orig
+		deleteScratchKey(key)
+	}, nil
 }
 
-// RedirectMachinePathForTest points the machine PATH scope at a scratch key
-// under HKCU for a test, and returns a func that restores it.
-func RedirectMachinePathForTest(key string) (restore func()) {
+// RedirectMachinePathForTest creates a scratch key under HKCU, points the
+// machine PATH scope at it, and returns a func that restores the scope and
+// deletes the key. HKLM needs elevation, and the code does not care which
+// root it opens.
+func RedirectMachinePathForTest(key string) (restore func(), err error) {
+	if err := createScratchKey(key); err != nil {
+		return nil, err
+	}
 	orig := MachinePath
 	MachinePath.root, MachinePath.key = registry.CURRENT_USER, key
-	return func() { MachinePath = orig }
+	return func() {
+		MachinePath = orig
+		deleteScratchKey(key)
+	}, nil
+}
+
+func createScratchKey(key string) error {
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, key, registry.ALL_ACCESS)
+	if err != nil {
+		return err
+	}
+	return k.Close()
+}
+
+func deleteScratchKey(key string) {
+	// Best-effort: a scratch key that outlives the test is harmless.
+	_ = registry.DeleteKey(registry.CURRENT_USER, key)
 }
 
 // WriteMachinePathForTest seeds the machine PATH scope with value as a

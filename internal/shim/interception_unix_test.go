@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestInspectInterception(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []ManagerResolution{
-		{Name: "npm", Path: filepath.Join(shimDir, "npm"), UnderShim: true, Origin: OriginUnknown},
-		{Name: "pip", Path: filepath.Join(nodeDir, "pip"), Origin: OriginUnknown},
+		{Name: "npm", Path: filepath.Join(shimDir, "npm"), UnderShim: true, Origin: platform.PathOriginUnknown},
+		{Name: "pip", Path: filepath.Join(nodeDir, "pip"), Origin: platform.PathOriginUnknown},
 	}, inspection.Resolutions, "configured order kept, unresolved manager omitted")
 }

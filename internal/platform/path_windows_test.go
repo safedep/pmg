@@ -16,32 +16,16 @@ import (
 // never edits the real HKCU\Environment.
 func redirectUserPath(t *testing.T) {
 	t.Helper()
-	keyPath := `Software\pmg-test-` + strings.ReplaceAll(t.Name(), "/", "_")
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
+	restore, err := RedirectUserPathForTest(`Software\pmg-plat-test-` + strings.ReplaceAll(t.Name(), "/", "_"))
 	require.NoError(t, err)
-	require.NoError(t, key.Close())
-
-	restore := RedirectUserPathForTest(keyPath)
-	t.Cleanup(func() {
-		restore()
-		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
-	})
+	t.Cleanup(restore)
 }
 
-// redirectMachinePath points the machine PATH scope at a scratch key under
-// HKCU. HKLM needs elevation, and the code does not care which root it opens.
 func redirectMachinePath(t *testing.T) {
 	t.Helper()
-	keyPath := `Software\pmg-test-machine-` + strings.ReplaceAll(t.Name(), "/", "_")
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
+	restore, err := RedirectMachinePathForTest(`Software\pmg-plat-test-machine-` + strings.ReplaceAll(t.Name(), "/", "_"))
 	require.NoError(t, err)
-	require.NoError(t, key.Close())
-
-	restore := RedirectMachinePathForTest(keyPath)
-	t.Cleanup(func() {
-		restore()
-		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
-	})
+	t.Cleanup(restore)
 }
 
 func TestLookPathIn(t *testing.T) {

@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+
 	"github.com/safedep/pmg/internal/alias"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 )
@@ -46,7 +48,7 @@ func shadowedLines(shadowed []shim.ManagerResolution) []string {
 	profile := false
 	for _, r := range shadowed {
 		names = append(names, r.Name)
-		profile = profile || r.Origin == shim.OriginProfile
+		profile = profile || r.Origin == platform.PathOriginProfile
 	}
 	lines := []string{fmt.Sprintf("PMG does not intercept %s. Another copy is ahead of the shims on PATH.", strings.Join(names, ", "))}
 	if profile {

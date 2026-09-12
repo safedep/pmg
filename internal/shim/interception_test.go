@@ -20,16 +20,6 @@ func TestInterceptionInspectionPartition(t *testing.T) {
 	assert.Equal(t, []ManagerResolution{shadowedResolution}, shadowed)
 }
 
-func TestPathUnderAnyDir(t *testing.T) {
-	systemDir := filepath.Join("/", "usr", "local", "lib", "pmg", "bin")
-	userDir := filepath.Join("/", "home", "dev", ".pmg", "bin")
-	dirs := []string{systemDir, userDir}
-
-	assert.True(t, PathUnderAnyDir(filepath.Join(systemDir, "npm"), dirs))
-	assert.True(t, PathUnderAnyDir(filepath.Join(userDir, "pip"), dirs))
-	assert.False(t, PathUnderAnyDir(filepath.Join("/", "usr", "bin", "yarn"), dirs))
-}
-
 // A shim names the pmg binary by absolute path at install time and nothing
 // updates it later. A second install, a moved binary, or a package upgrade
 // into a versioned directory leaves the shim naming another binary.

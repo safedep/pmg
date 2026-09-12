@@ -9,42 +9,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/windows/registry"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // isolateUserPath points the user PATH scope at a throwaway registry key, so
 // a test never edits the real HKCU\Environment. The scope lives in platform.
 func isolateUserPath(t *testing.T) {
 	t.Helper()
-	keyPath := `Software\pmg-test-` + strings.ReplaceAll(t.Name(), "/", "_")
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
+	restore, err := platform.RedirectUserPathForTest(`Software\pmg-shim-test-` + strings.ReplaceAll(t.Name(), "/", "_"))
 	require.NoError(t, err)
-	require.NoError(t, key.Close())
-
-	restore := platform.RedirectUserPathForTest(keyPath)
-	t.Cleanup(func() {
-		restore()
-		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
-	})
+	t.Cleanup(restore)
 }
 
-// isolateMachinePath points the machine PATH scope at a scratch key under
-// HKCU. HKLM needs elevation, and the code does not care which root it opens.
 func isolateMachinePath(t *testing.T) {
 	t.Helper()
-	keyPath := `Software\pmg-test-machine-` + strings.ReplaceAll(t.Name(), "/", "_")
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
+	restore, err := platform.RedirectMachinePathForTest(`Software\pmg-shim-test-machine-` + strings.ReplaceAll(t.Name(), "/", "_"))
 	require.NoError(t, err)
-	require.NoError(t, key.Close())
-
-	restore := platform.RedirectMachinePathForTest(keyPath)
-	t.Cleanup(func() {
-		restore()
-		require.NoError(t, registry.DeleteKey(registry.CURRENT_USER, keyPath))
-	})
+	t.Cleanup(restore)
 }
 
 func TestShimManagerInstallWritesCmdShims(t *testing.T) {
