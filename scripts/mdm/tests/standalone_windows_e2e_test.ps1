@@ -42,7 +42,7 @@ try {
 
   Write-Step "Testing the standalone installer with release $env:PMG_VERSION, embedded config and credentials"
   Reset-WrapperCapture
-  Assert-Equal 0 (Invoke-Script -Path $Installer -Environment @{ PMG_VERSION = $env:PMG_VERSION }) 'standalone installer exit code'
+  Assert-Equal 0 (Invoke-Script -Path $Installer) 'standalone installer exit code'
   Assert-Installed -ConfigSource $env:PMG_E2E_CONFIG
   $version = Invoke-Pmg -ArgumentList @('version')
   $expected = $env:PMG_VERSION.TrimStart('v')
