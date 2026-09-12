@@ -19,6 +19,7 @@ STANDALONE_DEFAULT_OUTPUT_DIR="${SCRIPT_DIR}/standalone"
 STANDALONE_INSTALL_NAME="pmg_setup_install_windows_standalone.ps1"
 STANDALONE_UNINSTALL_NAME="pmg_uninstall_windows_standalone.ps1"
 STANDALONE_GENERATOR="generate_standalone_windows.sh"
+STANDALONE_MAX_SIZE=204800
 
 # PowerShell has no shebang and no shellcheck directive. The entry scripts
 # dot-source the lib, and the uninstaller needs no placeholder for it.

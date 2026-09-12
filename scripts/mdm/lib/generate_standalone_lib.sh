@@ -41,6 +41,7 @@ STANDALONE_CLOUD_TENANT_ID=""
 #                                — what replaces the source line in the
 #                                  uninstaller, default `: "$SCRIPT_DIR"`.
 #                                  Empty emits no line.
+#   STANDALONE_MAX_SIZE          — maximum output size in bytes, default 1 MiB
 # and redefine these functions after sourcing this file:
 #   generate_standalone_embed_line <name> <value>  — one embedded value line
 #   generate_standalone_syntax_check <file>        — a syntax check, default bash -n
@@ -146,8 +147,9 @@ generate_standalone_generate_script() {
   fi
 
   size=$(wc -c < "$output_file")
-  [[ "$size" -lt 1048576 ]] ||
-    generate_standalone_die "$output_file must be smaller than 1048576 bytes"
+  local max_size="${STANDALONE_MAX_SIZE-1048576}"
+  [[ "$size" -lt "$max_size" ]] ||
+    generate_standalone_die "$output_file must be smaller than $max_size bytes"
 }
 
 generate_standalone_generate_scripts() {

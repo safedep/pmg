@@ -91,12 +91,12 @@ assert_fails "$GENERATOR" --config "${TEST_ROOT}/empty.yml" --output-dir "${TEST
 assert_fails "$GENERATOR" --config "$CONFIG"
 
 OVERSIZED_CONFIG="${TEST_ROOT}/oversized.yml"
-awk 'BEGIN { printf "padding: "; for (i = 0; i < 800000; i++) printf "x"; printf "\n" }' > "$OVERSIZED_CONFIG"
+awk 'BEGIN { printf "padding: "; for (i = 0; i < 160000; i++) printf "x"; printf "\n" }' > "$OVERSIZED_CONFIG"
 OVERSIZED_STDERR="${TEST_ROOT}/oversized.stderr"
 if "$GENERATOR" --config "$OVERSIZED_CONFIG" --output-dir "${TEST_ROOT}/oversized-output" >/dev/null 2>"$OVERSIZED_STDERR"; then
-  fail "an installer larger than 1 MB must be refused"
+  fail "an installer larger than 200 KB must be refused"
 fi
-assert_contains "$OVERSIZED_STDERR" "must be smaller than 1048576 bytes"
+assert_contains "$OVERSIZED_STDERR" "must be smaller than 204800 bytes"
 assert_absent "${TEST_ROOT}/oversized-output/${INSTALL_NAME}"
 
 # Credentials never reach a child process of the generator, and never
