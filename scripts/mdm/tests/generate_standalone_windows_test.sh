@@ -58,6 +58,18 @@ assert_contains "$INSTALL_ONE" 'function Set-UserCloud'
 assert_contains "$UNINSTALL_ONE" 'function Remove-UserState'
 assert_contains "$UNINSTALL_ONE" 'function Remove-Binary'
 
+CRLF_ROOT="${TEST_ROOT}/crlf-source"
+mkdir -p "$CRLF_ROOT/lib" "$CRLF_ROOT/windows"
+cp "$GENERATOR" "$CRLF_ROOT/generate_standalone_windows.sh"
+cp "${SCRIPT_DIR}/lib/generate_standalone_lib.sh" "$CRLF_ROOT/lib/generate_standalone_lib.sh"
+for source in lib_windows.ps1 pmg_setup_install_windows.ps1 pmg_uninstall_windows.ps1; do
+  awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' "${SCRIPT_DIR}/windows/${source}" > "$CRLF_ROOT/windows/${source}"
+done
+CRLF_OUT="${TEST_ROOT}/crlf-output"
+"$CRLF_ROOT/generate_standalone_windows.sh" --output-dir "$CRLF_OUT"
+cmp "$INSTALL_ONE" "$CRLF_OUT/$INSTALL_NAME"
+cmp "$UNINSTALL_ONE" "$CRLF_OUT/$UNINSTALL_NAME"
+
 # The committed standalone scripts match the sources.
 "$GENERATOR" --check
 
