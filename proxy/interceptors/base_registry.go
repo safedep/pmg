@@ -325,8 +325,7 @@ type registryRequestHandler interface {
 
 // handleRegistryRequest is the shared registry request flow: match the
 // endpoint, gate on reads, parse the URL, and dispatch to the ecosystem's
-// artifact or metadata handler. It fails open. PMG allows a request
-// without analysis when it cannot parse a package identity from the URL.
+// artifact or metadata handler. Paranoid mode blocks unresolved identities.
 func handleRegistryRequest(
 	ctx *proxy.RequestContext,
 	registries registrySet,
@@ -358,22 +357,34 @@ func handleRegistryRequest(
 
 	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
 
-	if parseErr == nil && packageInfoHasCompleteIdentity(pkgInfo) {
+	if parseErr == nil && pkgInfo != nil && packageInfoHasCompleteIdentity(pkgInfo) {
 		return handler.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	if parseErr != nil {
 		logRegistryParseFailure(ctx, endpoint, ecosystemLabel, parseErr)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return unresolvedRegistryIdentity(ctx), nil
+	}
+	if pkgInfo == nil {
+		return unresolvedRegistryIdentity(ctx), nil
 	}
 
 	if !pkgInfo.IsFileDownload() {
 		return handler.handleMetadataRequest(ctx, pkgInfo)
 	}
 
-	// A file-download parse without a complete identity: nothing reliable
-	// to analyze against. URLs that carry no identity at all (opaque
-	// download URLs some registries serve) land here too and are allowed
-	// without analysis.
-	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+	return unresolvedRegistryIdentity(ctx), nil
+}
+
+func unresolvedRegistryIdentity(ctx *proxy.RequestContext) *proxy.InterceptorResponse {
+	rc := config.Get()
+	if rc.Config.Paranoid && !rc.InsecureInstallation {
+		log.Warnf("[%s] Paranoid mode blocked a registry request with an unresolved package identity", ctx.RequestID)
+		return &proxy.InterceptorResponse{
+			Action:       proxy.ActionBlock,
+			BlockCode:    http.StatusForbidden,
+			BlockMessage: "PMG blocked this registry request because paranoid mode is enabled. PMG could not identify the package from the URL. Check the registry URL or disable paranoid mode to allow requests without analysis.",
+		}
+	}
+	return &proxy.InterceptorResponse{Action: proxy.ActionAllow}
 }

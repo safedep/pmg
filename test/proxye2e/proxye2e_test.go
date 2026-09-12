@@ -473,8 +473,238 @@ func TestProxyFlow_NonMitmHostStaysHermetic(t *testing.T) {
 		"non-MITM CONNECT tunnel must be dialed through the mock override")
 }
 
+func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
+	var cases []TestCase
+	for _, endpoint := range []struct {
+		name string
+		host string
+		path string
+	}{
+		{name: "PyPI artifact", host: "files.pythonhosted.org", path: "/packages/invalid.whl"},
+		{name: "PyPI Simple API artifact", host: "pypi.org", path: "/simple/demo/invalid.whl"},
+		{name: "npm artifact", host: "registry.npmjs.org", path: "/demo/-/invalid.tgz"},
+		{name: "wheel with extra components", host: "files.pythonhosted.org", path: "/packages/pkg-1.0.0-1local-1-py3-none-any.whl"},
+	} {
+		for _, mode := range []struct {
+			name     string
+			paranoid bool
+		}{
+			{name: "default"},
+			{name: "paranoid", paranoid: true},
+		} {
+			cases = append(cases, TestCase{
+				Name: endpoint.name + " in " + mode.name + " mode",
+				Config: func(rc *config.RuntimeConfig) {
+					rc.Config.Paranoid = mode.paranoid
+					rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 30}
+				},
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					res.add(h.get("https://"+endpoint.host+endpoint.path, nil))
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					require.Len(t, res.Requests, 1)
+					require.NoError(t, res.Requests[0].Err)
+					assert.Equal(t, mode.paranoid, res.Blocked())
+					assert.Equal(t, !mode.paranoid, h.Registry.Requested(endpoint.host, endpoint.path))
+					assert.Empty(t, h.Analyzer.Calls())
+					if mode.paranoid {
+						assert.Contains(t, res.Requests[0].Body, "could not identify the package")
+					}
+				},
+			})
+		}
+	}
+	cases = append(cases, TestCase{
+		Name: "paranoid mode permits a clean PyPI install",
+		Config: func(rc *config.RuntimeConfig) {
+			rc.Config.Paranoid = true
+		},
+		Setup: func(h *Harness) {
+			h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{{Version: "1.0.0", PublishedAt: old()}}})
+			h.Analyzer.SetPypi("demo", "1.0.0", Clean())
+		},
+		Exec: func(h *Harness) ExecResult { return h.Pypi().Install("demo", "1.0.0") },
+		Assert: func(t *testing.T, h *Harness, res ExecResult) {
+			assert.False(t, res.Blocked())
+			assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.0.0"))
+		},
+	})
+	RunCases(t, cases)
+}
+
+func TestProxyFlow_NpmRegistryAPI(t *testing.T) {
+	var cases []TestCase
+	for _, path := range []string{"/-/v1/search", "/-/package/demo/dist-tags", "/-/package/@scope/demo/dist-tags", "/-/ping"} {
+		cases = append(cases, TestCase{
+			Name: path,
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.Paranoid = true
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.get("https://registry.npmjs.org"+path, nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 1)
+				require.NoError(t, res.Requests[0].Err)
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.Requested("registry.npmjs.org", path))
+				assert.Empty(t, h.Analyzer.Calls())
+				assert.Empty(t, h.CooldownBlocks())
+			},
+		})
+	}
+	RunCases(t, cases)
+}
+
+func TestProxyFlow_PypiCoreMetadata(t *testing.T) {
+	const filename = "demo-1.0.0-py3-none-any.whl"
+	const filePath = "/packages/source/d/demo/" + filename
+	const metadata = "Metadata-Version: 2.1\nName: demo\nVersion: 1.0.0\n\n"
+	var cases []TestCase
+	for _, tt := range []struct {
+		name    string
+		verdict Verdict
+		blocked bool
+	}{
+		{name: "clean wheel", verdict: Clean()},
+		{name: "malicious wheel", verdict: VerifiedMalware(), blocked: true},
+	} {
+		cases = append(cases, TestCase{
+			Name: tt.name,
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.Paranoid = true
+				rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{{
+					Version: "1.0.0", PublishedAt: old(), Filename: filename, CoreMetadata: []byte(metadata),
+				}}})
+				h.Analyzer.SetPypi("demo", "1.0.0", tt.verdict)
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				simple := h.Pypi().FetchSimple("demo")
+				require.NoError(h.t, simple.Outcome.Err)
+				require.Equal(h.t, http.StatusOK, simple.Outcome.StatusCode)
+				require.Len(h.t, simple.Files, 1)
+				require.Contains(h.t, simple.Outcome.Body, `"core-metadata":true`)
+				res.add(simple.Outcome)
+				core := h.Pypi().Download(simple.Files[0].URL + ".metadata")
+				require.NoError(h.t, core.Err)
+				require.Equal(h.t, http.StatusOK, core.StatusCode)
+				require.Equal(h.t, metadata, core.Body)
+				require.Empty(h.t, h.Analyzer.Calls())
+				res.add(core)
+				res.add(h.Pypi().Download(simple.Files[0].URL))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 3)
+				require.NoError(t, res.Requests[2].Err)
+				assert.Equal(t, tt.blocked, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", "1.0.0"))
+				assert.True(t, h.Registry.Requested("files.pythonhosted.org", filePath+".metadata"))
+				assert.Equal(t, !tt.blocked, h.Registry.Requested("files.pythonhosted.org", filePath))
+				if !tt.blocked {
+					assert.Equal(t, http.StatusOK, res.Requests[2].StatusCode)
+				}
+			},
+		})
+	}
+	RunCases(t, cases)
+}
+
+func TestProxyFlow_PypiVersionNormalization(t *testing.T) {
+	var cases []TestCase
+	for _, version := range []struct {
+		raw  string
+		want string
+	}{
+		{raw: "0!1.0", want: "1.0"},
+		{raw: "1.0RC1", want: "1.0rc1"},
+		{raw: "1.0.0", want: "1.0.0"},
+	} {
+		for _, suffix := range []string{".tar.gz", "-1local-py3-none-any.whl"} {
+			path := "/packages/demo-" + version.raw + suffix
+			cases = append(cases, TestCase{
+				Name: path,
+				Setup: func(h *Harness) {
+					h.Analyzer.SetPypi("demo", version.want, VerifiedMalware())
+				},
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					res.add(h.get("https://files.pythonhosted.org"+path, nil))
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					assert.True(t, res.Blocked())
+					assert.Equal(t, 1, h.Analyzer.AnalyzedCount("demo", version.want))
+					assert.Len(t, h.Analyzer.Calls(), 1)
+					assert.False(t, h.Registry.Requested("files.pythonhosted.org", path))
+				},
+			})
+		}
+	}
+	RunCases(t, cases)
+}
+
 func TestProxyFlow_Pypi(t *testing.T) {
 	RunCases(t, []TestCase{
+		{
+			Name: "epoch sdist malware is blocked",
+			Setup: func(h *Harness) {
+				h.Analyzer.SetPypi("epoch-canary", "1!2.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.get("https://files.pythonhosted.org/packages/source/epoch_canary-1!2.0.tar.gz", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("epoch-canary", "1!2.0"))
+				assert.False(t, h.Registry.Requested("files.pythonhosted.org", "/packages/source/epoch_canary-1!2.0.tar.gz"))
+			},
+		},
+		{
+			Name: "wheel malware with a build suffix is blocked",
+			Setup: func(h *Harness) {
+				h.Analyzer.SetPypi("wheel-canary", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.get("https://files.pythonhosted.org/packages/source/wheel_canary-1.0.0-1local-py3-none-any.whl", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("wheel-canary", "1.0.0"))
+				assert.Len(t, h.Analyzer.Calls(), 1)
+				assert.False(t, h.Registry.Requested("files.pythonhosted.org", "/packages/source/wheel_canary-1.0.0-1local-py3-none-any.whl"))
+			},
+		},
+		{
+			Name:   "cooldown removes a recent epoch release",
+			Config: cooldownEnabled(2),
+			Setup: func(h *Harness) {
+				h.Registry.AddPypi(PypiPackage{Name: "epoch_canary", Versions: []PypiVersion{
+					{Version: "2.0", PublishedAt: old()},
+					{Version: "1!2.0", PublishedAt: recent()},
+				}})
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install("epoch_canary", "1!2.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				simple := h.Pypi().FetchSimple("epoch_canary")
+				assert.False(t, simple.HasVersion("epoch_canary", "1!2.0"))
+				assert.True(t, simple.HasVersion("epoch_canary", "2.0"))
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
 		{
 			Name: "clean package is analyzed and allowed",
 			Setup: func(h *Harness) {
