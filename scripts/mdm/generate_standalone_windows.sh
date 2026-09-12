@@ -51,7 +51,7 @@ generate_standalone_syntax_check() {
       $errors | ForEach-Object { [Console]::Error.WriteLine($_) }
       exit 1
     }
-  ' "$1"
+  '
 }
 
 generate_standalone_credential_permissions_warning() {

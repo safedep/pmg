@@ -64,7 +64,7 @@ assert_fails env PATH="${SYNTAX_CHECK_BIN}:${PATH}" \
   "$GENERATOR" --output-dir "${TEST_ROOT}/syntax-check-failure"
 cat > "${SYNTAX_CHECK_BIN}/pwsh" <<'PWSH'
 #!/bin/bash
-[[ -n "${PMG_MDM_SYNTAX_FILE:-}" && -f "$PMG_MDM_SYNTAX_FILE" ]]
+[[ "$#" -eq 4 && -n "${PMG_MDM_SYNTAX_FILE:-}" && -f "$PMG_MDM_SYNTAX_FILE" ]]
 PWSH
 chmod 0755 "${SYNTAX_CHECK_BIN}/pwsh"
 env PATH="${SYNTAX_CHECK_BIN}:${PATH}" \
