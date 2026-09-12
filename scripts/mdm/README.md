@@ -249,6 +249,13 @@ Regenerate the installer with the managed config embedded:
 
 The uninstaller never contains the embedded config. The generators are bash scripts. On Windows, run them in Git Bash.
 
+Git Bash cannot restrict the Windows ACL with `chmod`. If the Windows installer contains credentials, restrict its ACL from PowerShell:
+
+```powershell
+icacls .\pmg_setup_install_windows_standalone.ps1 /inheritance:r `
+  /grant:r "BUILTIN\Administrators:F" "NT AUTHORITY\SYSTEM:F"
+```
+
 ### Cloud credentials
 
 Single-script MDMs (like Intune) have no script parameters, so cloud credentials must be embedded at generation time. The generator reads them from the `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` environment variables. Set them however you manage secrets (shell, CI, secrets manager):
@@ -262,7 +269,7 @@ SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
 
 With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: true` in it) to the same command.
 
-**Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. Use a scoped and revocable API key, and never commit the generated artifacts.
+**Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. A credential-bearing installer is a secret. Use a scoped and revocable API key. Never commit it or put it on a file share.
 
 The credential installer has mode `0700`. The uninstaller has no embedded credentials.
 

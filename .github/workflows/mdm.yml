@@ -204,17 +204,16 @@ jobs:
     runs-on: windows-latest
     needs: [mdm-scripts-windows-test, mdm-scripts-windows-generate]
     timeout-minutes: 20
+    env:
+      # This is the first release with the Windows system install.
+      # Bump it intentionally to keep this download test reproducible.
+      PMG_VERSION: v0.29.0-edge.3
     defaults:
       run:
         shell: pwsh
     steps:
-      # Full history: the test installs the release of the nearest tag, so
-      # the download and checksum path runs before a stable release carries
-      # the Windows system install.
       - name: Checkout Source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
 
       - name: Generate the standalone installer with embedded config and credentials
         shell: bash
@@ -224,7 +223,6 @@ jobs:
         run: |
           printf 'paranoid: true\ncloud:\n  enabled: true\n' > "$RUNNER_TEMP/config.yml"
           bash scripts/mdm/generate_standalone_windows.sh --config "$RUNNER_TEMP/config.yml" --embed-cloud-credentials --output-dir "$RUNNER_TEMP/standalone"
-          echo "PMG_VERSION=$(git describe --tags --abbrev=0)" >> "$GITHUB_ENV"
 
       - name: Test standalone scripts on Windows
         env:

@@ -556,6 +556,9 @@ function Install-Binary {
   New-Item -ItemType Directory -Path $ProductDir -Force | Out-Null
   $sibling = Join-Path $PSScriptRoot 'pmg.exe'
   if (Test-Path -LiteralPath $sibling -PathType Leaf) {
+    if (-not (Test-AdministrativeOwner -Acl (Get-Acl -LiteralPath $sibling))) {
+      Fail "$sibling is not owned by Administrators or SYSTEM"
+    }
     Write-Info "Installing pmg from $sibling"
     Copy-Binary -Source $sibling
     return

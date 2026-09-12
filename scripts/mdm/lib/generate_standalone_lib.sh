@@ -29,19 +29,15 @@ STANDALONE_CLOUD_TENANT_ID=""
 #   STANDALONE_GENERATOR         — wrapper file name, used in the generated
 #                                  comment so --check cmp stays byte-exact
 #
-# A wrapper for another script language may also set these. The defaults
-# produce the bash output:
-#   STANDALONE_HEADER            — first output line, default the bash shebang.
-#                                  Empty emits no line.
+# A wrapper for another script language must also set these:
+#   STANDALONE_HEADER            — first output line. Empty emits no line.
 #   STANDALONE_SOURCE_LINE       — the line in the entry scripts that loads the
 #                                  lib, dropped from the output
-#   STANDALONE_SKIP_LINE         — one more line to drop, default the shellcheck
-#                                  directive. Empty drops nothing.
+#   STANDALONE_SKIP_LINE         — one more line to drop. Empty drops nothing.
 #   STANDALONE_UNINSTALL_SOURCE_REPLACEMENT
 #                                — what replaces the source line in the
-#                                  uninstaller, default `: "$SCRIPT_DIR"`.
-#                                  Empty emits no line.
-#   STANDALONE_MAX_SIZE          — maximum output size in bytes, default 1 MiB
+#                                  uninstaller. Empty emits no line.
+#   STANDALONE_MAX_SIZE          — maximum output size in bytes
 # and redefine these functions after sourcing this file:
 #   generate_standalone_embed_line <name> <value>  — one embedded value line
 #   generate_standalone_syntax_check <file>        — a syntax check, default bash -n
@@ -72,14 +68,15 @@ generate_standalone_syntax_check() {
   bash -n "$1"
 }
 
+generate_standalone_credential_permissions_warning() {
+  :
+}
+
 generate_standalone_emit_entry() {
   local entry_source="$1"
   local skip_line="$2"
   local source_line="$3"
-  local default_replacement replacement
-  # shellcheck disable=SC2016 # literal by design, it is emitted as is
-  printf -v default_replacement ': "%s"' '$SCRIPT_DIR'
-  replacement="${STANDALONE_UNINSTALL_SOURCE_REPLACEMENT-$default_replacement}"
+  local replacement="$STANDALONE_UNINSTALL_SOURCE_REPLACEMENT"
   local line
   local first_line=1
 
@@ -111,14 +108,9 @@ generate_standalone_generate_script() {
   local encoded_tenant_id="$5"
   local mode="$6"
   local size
-  local skip_line="${STANDALONE_SKIP_LINE-# shellcheck source=${STANDALONE_LIB_SOURCE##*/}}"
-  local header="${STANDALONE_HEADER-#!/bin/bash}"
-  local source_line
-  # Single-quoted format is literal by design: ${SCRIPT_DIR} must appear
-  # verbatim in the emitted output, not expand here.
-  # shellcheck disable=SC2016
-  printf -v source_line 'source "${SCRIPT_DIR}/%s"' "${STANDALONE_LIB_SOURCE##*/}"
-  source_line="${STANDALONE_SOURCE_LINE-$source_line}"
+  local skip_line="$STANDALONE_SKIP_LINE"
+  local header="$STANDALONE_HEADER"
+  local source_line="$STANDALONE_SOURCE_LINE"
 
   {
     if [[ -n "$header" ]]; then
@@ -148,7 +140,7 @@ generate_standalone_generate_script() {
   fi
 
   size=$(wc -c < "$output_file")
-  local max_size="${STANDALONE_MAX_SIZE-1048576}"
+  local max_size="$STANDALONE_MAX_SIZE"
   [[ "$size" -lt "$max_size" ]] ||
     generate_standalone_die "$output_file must be smaller than $max_size bytes"
 }
@@ -210,6 +202,7 @@ generate_standalone_generate_scripts() {
 
   if [[ "$embed_cloud_credentials" -eq 1 ]]; then
     echo "Warning: generated installer contains recoverable cloud credentials" >&2
+    generate_standalone_credential_permissions_warning
   fi
 }
 

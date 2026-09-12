@@ -19,7 +19,7 @@ STANDALONE_DEFAULT_OUTPUT_DIR="${SCRIPT_DIR}/standalone"
 STANDALONE_INSTALL_NAME="pmg_setup_install_windows_standalone.ps1"
 STANDALONE_UNINSTALL_NAME="pmg_uninstall_windows_standalone.ps1"
 STANDALONE_GENERATOR="generate_standalone_windows.sh"
-STANDALONE_MAX_SIZE=204800
+STANDALONE_MAX_SIZE=200000
 
 # PowerShell has no shebang and no shellcheck directive. The entry scripts
 # dot-source the lib, and the uninstaller needs no placeholder for it.
@@ -32,14 +32,34 @@ STANDALONE_UNINSTALL_SOURCE_REPLACEMENT=""
 # shellcheck source=lib/generate_standalone_lib.sh
 source "${SCRIPT_DIR}/lib/generate_standalone_lib.sh"
 
-# An embedded value is a PowerShell variable. PSScriptAnalyzer checks the
-# output in CI, so no syntax check runs here.
 generate_standalone_embed_line() {
   printf "\$%s='%s'\n" "$1" "$2"
 }
 
 generate_standalone_syntax_check() {
-  :
+  local powershell
+  powershell=$(command -v pwsh || command -v powershell || true)
+  if [[ -z "$powershell" ]]; then
+    echo "Warning: PowerShell is not available. The generated script was not parsed." >&2
+    return
+  fi
+  # shellcheck disable=SC2016 # PowerShell expands the command.
+  "$powershell" -NoProfile -NonInteractive -Command '
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$null, [ref]$errors) | Out-Null
+    if ($errors) {
+      $errors | ForEach-Object { [Console]::Error.WriteLine($_) }
+      exit 1
+    }
+  ' "$1"
+}
+
+generate_standalone_credential_permissions_warning() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      echo "Warning: file modes do not protect credentials on this Windows host. Restrict the installer ACL." >&2
+      ;;
+  esac
 }
 
 STANDALONE_CLOUD_API_KEY="$CAPTURED_API_KEY"

@@ -53,7 +53,19 @@ done
 cmp "$INSTALL_ONE" "${OUT_TWO}/${INSTALL_NAME}"
 cmp "$UNINSTALL_ONE" "${OUT_TWO}/${UNINSTALL_NAME}"
 
+SYNTAX_CHECK_BIN="${TEST_ROOT}/syntax-check-bin"
+mkdir -p "$SYNTAX_CHECK_BIN"
+cat > "${SYNTAX_CHECK_BIN}/pwsh" <<'PWSH'
+#!/bin/bash
+exit 7
+PWSH
+chmod 0755 "${SYNTAX_CHECK_BIN}/pwsh"
+assert_fails env PATH="${SYNTAX_CHECK_BIN}:${PATH}" \
+  "$GENERATOR" --output-dir "${TEST_ROOT}/syntax-check-failure"
+
 assert_contains "$INSTALL_ONE" 'function Install-Binary'
+# shellcheck disable=SC2016 # The assertion matches emitted PowerShell.
+assert_contains "$INSTALL_ONE" 'Test-AdministrativeOwner -Acl (Get-Acl -LiteralPath $sibling)'
 assert_contains "$INSTALL_ONE" 'function Set-UserCloud'
 assert_contains "$UNINSTALL_ONE" 'function Remove-UserState'
 assert_contains "$UNINSTALL_ONE" 'function Remove-Binary'
@@ -108,7 +120,7 @@ OVERSIZED_STDERR="${TEST_ROOT}/oversized.stderr"
 if "$GENERATOR" --config "$OVERSIZED_CONFIG" --output-dir "${TEST_ROOT}/oversized-output" >/dev/null 2>"$OVERSIZED_STDERR"; then
   fail "an installer larger than 200 KB must be refused"
 fi
-assert_contains "$OVERSIZED_STDERR" "must be smaller than 204800 bytes"
+assert_contains "$OVERSIZED_STDERR" "must be smaller than 200000 bytes"
 assert_absent "${TEST_ROOT}/oversized-output/${INSTALL_NAME}"
 
 # Credentials never reach a child process of the generator, and never
@@ -149,6 +161,21 @@ embedded_api_key=$(grep -Fm1 "EMBEDDED_SAFEDEP_API_KEY_B64='" "$CREDENTIAL_INSTA
 embedded_tenant_id=$(grep -Fm1 "EMBEDDED_SAFEDEP_TENANT_ID_B64='" "$CREDENTIAL_INSTALL" | cut -d"'" -f2 | decode_base64)
 assert_equals "$TEST_API_KEY" "$embedded_api_key" "embedded API key"
 assert_equals "$TEST_TENANT_ID" "$embedded_tenant_id" "embedded tenant ID"
+
+WINDOWS_HOST_BIN="${TEST_ROOT}/windows-host-bin"
+mkdir -p "$WINDOWS_HOST_BIN"
+cat > "${WINDOWS_HOST_BIN}/uname" <<'UNAME'
+#!/bin/bash
+printf '%s\n' 'MSYS_NT-10.0'
+UNAME
+chmod 0755 "${WINDOWS_HOST_BIN}/uname"
+WINDOWS_CREDENTIAL_STDERR="${TEST_ROOT}/windows-credential.stderr"
+PATH="${WINDOWS_HOST_BIN}:${PATH}" \
+  SAFEDEP_API_KEY="$TEST_API_KEY" SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \
+  "$GENERATOR" --embed-cloud-credentials --output-dir "${TEST_ROOT}/windows-credentials" \
+  >/dev/null 2>"$WINDOWS_CREDENTIAL_STDERR"
+assert_contains "$WINDOWS_CREDENTIAL_STDERR" \
+  "Warning: file modes do not protect credentials on this Windows host"
 
 CREDENTIALS_ONLY_OUT="${TEST_ROOT}/credentials-only"
 SAFEDEP_API_KEY="$TEST_API_KEY" SAFEDEP_TENANT_ID="$TEST_TENANT_ID" \

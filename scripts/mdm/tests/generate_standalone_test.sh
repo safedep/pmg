@@ -47,6 +47,16 @@ run_generator_tests() {
   cmp "$INSTALL_ONE" "$INSTALL_TWO"
   cmp "$UNINSTALL_ONE" "$UNINSTALL_TWO"
 
+  AMBIENT_OUT="${TEST_ROOT}/ambient-overrides"
+  STANDALONE_HEADER="" \
+    STANDALONE_SKIP_LINE="ambient skip" \
+    STANDALONE_SOURCE_LINE="ambient source" \
+    STANDALONE_UNINSTALL_SOURCE_REPLACEMENT="ambient replacement" \
+    STANDALONE_MAX_SIZE=99999999 \
+    "$GENERATOR" --output-dir "$AMBIENT_OUT"
+  cmp "$INSTALL_ONE" "${AMBIENT_OUT}/pmg_setup_install_${os}_standalone.sh"
+  cmp "$UNINSTALL_ONE" "${AMBIENT_OUT}/pmg_uninstall_${os}_standalone.sh"
+
   assert_contains "$INSTALL_ONE" 'install_via_release()'
   assert_contains "$INSTALL_ONE" 'configure_user()'
   assert_contains "$UNINSTALL_ONE" 'remove_user_state()'
