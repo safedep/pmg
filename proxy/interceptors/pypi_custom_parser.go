@@ -8,7 +8,7 @@ import (
 )
 
 // pypiCustomParser adapts relative paths for a custom PyPI registry, whose
-// Simple API can be mounted at a base already ending in "/simple", leaving
+// Simple API can be mounted at a base ending in "/simple" or "/+simple", leaving
 // pypiOrgParser unable to parse the resulting bare paths (e.g. "/demo/").
 //
 // It tries, in order: a distribution filename at any depth, then
@@ -17,7 +17,7 @@ import (
 // guesses at a path shape it was not told about.
 type pypiCustomParser struct {
 	// baseEndsInSimple is true when the endpoint's base path ends in a
-	// literal "/simple" segment (checked once in the factory). Without it, a
+	// literal "/simple" or "/+simple" segment. Without it, a
 	// one-segment path on an arbitrary custom prefix could be misread as a
 	// Simple API index request.
 	baseEndsInSimple bool
@@ -28,6 +28,9 @@ var _ registryURLParser = pypiCustomParser{}
 func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	trimmed := strings.Trim(urlPath, "/")
 	if trimmed == "" {
+		if p.baseEndsInSimple {
+			return parseSimpleAPIURL(nil)
+		}
 		return nil, fmt.Errorf("empty URL path")
 	}
 	segments := strings.Split(trimmed, "/")
@@ -59,10 +62,7 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 	if p.baseEndsInSimple {
 		switch len(segments) {
 		case 1:
-			return &pypiPackageInfo{
-				name:        denormalizePyPIPackageName(segments[0]),
-				isSimpleAPI: true,
-			}, nil
+			return parseSimpleAPIURL(segments)
 		}
 	}
 
@@ -70,8 +70,9 @@ func (p pypiCustomParser) ParseURL(urlPath string) (packageInfo, error) {
 }
 
 // pypiBaseEndsInSimple reports whether a registry endpoint's base path ends
-// in "/simple", once normalized, gating pypiCustomParser's bare
+// in "/simple" or "/+simple", once normalized, gating pypiCustomParser's bare
 // project-name guess for that endpoint.
 func pypiBaseEndsInSimple(basePath string) bool {
-	return strings.HasSuffix(registryurl.NormalizeBasePath(basePath), "/simple")
+	base := registryurl.NormalizeBasePath(basePath)
+	return strings.HasSuffix(base, "/simple") || strings.HasSuffix(base, "/+simple")
 }

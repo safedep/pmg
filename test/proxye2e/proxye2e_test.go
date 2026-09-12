@@ -496,6 +496,7 @@ func TestProxyFlow_RegistryIdentityPolicy(t *testing.T) {
 				Name: endpoint.name + " in " + mode.name + " mode",
 				Config: func(rc *config.RuntimeConfig) {
 					rc.Config.Paranoid = mode.paranoid
+					rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 30}
 				},
 				Exec: func(h *Harness) ExecResult {
 					var res ExecResult

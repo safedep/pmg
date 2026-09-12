@@ -17,8 +17,7 @@ var (
 type pypiPackageInfo struct {
 	name       string
 	version    string
-	isDownload bool   // True if this is a file download (sdist or wheel)
-	fileType   string // "sdist", "wheel", or empty for non-download requests
+	isDownload bool // True if this is a file download (sdist or wheel)
 
 	// isSimpleAPI is true when parsed from a Simple API (PEP 503/691) path,
 	// false for the legacy JSON API request. A custom registry can reshape
@@ -43,11 +42,6 @@ func (p *pypiPackageInfo) GetVersion() string {
 // IsFileDownload returns true if this is a file download (sdist or wheel)
 func (p *pypiPackageInfo) IsFileDownload() bool {
 	return p.isDownload
-}
-
-// FileType returns the file type ("sdist", "wheel", or empty)
-func (p *pypiPackageInfo) FileType() string {
-	return p.fileType
 }
 
 // IsSimpleAPI reports whether this was parsed from a Simple API path rather
@@ -122,10 +116,6 @@ func (p pypiOrgParser) ParseURL(urlPath string) (packageInfo, error) {
 	// Split path into segments
 	segments := strings.Split(urlPath, "/")
 
-	if len(segments) < 2 {
-		return nil, fmt.Errorf("invalid pypi.org URL: not enough segments")
-	}
-
 	switch segments[0] {
 	case "simple":
 		// Simple API: /simple/{package}/ or /simple/{package}/{filename}
@@ -140,14 +130,14 @@ func (p pypiOrgParser) ParseURL(urlPath string) (packageInfo, error) {
 
 // parseSimpleAPIURL parses Simple API URL paths
 func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
-	if len(segments) == 0 {
-		return nil, fmt.Errorf("invalid Simple API URL: missing package name")
+	if len(segments) == 0 || (len(segments) == 1 && segments[0] == "index.html") {
+		return &pypiPackageInfo{}, nil
 	}
 
 	packageName := segments[0]
 
 	// Simple API index request: /simple/{package}/
-	if len(segments) == 1 || len(segments) == 2 && segments[1] == "index.html" {
+	if len(segments) == 1 || (len(segments) == 2 && segments[1] == "index.html") {
 		return &pypiPackageInfo{
 			name:        denormalizePyPIPackageName(packageName),
 			isDownload:  false,
@@ -205,16 +195,13 @@ func parseFilename(filename string) (*pypiPackageInfo, error) {
 }
 
 func parseDistributionFilename(filename string) (*pypiPackageInfo, error) {
-	for _, legacy := range []struct {
-		pattern *regexp.Regexp
-		kind    string
-	}{{pypiEggFilename, "egg"}, {pypiExeFilename, "exe"}} {
-		if matches := legacy.pattern.FindStringSubmatch(filename); matches != nil {
+	for _, legacy := range []*regexp.Regexp{pypiEggFilename, pypiExeFilename} {
+		if matches := legacy.FindStringSubmatch(filename); matches != nil {
 			version, valid := pypi.NormalizeVersion(matches[2])
 			if !valid {
 				return nil, fmt.Errorf("artifact filename %q has an invalid version", filename)
 			}
-			return &pypiPackageInfo{name: denormalizePyPIPackageName(matches[1]), version: version, isDownload: true, fileType: legacy.kind}, nil
+			return &pypiPackageInfo{name: denormalizePyPIPackageName(matches[1]), version: version, isDownload: true}, nil
 		}
 	}
 	// Try to parse as wheel first
@@ -270,7 +257,6 @@ func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
 		name:       denormalizePyPIPackageName(name),
 		version:    version,
 		isDownload: true,
-		fileType:   "wheel",
 	}, nil
 }
 
@@ -304,7 +290,6 @@ func parseSdistFilename(filename string) (*pypiPackageInfo, error) {
 		name:       denormalizePyPIPackageName(name),
 		version:    version,
 		isDownload: true,
-		fileType:   "sdist",
 	}, nil
 }
 
@@ -320,12 +305,6 @@ func extractNameVersionFromSdist(basename string) (string, string) {
 		potentialVersion := strings.Join(parts[i:], "-")
 		// Check if this could be a version
 		if version, valid := pypi.NormalizeVersion(potentialVersion); valid {
-			name := strings.Join(parts[:i], "-")
-			return name, version
-		}
-
-		// Also try just the single part as version
-		if version, valid := pypi.NormalizeVersion(parts[i]); valid {
 			name := strings.Join(parts[:i], "-")
 			return name, version
 		}

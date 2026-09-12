@@ -122,35 +122,130 @@ func TestProxyFlow_PypiNormalizedPolicyPins(t *testing.T) {
 }
 
 func TestProxyFlow_PypiCustomIndexHTML(t *testing.T) {
-	RunCases(t, []TestCase{{
-		Name: "paranoid mode filters an explicit index page",
-		Config: func(rc *config.RuntimeConfig) {
-			customRegistry("legacy", "pypi", "https://python.example.test/simple")(rc)
-			rc.Config.Paranoid = true
-			rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
-		},
-		Setup: func(h *Harness) {
-			h.Registry.AddCustomPypi("python.example.test", "/simple")
-			h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{
-				{Version: "1.0", PublishedAt: old()}, {Version: "2.0", PublishedAt: recent()},
-				{Version: "3.0", PublishedAt: recent(), Filename: "demo-3.0-py2.7.egg"},
-				{Version: "4.0", PublishedAt: recent(), Filename: "demo-4.0.win32-py2.5.exe"},
-			}})
-		},
-		Exec: func(h *Harness) ExecResult {
-			var res ExecResult
-			res.add(h.get("https://python.example.test/simple/demo/index.html", map[string]string{"Accept": pypiSimpleContentType}))
-			return res
-		},
-		Assert: func(t *testing.T, h *Harness, res ExecResult) {
-			require.Len(t, res.Requests, 1)
-			require.NoError(t, res.Requests[0].Err)
-			assert.Equal(t, 200, res.Requests[0].StatusCode)
-			assert.Contains(t, res.Requests[0].Body, "demo-1.0.tar.gz")
-			assert.NotContains(t, res.Requests[0].Body, "demo-2.0.tar.gz")
-			assert.NotContains(t, res.Requests[0].Body, ".egg")
-			assert.NotContains(t, res.Requests[0].Body, ".exe")
-			assert.Empty(t, h.Analyzer.Calls())
-		},
-	}})
+	var cases []TestCase
+	for _, base := range []string{"/simple", "/user/index/+simple"} {
+		for _, page := range []string{"/demo/", "/demo/index.html"} {
+			cases = append(cases, TestCase{
+				Name: base + page,
+				Config: func(rc *config.RuntimeConfig) {
+					customRegistry("legacy", "pypi", "https://python.example.test"+base)(rc)
+					rc.Config.Paranoid = true
+					rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+				},
+				Setup: func(h *Harness) {
+					h.Registry.AddCustomPypi("python.example.test", base)
+					h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{
+						{Version: "1.0", PublishedAt: old()}, {Version: "2.0", PublishedAt: recent()},
+						{Version: "3.0", PublishedAt: recent(), Filename: "demo-3.0-py2.7.egg"},
+						{Version: "4.0", PublishedAt: recent(), Filename: "demo-4.0.win32-py2.5.exe"},
+					}})
+				},
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					res.add(h.get("https://python.example.test"+base+page, map[string]string{"Accept": pypiSimpleContentType}))
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					require.Len(t, res.Requests, 1)
+					require.NoError(t, res.Requests[0].Err)
+					assert.Equal(t, 200, res.Requests[0].StatusCode)
+					assert.Contains(t, res.Requests[0].Body, "demo-1.0.tar.gz")
+					assert.NotContains(t, res.Requests[0].Body, "demo-2.0.tar.gz")
+					assert.NotContains(t, res.Requests[0].Body, ".egg")
+					assert.NotContains(t, res.Requests[0].Body, ".exe")
+					assert.Empty(t, h.Analyzer.Calls())
+				},
+			})
+		}
+	}
+	RunCases(t, cases)
+}
+
+func TestProxyFlow_PypiSdistSuffixIdentity(t *testing.T) {
+	var cases []TestCase
+	for _, suffix := range []string{"build2", "linux", "final"} {
+		for _, paranoid := range []bool{false, true} {
+			filename := "demo-1.0.0-" + suffix + ".tar.gz"
+			filePath := "/packages/source/d/demo/" + filename
+			mode := "default"
+			if paranoid {
+				mode = "paranoid"
+			}
+			cases = append(cases, TestCase{
+				Name: suffix + " " + mode,
+				Config: func(rc *config.RuntimeConfig) {
+					rc.Config.Paranoid = paranoid
+					rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 30}
+				},
+				Setup: func(h *Harness) {
+					h.Registry.AddPypi(PypiPackage{Name: "demo", Versions: []PypiVersion{
+						{Version: "1.0.0", PublishedAt: old()},
+						{Version: "1.0.0-" + suffix, Filename: filename, PublishedAt: recent()},
+						{Version: "2.0.0", PublishedAt: recent()},
+					}})
+					h.Analyzer.SetPypi("demo", "1.0.0", Clean())
+					h.Analyzer.SetPypi("demo", "1.0.0-"+suffix, VerifiedMalware())
+				},
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					res.add(h.get("https://pypi.org/simple/demo/", map[string]string{"Accept": pypiSimpleContentType}))
+					res.add(h.get("https://files.pythonhosted.org"+filePath, nil))
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					require.Len(t, res.Requests, 2)
+					for _, req := range res.Requests {
+						require.NoError(t, req.Err)
+					}
+					assert.Equal(t, 200, res.Requests[0].StatusCode)
+					assert.Contains(t, res.Requests[0].Body, "demo-1.0.0.tar.gz")
+					assert.Contains(t, res.Requests[0].Body, filename)
+					assert.NotContains(t, res.Requests[0].Body, "demo-2.0.0.tar.gz")
+					assert.Equal(t, paranoid, res.Blocked())
+					assert.Equal(t, !paranoid, h.Registry.Requested("files.pythonhosted.org", filePath))
+					assert.Empty(t, h.Analyzer.Calls())
+				},
+			})
+		}
+	}
+	RunCases(t, cases)
+}
+
+func TestProxyFlow_PypiRootIndex(t *testing.T) {
+	var cases []TestCase
+	for _, base := range []string{"/simple", "/user/index/+simple"} {
+		for _, page := range []string{"/", "/index.html"} {
+			for _, host := range []string{"pypi.org", "python.example.test"} {
+				if host == "pypi.org" && base != "/simple" {
+					continue
+				}
+				cases = append(cases, TestCase{
+					Name: host + base + page,
+					Config: func(rc *config.RuntimeConfig) {
+						customRegistry("custom", "pypi", "https://python.example.test"+base)(rc)
+						rc.Config.Paranoid = true
+						rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+					},
+					Setup: func(h *Harness) { h.Registry.AddCustomPypi("python.example.test", base) },
+					Exec: func(h *Harness) ExecResult {
+						var res ExecResult
+						res.add(h.get("https://"+host+base+page, map[string]string{"Accept": "text/html"}))
+						return res
+					},
+					Assert: func(t *testing.T, h *Harness, res ExecResult) {
+						require.Len(t, res.Requests, 1)
+						require.NoError(t, res.Requests[0].Err)
+						assert.False(t, res.Blocked())
+						require.True(t, h.Registry.Requested(host, base+page))
+						for _, req := range h.Registry.Requests() {
+							assert.Equal(t, "text/html", req.Headers.Get("Accept"))
+						}
+						assert.Empty(t, h.Analyzer.Calls())
+						assert.Empty(t, h.CooldownBlocks())
+					},
+				})
+			}
+		}
+	}
+	RunCases(t, cases)
 }

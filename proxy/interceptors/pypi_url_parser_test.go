@@ -51,7 +51,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 		wantName       string
 		wantVersion    string
 		wantIsDownload bool
-		wantFileType   string
 		wantErr        bool
 	}{
 		// Source distributions (sdist)
@@ -61,7 +60,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "requests",
 			wantVersion:    "2.28.0",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -70,7 +68,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "flask-restful",
 			wantVersion:    "0.3.10",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -79,7 +76,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "some-package",
 			wantVersion:    "1.0.0",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -88,7 +84,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "mypackage",
 			wantVersion:    "2.0.0rc1",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -97,7 +92,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "testpkg",
 			wantVersion:    "0.1.0.dev1",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -106,7 +100,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "package",
 			wantVersion:    "1.0.0.post1",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -115,7 +108,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "mylib",
 			wantVersion:    "1.2.3+local",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 
@@ -126,7 +118,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "requests",
 			wantVersion:    "2.28.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -135,7 +126,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "numpy",
 			wantVersion:    "1.24.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -144,7 +134,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "cryptography",
 			wantVersion:    "41.0.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -153,7 +142,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "some-package",
 			wantVersion:    "1.0.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -162,7 +150,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "mypackage",
 			wantVersion:    "1.0.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -171,7 +158,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "pywin32",
 			wantVersion:    "306",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -180,7 +166,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "tensorflow",
 			wantVersion:    "2.15.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 
@@ -191,7 +176,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "django",
 			wantVersion:    "4.2.7",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -200,7 +184,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "pandas",
 			wantVersion:    "2.1.3",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 
@@ -211,7 +194,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 		{
@@ -220,7 +202,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 		{
@@ -229,7 +210,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 		{
@@ -238,7 +218,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 	}
@@ -258,12 +237,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.Equal(t, tt.wantIsDownload, got.IsFileDownload())
 
-			// Check file type via type assertion - must succeed for pypi packages
-			pypiInfo, ok := got.(*pypiPackageInfo)
-			assert.True(t, ok, "expected *pypiPackageInfo type")
-			if ok {
-				assert.Equal(t, tt.wantFileType, pypiInfo.FileType())
-			}
 		})
 	}
 }
@@ -360,12 +333,11 @@ func TestPypiOrgParser_ParseURL(t *testing.T) {
 			wantErr:        true,
 		},
 		{
-			name:           "simple api missing package name",
+			name:           "simple api root listing",
 			urlPath:        "/simple/",
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantErr:        true,
 		},
 		{
 			name:           "json api missing package name",
@@ -492,7 +464,6 @@ func TestParseWheelFilename(t *testing.T) {
 			assert.Equal(t, tt.wantName, got.GetName())
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.True(t, got.IsFileDownload())
-			assert.Equal(t, "wheel", got.FileType())
 		})
 	}
 }
@@ -595,7 +566,6 @@ func TestParseSdistFilename(t *testing.T) {
 			assert.Equal(t, tt.wantName, got.GetName())
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.True(t, got.IsFileDownload())
-			assert.Equal(t, "sdist", got.FileType())
 		})
 	}
 }

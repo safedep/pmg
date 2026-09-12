@@ -77,6 +77,10 @@ proxy:
 
 Both PyPI URLs belong to one logical registry. List every metadata and artifact endpoint you want PMG to analyze. PMG does not trust hosts that it discovers through metadata links or redirects.
 
+For a custom PyPI Simple API, configure a base URL that ends in `/simple` or `/+simple`.
+PMG uses this suffix to recognize project pages such as `/demo/` below that base.
+Other base paths must retain the standard `/simple/{project}/` or `/pypi/{project}/json` route.
+
 | Key               | Description                                                                                                                                           |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`            | A unique label for the registry. Used in logs.                                                                                                        |
@@ -109,6 +113,15 @@ A request on a configured host whose path matches no endpoint passes through unc
 PMG reads the package name and version (identity) from the registry URL.
 Default mode allows requests without analysis when PMG cannot resolve the package identity.
 Paranoid mode returns HTTP 403 when an enabled registry parser fails or an artifact identity is incomplete.
+This check applies to GET and HEAD requests unless the user enables insecure installation.
+PMG allows npm API paths under `/-/` and PyPI root index listings without a package identity.
+Endpoints with analysis disabled, including the GitHub npm endpoints, remain outside this check.
+Analyzer errors still allow downloads in both modes.
+
+Cooldown keeps entries whose filenames PMG cannot parse.
+An unrecognized artifact URL does not become a project metadata request.
+Default mode allows that request without analysis or cooldown filtering.
+Paranoid mode blocks it.
 
 ### npm registry requirements
 

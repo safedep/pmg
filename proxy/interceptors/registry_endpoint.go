@@ -22,6 +22,7 @@ func packageInfoHasCompleteIdentity(pkgInfo packageInfo) bool {
 }
 
 type registryURLParser interface {
+	// ParseURL must not return a typed nil packageInfo.
 	ParseURL(urlPath string) (packageInfo, error)
 }
 
