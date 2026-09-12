@@ -300,10 +300,8 @@ func extractNameVersionFromSdist(basename string) (string, string) {
 	// Split by hyphen and try to find where version starts
 	parts := strings.Split(basename, "-")
 
-	// Try from the end, looking for version-like parts
-	for i := len(parts) - 1; i > 0; i-- {
+	for i := 1; i < len(parts); i++ {
 		potentialVersion := strings.Join(parts[i:], "-")
-		// Check if this could be a version
 		if version, valid := pypi.NormalizeVersion(potentialVersion); valid {
 			name := strings.Join(parts[:i], "-")
 			return name, version

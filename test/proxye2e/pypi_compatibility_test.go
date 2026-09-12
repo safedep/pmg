@@ -69,6 +69,33 @@ func TestProxyFlow_PypiLegacyArtifacts(t *testing.T) {
 	RunCases(t, cases)
 }
 
+func TestProxyFlow_PypiImplicitPostRelease(t *testing.T) {
+	const (
+		name     = "hello-test"
+		version  = "1.0.post1"
+		filePath = "/packages/source/h/hello-test/hello-test-1.0-1.tar.gz"
+	)
+
+	RunCases(t, []TestCase{{
+		Name: "implicit post release malware is blocked",
+		Setup: func(h *Harness) {
+			h.Analyzer.SetPypi(name, version, VerifiedMalware())
+		},
+		Exec: func(h *Harness) ExecResult {
+			var res ExecResult
+			res.add(h.get("https://files.pythonhosted.org"+filePath, nil))
+			return res
+		},
+		Assert: func(t *testing.T, h *Harness, res ExecResult) {
+			require.Len(t, res.Requests, 1)
+			require.NoError(t, res.Requests[0].Err)
+			assert.True(t, res.Blocked())
+			assert.Equal(t, 1, h.Analyzer.AnalyzedCount(name, version))
+			assert.False(t, h.Registry.Requested("files.pythonhosted.org", filePath))
+		},
+	}})
+}
+
 func TestProxyFlow_PypiNormalizedPolicyPins(t *testing.T) {
 	var cases []TestCase
 	for _, version := range []struct{ raw, normalized string }{

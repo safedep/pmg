@@ -538,6 +538,12 @@ func TestParseSdistFilename(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "implicit post release",
+			filename:    "hello-test-1.0-1.tar.gz",
+			wantName:    "hello-test",
+			wantVersion: "1.0.post1",
+		},
+		{
 			name:        "prerelease version",
 			filename:    "package-1.0.0rc1.tar.gz",
 			wantName:    "package",
