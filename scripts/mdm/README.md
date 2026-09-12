@@ -1,6 +1,6 @@
 # PMG MDM Scripts
 
-Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS and Linux fleets through an MDM (Jamf, Mosyle, Kandji, Intune, JumpCloud).
+Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS, Linux and Windows fleets through an MDM (Jamf, Mosyle, Kandji, Intune, JumpCloud).
 
 ## Layout
 
@@ -8,6 +8,7 @@ Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS and Linux fleet
 | --- | --- |
 | `macos/` | macOS deployment scripts: `lib_macos.sh`, `pmg_setup_install_macos.sh`, `pmg_uninstall_macos.sh` |
 | `linux/` | Linux deployment scripts: `lib_linux.sh`, `pmg_setup_install_linux.sh`, `pmg_uninstall_linux.sh` |
+| `windows/` | Windows deployment scripts: `lib_windows.ps1`, `pmg_setup_install_windows.ps1`, `pmg_uninstall_windows.ps1` |
 | `standalone/` | Generated single-file installers and uninstallers for MDM policies that accept one script |
 | `lib/` | Shared engine for the standalone generators and test helpers |
 | `tests/` | Test scripts and E2E helpers |
@@ -15,16 +16,16 @@ Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS and Linux fleet
 | `generate_standalone_linux.sh` | Regenerates Linux standalone scripts; optionally embeds `config.yml` and cloud credentials |
 | `config.yml` *(optional)* | When present in the package, the install script deploys it as the machine-wide globally managed config |
 
-For a multi-file MDM deployment, install the shared lib and both entry scripts as sibling files at a fixed path. Add an optional sibling `config.yml` for globally managed config.
+For a multi-file MDM deployment, install the shared lib and both entry scripts as sibling files at a fixed path. Add an optional sibling `config.yml` for globally managed config. On Windows, add a sibling `pmg.exe` from the release zip, or the installer downloads the release.
 
-For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload the shared lib separately.
+For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload the shared lib separately. Windows has no generated scripts yet, so a Windows deployment ships the three files together.
 
 ## Execution model
 
 PMG writes two kinds of state, and the scripts handle each:
 
-- **Machine scope**: the `pmg` binary (`/usr/local/bin` on both platforms; Homebrew on macOS). Needs root.
-- **User scope**: config, aliases, shims, and credentials are per-user. On macOS they live under `~/Library/Application Support/safedep/pmg` and the login Keychain. On Linux they live under `~/.config/safedep/pmg` and the Secret Service keyring. Credential access needs the user's active session.
+- **Machine scope**: the `pmg` binary (`/usr/local/bin` on macOS and Linux; Homebrew on macOS). Needs root. On Windows the binary is `%ProgramFiles%\safedep\pmg\pmg.exe`, and `pmg setup install --system` adds machine-wide shims and a managed config. Needs SYSTEM or an administrator.
+- **User scope**: config, aliases, shims, and credentials are per-user. On macOS they live under `~/Library/Application Support/safedep/pmg` and the login Keychain. On Linux they live under `~/.config/safedep/pmg` and the Secret Service keyring. On Windows they live under `%APPDATA%\safedep\pmg`, `%LOCALAPPDATA%\safedep\pmg` and Credential Manager. Credential access needs the user's active session.
 
 The scripts detect how the MDM invoked them:
 
@@ -32,6 +33,8 @@ The scripts detect how the MDM invoked them:
 - **As the logged-in user** (an MDM "run as current user" payload, or a person running it by hand): the per-user steps cover that user, and machine-scope steps elevate with `sudo`.
 
 On macOS, Homebrew can't run as root, so the script runs brew commands as the owner of the Homebrew install. On Linux, the binary always comes from the GitHub release tarball.
+
+Windows differs from the Unix scripts. The system install covers every account through the machine `PATH` and the managed config, so the script runs no per-user `pmg setup install`. Windows has no `sudo -u`. To run `pmg cloud login` as a user, the script registers a temporary scheduled task for that user, runs it, waits for it, and deletes it. The task's work directory lives under `%PROGRAMDATA%\safedep\pmg\mdm`, which the system install owns, with an ACL for SYSTEM, Administrators and that user. That works only for a logged-on user. A logged-off user has no logon token, so their credentials are not stored and their data is not synced. The next run of the installer or `--cloud-sync-only` covers them once they are logged on. Local and Entra ID accounts are both targets.
 
 ## Install
 
@@ -43,12 +46,17 @@ sudo ./pmg_setup_install_macos.sh   # macOS
 sudo ./pmg_setup_install_linux.sh   # Linux
 ```
 
+```powershell
+# Windows, from a terminal started as administrator
+.\pmg_setup_install_windows.ps1
+```
+
 The install script:
 
-1. Installs or updates `pmg` (Homebrew on macOS if present; otherwise the GitHub release tarball with SHA-256 verification).
+1. Installs or updates `pmg` (Homebrew on macOS if present; otherwise the GitHub release archive with SHA-256 verification). On Windows, a sibling `pmg.exe` is installed in place of a download, and `PMG_VERSION` selects a release tag.
 2. If the package includes a `config.yml`, installs it as the globally managed config (see below).
-3. Runs `pmg setup install` for each target user to create aliases and shims (and a per-user config, unless a globally managed config is active).
-4. If both cloud variables are set, enables cloud sync and runs `pmg cloud sync` for each target user.
+3. Runs `pmg setup install` for each target user to create aliases and shims (and a per-user config, unless a globally managed config is active). On Windows, runs `pmg setup install --system` once instead.
+4. If both cloud variables are set, enables cloud sync and runs `pmg cloud sync` for each target user. On Windows, stores the credentials and syncs for each logged-on user.
 
 Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. It stores credentials in the keychain when the user has an active session. It then runs cloud sync with the credentials from the environment.
 
@@ -66,19 +74,28 @@ SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
   sudo ./pmg_setup_install_linux.sh --cloud-sync-only
 ```
 
+```powershell
+$env:SAFEDEP_API_KEY = '...'; $env:SAFEDEP_TENANT_ID = '...'
+.\pmg_setup_install_windows.ps1 --cloud-sync-only
+```
+
 The standalone installers support the same option. A standalone installer can use credentials embedded by its generator.
 
 The installer finds `--cloud-sync-only` in any argument position and ignores other arguments. This behavior supports MDM-provided arguments such as the three built-in Jamf parameters.
 
 The MDM must pass script arguments or invoke an installer that already exists at a fixed path. A direct standalone upload in Intune, Mosyle, or Kandji cannot select sync-only mode.
 
-The script exits successfully without work when credentials are not configured or PMG is not installed. PMG must have cloud sync enabled in each target user's config or in the managed config. If cloud sync is disabled for a target user, the script returns a nonzero status. Run the normal installer to configure new users, or use a managed config with `cloud.enabled: true`. Each user sync has a one-minute timeout. The script attempts every user and returns a nonzero status if any sync fails.
+The script exits successfully without work when credentials are not configured or PMG is not installed. PMG must have cloud sync enabled in each target user's config or in the managed config. If cloud sync is disabled for a target user, the script returns a nonzero status. Run the normal installer to configure new users, or use a managed config with `cloud.enabled: true`. Each user sync has a one-minute timeout. The script attempts every user and returns a nonzero status if any sync fails. On Windows, the script syncs logged-on users only and skips the others with a log line.
 
 ## Uninstall
 
 ```sh
 sudo ./pmg_uninstall_macos.sh   # macOS
 sudo ./pmg_uninstall_linux.sh   # Linux
+```
+
+```powershell
+.\pmg_uninstall_windows.ps1   # Windows, as administrator
 ```
 
 For each target user, the uninstall script:
@@ -91,19 +108,22 @@ Credentials for inactive users remain in their keychains. For full credential cl
 
 It then removes the machine-wide binary and the globally managed config if present (set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it).
 
+On Windows, the script runs `pmg setup remove --system` first. Steps 1 and 3 then run for logged-on users only, and for every local profile the script deletes `%APPDATA%\safedep\pmg`, `%LOCALAPPDATA%\safedep\pmg` and `%USERPROFILE%\.pmg`. Last, it deletes `pmg.exe` and its machine `PATH` entry, and removes the managed config.
+
 ## Globally managed config
 
-Include a `config.yml` next to the scripts to centrally manage PMG configuration. When that file is present at the global path, PMG treats it as authoritative and **ignores every user's own config**. `pmg config set` and `pmg config edit` refuse, and the file is root-owned (`0644`), so it is not user-writable.
+Include a `config.yml` next to the scripts to centrally manage PMG configuration. When that file is present at the global path, PMG treats it as authoritative and **ignores every user's own config**. `pmg config set` and `pmg config edit` refuse, and the file is root-owned (`0644`), so it is not user-writable. On Windows, Administrators own the file and only SYSTEM and Administrators may write it.
 
 | Platform | Global config path |
 | --- | --- |
 | macOS | `/Library/Application Support/safedep/pmg/config.yml` |
 | Linux | `/etc/safedep/pmg/config.yml` |
+| Windows | `%PROGRAMDATA%\safedep\pmg\config.yml` |
 
 - By default the global config is an overridable baseline: users can still override its values at runtime with `PMG_*` env vars and CLI flags. Set `global_lockdown: true` in the bundled `config.yml` to forbid those overrides. See [Globally Managed Configuration](../../docs/config.md#globally-managed-configuration) for the full behaviour.
 - The file can be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to user values.
 - To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The installer skips the refused per-user config change. It stores credentials for the active session and syncs each target user.
-- Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config.
+- Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config. On Windows, `pmg setup install --system` writes the file first with its security descriptor, and the script then replaces the content. PMG obeys the file only with that descriptor, so do not create it another way.
 - Re-deploying the package overwrites the global config, keeping it in sync with the package.
 - Uninstall removes the global config whenever it is present, regardless of whether the uninstall package ships a `config.yml`. Set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it.
 
@@ -120,6 +140,7 @@ The installer consumes `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` at runtime. The
 | `PMG_CONFIG_DIR` | Override the config directory location (uninstall cleanup honors it) |
 | `PMG_CACHE_DIR` | Override the cache directory location (uninstall cleanup honors it) |
 | `PMG_KEEP_GLOBAL_CONFIG` | Uninstall only: when set, keep the globally managed config instead of removing it |
+| `PMG_VERSION` | Windows install only: the release tag to download, for example `v0.29.0`. Default: the latest release |
 
 ## Jamf example (macOS)
 
@@ -172,6 +193,30 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
    ```
 
 3. Assign the Command to the same device group and run it.
+
+### Windows
+
+JumpCloud runs Windows Commands as SYSTEM. Upload `windows/lib_windows.ps1` and `windows/pmg_setup_install_windows.ps1`, and optionally `config.yml` and `pmg.exe` from the release zip, with the **File Destination** `C:\Windows\Temp\pmg-mdm\`. Set the Command body to:
+
+```powershell
+$env:SAFEDEP_API_KEY = '{{safedep_api_key}}'
+$env:SAFEDEP_TENANT_ID = '{{safedep_tenant_id}}'
+& C:\Windows\Temp\pmg-mdm\pmg_setup_install_windows.ps1
+Remove-Item -Recurse -Force C:\Windows\Temp\pmg-mdm
+```
+
+For the uninstall Command, upload the lib and `pmg_uninstall_windows.ps1` and call that script instead.
+
+## Intune example (Windows)
+
+An Intune PowerShell script policy accepts one file with no siblings, which the multi-file scripts cannot use. Package the three Windows files, `config.yml` and `pmg.exe` as a [Win32 app](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-win32-app-management) instead:
+
+1. Put `lib_windows.ps1`, `pmg_setup_install_windows.ps1`, `pmg_uninstall_windows.ps1`, `pmg.exe` from the release zip and your `config.yml` in one folder and wrap it with the Content Prep Tool.
+2. Install command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File pmg_setup_install_windows.ps1`
+3. Uninstall command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File pmg_uninstall_windows.ps1`
+4. Install behavior: **System**. Detection rule: the file `%ProgramFiles%\safedep\pmg\pmg.exe` exists.
+
+The install runs as SYSTEM. Cloud credentials for the logged-on user come from `SAFEDEP_API_KEY` and `SAFEDEP_TENANT_ID` in the process environment, which a Win32 app does not set. Set `cloud.enabled: true` in the bundled `config.yml`, and have each user run `pmg cloud login` once, or run the installer with `--cloud-sync-only` from a tool that passes environment variables.
 
 ## Standalone scripts (single-script MDM policies)
 
@@ -237,6 +282,12 @@ Intune for Linux supports shell scripts with the same single-script model. Uploa
 - Machine-scope steps under a non-root invocation need `sudo`. Without passwordless sudo in a non-interactive context, they fail with an error instead of hanging.
 - Linux: only systemd/logind systems are supported for session detection. Headless servers without a D-Bus session bus skip cloud credential steps.
 - Linux: no Homebrew path. The binary always comes from the GitHub release tarball.
+- Windows: only a logged-on user gets cloud credentials and a sync. The script has no logon token for a logged-off user. Run the installer again, or use `--cloud-sync-only`, once they are logged on.
+- Windows: the uninstall deletes the state directories of every local profile, but a per-user `PATH` entry from `pmg setup install` and Credential Manager credentials stay for a logged-off user. Have those users run `pmg setup remove` and `pmg cloud logout` before the policy removes PMG.
+- Windows: the per-user steps need the system install, because their scratch directory lives under `%PROGRAMDATA%\safedep\pmg`. On a machine with only a per-user `pmg` on the PATH, the scripts skip those steps with a warning.
+- Windows: the install replaces `pmg.exe` under a running PMG by moving the old file aside. The stale copy is removed on the next run. The uninstall moves a running `pmg.exe` to `%SystemRoot%\Temp` and finishes the machine-scope cleanup. The files that running PMG holds open, its log and its sync database, stay with a warning, and the next run removes them.
+- Windows: the release ships x86-64 only. A 32-bit Windows is refused. An ARM64 machine runs the x86-64 build under emulation.
+- Windows: `pmg cloud sync` needs `cloud.enabled: true` in the managed config. The system install always writes a managed config, so `pmg config set cloud.enabled true` is refused for every user. Set it in the bundled `config.yml`.
 - Linux: the install and uninstall fan-out forces each user's `HOME` and clears `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, so per-user state stays under the passwd home (`~/.config`, `~/.cache`) or the `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` overrides. A user who installed pmg in their own shell with a custom `XDG_CONFIG_HOME` keeps state elsewhere. The uninstall does not remove that state. Ask the user to run `pmg setup remove --config-file` in their own session.
 
 ## Development
@@ -277,7 +328,15 @@ shellcheck -x -P SCRIPTDIR -P lib \
 
 `os_guard_test.sh` verifies that every entry script refuses to run on the wrong OS. It runs the macOS half on Linux and the Linux half on macOS, skipping whichever half matches the host.
 
-**Warning:** The end-to-end tests remove PMG state. The standalone test temporarily renames Homebrew binaries. The multifile test creates and deletes a local user account.
+The Windows scripts have their own checks. The unit test runs on PowerShell 7 on any OS and on Windows PowerShell. The lint needs the PSScriptAnalyzer module.
+
+```powershell
+pwsh -NoProfile -File ./tests/pmg_setup_install_windows_test.ps1
+Invoke-ScriptAnalyzer -Path ./windows -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+Invoke-ScriptAnalyzer -Path ./tests -Recurse -Settings ./windows/PSScriptAnalyzerSettings.psd1 -Severity Warning, Error
+```
+
+**Warning:** The end-to-end tests remove PMG state. The standalone test temporarily renames Homebrew binaries. The multifile test creates and deletes a local user account. The Windows test installs and removes the system install and runs the installer as SYSTEM.
 
 Run them only on a disposable CI runner with passwordless `sudo`. Both scripts reject runs without both guards:
 
@@ -289,4 +348,10 @@ CI=true PMG_MDM_E2E=1 bash ./tests/standalone_linux_e2e_test.sh
 CI=true PMG_MDM_E2E=1 bash ./tests/multifile_linux_e2e_test.sh
 ```
 
-The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `tests/e2e_lib_macos.sh` and `tests/e2e_lib_linux.sh`.
+```powershell
+# Windows, elevated. PMG_E2E_BINARY names a built pmg.exe.
+$env:CI = 'true'; $env:PMG_MDM_E2E = '1'; $env:PMG_E2E_BINARY = 'C:\path\to\pmg.exe'
+pwsh -NoProfile -File ./tests/multifile_windows_e2e_test.ps1
+```
+
+The end-to-end tests do not reach SafeDep Cloud. They use dummy credentials. A `pmg` wrapper on PATH intercepts every `cloud` call, records `cloud login` and `cloud logout`, and fails the test on any other cloud call. Shared test helpers live in `tests/e2e_lib_macos.sh`, `tests/e2e_lib_linux.sh` and `tests/e2e_lib_windows.ps1`.
