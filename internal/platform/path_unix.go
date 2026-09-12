@@ -4,6 +4,7 @@ package platform
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,14 +26,41 @@ func NewShellPath() (ShellPath, error) {
 	return ShellPath{Entries: filepath.SplitList(os.Getenv("PATH"))}, nil
 }
 
-// LookPath resolves name over the PATH. There is one PATH on Unix, so the
-// resolution carries no origin.
+// LookPath resolves name over the snapshot in Entries, not the live PATH, so
+// the same ShellPath always resolves the same command. It follows exec.LookPath:
+// a name with a separator resolves as given, and each directory is searched
+// for an executable regular file. There is one PATH on Unix, so the resolution
+// carries no origin.
 func (p ShellPath) LookPath(name string) (string, PathOrigin, error) {
-	resolved, err := exec.LookPath(name)
-	if err != nil {
-		return "", PathOriginUnknown, err
+	if strings.ContainsRune(name, os.PathSeparator) {
+		if err := findExecutable(name); err != nil {
+			return "", PathOriginUnknown, &exec.Error{Name: name, Err: err}
+		}
+		return name, PathOriginUnknown, nil
 	}
-	return resolved, PathOriginUnknown, nil
+	for _, dir := range p.Entries {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, name)
+		if findExecutable(candidate) == nil {
+			return candidate, PathOriginUnknown, nil
+		}
+	}
+	return "", PathOriginUnknown, &exec.Error{Name: name, Err: exec.ErrNotFound}
+}
+
+// findExecutable accepts a regular file any execute bit is set on, as
+// exec.LookPath does.
+func findExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() || info.Mode()&0o111 == 0 {
+		return fs.ErrPermission
+	}
+	return nil
 }
 
 // WriteSystemProfile writes the login-shell snippet that puts dir on the PATH
