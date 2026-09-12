@@ -369,8 +369,10 @@ func createScratchKey(key string) error {
 }
 
 func deleteScratchKey(key string) {
-	// Best-effort: a scratch key that outlives the test is harmless.
-	_ = registry.DeleteKey(registry.CURRENT_USER, key)
+	// A scratch key that outlives the test is harmless, so a delete error is a soft failure.
+	if err := registry.DeleteKey(registry.CURRENT_USER, key); err != nil {
+		log.Warnf("failed to delete the scratch key %s: %v", key, err)
+	}
 }
 
 // WriteMachinePathForTest seeds the machine PATH scope with value as a
