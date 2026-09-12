@@ -19,40 +19,29 @@ const disableNewlineAutoReturn = 0x0008
 // stdout and stderr again, when it was clear before the session. The other
 // flags stay as they are at that time.
 func saveConsoleOutputMode() func() error {
-	type saved struct {
-		name   string
-		handle windows.Handle
-		mode   uint32
-	}
-	var modes []saved
-	for _, output := range []struct {
-		name string
-		file *os.File
-	}{
-		{name: "stdout", file: os.Stdout},
-		{name: "stderr", file: os.Stderr},
-	} {
-		handle := windows.Handle(output.file.Fd())
-		var mode uint32
-		if windows.GetConsoleMode(handle, &mode) == nil {
-			modes = append(modes, saved{name: output.name, handle: handle, mode: mode})
-		}
-	}
+	restoreStdout := saveOutputMode("stdout", os.Stdout)
+	restoreStderr := saveOutputMode("stderr", os.Stderr)
+
 	return func() error {
-		var errs []error
-		for _, s := range modes {
-			if s.mode&disableNewlineAutoReturn != 0 {
-				continue
-			}
-			var current uint32
-			if err := windows.GetConsoleMode(s.handle, &current); err != nil {
-				errs = append(errs, fmt.Errorf("failed to read %s console mode: %w", s.name, err))
-				continue
-			}
-			if err := windows.SetConsoleMode(s.handle, current&^disableNewlineAutoReturn); err != nil {
-				errs = append(errs, fmt.Errorf("failed to restore %s console mode: %w", s.name, err))
-			}
+		return errors.Join(restoreStdout(), restoreStderr())
+	}
+}
+
+func saveOutputMode(name string, output *os.File) func() error {
+	handle := windows.Handle(output.Fd())
+	var original uint32
+	if err := windows.GetConsoleMode(handle, &original); err != nil || original&disableNewlineAutoReturn != 0 {
+		return func() error { return nil }
+	}
+
+	return func() error {
+		var current uint32
+		if err := windows.GetConsoleMode(handle, &current); err != nil {
+			return fmt.Errorf("failed to read %s console mode: %w", name, err)
 		}
-		return errors.Join(errs...)
+		if err := windows.SetConsoleMode(handle, current&^disableNewlineAutoReturn); err != nil {
+			return fmt.Errorf("failed to restore %s console mode: %w", name, err)
+		}
+		return nil
 	}
 }
