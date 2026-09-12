@@ -143,9 +143,9 @@ PMG reads `global_lockdown` straight from the global file, so a user cannot flip
 | Global config, no lockdown | CLI flags > `PMG_*` env > global config > built-in defaults |
 | Global config, `global_lockdown: true` | global config > built-in defaults (env and managed-flag overrides refused) |
 
-### Deploying via MDM (macOS)
+### Deploying via MDM
 
-Scripts to install or update PMG and deploy a global config across a macOS fleet (Jamf, Mosyle, Kandji, Intune) live in [`scripts/mdm`](../scripts/mdm). Bundle a `config.yml` next to the scripts. The installer places it at the global path, and the uninstaller removes it. See the [`scripts/mdm` README](../scripts/mdm/README.md) for details.
+Scripts to install or update PMG and deploy a global config across a macOS, Linux or Windows fleet (Jamf, Mosyle, Kandji, Intune, JumpCloud) live in [`scripts/mdm`](../scripts/mdm). Bundle a `config.yml` next to the scripts. The installer places it at the global path, and the uninstaller removes it. See the [`scripts/mdm` README](../scripts/mdm/README.md) for details.
 
 ## Endpoint identity
 
