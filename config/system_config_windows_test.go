@@ -11,7 +11,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/platform"
-	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -26,11 +25,11 @@ func secureManagedConfigForTest(t *testing.T, dir string) {
 	if !platform.IsPrivileged() {
 		t.Skip("a managed config the runtime trusts needs an elevated process to create")
 	}
-	require.NoError(t, winacl.Protect(filepath.Dir(dir)))
-	require.NoError(t, winacl.Protect(dir))
+	require.NoError(t, platform.ProtectSystemPath(filepath.Dir(dir), 0o755))
+	require.NoError(t, platform.ProtectSystemPath(dir, 0o755))
 	file := filepath.Join(dir, "config.yml")
 	if _, err := os.Stat(file); err == nil {
-		require.NoError(t, winacl.Protect(file))
+		require.NoError(t, platform.ProtectSystemPath(file, 0o644))
 	}
 }
 
@@ -81,7 +80,7 @@ func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 	assert.Contains(t, usefulErr.Help(), "Inspect the file, delete it, and run the install again")
 	assert.Contains(t, err.Error(), "does not carry the PMG security descriptor")
 
-	assert.NoError(t, winacl.RequireProtected(dir), "the directories are secured before the file is checked")
+	assert.NoError(t, platform.RequireProtected(dir), "the directories are secured before the file is checked")
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, "paranoid: false\n", string(content), "the file is left as evidence")
@@ -100,7 +99,7 @@ func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 	path := filepath.Join(dir, "config.yml")
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
 	for _, p := range []string{filepath.Dir(dir), dir, path} {
-		require.NoError(t, winacl.Protect(p))
+		require.NoError(t, platform.ProtectSystemPath(p, 0o755))
 	}
 
 	got, err := resolveConfigFile()
@@ -142,7 +141,7 @@ func TestResolveConfigFileRequiresControlledParents(t *testing.T) {
 	path := filepath.Join(dir, "config.yml")
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
 	for _, p := range []string{filepath.Dir(dir), dir, path} {
-		require.NoError(t, winacl.Protect(p))
+		require.NoError(t, platform.ProtectSystemPath(p, 0o755))
 	}
 	got, err := resolveConfigFile()
 	require.NoError(t, err)
@@ -196,12 +195,12 @@ func TestWriteSystemTemplateConfigProtectsWhatItWrites(t *testing.T) {
 	path := filepath.Join(dir, "config.yml")
 
 	require.NoError(t, WriteSystemTemplateConfig())
-	assert.NoError(t, winacl.RequireProtected(filepath.Dir(dir)))
-	assert.NoError(t, winacl.RequireProtected(dir))
-	assert.NoError(t, winacl.RequireProtected(path))
+	assert.NoError(t, platform.RequireProtected(filepath.Dir(dir)))
+	assert.NoError(t, platform.RequireProtected(dir))
+	assert.NoError(t, platform.RequireProtected(path))
 
 	require.NoError(t, WriteSystemTemplateConfig())
-	assert.NoError(t, winacl.RequireProtected(path))
+	assert.NoError(t, platform.RequireProtected(path))
 
 	drifted, err := windows.SecurityDescriptorFromString("O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;BU)")
 	require.NoError(t, err)

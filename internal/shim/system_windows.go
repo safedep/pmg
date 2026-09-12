@@ -13,7 +13,7 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/fsutil"
-	"github.com/safedep/pmg/internal/winacl"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // The system install lives at fixed paths under Program Files, which only
@@ -90,7 +90,7 @@ func (l systemLayout) validateBinary(path string) error {
 			Wrap(fmt.Errorf("pmg executable %s is not at %s", path, l.Binary))
 	}
 	for _, p := range []string{l.vendorDir(), l.ProductDir, path} {
-		if err := winacl.RequireNotReparsePoint(p); err != nil {
+		if err := platform.RequireNotReparsePoint(p); err != nil {
 			return err
 		}
 	}
@@ -103,7 +103,7 @@ func (l systemLayout) validateBinary(path string) error {
 // directory such a user pre-created stops the install with its name.
 func (l systemLayout) protect() error {
 	for _, p := range []string{l.vendorDir(), l.ProductDir, l.BinDir, l.Binary} {
-		if err := winacl.Protect(p); err != nil {
+		if err := platform.ProtectSystemPath(p, 0o755); err != nil {
 			return err
 		}
 	}
@@ -115,7 +115,7 @@ func (l systemLayout) protect() error {
 // doctor runs it to report drift.
 func (l systemLayout) validate() error {
 	for _, p := range l.objects() {
-		if err := winacl.RequireProtected(p); err != nil {
+		if err := platform.RequireProtected(p); err != nil {
 			return err
 		}
 	}
@@ -133,14 +133,14 @@ func (l systemLayout) validateConfig() error {
 	}
 	dir := filepath.Dir(l.ConfigFile)
 	for _, p := range []string{filepath.Dir(dir), dir} {
-		if err := winacl.RequireProtected(p); err != nil {
+		if err := platform.RequireProtected(p); err != nil {
 			return err
 		}
 	}
 	if _, err := os.Lstat(l.ConfigFile); err != nil {
 		return fmt.Errorf("the managed config %s is missing: %w", l.ConfigFile, err)
 	}
-	return winacl.RequireTrustedExisting(l.ConfigFile)
+	return platform.RequireTrustedSystemFile(l.ConfigFile)
 }
 
 // installPath puts the shim directory first on the machine PATH, and the

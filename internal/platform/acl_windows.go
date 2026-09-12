@@ -1,6 +1,4 @@
-//go:build windows
-
-package winacl
+package platform
 
 import (
 	"errors"
@@ -9,10 +7,15 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/safedep/pmg/internal/platform"
 	"golang.org/x/sys/windows"
 )
 
+// The trust checks for a Windows system install. The threat model includes
+// a standard user before or after installation. Administrators and SYSTEM
+// are trusted, standard users are not. Every PMG-written object carries the
+// exact PMG security descriptor. ACL reads and writes use one handle that
+// does not follow links, so what was checked is what is written.
+//
 // The PMG descriptor, in SDDL. Administrators own the object. SYSTEM and
 // Administrators have full control, Users read and execute. P blocks
 // inheritance, so an entry on a parent never reaches the object.
@@ -107,7 +110,7 @@ func (o *object) expected() (descriptor, error) {
 // SetSecurityInfo needs an owner SID that the caller may assign.
 // The elevation check avoids a partial security update.
 func protect(path string) error {
-	if !platform.IsPrivileged() {
+	if !IsPrivileged() {
 		return fmt.Errorf("cannot protect %s: the process is not elevated", path)
 	}
 	o, err := open(path, windows.READ_CONTROL|windows.WRITE_DAC|windows.WRITE_OWNER)
@@ -159,7 +162,7 @@ func requireProtected(path string) error {
 
 // An administrator or MDM can create a managed configuration with inherited entries.
 // This check accepts that file when only trusted principals control it.
-func requireAdministrativeControl(path string) error {
+func requireSystemControlled(path string) error {
 	o, err := open(path, windows.READ_CONTROL)
 	if err != nil {
 		return err
@@ -188,7 +191,7 @@ func requireNotReparsePoint(path string) error {
 	return nil
 }
 
-func requireTrustedExisting(path string) error {
+func requireTrustedSystemFile(path string) error {
 	o, err := open(path, windows.READ_CONTROL)
 	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
 		return nil

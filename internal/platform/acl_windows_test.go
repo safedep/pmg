@@ -1,6 +1,4 @@
-//go:build windows
-
-package winacl
+package platform
 
 import (
 	"os"
@@ -8,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -113,7 +110,7 @@ func TestRequireNotReparsePoint(t *testing.T) {
 	require.NoError(t, exec.Command("cmd", "/c", "mklink", "/J", link, target).Run())
 	assert.ErrorContains(t, RequireNotReparsePoint(link), "link or a junction")
 	assert.ErrorContains(t, RequireProtected(link), "link or a junction")
-	assert.ErrorContains(t, RequireAdministrativeControl(link), "link or a junction")
+	assert.ErrorContains(t, RequireSystemControlled(link), "link or a junction")
 }
 
 // A file the test created carries the temp directory's inherited descriptor,
@@ -121,21 +118,21 @@ func TestRequireNotReparsePoint(t *testing.T) {
 func TestRequireTrustedExistingRejectsWhatPMGDidNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "config.yml")
-	assert.NoError(t, RequireTrustedExisting(file), "a missing file passes")
+	assert.NoError(t, RequireTrustedSystemFile(file), "a missing file passes")
 
 	require.NoError(t, os.WriteFile(file, []byte("paranoid: false\n"), 0o644))
-	assert.ErrorContains(t, RequireTrustedExisting(file), "does not carry the PMG security descriptor")
+	assert.ErrorContains(t, RequireTrustedSystemFile(file), "does not carry the PMG security descriptor")
 
-	assert.ErrorContains(t, RequireTrustedExisting(dir), "not a regular file")
+	assert.ErrorContains(t, RequireTrustedSystemFile(dir), "not a regular file")
 }
 
 func TestProtectRefusesWithoutElevation(t *testing.T) {
-	if platform.IsPrivileged() {
+	if IsPrivileged() {
 		t.Skip("the process is elevated")
 	}
 	file := filepath.Join(t.TempDir(), "npm.cmd")
 	require.NoError(t, os.WriteFile(file, nil, 0o755))
-	assert.ErrorContains(t, Protect(file), "not elevated")
+	assert.ErrorContains(t, ProtectSystemPath(file, 0o755), "not elevated")
 }
 
 // The round trip through Windows: Protect writes the descriptor,
@@ -143,7 +140,7 @@ func TestProtectRefusesWithoutElevation(t *testing.T) {
 // file. Then a drift is applied and repaired. Setting the owner needs
 // elevation, which the CI runner has.
 func TestProtectRoundTripAndRepair(t *testing.T) {
-	if !platform.IsPrivileged() {
+	if !IsPrivileged() {
 		t.Skip("needs an elevated process")
 	}
 	dir := filepath.Join(t.TempDir(), "pmg")
@@ -153,16 +150,16 @@ func TestProtectRoundTripAndRepair(t *testing.T) {
 	require.Error(t, RequireProtected(dir))
 	require.Error(t, RequireProtected(file))
 
-	require.NoError(t, Protect(dir))
-	require.NoError(t, Protect(file))
+	require.NoError(t, ProtectSystemPath(dir, 0o755))
+	require.NoError(t, ProtectSystemPath(file, 0o755))
 	assert.NoError(t, RequireProtected(dir))
 	assert.NoError(t, RequireProtected(file))
-	assert.NoError(t, RequireTrustedExisting(file))
+	assert.NoError(t, RequireTrustedSystemFile(file))
 
 	applySDDL(t, file, "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;BU)")
 	assert.ErrorContains(t, RequireProtected(file), "has 4 entries, not 3")
 
-	require.NoError(t, Protect(file))
+	require.NoError(t, ProtectSystemPath(file, 0o755))
 	assert.NoError(t, RequireProtected(file))
 }
 

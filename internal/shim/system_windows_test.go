@@ -11,7 +11,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/platform"
-	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -142,7 +141,7 @@ func useSystemLayout(t *testing.T) systemLayout {
 	// The config side is what WriteSystemTemplateConfig leaves behind.
 	configDir := filepath.Dir(layout.ConfigFile)
 	for _, p := range []string{filepath.Dir(configDir), configDir, layout.ConfigFile} {
-		require.NoError(t, winacl.Protect(p))
+		require.NoError(t, platform.ProtectSystemPath(p, 0o755))
 	}
 	return layout
 }
@@ -336,14 +335,14 @@ func TestSystemInstallChecksTheManagedConfig(t *testing.T) {
 	_, err = ValidateSystemInstall()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), layout.ConfigFile)
-	require.NoError(t, winacl.Protect(layout.ConfigFile))
+	require.NoError(t, platform.ProtectSystemPath(layout.ConfigFile, 0o644))
 
 	configDir := filepath.Dir(layout.ConfigFile)
 	applySDDL(t, filepath.Dir(configDir), "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)")
 	_, err = ValidateSystemInstall()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), filepath.Dir(configDir))
-	require.NoError(t, winacl.Protect(filepath.Dir(configDir)))
+	require.NoError(t, platform.ProtectSystemPath(filepath.Dir(configDir), 0o755))
 
 	require.NoError(t, os.Remove(layout.ConfigFile))
 	_, err = ValidateSystemInstall()
