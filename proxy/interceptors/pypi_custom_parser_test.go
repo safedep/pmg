@@ -202,6 +202,8 @@ func TestPypiBaseEndsInSimple(t *testing.T) {
 		{"exact /simple", "/simple", true},
 		{"exact /simple with trailing slash", "/simple/", true},
 		{"mounted below another prefix", "/python/simple", true},
+		{"devpi index", "/user/index/+simple/", true},
+		{"devpi substring is not a match", "/not+simple", false},
 		{"non-simple base", "/files", false},
 		{"non-simple base mounted below a prefix", "/python/files", false},
 		{"a base merely containing simple as a substring is not a match", "/notsimple", false},

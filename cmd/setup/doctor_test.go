@@ -264,3 +264,17 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 		})
 	}
 }
+
+// The Windows branches of the sandbox check. The OS has no sandbox, so a
+// disabled sandbox passes with nothing to fix, and only a config that asks
+// for one fails. The supported-OS branches are the ones the live check
+// always ran.
+func TestEvaluateSandboxCheckWithoutASandbox(t *testing.T) {
+	got := evaluateSandboxCheck(nil, false, false)
+	assert.Equal(t, doctor.StatusPass, got.Status)
+	assert.Empty(t, got.Fix)
+
+	got = evaluateSandboxCheck(nil, false, true)
+	assert.Equal(t, doctor.StatusFail, got.Status)
+	assert.Equal(t, "Set sandbox.enabled: false in config", got.Fix)
+}

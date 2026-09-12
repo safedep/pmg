@@ -32,6 +32,7 @@ pmg config set paranoid true
 pmg config set dependency_cooldown.days 10
 pmg config set cloud.enabled true
 ```
+
 See [config template](../config/config.template.yml) for the configuration schema.
 
 Custom npm/PyPI registry endpoints are configured under `proxy.registries` (a list, so edit the config file directly or use `pmg config edit` rather than `pmg config set`). Invalid entries fail closed: install commands and `pmg proxy start` refuse to run until the file is fixed, while `pmg config` and other non-install commands keep working. See [Custom Registries](proxy-mode.md#custom-registries).
@@ -43,15 +44,15 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 
 **Format:** `PMG_<KEY>` where the key is the config key uppercased, with nested keys joined by `_`.
 
-| Config key | Environment variable |
-|---|---|
-| `paranoid` | `PMG_PARANOID` |
-| `proxy.install_only` | `PMG_PROXY_INSTALL_ONLY` |
-| `verbosity` | `PMG_VERBOSITY` |
-| `skip_event_logging` | `PMG_SKIP_EVENT_LOGGING` |
-| `sandbox.enabled` | `PMG_SANDBOX_ENABLED` |
+| Config key                    | Environment variable              |
+| ----------------------------- | --------------------------------- |
+| `paranoid`                    | `PMG_PARANOID`                    |
+| `proxy.install_only`          | `PMG_PROXY_INSTALL_ONLY`          |
+| `verbosity`                   | `PMG_VERBOSITY`                   |
+| `skip_event_logging`          | `PMG_SKIP_EVENT_LOGGING`          |
+| `sandbox.enabled`             | `PMG_SANDBOX_ENABLED`             |
 | `dependency_cooldown.enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` |
-| `cloud.enabled` | `PMG_CLOUD_ENABLED` |
+| `cloud.enabled`               | `PMG_CLOUD_ENABLED`               |
 
 The legacy flat key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
 
@@ -67,6 +68,10 @@ PMG_PARANOID=true pmg npm install express
 PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 ```
 
+Paranoid mode blocks registry GET and HEAD requests when an enabled registry parser fails.
+It also blocks artifact requests with an incomplete package identity.
+See [registry identity policy](proxy-mode.md#how-pmg-identifies-a-package) for exceptions and analyzer-error behavior.
+
 **Precedence (highest to lowest):**
 
 1. CLI flags
@@ -76,13 +81,12 @@ PMG_PROXY_INSTALL_ONLY=true pmg npm install express
 
 Under a [globally managed config](#globally-managed-configuration) with `global_lockdown` enabled, PMG disables `PMG_*` and managed-flag overrides.
 
-
 **Limitation**
 
 - `config set` can only update keys that are present and uncommented in the config file.
-If a key is commented out (e.g. `# endpoint_id: "my-machine"`) or missing entirely, `set` will
-return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
-or run `pmg setup install` to merge missing template keys into your config.
+  If a key is commented out (e.g. `# endpoint_id: "my-machine"`) or missing entirely, `set` will
+  return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
+  or run `pmg setup install` to merge missing template keys into your config.
 
 ## Globally Managed Configuration
 
@@ -90,11 +94,11 @@ For centrally managed or fleet deployments, PMG can read an OS-level **global co
 
 **Paths** (used when the file is present):
 
-| OS | Global config path |
-|---|---|
-| macOS | `/Library/Application Support/safedep/pmg/config.yml` |
-| Linux | `/etc/safedep/pmg/config.yml` |
-| Windows | `%PROGRAMDATA%\safedep\pmg\config.yml` |
+| OS      | Global config path                                    |
+| ------- | ----------------------------------------------------- |
+| macOS   | `/Library/Application Support/safedep/pmg/config.yml` |
+| Linux   | `/etc/safedep/pmg/config.yml`                         |
+| Windows | `%PROGRAMDATA%\safedep\pmg\config.yml`                |
 
 Check whether a global config is active with `pmg setup info`:
 
@@ -137,10 +141,10 @@ PMG reads `global_lockdown` straight from the global file, so a user cannot flip
 
 ### Precedence
 
-| Mode | Effective order (highest to lowest) |
-|---|---|
-| No global config | CLI flags > `PMG_*` env > per-user `config.yml` > built-in defaults |
-| Global config, no lockdown | CLI flags > `PMG_*` env > global config > built-in defaults |
+| Mode                                   | Effective order (highest to lowest)                                        |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| No global config                       | CLI flags > `PMG_*` env > per-user `config.yml` > built-in defaults        |
+| Global config, no lockdown             | CLI flags > `PMG_*` env > global config > built-in defaults                |
 | Global config, `global_lockdown: true` | global config > built-in defaults (env and managed-flag overrides refused) |
 
 ### Deploying via MDM
@@ -173,14 +177,14 @@ PMG detects Kubernetes from `KUBERNETES_SERVICE_HOST`, the service account names
 
 The `KUBE_*` variables are a PMG convention, not automatic Kubernetes environment. A platform team injects them through the Downward API for explicit context or a stable workload name.
 
-| Variable | Purpose | Downward API field |
-|---|---|---|
-| `KUBE_NAMESPACE` | Namespace | `metadata.namespace` |
-| `KUBE_POD_NAME` | Pod name | `metadata.name` |
-| `KUBE_POD_UID` | Pod UID | `metadata.uid` |
-| `KUBE_WORKLOAD_NAME` | Stable workload name | set to the workload name |
-| `KUBE_WORKLOAD_KIND` | Workload kind (for example Deployment) | set to the workload kind |
-| `KUBE_CLUSTER_NAME` | Cluster name | set for a multi-cluster tenant |
+| Variable             | Purpose                                | Downward API field             |
+| -------------------- | -------------------------------------- | ------------------------------ |
+| `KUBE_NAMESPACE`     | Namespace                              | `metadata.namespace`           |
+| `KUBE_POD_NAME`      | Pod name                               | `metadata.name`                |
+| `KUBE_POD_UID`       | Pod UID                                | `metadata.uid`                 |
+| `KUBE_WORKLOAD_NAME` | Stable workload name                   | set to the workload name       |
+| `KUBE_WORKLOAD_KIND` | Workload kind (for example Deployment) | set to the workload kind       |
+| `KUBE_CLUSTER_NAME`  | Cluster name                           | set for a multi-cluster tenant |
 
 ```yaml
 env:

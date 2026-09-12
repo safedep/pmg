@@ -40,3 +40,8 @@ func SystemBinDir() string { return systemBinDir() }
 // SystemProfilePath returns the login-shell snippet that puts SystemBinDir on
 // PATH. It returns "" where the machine PATH carries the directory instead.
 func SystemProfilePath() string { return systemProfilePath() }
+
+// ParentProcessName returns the file name of the image that started this
+// process, for example "pwsh.exe". Windows only. Unix returns
+// errors.ErrUnsupported, because SHELL answers the question there.
+func ParentProcessName() (string, error) { return parentProcessName() }

@@ -61,6 +61,9 @@ func (n npmParser) ParseURL(urlPath string) (packageInfo, error) {
 
 	// Split path into segments
 	segments := strings.Split(urlPath, "/")
+	if segments[0] == "-" {
+		return &npmPackageInfo{}, nil
+	}
 
 	// Check if this is a scoped package (starts with @)
 	isScoped := len(segments) > 0 && strings.HasPrefix(segments[0], "@")

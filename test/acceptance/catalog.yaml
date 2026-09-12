@@ -9,6 +9,12 @@
 # labels are free-form tags. A run can filter by category and by labels (see README).
 
 # --- covered by seed scripts ---
+- id: proxy/paranoid/unresolved-identity
+  title: "Paranoid mode blocks unresolved registry identities"
+  category: proxy
+  tier: P1
+  guarantee: "The proxy rejects a registry URL that it cannot parse when paranoid mode is enabled."
+  labels: [paranoid, block]
 - id: npm/guard/malware-block
   title: "npm install of a known-malicious package is blocked"
   category: npm

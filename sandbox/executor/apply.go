@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -80,6 +81,15 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 	applyConfig := &applySandboxConfig{}
 	for _, opt := range opts {
 		opt(applyConfig)
+	}
+
+	if !platform.Supported() {
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.InvalidArgument).
+			WithHumanError(fmt.Sprintf("The sandbox is not supported on %s", runtime.GOOS)).
+			WithHelp("Set sandbox.enabled: false in the PMG config, or remove --sandbox from the command.").
+			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md for the supported platforms.").
+			Wrap(fmt.Errorf("sandbox not supported on %s", runtime.GOOS))
 	}
 
 	presetRegistry, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))

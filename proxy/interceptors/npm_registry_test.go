@@ -12,6 +12,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNpmRegistryAPIRequestsSkipCooldown(t *testing.T) {
+	rc := config.Get()
+	saved := *rc
+	t.Cleanup(func() { *rc = saved })
+	rc.Config.Paranoid = true
+	rc.InsecureInstallation = false
+	rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: 2}
+	interceptor := newTestDefaultNpmInterceptor(t)
+	for _, path := range []string{"/-/v1/search", "/-/package/demo/dist-tags", "/-/ping"} {
+		t.Run(path, func(t *testing.T) {
+			ctx := makeTestRequestContext("https://registry.npmjs.org" + path)
+			resp, err := interceptor.HandleRequest(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, proxy.ActionAllow, resp.Action)
+			assert.Nil(t, resp.ResponseModifier)
+			assert.Empty(t, resp.ModifiedHeaders)
+		})
+	}
+}
+
 func TestNpmRegistryInterceptor_ShouldMITM(t *testing.T) {
 	interceptor := newNpmRegistryInterceptor(nil, nil, nil, nil, InterceptorContext{},
 		newTestRegistrySetFor(t, packagev1.Ecosystem_ECOSYSTEM_NPM, nil))

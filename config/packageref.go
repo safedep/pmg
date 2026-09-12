@@ -6,6 +6,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/pypi"
 )
 
 // purlRef is the pre-parsed form of a PURL list entry (trusted_packages,
@@ -30,6 +31,11 @@ func (r *purlRef) parseFrom(purl string) {
 	r.ecosystem = parsedPurl.Ecosystem()
 	r.name = parsedPurl.Name()
 	r.version = parsedPurl.Version()
+	if r.ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
+		if version, valid := pypi.NormalizeVersion(r.version); valid {
+			r.version = version
+		}
+	}
 
 	// crates.io names are case-insensitive and the cargo interceptor
 	// normalizes them to lowercase, so a canonical-case PURL (pkg:cargo/Inflector)
@@ -51,7 +57,13 @@ func (r purlRef) matches(pv *packagev1.PackageVersion) bool {
 	if r.name != pv.GetPackage().GetName() {
 		return false
 	}
-	if r.version != "" && r.version != pv.GetVersion() {
+	version := pv.GetVersion()
+	if r.ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
+		if normalized, valid := pypi.NormalizeVersion(version); valid {
+			version = normalized
+		}
+	}
+	if r.version != "" && r.version != version {
 		return false
 	}
 	return true
