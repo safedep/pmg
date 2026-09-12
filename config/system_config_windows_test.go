@@ -10,6 +10,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ import (
 // needs elevation.
 func secureManagedConfigForTest(t *testing.T, dir string) {
 	t.Helper()
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("a managed config the runtime trusts needs an elevated process to create")
 	}
 	require.NoError(t, winacl.Protect(filepath.Dir(dir)))
@@ -39,16 +40,6 @@ func useGlobalConfigDir(t *testing.T) string {
 	globalConfigDirOverride = dir
 	t.Cleanup(func() { globalConfigDirOverride = "" })
 	return dir
-}
-
-// The managed config directory comes from the shell, not from a variable
-// the user's process controls.
-func TestGlobalConfigDirIgnoresTheEnvironment(t *testing.T) {
-	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
-	require.NoError(t, err)
-
-	t.Setenv("PROGRAMDATA", `C:\Users\dev\evil`)
-	assert.Equal(t, filepath.Join(programData, `safedep\pmg`), globalConfigDir())
 }
 
 // A junction in place of the managed directory would send the writes and
@@ -73,7 +64,7 @@ func TestWriteSystemTemplateConfigRejectsAJunction(t *testing.T) {
 // are secured first, then the file is rejected before it is read, and left
 // in place.
 func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("securing the directories needs an elevated process")
 	}
 	dir := useGlobalConfigDir(t)
@@ -101,7 +92,7 @@ func TestWriteSystemTemplateConfigRejectsAnUntrustedExistingFile(t *testing.T) {
 // governs. The same file with a write grant for Users is ignored. A junction
 // at the path is not a regular file and never governs.
 func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("a file with an administrative owner needs an elevated process")
 	}
 	dir := useGlobalConfigDir(t)
@@ -143,7 +134,7 @@ func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 // administrative control. A parent a standard user may write into is a
 // parent whose entries they can swap.
 func TestResolveConfigFileRequiresControlledParents(t *testing.T) {
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("a protected directory needs an elevated process")
 	}
 	dir := useGlobalConfigDir(t)
@@ -198,7 +189,7 @@ func applySDDL(t *testing.T, path, sddl string) {
 // because it carries the PMG descriptor. A file whose descriptor drifted
 // after that is rejected again.
 func TestWriteSystemTemplateConfigProtectsWhatItWrites(t *testing.T) {
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("setting the owner needs an elevated process")
 	}
 	dir := useGlobalConfigDir(t)

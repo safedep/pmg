@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -110,7 +111,7 @@ func TestSandboxViolationCacheDir(t *testing.T) {
 			envKey: "PMG_CACHE_DIR",
 			envVal: "",
 			expected: func(t *testing.T) string {
-				base, err := userCacheBase()
+				base, err := platform.UserCacheDir()
 				require.NoError(t, err)
 				return filepath.Join(base, pmgDefaultHomeRelativePath, pmgDefaultSandboxViolationCacheDir)
 			},
@@ -148,19 +149,4 @@ func TestSandboxViolationCacheDirRespectsXDGCacheHome(t *testing.T) {
 
 	expected := filepath.Join(tmp, pmgDefaultHomeRelativePath, pmgDefaultSandboxViolationCacheDir)
 	assert.Equal(t, expected, Get().SandboxViolationCacheDir())
-}
-
-// userCacheBase returns the platform's user cache root the same way cacheDir()
-// in config.go resolves it (sans the PMG_CACHE_DIR override).
-func userCacheBase() (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		base := os.Getenv("LOCALAPPDATA")
-		if base == "" {
-			base = os.Getenv("USERPROFILE")
-		}
-		return base, nil
-	default:
-		return os.UserCacheDir()
-	}
 }

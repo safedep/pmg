@@ -12,6 +12,7 @@ import (
 	_ "embed"
 
 	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/platform"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/usefulerror"
@@ -34,9 +35,6 @@ const (
 
 	// Allow overriding the cache path from the environment
 	pmgCacheDirEnvKey = "PMG_CACHE_DIR"
-
-	// XDG base directory for user-specific data files on Linux
-	xdgDataHomeEnvKey = "XDG_DATA_HOME"
 
 	// Config path is computed as the user config directory + the default relative path
 	// when not overridden by the environment variable
@@ -661,10 +659,6 @@ func loadConfig() error {
 	return nil
 }
 
-// configGeteuid is overridable in tests to exercise root path resolution
-// without running as root.
-var configGeteuid = os.Geteuid
-
 // rootHomeDir returns root's home from the passwd database. Path resolution
 // for root must not consult HOME or XDG_*: sudo and su can preserve the
 // invoking user's environment (GitHub runners, sudo -E, su without -), which
@@ -681,30 +675,30 @@ func rootHomeDir() (string, error) {
 	return u.HomeDir, nil
 }
 
-// rootConfigDir mirrors os.UserConfigDir platform conventions for root's
-// passwd home.
-func rootConfigDir() (string, error) {
-	home, err := rootHomeDir()
+// rootDirs returns root's base directories from the passwd home.
+func rootDirs() (platform.Dirs, error) {
+	home, err := rootHomeDirResolver()
 	if err != nil {
-		return "", err
+		return platform.Dirs{}, err
 	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support"), nil
-	}
-	return filepath.Join(home, ".config"), nil
+	return platform.HomeDirs(home), nil
 }
 
-// rootCacheDir mirrors os.UserCacheDir platform conventions for root's
-// passwd home.
-func rootCacheDir() (string, error) {
-	home, err := rootHomeDir()
+// sudoRootDirs returns root's own base directories when pmg runs as root
+// through sudo. Without a resolvable root passwd entry (scratch containers,
+// minimal chroots) it reports false and the caller resolves from the
+// environment: without a passwd database there is no user switching, so the
+// cross-user poisoning the diversion prevents cannot occur.
+func sudoRootDirs() (platform.Dirs, bool) {
+	if !platform.IsSudo() {
+		return platform.Dirs{}, false
+	}
+	dirs, err := rootDirs()
 	if err != nil {
-		return "", err
+		log.Warnf("failed to resolve root home, using environment: %v", err)
+		return platform.Dirs{}, false
 	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Caches"), nil
-	}
-	return filepath.Join(home, ".cache"), nil
+	return dirs, true
 }
 
 // UserHomeDir returns the home directory pmg should treat as the current
@@ -714,11 +708,11 @@ func rootCacheDir() (string, error) {
 // paths that sit alongside the config directory must use this rather than
 // os.UserHomeDir, otherwise the two can disagree under sudo.
 func UserHomeDir() (string, error) {
-	if isSudoElevation() {
+	if platform.IsSudo() {
 		if home, err := rootHomeDirResolver(); err == nil {
 			return home, nil
 		} else {
-			// Same fallback rationale as configDir.
+			// Same fallback rationale as sudoRootDirs.
 			log.Warnf("failed to resolve root home, using environment: %v", err)
 		}
 	}
@@ -726,26 +720,8 @@ func UserHomeDir() (string, error) {
 	return os.UserHomeDir()
 }
 
-// rootDataDir mirrors userDataBaseDir platform conventions for root's passwd
-// home.
-func rootDataDir() (string, error) {
-	home, err := rootHomeDir()
-	if err != nil {
-		return "", err
-	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support"), nil
-	}
-	return filepath.Join(home, ".local", "share"), nil
-}
-
 // Overridable in tests to exercise the passwd-unavailable fallback.
-var (
-	rootConfigDirResolver = rootConfigDir
-	rootCacheDirResolver  = rootCacheDir
-	rootDataDirResolver   = rootDataDir
-	rootHomeDirResolver   = rootHomeDir
-)
+var rootHomeDirResolver = rootHomeDir
 
 // currentUserHomeDir returns the current user's home from the passwd
 // database, ignoring HOME and XDG_* env vars that may be leaked from another
@@ -827,19 +803,6 @@ func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 	}
 }
 
-// isSudoElevation reports whether pmg is running as root via sudo, i.e. a
-// non-root user elevated and sudo may have preserved that user's HOME/XDG_*.
-// Only then do per-user paths divert to root's own home, so root does not
-// create state inside the invoking user's home. Running genuinely as root
-// (no sudo) keeps honoring HOME/XDG_*, which is legitimate and intended (e.g.
-// golden Docker images that set HOME/XDG_CONFIG_HOME on purpose). This mirrors
-// the SUDO_USER guard used elsewhere (cmd/setup/cert.go). su without sudo does
-// not set SUDO_USER and is not covered; the unwritable-dir remedy still guides
-// the user if such a run poisons a directory.
-func isSudoElevation() bool {
-	return configGeteuid() == 0 && os.Getenv("SUDO_USER") != ""
-}
-
 // configDir computes the path to the config directory.
 func configDir() (string, error) {
 	dir := os.Getenv(pmgConfigDirEnvKey)
@@ -847,16 +810,8 @@ func configDir() (string, error) {
 		return dir, nil
 	}
 
-	if isSudoElevation() {
-		if base, err := rootConfigDirResolver(); err == nil {
-			return filepath.Join(base, pmgDefaultHomeRelativePath), nil
-		} else {
-			// No resolvable root passwd entry (e.g. scratch containers,
-			// minimal chroots). Fall back to env-based resolution: without a
-			// passwd database there is no user switching, so the cross-user
-			// poisoning this branch prevents cannot occur.
-			log.Warnf("failed to resolve root home for config dir, using environment: %v", err)
-		}
+	if dirs, ok := sudoRootDirs(); ok {
+		return filepath.Join(dirs.Config, pmgDefaultHomeRelativePath), nil
 	}
 
 	userConfigDir, err := os.UserConfigDir()
@@ -882,6 +837,13 @@ func userConfigFilePath() (string, error) {
 // or flag for it, so a user cannot point the "managed" config at their own file
 // and bypass the globally managed config.
 var globalConfigDirOverride string
+
+func globalConfigDir() string {
+	if globalConfigDirOverride != "" {
+		return globalConfigDirOverride
+	}
+	return platform.SystemConfigDir()
+}
 
 // globalConfigFilePath returns the path to the globally managed config file, or
 // "" when the platform has no global config location.
@@ -921,32 +883,21 @@ func isRegularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// eventLogDir computes the path to the event log directory.
+// eventLogDir computes the path to the event log directory. Where the config
+// directory roams with the profile, the logs go beside the data instead:
+// https://github.com/safedep/pmg/pull/82#discussion_r2636746036
 func eventLogDir() (string, error) {
-	// For rationale on why different directory for Windows, see:
-	// https://github.com/safedep/pmg/pull/82#discussion_r2636746036
-	switch runtime.GOOS {
-	case "windows":
-		// Windows: %LOCALAPPDATA%\safedep\pmg\logs or %USERPROFILE%\safedep\pmg\logs
-		baseDir := os.Getenv("LOCALAPPDATA")
-		if baseDir == "" {
-			baseDir = os.Getenv("USERPROFILE")
-			if baseDir == "" {
-				return "", fmt.Errorf("could not determine Windows user directory for event log storage")
-			}
-		}
-
-		return filepath.Join(baseDir, pmgDefaultHomeRelativePath, pmgDefaultLogDir), nil
-	case "darwin", "linux":
-		configDir, err := configDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get config directory: %w", err)
-		}
-
-		return filepath.Join(configDir, pmgDefaultLogDir), nil
-	default:
-		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	baseDir := configDir
+	if platform.UserConfigDirRoams {
+		baseDir = UserDataDir
 	}
+
+	base, err := baseDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve the event log directory: %w", err)
+	}
+
+	return filepath.Join(base, pmgDefaultLogDir), nil
 }
 
 // cacheDir computes the path to the cache root directory.
@@ -956,35 +907,15 @@ func cacheDir() (string, error) {
 		return dir, nil
 	}
 
-	switch runtime.GOOS {
-	case "windows":
-		// Windows: %LOCALAPPDATA%\safedep\pmg or %USERPROFILE%\safedep\pmg
-		baseDir := os.Getenv("LOCALAPPDATA")
-		if baseDir == "" {
-			baseDir = os.Getenv("USERPROFILE")
-			if baseDir == "" {
-				return "", fmt.Errorf("could not determine Windows user directory for cache storage")
-			}
-		}
-		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
-	case "darwin", "linux":
-		if isSudoElevation() {
-			if base, err := rootCacheDirResolver(); err == nil {
-				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
-			} else {
-				// Same fallback rationale as configDir.
-				log.Warnf("failed to resolve root home for cache dir, using environment: %v", err)
-			}
-		}
-
-		userCacheDir, err := os.UserCacheDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to retrieve user cache directory: %w", err)
-		}
-		return filepath.Join(userCacheDir, pmgDefaultHomeRelativePath), nil
-	default:
-		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	if dirs, ok := sudoRootDirs(); ok {
+		return filepath.Join(dirs.Cache, pmgDefaultHomeRelativePath), nil
 	}
+
+	userCacheDir, err := platform.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve user cache directory: %w", err)
+	}
+	return filepath.Join(userCacheDir, pmgDefaultHomeRelativePath), nil
 }
 
 // UserDataDir returns the per-user directory for pmg data that is neither
@@ -992,53 +923,15 @@ func cacheDir() (string, error) {
 // `pmg setup install`. Linux follows XDG_DATA_HOME; macOS and Windows have no
 // separate data location, so they reuse the config convention.
 func UserDataDir() (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		baseDir := os.Getenv("LOCALAPPDATA")
-		if baseDir == "" {
-			baseDir = os.Getenv("USERPROFILE")
-			if baseDir == "" {
-				return "", fmt.Errorf("could not determine Windows user directory for data storage")
-			}
-		}
-		return filepath.Join(baseDir, pmgDefaultHomeRelativePath), nil
-	case "darwin", "linux":
-		if isSudoElevation() {
-			if base, err := rootDataDirResolver(); err == nil {
-				return filepath.Join(base, pmgDefaultHomeRelativePath), nil
-			} else {
-				// Same fallback rationale as configDir.
-				log.Warnf("failed to resolve root home for data dir, using environment: %v", err)
-			}
-		}
-
-		return userDataBaseDir()
-	default:
-		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-}
-
-// userDataBaseDir mirrors os.UserConfigDir for data: XDG_DATA_HOME on Linux,
-// ~/Library/Application Support on macOS.
-func userDataBaseDir() (string, error) {
-	if runtime.GOOS == "darwin" {
-		userConfigDir, err := os.UserConfigDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to retrieve user data directory: %w", err)
-		}
-		return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
+	if dirs, ok := sudoRootDirs(); ok {
+		return filepath.Join(dirs.Data, pmgDefaultHomeRelativePath), nil
 	}
 
-	base := os.Getenv(xdgDataHomeEnvKey)
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to retrieve user home directory: %w", err)
-		}
-		base = filepath.Join(home, ".local", "share")
+	userDataDir, err := platform.UserDataDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve user data directory: %w", err)
 	}
-
-	return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+	return filepath.Join(userDataDir, pmgDefaultHomeRelativePath), nil
 }
 
 // sandboxProfileDir computes the path to the sandbox profile directory.

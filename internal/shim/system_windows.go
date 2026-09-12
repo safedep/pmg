@@ -14,22 +14,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/fsutil"
 	"github.com/safedep/pmg/internal/winacl"
-	"golang.org/x/sys/windows"
 )
-
-var programFiles = fsutil.KnownFolder(windows.FOLDERID_ProgramFiles)
-
-// defaultSystemBinDir is "" when the shell cannot say where Program Files
-// is, and every system-install entry point then reports that.
-func defaultSystemBinDir() string {
-	if programFiles() == "" {
-		return ""
-	}
-	return filepath.Join(programFiles(), "safedep", "pmg", "bin")
-}
-
-// Windows has no profile.d. The machine PATH carries the shim directory.
-func defaultSystemProfilePath() string { return "" }
 
 // The system install lives at fixed paths under Program Files, which only
 // administrators can write.

@@ -4,20 +4,19 @@ package config
 
 import (
 	"os/user"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func withEuid(t *testing.T, euid int) {
+func withPrivilege(t *testing.T, privileged bool) {
 	t.Helper()
-	orig := configGeteuid
-	configGeteuid = func() int { return euid }
-	t.Cleanup(func() { configGeteuid = orig })
+	orig := platform.IsPrivileged
+	platform.IsPrivileged = func() bool { return privileged }
+	t.Cleanup(func() { platform.IsPrivileged = orig })
 }
 
 func poisonUserEnv(t *testing.T) {
@@ -32,7 +31,7 @@ func poisonUserEnv(t *testing.T) {
 
 func TestConfigDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := configDir()
@@ -48,7 +47,7 @@ func TestConfigDirGenuineRootHonorsEnv(t *testing.T) {
 	// Root without sudo (SUDO_USER unset) is the intended user, e.g. a golden
 	// Docker image that deliberately sets XDG_CONFIG_HOME. It must not divert.
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "")
 
 	dir, err := configDir()
@@ -58,7 +57,7 @@ func TestConfigDirGenuineRootHonorsEnv(t *testing.T) {
 
 func TestConfigDirAsNonRootUsesEnvHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 1000)
+	withPrivilege(t, false)
 
 	dir, err := configDir()
 	require.NoError(t, err)
@@ -68,7 +67,7 @@ func TestConfigDirAsNonRootUsesEnvHome(t *testing.T) {
 func TestConfigDirEnvOverrideWinsUnderSudo(t *testing.T) {
 	poisonUserEnv(t)
 	t.Setenv("PMG_CONFIG_DIR", "/custom/pmg")
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := configDir()
@@ -78,7 +77,7 @@ func TestConfigDirEnvOverrideWinsUnderSudo(t *testing.T) {
 
 func TestCacheDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := cacheDir()
@@ -92,7 +91,7 @@ func TestCacheDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 
 func TestCacheDirGenuineRootHonorsEnv(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "")
 
 	dir, err := cacheDir()
@@ -102,7 +101,7 @@ func TestCacheDirGenuineRootHonorsEnv(t *testing.T) {
 
 func TestCacheDirAsNonRootUsesEnvHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 1000)
+	withPrivilege(t, false)
 
 	dir, err := cacheDir()
 	require.NoError(t, err)
@@ -111,16 +110,12 @@ func TestCacheDirAsNonRootUsesEnvHome(t *testing.T) {
 
 func TestRootDirsFallBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
-	origConfig, origCache, origData := rootConfigDirResolver, rootCacheDirResolver, rootDataDirResolver
-	rootConfigDirResolver = func() (string, error) { return "", assert.AnError }
-	rootCacheDirResolver = func() (string, error) { return "", assert.AnError }
-	rootDataDirResolver = func() (string, error) { return "", assert.AnError }
-	t.Cleanup(func() {
-		rootConfigDirResolver, rootCacheDirResolver, rootDataDirResolver = origConfig, origCache, origData
-	})
+	orig := rootHomeDirResolver
+	rootHomeDirResolver = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { rootHomeDirResolver = orig })
 
 	dir, err := configDir()
 	require.NoError(t, err)
@@ -137,7 +132,7 @@ func TestRootDirsFallBackToEnvWhenPasswdUnavailable(t *testing.T) {
 
 func TestUserDataDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
 	dir, err := UserDataDir()
@@ -151,44 +146,16 @@ func TestUserDataDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 
 func TestUserDataDirAsNonRootUsesEnvHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 1000)
+	withPrivilege(t, false)
 
 	dir, err := UserDataDir()
 	require.NoError(t, err)
 	assert.Contains(t, dir, "/home/victim")
 }
 
-func TestUserDataDirHonorsXdgDataHome(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("XDG data layout is Linux-only")
-	}
-
-	poisonUserEnv(t)
-	withEuid(t, 1000)
-	t.Setenv("XDG_DATA_HOME", "/custom/data")
-
-	dir, err := UserDataDir()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/custom/data", pmgDefaultHomeRelativePath), dir)
-}
-
-func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("XDG data layout is Linux-only")
-	}
-
-	poisonUserEnv(t)
-	withEuid(t, 1000)
-	t.Setenv("XDG_DATA_HOME", "")
-
-	dir, err := UserDataDir()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/home/victim", ".local", "share", pmgDefaultHomeRelativePath), dir)
-}
-
 func TestUserHomeDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
 	home, err := UserHomeDir()
@@ -202,7 +169,7 @@ func TestUserHomeDirUnderSudoIgnoresPreservedHome(t *testing.T) {
 
 func TestUserHomeDirAsNonRootUsesEnvHome(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 1000)
+	withPrivilege(t, false)
 
 	home, err := UserHomeDir()
 	require.NoError(t, err)
@@ -211,7 +178,7 @@ func TestUserHomeDirAsNonRootUsesEnvHome(t *testing.T) {
 
 func TestUserHomeDirFallsBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	poisonUserEnv(t)
-	withEuid(t, 0)
+	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
 	orig := rootHomeDirResolver

@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
@@ -306,10 +307,8 @@ func otherScope(s truststore.Scope) truststore.Scope {
 	return truststore.ScopeSystem
 }
 
-var geteuid = os.Geteuid
-
 func errIfRunningUnderSudo() error {
-	if geteuid() == 0 && os.Getenv("SUDO_USER") != "" {
+	if platform.IsSudo() {
 		return newCertCommandError(errcodes.PermissionDenied,
 			"run `pmg setup cert` as your normal user, not with sudo",
 			"PMG generates a per-user CA keypair and elevates only the system trust step. Re-run without sudo (use --system for machine-wide trust).",

@@ -10,23 +10,12 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/winacl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 )
-
-func TestDefaultSystemBinDirUnderProgramFiles(t *testing.T) {
-	programFiles, err := windows.KnownFolderPath(windows.FOLDERID_ProgramFiles, 0)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
-
-	// The environment does not steer it. A caller's shell controls the
-	// environment, and a directory of their choosing must not become the
-	// first entry of the machine PATH.
-	t.Setenv("ProgramFiles", `C:\Users\dev\evil`)
-	assert.Equal(t, filepath.Join(programFiles, `safedep\pmg\bin`), defaultSystemBinDir())
-}
 
 // tempLayout mirrors the Program Files and ProgramData layouts under the
 // temp directory: root\pf\safedep\pmg\{pmg.exe,bin} and
@@ -141,7 +130,7 @@ func TestMachinePathScope(t *testing.T) {
 // without it.
 func useSystemLayout(t *testing.T) systemLayout {
 	t.Helper()
-	if !winacl.ProcessIsElevated() {
+	if !platform.IsPrivileged() {
 		t.Skip("Install protects the objects, which needs an elevated process")
 	}
 	isolateMachinePath(t)
