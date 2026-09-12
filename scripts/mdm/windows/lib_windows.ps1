@@ -258,7 +258,7 @@ function New-UserWorkDirectory {
 
 # Test-AdministrativeOwner compares the owner SID, because the account name
 # is localized. Administrators or SYSTEM own what PMG writes, the same rule
-# as winacl in the binary.
+# as internal/platform in the binary.
 function Test-AdministrativeOwner {
   param([Parameter(Mandatory)]$Acl)
   $owner = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
