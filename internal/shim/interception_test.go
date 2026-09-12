@@ -2,38 +2,12 @@ package shim
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestResolveManagers(t *testing.T) {
-	shimDir := filepath.Join("/", "shims")
-	entries := []string{filepath.Join("/", "usr", "bin"), shimDir}
-	calls := map[string]int{}
-	lookPath := func(name string, _ []string) (string, error) {
-		calls[name]++
-		switch name {
-		case "npm":
-			return filepath.Join(shimDir, "npm"), nil
-		case "pip":
-			return filepath.Join("/", "usr", "bin", "pip"), nil
-		default:
-			return "", exec.ErrNotFound
-		}
-	}
-
-	resolutions := resolveManagers([]string{"npm", "pip", "uv"}, []string{shimDir}, entries, lookPath)
-
-	assert.Equal(t, []ManagerResolution{
-		{Name: "npm", Path: filepath.Join(shimDir, "npm"), UnderShim: true},
-		{Name: "pip", Path: filepath.Join("/", "usr", "bin", "pip")},
-	}, resolutions, "configured order kept, unresolved manager omitted")
-	assert.Equal(t, map[string]int{"npm": 1, "pip": 1, "uv": 1}, calls, "each manager resolves once")
-}
 
 func TestInterceptionInspectionPartition(t *testing.T) {
 	underShimResolution := ManagerResolution{Name: "npm", UnderShim: true}

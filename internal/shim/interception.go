@@ -7,28 +7,18 @@ import (
 	"path/filepath"
 
 	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/platform"
 )
 
-// PathOrigin is where the PATH entry that won a lookup came from. The remedy
-// for a shadowed manager depends on it, because PMG can reorder the user PATH
-// and nothing else.
-type PathOrigin int
+// PathOrigin is where the PATH entry that won a lookup came from. It aliases
+// the platform type, so doctor and its tests keep the shorter names.
+type PathOrigin = platform.PathOrigin
 
 const (
-	// OriginUnknown is every platform that has one PATH and no way to say
-	// where an entry came from.
-	OriginUnknown PathOrigin = iota
-	// OriginMachine is the Windows machine PATH, which a machine-wide
-	// installer writes. Windows puts it ahead of the user PATH, so no
-	// user-scope write can move the shims in front of it.
-	OriginMachine
-	// OriginUser is the Windows user PATH. `pmg setup install` moves the shim
-	// directory to the front of it.
-	OriginUser
-	// OriginProfile is a directory that only this process has, so a shell
-	// profile added it. It never reaches the registry, and PMG cannot reorder
-	// it.
-	OriginProfile
+	OriginUnknown = platform.PathOriginUnknown
+	OriginMachine = platform.PathOriginMachine
+	OriginUser    = platform.PathOriginUser
+	OriginProfile = platform.PathOriginProfile
 )
 
 // ManagerResolution is where one package manager resolves on the PATH a new
@@ -73,26 +63,30 @@ type ShimInspection struct {
 	BinaryDiffers []string
 }
 
-// resolveManagers looks each manager up once against entries, in the order
-// given, and omits one that does not resolve.
-func resolveManagers(packageManagers, shimDirs, entries []string, lookPath lookupFunc) []ManagerResolution {
-	resolutions := make([]ManagerResolution, 0, len(packageManagers))
+// InspectInterception resolves each configured package manager over the PATH
+// a new shell gets, and reports where each one wins. It builds on
+// platform.NewShellPath, so the install warning and doctor read one PATH.
+func InspectInterception(packageManagers, shimDirs []string) (InterceptionInspection, error) {
+	shell, err := platform.NewShellPath()
+	if err != nil {
+		return InterceptionInspection{}, err
+	}
+
+	inspection := InterceptionInspection{PathEntries: shell.Entries}
 	for _, pm := range packageManagers {
-		resolved, err := lookPath(pm, entries)
+		resolved, origin, err := shell.LookPath(pm)
 		if err != nil {
 			continue
 		}
-		resolutions = append(resolutions, ManagerResolution{
+		inspection.Resolutions = append(inspection.Resolutions, ManagerResolution{
 			Name:      pm,
 			Path:      resolved,
 			UnderShim: PathUnderAnyDir(resolved, shimDirs),
+			Origin:    origin,
 		})
 	}
-	return resolutions
+	return inspection, nil
 }
-
-// lookupFunc resolves a command name against the given PATH entries.
-type lookupFunc func(name string, entries []string) (string, error)
 
 // PathUnderAnyDir reports whether path sits inside one of dirs.
 func PathUnderAnyDir(path string, dirs []string) bool {
