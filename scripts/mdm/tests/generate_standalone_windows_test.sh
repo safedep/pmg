@@ -62,6 +62,13 @@ PWSH
 chmod 0755 "${SYNTAX_CHECK_BIN}/pwsh"
 assert_fails env PATH="${SYNTAX_CHECK_BIN}:${PATH}" \
   "$GENERATOR" --output-dir "${TEST_ROOT}/syntax-check-failure"
+cat > "${SYNTAX_CHECK_BIN}/pwsh" <<'PWSH'
+#!/bin/bash
+[[ -n "${PMG_MDM_SYNTAX_FILE:-}" && -f "$PMG_MDM_SYNTAX_FILE" ]]
+PWSH
+chmod 0755 "${SYNTAX_CHECK_BIN}/pwsh"
+env PATH="${SYNTAX_CHECK_BIN}:${PATH}" \
+  "$GENERATOR" --output-dir "${TEST_ROOT}/syntax-check-path"
 
 assert_contains "$INSTALL_ONE" 'function Install-Binary'
 # shellcheck disable=SC2016 # The assertion matches emitted PowerShell.

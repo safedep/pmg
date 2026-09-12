@@ -44,9 +44,9 @@ generate_standalone_syntax_check() {
     return
   fi
   # shellcheck disable=SC2016 # PowerShell expands the command.
-  "$powershell" -NoProfile -NonInteractive -Command '
+  PMG_MDM_SYNTAX_FILE="$1" "$powershell" -NoProfile -NonInteractive -Command '
     $errors = $null
-    [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$null, [ref]$errors) | Out-Null
+    [System.Management.Automation.Language.Parser]::ParseFile($env:PMG_MDM_SYNTAX_FILE, [ref]$null, [ref]$errors) | Out-Null
     if ($errors) {
       $errors | ForEach-Object { [Console]::Error.WriteLine($_) }
       exit 1
