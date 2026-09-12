@@ -65,7 +65,7 @@ func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-	if !depCooldownConfig.Enabled ||
+	if pkgInfo.GetName() == "" || !depCooldownConfig.Enabled ||
 		pmgconfig.IsTrustedPackageAllVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, pkgInfo.GetName()) {
 		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, pkgInfo.GetName())
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil

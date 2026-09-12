@@ -7,6 +7,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPypiCoreMetadata(t *testing.T) {
+	for _, tt := range []struct {
+		filename string
+		version  string
+		wantErr  bool
+	}{
+		{filename: "demo-1.0-py3-none-any.whl.metadata", version: "1.0"},
+		{filename: "demo-1.0-1local-py3-none-any.whl.metadata", version: "1.0"},
+		{filename: "demo-1!2.0.tar.gz.metadata", version: "1!2.0"},
+		{filename: "invalid.metadata", wantErr: true},
+		{filename: "demo-1.0-py3-none-any.whl.metadata.metadata", wantErr: true},
+	} {
+		for _, route := range []struct {
+			name   string
+			parser registryURLParser
+			prefix string
+		}{
+			{name: "files", parser: pypiFilesParser{}, prefix: "/packages/ab/cd/"},
+			{name: "simple", parser: pypiOrgParser{}, prefix: "/simple/demo/"},
+			{name: "custom", parser: pypiCustomParser{}, prefix: "/files/"},
+		} {
+			t.Run(route.name+"/"+tt.filename, func(t *testing.T) {
+				info, err := route.parser.ParseURL(route.prefix + tt.filename)
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, "demo", info.GetName())
+				assert.Equal(t, tt.version, info.GetVersion())
+				assert.False(t, info.IsFileDownload())
+				assert.False(t, pypiIsSimpleAPIMetadataRequest(info))
+			})
+		}
+	}
+}
+
 func TestPypiFilesParser_ParseURL(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -14,7 +51,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 		wantName       string
 		wantVersion    string
 		wantIsDownload bool
-		wantFileType   string
 		wantErr        bool
 	}{
 		// Source distributions (sdist)
@@ -24,7 +60,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "requests",
 			wantVersion:    "2.28.0",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -33,7 +68,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "flask-restful",
 			wantVersion:    "0.3.10",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -42,7 +76,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "some-package",
 			wantVersion:    "1.0.0",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -51,7 +84,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "mypackage",
 			wantVersion:    "2.0.0rc1",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -60,7 +92,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "testpkg",
 			wantVersion:    "0.1.0.dev1",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -69,7 +100,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "package",
 			wantVersion:    "1.0.0.post1",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -78,7 +108,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "mylib",
 			wantVersion:    "1.2.3+local",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 
@@ -89,7 +118,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "requests",
 			wantVersion:    "2.28.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -98,7 +126,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "numpy",
 			wantVersion:    "1.24.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -107,7 +134,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "cryptography",
 			wantVersion:    "41.0.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -116,7 +142,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "some-package",
 			wantVersion:    "1.0.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -125,7 +150,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "mypackage",
 			wantVersion:    "1.0.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -134,7 +158,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "pywin32",
 			wantVersion:    "306",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 		{
@@ -143,7 +166,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "tensorflow",
 			wantVersion:    "2.15.0",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 
@@ -154,7 +176,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "django",
 			wantVersion:    "4.2.7",
 			wantIsDownload: true,
-			wantFileType:   "sdist",
 			wantErr:        false,
 		},
 		{
@@ -163,7 +184,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "pandas",
 			wantVersion:    "2.1.3",
 			wantIsDownload: true,
-			wantFileType:   "wheel",
 			wantErr:        false,
 		},
 
@@ -174,7 +194,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 		{
@@ -183,7 +202,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 		{
@@ -192,7 +210,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 		{
@@ -201,7 +218,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantFileType:   "",
 			wantErr:        true,
 		},
 	}
@@ -221,12 +237,6 @@ func TestPypiFilesParser_ParseURL(t *testing.T) {
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.Equal(t, tt.wantIsDownload, got.IsFileDownload())
 
-			// Check file type via type assertion - must succeed for pypi packages
-			pypiInfo, ok := got.(*pypiPackageInfo)
-			assert.True(t, ok, "expected *pypiPackageInfo type")
-			if ok {
-				assert.Equal(t, tt.wantFileType, pypiInfo.FileType())
-			}
 		})
 	}
 }
@@ -240,6 +250,11 @@ func TestPypiOrgParser_ParseURL(t *testing.T) {
 		wantIsDownload bool
 		wantErr        bool
 	}{
+		{
+			name:    "invalid Simple API artifact",
+			urlPath: "/simple/demo/invalid.whl",
+			wantErr: true,
+		},
 		// Simple API
 		{
 			name:           "simple api package index",
@@ -318,12 +333,11 @@ func TestPypiOrgParser_ParseURL(t *testing.T) {
 			wantErr:        true,
 		},
 		{
-			name:           "simple api missing package name",
+			name:           "simple api root listing",
 			urlPath:        "/simple/",
 			wantName:       "",
 			wantVersion:    "",
 			wantIsDownload: false,
-			wantErr:        true,
 		},
 		{
 			name:           "json api missing package name",
@@ -361,6 +375,45 @@ func TestParseWheelFilename(t *testing.T) {
 		wantVersion string
 		wantErr     bool
 	}{
+		{
+			name:        "hyphenated name",
+			filename:    "Flask-RESTful-0.3.10-py2.py3-none-any.whl",
+			wantName:    "flask-restful",
+			wantVersion: "0.3.10",
+		},
+		{
+			name:     "invalid build tag",
+			filename: "demo-1.0.0-local1-py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:     "extra components",
+			filename: "pkg-1.0.0-1local-1-py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid version",
+			filename: "demo-invalid-py3-none-any.whl",
+			wantErr:  true,
+		},
+		{
+			name:        "epoch version",
+			filename:    "demo-1!2.0-1local-py3-none-any.whl",
+			wantName:    "demo",
+			wantVersion: "1!2.0",
+		},
+		{
+			name:        "wheel with build suffix",
+			filename:    "wheel_canary-1.0.0-1local-py3-none-any.whl",
+			wantName:    "wheel-canary",
+			wantVersion: "1.0.0",
+		},
+		{
+			name:        "wheel with multiple build digits and suffix",
+			filename:    "wheel_canary-1.0.0-12local-py3-none-any.whl",
+			wantName:    "wheel-canary",
+			wantVersion: "1.0.0",
+		},
 		{
 			name:        "simple wheel",
 			filename:    "requests-2.28.0-py3-none-any.whl",
@@ -407,11 +460,28 @@ func TestParseWheelFilename(t *testing.T) {
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, got.GetName())
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.True(t, got.IsFileDownload())
-			assert.Equal(t, "wheel", got.FileType())
+		})
+	}
+}
+
+func TestIsBuildTag(t *testing.T) {
+	for _, tt := range []struct {
+		tag  string
+		want bool
+	}{
+		{tag: "", want: false},
+		{tag: "1", want: true},
+		{tag: "0local", want: true},
+		{tag: "12local", want: true},
+		{tag: "local1", want: false},
+		{tag: "١local", want: false},
+	} {
+		t.Run(tt.tag, func(t *testing.T) {
+			assert.Equal(t, tt.want, isBuildTag(tt.tag))
 		})
 	}
 }
@@ -424,6 +494,28 @@ func TestParseSdistFilename(t *testing.T) {
 		wantVersion string
 		wantErr     bool
 	}{
+		{
+			name:        "epoch version",
+			filename:    "epoch_canary-1!2.0.tar.gz",
+			wantName:    "epoch-canary",
+			wantVersion: "1!2.0",
+		},
+		{
+			name:        "epoch with release suffixes",
+			filename:    "epoch_canary-12!2.0rc1.post2.dev3+local.zip",
+			wantName:    "epoch-canary",
+			wantVersion: "12!2.0rc1.post2.dev3+local",
+		},
+		{
+			name:     "missing epoch digits",
+			filename: "epoch_canary-!2.0.tar.gz",
+			wantErr:  true,
+		},
+		{
+			name:     "multiple epochs",
+			filename: "epoch_canary-1!2!2.0.tar.gz",
+			wantErr:  true,
+		},
 		{
 			name:        "simple tar.gz",
 			filename:    "requests-2.28.0.tar.gz",
@@ -444,6 +536,12 @@ func TestParseSdistFilename(t *testing.T) {
 			wantName:    "flask-restful",
 			wantVersion: "0.3.10",
 			wantErr:     false,
+		},
+		{
+			name:        "implicit post release",
+			filename:    "hello-test-1.0-1.tar.gz",
+			wantName:    "hello-test",
+			wantVersion: "1.0.post1",
 		},
 		{
 			name:        "prerelease version",
@@ -470,11 +568,10 @@ func TestParseSdistFilename(t *testing.T) {
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, got.GetName())
 			assert.Equal(t, tt.wantVersion, got.GetVersion())
 			assert.True(t, got.IsFileDownload())
-			assert.Equal(t, "sdist", got.FileType())
 		})
 	}
 }

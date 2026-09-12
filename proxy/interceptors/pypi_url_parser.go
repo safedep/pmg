@@ -4,14 +4,20 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/safedep/pmg/internal/pypi"
+)
+
+var (
+	pypiEggFilename = regexp.MustCompile(`^([^-]+)-([^-]+)(?:-(?:py[0-9.]+|cp[0-9]+)(?:-[a-zA-Z0-9_.-]+)?)?\.egg$`)
+	pypiExeFilename = regexp.MustCompile(`^(.+)-([^-]+)\.(?:win32|win-amd64)(?:-py[0-9.]+)?\.exe$`)
 )
 
 // pypiPackageInfo represents parsed package information from a PyPI registry URL
 type pypiPackageInfo struct {
 	name       string
 	version    string
-	isDownload bool   // True if this is a file download (sdist or wheel)
-	fileType   string // "sdist", "wheel", or empty for non-download requests
+	isDownload bool // True if this is a file download (sdist or wheel)
 
 	// isSimpleAPI is true when parsed from a Simple API (PEP 503/691) path,
 	// false for the legacy JSON API request. A custom registry can reshape
@@ -36,11 +42,6 @@ func (p *pypiPackageInfo) GetVersion() string {
 // IsFileDownload returns true if this is a file download (sdist or wheel)
 func (p *pypiPackageInfo) IsFileDownload() bool {
 	return p.isDownload
-}
-
-// FileType returns the file type ("sdist", "wheel", or empty)
-func (p *pypiPackageInfo) FileType() string {
-	return p.fileType
 }
 
 // IsSimpleAPI reports whether this was parsed from a Simple API path rather
@@ -115,10 +116,6 @@ func (p pypiOrgParser) ParseURL(urlPath string) (packageInfo, error) {
 	// Split path into segments
 	segments := strings.Split(urlPath, "/")
 
-	if len(segments) < 2 {
-		return nil, fmt.Errorf("invalid pypi.org URL: not enough segments")
-	}
-
 	switch segments[0] {
 	case "simple":
 		// Simple API: /simple/{package}/ or /simple/{package}/{filename}
@@ -133,14 +130,14 @@ func (p pypiOrgParser) ParseURL(urlPath string) (packageInfo, error) {
 
 // parseSimpleAPIURL parses Simple API URL paths
 func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
-	if len(segments) == 0 {
-		return nil, fmt.Errorf("invalid Simple API URL: missing package name")
+	if len(segments) == 0 || (len(segments) == 1 && segments[0] == "index.html") {
+		return &pypiPackageInfo{}, nil
 	}
 
 	packageName := segments[0]
 
 	// Simple API index request: /simple/{package}/
-	if len(segments) == 1 {
+	if len(segments) == 1 || (len(segments) == 2 && segments[1] == "index.html") {
 		return &pypiPackageInfo{
 			name:        denormalizePyPIPackageName(packageName),
 			isDownload:  false,
@@ -150,17 +147,7 @@ func parseSimpleAPIURL(segments []string) (*pypiPackageInfo, error) {
 
 	// Simple API might include filename (for redirects): /simple/{package}/{filename}
 	if len(segments) == 2 {
-		filename := segments[1]
-		info, err := parseFilename(filename)
-		if err != nil {
-			// If we can't parse the filename, treat it as a non-download request
-			return &pypiPackageInfo{
-				name:        denormalizePyPIPackageName(packageName),
-				isDownload:  false,
-				isSimpleAPI: true,
-			}, nil
-		}
-		return info, nil
+		return parseFilename(segments[1])
 	}
 
 	return nil, fmt.Errorf("invalid Simple API URL format: too many segments")
@@ -196,6 +183,27 @@ func parseJSONAPIURL(segments []string) (*pypiPackageInfo, error) {
 
 // parseFilename extracts package name and version from a PyPI distribution filename
 func parseFilename(filename string) (*pypiPackageInfo, error) {
+	isMetadata := strings.HasSuffix(filename, ".metadata")
+	info, err := parseDistributionFilename(strings.TrimSuffix(filename, ".metadata"))
+	if err != nil {
+		return nil, err
+	}
+	if isMetadata {
+		info.isDownload = false
+	}
+	return info, nil
+}
+
+func parseDistributionFilename(filename string) (*pypiPackageInfo, error) {
+	for _, legacy := range []*regexp.Regexp{pypiEggFilename, pypiExeFilename} {
+		if matches := legacy.FindStringSubmatch(filename); matches != nil {
+			version, valid := pypi.NormalizeVersion(matches[2])
+			if !valid {
+				return nil, fmt.Errorf("artifact filename %q has an invalid version", filename)
+			}
+			return &pypiPackageInfo{name: denormalizePyPIPackageName(matches[1]), version: version, isDownload: true}, nil
+		}
+	}
 	// Try to parse as wheel first
 	if strings.HasSuffix(filename, ".whl") {
 		return parseWheelFilename(filename)
@@ -221,74 +229,39 @@ func parseFilename(filename string) (*pypiPackageInfo, error) {
 // - numpy-1.24.0-cp311-cp311-linux_x86_64.whl
 // - package_name-1.0.0-1-py3-none-any.whl (with build tag)
 func parseWheelFilename(filename string) (*pypiPackageInfo, error) {
-	// Remove .whl extension
 	basename := strings.TrimSuffix(filename, ".whl")
-
-	// Split by '-' to get components
-	// Minimum: name-version-python-abi-platform (5 parts)
-	// With build tag: name-version-build-python-abi-platform (6 parts)
 	parts := strings.Split(basename, "-")
 
-	if len(parts) < 5 {
-		return nil, fmt.Errorf("invalid wheel filename: not enough components in %s", filename)
+	if len(parts) != 5 && len(parts) != 6 {
+		return nil, fmt.Errorf("wheel filename %q must have five or six components", filename)
 	}
-
-	// The last 3 parts are always: python_tag, abi_tag, platform_tag
-	// Before that is either: name, version OR name, version, build_tag
-	// We need to find where the version is
-
-	// Work backwards: last 3 are tags
-	// If 6+ parts, could have build tag
-	// If 5 parts, no build tag
-
-	var name, version string
-
-	if len(parts) == 5 {
-		// name-version-python-abi-platform
-		name = parts[0]
-		version = parts[1]
-	} else if len(parts) == 6 {
-		// Could be:
-		// - name-version-build-python-abi-platform (6 parts, with build tag)
-		// - name_with_underscore-version-python-abi-platform (can't be this, underscores in names are normalized)
-		// Build tags are numeric (PEP 427)
-		if isBuildTag(parts[2]) {
-			name = parts[0]
-			version = parts[1]
-		} else {
-			// The name might contain a hyphen that wasn't normalized
-			// This shouldn't happen with properly normalized names, but handle it
-			name = parts[0] + "_" + parts[1]
-			version = parts[2]
+	for _, part := range parts {
+		if part == "" {
+			return nil, fmt.Errorf("wheel filename %q has an empty component", filename)
 		}
-	} else {
-		// More than 6 parts - name contains hyphens or there's a build tag
-		// Try to find version by looking for semver-like pattern
-		name, version = extractNameVersionFromParts(parts[:len(parts)-3])
-		if name == "" || version == "" {
-			return nil, fmt.Errorf("could not parse wheel filename: %s", filename)
-		}
+	}
+	name := parts[0]
+	version, valid := pypi.NormalizeVersion(parts[1])
+	if len(parts) == 6 && !valid {
+		// Older indexes can serve wheel names with an unescaped hyphen.
+		name = strings.Join(parts[:2], "-")
+		version, valid = pypi.NormalizeVersion(parts[2])
+	} else if len(parts) == 6 && !isBuildTag(parts[2]) {
+		return nil, fmt.Errorf("wheel filename %q has an invalid build tag", filename)
+	}
+	if name == "" || !valid {
+		return nil, fmt.Errorf("wheel filename %q has an invalid package name or version", filename)
 	}
 
 	return &pypiPackageInfo{
 		name:       denormalizePyPIPackageName(name),
 		version:    version,
 		isDownload: true,
-		fileType:   "wheel",
 	}, nil
 }
 
-// isBuildTag checks if a string looks like a wheel build tag (numeric)
 func isBuildTag(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return len(s) > 0 && s[0] >= '0' && s[0] <= '9'
 }
 
 // parseSdistFilename parses a source distribution filename to extract package info
@@ -317,7 +290,6 @@ func parseSdistFilename(filename string) (*pypiPackageInfo, error) {
 		name:       denormalizePyPIPackageName(name),
 		version:    version,
 		isDownload: true,
-		fileType:   "sdist",
 	}, nil
 }
 
@@ -325,57 +297,18 @@ func parseSdistFilename(filename string) (*pypiPackageInfo, error) {
 // The challenge is that package names can contain hyphens, so we need to find
 // where the name ends and the version begins
 func extractNameVersionFromSdist(basename string) (string, string) {
-	// Version pattern: starts with a digit, may contain digits, dots, and pre-release suffixes
-	versionPattern := regexp.MustCompile(`^\d+(\.\d+)*([._-]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\.?\d*)*(\+[a-zA-Z0-9._-]+)?$`)
-
 	// Split by hyphen and try to find where version starts
 	parts := strings.Split(basename, "-")
 
-	// Try from the end, looking for version-like parts
-	for i := len(parts) - 1; i > 0; i-- {
+	for i := 1; i < len(parts); i++ {
 		potentialVersion := strings.Join(parts[i:], "-")
-		// Check if this could be a version
-		if versionPattern.MatchString(potentialVersion) {
+		if version, valid := pypi.NormalizeVersion(potentialVersion); valid {
 			name := strings.Join(parts[:i], "-")
-			return name, potentialVersion
-		}
-
-		// Also try just the single part as version
-		if versionPattern.MatchString(parts[i]) {
-			name := strings.Join(parts[:i], "-")
-			return name, parts[i]
+			return name, version
 		}
 	}
 
 	return "", ""
-}
-
-// extractNameVersionFromParts extracts name and version from wheel filename parts
-// (excluding the python-abi-platform tags)
-func extractNameVersionFromParts(parts []string) (string, string) {
-	if len(parts) < 2 {
-		return "", ""
-	}
-
-	// Version pattern for wheels
-	versionPattern := regexp.MustCompile(`^\d+(\.\d+)*([._]?(a|alpha|b|beta|c|rc|pre|post|dev|final)\d*)*(\+[a-zA-Z0-9._]+)?$`)
-
-	// Try from the end, looking for version-like parts
-	for i := len(parts) - 1; i > 0; i-- {
-		if versionPattern.MatchString(parts[i]) {
-			// Check if next part is a build tag (numeric only)
-			if i+1 < len(parts) && isBuildTag(parts[i+1]) {
-				// This is the version, parts[i+1] is build tag
-				name := strings.Join(parts[:i], "_")
-				return name, parts[i]
-			}
-			name := strings.Join(parts[:i], "_")
-			return name, parts[i]
-		}
-	}
-
-	// Fallback: assume first part is name, second is version
-	return parts[0], parts[1]
 }
 
 // denormalizePyPIPackageName converts a normalized package name back to a more canonical form

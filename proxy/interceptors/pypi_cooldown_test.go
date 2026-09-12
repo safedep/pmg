@@ -312,23 +312,19 @@ func TestStripCooldownFiles_UnparseableFilename_KeepFile(t *testing.T) {
 	handler := newPypiCooldownHandler(nil)
 	now := time.Now()
 
-	// .egg is an unsupported extension — parseFilename will fail
-	// The file must be kept (fail-open), not stripped
 	body, _ := json.Marshal(map[string]any{
 		"meta": map[string]string{"api-version": "1.0"},
 		"name": "testpkg",
 		"files": []map[string]any{
 			{
-				"filename":    "testpkg-1.0.0.egg",
-				"url":         "https://files.pythonhosted.org/packages/testpkg-1.0.0.egg",
+				"filename":    "testpkg-invalid.egg",
+				"url":         "https://files.pythonhosted.org/packages/testpkg-invalid.egg",
 				"upload-time": now.Add(-1 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
 				"hashes":      map[string]string{"sha256": "abc"},
 			},
 		},
 	})
 
-	// parsePEP691Files will skip the .egg file (no version extracted),
-	// so dates will be empty — nothing to strip
 	dates, err := handler.parsePEP691Files(body)
 	require.NoError(t, err)
 	assert.Empty(t, dates)
@@ -345,7 +341,6 @@ func TestStripCooldownFiles_UnparseableFilename_KeepFile(t *testing.T) {
 		Files []json.RawMessage `json:"files"`
 	}
 	require.NoError(t, json.Unmarshal(newBody, &result))
-	// The .egg file must still be present — unparseable filename means fail-open
 	assert.Len(t, result.Files, 1)
 }
 

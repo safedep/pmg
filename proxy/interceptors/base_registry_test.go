@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -13,6 +14,61 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type identityTestParser struct {
+	info packageInfo
+	err  error
+}
+
+func (p identityTestParser) ParseURL(string) (packageInfo, error) {
+	return p.info, p.err
+}
+
+func TestRegistryIdentityPolicy(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		info     packageInfo
+		err      error
+		method   string
+		disabled bool
+		insecure bool
+		allow    bool
+	}{
+		{name: "parser error", err: fmt.Errorf("invalid filename")},
+		{name: "missing version", info: &pypiPackageInfo{name: "demo", isDownload: true}},
+		{name: "missing name", info: &pypiPackageInfo{version: "1.0", isDownload: true}},
+		{name: "missing result"},
+		{name: "head request", method: http.MethodHead, err: fmt.Errorf("invalid filename")},
+		{name: "POST bypasses identity policy", method: http.MethodPost, allow: true},
+		{name: "analysis disabled", disabled: true, allow: true},
+		{name: "insecure bypass", insecure: true, allow: true},
+	} {
+		for _, paranoid := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/paranoid=%t", tt.name, paranoid), func(t *testing.T) {
+				rc := pmgconfig.Get()
+				saved := *rc
+				t.Cleanup(func() { *rc = saved })
+				rc.Config.Paranoid = paranoid
+				rc.InsecureInstallation = tt.insecure
+				set := newTestRegistrySet(builtInRegistryEndpoint("registry.test", !tt.disabled, identityTestParser{info: tt.info, err: tt.err}))
+				ctx := makeTestRequestContext("https://registry.test/artifact")
+				if tt.method != "" {
+					ctx.Method = tt.method
+				}
+				resp, err := handleRegistryRequest(ctx, set, "test", nil)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				if paranoid && !tt.allow {
+					assert.Equal(t, proxy.ActionBlock, resp.Action)
+					assert.Equal(t, http.StatusForbidden, resp.BlockCode)
+					assert.Contains(t, resp.BlockMessage, "could not identify the package")
+				} else {
+					assert.Equal(t, proxy.ActionAllow, resp.Action)
+				}
+			})
+		}
+	}
+}
 
 func setTrustedPackagesForTest(t *testing.T, pkgs []pmgconfig.TrustedPackage) {
 	t.Helper()
