@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,10 +30,11 @@ func NewShellPath() (ShellPath, error) {
 // rule, including the euid access check, so the result is what the shell
 // runs. There is one PATH on Unix, so the resolution carries no origin. The
 // only caller resolves right after NewShellPath, so the live PATH and the
-// snapshot are the same.
+// snapshot are the same. A relative PATH entry makes exec.LookPath return the
+// path with exec.ErrDot. The shell still runs it, so keep the result.
 func (p ShellPath) LookPath(name string) (string, PathOrigin, error) {
 	resolved, err := exec.LookPath(name)
-	if err != nil {
+	if err != nil && !errors.Is(err, exec.ErrDot) {
 		return "", PathOriginUnknown, err
 	}
 	return resolved, PathOriginUnknown, nil
@@ -50,8 +52,8 @@ func WriteSystemProfile(path, dir string) error {
 
 	content := fmt.Sprintf(`# %s - managed by pmg setup install --system
 # remove by running: pmg setup remove --system
-export PATH="%s:$PATH"
-`, SystemProfileMarker, dir)
+export PATH=%s:"$PATH"
+`, SystemProfileMarker, shellQuote(dir))
 
 	data, err := os.ReadFile(path)
 	if err == nil && string(data) == content {
@@ -65,6 +67,13 @@ export PATH="%s:$PATH"
 		return fmt.Errorf("failed to write system profile %s: %w", path, err)
 	}
 	return ProtectSystemPath(path, 0o644)
+}
+
+// shellQuote wraps a value in single quotes so a login shell reads it
+// literally. A path with $ or a backtick would otherwise expand when the
+// shell sources the profile.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // RemoveSystemProfile deletes the snippet. A missing file is not an error.
