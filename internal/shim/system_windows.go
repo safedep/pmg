@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/safedep/dry/usefulerror"
+
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/alias"
@@ -151,18 +152,18 @@ func (l systemLayout) installPath() error {
 	if err := l.validate(); err != nil {
 		return err
 	}
-	if err := machinePath.prepend(l.BinDir); err != nil {
+	if err := platform.MachinePath.Prepend(l.BinDir); err != nil {
 		return err
 	}
-	return machinePath.append(l.ProductDir)
+	return platform.MachinePath.Append(l.ProductDir)
 }
 
 // removePath takes the shim directory off the machine PATH. The product
 // directory stays on it: the binary stays on disk, and a typed `pmg` must
 // still run after `pmg setup remove --system`.
-func (l systemLayout) removePath() error { return machinePath.remove(l.BinDir) }
+func (l systemLayout) removePath() error { return platform.MachinePath.Remove(l.BinDir) }
 
 func (l systemLayout) pathInstalled() bool {
-	found, err := machinePath.contains(l.BinDir)
+	found, err := platform.MachinePath.Contains(l.BinDir)
 	return err == nil && found
 }

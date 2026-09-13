@@ -11,8 +11,6 @@ import (
 	"github.com/safedep/pmg/internal/platform"
 )
 
-const systemProfileMarker = "PMG system shims"
-
 // systemExecutableOwnershipCheck requires root ownership of the binary and
 // its parent directory. Disabled in tests that cannot create root-owned
 // files.
@@ -50,11 +48,13 @@ func (l systemLayout) protect() error {
 func (systemLayout) validate() error { return nil }
 
 // The login-shell PATH snippet is how the shim directory reaches every user.
-func (l systemLayout) installPath() error { return writeSystemProfile(l.ProfilePath, l.BinDir) }
+func (l systemLayout) installPath() error {
+	return platform.WriteSystemProfile(l.ProfilePath, l.BinDir)
+}
 
-func (l systemLayout) removePath() error { return removeSystemProfile(l.ProfilePath) }
+func (l systemLayout) removePath() error { return platform.RemoveSystemProfile(l.ProfilePath) }
 
-func (l systemLayout) pathInstalled() bool { return profileInstalled(l.ProfilePath) }
+func (l systemLayout) pathInstalled() bool { return platform.SystemProfileInstalled(l.ProfilePath) }
 
 // validateBinary rejects binaries unsafe for system-wide shims. Shims
 // hard-code this path, so the binary must be executable by all users, not
@@ -153,55 +153,8 @@ func requireSafeParentDir(dir string) error {
 	return nil
 }
 
-// SystemProfileInstalled reports whether the system profile snippet exists and
-// contains the PMG marker.
-func SystemProfileInstalled() bool { return profileInstalled(SystemProfilePath()) }
-
-func profileInstalled(path string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(data), systemProfileMarker)
-}
-
-func writeSystemProfile(path, binDir string) error {
-	// Do not chown/chmod /etc/profile.d itself: it is a shared system directory
-	// pmg does not own, and other packages drop snippets there. We only secure
-	// the file we write, below.
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("failed to create profile.d directory: %w", err)
-	}
-
-	content := fmt.Sprintf(`# %s - managed by pmg setup install --system
-# remove by running: pmg setup remove --system
-export PATH="%s:$PATH"
-`, systemProfileMarker, binDir)
-
-	data, err := os.ReadFile(path)
-	if err == nil && string(data) == content {
-		return platform.ProtectSystemPath(path, 0o644)
-	}
-
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read system profile %s: %w", path, err)
-	}
-
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("failed to write system profile %s: %w", path, err)
-	}
-
-	// The snippet must stay world-readable regardless of root's umask so every
-	// user's login shell can source it.
-	return platform.ProtectSystemPath(path, 0o644)
-}
-
-func removeSystemProfile(path string) error {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove system profile %s: %w", path, err)
-	}
-	return nil
-}
+// SystemProfileInstalled reports whether the machine profile snippet exists.
+func SystemProfileInstalled() bool { return platform.SystemProfileInstalled(SystemProfilePath()) }
 
 // parseShimPMGBin extracts the shimPMGBinVar value from a shim script,
 // reversing the shellQuote used by writeShimScript.

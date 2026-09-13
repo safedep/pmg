@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,7 +58,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	profile, err := os.ReadFile(SystemProfilePath())
 	require.NoError(t, err)
 	assert.Contains(t, string(profile), mgr.GetBinDir())
-	assert.Contains(t, string(profile), systemProfileMarker)
+	assert.Contains(t, string(profile), platform.SystemProfileMarker)
 
 	require.NoError(t, mgr.Install())
 	profile2, err := os.ReadFile(SystemProfilePath())
@@ -115,7 +116,7 @@ func TestWriteSystemProfileRepairsStalePath(t *testing.T) {
 	))
 
 	binDir := filepath.Join(root, "custom-bin")
-	require.NoError(t, writeSystemProfile(SystemProfilePath(), binDir))
+	require.NoError(t, platform.WriteSystemProfile(SystemProfilePath(), binDir))
 
 	content, err := os.ReadFile(SystemProfilePath())
 	require.NoError(t, err)

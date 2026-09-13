@@ -58,70 +58,6 @@ func TestValidateBinaryRequiresTheCanonicalPath(t *testing.T) {
 	assert.ErrorContains(t, layout.validateBinary(filepath.Join(layout.ProductDir, "missing.exe")), "failed to inspect")
 }
 
-func TestMachinePathScope(t *testing.T) {
-	isolateMachinePath(t)
-	shimDir := `C:\Program Files\safedep\pmg\bin`
-
-	t.Run("prepends once and keeps the value type", func(t *testing.T) {
-		setRegistryPath(t, machinePath, `%SystemRoot%\system32;C:\Program Files\nodejs\`)
-
-		require.NoError(t, machinePath.prepend(shimDir))
-		require.NoError(t, machinePath.prepend(shimDir))
-
-		entries, expand, err := machinePath.read()
-		require.NoError(t, err)
-		assert.Equal(t, []string{shimDir, `%SystemRoot%\system32`, `C:\Program Files\nodejs\`}, entries)
-		assert.True(t, expand)
-	})
-
-	t.Run("moves the directory back to the front", func(t *testing.T) {
-		require.NoError(t, machinePath.write([]string{`C:\Program Files\nodejs\`, shimDir + `\`}, true))
-
-		require.NoError(t, machinePath.prepend(shimDir))
-
-		entries, _, err := machinePath.read()
-		require.NoError(t, err)
-		assert.Equal(t, []string{shimDir, `C:\Program Files\nodejs\`}, entries)
-	})
-
-	t.Run("an entry written through a variable counts as present", func(t *testing.T) {
-		require.NoError(t, machinePath.write([]string{`%ProgramFiles%\safedep\pmg\bin`, `C:\Tools`}, true))
-
-		found, err := machinePath.contains(filepath.Join(os.Getenv("ProgramFiles"), `safedep\pmg\bin`))
-		require.NoError(t, err)
-		assert.True(t, found)
-	})
-
-	t.Run("append adds once at the end and moves nothing", func(t *testing.T) {
-		require.NoError(t, machinePath.write([]string{shimDir, `C:\Tools`}, true))
-
-		require.NoError(t, machinePath.append(`C:\Program Files\safedep\pmg`))
-		require.NoError(t, machinePath.append(`C:\Program Files\safedep\pmg`))
-		require.NoError(t, machinePath.append(`c:\tools`))
-
-		entries, _, err := machinePath.read()
-		require.NoError(t, err)
-		assert.Equal(t, []string{shimDir, `C:\Tools`, `C:\Program Files\safedep\pmg`}, entries)
-	})
-
-	t.Run("remove drops only the directory and never the value", func(t *testing.T) {
-		require.NoError(t, machinePath.write([]string{shimDir, `C:\Tools`}, false))
-
-		require.NoError(t, machinePath.remove(strings.ToLower(shimDir)))
-		require.NoError(t, machinePath.remove(shimDir))
-
-		entries, expand, err := machinePath.read()
-		require.NoError(t, err)
-		assert.Equal(t, []string{`C:\Tools`}, entries)
-		assert.False(t, expand, "a REG_SZ value stays REG_SZ")
-
-		require.NoError(t, machinePath.remove(`C:\Tools`))
-		entries, _, err = machinePath.read()
-		require.NoError(t, err)
-		assert.Empty(t, entries)
-	})
-}
-
 // useSystemLayout builds a layout under the temp directory and points the
 // package-level lookups at it, so ValidateSystemInstall and
 // SystemShimsInstalled read the same layout the manager writes. Install
@@ -148,7 +84,7 @@ func useSystemLayout(t *testing.T) systemLayout {
 
 func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	layout := useSystemLayout(t)
-	setRegistryPath(t, machinePath, `C:\Program Files\nodejs\`)
+	require.NoError(t, platform.WriteMachinePathForTest(`C:\Program Files\nodejs\`))
 
 	mgr := newSystemShimManager(layout, layout.Binary)
 	assert.True(t, mgr.config.SkipUserPath)
@@ -162,7 +98,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	require.NoError(t, err, "every object carries the PMG descriptor")
 	assert.Equal(t, layout.Binary, binary)
 
-	entries, _, err := machinePath.read()
+	entries, err := platform.MachinePath.Entries()
 	require.NoError(t, err)
 	assert.Equal(t, []string{layout.BinDir, `C:\Program Files\nodejs\`, layout.ProductDir}, entries,
 		"the shim directory goes first and the product directory last, so `pmg` itself resolves")
@@ -178,7 +114,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 
 	// A second install is a no-op on the PATH and rewrites the shims.
 	require.NoError(t, mgr.Install())
-	entries, _, err = machinePath.read()
+	entries, err = platform.MachinePath.Entries()
 	require.NoError(t, err)
 	assert.Equal(t, []string{layout.BinDir, `C:\Program Files\nodejs\`, layout.ProductDir}, entries)
 
@@ -187,7 +123,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 	assert.False(t, layout.pathInstalled())
 	require.NoError(t, mgr.Remove())
 
-	entries, _, err = machinePath.read()
+	entries, err = platform.MachinePath.Entries()
 	require.NoError(t, err)
 	assert.Equal(t, []string{`C:\Program Files\nodejs\`, layout.ProductDir}, entries, "the binary stays, so its directory stays on PATH")
 }
@@ -197,7 +133,7 @@ func TestSystemShimManagerInstallAndRemove(t *testing.T) {
 // the security API, on a shim, on the shim directory and on the binary.
 func TestSystemInstallDetectsAndRepairsDrift(t *testing.T) {
 	layout := useSystemLayout(t)
-	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, platform.WriteMachinePathForTest(`C:\Tools`))
 
 	mgr := newSystemShimManager(layout, layout.Binary)
 	require.NoError(t, mgr.Install())
@@ -240,7 +176,7 @@ func applySDDL(t *testing.T, path, sddl string) {
 // expected set back.
 func TestSystemInstallDetectsATamperedOrMissingShim(t *testing.T) {
 	layout := useSystemLayout(t)
-	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, platform.WriteMachinePathForTest(`C:\Tools`))
 	mgr := newSystemShimManager(layout, layout.Binary)
 	require.NoError(t, mgr.Install())
 
@@ -270,7 +206,7 @@ func TestSystemInstallDetectsATamperedOrMissingShim(t *testing.T) {
 // temporary sibling behind.
 func TestSystemInstallPresentDoesNotDependOnMarkers(t *testing.T) {
 	layout := useSystemLayout(t)
-	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, platform.WriteMachinePathForTest(`C:\Tools`))
 	mgr := newSystemShimManager(layout, layout.Binary)
 	require.NoError(t, mgr.Install())
 
@@ -303,7 +239,7 @@ func TestSystemInstallPresentDoesNotDependOnMarkers(t *testing.T) {
 // untouched.
 func TestSystemInstallReplacesAPlantedLink(t *testing.T) {
 	layout := useSystemLayout(t)
-	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, platform.WriteMachinePathForTest(`C:\Tools`))
 	require.NoError(t, os.MkdirAll(layout.BinDir, 0o755))
 	decoy := filepath.Join(t.TempDir(), "decoy.cmd")
 	require.NoError(t, os.WriteFile(decoy, []byte("decoy\r\n"), 0o644))
@@ -326,7 +262,7 @@ func TestSystemInstallReplacesAPlantedLink(t *testing.T) {
 // treats a missing file as a failure while system shims exist.
 func TestSystemInstallChecksTheManagedConfig(t *testing.T) {
 	layout := useSystemLayout(t)
-	setRegistryPath(t, machinePath, `C:\Tools`)
+	require.NoError(t, platform.WriteMachinePathForTest(`C:\Tools`))
 	require.NoError(t, newSystemShimManager(layout, layout.Binary).Install())
 	_, err := ValidateSystemInstall()
 	require.NoError(t, err)

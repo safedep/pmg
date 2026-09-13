@@ -5,6 +5,8 @@ package shim
 import (
 	"fmt"
 	"strings"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // A .cmd file is what every caller that applies PATHEXT finds: cmd.exe,
@@ -78,8 +80,10 @@ func batchEscape(value string) string {
 
 // The shim directory reaches PATH through HKCU\Environment, which every new
 // shell reads.
-func (m *ShimManager) installPath() error { return userPath.prepend(m.config.BinDir) }
+func (m *ShimManager) installPath() error { return platform.UserPath.Prepend(m.config.BinDir) }
 
-func (m *ShimManager) removePath() error { return userPath.remove(m.config.BinDir) }
+func (m *ShimManager) removePath() error { return platform.UserPath.Remove(m.config.BinDir) }
 
-func (m *ShimManager) pathInstalled() (bool, error) { return userPath.contains(m.config.BinDir) }
+func (m *ShimManager) pathInstalled() (bool, error) {
+	return platform.UserPath.Contains(m.config.BinDir)
+}
