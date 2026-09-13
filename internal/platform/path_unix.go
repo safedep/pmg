@@ -3,7 +3,6 @@
 package platform
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,11 +29,10 @@ func NewShellPath() (ShellPath, error) {
 // rule, including the euid access check, so the result is what the shell
 // runs. There is one PATH on Unix, so the resolution carries no origin. The
 // only caller resolves right after NewShellPath, so the live PATH and the
-// snapshot are the same. A relative PATH entry makes exec.LookPath return the
-// path with exec.ErrDot. The shell still runs it, so keep the result.
+// snapshot are the same.
 func (p ShellPath) LookPath(name string) (string, PathOrigin, error) {
 	resolved, err := exec.LookPath(name)
-	if err != nil && !errors.Is(err, exec.ErrDot) {
+	if err != nil {
 		return "", PathOriginUnknown, err
 	}
 	return resolved, PathOriginUnknown, nil
