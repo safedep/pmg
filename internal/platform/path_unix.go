@@ -50,8 +50,8 @@ func WriteSystemProfile(path, dir string) error {
 
 	content := fmt.Sprintf(`# %s - managed by pmg setup install --system
 # remove by running: pmg setup remove --system
-export PATH=%s:"$PATH"
-`, SystemProfileMarker, shellQuote(dir))
+export PATH="%s:$PATH"
+`, SystemProfileMarker, dir)
 
 	data, err := os.ReadFile(path)
 	if err == nil && string(data) == content {
@@ -65,13 +65,6 @@ export PATH=%s:"$PATH"
 		return fmt.Errorf("failed to write system profile %s: %w", path, err)
 	}
 	return ProtectSystemPath(path, 0o644)
-}
-
-// shellQuote wraps a value in single quotes so a login shell reads it
-// literally. A path with $ or a backtick would otherwise expand when the
-// shell sources the profile.
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // RemoveSystemProfile deletes the snippet. A missing file is not an error.
