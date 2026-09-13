@@ -19,6 +19,11 @@ STANDALONE_DEFAULT_OUTPUT_DIR="${SCRIPT_DIR}/standalone"
 STANDALONE_INSTALL_NAME="pmg_setup_install_linux_standalone.sh"
 STANDALONE_UNINSTALL_NAME="pmg_uninstall_linux_standalone.sh"
 STANDALONE_GENERATOR="generate_standalone_linux.sh"
+STANDALONE_HEADER='#!/bin/bash'
+STANDALONE_SKIP_LINE="# shellcheck source=${STANDALONE_LIB_SOURCE##*/}"
+STANDALONE_SOURCE_LINE="source \"\${SCRIPT_DIR}/lib_linux.sh\""
+STANDALONE_UNINSTALL_SOURCE_REPLACEMENT=": \"\$SCRIPT_DIR\""
+STANDALONE_MAX_SIZE=1048576
 
 # shellcheck source=lib/generate_standalone_lib.sh
 source "${SCRIPT_DIR}/lib/generate_standalone_lib.sh"

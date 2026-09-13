@@ -1,0 +1,2 @@
+scripts/mdm/standalone/** text eol=lf
+scripts/mdm/windows/*.ps1 text eol=lf
