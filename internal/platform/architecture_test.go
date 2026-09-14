@@ -71,7 +71,8 @@ func TestNoRuntimeGOOSInFeatureCode(t *testing.T) {
 
 // fileReadsRuntimeGOOS parses the file and reports whether it reads the runtime
 // package's GOOS. It follows the import alias, so `rt \"runtime\"` then `rt.GOOS`
-// is caught, not only the literal text.
+// is caught, not only the literal text. A dot import, `. \"runtime\"` then bare
+// `GOOS`, is caught too.
 func fileReadsRuntimeGOOS(path string) (bool, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, nil, 0)
@@ -80,6 +81,7 @@ func fileReadsRuntimeGOOS(path string) (bool, error) {
 	}
 
 	names := map[string]bool{}
+	dotImport := false
 	for _, imp := range f.Imports {
 		if imp.Path.Value != `"runtime"` {
 			continue
@@ -88,25 +90,58 @@ func fileReadsRuntimeGOOS(path string) (bool, error) {
 		if imp.Name != nil {
 			name = imp.Name.Name
 		}
+		if name == "." {
+			dotImport = true
+			continue
+		}
 		names[name] = true
 	}
-	if len(names) == 0 {
+	if len(names) == 0 && !dotImport {
 		return false, nil
 	}
 
 	found := false
 	ast.Inspect(f, func(n ast.Node) bool {
-		sel, ok := n.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "GOOS" {
-			return true
-		}
-		if id, ok := sel.X.(*ast.Ident); ok && names[id.Name] {
-			found = true
-			return false
+		switch e := n.(type) {
+		case *ast.SelectorExpr:
+			if e.Sel.Name == "GOOS" {
+				if id, ok := e.X.(*ast.Ident); ok && names[id.Name] {
+					found = true
+				}
+				return false
+			}
+		case *ast.Ident:
+			if dotImport && e.Name == "GOOS" {
+				found = true
+			}
 		}
 		return true
 	})
 	return found, nil
+}
+
+func TestFileReadsRuntimeGOOS(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"plain import", "package p\nimport \"runtime\"\nvar _ = runtime.GOOS\n", true},
+		{"aliased import", "package p\nimport rt \"runtime\"\nvar _ = rt.GOOS\n", true},
+		{"dot import bare GOOS", "package p\nimport . \"runtime\"\nvar _ = GOOS\n", true},
+		{"no runtime", "package p\nvar GOOS = \"x\"\nvar _ = GOOS\n", false},
+		{"runtime without GOOS", "package p\nimport \"runtime\"\nvar _ = runtime.NumCPU()\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "f.go")
+			require.NoError(t, os.WriteFile(path, []byte(tc.src), 0o600))
+
+			got, err := fileReadsRuntimeGOOS(path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func underAllowedRoot(rel string) bool {
