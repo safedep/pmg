@@ -280,10 +280,6 @@ func currentExecutable() (string, error) {
 	return filepath.Abs(exe)
 }
 
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
 func (m *ShimManager) addPathToShells() error {
 	primary := alias.PrimaryShellName()
 	for _, shell := range m.config.Shells {

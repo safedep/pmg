@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 func shimFileName(pm string) string { return pm }
@@ -29,7 +30,7 @@ fi
 PMG_SHIM_PATH=$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
 export PMG_SHIM_PATH
 exec "$%[2]s" %[4]s "$@"
-`, shimScriptMarker, shimPMGBinVar, shellQuote(pmgBin), pm)
+`, shimScriptMarker, shimPMGBinVar, platform.ShellQuote(pmgBin), pm)
 }
 
 // The shim directory reaches PATH through each shell's rc file.

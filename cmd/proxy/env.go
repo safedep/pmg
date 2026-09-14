@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/spf13/cobra"
@@ -64,11 +65,5 @@ func exportLine(kv string) string {
 	if !ok {
 		return kv
 	}
-	return fmt.Sprintf("export %s=%s", k, shellSingleQuote(v))
-}
-
-// shellSingleQuote wraps s in single quotes, escaping any embedded single quote
-// as '\” (close, escaped quote, reopen).
-func shellSingleQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return fmt.Sprintf("export %s=%s", k, platform.ShellQuote(v))
 }
