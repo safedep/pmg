@@ -57,11 +57,33 @@ The install script:
 1. Installs or updates `pmg` (Homebrew on macOS if present; otherwise the GitHub release archive with SHA-256 verification). On Windows, a sibling `pmg.exe` is installed in place of a download, and `PMG_VERSION` selects a release tag.
 2. If the package includes a `config.yml`, installs it as the globally managed config (see below).
 3. Runs `pmg setup install` for each target user to create aliases and shims (and a per-user config, unless a globally managed config is active). On Windows, runs `pmg setup install --system` once instead.
-4. If both cloud variables are set, enables cloud sync and runs `pmg cloud sync` for each target user. On Windows, stores the credentials and syncs for each logged-on user.
+4. If both cloud variables are set, stores credentials and attempts `pmg cloud sync` for each target user. On Windows, these steps run for logged-on users only.
 
 Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. It stores credentials in the keychain when the user has an active session. It then runs cloud sync with the credentials from the environment.
 
 An inactive session prevents keychain storage. It does not prevent cloud sync. A cloud login or cloud sync failure is nonfatal during installation.
+
+### Windows cloud setup
+
+**When you supply cloud credentials on Windows, also supply a `config.yml` with `cloud.enabled: true`.** This applies to both runtime environment variables and embedded credentials.
+
+The Windows system install always writes a managed config. Credentials alone do not enable cloud sync, and `pmg config set cloud.enabled true` refuses to change a managed config.
+
+Add this setting to your deployment's `config.yml`:
+
+```yaml
+cloud:
+  enabled: true
+```
+
+Keep your other policy settings in that file. The installer replaces the managed config with the bundled file.
+
+- For a multi-file deployment, place `config.yml` beside `pmg_setup_install_windows.ps1` and `lib_windows.ps1`.
+- For a standalone deployment, pass `--config /path/to/config.yml` to `generate_standalone_windows.sh`. See [Cloud credentials](#cloud-credentials) for an example.
+
+The normal installer can exit successfully even when cloud sync fails because it is disabled. A successful MDM install status does not confirm cloud setup. After installation, check `pmg config get cloud.enabled` and run `pmg cloud sync` in a logged-on user's session with credentials configured.
+
+Safe updates through `config set --system` are tracked in [issue #476](https://github.com/safedep/pmg/issues/476). That command is not available yet.
 
 ## Cloud sync only
 
@@ -197,7 +219,7 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
 
 ### Windows
 
-JumpCloud runs Windows Commands as SYSTEM. Upload `windows/lib_windows.ps1` and `windows/pmg_setup_install_windows.ps1`, and optionally `config.yml` and `pmg.exe` from the release zip, with the **File Destination** `C:\Windows\Temp\pmg-mdm\`. Set the Command body to:
+JumpCloud runs Windows Commands as SYSTEM. Upload `windows/lib_windows.ps1` and `windows/pmg_setup_install_windows.ps1` with the **File Destination** `C:\Windows\Temp\pmg-mdm\`. For the cloud-enabled example below, also upload `config.yml` with `cloud.enabled: true`. You can add `pmg.exe` from the release zip to avoid a download. Set the Command body to:
 
 ```powershell
 $env:SAFEDEP_API_KEY = '{{safedep_api_key}}'
@@ -269,6 +291,18 @@ SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
 
 With a managed config, add `--config /path/to/config.yml` (with `cloud.enabled: true` in it) to the same command.
 
+**On Windows, always include `--config` when generating an installer with cloud credentials.** Use a config with `cloud.enabled: true` and your other policy settings:
+
+```sh
+SAFEDEP_API_KEY=... SAFEDEP_TENANT_ID=... \
+  ./generate_standalone_windows.sh \
+  --config /path/to/config.yml \
+  --embed-cloud-credentials \
+  --output-dir /path/to/pmg-intune
+```
+
+If you pass credentials at installation time instead, generate the Windows installer with `--config` and omit `--embed-cloud-credentials`.
+
 **Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. A credential-bearing installer is a secret. Use a scoped and revocable API key. Never commit it or put it on a file share.
 
 The credential installer has mode `0700`. The uninstaller has no embedded credentials.
@@ -288,6 +322,8 @@ Only the active GUI user can receive Keychain credentials during a run. The inst
 Intune for Linux supports shell scripts with the same single-script model. Upload the Linux standalone scripts and set the execution context to **root**.
 
 ### Intune example (Windows)
+
+For cloud setup, generate the installer with both `--config` and `--embed-cloud-credentials` as shown in [Cloud credentials](#cloud-credentials). The config must contain `cloud.enabled: true`.
 
 Create two [PowerShell script policies](https://learn.microsoft.com/en-us/intune/intune-service/apps/powershell-scripts):
 
@@ -310,7 +346,7 @@ The script runs as SYSTEM and downloads the latest release. Set `PMG_VERSION` in
 - Windows: the per-user steps need the system install, because their scratch directory lives under `%PROGRAMDATA%\safedep\pmg`. On a machine with only a per-user `pmg` on the PATH, the scripts skip those steps with a warning.
 - Windows: the install replaces `pmg.exe` under a running PMG by moving the old file aside. The stale copy is removed on the next run. The uninstall moves a running `pmg.exe` to `%SystemRoot%\Temp` and finishes the machine-scope cleanup. The files that running PMG holds open, its log and its sync database, stay with a warning, and the next run removes them.
 - Windows: the release ships x86-64 only. A 32-bit Windows is refused. An ARM64 machine runs the x86-64 build under emulation.
-- Windows: `pmg cloud sync` needs `cloud.enabled: true` in the managed config. The system install always writes a managed config, so `pmg config set cloud.enabled true` is refused for every user. Set it in the bundled `config.yml`.
+- Windows: cloud credentials alone do not enable sync. Supply `config.yml` with `cloud.enabled: true` beside the installer, or embed it with the generator's `--config` option. See [Windows cloud setup](#windows-cloud-setup).
 - Linux: the install and uninstall fan-out forces each user's `HOME` and clears `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, so per-user state stays under the passwd home (`~/.config`, `~/.cache`) or the `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` overrides. A user who installed pmg in their own shell with a custom `XDG_CONFIG_HOME` keeps state elsewhere. The uninstall does not remove that state. Ask the user to run `pmg setup remove --config-file` in their own session.
 
 ## Development
