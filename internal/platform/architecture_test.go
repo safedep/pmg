@@ -111,7 +111,10 @@ func fileReadsRuntimeGOOS(path string) (bool, error) {
 				return false
 			}
 		case *ast.Ident:
-			if dotImport && e.Name == "GOOS" {
+			// A nil Obj means the name is not declared in this file, so a bare
+			// GOOS under a dot import resolves to runtime.GOOS. A local GOOS,
+			// such as a parameter, has a non-nil Obj and is not the package var.
+			if dotImport && e.Name == "GOOS" && e.Obj == nil {
 				found = true
 			}
 		}
@@ -129,6 +132,7 @@ func TestFileReadsRuntimeGOOS(t *testing.T) {
 		{"plain import", "package p\nimport \"runtime\"\nvar _ = runtime.GOOS\n", true},
 		{"aliased import", "package p\nimport rt \"runtime\"\nvar _ = rt.GOOS\n", true},
 		{"dot import bare GOOS", "package p\nimport . \"runtime\"\nvar _ = GOOS\n", true},
+		{"dot import local GOOS shadow", "package p\nimport . \"runtime\"\nfunc f(GOOS string) string { return GOOS }\n", false},
 		{"no runtime", "package p\nvar GOOS = \"x\"\nvar _ = GOOS\n", false},
 		{"runtime without GOOS", "package p\nimport \"runtime\"\nvar _ = runtime.NumCPU()\n", false},
 	}
