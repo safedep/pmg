@@ -5,7 +5,7 @@ func supports(c Capability) bool {
 	case ShellAliases:
 		return true
 	case SystemInstall:
-		return false
+		return true
 	case MachineWidePath:
 		return false
 	}

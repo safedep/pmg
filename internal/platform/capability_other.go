@@ -1,4 +1,4 @@
-//go:build !windows && !darwin
+//go:build !windows && !linux
 
 package platform
 
@@ -7,7 +7,7 @@ func supports(c Capability) bool {
 	case ShellAliases:
 		return true
 	case SystemInstall:
-		return true
+		return false
 	case MachineWidePath:
 		return false
 	}

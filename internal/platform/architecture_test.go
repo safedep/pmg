@@ -1,6 +1,9 @@
 package platform
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// allowedGOOSRoots may read runtime.GOOS directly. platform hides the OS from
+// allowedGOOSRoots may read the runtime OS directly. platform hides the OS from
 // the rest of the tree, the sandbox drivers are per-OS by nature, cmd/landlock
 // is Linux only, and truststore wraps the OS trust store.
 var allowedGOOSRoots = []string{
@@ -21,9 +24,10 @@ var allowedGOOSRoots = []string{
 }
 
 // TestNoRuntimeGOOSInFeatureCode fails when a non-test Go file outside the
-// allowed roots reads runtime.GOOS. Feature code asks platform.Supports or a
-// platform remedy instead of naming an OS. Test files may still gate on the
-// real OS, so they are not scanned.
+// allowed roots reads the runtime package's GOOS. Feature code asks
+// platform.Supports or a platform remedy instead of naming an OS. Test files
+// may still gate on the real OS to pick a driver or skip, so they are not
+// scanned.
 func TestNoRuntimeGOOSInFeatureCode(t *testing.T) {
 	root := repoRoot(t)
 
@@ -51,11 +55,11 @@ func TestNoRuntimeGOOSInFeatureCode(t *testing.T) {
 			return nil
 		}
 
-		content, err := os.ReadFile(path)
+		reads, err := fileReadsRuntimeGOOS(path)
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(content), "runtime.GOOS") {
+		if reads {
 			offenders = append(offenders, rel)
 		}
 		return nil
@@ -63,6 +67,46 @@ func TestNoRuntimeGOOSInFeatureCode(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, offenders, "these files read runtime.GOOS outside the allowed roots: ask platform.Supports or a platform remedy instead")
+}
+
+// fileReadsRuntimeGOOS parses the file and reports whether it reads the runtime
+// package's GOOS. It follows the import alias, so `rt \"runtime\"` then `rt.GOOS`
+// is caught, not only the literal text.
+func fileReadsRuntimeGOOS(path string) (bool, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return false, err
+	}
+
+	names := map[string]bool{}
+	for _, imp := range f.Imports {
+		if imp.Path.Value != `"runtime"` {
+			continue
+		}
+		name := "runtime"
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		names[name] = true
+	}
+	if len(names) == 0 {
+		return false, nil
+	}
+
+	found := false
+	ast.Inspect(f, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "GOOS" {
+			return true
+		}
+		if id, ok := sel.X.(*ast.Ident); ok && names[id.Name] {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found, nil
 }
 
 func underAllowedRoot(rel string) bool {

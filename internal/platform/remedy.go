@@ -1,6 +1,6 @@
 package platform
 
-// OwnershipRestoreRemedy returns help text and the command that restore write
+// OwnershipRestoreRemedy returns help text and the command that restores write
 // access to dir after a privileged run created it. Unix uses chown. Windows
 // uses takeown then icacls.
 func OwnershipRestoreRemedy(dir string) (help, command string) { return ownershipRestoreRemedy(dir) }

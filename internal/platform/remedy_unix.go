@@ -5,7 +5,7 @@ package platform
 import "fmt"
 
 func ownershipRestoreRemedy(dir string) (help, command string) {
-	command = fmt.Sprintf("sudo chown -R $(id -un) %s", dir)
+	command = fmt.Sprintf("sudo chown -R $(id -un) %s", ShellQuote(dir))
 	return fmt.Sprintf("If a root or sudo run created it, restore ownership: %s", command), command
 }
 
