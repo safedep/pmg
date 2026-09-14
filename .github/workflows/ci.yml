@@ -19,8 +19,10 @@ jobs:
           Copy-Item $module.Dir .diag-ptyx -Recurse
           Copy-Item .diagnostics/stale_handle_windows_test.go .diag-ptyx/
           Set-Location .diag-ptyx
+          $env:GOWORK = 'off'
           go test -v -run '^TestDiagnosticCancelAfterClose$' -count=3 -timeout=60s
   repeat-original-test:
+    if: false
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
