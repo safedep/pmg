@@ -2,7 +2,10 @@
 
 package platform
 
-import "fmt"
+import (
+	"fmt"
+	"os/exec"
+)
 
 func ownershipRestoreRemedy(dir string) (help, command string) {
 	command = fmt.Sprintf("sudo chown -R $(id -un) %s", ShellQuote(dir))
@@ -16,4 +19,11 @@ func leakedConfigDirRemedy(dir string) (help, fix string) {
 		`Fix leaked env: export XDG_CONFIG_HOME="$HOME/.config"`
 }
 
-func defaultEditor() string { return "vi" }
+func defaultEditor() string {
+	// vi is not always installed, so verify it before we offer it. Windows
+	// notepad is always present, so the Windows file returns it unconditionally.
+	if _, err := exec.LookPath("vi"); err == nil {
+		return "vi"
+	}
+	return ""
+}

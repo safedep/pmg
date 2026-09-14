@@ -12,7 +12,7 @@ import (
 )
 
 // Resolve returns the editor command from $VISUAL, then $EDITOR, then the
-// platform default when that default is on PATH.
+// platform default when one is available.
 func Resolve() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("VISUAL")); v != "" {
 		return v, nil
@@ -21,8 +21,7 @@ func Resolve() (string, error) {
 		return v, nil
 	}
 
-	def := platform.DefaultEditor()
-	if _, err := exec.LookPath(def); err == nil {
+	if def := platform.DefaultEditor(); def != "" {
 		return def, nil
 	}
 

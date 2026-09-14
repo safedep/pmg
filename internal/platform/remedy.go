@@ -12,7 +12,8 @@ func OwnershipRestoreRemedy(dir string) (help, command string) { return ownershi
 func LeakedConfigDirRemedy(dir string) (help, fix string) { return leakedConfigDirRemedy(dir) }
 
 // DefaultEditor is the fallback editor command when $VISUAL and $EDITOR are
-// both unset. Unix uses vi. Windows uses notepad.
+// both unset. Unix returns vi when it is on PATH, or empty when it is not.
+// Windows returns notepad, which is always present.
 func DefaultEditor() string { return defaultEditor() }
 
 // DefaultShell is the user's shell when $SHELL is unset and the parent process

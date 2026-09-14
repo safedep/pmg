@@ -29,16 +29,31 @@ var allowedGOOSRoots = []string{
 // may still gate on the real OS to pick a driver or skip, so they are not
 // scanned.
 func TestNoRuntimeGOOSInFeatureCode(t *testing.T) {
-	root := repoRoot(t)
+	offenders, err := runtimeGOOSOffenders(repoRoot(t))
+	require.NoError(t, err)
 
+	assert.Empty(t, offenders, "these files read runtime.GOOS outside the allowed roots: ask platform.Supports or a platform remedy instead")
+}
+
+// runtimeGOOSOffenders walks the tree under root and returns the non-test Go
+// files outside the allowed roots that read runtime.GOOS. It skips hidden
+// trees such as .git and .claude worktrees, vendored code, and any nested
+// module. A worktree or scratch copy under the root holds its own go.mod, and
+// its files are not this module's feature code.
+func runtimeGOOSOffenders(root string) ([]string, error) {
 	var offenders []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "vendor", "node_modules":
+			if path == root {
+				return nil
+			}
+			if strings.HasPrefix(d.Name(), ".") || d.Name() == "vendor" || d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
 				return filepath.SkipDir
 			}
 			return nil
@@ -64,9 +79,7 @@ func TestNoRuntimeGOOSInFeatureCode(t *testing.T) {
 		}
 		return nil
 	})
-	require.NoError(t, err)
-
-	assert.Empty(t, offenders, "these files read runtime.GOOS outside the allowed roots: ask platform.Supports or a platform remedy instead")
+	return offenders, err
 }
 
 // fileReadsRuntimeGOOS parses the file and reports whether it reads the runtime
@@ -121,6 +134,27 @@ func fileReadsRuntimeGOOS(path string) (bool, error) {
 		return true
 	})
 	return found, nil
+}
+
+func TestRuntimeGOOSOffenders_SkipsHiddenAndNestedModules(t *testing.T) {
+	root := t.TempDir()
+	offender := "package p\nimport \"runtime\"\nvar _ = runtime.GOOS\n"
+
+	write := func(rel, body string) {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	}
+
+	write("go.mod", "module example.com/x\n")
+	write("cmd/thing/thing.go", offender)
+	write(".claude/worktrees/w/cmd/setup/setup.go", offender)
+	write("scratch/go.mod", "module example.com/x/scratch\n")
+	write("scratch/foo.go", offender)
+
+	offenders, err := runtimeGOOSOffenders(root)
+	require.NoError(t, err)
+	assert.Equal(t, []string{filepath.Join("cmd", "thing", "thing.go")}, offenders)
 }
 
 func TestFileReadsRuntimeGOOS(t *testing.T) {
