@@ -4,52 +4,34 @@ on:
 permissions:
   contents: read
 jobs:
-  argv-stress:
-    name: Argv (${{ matrix.dependency }}, runner ${{ matrix.shard }})
-    runs-on: windows-latest
-    timeout-minutes: 12
+  compatibility-review:
+    name: Review (${{ matrix.version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
-        dependency: [current, fixed]
-        shard: [1, 2, 3]
+        os: [windows-2022, windows-latest]
+        version: [base, head]
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: b2eb5ad710a8eb31ecba844f0f6132093fe583eb
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
           go-version-file: go.mod
-      - name: Apply pinned ptyx fix
-        if: matrix.dependency == 'fixed'
-        run: |
-          git clone https://github.com/safedep/ptyx.git .diag-ptyx
-          git -C .diag-ptyx checkout c91ca8275bf36921748577758429456968425d23
-          go work edit "-replace=github.com/safedep/ptyx=./.diag-ptyx"
-      - name: Record source and dependency
-        run: |
-          git rev-parse HEAD
-          go version
-          go list -m -json github.com/safedep/ptyx
-      - name: Repeat unchanged argument test 20 times
+      - name: Compare native cleanup behavior
         shell: pwsh
+        env:
+          REVIEW_VERSION: ${{ matrix.version }}
         run: |
-          go test ./internal/runner -run '^TestArgvEquivalence$' -count=20 -json -timeout=8m > argv-results.jsonl
-          $testExit = $LASTEXITCODE
-          $events = Get-Content argv-results.jsonl | ForEach-Object { $_ | ConvertFrom-Json }
-          $passed = @($events | Where-Object { $_.Action -eq 'pass' -and $_.Test -eq 'TestArgvEquivalence' }).Count
-          $failed = @($events | Where-Object { $_.Action -eq 'fail' -and $_.Test -eq 'TestArgvEquivalence' }).Count
-          Write-Output "Completed suites: passed=$passed failed=$failed exit=$testExit"
-          $events | Where-Object { $_.Action -eq 'fail' } | ConvertTo-Json -Compress
-          if ($testExit -ne 0) {
-            $events | Where-Object { $_.Action -eq 'output' } | ForEach-Object { $_.Output } | Select-Object -Last 180
+          git clone https://github.com/safedep/ptyx.git .review-ptyx
+          if ($env:REVIEW_VERSION -eq 'base') {
+            git -C .review-ptyx checkout dd649ef656c456bda4b2067174a0e04562664f38
+          } else {
+            git -C .review-ptyx checkout c91ca8275bf36921748577758429456968425d23
           }
-          exit $testExit
-      - name: Preserve test output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: argv-${{ matrix.dependency }}-${{ matrix.shard }}
-          path: argv-results.jsonl
-          if-no-files-found: warn
+          Copy-Item .diagnostics/compatibility_windows_test.go .review-ptyx/
+          Set-Location .review-ptyx
+          git rev-parse HEAD
+          $env:GOWORK = 'off'
+          go test -v -run '^TestReview(Close|Kill)' -count=3 -timeout=60s .
