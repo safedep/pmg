@@ -19,6 +19,8 @@ Deploy and remove [PMG](https://github.com/safedep/pmg) on macOS, Linux and Wind
 
 For a multi-file MDM deployment, install the shared lib and both entry scripts as sibling files at a fixed path. Add an optional sibling `config.yml` for globally managed config. On Windows, add a sibling `pmg.exe` from the release zip, or the installer downloads the release.
 
+**On Windows, Administrators or SYSTEM must own the sibling `pmg.exe` when the installer runs.** The installer checks ownership before copying the binary. It stops with `pmg.exe is not owned by Administrators or SYSTEM` if another account owns the file. Running the installer as SYSTEM does not change this requirement.
+
 For an MDM policy that accepts only one script, use the generated scripts in `standalone/`. Do not upload the shared lib separately.
 
 ## Execution model
@@ -219,7 +221,7 @@ Deploy PMG with a JumpCloud Command. JumpCloud runs Commands as root, which cove
 
 ### Windows
 
-JumpCloud runs Windows Commands as SYSTEM. Upload `windows/lib_windows.ps1` and `windows/pmg_setup_install_windows.ps1` with the **File Destination** `C:\Windows\Temp\pmg-mdm\`. For the cloud-enabled example below, also upload `config.yml` with `cloud.enabled: true`. You can add `pmg.exe` from the release zip to avoid a download. Set the Command body to:
+JumpCloud runs Windows Commands as SYSTEM. Upload `windows/lib_windows.ps1` and `windows/pmg_setup_install_windows.ps1` with the **File Destination** `C:\Windows\Temp\pmg-mdm\`. For the cloud-enabled example below, also upload `config.yml` with `cloud.enabled: true`. You can add `pmg.exe` from the release zip to avoid a download. Ensure Administrators or SYSTEM owns that file on the device before the Command runs. Set the Command body to:
 
 ```powershell
 $env:SAFEDEP_API_KEY = '{{safedep_api_key}}'
@@ -234,7 +236,7 @@ For the uninstall Command, upload the lib and `pmg_uninstall_windows.ps1` and ca
 
 A Win32 app carries sibling files, so it can ship `pmg.exe` for machines without access to GitHub. Package the three Windows files, `config.yml` and `pmg.exe` as a [Win32 app](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-win32-app-management):
 
-1. Put `lib_windows.ps1`, `pmg_setup_install_windows.ps1`, `pmg_uninstall_windows.ps1`, `pmg.exe` from the release zip and your `config.yml` in one folder and wrap it with the Content Prep Tool.
+1. Put `lib_windows.ps1`, `pmg_setup_install_windows.ps1`, `pmg_uninstall_windows.ps1`, `pmg.exe` from the release zip and your `config.yml` in one folder and wrap it with the Content Prep Tool. Ensure Administrators or SYSTEM owns the bundled `pmg.exe` on the device when the installer runs.
 2. Install command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File pmg_setup_install_windows.ps1`
 3. Uninstall command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File pmg_uninstall_windows.ps1`
 4. Install behavior: **System**. Detection rule: the file `%ProgramFiles%\safedep\pmg\pmg.exe` exists.
