@@ -5,7 +5,6 @@ package shim
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/safedep/pmg/internal/platform"
@@ -155,9 +154,6 @@ func TestValidateSystemExecutableRejectsGroupWritable(t *testing.T) {
 }
 
 func TestValidateSystemExecutableRejectsNonRootOwner(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("file ownership is not resolvable on Windows")
-	}
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: temp file is root-owned, so the owner check passes")
 	}
@@ -208,10 +204,6 @@ func TestParseShimPMGBinRoundTripsShellQuote(t *testing.T) {
 }
 
 func TestRequirePathSearchableByAll(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permission semantics")
-	}
-
 	t.Run("standard system path passes", func(t *testing.T) {
 		// Only directories are inspected, so the file itself need not exist.
 		assert.NoError(t, requirePathSearchableByAll("/usr/bin/pmg-does-not-exist"))
