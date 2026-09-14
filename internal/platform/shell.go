@@ -3,8 +3,9 @@ package platform
 import "strings"
 
 // ShellQuote wraps value in single quotes so a POSIX shell reads it literally,
-// whatever spaces, $ signs, or quotes it holds. It escapes an embedded single
-// quote as '\”, the form ShellUnquote reverses.
+// whatever spaces, dollar signs, or quotes it holds. An embedded single quote
+// is rewritten to close the quote, add a backslash-escaped quote, and reopen,
+// the form ShellUnquote reverses.
 func ShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
