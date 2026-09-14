@@ -570,6 +570,8 @@ function Install-Binary {
 }
 
 function Install-RequestedGlobalConfig {
+  # Reflect this run only, so the flag never carries over from an earlier call.
+  $script:AdminConfigProvided = $false
   $embeddedConfig = [string](Get-Variable -Name EMBEDDED_GLOBAL_CONFIG_B64 -ValueOnly -Scope Script -ErrorAction SilentlyContinue)
   Remove-Variable -Name EMBEDDED_GLOBAL_CONFIG_B64 -Scope Script -ErrorAction SilentlyContinue
 
