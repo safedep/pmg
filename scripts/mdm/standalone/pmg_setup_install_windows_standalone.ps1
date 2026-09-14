@@ -404,6 +404,9 @@ Assert-Windows
 
 $Repo = 'safedep/pmg'
 $PmgBin = $null
+# Set when the package ships its own config.yml (sibling or embedded). An
+# admin-provided config is authoritative, so the script never edits it.
+$AdminConfigProvided = $false
 
 function Read-EmbeddedCloudCredential {
   $embeddedApiKey = [string](Get-Variable -Name EMBEDDED_SAFEDEP_API_KEY_B64 -ValueOnly -Scope Script -ErrorAction SilentlyContinue)
@@ -575,6 +578,7 @@ function Install-RequestedGlobalConfig {
     if (Test-Path -LiteralPath $sibling -PathType Leaf) {
       Install-GlobalConfig -Source $sibling
       Assert-ManagedConfigReadable
+      $script:AdminConfigProvided = $true
     }
     return
   }
@@ -591,6 +595,7 @@ function Install-RequestedGlobalConfig {
     Remove-Item -LiteralPath $decoded -Force -ErrorAction SilentlyContinue
   }
   Assert-ManagedConfigReadable
+  $script:AdminConfigProvided = $true
 }
 
 # The managed config governs every account, so a bundled file pmg cannot
@@ -599,6 +604,24 @@ function Install-RequestedGlobalConfig {
 function Assert-ManagedConfigReadable {
   if ((Invoke-Native -FilePath $PmgBinary -ArgumentList @('config', 'get', 'paranoid') -Capture).ExitCode -ne 0) {
     Fail 'pmg cannot read the managed config; check the bundled config.yml'
+  }
+}
+
+# Credentials imply cloud sync. The Unix scripts express that with a per-user
+# `pmg config set cloud.enabled true`. On Windows `pmg setup install --system`
+# always writes a managed config, and a managed config makes `config set`
+# refuse, so the same intent has to be written into the managed file. The
+# config may be partial: keys it does not set fall back to pmg's built-in
+# defaults, so this enables cloud sync without pinning any other value.
+function Enable-CloudInManagedConfig {
+  Write-Info 'Cloud credentials are set; enabling cloud sync in the managed config'
+  $generated = [IO.Path]::GetTempFileName()
+  try {
+    Set-Content -LiteralPath $generated -Value @('cloud:', '  enabled: true') -Encoding Ascii
+    Install-GlobalConfig -Source $generated
+    Assert-ManagedConfigReadable
+  } finally {
+    Remove-Item -LiteralPath $generated -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -664,7 +687,11 @@ if (Test-Elevated) {
 
 if ($CloudApiKey -and $CloudTenantId) {
   if (-not (Test-CloudEnabled)) {
-    Write-Info "Config is globally managed; set 'cloud.enabled: true' in the bundled config.yml to enable sync"
+    if ((Test-Elevated) -and -not $AdminConfigProvided) {
+      Enable-CloudInManagedConfig
+    } else {
+      Write-Info "Config is globally managed; set 'cloud.enabled: true' in the bundled config.yml to enable sync"
+    }
   }
   foreach ($user in @(Get-TargetUser)) {
     Set-UserCloud -User $user

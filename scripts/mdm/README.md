@@ -59,7 +59,7 @@ The install script:
 3. Runs `pmg setup install` for each target user to create aliases and shims (and a per-user config, unless a globally managed config is active). On Windows, runs `pmg setup install --system` once instead.
 4. If both cloud variables are set, enables cloud sync and runs `pmg cloud sync` for each target user. On Windows, stores the credentials and syncs for each logged-on user.
 
-Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. It stores credentials in the keychain when the user has an active session. It then runs cloud sync with the credentials from the environment.
+Without a managed config, cloud setup runs `pmg config set cloud.enabled true`. On Windows a managed config always exists, because the system install writes one, so `config set` is refused. There the installer writes `cloud.enabled: true` into the managed config instead, and only when the package ships no `config.yml` of its own. A bundled `config.yml` is authoritative and is never rewritten. It stores credentials in the keychain when the user has an active session. It then runs cloud sync with the credentials from the environment.
 
 An inactive session prevents keychain storage. It does not prevent cloud sync. A cloud login or cloud sync failure is nonfatal during installation.
 
@@ -310,7 +310,7 @@ The script runs as SYSTEM and downloads the latest release. Set `PMG_VERSION` in
 - Windows: the per-user steps need the system install, because their scratch directory lives under `%PROGRAMDATA%\safedep\pmg`. On a machine with only a per-user `pmg` on the PATH, the scripts skip those steps with a warning.
 - Windows: the install replaces `pmg.exe` under a running PMG by moving the old file aside. The stale copy is removed on the next run. The uninstall moves a running `pmg.exe` to `%SystemRoot%\Temp` and finishes the machine-scope cleanup. The files that running PMG holds open, its log and its sync database, stay with a warning, and the next run removes them.
 - Windows: the release ships x86-64 only. A 32-bit Windows is refused. An ARM64 machine runs the x86-64 build under emulation.
-- Windows: `pmg cloud sync` needs `cloud.enabled: true` in the managed config. The system install always writes a managed config, so `pmg config set cloud.enabled true` is refused for every user. Set it in the bundled `config.yml`.
+- Windows: `pmg cloud sync` needs `cloud.enabled: true` in the managed config. The system install always writes a managed config, so `pmg config set cloud.enabled true` is refused for every user. When credentials are set and the package ships no `config.yml`, the installer enables it in the managed config for you. When you bundle a `config.yml`, it is authoritative, so set `cloud.enabled: true` in it.
 - Linux: the install and uninstall fan-out forces each user's `HOME` and clears `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME`, so per-user state stays under the passwd home (`~/.config`, `~/.cache`) or the `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` overrides. A user who installed pmg in their own shell with a custom `XDG_CONFIG_HOME` keeps state elsewhere. The uninstall does not remove that state. Ask the user to run `pmg setup remove --config-file` in their own session.
 
 ## Development

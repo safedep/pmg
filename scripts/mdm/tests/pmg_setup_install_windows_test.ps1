@@ -201,6 +201,24 @@ Reset-Capture
 Remove-Item -LiteralPath (Join-Path $StageDir 'config.yml')
 Install-RequestedGlobalConfig
 if (Test-Path -LiteralPath $CapturedConfig) { Stop-OnFailure 'no config must be installed without a source' }
+Assert-Equal $false $AdminConfigProvided 'no bundled config leaves the admin flag clear'
+
+# A bundled config is authoritative, so the script records it and never rewrites it.
+Reset-Capture
+$AdminConfigProvided = $false
+Set-Content -LiteralPath (Join-Path $StageDir 'config.yml') -Value 'source: adjacent'
+Install-RequestedGlobalConfig
+Assert-Equal $true $AdminConfigProvided 'a bundled config is recorded as admin provided'
+Remove-Item -LiteralPath (Join-Path $StageDir 'config.yml')
+
+# Credentials with no bundled config enable cloud sync in the managed config,
+# because a managed config always exists on Windows and makes `config set` refuse.
+Reset-Capture
+Enable-CloudInManagedConfig
+$generatedConfig = (Get-Content -LiteralPath $CapturedConfig -Raw)
+if ($generatedConfig -notmatch '(?m)^cloud:') { Stop-OnFailure 'the generated managed config needs a cloud block' }
+if ($generatedConfig -notmatch '(?m)^\s+enabled:\s*true') { Stop-OnFailure 'the generated managed config must enable cloud sync' }
+Assert-LineMatch (Get-CaptureLine $TestLog) 'native:config get paranoid' 'the generated managed config is read back'
 
 # Per-user cloud steps run inside the user's logon, and only with a session.
 Set-Variable -Name PmgBin -Value $FakePmg
