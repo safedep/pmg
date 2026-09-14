@@ -4,34 +4,49 @@ on:
 permissions:
   contents: read
 jobs:
-  compatibility-review:
-    name: Review (${{ matrix.version }}, ${{ matrix.os }})
+  windows-regressions:
+    name: Regressions (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 8
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         os: [windows-2022, windows-latest]
-        version: [base, head]
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
           go-version-file: go.mod
-      - name: Compare native cleanup behavior
+      - name: Repeat ptyx regressions with the race detector
         shell: pwsh
-        env:
-          REVIEW_VERSION: ${{ matrix.version }}
         run: |
           git clone https://github.com/safedep/ptyx.git .review-ptyx
-          if ($env:REVIEW_VERSION -eq 'base') {
-            git -C .review-ptyx checkout dd649ef656c456bda4b2067174a0e04562664f38
-          } else {
-            git -C .review-ptyx checkout c91ca8275bf36921748577758429456968425d23
-          }
-          Copy-Item .diagnostics/compatibility_windows_test.go .review-ptyx/
+          git -C .review-ptyx checkout 58027151c2f4aa4685a6e44a498715b4a8676e24
           Set-Location .review-ptyx
           git rev-parse HEAD
           $env:GOWORK = 'off'
-          go test -v -run '^TestReview(Close|Kill)' -count=3 -timeout=60s .
+          go test -v -race -run '^TestWinSession_(ContextCancel|ConcurrentShutdown|CancelAfterClose|CloseStdinAfterClose|CloseAfterStdinEOF|KillWhileCloseDrains|Wait_ExitError)$' -count=3 -timeout=120s .
+      - name: Repeat PMG argument equivalence with the revised ptyx fix
+        shell: pwsh
+        run: |
+          go work edit "-replace=github.com/safedep/ptyx=./.review-ptyx"
+          go list -m -json github.com/safedep/ptyx
+          go test ./internal/runner -run '^TestArgvEquivalence$' -count=3 -json -timeout=3m > argv-results.jsonl
+          $testExit = $LASTEXITCODE
+          $events = Get-Content argv-results.jsonl | ForEach-Object { $_ | ConvertFrom-Json }
+          $passed = @($events | Where-Object { $_.Action -eq 'pass' -and $_.Test -eq 'TestArgvEquivalence' }).Count
+          $failed = @($events | Where-Object { $_.Action -eq 'fail' -and $_.Test -eq 'TestArgvEquivalence' }).Count
+          Write-Output "Completed suites: passed=$passed failed=$failed exit=$testExit"
+          $events | Where-Object { $_.Action -eq 'fail' } | ConvertTo-Json -Compress
+          if ($testExit -ne 0) {
+            $events | Where-Object { $_.Action -eq 'output' } | ForEach-Object { $_.Output } | Select-Object -Last 180
+          }
+          exit $testExit
+      - name: Preserve PMG test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: argv-${{ matrix.os }}
+          path: argv-results.jsonl
+          if-no-files-found: warn
