@@ -15,12 +15,12 @@ jobs:
       - name: Reproduce cancellation after session close
         shell: pwsh
         run: |
-          $module = go mod download -json github.com/safedep/ptyx | ConvertFrom-Json
-          Copy-Item $module.Dir .diag-ptyx -Recurse
-          Copy-Item .diagnostics/stale_handle_windows_test.go .diag-ptyx/
+          git clone --branch fix/windows-session-cleanup https://github.com/safedep/ptyx.git .diag-ptyx
           Set-Location .diag-ptyx
+          git rev-parse HEAD
           $env:GOWORK = 'off'
-          go test -v -run '^TestDiagnosticCancelAfterClose$' -count=3 -timeout=60s
+          go test -race -v -run '^TestWinSession_(CancelAfterClose|ContextCancel|ConcurrentShutdown)$' -count=3 -timeout=90s
+
   repeat-original-test:
     if: false
     runs-on: windows-latest
