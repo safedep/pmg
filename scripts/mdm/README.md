@@ -150,7 +150,7 @@ Include a `config.yml` next to the scripts to centrally manage PMG configuration
 - By default the global config is an overridable baseline: users can still override its values at runtime with `PMG_*` env vars and CLI flags. Set `global_lockdown: true` in the bundled `config.yml` to forbid those overrides. See [Globally Managed Configuration](../../docs/config.md#globally-managed-configuration) for the full behaviour.
 - The file can be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to user values.
 - To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The installer skips the refused per-user config change. It stores credentials for the active session and syncs each target user.
-- Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config. On Windows, `pmg setup install --system` writes the file first with its security descriptor, and the script then replaces the content. PMG obeys the file only with that descriptor, so do not create it another way.
+- Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config. On Windows, `pmg setup install --system` writes the file first with its security descriptor, and the script then replaces the content. PMG reads the file whatever its descriptor, but a later `--system` install refuses a file it did not write. Create the file only through the installer.
 - Re-deploying the package overwrites the global config, keeping it in sync with the package.
 - Uninstall removes the global config whenever it is present, regardless of whether the uninstall package ships a `config.yml`. Set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it.
 
@@ -309,7 +309,7 @@ If you pass credentials at installation time instead, generate the Windows insta
 
 **Warning:** Base64 is not encryption. Anyone who can read the uploaded installer in Intune (Intune admins, device admins) can recover the credentials. A credential-bearing installer is a secret. Use a scoped and revocable API key. Never commit it or put it on a file share.
 
-The credential installer has mode `0700`. The uninstaller has no embedded credentials.
+The credential installer has mode `0700`. On Windows that mode gives no protection. Restrict the ACL as shown in [Config only](#config-only). The uninstaller has no embedded credentials.
 
 ### Intune example (macOS)
 
