@@ -242,14 +242,52 @@ function Assert-ManagedConfigReadable {
 # Credentials imply cloud sync. The Unix scripts express that with a per-user
 # `pmg config set cloud.enabled true`. On Windows `pmg setup install --system`
 # always writes a managed config, and a managed config makes `config set`
-# refuse, so the same intent has to be written into the managed file. The
-# config may be partial: keys it does not set fall back to pmg's built-in
-# defaults, so this enables cloud sync without pinning any other value.
+# refuse, so the same intent has to be written into the managed file.
+#
+# The machine can already carry a managed policy from an earlier deployment,
+# and the system install preserves it. Edit only `cloud.enabled` and keep every
+# other setting, because a wholesale rewrite would silently drop keys such as
+# `global_lockdown` and reopen the per-user bypasses they closed.
 function Enable-CloudInManagedConfig {
   Write-Info 'Cloud credentials are set; enabling cloud sync in the managed config'
+  $text = [IO.File]::ReadAllText($GlobalConfigFile)
+  $newline = if ($text -match "`r`n") { "`r`n" } else { "`n" }
+  $lines = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($line in ($text -split "`r?`n")) { $lines.Add($line) }
+
+  $updated = $false
+  $inCloud = $false
+  $cloudIndent = ''
+  $childIndent = $null
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i]
+    if (-not $inCloud) {
+      if ($line -match '^(\s*)cloud:\s*(#.*)?$') { $inCloud = $true; $cloudIndent = $Matches[1] }
+      continue
+    }
+    if ($line -match '^\s*$' -or $line -match '^\s*#') { continue }
+    $indent = [regex]::Match($line, '^\s*').Value
+    # A line at or left of `cloud:` ends the block, so add the key here.
+    if ($indent.Length -le $cloudIndent.Length) {
+      $lines.Insert($i, $cloudIndent + '  enabled: true')
+      $updated = $true
+      break
+    }
+    # Only a direct child of `cloud:` is cloud.enabled; deeper keys such as
+    # auto_sync.enabled must not be touched.
+    if ($null -eq $childIndent) { $childIndent = $indent }
+    if ($indent.Length -eq $childIndent.Length -and $line -match '^(\s*)enabled:\s') {
+      $lines[$i] = $Matches[1] + 'enabled: true'
+      $updated = $true
+      break
+    }
+  }
+  if (-not $updated -and $inCloud) { $lines.Add($cloudIndent + '  enabled: true'); $updated = $true }
+  if (-not $updated) { $lines.Add('cloud:'); $lines.Add('  enabled: true') }
+
   $generated = [IO.Path]::GetTempFileName()
   try {
-    Set-Content -LiteralPath $generated -Value @('cloud:', '  enabled: true') -Encoding Ascii
+    [IO.File]::WriteAllText($generated, ($lines -join $newline), (New-Object Text.UTF8Encoding $false))
     Install-GlobalConfig -Source $generated
     Assert-ManagedConfigReadable
   } finally {

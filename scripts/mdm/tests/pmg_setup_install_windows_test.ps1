@@ -213,12 +213,39 @@ Remove-Item -LiteralPath (Join-Path $StageDir 'config.yml')
 
 # Credentials with no bundled config enable cloud sync in the managed config,
 # because a managed config always exists on Windows and makes `config set` refuse.
+# The edit must touch only cloud.enabled: an upgrade run over an existing
+# managed policy must not drop keys such as global_lockdown.
+$SavedGlobalConfigFile = $GlobalConfigFile
+$ExistingPolicy = Join-Path $TestRoot 'existing-policy.yml'
+
 Reset-Capture
+$GlobalConfigFile = $ExistingPolicy
+Set-Content -LiteralPath $ExistingPolicy -Value @(
+  'global_lockdown: true',
+  'paranoid: true',
+  'cloud:',
+  '  enabled: false',
+  '  auto_sync:',
+  '    enabled: false'
+)
 Enable-CloudInManagedConfig
-$generatedConfig = (Get-Content -LiteralPath $CapturedConfig -Raw)
-if ($generatedConfig -notmatch '(?m)^cloud:') { Stop-OnFailure 'the generated managed config needs a cloud block' }
-if ($generatedConfig -notmatch '(?m)^\s+enabled:\s*true') { Stop-OnFailure 'the generated managed config must enable cloud sync' }
-Assert-LineMatch (Get-CaptureLine $TestLog) 'native:config get paranoid' 'the generated managed config is read back'
+$merged = Get-Content -LiteralPath $CapturedConfig -Raw
+if ($merged -notmatch '(?m)^global_lockdown:\s*true') { Stop-OnFailure 'global_lockdown must survive enabling cloud sync' }
+if ($merged -notmatch '(?m)^paranoid:\s*true') { Stop-OnFailure 'paranoid must survive enabling cloud sync' }
+if ($merged -notmatch '(?m)^\s{2}enabled:\s*true') { Stop-OnFailure 'cloud.enabled must be set to true' }
+if ($merged -match '(?m)^\s{2}enabled:\s*false') { Stop-OnFailure 'cloud.enabled must not stay false' }
+if ($merged -notmatch '(?m)^\s{4}enabled:\s*false') { Stop-OnFailure 'a nested auto_sync.enabled must not be rewritten' }
+Assert-LineMatch (Get-CaptureLine $TestLog) 'native:config get paranoid' 'the managed config is read back after the write'
+
+# A managed config without a cloud block gains one.
+Reset-Capture
+Set-Content -LiteralPath $ExistingPolicy -Value @('paranoid: true')
+Enable-CloudInManagedConfig
+$appended = Get-Content -LiteralPath $CapturedConfig -Raw
+if ($appended -notmatch '(?m)^paranoid:\s*true') { Stop-OnFailure 'existing keys must survive when the cloud block is added' }
+if ($appended -notmatch '(?m)^cloud:') { Stop-OnFailure 'a missing cloud block must be added' }
+if ($appended -notmatch '(?m)^\s{2}enabled:\s*true') { Stop-OnFailure 'the added cloud block must enable sync' }
+$GlobalConfigFile = $SavedGlobalConfigFile
 
 # Per-user cloud steps run inside the user's logon, and only with a session.
 Set-Variable -Name PmgBin -Value $FakePmg
