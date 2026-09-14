@@ -4,8 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 type bashShell struct{}
@@ -41,14 +42,14 @@ func (b bashShell) CandidateRcFiles(homeDir string) []string {
 }
 
 func (b bashShell) InstallRcFiles(homeDir string, create bool) ([]string, error) {
-	return bashInstallRcFiles(homeDir, create, runtime.GOOS)
+	return bashInstallRcFiles(homeDir, create, platform.BashUsesLoginShell())
 }
 
 // bashInstallRcFiles resolves where bash should load PMG. bash reads .bashrc for
 // interactive non-login shells and a login file (.bash_profile, .bash_login, or
 // .profile) for login shells such as macOS Terminal, so the lines may need to
-// land in both. goos is a parameter for testability.
-func bashInstallRcFiles(homeDir string, create bool, goos string) ([]string, error) {
+// land in both. usesLoginShell is a parameter for testability.
+func bashInstallRcFiles(homeDir string, create bool, usesLoginShell bool) ([]string, error) {
 	bashrc := filepath.Join(homeDir, ".bashrc")
 	bashrcExists := fileExists(bashrc)
 	login := firstExistingFile(homeDir, bashLoginFiles)
@@ -60,7 +61,7 @@ func bashInstallRcFiles(homeDir string, create bool, goos string) ([]string, err
 
 	// macOS Terminal starts bash as a login shell, which does not read .bashrc.
 	// Create .bash_profile so the lines reach login shells too.
-	if login == "" && create && goos == "darwin" {
+	if login == "" && create && usesLoginShell {
 		login = filepath.Join(homeDir, ".bash_profile")
 		if err := ensureFile(login); err != nil {
 			return nil, err
@@ -83,7 +84,7 @@ func bashInstallRcFiles(homeDir string, create bool, goos string) ([]string, err
 
 	// Nothing exists yet: create the canonical file for this OS.
 	target := bashrc
-	if goos == "darwin" {
+	if usesLoginShell {
 		target = filepath.Join(homeDir, ".bash_profile")
 	}
 

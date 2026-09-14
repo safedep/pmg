@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/safedep/pmg/internal/platform"
@@ -79,11 +78,7 @@ func PrimaryShellName() string {
 		return name
 	}
 
-	if runtime.GOOS == "darwin" {
-		return "zsh"
-	}
-
-	return "bash"
+	return platform.DefaultShell()
 }
 
 func fileExists(path string) bool {

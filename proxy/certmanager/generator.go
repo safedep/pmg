@@ -11,11 +11,12 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/safedep/dry/log"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 const (
@@ -389,7 +390,7 @@ func firstReadablePath(paths ...string) string {
 }
 
 func systemCABundleCandidates() []string {
-	return systemCABundleCandidatesForOS(runtime.GOOS)
+	return systemCABundleCandidatesForOS(platform.OSName())
 }
 
 func systemCABundleCandidatesForOS(goos string) []string {
