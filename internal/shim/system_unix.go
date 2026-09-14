@@ -157,20 +157,12 @@ func requireSafeParentDir(dir string) error {
 func SystemProfileInstalled() bool { return platform.SystemProfileInstalled(SystemProfilePath()) }
 
 // parseShimPMGBin extracts the shimPMGBinVar value from a shim script,
-// reversing the shellQuote used by writeShimScript.
+// reversing the platform.ShellQuote used by writeShimScript.
 func parseShimPMGBin(content string) (string, bool) {
 	for line := range strings.SplitSeq(content, "\n") {
 		if rest, ok := strings.CutPrefix(line, shimPMGBinVar+"="); ok {
-			return shellUnquote(rest), true
+			return platform.ShellUnquote(rest), true
 		}
 	}
 	return "", false
-}
-
-// shellUnquote reverses shellQuote for the single-quoted form it emits.
-func shellUnquote(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "'")
-	s = strings.TrimSuffix(s, "'")
-	return strings.ReplaceAll(s, `'\''`, `'`)
 }

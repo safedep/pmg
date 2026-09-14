@@ -200,7 +200,7 @@ func TestSystemShimBinaryFalseWhenNoShims(t *testing.T) {
 
 func TestParseShimPMGBinRoundTripsShellQuote(t *testing.T) {
 	for _, path := range []string{"/usr/local/bin/pmg", "/opt/pmg dir/pmg", "/weird/o'brien/pmg"} {
-		content := "#!/bin/sh\n" + shimScriptMarker + "\nPMG_BIN=" + shellQuote(path) + "\n"
+		content := "#!/bin/sh\n" + shimScriptMarker + "\nPMG_BIN=" + platform.ShellQuote(path) + "\n"
 		got, ok := parseShimPMGBin(content)
 		require.True(t, ok, path)
 		assert.Equal(t, path, got)

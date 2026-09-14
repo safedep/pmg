@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/safedep/pmg/internal/platform"
 	pmgsandbox "github.com/safedep/pmg/sandbox"
 )
 
@@ -43,11 +44,11 @@ func sandboxAllowArg(o *pmgsandbox.OverrideSuggestion) string {
 
 	switch o.Kind {
 	case pmgsandbox.ViolationKindFSRead:
-		return "read=" + shellQuote(o.Target)
+		return "read=" + platform.ShellQuote(o.Target)
 	case pmgsandbox.ViolationKindFSWrite, pmgsandbox.ViolationKindFSDeleteOrRename:
-		return "write=" + shellQuote(o.Target)
+		return "write=" + platform.ShellQuote(o.Target)
 	case pmgsandbox.ViolationKindExec:
-		return "exec=" + shellQuote(o.Target)
+		return "exec=" + platform.ShellQuote(o.Target)
 	case pmgsandbox.ViolationKindEnvScrub:
 		// The suggestion gate already holds names to this form. Check again
 		// here so a caller that skips the gate cannot put an odd name into
@@ -238,11 +239,4 @@ func RenderSandboxViolation(out io.Writer, rec *pmgsandbox.ViolationCacheRecord)
 	}
 
 	return nil
-}
-
-// shellQuote wraps value in single quotes, escaping any embedded single
-// quotes. Used so suggested override flags can be copy-pasted into a POSIX
-// shell verbatim regardless of spaces or quotes in the target.
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
