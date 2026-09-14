@@ -2,7 +2,6 @@ package setup
 
 import (
 	"fmt"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
+	pmgplatform "github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -74,7 +74,7 @@ func executeSetupInfo() error {
 	shellEntries["Detected Shell"] = shell
 
 	// PMG installs no shell alias on Windows, so there is no row to report.
-	if runtime.GOOS != "windows" {
+	if pmgplatform.Supports(pmgplatform.ShellAliases) {
 		aliasCfg := alias.DefaultConfig()
 		rcFileManager, err := alias.NewDefaultRcFileManager(cfg.ConfigDir(), aliasCfg.RcFileName)
 		if err != nil {

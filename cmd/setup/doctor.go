@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/fsutil"
+	pmgplatform "github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/internal/version"
@@ -241,9 +241,9 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		},
 	}
 
-	// PMG installs no shell alias on Windows, and a check for a layer that
-	// does not exist would report a false problem.
-	if runtime.GOOS == "windows" {
+	// A check for a shell alias layer that this platform does not install would
+	// report a false problem.
+	if !pmgplatform.Supports(pmgplatform.ShellAliases) {
 		checks = slices.DeleteFunc(checks, func(c doctor.Check) bool { return c.Name == checkShellAliases })
 	}
 
@@ -560,13 +560,13 @@ func evaluateSandboxCheck(sb sandbox.Sandbox, supported bool, enabled bool) doct
 		if enabled {
 			return doctor.CheckResult{
 				Status:  doctor.StatusFail,
-				Message: fmt.Sprintf("Sandbox is enabled, but PMG has no sandbox on %s", runtime.GOOS),
+				Message: fmt.Sprintf("Sandbox is enabled, but PMG has no sandbox on %s", pmgplatform.OSName()),
 				Fix:     "Set sandbox.enabled: false in config",
 			}
 		}
 		return doctor.CheckResult{
 			Status:  doctor.StatusPass,
-			Message: fmt.Sprintf("PMG has no sandbox on %s", runtime.GOOS),
+			Message: fmt.Sprintf("PMG has no sandbox on %s", pmgplatform.OSName()),
 		}
 	}
 	if !enabled {

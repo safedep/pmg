@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shellwords"
 )
 
-// Resolve returns the editor command from $VISUAL, then $EDITOR, then a
-// platform default (vi on Unix, notepad on Windows).
+// Resolve returns the editor command from $VISUAL, then $EDITOR, then the
+// platform default when that default is on PATH.
 func Resolve() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("VISUAL")); v != "" {
 		return v, nil
@@ -21,12 +21,9 @@ func Resolve() (string, error) {
 		return v, nil
 	}
 
-	if runtime.GOOS == "windows" {
-		return "notepad", nil
-	}
-
-	if _, err := exec.LookPath("vi"); err == nil {
-		return "vi", nil
+	def := platform.DefaultEditor()
+	if _, err := exec.LookPath(def); err == nil {
+		return def, nil
 	}
 
 	return "", fmt.Errorf("no editor found: set $VISUAL or $EDITOR")

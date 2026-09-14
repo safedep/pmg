@@ -3,7 +3,6 @@ package setup
 import (
 	"errors"
 	"fmt"
-	"runtime"
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
@@ -71,10 +70,10 @@ func install(system bool) error {
 			fmt.Sprintf("Using globally managed config: %s", config.Get().ConfigFilePath()))
 	}
 
-	// PMG installs no shell alias on Windows. The .cmd shims on PATH are the
-	// whole interception layer there.
+	// Where PMG installs no shell alias, the .cmd shims on PATH are the whole
+	// interception layer.
 	var aliasPath string
-	if runtime.GOOS != "windows" {
+	if platform.Supports(platform.ShellAliases) {
 		cfg := alias.DefaultConfig()
 		rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
 		if err != nil {
@@ -125,7 +124,7 @@ func installSystem() error {
 		ShimBinDir:  shimMgr.GetBinDir(),
 		ConfigDir:   config.SystemConfigDir(),
 		ProfilePath: shim.SystemProfilePath(),
-		MachinePath: runtime.GOOS == "windows",
+		MachinePath: platform.Supports(platform.MachineWidePath),
 	})
 	return nil
 }
@@ -167,7 +166,7 @@ func remove(system, removeConfig bool) error {
 		}
 	}
 
-	if runtime.GOOS != "windows" {
+	if platform.Supports(platform.ShellAliases) {
 		cfg := alias.DefaultConfig()
 		rcFileManager, err := alias.NewDefaultRcFileManager(config.Get().ConfigDir(), cfg.RcFileName)
 		if err != nil {
@@ -223,7 +222,7 @@ func removeSystem(removeConfig bool) error {
 }
 
 func requireSystemInstallSupported() error {
-	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+	if !platform.Supports(platform.SystemInstall) {
 		return usefulerror.NewUsefulError().
 			WithCode(errcodes.UnsupportedPlatform).
 			WithHumanError("system install is only supported on Linux and Windows").

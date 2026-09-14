@@ -85,78 +85,78 @@ func TestBashInstallRcFiles(t *testing.T) {
 	)
 
 	tests := []struct {
-		name     string
-		goos     string
-		create   bool
-		existing map[string]string
-		wantRel  []string
-		wantMade []string
+		name           string
+		usesLoginShell bool
+		create         bool
+		existing       map[string]string
+		wantRel        []string
+		wantMade       []string
 	}{
 		{
-			name:     "darwin bashrc only, primary also creates bash_profile",
-			goos:     "darwin",
-			create:   true,
-			existing: map[string]string{bashrc: "# bashrc\n"},
-			wantRel:  []string{bashrc, bashProfile},
-			wantMade: []string{bashProfile},
+			name:           "darwin bashrc only, primary also creates bash_profile",
+			usesLoginShell: true,
+			create:         true,
+			existing:       map[string]string{bashrc: "# bashrc\n"},
+			wantRel:        []string{bashrc, bashProfile},
+			wantMade:       []string{bashProfile},
 		},
 		{
-			name:     "darwin login already sources bashrc is skipped",
-			goos:     "darwin",
-			create:   true,
-			existing: map[string]string{bashrc: "# bashrc\n", bashProfile: "source ~/.bashrc\n"},
-			wantRel:  []string{bashrc},
+			name:           "darwin login already sources bashrc is skipped",
+			usesLoginShell: true,
+			create:         true,
+			existing:       map[string]string{bashrc: "# bashrc\n", bashProfile: "source ~/.bashrc\n"},
+			wantRel:        []string{bashrc},
 		},
 		{
-			name:     "darwin login not sourcing bashrc gets both",
-			goos:     "darwin",
-			create:   true,
-			existing: map[string]string{bashrc: "# bashrc\n", bashProfile: "# profile\n"},
-			wantRel:  []string{bashrc, bashProfile},
+			name:           "darwin login not sourcing bashrc gets both",
+			usesLoginShell: true,
+			create:         true,
+			existing:       map[string]string{bashrc: "# bashrc\n", bashProfile: "# profile\n"},
+			wantRel:        []string{bashrc, bashProfile},
 		},
 		{
-			name:     "darwin login only mentions bashrc in a comment gets both",
-			goos:     "darwin",
-			create:   true,
-			existing: map[string]string{bashrc: "# bashrc\n", bashProfile: "# see ~/.bashrc\n"},
-			wantRel:  []string{bashrc, bashProfile},
+			name:           "darwin login only mentions bashrc in a comment gets both",
+			usesLoginShell: true,
+			create:         true,
+			existing:       map[string]string{bashrc: "# bashrc\n", bashProfile: "# see ~/.bashrc\n"},
+			wantRel:        []string{bashrc, bashProfile},
 		},
 		{
-			name:     "darwin nothing exists, primary creates bash_profile",
-			goos:     "darwin",
-			create:   true,
-			existing: map[string]string{},
-			wantRel:  []string{bashProfile},
-			wantMade: []string{bashProfile},
+			name:           "darwin nothing exists, primary creates bash_profile",
+			usesLoginShell: true,
+			create:         true,
+			existing:       map[string]string{},
+			wantRel:        []string{bashProfile},
+			wantMade:       []string{bashProfile},
 		},
 		{
-			name:     "darwin nothing exists, non-primary creates nothing",
-			goos:     "darwin",
-			create:   false,
-			existing: map[string]string{},
-			wantRel:  nil,
+			name:           "darwin nothing exists, non-primary creates nothing",
+			usesLoginShell: true,
+			create:         false,
+			existing:       map[string]string{},
+			wantRel:        nil,
 		},
 		{
-			name:     "linux bashrc only does not create bash_profile",
-			goos:     "linux",
-			create:   true,
-			existing: map[string]string{bashrc: "# bashrc\n"},
-			wantRel:  []string{bashrc},
+			name:           "linux bashrc only does not create bash_profile",
+			usesLoginShell: false,
+			create:         true,
+			existing:       map[string]string{bashrc: "# bashrc\n"},
+			wantRel:        []string{bashrc},
 		},
 		{
-			name:     "linux nothing exists, primary creates bashrc",
-			goos:     "linux",
-			create:   true,
-			existing: map[string]string{},
-			wantRel:  []string{bashrc},
-			wantMade: []string{bashrc},
+			name:           "linux nothing exists, primary creates bashrc",
+			usesLoginShell: false,
+			create:         true,
+			existing:       map[string]string{},
+			wantRel:        []string{bashrc},
+			wantMade:       []string{bashrc},
 		},
 		{
-			name:     "existing login file wired even when non-primary",
-			goos:     "linux",
-			create:   false,
-			existing: map[string]string{profile: "# profile\n"},
-			wantRel:  []string{profile},
+			name:           "existing login file wired even when non-primary",
+			usesLoginShell: false,
+			create:         false,
+			existing:       map[string]string{profile: "# profile\n"},
+			wantRel:        []string{profile},
 		},
 	}
 
@@ -167,7 +167,7 @@ func TestBashInstallRcFiles(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(home, name), []byte(content), 0o644))
 			}
 
-			got, err := bashInstallRcFiles(home, tc.create, tc.goos)
+			got, err := bashInstallRcFiles(home, tc.create, tc.usesLoginShell)
 			require.NoError(t, err)
 
 			want := make([]string, 0, len(tc.wantRel))

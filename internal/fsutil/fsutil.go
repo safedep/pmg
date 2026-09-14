@@ -4,18 +4,11 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
-// Windows folds case because NTFS compares names through an upcase table.
-// Other systems preserve case because a false match could identify a path that PMG does not own.
 func comparablePath(path string) string {
-	cleaned := filepath.Clean(path)
-	if runtime.GOOS == "windows" {
-		return strings.ToUpper(cleaned)
-	}
-	return cleaned
+	return foldCasePath(filepath.Clean(path))
 }
 
 func samePath(a, b string) bool {
