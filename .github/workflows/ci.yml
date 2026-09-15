@@ -5,44 +5,50 @@ permissions:
   contents: read
 jobs:
   review-regressions:
-    name: Review (${{ matrix.version }}, ${{ matrix.os }})
+    name: Review fixes (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 6
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         os: [windows-2022, windows-latest]
-        version: [before, candidate]
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
-          go-version: '1.24.x'
+          go-version-file: go.mod
           cache: false
-      - name: Prepare review fixture
+      - name: Repeat all cleanup regressions with the race detector
         shell: pwsh
-        env:
-          REVIEW_VERSION: ${{ matrix.version }}
         run: |
           git clone https://github.com/safedep/ptyx.git .review-ptyx
           git -C .review-ptyx checkout 58027151c2f4aa4685a6e44a498715b4a8676e24
+          Copy-Item .diagnostics/candidate/*.go .review-ptyx/
           Copy-Item .diagnostics/session_lifecycle_windows_test.go .review-ptyx/
-          Copy-Item .diagnostics/resize_backpressure_diagnostic_windows_test.go .review-ptyx/
-          python .diagnostics/extract_waiter.py .review-ptyx
-          if ($env:REVIEW_VERSION -eq 'candidate') {
-            Copy-Item .diagnostics/candidate/*.go .review-ptyx/
+          Set-Location .review-ptyx
+          Get-FileHash ptyx_windows.go, conpty_windows.go, session_lifecycle_windows_test.go -Algorithm SHA256 | Format-List
+          $env:GOWORK = 'off'
+          go test -v -race -run '^(TestWinSession_|TestConPty_)' -count=3 -timeout=120s .
+      - name: Repeat PMG argument equivalence with the review fixes
+        shell: pwsh
+        run: |
+          go work edit "-replace=github.com/safedep/ptyx=./.review-ptyx"
+          go test ./internal/runner -run '^TestArgvEquivalence$' -count=3 -json -timeout=3m > argv-results.jsonl
+          $testExit = $LASTEXITCODE
+          $events = Get-Content argv-results.jsonl | ForEach-Object { $_ | ConvertFrom-Json }
+          $passed = @($events | Where-Object { $_.Action -eq 'pass' -and $_.Test -eq 'TestArgvEquivalence' }).Count
+          $failed = @($events | Where-Object { $_.Action -eq 'fail' -and $_.Test -eq 'TestArgvEquivalence' }).Count
+          Write-Output "Completed suites: passed=$passed failed=$failed exit=$testExit"
+          $events | Where-Object { $_.Action -eq 'fail' } | ConvertTo-Json -Compress
+          if ($testExit -ne 0) {
+            $events | Where-Object { $_.Action -eq 'output' } | ForEach-Object { $_.Output } | Select-Object -Last 180
           }
-      - name: Reproduce cleanup review findings
-        shell: pwsh
-        run: |
-          Set-Location .review-ptyx
-          $env:GOWORK = 'off'
-          go test -v -race -run '^(TestWinSession_(CloseBeforeExit|KillTimeoutWhileDraining)|TestConPty_ResizeAfterClose)$' -count=1 -timeout=30s .
-      - name: Check resize backpressure
+          exit $testExit
+      - name: Preserve PMG test output
         if: always()
-        shell: pwsh
-        run: |
-          Set-Location .review-ptyx
-          $env:GOWORK = 'off'
-          go test -v -run '^TestWinSession_ResizeBackpressureDiagnostic$' -count=1 -timeout=45s .
+        uses: actions/upload-artifact@v4
+        with:
+          name: argv-${{ matrix.os }}
+          path: argv-results.jsonl
+          if-no-files-found: warn

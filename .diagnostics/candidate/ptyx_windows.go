@@ -199,7 +199,7 @@ func Spawn(ctx context.Context, opts SpawnOpts) (Session, error) {
 		}
 	}()
 
-	go sess.waitProcess(pi.Process, pi.Thread)
+	go sess.waitProcess(pi.Process)
 
 	return sess, nil
 }
@@ -246,7 +246,7 @@ func (s *winSession) Kill() error {
 	st, _ := windows.WaitForSingleObject(s.process, 1500)
 	s.mu.Unlock()
 	if st == uint32(windows.WAIT_TIMEOUT) {
-		return s.closeCon()
+		go func() { _ = s.closeCon() }()
 	}
 	return nil
 }
@@ -293,7 +293,7 @@ func (s *winSession) CloseStdin() error {
 	return err
 }
 
-func (s *winSession) waitProcess(process, thread windows.Handle) {
+func (s *winSession) waitProcess(process windows.Handle) {
 	st, err := windows.WaitForSingleObject(process, windows.INFINITE)
 	if err == nil {
 		if st != windows.WAIT_OBJECT_0 {

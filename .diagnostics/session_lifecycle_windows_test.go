@@ -62,7 +62,7 @@ func spawnUnterminatedSession(t *testing.T, attached bool) (*winSession, windows
 		process: process, thread: pi.Thread, pid: int(pi.ProcessId),
 		done: make(chan struct{}), waitDone: make(chan struct{}),
 	}
-	go s.waitProcess(process, pi.Thread)
+	go s.waitProcess(process)
 	t.Cleanup(func() {
 		_ = windows.TerminateProcess(pi.Process, 99)
 		go io.Copy(io.Discard, s.PtyReader())
