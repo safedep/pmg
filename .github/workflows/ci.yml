@@ -5,13 +5,14 @@ permissions:
   contents: read
 jobs:
   review-regressions:
-    name: Review regressions (${{ matrix.os }})
+    name: Review (${{ matrix.version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 6
     strategy:
       fail-fast: false
       matrix:
         os: [windows-2022, windows-latest]
+        version: [before, candidate]
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -19,15 +20,29 @@ jobs:
         with:
           go-version: '1.24.x'
           cache: false
-      - name: Reproduce cleanup review findings
+      - name: Prepare review fixture
         shell: pwsh
+        env:
+          REVIEW_VERSION: ${{ matrix.version }}
         run: |
           git clone https://github.com/safedep/ptyx.git .review-ptyx
           git -C .review-ptyx checkout 58027151c2f4aa4685a6e44a498715b4a8676e24
           Copy-Item .diagnostics/session_lifecycle_windows_test.go .review-ptyx/
+          Copy-Item .diagnostics/resize_backpressure_diagnostic_windows_test.go .review-ptyx/
           python .diagnostics/extract_waiter.py .review-ptyx
+          if ($env:REVIEW_VERSION -eq 'candidate') {
+            Copy-Item .diagnostics/candidate/*.go .review-ptyx/
+          }
+      - name: Reproduce cleanup review findings
+        shell: pwsh
+        run: |
           Set-Location .review-ptyx
-          git rev-parse HEAD
-          git diff --stat
           $env:GOWORK = 'off'
           go test -v -race -run '^(TestWinSession_(CloseBeforeExit|KillTimeoutWhileDraining)|TestConPty_ResizeAfterClose)$' -count=1 -timeout=30s .
+      - name: Check resize backpressure
+        if: always()
+        shell: pwsh
+        run: |
+          Set-Location .review-ptyx
+          $env:GOWORK = 'off'
+          go test -v -run '^TestWinSession_ResizeBackpressureDiagnostic$' -count=1 -timeout=45s .

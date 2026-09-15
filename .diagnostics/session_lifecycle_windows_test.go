@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -35,6 +36,7 @@ func spawnUnterminatedSession(t *testing.T, attached bool) (*winSession, windows
 	}
 	si := windows.StartupInfoEx{}
 	si.Cb = uint32(unsafe.Sizeof(si))
+	si.Flags = windows.STARTF_USESTDHANDLES
 	flags := uint32(windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
 	if attached {
 		si.ProcThreadAttributeList = con.attrList.List()
@@ -82,6 +84,7 @@ func spawnUnterminatedSession(t *testing.T, attached bool) (*winSession, windows
 
 func TestWinSession_CloseBeforeExit(t *testing.T) {
 	s, process := spawnUnterminatedSession(t, false)
+	waitHandle := s.process
 	go io.Copy(io.Discard, s.PtyReader())
 	closed := make(chan error, 1)
 	go func() { closed <- s.Close() }()
@@ -94,6 +97,9 @@ func TestWinSession_CloseBeforeExit(t *testing.T) {
 		if err != nil || status != uint32(windows.WAIT_TIMEOUT) {
 			t.Fatalf("child must still be alive: status=%d err=%v", status, err)
 		}
+		if pid, err := windows.GetProcessId(waitHandle); err != nil || pid != uint32(s.Pid()) {
+			t.Fatalf("Close released the waiter's handle before exit: pid=%d err=%v", pid, err)
+		}
 		select {
 		case <-s.waitDone:
 			t.Fatal("Wait completed before the child exited")
@@ -101,13 +107,27 @@ func TestWinSession_CloseBeforeExit(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		_ = windows.TerminateProcess(process, 99)
-		<-closed
+		select {
+		case <-closed:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Close remained blocked after terminating the helper")
+		}
 		t.Fatal("Close waited for the child to exit after console cleanup completed")
 	}
 	_ = windows.TerminateProcess(process, 99)
 	var exitErr *ExitError
 	if err := s.Wait(); !errors.As(err, &exitErr) || exitErr.ExitCode != 99 {
 		t.Fatalf("Wait lost the exit status after Close: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if pid, err := windows.GetProcessId(waitHandle); err != nil || pid != uint32(s.Pid()) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("deferred cleanup did not release the process handle after exit")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -131,8 +151,11 @@ func TestWinSession_KillTimeoutWhileDraining(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		// Rescue the reader so a regression fails without hanging the suite.
 		go io.Copy(io.Discard, reader)
-		<-killed
-		<-drained
+		select {
+		case <-killed:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Kill remained blocked after rescue output draining started")
+		}
 		t.Fatal("Kill waited for output that its caller could not drain")
 	}
 	select {
@@ -157,4 +180,36 @@ func TestConPty_ResizeAfterClose(t *testing.T) {
 	if err := con.resize(100, 30); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("Resize after Close = %v, want os.ErrClosed", err)
 	}
+}
+
+func TestConPty_ConcurrentResizeAndClose(t *testing.T) {
+	con, err := NewConPty(80, 25, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go io.Copy(io.Discard, con.outFile)
+	var workers sync.WaitGroup
+	started := make(chan struct{}, 4)
+	for worker := 0; worker < 4; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			started <- struct{}{}
+			for i := 0; i < 100; i++ {
+				if err := con.resize(80+i%20, 25); err != nil {
+					if !errors.Is(err, os.ErrClosed) {
+						t.Errorf("Resize during cleanup: %v", err)
+					}
+					return
+				}
+			}
+		}()
+	}
+	for worker := 0; worker < 4; worker++ {
+		<-started
+	}
+	if err := con.Close(); err != nil {
+		t.Error(err)
+	}
+	workers.Wait()
 }
