@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -94,8 +95,15 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 				Message: fmt.Sprintf("Could not create venv for %s test: %v", tc.PackageManager, venvErr),
 			}
 		}
-		venvBin := filepath.Join(venvDir, "bin")
-		env = prependPath(env, venvBin)
+		pipPath, pipErr := venvPipPath(venvDir)
+		if pipErr != nil {
+			return CheckResult{
+				Status:  StatusWarn,
+				Message: fmt.Sprintf("Could not find pip in the temporary environment: %v", pipErr),
+			}
+		}
+		binary = "pip"
+		env = prependPath(env, filepath.Dir(pipPath))
 	}
 
 	args := append([]string{binary}, tc.InstallArgs...)
@@ -116,13 +124,34 @@ func setupVenv(baseDir string) (string, error) {
 	return venvDir, nil
 }
 
+func venvPipPath(venvDir string) (string, error) {
+	path := filepath.Join(venvDir, "bin", "pip")
+	if runtime.GOOS == "windows" {
+		path = filepath.Join(venvDir, "Scripts", "pip.exe")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a regular file", path)
+	}
+	return path, nil
+}
+
 func prependPath(env []string, dir string) []string {
-	result := make([]string, 0, len(env))
+	var result []string
+	found := false
 	for _, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			e = fmt.Sprintf("PATH=%s%c%s", dir, filepath.ListSeparator, e[5:])
+		key, value, ok := strings.Cut(e, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			e = fmt.Sprintf("%s=%s%c%s", key, dir, filepath.ListSeparator, value)
+			found = true
 		}
 		result = append(result, e)
+	}
+	if !found {
+		result = append(result, "PATH="+dir)
 	}
 	return result
 }

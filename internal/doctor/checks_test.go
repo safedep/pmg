@@ -180,6 +180,44 @@ func TestPrependPath(t *testing.T) {
 	assert.Equal(t, "TERM=xterm", result[2])
 }
 
+func TestPrependPathMixedCase(t *testing.T) {
+	env := []string{"Path=/existing", "OTHER=value"}
+	result := prependPath(env, "/venv/bin")
+	assert.Equal(t, []string{"Path=/venv/bin" + string(os.PathListSeparator) + "/existing", "OTHER=value"}, result)
+}
+
+func TestPrependPathWhenMissing(t *testing.T) {
+	result := prependPath([]string{"OTHER=value"}, "/venv/bin")
+	assert.Equal(t, []string{"OTHER=value", "PATH=/venv/bin"}, result)
+}
+
+func TestVenvPipPath(t *testing.T) {
+	for _, state := range []string{"missing", "directory", "file"} {
+		t.Run(state, func(t *testing.T) {
+			root := t.TempDir()
+			expected := filepath.Join(root, "bin", "pip")
+			if runtime.GOOS == "windows" {
+				expected = filepath.Join(root, "Scripts", "pip.exe")
+			}
+			require.NoError(t, os.MkdirAll(filepath.Dir(expected), 0o755))
+			switch state {
+			case "directory":
+				require.NoError(t, os.Mkdir(expected, 0o755))
+			case "file":
+				require.NoError(t, os.WriteFile(expected, []byte("pip"), 0o755))
+			}
+			path, err := venvPipPath(root)
+			if state == "file" {
+				require.NoError(t, err)
+				assert.Equal(t, expected, path)
+			} else {
+				require.Error(t, err)
+				assert.Empty(t, path)
+			}
+		})
+	}
+}
+
 func exeSuffix() string {
 	if runtime.GOOS == "windows" {
 		return ".exe"
