@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
 )
@@ -125,10 +125,7 @@ func setupVenv(baseDir string) (string, error) {
 }
 
 func venvPipPath(venvDir string) (string, error) {
-	path := filepath.Join(venvDir, "bin", "pip")
-	if runtime.GOOS == "windows" {
-		path = filepath.Join(venvDir, "Scripts", "pip.exe")
-	}
+	path := platform.VenvPipPath(venvDir)
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err

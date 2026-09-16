@@ -2,7 +2,10 @@
 
 package platform
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 func userCacheDir() (string, error) { return os.UserCacheDir() }
 
@@ -12,3 +15,7 @@ const userConfigDirRoams = false
 // cmd/setup. macOS has no /etc/profile.d equivalent.
 func systemBinDir() string      { return "/usr/local/lib/pmg/bin" }
 func systemProfilePath() string { return "/etc/profile.d/pmg.sh" }
+
+func VenvPipPath(venvDir string) string {
+	return filepath.Join(venvDir, "bin", "pip")
+}
