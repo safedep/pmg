@@ -141,7 +141,7 @@ func prependPath(env []string, dir string) []string {
 	found := false
 	for _, e := range env {
 		key, value, ok := strings.Cut(e, "=")
-		if ok && strings.EqualFold(key, "PATH") {
+		if ok && platform.IsPathEnvKey(key) {
 			e = fmt.Sprintf("%s=%s%c%s", key, dir, filepath.ListSeparator, value)
 			found = true
 		}

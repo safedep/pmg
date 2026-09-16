@@ -181,9 +181,18 @@ func TestPrependPath(t *testing.T) {
 }
 
 func TestPrependPathMixedCase(t *testing.T) {
-	env := []string{"Path=/existing", "OTHER=value"}
-	result := prependPath(env, "/venv/bin")
-	assert.Equal(t, []string{"Path=/venv/bin" + string(os.PathListSeparator) + "/existing", "OTHER=value"}, result)
+	for _, key := range []string{"Path", "path", "pAtH"} {
+		t.Run(key, func(t *testing.T) {
+			env := []string{key + "=/existing", "OTHER=value"}
+			result := prependPath(env, "/venv/bin")
+			expected := []string{key + "=/existing", "OTHER=value", "PATH=/venv/bin"}
+			if runtime.GOOS == "windows" {
+				expected = []string{key + "=/venv/bin" + string(os.PathListSeparator) + "/existing", "OTHER=value"}
+			}
+			assert.Equal(t, expected, result)
+			assert.Equal(t, []string{key + "=/existing", "OTHER=value"}, env)
+		})
+	}
 }
 
 func TestPrependPathWhenMissing(t *testing.T) {
