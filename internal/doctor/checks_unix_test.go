@@ -49,9 +49,6 @@ func TestRunProtectionCheckUsesVenvPipWhenNoSystemPip(t *testing.T) {
 	assert.Equal(t, "pip install --no-cache-dir safedep-test-pkg==0.0.4", strings.TrimSpace(string(argv)))
 }
 
-// A Windows venv puts pip.exe under Scripts\, not bin/. setupVenv does not
-// handle that layout, and the pip protection check on Windows is outside the
-// Windows support spec.
 func TestSetupVenv(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

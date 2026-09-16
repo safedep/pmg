@@ -66,3 +66,7 @@ func systemBinDir() string    { return underKnownFolder(programFiles(), "safedep
 
 // Windows has no profile.d. The machine PATH carries the shim directory.
 func systemProfilePath() string { return "" }
+
+func VenvPipPath(venvDir string) string {
+	return filepath.Join(venvDir, "Scripts", "pip.exe")
+}
