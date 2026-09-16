@@ -112,6 +112,8 @@ The installer finds `--cloud-sync-only` in any argument position and ignores oth
 
 The MDM must pass script arguments or invoke an installer that already exists at a fixed path. A direct standalone upload in Intune, Mosyle, or Kandji cannot select sync-only mode.
 
+PMG uses a user's stored credentials when they have them, and the environment variables only as a fallback. `--cloud-sync-only` therefore cannot replace the key of a user who already logged in: that user must run `pmg cloud logout` first. A wrong key in the policy is masked for those users, and the run still reports success.
+
 The script exits successfully without work when credentials are not configured or PMG is not installed. PMG must have cloud sync enabled in each target user's config or in the managed config. If cloud sync is disabled for a target user, the script returns a nonzero status. Run the normal installer to configure new users, or use a managed config with `cloud.enabled: true`. Each user sync has a one-minute timeout. The script attempts every user and returns a nonzero status if any sync fails. On Windows, the script syncs logged-on users only and skips the others with a log line.
 
 ## Uninstall
@@ -152,6 +154,7 @@ Include a `config.yml` next to the scripts to centrally manage PMG configuration
 - To enable cloud sync, set `cloud.enabled: true` in the bundled `config.yml`. The installer skips the refused per-user config change. It stores credentials for the active session and syncs each target user.
 - Install copies the bundled `config.yml` to the global path *before* configuring users, so each user's setup skips writing a per-user config. On Windows, `pmg setup install --system` writes the file first with its security descriptor, and the script then replaces the content. PMG reads the file whatever its descriptor, but a later `--system` install refuses a file it did not write. Create the file only through the installer.
 - Re-deploying the package overwrites the global config, keeping it in sync with the package.
+- On Windows, the install fails with `pmg cannot read the managed config` when the bundled file does not parse. Fix the file and re-deploy. The install leaves the unreadable file in place, and until you replace it PMG treats the config as locked and uses its built-in defaults, so packages are still blocked but your policy does not apply.
 - Uninstall removes the global config whenever it is present, regardless of whether the uninstall package ships a `config.yml`. Set `PMG_KEEP_GLOBAL_CONFIG=1` to keep it.
 
 Only the config *file* is global. Per-user runtime state (logs, cloud sync database, sandbox profiles) stays under each user's home.
