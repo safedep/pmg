@@ -14,6 +14,10 @@ import (
 // machine install, so a later run finds and rewrites its own snippet.
 const SystemProfileMarker = "PMG system shims"
 
+func IsPathEnvKey(key string) bool {
+	return key == "PATH"
+}
+
 // ShellPath on Unix is just the process PATH: there is one PATH, and a shell
 // started fresh gets the same one.
 type ShellPath struct {

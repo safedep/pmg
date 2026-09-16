@@ -20,6 +20,10 @@ import (
 
 const pathValueName = "Path"
 
+func IsPathEnvKey(key string) bool {
+	return strings.EqualFold(key, "PATH")
+}
+
 // registryPathScope is one registry PATH value, the user's or the machine's.
 // Both are read, edited and written the same way. Tests point root and key at
 // a scratch key through RedirectUserPathForTest and RedirectMachinePathForTest.
