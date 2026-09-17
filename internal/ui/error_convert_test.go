@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/stretchr/testify/assert"
 )
@@ -34,9 +35,9 @@ func Test_ErrorConverters(t *testing.T) {
 			wantHumanError: "Already useful",
 		},
 		{
-			name:         "PackageManagerNotFound",
-			inputError:   &shim.BinaryNotFoundError{Name: "bun"},
-			wantCode:     errcodes.PackageManagerNotFound,
+			name:           "PackageManagerNotFound",
+			inputError:     &shim.BinaryNotFoundError{Name: "bun"},
+			wantCode:       errcodes.PackageManagerNotFound,
 			wantHumanError: "bun is not installed",
 		},
 		{
@@ -178,6 +179,19 @@ func Test_convertToUsefulError(t *testing.T) {
 			assert.Equal(t, tt.wantHumanError, result.HumanError())
 		})
 	}
+}
+
+func TestConvertToUsefulErrorPreservesUsefulErrorThroughReporting(t *testing.T) {
+	usefulErr := usefulerror.NewUsefulError().
+		WithCode(errcodes.PackageManagerExecutionFailed).
+		WithHumanError("Failed to execute package manager command").
+		Wrap(errors.New("private launch detail"))
+	err := runerror.Wrap(usefulErr, runerror.ReasonProcessLaunchFailed,
+		"PMG could not start the package-manager process.")
+
+	got := convertToUsefulError(err)
+	assert.Equal(t, errcodes.PackageManagerExecutionFailed, got.Code())
+	assert.Equal(t, "Failed to execute package manager command", got.HumanError())
 }
 
 func TestExtractPathFromError(t *testing.T) {

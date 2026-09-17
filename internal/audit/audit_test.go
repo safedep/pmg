@@ -8,6 +8,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -273,7 +274,8 @@ func TestLogSessionCompleteDispatchesEvent(t *testing.T) {
 
 	a.startSession("npm", []string{"install", "express"})
 	LogInstallAllowed(testPackageVersion("express", "4.0.0", "npm"), 1)
-	LogSessionComplete(OutcomeSuccess, FlowTypeProxy)
+	errorInfo := &runerror.Info{Reason: runerror.ReasonProxySetupFailed}
+	LogSessionComplete(OutcomeSuccess, FlowTypeProxy, errorInfo)
 
 	events := s.getEvents()
 	require.Len(t, events, 2)
@@ -283,12 +285,13 @@ func TestLogSessionCompleteDispatchesEvent(t *testing.T) {
 	assert.Equal(t, FlowTypeProxy, events[1].SessionData.FlowType)
 	assert.Equal(t, OutcomeSuccess, events[1].SessionData.Outcome)
 	assert.Equal(t, uint32(1), events[1].SessionData.AllowedCount)
+	assert.Equal(t, errorInfo, events[1].SessionData.ErrorInfo)
 }
 
 func TestLogSessionCompleteSilentWhenNotInitialized(t *testing.T) {
 	resetGlobal()
 	// Should not panic
-	LogSessionComplete(OutcomeSuccess, FlowTypeProxy)
+	LogSessionComplete(OutcomeSuccess, FlowTypeProxy, nil)
 }
 
 func TestLogSessionSummaryDispatchesEvent(t *testing.T) {

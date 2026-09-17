@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/proc"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/ptyx"
 	"golang.org/x/term"
 )
@@ -115,14 +116,27 @@ func prepareConsole(
 // NewSession creates a new interactive PTY session.
 // The terminal is put into raw mode automatically.
 func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, error) {
+	return newSession(ctx, cfg, saveConsoleOutputMode, ptyx.NewConsole, ptyx.Spawn)
+}
+
+func newSession(
+	ctx context.Context,
+	cfg SessionConfig,
+	captureOutputMode func() func() error,
+	createConsole func() (ptyx.Console, error),
+	spawn func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error),
+) (InteractiveSession, error) {
 	if err := cfg.validate(); err != nil {
-		return nil, err
+		return nil, runerror.Wrap(err, runerror.ReasonExecutionSetupFailed,
+			"PMG could not prepare the interactive process session.")
 	}
 
 	// 1. Create console
-	c, restoreOutput, err := prepareConsole(saveConsoleOutputMode, ptyx.NewConsole)
+	c, restoreOutput, err := prepareConsole(captureOutputMode, createConsole)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create console: %w", err)
+		return nil, runerror.Wrap(fmt.Errorf("failed to create console: %w", err),
+			runerror.ReasonExecutionSetupFailed,
+			"PMG could not prepare the interactive process session.")
 	}
 
 	// 2. Set raw mode, save old state
@@ -134,14 +148,16 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 		if closeErr := c.Close(); closeErr != nil {
 			log.Warnf("failed to close console after MakeRaw error: %v", closeErr)
 		}
-		return nil, fmt.Errorf("failed to set raw mode: %w", err)
+		return nil, runerror.Wrap(fmt.Errorf("failed to set raw mode: %w", err),
+			runerror.ReasonExecutionSetupFailed,
+			"PMG could not prepare the interactive process session.")
 	}
 
 	// 3. Get terminal size
 	cols, rows := c.Size()
 
 	// 4. Spawn the process
-	s, err := ptyx.Spawn(ctx, cfg.spawnOpts(cols, rows))
+	s, err := spawn(ctx, cfg.spawnOpts(cols, rows))
 	if err != nil {
 		// We are already in error state, restore and close is best effort.
 		if restoreErr := c.Restore(oldState); restoreErr != nil {
@@ -154,7 +170,9 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 			log.Warnf("failed to close console after spawn error: %v", closeErr)
 		}
 
-		return nil, fmt.Errorf("failed to spawn: %w", err)
+		return nil, runerror.Wrap(fmt.Errorf("failed to spawn: %w", err),
+			runerror.ReasonProcessLaunchFailed,
+			"PMG could not start the package-manager process.")
 	}
 
 	sess := &session{

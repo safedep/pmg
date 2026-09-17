@@ -31,7 +31,7 @@ func (s *eventlogSink) Handle(_ context.Context, event AuditEvent) error {
 }
 
 func sessionDataToDetails(sd *SessionData) map[string]interface{} {
-	return map[string]interface{}{
+	details := map[string]interface{}{
 		"outcome":                sd.Outcome,
 		"flow_type":              sd.FlowType,
 		"package_manager":        sd.PackageManager,
@@ -43,6 +43,18 @@ func sessionDataToDetails(sd *SessionData) map[string]interface{} {
 		"insecure_bypassed":      sd.InsecureBypassed,
 		"cooldown_blocked_count": sd.CooldownBlockedCount,
 	}
+	if sd.ErrorInfo != nil {
+		errorInfo := map[string]interface{}{
+			"source":  sd.ErrorInfo.Source.String(),
+			"reason":  sd.ErrorInfo.Reason.String(),
+			"message": sd.ErrorInfo.Message,
+		}
+		if sd.ErrorInfo.ExitCode != nil {
+			errorInfo["exit_code"] = *sd.ErrorInfo.ExitCode
+		}
+		details["error_info"] = errorInfo
+	}
+	return details
 }
 
 func (s *eventlogSink) Close() error {

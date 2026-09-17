@@ -1,0 +1,109 @@
+package runerror
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestWrapNil(t *testing.T) {
+	assert.NoError(t, Wrap(nil, ReasonProxySetupFailed, "PMG could not start the proxy."))
+	assert.Nil(t, From(nil))
+}
+
+func TestWrapPreservesCauseAndInfo(t *testing.T) {
+	cause := errors.New("private transport detail")
+	inner := Wrap(cause, ReasonProxySetupFailed, "PMG could not start the proxy.")
+	outer := Wrap(fmt.Errorf("run failed: %w", inner),
+		ReasonExecutionSetupFailed, "PMG could not prepare execution.")
+
+	require.ErrorIs(t, outer, cause)
+	info := From(outer)
+	require.NotNil(t, info)
+	assert.Equal(t, ReasonProxySetupFailed, info.Reason)
+	assert.Equal(t, SourcePMG, info.Source)
+	assert.Equal(t, "PMG could not start the proxy.", info.Message)
+	assert.NotContains(t, info.Message, "private transport detail")
+}
+
+func TestFromOrdinaryErrorReturnsUnspecifiedInfo(t *testing.T) {
+	info := From(errors.New("private detail"))
+
+	require.NotNil(t, info)
+	assert.Equal(t, SourceUnspecified, info.Source)
+	assert.Equal(t, ReasonUnspecified, info.Reason)
+	assert.Equal(t, "PMG could not complete this command. Error details are unavailable.", info.Message)
+	assert.Nil(t, info.ExitCode)
+}
+
+func TestFromCopiesReporterInfo(t *testing.T) {
+	exitCode := uint32(42)
+	err := stubReporter{info: Info{
+		Source:   SourcePMG,
+		Reason:   ReasonProcessExited,
+		Message:  "npm exited with code 42.",
+		ExitCode: &exitCode,
+	}}
+
+	first := From(err)
+	require.NotNil(t, first)
+	assert.Equal(t, SourceChildProcess, first.Source)
+	require.NotNil(t, first.ExitCode)
+	*first.ExitCode = 7
+
+	second := From(err)
+	require.NotNil(t, second)
+	require.NotNil(t, second.ExitCode)
+	assert.Equal(t, uint32(42), *second.ExitCode)
+}
+
+func TestWrapBoundsMessage(t *testing.T) {
+	err := Wrap(errors.New("cause"), ReasonProxySetupFailed,
+		strings.Repeat("a", 1023)+"\xfftail")
+
+	info := From(err)
+	require.NotNil(t, info)
+	assert.True(t, utf8.ValidString(info.Message))
+	assert.LessOrEqual(t, len(info.Message), 1024)
+}
+
+func TestSourceForReason(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason Reason
+		want   Source
+	}{
+		{"unspecified", ReasonUnspecified, SourceUnspecified},
+		{"process exited", ReasonProcessExited, SourceChildProcess},
+		{"process signaled", ReasonProcessSignaled, SourceChildProcess},
+		{"parse", ReasonCommandParseFailed, SourcePMG},
+		{"configuration", ReasonConfigurationInvalid, SourcePMG},
+		{"ecosystem", ReasonEcosystemUnsupported, SourcePMG},
+		{"certificate", ReasonCertificateSetupFailed, SourcePMG},
+		{"analyzer", ReasonAnalyzerInitializationFailed, SourcePMG},
+		{"proxy", ReasonProxySetupFailed, SourcePMG},
+		{"executable missing", ReasonExecutableNotFound, SourcePMG},
+		{"executable resolution", ReasonExecutableResolutionFailed, SourcePMG},
+		{"launch", ReasonProcessLaunchFailed, SourcePMG},
+		{"execution setup", ReasonExecutionSetupFailed, SourcePMG},
+		{"future value", Reason(100), SourceUnspecified},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sourceForReason(tt.reason))
+		})
+	}
+}
+
+type stubReporter struct {
+	info Info
+}
+
+func (e stubReporter) Error() string   { return "reported error" }
+func (e stubReporter) ErrorInfo() Info { return e.info }

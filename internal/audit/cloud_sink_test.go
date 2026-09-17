@@ -3,6 +3,10 @@ package audit
 import (
 	"context"
 	"database/sql"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +14,7 @@ import (
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/safedep/dry/cloud/endpointsync"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -349,6 +354,95 @@ func TestCloudSinkSetsInvocationContextOnSessionComplete(t *testing.T) {
 	assert.NotEmpty(t, invCtx.GetWorkingDirectory())
 	assert.NotEmpty(t, invCtx.GetUsername())
 	assert.NotEmpty(t, invCtx.GetUsernameUid())
+}
+
+func TestCloudSinkReplaysSessionErrorInfo(t *testing.T) {
+	sink, walPath := newTestCloudSink(t)
+	exitCode := uint32(42)
+
+	require.NoError(t, sink.Handle(context.Background(), AuditEvent{
+		Type: EventTypeInstallStarted, PackageManager: "npm", Args: []string{"install", "broken-package"},
+	}))
+	require.NoError(t, sink.Handle(context.Background(), AuditEvent{
+		Type: EventTypeSessionComplete,
+		SessionData: &SessionData{
+			PackageManager: "npm",
+			FlowType:       FlowTypeProxy,
+			Outcome:        OutcomeError,
+			ErrorInfo: &runerror.Info{
+				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessExited,
+				Message: "npm exited with code 42.", ExitCode: &exitCode,
+			},
+		},
+	}))
+	require.NoError(t, sink.Close())
+
+	transport := &mockTransport{}
+	assert.Equal(t, 1, drainWAL(t, walPath, transport))
+	require.Len(t, transport.requests, 1)
+	require.Len(t, transport.requests[0].GetEvents(), 1)
+
+	event := transport.requests[0].GetEvents()[0]
+	assert.Equal(t, "test-invocation", event.GetInvocationId())
+	assert.Contains(t, event.GetInvocationContext().GetCommand(), "npm install broken-package")
+	info := event.GetPmgEvent().GetSessionSummary().GetErrorInfo()
+	require.NotNil(t, info)
+	assert.Equal(t, controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS, info.GetSource())
+	assert.Equal(t, controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED, info.GetReason())
+	require.True(t, info.HasExitCode())
+	assert.Equal(t, uint32(42), info.GetExitCode())
+}
+
+func TestFailedChildQueuesSessionErrorBeforeExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the controlled child uses a POSIX shell script")
+	}
+
+	workDir := t.TempDir()
+	pmgBin := filepath.Join(workDir, "pmg")
+	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancelBuild()
+	build := exec.CommandContext(buildCtx, "go", "build", "-o", pmgBin, "./main.go")
+	build.Dir = filepath.Join("..", "..")
+	require.NoError(t, build.Run())
+
+	binDir := filepath.Join(workDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "npm"), []byte("#!/bin/sh\nexit 42\n"), 0o755))
+
+	configDir := filepath.Join(workDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+	configYAML := []byte("proxy:\n  install_only: true\ncloud:\n  enabled: true\n  auto_sync:\n    enabled: false\n")
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yml"), configYAML, 0o600))
+
+	runCtx, cancelRun := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelRun()
+	cmd := exec.CommandContext(runCtx, pmgBin, "npm", "list")
+	cmd.Env = append(os.Environ(),
+		"HOME="+filepath.Join(workDir, "home"),
+		"PMG_CONFIG_DIR="+configDir,
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"SAFEDEP_API_KEY=",
+		"SAFEDEP_TENANT_ID=",
+	)
+	output, err := cmd.CombinedOutput()
+	var exitErr *exec.ExitError
+	require.ErrorAsf(t, err, &exitErr, "pmg output: %s", output)
+	assert.Equalf(t, 42, exitErr.ExitCode(), "pmg output: %s", output)
+
+	transport := &mockTransport{}
+	assert.Equal(t, 1, drainWAL(t, filepath.Join(configDir, "cloud-sync.db"), transport))
+	require.Len(t, transport.requests, 1)
+	require.Len(t, transport.requests[0].GetEvents(), 1)
+
+	event := transport.requests[0].GetEvents()[0]
+	assert.Contains(t, event.GetInvocationContext().GetCommand(), "npm list")
+	info := event.GetPmgEvent().GetSessionSummary().GetErrorInfo()
+	require.NotNil(t, info)
+	assert.Equal(t, controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS, info.GetSource())
+	assert.Equal(t, controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED, info.GetReason())
+	require.True(t, info.HasExitCode())
+	assert.Equal(t, uint32(42), info.GetExitCode())
 }
 
 func TestCloudSinkSetsKubernetesContextOnSessionSummary(t *testing.T) {

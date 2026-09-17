@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/localstore"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/runner"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
@@ -24,6 +25,11 @@ type proxyFlow struct {
 	pm packagemanager.PackageManager
 }
 
+type proxyRunResult struct {
+	outcome ui.ExecutionOutcome
+	flow    audit.FlowType
+}
+
 // ProxyFlow creates a new proxy-based flow for package manager protection
 func ProxyFlow(pm packagemanager.PackageManager) *proxyFlow {
 	return &proxyFlow{
@@ -34,23 +40,57 @@ func ProxyFlow(pm packagemanager.PackageManager) *proxyFlow {
 // RunProxy parses args with pm and runs the proxy flow on the parsed command.
 // It is the shared entry point for package manager commands.
 func RunProxy(ctx context.Context, pm packagemanager.PackageManager, args []string) error {
-	parsedCommand, err := pm.ParseCommand(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-
-	return ProxyFlow(pm).Run(ctx, args, parsedCommand)
+	return runProxyWithAudit(ctx, pm, args, audit.LogInstallStarted, audit.LogSessionComplete)
 }
 
-// Run executes the proxy-based flow
-func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
+func runProxyWithAudit(
+	ctx context.Context,
+	pm packagemanager.PackageManager,
+	args []string,
+	start func(string, []string),
+	complete func(audit.Outcome, audit.FlowType, *runerror.Info),
+) error {
+	start(pm.Name(), args)
+	return runProxySession(func() (proxyRunResult, error) {
+		parsedCommand, err := pm.ParseCommand(args)
+		if err != nil {
+			return proxyRunResult{}, runerror.Wrap(fmt.Errorf("failed to parse command: %w", err),
+				runerror.ReasonCommandParseFailed,
+				"PMG could not parse the package-manager command.")
+		}
+
+		return ProxyFlow(pm).runParsed(ctx, parsedCommand)
+	}, complete)
+}
+
+func runProxySession(
+	run func() (proxyRunResult, error),
+	complete func(audit.Outcome, audit.FlowType, *runerror.Info),
+) (runErr error) {
+	result := proxyRunResult{}
+	defer func() {
+		outcome := result.outcome
+		if runErr != nil && outcome == ui.OutcomeSuccess {
+			outcome = ui.OutcomeError
+		}
+		complete(audit.Outcome(outcome.String()), result.flow, runerror.From(runErr))
+	}()
+
+	result, runErr = run()
+	return runErr
+}
+
+func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.ParsedCommand) (proxyRunResult, error) {
+	result := proxyRunResult{flow: audit.FlowTypeProxy}
+
 	// A proxy.registries entry PMG could not load must abort any flow that
 	// runs intercepted traffic, never fall back to defaults. Checked here
 	// rather than at CLI startup, like the opt-out rejection below, so
 	// non-install commands (pmg config, doctor, ...) stay usable to fix
 	// the file.
 	if err := config.LoadError(); err != nil {
-		return err
+		return result, runerror.Wrap(err, runerror.ReasonConfigurationInvalid,
+			"PMG rejected the proxy configuration.")
 	}
 
 	// Guard mode is removed: a config or environment that still disables proxy
@@ -58,13 +98,17 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// mode. Checked here rather than at CLI startup so non-install commands
 	// (pmg config, setup remove, doctor, ...) stay usable to fix the config.
 	if err := config.RejectRemovedProxyOptOut(); err != nil {
-		return err
+		return result, runerror.Wrap(err, runerror.ReasonConfigurationInvalid,
+			"PMG rejected the proxy configuration.")
 	}
 
 	// Check if we have a supported ecosystem else fail fast
 	ecosystem := f.pm.Ecosystem()
 	if !interceptors.IsSupported(ecosystem) {
-		return fmt.Errorf("proxy mode is not supported for %s", ecosystem.String())
+		return result, runerror.Wrap(
+			fmt.Errorf("proxy mode is not supported for %s", ecosystem.String()),
+			runerror.ReasonEcosystemUnsupported,
+			"PMG does not support proxy interception for this ecosystem.")
 	}
 
 	// Configure sandbox based on command type and enforcement policy
@@ -77,13 +121,15 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	if cfg.Config.Proxy.InstallOnly {
 		if !parsedCmd.MayDownloadPackages() {
 			log.Debugf("Skipping proxy for non-download command (install_only=true)")
-			return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+			err := runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+			return directRunResult(cfg.DryRun, err), err
 		}
 
 		if cmds, ok := cfg.Config.Proxy.SkipCommands[f.pm.Name()]; ok && len(cmds) > 0 {
 			if packagemanager.IsFirstNonFlagArgInList(parsedCmd.Command.Args, cmds) {
 				log.Debugf("Skipping proxy for user-defined skip command (install_only=true)")
-				return runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+				err := runner.Execute(ctx, parsedCmd, f.pm.Name(), cfg.DryRun)
+				return directRunResult(cfg.DryRun, err), err
 			}
 		}
 	}
@@ -109,23 +155,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	startTime := time.Now()
 
-	audit.LogInstallStarted(f.pm.Name(), args)
-
-	sessionCompleted := false
-	defer func() {
-		if sessionCompleted {
-			return
-		}
-
-		// On early error returns (e.g. CA cert, analyzer init), reportData.Outcome
-		// is still the default (Success). Override to Error for these cases.
-		if runErr != nil && reportData.Outcome == ui.OutcomeSuccess {
-			reportData.Outcome = ui.OutcomeError
-		}
-
-		audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
-	}()
-
 	// Check if dry-run mode is enabled
 	if cfg.DryRun {
 		log.Infof("Dry-run mode: Would execute %s with proxy protection", f.pm.Name())
@@ -134,13 +163,16 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		reportData.Outcome = ui.OutcomeDryRun
 		ui.Report(reportData)
 
-		return nil
+		result.outcome = ui.OutcomeDryRun
+		return result, nil
 	}
 
 	// Setup CA certificate for MITM
 	caCert, caCertPath, err := f.setupCACertificate()
 	if err != nil {
-		return fmt.Errorf("failed to setup CA certificate for proxy mode: %w", err)
+		return result, runerror.Wrap(fmt.Errorf("failed to setup CA certificate for proxy mode: %w", err),
+			runerror.ReasonCertificateSetupFailed,
+			"PMG could not prepare the proxy certificate.")
 	}
 
 	defer func() {
@@ -155,7 +187,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// Create certificate manager
 	certMgr, err := f.createCertificateManager(caCert)
 	if err != nil {
-		return fmt.Errorf("failed to create certificate manager: %w", err)
+		return result, runerror.Wrap(fmt.Errorf("failed to create certificate manager: %w", err),
+			runerror.ReasonCertificateSetupFailed,
+			"PMG could not prepare the proxy certificate.")
 	}
 
 	localDB := localstore.NewManager(cfg)
@@ -169,7 +203,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	// running uncached and never block the install.
 	malysisAnalyzer, err := BuildMalysisAnalyzer(ctx, cfg, localDB)
 	if err != nil {
-		return fmt.Errorf("failed to create analyzer: %w", err)
+		return result, runerror.Wrap(fmt.Errorf("failed to create analyzer: %w", err),
+			runerror.ReasonAnalyzerInitializationFailed,
+			"PMG could not initialize package analysis.")
 	}
 
 	// Create analysis cache and stats collector
@@ -199,7 +235,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	if provider, ok := f.pm.(packagemanager.ProxyRoutingProvider); ok {
 		routing, err = provider.ProxyRouting(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to resolve proxy routing for %s: %w", f.pm.Name(), err)
+			return result, runerror.Wrap(fmt.Errorf("failed to resolve proxy routing for %s: %w", f.pm.Name(), err),
+				runerror.ReasonProxySetupFailed,
+				"PMG could not resolve proxy routing.")
 		}
 	}
 
@@ -216,12 +254,16 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err)
+		return result, runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
+			runerror.ReasonProxySetupFailed,
+			"PMG could not create the proxy interceptors.")
 	}
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
 	if err != nil {
-		return fmt.Errorf("failed to start proxy server: %w", err)
+		return result, runerror.Wrap(fmt.Errorf("failed to start proxy server: %w", err),
+			runerror.ReasonProxySetupFailed,
+			"PMG could not start the proxy listener.")
 	}
 
 	// Ensure proxy is stopped on exit
@@ -317,18 +359,27 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
-
-	// Emit session complete before report/exit — handleExecutionResultError may call
-	// os.Exit which skips defers, so we must emit the session summary here.
-	audit.LogSessionComplete(audit.Outcome(reportData.Outcome.String()), audit.FlowTypeProxy)
-	sessionCompleted = true
+	result.outcome = reportData.Outcome
 
 	// Show the report
 	ui.Report(reportData)
 
 	// Run should always end with handleExecutionResultError to ensure the process exits with the correct exit code
 	// from the execution result.
-	return handleExecutionResultError(executionError)
+	return result, handleExecutionResultError(executionError)
+}
+
+func directRunResult(dryRun bool, err error) proxyRunResult {
+	result := proxyRunResult{}
+	switch {
+	case err != nil:
+		result.outcome = ui.OutcomeError
+	case dryRun:
+		result.outcome = ui.OutcomeDryRun
+	default:
+		result.outcome = ui.OutcomeSuccess
+	}
+	return result
 }
 
 func buildProxyFlowInterceptors(

@@ -8,6 +8,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/runerror"
 )
 
 var global *auditor
@@ -280,7 +281,7 @@ func LogError(message string, err error) {
 }
 
 // LogSessionComplete records the end of a PMG invocation with aggregate session stats.
-func LogSessionComplete(outcome Outcome, flowType FlowType) {
+func LogSessionComplete(outcome Outcome, flowType FlowType, errorInfo *runerror.Info) {
 	if global == nil {
 		return
 	}
@@ -309,6 +310,7 @@ func LogSessionComplete(outcome Outcome, flowType FlowType) {
 		Duration:             time.Since(s.startTime),
 		SandboxEnabled:       cfg.Config.Sandbox.Enabled,
 		ParanoidMode:         cfg.Config.Paranoid,
+		ErrorInfo:            errorInfo,
 	})
 }
 
