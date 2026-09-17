@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: SafeDep.pmg
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: SafeDep
+PublisherUrl: https://safedep.io
+PublisherSupportUrl: https://github.com/safedep/pmg/issues
+Author: SafeDep
+PackageName: pmg
+PackageUrl: https://github.com/safedep/pmg
+License: Apache-2.0
+LicenseUrl: https://github.com/safedep/pmg/blob/main/LICENSE
+ShortDescription: Package Manager Guard protects developers from malicious packages
+Description: |-
+  PMG (Package Manager Guard) checks packages for malware before npm, pnpm, yarn, bun, pip and uv install them.
+  This package installs pmg for every user of the machine. The installer puts pmg.exe under Program Files and runs `pmg setup install --system`. That command puts shims for the package managers first on the machine PATH and writes a managed config under ProgramData. Uninstall removes all of it.
+Moniker: pmg
+Tags:
+- malware
+- npm
+- pypi
+- security
+- supply-chain
+ReleaseNotesUrl: https://github.com/safedep/pmg/releases/tag/v{{VERSION}}
+Documentations:
+- DocumentLabel: System install
+  DocumentUrl: https://github.com/safedep/pmg/blob/main/docs/system-install.md
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -22,6 +22,13 @@ msiexec /i pmg_Windows_x86_64.msi /qn
 
 Uninstall from Apps & Features, or with `msiexec /x pmg_Windows_x86_64.msi /qn`.
 
+winget and Chocolatey install the same MSI. Chocolatey ships the edge release as a prerelease package, winget ships stable releases only.
+
+```powershell
+winget install SafeDep.pmg
+choco install pmg          # choco install pmg --pre for the edge release
+```
+
 What the MSI does:
 
 - Uninstall runs `pmg setup remove --system --config-file`, then deletes the binary. The managed config goes too, as with the MDM uninstall script.

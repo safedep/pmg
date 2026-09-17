@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: SafeDep.pmg
+PackageVersion: {{VERSION}}
+InstallerType: msi
+Scope: machine
+InstallModes:
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+ElevationRequirement: elevationRequired
+ReleaseDate: {{RELEASE_DATE}}
+# The MSI upgrade code. It lets winget find an install of any version, and
+# an edge install listed as pmg (edge).
+AppsAndFeaturesEntries:
+- Publisher: SafeDep
+  UpgradeCode: '{6E06A0EC-1F93-49E2-BFDB-5632281BA4F5}'
+  InstallerType: msi
+Installers:
+- Architecture: x64
+  InstallerUrl: {{MSI_URL}}
+  InstallerSha256: {{MSI_SHA256}}
+  ProductCode: '{{PRODUCT_CODE}}'
+ManifestType: installer
+ManifestVersion: 1.6.0

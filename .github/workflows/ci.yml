@@ -123,6 +123,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       version: ${{ steps.upgrade.outputs.version }}
+      base_version: ${{ steps.upgrade.outputs.base_version }}
     steps:
       - name: Checkout Source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -160,6 +161,7 @@ jobs:
             scripts/msi/build.sh windows amd64 "dist/msi-$suffix/pmg.exe" "$version" "dist/msi-$suffix/pmg_Windows_x86_64.msi"
           done
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "base_version=${version%%-*}" >> "$GITHUB_OUTPUT"
 
       - name: Upload the installers
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -207,6 +209,72 @@ jobs:
         with:
           name: msi-logs
           path: ${{ runner.temp }}\msi-logs
+          if-no-files-found: ignore
+
+  # The Chocolatey package and the winget manifests wrap the MSI. The stable
+  # package wraps the first installer and the prerelease package the upgrade
+  # installer, so the prerelease upgrade is visible in `pmg version`.
+  wrappers-e2e-windows:
+    needs: goreleaser-test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      MSI_DIR: ${{ runner.temp }}\msi
+      BASE_VERSION: ${{ needs.goreleaser-test.outputs.base_version }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ github.run_id }} --name msi --dir "$env:MSI_DIR"
+
+      - name: Build the Chocolatey packages
+        run: |
+          scripts/choco/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:MSI_DIR\pmg_Windows_x86_64.msi" -MsiUrl "$env:MSI_DIR\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
+          scripts/choco/build.ps1 -Version "$env:BASE_VERSION-edge.1" -MsiPath "$env:MSI_DIR\msi-upgrade\pmg_Windows_x86_64.msi" -MsiUrl "$env:MSI_DIR\msi-upgrade\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
+
+      - name: Install, upgrade and uninstall through Chocolatey
+        env:
+          PMG_NUPKG_DIR: ${{ runner.temp }}\choco
+          PMG_CHOCO_VERSION: ${{ needs.goreleaser-test.outputs.base_version }}
+          PMG_MSI_VERSION: ${{ needs.goreleaser-test.outputs.version }}
+          PMG_CHOCO_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.base_version }}-edge001
+          PMG_MSI_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade
+        run: pwsh -NoProfile -File scripts/choco/tests/choco_e2e_test.ps1
+
+      - name: Install winget
+        run: scripts/winget/install_winget.ps1
+
+      # winget downloads the installer from the URL in the manifest, so a
+      # local web server serves the installer for this run.
+      - name: Validate the winget manifests, then install and uninstall from them
+        env:
+          PMG_WINGET_MANIFEST_DIR: ${{ runner.temp }}\winget
+          PMG_MSI_VERSION: ${{ needs.goreleaser-test.outputs.version }}
+        run: |
+          $server = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '8765', '--bind', '127.0.0.1') -WorkingDirectory $env:MSI_DIR -PassThru
+          try {
+            scripts/winget/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:MSI_DIR\pmg_Windows_x86_64.msi" -MsiUrl 'http://127.0.0.1:8765/pmg_Windows_x86_64.msi' -OutDir $env:PMG_WINGET_MANIFEST_DIR
+            pwsh -NoProfile -File scripts/winget/tests/winget_e2e_test.ps1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Stop-Process -Id $server.Id -Force
+          }
+
+      - name: Upload the Chocolatey log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chocolatey-log
+          path: C:\ProgramData\chocolatey\logs\chocolatey.log
           if-no-files-found: ignore
 
   build-container-test:
