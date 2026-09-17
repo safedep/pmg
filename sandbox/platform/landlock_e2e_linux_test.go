@@ -156,6 +156,34 @@ func TestLandlockHelper_EchoRuns(t *testing.T) {
 	assert.Contains(t, stdout, "sandbox-ok")
 }
 
+// The target must run as the caller with no capabilities in the namespace.
+func TestLandlockHelper_TargetKeepsCallerIdentity(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/sh",
+		Args:             []string{"-c", "id -u; id -g; grep -E '^Cap(Prm|Eff)' /proc/self/status"},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelper(t, policyPath)
+	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	require.Len(t, lines, 4, "stdout=%q", stdout)
+	assert.Equal(t, strconv.Itoa(os.Getuid()), lines[0])
+	assert.Equal(t, strconv.Itoa(os.Getgid()), lines[1])
+	assert.Equal(t, "CapPrm:\t0000000000000000", lines[2])
+	assert.Equal(t, "CapEff:\t0000000000000000", lines[3])
+}
+
 // TestLandlockHelper_DirectChildDenyBlocksRead is the security-critical
 // assertion: when the policy says "allow /" but "deny ~/.ssh", a direct
 // target that tries to read ~/.ssh must see EACCES. This works because the
@@ -713,8 +741,9 @@ except OSError:
 	assert.NotContains(t, stdout+stderr, secret, "the denied file must not leak")
 }
 
-// Landlock does not hook chroot and root in the user namespace keeps
-// CAP_SYS_CHROOT. Only the supervisor stops "chroot(project); open(/.env)".
+// Landlock does not hook chroot. The target has no capabilities, but a nested
+// user namespace gives CAP_SYS_CHROOT back. Only the supervisor stops
+// "chroot(project); open(/.env)".
 func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
