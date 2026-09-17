@@ -289,9 +289,13 @@ try {
 
   Write-Step "uninstalling $installed"
   if ($Proxies) {
+    # The proxies hold the backups of the builds they started from, not the
+    # current binary. The uninstall removes everything except those locked
+    # backups and the directory that holds them.
     Invoke-Msiexec -ArgumentList @('/x', $installed) -Log "$TestRoot\uninstall.log" -ExpectedExitCode @(0, $RebootRequired)
     Assert-MsiUnregistered
-    Assert-PathPresent $PmgExe
+    Assert-PathAbsent $PmgExe
+    Assert-Equal $Proxies.Count @(Get-Backup).Count 'locked pmg.exe backups after the uninstall'
     Stop-Proxies
     Remove-Item -LiteralPath "$env:ProgramFiles\safedep" -Recurse -Force
   } else {
