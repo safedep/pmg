@@ -50,7 +50,9 @@ function Invoke-Msiexec {
   param([string[]]$ArgumentList, [string]$Log, [int]$ExpectedExitCode = 0)
   $process = Start-Process -FilePath msiexec.exe -ArgumentList ($ArgumentList + @('/qn', '/l*v', $Log)) -Wait -PassThru
   if ($process.ExitCode -ne $ExpectedExitCode) {
-    Get-Content -LiteralPath $Log | Select-Object -Last 80 | ForEach-Object { Write-Host "  | $_" }
+    Get-Content -LiteralPath $Log | Where-Object { $_ -match 'Doing action: (MoveAside|SetupInstall|CleanStale|CleanOld|SetupRemove)|return value 3|in use|Reboot' } |
+      ForEach-Object { Write-Host "  | $_" }
+    Get-Content -LiteralPath $Log | Select-Object -Last 40 | ForEach-Object { Write-Host "  | $_" }
     Stop-OnFailure "msiexec $($ArgumentList -join ' ') exited with $($process.ExitCode), expected $ExpectedExitCode"
   }
 }
