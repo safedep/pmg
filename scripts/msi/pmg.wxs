@@ -43,7 +43,9 @@
 
     <!-- The machine PATH tells whether a system install made without this
          MSI, by the MDM script or by hand, protects the machine already. Its
-         shim directory is on the PATH. -->
+         shim directory is on the PATH. The condition below matches a whole
+         entry, with a leading backslash and a following separator or the end
+         of the value, not a substring of some other directory. -->
     <Property Id="MachinePath">
       <RegistrySearch Id="MachinePath" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="Path" Type="raw" Win64="yes" />
     </Property>
@@ -147,7 +149,7 @@
       <Custom Action="CleanOld" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
       <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
-      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~&gt;&lt; "safedep\pmg\bin")</Custom>
+      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~&gt;&lt; "\safedep\pmg\bin;" OR MachinePath ~&gt;&gt; "\safedep\pmg\bin" OR MachinePath ~&gt;&lt; "\safedep\pmg\bin\;" OR MachinePath ~&gt;&gt; "\safedep\pmg\bin\")</Custom>
       <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
       <Custom Action="CleanStale" Sequence="4003">$$PmgExe=3</Custom>
     </InstallExecuteSequence>
