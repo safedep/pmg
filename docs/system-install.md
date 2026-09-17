@@ -14,6 +14,26 @@ pmg setup install --system
 
 **Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg\pmg.exe` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
 
+On Windows, the release also ships `pmg_Windows_x86_64.msi`. It installs `pmg.exe` at that path and runs `pmg setup install --system` as SYSTEM. Run it from an elevated prompt, or push it through an MDM:
+
+```powershell
+msiexec /i pmg_Windows_x86_64.msi /qn
+```
+
+Uninstall from Apps & Features, or with `msiexec /x pmg_Windows_x86_64.msi /qn`.
+
+What the MSI does:
+
+- Uninstall runs `pmg setup remove --system --config-file`, then deletes the binary. The managed config goes too, as with the MDM uninstall script.
+- Uninstall deletes the shim directory even when pmg cannot run, so no shim outlives the binary.
+- A cancelled or failed uninstall restores the shims, the PATH entry and the managed config.
+- The PATH entry for the directory of `pmg.exe` stays after uninstall, as after `pmg setup remove --system`.
+- An upgrade under a running `pmg.exe` renames the running file to `pmg.exe.old.<product code>` and installs the new file at once. The process keeps the old build until it restarts.
+- `msiexec` can return 3010 (restart required) for such an upgrade. The new file is in place and no restart is needed. An MDM can map 3010 to success for this package.
+- The next upgrade or the uninstall deletes old backups. A backup a process still holds stays until an administrator deletes it.
+- Under a running `pmg.exe`, uninstall removes everything except the locked file, which Windows deletes at the next restart.
+- An edge release ships an MSI too, listed as `pmg (edge)`. It replaces a stable install of the same version, and the next stable build replaces it.
+
 `--system` checks the binary because every user's shim runs it by absolute path. On Linux, root must own the binary and its directory, only root may write to them, and every user must be able to execute the binary. On Windows, the binary must be at the path above, with no link or junction in that path. The install then sets one security descriptor on each object it owns: Administrators as owner, full control for SYSTEM and Administrators, read and execute for Users, no inheritance. `pmg setup doctor` reports an object whose descriptor differs. A second `pmg setup install --system` restores it.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.
