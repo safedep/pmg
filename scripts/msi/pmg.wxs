@@ -75,7 +75,9 @@
 
     <!-- wixl has no Directory attribute on CustomAction, so cmd.exe runs
          through a property. System64Folder is the native System32 in this
-         x64 package. -->
+         x64 package. In cmd.exe the whole rest of the line, & chain
+         included, is the body of an if, so each command keeps its work
+         inside the if. -->
     <CustomAction Id="SetCmdExe" Property="CmdExe" Value="[System64Folder]cmd.exe" />
     <!-- One backup name per product, so the rollback restores the file this
          transaction moved and no other. A backup a running process still
@@ -92,15 +94,15 @@
          from an earlier run of this same product goes first. When a process
          still holds it, the move fails and so does the install. -->
     <CustomAction Id="MoveAsideEarly" Property="CmdExe"
-                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;"
+                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; (del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;)"
                   Return="ignore" />
     <CustomAction Id="MoveAside" Property="CmdExe"
-                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;"
+                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; (del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;)"
                   Execute="deferred" Impersonate="no" Return="check" />
     <!-- Rollback of the moves: put the moved file back once InstallFiles has
          rolled its copy back. -->
     <CustomAction Id="MoveAsideRollback" Property="CmdExe"
-                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; if exist &quot;[BackupPath]&quot; move /y &quot;[BackupPath]&quot; &quot;[ProductDir]pmg.exe&quot;"
+                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; if exist &quot;[BackupPath]&quot; move /y &quot;[BackupPath]&quot; &quot;[ProductDir]pmg.exe&quot;"
                   Execute="rollback" Impersonate="no" Return="ignore" />
     <!-- Backups go once the install has succeeded. A backup still running is
          locked and stays until the next upgrade or the uninstall. -->
