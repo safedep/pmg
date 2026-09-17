@@ -56,11 +56,11 @@ Assert-PathAbsent $GlobalConfigDir
 
 # ERROR_INSTALL_FAILURE. Windows Installer returns it after a rollback.
 $InstallFailure = 1603
-# ERROR_SUCCESS_REBOOT_REQUIRED. Windows Installer returns it when it found
-# pmg.exe in use at InstallValidate. MoveAside renames the file later, so
-# the new file is in place and nothing waits for a restart. Every upgrade in
-# this test runs under a live proxy, so this is the one code it expects,
-# and the test checks the new file and the pending operations after it.
+# ERROR_SUCCESS_REBOOT_REQUIRED. Windows Installer returns it when its
+# InstallValidate check saw pmg.exe in use. That check does not catch a
+# running process every time, so an upgrade under a live proxy returns 0 or
+# 3010. MoveAside renames the file either way, so the test checks the new
+# file and the pending operations after the upgrade instead of the code.
 $RebootRequired = 3010
 
 function Invoke-Msiexec {
@@ -223,7 +223,7 @@ function Invoke-Upgrade {
   Remove-Item -LiteralPath $GlobalConfig -Force
 
   Write-Step "upgrading to $Msi"
-  Invoke-Msiexec -ArgumentList @('/i', $Msi) -Log "$TestRoot\upgrade-$Name.log" -ExpectedExitCode $RebootRequired
+  Invoke-Msiexec -ArgumentList @('/i', $Msi) -Log "$TestRoot\upgrade-$Name.log" -ExpectedExitCode @(0, $RebootRequired)
   Assert-MsiInstalled -Version $ToVersion -Backups $Backups
   Assert-NoPendingRename
   Assert-ProxiesRunning
