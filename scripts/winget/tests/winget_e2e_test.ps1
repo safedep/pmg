@@ -38,11 +38,13 @@ try {
 
   Write-Step 'installing pmg from the manifests'
   Invoke-Winget @('settings', '--enable', 'LocalManifestFiles')
-  Invoke-Winget @('install', '--manifest', $env:PMG_WINGET_MANIFEST_DIR, '--silent', '--accept-package-agreements')
+  # winget reads its sources to match the install, so the msstore source
+  # agreements need an answer even for a local manifest.
+  Invoke-Winget @('install', '--manifest', $env:PMG_WINGET_MANIFEST_DIR, '--silent', '--accept-package-agreements', '--accept-source-agreements')
   Assert-MsiInstalled -Version $env:PMG_MSI_VERSION -Backups 0
 
   Write-Step 'uninstalling pmg'
-  Invoke-Winget @('uninstall', '--manifest', $env:PMG_WINGET_MANIFEST_DIR, '--silent')
+  Invoke-Winget @('uninstall', '--manifest', $env:PMG_WINGET_MANIFEST_DIR, '--silent', '--accept-source-agreements')
   Assert-MsiUninstalled
   Write-Host 'PASS: winget manifest validation, install and uninstall'
 } finally {
