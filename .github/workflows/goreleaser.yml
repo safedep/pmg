@@ -160,7 +160,13 @@ jobs:
           $actual = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\pmg.msi").Hash
           if ($actual -ine $expected) { throw "checksum mismatch for pmg_Windows_x86_64.msi: expected $expected, got $actual" }
 
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Install and uninstall the MSI
         env:
           PMG_MSI: ${{ runner.temp }}\pmg.msi
+          PMG_MSI_VERSION: ${{ steps.version.outputs.version }}
         run: pwsh -NoProfile -File scripts/msi/tests/msi_e2e_test.ps1

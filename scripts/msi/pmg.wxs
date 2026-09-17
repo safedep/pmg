@@ -21,14 +21,17 @@
 
     <!-- The stable and edge builds of one release share a numeric version.
          An edge build must replace the earlier edge build, and the stable
-         build must replace the last edge build. -->
+         build must replace the last edge build. RemoveExistingProducts is
+         rescheduled below, so this element only fills the Upgrade table. -->
     <MajorUpgrade AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of [ProductName] is installed." />
     <Media Id="1" Cabinet="pmg.cab" EmbedCab="yes" />
 
-    <!-- Windows locks a running pmg.exe. Without these two properties an
-         upgrade under a running proxy shows a files-in-use dialog or schedules
-         a reboot. The new file lands when the process next starts. -->
+    <!-- A running pmg.exe locks its image against overwrite, not against a
+         rename. MoveAside renames it before InstallFiles, the way the MDM
+         script does, so the new file lands at once and no reboot is needed.
+         These two properties keep Windows Installer from a files-in-use
+         dialog, a Restart Manager shutdown of the proxy, or a reboot. -->
     <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/safedep/pmg" />
@@ -62,21 +65,64 @@
       <ComponentRef Id="PmgExe" />
     </Feature>
 
+    <!-- wixl has no Directory attribute on CustomAction, so cmd.exe runs
+         through a property. System64Folder is the native System32 in this
+         x64 package. -->
+    <CustomAction Id="SetCmdExe" Property="CmdExe" Value="[System64Folder]cmd.exe" />
+
+    <!-- Drop the stale copy of the last upgrade. A copy still running is
+         locked, so the current file then moves to a unique name instead. -->
+    <CustomAction Id="MoveAside" Property="CmdExe"
+                  ExeCommand="/c del /f /q &quot;[ProductDir]pmg.exe.old*&quot; &amp; if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; if exist &quot;[ProductDir]pmg.exe.old&quot; (move /y &quot;[ProductDir]pmg.exe&quot; &quot;[ProductDir]pmg.exe.old.%RANDOM%&quot;) else (move /y &quot;[ProductDir]pmg.exe&quot; &quot;[ProductDir]pmg.exe.old&quot;)"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <!-- Rollback of MoveAside: put the moved file back when InstallFiles has
+         rolled its copy back. A stale copy from an earlier upgrade may sit
+         next to it, so the unique name wins over the plain one. -->
+    <CustomAction Id="MoveAsideRollback" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; for %f in (&quot;[ProductDir]pmg.exe.old.*&quot;) do move /y &quot;%~f&quot; &quot;[ProductDir]pmg.exe&quot; &amp; if not exist &quot;[ProductDir]pmg.exe&quot; if exist &quot;[ProductDir]pmg.exe.old&quot; move /y &quot;[ProductDir]pmg.exe.old&quot; &quot;[ProductDir]pmg.exe&quot;"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CleanOld" Property="CmdExe"
+                  ExeCommand="/c del /f /q &quot;[ProductDir]pmg.exe.old*&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
     <CustomAction Id="SetupInstall" FileKey="PmgExe" ExeCommand="setup install --system"
                   Execute="deferred" Impersonate="no" Return="check" />
+    <!-- Rollback of SetupInstall on a first install: the shims and the PATH
+         entry it wrote must not outlive the binary Windows Installer rolls
+         back. The managed config stays, because an MDM may have put it there
+         before this install. On an upgrade nothing is undone here. The
+         binary path is fixed, so the shims stay valid once InstallFiles and
+         MoveAsideRollback have restored the previous pmg.exe. -->
+    <CustomAction Id="SetupInstallRollback" FileKey="PmgExe" ExeCommand="setup remove --system"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
     <!-- Return="ignore" so an uninstall always completes. -->
     <CustomAction Id="SetupRemove" FileKey="PmgExe" ExeCommand="setup remove --system --config-file"
                   Execute="deferred" Impersonate="no" Return="ignore" />
+
     <!-- Explicit sequence numbers: wixl resolves Before and After against
          its own action list and put a deferred action ahead of
-         InstallInitialize (1500). InstallFiles is 4000, RemoveFiles 3500. -->
+         InstallInitialize (1500). RemoveFiles is 3500, RemoveFolders 3600,
+         InstallFiles 4000, InstallExecute 6500, InstallFinalize 6600. A
+         rollback action is scheduled right before the action it undoes. -->
     <InstallExecuteSequence>
+      <Custom Action="SetCmdExe" Sequence="1001" />
       <CreateFolders />
       <RemoveFolders />
-      <Custom Action="SetupInstall" Sequence="4001">NOT REMOVE</Custom>
-      <!-- A major upgrade removes the old product first. Its shims and managed
-           config stay in place for the new product to take over. -->
-      <Custom Action="SetupRemove" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <InstallExecute />
+      <!-- A major upgrade removes the old product inside the transaction,
+           after the new install has run. A failed upgrade then leaves the old
+           product registered, with its binary restored by the rollback. The
+           old product keeps its shims and managed config for the new build,
+           so its own SetupRemove is skipped. -->
+      <RemoveExistingProducts Sequence="6525" />
+      <Custom Action="SetupRemove" Sequence="3498">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="CleanOld" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <!-- $PmgExe=3: only when InstallFiles is about to write pmg.exe. A
+           maintenance run that copies nothing must not move the file away. -->
+      <Custom Action="MoveAsideRollback" Sequence="3998">$PmgExe=3</Custom>
+      <Custom Action="MoveAside" Sequence="3999">$PmgExe=3</Custom>
+      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED</Custom>
+      <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
     </InstallExecuteSequence>
   </Product>
 </Wix>
