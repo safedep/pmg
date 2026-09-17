@@ -225,7 +225,6 @@ jobs:
       run:
         shell: pwsh
     env:
-      MSI_DIR: ${{ runner.temp }}\msi
       BASE_VERSION: ${{ needs.goreleaser-test.outputs.base_version }}
     steps:
       - name: Checkout Source
@@ -234,12 +233,12 @@ jobs:
       - name: Download the installers
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download ${{ github.run_id }} --name msi --dir "$env:MSI_DIR"
+        run: gh run download ${{ github.run_id }} --name msi --dir "$env:RUNNER_TEMP\msi"
 
       - name: Build the Chocolatey packages
         run: |
-          scripts/choco/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:MSI_DIR\pmg_Windows_x86_64.msi" -MsiUrl "$env:MSI_DIR\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
-          scripts/choco/build.ps1 -Version "$env:BASE_VERSION-edge.1" -MsiPath "$env:MSI_DIR\msi-upgrade\pmg_Windows_x86_64.msi" -MsiUrl "$env:MSI_DIR\msi-upgrade\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
+          scripts/choco/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
+          scripts/choco/build.ps1 -Version "$env:BASE_VERSION-edge.1" -MsiPath "$env:RUNNER_TEMP\msi\msi-upgrade\pmg_Windows_x86_64.msi" -MsiUrl "$env:RUNNER_TEMP\msi\msi-upgrade\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
 
       - name: Install, upgrade and uninstall through Chocolatey
         env:
@@ -260,9 +259,9 @@ jobs:
           PMG_WINGET_MANIFEST_DIR: ${{ runner.temp }}\winget
           PMG_MSI_VERSION: ${{ needs.goreleaser-test.outputs.version }}
         run: |
-          $server = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '8765', '--bind', '127.0.0.1') -WorkingDirectory $env:MSI_DIR -PassThru
+          $server = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '8765', '--bind', '127.0.0.1') -WorkingDirectory "$env:RUNNER_TEMP\msi" -PassThru
           try {
-            scripts/winget/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:MSI_DIR\pmg_Windows_x86_64.msi" -MsiUrl 'http://127.0.0.1:8765/pmg_Windows_x86_64.msi' -OutDir $env:PMG_WINGET_MANIFEST_DIR
+            scripts/winget/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl 'http://127.0.0.1:8765/pmg_Windows_x86_64.msi' -OutDir $env:PMG_WINGET_MANIFEST_DIR
             pwsh -NoProfile -File scripts/winget/tests/winget_e2e_test.ps1
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally {
