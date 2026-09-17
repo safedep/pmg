@@ -28,11 +28,13 @@
     <Media Id="1" Cabinet="pmg.cab" EmbedCab="yes" />
 
     <!-- A running pmg.exe locks its image against overwrite, not against a
-         rename. The move actions below rename it before the installer
-         touches it, the way the MDM script does, so the new file lands at
-         once and no reboot is needed. These two properties keep Windows
-         Installer from a files-in-use dialog, a Restart Manager shutdown of
-         the proxy, or a reboot. -->
+         rename. MoveAside below renames it inside the transaction, the way
+         the MDM script does, so the new file lands at once. InstallValidate
+         has marked the file in use before that, so msiexec returns 3010
+         although no restart is needed. A rename before InstallValidate would
+         avoid the code, but it would sit outside rollback protection. These
+         two properties keep Windows Installer from a files-in-use dialog, a
+         Restart Manager shutdown of the proxy, or a reboot. -->
     <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/safedep/pmg" />
@@ -84,18 +86,9 @@
          holds keeps its name until the next upgrade or the uninstall. -->
     <CustomAction Id="SetBackupPath" Property="BackupPath" Value="[ProductDir]pmg.exe.old.[ProductCode]" />
 
-    <!-- InstallValidate marks any file in use for a reboot, whatever happens
-         to it later. MoveAsideEarly runs just before it, so the running file
-         is out of the way when the installer looks. Immediate actions run as
-         the installing user, and a standard user who elevated through UAC
-         cannot rename in Program Files, so the action ignores failure and
-         MoveAside repeats the move as SYSTEM. In that case msiexec returns
-         3010 although the new file is in place. A backup of the same name
-         from an earlier run of this same product goes first. When a process
-         still holds it, the move fails and so does the install. -->
-    <CustomAction Id="MoveAsideEarly" Property="CmdExe"
-                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; (del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;)"
-                  Return="ignore" />
+    <!-- A backup of the same name from an earlier run of this same product
+         goes first. When a process still holds it, the move fails and so
+         does the install. -->
     <CustomAction Id="MoveAside" Property="CmdExe"
                   ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; (del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;)"
                   Execute="deferred" Impersonate="no" Return="check" />
@@ -131,8 +124,8 @@
 
     <!-- Explicit sequence numbers: wixl resolves Before and After against
          its own action list and put a deferred action ahead of
-         InstallInitialize (1500). InstallValidate is 1400, RemoveFiles 3500,
-         RemoveFolders 3600, InstallFiles 4000, InstallExecute 6500,
+         InstallInitialize (1500). RemoveFiles is 3500, RemoveFolders 3600,
+         InstallFiles 4000, InstallExecute 6500,
          InstallFinalize 6600. A rollback action is scheduled right before
          the action it undoes. $PmgExe=3, written $$ for the wixl
          preprocessor, holds only when InstallFiles is about to write
@@ -141,7 +134,6 @@
     <InstallExecuteSequence>
       <Custom Action="SetCmdExe" Sequence="1001" />
       <Custom Action="SetBackupPath" Sequence="1002" />
-      <Custom Action="MoveAsideEarly" Sequence="1399">$$PmgExe=3</Custom>
       <CreateFolders />
       <RemoveFolders />
       <InstallExecute />

@@ -56,16 +56,27 @@ Assert-PathAbsent $GlobalConfigDir
 
 # ERROR_INSTALL_FAILURE. Windows Installer returns it after a rollback.
 $InstallFailure = 1603
+# ERROR_SUCCESS_REBOOT_REQUIRED. Windows Installer returns it when it found
+# pmg.exe in use at InstallValidate. MoveAside renames the file later, so
+# the new file is in place and nothing waits for a restart. The test checks
+# both after such an upgrade.
+$RebootRequired = 3010
 
 function Invoke-Msiexec {
-  param([string[]]$ArgumentList, [string]$Log, [int]$ExpectedExitCode = 0)
+  param([string[]]$ArgumentList, [string]$Log, [int[]]$ExpectedExitCode = @(0))
   $process = Start-Process -FilePath msiexec.exe -ArgumentList ($ArgumentList + @('/qn', '/l*v', $Log)) -Wait -PassThru
-  if ($process.ExitCode -ne $ExpectedExitCode) {
+  if ($process.ExitCode -notin $ExpectedExitCode) {
     Get-Content -LiteralPath $Log | Where-Object { $_ -match 'Doing action: (MoveAside|SetupInstall|CleanStale|CleanOld|SetupRemove)|return value 3|in use|Reboot' } |
       ForEach-Object { Write-Host "  | $_" }
     Get-Content -LiteralPath $Log | Select-Object -Last 40 | ForEach-Object { Write-Host "  | $_" }
-    Stop-OnFailure "msiexec $($ArgumentList -join ' ') exited with $($process.ExitCode), expected $ExpectedExitCode"
+    Stop-OnFailure "msiexec $($ArgumentList -join ' ') exited with $($process.ExitCode), expected $($ExpectedExitCode -join ' or ')"
   }
+}
+
+function Assert-NoPendingRename {
+  $key = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+  $pending = @($key.GetValue('PendingFileRenameOperations', @()) | Where-Object { $_ -like '*safedep\pmg*' })
+  if ($pending) { Stop-OnFailure "a file operation for pmg waits for a restart: $($pending -join ' | ')" }
 }
 
 function Get-ProductEntry {
@@ -211,8 +222,9 @@ function Invoke-Upgrade {
   Remove-Item -LiteralPath $GlobalConfig -Force
 
   Write-Step "upgrading to $Msi"
-  Invoke-Msiexec -ArgumentList @('/i', $Msi) -Log "$TestRoot\upgrade-$Name.log"
+  Invoke-Msiexec -ArgumentList @('/i', $Msi) -Log "$TestRoot\upgrade-$Name.log" -ExpectedExitCode @(0, $RebootRequired)
   Assert-MsiInstalled -Version $ToVersion -Backups $Backups
+  Assert-NoPendingRename
   Assert-ProxiesRunning
 }
 
