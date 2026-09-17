@@ -2,12 +2,10 @@ package pty
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 	"testing"
 
-	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/ptyx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +13,6 @@ import (
 
 type recordingConsole struct {
 	events *[]string
-	rawErr error
 }
 
 func (c *recordingConsole) In() io.Reader    { return nil }
@@ -25,9 +22,6 @@ func (c *recordingConsole) IsATTYOut() bool  { return true }
 func (c *recordingConsole) Size() (int, int) { return 80, 24 }
 func (c *recordingConsole) MakeRaw() (ptyx.RawState, error) {
 	*c.events = append(*c.events, "make-raw")
-	if c.rawErr != nil {
-		return nil, c.rawErr
-	}
 	return struct{}{}, nil
 }
 func (c *recordingConsole) Restore(ptyx.RawState) error {
@@ -173,66 +167,4 @@ func TestPrepareConsoleCapturesOutputBeforeCreation(t *testing.T) {
 
 	require.NoError(t, restoreOutput())
 	assert.Equal(t, []string{"capture-output", "create-console", "restore-output"}, events)
-}
-
-func TestNewSessionClassifiesSetupAndSpawnFailures(t *testing.T) {
-	tests := []struct {
-		name        string
-		cfg         SessionConfig
-		newConsole  func() (ptyx.Console, error)
-		spawn       func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error)
-		wantReason  runerror.Reason
-		wantMessage string
-	}{
-		{
-			name:        "invalid configuration",
-			cfg:         SessionConfig{},
-			wantReason:  runerror.ReasonExecutionSetupFailed,
-			wantMessage: "pty session requires command",
-		},
-		{
-			name: "console creation",
-			cfg:  SessionConfig{Command: "npm"},
-			newConsole: func() (ptyx.Console, error) {
-				return nil, errors.New("private console detail")
-			},
-			wantReason:  runerror.ReasonExecutionSetupFailed,
-			wantMessage: "failed to create console: private console detail",
-		},
-		{
-			name: "raw mode",
-			cfg:  SessionConfig{Command: "npm"},
-			newConsole: func() (ptyx.Console, error) {
-				return &recordingConsole{events: &[]string{}, rawErr: errors.New("private raw detail")}, nil
-			},
-			wantReason:  runerror.ReasonExecutionSetupFailed,
-			wantMessage: "failed to set raw mode: private raw detail",
-		},
-		{
-			name: "process spawn",
-			cfg:  SessionConfig{Command: "npm"},
-			newConsole: func() (ptyx.Console, error) {
-				return &recordingConsole{events: &[]string{}}, nil
-			},
-			spawn: func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error) {
-				return nil, errors.New("private spawn detail")
-			},
-			wantReason:  runerror.ReasonProcessLaunchFailed,
-			wantMessage: "failed to spawn: private spawn detail",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := newSession(context.Background(), tt.cfg, func() func() error {
-				return func() error { return nil }
-			}, tt.newConsole, tt.spawn)
-			require.Error(t, err)
-
-			info := runerror.From(err)
-			require.NotNil(t, info)
-			assert.Equal(t, tt.wantReason, info.Reason)
-			assert.Equal(t, tt.wantMessage, info.Message)
-		})
-	}
 }

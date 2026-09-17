@@ -94,7 +94,7 @@ type reportedError struct {
 
 func (e *reportedError) Error() string   { return e.cause.Error() }
 func (e *reportedError) Unwrap() error   { return e.cause }
-func (e *reportedError) ErrorInfo() Info { return copyInfo(e.info) }
+func (e *reportedError) ErrorInfo() Info { return e.info }
 
 func Wrap(err error, reason Reason) error {
 	if err == nil {
@@ -129,7 +129,7 @@ func From(err error) *Info {
 
 	var reporter Reporter
 	if errors.As(err, &reporter) {
-		info := copyInfo(reporter.ErrorInfo())
+		info := reporter.ErrorInfo()
 		info.Source = sourceForReason(info.Reason)
 		info.Message = cleanMessage(info.Message)
 		return &info
@@ -156,14 +156,6 @@ func sourceForReason(reason Reason) Source {
 	default:
 		return SourceUnspecified
 	}
-}
-
-func copyInfo(info Info) Info {
-	if info.ExitCode != nil {
-		exitCode := *info.ExitCode
-		info.ExitCode = &exitCode
-	}
-	return info
 }
 
 func cleanMessage(message string) string {

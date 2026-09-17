@@ -116,22 +116,12 @@ func prepareConsole(
 // NewSession creates a new interactive PTY session.
 // The terminal is put into raw mode automatically.
 func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, error) {
-	return newSession(ctx, cfg, saveConsoleOutputMode, ptyx.NewConsole, ptyx.Spawn)
-}
-
-func newSession(
-	ctx context.Context,
-	cfg SessionConfig,
-	captureOutputMode func() func() error,
-	createConsole func() (ptyx.Console, error),
-	spawn func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error),
-) (InteractiveSession, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 1. Create console
-	c, restoreOutput, err := prepareConsole(captureOutputMode, createConsole)
+	c, restoreOutput, err := prepareConsole(saveConsoleOutputMode, ptyx.NewConsole)
 	if err != nil {
 		return nil, runerror.Wrap(fmt.Errorf("failed to create console: %w", err),
 			runerror.ReasonExecutionSetupFailed)
@@ -154,7 +144,7 @@ func newSession(
 	cols, rows := c.Size()
 
 	// 4. Spawn the process
-	s, err := spawn(ctx, cfg.spawnOpts(cols, rows))
+	s, err := ptyx.Spawn(ctx, cfg.spawnOpts(cols, rows))
 	if err != nil {
 		// We are already in error state, restore and close is best effort.
 		if restoreErr := c.Restore(oldState); restoreErr != nil {

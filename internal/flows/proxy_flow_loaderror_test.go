@@ -36,8 +36,8 @@ proxy:
 func TestProxyFlowRunRejectsUnloadableProxyRegistries(t *testing.T) {
 	withUnloadableProxyRegistries(t)
 
-	var flow proxyFlow
-	_, err := flow.runParsed(context.Background(), nil)
+	flow := proxyFlow{pm: failingParsePackageManager{}}
+	err := flow.Run(context.Background(), nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy registries")
 	info := runerror.From(err)

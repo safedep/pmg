@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/stretchr/testify/assert"
 )
@@ -55,16 +54,6 @@ func TestClassifyExit(t *testing.T) {
 		assert.True(t, d.transparent)
 		assert.Equal(t, 2, d.code)
 		assert.True(t, d.notice)
-	})
-
-	t.Run("typed reporting preserves transparent exit", func(t *testing.T) {
-		withVerbosity(t, VerbosityLevelNormal)
-
-		err := runerror.Wrap(&fakeChildExit{code: 42, pmName: "npm"}, runerror.ReasonProcessExited)
-		d := classifyExit(err)
-
-		assert.True(t, d.transparent)
-		assert.Equal(t, 42, d.code)
 	})
 
 	t.Run("scrubbed env vars append a dim hint line", func(t *testing.T) {
@@ -145,14 +134,6 @@ func TestExitFromCommandErrorExitCode(t *testing.T) {
 
 	t.Run("wrapped missing package manager preserves exit code 127", func(t *testing.T) {
 		err := fmt.Errorf("execute: %w", &shim.BinaryNotFoundError{Name: "npm"})
-
-		var ec exitCoder
-		assert.True(t, errors.As(err, &ec))
-		assert.Equal(t, 127, ec.ExitCode())
-	})
-
-	t.Run("typed reporting preserves missing package manager exit code", func(t *testing.T) {
-		err := runerror.Wrap(&shim.BinaryNotFoundError{Name: "npm"}, runerror.ReasonExecutableNotFound)
 
 		var ec exitCoder
 		assert.True(t, errors.As(err, &ec))

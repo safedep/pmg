@@ -34,26 +34,6 @@ func TestFromOrdinaryErrorReturnsNil(t *testing.T) {
 	assert.Nil(t, info)
 }
 
-func TestFromCopiesReporterInfo(t *testing.T) {
-	exitCode := uint32(42)
-	err := stubReporter{info: Info{
-		Source:   SourcePMG,
-		Reason:   ReasonProcessExited,
-		ExitCode: &exitCode,
-	}}
-
-	first := From(err)
-	require.NotNil(t, first)
-	assert.Equal(t, SourceChildProcess, first.Source)
-	require.NotNil(t, first.ExitCode)
-	*first.ExitCode = 7
-
-	second := From(err)
-	require.NotNil(t, second)
-	require.NotNil(t, second.ExitCode)
-	assert.Equal(t, uint32(42), *second.ExitCode)
-}
-
 func TestWrapBoundsErrorMessage(t *testing.T) {
 	err := Wrap(errors.New(strings.Repeat("a", 1023)+"\xfftail"), ReasonProxySetupFailed)
 
@@ -98,10 +78,3 @@ func TestSourceForReason(t *testing.T) {
 		})
 	}
 }
-
-type stubReporter struct {
-	info Info
-}
-
-func (e stubReporter) Error() string   { return "reported error" }
-func (e stubReporter) ErrorInfo() Info { return e.info }
