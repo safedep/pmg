@@ -28,15 +28,23 @@
     <Media Id="1" Cabinet="pmg.cab" EmbedCab="yes" />
 
     <!-- A running pmg.exe locks its image against overwrite, not against a
-         rename. MoveAside renames it before InstallFiles, the way the MDM
-         script does, so the new file lands at once and no reboot is needed.
-         These two properties keep Windows Installer from a files-in-use
-         dialog, a Restart Manager shutdown of the proxy, or a reboot. -->
+         rename. The move actions below rename it before the installer
+         touches it, the way the MDM script does, so the new file lands at
+         once and no reboot is needed. These two properties keep Windows
+         Installer from a files-in-use dialog, a Restart Manager shutdown of
+         the proxy, or a reboot. -->
     <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/safedep/pmg" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- The machine PATH tells whether a system install made without this
+         MSI, by the MDM script or by hand, protects the machine already. Its
+         shim directory is on the PATH. -->
+    <Property Id="MachinePath">
+      <RegistrySearch Id="MachinePath" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="Path" Type="raw" Win64="yes" />
+    </Property>
 
     <!-- A directory id with a lowercase letter is a private property.
          A command-line property or the winget location flag cannot move pmg.exe
@@ -69,6 +77,10 @@
          through a property. System64Folder is the native System32 in this
          x64 package. -->
     <CustomAction Id="SetCmdExe" Property="CmdExe" Value="[System64Folder]cmd.exe" />
+    <!-- One backup name per product, so the rollback restores the file this
+         transaction moved and no other. A backup a running process still
+         holds keeps its name until the next upgrade or the uninstall. -->
+    <CustomAction Id="SetBackupPath" Property="BackupPath" Value="[ProductDir]pmg.exe.old.[ProductCode]" />
 
     <!-- InstallValidate marks any file in use for a reboot, whatever happens
          to it later. MoveAsideEarly runs just before it, so the running file
@@ -76,24 +88,22 @@
          the installing user, and a standard user who elevated through UAC
          cannot rename in Program Files, so the action ignores failure and
          MoveAside repeats the move as SYSTEM. In that case msiexec returns
-         3010 although the new file is in place. Neither action deletes a
-         stale copy: a rollback must find the copy to restore, and a stale
-         copy still running cannot be deleted. When the plain name is taken,
-         the file moves to a unique name. -->
+         3010 although the new file is in place. A backup of the same name
+         from an earlier run of this same product goes first. When a process
+         still holds it, the move fails and so does the install. -->
     <CustomAction Id="MoveAsideEarly" Property="CmdExe"
-                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; if exist &quot;[ProductDir]pmg.exe.old&quot; (move /y &quot;[ProductDir]pmg.exe&quot; &quot;[ProductDir]pmg.exe.old.%RANDOM%&quot;) else (move /y &quot;[ProductDir]pmg.exe&quot; &quot;[ProductDir]pmg.exe.old&quot;)"
+                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;"
                   Return="ignore" />
     <CustomAction Id="MoveAside" Property="CmdExe"
-                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; if exist &quot;[ProductDir]pmg.exe.old&quot; (move /y &quot;[ProductDir]pmg.exe&quot; &quot;[ProductDir]pmg.exe.old.%RANDOM%&quot;) else (move /y &quot;[ProductDir]pmg.exe&quot; &quot;[ProductDir]pmg.exe.old&quot;)"
+                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;"
                   Execute="deferred" Impersonate="no" Return="check" />
     <!-- Rollback of the moves: put the moved file back once InstallFiles has
-         rolled its copy back. The unique name is the newer copy, so it wins
-         over the plain one. -->
+         rolled its copy back. -->
     <CustomAction Id="MoveAsideRollback" Property="CmdExe"
-                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; for %f in (&quot;[ProductDir]pmg.exe.old.*&quot;) do move /y &quot;%~f&quot; &quot;[ProductDir]pmg.exe&quot; &amp; if not exist &quot;[ProductDir]pmg.exe&quot; if exist &quot;[ProductDir]pmg.exe.old&quot; move /y &quot;[ProductDir]pmg.exe.old&quot; &quot;[ProductDir]pmg.exe&quot;"
+                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; exit 0 &amp; if exist &quot;[BackupPath]&quot; move /y &quot;[BackupPath]&quot; &quot;[ProductDir]pmg.exe&quot;"
                   Execute="rollback" Impersonate="no" Return="ignore" />
-    <!-- Stale copies go once the install has succeeded. A copy still running
-         is locked and stays until the next upgrade or the uninstall. -->
+    <!-- Backups go once the install has succeeded. A backup still running is
+         locked and stays until the next upgrade or the uninstall. -->
     <CustomAction Id="CleanStale" Property="CmdExe"
                   ExeCommand="/c del /f /q &quot;[ProductDir]pmg.exe.old*&quot;"
                   Execute="commit" Impersonate="no" Return="ignore" />
@@ -103,12 +113,14 @@
 
     <CustomAction Id="SetupInstall" FileKey="PmgExe" ExeCommand="setup install --system"
                   Execute="deferred" Impersonate="no" Return="check" />
-    <!-- Rollback of SetupInstall on a first install: the shims and the PATH
-         entry it wrote must not outlive the binary Windows Installer rolls
-         back. The managed config stays, because an MDM may have put it there
-         before this install. On an upgrade nothing is undone here. The
-         binary path is fixed, so the shims stay valid once InstallFiles and
-         MoveAsideRollback have restored the previous pmg.exe. -->
+    <!-- Rollback of SetupInstall on a first install of this MSI on a machine
+         with no system install: the shims and the PATH entry it wrote must
+         not outlive the binary Windows Installer rolls back. The managed
+         config stays, because an MDM may have put it there before this
+         install. Nothing is undone on an upgrade, or over a system install
+         made by the MDM script or by hand: the binary path is fixed, so the
+         shims stay valid once InstallFiles and MoveAsideRollback have
+         restored the previous pmg.exe. -->
     <CustomAction Id="SetupInstallRollback" FileKey="PmgExe" ExeCommand="setup remove --system"
                   Execute="rollback" Impersonate="no" Return="ignore" />
     <!-- Return="ignore" so an uninstall always completes. -->
@@ -117,11 +129,16 @@
 
     <!-- Explicit sequence numbers: wixl resolves Before and After against
          its own action list and put a deferred action ahead of
-         InstallInitialize (1500). RemoveFiles is 3500, RemoveFolders 3600,
-         InstallFiles 4000, InstallExecute 6500, InstallFinalize 6600. A
-         rollback action is scheduled right before the action it undoes. -->
+         InstallInitialize (1500). InstallValidate is 1400, RemoveFiles 3500,
+         RemoveFolders 3600, InstallFiles 4000, InstallExecute 6500,
+         InstallFinalize 6600. A rollback action is scheduled right before
+         the action it undoes. $PmgExe=3, written $$ for the wixl
+         preprocessor, holds only when InstallFiles is about to write
+         pmg.exe. A maintenance run that copies nothing must not move the
+         file away. -->
     <InstallExecuteSequence>
       <Custom Action="SetCmdExe" Sequence="1001" />
+      <Custom Action="SetBackupPath" Sequence="1002" />
       <Custom Action="MoveAsideEarly" Sequence="1399">$$PmgExe=3</Custom>
       <CreateFolders />
       <RemoveFolders />
@@ -134,12 +151,9 @@
       <RemoveExistingProducts Sequence="6525" />
       <Custom Action="SetupRemove" Sequence="3498">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="CleanOld" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <!-- $PmgExe=3, written $$ for the wixl preprocessor: only when
-           InstallFiles is about to write pmg.exe. A maintenance run that
-           copies nothing must not move the file away. -->
       <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
       <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
-      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED</Custom>
+      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~&gt;&lt; "safedep\pmg\bin")</Custom>
       <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
       <Custom Action="CleanStale" Sequence="4003">$$PmgExe=3</Custom>
     </InstallExecuteSequence>

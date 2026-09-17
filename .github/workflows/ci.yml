@@ -142,10 +142,11 @@ jobs:
           version: "~> v2"
           args: build --clean --snapshot
 
-      # A second installer with the same version and a new product code has
-      # the shape of the next edge build. Its binary reports a different
-      # version string, so the Windows job can see which one is installed.
-      - name: Build the upgrade installer
+      # Two more installers with the same version and a new product code each
+      # have the shape of the next edge builds. Their binaries report a
+      # different version string, so the Windows job can see which one is
+      # installed.
+      - name: Build the upgrade installers
         id: upgrade
         env:
           CGO_ENABLED: "0"
@@ -153,9 +154,11 @@ jobs:
           GOARCH: amd64
         run: |
           version=$(jq -r .version dist/metadata.json)
-          mkdir -p dist/msi-upgrade
-          go build -ldflags "-s -w -X github.com/safedep/pmg/internal/version.Version=${version}-upgrade" -o dist/msi-upgrade/pmg.exe .
-          scripts/msi/build.sh windows dist/msi-upgrade/pmg.exe "$version" dist/msi-upgrade/pmg_Windows_x86_64.msi
+          for suffix in upgrade upgrade2; do
+            mkdir -p "dist/msi-$suffix"
+            go build -ldflags "-s -w -X github.com/safedep/pmg/internal/version.Version=${version}-${suffix}" -o "dist/msi-$suffix/pmg.exe" .
+            scripts/msi/build.sh windows "dist/msi-$suffix/pmg.exe" "$version" "dist/msi-$suffix/pmg_Windows_x86_64.msi"
+          done
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Upload the installers
@@ -165,6 +168,7 @@ jobs:
           path: |
             dist/pmg_Windows_x86_64.msi
             dist/msi-upgrade/pmg_Windows_x86_64.msi
+            dist/msi-upgrade2/pmg_Windows_x86_64.msi
           if-no-files-found: error
 
   msi-e2e-windows:
@@ -192,7 +196,18 @@ jobs:
           PMG_MSI_VERSION: ${{ needs.goreleaser-test.outputs.version }}
           PMG_MSI_UPGRADE: ${{ runner.temp }}\msi\msi-upgrade\pmg_Windows_x86_64.msi
           PMG_MSI_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade
+          PMG_MSI_UPGRADE2: ${{ runner.temp }}\msi\msi-upgrade2\pmg_Windows_x86_64.msi
+          PMG_MSI_UPGRADE2_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade2
+          PMG_MSI_LOG_DIR: ${{ runner.temp }}\msi-logs
         run: pwsh -NoProfile -File scripts/msi/tests/msi_e2e_test.ps1
+
+      - name: Upload the installer logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: msi-logs
+          path: ${{ runner.temp }}\msi-logs
+          if-no-files-found: ignore
 
   build-container-test:
     runs-on: ubuntu-latest

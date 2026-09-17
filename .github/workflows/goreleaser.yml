@@ -169,4 +169,13 @@ jobs:
         env:
           PMG_MSI: ${{ runner.temp }}\pmg.msi
           PMG_MSI_VERSION: ${{ steps.version.outputs.version }}
+          PMG_MSI_LOG_DIR: ${{ runner.temp }}\msi-logs
         run: pwsh -NoProfile -File scripts/msi/tests/msi_e2e_test.ps1
+
+      - name: Upload the installer logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: msi-logs
+          path: ${{ runner.temp }}\msi-logs
+          if-no-files-found: ignore
