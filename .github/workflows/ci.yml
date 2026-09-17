@@ -233,5 +233,10 @@ jobs:
           install-only: true
           version: "~> v2"
 
+      # The preflight runs the goreleaser snapshot build, which builds the
+      # Windows installer.
+      - name: Install wixl for the Windows installer
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wixl
+
       - name: Release preflight
         run: pnpm nx run pmg:release-preflight

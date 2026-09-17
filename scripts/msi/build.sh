@@ -22,6 +22,11 @@ if [[ "$goos" != windows ]]; then
   exit 0
 fi
 
+if ! command -v wixl > /dev/null; then
+  echo "Error: wixl is not installed. It builds the Windows installer. Install msitools: apt-get install wixl, or brew install msitools" >&2
+  exit 1
+fi
+
 base=${version%%-*}
 prerelease=${version#"$base"}
 prerelease=${prerelease#-}
