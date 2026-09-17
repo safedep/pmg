@@ -6,10 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	maxMessageBytes = 1024
-	fallbackMessage = "PMG could not complete this command. Error details are unavailable."
-)
+const maxMessageBytes = 1024
 
 type Source uint8
 
@@ -99,7 +96,7 @@ func (e *reportedError) Error() string   { return e.cause.Error() }
 func (e *reportedError) Unwrap() error   { return e.cause }
 func (e *reportedError) ErrorInfo() Info { return copyInfo(e.info) }
 
-func Wrap(err error, reason Reason, safeMessage string) error {
+func Wrap(err error, reason Reason) error {
 	if err == nil {
 		return nil
 	}
@@ -109,12 +106,18 @@ func Wrap(err error, reason Reason, safeMessage string) error {
 		return err
 	}
 
+	source := sourceForReason(reason)
+	message := ""
+	if source == SourcePMG {
+		message = cleanMessage(err.Error())
+	}
+
 	return &reportedError{
 		cause: err,
 		info: Info{
-			Source:  sourceForReason(reason),
+			Source:  source,
 			Reason:  reason,
-			Message: cleanMessage(safeMessage),
+			Message: message,
 		},
 	}
 }
@@ -132,7 +135,7 @@ func From(err error) *Info {
 		return &info
 	}
 
-	return &Info{Message: fallbackMessage}
+	return nil
 }
 
 func sourceForReason(reason Reason) Source {

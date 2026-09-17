@@ -44,7 +44,6 @@ func TestSessionDataDetailsIncludesErrorInfo(t *testing.T) {
 	details := sessionDataToDetails(&SessionData{ErrorInfo: &runerror.Info{
 		Source:   runerror.SourceChildProcess,
 		Reason:   runerror.ReasonProcessExited,
-		Message:  "npm exited with code 42.",
 		ExitCode: &exitCode,
 	}})
 
@@ -52,7 +51,7 @@ func TestSessionDataDetailsIncludesErrorInfo(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "child_process", errorInfo["source"])
 	assert.Equal(t, "process_exited", errorInfo["reason"])
-	assert.Equal(t, "npm exited with code 42.", errorInfo["message"])
+	assert.NotContains(t, errorInfo, "message")
 	assert.Equal(t, uint32(42), errorInfo["exit_code"])
 }
 
@@ -60,11 +59,12 @@ func TestSessionDataDetailsOmitsAbsentExitCode(t *testing.T) {
 	details := sessionDataToDetails(&SessionData{ErrorInfo: &runerror.Info{
 		Source:  runerror.SourcePMG,
 		Reason:  runerror.ReasonProxySetupFailed,
-		Message: "PMG could not start the proxy.",
+		Message: "listen tcp 127.0.0.1:3000: address already in use",
 	}})
 
 	errorInfo, ok := details["error_info"].(map[string]interface{})
 	require.True(t, ok)
+	assert.Equal(t, "listen tcp 127.0.0.1:3000: address already in use", errorInfo["message"])
 	assert.NotContains(t, errorInfo, "exit_code")
 }
 

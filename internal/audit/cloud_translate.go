@@ -157,7 +157,9 @@ func mapErrorInfo(info *runerror.Info) *controltowerv1.PmgErrorInfo {
 	result := &controltowerv1.PmgErrorInfo{}
 	result.SetSource(mapErrorSource(info.Source))
 	result.SetReason(mapErrorReason(info.Reason))
-	result.SetMessage(info.Message)
+	if info.Message != "" {
+		result.SetMessage(info.Message)
+	}
 	if info.ExitCode != nil {
 		result.SetExitCode(*info.ExitCode)
 	}

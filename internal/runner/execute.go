@@ -90,8 +90,7 @@ func Execute(ctx context.Context, pc *packagemanager.ParsedCommand, pmName strin
 func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, opts ExecuteOptions) error {
 	if len(pc.Command.Exe) == 0 {
 		return runerror.Wrap(fmt.Errorf("no command to execute"),
-			runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the process execution environment.")
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	if opts.DryRun {
@@ -103,12 +102,10 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 	if err != nil {
 		var notFound *shim.BinaryNotFoundError
 		if errors.As(err, &notFound) {
-			return runerror.Wrap(notFound, runerror.ReasonExecutableNotFound,
-				"PMG could not find the package-manager executable.")
+			return runerror.Wrap(notFound, runerror.ReasonExecutableNotFound)
 		}
 		return runerror.Wrap(fmt.Errorf("failed to resolve real %s binary: %w", pc.Command.Exe, err),
-			runerror.ReasonExecutableResolutionFailed,
-			"PMG could not resolve the package-manager executable.")
+			runerror.ReasonExecutableResolutionFailed)
 	}
 
 	mode := executionMode(opts)
@@ -121,8 +118,7 @@ func ExecuteWithOptions(ctx context.Context, pc *packagemanager.ParsedCommand, o
 
 	if mode != ExecutionModePTY && opts.BeforeDirectRun != nil {
 		if err := opts.BeforeDirectRun(); err != nil {
-			return runerror.Wrap(err, runerror.ReasonExecutionSetupFailed,
-				"PMG could not prepare the process execution environment.")
+			return runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
 		}
 	}
 
@@ -201,8 +197,7 @@ func runPTY(
 	sess, err := pty.NewSession(ctx, sessionConfig)
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to create pty session: %w", err),
-			runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the interactive process session.")
+			runerror.ReasonExecutionSetupFailed)
 	}
 	defer func() {
 		if err := sess.Close(); err != nil {
@@ -216,8 +211,7 @@ func runPTY(
 	outputRouter, err := pty.NewOutputRouter(ptyOutput(result))
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to create output router: %w", err),
-			runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the interactive process session.")
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	// The output reader normally ends on its own when the PTY master reports
@@ -238,8 +232,7 @@ func runPTY(
 	inputRouter, err := pty.NewInputRouter(sess.PtyWriter())
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to create input router: %w", err),
-			runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the interactive process session.")
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	promptReader, promptWriter := io.Pipe()
@@ -279,8 +272,7 @@ func runPTY(
 		}
 
 		if err := beforeWait(runtime); err != nil {
-			return runerror.Wrap(err, runerror.ReasonExecutionSetupFailed,
-				"PMG could not prepare the interactive process session.")
+			return runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
 		}
 	}
 

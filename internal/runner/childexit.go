@@ -32,15 +32,12 @@ func (e *ChildExitError) ScrubbedEnvCount() int { return e.Scrubbed }
 
 func (e *ChildExitError) ErrorInfo() runerror.Info {
 	reason := runerror.ReasonProcessExited
-	message := fmt.Sprintf("%s exited with code %d.", e.PMName, e.Code)
 	if e.Signaled {
 		reason = runerror.ReasonProcessSignaled
-		message = "The child process terminated after a signal."
 	}
 
 	info := runerror.Info{
-		Reason:  reason,
-		Message: message,
+		Reason: reason,
 	}
 	if e.Code >= 0 && uint64(e.Code) <= uint64(^uint32(0)) {
 		exitCode := uint32(e.Code)
@@ -100,6 +97,5 @@ func visibleExecError(err error) error {
 		WithHumanError("Failed to execute package manager command").
 		WithHelp("Check the package manager command and its arguments").
 		Wrap(err)
-	return runerror.Wrap(usefulErr, runerror.ReasonProcessLaunchFailed,
-		"PMG could not start the package-manager process.")
+	return runerror.Wrap(usefulErr, runerror.ReasonProcessLaunchFailed)
 }

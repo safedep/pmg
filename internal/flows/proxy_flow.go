@@ -55,8 +55,7 @@ func runProxyWithAudit(
 		parsedCommand, err := pm.ParseCommand(args)
 		if err != nil {
 			return proxyRunResult{}, runerror.Wrap(fmt.Errorf("failed to parse command: %w", err),
-				runerror.ReasonCommandParseFailed,
-				"PMG could not parse the package-manager command.")
+				runerror.ReasonCommandParseFailed)
 		}
 
 		return ProxyFlow(pm).runParsed(ctx, parsedCommand)
@@ -89,8 +88,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	// non-install commands (pmg config, doctor, ...) stay usable to fix
 	// the file.
 	if err := config.LoadError(); err != nil {
-		return result, runerror.Wrap(err, runerror.ReasonConfigurationInvalid,
-			"PMG rejected the proxy configuration.")
+		return result, runerror.Wrap(err, runerror.ReasonConfigurationInvalid)
 	}
 
 	// Guard mode is removed: a config or environment that still disables proxy
@@ -98,8 +96,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	// mode. Checked here rather than at CLI startup so non-install commands
 	// (pmg config, setup remove, doctor, ...) stay usable to fix the config.
 	if err := config.RejectRemovedProxyOptOut(); err != nil {
-		return result, runerror.Wrap(err, runerror.ReasonConfigurationInvalid,
-			"PMG rejected the proxy configuration.")
+		return result, runerror.Wrap(err, runerror.ReasonConfigurationInvalid)
 	}
 
 	// Check if we have a supported ecosystem else fail fast
@@ -107,8 +104,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	if !interceptors.IsSupported(ecosystem) {
 		return result, runerror.Wrap(
 			fmt.Errorf("proxy mode is not supported for %s", ecosystem.String()),
-			runerror.ReasonEcosystemUnsupported,
-			"PMG does not support proxy interception for this ecosystem.")
+			runerror.ReasonEcosystemUnsupported)
 	}
 
 	// Configure sandbox based on command type and enforcement policy
@@ -171,8 +167,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	caCert, caCertPath, err := f.setupCACertificate()
 	if err != nil {
 		return result, runerror.Wrap(fmt.Errorf("failed to setup CA certificate for proxy mode: %w", err),
-			runerror.ReasonCertificateSetupFailed,
-			"PMG could not prepare the proxy certificate.")
+			runerror.ReasonCertificateSetupFailed)
 	}
 
 	defer func() {
@@ -188,8 +183,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	certMgr, err := f.createCertificateManager(caCert)
 	if err != nil {
 		return result, runerror.Wrap(fmt.Errorf("failed to create certificate manager: %w", err),
-			runerror.ReasonCertificateSetupFailed,
-			"PMG could not prepare the proxy certificate.")
+			runerror.ReasonCertificateSetupFailed)
 	}
 
 	localDB := localstore.NewManager(cfg)
@@ -204,8 +198,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	malysisAnalyzer, err := BuildMalysisAnalyzer(ctx, cfg, localDB)
 	if err != nil {
 		return result, runerror.Wrap(fmt.Errorf("failed to create analyzer: %w", err),
-			runerror.ReasonAnalyzerInitializationFailed,
-			"PMG could not initialize package analysis.")
+			runerror.ReasonAnalyzerInitializationFailed)
 	}
 
 	// Create analysis cache and stats collector
@@ -236,8 +229,7 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 		routing, err = provider.ProxyRouting(ctx)
 		if err != nil {
 			return result, runerror.Wrap(fmt.Errorf("failed to resolve proxy routing for %s: %w", f.pm.Name(), err),
-				runerror.ReasonProxySetupFailed,
-				"PMG could not resolve proxy routing.")
+				runerror.ReasonProxySetupFailed)
 		}
 	}
 
@@ -255,15 +247,13 @@ func (f *proxyFlow) runParsed(ctx context.Context, parsedCmd *packagemanager.Par
 	)
 	if err != nil {
 		return result, runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
-			runerror.ReasonProxySetupFailed,
-			"PMG could not create the proxy interceptors.")
+			runerror.ReasonProxySetupFailed)
 	}
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
 	if err != nil {
 		return result, runerror.Wrap(fmt.Errorf("failed to start proxy server: %w", err),
-			runerror.ReasonProxySetupFailed,
-			"PMG could not start the proxy listener.")
+			runerror.ReasonProxySetupFailed)
 	}
 
 	// Ensure proxy is stopped on exit

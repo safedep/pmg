@@ -13,7 +13,7 @@ stdout '"event_type":"session_complete"'
 stdout '"outcome":"error"'
 stdout '"source":"pmg"'
 stdout '"reason":"configuration_invalid"'
-stdout '"message":"PMG rejected the proxy configuration\."'
+stdout '"message":"invalid proxy registries:'
 exec sh -c 'grep -h -c session_complete "$PMG_CONFIG_DIR"/logs/*-pmg.log'
 stdout '^1$'
 

@@ -371,7 +371,7 @@ func TestCloudSinkReplaysSessionErrorInfo(t *testing.T) {
 			Outcome:        OutcomeError,
 			ErrorInfo: &runerror.Info{
 				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessExited,
-				Message: "npm exited with code 42.", ExitCode: &exitCode,
+				ExitCode: &exitCode,
 			},
 		},
 	}))

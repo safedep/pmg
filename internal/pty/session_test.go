@@ -177,16 +177,18 @@ func TestPrepareConsoleCapturesOutputBeforeCreation(t *testing.T) {
 
 func TestNewSessionClassifiesSetupAndSpawnFailures(t *testing.T) {
 	tests := []struct {
-		name       string
-		cfg        SessionConfig
-		newConsole func() (ptyx.Console, error)
-		spawn      func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error)
-		wantReason runerror.Reason
+		name        string
+		cfg         SessionConfig
+		newConsole  func() (ptyx.Console, error)
+		spawn       func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error)
+		wantReason  runerror.Reason
+		wantMessage string
 	}{
 		{
-			name:       "invalid configuration",
-			cfg:        SessionConfig{},
-			wantReason: runerror.ReasonExecutionSetupFailed,
+			name:        "invalid configuration",
+			cfg:         SessionConfig{},
+			wantReason:  runerror.ReasonExecutionSetupFailed,
+			wantMessage: "pty session requires command",
 		},
 		{
 			name: "console creation",
@@ -194,7 +196,8 @@ func TestNewSessionClassifiesSetupAndSpawnFailures(t *testing.T) {
 			newConsole: func() (ptyx.Console, error) {
 				return nil, errors.New("private console detail")
 			},
-			wantReason: runerror.ReasonExecutionSetupFailed,
+			wantReason:  runerror.ReasonExecutionSetupFailed,
+			wantMessage: "failed to create console: private console detail",
 		},
 		{
 			name: "raw mode",
@@ -202,7 +205,8 @@ func TestNewSessionClassifiesSetupAndSpawnFailures(t *testing.T) {
 			newConsole: func() (ptyx.Console, error) {
 				return &recordingConsole{events: &[]string{}, rawErr: errors.New("private raw detail")}, nil
 			},
-			wantReason: runerror.ReasonExecutionSetupFailed,
+			wantReason:  runerror.ReasonExecutionSetupFailed,
+			wantMessage: "failed to set raw mode: private raw detail",
 		},
 		{
 			name: "process spawn",
@@ -213,7 +217,8 @@ func TestNewSessionClassifiesSetupAndSpawnFailures(t *testing.T) {
 			spawn: func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error) {
 				return nil, errors.New("private spawn detail")
 			},
-			wantReason: runerror.ReasonProcessLaunchFailed,
+			wantReason:  runerror.ReasonProcessLaunchFailed,
+			wantMessage: "failed to spawn: private spawn detail",
 		},
 	}
 
@@ -227,7 +232,7 @@ func TestNewSessionClassifiesSetupAndSpawnFailures(t *testing.T) {
 			info := runerror.From(err)
 			require.NotNil(t, info)
 			assert.Equal(t, tt.wantReason, info.Reason)
-			assert.NotContains(t, info.Message, "private")
+			assert.Equal(t, tt.wantMessage, info.Message)
 		})
 	}
 }

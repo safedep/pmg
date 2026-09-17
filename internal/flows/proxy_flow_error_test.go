@@ -181,7 +181,7 @@ func TestRunProxyClassifiesParseFailure(t *testing.T) {
 	info := runerror.From(err)
 	require.NotNil(t, info)
 	assert.Equal(t, runerror.ReasonCommandParseFailed, info.Reason)
-	assert.Equal(t, "PMG could not parse the package-manager command.", info.Message)
+	assert.Equal(t, "failed to parse command: private parse detail", info.Message)
 }
 
 func TestRunProxySessionCompletesOnce(t *testing.T) {
@@ -202,20 +202,18 @@ func TestRunProxySessionCompletesOnce(t *testing.T) {
 		},
 		{
 			name: "early error", err: errors.New("unknown failure"),
-			wantOutcome: audit.OutcomeError, wantInfo: true,
+			wantOutcome: audit.OutcomeError,
 		},
 		{
-			name:   "blocked with child error",
-			result: proxyRunResult{outcome: ui.OutcomeBlocked, flow: audit.FlowTypeProxy},
-			err: runerror.Wrap(errors.New("child failed"), runerror.ReasonProcessExited,
-				"npm exited with code 42."),
+			name:        "blocked with child error",
+			result:      proxyRunResult{outcome: ui.OutcomeBlocked, flow: audit.FlowTypeProxy},
+			err:         runerror.Wrap(errors.New("child failed"), runerror.ReasonProcessExited),
 			wantOutcome: audit.OutcomeBlocked, wantInfo: true,
 		},
 		{
-			name:   "user cancelled with child error",
-			result: proxyRunResult{outcome: ui.OutcomeUserCancelled, flow: audit.FlowTypeProxy},
-			err: runerror.Wrap(errors.New("child failed"), runerror.ReasonProcessExited,
-				"npm exited with code 42."),
+			name:        "user cancelled with child error",
+			result:      proxyRunResult{outcome: ui.OutcomeUserCancelled, flow: audit.FlowTypeProxy},
+			err:         runerror.Wrap(errors.New("child failed"), runerror.ReasonProcessExited),
 			wantOutcome: audit.OutcomeUserCancelled, wantInfo: true,
 		},
 	}

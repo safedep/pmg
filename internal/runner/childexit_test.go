@@ -117,7 +117,7 @@ func TestChildExitErrorInfo(t *testing.T) {
 			assert.Equal(t, runerror.SourceChildProcess, info.Source)
 			assert.Equal(t, tt.reason, info.Reason)
 			assert.Equal(t, tt.wantCode, info.ExitCode)
-			assert.NotEmpty(t, info.Message)
+			assert.Empty(t, info.Message)
 		})
 	}
 }
@@ -131,7 +131,7 @@ func TestVisibleExecErrorReportsLaunchFailure(t *testing.T) {
 	require.NotNil(t, info)
 	assert.Equal(t, runerror.SourcePMG, info.Source)
 	assert.Equal(t, runerror.ReasonProcessLaunchFailed, info.Reason)
-	assert.Equal(t, "PMG could not start the package-manager process.", info.Message)
+	assert.Contains(t, info.Message, "private launch detail")
 }
 
 func uint32Pointer(value uint32) *uint32 {

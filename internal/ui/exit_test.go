@@ -60,8 +60,7 @@ func TestClassifyExit(t *testing.T) {
 	t.Run("typed reporting preserves transparent exit", func(t *testing.T) {
 		withVerbosity(t, VerbosityLevelNormal)
 
-		err := runerror.Wrap(&fakeChildExit{code: 42, pmName: "npm"},
-			runerror.ReasonProcessExited, "npm exited with code 42.")
+		err := runerror.Wrap(&fakeChildExit{code: 42, pmName: "npm"}, runerror.ReasonProcessExited)
 		d := classifyExit(err)
 
 		assert.True(t, d.transparent)
@@ -153,9 +152,7 @@ func TestExitFromCommandErrorExitCode(t *testing.T) {
 	})
 
 	t.Run("typed reporting preserves missing package manager exit code", func(t *testing.T) {
-		err := runerror.Wrap(&shim.BinaryNotFoundError{Name: "npm"},
-			runerror.ReasonExecutableNotFound,
-			"PMG could not find the package-manager executable.")
+		err := runerror.Wrap(&shim.BinaryNotFoundError{Name: "npm"}, runerror.ReasonExecutableNotFound)
 
 		var ec exitCoder
 		assert.True(t, errors.As(err, &ec))

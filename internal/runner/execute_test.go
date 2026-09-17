@@ -154,7 +154,7 @@ func TestExecuteWithOptionsReportsDirectPreparationFailure(t *testing.T) {
 	info := runerror.From(err)
 	require.NotNil(t, info)
 	assert.Equal(t, runerror.ReasonExecutionSetupFailed, info.Reason)
-	assert.Equal(t, "PMG could not prepare the process execution environment.", info.Message)
+	assert.Equal(t, "private preparation detail", info.Message)
 }
 
 type stubDiagnosticsSandbox struct {

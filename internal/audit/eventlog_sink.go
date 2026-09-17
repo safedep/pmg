@@ -45,9 +45,11 @@ func sessionDataToDetails(sd *SessionData) map[string]interface{} {
 	}
 	if sd.ErrorInfo != nil {
 		errorInfo := map[string]interface{}{
-			"source":  sd.ErrorInfo.Source.String(),
-			"reason":  sd.ErrorInfo.Reason.String(),
-			"message": sd.ErrorInfo.Message,
+			"source": sd.ErrorInfo.Source.String(),
+			"reason": sd.ErrorInfo.Reason.String(),
+		}
+		if sd.ErrorInfo.Message != "" {
+			errorInfo["message"] = sd.ErrorInfo.Message
 		}
 		if sd.ErrorInfo.ExitCode != nil {
 			errorInfo["exit_code"] = *sd.ErrorInfo.ExitCode

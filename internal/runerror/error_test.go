@@ -12,33 +12,26 @@ import (
 )
 
 func TestWrapNil(t *testing.T) {
-	assert.NoError(t, Wrap(nil, ReasonProxySetupFailed, "PMG could not start the proxy."))
+	assert.NoError(t, Wrap(nil, ReasonProxySetupFailed))
 	assert.Nil(t, From(nil))
 }
 
 func TestWrapPreservesCauseAndInfo(t *testing.T) {
 	cause := errors.New("private transport detail")
-	inner := Wrap(cause, ReasonProxySetupFailed, "PMG could not start the proxy.")
-	outer := Wrap(fmt.Errorf("run failed: %w", inner),
-		ReasonExecutionSetupFailed, "PMG could not prepare execution.")
+	inner := Wrap(cause, ReasonProxySetupFailed)
+	outer := Wrap(fmt.Errorf("run failed: %w", inner), ReasonExecutionSetupFailed)
 
 	require.ErrorIs(t, outer, cause)
 	info := From(outer)
 	require.NotNil(t, info)
 	assert.Equal(t, ReasonProxySetupFailed, info.Reason)
 	assert.Equal(t, SourcePMG, info.Source)
-	assert.Equal(t, "PMG could not start the proxy.", info.Message)
-	assert.NotContains(t, info.Message, "private transport detail")
+	assert.Equal(t, "private transport detail", info.Message)
 }
 
-func TestFromOrdinaryErrorReturnsUnspecifiedInfo(t *testing.T) {
+func TestFromOrdinaryErrorReturnsNil(t *testing.T) {
 	info := From(errors.New("private detail"))
-
-	require.NotNil(t, info)
-	assert.Equal(t, SourceUnspecified, info.Source)
-	assert.Equal(t, ReasonUnspecified, info.Reason)
-	assert.Equal(t, "PMG could not complete this command. Error details are unavailable.", info.Message)
-	assert.Nil(t, info.ExitCode)
+	assert.Nil(t, info)
 }
 
 func TestFromCopiesReporterInfo(t *testing.T) {
@@ -46,7 +39,6 @@ func TestFromCopiesReporterInfo(t *testing.T) {
 	err := stubReporter{info: Info{
 		Source:   SourcePMG,
 		Reason:   ReasonProcessExited,
-		Message:  "npm exited with code 42.",
 		ExitCode: &exitCode,
 	}}
 
@@ -62,14 +54,20 @@ func TestFromCopiesReporterInfo(t *testing.T) {
 	assert.Equal(t, uint32(42), *second.ExitCode)
 }
 
-func TestWrapBoundsMessage(t *testing.T) {
-	err := Wrap(errors.New("cause"), ReasonProxySetupFailed,
-		strings.Repeat("a", 1023)+"\xfftail")
+func TestWrapBoundsErrorMessage(t *testing.T) {
+	err := Wrap(errors.New(strings.Repeat("a", 1023)+"\xfftail"), ReasonProxySetupFailed)
 
 	info := From(err)
 	require.NotNil(t, info)
 	assert.True(t, utf8.ValidString(info.Message))
 	assert.LessOrEqual(t, len(info.Message), 1024)
+}
+
+func TestWrapOmitsChildProcessMessage(t *testing.T) {
+	info := From(Wrap(errors.New("npm exited with code 42"), ReasonProcessExited))
+
+	require.NotNil(t, info)
+	assert.Empty(t, info.Message)
 }
 
 func TestSourceForReason(t *testing.T) {

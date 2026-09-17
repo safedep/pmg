@@ -186,8 +186,7 @@ func TestConvertToUsefulErrorPreservesUsefulErrorThroughReporting(t *testing.T) 
 		WithCode(errcodes.PackageManagerExecutionFailed).
 		WithHumanError("Failed to execute package manager command").
 		Wrap(errors.New("private launch detail"))
-	err := runerror.Wrap(usefulErr, runerror.ReasonProcessLaunchFailed,
-		"PMG could not start the package-manager process.")
+	err := runerror.Wrap(usefulErr, runerror.ReasonProcessLaunchFailed)
 
 	got := convertToUsefulError(err)
 	assert.Equal(t, errcodes.PackageManagerExecutionFailed, got.Code())

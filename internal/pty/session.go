@@ -127,16 +127,14 @@ func newSession(
 	spawn func(context.Context, ptyx.SpawnOpts) (ptyx.Session, error),
 ) (InteractiveSession, error) {
 	if err := cfg.validate(); err != nil {
-		return nil, runerror.Wrap(err, runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the interactive process session.")
+		return nil, runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 1. Create console
 	c, restoreOutput, err := prepareConsole(captureOutputMode, createConsole)
 	if err != nil {
 		return nil, runerror.Wrap(fmt.Errorf("failed to create console: %w", err),
-			runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the interactive process session.")
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 2. Set raw mode, save old state
@@ -149,8 +147,7 @@ func newSession(
 			log.Warnf("failed to close console after MakeRaw error: %v", closeErr)
 		}
 		return nil, runerror.Wrap(fmt.Errorf("failed to set raw mode: %w", err),
-			runerror.ReasonExecutionSetupFailed,
-			"PMG could not prepare the interactive process session.")
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 3. Get terminal size
@@ -171,8 +168,7 @@ func newSession(
 		}
 
 		return nil, runerror.Wrap(fmt.Errorf("failed to spawn: %w", err),
-			runerror.ReasonProcessLaunchFailed,
-			"PMG could not start the package-manager process.")
+			runerror.ReasonProcessLaunchFailed)
 	}
 
 	sess := &session{

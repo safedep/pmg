@@ -343,7 +343,7 @@ func TestTranslateSessionErrorInfo(t *testing.T) {
 			name: "PMG setup failure",
 			info: &runerror.Info{
 				Source: runerror.SourcePMG, Reason: runerror.ReasonProxySetupFailed,
-				Message: "PMG could not start the proxy.",
+				Message: "listen tcp 127.0.0.1:3000: address already in use",
 			},
 			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_PMG,
 			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROXY_SETUP_FAILED,
@@ -352,7 +352,7 @@ func TestTranslateSessionErrorInfo(t *testing.T) {
 			name: "child exit",
 			info: &runerror.Info{
 				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessExited,
-				Message: "npm exited with code 42.", ExitCode: &code42,
+				ExitCode: &code42,
 			},
 			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS,
 			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED,
@@ -362,7 +362,7 @@ func TestTranslateSessionErrorInfo(t *testing.T) {
 			name: "signal exit",
 			info: &runerror.Info{
 				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessSignaled,
-				Message: "The child process terminated after a signal.", ExitCode: &code130,
+				ExitCode: &code130,
 			},
 			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS,
 			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_SIGNALED,
@@ -372,15 +372,15 @@ func TestTranslateSessionErrorInfo(t *testing.T) {
 			name: "present zero",
 			info: &runerror.Info{
 				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessExited,
-				Message: "child exited with code 0.", ExitCode: &zero,
+				ExitCode: &zero,
 			},
 			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS,
 			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED,
 			wantCode:   &zero,
 		},
 		{
-			name:       "unspecified fallback",
-			info:       &runerror.Info{Message: "Error details are unavailable."},
+			name:       "explicit unspecified",
+			info:       &runerror.Info{},
 			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_UNSPECIFIED,
 			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_UNSPECIFIED,
 		},
