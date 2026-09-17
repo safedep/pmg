@@ -117,10 +117,10 @@
       <RemoveExistingProducts Sequence="6525" />
       <Custom Action="SetupRemove" Sequence="3498">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="CleanOld" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <!-- $PmgExe=3: only when InstallFiles is about to write pmg.exe. A
+      <!-- $PmgExe=3 (written $$ for the wixl preprocessor): only when InstallFiles is about to write pmg.exe. A
            maintenance run that copies nothing must not move the file away. -->
-      <Custom Action="MoveAsideRollback" Sequence="3998">$PmgExe=3</Custom>
-      <Custom Action="MoveAside" Sequence="3999">$PmgExe=3</Custom>
+      <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
+      <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
       <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED</Custom>
       <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
     </InstallExecuteSequence>
