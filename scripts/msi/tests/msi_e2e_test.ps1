@@ -128,6 +128,7 @@ function Assert-NoShims {
 # image. Windows deletes the locked binary at the next restart.
 function Assert-MsiUnregistered {
   Assert-PathAbsent $GlobalConfig
+  Assert-Equal 0 @(Get-ChildItem -Path "$GlobalConfigDir\config.yml.rollback*" -ErrorAction SilentlyContinue).Count 'managed config copies after the uninstall'
   Assert-NoShims
   Assert-Equal 0 @(Get-ProductEntry).Count 'pmg entries in Apps & Features'
 }

@@ -91,6 +91,9 @@
          transaction moved and no other. A backup a running process still
          holds keeps its name until the next upgrade or the uninstall. -->
     <CustomAction Id="SetBackupPath" Property="BackupPath" Value="[ProductDir]pmg.exe.old.[ProductCode]" />
+    <!-- The managed config, at the path pmg resolves on Windows. -->
+    <CustomAction Id="SetConfigPath" Property="ConfigPath" Value="[CommonAppDataFolder]safedep\pmg\config.yml" />
+    <CustomAction Id="SetConfigBackup" Property="ConfigBackup" Value="[CommonAppDataFolder]safedep\pmg\config.yml.rollback.[ProductCode]" />
     <CustomAction Id="SetShimEntryAlone" Property="ShimEntryAlone" Value="[ProductDir]bin" />
     <CustomAction Id="SetShimEntryAloneExpand" Property="ShimEntryAloneExpand" Value="#%[ProductDir]bin" />
     <CustomAction Id="SetShimEntryFirst" Property="ShimEntryFirst" Value="[ProductDir]bin;" />
@@ -136,6 +139,26 @@
          restored the previous pmg.exe. -->
     <CustomAction Id="SetupInstallRollback" FileKey="PmgExe" ExeCommand="setup remove --system"
                   Execute="rollback" Impersonate="no" Return="ignore" />
+    <!-- An uninstall that Windows Installer rolls back, after a cancel or a
+         later failure, brings the binary and the registration back. These
+         three actions bring the protection back too. BackupConfig moves the
+         managed config aside, so its descriptor survives. On rollback,
+         ReinstallOnRollback runs the system install again, with the binary
+         Windows Installer has restored, and RestoreConfig moves the original
+         config back over the template. On success CleanConfigBackup deletes
+         the copy. -->
+    <CustomAction Id="BackupConfig" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ConfigPath]&quot; move /y &quot;[ConfigPath]&quot; &quot;[ConfigBackup]&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RestoreConfig" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ConfigBackup]&quot; move /y &quot;[ConfigBackup]&quot; &quot;[ConfigPath]&quot;"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="ReinstallOnRollback" FileKey="PmgExe" ExeCommand="setup install --system"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CleanConfigBackup" Property="CmdExe"
+                  ExeCommand="/c del /f /q &quot;[ConfigBackup]&quot;"
+                  Execute="commit" Impersonate="no" Return="ignore" />
+
     <!-- Return="ignore" so an uninstall always completes, also when pmg.exe
          is already gone. RemoveShims then deletes the shim directory whether
          or not pmg could. Shims that outlive their binary break every
@@ -159,6 +182,8 @@
     <InstallExecuteSequence>
       <Custom Action="SetCmdExe" Sequence="1001" />
       <Custom Action="SetBackupPath" Sequence="1002" />
+      <Custom Action="SetConfigPath" Sequence="1015" />
+      <Custom Action="SetConfigBackup" Sequence="1016" />
       <Custom Action="SetShimEntryAlone" Sequence="1003" />
       <Custom Action="SetShimEntryAloneExpand" Sequence="1004" />
       <Custom Action="SetShimEntryFirst" Sequence="1005" />
@@ -182,9 +207,16 @@
            one feature is the product, so removing it by name is an
            uninstall too. -->
       <RemoveExistingProducts Sequence="6525" />
+      <!-- Rollback runs the script in reverse. RestoreConfig sits before
+           ReinstallOnRollback so that the reinstall runs first and the
+           original config then lands over its template. -->
+      <Custom Action="RestoreConfig" Sequence="3494">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="BackupConfig" Sequence="3495">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="ReinstallOnRollback" Sequence="3496">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="SetupRemove" Sequence="3497">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="RemoveShims" Sequence="3498">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="CleanOld" Sequence="3499">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="CleanConfigBackup" Sequence="3501">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
       <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
       <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~= ShimEntryAlone OR MachinePath ~= ShimEntryAloneExpand OR MachinePath ~&lt;&lt; ShimEntryFirst OR MachinePath ~&lt;&lt; ShimEntryFirstExpand OR MachinePath ~&gt;&lt; ShimEntryMiddle OR MachinePath ~&gt;&gt; ShimEntryLast OR MachinePath ~= ShimEntryAloneSlash OR MachinePath ~= ShimEntryAloneExpandSlash OR MachinePath ~&lt;&lt; ShimEntryFirstSlash OR MachinePath ~&lt;&lt; ShimEntryFirstExpandSlash OR MachinePath ~&gt;&lt; ShimEntryMiddleSlash OR MachinePath ~&gt;&gt; ShimEntryLastSlash)</Custom>
