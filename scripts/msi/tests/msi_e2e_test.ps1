@@ -260,6 +260,17 @@ try {
   Write-Step "installing $env:PMG_MSI over the system install"
   Invoke-Msiexec -ArgumentList @('/i', $env:PMG_MSI) -Log "$TestRoot\install.log"
   Assert-MsiInstalled -Version $env:PMG_MSI_VERSION -Backups 0
+
+  Write-Step 'an uninstall with the binary already gone still removes the shims'
+  Remove-Item -LiteralPath $PmgExe -Force
+  Invoke-Msiexec -ArgumentList @('/x', $env:PMG_MSI) -Log "$TestRoot\uninstall-no-binary.log"
+  Assert-PathAbsent "$ProductDir\bin"
+  Assert-Equal 0 @(Get-ProductEntry).Count 'pmg entries in Apps & Features after an uninstall without the binary'
+  Remove-Item -LiteralPath "$env:ProgramData\safedep" -Recurse -Force -ErrorAction SilentlyContinue
+
+  Write-Step "installing $env:PMG_MSI"
+  Invoke-Msiexec -ArgumentList @('/i', $env:PMG_MSI) -Log "$TestRoot\install-again.log"
+  Assert-MsiInstalled -Version $env:PMG_MSI_VERSION -Backups 0
   $installed = $env:PMG_MSI
 
   if ($env:PMG_MSI_UPGRADE) {

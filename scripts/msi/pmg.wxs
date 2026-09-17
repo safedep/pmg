@@ -43,9 +43,12 @@
 
     <!-- The machine PATH tells whether a system install made without this
          MSI, by the MDM script or by hand, protects the machine already. Its
-         shim directory is on the PATH. The condition below matches a whole
-         entry, with a leading backslash and a following separator or the end
-         of the value, not a substring of some other directory. -->
+         shim directory is on the PATH. MSI conditions cannot split the value
+         or join strings, so SetShimEntry* below build the exact entry in
+         each position it can take: alone, first, in the middle, last. A raw
+         REG_EXPAND_SZ value starts with #%, so the alone and first forms
+         come with and without that prefix. pmg writes the entry without a
+         trailing backslash. -->
     <Property Id="MachinePath">
       <RegistrySearch Id="MachinePath" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="Path" Type="raw" Win64="yes" />
     </Property>
@@ -87,6 +90,12 @@
          transaction moved and no other. A backup a running process still
          holds keeps its name until the next upgrade or the uninstall. -->
     <CustomAction Id="SetBackupPath" Property="BackupPath" Value="[ProductDir]pmg.exe.old.[ProductCode]" />
+    <CustomAction Id="SetShimEntryAlone" Property="ShimEntryAlone" Value="[ProductDir]bin" />
+    <CustomAction Id="SetShimEntryAloneExpand" Property="ShimEntryAloneExpand" Value="#%[ProductDir]bin" />
+    <CustomAction Id="SetShimEntryFirst" Property="ShimEntryFirst" Value="[ProductDir]bin;" />
+    <CustomAction Id="SetShimEntryFirstExpand" Property="ShimEntryFirstExpand" Value="#%[ProductDir]bin;" />
+    <CustomAction Id="SetShimEntryMiddle" Property="ShimEntryMiddle" Value=";[ProductDir]bin;" />
+    <CustomAction Id="SetShimEntryLast" Property="ShimEntryLast" Value=";[ProductDir]bin" />
 
     <!-- A backup of the same name from an earlier run of this same product
          goes first. When a process still holds it, the move fails and so
@@ -120,11 +129,16 @@
          restored the previous pmg.exe. -->
     <CustomAction Id="SetupInstallRollback" FileKey="PmgExe" ExeCommand="setup remove --system"
                   Execute="rollback" Impersonate="no" Return="ignore" />
-    <!-- Return="check": when the shims cannot go, the uninstall fails and
-         the binary stays. Shims that outlive their binary break every
-         package manager on the machine for every user. -->
+    <!-- Return="ignore" so an uninstall always completes, also when pmg.exe
+         is already gone. RemoveShims then deletes the shim directory whether
+         or not pmg could. Shims that outlive their binary break every
+         package manager on the machine for every user. The PATH entry that
+         names the missing directory is inert. -->
     <CustomAction Id="SetupRemove" FileKey="PmgExe" ExeCommand="setup remove --system --config-file"
-                  Execute="deferred" Impersonate="no" Return="check" />
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveShims" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ProductDir]bin&quot; rd /s /q &quot;[ProductDir]bin&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
 
     <!-- Explicit sequence numbers: wixl resolves Before and After against
          its own action list and put a deferred action ahead of
@@ -138,6 +152,12 @@
     <InstallExecuteSequence>
       <Custom Action="SetCmdExe" Sequence="1001" />
       <Custom Action="SetBackupPath" Sequence="1002" />
+      <Custom Action="SetShimEntryAlone" Sequence="1003" />
+      <Custom Action="SetShimEntryAloneExpand" Sequence="1004" />
+      <Custom Action="SetShimEntryFirst" Sequence="1005" />
+      <Custom Action="SetShimEntryFirstExpand" Sequence="1006" />
+      <Custom Action="SetShimEntryMiddle" Sequence="1007" />
+      <Custom Action="SetShimEntryLast" Sequence="1008" />
       <CreateFolders />
       <RemoveFolders />
       <InstallExecute />
@@ -149,11 +169,12 @@
            one feature is the product, so removing it by name is an
            uninstall too. -->
       <RemoveExistingProducts Sequence="6525" />
-      <Custom Action="SetupRemove" Sequence="3498">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="SetupRemove" Sequence="3497">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="RemoveShims" Sequence="3498">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="CleanOld" Sequence="3499">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
       <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
-      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~&gt;&lt; "\safedep\pmg\bin;" OR MachinePath ~&gt;&gt; "\safedep\pmg\bin" OR MachinePath ~&gt;&lt; "\safedep\pmg\bin\;" OR MachinePath ~&gt;&gt; "\safedep\pmg\bin\")</Custom>
+      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~= ShimEntryAlone OR MachinePath ~= ShimEntryAloneExpand OR MachinePath ~&lt;&lt; ShimEntryFirst OR MachinePath ~&lt;&lt; ShimEntryFirstExpand OR MachinePath ~&gt;&lt; ShimEntryMiddle OR MachinePath ~&gt;&gt; ShimEntryLast)</Custom>
       <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
       <Custom Action="CleanStale" Sequence="4003">$$PmgExe=3</Custom>
     </InstallExecuteSequence>
