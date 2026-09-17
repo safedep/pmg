@@ -48,7 +48,8 @@
          each position it can take: alone, first, in the middle, last. A raw
          REG_EXPAND_SZ value starts with #%, so the alone and first forms
          come with and without that prefix. pmg writes the entry without a
-         trailing backslash. -->
+         trailing backslash, and a hand-edited entry may carry one, so each
+         form comes in both spellings. -->
     <Property Id="MachinePath">
       <RegistrySearch Id="MachinePath" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="Path" Type="raw" Win64="yes" />
     </Property>
@@ -96,6 +97,12 @@
     <CustomAction Id="SetShimEntryFirstExpand" Property="ShimEntryFirstExpand" Value="#%[ProductDir]bin;" />
     <CustomAction Id="SetShimEntryMiddle" Property="ShimEntryMiddle" Value=";[ProductDir]bin;" />
     <CustomAction Id="SetShimEntryLast" Property="ShimEntryLast" Value=";[ProductDir]bin" />
+    <CustomAction Id="SetShimEntryAloneSlash" Property="ShimEntryAloneSlash" Value="[ProductDir]bin\" />
+    <CustomAction Id="SetShimEntryAloneExpandSlash" Property="ShimEntryAloneExpandSlash" Value="#%[ProductDir]bin\" />
+    <CustomAction Id="SetShimEntryFirstSlash" Property="ShimEntryFirstSlash" Value="[ProductDir]bin\;" />
+    <CustomAction Id="SetShimEntryFirstExpandSlash" Property="ShimEntryFirstExpandSlash" Value="#%[ProductDir]bin\;" />
+    <CustomAction Id="SetShimEntryMiddleSlash" Property="ShimEntryMiddleSlash" Value=";[ProductDir]bin\;" />
+    <CustomAction Id="SetShimEntryLastSlash" Property="ShimEntryLastSlash" Value=";[ProductDir]bin\" />
 
     <!-- A backup of the same name from an earlier run of this same product
          goes first. When a process still holds it, the move fails and so
@@ -158,6 +165,12 @@
       <Custom Action="SetShimEntryFirstExpand" Sequence="1006" />
       <Custom Action="SetShimEntryMiddle" Sequence="1007" />
       <Custom Action="SetShimEntryLast" Sequence="1008" />
+      <Custom Action="SetShimEntryAloneSlash" Sequence="1009" />
+      <Custom Action="SetShimEntryAloneExpandSlash" Sequence="1010" />
+      <Custom Action="SetShimEntryFirstSlash" Sequence="1011" />
+      <Custom Action="SetShimEntryFirstExpandSlash" Sequence="1012" />
+      <Custom Action="SetShimEntryMiddleSlash" Sequence="1013" />
+      <Custom Action="SetShimEntryLastSlash" Sequence="1014" />
       <CreateFolders />
       <RemoveFolders />
       <InstallExecute />
@@ -174,7 +187,7 @@
       <Custom Action="CleanOld" Sequence="3499">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
       <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
-      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~= ShimEntryAlone OR MachinePath ~= ShimEntryAloneExpand OR MachinePath ~&lt;&lt; ShimEntryFirst OR MachinePath ~&lt;&lt; ShimEntryFirstExpand OR MachinePath ~&gt;&lt; ShimEntryMiddle OR MachinePath ~&gt;&gt; ShimEntryLast)</Custom>
+      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~= ShimEntryAlone OR MachinePath ~= ShimEntryAloneExpand OR MachinePath ~&lt;&lt; ShimEntryFirst OR MachinePath ~&lt;&lt; ShimEntryFirstExpand OR MachinePath ~&gt;&lt; ShimEntryMiddle OR MachinePath ~&gt;&gt; ShimEntryLast OR MachinePath ~= ShimEntryAloneSlash OR MachinePath ~= ShimEntryAloneExpandSlash OR MachinePath ~&lt;&lt; ShimEntryFirstSlash OR MachinePath ~&lt;&lt; ShimEntryFirstExpandSlash OR MachinePath ~&gt;&lt; ShimEntryMiddleSlash OR MachinePath ~&gt;&gt; ShimEntryLastSlash)</Custom>
       <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
       <Custom Action="CleanStale" Sequence="4003">$$PmgExe=3</Custom>
     </InstallExecuteSequence>

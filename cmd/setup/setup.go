@@ -43,10 +43,12 @@ func NewInstallCommand() *cobra.Command {
 		Short:        "Setup PMG config, aliases, and shims for package managers (npm, pnpm, pip, and more)",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// The Windows installer runs this as SYSTEM inside its transaction.
-			// A detached sync child would hold the binary the installer may
-			// still roll back.
-			audit.SuppressBackgroundSync()
+			// The Windows installer runs the system install as SYSTEM inside
+			// its transaction. A detached sync child would hold the binary the
+			// installer may still roll back.
+			if system {
+				audit.SuppressBackgroundSync()
+			}
 			fmt.Print(ui.GeneratePMGBanner(version.Version, version.Commit))
 			return install(system)
 		},
