@@ -157,7 +157,7 @@ jobs:
           for suffix in upgrade upgrade2; do
             mkdir -p "dist/msi-$suffix"
             go build -ldflags "-s -w -X github.com/safedep/pmg/internal/version.Version=${version}-${suffix}" -o "dist/msi-$suffix/pmg.exe" .
-            scripts/msi/build.sh windows "dist/msi-$suffix/pmg.exe" "$version" "dist/msi-$suffix/pmg_Windows_x86_64.msi"
+            scripts/msi/build.sh windows amd64 "dist/msi-$suffix/pmg.exe" "$version" "dist/msi-$suffix/pmg_Windows_x86_64.msi"
           done
           echo "version=$version" >> "$GITHUB_OUTPUT"
 

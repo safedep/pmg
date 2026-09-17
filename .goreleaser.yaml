@@ -25,7 +25,7 @@ builds:
       post:
         # The Windows installer. goreleaser runs the hook for every target
         # and the script does nothing for the others. It needs wixl.
-        - scripts/msi/build.sh {{ .Os }} {{ .Path }} {{ .Version }} dist/pmg_Windows_x86_64.msi
+        - scripts/msi/build.sh {{ .Os }} {{ .Arch }} {{ .Path }} {{ .Version }} dist/pmg_Windows_x86_64.msi
 
 archives:
   - formats: [tar.gz]

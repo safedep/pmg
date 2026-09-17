@@ -4,7 +4,7 @@
 # goreleaser runs this as a post-build hook for every target and passes the
 # target OS first. The script does nothing for a non-Windows target.
 #
-# Usage: build.sh <goos> <pmg.exe> <version> <output.msi>
+# Usage: build.sh <goos> <goarch> <pmg.exe> <version> <output.msi>
 #
 # <version> is the release version without the v, for example 1.4.2 or
 # 1.4.2-edge.3. MSI ProductVersion takes numbers only, so the prerelease part
@@ -14,12 +14,20 @@
 set -euo pipefail
 
 goos=$1
-pmg_exe=$2
-version=$3
-output=$4
+goarch=$2
+pmg_exe=$3
+version=$4
+output=$5
 
 if [[ "$goos" != windows ]]; then
   exit 0
+fi
+
+# The MSI is an x64 package with one fixed output name. A second Windows
+# architecture needs its own package, not a silent overwrite of this one.
+if [[ "$goarch" != amd64 ]]; then
+  echo "Error: the MSI is built for windows/amd64 only, got windows/$goarch" >&2
+  exit 1
 fi
 
 if ! command -v wixl > /dev/null; then

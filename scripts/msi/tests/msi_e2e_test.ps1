@@ -12,9 +12,9 @@
 # after it has written the shims. A first install that fails this way must
 # leave no shims and no PATH entry behind. The same failure over a system
 # install made by hand must leave that install working. A failed upgrade
-# must leave the previous install in place. Each upgrade runs while a
-# pmg.exe process of every earlier build still holds its image, so the
-# move-aside path and its per-product backups are exercised too.
+# must leave the previous install in place. Each upgrade, and the uninstall,
+# runs while a pmg.exe process of every earlier build still holds its image,
+# so the move-aside path and its per-product backups are exercised too.
 $ErrorActionPreference = 'Stop'
 
 if ($env:CI -ne 'true') {
@@ -124,12 +124,18 @@ function Assert-NoShims {
   if (Get-MachinePathEntry | Where-Object { $_ -ieq "$ProductDir\bin" }) { Stop-OnFailure 'the shim directory is still on the machine PATH' }
 }
 
-function Assert-MsiUninstalled {
-  Assert-PathAbsent $ProductDir
-  Assert-PathAbsent "$env:ProgramFiles\safedep"
+# Everything the uninstall removes even while a pmg.exe process holds its
+# image. Windows deletes the locked binary at the next restart.
+function Assert-MsiUnregistered {
   Assert-PathAbsent $GlobalConfig
   Assert-NoShims
   Assert-Equal 0 @(Get-ProductEntry).Count 'pmg entries in Apps & Features'
+}
+
+function Assert-MsiUninstalled {
+  Assert-MsiUnregistered
+  Assert-PathAbsent $ProductDir
+  Assert-PathAbsent "$env:ProgramFiles\safedep"
 }
 
 # A managed config that pmg did not write. `pmg setup install --system`
@@ -270,11 +276,17 @@ try {
     $installed = $env:PMG_MSI_UPGRADE2
   }
 
-  Stop-Proxies
-
   Write-Step "uninstalling $installed"
-  Invoke-Msiexec -ArgumentList @('/x', $installed) -Log "$TestRoot\uninstall.log"
-  Assert-MsiUninstalled
+  if ($Proxies) {
+    Invoke-Msiexec -ArgumentList @('/x', $installed) -Log "$TestRoot\uninstall.log" -ExpectedExitCode @(0, $RebootRequired)
+    Assert-MsiUnregistered
+    Assert-PathPresent $PmgExe
+    Stop-Proxies
+    Remove-Item -LiteralPath "$env:ProgramFiles\safedep" -Recurse -Force
+  } else {
+    Invoke-Msiexec -ArgumentList @('/x', $installed) -Log "$TestRoot\uninstall.log"
+    Assert-MsiUninstalled
+  }
   Write-Host 'PASS: MSI install, install over a system install, upgrades under running processes, their failures, and uninstall'
 } finally {
   Invoke-Cleanup

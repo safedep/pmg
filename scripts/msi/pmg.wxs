@@ -120,9 +120,11 @@
          restored the previous pmg.exe. -->
     <CustomAction Id="SetupInstallRollback" FileKey="PmgExe" ExeCommand="setup remove --system"
                   Execute="rollback" Impersonate="no" Return="ignore" />
-    <!-- Return="ignore" so an uninstall always completes. -->
+    <!-- Return="check": when the shims cannot go, the uninstall fails and
+         the binary stays. Shims that outlive their binary break every
+         package manager on the machine for every user. -->
     <CustomAction Id="SetupRemove" FileKey="PmgExe" ExeCommand="setup remove --system --config-file"
-                  Execute="deferred" Impersonate="no" Return="ignore" />
+                  Execute="deferred" Impersonate="no" Return="check" />
 
     <!-- Explicit sequence numbers: wixl resolves Before and After against
          its own action list and put a deferred action ahead of
@@ -143,10 +145,12 @@
            after the new install has run. A failed upgrade then leaves the old
            product registered, with its binary restored by the rollback. The
            old product keeps its shims and managed config for the new build,
-           so its own SetupRemove is skipped. -->
+           so its own SetupRemove is skipped. REMOVE, not REMOVE="ALL": the
+           one feature is the product, so removing it by name is an
+           uninstall too. -->
       <RemoveExistingProducts Sequence="6525" />
-      <Custom Action="SetupRemove" Sequence="3498">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <Custom Action="CleanOld" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="SetupRemove" Sequence="3498">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="CleanOld" Sequence="3499">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
       <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
       <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~&gt;&lt; "\safedep\pmg\bin;" OR MachinePath ~&gt;&gt; "\safedep\pmg\bin" OR MachinePath ~&gt;&lt; "\safedep\pmg\bin\;" OR MachinePath ~&gt;&gt; "\safedep\pmg\bin\")</Custom>
