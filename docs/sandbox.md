@@ -459,7 +459,8 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 <summary>Linux (Landlock, default)</summary>
 
 **Default sandbox on kernel 5.13+**: Landlock provides kernel-native filesystem access control
-without requiring external binaries or unprivileged user namespaces.
+without external binaries. The driver always creates a user namespace, so a non-root caller
+needs unprivileged user namespaces.
 
 For the architecture, design tradeoffs, and known limitations see
 [sandbox-landlock.md](./sandbox-landlock.md).
@@ -476,11 +477,13 @@ this in a two-stage architecture so enforcement applies to direct targets AND ev
 descendant (grandchildren, great-grandchildren, etc.):
 
 1. The helper process (`pmg __landlock_sandbox_exec`) clones a tiny shim
-   (`pmg __landlock_shim`) with `CLONE_NEWUSER` and an identity uid/gid map. The shim
-   created the namespace, so it holds full capabilities in it until `execve`. That is what
-   the PID, IPC and mount namespaces need.
-2. The shim applies Landlock, installs the seccomp-notify filter, and `execve`s the real
-   target. The target is not uid 0 in the namespace, so it drops every capability.
+   (`pmg __landlock_shim`) with `CLONE_NEWUSER` and an identity uid/gid map. The same
+   `clone()` creates the PID, IPC and mount namespaces, which need `CAP_SYS_ADMIN` in the
+   new user namespace.
+2. The shim applies Landlock, sets `PR_SET_NO_NEW_PRIVS`, installs the seccomp-notify
+   filter, and `execve`s the real target. The target runs as the caller with no
+   capability. A root caller stays uid 0 in the namespace, so a root shim also sets
+   `SECBIT_NOROOT` and empties the capability bounding set before `execve`.
 3. The helper opens `/proc/<pid>/mem` as a same-uid ancestor. The kernel allows that while
    the task is dumpable, and a plain `execve` keeps `dumpable=1`. Deny rules like `~/.ssh`
    are enforced for the full process tree.
@@ -753,7 +756,7 @@ one: it re-executes pmg inside a user namespace to install its seccomp filter. W
 active, sandboxed commands fail with:
 
 ```
-Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): permission denied
+Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER: permission denied
 ```
 
 `pmg sandbox doctor` flags this as the "AppArmor user namespaces" check.

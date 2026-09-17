@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -49,6 +50,10 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	_ = unix.Close(notifyFd)
 	_ = unix.Close(notifySocketFd)
 
+	if err := shimDropCapabilities(); err != nil {
+		return fmt.Errorf("shim: drop capabilities: %w", err)
+	}
+
 	target := args[0]
 	env := os.Environ()
 	if len(policy.Env) > 0 {
@@ -60,10 +65,12 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	return nil // unreachable
 }
 
-// shimInstallSeccomp does not set PR_SET_NO_NEW_PRIVS. Landlock has set it
-// already. On a kernel without Landlock the install needs CAP_SYS_ADMIN in
-// the user namespace, which the shim holds until execve.
+// shimInstallSeccomp sets PR_SET_NO_NEW_PRIVS itself. Landlock sets it too,
+// but the install must not depend on that or on any capability.
 func shimInstallSeccomp(syscalls []uint32) (int, error) {
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		return -1, fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)
+	}
 	prog := landlockBuildNotifyFilter(syscalls...)
 
 	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
@@ -75,9 +82,38 @@ func shimInstallSeccomp(syscalls []uint32) (int, error) {
 	)
 	runtime.KeepAlive(prog)
 	if errno != 0 {
-		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): %w", errno)
+		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER: %w", errno)
 	}
 	return int(fd), nil
+}
+
+const (
+	secbitNoRoot       = 1 << 0
+	secbitNoRootLocked = 1 << 1
+)
+
+// shimDropCapabilities makes execve grant no capability to the target. A
+// non-root shim already has none, because Go exec'd the shim binary as the
+// caller, and NNP stops execve from adding any. A root caller stays uid 0
+// through the identity map, and execve would give uid 0 the full set.
+// SECBIT_NOROOT removes that special case. An empty bounding set removes
+// file capabilities.
+func shimDropCapabilities() error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	if err := unix.Prctl(unix.PR_SET_SECUREBITS, secbitNoRoot|secbitNoRootLocked, 0, 0, 0); err != nil {
+		return fmt.Errorf("prctl PR_SET_SECUREBITS: %w", err)
+	}
+	for c := uintptr(0); ; c++ {
+		err := unix.Prctl(unix.PR_CAPBSET_DROP, c, 0, 0, 0)
+		if errors.Is(err, unix.EINVAL) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("prctl PR_CAPBSET_DROP %d: %w", c, err)
+		}
+	}
 }
 
 // shimMmsghdr matches the kernel's `struct mmsghdr` (x/sys/unix does not

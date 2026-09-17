@@ -103,11 +103,10 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.ExtraFiles = []*os.File{shimSockFile}
 
-	// The shim creates the user namespace, so it holds all capabilities in
-	// it until execve. That is what the PID, IPC and mount namespaces need.
-	// The identity map keeps the target as the caller. The target is not
-	// uid 0 in the namespace, so execve removes every capability. A 0->uid
-	// map would give the whole target tree uid 0 with CAP_SYS_ADMIN.
+	// One clone creates the user namespace and the PID, IPC and mount
+	// namespaces, so the capability check for those passes. The identity
+	// map keeps the target as the caller with no capabilities. A 0->uid map
+	// would give the whole target tree uid 0 with CAP_SYS_ADMIN.
 	uid := os.Getuid()
 	gid := os.Getgid()
 	cmd.SysProcAttr = &syscall.SysProcAttr{

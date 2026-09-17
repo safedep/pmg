@@ -26,9 +26,10 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
                                   │
                                   ▼
                            pmg __landlock_shim              [single-threaded,
-                            ├ apply Landlock (sets NNP)      full caps in ns
-                            ├ install seccomp                until execve]
-                            ├ send notify_fd via SCM_RIGHTS
+                            ├ apply Landlock (sets NNP)      caller uid,
+                            ├ install seccomp                no caps unless
+                            ├ send notify_fd via SCM_RIGHTS  caller is root]
+                            ├ root only: SECBIT_NOROOT, empty bounding set
                             └ execve target
                                   │
                                   ▼
@@ -57,16 +58,20 @@ descendant to resolve `openat` paths.
 
 ### The shim runs in `CLONE_NEWUSER` with an identity uid map
 
-The PID, IPC and mount namespaces need `CAP_SYS_ADMIN`. The process that creates a user
-namespace holds all capabilities in that namespace. The uid mapping does not change this.
-So the shim clones with `CLONE_NEWUSER` and gets the capabilities it needs. On a kernel
-without Landlock the seccomp install needs the same capability, because Landlock is the
-component that sets `PR_SET_NO_NEW_PRIVS`.
+The PID, IPC and mount namespaces need `CAP_SYS_ADMIN`. One `clone()` call creates the
+user namespace together with those namespaces, and the kernel checks the capability in the
+new user namespace. So the check passes for each uid mapping. The seccomp install needs no
+capability, because the shim sets `PR_SET_NO_NEW_PRIVS` first.
 
-The uid maps to itself. The target calls `execve` as a non-root uid in the namespace. The
-kernel then removes all capabilities from the target. `id` shows the caller. npm and pip see
-the caller. The target cannot use `CAP_DAC_OVERRIDE` on the files of the caller. The target
-cannot get `CAP_NET_ADMIN` in a new network namespace.
+The uid maps to itself. Go execs the shim binary as the caller. For a non-root caller that
+exec removes all capabilities, and NNP stops each later `execve` from adding any. `id` shows
+the caller. npm and pip see the caller. The target cannot use `CAP_DAC_OVERRIDE` on the
+files of the caller. The target cannot get `CAP_NET_ADMIN` in a new network namespace.
+
+A root caller stays uid 0 in the namespace, and `execve` gives uid 0 the full set. So a
+root shim sets `SECBIT_NOROOT` and `SECBIT_NOROOT_LOCKED` and empties the capability
+bounding set before `execve`. The target then gets no capability in either case. The
+bounding set also stops file capabilities on a `setcap` binary.
 
 An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabilities to the
 full target tree. That was not necessary. An ancestor with the same uid can open
