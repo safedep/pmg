@@ -14,6 +14,14 @@ pmg setup install --system
 
 **Requires root on Linux and an administrator on Windows.** Install PMG into a standard system path first: `/usr/local/bin` on Linux, `%ProgramFiles%\safedep\pmg\pmg.exe` on Windows. A user-local build (e.g. `~/go/bin/pmg`, or `pmg.exe` from `npm install -g`) is rejected.
 
+On Windows, the release also ships `pmg_Windows_x86_64.msi`. It installs `pmg.exe` at that path and then runs `pmg setup install --system` as SYSTEM. Run it from an elevated prompt, or push it through an MDM:
+
+```powershell
+msiexec /i pmg_Windows_x86_64.msi /qn
+```
+
+Uninstall from Apps & Features, or with `msiexec /x pmg_Windows_x86_64.msi /qn`. The uninstall runs `pmg setup remove --system --config-file` before it deletes the binary. An edge release ships an MSI too. Apps & Features lists it as `pmg (edge)`. It replaces a stable install of the same version, and the next stable build replaces it.
+
 `--system` checks the binary because every user's shim runs it by absolute path. On Linux, root must own the binary and its directory, only root may write to them, and every user must be able to execute the binary. On Windows, the binary must be at the path above, with no link or junction in that path. The install then sets one security descriptor on each object it owns: Administrators as owner, full control for SYSTEM and Administrators, read and execute for Users, no inheritance. `pmg setup doctor` reports an object whose descriptor differs. A second `pmg setup install --system` restores it.
 
 Per-user `pmg setup install` remains available and does not conflict with a system install.

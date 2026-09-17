@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  pmg.wxs - the Windows installer for a pmg system install.
+
+  The MSI puts pmg.exe at the one path the pmg system install accepts,
+  %ProgramFiles%\safedep\pmg\pmg.exe, and runs that install as SYSTEM once the
+  file is on disk. Uninstall runs the system remove before the file goes.
+  scripts/msi/build.sh builds it with wixl and defines Version, ProductName
+  and PmgExe. XML comments cannot hold two hyphens, so the pmg flags appear
+  only in the CustomAction elements below.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="$(var.ProductName)"
+           Manufacturer="SafeDep"
+           Version="$(var.Version)"
+           UpgradeCode="6e06a0ec-1f93-49e2-bfdb-5632281ba4f5"
+           Language="1033">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="PMG protects developers from malicious packages" />
+
+    <!-- The stable and edge builds of one release share a numeric version.
+         An edge build must replace the earlier edge build, and the stable
+         build must replace the last edge build. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of [ProductName] is installed." />
+    <Media Id="1" Cabinet="pmg.cab" EmbedCab="yes" />
+
+    <!-- Windows locks a running pmg.exe. Without these two properties an
+         upgrade under a running proxy shows a files-in-use dialog or schedules
+         a reboot. The new file lands when the process next starts. -->
+    <Property Id="REBOOT" Value="ReallySuppress" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/safedep/pmg" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- A directory id with a lowercase letter is a private property.
+         A command-line property or the winget location flag cannot move pmg.exe
+         off the path the system install requires. -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="VendorDir" Name="safedep">
+          <!-- wixl removes a folder through the component that lives in it,
+               so the vendor directory has a component of its own. -->
+          <Component Id="VendorDir" Guid="7c4f0c5e-2c1d-4d2a-9d3f-0b4b7e0e6a21" Win64="yes">
+            <CreateFolder />
+            <RemoveFolder Id="RemoveVendorDir" On="uninstall" />
+          </Component>
+          <Directory Id="ProductDir" Name="pmg">
+            <Component Id="PmgExe" Guid="6dd36151-b25b-45fa-8272-7551112dc1f3" Win64="yes">
+              <File Id="PmgExe" Name="pmg.exe" Source="$(var.PmgExe)" KeyPath="yes" />
+              <RemoveFolder Id="RemoveProductDir" On="uninstall" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Main" Level="1" Title="pmg">
+      <ComponentRef Id="VendorDir" />
+      <ComponentRef Id="PmgExe" />
+    </Feature>
+
+    <CustomAction Id="SetupInstall" FileKey="PmgExe" ExeCommand="setup install --system"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <!-- Return="ignore" so an uninstall always completes. -->
+    <CustomAction Id="SetupRemove" FileKey="PmgExe" ExeCommand="setup remove --system --config-file"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <!-- Explicit sequence numbers: wixl resolves Before and After against
+         its own action list and put a deferred action ahead of
+         InstallInitialize (1500). InstallFiles is 4000, RemoveFiles 3500. -->
+    <InstallExecuteSequence>
+      <CreateFolders />
+      <RemoveFolders />
+      <Custom Action="SetupInstall" Sequence="4001">NOT REMOVE</Custom>
+      <!-- A major upgrade removes the old product first. Its shims and managed
+           config stay in place for the new product to take over. -->
+      <Custom Action="SetupRemove" Sequence="3499">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

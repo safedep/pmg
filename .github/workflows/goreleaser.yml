@@ -68,6 +68,9 @@ jobs:
           install-only: true
           version: "~> v2"
 
+      - name: Install wixl for the Windows installer
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wixl
+
       - name: Build release (goreleaser via Nx)
         run: pnpm nx run pmg:build-release
         env:
@@ -131,3 +134,33 @@ jobs:
 
       - name: Smoke test
         run: pmg version
+
+  # Runs for edge releases too, so an edge tag proves the installer before
+  # the stable tag ships it.
+  test-msi:
+    needs: release
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download the installer from the release
+        env:
+          BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
+        run: |
+          Invoke-WebRequest -Uri "$env:BASE/pmg_Windows_x86_64.msi" -OutFile "$env:RUNNER_TEMP\pmg.msi"
+          Invoke-WebRequest -Uri "$env:BASE/checksums.txt" -OutFile "$env:RUNNER_TEMP\checksums.txt"
+          $entry = Get-Content "$env:RUNNER_TEMP\checksums.txt" | Where-Object { $_ -like '*  pmg_Windows_x86_64.msi' }
+          if (-not $entry) { throw 'no checksum entry for pmg_Windows_x86_64.msi' }
+          $expected = ($entry -split ' ')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\pmg.msi").Hash
+          if ($actual -ine $expected) { throw "checksum mismatch for pmg_Windows_x86_64.msi: expected $expected, got $actual" }
+
+      - name: Install and uninstall the MSI
+        env:
+          PMG_MSI: ${{ runner.temp }}\pmg.msi
+        run: pwsh -NoProfile -File scripts/msi/tests/msi_e2e_test.ps1

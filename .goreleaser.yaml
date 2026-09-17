@@ -21,6 +21,11 @@ builds:
       - -s -w
       - -X github.com/safedep/pmg/internal/version.Version={{.Version}}
       - -X github.com/safedep/pmg/internal/version.Commit={{.Commit}}
+    hooks:
+      post:
+        # The Windows installer. goreleaser runs the hook for every target
+        # and the script does nothing for the others. It needs wixl.
+        - scripts/msi/build.sh {{ .Os }} {{ .Path }} {{ .Version }} dist/pmg_Windows_x86_64.msi
 
 archives:
   - formats: [tar.gz]
@@ -45,10 +50,14 @@ changelog:
 release:
   prerelease: auto
   make_latest: '{{ if .Prerelease }}false{{ else }}true{{ end }}'
+  extra_files:
+    - glob: dist/pmg_Windows_x86_64.msi
 
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
+  extra_files:
+    - glob: dist/pmg_Windows_x86_64.msi
 
 universal_binaries:
   - replace: true
