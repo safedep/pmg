@@ -130,6 +130,7 @@ jobs:
           done
 
       - name: Install
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: npm install -g "@safedep/pmg@${VERSION}"
