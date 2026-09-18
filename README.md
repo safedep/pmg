@@ -198,6 +198,20 @@ npm install -g @safedep/pmg
 </details>
 
 <details>
+<summary><strong>winget / Chocolatey (Windows)</strong></summary>
+
+Both install the Windows MSI. It installs `pmg` for every user of the machine and runs `pmg setup install --system`, so run them from a terminal started as administrator.
+
+```powershell
+winget install SafeDep.pmg
+choco install pmg
+```
+
+Both ship stable releases. The edge release ships the MSI only. See [system-install.md](./docs/system-install.md).
+
+</details>
+
+<details>
 <summary><strong>Go (Build from Source)</strong></summary>
 
 ```bash

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>pmg</id>
+    <version>{{VERSION}}</version>
+    <title>pmg</title>
+    <authors>SafeDep</authors>
+    <owners>SafeDep</owners>
+    <projectUrl>https://github.com/safedep/pmg</projectUrl>
+    <projectSourceUrl>https://github.com/safedep/pmg</projectSourceUrl>
+    <packageSourceUrl>https://github.com/safedep/pmg/tree/main/scripts/choco</packageSourceUrl>
+    <docsUrl>https://github.com/safedep/pmg/blob/main/docs/system-install.md</docsUrl>
+    <bugTrackerUrl>https://github.com/safedep/pmg/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/safedep/pmg/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <releaseNotes>https://github.com/safedep/pmg/releases/tag/{{RELEASE_TAG}}</releaseNotes>
+    <tags>pmg safedep security supply-chain malware npm pypi admin</tags>
+    <summary>Package Manager Guard protects developers from malicious packages</summary>
+    <description>
+PMG (Package Manager Guard) checks packages for malware before npm, pnpm, yarn, bun, pip and uv install them.
+
+This package installs the pmg MSI for every user of the machine. The MSI puts pmg.exe under Program Files and runs `pmg setup install --system`. That command puts shims for the package managers first on the machine PATH and writes a managed config under ProgramData. Uninstall removes all of it.
+
+See https://github.com/safedep/pmg/blob/main/docs/system-install.md.
+    </description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

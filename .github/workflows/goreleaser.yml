@@ -130,7 +130,10 @@ jobs:
           done
 
       - name: Install
-        run: npm install -g "@safedep/pmg@${{ steps.version.outputs.version }}"
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm install -g "@safedep/pmg@${VERSION}"
 
       - name: Smoke test
         run: pmg version
@@ -149,16 +152,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download the installer from the release
-        env:
-          BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
-        run: |
-          Invoke-WebRequest -Uri "$env:BASE/pmg_Windows_x86_64.msi" -OutFile "$env:RUNNER_TEMP\pmg.msi"
-          Invoke-WebRequest -Uri "$env:BASE/checksums.txt" -OutFile "$env:RUNNER_TEMP\checksums.txt"
-          $entry = Get-Content "$env:RUNNER_TEMP\checksums.txt" | Where-Object { $_ -like '*  pmg_Windows_x86_64.msi' }
-          if (-not $entry) { throw 'no checksum entry for pmg_Windows_x86_64.msi' }
-          $expected = ($entry -split ' ')[0]
-          $actual = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\pmg.msi").Hash
-          if ($actual -ine $expected) { throw "checksum mismatch for pmg_Windows_x86_64.msi: expected $expected, got $actual" }
+        run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"
 
       - name: Extract version
         id: version
@@ -167,7 +161,7 @@ jobs:
 
       - name: Install and uninstall the MSI
         env:
-          PMG_MSI: ${{ runner.temp }}\pmg.msi
+          PMG_MSI: ${{ runner.temp }}\msi\pmg_Windows_x86_64.msi
           PMG_MSI_VERSION: ${{ steps.version.outputs.version }}
           PMG_MSI_LOG_DIR: ${{ runner.temp }}\msi-logs
         run: pwsh -NoProfile -File scripts/msi/tests/msi_e2e_test.ps1
@@ -179,3 +173,80 @@ jobs:
           name: msi-logs
           path: ${{ runner.temp }}\msi-logs
           if-no-files-found: ignore
+
+  # Stable releases only, like npm. The Chocolatey package goes to the
+  # community repository and the winget manifests to microsoft/winget-pkgs
+  # as a pull request that its maintainers review. Without a secret the job
+  # builds and tests the package and skips the publish step.
+  publish-windows-packages:
+    needs: test-msi
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      MSI_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pmg_Windows_x86_64.msi
+      MSI_PATH: ${{ runner.temp }}\msi\pmg_Windows_x86_64.msi
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download the installer from the release
+        run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"
+
+      - name: Extract version
+        run: '"VERSION=$($env:GITHUB_REF_NAME.TrimStart(''v''))" >> $env:GITHUB_ENV'
+
+      - name: Build the Chocolatey package
+        run: scripts/choco/build.ps1 -Version $env:VERSION -MsiPath $env:MSI_PATH -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\choco"
+
+      - name: Install and uninstall from the Chocolatey package
+        env:
+          PMG_NUPKG_DIR: ${{ runner.temp }}\choco
+          PMG_CHOCO_VERSION: ${{ env.VERSION }}
+          PMG_MSI_VERSION: ${{ env.VERSION }}
+        run: pwsh -NoProfile -File scripts/choco/tests/choco_e2e_test.ps1
+
+      - name: Push the package to the Chocolatey community repository
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          if (-not $env:CHOCO_API_KEY) {
+            Write-Host '::warning::CHOCO_API_KEY is not set. The Chocolatey package was built and tested but not pushed.'
+            exit 0
+          }
+          choco push "$env:RUNNER_TEMP\choco\pmg.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install winget
+        run: scripts/winget/install_winget.ps1
+
+      - name: Build the winget manifests
+        run: scripts/winget/build.ps1 -Version $env:VERSION -MsiPath $env:MSI_PATH -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\winget"
+
+      - name: Validate the manifests, then install and uninstall from them
+        env:
+          PMG_WINGET_MANIFEST_DIR: ${{ runner.temp }}\winget
+          PMG_MSI_VERSION: ${{ env.VERSION }}
+        run: pwsh -NoProfile -File scripts/winget/tests/winget_e2e_test.ps1
+
+      - name: Submit the manifests to microsoft/winget-pkgs
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            Write-Host '::warning::WINGET_TOKEN is not set. The winget manifests were built and tested but not submitted.'
+            exit 0
+          }
+          # A pinned release, and the Microsoft signature on the binary checked
+          # before it runs with the token.
+          $exe = "$env:RUNNER_TEMP\wingetcreate.exe"
+          Invoke-WebRequest -Uri https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe -OutFile $exe
+          $signature = Get-AuthenticodeSignature -FilePath $exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*O=Microsoft Corporation*') {
+            throw "wingetcreate.exe is not signed by Microsoft: $($signature.Status) $($signature.SignerCertificate.Subject)"
+          }
+          & $exe submit --token $env:WINGET_TOKEN "$env:RUNNER_TEMP\winget"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
