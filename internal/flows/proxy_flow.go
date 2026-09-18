@@ -49,14 +49,14 @@ func RunProxy(ctx context.Context, pm packagemanager.PackageManager, args []stri
 
 // Run executes the proxy-based flow
 func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagemanager.ParsedCommand) (runErr error) {
-	outcome := ui.OutcomeSuccess
+	sessionOutcome := audit.OutcomeSuccess
 
 	audit.LogInstallStarted(f.pm.Name(), args)
 	defer func() {
-		if runErr != nil && outcome == ui.OutcomeSuccess {
-			outcome = ui.OutcomeError
+		if runErr != nil && sessionOutcome == audit.OutcomeSuccess {
+			sessionOutcome = audit.OutcomeError
 		}
-		audit.LogSessionComplete(audit.Outcome(outcome.String()), audit.FlowTypeProxy, runerror.From(runErr))
+		audit.LogSessionComplete(sessionOutcome, audit.FlowTypeProxy, runerror.From(runErr))
 	}()
 
 	// A proxy.registries entry PMG could not load must abort any flow that
@@ -89,7 +89,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	cfg := config.Get()
 	if cfg.DryRun {
-		outcome = ui.OutcomeDryRun
+		sessionOutcome = audit.OutcomeDryRun
 	}
 
 	// When install_only is enabled, skip proxy for known non-download commands
@@ -135,7 +135,6 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		log.Infof("Dry-run mode: Command would be: %s %v", parsedCmd.Command.Exe, parsedCmd.Command.Args)
 
 		reportData.Outcome = ui.OutcomeDryRun
-		outcome = reportData.Outcome
 		ui.Report(reportData)
 
 		return nil
@@ -327,7 +326,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
-	outcome = reportData.Outcome
+	sessionOutcome = auditOutcome(reportData.Outcome)
 
 	// Show the report
 	ui.Report(reportData)

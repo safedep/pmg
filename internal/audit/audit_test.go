@@ -9,7 +9,6 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/runerror"
-	"github.com/safedep/pmg/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -323,48 +322,6 @@ func TestLogSessionSummarySilentWhenNotInitialized(t *testing.T) {
 	resetGlobal()
 	// Should not panic
 	LogSessionSummary(SessionData{Outcome: OutcomeSuccess})
-}
-
-// TestUIOutcomesMappToAuditOutcomes ensures every ui.ExecutionOutcome has a
-// corresponding audit.Outcome constant. If someone adds a new outcome to the
-// UI layer without updating the audit package, this test will fail.
-//
-// Both lists must be kept in sync manually. If a new ui.ExecutionOutcome is
-// added, add it to uiOutcomes below AND add a matching audit.Outcome constant.
-// The length check catches the case where one list is updated but not the other.
-func TestUIOutcomesMappToAuditOutcomes(t *testing.T) {
-	auditOutcomes := []Outcome{
-		OutcomeSuccess,
-		OutcomeBlocked,
-		OutcomeUserCancelled,
-		OutcomeDryRun,
-		OutcomeError,
-		OutcomeInsecureBypass,
-	}
-
-	uiOutcomes := []ui.ExecutionOutcome{
-		ui.OutcomeSuccess,
-		ui.OutcomeBlocked,
-		ui.OutcomeUserCancelled,
-		ui.OutcomeDryRun,
-		ui.OutcomeError,
-		ui.OutcomeInsecureBypass,
-	}
-
-	require.Equal(t, len(uiOutcomes), len(auditOutcomes),
-		"ui.ExecutionOutcome and audit.Outcome count mismatch — a new outcome was added to one but not the other")
-
-	knownOutcomes := make(map[Outcome]bool, len(auditOutcomes))
-	for _, o := range auditOutcomes {
-		knownOutcomes[o] = true
-	}
-
-	for _, uiOutcome := range uiOutcomes {
-		auditOutcome := Outcome(uiOutcome.String())
-		assert.True(t, knownOutcomes[auditOutcome],
-			"ui.ExecutionOutcome %q (String()=%q) has no matching audit.Outcome constant — add it to audit/event.go",
-			uiOutcome, uiOutcome.String())
-	}
 }
 
 func TestInitializeWithCloudDisabled(t *testing.T) {
