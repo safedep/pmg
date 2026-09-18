@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,8 +36,11 @@ proxy:
 func TestProxyFlowRunRejectsUnloadableProxyRegistries(t *testing.T) {
 	withUnloadableProxyRegistries(t)
 
-	var flow proxyFlow
+	flow := proxyFlow{pm: failingParsePackageManager{}}
 	err := flow.Run(context.Background(), nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy registries")
+	info := runerror.From(err)
+	require.NotNil(t, info)
+	assert.Equal(t, runerror.ReasonConfigurationInvalid, info.Reason)
 }

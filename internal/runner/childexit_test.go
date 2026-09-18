@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/pty"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,4 +90,50 @@ func TestClassifyTransparentChildExit(t *testing.T) {
 	require.True(t, errors.As(err, &ce))
 	assert.Equal(t, 1, ce.ExitCode())
 	assert.Equal(t, "npm", ce.PMName)
+}
+
+func TestChildExitErrorInfo(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     int
+		signaled bool
+		reason   runerror.Reason
+		wantCode *uint32
+	}{
+		{"exit 1", 1, false, runerror.ReasonProcessExited, uint32Pointer(1)},
+		{"exit 42", 42, false, runerror.ReasonProcessExited, uint32Pointer(42)},
+		{"exit 127", 127, false, runerror.ReasonProcessExited, uint32Pointer(127)},
+		{"explicit exit 130", 130, false, runerror.ReasonProcessExited, uint32Pointer(130)},
+		{"maximum Windows status", int(uint64(4294967295)), false, runerror.ReasonProcessExited, uint32Pointer(4294967295)},
+		{"signal with status", 130, true, runerror.ReasonProcessSignaled, uint32Pointer(130)},
+		{"signal without status", -1, true, runerror.ReasonProcessSignaled, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := runerror.From(&ChildExitError{Code: tt.code, Signaled: tt.signaled, PMName: "npm"})
+
+			require.NotNil(t, info)
+			assert.Equal(t, runerror.SourceChildProcess, info.Source)
+			assert.Equal(t, tt.reason, info.Reason)
+			assert.Equal(t, tt.wantCode, info.ExitCode)
+			assert.Empty(t, info.Message)
+		})
+	}
+}
+
+func TestVisibleExecErrorReportsLaunchFailure(t *testing.T) {
+	cause := errors.New("private launch detail")
+	err := visibleExecError(cause)
+
+	require.ErrorIs(t, err, cause)
+	info := runerror.From(err)
+	require.NotNil(t, info)
+	assert.Equal(t, runerror.SourcePMG, info.Source)
+	assert.Equal(t, runerror.ReasonProcessLaunchFailed, info.Reason)
+	assert.Contains(t, info.Message, "private launch detail")
+}
+
+func uint32Pointer(value uint32) *uint32 {
+	return &value
 }

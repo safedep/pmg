@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/proc"
 	"github.com/safedep/pmg/internal/pty"
+	"github.com/safedep/pmg/internal/runerror"
 )
 
 // ChildExitError marks a transparent passthrough: the wrapped package manager
@@ -28,6 +29,22 @@ func (e *ChildExitError) ExitCode() int         { return e.Code }
 func (e *ChildExitError) Transparent() bool     { return true }
 func (e *ChildExitError) IsSignaled() bool      { return e.Signaled }
 func (e *ChildExitError) ScrubbedEnvCount() int { return e.Scrubbed }
+
+func (e *ChildExitError) ErrorInfo() runerror.Info {
+	reason := runerror.ReasonProcessExited
+	if e.Signaled {
+		reason = runerror.ReasonProcessSignaled
+	}
+
+	info := runerror.Info{
+		Reason: reason,
+	}
+	if e.Code >= 0 && uint64(e.Code) <= uint64(^uint32(0)) {
+		exitCode := uint32(e.Code)
+		info.ExitCode = &exitCode
+	}
+	return info
+}
 
 // classify turns a package-manager execution error into either a transparent
 // child exit or a visible PMG error, and is the only place the fork lives. It is
@@ -75,9 +92,10 @@ func decideExit(err error, code int, signaled, resolved bool, pmName string, scr
 // visibleExecError is the loud error for a genuine PMG-side failure: the package
 // manager never produced an exit status (e.g. the binary could not be launched).
 func visibleExecError(err error) error {
-	return usefulerror.NewUsefulError().
+	usefulErr := usefulerror.NewUsefulError().
 		WithCode(errcodes.PackageManagerExecutionFailed).
 		WithHumanError("Failed to execute package manager command").
 		WithHelp("Check the package manager command and its arguments").
 		Wrap(err)
+	return runerror.Wrap(usefulErr, runerror.ReasonProcessLaunchFailed)
 }

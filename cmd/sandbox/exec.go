@@ -76,7 +76,7 @@ func runExec(ctx context.Context, args []string, run execRunner, cfg *config.Run
 	if err != nil {
 		outcome = audit.OutcomeError
 	}
-	audit.LogSessionComplete(outcome, audit.FlowTypeExec)
+	audit.LogSessionComplete(outcome, audit.FlowTypeExec, nil)
 
 	return err
 }

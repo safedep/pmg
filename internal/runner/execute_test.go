@@ -3,12 +3,14 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox"
@@ -120,6 +122,39 @@ func TestExecuteWithOptionsMissingPackageManager(t *testing.T) {
 	require.ErrorAs(t, err, &notFound)
 	assert.Equal(t, "bun", notFound.Name)
 	assert.Equal(t, 127, notFound.ExitCode())
+	info := runerror.From(err)
+	require.NotNil(t, info)
+	assert.Equal(t, runerror.ReasonExecutableNotFound, info.Reason)
+	assert.Nil(t, info.ExitCode)
+}
+
+func TestExecuteWithOptionsReportsEmptyCommandAsSetupFailure(t *testing.T) {
+	err := ExecuteWithOptions(context.Background(), &packagemanager.ParsedCommand{}, ExecuteOptions{})
+
+	info := runerror.From(err)
+	require.NotNil(t, info)
+	assert.Equal(t, runerror.ReasonExecutionSetupFailed, info.Reason)
+}
+
+func TestExecuteWithOptionsReportsDirectPreparationFailure(t *testing.T) {
+	cause := errors.New("private preparation detail")
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	err = ExecuteWithOptions(context.Background(), &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{Exe: exe},
+	}, ExecuteOptions{
+		Mode: ExecutionModeDirect,
+		BeforeDirectRun: func() error {
+			return cause
+		},
+	})
+
+	require.ErrorIs(t, err, cause)
+	info := runerror.From(err)
+	require.NotNil(t, info)
+	assert.Equal(t, runerror.ReasonExecutionSetupFailed, info.Reason)
+	assert.Equal(t, "private preparation detail", info.Message)
 }
 
 type stubDiagnosticsSandbox struct {

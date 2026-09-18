@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	"github.com/safedep/pmg/internal/runerror"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -138,11 +139,73 @@ func newSessionSummaryEvent(data *SessionData) *controltowerv1.PmgEvent {
 	summary.SetSandboxEnabled(data.SandboxEnabled)
 	summary.SetParanoidMode(data.ParanoidMode)
 	summary.SetOutcome(mapSessionOutcome(data.Outcome))
+	if errorInfo := mapErrorInfo(data.ErrorInfo); errorInfo != nil {
+		summary.SetErrorInfo(errorInfo)
+	}
 
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_SESSION_SUMMARY)
 	e.SetSessionSummary(summary)
 	return e
+}
+
+func mapErrorInfo(info *runerror.Info) *controltowerv1.PmgErrorInfo {
+	if info == nil {
+		return nil
+	}
+
+	result := &controltowerv1.PmgErrorInfo{}
+	result.SetSource(mapErrorSource(info.Source))
+	result.SetReason(mapErrorReason(info.Reason))
+	if info.Message != "" {
+		result.SetMessage(info.Message)
+	}
+	if info.ExitCode != nil {
+		result.SetExitCode(*info.ExitCode)
+	}
+	return result
+}
+
+func mapErrorSource(source runerror.Source) controltowerv1.PmgErrorSource {
+	switch source {
+	case runerror.SourcePMG:
+		return controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_PMG
+	case runerror.SourceChildProcess:
+		return controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS
+	default:
+		return controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_UNSPECIFIED
+	}
+}
+
+func mapErrorReason(reason runerror.Reason) controltowerv1.PmgErrorReason {
+	switch reason {
+	case runerror.ReasonProcessExited:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED
+	case runerror.ReasonProcessSignaled:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_SIGNALED
+	case runerror.ReasonCommandParseFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_COMMAND_PARSE_FAILED
+	case runerror.ReasonConfigurationInvalid:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_CONFIGURATION_INVALID
+	case runerror.ReasonEcosystemUnsupported:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_ECOSYSTEM_UNSUPPORTED
+	case runerror.ReasonCertificateSetupFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_CERTIFICATE_SETUP_FAILED
+	case runerror.ReasonAnalyzerInitializationFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_ANALYZER_INITIALIZATION_FAILED
+	case runerror.ReasonProxySetupFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROXY_SETUP_FAILED
+	case runerror.ReasonExecutableNotFound:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_EXECUTABLE_NOT_FOUND
+	case runerror.ReasonExecutableResolutionFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_EXECUTABLE_RESOLUTION_FAILED
+	case runerror.ReasonProcessLaunchFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_LAUNCH_FAILED
+	case runerror.ReasonExecutionSetupFailed:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_EXECUTION_SETUP_FAILED
+	default:
+		return controltowerv1.PmgErrorReason_PMG_ERROR_REASON_UNSPECIFIED
+	}
 }
 
 func newInsecureBypassFromSession(data *SessionData) *controltowerv1.PmgEvent {
