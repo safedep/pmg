@@ -14,7 +14,9 @@ foreach ($entry in $entries) {
     fileType       = 'msi'
     file           = ''
     silentArgs     = "$($entry.PSChildName) /qn /norestart"
-    validExitCodes = @(0, 3010)
+    # 1605: the product is already gone, for example after an upgrade
+    # removed it between the lookup and this call.
+    validExitCodes = @(0, 1605, 3010)
   }
   Uninstall-ChocolateyPackage @packageArgs
 }

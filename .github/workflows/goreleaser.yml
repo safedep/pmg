@@ -149,7 +149,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download the installer from the release
-        run: scripts/msi/download_release.ps1 -Repository ${{ github.repository }} -Tag ${{ github.ref_name }} -OutDir "$env:RUNNER_TEMP\msi"
+        run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"
 
       - name: Extract version
         id: version
@@ -187,7 +187,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download the installer from the release
-        run: scripts/msi/download_release.ps1 -Repository ${{ github.repository }} -Tag ${{ github.ref_name }} -OutDir "$env:RUNNER_TEMP\msi"
+        run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"
 
       - name: Extract version
         id: version
@@ -198,7 +198,9 @@ jobs:
           echo "choco_version=$(pwsh -NoProfile -Command ". scripts/msi/wrap_lib.ps1; ConvertTo-ChocolateyVersion $version")" >> "$GITHUB_OUTPUT"
 
       - name: Build the Chocolatey package
-        run: scripts/choco/build.ps1 -Version ${{ steps.version.outputs.version }} -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\choco"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/choco/build.ps1 -Version $env:VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\choco"
 
       - name: Install and uninstall from the package
         env:
@@ -210,12 +212,13 @@ jobs:
       - name: Push the package to the Chocolatey community repository
         env:
           CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+          CHOCO_VERSION: ${{ steps.version.outputs.choco_version }}
         run: |
           if (-not $env:CHOCO_API_KEY) {
             Write-Host '::warning::CHOCO_API_KEY is not set. The Chocolatey package was built and tested but not pushed.'
             exit 0
           }
-          choco push "$env:RUNNER_TEMP\choco\pmg.${{ steps.version.outputs.choco_version }}.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
+          choco push "$env:RUNNER_TEMP\choco\pmg.$env:CHOCO_VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # winget gets stable releases only. The manifests go to microsoft/winget-pkgs
@@ -235,7 +238,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Download the installer from the release
-        run: scripts/msi/download_release.ps1 -Repository ${{ github.repository }} -Tag ${{ github.ref_name }} -OutDir "$env:RUNNER_TEMP\msi"
+        run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"
 
       - name: Extract version
         id: version
@@ -246,7 +249,9 @@ jobs:
         run: scripts/winget/install_winget.ps1
 
       - name: Build the winget manifests
-        run: scripts/winget/build.ps1 -Version ${{ steps.version.outputs.version }} -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\winget"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/winget/build.ps1 -Version $env:VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\winget"
 
       - name: Validate the manifests, then install and uninstall from them
         env:

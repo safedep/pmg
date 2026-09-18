@@ -20,6 +20,9 @@ function ConvertTo-ChocolateyVersion {
   if ($parts.Prerelease -notmatch '^(?<label>[a-z]+)\.(?<number>\d+)$') {
     throw "prerelease part $($parts.Prerelease) is not <label>.<number>"
   }
+  if ([int]$Matches.number -gt 999) {
+    throw "prerelease number $($Matches.number) is above 999, the most the three-digit label can order"
+  }
   return '{0}-{1}{2:d3}' -f $parts.Base, $Matches.label, [int]$Matches.number
 }
 
