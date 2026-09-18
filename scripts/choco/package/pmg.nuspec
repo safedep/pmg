@@ -21,8 +21,6 @@ PMG (Package Manager Guard) checks packages for malware before npm, pnpm, yarn, 
 
 This package installs the pmg MSI for every user of the machine. The MSI puts pmg.exe under Program Files and runs `pmg setup install --system`. That command puts shims for the package managers first on the machine PATH and writes a managed config under ProgramData. Uninstall removes all of it.
 
-Prerelease versions of this package are the edge channel. Install one with `choco install pmg --pre`.
-
 See https://github.com/safedep/pmg/blob/main/docs/system-install.md.
     </description>
   </metadata>

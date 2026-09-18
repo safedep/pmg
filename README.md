@@ -207,7 +207,7 @@ winget install SafeDep.pmg
 choco install pmg
 ```
 
-`choco install pmg --pre` installs the edge release. See [system-install.md](./docs/system-install.md).
+Both ship stable releases. The edge release ships the MSI only. See [system-install.md](./docs/system-install.md).
 
 </details>
 

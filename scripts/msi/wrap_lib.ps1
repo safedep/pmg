@@ -11,21 +11,6 @@ function Split-ReleaseVersion {
   return [pscustomobject]@{ Base = $Matches.base; Prerelease = $Matches.prerelease }
 }
 
-# The Chocolatey community repository orders a prerelease label as a plain
-# string, so edge.10 would sort before edge.9. The label becomes edge010.
-function ConvertTo-ChocolateyVersion {
-  param([string]$Version)
-  $parts = Split-ReleaseVersion $Version
-  if (-not $parts.Prerelease) { return $parts.Base }
-  if ($parts.Prerelease -notmatch '^(?<label>[a-z]+)\.(?<number>\d+)$') {
-    throw "prerelease part $($parts.Prerelease) is not <label>.<number>"
-  }
-  if ([int]$Matches.number -gt 999) {
-    throw "prerelease number $($Matches.number) is above 999, the most the three-digit label can order"
-  }
-  return '{0}-{1}{2:d3}' -f $parts.Base, $Matches.label, [int]$Matches.number
-}
-
 function Get-FileSha256 {
   param([string]$Path)
   return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()

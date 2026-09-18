@@ -214,11 +214,9 @@ jobs:
           path: ${{ runner.temp }}\msi-logs
           if-no-files-found: ignore
 
-  # The Chocolatey package and the winget manifests wrap the MSI. The stable
-  # package wraps the first installer and the prerelease package the upgrade
-  # installer, so the prerelease upgrade is visible in `pmg version`. An
-  # edge release always carries the next version, so the prerelease package
-  # does too. A prerelease of the installed version is not an upgrade.
+  # The Chocolatey package and the winget manifests wrap the MSI. The first
+  # package wraps the first installer and a package with the next version
+  # wraps the upgrade installer, so the upgrade is visible in `pmg version`.
   wrappers-e2e-windows:
     needs: goreleaser-test
     runs-on: windows-latest
@@ -244,14 +242,14 @@ jobs:
       - name: Build the Chocolatey packages
         run: |
           scripts/choco/build.ps1 -Version $env:BASE_VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
-          scripts/choco/build.ps1 -Version "$env:NEXT_VERSION-edge.1" -MsiPath "$env:RUNNER_TEMP\msi\msi-upgrade\pmg_Windows_x86_64.msi" -MsiUrl "$env:RUNNER_TEMP\msi\msi-upgrade\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
+          scripts/choco/build.ps1 -Version $env:NEXT_VERSION -MsiPath "$env:RUNNER_TEMP\msi\msi-upgrade\pmg_Windows_x86_64.msi" -MsiUrl "$env:RUNNER_TEMP\msi\msi-upgrade\pmg_Windows_x86_64.msi" -OutDir "$env:RUNNER_TEMP\choco"
 
       - name: Install, upgrade and uninstall through Chocolatey
         env:
           PMG_NUPKG_DIR: ${{ runner.temp }}\choco
           PMG_CHOCO_VERSION: ${{ needs.goreleaser-test.outputs.base_version }}
           PMG_MSI_VERSION: ${{ needs.goreleaser-test.outputs.version }}
-          PMG_CHOCO_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.next_version }}-edge001
+          PMG_CHOCO_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.next_version }}
           PMG_MSI_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade
         run: pwsh -NoProfile -File scripts/choco/tests/choco_e2e_test.ps1
 

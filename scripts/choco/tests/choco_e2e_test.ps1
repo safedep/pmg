@@ -2,11 +2,10 @@
 # Chocolatey package on a disposable Windows CI runner.
 #
 # PMG_NUPKG_DIR holds the packages under test. PMG_CHOCO_VERSION is the
-# stable package version to install and PMG_MSI_VERSION the version its
-# pmg.exe reports. PMG_CHOCO_UPGRADE_VERSION, when set, is a prerelease
-# package in the same directory and PMG_MSI_UPGRADE_VERSION the version its
-# pmg.exe reports. The test checks that `choco upgrade pmg` skips the
-# prerelease and that `choco upgrade pmg --pre` installs it.
+# package version to install and PMG_MSI_VERSION the version its pmg.exe
+# reports. PMG_CHOCO_UPGRADE_VERSION, when set, is a newer package in the
+# same directory and PMG_MSI_UPGRADE_VERSION the version its pmg.exe
+# reports. The test checks that `choco upgrade pmg` moves to it.
 $ErrorActionPreference = 'Stop'
 
 if ($env:CI -ne 'true') {
@@ -36,9 +35,7 @@ Assert-PathAbsent $GlobalConfigDir
 
 function Invoke-Choco {
   param([string[]]$ArgumentList)
-  # --pre lets a pinned prerelease version through. It has no effect on a
-  # pinned stable version.
-  & choco @ArgumentList --source $env:PMG_NUPKG_DIR --yes --no-progress --pre
+  & choco @ArgumentList --source $env:PMG_NUPKG_DIR --yes --no-progress
   if ($LASTEXITCODE -ne 0) { Stop-OnFailure "choco $($ArgumentList -join ' ') exited with $LASTEXITCODE" }
 }
 
@@ -54,12 +51,7 @@ try {
   Assert-ChocoInstalled -PackageVersion $env:PMG_CHOCO_VERSION -Version $env:PMG_MSI_VERSION
 
   if ($env:PMG_CHOCO_UPGRADE_VERSION) {
-    Write-Step 'an upgrade without --pre keeps the stable version'
-    & choco upgrade pmg --source $env:PMG_NUPKG_DIR --yes --no-progress
-    if ($LASTEXITCODE -ne 0) { Stop-OnFailure "choco upgrade pmg exited with $LASTEXITCODE" }
-    Assert-ChocoInstalled -PackageVersion $env:PMG_CHOCO_VERSION -Version $env:PMG_MSI_VERSION
-
-    Write-Step "an upgrade with --pre installs $env:PMG_CHOCO_UPGRADE_VERSION"
+    Write-Step "upgrading to $env:PMG_CHOCO_UPGRADE_VERSION"
     Invoke-Choco @('upgrade', 'pmg')
     Assert-ChocoInstalled -PackageVersion $env:PMG_CHOCO_UPGRADE_VERSION -Version $env:PMG_MSI_UPGRADE_VERSION
   }
@@ -69,7 +61,7 @@ try {
   if ($LASTEXITCODE -ne 0) { Stop-OnFailure "choco uninstall pmg exited with $LASTEXITCODE" }
   Assert-Equal '' "$(& choco list --exact pmg --limit-output)" 'Chocolatey packages after the uninstall'
   Assert-MsiUninstalled
-  Write-Host 'PASS: Chocolatey install, upgrade gating, prerelease upgrade and uninstall'
+  Write-Host 'PASS: Chocolatey install, upgrade and uninstall'
 } finally {
   $ErrorActionPreference = 'Continue'
   & choco uninstall pmg --yes | Out-Null
