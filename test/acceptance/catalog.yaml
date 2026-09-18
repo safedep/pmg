@@ -288,6 +288,12 @@
   labels: [sandbox, observe]
 
 # cloud
+- id: cloud/error-info/configuration-error
+  title: "configuration failures record typed error information"
+  category: cloud
+  tier: P1
+  guarantee: "A rejected proxy configuration records a PMG error source and configuration reason in the session summary."
+  labels: [cloud, audit, error-reporting, offline]
 - id: cloud/analyzer/bad-creds-fall-back-to-community
   title: "invalid cloud creds fall back to community analyzer"
   category: cloud

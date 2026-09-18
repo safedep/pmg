@@ -6,6 +6,7 @@ import (
 	"time"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -324,6 +325,105 @@ func TestTranslateSessionComplete(t *testing.T) {
 	assert.True(t, summary.GetSandboxEnabled())
 	assert.False(t, summary.GetParanoidMode())
 	assert.Equal(t, controltowerv1.PmgSessionOutcome_PMG_SESSION_OUTCOME_SUCCESS, summary.GetOutcome())
+}
+
+func TestTranslateSessionErrorInfo(t *testing.T) {
+	zero := uint32(0)
+	code42 := uint32(42)
+	code130 := uint32(130)
+	tests := []struct {
+		name       string
+		info       *runerror.Info
+		wantSource controltowerv1.PmgErrorSource
+		wantReason controltowerv1.PmgErrorReason
+		wantCode   *uint32
+	}{
+		{name: "absent"},
+		{
+			name: "PMG setup failure",
+			info: &runerror.Info{
+				Source: runerror.SourcePMG, Reason: runerror.ReasonProxySetupFailed,
+				Message: "listen tcp 127.0.0.1:3000: address already in use",
+			},
+			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_PMG,
+			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROXY_SETUP_FAILED,
+		},
+		{
+			name: "child exit",
+			info: &runerror.Info{
+				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessExited,
+				ExitCode: &code42,
+			},
+			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS,
+			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED,
+			wantCode:   &code42,
+		},
+		{
+			name: "signal exit",
+			info: &runerror.Info{
+				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessSignaled,
+				ExitCode: &code130,
+			},
+			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS,
+			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_SIGNALED,
+			wantCode:   &code130,
+		},
+		{
+			name: "present zero",
+			info: &runerror.Info{
+				Source: runerror.SourceChildProcess, Reason: runerror.ReasonProcessExited,
+				ExitCode: &zero,
+			},
+			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_CHILD_PROCESS,
+			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_PROCESS_EXITED,
+			wantCode:   &zero,
+		},
+		{
+			name:       "explicit unspecified",
+			info:       &runerror.Info{},
+			wantSource: controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_UNSPECIFIED,
+			wantReason: controltowerv1.PmgErrorReason_PMG_ERROR_REASON_UNSPECIFIED,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := newSessionSummaryEvent(&SessionData{
+				PackageManager: "npm",
+				Outcome:        OutcomeError,
+				ErrorInfo:      tt.info,
+			})
+			summary := event.GetSessionSummary()
+			require.NotNil(t, summary)
+
+			if tt.info == nil {
+				assert.False(t, summary.HasErrorInfo())
+				return
+			}
+
+			require.True(t, summary.HasErrorInfo())
+			got := summary.GetErrorInfo()
+			assert.Equal(t, tt.wantSource, got.GetSource())
+			assert.Equal(t, tt.wantReason, got.GetReason())
+			assert.Equal(t, tt.info.Message, got.GetMessage())
+			if tt.wantCode == nil {
+				assert.False(t, got.HasExitCode())
+			} else {
+				require.True(t, got.HasExitCode())
+				assert.Equal(t, *tt.wantCode, got.GetExitCode())
+			}
+		})
+	}
+}
+
+func TestMapUnknownErrorInfoValuesToUnspecified(t *testing.T) {
+	got := mapErrorInfo(&runerror.Info{
+		Source: runerror.Source(100), Reason: runerror.Reason(100), Message: "future value",
+	})
+
+	require.NotNil(t, got)
+	assert.Equal(t, controltowerv1.PmgErrorSource_PMG_ERROR_SOURCE_UNSPECIFIED, got.GetSource())
+	assert.Equal(t, controltowerv1.PmgErrorReason_PMG_ERROR_REASON_UNSPECIFIED, got.GetReason())
 }
 
 func TestTranslateSessionCompleteWithInsecureBypass(t *testing.T) {
