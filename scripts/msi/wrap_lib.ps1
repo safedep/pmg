@@ -46,9 +46,17 @@ function Get-MsiProperty {
 }
 
 # Copy the files under $TemplateDir to $OutDir and replace every {{NAME}}
-# with $Values[NAME]. A placeholder without a value is an error.
+# with $Values[NAME]. A placeholder without a value is an error. A value
+# lands inside a quoted PowerShell string, an XML element or a YAML scalar,
+# so quotes, whitespace and shell metacharacters are refused rather than
+# escaped per context.
 function Expand-PackageTemplate {
   param([string]$TemplateDir, [string]$OutDir, [hashtable]$Values)
+  foreach ($name in $Values.Keys) {
+    if ([string]$Values[$name] -match '[''"`$;|&<>\s]' -or -not [string]$Values[$name]) {
+      throw "value for $name has a character the templates cannot carry: $($Values[$name])"
+    }
+  }
   foreach ($file in Get-ChildItem -LiteralPath $TemplateDir -File -Recurse) {
     $content = Get-Content -LiteralPath $file.FullName -Raw
     foreach ($name in $Values.Keys) { $content = $content.Replace("{{$name}}", [string]$Values[$name]) }

@@ -130,7 +130,9 @@ jobs:
           done
 
       - name: Install
-        run: npm install -g "@safedep/pmg@${{ steps.version.outputs.version }}"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm install -g "@safedep/pmg@${VERSION}"
 
       - name: Smoke test
         run: pmg version
