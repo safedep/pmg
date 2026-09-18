@@ -195,7 +195,7 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "choco_version=$(pwsh -NoProfile -Command ". scripts/msi/wrap_lib.ps1; ConvertTo-ChocolateyVersion $version")" >> "$GITHUB_OUTPUT"
+          echo "choco_version=$(VERSION="$version" pwsh -NoProfile -Command '. scripts/msi/wrap_lib.ps1; ConvertTo-ChocolateyVersion $env:VERSION')" >> "$GITHUB_OUTPUT"
 
       - name: Build the Chocolatey package
         env:
@@ -267,6 +267,13 @@ jobs:
             Write-Host '::warning::WINGET_TOKEN is not set. The winget manifests were built and tested but not submitted.'
             exit 0
           }
-          Invoke-WebRequest -Uri https://aka.ms/wingetcreate/latest -OutFile "$env:RUNNER_TEMP\wingetcreate.exe"
-          & "$env:RUNNER_TEMP\wingetcreate.exe" submit --token $env:WINGET_TOKEN "$env:RUNNER_TEMP\winget"
+          # A pinned release, and the Microsoft signature on the binary checked
+          # before it runs with the token.
+          $exe = "$env:RUNNER_TEMP\wingetcreate.exe"
+          Invoke-WebRequest -Uri https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe -OutFile $exe
+          $signature = Get-AuthenticodeSignature -FilePath $exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*O=Microsoft Corporation*') {
+            throw "wingetcreate.exe is not signed by Microsoft: $($signature.Status) $($signature.SignerCertificate.Subject)"
+          }
+          & $exe submit --token $env:WINGET_TOKEN "$env:RUNNER_TEMP\winget"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
