@@ -4,6 +4,7 @@ import (
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/internal/runerror"
 )
 
 // SessionData carries aggregate session statistics for session-complete events.
@@ -21,6 +22,7 @@ type SessionData struct {
 	Duration             time.Duration
 	SandboxEnabled       bool
 	ParanoidMode         bool
+	ErrorInfo            *runerror.Info
 }
 
 // FlowType identifies how PMG intercepted the package installation.

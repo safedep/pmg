@@ -121,6 +121,8 @@ jobs:
   goreleaser-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.upgrade.outputs.version }}
     steps:
       - name: Checkout Source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -130,12 +132,82 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install wixl for the Windows installer
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wixl
+
       - name: Run Goreleaser
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
           distribution: goreleaser
           version: "~> v2"
           args: build --clean --snapshot
+
+      # Two more installers with the same version and a new product code each
+      # have the shape of the next edge builds. Their binaries report a
+      # different version string, so the Windows job can see which one is
+      # installed.
+      - name: Build the upgrade installers
+        id: upgrade
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          version=$(jq -r .version dist/metadata.json)
+          for suffix in upgrade upgrade2; do
+            mkdir -p "dist/msi-$suffix"
+            go build -ldflags "-s -w -X github.com/safedep/pmg/internal/version.Version=${version}-${suffix}" -o "dist/msi-$suffix/pmg.exe" .
+            scripts/msi/build.sh windows amd64 "dist/msi-$suffix/pmg.exe" "$version" "dist/msi-$suffix/pmg_Windows_x86_64.msi"
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the installers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: msi
+          path: |
+            dist/pmg_Windows_x86_64.msi
+            dist/msi-upgrade/pmg_Windows_x86_64.msi
+            dist/msi-upgrade2/pmg_Windows_x86_64.msi
+          if-no-files-found: error
+
+  msi-e2e-windows:
+    needs: goreleaser-test
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ github.run_id }} --name msi --dir "$env:RUNNER_TEMP\msi"
+
+      - name: Install, upgrade and uninstall the MSI
+        env:
+          PMG_MSI: ${{ runner.temp }}\msi\pmg_Windows_x86_64.msi
+          PMG_MSI_VERSION: ${{ needs.goreleaser-test.outputs.version }}
+          PMG_MSI_UPGRADE: ${{ runner.temp }}\msi\msi-upgrade\pmg_Windows_x86_64.msi
+          PMG_MSI_UPGRADE_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade
+          PMG_MSI_UPGRADE2: ${{ runner.temp }}\msi\msi-upgrade2\pmg_Windows_x86_64.msi
+          PMG_MSI_UPGRADE2_VERSION: ${{ needs.goreleaser-test.outputs.version }}-upgrade2
+          PMG_MSI_LOG_DIR: ${{ runner.temp }}\msi-logs
+        run: pwsh -NoProfile -File scripts/msi/tests/msi_e2e_test.ps1
+
+      - name: Upload the installer logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: msi-logs
+          path: ${{ runner.temp }}\msi-logs
+          if-no-files-found: ignore
 
   build-container-test:
     runs-on: ubuntu-latest
@@ -187,6 +259,11 @@ jobs:
         with:
           install-only: true
           version: "~> v2"
+
+      # The preflight runs the goreleaser snapshot build, which builds the
+      # Windows installer.
+      - name: Install wixl for the Windows installer
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wixl
 
       - name: Release preflight
         run: pnpm nx run pmg:release-preflight

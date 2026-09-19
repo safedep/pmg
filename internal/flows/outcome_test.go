@@ -4,8 +4,30 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/ui"
 )
+
+func TestAuditOutcome(t *testing.T) {
+	tests := []struct {
+		uiOutcome    ui.ExecutionOutcome
+		auditOutcome audit.Outcome
+	}{
+		{ui.OutcomeSuccess, audit.OutcomeSuccess},
+		{ui.OutcomeBlocked, audit.OutcomeBlocked},
+		{ui.OutcomeUserCancelled, audit.OutcomeUserCancelled},
+		{ui.OutcomeDryRun, audit.OutcomeDryRun},
+		{ui.OutcomeError, audit.OutcomeError},
+		{ui.OutcomeInsecureBypass, audit.OutcomeInsecureBypass},
+		{ui.ExecutionOutcome(-1), audit.OutcomeError},
+	}
+
+	for _, tt := range tests {
+		if got := auditOutcome(tt.uiOutcome); got != tt.auditOutcome {
+			t.Errorf("auditOutcome(%v) = %q, want %q", tt.uiOutcome, got, tt.auditOutcome)
+		}
+	}
+}
 
 func TestInferOutcome(t *testing.T) {
 	tests := []struct {

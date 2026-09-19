@@ -1,0 +1,26 @@
+# guarantee: A proxy configuration error records one typed PMG error in the
+# session summary. The command fails before it starts the package manager.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+
+! exec pmg npm install express
+stderr 'invalid proxy registries configuration'
+
+exec sh -c 'cat "$PMG_CONFIG_DIR"/logs/*-pmg.log'
+stdout '"event_type":"session_complete"'
+stdout '"outcome":"error"'
+stdout '"source":"pmg"'
+stdout '"reason":"configuration_invalid"'
+stdout '"message":"invalid proxy registries:'
+exec sh -c 'grep -h -c session_complete "$PMG_CONFIG_DIR"/logs/*-pmg.log'
+stdout '^1$'
+
+-- config/config.yml --
+proxy:
+  registries:
+    - name: bad
+      ecosystem: maven
+      endpoints:
+        - url: https://packages.example.test/npm

@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/proc"
+	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/ptyx"
 	"golang.org/x/term"
 )
@@ -116,13 +117,14 @@ func prepareConsole(
 // The terminal is put into raw mode automatically.
 func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, error) {
 	if err := cfg.validate(); err != nil {
-		return nil, err
+		return nil, runerror.Wrap(err, runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 1. Create console
 	c, restoreOutput, err := prepareConsole(saveConsoleOutputMode, ptyx.NewConsole)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create console: %w", err)
+		return nil, runerror.Wrap(fmt.Errorf("failed to create console: %w", err),
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 2. Set raw mode, save old state
@@ -134,7 +136,8 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 		if closeErr := c.Close(); closeErr != nil {
 			log.Warnf("failed to close console after MakeRaw error: %v", closeErr)
 		}
-		return nil, fmt.Errorf("failed to set raw mode: %w", err)
+		return nil, runerror.Wrap(fmt.Errorf("failed to set raw mode: %w", err),
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	// 3. Get terminal size
@@ -154,7 +157,8 @@ func NewSession(ctx context.Context, cfg SessionConfig) (InteractiveSession, err
 			log.Warnf("failed to close console after spawn error: %v", closeErr)
 		}
 
-		return nil, fmt.Errorf("failed to spawn: %w", err)
+		return nil, runerror.Wrap(fmt.Errorf("failed to spawn: %w", err),
+			runerror.ReasonProcessLaunchFailed)
 	}
 
 	sess := &session{

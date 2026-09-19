@@ -1,6 +1,28 @@
 package flows
 
-import "github.com/safedep/pmg/internal/ui"
+import (
+	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/ui"
+)
+
+func auditOutcome(outcome ui.ExecutionOutcome) audit.Outcome {
+	switch outcome {
+	case ui.OutcomeSuccess:
+		return audit.OutcomeSuccess
+	case ui.OutcomeBlocked:
+		return audit.OutcomeBlocked
+	case ui.OutcomeUserCancelled:
+		return audit.OutcomeUserCancelled
+	case ui.OutcomeDryRun:
+		return audit.OutcomeDryRun
+	case ui.OutcomeError:
+		return audit.OutcomeError
+	case ui.OutcomeInsecureBypass:
+		return audit.OutcomeInsecureBypass
+	default:
+		return audit.OutcomeError
+	}
+}
 
 // inferOutcome determines the execution outcome based on configuration and execution data.
 //

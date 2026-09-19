@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  pmg.wxs - the Windows installer for a pmg system install.
+
+  The MSI puts pmg.exe at the one path the pmg system install accepts,
+  %ProgramFiles%\safedep\pmg\pmg.exe, and runs that install as SYSTEM once the
+  file is on disk. Uninstall runs the system remove before the file goes.
+  scripts/msi/build.sh builds it with wixl and defines Version, ProductName
+  and PmgExe. XML comments cannot hold two hyphens, so the pmg flags appear
+  only in the CustomAction elements below.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="$(var.ProductName)"
+           Manufacturer="SafeDep"
+           Version="$(var.Version)"
+           UpgradeCode="6e06a0ec-1f93-49e2-bfdb-5632281ba4f5"
+           Language="1033">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="PMG protects developers from malicious packages" />
+
+    <!-- The stable and edge builds of one release share a numeric version.
+         An edge build must replace the earlier edge build, and the stable
+         build must replace the last edge build. RemoveExistingProducts is
+         rescheduled below, so this element only fills the Upgrade table. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of [ProductName] is installed." />
+    <Media Id="1" Cabinet="pmg.cab" EmbedCab="yes" />
+
+    <!-- A running pmg.exe locks its image against overwrite, not against a
+         rename. MoveAside below renames it inside the transaction, the way
+         the MDM script does, so the new file lands at once. InstallValidate
+         has marked the file in use before that, so msiexec returns 3010
+         although no restart is needed. A rename before InstallValidate would
+         avoid the code, but it would sit outside rollback protection. These
+         two properties keep Windows Installer from a files-in-use dialog, a
+         Restart Manager shutdown of the proxy, or a reboot. -->
+    <Property Id="REBOOT" Value="ReallySuppress" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/safedep/pmg" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- The machine PATH tells whether a system install made without this
+         MSI, by the MDM script or by hand, protects the machine already. Its
+         shim directory is on the PATH. MSI conditions cannot split the value
+         or join strings, so SetShimEntry* below build the exact entry in
+         each position it can take: alone, first, in the middle, last. A raw
+         REG_EXPAND_SZ value starts with #%, so the alone and first forms
+         come with and without that prefix. pmg writes the entry without a
+         trailing backslash, and a hand-edited entry may carry one, so each
+         form comes in both spellings. -->
+    <Property Id="MachinePath">
+      <RegistrySearch Id="MachinePath" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="Path" Type="raw" Win64="yes" />
+    </Property>
+
+    <!-- A directory id with a lowercase letter is a private property.
+         A command-line property or the winget location flag cannot move pmg.exe
+         off the path the system install requires. -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="VendorDir" Name="safedep">
+          <!-- wixl removes a folder through the component that lives in it,
+               so the vendor directory has a component of its own. -->
+          <Component Id="VendorDir" Guid="7c4f0c5e-2c1d-4d2a-9d3f-0b4b7e0e6a21" Win64="yes">
+            <CreateFolder />
+            <RemoveFolder Id="RemoveVendorDir" On="uninstall" />
+          </Component>
+          <Directory Id="ProductDir" Name="pmg">
+            <Component Id="PmgExe" Guid="6dd36151-b25b-45fa-8272-7551112dc1f3" Win64="yes">
+              <File Id="PmgExe" Name="pmg.exe" Source="$(var.PmgExe)" KeyPath="yes" />
+              <RemoveFolder Id="RemoveProductDir" On="uninstall" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Main" Level="1" Title="pmg">
+      <ComponentRef Id="VendorDir" />
+      <ComponentRef Id="PmgExe" />
+    </Feature>
+
+    <!-- wixl has no Directory attribute on CustomAction, so cmd.exe runs
+         through a property. System64Folder is the native System32 in this
+         x64 package. In cmd.exe the whole rest of the line, & chain
+         included, is the body of an if, so each command keeps its work
+         inside the if. -->
+    <CustomAction Id="SetCmdExe" Property="CmdExe" Value="[System64Folder]cmd.exe" />
+    <!-- One backup name per product, so the rollback restores the file this
+         transaction moved and no other. A backup a running process still
+         holds keeps its name until the next upgrade or the uninstall. -->
+    <CustomAction Id="SetBackupPath" Property="BackupPath" Value="[ProductDir]pmg.exe.old.[ProductCode]" />
+    <!-- The managed config, at the path pmg resolves on Windows. -->
+    <CustomAction Id="SetConfigPath" Property="ConfigPath" Value="[CommonAppDataFolder]safedep\pmg\config.yml" />
+    <CustomAction Id="SetConfigBackup" Property="ConfigBackup" Value="[CommonAppDataFolder]safedep\pmg\config.yml.rollback.[ProductCode]" />
+    <CustomAction Id="SetShimEntryAlone" Property="ShimEntryAlone" Value="[ProductDir]bin" />
+    <CustomAction Id="SetShimEntryAloneExpand" Property="ShimEntryAloneExpand" Value="#%[ProductDir]bin" />
+    <CustomAction Id="SetShimEntryFirst" Property="ShimEntryFirst" Value="[ProductDir]bin;" />
+    <CustomAction Id="SetShimEntryFirstExpand" Property="ShimEntryFirstExpand" Value="#%[ProductDir]bin;" />
+    <CustomAction Id="SetShimEntryMiddle" Property="ShimEntryMiddle" Value=";[ProductDir]bin;" />
+    <CustomAction Id="SetShimEntryLast" Property="ShimEntryLast" Value=";[ProductDir]bin" />
+    <CustomAction Id="SetShimEntryAloneSlash" Property="ShimEntryAloneSlash" Value="[ProductDir]bin\" />
+    <CustomAction Id="SetShimEntryAloneExpandSlash" Property="ShimEntryAloneExpandSlash" Value="#%[ProductDir]bin\" />
+    <CustomAction Id="SetShimEntryFirstSlash" Property="ShimEntryFirstSlash" Value="[ProductDir]bin\;" />
+    <CustomAction Id="SetShimEntryFirstExpandSlash" Property="ShimEntryFirstExpandSlash" Value="#%[ProductDir]bin\;" />
+    <CustomAction Id="SetShimEntryMiddleSlash" Property="ShimEntryMiddleSlash" Value=";[ProductDir]bin\;" />
+    <CustomAction Id="SetShimEntryLastSlash" Property="ShimEntryLastSlash" Value=";[ProductDir]bin\" />
+
+    <!-- A backup of the same name from an earlier run of this same product
+         goes first. When a process still holds it, the move fails and so
+         does the install. -->
+    <CustomAction Id="MoveAside" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ProductDir]pmg.exe&quot; (del /f /q &quot;[BackupPath]&quot; &amp; move /y &quot;[ProductDir]pmg.exe&quot; &quot;[BackupPath]&quot;)"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <!-- Rollback of the moves: put the moved file back once InstallFiles has
+         rolled its copy back. -->
+    <CustomAction Id="MoveAsideRollback" Property="CmdExe"
+                  ExeCommand="/c if not exist &quot;[ProductDir]pmg.exe&quot; if exist &quot;[BackupPath]&quot; move /y &quot;[BackupPath]&quot; &quot;[ProductDir]pmg.exe&quot;"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <!-- Backups go once the install has succeeded. A backup still running is
+         locked and stays until the next upgrade or the uninstall. -->
+    <CustomAction Id="CleanStale" Property="CmdExe"
+                  ExeCommand="/c del /f /q &quot;[ProductDir]pmg.exe.old*&quot;"
+                  Execute="commit" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CleanOld" Property="CmdExe"
+                  ExeCommand="/c del /f /q &quot;[ProductDir]pmg.exe.old*&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <CustomAction Id="SetupInstall" FileKey="PmgExe" ExeCommand="setup install --system"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <!-- Rollback of SetupInstall on a first install of this MSI on a machine
+         with no system install: the shims and the PATH entry it wrote must
+         not outlive the binary Windows Installer rolls back. The managed
+         config stays, because an MDM may have put it there before this
+         install. Nothing is undone on an upgrade, or over a system install
+         made by the MDM script or by hand: the binary path is fixed, so the
+         shims stay valid once InstallFiles and MoveAsideRollback have
+         restored the previous pmg.exe. -->
+    <CustomAction Id="SetupInstallRollback" FileKey="PmgExe" ExeCommand="setup remove --system"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <!-- An uninstall that Windows Installer rolls back, after a cancel or a
+         later failure, brings the binary and the registration back. These
+         three actions bring the protection back too. BackupConfig moves the
+         managed config aside, so its descriptor survives. On rollback,
+         ReinstallOnRollback runs the system install again, with the binary
+         Windows Installer has restored, and RestoreConfig moves the original
+         config back over the template. On success CleanConfigBackup deletes
+         the copy. -->
+    <CustomAction Id="BackupConfig" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ConfigPath]&quot; move /y &quot;[ConfigPath]&quot; &quot;[ConfigBackup]&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RestoreConfig" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ConfigBackup]&quot; move /y &quot;[ConfigBackup]&quot; &quot;[ConfigPath]&quot;"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="ReinstallOnRollback" FileKey="PmgExe" ExeCommand="setup install --system"
+                  Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="CleanConfigBackup" Property="CmdExe"
+                  ExeCommand="/c del /f /q &quot;[ConfigBackup]&quot;"
+                  Execute="commit" Impersonate="no" Return="ignore" />
+
+    <!-- Return="ignore" so an uninstall always completes, also when pmg.exe
+         is already gone. RemoveShims then deletes the shim directory whether
+         or not pmg could. Shims that outlive their binary break every
+         package manager on the machine for every user. The PATH entry that
+         names the missing directory is inert. -->
+    <CustomAction Id="SetupRemove" FileKey="PmgExe" ExeCommand="setup remove --system --config-file"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveShims" Property="CmdExe"
+                  ExeCommand="/c if exist &quot;[ProductDir]bin&quot; rd /s /q &quot;[ProductDir]bin&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- Explicit sequence numbers: wixl resolves Before and After against
+         its own action list and put a deferred action ahead of
+         InstallInitialize (1500). RemoveFiles is 3500, RemoveFolders 3600,
+         InstallFiles 4000, InstallExecute 6500,
+         InstallFinalize 6600. A rollback action is scheduled right before
+         the action it undoes. $PmgExe=3, written $$ for the wixl
+         preprocessor, holds only when InstallFiles is about to write
+         pmg.exe. A maintenance run that copies nothing must not move the
+         file away. -->
+    <InstallExecuteSequence>
+      <Custom Action="SetCmdExe" Sequence="1001" />
+      <Custom Action="SetBackupPath" Sequence="1002" />
+      <Custom Action="SetConfigPath" Sequence="1015" />
+      <Custom Action="SetConfigBackup" Sequence="1016" />
+      <Custom Action="SetShimEntryAlone" Sequence="1003" />
+      <Custom Action="SetShimEntryAloneExpand" Sequence="1004" />
+      <Custom Action="SetShimEntryFirst" Sequence="1005" />
+      <Custom Action="SetShimEntryFirstExpand" Sequence="1006" />
+      <Custom Action="SetShimEntryMiddle" Sequence="1007" />
+      <Custom Action="SetShimEntryLast" Sequence="1008" />
+      <Custom Action="SetShimEntryAloneSlash" Sequence="1009" />
+      <Custom Action="SetShimEntryAloneExpandSlash" Sequence="1010" />
+      <Custom Action="SetShimEntryFirstSlash" Sequence="1011" />
+      <Custom Action="SetShimEntryFirstExpandSlash" Sequence="1012" />
+      <Custom Action="SetShimEntryMiddleSlash" Sequence="1013" />
+      <Custom Action="SetShimEntryLastSlash" Sequence="1014" />
+      <CreateFolders />
+      <RemoveFolders />
+      <InstallExecute />
+      <!-- A major upgrade removes the old product inside the transaction,
+           after the new install has run. A failed upgrade then leaves the old
+           product registered, with its binary restored by the rollback. The
+           old product keeps its shims and managed config for the new build,
+           so its own SetupRemove is skipped. REMOVE, not REMOVE="ALL": the
+           one feature is the product, so removing it by name is an
+           uninstall too. -->
+      <RemoveExistingProducts Sequence="6525" />
+      <!-- Rollback runs the script in reverse. RestoreConfig sits before
+           ReinstallOnRollback so that the reinstall runs first and the
+           original config then lands over its template. -->
+      <Custom Action="RestoreConfig" Sequence="3494">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="BackupConfig" Sequence="3495">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="ReinstallOnRollback" Sequence="3496">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="SetupRemove" Sequence="3497">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="RemoveShims" Sequence="3498">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="CleanOld" Sequence="3499">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="CleanConfigBackup" Sequence="3501">REMOVE AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="MoveAsideRollback" Sequence="3998">$$PmgExe=3</Custom>
+      <Custom Action="MoveAside" Sequence="3999">$$PmgExe=3</Custom>
+      <Custom Action="SetupInstallRollback" Sequence="4001">NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT WIX_SAME_VERSION_UPGRADE_DETECTED AND NOT (MachinePath ~= ShimEntryAlone OR MachinePath ~= ShimEntryAloneExpand OR MachinePath ~&lt;&lt; ShimEntryFirst OR MachinePath ~&lt;&lt; ShimEntryFirstExpand OR MachinePath ~&gt;&lt; ShimEntryMiddle OR MachinePath ~&gt;&gt; ShimEntryLast OR MachinePath ~= ShimEntryAloneSlash OR MachinePath ~= ShimEntryAloneExpandSlash OR MachinePath ~&lt;&lt; ShimEntryFirstSlash OR MachinePath ~&lt;&lt; ShimEntryFirstExpandSlash OR MachinePath ~&gt;&lt; ShimEntryMiddleSlash OR MachinePath ~&gt;&gt; ShimEntryLastSlash)</Custom>
+      <Custom Action="SetupInstall" Sequence="4002">NOT REMOVE</Custom>
+      <Custom Action="CleanStale" Sequence="4003">$$PmgExe=3</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>
