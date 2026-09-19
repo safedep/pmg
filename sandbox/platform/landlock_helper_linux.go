@@ -22,6 +22,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// nobodyUID and nobodyGID stand in for a root caller inside the user
+// namespace. See the uid mapping in RunLandlockHelper.
+const (
+	nobodyUID = 65534
+	nobodyGID = 65534
+)
+
 // RunLandlockHelper is the entry point of the __landlock_sandbox_exec
 // process. It forks the shim and runs the seccomp supervisor for the target
 // tree. See docs/sandbox-landlock.md.
@@ -109,13 +116,22 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	// would give the whole target tree uid 0 with CAP_SYS_ADMIN.
 	uid := os.Getuid()
 	gid := os.Getgid()
+	containerUID, containerGID := uid, gid
+	if uid == 0 {
+		// A root caller must not see uid 0 in the namespace. Tools take
+		// root-only paths on getuid() == 0. A tar extractor restores
+		// tarball ownership with chown, and a chown to an unmapped uid
+		// fails with EINVAL. nobody has the same file access here: the
+		// mapped kuid is still 0, so the target owns the same files.
+		containerUID, containerGID = nobodyUID, nobodyGID
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER,
 		UidMappings: []syscall.SysProcIDMap{
-			{ContainerID: uid, HostID: uid, Size: 1},
+			{ContainerID: containerUID, HostID: uid, Size: 1},
 		},
 		GidMappings: []syscall.SysProcIDMap{
-			{ContainerID: gid, HostID: gid, Size: 1},
+			{ContainerID: containerGID, HostID: gid, Size: 1},
 		},
 		GidMappingsEnableSetgroups: false,
 	}

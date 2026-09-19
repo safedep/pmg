@@ -3,7 +3,6 @@
 package platform
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -16,6 +15,11 @@ import (
 // RunLandlockShim runs inside the user namespace that the helper created.
 // It applies Landlock, installs the seccomp filter, sends the notify fd to
 // the helper and calls execve. It returns only on a failure before execve.
+//
+// The helper maps the caller to a non-root uid in the namespace, so the
+// execve of this binary already dropped every capability. NNP stops the
+// target execve from granting any. This assumes the pmg binary itself
+// carries no file capabilities.
 func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("shim: no target command")
@@ -50,10 +54,6 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	_ = unix.Close(notifyFd)
 	_ = unix.Close(notifySocketFd)
 
-	if err := shimDropCapabilities(); err != nil {
-		return fmt.Errorf("shim: drop capabilities: %w", err)
-	}
-
 	target := args[0]
 	env := os.Environ()
 	if len(policy.Env) > 0 {
@@ -85,35 +85,6 @@ func shimInstallSeccomp(syscalls []uint32) (int, error) {
 		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER: %w", errno)
 	}
 	return int(fd), nil
-}
-
-const (
-	secbitNoRoot       = 1 << 0
-	secbitNoRootLocked = 1 << 1
-)
-
-// shimDropCapabilities makes execve grant no capability to the target. A
-// non-root shim already has none, because Go exec'd the shim binary as the
-// caller, and NNP stops execve from adding any. A root caller stays uid 0
-// through the identity map, and execve would give uid 0 the full set.
-// SECBIT_NOROOT removes that special case. An empty bounding set removes
-// file capabilities.
-func shimDropCapabilities() error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-	if err := unix.Prctl(unix.PR_SET_SECUREBITS, secbitNoRoot|secbitNoRootLocked, 0, 0, 0); err != nil {
-		return fmt.Errorf("prctl PR_SET_SECUREBITS: %w", err)
-	}
-	for c := uintptr(0); ; c++ {
-		err := unix.Prctl(unix.PR_CAPBSET_DROP, c, 0, 0, 0)
-		if errors.Is(err, unix.EINVAL) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("prctl PR_CAPBSET_DROP %d: %w", c, err)
-		}
-	}
 }
 
 // shimMmsghdr matches the kernel's `struct mmsghdr` (x/sys/unix does not

@@ -25,11 +25,11 @@ import (
 // flow on a real kernel + Landlock ABI.
 //
 // Opt-in: skipped unless PMG_LANDLOCK_E2E=1 is set in the environment. They
-// require a kernel that allows installing seccomp without NNP from inside an
-// unprivileged user namespace — Ubuntu 24.04 blocks this by default via
-// `kernel.apparmor_restrict_unprivileged_userns=1`, so CI must disable
-// AppArmor (or the sysctl) before setting the env var. Also skipped when
-// kernel Landlock is unavailable or the pmg binary cannot be located/built.
+// require unprivileged user namespace creation — Ubuntu 24.04 blocks this by
+// default via `kernel.apparmor_restrict_unprivileged_userns=1`, so CI must
+// disable AppArmor (or the sysctl) before setting the env var. Also skipped
+// when kernel Landlock is unavailable or the pmg binary cannot be
+// located/built.
 
 const landlockRuleReadExec = uint64(13) // READ_FILE | READ_DIR | EXECUTE
 const landlockRuleReadDir = uint64(12)  // READ_FILE | READ_DIR
@@ -42,7 +42,8 @@ func landlockE2EEnabled() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
-// buildPmgBinary locates or builds bin/pmg. Returns absolute path.
+// buildPmgBinary builds bin/pmg. Returns absolute path. Always build:
+// a stale bin/pmg tests old code and fails for the wrong reason.
 func buildPmgBinary(t *testing.T) string {
 	t.Helper()
 	// Walk upward from CWD to find the repo root (contains go.mod + main.go).
@@ -60,10 +61,6 @@ func buildPmgBinary(t *testing.T) string {
 		dir = parent
 	}
 	binPath := filepath.Join(dir, "bin", "pmg")
-	if _, err := os.Stat(binPath); err == nil {
-		return binPath
-	}
-	// Build fresh.
 	cmd := exec.Command("go", "build", "-o", binPath, "main.go")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
@@ -188,10 +185,10 @@ func TestLandlockHelper_TargetKeepsCallerIdentity(t *testing.T) {
 	assertIdentity(t, stdout, os.Getuid(), os.Getgid(), false)
 }
 
-// A host-root caller stays uid 0 through the identity map. The shim must
-// still hand the target an empty capability set. unshare -U -r stands in
-// for root.
-func TestLandlockHelper_RootCallerGetsNoCapabilities(t *testing.T) {
+// A host-root caller maps to nobody in the namespace. Tools must not see
+// uid 0, and the target must get an empty capability set. unshare -U -r
+// stands in for root.
+func TestLandlockHelper_RootCallerRunsAsNobody(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
@@ -217,13 +214,13 @@ func TestLandlockHelper_RootCallerGetsNoCapabilities(t *testing.T) {
 
 	stdout, stderr, exit := runHelperCommand(t, []string{unshare, "-U", "-r"}, policyPath, "/tmp/pmg-test-audit.sock.nonexistent")
 	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
-	assertIdentity(t, stdout, 0, 0, true)
+	assertIdentity(t, stdout, nobodyUID, nobodyGID, false)
 }
 
 const identityScript = "id -u; id -g; grep -E '^Cap(Prm|Eff|Bnd)' /proc/self/status"
 
-// Only a root shim can empty the bounding set. A non-root target keeps the
-// full bounding set, and NNP stops execve from granting any of it.
+// A non-root target keeps the full bounding set. NNP stops execve from
+// granting any of it, and a non-root uid has no other path to a capability.
 func assertIdentity(t *testing.T, stdout string, uid, gid int, emptyBounding bool) {
 	t.Helper()
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")

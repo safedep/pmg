@@ -26,11 +26,10 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
                                   │
                                   ▼
                            pmg __landlock_shim              [single-threaded,
-                            ├ apply Landlock (sets NNP)      caller uid,
-                            ├ install seccomp                no caps unless
-                            ├ send notify_fd via SCM_RIGHTS  caller is root]
-                            ├ root only: SECBIT_NOROOT, empty bounding set
-                            └ execve target
+                            ├ apply Landlock (sets NNP)      non-root uid,
+                            ├ install seccomp                no caps;
+                            ├ send notify_fd via SCM_RIGHTS  a root caller
+                            └ execve target                  maps to nobody]
                                   │
                                   ▼
                            target ─► child ─► grandchild    [filter inherited,
@@ -68,15 +67,17 @@ exec removes all capabilities, and NNP stops each later `execve` from adding any
 the caller. npm and pip see the caller. The target cannot use `CAP_DAC_OVERRIDE` on the
 files of the caller. The target cannot get `CAP_NET_ADMIN` in a new network namespace.
 
-A root caller stays uid 0 in the namespace, and `execve` gives uid 0 the full set. So a
-root shim sets `SECBIT_NOROOT` and `SECBIT_NOROOT_LOCKED` and empties the capability
-bounding set before `execve`. The target then gets no capability in either case. The
-bounding set also stops file capabilities on a `setcap` binary.
+A root caller maps to `nobody` (uid 65534). A target that sees uid 0 takes root-only code
+paths. A tar extractor then restores tarball ownership with `chown`, and a `chown` to an
+unmapped uid fails with `EINVAL`. The mapped kuid is still 0, so the target owns and
+accesses the same files as the root caller. Files that the target creates belong to root
+on the host. A non-root `execve` grants no capability, so no `SECBIT_NOROOT` or bounding
+set handling is needed.
 
 An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabilities to the
-full target tree. That was not necessary. An ancestor with the same uid can open
-`/proc/<pid>/mem` while the task is dumpable. A normal `execve` keeps `dumpable=1`, with or
-without NNP.
+full target tree. That was not necessary. The helper created the user namespace, so the
+kernel grants it `CAP_SYS_PTRACE` over the namespace. With the same uid on both sides, the
+helper opens `/proc/<pid>/mem` for each descendant, independent of the dumpable flag.
 
 ### The shim applies Landlock and seccomp, Landlock first
 
@@ -200,9 +201,9 @@ the trapped network syscalls. When the supervisor refuses ring creation, callers
 the confined path. io_uring is always optional. Runtimes fall back to epoll or a thread
 pool.
 
-**Network denials fail closed when the destination is unknown.** An `openat` fails open
-when the process memory is unreadable. A connect is different. The supervisor denies a
-connect when it cannot verify the destination. Under lockdown an unverifiable destination
+**Network denials fail closed when the destination is unknown.** An `openat` also fails
+closed when the process memory is unreadable. The supervisor denies a connect when it
+cannot verify the destination. Under lockdown an unverifiable destination
 looks the same as a hostile one. One example is `dumpable=0` after a hostile `execve`.
 
 **The shim passes its own file descriptor with `sendmmsg`.** The filter traps `sendmsg`.
@@ -276,6 +277,8 @@ a constant cost. That cost explains most of the decisions above:
   backstop for the passthrough cases.
 - **PID and IPC namespace isolation is best-effort.** On `EPERM` the helper retries
   without these namespaces.
+- **A root caller loses `CAP_DAC_OVERRIDE` in the sandbox.** The target runs as `nobody`.
+  It can access the files of the root caller, but not the files of a different user.
 - **TOCTOU between the path read and the deny reply.** The window is microseconds. A
   process can rewrite the path bytes in its memory, or replace a symlink on disk, after
   the supervisor reads them and before the kernel resolves the path. This is adequate for
