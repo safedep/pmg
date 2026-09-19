@@ -59,13 +59,12 @@ func Excluded(reason string) Verdict {
 	return v
 }
 
-// NotFound reports the package is absent from the analysis DB (treated as allow,
-// not a failure).
+// NotFound reports that the analysis DB has no record for the package.
 func NotFound() Verdict {
 	return Verdict{err: status.Error(codes.NotFound, "package not found")}
 }
 
-// ServerError reports an upstream failure, exercising the fail-open path.
+// ServerError reports an upstream failure.
 func ServerError() Verdict {
 	return Verdict{err: status.Error(codes.Unavailable, "analysis service unavailable")}
 }
