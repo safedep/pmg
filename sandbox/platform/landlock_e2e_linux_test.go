@@ -91,12 +91,21 @@ func runHelper(t *testing.T, policyPath string) (string, string, int) {
 
 func runHelperWithAuditSocket(t *testing.T, policyPath, auditSocket string) (string, string, int) {
 	t.Helper()
+	return runHelperCommand(t, nil, policyPath, auditSocket)
+}
+
+// runHelperCommand runs the helper behind an optional wrapper command such
+// as "unshare -U -r".
+func runHelperCommand(t *testing.T, wrapper []string, policyPath, auditSocket string) (string, string, int) {
+	t.Helper()
 	pmg := buildPmgBinary(t)
-	cmd := exec.Command(pmg,
+	args := append(append([]string{}, wrapper...),
+		pmg,
 		"__landlock_sandbox_exec",
 		"--policy-file", policyPath,
 		"--audit-socket", auditSocket,
 	)
+	cmd := exec.Command(args[0], args[1:]...)
 	// PMG_KEEP_POLICY ensures test state is visible on failure.
 	cmd.Env = append(os.Environ(), "PMG_KEEP_POLICY=1")
 	var outBuf, errBuf bytes.Buffer
@@ -154,6 +163,78 @@ func TestLandlockHelper_EchoRuns(t *testing.T) {
 	stdout, stderr, exit := runHelper(t, policyPath)
 	assert.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
 	assert.Contains(t, stdout, "sandbox-ok")
+}
+
+// The target must run as the caller with no capabilities in the namespace.
+func TestLandlockHelper_TargetKeepsCallerIdentity(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/sh",
+		Args:             []string{"-c", identityScript},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelper(t, policyPath)
+	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
+	assertIdentity(t, stdout, os.Getuid(), os.Getgid(), false)
+}
+
+// A host-root caller stays uid 0 through the identity map. The shim must
+// still hand the target an empty capability set. unshare -U -r stands in
+// for root.
+func TestLandlockHelper_RootCallerGetsNoCapabilities(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	unshare, err := exec.LookPath("unshare")
+	if err != nil {
+		t.Skip("unshare not found")
+	}
+	if out, err := exec.Command(unshare, "-U", "-r", "true").CombinedOutput(); err != nil {
+		t.Skipf("unshare -U -r unavailable: %v: %s", err, out)
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/sh",
+		Args:             []string{"-c", identityScript},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelperCommand(t, []string{unshare, "-U", "-r"}, policyPath, "/tmp/pmg-test-audit.sock.nonexistent")
+	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
+	assertIdentity(t, stdout, 0, 0, true)
+}
+
+const identityScript = "id -u; id -g; grep -E '^Cap(Prm|Eff|Bnd)' /proc/self/status"
+
+// Only a root shim can empty the bounding set. A non-root target keeps the
+// full bounding set, and NNP stops execve from granting any of it.
+func assertIdentity(t *testing.T, stdout string, uid, gid int, emptyBounding bool) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	require.Len(t, lines, 5, "stdout=%q", stdout)
+	assert.Equal(t, strconv.Itoa(uid), lines[0])
+	assert.Equal(t, strconv.Itoa(gid), lines[1])
+	assert.Equal(t, "CapPrm:\t0000000000000000", lines[2])
+	assert.Equal(t, "CapEff:\t0000000000000000", lines[3])
+	if emptyBounding {
+		assert.Equal(t, "CapBnd:\t0000000000000000", lines[4])
+	}
 }
 
 // TestLandlockHelper_DirectChildDenyBlocksRead is the security-critical
@@ -713,8 +794,9 @@ except OSError:
 	assert.NotContains(t, stdout+stderr, secret, "the denied file must not leak")
 }
 
-// Landlock does not hook chroot and root in the user namespace keeps
-// CAP_SYS_CHROOT. Only the supervisor stops "chroot(project); open(/.env)".
+// Landlock does not hook chroot. The target has no capabilities, but a nested
+// user namespace gives CAP_SYS_CHROOT back. Only the supervisor stops
+// "chroot(project); open(/.env)".
 func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")

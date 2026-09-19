@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -12,42 +13,25 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// RunLandlockShim is the inside-user-namespace entry point. It is invoked by
-// the helper as a direct child forked with CLONE_NEWUSER + uid map 0->host.
-// As uid-0-in-ns with CAP_SYS_ADMIN, it:
-//
-//  1. Loads the serialised landlockExecPolicy from policyFile.
-//  2. Applies Landlock restrictions. This runs BEFORE the seccomp filter is
-//     installed: populating the ruleset opens every rule path, and the
-//     supervisor would enforce the policy's deny list against the shim
-//     itself, aborting it with EACCES before exec.
-//  3. Installs the seccomp-notify filter WITHOUT PR_SET_NO_NEW_PRIVS. This is
-//     the whole point of the user-ns indirection: without NNP, subsequent
-//     execve(2)s in the target tree do NOT reset the dumpable flag to 0, so
-//     the helper can keep opening /proc/<pid>/mem for descendants and resolve
-//     openat(2) path arguments.
-//  4. Sends the notify fd back to the helper over a socketpair on
-//     notifySocketFd (fd number preserved via cmd.ExtraFiles).
-//  5. execve(2)s the target binary. The seccomp filter survives execve
-//     (filters are inherited) and applies to the target and all descendants.
-//
-// Returns an error only if the shim fails before execve. On success the
-// shim process is replaced by the target and this function does not return.
+// RunLandlockShim runs inside the user namespace that the helper created.
+// It applies Landlock, installs the seccomp filter, sends the notify fd to
+// the helper and calls execve. It returns only on a failure before execve.
 func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("shim: no target command")
 	}
 
-	// Without TSYNC the filter applies only to this thread; we must also
-	// execve from this same thread so the target inherits it.
+	// Without TSYNC the filter applies to this thread only. The execve must
+	// run on the same thread so the target inherits the filter.
 	runtime.LockOSThread()
 
-	// The policy file is owned by the helper; shim doesn't delete it.
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("shim: read policy: %w", err)
 	}
 
+	// Landlock runs before seccomp. It opens each rule path, and the
+	// supervisor would deny those opens against the deny list.
 	rules := shimFilesystemRules(policy.FilesystemRules)
 	cfg := landlockSelectConfig(policy)
 	if err := cfg.BestEffort().RestrictPaths(rules...); err != nil {
@@ -63,10 +47,12 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	if err := sendFdToSocket(notifySocketFd, notifyFd); err != nil {
 		return fmt.Errorf("shim: send notify fd: %w", err)
 	}
-	// Helper owns the notify fd now; kernel routes notifications via the
-	// shared file description.
 	_ = unix.Close(notifyFd)
 	_ = unix.Close(notifySocketFd)
+
+	if err := shimDropCapabilities(); err != nil {
+		return fmt.Errorf("shim: drop capabilities: %w", err)
+	}
 
 	target := args[0]
 	env := os.Environ()
@@ -79,11 +65,12 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 	return nil // unreachable
 }
 
-// shimInstallSeccomp installs the seccomp-notify filter WITHOUT
-// PR_SET_NO_NEW_PRIVS. The kernel accepts this only when the caller has
-// CAP_SYS_ADMIN in its user namespace; the helper arranges that by cloning
-// us with CLONE_NEWUSER + uid/gid mapping that makes us uid 0 in the new ns.
+// shimInstallSeccomp sets PR_SET_NO_NEW_PRIVS itself. Landlock sets it too,
+// but the install must not depend on that or on any capability.
 func shimInstallSeccomp(syscalls []uint32) (int, error) {
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		return -1, fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)
+	}
 	prog := landlockBuildNotifyFilter(syscalls...)
 
 	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
@@ -95,9 +82,38 @@ func shimInstallSeccomp(syscalls []uint32) (int, error) {
 	)
 	runtime.KeepAlive(prog)
 	if errno != 0 {
-		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): %w", errno)
+		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER: %w", errno)
 	}
 	return int(fd), nil
+}
+
+const (
+	secbitNoRoot       = 1 << 0
+	secbitNoRootLocked = 1 << 1
+)
+
+// shimDropCapabilities makes execve grant no capability to the target. A
+// non-root shim already has none, because Go exec'd the shim binary as the
+// caller, and NNP stops execve from adding any. A root caller stays uid 0
+// through the identity map, and execve would give uid 0 the full set.
+// SECBIT_NOROOT removes that special case. An empty bounding set removes
+// file capabilities.
+func shimDropCapabilities() error {
+	if os.Geteuid() != 0 {
+		return nil
+	}
+	if err := unix.Prctl(unix.PR_SET_SECUREBITS, secbitNoRoot|secbitNoRootLocked, 0, 0, 0); err != nil {
+		return fmt.Errorf("prctl PR_SET_SECUREBITS: %w", err)
+	}
+	for c := uintptr(0); ; c++ {
+		err := unix.Prctl(unix.PR_CAPBSET_DROP, c, 0, 0, 0)
+		if errors.Is(err, unix.EINVAL) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("prctl PR_CAPBSET_DROP %d: %w", c, err)
+		}
+	}
 }
 
 // shimMmsghdr matches the kernel's `struct mmsghdr` (x/sys/unix does not
@@ -108,14 +124,9 @@ type shimMmsghdr struct {
 	_   [4]byte
 }
 
-// sendFdToSocket sends `fd` over a connected unix-domain socket using
-// SCM_RIGHTS. This transfers the fd to the peer process atomically.
-//
-// The send uses sendmmsg, not sendmsg: under network lockdown the seccomp
-// filter traps sendmsg(2) and is installed BEFORE this handoff, so a sendmsg
-// here would trap the shim's own fd pass. The shim would block waiting for a
-// notification response that only the (not yet received) listener could
-// produce — a self-deadlock. sendmmsg is not in the trap set.
+// sendFdToSocket uses sendmmsg, not sendmsg. Under network lockdown the
+// filter traps sendmsg, and the filter is already installed. A trapped send
+// would wait for a reply from the listener that this send carries.
 func sendFdToSocket(sockFd, fd int) error {
 	rights := unix.UnixRights(fd)
 	buf := []byte{0}

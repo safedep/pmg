@@ -459,7 +459,8 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 <summary>Linux (Landlock, default)</summary>
 
 **Default sandbox on kernel 5.13+**: Landlock provides kernel-native filesystem access control
-without requiring external binaries or unprivileged user namespaces.
+without external binaries. The driver always creates a user namespace, so a non-root caller
+needs unprivileged user namespaces.
 
 For the architecture, design tradeoffs, and known limitations see
 [sandbox-landlock.md](./sandbox-landlock.md).
@@ -476,14 +477,16 @@ this in a two-stage architecture so enforcement applies to direct targets AND ev
 descendant (grandchildren, great-grandchildren, etc.):
 
 1. The helper process (`pmg __landlock_sandbox_exec`) clones a tiny shim
-   (`pmg __landlock_shim`) with `CLONE_NEWUSER` and a uid/gid map of `0 -> host uid`.
-   The shim runs as uid 0 inside a fresh user namespace so it has `CAP_SYS_ADMIN` in that
-   namespace.
-2. The shim installs the seccomp-notify filter **without** `PR_SET_NO_NEW_PRIVS` (permitted
-   by `CAP_SYS_ADMIN` in the ns). It then applies Landlock and `execve`s the real target.
-3. Because `NO_NEW_PRIVS` was never set, subsequent `execve` calls in the tree do **not**
-   reset `dumpable` to 0, so the helper can keep opening `/proc/<pid>/mem` for any
-   descendant. Deny rules like `~/.ssh` are enforced for the full process tree.
+   (`pmg __landlock_shim`) with `CLONE_NEWUSER` and an identity uid/gid map. The same
+   `clone()` creates the PID, IPC and mount namespaces, which need `CAP_SYS_ADMIN` in the
+   new user namespace.
+2. The shim applies Landlock, sets `PR_SET_NO_NEW_PRIVS`, installs the seccomp-notify
+   filter, and `execve`s the real target. The target runs as the caller with no
+   capability. A root caller stays uid 0 in the namespace, so a root shim also sets
+   `SECBIT_NOROOT` and empties the capability bounding set before `execve`.
+3. The helper opens `/proc/<pid>/mem` as a same-uid ancestor. The kernel allows that while
+   the task is dumpable, and a plain `execve` keeps `dumpable=1`. Deny rules like `~/.ssh`
+   are enforced for the full process tree.
 
 **Fail closed when memory is unreadable**: the supervisor reads `/proc/<child>/mem` at
 startup. If it cannot read it, the run stops. So a host that blocks the read stops the run
@@ -496,10 +499,10 @@ file by making its own memory unreadable with `prctl(PR_SET_DUMPABLE, 0)`. A too
 under the Bubblewrap driver. Bubblewrap enforces at the mount layer and does not read process
 memory.
 
-The user namespace is purely a capability vehicle. Host uid/gid are preserved through the
-mapping, so targets see the same filesystem ownership they normally would. Tools that
-refuse to run as root (npm's root-in-container warning) are unaffected because the
-outside-view uid never changes.
+The user namespace is purely a capability vehicle for the shim. The uid and gid map to
+themselves, so targets see the caller's identity and the same filesystem ownership they
+normally would. `id` prints the caller, and tools that change behaviour as root (npm
+lifecycle scripts, pip's root warning) run as the caller.
 
 **Requirements**: unprivileged user namespaces must be enabled (`unprivileged_userns_clone=1`
 on Debian/Ubuntu; default on most modern distros). If disabled, the helper fails with an
@@ -753,7 +756,7 @@ one: it re-executes pmg inside a user namespace to install its seccomp filter. W
 active, sandboxed commands fail with:
 
 ```
-Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER without NNP (user-ns CAP_SYS_ADMIN required): permission denied
+Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER: permission denied
 ```
 
 `pmg sandbox doctor` flags this as the "AppArmor user namespaces" check.
