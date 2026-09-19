@@ -256,7 +256,7 @@ func (h *Harness) get(rawURL string, headers map[string]string) RequestOutcome {
 	}
 
 	out.StatusCode = resp.StatusCode
-	out.Blocked = resp.StatusCode == http.StatusForbidden
+	out.Blocked = resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusServiceUnavailable
 	out.Body = string(body)
 	out.Headers = resp.Header.Clone()
 	return out

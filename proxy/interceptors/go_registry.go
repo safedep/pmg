@@ -175,8 +175,7 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 
 // handleZipDownload runs the security controls for a module source download:
 // dependency cooldown, then trusted/insecure fast-allow, then malware
-// analysis. memoize is false only when the outcome is a fail-open allow after
-// an analyzer error, so a retried request gets another chance to be analyzed.
+// analysis. Analyzer errors are not memoized so retries can run analysis again.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
 	config *goRegistryConfig,
@@ -196,7 +195,7 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version)
 	if err != nil {
 		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, info.name, info.version, err)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, false, nil
+		return blockAnalysisUnavailable(), false, nil
 	}
 
 	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version, result)
