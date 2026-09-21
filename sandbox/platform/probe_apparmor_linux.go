@@ -49,7 +49,7 @@ func (p *apparmorProbe) Run(_ context.Context) sandbox.ProbeResult {
 		Name:    sandbox.ProbeAppArmorUserns,
 		Status:  sandbox.ProbeStatusWarn,
 		Summary: "AppArmor restricts unprivileged user namespaces (value=" + value + ")",
-		Detail: "landlock fails with `shim: install seccomp: ... permission denied` and bwrap with " +
+		Detail: "landlock fails with `start shim (retry): ... permission denied` and bwrap with " +
 			"`setting up uid map: Permission denied` until an AppArmor profile permits pmg or the sysctl is relaxed.",
 		Fixes: []sandbox.ProbeFix{
 			{

@@ -3,7 +3,7 @@
 </div>
 
 <p align="center">
-    <strong>Block malicious packages before they install.</strong><br>
+    <strong>Block malicious packages before they install.</strong>
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@ Recent compromises in popular ecosystems:
 
 ## How PMG Works
 
-PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish. Each install passes through the enabled protection layers before code runs along with an audit trail.
+PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish. Each intercepted install passes through the protection layers that apply to it before code runs, along with an audit trail.
 
 <div align="center">
   <picture>

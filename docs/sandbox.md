@@ -482,9 +482,10 @@ descendant (grandchildren, great-grandchildren, etc.):
    new user namespace.
 2. The shim applies Landlock, sets `PR_SET_NO_NEW_PRIVS`, installs the seccomp-notify
    filter, and `execve`s the real target. The target runs as the caller with no
-   capability. A root caller maps to `nobody` (uid 65534) in the namespace, so tools
-   never see uid 0. The mapped kernel uid stays 0, so the target owns and accesses the
-   same files as the root caller.
+   capability. A root caller maps to an unprivileged uid (65533) in the namespace, so
+   tools never see uid 0. The mapped kernel uid stays 0, so the target owns the same
+   files as the root caller. Access follows the permission bits. The target has no
+   `CAP_DAC_OVERRIDE`.
 3. The helper opens `/proc/<pid>/mem` for each descendant. The helper created the user
    namespace, so the kernel grants it `CAP_SYS_PTRACE` over the namespace. The read works
    even when a task is not dumpable. Deny rules like `~/.ssh` are enforced for the full
@@ -504,8 +505,8 @@ memory.
 The user namespace is purely a capability vehicle for the shim. The uid and gid map to
 themselves, so targets see the caller's identity and the same filesystem ownership they
 normally would. `id` prints the caller, and tools that change behaviour as root (npm
-lifecycle scripts, pip's root warning) run as the caller. A root caller maps to `nobody`
-in the namespace, so these tools keep the non-root behavior.
+lifecycle scripts, pip's root warning) run as the caller. A root caller maps to an
+unprivileged uid in the namespace, so these tools keep the non-root behavior.
 
 **Requirements**: unprivileged user namespaces must be enabled (`unprivileged_userns_clone=1`
 on Debian/Ubuntu; default on most modern distros). If disabled, the helper fails with an
@@ -759,7 +760,7 @@ one: it re-executes pmg inside a user namespace to install its seccomp filter. W
 active, sandboxed commands fail with:
 
 ```
-Error: shim: install seccomp: SECCOMP_SET_MODE_FILTER: permission denied
+Error: start shim (retry): ... permission denied
 ```
 
 `pmg sandbox doctor` flags this as the "AppArmor user namespaces" check.

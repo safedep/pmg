@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -22,12 +24,29 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// nobodyUID and nobodyGID stand in for a root caller inside the user
-// namespace. See the uid mapping in RunLandlockHelper.
-const (
-	nobodyUID = 65534
-	nobodyGID = 65534
-)
+// preferredUnmappedID is the first choice for a root caller's uid and gid
+// in the user namespace. It must differ from the kernel overflow id: each
+// unmapped host id displays as the overflow id, and a target id equal to it
+// makes user-space ownership checks answer "mine" for the whole filesystem.
+const preferredUnmappedID = 65533
+
+// sandboxUnmappedIDs returns the uid and gid a root caller gets in the user
+// namespace. It avoids the kernel overflow ids.
+func sandboxUnmappedIDs() (int, int) {
+	return unmappedID("/proc/sys/kernel/overflowuid"), unmappedID("/proc/sys/kernel/overflowgid")
+}
+
+func unmappedID(overflowPath string) int {
+	data, err := os.ReadFile(overflowPath)
+	if err != nil {
+		return preferredUnmappedID
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || v != preferredUnmappedID {
+		return preferredUnmappedID
+	}
+	return preferredUnmappedID - 1
+}
 
 // RunLandlockHelper is the entry point of the __landlock_sandbox_exec
 // process. It forks the shim and runs the seccomp supervisor for the target
@@ -121,9 +140,9 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		// A root caller must not see uid 0 in the namespace. Tools take
 		// root-only paths on getuid() == 0. A tar extractor restores
 		// tarball ownership with chown, and a chown to an unmapped uid
-		// fails with EINVAL. nobody has the same file access here: the
-		// mapped kuid is still 0, so the target owns the same files.
-		containerUID, containerGID = nobodyUID, nobodyGID
+		// fails with EINVAL. The mapped kuid is still 0, so the target
+		// owns the same files as the root caller.
+		containerUID, containerGID = sandboxUnmappedIDs()
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER,

@@ -5,12 +5,14 @@ package platform
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,30 +44,47 @@ func landlockE2EEnabled() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
-// buildPmgBinary builds bin/pmg. Returns absolute path. Always build:
-// a stale bin/pmg tests old code and fails for the wrong reason.
+// buildPmgBinary builds bin/pmg once per test run. Returns absolute path.
+// Always build: a stale bin/pmg tests old code and fails for the wrong
+// reason. Build once: each test pays for its own build otherwise.
+var (
+	buildOnce     sync.Once
+	builtBinPath  string
+	builtBinError error
+)
+
 func buildPmgBinary(t *testing.T) string {
 	t.Helper()
-	// Walk upward from CWD to find the repo root (contains go.mod + main.go).
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-	dir := cwd
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "main.go")); err == nil {
-			break
+	buildOnce.Do(func() {
+		// Walk upward from CWD to find the repo root (contains go.mod + main.go).
+		cwd, err := os.Getwd()
+		if err != nil {
+			builtBinError = err
+			return
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Skip("could not locate pmg repo root")
+		dir := cwd
+		for i := 0; i < 10; i++ {
+			if _, err := os.Stat(filepath.Join(dir, "main.go")); err == nil {
+				break
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				builtBinError = fmt.Errorf("could not locate pmg repo root")
+				return
+			}
+			dir = parent
 		}
-		dir = parent
-	}
-	binPath := filepath.Join(dir, "bin", "pmg")
-	cmd := exec.Command("go", "build", "-o", binPath, "main.go")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "build failed: %s", out)
-	return binPath
+		binPath := filepath.Join(dir, "bin", "pmg")
+		cmd := exec.Command("go", "build", "-o", binPath, "main.go")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			builtBinError = fmt.Errorf("build failed: %s: %w", out, err)
+			return
+		}
+		builtBinPath = binPath
+	})
+	require.NoError(t, builtBinError)
+	return builtBinPath
 }
 
 // writePolicyFile serializes a minimal landlockExecPolicy to a temp file.
@@ -182,13 +201,15 @@ func TestLandlockHelper_TargetKeepsCallerIdentity(t *testing.T) {
 
 	stdout, stderr, exit := runHelper(t, policyPath)
 	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
-	assertIdentity(t, stdout, os.Getuid(), os.Getgid(), false)
+	assertIdentity(t, stdout, os.Getuid(), os.Getgid())
 }
 
-// A host-root caller maps to nobody in the namespace. Tools must not see
-// uid 0, and the target must get an empty capability set. unshare -U -r
-// stands in for root.
-func TestLandlockHelper_RootCallerRunsAsNobody(t *testing.T) {
+// A host-root caller maps to an unprivileged uid in the namespace. Tools
+// must not see uid 0, and the target must get an empty capability set.
+// unshare -U -r stands in for root: the kernel uid of the target is the
+// unprivileged caller, not 0, but the mapping and the capability rules are
+// the same.
+func TestLandlockHelper_RootCallerRunsAsUnprivileged(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
 	}
@@ -214,24 +235,22 @@ func TestLandlockHelper_RootCallerRunsAsNobody(t *testing.T) {
 
 	stdout, stderr, exit := runHelperCommand(t, []string{unshare, "-U", "-r"}, policyPath, "/tmp/pmg-test-audit.sock.nonexistent")
 	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
-	assertIdentity(t, stdout, nobodyUID, nobodyGID, false)
+	expUID, expGID := sandboxUnmappedIDs()
+	assertIdentity(t, stdout, expUID, expGID)
 }
 
-const identityScript = "id -u; id -g; grep -E '^Cap(Prm|Eff|Bnd)' /proc/self/status"
+const identityScript = "id -u; id -g; grep -E '^Cap(Prm|Eff)' /proc/self/status"
 
 // A non-root target keeps the full bounding set. NNP stops execve from
 // granting any of it, and a non-root uid has no other path to a capability.
-func assertIdentity(t *testing.T, stdout string, uid, gid int, emptyBounding bool) {
+func assertIdentity(t *testing.T, stdout string, uid, gid int) {
 	t.Helper()
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-	require.Len(t, lines, 5, "stdout=%q", stdout)
+	require.Len(t, lines, 4, "stdout=%q", stdout)
 	assert.Equal(t, strconv.Itoa(uid), lines[0])
 	assert.Equal(t, strconv.Itoa(gid), lines[1])
 	assert.Equal(t, "CapPrm:\t0000000000000000", lines[2])
 	assert.Equal(t, "CapEff:\t0000000000000000", lines[3])
-	if emptyBounding {
-		assert.Equal(t, "CapBnd:\t0000000000000000", lines[4])
-	}
 }
 
 // TestLandlockHelper_DirectChildDenyBlocksRead is the security-critical

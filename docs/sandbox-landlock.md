@@ -29,7 +29,7 @@ cannot remove a path from an allowed subtree. So we add seccomp-notify on top of
                             ├ apply Landlock (sets NNP)      non-root uid,
                             ├ install seccomp                no caps;
                             ├ send notify_fd via SCM_RIGHTS  a root caller
-                            └ execve target                  maps to nobody]
+                            └ execve target                  maps to uid 65533]
                                   │
                                   ▼
                            target ─► child ─► grandchild    [filter inherited,
@@ -67,12 +67,18 @@ exec removes all capabilities, and NNP stops each later `execve` from adding any
 the caller. npm and pip see the caller. The target cannot use `CAP_DAC_OVERRIDE` on the
 files of the caller. The target cannot get `CAP_NET_ADMIN` in a new network namespace.
 
-A root caller maps to `nobody` (uid 65534). A target that sees uid 0 takes root-only code
-paths. A tar extractor then restores tarball ownership with `chown`, and a `chown` to an
-unmapped uid fails with `EINVAL`. The mapped kuid is still 0, so the target owns and
-accesses the same files as the root caller. Files that the target creates belong to root
-on the host. A non-root `execve` grants no capability, so no `SECBIT_NOROOT` or bounding
-set handling is needed.
+A root caller maps to uid 65533. A target that sees uid 0 takes root-only code paths. A
+tar extractor then restores tarball ownership with `chown`, and a `chown` to an unmapped
+uid fails with `EINVAL`. The mapped kuid is still 0, so the target owns the same files as
+the root caller. Files that the target creates belong to root on the host. A non-root
+`execve` grants no capability, so no `SECBIT_NOROOT` or bounding set handling is needed.
+
+The uid must differ from the kernel overflow id (`/proc/sys/kernel/overflowuid`, 65534 by
+default). Each unmapped host uid displays as the overflow id. A target uid equal to it
+makes user-space ownership checks answer "mine" for the whole filesystem. One example is
+the git "dubious ownership" check. git would accept a repository of a different user and
+fail later on the write. The helper reads the overflow ids and picks 65532 when 65533 is
+taken.
 
 An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabilities to the
 full target tree. That was not necessary. The helper created the user namespace, so the
@@ -277,8 +283,10 @@ a constant cost. That cost explains most of the decisions above:
   backstop for the passthrough cases.
 - **PID and IPC namespace isolation is best-effort.** On `EPERM` the helper retries
   without these namespaces.
-- **A root caller loses `CAP_DAC_OVERRIDE` in the sandbox.** The target runs as `nobody`.
-  It can access the files of the root caller, but not the files of a different user.
+- **A root caller loses `CAP_DAC_OVERRIDE` in the sandbox.** The target runs as uid
+  65533 with no capabilities. Permission bits decide each access, even for files that
+  root owns. A root-owned directory at mode `0555` rejects a write that real root could
+  do. Files of a different user are out of reach.
 - **TOCTOU between the path read and the deny reply.** The window is microseconds. A
   process can rewrite the path bytes in its memory, or replace a symlink on disk, after
   the supervisor reads them and before the kernel resolves the path. This is adequate for
