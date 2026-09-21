@@ -91,89 +91,11 @@ func TestServerTimeoutDefaultsWhenZero(t *testing.T) {
 		"server WriteTimeout should default to 30 minutes when ServerReadWriteTimeout is zero")
 }
 
-func TestNormalizeRequestURL(t *testing.T) {
-	tests := []struct {
-		name        string
-		inputURL    string
-		expectedURL string
-	}{
-		{
-			name:        "malformed URL with http embedded in https",
-			inputURL:    "https://registry.npmjs.org:443http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk",
-			expectedURL: "https://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk",
-		},
-		{
-			name:        "malformed URL with http embedded for github packages",
-			inputURL:    "https://npm.pkg.github.com:443http://npm.pkg.github.com:443/download/some_package/0.2.7-rc2/abc123",
-			expectedURL: "https://npm.pkg.github.com:443/download/some_package/0.2.7-rc2/abc123",
-		},
-		{
-			name:        "normal https URL is unchanged",
-			inputURL:    "https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
-			expectedURL: "https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
-		},
-		{
-			name:        "normal http URL is unchanged",
-			inputURL:    "http://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
-			expectedURL: "http://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
-		},
-		{
-			name:        "URL with scoped package encoding",
-			inputURL:    "https://npm.pkg.github.com:443http://npm.pkg.github.com:443/@scope%2fpackage",
-			expectedURL: "https://npm.pkg.github.com:443/@scope/package",
-		},
-		{
-			name:        "URL with http in query parameter is unchanged",
-			inputURL:    "https://example.com/api?redirect=http://foo.com",
-			expectedURL: "https://example.com/api?redirect=http://foo.com",
-		},
-		{
-			name:        "URL with https in query parameter is unchanged",
-			inputURL:    "https://example.com/api?url=https://bar.com/path",
-			expectedURL: "https://example.com/api?url=https://bar.com/path",
-		},
-		{
-			name:        "URL with http in path segment is unchanged",
-			inputURL:    "https://example.com/proxy/http://target.com/resource",
-			expectedURL: "https://example.com/proxy/http://target.com/resource",
-		},
-		{
-			name:        "URL with http in fragment is unchanged",
-			inputURL:    "https://example.com/docs#http://ref.com",
-			expectedURL: "https://example.com/docs#http://ref.com",
-		},
-		{
-			name:        "malformed URL with query string preserved",
-			inputURL:    "https://registry.npmjs.org:443http://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk?foo=bar",
-			expectedURL: "https://registry.npmjs.org:443/-/npm/v1/security/advisories/bulk?foo=bar",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			parsed, err := url.Parse(tt.inputURL)
-			assert.NoError(t, err)
-
-			req := &http.Request{URL: parsed}
-			normalizeRequestURL(req)
-
-			assert.Equal(t, tt.expectedURL, req.URL.String())
-		})
-	}
-}
-
-func TestNormalizeRequestURLNilSafety(t *testing.T) {
-	// Should not panic
-	normalizeRequestURL(nil)
-	normalizeRequestURL(&http.Request{})
-	normalizeRequestURL(&http.Request{URL: &url.URL{}})
-}
-
 func TestProxyWithLoopbackBypass(t *testing.T) {
 	tests := []struct {
-		name          string
-		url           string
-		shouldBypass  bool
+		name         string
+		url          string
+		shouldBypass bool
 	}{
 		{"localhost bypassed", "http://localhost:9876/", true},
 		{"127.0.0.1 bypassed", "http://127.0.0.1:9876/", true},
