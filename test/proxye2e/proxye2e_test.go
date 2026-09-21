@@ -1940,3 +1940,50 @@ func TestProxyFlow_GoChecksumDatabaseStaysTunneled(t *testing.T) {
 		},
 	})
 }
+
+// npm sends absolute-form request targets with the http scheme inside the
+// CONNECT tunnel. goproxy before v1.8.6 joined the tunnel host and the target
+// into one URL that Go 1.26 rejects, and the client got EOF
+// (elazarl/goproxy#792). These cases prove the interceptors see the real URL.
+func TestProxyFlow_AbsoluteFormRequestInTunnel(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name: "clean tarball is analyzed and allowed",
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.getAbsoluteForm("registry.npmjs.org", "/left-pad/-/left-pad-1.0.0.tgz"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusOK, res.Requests[0].StatusCode)
+				assert.False(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("left-pad", "1.0.0"))
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
+			},
+		},
+		{
+			Name: "verified malware tarball is blocked",
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "evil", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.getAbsoluteForm("registry.npmjs.org", "/evil/-/evil-1.0.0.tgz"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedTarball("evil", "1.0.0"))
+			},
+		},
+	})
+}

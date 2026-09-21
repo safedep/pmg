@@ -1,12 +1,12 @@
 module github.com/safedep/pmg
 
-go 1.25.1
+go 1.26
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20260917155422-10bdf18a09ea.1
 	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20260917155422-10bdf18a09ea.2
 	github.com/Masterminds/semver v1.5.0
-	github.com/elazarl/goproxy v1.8.1
+	github.com/elazarl/goproxy v1.9.1
 	github.com/fatih/color v1.18.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gofrs/flock v0.13.0
@@ -28,8 +28,8 @@ require (
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171
-	google.golang.org/grpc v1.81.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
