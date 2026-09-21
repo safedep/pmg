@@ -1,9 +1,11 @@
 package proxye2e
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -247,6 +249,70 @@ func (h *Harness) get(rawURL string, headers map[string]string) RequestOutcome {
 		out.Err = err
 		return out
 	}
+	return readOutcome(resp, out)
+}
+
+// getAbsoluteForm sends one GET inside a CONNECT tunnel to host:443 with the
+// request target in absolute form and the http scheme, for example
+// "GET http://registry.npmjs.org:443/left-pad HTTP/1.1". npm sends this form
+// through a proxy. goproxy before v1.8.6 joined the tunnel host and the
+// target into one invalid URL and the client got EOF (elazarl/goproxy#792).
+func (h *Harness) getAbsoluteForm(host, path string) RequestOutcome {
+	h.t.Helper()
+
+	target := "http://" + host + ":443" + path
+	out := RequestOutcome{URL: target}
+
+	conn, err := net.DialTimeout("tcp", h.proxy.Address(), 10*time.Second)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		out.Err = err
+		return out
+	}
+
+	connect := &http.Request{
+		Method: http.MethodConnect,
+		URL:    &url.URL{Opaque: host + ":443"},
+		Host:   host + ":443",
+		Header: http.Header{},
+	}
+	if err := connect.Write(conn); err != nil {
+		out.Err = err
+		return out
+	}
+	// A 2xx reply to CONNECT has no body. Do not read or close it, the same
+	// as net/http.Transport does.
+	connectResp, err := http.ReadResponse(bufio.NewReader(conn), connect)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	if connectResp.StatusCode != http.StatusOK {
+		out.Err = fmt.Errorf("CONNECT %s: %s", host, connectResp.Status)
+		return out
+	}
+
+	tlsConf := h.client.Transport.(*http.Transport).TLSClientConfig.Clone()
+	tlsConf.ServerName = host
+	tlsConn := tls.Client(conn, tlsConf)
+	if _, err := fmt.Fprintf(tlsConn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", target, host); err != nil {
+		out.Err = err
+		return out
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(tlsConn), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	return readOutcome(resp, out)
+}
+
+func readOutcome(resp *http.Response, out RequestOutcome) RequestOutcome {
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
