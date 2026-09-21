@@ -235,7 +235,8 @@ func TestLandlockHelper_RootCallerRunsAsUnprivileged(t *testing.T) {
 
 	stdout, stderr, exit := runHelperCommand(t, []string{unshare, "-U", "-r"}, policyPath, "/tmp/pmg-test-audit.sock.nonexistent")
 	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
-	expUID, expGID := sandboxUnmappedIDs()
+	expUID, expGID, err := sandboxUnmappedIDs()
+	require.NoError(t, err)
 	assertIdentity(t, stdout, expUID, expGID)
 }
 

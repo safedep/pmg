@@ -78,7 +78,7 @@ default). Each unmapped host uid displays as the overflow id. A target uid equal
 makes user-space ownership checks answer "mine" for the whole filesystem. One example is
 the git "dubious ownership" check. git would accept a repository of a different user and
 fail later on the write. The helper reads the overflow ids and picks 65532 when 65533 is
-taken.
+taken. A read failure stops the run. A guess could equal the real overflow id.
 
 An earlier design mapped `0 → host_uid`. That design gave uid 0 and all capabilities to the
 full target tree. That was not necessary. The helper created the user namespace, so the

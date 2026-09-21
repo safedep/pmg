@@ -5,6 +5,7 @@ package platform
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -160,4 +161,35 @@ func TestLandlockBuildCloneflags_SkipBoth(t *testing.T) {
 	flags := landlockBuildCloneflags(policy)
 
 	assert.Equal(t, uintptr(0), flags)
+}
+
+func TestUnmappedID(t *testing.T) {
+	t.Run("overflow differs", func(t *testing.T) {
+		id, err := unmappedID(writeOverflowFile(t, "65534"))
+		require.NoError(t, err)
+		assert.Equal(t, preferredUnmappedID, id)
+	})
+
+	t.Run("overflow collides", func(t *testing.T) {
+		id, err := unmappedID(writeOverflowFile(t, "65533"))
+		require.NoError(t, err)
+		assert.Equal(t, preferredUnmappedID-1, id)
+	})
+
+	t.Run("unreadable value fails closed", func(t *testing.T) {
+		_, err := unmappedID(writeOverflowFile(t, "garbage"))
+		require.Error(t, err)
+	})
+
+	t.Run("missing file fails closed", func(t *testing.T) {
+		_, err := unmappedID("/nonexistent")
+		require.Error(t, err)
+	})
+}
+
+func writeOverflowFile(t *testing.T, value string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "overflowuid")
+	require.NoError(t, os.WriteFile(p, []byte(value+"\n"), 0o644))
+	return p
 }

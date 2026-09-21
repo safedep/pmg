@@ -31,21 +31,36 @@ import (
 const preferredUnmappedID = 65533
 
 // sandboxUnmappedIDs returns the uid and gid a root caller gets in the user
-// namespace. It avoids the kernel overflow ids.
-func sandboxUnmappedIDs() (int, int) {
-	return unmappedID("/proc/sys/kernel/overflowuid"), unmappedID("/proc/sys/kernel/overflowgid")
+// namespace. Each id must differ from the kernel overflow id. The function
+// fails closed: a guess could equal the real overflow id, and that would
+// remove the guarantee the mapping exists for. A procfs too broken to read
+// the overflow ids also breaks the /proc/<pid>/mem supervision, which fails
+// closed too.
+func sandboxUnmappedIDs() (int, int, error) {
+	uid, err := unmappedID("/proc/sys/kernel/overflowuid")
+	if err != nil {
+		return 0, 0, err
+	}
+	gid, err := unmappedID("/proc/sys/kernel/overflowgid")
+	if err != nil {
+		return 0, 0, err
+	}
+	return uid, gid, nil
 }
 
-func unmappedID(overflowPath string) int {
+func unmappedID(overflowPath string) (int, error) {
 	data, err := os.ReadFile(overflowPath)
 	if err != nil {
-		return preferredUnmappedID
+		return 0, fmt.Errorf("read %s: %w", overflowPath, err)
 	}
 	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || v != preferredUnmappedID {
-		return preferredUnmappedID
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", overflowPath, err)
 	}
-	return preferredUnmappedID - 1
+	if v != preferredUnmappedID {
+		return preferredUnmappedID, nil
+	}
+	return preferredUnmappedID - 1, nil
 }
 
 // RunLandlockHelper is the entry point of the __landlock_sandbox_exec
@@ -142,7 +157,10 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		// tarball ownership with chown, and a chown to an unmapped uid
 		// fails with EINVAL. The mapped kuid is still 0, so the target
 		// owns the same files as the root caller.
-		containerUID, containerGID = sandboxUnmappedIDs()
+		containerUID, containerGID, err = sandboxUnmappedIDs()
+		if err != nil {
+			return fmt.Errorf("map root caller to unprivileged ids: %w", err)
+		}
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER,
