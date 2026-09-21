@@ -176,11 +176,13 @@ jobs:
 
   # Stable releases only, like npm. The Chocolatey package goes to the
   # community repository and the winget manifests to microsoft/winget-pkgs
-  # as a pull request that its maintainers review. Without a secret the job
-  # builds and tests the package and skips the publish step.
+  # as a pull request that its maintainers review. The secrets live in the
+  # same environment as the npm token. Without a secret the job builds and
+  # tests the package and skips the publish step.
   publish-windows-packages:
     needs: test-msi
     if: ${{ !contains(github.ref_name, '-') }}
+    environment: npm-release
     runs-on: windows-latest
     timeout-minutes: 20
     defaults:
