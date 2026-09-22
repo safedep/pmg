@@ -3,8 +3,7 @@
 </div>
 
 <p align="center">
-    <strong>Block malicious npm and pip packages before they install.</strong><br>
-    Defense in depth for the package managers you already use.
+    <strong>Block malicious packages before they install.</strong>
 </p>
 
 <p align="center">
@@ -43,11 +42,11 @@ Recent compromises in popular ecosystems:
 - [**telnyx 4.87.2**](https://safedep.io/malicious-telnyx-pypi-compromise/) - a legitimate telecom SDK hijacked on PyPI
 - [**pino-sdk-v2**](https://safedep.io/malicious-npm-package-pino-sdk-v2-env-exfiltration/) - a typosquat package disguised as the popular pino logger
 
-**PMG is free, open source (Apache 2.0), and requires no account or API key.** It intercepts every package install and checks it against [SafeDep's free community API](https://safedep.io) for known malware **before** code executes. Install it once, and it covers every `npm install`, `pip install`, and `poetry add` after that.
+**PMG is free, open source (Apache 2.0), and requires no account or API key.** It intercepts every package install and checks it against [SafeDep's free community API](https://safedep.io) for known malware **before** code executes. For **unknown malware**, it uses dependency cooldown and opt-in sandbox for proactive security defense.
 
 ## How PMG Works
 
-PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish, and each install passes through the enabled protection layers before code runs, plus an audit trail after.
+PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish. Each intercepted install passes through the protection layers that apply to it before code runs, along with an audit trail.
 
 <div align="center">
   <picture>
@@ -60,9 +59,9 @@ PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and 
 <summary><strong>Layer details</strong></summary>
 
 - **Transparent Interception** - PMG wraps `npm`, `pip`, and other package managers. Developers and AI agents use the same commands. No workflow changes.
-- **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known-malicious packages are blocked. No key, no login required.
+- **Layer 1: Threat Intelligence** - PMG checks every package against [SafeDep's real-time threat intelligence](https://safedep.io) before install. Known malicious packages are blocked. No key, no login required.
 - **Layer 2: Policy (Dependency Cooldown)** - PMG blocks package versions published inside a configurable cooldown window, so recently compromised versions are skipped during the window.
-- **Layer 3: Opt-in Sandbox** - When sandboxing is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
+- **Layer 3: Opt-in Sandbox** - When sandbox is enabled and configured, PMG runs installs inside OS-native sandboxes (macOS Seatbelt, Linux Landlock by default, or Bubblewrap fallback) so install scripts have restricted system access even if a threat slips past the first two layers.
 - **Audit Logging** - PMG logs every install (what, when, from where) for a verifiable audit trail.
 
 </details>
@@ -225,6 +224,7 @@ go install github.com/safedep/pmg@latest
 <summary><strong>Binary Download</strong></summary>
 
 Download the latest binary for your platform from the [Releases Page](https://github.com/safedep/pmg/releases).
+
 </details>
 
 <details>
@@ -257,7 +257,7 @@ Protect CI workflows with one step. PMG analyzes every `npm install`,
 
 - name: Enforce PMG policy
   if: always()
-  run: pmg proxy stop --fail-on-violation   # stops the daemon, fails the job on a block
+  run: pmg proxy stop --fail-on-violation # stops the daemon, fails the job on a block
 ```
 
 By default you get malware blocking and dependency cooldown. Sandbox isolation

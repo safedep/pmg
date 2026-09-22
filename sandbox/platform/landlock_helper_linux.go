@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -22,31 +24,50 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// RunLandlockHelper is the entry point for the __landlock_sandbox_exec helper
-// process. policyFile is the path to the policy JSON temp file. auditSocket is
-// the path to the audit unix socket. cmdArgs are the target command args
-// (everything after "--").
-//
-// Architecture — why the helper spawns a shim in a user namespace:
-//
-// We want to install seccomp-notify AND keep /proc/<pid>/mem readable for
-// descendants, so the supervisor can resolve openat path arguments throughout
-// the process tree. Unprivileged seccomp install requires PR_SET_NO_NEW_PRIVS
-// — but NNP + execve resets the target's dumpable flag to 0, which blocks
-// /proc/<pid>/mem opens for anyone without CAP_SYS_PTRACE. This defeats
-// deny-rule enforcement on grandchildren (bash -> npm -> node).
-//
-// Fix: fork the target through a thin shim with CLONE_NEWUSER + uid map
-// 0->host. The shim boots as uid 0 inside the new user namespace (so
-// CAP_SYS_ADMIN in that ns) and installs seccomp WITHOUT NNP, which means
-// descendants keep dumpable=1 and the helper can read their memory. The
-// shim then execve's the real target with the filter inherited. To the real
-// target, this is indistinguishable from running directly — same uid, same
-// filesystem, same environment. The user namespace is only a capability
-// vehicle.
+// preferredUnmappedID is the first choice for a root caller's uid and gid
+// in the user namespace. It must differ from the kernel overflow id: each
+// unmapped host id displays as the overflow id, and a target id equal to it
+// makes user-space ownership checks answer "mine" for the whole filesystem.
+const preferredUnmappedID = 65533
+
+// sandboxUnmappedIDs returns the uid and gid a root caller gets in the user
+// namespace. Each id must differ from the kernel overflow id. The function
+// fails closed: a guess could equal the real overflow id, and that would
+// remove the guarantee the mapping exists for. A procfs too broken to read
+// the overflow ids also breaks the /proc/<pid>/mem supervision, which fails
+// closed too.
+func sandboxUnmappedIDs() (int, int, error) {
+	uid, err := unmappedID("/proc/sys/kernel/overflowuid")
+	if err != nil {
+		return 0, 0, err
+	}
+	gid, err := unmappedID("/proc/sys/kernel/overflowgid")
+	if err != nil {
+		return 0, 0, err
+	}
+	return uid, gid, nil
+}
+
+func unmappedID(overflowPath string) (int, error) {
+	data, err := os.ReadFile(overflowPath)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: %w", overflowPath, err)
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", overflowPath, err)
+	}
+	if v != preferredUnmappedID {
+		return preferredUnmappedID, nil
+	}
+	return preferredUnmappedID - 1, nil
+}
+
+// RunLandlockHelper is the entry point of the __landlock_sandbox_exec
+// process. It forks the shim and runs the seccomp supervisor for the target
+// tree. See docs/sandbox-landlock.md.
 func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
-	// The shim will re-open this file from disk; we keep it alive until the
-	// shim has loaded it.
+	// The shim reads this file again. Keep it until the run ends.
 	policy, err := readLandlockPolicyFromFile(policyFile)
 	if err != nil {
 		return fmt.Errorf("read policy from file: %w", err)
@@ -81,13 +102,10 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}
 
-	// Die if parent exits.
 	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); err != nil {
 		return fmt.Errorf("prctl PR_SET_PDEATHSIG: %w", err)
 	}
 
-	// Socketpair: the shim sends its seccomp notify fd back to the helper
-	// over its end (passed via ExtraFiles).
 	sockPair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
 	if err != nil {
 		return fmt.Errorf("socketpair: %w", err)
@@ -100,8 +118,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		}
 	}()
 
-	// ExtraFiles[0] becomes fd=3 inside the shim. Go's exec.Cmd writes
-	// uid_map/gid_map automatically when UidMappings/GidMappings are set.
+	// ExtraFiles[0] is fd 3 in the shim.
 	selfExe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve self exe: %w", err)
@@ -127,20 +144,31 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.ExtraFiles = []*os.File{shimSockFile}
 
-	// CLONE_NEWUSER is the whole point — see function-level comment. We map
-	// host uid/gid to 0 in the ns so the shim has CAP_SYS_ADMIN to install
-	// seccomp without NNP. Identity mapping would leave us as unprivileged
-	// uid inside the ns and we'd have to re-acquire caps via ambient, which
-	// is not trivial in a Go runtime.
+	// One clone creates the user namespace and the PID, IPC and mount
+	// namespaces, so the capability check for those passes. The identity
+	// map keeps the target as the caller with no capabilities. A 0->uid map
+	// would give the whole target tree uid 0 with CAP_SYS_ADMIN.
 	uid := os.Getuid()
 	gid := os.Getgid()
+	containerUID, containerGID := uid, gid
+	if uid == 0 {
+		// A root caller must not see uid 0 in the namespace. Tools take
+		// root-only paths on getuid() == 0. A tar extractor restores
+		// tarball ownership with chown, and a chown to an unmapped uid
+		// fails with EINVAL. The mapped kuid is still 0, so the target
+		// owns the same files as the root caller.
+		containerUID, containerGID, err = sandboxUnmappedIDs()
+		if err != nil {
+			return fmt.Errorf("map root caller to unprivileged ids: %w", err)
+		}
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER,
 		UidMappings: []syscall.SysProcIDMap{
-			{ContainerID: 0, HostID: uid, Size: 1},
+			{ContainerID: containerUID, HostID: uid, Size: 1},
 		},
 		GidMappings: []syscall.SysProcIDMap{
-			{ContainerID: 0, HostID: gid, Size: 1},
+			{ContainerID: containerGID, HostID: gid, Size: 1},
 		},
 		GidMappingsEnableSetgroups: false,
 	}
@@ -150,8 +178,7 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		cmd.SysProcAttr.Cloneflags |= extraCloneFlags
 	}
 
-	// Retry without extra-ns flags if clone fails (kernel/seccomp policy
-	// may forbid PID/IPC namespaces in restricted environments).
+	// A restricted host can refuse the PID or IPC namespace. Retry without.
 	if err := cmd.Start(); err != nil {
 		var pathErr *os.PathError
 		if errors.As(err, &pathErr) &&
@@ -193,8 +220,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("create supervisor: %w", err)
 	}
 
-	// dumpable=1 is preserved across the shim tree (no NNP), so this open
-	// succeeds for grandchildren too via memFdFor.
 	memFd, err := openLandlockChildMemFd(childPID)
 	if err != nil {
 		_ = cmd.Process.Signal(unix.SIGKILL)
@@ -222,10 +247,8 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 		return fmt.Errorf("enforce seccomp rules: %w", err)
 	}
 
-	// The supervisor opens /proc/<pid>/mem fresh for every notification: an
-	// open mem fd pins the task's mm at open() time, so a cached fd silently
-	// reads a dead address space after the task execve's. Our fd above served
-	// only as the fail-close capability check and is no longer needed.
+	// This fd was only the fail-close check. An open mem fd pins the mm of
+	// the task, so it would read a dead address space after an execve.
 	if err := memFd.Close(); err != nil {
 		log.Warnf("close /proc/%d/mem: %v", childPID, err)
 	}
@@ -257,9 +280,6 @@ func RunLandlockHelper(policyFile, auditSocket string, cmdArgs []string) error {
 	return nil // unreachable
 }
 
-// receiveNotifyFd reads a single SCM_RIGHTS-packed fd from the socketpair.
-// The shim writes it right after installing the seccomp filter. Returns the
-// fd as seen by the helper (kernel re-numbered at recvmsg time).
 func receiveNotifyFd(sockFd int) (int, error) {
 	buf := make([]byte, 1)
 	oob := make([]byte, unix.CmsgSpace(4))
@@ -304,8 +324,6 @@ func receiveNotifyFd(sockFd int) (int, error) {
 	return fds[0], nil
 }
 
-// readLandlockPolicyFromFile reads and deserializes a landlockExecPolicy from
-// a file path.
 func readLandlockPolicyFromFile(path string) (*landlockExecPolicy, error) {
 	if path == "" {
 		return nil, fmt.Errorf("policy file path is empty")
@@ -322,8 +340,6 @@ func readLandlockPolicyFromFile(path string) (*landlockExecPolicy, error) {
 	return readLandlockPolicyFromReader(f)
 }
 
-// readLandlockPolicyFromReader reads and deserializes a landlockExecPolicy
-// from an io.Reader.
 func readLandlockPolicyFromReader(r io.Reader) (*landlockExecPolicy, error) {
 	var policy landlockExecPolicy
 	if err := json.NewDecoder(r).Decode(&policy); err != nil {
@@ -335,9 +351,6 @@ func readLandlockPolicyFromReader(r io.Reader) (*landlockExecPolicy, error) {
 	return &policy, nil
 }
 
-// landlockBuildCloneflags builds extra clone flags for the shim process based
-// on the policy. The CLONE_NEWUSER flag itself is always added by the caller;
-// this function returns ONLY the optional PID/IPC/MNT namespace flags.
 func landlockBuildCloneflags(policy *landlockExecPolicy) uintptr {
 	var flags uintptr
 	if !policy.SkipPIDNamespace {
@@ -349,7 +362,6 @@ func landlockBuildCloneflags(policy *landlockExecPolicy) uintptr {
 	return flags
 }
 
-// openLandlockChildMemFd opens /proc/<pid>/mem for reading the child's memory.
 func openLandlockChildMemFd(pid int) (*os.File, error) {
 	path := fmt.Sprintf("/proc/%d/mem", pid)
 	f, err := os.Open(path)
@@ -359,9 +371,8 @@ func openLandlockChildMemFd(pid int) (*os.File, error) {
 	return f, nil
 }
 
-// landlockSelectConfig picks the Landlock go library's Config (and thus
-// ABI target) based on the highest access flag used in the policy. Kept
-// in the helper file to avoid import cycles; consumed by the shim.
+// landlockSelectConfig picks the lowest Landlock ABI that covers every
+// access flag in the policy.
 func landlockSelectConfig(policy *landlockExecPolicy) landlock.Config {
 	var hasRefer, hasTruncate, hasIoctlDev bool
 	for _, r := range policy.FilesystemRules {

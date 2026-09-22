@@ -5,12 +5,14 @@ package platform
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,11 +27,11 @@ import (
 // flow on a real kernel + Landlock ABI.
 //
 // Opt-in: skipped unless PMG_LANDLOCK_E2E=1 is set in the environment. They
-// require a kernel that allows installing seccomp without NNP from inside an
-// unprivileged user namespace — Ubuntu 24.04 blocks this by default via
-// `kernel.apparmor_restrict_unprivileged_userns=1`, so CI must disable
-// AppArmor (or the sysctl) before setting the env var. Also skipped when
-// kernel Landlock is unavailable or the pmg binary cannot be located/built.
+// require unprivileged user namespace creation — Ubuntu 24.04 blocks this by
+// default via `kernel.apparmor_restrict_unprivileged_userns=1`, so CI must
+// disable AppArmor (or the sysctl) before setting the env var. Also skipped
+// when kernel Landlock is unavailable or the pmg binary cannot be
+// located/built.
 
 const landlockRuleReadExec = uint64(13) // READ_FILE | READ_DIR | EXECUTE
 const landlockRuleReadDir = uint64(12)  // READ_FILE | READ_DIR
@@ -42,33 +44,47 @@ func landlockE2EEnabled() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
-// buildPmgBinary locates or builds bin/pmg. Returns absolute path.
+// buildPmgBinary builds bin/pmg once per test run. Returns absolute path.
+// Always build: a stale bin/pmg tests old code and fails for the wrong
+// reason. Build once: each test pays for its own build otherwise.
+var (
+	buildOnce     sync.Once
+	builtBinPath  string
+	builtBinError error
+)
+
 func buildPmgBinary(t *testing.T) string {
 	t.Helper()
-	// Walk upward from CWD to find the repo root (contains go.mod + main.go).
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-	dir := cwd
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "main.go")); err == nil {
-			break
+	buildOnce.Do(func() {
+		// Walk upward from CWD to find the repo root (contains go.mod + main.go).
+		cwd, err := os.Getwd()
+		if err != nil {
+			builtBinError = err
+			return
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Skip("could not locate pmg repo root")
+		dir := cwd
+		for i := 0; i < 10; i++ {
+			if _, err := os.Stat(filepath.Join(dir, "main.go")); err == nil {
+				break
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				builtBinError = fmt.Errorf("could not locate pmg repo root")
+				return
+			}
+			dir = parent
 		}
-		dir = parent
-	}
-	binPath := filepath.Join(dir, "bin", "pmg")
-	if _, err := os.Stat(binPath); err == nil {
-		return binPath
-	}
-	// Build fresh.
-	cmd := exec.Command("go", "build", "-o", binPath, "main.go")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoErrorf(t, err, "build failed: %s", out)
-	return binPath
+		binPath := filepath.Join(dir, "bin", "pmg")
+		cmd := exec.Command("go", "build", "-o", binPath, "main.go")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			builtBinError = fmt.Errorf("build failed: %s: %w", out, err)
+			return
+		}
+		builtBinPath = binPath
+	})
+	require.NoError(t, builtBinError)
+	return builtBinPath
 }
 
 // writePolicyFile serializes a minimal landlockExecPolicy to a temp file.
@@ -91,12 +107,21 @@ func runHelper(t *testing.T, policyPath string) (string, string, int) {
 
 func runHelperWithAuditSocket(t *testing.T, policyPath, auditSocket string) (string, string, int) {
 	t.Helper()
+	return runHelperCommand(t, nil, policyPath, auditSocket)
+}
+
+// runHelperCommand runs the helper behind an optional wrapper command such
+// as "unshare -U -r".
+func runHelperCommand(t *testing.T, wrapper []string, policyPath, auditSocket string) (string, string, int) {
+	t.Helper()
 	pmg := buildPmgBinary(t)
-	cmd := exec.Command(pmg,
+	args := append(append([]string{}, wrapper...),
+		pmg,
 		"__landlock_sandbox_exec",
 		"--policy-file", policyPath,
 		"--audit-socket", auditSocket,
 	)
+	cmd := exec.Command(args[0], args[1:]...)
 	// PMG_KEEP_POLICY ensures test state is visible on failure.
 	cmd.Env = append(os.Environ(), "PMG_KEEP_POLICY=1")
 	var outBuf, errBuf bytes.Buffer
@@ -154,6 +179,79 @@ func TestLandlockHelper_EchoRuns(t *testing.T) {
 	stdout, stderr, exit := runHelper(t, policyPath)
 	assert.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
 	assert.Contains(t, stdout, "sandbox-ok")
+}
+
+// The target must run as the caller with no capabilities in the namespace.
+func TestLandlockHelper_TargetKeepsCallerIdentity(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/sh",
+		Args:             []string{"-c", identityScript},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelper(t, policyPath)
+	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
+	assertIdentity(t, stdout, os.Getuid(), os.Getgid())
+}
+
+// A host-root caller maps to an unprivileged uid in the namespace. Tools
+// must not see uid 0, and the target must get an empty capability set.
+// unshare -U -r stands in for root: the kernel uid of the target is the
+// unprivileged caller, not 0, but the mapping and the capability rules are
+// the same.
+func TestLandlockHelper_RootCallerRunsAsUnprivileged(t *testing.T) {
+	if !landlockE2EEnabled() {
+		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
+	}
+	if _, err := landlockDetectABI(); err != nil {
+		t.Skipf("Landlock not available: %v", err)
+	}
+	unshare, err := exec.LookPath("unshare")
+	if err != nil {
+		t.Skip("unshare not found")
+	}
+	if out, err := exec.Command(unshare, "-U", "-r", "true").CombinedOutput(); err != nil {
+		t.Skipf("unshare -U -r unavailable: %v: %s", err, out)
+	}
+
+	policy := &landlockExecPolicy{
+		FilesystemRules:  baseRules(),
+		SkipPIDNamespace: true,
+		SkipIPCNamespace: true,
+		Command:          "/bin/sh",
+		Args:             []string{"-c", identityScript},
+	}
+	policyPath := writePolicyFile(t, policy)
+
+	stdout, stderr, exit := runHelperCommand(t, []string{unshare, "-U", "-r"}, policyPath, "/tmp/pmg-test-audit.sock.nonexistent")
+	require.Equal(t, 0, exit, "helper exited non-zero: stderr=%s", stderr)
+	expUID, expGID, err := sandboxUnmappedIDs()
+	require.NoError(t, err)
+	assertIdentity(t, stdout, expUID, expGID)
+}
+
+const identityScript = "id -u; id -g; grep -E '^Cap(Prm|Eff)' /proc/self/status"
+
+// A non-root target keeps the full bounding set. NNP stops execve from
+// granting any of it, and a non-root uid has no other path to a capability.
+func assertIdentity(t *testing.T, stdout string, uid, gid int) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	require.Len(t, lines, 4, "stdout=%q", stdout)
+	assert.Equal(t, strconv.Itoa(uid), lines[0])
+	assert.Equal(t, strconv.Itoa(gid), lines[1])
+	assert.Equal(t, "CapPrm:\t0000000000000000", lines[2])
+	assert.Equal(t, "CapEff:\t0000000000000000", lines[3])
 }
 
 // TestLandlockHelper_DirectChildDenyBlocksRead is the security-critical
@@ -713,8 +811,9 @@ except OSError:
 	assert.NotContains(t, stdout+stderr, secret, "the denied file must not leak")
 }
 
-// Landlock does not hook chroot and root in the user namespace keeps
-// CAP_SYS_CHROOT. Only the supervisor stops "chroot(project); open(/.env)".
+// Landlock does not hook chroot. The target has no capabilities, but a nested
+// user namespace gives CAP_SYS_CHROOT back. Only the supervisor stops
+// "chroot(project); open(/.env)".
 func TestLandlockHelper_DenyBlocksChroot(t *testing.T) {
 	if !landlockE2EEnabled() {
 		t.Skip("PMG_LANDLOCK_E2E not set; skipping landlock e2e (requires AppArmor disabled / unprivileged-userns sysctl)")
