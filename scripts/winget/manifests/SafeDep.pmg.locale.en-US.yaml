@@ -13,7 +13,7 @@ LicenseUrl: https://github.com/safedep/pmg/blob/main/LICENSE
 ShortDescription: Package Manager Guard protects developers from malicious packages
 Description: |-
   PMG (Package Manager Guard) checks packages for malware before npm, pnpm, yarn, bun, pip and uv install them.
-  This package installs pmg for every user of the machine. The installer puts pmg.exe under Program Files and runs `pmg setup install --system`. That command puts shims for the package managers first on the machine PATH and writes a managed config under ProgramData. Uninstall removes all of it.
+  This package installs pmg for every user of the machine and puts its shims first on the machine PATH. Uninstall removes all of it.
 Moniker: pmg
 Tags:
 - malware

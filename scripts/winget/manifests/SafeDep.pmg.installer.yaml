@@ -9,8 +9,7 @@ InstallModes:
 UpgradeBehavior: install
 ElevationRequirement: elevationRequired
 ReleaseDate: {{RELEASE_DATE}}
-# The MSI upgrade code. It lets winget find an install of any version, and
-# an edge install listed as pmg (edge).
+# The MSI upgrade code lets winget find an installed pmg of any version.
 AppsAndFeaturesEntries:
 - Publisher: SafeDep
   UpgradeCode: '{6E06A0EC-1F93-49E2-BFDB-5632281BA4F5}'
