@@ -9,10 +9,12 @@ InstallModes:
 UpgradeBehavior: install
 ElevationRequirement: elevationRequired
 ReleaseDate: {{RELEASE_DATE}}
-# The MSI upgrade code lets winget find an installed pmg of any version.
+# The MSI upgrade code. It is fixed in scripts/msi/pmg.wxs for the life of
+# the product, so winget finds an installed pmg of any version. It also finds
+# an install that came from the MSI itself.
 AppsAndFeaturesEntries:
 - Publisher: SafeDep
-  UpgradeCode: '{6E06A0EC-1F93-49E2-BFDB-5632281BA4F5}'
+  UpgradeCode: '{{UPGRADE_CODE}}'
   InstallerType: msi
 Installers:
 - Architecture: x64
