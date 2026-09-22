@@ -240,10 +240,10 @@ jobs:
       # repository outside its owner, so the release token does not work here.
       - name: Submit the manifests to microsoft/winget-pkgs
         env:
-          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          WINGET_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
         run: |
           if (-not $env:WINGET_TOKEN) {
-            Write-Host '::warning::WINGET_TOKEN is not set. The winget manifests were built and tested but not submitted.'
+            Write-Host '::warning::WINGET_GITHUB_TOKEN is not set. The winget manifests were built and tested but not submitted.'
             exit 0
           }
           # A pinned release, and the Microsoft signature on the binary checked
