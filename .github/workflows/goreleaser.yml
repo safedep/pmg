@@ -234,12 +234,15 @@ jobs:
           PMG_MSI_VERSION: ${{ env.VERSION }}
         run: pwsh -NoProfile -File scripts/winget/tests/winget_e2e_test.ps1
 
+      # The release token is a classic token with the repo scope, which is what
+      # wingetcreate needs to fork microsoft/winget-pkgs and open the pull
+      # request. The pull request appears under the token owner's account.
       - name: Submit the manifests to microsoft/winget-pkgs
         env:
-          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          WINGET_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
         run: |
           if (-not $env:WINGET_TOKEN) {
-            Write-Host '::warning::WINGET_TOKEN is not set. The winget manifests were built and tested but not submitted.'
+            Write-Host '::warning::GORELEASER_GITHUB_TOKEN is not set. The winget manifests were built and tested but not submitted.'
             exit 0
           }
           # A pinned release, and the Microsoft signature on the binary checked
