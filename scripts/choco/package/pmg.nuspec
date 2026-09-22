@@ -17,9 +17,16 @@
     <tags>pmg safedep security supply-chain malware npm pypi admin</tags>
     <summary>Package Manager Guard protects developers from malicious packages</summary>
     <description>
-PMG (Package Manager Guard) checks packages for malware before npm, pnpm, yarn, bun, pip and uv install them.
+PMG (Package Manager Guard) checks packages for malware before npm, pnpm, yarn, bun, pip and uv install them. The check runs before the package code executes. PMG is free and open source. It needs no account and no API key.
 
-This package installs pmg for every user of the machine and puts its shims first on the machine PATH. Uninstall removes all of it.
+### What this package does
+
+* It installs `pmg.exe` under Program Files for every user of the machine.
+* It puts shims for the package managers first on the machine `PATH`. A plain `npm install` then goes through PMG.
+* It writes a managed configuration under ProgramData.
+* Uninstall removes all of it.
+
+Open a new terminal after the install. Then run `pmg setup doctor` to check the setup.
 
 Docs: https://github.com/safedep/pmg/blob/main/docs/system-install.md
     </description>
