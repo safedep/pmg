@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>pmg</id>
+    <version>{{VERSION}}</version>
+    <title>pmg</title>
+    <authors>SafeDep</authors>
+    <owners>SafeDep</owners>
+    <projectUrl>https://github.com/safedep/pmg</projectUrl>
+    <projectSourceUrl>https://github.com/safedep/pmg</projectSourceUrl>
+    <packageSourceUrl>https://github.com/safedep/pmg/tree/main/scripts/choco</packageSourceUrl>
+    <docsUrl>https://github.com/safedep/pmg/blob/main/docs/system-install.md</docsUrl>
+    <bugTrackerUrl>https://github.com/safedep/pmg/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/safedep/pmg/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <releaseNotes>https://github.com/safedep/pmg/releases/tag/{{RELEASE_TAG}}</releaseNotes>
+    <tags>pmg safedep security supply-chain malware npm pypi admin</tags>
+    <summary>Package Manager Guard (PMG) protects developers and AI agents from malicious open source packages</summary>
+    <description>
+Package Manager Guard (PMG) checks open source packages for malware before a package manager installs them. It leverages threat intel, dependency cooldown and opt-in sandbox to protect against known and unknown malicious packages. PMG is free and open source.
+
+### What this package does
+
+* It installs `pmg.exe` under Program Files for every user of the machine.
+* It puts shims for the package managers first on the machine `PATH`. A plain `npm install` then goes through PMG.
+* It writes a managed configuration under ProgramData.
+* Uninstall removes all of it.
+
+Open a new terminal after the install. Then run `pmg setup doctor` to check the setup.
+
+Docs: https://github.com/safedep/pmg/blob/main/docs/system-install.md
+    </description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
