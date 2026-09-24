@@ -449,6 +449,25 @@ func isReplayableRequest(req *http.Request) bool {
 	return req.Body == nil || req.Body == http.NoBody
 }
 
+func newBlockedResponse(req *http.Request, statusCode int, message string) *http.Response {
+	r := goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
+
+	// goproxy writes MITM responses with Response.Write, which needs a valid protocol.
+	if req.ProtoMajor > 0 {
+		r.Proto = req.Proto
+		r.ProtoMajor = req.ProtoMajor
+		r.ProtoMinor = req.ProtoMinor
+	} else {
+		r.Proto = "HTTP/1.1"
+		r.ProtoMajor = 1
+		r.ProtoMinor = 1
+	}
+	r.Close = true
+	r.Header.Set("Connection", "close")
+	r.Header.Set("Proxy-Connection", "close")
+	return r
+}
+
 func (ps *proxyServer) registerHandlers() {
 	ps.proxy.OnRequest().DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 		ctx.RoundTripper = ps.roundTripper
@@ -456,7 +475,8 @@ func (ps *proxyServer) registerHandlers() {
 		reqCtx, err := newRequestContext(req)
 		if err != nil {
 			log.Errorf("Failed to create request context: %v", err)
-			return req, nil
+			return req, newBlockedResponse(req, http.StatusServiceUnavailable,
+				"PMG blocked the request because a security check failed. Try again later.")
 		}
 
 		log.Debugf("[%s] %s %s", reqCtx.RequestID, req.Method, req.URL.String())
@@ -472,7 +492,11 @@ func (ps *proxyServer) registerHandlers() {
 			resp, err := interceptor.HandleRequest(reqCtx)
 			if err != nil {
 				log.Errorf("[%s] Interceptor %s error: %v", reqCtx.RequestID, interceptor.Name(), err)
-				continue
+				resp = &InterceptorResponse{
+					Action:       ActionBlock,
+					BlockCode:    http.StatusServiceUnavailable,
+					BlockMessage: "PMG blocked the request because a security check failed. Try again later.",
+				}
 			}
 
 			if resp == nil {
@@ -495,25 +519,7 @@ func (ps *proxyServer) registerHandlers() {
 				}
 
 				log.Debugf("[%s] Blocked by %s: %s", reqCtx.RequestID, interceptor.Name(), req.URL.String())
-				r := goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
-
-				// goproxy v1.8.x writes the response via (*http.Response).Write for MITM traffic.
-				// Ensure the protocol version is valid (defaults to HTTP/0.0 otherwise).
-				// Ref: https://github.com/elazarl/goproxy/issues/745
-				if req.ProtoMajor > 0 {
-					r.Proto = req.Proto
-					r.ProtoMajor = req.ProtoMajor
-					r.ProtoMinor = req.ProtoMinor
-				} else {
-					r.Proto = "HTTP/1.1"
-					r.ProtoMajor = 1
-					r.ProtoMinor = 1
-				}
-				r.Close = true
-				r.Header.Set("Connection", "close")
-				r.Header.Set("Proxy-Connection", "close")
-
-				return req, r
+				return req, newBlockedResponse(req, statusCode, message)
 
 			case ActionModifyRequest:
 				if resp.ModifiedHeaders != nil {

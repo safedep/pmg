@@ -45,6 +45,9 @@ func newAnalyzerCircuitBreakerWithTimeout(name string, cooldown time.Duration) *
 		Name:        name,
 		MaxRequests: 1,
 		Timeout:     cooldown,
+		IsSuccessful: func(err error) bool {
+			return err == nil || status.Code(err) == codes.NotFound
+		},
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= 3
 		},
@@ -119,21 +122,7 @@ func (b *baseRegistryInterceptor) analyzePackage(
 			analysisCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			res, err := b.analyzer.Analyze(analysisCtx, pkgVersion)
-			if err != nil {
-				// NotFound means the package is not in the analysis DB — this is expected
-				// and should not count as a circuit breaker failure.
-				// Since gRPC v1.75.0, status.FromError unwraps error chains via errors.As.
-				if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-					log.Debugf("[%s] Package %s@%s not found in analysis DB, allowing", ctx.RequestID, packageName, packageVersion)
-					return &analyzer.PackageVersionAnalysisResult{
-						PackageVersion: pkgVersion,
-						Action:         analyzer.ActionAllow,
-					}, nil
-				}
-			}
-
-			return res, err
+			return b.analyzer.Analyze(analysisCtx, pkgVersion)
 		})
 		if err != nil {
 			return nil, err
@@ -264,14 +253,16 @@ func (b *baseRegistryInterceptor) handleAnalysisResult(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 
 	default:
-		audit.LogInstallAllowed(result.PackageVersion, 1)
+		log.Warnf("[%s] Blocking package %s/%s@%s because the analyzer returned unknown action %d", ctx.RequestID, ecosystem.String(), packageName, packageVersion, result.Action)
+		return blockAnalysisUnavailable(), nil
+	}
+}
 
-		if b.statsCollector != nil {
-			b.statsCollector.RecordAllowed(result)
-		}
-
-		log.Warnf("[%s] Unknown analysis action %d for package %s/%s@%s, allowing by default", ctx.RequestID, result.Action, ecosystem.String(), packageName, packageVersion)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+func blockAnalysisUnavailable() *proxy.InterceptorResponse {
+	return &proxy.InterceptorResponse{
+		Action:       proxy.ActionBlock,
+		BlockCode:    http.StatusServiceUnavailable,
+		BlockMessage: "PMG blocked the download because malware analysis failed. Try again later.",
 	}
 }
 

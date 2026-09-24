@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 type reproInterceptor struct {
 	host  string
 	delay time.Duration
+	err   error
 }
 
 func (r *reproInterceptor) Name() string { return "repro" }
@@ -34,7 +36,28 @@ func (r *reproInterceptor) HandleRequest(ctx *RequestContext) (*InterceptorRespo
 	if r.delay > 0 {
 		time.Sleep(r.delay)
 	}
-	return &InterceptorResponse{Action: ActionAllow}, nil
+	return &InterceptorResponse{Action: ActionAllow}, r.err
+}
+
+func TestInterceptorErrorBlocksRequest(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	u, err := url.Parse(upstream.URL)
+	require.NoError(t, err)
+	ps, client := buildReproProxy(t, u.Hostname(), time.Minute, 0)
+	ps.mu.Lock()
+	ps.interceptors["repro"].(*reproInterceptor).err = errors.New("security check failed")
+	ps.mu.Unlock()
+
+	resp, err := client.Get(upstream.URL)
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, resp.Body.Close()) }()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Zero(t, upstreamCalls.Load())
 }
 
 func newReproCertManager(t *testing.T) certmanager.CertificateManager {
