@@ -431,6 +431,31 @@ jobs:
         shell: cmd
         run: pmg setup doctor
 
+      # The doctor steps above allow warnings, so a pip check that cannot make
+      # its venv does not fail them. This step requires a pass. A python.org
+      # install has no python3.exe, and python3 resolves to the Microsoft Store
+      # alias. The runner image ships python3.exe, so a stub that acts as the
+      # alias goes first on PATH for the second run.
+      - name: Test PMG Doctor - pip protection passes when python3 is the Store alias
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Assert-PipProtection($label) {
+            $json = pmg setup doctor --json | Out-String
+            $check = ($json | ConvertFrom-Json).checks | Where-Object { $_.name -eq 'protection-pip' }
+            Write-Host "$label -> $($check.status): $($check.message)"
+            if ($check.status -ne 'pass') { throw "$label - pip protection is '$($check.status)': $($check.message)" }
+          }
+          Assert-PipProtection 'python3 on PATH'
+
+          $alias = New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP "store-alias") -Force
+          Set-Content -Path "$alias\python3.cmd" -Value "@echo Python was not found; run without arguments to install from the Microsoft Store.`r`n@exit /b 9009"
+          $env:Path = "$alias;$env:Path"
+          if ((Get-Command python3).Source -ine "$alias\python3.cmd") { throw "python3 does not resolve to the Store alias stub" }
+          python3 -m venv (Join-Path $env:RUNNER_TEMP "unused-venv")
+          if ($LASTEXITCODE -ne 9009) { throw "the Store alias stub exited $LASTEXITCODE, not 9009" }
+          Assert-PipProtection 'python3 is the Store alias'
+          Remove-Item -Recurse -Force $alias
+
       - name: Test PMG Remove
         run: |
           $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true

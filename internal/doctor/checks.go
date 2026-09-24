@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,7 +68,7 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 				Message: fmt.Sprintf("%s not available — skipping protection test for %s", strings.Join(tc.binaries(), "/"), tc.Package),
 			}
 		}
-		// Venv-based tests supply their own binary: python3 -m venv bootstraps
+		// Venv-based tests supply their own binary: python -m venv bootstraps
 		// pip into the venv, whose bin dir is prepended to PATH for the pmg run.
 		binary = tc.PackageManager
 	}
@@ -116,12 +117,25 @@ func RunProtectionCheck(tc ProtectionTestCase, pmgBinary string) CheckResult {
 }
 
 func setupVenv(baseDir string) (string, error) {
+	return setupVenvWith(baseDir, platform.PythonCommands())
+}
+
+// setupVenvWith tries each Python command in order. A command can be present
+// and still fail, such as the Windows Store alias for python3.
+func setupVenvWith(baseDir string, pythons []platform.PythonCommand) (string, error) {
 	venvDir := filepath.Join(baseDir, "venv")
-	cmd := exec.Command("python3", "-m", "venv", venvDir)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("venv creation failed: %w\n%s", err, string(output))
+	var errs []error
+	for _, python := range pythons {
+		output, err := python.Command("-m", "venv", venvDir).CombinedOutput()
+		if err == nil {
+			return venvDir, nil
+		}
+		errs = append(errs, fmt.Errorf("%s: %w\n%s", python, err, strings.TrimSpace(string(output))))
+		if err := os.RemoveAll(venvDir); err != nil {
+			return "", fmt.Errorf("failed to remove partial venv %s: %w", venvDir, err)
+		}
 	}
-	return venvDir, nil
+	return "", fmt.Errorf("venv creation failed: %w", errors.Join(errs...))
 }
 
 func venvPipPath(venvDir string) (string, error) {
