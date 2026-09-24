@@ -554,3 +554,34 @@ func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
 	require.ErrorAs(t, err, &usefulErr)
 	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
 }
+
+func TestApplySandboxExecRejectsNetworkLockdown(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "exec-lockdown.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: exec-lockdown
+package_managers: ["exec"]
+filesystem:
+  allow_read: ["/tmp"]
+network_via_proxy_only: true
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	fake := &fakeApplySandbox{}
+	_, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+		WithSandbox(fake), WithRequireSandbox())
+
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.SandboxRequiresProxy, usefulErr.Code())
+	assert.Contains(t, err.Error(), "pmg sandbox exec does not support network_via_proxy_only")
+	assert.Nil(t, fake.rt)
+}

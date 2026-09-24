@@ -108,7 +108,8 @@ filesystem:
 network:
   # Current drivers cannot filter outbound traffic per host. A single allow
   # rule means blanket outbound access, which an agent needs for its model
-  # API. Use a custom profile with network_via_proxy_only for egress control.
+  # API. pmg sandbox exec does not start the PMG proxy and refuses
+  # network_via_proxy_only.
   allow_outbound:
     - "*:*"
 

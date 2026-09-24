@@ -273,6 +273,12 @@
   tier: P0
   guarantee: "With sandbox.policies.exec.enabled false, `pmg sandbox exec` exits non-zero before running the program."
   labels: [sandbox, exec, block, offline]
+- id: sandbox/exec/refuses-network-lockdown
+  title: "sandbox exec refuses a profile with network lockdown"
+  category: sandbox
+  tier: P1
+  guarantee: "With a profile that sets network_via_proxy_only, `pmg sandbox exec` exits non-zero with a clear error before running the program."
+  labels: [sandbox, exec, block, offline]
 
 - id: sandbox/observe/env-scrub-recorded
   title: "sandbox records env scrubs to the violation cache"
