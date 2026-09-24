@@ -3,7 +3,6 @@ package doctor
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -43,10 +42,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// requirePython runs each interpreter rather than only finding it. On
+// Windows the Store alias is on PATH with no Python behind it.
 func requirePython(t *testing.T) {
 	t.Helper()
 	for _, python := range platform.PythonCommands() {
-		if _, err := exec.LookPath(python[0]); err == nil {
+		if err := python.Command("--version").Run(); err == nil {
 			return
 		}
 	}
@@ -70,7 +71,7 @@ func TestSetupVenvSkipsFailingPython(t *testing.T) {
 	requirePython(t)
 	alias := installStoreAlias(t)
 
-	venvDir, err := setupVenvWith(t.TempDir(), append([][]string{{alias}}, platform.PythonCommands()...))
+	venvDir, err := setupVenvWith(t.TempDir(), append([]platform.PythonCommand{{Name: alias}}, platform.PythonCommands()...))
 	require.NoError(t, err)
 	_, err = venvPipPath(venvDir)
 	assert.NoError(t, err)
@@ -79,7 +80,7 @@ func TestSetupVenvSkipsFailingPython(t *testing.T) {
 func TestSetupVenvReportsEveryFailure(t *testing.T) {
 	alias := installStoreAlias(t)
 
-	_, err := setupVenvWith(t.TempDir(), [][]string{{alias}, {alias, "-3"}})
+	_, err := setupVenvWith(t.TempDir(), []platform.PythonCommand{{Name: alias}, {Name: alias, Args: []string{"-3"}}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), alias+":")
 	assert.Contains(t, err.Error(), alias+" -3:")

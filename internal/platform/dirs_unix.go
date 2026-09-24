@@ -20,6 +20,6 @@ func VenvPipPath(venvDir string) string {
 	return filepath.Join(venvDir, "bin", "pip")
 }
 
-func PythonCommands() [][]string {
-	return [][]string{{"python3"}}
+func pythonCommands() []PythonCommand {
+	return []PythonCommand{{Name: "python3"}}
 }

@@ -74,6 +74,6 @@ func VenvPipPath(venvDir string) string {
 // python.org and winget installs ship py.exe and python.exe but no
 // python3.exe. The python3 name then resolves to the Microsoft Store alias,
 // which only prints an install hint.
-func PythonCommands() [][]string {
-	return [][]string{{"py", "-3"}, {"python"}, {"python3"}}
+func pythonCommands() []PythonCommand {
+	return []PythonCommand{{Name: "py", Args: []string{"-3"}}, {Name: "python"}, {Name: "python3"}}
 }

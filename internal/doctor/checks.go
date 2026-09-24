@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -123,16 +122,15 @@ func setupVenv(baseDir string) (string, error) {
 
 // setupVenvWith tries each Python command in order. A command can be present
 // and still fail, such as the Windows Store alias for python3.
-func setupVenvWith(baseDir string, pythons [][]string) (string, error) {
+func setupVenvWith(baseDir string, pythons []platform.PythonCommand) (string, error) {
 	venvDir := filepath.Join(baseDir, "venv")
 	var errs []error
 	for _, python := range pythons {
-		args := append(slices.Clone(python[1:]), "-m", "venv", venvDir)
-		output, err := exec.Command(python[0], args...).CombinedOutput()
+		output, err := python.Command("-m", "venv", venvDir).CombinedOutput()
 		if err == nil {
 			return venvDir, nil
 		}
-		errs = append(errs, fmt.Errorf("%s: %w\n%s", strings.Join(python, " "), err, strings.TrimSpace(string(output))))
+		errs = append(errs, fmt.Errorf("%s: %w\n%s", python, err, strings.TrimSpace(string(output))))
 		if err := os.RemoveAll(venvDir); err != nil {
 			return "", fmt.Errorf("failed to remove partial venv %s: %w", venvDir, err)
 		}
