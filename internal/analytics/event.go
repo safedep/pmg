@@ -1,5 +1,7 @@
 package analytics
 
+import "sync"
+
 const (
 	eventRun           = "pmg_command_run"
 	eventCommandNpm    = "pmg_command_npm"
@@ -27,7 +29,15 @@ const (
 	eventPmgGenerateEnvDocker        = "pmg_command_generate_env_docker"
 	eventPmgGenerateEnvGitHubActions = "pmg_command_generate_env_github_actions"
 	eventPmgGenerateEnvGitLabCI      = "pmg_command_generate_env_gitlab_ci"
+
+	// eventMalysisQuery is emitted at most once per invocation, the first time
+	// a package analysis query is answered by the SafeDep malysis service.
+	// Command events fire on every invocation regardless of what pmg does,
+	// so this is the only signal that a run actually performed analysis.
+	eventMalysisQuery = "pmg_malysis_query"
 )
+
+var malysisQueryOnce sync.Once
 
 func TrackCommandRun() {
 	TrackEvent(eventRun)
@@ -115,4 +125,10 @@ func TrackCommandGenerateEnvGitHubActions() {
 
 func TrackCommandGenerateEnvGitLabCI() {
 	TrackEvent(eventPmgGenerateEnvGitLabCI)
+}
+
+func TrackMalysisQuery() {
+	malysisQueryOnce.Do(func() {
+		TrackEvent(eventMalysisQuery)
+	})
 }
