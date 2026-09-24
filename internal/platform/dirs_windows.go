@@ -70,3 +70,10 @@ func systemProfilePath() string { return "" }
 func VenvPipPath(venvDir string) string {
 	return filepath.Join(venvDir, "Scripts", "pip.exe")
 }
+
+// python.org and winget installs ship py.exe and python.exe but no
+// python3.exe. The python3 name then resolves to the Microsoft Store alias,
+// which only prints an install hint.
+func PythonCommands() [][]string {
+	return [][]string{{"py", "-3"}, {"python"}, {"python3"}}
+}

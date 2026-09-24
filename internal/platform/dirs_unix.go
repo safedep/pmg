@@ -19,3 +19,7 @@ func systemProfilePath() string { return "/etc/profile.d/pmg.sh" }
 func VenvPipPath(venvDir string) string {
 	return filepath.Join(venvDir, "bin", "pip")
 }
+
+func PythonCommands() [][]string {
+	return [][]string{{"python3"}}
+}
