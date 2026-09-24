@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/dry/cloud"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/analytics"
 	"google.golang.org/grpc"
 )
 
@@ -101,6 +102,8 @@ func (a *malysisQueryAnalyzer) Analyze(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query package analysis: %w", err)
 	}
+
+	analytics.TrackMalysisQuery()
 
 	// By default, the analyzer allows the package version
 	analysisResult := &PackageVersionAnalysisResult{
