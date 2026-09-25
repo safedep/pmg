@@ -37,7 +37,8 @@ denials. The value is in the deny rules:
 
 Network is not filtered. The current drivers cannot filter outbound traffic per host, and an
 agent needs its model API. `pmg sandbox exec` does not start the PMG proxy, so it refuses a profile
-that sets `network_via_proxy_only`.
+that sets or inherits `network_via_proxy_only`. To inherit from a lockdown profile such as `go`, set
+`network_via_proxy_only: false` in the child profile.
 
 A future version may add a proxy flow built for `pmg sandbox exec`, separate from the package
 manager proxy, to observe agent traffic and apply policy to it.

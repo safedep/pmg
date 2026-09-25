@@ -556,14 +556,41 @@ func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
 }
 
 func TestApplySandboxExecRejectsNetworkLockdown(t *testing.T) {
-	profile := filepath.Join(t.TempDir(), "exec-lockdown.yml")
-	require.NoError(t, os.WriteFile(profile, []byte(`
+	tests := []struct {
+		name    string
+		profile string
+		wantErr bool
+	}{
+		{
+			name: "direct lockdown",
+			profile: `
 name: exec-lockdown
 package_managers: ["exec"]
 filesystem:
   allow_read: ["/tmp"]
 network_via_proxy_only: true
-`), 0o600))
+`,
+			wantErr: true,
+		},
+		{
+			name: "inherited lockdown",
+			profile: `
+name: exec-inherits-go
+inherits: go
+package_managers: ["exec"]
+`,
+			wantErr: true,
+		},
+		{
+			name: "inherited lockdown turned off",
+			profile: `
+name: exec-inherits-go-off
+inherits: go
+package_managers: ["exec"]
+network_via_proxy_only: false
+`,
+		},
+	}
 
 	cfg := config.Get()
 	oldEnabled := cfg.Config.Sandbox.Enabled
@@ -573,15 +600,29 @@ network_via_proxy_only: true
 		cfg.SandboxProfileOverride = oldOverride
 	})
 	cfg.Config.Sandbox.Enabled = true
-	cfg.SandboxProfileOverride = profile
 
-	fake := &fakeApplySandbox{}
-	_, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
-		WithSandbox(fake), WithRequireSandbox())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile := filepath.Join(t.TempDir(), "exec.yml")
+			require.NoError(t, os.WriteFile(profile, []byte(tt.profile), 0o600))
+			cfg.SandboxProfileOverride = profile
 
-	var usefulErr usefulerror.UsefulError
-	require.ErrorAs(t, err, &usefulErr)
-	assert.Equal(t, errcodes.SandboxRequiresProxy, usefulErr.Code())
-	assert.Contains(t, err.Error(), "pmg sandbox exec does not support network_via_proxy_only")
-	assert.Nil(t, fake.rt)
+			fake := &fakeApplySandbox{}
+			result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+				WithSandbox(fake), WithRequireSandbox())
+
+			if !tt.wantErr {
+				require.NoError(t, err)
+				assert.True(t, result.ShouldRun())
+				return
+			}
+
+			var usefulErr usefulerror.UsefulError
+			require.ErrorAs(t, err, &usefulErr)
+			assert.Equal(t, errcodes.SandboxRequiresProxy, usefulErr.Code())
+			assert.Contains(t, err.Error(), "pmg sandbox exec does not support network_via_proxy_only")
+			assert.Contains(t, usefulErr.Help(), "network_via_proxy_only: false")
+			assert.Nil(t, fake.rt)
+		})
+	}
 }

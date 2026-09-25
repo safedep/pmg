@@ -213,7 +213,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.SandboxRequiresProxy).
 			WithHumanError(msg).
-			WithHelp("pmg sandbox exec does not start the PMG proxy. Remove network_via_proxy_only from the profile.").
+			WithHelp("pmg sandbox exec does not start the PMG proxy. Set network_via_proxy_only: false in the profile. Removing the key keeps the value from a parent profile.").
 			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox-exec.md").
 			Wrap(errors.New(msg))
 	}
