@@ -12,16 +12,18 @@ cd $WORK/proj
 exec python3 $WORK/sock.py listen &listener&
 exec python3 $WORK/sock.py wait
 
-# The allowed run comes first. It proves that the listener accepts.
-exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py path
-stdout '^OK$'
+# The allowed run comes first. It proves that the listener accepts. Under
+# the AppArmor user namespace restriction the host refuses the connect, so
+# the allowed runs cannot pass there.
+[!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py path
+[!apparmor-userns] stdout '^OK$'
 
 ! exec pmg sandbox exec -- python3 $WORK/sock.py path
 [linux] stdout '^DENIED socket EACCES$'
 [!linux] stdout '^DENIED connect E(ACCES|PERM)$'
 
-[linux] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py abstract
-[linux] stdout '^OK$'
+[linux] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py abstract
+[linux] [!apparmor-userns] stdout '^OK$'
 [linux] ! exec pmg sandbox exec -- python3 $WORK/sock.py abstract
 [linux] stdout '^DENIED socket EACCES$'
 

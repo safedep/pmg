@@ -128,6 +128,11 @@ CLI. Use HTTPS remotes, or a custom profile that sets `allow_unix_sockets: true`
 set it. With `network_via_proxy_only`, `allow_unix_sockets` lets traffic go around the proxy
 through a host socket, and `pmg sandbox profile lint` warns about it.
 
+On Ubuntu 23.10 and later, AppArmor also refuses a connect to a host socket from the Landlock
+driver's user namespace, even with `allow_unix_sockets: true`. Install the pmg AppArmor profile
+described in [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
+to lift that restriction for pmg.
+
 ## Requirements
 
 - Linux kernel 5.13+ with Landlock enabled (default, no external dependencies)

@@ -82,6 +82,8 @@ func TestAcceptance(t *testing.T) {
 					switch cond {
 					case "cloud":
 						return hasCloudCredentials(), nil
+					case "apparmor-userns":
+						return appArmorRestrictsUserns(), nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}
@@ -149,6 +151,19 @@ func forwardEnv(env *testscript.Env, keys ...string) {
 			env.Setenv(key, v)
 		}
 	}
+}
+
+// appArmorRestrictsUserns reports whether AppArmor confines each process in
+// an unprivileged user namespace, as Ubuntu 23.10 and later do by default.
+// Its unprivileged_userns profile refuses connects to host unix sockets, so
+// no sandbox profile can open them.
+func appArmorRestrictsUserns() bool {
+	enabled, err := os.ReadFile("/sys/module/apparmor/parameters/enabled")
+	if err != nil || strings.TrimSpace(string(enabled)) != "Y" {
+		return false
+	}
+	restrict, err := os.ReadFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+	return err == nil && strings.TrimSpace(string(restrict)) == "1"
 }
 
 func hasCloudCredentials() bool {
