@@ -1,0 +1,23 @@
+# guarantee: `pmg sandbox exec` does not start the PMG proxy. It refuses a
+# profile that sets network_via_proxy_only and runs nothing.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+! exec pmg sandbox exec --sandbox-profile $WORK/lockdown.yml -- sh -c 'echo ran > ran.txt'
+! exists ran.txt
+stderr 'pmg sandbox exec does not support network_via_proxy_only'
+
+-- proj/.keep --
+-- lockdown.yml --
+name: exec-lockdown
+description: exec profile that asks for network lockdown
+package_managers: [exec]
+network_via_proxy_only: true
+filesystem:
+  allow_read:
+    - /
+  allow_write:
+    - ${CWD}/**
