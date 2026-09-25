@@ -88,13 +88,10 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 	originalPath := cmd.Path
 	originalArgs := cmd.Args
 
-	// bwrap runs the pmg seccomp shim, which installs the filter and then
-	// execs the target. The last bind keeps the shim visible under any mask.
 	cmd.Path = bwrapPath
 	cmd.Args = append([]string{"bwrap"}, bwrapArgs...)
-	cmd.Args = append(cmd.Args, "--ro-bind", selfExe, selfExe, "--", selfExe, SeccompShimCommand)
-	cmd.Args = append(cmd.Args, seccompShimFlags(policy)...)
-	cmd.Args = append(cmd.Args, "--", originalPath)
+	cmd.Args = append(cmd.Args, bubblewrapShimArgs(policy, selfExe)...)
+	cmd.Args = append(cmd.Args, originalPath)
 	if len(originalArgs) > 1 {
 		cmd.Args = append(cmd.Args, originalArgs[1:]...)
 	}
@@ -117,12 +114,15 @@ func (b *bubblewrapSandbox) shimExecutable() (string, error) {
 	return exe, nil
 }
 
-// seccompShimFlags passes the policy switches the seccomp shim needs.
-func seccompShimFlags(policy *sandbox.SandboxPolicy) []string {
+// bubblewrapShimArgs ends the bwrap argv with the seccomp shim, which installs
+// the filter and then execs the command that follows. The last bind keeps
+// the shim visible under any mask.
+func bubblewrapShimArgs(policy *sandbox.SandboxPolicy, shimExe string) []string {
+	args := []string{"--ro-bind", shimExe, shimExe, "--", shimExe, SeccompShimCommand}
 	if utils.SafelyGetValue(policy.AllowUnixSockets) {
-		return []string{"--allow-unix-sockets"}
+		args = append(args, "--allow-unix-sockets")
 	}
-	return nil
+	return append(args, "--")
 }
 
 // Name returns the name of this sandbox implementation.

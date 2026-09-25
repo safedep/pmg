@@ -56,3 +56,10 @@
 --dev-bind-try
 /dev/tty
 /dev/tty
+--ro-bind
+<pmg>
+<pmg>
+--
+<pmg>
+__seccomp_shim
+--
