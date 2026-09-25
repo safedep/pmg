@@ -126,64 +126,13 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 	return nil
 }
 
-// Offsets into struct seccomp_data.
-const (
-	seccompDataNrOffset   = 0
-	seccompDataArchOffset = 4
-)
-
-// landlockBuildNotifyFilter builds a classic BPF program returning
-// SECCOMP_RET_USER_NOTIF for the given syscalls and SECCOMP_RET_ALLOW for
-// everything else. Shared by the shim (which installs it inside the user
-// namespace without NNP) and tests.
-//
-// Layout: arch check (kill on a foreign ABI), load nr, x32 kill on amd64,
-// one JEQ per syscall that jumps to RET USER_NOTIF, RET ALLOW, RET
-// USER_NOTIF.
-func landlockBuildNotifyFilter(syscalls ...uint32) *unix.SockFprog {
-	// Jt is a byte.
-	if len(syscalls) > 255 {
-		panic(fmt.Sprintf("seccomp filter: %d trapped syscalls exceed the BPF jump range", len(syscalls)))
-	}
-
-	var filter []unix.SockFilter
-	if seccompNativeArch != 0 {
-		filter = append(filter,
-			unix.SockFilter{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: seccompDataArchOffset},
-			unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, K: seccompNativeArch},
-			unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_KILL_PROCESS},
-		)
-	}
-	filter = append(filter, unix.SockFilter{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: seccompDataNrOffset})
-	if seccompX32SyscallBit != 0 {
-		filter = append(filter,
-			unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, Jf: 1, K: seccompX32SyscallBit},
-			unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_KILL_PROCESS},
-		)
-	}
-	for i, sc := range syscalls {
-		filter = append(filter, unix.SockFilter{
-			Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
-			Jt:   uint8(len(syscalls) - i),
-			K:    sc,
-		})
-	}
-	filter = append(filter, unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_ALLOW})
-	filter = append(filter, unix.SockFilter{Code: unix.BPF_RET | unix.BPF_K, K: unix.SECCOMP_RET_USER_NOTIF})
-
-	return &unix.SockFprog{
-		Len:    uint16(len(filter)),
-		Filter: &filter[0],
-	}
-}
-
 // landlockNotifySyscalls computes the syscall set the seccomp filter traps
 // for the given policy. execve/execveat are always trapped (deny-exec
 // enforcement); the path syscalls (seccompPathSyscalls) only when fs deny
-// rules exist; connect/sendto/sendmsg (and io_uring_setup — see
-// handleIoUringSetup) only under network lockdown. sendmsg covers Go's
-// WriteMsgUDP datagrams; sendmmsg batched destinations are a documented gap
-// (see docs/sandbox-landlock.md).
+// rules exist; connect/sendto/sendmsg only under network lockdown. sendmsg
+// covers Go's WriteMsgUDP datagrams; sendmmsg batched destinations are a
+// documented gap (see docs/sandbox-landlock.md). The kernel denies io_uring
+// before this group (seccompDeniedSyscalls).
 func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) []uint32 {
 	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 	if interceptPaths {
@@ -191,8 +140,7 @@ func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) 
 	}
 	if network.Lockdown {
 		syscalls = append(syscalls,
-			uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG),
-			uint32(unix.SYS_IO_URING_SETUP))
+			uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))
 	}
 	return syscalls
 }
@@ -452,8 +400,6 @@ func (s *seccompSupervisor) loop() {
 			s.handleExec(notif, phase)
 		case int32(unix.SYS_CONNECT), int32(unix.SYS_SENDTO), int32(unix.SYS_SENDMSG):
 			s.handleConnect(notif, phase)
-		case int32(unix.SYS_IO_URING_SETUP):
-			s.handleIoUringSetup(notif, phase)
 		default:
 			if op, ok := seccompPathSyscalls[uint32(notif.Data.Nr)]; ok {
 				s.handlePathOp(notif, phase, op)
@@ -559,34 +505,6 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 	s.continueSyscall(notif.ID)
 }
 
-// handleIoUringSetup denies io_uring_setup under network lockdown. A ring is a
-// side channel for IORING_OP_CONNECT/SENDMSG that never traps the intercepted
-// network syscalls; refusing ring creation (EPERM) forces callers back onto
-// the confined path. The target is freshly execve'd after filter install, so
-// it holds no ring created before enforcement.
-func (s *seccompSupervisor) handleIoUringSetup(notif *seccompNotification, phase *seccompPhase) {
-	if !phase.network.Lockdown {
-		s.continueSyscall(notif.ID)
-		return
-	}
-	if phase.auditWriter != nil {
-		if err := landlockWriteAuditEvent(phase.auditWriter, auditEvent{
-			Type:    auditNetworkDeny,
-			Syscall: syscallName(notif.Data.Nr),
-			Message: "io_uring_setup denied under network_via_proxy_only",
-			Comm:    procComm(notif.PID),
-			PID:     int(notif.PID),
-			Ts:      time.Now().UnixNano(),
-		}); err != nil {
-			log.Warnf("sandbox: failed to record a denial: %v", err)
-		}
-	}
-	traceSeccompDecision("deny %s pid=%d reason=io_uring_setup denied under network_via_proxy_only", syscallName(notif.Data.Nr), notif.PID)
-	if err := respondErrno(s.notifyFd, notif.ID, unix.EPERM); err != nil {
-		log.Warnf("seccomp io_uring_setup deny for notif %d failed: %v", notif.ID, err)
-	}
-}
-
 // dnsPort is the well-known DNS port re-opened under allow_direct_dns.
 const dnsPort = 53
 
@@ -597,12 +515,11 @@ const dnsPort = 53
 // dev servers keep working); direct DNS to port 53 only when the profile
 // opts in; everything else non-loopback is denied.
 //
-// Non-INET families are allow-listed, not blanket-allowed: AF_UNIX and
-// AF_NETLINK carry no external egress (local IPC / kernel interfaces) and are
-// needed by systemd-resolved and getaddrinfo interface enumeration. Every
-// other family is denied — notably AF_VSOCK, which in a VM reaches host/guest
-// services entirely outside the proxy. AF_UNIX resolver access is a documented
-// gap in docs/sandbox-landlock.md.
+// Non-INET families are allow-listed, not blanket-allowed. AF_NETLINK is
+// needed for getaddrinfo interface enumeration. AF_UNIX reaches this check
+// only when the profile sets allow_unix_sockets, because the kernel filter
+// refuses socket(AF_UNIX) otherwise. Every other family is denied, notably
+// AF_VSOCK, which in a VM reaches host/guest services outside the proxy.
 func (n landlockNetworkPolicy) allowOutbound(family uint16, addr netip.Addr, port uint16) bool {
 	if !n.Lockdown {
 		return true
@@ -846,8 +763,6 @@ func syscallName(nr int32) string {
 		return "sendto"
 	case int32(unix.SYS_SENDMSG):
 		return "sendmsg"
-	case int32(unix.SYS_IO_URING_SETUP):
-		return "io_uring_setup"
 	default:
 		return fmt.Sprintf("syscall_%d", nr)
 	}

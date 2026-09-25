@@ -40,6 +40,10 @@ agent needs its model API. `pmg sandbox exec` does not start the PMG proxy, so i
 that sets or inherits `network_via_proxy_only`. To inherit from a lockdown profile such as `go`, set
 `network_via_proxy_only: false` in the child profile.
 
+Unix sockets are blocked. An agent cannot reach the SSH agent or the Docker daemon, so `git push`
+over SSH fails. Use an HTTPS remote, or a custom profile that sets `allow_unix_sockets: true`. See
+[Unix Sockets](sandbox.md#unix-sockets).
+
 A future version may add a proxy flow built for `pmg sandbox exec`, separate from the package
 manager proxy, to observe agent traffic and apply policy to it.
 
