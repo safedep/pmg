@@ -17,12 +17,13 @@ exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py
 stdout '^OK$'
 
 ! exec pmg sandbox exec -- python3 $WORK/sock.py path
-stdout '^DENIED E(ACCES|PERM)$'
+[linux] stdout '^DENIED socket EACCES$'
+[!linux] stdout '^DENIED connect E(ACCES|PERM)$'
 
 [linux] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py abstract
 [linux] stdout '^OK$'
 [linux] ! exec pmg sandbox exec -- python3 $WORK/sock.py abstract
-[linux] stdout '^DENIED EACCES$'
+[linux] stdout '^DENIED socket EACCES$'
 
 kill listener
 
@@ -64,10 +65,18 @@ def wait():
     sys.exit("listener did not start")
 
 def connect(addr):
+    stage = "socket"
     try:
-        socket.socket(socket.AF_UNIX).connect(addr)
+        s = socket.socket(socket.AF_UNIX)
+        stage = "connect"
+        s.connect(addr)
     except OSError as e:
-        print("DENIED " + errno.errorcode.get(e.errno, str(e.errno)))
+        print("DENIED " + stage + " " + errno.errorcode.get(e.errno, str(e.errno)))
+        label = "none"
+        if os.path.exists("/proc/self/attr/current"):
+            with open("/proc/self/attr/current") as f:
+                label = f.read().replace("\0", "").strip()
+        print("uid=%d label=%s" % (os.getuid(), label), file=sys.stderr)
         sys.exit(1)
     print("OK")
 
