@@ -1,0 +1,91 @@
+# guarantee: `pmg sandbox exec` blocks connections to host unix sockets, such
+# as the SSH agent or the Docker daemon. A profile with allow_unix_sockets
+# opens them.
+
+[!exec:python3] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec python3 $WORK/sock.py listen &listener&
+exec python3 $WORK/sock.py wait
+
+# The allowed run comes first. It proves that the listener accepts. Under
+# the AppArmor user namespace restriction the host refuses the connect, so
+# the allowed runs cannot pass there.
+[!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py path
+[!apparmor-userns] stdout '^OK$'
+
+! exec pmg sandbox exec -- python3 $WORK/sock.py path
+[linux] stdout '^DENIED socket EACCES$'
+[!linux] stdout '^DENIED connect E(ACCES|PERM)$'
+
+[linux] [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py abstract
+[linux] [!apparmor-userns] stdout '^OK$'
+[linux] ! exec pmg sandbox exec -- python3 $WORK/sock.py abstract
+[linux] stdout '^DENIED socket EACCES$'
+
+kill listener
+
+-- proj/.keep --
+-- allow.yml --
+name: exec-unix-sockets
+inherits: exec
+package_managers: [exec]
+allow_unix_sockets: true
+-- sock.py --
+import errno, hashlib, os, signal, socket, sys, threading, time
+
+# A relative path stays under the sun_path limit on macOS.
+PATH = "host.sock"
+ABSTRACT = "\0pmg-acceptance-" + hashlib.sha1(os.getcwd().encode()).hexdigest()[:16]
+
+def listen():
+    signal.signal(signal.SIGINT, lambda *_: os._exit(0))
+    signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+    threading.Timer(120, lambda: os._exit(0)).start()
+
+    addrs = [PATH] + ([ABSTRACT] if sys.platform.startswith("linux") else [])
+    for addr in addrs:
+        s = socket.socket(socket.AF_UNIX)
+        s.bind(addr)
+        s.listen(8)
+        threading.Thread(target=serve, args=(s,), daemon=True).start()
+    threading.Event().wait()
+
+def serve(s):
+    while True:
+        s.accept()[0].close()
+
+def wait():
+    for _ in range(100):
+        if os.path.exists(PATH):
+            return
+        time.sleep(0.1)
+    sys.exit("listener did not start")
+
+def connect(addr):
+    stage = "socket"
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        stage = "connect"
+        s.connect(addr)
+    except OSError as e:
+        print("DENIED " + stage + " " + errno.errorcode.get(e.errno, str(e.errno)))
+        label = "none"
+        if os.path.exists("/proc/self/attr/current"):
+            with open("/proc/self/attr/current") as f:
+                label = f.read().replace("\0", "").strip()
+        print("uid=%d label=%s" % (os.getuid(), label), file=sys.stderr)
+        sys.exit(1)
+    print("OK")
+
+mode = sys.argv[1]
+if mode == "listen":
+    listen()
+elif mode == "wait":
+    wait()
+else:
+    connect(PATH if mode == "path" else ABSTRACT)

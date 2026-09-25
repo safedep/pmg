@@ -36,6 +36,9 @@ func expandPolicyPaths(p *SandboxPolicy, opts ResolveOptions) (*SandboxPolicy, e
 	if p.AllowPTY != nil {
 		out.AllowPTY = utils.PtrTo(*p.AllowPTY)
 	}
+	if p.AllowUnixSockets != nil {
+		out.AllowUnixSockets = utils.PtrTo(*p.AllowUnixSockets)
+	}
 	if p.AllowNetworkBind != nil {
 		out.AllowNetworkBind = utils.PtrTo(*p.AllowNetworkBind)
 	}

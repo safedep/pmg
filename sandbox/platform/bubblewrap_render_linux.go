@@ -20,6 +20,10 @@ import (
 // This is a thin wrapper over the internal bubblewrap translator and is
 // intended for inspection use cases such as
 // `pmg setup sandbox profile show --driver=bwrap`.
+// bubblewrapRenderShimExe stands in for the pmg binary path, which differs per
+// install.
+const bubblewrapRenderShimExe = "<pmg>"
+
 func RenderBubblewrap(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	if policy == nil {
 		return nil, fmt.Errorf("policy is nil")
@@ -31,5 +35,6 @@ func RenderBubblewrap(policy *sandbox.SandboxPolicy) ([]byte, error) {
 		return nil, err
 	}
 
+	args = append(args, bubblewrapShimArgs(policy, bubblewrapRenderShimExe)...)
 	return []byte(strings.Join(args, "\n") + "\n"), nil
 }

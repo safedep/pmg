@@ -6,6 +6,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/safedep/dry/log"
@@ -26,6 +27,11 @@ import (
 type bubblewrapSandbox struct {
 	config     *bubblewrapConfig
 	translator *bubblewrapPolicyTranslator
+
+	// shimExe is the pmg binary that bwrap runs as the seccomp shim. Empty
+	// means os.Executable(). Tests set it, because their executable is the
+	// test binary.
+	shimExe string
 
 	// Diagnostics state from the last Execute(), consumed by
 	// BestEffortViolation (see bubblewrap_diagnostics_linux.go).
@@ -74,24 +80,18 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 
 	log.Debugf("Bubblewrap arguments: %v", bwrapArgs)
 
+	selfExe, err := b.shimExecutable()
+	if err != nil {
+		return nil, err
+	}
+
 	originalPath := cmd.Path
 	originalArgs := cmd.Args
 
-	// Build bwrap command: bwrap [bwrap-args] -- <original-command> <original-args>
-	// The "--" separator is important to distinguish bwrap args from command args
 	cmd.Path = bwrapPath
-	cmd.Args = []string{"bwrap"}
-
-	// Add all translated bwrap arguments
-	cmd.Args = append(cmd.Args, bwrapArgs...)
-
-	// Add separator
-	cmd.Args = append(cmd.Args, "--")
-
-	// Add original command
+	cmd.Args = append([]string{"bwrap"}, bwrapArgs...)
+	cmd.Args = append(cmd.Args, bubblewrapShimArgs(policy, selfExe)...)
 	cmd.Args = append(cmd.Args, originalPath)
-
-	// Add original arguments (skip argv[0] which is the command itself)
 	if len(originalArgs) > 1 {
 		cmd.Args = append(cmd.Args, originalArgs[1:]...)
 	}
@@ -101,6 +101,28 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 	b.attachDiagnostics(cmd, policy)
 
 	return sandbox.NewExecutionResult(sandbox.WithExecutionResultSandbox(b)), nil
+}
+
+func (b *bubblewrapSandbox) shimExecutable() (string, error) {
+	if b.shimExe != "" {
+		return b.shimExe, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get self executable path: %w", err)
+	}
+	return exe, nil
+}
+
+// bubblewrapShimArgs ends the bwrap argv with the seccomp shim, which installs
+// the filter and then execs the command that follows. The last bind keeps
+// the shim visible under any mask.
+func bubblewrapShimArgs(policy *sandbox.SandboxPolicy, shimExe string) []string {
+	args := []string{"--ro-bind", shimExe, shimExe, "--", shimExe, SeccompShimCommand}
+	if utils.SafelyGetValue(policy.AllowUnixSockets) {
+		args = append(args, "--allow-unix-sockets")
+	}
+	return append(args, "--")
 }
 
 // Name returns the name of this sandbox implementation.

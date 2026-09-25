@@ -280,3 +280,33 @@ func TestLintProfile_AllowDirectDNSWithoutLockdown(t *testing.T) {
 		})
 	}
 }
+
+func TestLintProfile_AllowUnixSocketsWithLockdown(t *testing.T) {
+	tests := []struct {
+		name                string
+		networkViaProxyOnly *bool
+		wantWarn            bool
+	}{
+		{"with lockdown warns", utils.PtrTo(true), true},
+		{"without lockdown is clean", nil, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := cleanPolicy()
+			policy.AllowUnixSockets = utils.PtrTo(true)
+			policy.NetworkViaProxyOnly = tc.networkViaProxyOnly
+
+			var codes []string
+			for _, i := range LintProfile(policy) {
+				codes = append(codes, i.Code)
+			}
+
+			if tc.wantWarn {
+				assert.Contains(t, codes, "allow-unix-sockets-with-lockdown")
+			} else {
+				assert.NotContains(t, codes, "allow-unix-sockets-with-lockdown")
+			}
+		})
+	}
+}

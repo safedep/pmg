@@ -129,6 +129,15 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		})
 	}
 
+	if utils.SafelyGetValue(policy.AllowUnixSockets) && utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "allow-unix-sockets-with-lockdown",
+			Message: "allow_unix_sockets lets traffic bypass network_via_proxy_only through a host socket such as the Docker daemon",
+			Field:   "allow_unix_sockets",
+		})
+	}
+
 	conflictPairs := []struct {
 		allowName string
 		allow     []string

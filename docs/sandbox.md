@@ -27,8 +27,10 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
 - **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while hooks and config stay denied.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
-- **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`) in the child override the parent.
+- **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`, `allow_unix_sockets`) in the child override the parent.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
+- **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
+- **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
 - **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Network filtering is coarse-grained — host-level filtering is not enforced on either platform.
 
 </details>
@@ -110,6 +112,26 @@ overrides the legacy name, in which case the template wins as before.
 
 Matching is on the variable name, case-insensitive, and supports the same glob syntax as filesystem
 rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is never scrubbed.
+
+### Unix Sockets
+
+A host unix socket reaches a service outside the sandbox. The SSH agent signs as you, and the
+Docker daemon gives root. So every built-in profile blocks unix socket connections:
+
+- Linux: the kernel refuses `socket(AF_UNIX)` and a datagram `socketpair`. A stream
+  `socketpair`, which runtimes use for child stdio, still works.
+- macOS: Seatbelt denies outbound connections to unix sockets. The mDNSResponder socket stays
+  open so DNS works.
+
+Tools that need a socket fail. Examples are `git` over SSH, `git+ssh` dependencies and the Docker
+CLI. Use HTTPS remotes, or a custom profile that sets `allow_unix_sockets: true`. A preset cannot
+set it. With `network_via_proxy_only`, `allow_unix_sockets` lets traffic go around the proxy
+through a host socket, and `pmg sandbox profile lint` warns about it.
+
+On Ubuntu 23.10 and later, AppArmor also refuses a connect to a host socket from the Landlock
+driver's user namespace, even with `allow_unix_sockets: true`. Install the pmg AppArmor profile
+described in [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
+to lift that restriction for pmg.
 
 ## Requirements
 

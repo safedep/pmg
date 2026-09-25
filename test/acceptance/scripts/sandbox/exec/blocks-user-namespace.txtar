@@ -1,0 +1,17 @@
+# guarantee: on Linux, `pmg sandbox exec` refuses a nested user namespace, so
+# a program cannot get its capabilities back inside the sandbox.
+
+[!linux] skip
+[!exec:unshare] skip
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+exec unshare -U true
+
+! exec pmg sandbox exec -- unshare -U true
+stderr 'Operation not permitted'
+
+-- proj/.keep --

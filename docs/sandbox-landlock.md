@@ -155,8 +155,8 @@ the deny list. These edge cases shaped the rules:
   A symlink follows the destination rule. `mkdir` does not follow it, because `git init`
   must create `.git`.
 - `O_RDONLY|O_CREAT` and `O_RDONLY|O_TRUNC` count as writes.
-- The supervisor always denies `chroot`. Landlock does not hook it. The target has no
-  capabilities, but a nested user namespace gives `CAP_SYS_CHROOT` back.
+- The supervisor always denies `chroot`. Landlock does not hook it. The kernel filter
+  refuses a nested user namespace, so the target cannot get `CAP_SYS_CHROOT` back.
 - The supervisor resolves paths as the kernel resolves them. It resolves a symlink before
   the components after it. It applies `..` after the symlink it follows. It resolves
   `/proc/self` as the process that sent the notification. The walk stops at
@@ -177,6 +177,26 @@ number that the filter does not trap. The filter checks `seccomp_data.arch` and,
 the x32 bit. The filter returns `SECCOMP_RET_KILL_PROCESS`. The kernel does the kill. The
 process ends with `SIGKILL` and the supervisor records no violation.
 
+### The filter denies kernel attack surface before the traps
+
+Before the traps, the filter refuses syscalls that no package manager needs. The Bubblewrap
+driver installs the same filter without the traps (see `seccomp_filter_linux.go`).
+
+- `clone` and `unshare` that create a namespace get `EPERM`. A nested user namespace would
+  give the target its capabilities back.
+- `clone3` gets `ENOSYS`. BPF cannot read the `clone3` flags struct. glibc then retries
+  with `clone`, which the filter can check. Go and musl do not call `clone3`.
+- `socket(AF_UNIX)` and a datagram `socketpair` get `EACCES` unless the profile sets
+  `allow_unix_sockets`. A stream `socketpair` stays open. Node, libuv and Python use it for
+  child stdio, and it cannot reach a host socket. A datagram pair can, with `sendto`.
+- A fixed list gets `EPERM`: ptrace and other cross-process memory access, `bpf`,
+  `perf_event_open`, `userfaultfd`, the keyring, `io_uring`, kernel modules and `kexec`,
+  mount and the new mount API, `setns`, swap, reboot, clock changes, `syslog`, quotas and
+  `open_by_handle_at`.
+
+These denies stop `strace`, `gdb`, rootless containers and nested sandboxes, such as the
+Chrome sandbox, inside `pmg sandbox exec`.
+
 ### Network lockdown (`network_via_proxy_only`)
 
 The network rules of Landlock (ABI V4) filter TCP ports only. They cannot match a
@@ -196,16 +216,17 @@ Seatbelt:
 A `sendto` or `sendmsg` with a NULL destination address goes to a connected peer. That peer
 passed the connect check. The supervisor lets these calls continue without inspection.
 
-Only `AF_INET` and `AF_INET6` go through the matrix. The supervisor allows `AF_UNIX` and
-`AF_NETLINK`. They are local IPC and kernel interfaces with no external egress. The
-supervisor denies each other family. This includes `AF_VSOCK`, which in a VM can reach host
-or guest services outside the proxy.
+Only `AF_INET` and `AF_INET6` go through the matrix. The supervisor allows `AF_NETLINK`,
+which `getaddrinfo` uses to list interfaces. An `AF_UNIX` connect reaches the supervisor
+only when the profile sets `allow_unix_sockets`, because the kernel filter refuses
+`socket(AF_UNIX)` otherwise. The supervisor then allows it. A host socket such as the
+Docker daemon is a way around the proxy, so `pmg sandbox profile lint` warns about that
+pair. The supervisor denies each other family. This includes `AF_VSOCK`, which in a VM can
+reach host or guest services outside the proxy.
 
-The filter traps `io_uring_setup` and the supervisor denies it under lockdown. A ring is a
-side channel for `IORING_OP_CONNECT` and `IORING_OP_SENDMSG`. These operations never enter
-the trapped network syscalls. When the supervisor refuses ring creation, callers go back to
-the confined path. io_uring is always optional. Runtimes fall back to epoll or a thread
-pool.
+The kernel filter refuses `io_uring` in every mode. A ring is a side channel for
+`IORING_OP_CONNECT`, `IORING_OP_SENDMSG` and `IORING_OP_OPENAT`, which never enter the
+trapped syscalls. io_uring is always optional. Runtimes fall back to epoll or a thread pool.
 
 **Network denials fail closed when the destination is unknown.** An `openat` also fails
 closed when the process memory is unreadable. The supervisor denies a connect when it
@@ -231,13 +252,9 @@ These are the known holes in the current enforcement, in approximate priority or
 - **The filter does not trap `sendmmsg(2)`.** The destinations of each message are in an
   `mmsghdr[]` array in process memory. The shim's own handshake uses `sendmmsg`, so we
   accept this blind spot. Resolvers and runtimes rarely use it.
-- **The supervisor always allows `AF_UNIX` connects.** On hosts with systemd-resolved,
-  glibc NSS resolution reaches the resolver over a unix socket
-  (`/run/systemd/resolve/...`). So direct DNS stays reachable with
-  `allow_direct_dns: false`. A block needs sockaddr path filtering, which we do not do
-  yet. A block without path filtering would break legitimate local IPC. Seatbelt has the
-  same problem with mDNSResponder. Seatbelt allow-lists the exact socket paths. The fix
-  here is the same.
+- **`allow_unix_sockets` opens every unix socket.** The kernel filter cannot read a
+  socket path, so the choice is all or nothing. With the default, glibc NSS modules that
+  use a socket (systemd-resolved, nscd) fail and glibc falls back to files and DNS.
 - **TOCTOU on the sockaddr.** A second thread in the target can rewrite the address
   between the memory read of the supervisor and the `CONTINUE`d syscall in the kernel.
   This is the same class as the `openat` TOCTOU. It is adequate for benign install
@@ -291,12 +308,8 @@ a constant cost. That cost explains most of the decisions above:
   process can rewrite the path bytes in its memory, or replace a symlink on disk, after
   the supervisor reads them and before the kernel resolves the path. This is adequate for
   benign install scripts. It is not a hardened defense.
-- **A nested user namespace gives capabilities back.** The target has no capabilities
-  after `execve`. A process can create a nested user namespace and get capabilities in
-  it. The supervisor refuses `chroot`. Landlock refuses mount and `pivot_root`. So no
-  known route uses those capabilities.
-- **`io_uring` file operations bypass the path traps.** `IORING_OP_OPENAT` and related
-  operations never enter the trapped syscalls. The supervisor refuses `io_uring_setup`
-  only under network lockdown.
+- **Kernel denials leave no violation record.** The syscalls in the kernel deny list and
+  a refused unix socket return an error in the kernel. The supervisor never sees them, so
+  `pmg sandbox violations` does not list them.
 - **The filter does not trap metadata writes.** `chmod`, `chown` and `utimensat` on a
   protected path go through Landlock only. Landlock does not govern them.

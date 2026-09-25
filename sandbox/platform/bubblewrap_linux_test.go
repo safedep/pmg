@@ -6,6 +6,7 @@ package platform
 import (
 	"context"
 	"os/exec"
+	"slices"
 	"testing"
 
 	"github.com/safedep/dry/utils"
@@ -101,27 +102,21 @@ func TestBubblewrapSandboxExecuteCommandWrapping(t *testing.T) {
 	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
-	// Verify command structure
-	// bwrap [bwrap-args] -- /usr/bin/node --version
-	assert.Contains(t, cmd.Args, "bwrap")
-	assert.Contains(t, cmd.Args, "--") // Separator
-	assert.Contains(t, cmd.Args, originalCmd)
-	assert.Contains(t, cmd.Args, "--version")
+	// bwrap [bwrap-args] --ro-bind <pmg> <pmg> -- <pmg> __seccomp_shim -- /usr/bin/node --version
+	assert.Equal(t, "bwrap", cmd.Args[0])
+	shim, err := sb.shimExecutable()
+	require.NoError(t, err)
 
-	// Find the separator and verify structure
-	separatorIdx := -1
-	for i, arg := range cmd.Args {
-		if arg == "--" {
-			separatorIdx = i
-			break
-		}
-	}
-	assert.NotEqual(t, -1, separatorIdx, "Should have -- separator")
+	separatorIdx := slices.Index(cmd.Args, "--")
+	require.NotEqual(t, -1, separatorIdx, "Should have -- separator")
+	assert.Equal(t, []string{"--ro-bind", shim, shim}, cmd.Args[separatorIdx-3:separatorIdx])
+	assert.Equal(t, []string{shim, SeccompShimCommand, "--", originalCmd, "--version"}, cmd.Args[separatorIdx+1:])
 
-	// After separator should be the original command and args
-	afterSeparator := cmd.Args[separatorIdx+1:]
-	assert.Equal(t, originalCmd, afterSeparator[0])
-	assert.Equal(t, "--version", afterSeparator[1])
+	cmd = exec.Command(originalCmd)
+	policy.AllowUnixSockets = utils.PtrTo(true)
+	_, err = sb.Execute(ctx, cmd, policy, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{shim, SeccompShimCommand, "--allow-unix-sockets", "--", originalCmd}, cmd.Args[slices.Index(cmd.Args, "--")+1:])
 
 	// Cleanup
 	err = result.Close()
