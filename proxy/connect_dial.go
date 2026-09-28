@@ -15,10 +15,8 @@ import (
 	xproxy "golang.org/x/net/proxy"
 )
 
-// newConnectDial returns the dialer for CONNECT tunnels to hosts that no
-// interceptor claims. It uses the same proxy selection and dialer as the
-// upstream transport. Without it, a tunnel ignores HTTPS_PROXY and fails when
-// an upstream proxy is the only egress path (#497).
+// newConnectDial dials CONNECT tunnels with the proxy and dialer of tr. The MITM
+// path uses the same pair, so both paths use the same upstream proxy (#497).
 func newConnectDial(tr *http.Transport, timeout time.Duration) func(network, addr string) (net.Conn, error) {
 	return func(network, addr string) (net.Conn, error) {
 		ctx := context.Background()
@@ -28,6 +26,8 @@ func newConnectDial(tr *http.Transport, timeout time.Duration) func(network, add
 			defer cancel()
 		}
 
+		// Clients send CONNECT for HTTPS. A plain HTTP request goes through tr,
+		// which selects HTTP_PROXY.
 		proxyURL, err := tr.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: addr}})
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve upstream proxy for %s: %w", addr, err)
