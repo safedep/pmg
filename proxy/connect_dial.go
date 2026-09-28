@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	xproxy "golang.org/x/net/proxy"
 )
 
 // newConnectDial returns the dialer for CONNECT tunnels to hosts that no
@@ -45,6 +47,10 @@ func dialThroughProxy(ctx context.Context, tr *http.Transport, proxyURL *url.URL
 		return nil, err
 	}
 
+	if isSOCKS5(proxyURL) {
+		return dialThroughSOCKS5(ctx, tr, proxyURL, proxyAddr, network, addr)
+	}
+
 	conn, err := tr.DialContext(ctx, network, proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial upstream proxy %s: %w", proxyAddr, err)
@@ -56,6 +62,33 @@ func dialThroughProxy(ctx context.Context, tr *http.Transport, proxyURL *url.URL
 	}
 
 	return tunnel, nil
+}
+
+// dialThroughSOCKS5 sends the target host name to the proxy for both socks5
+// and socks5h, so the proxy resolves DNS. This matches http.Transport.
+func dialThroughSOCKS5(ctx context.Context, tr *http.Transport, proxyURL *url.URL, proxyAddr, network, addr string) (net.Conn, error) {
+	var auth *xproxy.Auth
+	if user := proxyURL.User; user != nil {
+		password, _ := user.Password()
+		auth = &xproxy.Auth{User: user.Username(), Password: password}
+	}
+
+	dialer, err := xproxy.SOCKS5("tcp", proxyAddr, auth, contextDialer(tr.DialContext))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SOCKS5 dialer for upstream proxy %s: %w", proxyAddr, err)
+	}
+
+	socksDialer, ok := dialer.(xproxy.ContextDialer)
+	if !ok {
+		return nil, fmt.Errorf("SOCKS5 dialer for upstream proxy %s does not support a context", proxyAddr)
+	}
+
+	conn, err := socksDialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("SOCKS5 upstream proxy %s failed to connect to %s: %w", proxyAddr, addr, err)
+	}
+
+	return conn, nil
 }
 
 func openTunnel(ctx context.Context, tr *http.Transport, conn net.Conn, proxyURL *url.URL, addr string) (net.Conn, error) {
@@ -124,6 +157,8 @@ func upstreamProxyAddr(proxyURL *url.URL) (string, error) {
 		defaultPort = "80"
 	case "https":
 		defaultPort = "443"
+	case "socks5", "socks5h":
+		defaultPort = "1080"
 	default:
 		return "", fmt.Errorf("upstream proxy scheme %q is not supported for CONNECT tunnels", proxyURL.Scheme)
 	}
@@ -134,6 +169,20 @@ func upstreamProxyAddr(proxyURL *url.URL) (string, error) {
 	}
 
 	return net.JoinHostPort(proxyURL.Hostname(), port), nil
+}
+
+func isSOCKS5(proxyURL *url.URL) bool {
+	return proxyURL.Scheme == "socks5" || proxyURL.Scheme == "socks5h"
+}
+
+type contextDialer func(ctx context.Context, network, addr string) (net.Conn, error)
+
+func (d contextDialer) Dial(network, addr string) (net.Conn, error) {
+	return d(context.Background(), network, addr)
+}
+
+func (d contextDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return d(ctx, network, addr)
 }
 
 type bufferedConn struct {

@@ -2,14 +2,17 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -212,6 +215,199 @@ func TestConnectDialDialsDirectlyWithoutUpstreamProxy(t *testing.T) {
 	assertEcho(t, conn, "ping")
 }
 
+type socksRequest struct {
+	target   string
+	user     string
+	password string
+}
+
+type fakeSOCKS5Proxy struct {
+	listener net.Listener
+	requests chan socksRequest
+}
+
+// newFakeSOCKS5Proxy serves RFC 1928 CONNECT with optional RFC 1929 auth. A
+// non-zero reply code refuses the CONNECT. A stalled proxy never replies to
+// the CONNECT.
+func newFakeSOCKS5Proxy(t *testing.T, reply byte, stall bool) *fakeSOCKS5Proxy {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+
+	p := &fakeSOCKS5Proxy{listener: listener, requests: make(chan socksRequest, 1)}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go p.serve(conn, reply, stall)
+		}
+	}()
+
+	return p
+}
+
+func (p *fakeSOCKS5Proxy) serve(conn net.Conn, reply byte, stall bool) {
+	defer func() { _ = conn.Close() }()
+
+	r := bufio.NewReader(conn)
+	readN := func(n int) []byte {
+		b := make([]byte, n)
+		if _, err := io.ReadFull(r, b); err != nil {
+			return nil
+		}
+		return b
+	}
+	readLen := func() []byte {
+		n := readN(1)
+		if n == nil {
+			return nil
+		}
+		return readN(int(n[0]))
+	}
+
+	greeting := readN(2)
+	if greeting == nil {
+		return
+	}
+	methods := readN(int(greeting[1]))
+	if methods == nil {
+		return
+	}
+
+	var req socksRequest
+	if bytes.Contains(methods, []byte{0x02}) {
+		if _, err := conn.Write([]byte{0x05, 0x02}); err != nil {
+			return
+		}
+		if readN(1) == nil {
+			return
+		}
+		req.user = string(readLen())
+		req.password = string(readLen())
+		if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
+			return
+		}
+	} else if _, err := conn.Write([]byte{0x05, 0x00}); err != nil {
+		return
+	}
+
+	head := readN(4)
+	if head == nil {
+		return
+	}
+
+	var host string
+	switch head[3] {
+	case 0x01:
+		host = net.IP(readN(net.IPv4len)).String()
+	case 0x03:
+		host = string(readLen())
+	case 0x04:
+		host = net.IP(readN(net.IPv6len)).String()
+	default:
+		return
+	}
+	port := readN(2)
+	if port == nil {
+		return
+	}
+	req.target = net.JoinHostPort(host, strconv.Itoa(int(binary.BigEndian.Uint16(port))))
+	p.requests <- req
+
+	if stall {
+		_, _ = io.Copy(io.Discard, r)
+		return
+	}
+
+	if _, err := conn.Write([]byte{0x05, reply, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil || reply != 0x00 {
+		return
+	}
+
+	_, _ = io.Copy(conn, r)
+}
+
+func (p *fakeSOCKS5Proxy) nextRequest(t *testing.T) socksRequest {
+	t.Helper()
+
+	select {
+	case req := <-p.requests:
+		return req
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "SOCKS5 proxy got no CONNECT request")
+		return socksRequest{}
+	}
+}
+
+func TestConnectDialTunnelsThroughSOCKS5Proxy(t *testing.T) {
+	tests := []struct {
+		name         string
+		scheme       string
+		user         *url.Userinfo
+		reply        byte
+		stall        bool
+		wantUser     string
+		wantPassword string
+		wantErrMsg   string
+	}{
+		{
+			name:   "socks5h sends the host name to the proxy",
+			scheme: "socks5h",
+		},
+		{
+			name:   "socks5 also sends the host name to the proxy",
+			scheme: "socks5",
+		},
+		{
+			name:         "proxy credentials use username and password auth",
+			scheme:       "socks5h",
+			user:         url.UserPassword("user", "secret"),
+			wantUser:     "user",
+			wantPassword: "secret",
+		},
+		{
+			name:       "proxy refuses CONNECT",
+			scheme:     "socks5h",
+			reply:      0x02,
+			wantErrMsg: "not allowed",
+		},
+		{
+			name:       "stalled proxy hits the connect timeout",
+			scheme:     "socks5h",
+			stall:      true,
+			wantErrMsg: "i/o timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := newFakeSOCKS5Proxy(t, tt.reply, tt.stall)
+			proxyURL := &url.URL{Scheme: tt.scheme, Host: upstream.listener.Addr().String(), User: tt.user}
+			tr := sandboxTransport(http.ProxyURL(proxyURL))
+
+			conn, err := newConnectDial(tr, 500*time.Millisecond)("tcp", "cloud.nx.app:443")
+
+			req := upstream.nextRequest(t)
+			assert.Equal(t, "cloud.nx.app:443", req.target)
+			assert.Equal(t, tt.wantUser, req.user)
+			assert.Equal(t, tt.wantPassword, req.password)
+
+			if tt.wantErrMsg != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
+				return
+			}
+
+			require.NoError(t, err)
+			defer func() { assert.NoError(t, conn.Close()) }()
+			assertEcho(t, conn, "ping")
+		})
+	}
+}
+
 func TestUpstreamProxyAddr(t *testing.T) {
 	tests := []struct {
 		proxyURL string
@@ -222,7 +418,9 @@ func TestUpstreamProxyAddr(t *testing.T) {
 		{"https://proxy.corp", "proxy.corp:443", false},
 		{"http://proxy.corp:3128", "proxy.corp:3128", false},
 		{"http://[::1]:3128", "[::1]:3128", false},
-		{"socks5://proxy.corp:1080", "", true},
+		{"socks5://proxy.corp", "proxy.corp:1080", false},
+		{"socks5h://proxy.corp:9050", "proxy.corp:9050", false},
+		{"socks4://proxy.corp:1080", "", true},
 	}
 
 	for _, tt := range tests {
