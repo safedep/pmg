@@ -118,8 +118,8 @@ rules. A small set of core variables (`PATH`, `HOME`, `LC_*`, `TZ`, ...) is neve
 A host unix socket reaches a service outside the sandbox. The SSH agent signs as you, and the
 Docker daemon gives root. So every built-in profile blocks unix socket connections:
 
-- Linux: the kernel refuses `socket(AF_UNIX)` and a datagram `socketpair`. A stream
-  `socketpair`, which runtimes use for child stdio, still works.
+- Linux: the kernel refuses `socket(AF_UNIX)`. It allows `socketpair` only for stream and
+  seqpacket pairs, which runtimes use for child stdio.
 - macOS: Seatbelt denies outbound connections to unix sockets. The mDNSResponder socket stays
   open so DNS works.
 
@@ -472,7 +472,7 @@ Next time you run `pmg pnpm install`, the custom policy template will be used in
 | Platform | Supported | Implementation                      |
 | -------- | --------- | ----------------------------------- |
 | MacOS    | Yes       | Seatbelt sandbox-exec               |
-| Linux    | Yes       | Landlock (default, kernel 5.13+) or Bubblewrap (fallback) |
+| Linux    | amd64, arm64 | Landlock (default, kernel 5.13+) or Bubblewrap (fallback) |
 | Windows  | No        | Not yet supported                   |
 
 ### Platform-Specific Limitations

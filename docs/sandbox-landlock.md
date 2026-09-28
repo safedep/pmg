@@ -186,9 +186,10 @@ driver installs the same filter without the traps (see `seccomp_filter_linux.go`
   give the target its capabilities back.
 - `clone3` gets `ENOSYS`. BPF cannot read the `clone3` flags struct. glibc then retries
   with `clone`, which the filter can check. Go and musl do not call `clone3`.
-- `socket(AF_UNIX)` and a datagram `socketpair` get `EACCES` unless the profile sets
-  `allow_unix_sockets`. A stream `socketpair` stays open. Node, libuv and Python use it for
-  child stdio, and it cannot reach a host socket. A datagram pair can, with `sendto`.
+- `socket(AF_UNIX)` gets `EACCES` unless the profile sets `allow_unix_sockets`. So does a
+  `socketpair` that is not a stream or seqpacket pair. A datagram pair can reach any
+  datagram socket with `sendto`, and the kernel makes a `SOCK_RAW` pair a datagram pair.
+  Node, libuv and Python use a stream pair for child stdio.
 - A fixed list gets `EPERM`: ptrace and other cross-process memory access, `bpf`,
   `perf_event_open`, `userfaultfd`, the keyring, `io_uring`, kernel modules and `kexec`,
   mount and the new mount API, `setns`, swap, reboot, clock changes, `syslog`, quotas and

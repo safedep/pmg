@@ -139,7 +139,9 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 ## Limits
 
 - Windows is not supported. The sandbox drivers are macOS Seatbelt and Linux Landlock or
-  Bubblewrap.
+  Bubblewrap. On Linux, only amd64 and arm64 are supported.
+- Under Bubblewrap, a script without a `#!` line fails with "exec format error". Add a `#!`
+  line, or run it with its interpreter, as in `pmg sandbox exec -- sh ./script`.
 - Network is allow-all. See above.
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands
   outside the working directory, which the profile does not grant. This is future work.

@@ -45,6 +45,8 @@ elif probe == "stream_pair":
     attempt(lambda: socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM))
 elif probe == "dgram_pair":
     attempt(lambda: socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM))
+elif probe == "raw_pair":
+    attempt(lambda: socket.socketpair(socket.AF_UNIX, socket.SOCK_RAW))
 elif probe == "thread":
     t = threading.Thread(target=lambda: None)
     t.start()
@@ -103,6 +105,7 @@ func seccompProbeTargets(t *testing.T, dir string) (string, []seccompProbe) {
 		{"abstract socket", []string{script, "abstract", abstract}, "DENIED EACCES"},
 		{"stream socketpair", []string{script, "stream_pair"}, "OK"},
 		{"datagram socketpair", []string{script, "dgram_pair"}, "DENIED EACCES"},
+		{"raw socketpair", []string{script, "raw_pair"}, "DENIED EACCES"},
 		{"thread start after clone3 fallback", []string{script, "thread"}, "OK"},
 		{"nested user namespace", []string{script, "userns"}, "DENIED EPERM"},
 		{"io_uring", []string{script, "io_uring"}, "DENIED EPERM"},

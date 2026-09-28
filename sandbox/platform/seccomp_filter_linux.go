@@ -61,9 +61,10 @@ func seccompDeniedSyscalls() []uint32 {
 // A foreign or x32 ABI kills the process. clone3 returns ENOSYS, because BPF
 // cannot read its flags, and glibc then uses clone. A clone or unshare that
 // makes a namespace returns EPERM. Without allow_unix_sockets, socket(AF_UNIX)
-// and a datagram socketpair return EACCES. A datagram pair can send to any
-// socket path. The denied group returns EPERM. The notify group goes to the
-// supervisor. All other syscalls are allowed.
+// returns EACCES, and so does a socketpair that is not a stream or seqpacket
+// pair. The kernel makes SOCK_RAW a datagram pair, and a datagram pair can
+// send to any socket path. The denied group returns EPERM. The notify group
+// goes to the supervisor. All other syscalls are allowed.
 func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
 	var f []unix.SockFilter
 	ld := func(k uint32) unix.SockFilter {
@@ -112,7 +113,15 @@ func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
 		argCheck(unix.SYS_UNSHARE, seccompDataArg0Low, seccompNewNamespaceFlags|unix.CLONE_NEWTIME, 0, errno(unix.EPERM))
 		if !spec.AllowUnixSockets {
 			argCheck(unix.SYS_SOCKET, seccompDataArg0Low, 0xffffffff, unix.AF_UNIX, errno(unix.EACCES))
-			argCheck(unix.SYS_SOCKETPAIR, seccompDataArg1Low, 0xf, unix.SOCK_DGRAM, errno(unix.EACCES))
+			f = append(f,
+				unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jf: 6, K: unix.SYS_SOCKETPAIR},
+				ld(seccompDataArg1Low),
+				unix.SockFilter{Code: unix.BPF_ALU | unix.BPF_AND | unix.BPF_K, K: 0xf},
+				unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 2, K: unix.SOCK_STREAM},
+				unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, Jt: 1, K: unix.SOCK_SEQPACKET},
+				ret(errno(unix.EACCES)),
+				ld(seccompDataNrOffset),
+			)
 		}
 	}
 
