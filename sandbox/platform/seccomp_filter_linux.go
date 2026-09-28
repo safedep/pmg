@@ -10,18 +10,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// seccompFilterSpec selects the parts of the sandbox seccomp filter that
-// depend on the policy.
+// seccompFilterSpec holds the policy parts of the seccomp filter.
 type seccompFilterSpec struct {
-	// Notify lists the syscalls that return SECCOMP_RET_USER_NOTIF to the
-	// Landlock supervisor. The Bubblewrap driver has no supervisor.
+	// Notify lists the syscalls for the Landlock supervisor. Bubblewrap has
+	// no supervisor.
 	Notify []uint32
 
 	AllowUnixSockets bool
 }
 
-// Offsets into struct seccomp_data. The args start at 16. The low word of an
-// argument comes first on the little-endian architectures PMG ships.
+// Offsets into struct seccomp_data. The low word of an argument comes first,
+// because PMG ships only little-endian architectures.
 const (
 	seccompDataNrOffset   = 0
 	seccompDataArchOffset = 4
@@ -29,16 +28,14 @@ const (
 	seccompDataArg1Low    = 24
 )
 
-// seccompNewNamespaceFlags are the clone and unshare flags that create a
-// namespace. CLONE_NEWTIME is 0x80, which clone(2) reads as the exit signal,
-// so only unshare(2) checks it.
+// seccompNewNamespaceFlags create a namespace. CLONE_NEWTIME is not here,
+// because clone(2) reads 0x80 as the exit signal. unshare(2) adds it.
 const seccompNewNamespaceFlags = unix.CLONE_NEWNS | unix.CLONE_NEWCGROUP | unix.CLONE_NEWUTS |
 	unix.CLONE_NEWIPC | unix.CLONE_NEWUSER | unix.CLONE_NEWPID | unix.CLONE_NEWNET
 
-// seccompDeniedSyscalls return EPERM in the kernel for every sandboxed
-// process. They load kernel code, change mounts or the clock, reach into
-// another process's memory, or expose kernel attack surface that no package
-// manager needs.
+// seccompDeniedSyscalls return EPERM. No package manager needs them, and
+// each one changes the kernel, mounts or the clock, or reads another
+// process.
 func seccompDeniedSyscalls() []uint32 {
 	return append([]uint32{
 		unix.SYS_PTRACE, unix.SYS_PROCESS_VM_READV, unix.SYS_PROCESS_VM_WRITEV,
@@ -59,15 +56,14 @@ func seccompDeniedSyscalls() []uint32 {
 	}, archDeniedSyscalls()...)
 }
 
-// buildSeccompFilter builds the classic BPF program for a sandboxed process.
+// buildSeccompFilter builds the BPF program for a sandboxed process.
 //
-// Order: a foreign or x32 ABI kills the process. clone3 returns ENOSYS
-// because BPF cannot read its flags struct, and glibc then retries with
-// clone. clone and unshare that create a namespace return EPERM. When unix
-// sockets are blocked, socket(AF_UNIX) returns EACCES and so does a datagram
-// socketpair, which can sendto(2) any datagram socket path. Then the denied
-// group returns EPERM, the notify group goes to the supervisor, and every
-// other syscall is allowed.
+// A foreign or x32 ABI kills the process. clone3 returns ENOSYS, because BPF
+// cannot read its flags, and glibc then uses clone. A clone or unshare that
+// makes a namespace returns EPERM. Without allow_unix_sockets, socket(AF_UNIX)
+// and a datagram socketpair return EACCES. A datagram pair can send to any
+// socket path. The denied group returns EPERM. The notify group goes to the
+// supervisor. All other syscalls are allowed.
 func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
 	var f []unix.SockFilter
 	ld := func(k uint32) unix.SockFilter {
@@ -97,8 +93,8 @@ func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
 
 	f = appendSyscallGroup(f, []uint32{unix.SYS_CLONE3}, errno(unix.ENOSYS))
 
-	// argCheck returns action when nr is called and the masked argument
-	// matches. It reloads nr for the checks that follow.
+	// argCheck returns action when the masked argument of nr matches. It
+	// loads nr again for the next checks.
 	argCheck := func(nr, argOffset, mask, value, action uint32) {
 		test := unix.SockFilter{Code: unix.BPF_JMP | unix.BPF_JSET | unix.BPF_K, Jf: 1, K: mask}
 		body := []unix.SockFilter{ld(argOffset)}
@@ -125,8 +121,8 @@ func buildSeccompFilter(spec seccompFilterSpec) []unix.SockFilter {
 	return append(f, ret(unix.SECCOMP_RET_ALLOW))
 }
 
-// appendSyscallGroup emits one JEQ per syscall that jumps to a shared RET,
-// and a JA over that RET for the fall-through.
+// appendSyscallGroup adds one JEQ for each syscall to a shared RET, and a JA
+// that jumps over the RET.
 func appendSyscallGroup(f []unix.SockFilter, syscalls []uint32, action uint32) []unix.SockFilter {
 	n := len(syscalls)
 	if n == 0 {
@@ -144,9 +140,8 @@ func appendSyscallGroup(f []unix.SockFilter, syscalls []uint32, action uint32) [
 	)
 }
 
-// installSeccompFilter sets PR_SET_NO_NEW_PRIVS and loads the filter on the
-// calling thread. The caller must lock the OS thread and execve from it,
-// because the filter is not synchronized to other threads.
+// installSeccompFilter sets PR_SET_NO_NEW_PRIVS and loads the filter on this
+// thread only. The caller must lock the OS thread and execve from it.
 func installSeccompFilter(filter []unix.SockFilter, flags uintptr) (int, error) {
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return -1, fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)

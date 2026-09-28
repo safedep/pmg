@@ -736,9 +736,8 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	return nil
 }
 
-// writeUnixSocketDeny closes host unix sockets, such as the SSH agent and
-// the Docker daemon, after the blanket outbound allow. getaddrinfo reaches
-// mDNSResponder through its socket, so DNS stays open.
+// writeUnixSocketDeny denies host unix sockets, such as the SSH agent. It
+// keeps the mDNSResponder socket open, because getaddrinfo needs it.
 func (t *seatbeltPolicyTranslator) writeUnixSocketDeny(sb *strings.Builder) {
 	sb.WriteString("(deny network-outbound (remote unix-socket) (with message \"")
 	sb.WriteString(seatbeltLogMessage(t.logTag, seatbeltKindNetworkOutbound, seatbeltTargetUnixSocket))

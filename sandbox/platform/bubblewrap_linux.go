@@ -28,9 +28,8 @@ type bubblewrapSandbox struct {
 	config     *bubblewrapConfig
 	translator *bubblewrapPolicyTranslator
 
-	// shimExe is the pmg binary that bwrap runs as the seccomp shim. Empty
-	// means os.Executable(). Tests set it, because their executable is the
-	// test binary.
+	// shimExe is the pmg binary for the seccomp shim. Empty means
+	// os.Executable(). Tests set it because they run as the test binary.
 	shimExe string
 
 	// Diagnostics state from the last Execute(), consumed by
@@ -114,9 +113,9 @@ func (b *bubblewrapSandbox) shimExecutable() (string, error) {
 	return exe, nil
 }
 
-// bubblewrapShimArgs ends the bwrap argv with the seccomp shim, which installs
-// the filter and then execs the command that follows. The last bind keeps
-// the shim visible under any mask.
+// bubblewrapShimArgs ends the bwrap argv with the seccomp shim. The shim
+// installs the filter and execs the command that follows. The bind comes
+// last, so no mask hides the shim.
 func bubblewrapShimArgs(policy *sandbox.SandboxPolicy, shimExe string) []string {
 	args := []string{"--ro-bind", shimExe, shimExe, "--", shimExe, SeccompShimCommand}
 	if utils.SafelyGetValue(policy.AllowUnixSockets) {

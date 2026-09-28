@@ -68,8 +68,8 @@ type seccompProbe struct {
 	want string
 }
 
-// seccompProbeTargets starts host unix listeners and returns the probes to
-// run. The abstract socket is reachable only without a network namespace.
+// seccompProbeTargets starts host unix listeners and returns the probes. A
+// network namespace hides the abstract socket.
 func seccompProbeTargets(t *testing.T, dir string) (string, []seccompProbe) {
 	t.Helper()
 
@@ -160,8 +160,8 @@ func TestBubblewrapE2ESeccompFilterDenies(t *testing.T) {
 	}
 
 	for _, p := range probes {
-		// bwrap unshares the network namespace for this policy, so the host
-		// abstract socket is out of reach without the filter.
+		// bwrap unshares the network for this policy. That hides the abstract
+		// socket, with or without the filter.
 		if p.name == "abstract socket" {
 			continue
 		}

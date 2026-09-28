@@ -126,13 +126,10 @@ func landlockWriteAuditEvent(w io.Writer, evt auditEvent) error {
 	return nil
 }
 
-// landlockNotifySyscalls computes the syscall set the seccomp filter traps
-// for the given policy. execve/execveat are always trapped (deny-exec
-// enforcement); the path syscalls (seccompPathSyscalls) only when fs deny
-// rules exist; connect/sendto/sendmsg only under network lockdown. sendmsg
-// covers Go's WriteMsgUDP datagrams; sendmmsg batched destinations are a
-// documented gap (see docs/sandbox-landlock.md). The kernel denies io_uring
-// before this group (seccompDeniedSyscalls).
+// landlockNotifySyscalls returns the syscalls that go to the supervisor.
+// execve and execveat always go, for deny_exec. The path syscalls go when
+// deny rules exist. connect, sendto and sendmsg go under network lockdown.
+// sendmmsg does not go. See docs/sandbox-landlock.md.
 func landlockNotifySyscalls(network landlockNetworkPolicy, interceptPaths bool) []uint32 {
 	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 	if interceptPaths {
@@ -508,18 +505,15 @@ func (s *seccompSupervisor) handleExec(notif *seccompNotification, phase *seccom
 // dnsPort is the well-known DNS port re-opened under allow_direct_dns.
 const dnsPort = 53
 
-// allowOutbound reports whether an outbound connection to addr:port is
-// permitted under the network confinement config. Matches the Seatbelt
-// network_via_proxy_only semantics: loopback traffic reaches the PMG proxy
-// port (and any loopback port when the profile also allows network bind, so
-// dev servers keep working); direct DNS to port 53 only when the profile
-// opts in; everything else non-loopback is denied.
+// allowOutbound reports whether lockdown allows a connection to addr:port.
+// It matches Seatbelt. Loopback reaches the PMG proxy port, and any port
+// when the profile allows network bind. Port 53 is open only with
+// allow_direct_dns. All other destinations are denied.
 //
-// Non-INET families are allow-listed, not blanket-allowed. AF_NETLINK is
-// needed for getaddrinfo interface enumeration. AF_UNIX reaches this check
-// only when the profile sets allow_unix_sockets, because the kernel filter
-// refuses socket(AF_UNIX) otherwise. Every other family is denied, notably
-// AF_VSOCK, which in a VM reaches host/guest services outside the proxy.
+// getaddrinfo needs AF_NETLINK. AF_UNIX gets here only with
+// allow_unix_sockets, because the kernel filter refuses socket(AF_UNIX)
+// otherwise. All other families are denied. AF_VSOCK, for example, reaches
+// host services from a VM.
 func (n landlockNetworkPolicy) allowOutbound(family uint16, addr netip.Addr, port uint16) bool {
 	if !n.Lockdown {
 		return true

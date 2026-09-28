@@ -10,8 +10,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// runSeccompFilter interprets the classic BPF subset the builder emits
-// against one seccomp_data, so the tests check decisions, not layout.
+// runSeccompFilter runs the program against one seccomp_data. The tests
+// check decisions, not layout.
 func runSeccompFilter(t *testing.T, filter []unix.SockFilter, arch, nr uint32, args [6]uint64) uint32 {
 	t.Helper()
 	word := func(k uint32) uint32 {

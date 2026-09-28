@@ -7,15 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewSeccompShimCommand returns the hidden command that the Bubblewrap driver
-// runs inside bwrap. See platform.RunSeccompShim.
+// NewSeccompShimCommand returns the hidden command that bwrap runs. See
+// platform.RunSeccompShim.
 func NewSeccompShimCommand() *cobra.Command {
 	var cfg platform.SeccompShimConfig
 
 	cmd := &cobra.Command{
 		Use:    platform.SeccompShimCommand,
 		Hidden: true,
-		// The shim calls execve at once. It does not need config or analytics.
+		// The shim execs at once. It needs no config and no analytics.
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {},
 		RunE: func(cmd *cobra.Command, execArgs []string) error {
 			return platform.RunSeccompShim(cfg, execArgs)

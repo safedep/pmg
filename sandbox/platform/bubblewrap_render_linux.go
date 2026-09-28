@@ -20,7 +20,7 @@ import (
 // This is a thin wrapper over the internal bubblewrap translator and is
 // intended for inspection use cases such as
 // `pmg setup sandbox profile show --driver=bwrap`.
-// bubblewrapRenderShimExe stands in for the pmg binary path, which differs per
+// bubblewrapRenderShimExe replaces the pmg path, which is different for each
 // install.
 const bubblewrapRenderShimExe = "<pmg>"
 

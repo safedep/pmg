@@ -1,5 +1,5 @@
-# guarantee: on Linux, `pmg sandbox exec` refuses a nested user namespace, so
-# a program cannot get its capabilities back inside the sandbox.
+# guarantee: on Linux, `pmg sandbox exec` refuses a nested user namespace.
+# A program cannot get capabilities back in the sandbox.
 
 [!linux] skip
 [!exec:unshare] skip

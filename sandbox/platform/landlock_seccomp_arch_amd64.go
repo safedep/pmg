@@ -11,8 +11,8 @@ const seccompNativeArch = unix.AUDIT_ARCH_X86_64
 // seccompX32SyscallBit marks an x32 syscall number under AUDIT_ARCH_X86_64.
 const seccompX32SyscallBit = 0x40000000
 
-// seccompArgFiltering is true where the filter can read syscall arguments:
-// the flags of clone and unshare and the domain of socket are args[0].
+// seccompArgFiltering is true when the filter can read the flags of clone
+// and unshare and the domain of socket in args[0].
 const seccompArgFiltering = true
 
 func archDeniedSyscalls() []uint32 {

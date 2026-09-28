@@ -10,18 +10,18 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// SeccompShimCommand is the hidden pmg command that bwrap runs in place of
-// the target. The runner may start bwrap under a PTY, which passes no extra
-// file descriptors, so bwrap cannot receive the filter by --seccomp.
+// SeccompShimCommand is the hidden pmg command that bwrap runs before the
+// target. bwrap --seccomp cannot work, because a PTY run passes no extra
+// file descriptors.
 const SeccompShimCommand = "__seccomp_shim"
 
-// SeccompShimConfig holds the policy switches that the seccomp shim applies.
+// SeccompShimConfig holds the policy switches of the seccomp shim.
 type SeccompShimConfig struct {
 	AllowUnixSockets bool
 }
 
-// RunSeccompShim installs the sandbox seccomp filter and replaces itself with
-// the process that execArgs names. It returns only on a failure before execve.
+// RunSeccompShim installs the seccomp filter and execs execArgs. It returns
+// only when a step before execve fails.
 func RunSeccompShim(cfg SeccompShimConfig, execArgs []string) error {
 	if len(execArgs) == 0 {
 		return fmt.Errorf("seccomp shim: no target command")

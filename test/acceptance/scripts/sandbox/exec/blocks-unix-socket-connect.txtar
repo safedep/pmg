@@ -1,6 +1,5 @@
-# guarantee: `pmg sandbox exec` blocks connections to host unix sockets, such
-# as the SSH agent or the Docker daemon. A profile with allow_unix_sockets
-# opens them.
+# guarantee: `pmg sandbox exec` blocks host unix sockets, such as the SSH
+# agent. A profile with allow_unix_sockets opens them.
 
 [!exec:python3] skip
 
@@ -12,9 +11,8 @@ cd $WORK/proj
 exec python3 $WORK/sock.py listen &listener&
 exec python3 $WORK/sock.py wait
 
-# The allowed run comes first. It proves that the listener accepts. Under
-# the AppArmor user namespace restriction the host refuses the connect, so
-# the allowed runs cannot pass there.
+# The allowed run comes first, to prove that the listener works. AppArmor
+# userns confinement refuses the connect, so the allowed runs skip there.
 [!apparmor-userns] exec pmg sandbox exec --sandbox-profile $WORK/allow.yml -- python3 $WORK/sock.py path
 [!apparmor-userns] stdout '^OK$'
 
@@ -38,7 +36,7 @@ allow_unix_sockets: true
 -- sock.py --
 import errno, hashlib, os, signal, socket, sys, threading, time
 
-# A relative path stays under the sun_path limit on macOS.
+# A relative path stays below the macOS sun_path limit.
 PATH = "host.sock"
 ABSTRACT = "\0pmg-acceptance-" + hashlib.sha1(os.getcwd().encode()).hexdigest()[:16]
 
