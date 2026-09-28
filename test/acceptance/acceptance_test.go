@@ -84,6 +84,8 @@ func TestAcceptance(t *testing.T) {
 						return hasCloudCredentials(), nil
 					case "apparmor-userns":
 						return appArmorRestrictsUserns(), nil
+					case "userns":
+						return exec.Command("unshare", "-U", "true").Run() == nil, nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}

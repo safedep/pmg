@@ -35,6 +35,6 @@ func RenderBubblewrap(policy *sandbox.SandboxPolicy) ([]byte, error) {
 		return nil, err
 	}
 
-	args = append(args, bubblewrapShimArgs(policy, bubblewrapRenderShimExe)...)
+	args = bubblewrapShimArgs(policy, args, bubblewrapRenderShimExe)
 	return []byte(strings.Join(args, "\n") + "\n"), nil
 }

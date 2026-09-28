@@ -2,14 +2,12 @@
 # A program cannot get capabilities back in the sandbox.
 
 [!linux] skip
-[!exec:unshare] skip
+[!userns] skip
 
 env HOME=$WORK/home
 mkdir $WORK/home
 env PMG_CACHE_DIR=$WORK/cache
 cd $WORK/proj
-
-exec unshare -U true
 
 ! exec pmg sandbox exec -- unshare -U true
 stderr 'Operation not permitted'

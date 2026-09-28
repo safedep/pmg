@@ -177,3 +177,14 @@ func TestBubblewrapE2ESeccompFilterDenies(t *testing.T) {
 		assert.Equal(t, "OK", run(t, probes[0].args, true))
 	})
 }
+
+func TestBubblewrapE2EDenyExecCoversShim(t *testing.T) {
+	b := requireBubblewrap(t)
+	workdir := bubblewrapE2EWorkdir(t)
+	policy := bubblewrapE2EPolicy(t, workdir)
+	policy.Process.DenyExec = []string{b.shimExe}
+
+	r := runSandboxed(t, b, policy, "/bin/echo", "target-ran")
+	assert.Error(t, r.err)
+	assert.NotContains(t, r.stdout, "target-ran")
+}

@@ -102,14 +102,13 @@ func TestBubblewrapSandboxExecuteCommandWrapping(t *testing.T) {
 	result, err := sb.Execute(ctx, cmd, policy, nil)
 	require.NoError(t, err)
 
-	// bwrap [bwrap-args] --ro-bind <pmg> <pmg> -- <pmg> __seccomp_shim -- /usr/bin/node --version
-	assert.Equal(t, "bwrap", cmd.Args[0])
+	// bwrap --ro-bind <pmg> <pmg> [bwrap-args] -- <pmg> __seccomp_shim -- /usr/bin/node --version
 	shim, err := sb.shimExecutable()
 	require.NoError(t, err)
+	assert.Equal(t, []string{"bwrap", "--ro-bind", shim, shim}, cmd.Args[:4])
 
 	separatorIdx := slices.Index(cmd.Args, "--")
 	require.NotEqual(t, -1, separatorIdx, "Should have -- separator")
-	assert.Equal(t, []string{"--ro-bind", shim, shim}, cmd.Args[separatorIdx-3:separatorIdx])
 	assert.Equal(t, []string{shim, SeccompShimCommand, "--", originalCmd, "--version"}, cmd.Args[separatorIdx+1:])
 
 	cmd = exec.Command(originalCmd)

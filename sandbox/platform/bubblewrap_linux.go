@@ -88,8 +88,7 @@ func (b *bubblewrapSandbox) Execute(ctx context.Context, cmd *exec.Cmd, policy *
 	originalArgs := cmd.Args
 
 	cmd.Path = bwrapPath
-	cmd.Args = append([]string{"bwrap"}, bwrapArgs...)
-	cmd.Args = append(cmd.Args, bubblewrapShimArgs(policy, selfExe)...)
+	cmd.Args = append([]string{"bwrap"}, bubblewrapShimArgs(policy, bwrapArgs, selfExe)...)
 	cmd.Args = append(cmd.Args, originalPath)
 	if len(originalArgs) > 1 {
 		cmd.Args = append(cmd.Args, originalArgs[1:]...)
@@ -113,11 +112,13 @@ func (b *bubblewrapSandbox) shimExecutable() (string, error) {
 	return exe, nil
 }
 
-// bubblewrapShimArgs ends the bwrap argv with the seccomp shim. The shim
-// installs the filter and execs the command that follows. The bind comes
-// last, so no mask hides the shim.
-func bubblewrapShimArgs(policy *sandbox.SandboxPolicy, shimExe string) []string {
-	args := []string{"--ro-bind", shimExe, shimExe, "--", shimExe, SeccompShimCommand}
+// bubblewrapShimArgs wraps the translated bwrap args with the seccomp shim.
+// The shim bind comes first, so each later mask applies to it. A profile that
+// denies the pmg binary fails closed. The shim installs the filter and execs
+// the command that follows.
+func bubblewrapShimArgs(policy *sandbox.SandboxPolicy, bwrapArgs []string, shimExe string) []string {
+	args := append([]string{"--ro-bind", shimExe, shimExe}, bwrapArgs...)
+	args = append(args, "--", shimExe, SeccompShimCommand)
 	if utils.SafelyGetValue(policy.AllowUnixSockets) {
 		args = append(args, "--allow-unix-sockets")
 	}

@@ -1,3 +1,6 @@
+--ro-bind
+<pmg>
+<pmg>
 --ro-bind-try
 /usr
 /usr
@@ -56,9 +59,6 @@
 --dev-bind-try
 /dev/tty
 /dev/tty
---ro-bind
-<pmg>
-<pmg>
 --
 <pmg>
 __seccomp_shim
