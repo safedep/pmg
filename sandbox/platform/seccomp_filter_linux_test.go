@@ -158,3 +158,11 @@ func TestBuildSeccompFilter_NoNotifyGroup(t *testing.T) {
 func syscallDeniedName(nr uint32) string {
 	return "denied syscall " + syscallName(int32(nr))
 }
+
+func TestSupportedRequiresArgFiltering(t *testing.T) {
+	assert.Equal(t, seccompArgFiltering, Supported())
+	if !seccompArgFiltering {
+		_, err := NewSandbox()
+		assert.Error(t, err)
+	}
+}

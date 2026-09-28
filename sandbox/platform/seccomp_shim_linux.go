@@ -5,6 +5,7 @@ package platform
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 
 	"golang.org/x/sys/unix"
@@ -27,6 +28,11 @@ func RunSeccompShim(cfg SeccompShimConfig, execArgs []string) error {
 		return fmt.Errorf("seccomp shim: no target command")
 	}
 
+	target, err := exec.LookPath(execArgs[0])
+	if err != nil {
+		return fmt.Errorf("seccomp shim: %w", err)
+	}
+
 	runtime.LockOSThread()
 
 	filter := buildSeccompFilter(seccompFilterSpec{AllowUnixSockets: cfg.AllowUnixSockets})
@@ -34,8 +40,8 @@ func RunSeccompShim(cfg SeccompShimConfig, execArgs []string) error {
 		return fmt.Errorf("seccomp shim: %w", err)
 	}
 
-	if err := unix.Exec(execArgs[0], execArgs, os.Environ()); err != nil {
-		return fmt.Errorf("seccomp shim: exec %s: %w", execArgs[0], err)
+	if err := unix.Exec(target, execArgs, os.Environ()); err != nil {
+		return fmt.Errorf("seccomp shim: exec %s: %w", target, err)
 	}
 	return nil
 }
