@@ -25,7 +25,15 @@ type fakeUpstreamProxy struct {
 	requests chan *http.Request
 }
 
-func newFakeUpstreamProxy(t *testing.T, useTLS bool, respond func(conn net.Conn)) *fakeUpstreamProxy {
+type proxyServerMode int
+
+const (
+	plainProxy proxyServerMode = iota
+	tlsProxy
+	tlsHTTP2Proxy
+)
+
+func newFakeUpstreamProxy(t *testing.T, mode proxyServerMode, respond func(conn net.Conn)) *fakeUpstreamProxy {
 	t.Helper()
 
 	p := &fakeUpstreamProxy{requests: make(chan *http.Request, 1)}
@@ -39,10 +47,15 @@ func newFakeUpstreamProxy(t *testing.T, useTLS bool, respond func(conn net.Conn)
 		respond(conn)
 	})
 
-	if useTLS {
-		p.server = httptest.NewTLSServer(handler)
-	} else {
-		p.server = httptest.NewServer(handler)
+	p.server = httptest.NewUnstartedServer(handler)
+	switch mode {
+	case plainProxy:
+		p.server.Start()
+	case tlsProxy:
+		p.server.StartTLS()
+	case tlsHTTP2Proxy:
+		p.server.EnableHTTP2 = true
+		p.server.StartTLS()
 	}
 	t.Cleanup(p.server.Close)
 
@@ -114,7 +127,7 @@ func assertEcho(t *testing.T, conn net.Conn, want string) {
 func TestConnectDialTunnelsThroughUpstreamProxy(t *testing.T) {
 	tests := []struct {
 		name       string
-		useTLS     bool
+		mode       proxyServerMode
 		user       *url.Userinfo
 		respond    func(net.Conn)
 		wantEcho   string
@@ -128,7 +141,13 @@ func TestConnectDialTunnelsThroughUpstreamProxy(t *testing.T) {
 		},
 		{
 			name:     "https proxy",
-			useTLS:   true,
+			mode:     tlsProxy,
+			respond:  acceptAndEcho,
+			wantEcho: "ping",
+		},
+		{
+			name:     "https proxy that offers HTTP/2 gets HTTP/1.1",
+			mode:     tlsHTTP2Proxy,
 			respond:  acceptAndEcho,
 			wantEcho: "ping",
 		},
@@ -167,10 +186,12 @@ func TestConnectDialTunnelsThroughUpstreamProxy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			upstream := newFakeUpstreamProxy(t, tt.useTLS, tt.respond)
+			upstream := newFakeUpstreamProxy(t, tt.mode, tt.respond)
 			tr := sandboxTransport(http.ProxyURL(upstream.url(t, tt.user)))
-			if tt.useTLS {
-				tr.TLSClientConfig = upstream.server.Client().Transport.(*http.Transport).TLSClientConfig
+			if tt.mode != plainProxy {
+				// The MITM transport adds h2 to NextProtos on first use.
+				tr.TLSClientConfig = upstream.server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+				tr.TLSClientConfig.NextProtos = []string{"h2", "http/1.1"}
 			}
 
 			conn, err := newConnectDial(tr, 500*time.Millisecond)("tcp", "cloud.nx.app:443")
@@ -441,7 +462,7 @@ func TestUpstreamProxyAddr(t *testing.T) {
 }
 
 func TestProxyServerTunnelsUnclaimedHostThroughUpstreamProxy(t *testing.T) {
-	upstream := newFakeUpstreamProxy(t, false, acceptAndEcho)
+	upstream := newFakeUpstreamProxy(t, plainProxy, acceptAndEcho)
 
 	server, err := NewProxyServer(&ProxyConfig{
 		ListenAddr:     "127.0.0.1:0",

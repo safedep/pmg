@@ -101,6 +101,8 @@ func openTunnel(ctx context.Context, tr *http.Transport, conn net.Conn, proxyURL
 	if proxyURL.Scheme == "https" {
 		cfg := tr.TLSClientConfig.Clone()
 		cfg.ServerName = proxyURL.Hostname()
+		// The transport adds h2 to NextProtos. This dialer sends an HTTP/1.1 CONNECT.
+		cfg.NextProtos = []string{"http/1.1"}
 		tlsConn := tls.Client(conn, cfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			return nil, fmt.Errorf("TLS handshake with upstream proxy %s failed: %w", proxyURL.Host, err)
