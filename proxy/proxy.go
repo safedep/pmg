@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -163,9 +165,27 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	// Configure connection timeout for upstream connections during CONNECT requests.
 	// A custom UpstreamDialContext also governs CONNECT tunnels so non-MITM hosts
 	// are dialed through the same override (tests rely on this for hermeticity).
+	//
+	// Non-MITM'd hosts (anything no interceptor claims, e.g. telemetry/API
+	// endpoints reached by the wrapped package manager) must honor
+	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY the same way newUpstreamTransport does for
+	// MITM'd traffic. Environments that require all outbound traffic to go
+	// through an upstream proxy (corporate proxies, sandboxed CI) would
+	// otherwise have every non-registry CONNECT tunnel fail outright: a plain
+	// net.Dialer resolves and dials the destination directly, bypassing the
+	// only permitted egress path.
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
 		if config.UpstreamDialContext != nil {
 			return config.UpstreamDialContext(context.Background(), network, addr)
+		}
+
+		proxyURL, err := proxyWithLoopbackBypass(&http.Request{URL: &url.URL{Scheme: "https", Host: addr}})
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve upstream proxy for %s: %w", addr, err)
+		}
+
+		if proxyURL != nil {
+			return dialThroughHTTPProxy(proxyURL, addr, config.ConnectTimeout)
 		}
 
 		dialer := &net.Dialer{
@@ -207,6 +227,59 @@ func proxyWithLoopbackBypass(req *http.Request) (*url.URL, error) {
 	}
 
 	return http.ProxyFromEnvironment(req)
+}
+
+// dialThroughHTTPProxy establishes a raw tunnel to addr by issuing an HTTP
+// CONNECT request to proxyURL, the way http.Transport does internally for
+// HTTPS requests routed through HTTP_PROXY/HTTPS_PROXY. It is used for
+// non-MITM'd CONNECT tunnels, where goproxy needs a plain net.Conn rather than
+// a RoundTripper.
+func dialThroughHTTPProxy(proxyURL *url.URL, addr string, timeout time.Duration) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: timeout}
+
+	conn, err := dialer.Dial("tcp", proxyURL.Host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial upstream proxy %s: %w", proxyURL.Host, err)
+	}
+
+	connectReq := &http.Request{
+		Method: http.MethodConnect,
+		URL:    &url.URL{Opaque: addr},
+		Host:   addr,
+		Header: make(http.Header),
+	}
+
+	if proxyURL.User != nil {
+		username := proxyURL.User.Username()
+		password, _ := proxyURL.User.Password()
+		auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		connectReq.Header.Set("Proxy-Authorization", "Basic "+auth)
+	}
+
+	if err := connectReq.Write(conn); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to write CONNECT request to upstream proxy %s: %w", proxyURL.Host, err)
+	}
+
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, connectReq)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to read CONNECT response from upstream proxy %s: %w", proxyURL.Host, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		conn.Close()
+		return nil, fmt.Errorf("upstream proxy %s refused CONNECT to %s: %s", proxyURL.Host, addr, resp.Status)
+	}
+
+	if br.Buffered() > 0 {
+		conn.Close()
+		return nil, fmt.Errorf("unexpected data from upstream proxy %s before CONNECT completed", proxyURL.Host)
+	}
+
+	return conn, nil
 }
 
 func newUpstreamTransport(config *ProxyConfig) *http.Transport {
