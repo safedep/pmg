@@ -190,7 +190,7 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 			expectedBlockReason: proxy.BlockReasonNone,
 		},
 		{
-			name:           "ActionUnknown - default to allow",
+			name:           "ActionUnknown blocks the download",
 			ecosystem:      packagev1.Ecosystem_ECOSYSTEM_NPM,
 			packageName:    "unknown-pkg",
 			packageVersion: "4.0.0",
@@ -199,8 +199,8 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 				Summary:      "Unknown action",
 				ReferenceURL: "https://example.com/unknown-report",
 			},
-			expectedAction:      proxy.ActionAllow,
-			expectedBlockCode:   0,
+			expectedAction:      proxy.ActionBlock,
+			expectedBlockCode:   http.StatusServiceUnavailable,
 			expectedBlockReason: proxy.BlockReasonNone,
 		},
 		{
@@ -257,7 +257,11 @@ func TestBaseRegistryInterceptor_HandleAnalysisResult(t *testing.T) {
 			assert.Equal(t, tt.expectedAction, response.Action)
 			assert.Equal(t, tt.expectedBlockCode, response.BlockCode)
 			assert.Equal(t, tt.expectedBlockReason, response.BlockReason)
-			assert.Empty(t, response.BlockMessage)
+			if tt.expectedBlockCode == http.StatusServiceUnavailable {
+				assert.Contains(t, response.BlockMessage, "malware analysis failed")
+			} else {
+				assert.Empty(t, response.BlockMessage)
+			}
 
 			switch tt.expectedBlockReason {
 			case proxy.BlockReasonNone:

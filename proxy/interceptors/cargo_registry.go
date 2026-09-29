@@ -104,7 +104,7 @@ func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, nam
 	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version)
 	if err != nil {
 		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
+		return blockAnalysisUnavailable(), nil
 	}
 
 	return i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, name, version, result)

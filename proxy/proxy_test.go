@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +14,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBlockedResponseProtocol(t *testing.T) {
+	for _, protocol := range []string{"", "HTTP/1.0", "HTTP/1.1"} {
+		t.Run(protocol, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "https://registry.npmjs.org/pkg", nil)
+			req.Proto = protocol
+			req.ProtoMajor, req.ProtoMinor, _ = http.ParseHTTPVersion(protocol)
+			resp := newBlockedResponse(req, http.StatusServiceUnavailable, "Security check failed.")
+			defer func() { assert.NoError(t, resp.Body.Close()) }()
+
+			var wire bytes.Buffer
+			require.NoError(t, resp.Write(&wire))
+			parsed, err := http.ReadResponse(bufio.NewReader(&wire), req)
+			require.NoError(t, err)
+			defer func() { assert.NoError(t, parsed.Body.Close()) }()
+			assert.Equal(t, http.StatusServiceUnavailable, parsed.StatusCode)
+			assert.Equal(t, 1, parsed.ProtoMajor)
+			assert.True(t, parsed.Close)
+			body, err := io.ReadAll(parsed.Body)
+			require.NoError(t, err)
+			assert.Equal(t, "Security check failed.", string(body))
+		})
+	}
+}
 
 func TestNewProxyServerSecuresUpstreamTLSConfig(t *testing.T) {
 	server, err := NewProxyServer(&ProxyConfig{

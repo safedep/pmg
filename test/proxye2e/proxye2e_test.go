@@ -17,6 +17,50 @@ import (
 func recent() time.Time { return time.Now().Add(-24 * time.Hour) }
 func old() time.Time    { return time.Now().Add(-100 * 24 * time.Hour) }
 
+func TestProxyFlow_AnalysisUnavailable(t *testing.T) {
+	for _, paranoid := range []bool{false, true} {
+		for _, tc := range []struct {
+			name  string
+			host  string
+			path  string
+			setup func(*Harness)
+		}{
+			{"npm", "registry.npmjs.org", "/flaky/-/flaky-1.0.0.tgz", func(h *Harness) { h.Analyzer.SetNpm("flaky", "1.0.0", ServerError()) }},
+			{"pypi", "files.pythonhosted.org", "/packages/source/flaky-1.0.0.tar.gz", func(h *Harness) { h.Analyzer.SetPypi("flaky", "1.0.0", ServerError()) }},
+			{"cargo", "static.crates.io", "/crates/flaky/flaky-1.0.0.crate", func(h *Harness) { h.Analyzer.SetCargo("flaky", "1.0.0", ServerError()) }},
+			{"go", "proxy.golang.org", "/example.com/flaky/@v/v1.0.0.zip", func(h *Harness) { h.Analyzer.SetGo("example.com/flaky", "v1.0.0", ServerError()) }},
+		} {
+			name := tc.name
+			if paranoid {
+				name += " paranoid"
+			}
+			RunCases(t, []TestCase{{
+				Name:   name,
+				Config: func(rc *config.RuntimeConfig) { rc.Config.Paranoid = paranoid },
+				Setup:  tc.setup,
+				Exec: func(h *Harness) ExecResult {
+					var res ExecResult
+					for range 4 {
+						res.add(h.get("https://"+tc.host+tc.path, nil))
+					}
+					return res
+				},
+				Assert: func(t *testing.T, h *Harness, res ExecResult) {
+					for _, req := range res.Requests {
+						require.NoError(t, req.Err)
+						assert.Equal(t, http.StatusServiceUnavailable, req.StatusCode)
+						assert.Equal(t, "close", req.Headers.Get("Proxy-Connection"))
+						assert.Contains(t, req.Body, "PMG blocked the download")
+					}
+					assert.Len(t, h.Analyzer.Calls(), 3)
+					assert.False(t, h.Registry.Requested(tc.host, tc.path))
+					assert.Zero(t, h.Stats().AllowedCount)
+				},
+			}})
+		}
+	}
+}
+
 func cooldownEnabled(days int) func(rc *config.RuntimeConfig) {
 	return func(rc *config.RuntimeConfig) {
 		rc.Config.DependencyCooldown = config.DependencyCooldownConfig{Enabled: true, Days: days}
@@ -430,7 +474,7 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 		},
 		{
-			Name: "analyzer NotFound allows the package",
+			Name: "analyzer NotFound blocks the package",
 			Setup: func(h *Harness) {
 				h.Registry.AddNpm(NpmPackage{Name: "unknown", DistTagLatest: "1.0.0",
 					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
@@ -438,12 +482,12 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult { return h.Npm().Install("unknown", "1.0.0") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked())
-				assert.True(t, h.Registry.DownloadedTarball("unknown", "1.0.0"))
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedTarball("unknown", "1.0.0"))
 			},
 		},
 		{
-			Name: "analyzer error fails open and allows",
+			Name: "analyzer error blocks the package",
 			Setup: func(h *Harness) {
 				h.Registry.AddNpm(NpmPackage{Name: "flaky", DistTagLatest: "1.0.0",
 					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
@@ -451,8 +495,8 @@ func TestProxyFlow_Npm(t *testing.T) {
 			},
 			Exec: func(h *Harness) ExecResult { return h.Npm().Install("flaky", "1.0.0") },
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked())
-				assert.True(t, h.Registry.DownloadedTarball("flaky", "1.0.0"))
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedTarball("flaky", "1.0.0"))
 			},
 		},
 	})
@@ -1775,7 +1819,7 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 			},
 		},
 		{
-			Name:   "analyzer NotFound allows a private package on a custom registry",
+			Name:   "analyzer NotFound blocks a private package on a custom registry",
 			Config: customRegistry("company-npm", "npm", "https://packages.example.test/npm/team"),
 			Setup: func(h *Harness) {
 				h.Registry.AddCustomNpm("packages.example.test", "/npm/team")
@@ -1787,8 +1831,8 @@ func TestProxyFlow_CustomRegistryRouting(t *testing.T) {
 				return h.Npm().InstallFrom("https://packages.example.test/npm/team", "private-pkg", "1.0.0")
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
-				assert.False(t, res.Blocked())
-				assert.True(t, h.Registry.Requested("packages.example.test", "/npm/team/private-pkg/-/private-pkg-1.0.0.tgz"))
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.Requested("packages.example.test", "/npm/team/private-pkg/-/private-pkg-1.0.0.tgz"))
 			},
 		},
 	})

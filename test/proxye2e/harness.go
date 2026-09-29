@@ -322,7 +322,7 @@ func readOutcome(resp *http.Response, out RequestOutcome) RequestOutcome {
 	}
 
 	out.StatusCode = resp.StatusCode
-	out.Blocked = resp.StatusCode == http.StatusForbidden
+	out.Blocked = resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusServiceUnavailable
 	out.Body = string(body)
 	out.Headers = resp.Header.Clone()
 	return out
