@@ -16,10 +16,7 @@ func IsTrustedPackage(pkgVersion *packagev1.PackageVersion) bool {
 
 // IsTrustedPackageRef reports whether a specific package version is trusted.
 func IsTrustedPackageRef(ecosystem packagev1.Ecosystem, name, version string) bool {
-	return isTrustedPackageVersion(Get().Config.TrustedPackages, &packagev1.PackageVersion{
-		Package: &packagev1.Package{Ecosystem: ecosystem, Name: name},
-		Version: version,
-	})
+	return isTrustedIdentity(Get().Config.TrustedPackages, packageIdentity(ecosystem, name, version))
 }
 
 // IsTrustedPackageAllVersions reports whether every version of a package is
@@ -37,6 +34,9 @@ type CooldownSkipInfo struct {
 	// package is exempt from the cooldown window.
 	SkipAll bool
 
+	ecosystem packagev1.Ecosystem
+	name      string
+
 	// pinned holds the versions exempted by version-pinned entries. Only
 	// meaningful when SkipAll is false.
 	pinned []pb.PackageVersion
@@ -44,9 +44,10 @@ type CooldownSkipInfo struct {
 
 // ExemptsVersion reports whether the given version is exempt from cooldown.
 func (s CooldownSkipInfo) ExemptsVersion(version string) bool {
-	return s.SkipAll || slices.ContainsFunc(s.pinned, func(p pb.PackageVersion) bool {
-		return p.Equal(packageIdentity(p.Ecosystem(), p.Name(), version))
-	})
+	if s.SkipAll {
+		return true
+	}
+	return slices.ContainsFunc(s.pinned, packageIdentity(s.ecosystem, s.name, version).Equal)
 }
 
 // CooldownSkip returns how a package is exempted from the dependency cooldown
@@ -58,7 +59,7 @@ func CooldownSkip(ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
 }
 
 func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name string) CooldownSkipInfo {
-	info := CooldownSkipInfo{}
+	info := CooldownSkipInfo{ecosystem: ecosystem, name: name}
 	if name == "" {
 		return info
 	}
@@ -111,10 +112,13 @@ func preprocessPackageRefs(cfg *Config) error {
 // If the trusted package PURL doesn't specify a version, all versions of that package are trusted.
 // Returns false if pkgVersion is nil or if trustedPackages is empty.
 func isTrustedPackageVersion(trustedPackages []TrustedPackage, pkgVersion *packagev1.PackageVersion) bool {
-	for _, v := range trustedPackages {
-		if v.matches(pkgVersion) {
-			return true
-		}
+	if pkgVersion == nil {
+		return false
 	}
-	return false
+	return isTrustedIdentity(trustedPackages,
+		packageIdentity(pkgVersion.GetPackage().GetEcosystem(), pkgVersion.GetPackage().GetName(), pkgVersion.GetVersion()))
+}
+
+func isTrustedIdentity(trustedPackages []TrustedPackage, identity pb.PackageVersion) bool {
+	return slices.ContainsFunc(trustedPackages, func(v TrustedPackage) bool { return v.matches(identity) })
 }

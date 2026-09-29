@@ -44,12 +44,13 @@ func TestIsTrustedPackageAllVersions(t *testing.T) {
 
 func TestCooldownSkip(t *testing.T) {
 	tests := []struct {
-		name        string
-		skip        []TrustedPackage
-		ecosystem   packagev1.Ecosystem
-		pkgName     string
-		wantSkipAll bool
-		wantExempt  []string
+		name          string
+		skip          []TrustedPackage
+		ecosystem     packagev1.Ecosystem
+		pkgName       string
+		wantSkipAll   bool
+		wantExempt    []string
+		wantNotExempt []string
 	}{
 		{
 			name:      "empty skip list",
@@ -71,11 +72,12 @@ func TestCooldownSkip(t *testing.T) {
 			wantSkipAll: true,
 		},
 		{
-			name:       "version-pinned entry skips only that version",
-			skip:       []TrustedPackage{{Purl: "pkg:npm/internal-sdk@1.2.3", Reason: "first-party"}},
-			ecosystem:  packagev1.Ecosystem_ECOSYSTEM_NPM,
-			pkgName:    "internal-sdk",
-			wantExempt: []string{"1.2.3"},
+			name:          "version-pinned entry skips only that version",
+			skip:          []TrustedPackage{{Purl: "pkg:npm/internal-sdk@1.2.3", Reason: "first-party"}},
+			ecosystem:     packagev1.Ecosystem_ECOSYSTEM_NPM,
+			pkgName:       "internal-sdk",
+			wantExempt:    []string{"1.2.3"},
+			wantNotExempt: []string{"1.2.4"},
 		},
 		{
 			name: "multiple version-pinned entries",
@@ -137,6 +139,9 @@ func TestCooldownSkip(t *testing.T) {
 			assert.Equal(t, tt.wantSkipAll, got.SkipAll)
 			for _, version := range tt.wantExempt {
 				assert.True(t, got.ExemptsVersion(version), version)
+			}
+			for _, version := range tt.wantNotExempt {
+				assert.False(t, got.ExemptsVersion(version), version)
 			}
 			assert.Equal(t, tt.wantSkipAll, got.ExemptsVersion("9.9.9"))
 		})

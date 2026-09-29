@@ -30,11 +30,7 @@ func (r *purlRef) parseFrom(purl string) {
 
 // matches reports whether the ref matches a package version. A version-less
 // ref matches every version of the package.
-func (r purlRef) matches(pv *packagev1.PackageVersion) bool {
-	if pv == nil {
-		return false
-	}
-	identity := packageIdentity(pv.GetPackage().GetEcosystem(), pv.GetPackage().GetName(), pv.GetVersion())
+func (r purlRef) matches(identity pb.PackageVersion) bool {
 	return r.matchesPackage(identity) && (r.allVersions() || r.identity.Equal(identity))
 }
 
