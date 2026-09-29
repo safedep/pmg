@@ -190,7 +190,6 @@ jobs:
         shell: pwsh
     env:
       MSI_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pmg_Windows_x86_64.msi
-      MSI_PATH: ${{ runner.temp }}\msi\pmg_Windows_x86_64.msi
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -202,7 +201,7 @@ jobs:
         run: '"VERSION=$($env:GITHUB_REF_NAME.TrimStart(''v''))" >> $env:GITHUB_ENV'
 
       - name: Build the Chocolatey package
-        run: scripts/choco/build.ps1 -Version $env:VERSION -MsiPath $env:MSI_PATH -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\choco"
+        run: scripts/choco/build.ps1 -Version $env:VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\choco"
 
       - name: Install and uninstall from the Chocolatey package
         env:
@@ -226,7 +225,7 @@ jobs:
         run: scripts/winget/install_winget.ps1
 
       - name: Build the winget manifests
-        run: scripts/winget/build.ps1 -Version $env:VERSION -MsiPath $env:MSI_PATH -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\winget"
+        run: scripts/winget/build.ps1 -Version $env:VERSION -MsiPath "$env:RUNNER_TEMP\msi\pmg_Windows_x86_64.msi" -MsiUrl $env:MSI_URL -OutDir "$env:RUNNER_TEMP\winget"
 
       - name: Validate the manifests, then install and uninstall from them
         env:
