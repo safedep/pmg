@@ -846,3 +846,75 @@ func TestTranslateNetworkLockdown(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslateNetworkUnixSockets(t *testing.T) {
+	rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}
+	unixDeny := `(deny network-outbound (remote unix-socket) (with message "`
+	unixDenyMarker := `|kind=network-outbound|target=unix-socket"))`
+	unixAllow := "(allow network-outbound (remote unix-socket))\n"
+	dnsAllow := `(allow network-outbound (remote unix-socket (path-literal "/var/run/mDNSResponder")))`
+	blanketAllow := "(allow network-outbound)\n"
+
+	tests := []struct {
+		name   string
+		mutate func(*sandbox.SandboxPolicy)
+		assert func(t *testing.T, out string)
+	}{
+		{
+			name:   "default denies unix sockets after the blanket allow and keeps DNS",
+			mutate: func(p *sandbox.SandboxPolicy) {},
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, unixDeny)
+				assert.Contains(t, out, unixDenyMarker)
+				assert.Contains(t, out, dnsAllow)
+				assert.NotContains(t, out, unixAllow)
+				assert.Greater(t, strings.Index(out, unixDeny), strings.Index(out, blanketAllow), "SBPL is last-match-wins")
+				assert.Greater(t, strings.Index(out, dnsAllow), strings.Index(out, unixDeny), "DNS allow must follow the deny")
+			},
+		},
+		{
+			name:   "allow_unix_sockets opens unix sockets",
+			mutate: func(p *sandbox.SandboxPolicy) { p.AllowUnixSockets = utils.PtrTo(true) },
+			assert: func(t *testing.T, out string) {
+				assert.NotContains(t, out, unixDeny)
+				assert.Contains(t, out, unixAllow)
+			},
+		},
+		{
+			name:   "lockdown already denies unix sockets",
+			mutate: func(p *sandbox.SandboxPolicy) { p.NetworkViaProxyOnly = utils.PtrTo(true) },
+			assert: func(t *testing.T, out string) {
+				assert.NotContains(t, out, unixDeny)
+				assert.NotContains(t, out, unixAllow)
+			},
+		},
+		{
+			name: "allow_unix_sockets under lockdown opens unix sockets after the deny",
+			mutate: func(p *sandbox.SandboxPolicy) {
+				p.NetworkViaProxyOnly = utils.PtrTo(true)
+				p.AllowUnixSockets = utils.PtrTo(true)
+			},
+			assert: func(t *testing.T, out string) {
+				lockdownDeny := strings.Index(out, `|target=direct"))`)
+				require.GreaterOrEqual(t, lockdownDeny, 0)
+				assert.Greater(t, strings.Index(out, unixAllow), lockdownDeny)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := &sandbox.SandboxPolicy{
+				Name:            "unix-socket-translate",
+				PackageManagers: []string{"npm"},
+				Filesystem:      sandbox.FilesystemPolicy{AllowRead: []string{"/tmp"}},
+				Network:         sandbox.NetworkPolicy{AllowOutbound: []string{"*:*"}},
+			}
+			tt.mutate(policy)
+
+			out, err := newSeatbeltPolicyTranslator().translate(policy, rt)
+			require.NoError(t, err)
+			tt.assert(t, out)
+		})
+	}
+}

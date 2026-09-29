@@ -52,6 +52,7 @@ func RenderLandlock(policy *sandbox.SandboxPolicy) ([]byte, error) {
 	fmt.Fprintf(&sb, "features: refer=%t truncate=%t network=%t ioctl_dev=%t scoping=%t\n",
 		abi.HasRefer, abi.HasTruncate, abi.HasNetwork, abi.HasIoctlDev, abi.HasScoping)
 	fmt.Fprintf(&sb, "allow_pty: %t\n", ep.AllowPTY)
+	fmt.Fprintf(&sb, "allow_unix_sockets: %t\n", ep.AllowUnixSockets)
 	fmt.Fprintf(&sb, "skip_pid_namespace: %t\n", ep.SkipPIDNamespace)
 	fmt.Fprintf(&sb, "skip_ipc_namespace: %t\n", ep.SkipIPCNamespace)
 

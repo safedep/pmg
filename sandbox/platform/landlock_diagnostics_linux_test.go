@@ -408,7 +408,6 @@ func TestLandlockViolationKind_PathSyscalls(t *testing.T) {
 		{"truncate", "write", sandbox.ViolationKindFSWrite},
 		{"execve", "", sandbox.ViolationKindExec},
 		{"connect", "", sandbox.ViolationKindNetworkConnect},
-		{"io_uring_setup", "", sandbox.ViolationKindGenericDeny},
 	}
 	for _, tc := range tests {
 		t.Run(tc.syscall, func(t *testing.T) {

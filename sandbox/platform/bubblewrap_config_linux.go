@@ -59,9 +59,6 @@ type bubblewrapConfig struct {
 	// Whether to die when parent process exits. Ensures cleanup of orphaned sandboxes.
 	dieWithParent bool
 
-	// Seccomp filter configuration
-	seccomp seccompConfig
-
 	// Maximum depth to scan for mandatory deny patterns (e.g., .env files in subdirectories)
 	// Set to 0 to only check literal paths, higher values scan subdirectories.
 	mandatoryDenyScanDepth int
@@ -69,20 +66,6 @@ type bubblewrapConfig struct {
 	// cwdScanMaxEntries bounds the working directory listing that resolves
 	// the "**/<file>" mandatory denies.
 	cwdScanMaxEntries int
-}
-
-// seccompConfig contains seccomp-bpf filter settings
-type seccompConfig struct {
-	// Whether to enable seccomp filtering
-	enabled bool
-
-	// Path to seccomp filter file (BPF bytecode)
-	// If empty, uses built-in default filter
-	filterPath string
-
-	// Syscalls to deny (blocklist approach)
-	// Common dangerous syscalls: ptrace, kexec_load, module_init, etc.
-	deniedSyscalls []string
 }
 
 // newDefaultBubblewrapConfig creates a bubblewrap config with safe default values.
@@ -140,34 +123,6 @@ func newDefaultBubblewrapConfig() *bubblewrapConfig {
 		unshareIPC:    true, // Isolate IPC namespace
 		newSession:    true, // Create new session
 		dieWithParent: true, // Cleanup on parent exit
-
-		// Seccomp configuration
-		seccomp: seccompConfig{
-			enabled:    false, // Disabled by default (Phase 4 enhancement)
-			filterPath: "",    // Use built-in filter when enabled
-			deniedSyscalls: []string{
-				// Dangerous syscalls that should be blocked
-				"ptrace",          // Process tracing (debugging/injection)
-				"kexec_load",      // Load new kernel
-				"module_init",     // Load kernel modules
-				"reboot",          // System reboot
-				"swapon",          // Enable swap
-				"swapoff",         // Disable swap
-				"mount",           // Mount filesystems
-				"umount",          // Unmount filesystems
-				"pivot_root",      // Change root filesystem
-				"chroot",          // Change root directory
-				"unshare",         // Create new namespaces (prevent nested sandboxing)
-				"setns",           // Join existing namespace
-				"acct",            // Process accounting
-				"add_key",         // Add key to kernel keyring
-				"request_key",     // Request key from kernel
-				"keyctl",          // Manipulate kernel keyring
-				"ioperm",          // Set port I/O permissions
-				"iopl",            // Set I/O privilege level
-				"perf_event_open", // Performance monitoring
-			},
-		},
 
 		// Scan depth for finding dangerous files in project directories
 		mandatoryDenyScanDepth: 3,

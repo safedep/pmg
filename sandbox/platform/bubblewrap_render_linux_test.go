@@ -83,3 +83,21 @@ func TestRenderBubblewrap_NilPolicy(t *testing.T) {
 	_, err := RenderBubblewrap(nil)
 	assert.Error(t, err)
 }
+
+func TestRenderBubblewrap_ShowsSeccompShim(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	policy := &sandbox.SandboxPolicy{
+		Name:            "render-shim",
+		PackageManagers: []string{"npm"},
+		Filesystem:      sandbox.FilesystemPolicy{AllowRead: []string{"/usr"}},
+	}
+
+	blocked, err := RenderBubblewrap(policy)
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(string(blocked), "<pmg>\n__seccomp_shim\n--\n"))
+
+	policy.AllowUnixSockets = utils.PtrTo(true)
+	allowed, err := RenderBubblewrap(policy)
+	require.NoError(t, err)
+	assert.True(t, strings.HasSuffix(string(allowed), "<pmg>\n__seccomp_shim\n--allow-unix-sockets\n--\n"))
+}

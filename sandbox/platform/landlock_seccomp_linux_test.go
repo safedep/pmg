@@ -42,99 +42,6 @@ func TestSeccompStructSizes(t *testing.T) {
 	}
 }
 
-// filterNrLoadIndex is the index of the instruction that loads the syscall
-// number: it follows the arch check.
-func filterNrLoadIndex() int {
-	if seccompNativeArch != 0 {
-		return 3
-	}
-	return 0
-}
-
-// filterPrefixLen is the number of instructions before the per-syscall
-// comparisons: the arch check, the nr load and the x32 guard.
-func filterPrefixLen() int {
-	n := filterNrLoadIndex() + 1
-	if seccompX32SyscallBit != 0 {
-		n += 2
-	}
-	return n
-}
-
-func TestLandlockBuildNotifyFilter(t *testing.T) {
-	tests := []struct {
-		name     string
-		syscalls []uint32
-	}{
-		{"no syscalls", nil},
-		{"exec only", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}},
-		{"exec + open", []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT), uint32(unix.SYS_OPENAT), uint32(unix.SYS_OPENAT2)}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			prog := landlockBuildNotifyFilter(tc.syscalls...)
-			require.NotNil(t, prog)
-			require.NotNil(t, prog.Filter)
-			assert.Equal(t, uint16(filterPrefixLen()+len(tc.syscalls)+2), prog.Len)
-		})
-	}
-}
-
-func TestLandlockBuildNotifyFilter_ArchGuard(t *testing.T) {
-	if seccompNativeArch == 0 {
-		t.Skip("no native audit arch on this architecture")
-	}
-	prog := landlockBuildNotifyFilter(uint32(unix.SYS_EXECVE))
-	instructions := unsafe.Slice(prog.Filter, prog.Len)
-
-	assert.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), instructions[0].Code)
-	assert.Equal(t, uint32(seccompDataArchOffset), instructions[0].K)
-	assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), instructions[1].Code)
-	assert.Equal(t, uint32(seccompNativeArch), instructions[1].K)
-	assert.Equal(t, uint8(1), instructions[1].Jt, "native arch skips the kill")
-	assert.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), instructions[2].Code)
-	assert.Equal(t, uint32(unix.SECCOMP_RET_KILL_PROCESS), instructions[2].K)
-	assert.Equal(t, uint32(seccompDataNrOffset), instructions[3].K)
-
-	if seccompX32SyscallBit != 0 {
-		assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JGE|unix.BPF_K), instructions[4].Code)
-		assert.Equal(t, uint32(seccompX32SyscallBit), instructions[4].K)
-		assert.Equal(t, uint8(1), instructions[4].Jf, "a native number skips the kill")
-		assert.Equal(t, uint32(unix.SECCOMP_RET_KILL_PROCESS), instructions[5].K)
-	}
-}
-
-func TestLandlockBuildNotifyFilter_InstructionTypes(t *testing.T) {
-	syscalls := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT), uint32(unix.SYS_CONNECT)}
-	prog := landlockBuildNotifyFilter(syscalls...)
-
-	instructions := unsafe.Slice(prog.Filter, prog.Len)
-	prefix := filterPrefixLen()
-
-	load := instructions[filterNrLoadIndex()]
-	assert.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), load.Code)
-	assert.Equal(t, uint32(seccompDataNrOffset), load.K)
-
-	// Each comparison jumps to the final notify instruction on match.
-	for i, sc := range syscalls {
-		cmp := instructions[prefix+i]
-		assert.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), cmp.Code, "instruction %d", prefix+i)
-		assert.Equal(t, sc, cmp.K, "instruction %d", prefix+i)
-		assert.Equal(t, uint8(len(syscalls)-i), cmp.Jt, "instruction %d must land on RET USER_NOTIF", prefix+i)
-		assert.Equal(t, uint8(0), cmp.Jf, "instruction %d falls through on mismatch", prefix+i)
-	}
-
-	// Second-to-last allows, last notifies.
-	secondToLast := instructions[prog.Len-2]
-	assert.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), secondToLast.Code)
-	assert.Equal(t, uint32(unix.SECCOMP_RET_ALLOW), secondToLast.K)
-
-	last := instructions[prog.Len-1]
-	assert.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), last.Code)
-	assert.Equal(t, uint32(unix.SECCOMP_RET_USER_NOTIF), last.K)
-}
-
 func TestLandlockNotifySyscalls(t *testing.T) {
 	execOnly := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 
@@ -146,7 +53,7 @@ func TestLandlockNotifySyscalls(t *testing.T) {
 	}{
 		{"exec always", landlockNetworkPolicy{}, false, execOnly},
 		{"path syscalls when deny paths exist", landlockNetworkPolicy{}, true, append(append([]uint32{}, execOnly...), pathSyscallNumbers()...)},
-		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG), uint32(unix.SYS_IO_URING_SETUP))},
+		{"network under lockdown", landlockNetworkPolicy{Lockdown: true}, false, append(append([]uint32{}, execOnly...), uint32(unix.SYS_CONNECT), uint32(unix.SYS_SENDTO), uint32(unix.SYS_SENDMSG))},
 		{"no network without lockdown", landlockNetworkPolicy{ProxyPort: 8080}, false, execOnly},
 	}
 
@@ -190,8 +97,8 @@ func TestSeccompPathSyscalls_Coverage(t *testing.T) {
 	// The BPF jump offset is a byte.
 	full := landlockNotifySyscalls(landlockNetworkPolicy{Lockdown: true}, true)
 	assert.Less(t, len(full), 200)
-	assert.NotPanics(t, func() { landlockBuildNotifyFilter(full...) })
-	assert.Panics(t, func() { landlockBuildNotifyFilter(make([]uint32, 256)...) })
+	assert.NotPanics(t, func() { buildSeccompFilter(seccompFilterSpec{Notify: full}) })
+	assert.Panics(t, func() { buildSeccompFilter(seccompFilterSpec{Notify: make([]uint32, 256)}) })
 }
 
 func TestPathOpKindForSyscall(t *testing.T) {

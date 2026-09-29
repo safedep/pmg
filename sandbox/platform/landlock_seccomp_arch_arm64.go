@@ -10,6 +10,10 @@ const seccompNativeArch = unix.AUDIT_ARCH_AARCH64
 // arm64 has no x32-style compat ABI on the native syscall table.
 const seccompX32SyscallBit = 0
 
+const seccompArgFiltering = true
+
+func archDeniedSyscalls() []uint32 { return nil }
+
 // archPathSyscalls adds renameat, which riscv64 does not have.
 func archPathSyscalls() map[uint32]pathSyscall {
 	return map[uint32]pathSyscall{

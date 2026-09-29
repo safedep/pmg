@@ -26,6 +26,7 @@ type landlockExecPolicy struct {
 	DenyExecPaths    []string              `json:"deny_exec_paths"`
 	Network          landlockNetworkPolicy `json:"network"`
 	AllowPTY         bool                  `json:"allow_pty"`
+	AllowUnixSockets bool                  `json:"allow_unix_sockets"`
 	SkipPIDNamespace bool                  `json:"skip_pid_namespace"`
 	SkipIPCNamespace bool                  `json:"skip_ipc_namespace"`
 	Command          string                `json:"command"`
@@ -462,6 +463,7 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 
 	allowPTY := utils.SafelyGetValue(policy.AllowPTY)
 	ep.AllowPTY = allowPTY
+	ep.AllowUnixSockets = utils.SafelyGetValue(policy.AllowUnixSockets)
 	if allowPTY {
 		ptyAccess := landlockReadAccess | writeAccess
 		if abi.HasIoctlDev {

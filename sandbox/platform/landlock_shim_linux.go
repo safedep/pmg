@@ -42,8 +42,11 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: landlock restrict: %w", err)
 	}
 
-	syscalls := landlockNotifySyscalls(policy.Network, len(policy.DenyPaths) > 0)
-	notifyFd, err := shimInstallSeccomp(syscalls)
+	filter := buildSeccompFilter(seccompFilterSpec{
+		Notify:           landlockNotifySyscalls(policy.Network, len(policy.DenyPaths) > 0),
+		AllowUnixSockets: policy.AllowUnixSockets,
+	})
+	notifyFd, err := installSeccompFilter(filter, unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
 	if err != nil {
 		return fmt.Errorf("shim: install seccomp: %w", err)
 	}
@@ -63,28 +66,6 @@ func RunLandlockShim(policyFile string, notifySocketFd int, args []string) error
 		return fmt.Errorf("shim: exec %s: %w", target, err)
 	}
 	return nil // unreachable
-}
-
-// shimInstallSeccomp sets PR_SET_NO_NEW_PRIVS itself. Landlock sets it too,
-// but the install must not depend on that or on any capability.
-func shimInstallSeccomp(syscalls []uint32) (int, error) {
-	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
-		return -1, fmt.Errorf("prctl PR_SET_NO_NEW_PRIVS: %w", err)
-	}
-	prog := landlockBuildNotifyFilter(syscalls...)
-
-	flags := uintptr(unix.SECCOMP_FILTER_FLAG_NEW_LISTENER)
-	fd, _, errno := unix.Syscall(
-		unix.SYS_SECCOMP,
-		unix.SECCOMP_SET_MODE_FILTER,
-		flags,
-		uintptr(unsafe.Pointer(prog)),
-	)
-	runtime.KeepAlive(prog)
-	if errno != 0 {
-		return -1, fmt.Errorf("SECCOMP_SET_MODE_FILTER: %w", errno)
-	}
-	return int(fd), nil
 }
 
 // shimMmsghdr matches the kernel's `struct mmsghdr` (x/sys/unix does not

@@ -273,6 +273,18 @@
   tier: P0
   guarantee: "With sandbox.policies.exec.enabled false, `pmg sandbox exec` exits non-zero before running the program."
   labels: [sandbox, exec, block, offline]
+- id: sandbox/exec/blocks-unix-socket-connect
+  title: "sandbox exec blocks connections to host unix sockets"
+  category: sandbox
+  tier: P0
+  guarantee: "Under `pmg sandbox exec`, a connect to a host unix socket fails, a Linux abstract socket included, and a profile with allow_unix_sockets connects."
+  labels: [sandbox, exec, block, offline]
+- id: sandbox/exec/blocks-user-namespace
+  title: "sandbox exec refuses a nested user namespace on Linux"
+  category: sandbox
+  tier: P0
+  guarantee: "On Linux, `unshare -U` fails under `pmg sandbox exec` with EPERM."
+  labels: [sandbox, exec, block, offline]
 - id: sandbox/exec/refuses-network-lockdown
   title: "sandbox exec refuses a profile with network lockdown"
   category: sandbox
