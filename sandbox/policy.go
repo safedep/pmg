@@ -40,6 +40,10 @@ type SandboxPolicy struct {
 	// AllowPTY allows pseudo-terminal (PTY) operations.
 	AllowPTY *bool `yaml:"allow_pty" json:"allow_pty"`
 
+	// AllowUnixSockets opens unix sockets. It is false by default, because a
+	// host socket, such as the SSH agent, reaches outside the sandbox.
+	AllowUnixSockets *bool `yaml:"allow_unix_sockets" json:"allow_unix_sockets"`
+
 	// AllowNetworkBind allows binding to localhost (127.0.0.1 / ::1) for listening.
 	AllowNetworkBind *bool `yaml:"allow_network_bind" json:"allow_network_bind"`
 
@@ -174,6 +178,10 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 
 	if child.AllowGitConfig == nil {
 		child.AllowGitConfig = utils.PtrTo(utils.SafelyGetValue(parent.AllowGitConfig))
+	}
+
+	if child.AllowUnixSockets == nil {
+		child.AllowUnixSockets = utils.PtrTo(utils.SafelyGetValue(parent.AllowUnixSockets))
 	}
 
 	if child.AllowNetworkBind == nil {

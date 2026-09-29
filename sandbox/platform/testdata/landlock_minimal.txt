@@ -3,6 +3,7 @@
 abi: GOLDEN (GOLDEN)
 features: GOLDEN
 allow_pty: false
+allow_unix_sockets: false
 skip_pid_namespace: false
 skip_ipc_namespace: false
 

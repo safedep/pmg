@@ -86,10 +86,10 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 	if !platform.Supported() {
 		return nil, usefulerror.NewUsefulError().
 			WithCode(errcodes.InvalidArgument).
-			WithHumanError(fmt.Sprintf("The sandbox is not supported on %s", runtime.GOOS)).
+			WithHumanError(fmt.Sprintf("The sandbox is not supported on %s/%s", runtime.GOOS, runtime.GOARCH)).
 			WithHelp("Set sandbox.enabled: false in the PMG config, or remove --sandbox from the command.").
 			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md for the supported platforms.").
-			Wrap(fmt.Errorf("sandbox not supported on %s", runtime.GOOS))
+			Wrap(fmt.Errorf("sandbox not supported on %s/%s", runtime.GOOS, runtime.GOARCH))
 	}
 
 	presetRegistry, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))

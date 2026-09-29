@@ -40,6 +40,10 @@ agent needs its model API. `pmg sandbox exec` does not start the PMG proxy, so i
 that sets or inherits `network_via_proxy_only`. To inherit from a lockdown profile such as `go`, set
 `network_via_proxy_only: false` in the child profile.
 
+Unix sockets are blocked. An agent cannot reach the SSH agent or the Docker daemon, so `git push`
+over SSH fails. Use an HTTPS remote, or a custom profile that sets `allow_unix_sockets: true`. See
+[Unix Sockets](sandbox.md#unix-sockets).
+
 A future version may add a proxy flow built for `pmg sandbox exec`, separate from the package
 manager proxy, to observe agent traffic and apply policy to it.
 
@@ -135,7 +139,9 @@ directory or at another repository grants nothing. The `.git` file and the `gitd
 ## Limits
 
 - Windows is not supported. The sandbox drivers are macOS Seatbelt and Linux Landlock or
-  Bubblewrap.
+  Bubblewrap. On Linux, only amd64 and arm64 are supported.
+- Under Bubblewrap, a script without a `#!` line fails with "exec format error". Add a `#!`
+  line, or run it with its interpreter, as in `pmg sandbox exec -- sh ./script`.
 - Network is allow-all. See above.
 - `git worktree add` and `git worktree remove` are not supported yet. A new worktree lands
   outside the working directory, which the profile does not grant. This is future work.

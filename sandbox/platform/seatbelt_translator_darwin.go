@@ -33,6 +33,7 @@ func generateLogTag() string {
 const (
 	seatbeltKindNetworkOutbound  = "network-outbound"
 	seatbeltLockdownTargetDirect = "direct"
+	seatbeltTargetUnixSocket     = "unix-socket"
 )
 
 func seatbeltLogMessage(runID, kind, target string) string {
@@ -690,6 +691,9 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 			sb.WriteString(";; Network outbound allowed to specific hosts\n")
 			sb.WriteString(";; Note: Seatbelt has limited host-based filtering, consider using firewall rules for strict control\n")
 			sb.WriteString("(allow network-outbound)\n")
+			if !utils.SafelyGetValue(policy.AllowUnixSockets) {
+				t.writeUnixSocketDeny(sb)
+			}
 		} else if denyAll {
 			// If there are no allow rules but deny all is set, explicitly deny network
 			// This handles the case where user wants to completely block network access
@@ -703,6 +707,10 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 		// override the allow rule above, breaking network access entirely.
 
 		sb.WriteString("\n")
+	}
+
+	if utils.SafelyGetValue(policy.AllowUnixSockets) {
+		sb.WriteString("(allow network-outbound (remote unix-socket))\n\n")
 	}
 
 	// Network bind rules for local listening
@@ -726,6 +734,16 @@ func (t *seatbeltPolicyTranslator) translateNetwork(policy *sandbox.SandboxPolic
 	}
 
 	return nil
+}
+
+// writeUnixSocketDeny denies host unix sockets, such as the SSH agent. It
+// keeps the mDNSResponder socket open, because getaddrinfo needs it.
+func (t *seatbeltPolicyTranslator) writeUnixSocketDeny(sb *strings.Builder) {
+	sb.WriteString("(deny network-outbound (remote unix-socket) (with message \"")
+	sb.WriteString(seatbeltLogMessage(t.logTag, seatbeltKindNetworkOutbound, seatbeltTargetUnixSocket))
+	sb.WriteString("\"))\n")
+	sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/var/run/mDNSResponder\")))\n")
+	sb.WriteString("(allow network-outbound (remote unix-socket (path-literal \"/private/var/run/mDNSResponder\")))\n")
 }
 
 // translateProcess translates process execution rules.

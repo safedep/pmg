@@ -44,6 +44,7 @@ func requireBubblewrap(t *testing.T) *bubblewrapSandbox {
 		t.Skipf("bwrap cannot spawn a sandbox on this host: %v: %s", err, out)
 	}
 
+	b.shimExe = buildPmgBinary(t)
 	return b
 }
 
