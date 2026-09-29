@@ -169,6 +169,16 @@ func TestConnectDialTunnelsThroughUpstreamProxy(t *testing.T) {
 			wantEcho: "helloping",
 		},
 		{
+			name: "framing headers on the CONNECT reply are ignored",
+			respond: func(conn net.Conn) {
+				if _, err := io.WriteString(conn, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"); err != nil {
+					return
+				}
+				_, _ = io.Copy(conn, conn)
+			},
+			wantEcho: "ping",
+		},
+		{
 			name: "proxy refuses CONNECT",
 			respond: func(conn net.Conn) {
 				_, _ = io.WriteString(conn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")

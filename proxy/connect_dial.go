@@ -18,6 +18,15 @@ import (
 // newConnectDial dials CONNECT tunnels with the proxy and dialer of tr. The MITM
 // path uses the same pair, so both paths use the same upstream proxy (#497).
 func newConnectDial(tr *http.Transport, timeout time.Duration) func(network, addr string) (net.Conn, error) {
+	// The transport writes h2 into its TLSClientConfig on first use. Clone the
+	// config before the proxy serves a request, so a dial does not race that
+	// write. This dialer sends an HTTP/1.1 CONNECT, so it offers only HTTP/1.1.
+	proxyTLS := &tls.Config{MinVersion: tls.VersionTLS12}
+	if tr.TLSClientConfig != nil {
+		proxyTLS = tr.TLSClientConfig.Clone()
+	}
+	proxyTLS.NextProtos = []string{"http/1.1"}
+
 	return func(network, addr string) (net.Conn, error) {
 		ctx := context.Background()
 		if timeout > 0 {
@@ -37,11 +46,11 @@ func newConnectDial(tr *http.Transport, timeout time.Duration) func(network, add
 			return tr.DialContext(ctx, network, addr)
 		}
 
-		return dialThroughProxy(ctx, tr, proxyURL, network, addr)
+		return dialThroughProxy(ctx, tr, proxyTLS, proxyURL, network, addr)
 	}
 }
 
-func dialThroughProxy(ctx context.Context, tr *http.Transport, proxyURL *url.URL, network, addr string) (net.Conn, error) {
+func dialThroughProxy(ctx context.Context, tr *http.Transport, proxyTLS *tls.Config, proxyURL *url.URL, network, addr string) (net.Conn, error) {
 	proxyAddr, err := upstreamProxyAddr(proxyURL)
 	if err != nil {
 		return nil, err
@@ -56,7 +65,7 @@ func dialThroughProxy(ctx context.Context, tr *http.Transport, proxyURL *url.URL
 		return nil, fmt.Errorf("failed to dial upstream proxy %s: %w", proxyAddr, err)
 	}
 
-	tunnel, err := openTunnel(ctx, tr, conn, proxyURL, addr)
+	tunnel, err := openTunnel(ctx, proxyTLS, conn, proxyURL, addr)
 	if err != nil {
 		return nil, errors.Join(err, conn.Close())
 	}
@@ -91,7 +100,7 @@ func dialThroughSOCKS5(ctx context.Context, tr *http.Transport, proxyURL *url.UR
 	return conn, nil
 }
 
-func openTunnel(ctx context.Context, tr *http.Transport, conn net.Conn, proxyURL *url.URL, addr string) (net.Conn, error) {
+func openTunnel(ctx context.Context, proxyTLS *tls.Config, conn net.Conn, proxyURL *url.URL, addr string) (net.Conn, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
 			return nil, err
@@ -99,10 +108,8 @@ func openTunnel(ctx context.Context, tr *http.Transport, conn net.Conn, proxyURL
 	}
 
 	if proxyURL.Scheme == "https" {
-		cfg := tr.TLSClientConfig.Clone()
+		cfg := proxyTLS.Clone()
 		cfg.ServerName = proxyURL.Hostname()
-		// The transport adds h2 to NextProtos. This dialer sends an HTTP/1.1 CONNECT.
-		cfg.NextProtos = []string{"http/1.1"}
 		tlsConn := tls.Client(conn, cfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			return nil, fmt.Errorf("TLS handshake with upstream proxy %s failed: %w", proxyURL.Host, err)
@@ -131,10 +138,9 @@ func openTunnel(ctx context.Context, tr *http.Transport, conn net.Conn, proxyURL
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CONNECT response from upstream proxy %s: %w", proxyURL.Host, err)
 	}
-	if err := resp.Body.Close(); err != nil {
-		return nil, err
-	}
-
+	// RFC 9110 section 9.3.6: a client ignores Content-Length and
+	// Transfer-Encoding on a 2xx CONNECT reply. Do not read the body, because
+	// the bytes after the header belong to the tunnel.
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("upstream proxy %s refused CONNECT to %s: %s", proxyURL.Host, addr, resp.Status)
 	}
