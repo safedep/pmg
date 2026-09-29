@@ -160,20 +160,7 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	// the output is actually wanted.
 	proxy.Verbose = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
 
-	// Configure connection timeout for upstream connections during CONNECT requests.
-	// A custom UpstreamDialContext also governs CONNECT tunnels so non-MITM hosts
-	// are dialed through the same override (tests rely on this for hermeticity).
-	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
-		if config.UpstreamDialContext != nil {
-			return config.UpstreamDialContext(context.Background(), network, addr)
-		}
-
-		dialer := &net.Dialer{
-			Timeout: config.ConnectTimeout,
-		}
-
-		return dialer.Dial(network, addr)
-	}
+	proxy.ConnectDial = newConnectDial(proxy.Tr, config.ConnectTimeout)
 
 	ps := &proxyServer{
 		config:       config,
