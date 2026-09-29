@@ -1,7 +1,10 @@
 package config
 
 import (
+	"slices"
+
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/dry/api/pb"
 )
 
 // IsTrustedPackage checks if a package version is trusted based on global configuration.
@@ -34,14 +37,16 @@ type CooldownSkipInfo struct {
 	// package is exempt from the cooldown window.
 	SkipAll bool
 
-	// Versions holds the specific versions exempted by version-pinned entries.
-	// Only meaningful when SkipAll is false; nil when there are none.
-	Versions map[string]bool
+	// pinned holds the versions exempted by version-pinned entries. Only
+	// meaningful when SkipAll is false.
+	pinned []pb.PackageVersion
 }
 
 // ExemptsVersion reports whether the given version is exempt from cooldown.
 func (s CooldownSkipInfo) ExemptsVersion(version string) bool {
-	return s.SkipAll || s.Versions[version]
+	return s.SkipAll || slices.ContainsFunc(s.pinned, func(p pb.PackageVersion) bool {
+		return p.Equal(packageIdentity(p.Ecosystem(), p.Name(), version))
+	})
 }
 
 // CooldownSkip returns how a package is exempted from the dependency cooldown
@@ -58,14 +63,15 @@ func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name str
 		return info
 	}
 
+	identity := packageIdentity(ecosystem, name, "")
 	for _, v := range skip {
-		if !v.parsed || v.ecosystem != ecosystem || v.name != name {
+		if !v.matchesPackage(identity) {
 			continue
 		}
 
-		if v.version == "" {
+		if v.allVersions() {
 			info.SkipAll = true
-			info.Versions = nil
+			info.pinned = nil
 			continue
 		}
 
@@ -73,10 +79,7 @@ func cooldownSkip(skip []TrustedPackage, ecosystem packagev1.Ecosystem, name str
 			continue
 		}
 
-		if info.Versions == nil {
-			info.Versions = make(map[string]bool)
-		}
-		info.Versions[v.version] = true
+		info.pinned = append(info.pinned, v.identity)
 	}
 
 	return info

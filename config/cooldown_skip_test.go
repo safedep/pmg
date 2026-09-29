@@ -5,6 +5,7 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setGlobalForTest(t *testing.T, cfg *Config) {
@@ -48,7 +49,7 @@ func TestCooldownSkip(t *testing.T) {
 		ecosystem   packagev1.Ecosystem
 		pkgName     string
 		wantSkipAll bool
-		wantVers    map[string]bool
+		wantExempt  []string
 	}{
 		{
 			name:      "empty skip list",
@@ -70,11 +71,11 @@ func TestCooldownSkip(t *testing.T) {
 			wantSkipAll: true,
 		},
 		{
-			name:      "version-pinned entry skips only that version",
-			skip:      []TrustedPackage{{Purl: "pkg:npm/internal-sdk@1.2.3", Reason: "first-party"}},
-			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-			pkgName:   "internal-sdk",
-			wantVers:  map[string]bool{"1.2.3": true},
+			name:       "version-pinned entry skips only that version",
+			skip:       []TrustedPackage{{Purl: "pkg:npm/internal-sdk@1.2.3", Reason: "first-party"}},
+			ecosystem:  packagev1.Ecosystem_ECOSYSTEM_NPM,
+			pkgName:    "internal-sdk",
+			wantExempt: []string{"1.2.3"},
 		},
 		{
 			name: "multiple version-pinned entries",
@@ -82,9 +83,9 @@ func TestCooldownSkip(t *testing.T) {
 				{Purl: "pkg:npm/internal-sdk@1.2.3"},
 				{Purl: "pkg:npm/internal-sdk@1.3.0"},
 			},
-			ecosystem: packagev1.Ecosystem_ECOSYSTEM_NPM,
-			pkgName:   "internal-sdk",
-			wantVers:  map[string]bool{"1.2.3": true, "1.3.0": true},
+			ecosystem:  packagev1.Ecosystem_ECOSYSTEM_NPM,
+			pkgName:    "internal-sdk",
+			wantExempt: []string{"1.2.3", "1.3.0"},
 		},
 		{
 			name: "version-less wins over version-pinned for same package",
@@ -134,7 +135,10 @@ func TestCooldownSkip(t *testing.T) {
 
 			got := cooldownSkip(cfg.DependencyCooldown.Skip, tt.ecosystem, tt.pkgName)
 			assert.Equal(t, tt.wantSkipAll, got.SkipAll)
-			assert.Equal(t, tt.wantVers, got.Versions)
+			for _, version := range tt.wantExempt {
+				assert.True(t, got.ExemptsVersion(version), version)
+			}
+			assert.Equal(t, tt.wantSkipAll, got.ExemptsVersion("9.9.9"))
 		})
 	}
 }
@@ -143,7 +147,9 @@ func TestCooldownSkipInfo_ExemptsVersion(t *testing.T) {
 	skipAll := CooldownSkipInfo{SkipAll: true}
 	assert.True(t, skipAll.ExemptsVersion("9.9.9"), "skip-all exempts any version")
 
-	pinned := CooldownSkipInfo{Versions: map[string]bool{"1.2.3": true}}
+	cfg := &Config{DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:npm/pinned@1.2.3"}}}}
+	require.NoError(t, preprocessPackageRefs(cfg))
+	pinned := cooldownSkip(cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_NPM, "pinned")
 	assert.True(t, pinned.ExemptsVersion("1.2.3"))
 	assert.False(t, pinned.ExemptsVersion("1.2.4"))
 

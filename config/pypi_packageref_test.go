@@ -39,7 +39,7 @@ func TestPypiPackageRefNormalizationBoundaries(t *testing.T) {
 	}{
 		{"pkg:pypi/demo", "1.0", packagev1.Ecosystem_ECOSYSTEM_PYPI, true},
 		{"pkg:pypi/demo@invalid", "1.0", packagev1.Ecosystem_ECOSYSTEM_PYPI, false},
-		{"pkg:pypi/demo@1.0.0", "1.0", packagev1.Ecosystem_ECOSYSTEM_PYPI, false},
+		{"pkg:pypi/demo@1.0.0", "1.0", packagev1.Ecosystem_ECOSYSTEM_PYPI, true},
 		{"pkg:pypi/demo@1.0rc1", "1.0", packagev1.Ecosystem_ECOSYSTEM_PYPI, false},
 		{"pkg:npm/demo@0.01", "0.1", packagev1.Ecosystem_ECOSYSTEM_NPM, false},
 	} {
@@ -49,6 +49,38 @@ func TestPypiPackageRefNormalizationBoundaries(t *testing.T) {
 			assert.Equal(t, tt.want, ref.matches(&packagev1.PackageVersion{
 				Package: &packagev1.Package{Ecosystem: tt.ecosystem, Name: "demo"}, Version: tt.version,
 			}))
+		})
+	}
+}
+
+func TestPypiPackageRefSpellings(t *testing.T) {
+	cfg := &Config{
+		TrustedPackages:    []TrustedPackage{{Purl: "pkg:pypi/calcboxlite@1.0"}},
+		DependencyCooldown: DependencyCooldownConfig{Skip: []TrustedPackage{{Purl: "pkg:pypi/calcboxlite@1.0"}}},
+	}
+	require.NoError(t, preprocessPackageRefs(cfg))
+
+	for _, tt := range []struct {
+		name, version string
+		want          bool
+	}{
+		{"calcboxlite", "1.0", true},
+		{"calcboxlite", "1.0.0", true},
+		{"calcboxlite", "01.0", true},
+		{"calcboxlite", "v1.0", true},
+		{"calcboxlite", "0!1.0", true},
+		{"CalcBoxLite", "1.0.0", true},
+		{"CALCBOXLITE", "1.0", true},
+		{"calcboxlite", "1.0rc1", false},
+		{"calcboxlite", "1!1.0", false},
+		{"calcboxlite", "1.0.1", false},
+		{"calc-box-lite", "1.0", false},
+	} {
+		t.Run(tt.name+"@"+tt.version, func(t *testing.T) {
+			assert.Equal(t, tt.want, isTrustedPackageVersion(cfg.TrustedPackages, &packagev1.PackageVersion{
+				Package: &packagev1.Package{Ecosystem: packagev1.Ecosystem_ECOSYSTEM_PYPI, Name: tt.name}, Version: tt.version,
+			}))
+			assert.Equal(t, tt.want, cooldownSkip(cfg.DependencyCooldown.Skip, packagev1.Ecosystem_ECOSYSTEM_PYPI, tt.name).ExemptsVersion(tt.version))
 		})
 	}
 }
