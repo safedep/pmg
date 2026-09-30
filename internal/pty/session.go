@@ -183,14 +183,18 @@ func (cfg SessionConfig) validate() error {
 	return nil
 }
 
+// spawnOpts sets InheritCursor so that the ConPTY does not clear the screen
+// of the host terminal. The terminal reply to the cursor request reaches
+// the PTY through the InputRouter, which starts right after NewSession.
 func (cfg SessionConfig) spawnOpts(cols, rows int) ptyx.SpawnOpts {
 	return ptyx.SpawnOpts{
-		Prog:    cfg.Command,
-		Args:    cfg.Args,
-		CmdLine: cfg.CmdLine,
-		Cols:    cols,
-		Rows:    rows,
-		Env:     cfg.Env,
+		Prog:          cfg.Command,
+		Args:          cfg.Args,
+		CmdLine:       cfg.CmdLine,
+		Cols:          cols,
+		Rows:          rows,
+		Env:           cfg.Env,
+		InheritCursor: true,
 	}
 }
 
