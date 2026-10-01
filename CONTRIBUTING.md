@@ -33,6 +33,10 @@ go mod tidy
 make all
 ```
 
+The built `pmg` binary will be available in the `bin` directory.
+
+If you wish to install this binary on your system, make sure to copy it to a directory within your `$PATH`. 
+
 ## Development Workflow
 
 1. Create a branch:

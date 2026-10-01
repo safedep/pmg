@@ -199,10 +199,16 @@ npm install -g @safedep/pmg
 <details>
 <summary><strong>Go (Build from Source)</strong></summary>
 
+Requires the Go version that [`go.mod`](go.mod) specifies.
+
+To install the latest release without a local repository clone:
+
 ```bash
 # Ensure $(go env GOPATH)/bin is in your $PATH
 go install github.com/safedep/pmg@latest
 ```
+
+To build from a local repository clone, run this command in the repository root, see [CONTRIBUTING.md](CONTRIBUTING.md#developer-setup).
 
 </details>
 
