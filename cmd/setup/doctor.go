@@ -238,7 +238,12 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Security",
 			Run: func() doctor.CheckResult {
 				user, system, _ := truststore.Status(certmanager.CACommonName)
-				return evaluateCACheck(cfg.ConfigDir(), user, system, truststore.UserScopeSupported())
+				dir, isSystem := keypairDir(cfg)
+				result := evaluateCACheck(dir, user, system, truststore.UserScopeSupported())
+				if isSystem {
+					result.Message += fmt.Sprintf(" (system keypair in %s, used by the enforcing daemon)", dir)
+				}
+				return result
 			},
 		},
 		{

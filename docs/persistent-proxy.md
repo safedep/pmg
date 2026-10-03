@@ -194,7 +194,15 @@ the PMG CA, every other host is passed through with its real certificate,
 and plain HTTP is served as a proxy request. UDP to an enforced port gets
 `EPERM`, so a QUIC client falls back to TCP. When the daemon exits, for any
 reason, the kernel detaches the programs. There is nothing to clean up after
-a crash.
+a crash. A crash therefore fails open: until the daemon runs again, nothing
+routes through PMG. A supervisor that restarts it closes that window, as
+`Restart=on-failure` does in the [example unit](../examples/systemd/pmg-proxy.service).
+
+One daemon enforces a cgroup. A second `pmg proxy start --enforce` on the
+same cgroup fails with `EnforceAlreadyActive`, because the kernel would
+accept a second set of programs that never sees a connection. The daemon
+holds a lock on the cgroup directory while it is attached, so two daemons
+that start at the same moment cannot both pass the check.
 
 The daemon attaches before it reports ready. There is no window in which the
 proxy runs and a connection is not enforced.
@@ -242,6 +250,48 @@ proxy:
 - `cgroup` narrows the scope to one cgroup v2 directory. The default, the
   root, covers every process on the host, including a runner that `systemd`
   started in its own slice.
+
+### Which config file the daemon reads
+
+A root daemon reads the managed config, `/etc/safedep/pmg/config.yml`, when
+it exists, and root's own per-user file otherwise. It never reads the file
+of the user who ran `sudo`. `pmg proxy status` and the start message name
+the file the daemon loaded, and a start that fell back to root's per-user
+file warns. `sudo pmg config edit --system` and `sudo pmg config set --system
+<key> <value>` change the managed config, and `pmg config path` shows which
+file a command reads. See [config.md](./config.md#which-file-a-command-reads).
+
+### Policy from the command line
+
+Every policy key has a flag on `pmg proxy start` and a `PMG_*` variable:
+
+| Config key | Flag | Variable |
+| --- | --- | --- |
+| `ports` | `--enforce-port` (repeatable) | `PMG_PROXY_SERVER_ENFORCE_PORTS` |
+| `eligible_users` | `--enforce-eligible-user` (repeatable) | `PMG_PROXY_SERVER_ENFORCE_ELIGIBLE_USERS` |
+| `exempt_users` | `--enforce-exempt-user` (repeatable) | `PMG_PROXY_SERVER_ENFORCE_EXEMPT_USERS` |
+| `exempt_executables` | `--enforce-exempt-executable` (repeatable) | `PMG_PROXY_SERVER_ENFORCE_EXEMPT_EXECUTABLES` |
+| `skip_destinations` | `--enforce-skip-destination` (repeatable) | `PMG_PROXY_SERVER_ENFORCE_SKIP_DESTINATIONS` |
+| `cgroup` | `--enforce-cgroup` | `PMG_PROXY_SERVER_ENFORCE_CGROUP` |
+| `deny_udp` | `--enforce-deny-udp` | `PMG_PROXY_SERVER_ENFORCE_DENY_UDP` |
+
+A list flag adds to the list in the file and never replaces it, so a flag
+cannot drop a skip destination or an exempt user an administrator set. A
+list variable, comma-separated, replaces the list, as every `PMG_*` variable
+does. `--enforce-cgroup` and `--enforce-deny-udp` override the file.
+
+```bash
+sudo pmg proxy start --daemon --enforce \
+  --enforce-exempt-executable '/opt/agent/bin/agent' \
+  --enforce-skip-destination 10.20.0.0/16
+```
+
+The parent checks the flags before it detaches, so an unknown user or a
+bad prefix is reported at once. Under `global_lockdown` the flags that
+loosen the policy fail fast: `--enforce-eligible-user`,
+`--enforce-exempt-user`, `--enforce-exempt-executable`,
+`--enforce-skip-destination` and `--enforce-deny-udp=false`. A port or a
+cgroup only narrows or moves the scope and stays allowed.
 
 ### Trust
 

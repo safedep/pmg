@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/goccy/go-yaml/token"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // SetConfigValue updates a config value in the YAML config file on disk.
@@ -27,7 +28,65 @@ func SetConfigValue(key, value string) error {
 	if err := ensureConfigFileExists(configPath); err != nil {
 		return err
 	}
+	return setConfigValueInFile(configPath, key, value)
+}
 
+// SetSystemConfigValue updates a value in the managed config, the file a
+// root daemon and every user obey. Only root may call it. The file is
+// created from the template when it is missing, through the same ownership
+// and mode checks as `pmg setup install --system`.
+func SetSystemConfigValue(key, value string) error {
+	if err := RequireSystemScope("pmg config set --system"); err != nil {
+		return err
+	}
+	configPath, err := EnsureSystemConfigFile()
+	if err != nil {
+		return err
+	}
+	return setConfigValueInFile(configPath, key, value)
+}
+
+// EnsureSystemConfigFile creates the managed config from the template when
+// it is missing and returns its path. An existing file is checked, not
+// merged with the template. A managed config may hold only the keys an
+// administrator set, and a merge would freeze the other defaults into it.
+func EnsureSystemConfigFile() (string, error) {
+	path := globalConfigFilePath()
+	if path == "" {
+		return "", fmt.Errorf("system config is not supported on %s", platform.OSName())
+	}
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return path, WriteSystemTemplateConfig()
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to stat managed config %q: %w", path, err)
+	}
+	return path, requireTrustedManagedFile(path)
+}
+
+// GetSystemConfigValue reads a key from the managed config file alone, with
+// the template as the base for keys the file does not set. It reads the
+// file as any user can, and it ignores the environment.
+func GetSystemConfigValue(key string) (any, error) {
+	if key == "" {
+		return nil, fmt.Errorf("key cannot be empty")
+	}
+	path := globalConfigFilePath()
+	if path == "" {
+		return nil, fmt.Errorf("system config is not supported on %s", platform.OSName())
+	}
+	v, err := newFileViper(path)
+	if err != nil {
+		return nil, err
+	}
+	if !v.IsSet(key) {
+		return nil, fmt.Errorf("unknown config key: %s", key)
+	}
+	return v.Get(key), nil
+}
+
+func setConfigValueInFile(configPath, key, value string) error {
 	fi, err := os.Stat(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to stat config file: %w", err)

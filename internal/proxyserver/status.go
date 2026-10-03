@@ -14,6 +14,11 @@ type StatusInfo struct {
 	CACert  string
 	Enforce *EnforceState
 
+	// ConfigPath and ConfigSource are the file the daemon loaded, empty for
+	// a state file an older daemon wrote.
+	ConfigPath   string
+	ConfigSource string
+
 	// Unreadable is set when the state file exists but this user may not
 	// read it. An enforcing daemon runs as root and owns the file.
 	Unreadable bool
@@ -36,5 +41,8 @@ func GetStatus(statePath string) StatusInfo {
 		Addr:    state.Addr,
 		CACert:  state.CACertPath,
 		Enforce: state.Enforce,
+
+		ConfigPath:   state.ConfigPath,
+		ConfigSource: state.ConfigSource,
 	}
 }

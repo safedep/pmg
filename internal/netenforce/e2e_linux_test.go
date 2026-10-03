@@ -482,6 +482,27 @@ func TestE2E_CloseDetaches(t *testing.T) {
 	assert.False(t, e.acceptedFor(dst, 500*time.Millisecond))
 }
 
+func TestE2E_SecondAttachOnTheSameCgroupIsRefused(t *testing.T) {
+	e := newE2E(t)
+	cgroup := e.handle.Status().CgroupPath
+
+	enforcer, err := New()
+	require.NoError(t, err)
+	on, err := enforcer.Attached(cgroup)
+	require.NoError(t, err)
+	assert.True(t, on)
+
+	policy := DefaultPolicy()
+	policy.CgroupPath = cgroup
+	_, err = enforcer.Attach(context.Background(), Target{Addr: netip.MustParseAddrPort(e.listener.Addr().String())}, policy)
+	require.ErrorIs(t, err, ErrAlreadyEnforced)
+
+	require.NoError(t, e.handle.Close())
+	on, err = enforcer.Attached(cgroup)
+	require.NoError(t, err)
+	assert.False(t, on, "the close detaches, and a new daemon may attach")
+}
+
 func TestE2E_StatusAndCounters(t *testing.T) {
 	e := newE2E(t)
 

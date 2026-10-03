@@ -30,21 +30,21 @@ type EnforceState struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// enforcePolicy turns the config section into the kernel policy. The ports
-// of every proxy.registries endpoint are added, so a private registry on a
-// non-standard port is routed too. extraExempt holds the globs the parent
-// computed, such as the GitHub runner binaries.
-func enforcePolicy(cfg *config.RuntimeConfig, extraExempt []string) (netenforce.Policy, error) {
+// enforcePolicy turns the config section and the command line overrides
+// into the kernel policy. The ports of every proxy.registries endpoint are
+// added, so a private registry on a non-standard port is routed too.
+func enforcePolicy(cfg *config.RuntimeConfig, o EnforceOverrides) (netenforce.Policy, error) {
 	ec := cfg.Config.Proxy.Server.Enforce
 	p := netenforce.DefaultPolicy()
 	p.DenyUDP = ec.DenyUDP
 	p.CgroupPath = ec.Cgroup
-	p.EligibleUsers = ec.EligibleUsers
-	p.ExemptUsers = ec.ExemptUsers
-	p.ExemptExecutables = append(slices.Clone(ec.ExemptExecutables), extraExempt...)
+	p.EligibleUsers = append(slices.Clone(ec.EligibleUsers), o.EligibleUsers...)
+	p.ExemptUsers = append(slices.Clone(ec.ExemptUsers), o.ExemptUsers...)
+	p.ExemptExecutables = append(slices.Clone(ec.ExemptExecutables), o.ExemptExecutables...)
+	p.ExemptExecutables = append(p.ExemptExecutables, o.RunnerExecutables...)
 
-	ports := make([]uint16, 0, len(ec.Ports)+len(cfg.Config.Proxy.Registries))
-	for _, port := range ec.Ports {
+	ports := make([]uint16, 0, len(ec.Ports)+len(o.Ports)+len(cfg.Config.Proxy.Registries))
+	for _, port := range append(slices.Clone(ec.Ports), o.Ports...) {
 		if port < 1 || port > 65535 {
 			return netenforce.Policy{}, fmt.Errorf("proxy.server.enforce.ports: %d is not a valid port", port)
 		}
@@ -62,7 +62,7 @@ func enforcePolicy(cfg *config.RuntimeConfig, extraExempt []string) (netenforce.
 	slices.Sort(ports)
 	p.Ports = slices.Compact(ports)
 
-	for _, raw := range ec.SkipDestinations {
+	for _, raw := range append(slices.Clone(ec.SkipDestinations), o.SkipDestinations...) {
 		prefix, err := netip.ParsePrefix(raw)
 		if err != nil {
 			return netenforce.Policy{}, fmt.Errorf("proxy.server.enforce.skip_destinations: %q is not a CIDR prefix: %w", raw, err)
@@ -98,8 +98,8 @@ func endpointPort(raw string) (uint16, error) {
 // parent of a daemon calls it before it detaches, so a missing capability or
 // an untrusted CA is reported at once with its help text, instead of as a
 // readiness timeout that points at the log.
-func PreflightEnforce(cfg *config.RuntimeConfig, extraExempt []string) error {
-	policy, err := enforcePolicy(cfg, extraExempt)
+func PreflightEnforce(cfg *config.RuntimeConfig, o EnforceOverrides) error {
+	policy, err := enforcePolicy(cfg, o)
 	if err != nil {
 		return err
 	}
@@ -131,12 +131,39 @@ func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy) (netenforc
 			Wrap(perr)
 	}
 
+	if err := refuseSecondDaemon(enforcer, p); err != nil {
+		return nil, nil, nil, err
+	}
+
 	caCert, err := loadEnforceCA()
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	return enforcer, caCert, enforceWarnings(p), nil
+	return enforcer, caCert, enforceWarnings(cfg, p), nil
+}
+
+// refuseSecondDaemon fails when a pmg daemon already enforces the cgroup.
+// The kernel would attach a second set of programs, and this daemon would
+// then report active and route nothing.
+func refuseSecondDaemon(enforcer netenforce.Enforcer, p netenforce.Policy) error {
+	on, err := enforcer.Attached(p.CgroupPath)
+	if err != nil {
+		return err
+	}
+	if !on {
+		return nil
+	}
+	cgroup := p.CgroupPath
+	if cgroup == "" {
+		cgroup = "the cgroup root"
+	}
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.EnforceAlreadyActive).
+		WithHumanError(fmt.Sprintf("another pmg daemon already enforces %s", cgroup)).
+		WithMsg(netenforce.ErrAlreadyEnforced.Error()).
+		WithHelp("Stop it with `sudo pmg proxy stop --state <its state file>`, or give this daemon its own cgroup with proxy.server.enforce.cgroup").
+		Wrap(netenforce.ErrAlreadyEnforced)
 }
 
 func enforceRequirementsHelp(probe netenforce.ProbeResult) string {
@@ -179,9 +206,13 @@ func loadEnforceCA() (*certmanager.Certificate, error) {
 
 // enforceWarnings names the gaps an operator must know about: a container
 // engine on the host, whose containers live outside the enforced network
-// namespace, and an eligible user who can become root through sudo.
-func enforceWarnings(p netenforce.Policy) []string {
+// namespace, an eligible user who can become root through sudo, and a
+// daemon that reads root's personal config instead of the system one.
+func enforceWarnings(cfg *config.RuntimeConfig, p netenforce.Policy) []string {
 	var warnings []string
+	if cfg.ConfigSource() == config.ConfigSourceRootPerUser {
+		warnings = append(warnings, rootPerUserConfigWarning(cfg.ConfigFilePath()))
+	}
 	if processRunning("dockerd") {
 		warnings = append(warnings, "Docker is running. Containers have their own network namespace and are not enforced. See docs/persistent-proxy.md for the workaround.")
 	}
@@ -191,6 +222,17 @@ func enforceWarnings(p netenforce.Policy) []string {
 		}
 	}
 	return warnings
+}
+
+// rootPerUserConfigWarning tells the operator which file the daemon read.
+// Under sudo that is root's own per-user file, which `pmg config edit`
+// without sudo never touches. The system config is the one for a daemon.
+func rootPerUserConfigWarning(path string) string {
+	system := config.SystemConfigFilePath()
+	if system == "" {
+		return fmt.Sprintf("Reading root's per-user config at %s.", path)
+	}
+	return fmt.Sprintf("Reading root's per-user config at %s. A system daemon normally reads %s. Run `sudo pmg config edit --system` to create it.", path, system)
 }
 
 func userCanSudo(name string) bool {

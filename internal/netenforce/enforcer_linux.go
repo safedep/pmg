@@ -41,6 +41,54 @@ func newPlatformEnforcer() (Enforcer, error) {
 
 func (linuxEnforcer) Probe() ProbeResult { return probe() }
 
+func (linuxEnforcer) Attached(cgroupPath string) (bool, error) { return attached(cgroupPath) }
+
+// attached looks for pmg_connect4 among the connect4 programs on the
+// cgroup. Link attachments are multi-attach, so the kernel would accept a
+// second set without complaint.
+func attached(cgroupPath string) (bool, error) {
+	if cgroupPath == "" {
+		root, err := cgroup2Root()
+		if err != nil {
+			return false, err
+		}
+		cgroupPath = root
+	}
+	dir, err := os.Open(cgroupPath)
+	if err != nil {
+		return false, fmt.Errorf("enforce: open cgroup %s: %w", cgroupPath, err)
+	}
+	defer func() { _ = dir.Close() }()
+
+	result, err := link.QueryPrograms(link.QueryOptions{Target: int(dir.Fd()), Attach: ebpf.AttachCGroupInet4Connect})
+	if err != nil {
+		return false, fmt.Errorf("enforce: query programs on %s: %w", cgroupPath, err)
+	}
+	for _, p := range result.Programs {
+		name, err := programName(p.ID)
+		if err != nil {
+			return false, err
+		}
+		if name == bpf.EnforceProgPmgConnect4 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func programName(id ebpf.ProgramID) (string, error) {
+	prog, err := ebpf.NewProgramFromID(id)
+	if err != nil {
+		return "", fmt.Errorf("enforce: open program %d: %w", id, err)
+	}
+	defer func() { _ = prog.Close() }()
+	info, err := prog.Info()
+	if err != nil {
+		return "", fmt.Errorf("enforce: read program %d: %w", id, err)
+	}
+	return info.Name, nil
+}
+
 // Attach fills every map before it attaches a program, so no connection
 // ever meets a half-configured policy. The links detach when the owner
 // closes the handle or the process exits. Nothing else detaches them.
@@ -61,6 +109,15 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	if cgroupPath == "" {
 		cgroupPath = pr.CgroupPath
 	}
+	lock, err := lockCgroup(cgroupPath)
+	if err != nil {
+		return nil, err
+	}
+	if on, err := attached(cgroupPath); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	} else if on {
+		return nil, errors.Join(ErrAlreadyEnforced, lock.Close())
+	}
 	ports := p.Ports
 	if len(ports) == 0 {
 		ports = slices.Clone(DefaultPorts)
@@ -73,6 +130,7 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	}
 
 	h := &linuxHandle{
+		lock:       lock,
 		policy:     p,
 		trace:      p.TraceDecisions,
 		decisions:  make(chan Decision, 1024),
@@ -90,13 +148,15 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	if err := bpf.LoadEnforceObjects(&h.objs, nil); err != nil {
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
-			return nil, fmt.Errorf("enforce: the kernel rejected a program: %+v", ve)
+			err = fmt.Errorf("enforce: the kernel rejected a program: %+v", ve)
+		} else {
+			err = fmt.Errorf("enforce: load programs: %w", err)
 		}
-		return nil, fmt.Errorf("enforce: load programs: %w", err)
+		return nil, errors.Join(err, lock.Close())
 	}
 
 	if err := h.fillMaps(t); err != nil {
-		return nil, errors.Join(err, h.objs.Close())
+		return nil, errors.Join(err, h.Close())
 	}
 	if err := h.attach(cgroupPath); err != nil {
 		return nil, errors.Join(err, h.Close())
@@ -105,7 +165,27 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	return h, nil
 }
 
+// lockCgroup takes an exclusive flock on the cgroup directory. The query
+// for an attached program and the attach are two steps, so two daemons
+// that start together would both pass the query and both attach. The lock
+// lives as long as the handle, and the kernel drops it with the process,
+// the same as the links.
+func lockCgroup(cgroupPath string) (*os.File, error) {
+	dir, err := os.Open(cgroupPath)
+	if err != nil {
+		return nil, fmt.Errorf("enforce: open cgroup %s: %w", cgroupPath, err)
+	}
+	if err := unix.Flock(int(dir.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, errors.Join(ErrAlreadyEnforced, dir.Close())
+		}
+		return nil, errors.Join(fmt.Errorf("enforce: lock cgroup %s: %w", cgroupPath, err), dir.Close())
+	}
+	return dir, nil
+}
+
 type linuxHandle struct {
+	lock   *os.File
 	objs   bpf.EnforceObjects
 	links  []link.Link
 	policy Policy
@@ -424,7 +504,7 @@ func (h *linuxHandle) Close() error {
 			errs = append(errs, h.traceRd.Close())
 		}
 		h.readers.Wait()
-		errs = append(errs, h.objs.Close())
+		errs = append(errs, h.objs.Close(), h.lock.Close())
 		h.closeErr = errors.Join(errs...)
 	})
 	return h.closeErr

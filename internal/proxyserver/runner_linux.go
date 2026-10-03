@@ -15,8 +15,8 @@ const runnerWorkerName = "Runner.Worker"
 // when this process runs inside a job step. The runner must stay exempt, or
 // its own traffic to GitHub goes through the proxy. The walk climbs the
 // ancestors of this process to Runner.Worker and exempts every binary in
-// its directory. It must run in the parent before Daemonize, because the
-// daemon starts in a new session with no ancestors left to walk.
+// its directory. The daemon child walks too: its parent waits for the
+// state file, so the chain is intact while the child attaches.
 func RunnerExemptGlobs() []string {
 	if os.Getenv("GITHUB_ACTIONS") != "true" {
 		return nil

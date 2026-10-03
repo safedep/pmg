@@ -138,9 +138,15 @@ func RejectManagedFlagOverrides(cmd *cobra.Command) error {
 	if len(offending) == 0 {
 		return nil
 	}
+	return NewManagedFlagOverrideError(offending)
+}
 
+// NewManagedFlagOverrideError is the error for flags a locked managed
+// config governs. A command with flags of its own, such as the enforce
+// policy flags of pmg proxy start, raises it for the same reason.
+func NewManagedFlagOverrideError(flags []string) error {
 	return managedError(fmt.Sprintf("these flags cannot override the globally managed configuration (%s): %s",
-		globalConfig.configFilePath, strings.Join(offending, ", ")))
+		globalConfig.configFilePath, strings.Join(flags, ", ")))
 }
 
 // FinalizeDependencyCooldownOverride disables dependency cooldown in the global

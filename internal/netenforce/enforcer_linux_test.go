@@ -41,16 +41,6 @@ func TestSkipListKeepsBuiltins(t *testing.T) {
 	}
 }
 
-func TestResolveUIDs(t *testing.T) {
-	uids, err := resolveUIDs([]string{"0", "root", "65534"})
-	require.NoError(t, err)
-	assert.Equal(t, []uint32{0, 0, 65534}, uids)
-
-	_, err = resolveUIDs([]string{"pmg-no-such-user-0b1"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pmg-no-such-user-0b1")
-}
-
 func TestExpandExecutables(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"Runner.Listener", "Runner.Worker", "other"} {
@@ -129,6 +119,11 @@ func TestKernelReleaseAtLeast(t *testing.T) {
 	assert.True(t, kernelRelease{5, 15, 0}.atLeast(5, 15))
 	assert.False(t, kernelRelease{5, 14, 9}.atLeast(5, 15))
 	assert.False(t, kernelRelease{4, 19, 0}.atLeast(5, 15))
+}
+
+func TestAttachedFailsOnAMissingCgroup(t *testing.T) {
+	_, err := attached(filepath.Join(t.TempDir(), "no-such-cgroup"))
+	require.Error(t, err)
 }
 
 func TestPIDNamespace(t *testing.T) {

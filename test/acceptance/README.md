@@ -121,7 +121,9 @@ An enforcing daemon changes how the whole host connects, so the harness runs enf
 at a time. It sets `$ENFORCE_STATE` to a state file in the script's work directory. Pass it to
 every `pmg proxy` command. When the script ends, the harness stops any daemon that this state file
 names, also when the script fails. Each script installs the PMG CA into the system trust store with
-`pmg setup cert install --system`, so run this category only on a disposable host.
+`pmg setup cert install --system`, so run this category only on a disposable host. A script may
+create the managed config at `/etc/safedep/pmg/config.yml`, with `pmg config set --system` or by
+copying a file there. The harness removes it when the script ends, unless it existed before.
 
 A case that needs Docker guards on the `docker` condition.
 

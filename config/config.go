@@ -357,7 +357,8 @@ type RuntimeConfig struct {
 	configDir                string
 	configFilePath           string // active config: globally managed file if present, else per-user
 	userConfigFilePath       string // per-user config file, used for writes and removal
-	configLocked             bool   // global file present and opted into lockdown (global_lockdown: true)
+	configSource             ConfigSource
+	configLocked             bool // global file present and opted into lockdown (global_lockdown: true)
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
@@ -395,6 +396,53 @@ func (r *RuntimeConfig) CloudCheckInLastRunPath() string {
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
+}
+
+// ConfigSource names where the active config file came from. A root daemon
+// reads a different file than the user who started it edits, and the label
+// is how status and `pmg config path` make that visible.
+type ConfigSource string
+
+const (
+	// ConfigSourceManaged is the globally managed file, authoritative for
+	// every user.
+	ConfigSourceManaged ConfigSource = "managed"
+	// ConfigSourceEnvDir is the file under PMG_CONFIG_DIR.
+	ConfigSourceEnvDir ConfigSource = "PMG_CONFIG_DIR"
+	// ConfigSourceRootPerUser is root's own per-user file, read under sudo.
+	ConfigSourceRootPerUser ConfigSource = "root per-user"
+	// ConfigSourceUser is the per-user file of the account that runs pmg.
+	ConfigSourceUser ConfigSource = "user"
+)
+
+// ConfigSource reports where the active config file came from.
+func (r *RuntimeConfig) ConfigSource() ConfigSource {
+	return r.configSource
+}
+
+// RootUserConfigFilePath returns the per-user config file of root, the one
+// a daemon started with sudo reads when no managed config exists. It fails
+// where root has no passwd entry.
+func RootUserConfigFilePath() (string, error) {
+	dirs, err := rootDirs()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dirs.Config, pmgDefaultHomeRelativePath, pmgConfigFileName), nil
+}
+
+func resolveConfigSource(managed bool) ConfigSource {
+	switch {
+	case managed:
+		return ConfigSourceManaged
+	case os.Getenv(pmgConfigDirEnvKey) != "":
+		return ConfigSourceEnvDir
+	default:
+		if _, ok := sudoRootDirs(); ok {
+			return ConfigSourceRootPerUser
+		}
+		return ConfigSourceUser
+	}
 }
 
 // UserConfigFilePath returns the per-user config file path, regardless of
@@ -626,6 +674,7 @@ func initConfig() {
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
+	globalConfig.configSource = resolveConfigSource(activeConfigPath != userConfigPath)
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxOverlayDir = sandboxOverlayDir
@@ -1079,12 +1128,8 @@ func WriteSystemTemplateConfig() error {
 	if err := platform.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	if err := platform.RequireTrustedSystemFile(path); err != nil {
-		return usefulerror.NewUsefulError().
-			WithCode(errcodes.PermissionDenied).
-			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
-			WithHelp("Inspect the file, delete it, and run the install again").
-			Wrap(err)
+	if err := requireTrustedManagedFile(path); err != nil {
+		return err
 	}
 
 	if err := writeTemplateConfigFile(path); err != nil {
@@ -1096,6 +1141,17 @@ func WriteSystemTemplateConfig() error {
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing
 // file is not an error. Returns an error when the platform has no system path.
+func requireTrustedManagedFile(path string) error {
+	if err := platform.RequireTrustedSystemFile(path); err != nil {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
+			WithHelp("Inspect the file, delete it, and run the install again").
+			Wrap(err)
+	}
+	return nil
+}
+
 func RemoveSystemConfigFile() error {
 	path := globalConfigFilePath()
 	if path == "" {
@@ -1155,6 +1211,71 @@ func removeFileIfExists(path string) error {
 // so the CLI presents it as an expected, actionable failure rather than a bug.
 func NewManagedConfigError() error {
 	return managedError(fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath))
+}
+
+// RequireUserScope returns nil when a config write without --system may
+// change the per-user file. A managed config refuses, and names --system
+// when the process is root, because root may change that file. Sudo without
+// a managed config refuses too, because the write would land in root's
+// per-user file.
+func RequireUserScope(command string) error {
+	if globalConfig.IsManaged() {
+		if platform.IsPrivileged() {
+			return newManagedNeedsSystemError(command)
+		}
+		return NewManagedConfigError()
+	}
+	if platform.IsSudo() {
+		return NewSudoNeedsSystemError(command)
+	}
+	return nil
+}
+
+func newManagedNeedsSystemError(command string) error {
+	human := fmt.Sprintf("configuration is globally managed (%s), and only `pmg config %s --system` changes it",
+		globalConfig.configFilePath, command)
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(human).
+		WithHelp(fmt.Sprintf("Run `pmg config %s --system` to change the managed config.", command)).
+		Wrap(errors.New(human))
+}
+
+// NewSudoNeedsSystemError refuses a config write under sudo that names no
+// scope. Without --system the command would change root's per-user file,
+// which the user never sees and no daemon is meant to read.
+func NewSudoNeedsSystemError(command string) error {
+	rootPath, err := RootUserConfigFilePath()
+	if err != nil {
+		rootPath = globalConfig.userConfigFilePath
+	}
+	help := "Run the command without sudo for your own config."
+	if system := globalConfigFilePath(); system != "" {
+		help = fmt.Sprintf("Use `--system` for the managed config at %s, or run the command without sudo for your own.", system)
+	}
+	// cobra prints the wrapped error, so it carries the sentence a user
+	// needs, as managedError does.
+	human := fmt.Sprintf("under sudo, `pmg config %s` would change root's per-user config at %s", command, rootPath)
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(human).
+		WithHelp(help).
+		Wrap(errors.New(human))
+}
+
+// RequireSystemScope returns nil when the process may change the managed
+// config, which is root only. The error names the command and says to use
+// sudo.
+func RequireSystemScope(command string) error {
+	if platform.IsPrivileged() {
+		return nil
+	}
+	human := fmt.Sprintf("`%s` requires root", command)
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(human).
+		WithHelp(fmt.Sprintf("Run it as root: `sudo %s`", command)).
+		Wrap(errors.New(human))
 }
 
 // managedError builds the standard "globally managed" CLI error with a useful

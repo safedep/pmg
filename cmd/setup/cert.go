@@ -327,6 +327,25 @@ func certDir(cfg *config.RuntimeConfig, scope truststore.Scope) (string, error) 
 	return cfg.ConfigDir(), nil
 }
 
+// keypairDir is the directory `pmg setup info` and `pmg setup doctor`
+// inspect: the user's keypair when there is one, else the system keypair
+// that `sudo pmg setup cert install --system` wrote, which an enforcing
+// daemon uses and any user may read. The bool reports the system one.
+func keypairDir(cfg *config.RuntimeConfig) (string, bool) {
+	user := cfg.ConfigDir()
+	if st, err := certmanager.InspectCA(user); err == nil && (st.CertPresent || st.KeyPresent) {
+		return user, false
+	}
+	system := config.SystemConfigDir()
+	if system == "" {
+		return user, false
+	}
+	if st, err := certmanager.InspectCA(system); err == nil && st.CertPresent {
+		return system, true
+	}
+	return user, false
+}
+
 // certStatusDir inspects the system keypair when the process is privileged
 // and one exists, and the user's keypair otherwise.
 func certStatusDir(cfg *config.RuntimeConfig) (string, error) {

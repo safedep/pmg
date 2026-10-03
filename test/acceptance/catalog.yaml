@@ -491,3 +491,33 @@
   tier: P2
   guarantee: "pmg proxy status reports that enforcement is active."
   labels: [lifecycle]
+- id: enforce/config/status-names-root-per-user-file
+  title: "a sudo start names root's per-user config"
+  category: enforce
+  tier: P1
+  guarantee: "A root daemon started through sudo warns that it reads root's per-user config, and status names the file."
+  labels: [config]
+- id: enforce/config/system-set-changes-policy
+  title: "config set --system reaches the daemon"
+  category: enforce
+  tier: P1
+  guarantee: "pmg config set --system changes the managed config that the next enforcing daemon reads, and get --system reads it back."
+  labels: [config]
+- id: enforce/config/sudo-edit-refuses
+  title: "sudo config edit without --system refuses"
+  category: enforce
+  tier: P1
+  guarantee: "Under sudo, pmg config edit and set without --system refuse and name both files. Under a managed config they refuse as globally managed and name --system."
+  labels: [config]
+- id: enforce/policy/flags-add-to-file
+  title: "policy flags add to the file"
+  category: enforce
+  tier: P1
+  guarantee: "An --enforce-* list flag adds to the config file's list, and an unknown user fails before the daemon detaches."
+  labels: [policy]
+- id: enforce/policy/lockdown-governs-widening-flags
+  title: "lockdown refuses widening flags"
+  category: enforce
+  tier: P1
+  guarantee: "Under global_lockdown a flag that loosens the policy fails fast and a narrowing flag is accepted."
+  labels: [policy]

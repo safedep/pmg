@@ -14,6 +14,7 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
@@ -80,7 +81,7 @@ func TestAcceptance(t *testing.T) {
 						forwardCloudCredentials(env)
 					}
 					if category == enforceCategory {
-						isolateEnforcement(env, pmgBin)
+						return isolateEnforcement(env, pmgBin)
 					}
 					return nil
 				},
@@ -115,14 +116,73 @@ var enforceSerial sync.Mutex
 // scripts of one directory in parallel, so the lock is necessary. A failed
 // script must not leave the host redirected to a proxy that nobody stops.
 // Scripts pass $ENFORCE_STATE to every pmg proxy command.
-func isolateEnforcement(env *testscript.Env, pmgBin string) {
+func isolateEnforcement(env *testscript.Env, pmgBin string) error {
 	enforceSerial.Lock()
 	statePath := filepath.Join(env.WorkDir, "proxy-state.json")
 	env.Setenv("ENFORCE_STATE", statePath)
+	saved, err := saveManagedConfig(config.SystemConfigFilePath())
+	if err != nil {
+		enforceSerial.Unlock()
+		return err
+	}
 	env.Defer(func() {
 		defer enforceSerial.Unlock()
 		stopEnforcingDaemon(pmgBin, statePath)
+		saved.restore()
 	})
+	return nil
+}
+
+// managedConfigSnapshot is the managed config as it was before a script
+// ran. The file governs every later script and every later pmg run on the
+// host, so a script's changes to it must not outlive the script: one that
+// did not exist is removed, one that existed gets its contents and mode
+// back. A file that exists but cannot be read is an error, because the
+// restore would remove it.
+type managedConfigSnapshot struct {
+	path    string
+	existed bool
+	data    []byte
+	mode    os.FileMode
+}
+
+func saveManagedConfig(path string) (managedConfigSnapshot, error) {
+	s := managedConfigSnapshot{path: path}
+	if path == "" {
+		return s, nil
+	}
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return s, nil
+	}
+	if err != nil {
+		return s, fmt.Errorf("acceptance: stat managed config %s: %w", path, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return s, fmt.Errorf("acceptance: read managed config %s: %w", path, err)
+	}
+	s.existed, s.data, s.mode = true, data, info.Mode().Perm()
+	return s, nil
+}
+
+func (s managedConfigSnapshot) restore() {
+	if s.path == "" {
+		return
+	}
+	if !s.existed {
+		if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+			log.Warnf("acceptance: remove managed config %s: %v", s.path, err)
+		}
+		return
+	}
+	if err := os.WriteFile(s.path, s.data, s.mode); err != nil {
+		log.Warnf("acceptance: restore managed config %s: %v", s.path, err)
+		return
+	}
+	if err := os.Chmod(s.path, s.mode); err != nil {
+		log.Warnf("acceptance: restore mode of %s: %v", s.path, err)
+	}
 }
 
 func stopEnforcingDaemon(pmgBin, statePath string) {

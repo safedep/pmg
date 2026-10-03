@@ -13,10 +13,9 @@ import (
 )
 
 var (
-	daemonFlag                   bool
-	logFileFlag                  string
-	foregroundInternalFlag       bool
-	enforceExemptExecutablesFlag []string
+	daemonFlag             bool
+	logFileFlag            string
+	foregroundInternalFlag bool
 )
 
 func newStartCommand() *cobra.Command {
@@ -36,33 +35,38 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&srv.ListenHost, "host", srv.ListenHost, "Host to bind")
 	cmd.Flags().IntVar(&srv.ListenPort, "port", srv.ListenPort, "Port to bind (0 = a random free port)")
 	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log)")
-	cmd.Flags().BoolVar(&srv.Enforce.Enabled, "enforce", srv.Enforce.Enabled,
+	cmd.Flags().BoolVar(&srv.Enforce.Enabled, flagEnforce, srv.Enforce.Enabled,
 		"Route every eligible process through the proxy in the kernel (Linux, root). See proxy.server.enforce in the config")
 	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
-	cmd.Flags().StringArrayVar(&enforceExemptExecutablesFlag, "enforce-exempt-executable", nil, "Internal: executable globs the parent computed for the daemon, added to proxy.server.enforce.exempt_executables")
-	for _, name := range []string{"foreground-internal", "enforce-exempt-executable"} {
-		if err := cmd.Flags().MarkHidden(name); err != nil {
-			panic(err)
-		}
+	if err := cmd.Flags().MarkHidden("foreground-internal"); err != nil {
+		panic(err)
 	}
+	addEnforceFlags(cmd, &srv.Enforce)
 	return cmd
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
 	cfg := config.Get()
 	opts := proxyserver.RunOptions{
-		StatePath:         proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir()),
-		Host:              cfg.Config.Proxy.Server.ListenHost,
-		Port:              cfg.Config.Proxy.Server.ListenPort,
-		Enforce:           cfg.Config.Proxy.Server.Enforce.Enabled,
-		ExemptExecutables: enforceExemptExecutablesFlag,
+		StatePath: proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir()),
+		Host:      cfg.Config.Proxy.Server.ListenHost,
+		Port:      cfg.Config.Proxy.Server.ListenPort,
+		Enforce:   cfg.Config.Proxy.Server.Enforce.Enabled,
+		Overrides: enforceOverridesFlag,
 	}
 
-	// The runner walk needs this process's ancestors. The daemon has none
-	// after it detaches, so the walk happens here and the result travels in
-	// the re-exec arguments.
-	if opts.Enforce && !foregroundInternalFlag {
-		opts.ExemptExecutables = append(opts.ExemptExecutables, proxyserver.RunnerExemptGlobs()...)
+	// A locked managed config owns the policy. A flag that only narrows
+	// the scope stays allowed.
+	if cfg.IsLocked() {
+		if widening := wideningFlags(cmd.Flags().Changed, cfg.Config.Proxy.Server.Enforce); len(widening) > 0 {
+			ui.ErrorExit(config.NewManagedFlagOverrideError(widening))
+		}
+	}
+
+	// The parent and the daemon child both walk their ancestors. The globs
+	// never travel on a flag, so a caller cannot forge them under lockdown.
+	if opts.Enforce {
+		opts.Overrides.RunnerExecutables = proxyserver.RunnerExemptGlobs()
 	}
 
 	if daemonFlag && !foregroundInternalFlag {
@@ -88,7 +92,7 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 	// missing capability or an untrusted CA into an immediate error with its
 	// help, instead of a readiness timeout.
 	if opts.Enforce {
-		if err := proxyserver.PreflightEnforce(cfg, opts.ExemptExecutables); err != nil {
+		if err := proxyserver.PreflightEnforce(cfg, opts.Overrides); err != nil {
 			return err
 		}
 	}
@@ -141,10 +145,7 @@ func daemonArgs(cmd *cobra.Command, opts proxyserver.RunOptions) []string {
 		"--state", opts.StatePath,
 		"--host", opts.Host,
 		"--port", strconv.Itoa(opts.Port),
-		"--enforce="+strconv.FormatBool(opts.Enforce),
+		"--"+flagEnforce+"="+strconv.FormatBool(opts.Enforce),
 	)
-	for _, glob := range opts.ExemptExecutables {
-		args = append(args, "--enforce-exempt-executable", glob)
-	}
-	return args
+	return append(args, enforceFlagArgs(cmd, opts.Overrides, config.Get().Config.Proxy.Server.Enforce)...)
 }
