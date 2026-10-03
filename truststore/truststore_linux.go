@@ -4,11 +4,16 @@
 package truststore
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/proxy/certmanager"
 )
 
 func userScopeSupportedPlatform() bool { return false }
@@ -19,11 +24,19 @@ type linuxTrustTool struct {
 	anchorName string
 }
 
-// lookPath is overridable in tests.
-var lookPath = exec.LookPath
+// Overridable in tests.
+var (
+	lookPath         = exec.LookPath
+	detectTrustTool  = detectLinuxTrustTool
+	systemBundlePath = certmanager.SystemCABundlePath
 
-// detectTrustTool is overridable in tests so anchorDir points to a temp dir.
-var detectTrustTool = detectLinuxTrustTool
+	// p11-kit reads anchors from a distribution-specific directory. Fedora
+	// and RHEL use the pki path. Arch ships the same update-ca-trust command
+	// but its p11-kit scans /etc/ca-certificates/trust-source and never
+	// /etc/pki, so an anchor there is silently ignored.
+	pkiAnchorDir         = "/etc/pki/ca-trust/source/anchors"
+	trustSourceAnchorDir = "/etc/ca-certificates/trust-source/anchors"
+)
 
 func detectLinuxTrustTool() (linuxTrustTool, error) {
 	if _, err := lookPath("update-ca-certificates"); err == nil {
@@ -34,13 +47,22 @@ func detectLinuxTrustTool() (linuxTrustTool, error) {
 		}, nil
 	}
 	if _, err := lookPath("update-ca-trust"); err == nil {
+		dir := pkiAnchorDir
+		if dirExists(trustSourceAnchorDir) {
+			dir = trustSourceAnchorDir
+		}
 		return linuxTrustTool{
-			anchorDir:  "/etc/pki/ca-trust/source/anchors",
+			anchorDir:  dir,
 			updateCmd:  "update-ca-trust",
 			anchorName: "pmg-proxy-ca.crt",
 		}, nil
 	}
 	return linuxTrustTool{}, fmt.Errorf("no supported trust tool (update-ca-certificates / update-ca-trust) found")
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func installPlatform(certPEM []byte, scope Scope) error {
@@ -68,6 +90,24 @@ func installPlatform(certPEM []byte, scope Scope) error {
 
 	if out, err := runElevated(tool.updateCmd); err != nil {
 		return fmt.Errorf("%s failed: %w: %s", tool.updateCmd, err, strings.TrimSpace(string(out)))
+	}
+
+	// The update tool exits 0 even when it never read the anchor directory.
+	// The bundle OpenSSL reads is the only proof that the trust took effect.
+	bundle := systemBundlePath()
+	if bundle == "" {
+		return nil
+	}
+	installed, err := parseCert(certPEM)
+	if err != nil {
+		return err
+	}
+	found, err := bundleContains(bundle, func(c *x509.Certificate) bool { return c.Equal(installed) })
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("installed the CA anchor to %s and ran %s, but %s does not contain the certificate: the trust tool did not read that directory", dest, tool.updateCmd, bundle)
 	}
 	return nil
 }
@@ -100,15 +140,69 @@ func uninstallPlatform(_ string, scope Scope) error {
 	return nil
 }
 
-func statusPlatform(_ string) (bool, bool, error) {
+// statusPlatform reports the certificate as trusted only when the system
+// bundle holds it. An anchor file alone proves nothing: the update tool
+// may never have read its directory. Without a bundle to check, the anchor
+// is the best signal there is.
+func statusPlatform(commonName string) (bool, bool, error) {
 	tool, err := detectTrustTool()
 	if err != nil {
 		return false, false, nil
 	}
 
-	dest := filepath.Join(tool.anchorDir, tool.anchorName)
-	if _, err := os.Stat(dest); err == nil {
-		return false, true, nil // user scope is never trusted on Linux
+	anchor := filepath.Join(tool.anchorDir, tool.anchorName)
+	if _, err := os.Stat(anchor); err != nil {
+		return false, false, nil // user scope is never trusted on Linux
 	}
-	return false, false, nil
+
+	bundle := systemBundlePath()
+	if bundle == "" {
+		return false, true, nil
+	}
+	found, err := bundleContains(bundle, func(c *x509.Certificate) bool { return c.Subject.CommonName == commonName })
+	if err != nil {
+		return false, false, err
+	}
+	if !found {
+		log.Warnf("CA anchor %s is installed but %s does not contain it: the trust tool did not read that directory", anchor, bundle)
+	}
+	return false, found, nil
+}
+
+func parseCert(certPEM []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM certificate to install")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA certificate: %w", err)
+	}
+	return cert, nil
+}
+
+// bundleContains scans a PEM bundle for a certificate that match accepts. A
+// block that does not parse is skipped, as OpenSSL skips it.
+func bundleContains(bundle string, match func(*x509.Certificate) bool) (bool, error) {
+	data, err := os.ReadFile(bundle)
+	if err != nil {
+		return false, fmt.Errorf("read system CA bundle %s: %w", bundle, err)
+	}
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return false, nil
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		if match(cert) {
+			return true, nil
+		}
+	}
 }

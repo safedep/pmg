@@ -72,11 +72,16 @@ status` as root inspects the system keypair when it exists.
 | --- | --- | --- |
 | macOS | login keychain | System keychain (sudo) |
 | Windows | `CurrentUser\Root` | `LocalMachine\Root` (admin) |
-| Linux | not available, see below | `/usr/local/share/ca-certificates` or `/etc/pki/ca-trust` (sudo) |
+| Linux | not available, see below | `/usr/local/share/ca-certificates` (Debian, Ubuntu), `/etc/pki/ca-trust` (Fedora, RHEL) or `/etc/ca-certificates/trust-source` (Arch), with sudo |
 
 Linux has no user trust store. Running `pmg setup cert install` without `--system` on Linux
 persists the keypair and relies on `SSL_CERT_FILE` injection, which already covers Go on
 Linux. Use `--system` to trust the CA for all users.
+
+On Linux the install checks that the system bundle, the file OpenSSL and curl read, holds the
+certificate after the trust tool ran, and fails when it does not. `pmg setup cert status` and
+the `--enforce` preflight apply the same check, so an anchor file that the trust tool never
+read does not count as trusted.
 
 ## Storage and security
 
