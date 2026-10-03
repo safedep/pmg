@@ -131,17 +131,13 @@ func TestKernelReleaseAtLeast(t *testing.T) {
 	assert.False(t, kernelRelease{4, 19, 0}.atLeast(5, 15))
 }
 
-func TestParseSchedTGID(t *testing.T) {
-	tgid, ok := parseSchedTGID("pmg (4242, #threads: 3)\n---------------\nse.exec_start : 1.0\n")
-	require.True(t, ok)
-	assert.Equal(t, uint32(4242), tgid)
+func TestPIDNamespace(t *testing.T) {
+	inum, err := pidNamespace()
+	require.NoError(t, err)
 
-	_, ok = parseSchedTGID("garbage")
-	assert.False(t, ok)
-
-	// This test runs in the namespace it reads, so the global id is its own
-	// unless the test itself runs in a nested PID namespace.
-	assert.NotZero(t, globalTGID())
+	var st unix.Stat_t
+	require.NoError(t, unix.Stat("/proc/self/ns/pid", &st))
+	assert.Equal(t, uint32(st.Ino), inum)
 }
 
 func TestProcessRunsFile(t *testing.T) {
@@ -150,4 +146,5 @@ func TestProcessRunsFile(t *testing.T) {
 	assert.True(t, processRunsFile(uint32(os.Getpid()), exe))
 	assert.False(t, processRunsFile(uint32(os.Getpid()), "/bin/sh"))
 	assert.False(t, processRunsFile(4294967295, exe), "a process that is gone proves nothing")
+	assert.False(t, processRunsFile(0, exe), "a process outside the daemon's PID namespace proves nothing")
 }

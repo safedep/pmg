@@ -33,6 +33,7 @@ import (
 const (
 	helperEnv  = "PMG_ENFORCE_HELPER"
 	helperAddr = "PMG_ENFORCE_HELPER_ADDR"
+	nestedEnv  = "PMG_ENFORCE_NESTED"
 )
 
 // TestHelperProcess is the body of every child. It runs only when the test
@@ -352,6 +353,14 @@ func TestE2E_NonEnforcedPortIsNotRedirected(t *testing.T) {
 
 func TestE2E_ExecutableThatAppearsLaterIsExempted(t *testing.T) {
 	e := newE2E(t)
+	e.assertLaterExecutableExempt(netip.MustParseAddrPort("192.0.2.14:80"))
+}
+
+// assertLaterExecutableExempt copies the test binary to a path the glob
+// matches after attach and expects the exec hook to exempt it.
+func (e *e2e) assertLaterExecutableExempt(dst netip.AddrPort) {
+	t := e.t
+	t.Helper()
 	assert.Empty(t, e.handle.Status().ExemptExecutables, "the glob matches nothing at attach")
 
 	runner := filepath.Join(e.exeDir, "Runner.Worker")
@@ -361,7 +370,6 @@ func TestE2E_ExecutableThatAppearsLaterIsExempted(t *testing.T) {
 
 	// The exec hook reports the new inode, and the daemon adds it before
 	// the delayed connect happens.
-	dst := netip.MustParseAddrPort("192.0.2.14:80")
 	pid, out := e.runBinary(runner, "tcp4-delayed", dst)
 	assert.NotContains(t, out, "helper: ok", "an exempt process goes direct and never reaches the listener")
 
@@ -374,10 +382,65 @@ func TestE2E_ExecutableThatAppearsLaterIsExempted(t *testing.T) {
 	assert.Equal(t, d.ExeInode, files[0].Inode)
 }
 
-func TestE2E_OtherNetworkNamespaceIsLeftAlone(t *testing.T) {
+func requireUnshare(t *testing.T) {
+	t.Helper()
 	if _, err := exec.LookPath("unshare"); err != nil {
 		t.Skip("unshare not installed")
 	}
+}
+
+// A daemon in a container has a PID namespace of its own, and the kernel's
+// ids differ from the ones it and its /proc know. The test re-executes
+// itself as pid 1 of a new namespace with a fresh /proc, and the inner
+// test attaches from there.
+func TestE2E_DaemonInNestedPIDNamespace(t *testing.T) {
+	requireUnshare(t)
+	if os.Getenv(nestedEnv) != "" {
+		t.Skip("already nested")
+	}
+
+	cmd := exec.Command("unshare", "-pf", "--mount-proc", os.Args[0], "-test.run=^TestE2E_NestedPIDNamespaceInner$", "-test.v")
+	cmd.Env = append(os.Environ(), nestedEnv+"=1")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	assert.Contains(t, string(out), "--- PASS: TestE2E_NestedPIDNamespaceInner", string(out))
+}
+
+func TestE2E_NestedPIDNamespaceInner(t *testing.T) {
+	if os.Getenv(nestedEnv) == "" {
+		t.Skip("runs under unshare from TestE2E_DaemonInNestedPIDNamespace")
+	}
+	require.Equal(t, 1, os.Getpid(), "unshare -pf makes the test pid 1 of the new namespace")
+	e := newE2E(t)
+
+	// The daemon's own connection passes. The destination is unroutable, so
+	// a direct connect fails on its own.
+	own := netip.MustParseAddrPort("192.0.2.30:80")
+	if conn, err := net.DialTimeout("tcp4", own.String(), 300*time.Millisecond); err == nil {
+		_ = conn.Close()
+	}
+	d := e.decision(func(d Decision) bool { return d.Destination == own })
+	assert.Equal(t, ActionExemptDaemon, d.Action)
+	assert.Equal(t, uint32(os.Getpid()), d.PID, "the decision names the daemon's pid in its own namespace")
+	assert.False(t, e.acceptedFor(own, 300*time.Millisecond))
+
+	// A child in the same namespace is redirected, and the kernel reports
+	// the pid the daemon knows.
+	dst := netip.MustParseAddrPort("192.0.2.31:80")
+	pid, out := e.run("tcp4", dst)
+	assert.Contains(t, out, "helper: ok")
+	d = e.decision(func(d Decision) bool { return d.Destination == dst })
+	assert.Equal(t, ActionRedirect, d.Action)
+	assert.Equal(t, uint32(pid), d.PID)
+	assert.True(t, e.acceptedFor(dst, 2*time.Second))
+
+	// The exec hook reports the pid in this namespace too, so the daemon
+	// can confirm the executable through its own /proc.
+	e.assertLaterExecutableExempt(netip.MustParseAddrPort("192.0.2.32:80"))
+}
+
+func TestE2E_OtherNetworkNamespaceIsLeftAlone(t *testing.T) {
+	requireUnshare(t)
 	e := newE2E(t)
 	dst := netip.MustParseAddrPort("192.0.2.15:80")
 

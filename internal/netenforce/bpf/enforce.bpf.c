@@ -11,7 +11,7 @@
  *
  *   1. another network namespace than the proxy: pass
  *   2. destination in the skip list: pass
- *   3. the daemon's own pid: pass
+ *   3. the daemon's own pid, in the daemon's PID namespace: pass
  *   4. exempt uid, or not an eligible uid: pass
  *   5. exempt executable (dev, inode): pass
  *   6. store the original destination, rewrite to the proxy
@@ -45,8 +45,8 @@ struct cfg {
 	__u32 proxy_ip4;    /* network order */
 	__u16 proxy_port;   /* network order */
 	__u16 flags;        /* CFG_* */
-	__u32 daemon_tgid;  /* the only pid that is exempt */
-	__u32 _pad;
+	__u32 daemon_tgid;  /* the only pid that is exempt, in its namespace */
+	__u32 pidns_inum;   /* the daemon's PID namespace, ns.inum */
 	__u64 netns_cookie; /* only sockets in this namespace are routed */
 	__u32 proxy_ip6[4]; /* network order, valid with CFG_HAS_PROXY6 */
 };
@@ -81,7 +81,7 @@ struct dst_key {
 struct exec_event {
 	__u64 dev;
 	__u64 ino;
-	__u32 tgid;
+	__u32 tgid; /* in the daemon's PID namespace, 0 outside it */
 	__u32 _pad;
 };
 
@@ -227,6 +227,36 @@ static __always_inline void fill_exe(struct event *e)
 	e->exe_dev = in->i_sb->s_dev;
 }
 
+/* tgid_in_ns returns the thread group id of the current task as the PID
+ * namespace with inode inum numbers it, or 0 when the task has no id there.
+ * bpf_get_current_pid_tgid reports the id of the initial namespace, which
+ * is not the id the daemon knows when it runs in a container. The index
+ * into numbers is a variable, so the reads go through bpf_probe_read_kernel:
+ * the verifier rejects a variable offset on a BTF pointer. */
+static __always_inline __u32 tgid_in_ns(__u32 inum)
+{
+	struct task_struct *t = bpf_get_current_task_btf();
+	struct pid *pid = t->group_leader->thread_pid;
+	if (!pid)
+		return 0;
+	__u32 level = pid->level;
+	if (level > 32)
+		return 0;
+
+	struct upid *u = (struct upid *)((char *)pid + bpf_core_field_offset(pid->numbers) +
+					 level * bpf_core_type_size(struct upid));
+	int nr;
+	struct pid_namespace *ns;
+	__u32 got;
+	if (bpf_probe_read_kernel(&nr, sizeof(nr), &u->nr))
+		return 0;
+	if (bpf_probe_read_kernel(&ns, sizeof(ns), &u->ns) || !ns)
+		return 0;
+	if (bpf_probe_read_kernel(&got, sizeof(got), &ns->ns.inum))
+		return 0;
+	return got == inum ? (__u32)nr : 0;
+}
+
 static __always_inline void finish(struct cfg *c, struct event *e, __u8 action)
 {
 	e->action = action;
@@ -265,7 +295,7 @@ static __always_inline int in_skip6(const __u32 ip6[4])
  */
 static __always_inline int decide(struct bpf_sock_addr *ctx, struct cfg *c, struct event *e, int skipped)
 {
-	e->tgid = bpf_get_current_pid_tgid() >> 32;
+	e->tgid = tgid_in_ns(c->pidns_inum);
 	e->uid = bpf_get_current_uid_gid();
 	bpf_get_current_comm(e->comm, sizeof(e->comm));
 
@@ -474,9 +504,10 @@ int pmg_exec(__u64 *ctx)
 		bpf_map_delete_elem(&seen_exe, &k);
 		return 0;
 	}
+	struct cfg *c = get_cfg();
 	ev->dev = k.dev;
 	ev->ino = k.ino;
-	ev->tgid = bpf_get_current_pid_tgid() >> 32;
+	ev->tgid = c ? tgid_in_ns(c->pidns_inum) : 0;
 	ev->_pad = 0;
 	bpf_ringbuf_submit(ev, 0);
 	return 0;

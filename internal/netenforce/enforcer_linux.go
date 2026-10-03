@@ -15,7 +15,6 @@ import (
 	"runtime/debug"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -168,10 +167,15 @@ func (h *linuxHandle) fillMaps(t Target) error {
 	}
 	h.status.NetnsCookie = cookie
 
+	pidns, err := pidNamespace()
+	if err != nil {
+		return err
+	}
 	cfg := bpf.EnforceCfg{
 		ProxyIp4:    ipv4Word(t.Addr.Addr().Unmap().As4()),
 		ProxyPort:   portWord(t.Addr.Port()),
-		DaemonTgid:  globalTGID(),
+		DaemonTgid:  uint32(os.Getpid()),
+		PidnsInum:   pidns,
 		NetnsCookie: cookie,
 	}
 	if h.trace {
@@ -222,6 +226,8 @@ func (h *linuxHandle) addSkip(prefix netip.Prefix) error {
 // match on the inode number also exempts the kernel's (dev, inode) once
 // /proc/<tgid>/exe confirms that the process runs the matched file. Inode
 // numbers repeat across filesystems, so the inode alone proves nothing.
+// The programs report the tgid in this process's PID namespace, the one
+// /proc shows, and 0 for a process outside it.
 func (h *linuxHandle) refreshExempt(exec *bpf.EnforceExecEvent) error {
 	files, err := expandExecutables(h.policy.ExemptExecutables)
 	if err != nil {
@@ -246,6 +252,9 @@ func (h *linuxHandle) refreshExempt(exec *bpf.EnforceExecEvent) error {
 // processRunsFile reports whether the process executes path. A process that
 // exited, or any lookup failure, counts as no. The next exec reports again.
 func processRunsFile(tgid uint32, path string) bool {
+	if tgid == 0 {
+		return false
+	}
 	exe, err := os.Readlink(filepath.Join("/proc", strconv.FormatUint(uint64(tgid), 10), "exe"))
 	if err != nil {
 		return false
@@ -481,35 +490,25 @@ func netnsCookie() (uint64, error) {
 	return cookie, nil
 }
 
-// globalTGID returns this process's thread group id as the kernel sees it.
-// bpf_get_current_pid_tgid reports ids of the initial PID namespace, and
-// os.Getpid reports the id in this process's namespace. They differ when
-// the daemon runs in a container. /proc/self/sched prints the global id in
-// its first line. Without that file the namespaced id is the best guess.
-func globalTGID() uint32 {
-	data, err := os.ReadFile("/proc/self/sched")
+// pidNamespace returns the inode of this process's PID namespace. The
+// programs translate every thread group id into that namespace before they
+// compare it with os.Getpid or hand it to the daemon, because the kernel's
+// own ids belong to the initial namespace and differ in a container. The
+// daemon reads /proc/<tgid> for those ids, so /proc must belong to the same
+// namespace, which it does not after an unshare without a new mount.
+func pidNamespace() (uint32, error) {
+	var st unix.Stat_t
+	if err := unix.Stat("/proc/self/ns/pid", &st); err != nil {
+		return 0, fmt.Errorf("enforce: read the PID namespace: %w", err)
+	}
+	self, err := os.Readlink("/proc/self")
 	if err != nil {
-		return uint32(os.Getpid())
+		return 0, fmt.Errorf("enforce: read /proc/self: %w", err)
 	}
-	if tgid, ok := parseSchedTGID(string(data)); ok {
-		return tgid
+	if self != strconv.Itoa(os.Getpid()) {
+		return 0, fmt.Errorf("enforce: /proc belongs to another PID namespace: it shows this process as pid %s, not %d", self, os.Getpid())
 	}
-	return uint32(os.Getpid())
-}
-
-// parseSchedTGID reads "comm (tgid, #threads: n)" from /proc/<pid>/sched.
-func parseSchedTGID(sched string) (uint32, bool) {
-	line, _, _ := strings.Cut(sched, "\n")
-	start := strings.LastIndex(line, "(")
-	end := strings.Index(line, ",")
-	if start < 0 || end < start {
-		return 0, false
-	}
-	n, err := strconv.ParseUint(strings.TrimSpace(line[start+1:end]), 10, 32)
-	if err != nil {
-		return 0, false
-	}
-	return uint32(n), true
+	return uint32(st.Ino), nil
 }
 
 func loaderVersion() string {

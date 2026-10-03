@@ -28,6 +28,12 @@ typedef __u32 dev_t;
 #define __uint(name, val) int (*name)[val]
 #define __type(name, val) typeof(val) *name
 
+/* CO-RE queries, as libbpf's bpf_core_read.h defines them. */
+#define BPF_FIELD_BYTE_OFFSET 0
+#define BPF_TYPE_SIZE 1
+#define bpf_core_field_offset(field) __builtin_preserve_field_info(field, BPF_FIELD_BYTE_OFFSET)
+#define bpf_core_type_size(type) __builtin_preserve_type_info(*(typeof(type) *)0, BPF_TYPE_SIZE)
+
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define bpf_htons(x) __builtin_bswap16(x)
 #define bpf_ntohs(x) __builtin_bswap16(x)
@@ -165,8 +171,30 @@ struct mm_struct {
 	struct file *exe_file;
 };
 
+struct ns_common {
+	unsigned int inum; /* the inode of /proc/<pid>/ns/pid */
+};
+
+struct pid_namespace {
+	struct ns_common ns;
+};
+
+struct upid {
+	int nr;
+	struct pid_namespace *ns;
+};
+
+/* The kernel declares numbers as a flexible array with level + 1 entries,
+ * one per namespace from the initial one inwards. */
+struct pid {
+	unsigned int level;
+	struct upid numbers[1];
+};
+
 struct task_struct {
 	struct mm_struct *mm;
+	struct task_struct *group_leader;
+	struct pid *thread_pid;
 };
 
 struct linux_binprm {
@@ -181,6 +209,7 @@ static long (*bpf_map_delete_elem)(void *map, const void *key) = (void *)3;
 static __u64 (*bpf_get_current_pid_tgid)(void) = (void *)14;
 static __u64 (*bpf_get_current_uid_gid)(void) = (void *)15;
 static long (*bpf_get_current_comm)(void *buf, __u32 size) = (void *)16;
+static long (*bpf_probe_read_kernel)(void *dst, __u32 size, const void *unsafe_ptr) = (void *)113;
 static void *(*bpf_sk_storage_get)(void *map, void *sk, void *value, __u64 flags) = (void *)107;
 static __u64 (*bpf_get_netns_cookie)(void *ctx) = (void *)122;
 static void *(*bpf_ringbuf_reserve)(void *ringbuf, __u64 size, __u64 flags) = (void *)131;

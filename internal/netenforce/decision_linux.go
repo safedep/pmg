@@ -16,7 +16,7 @@ import (
 // ring buffer reports it.
 type Decision struct {
 	Action      string
-	PID         uint32
+	PID         uint32 // in the daemon's PID namespace, 0 for a process outside it
 	UID         uint32
 	Protocol    string
 	Destination netip.AddrPort

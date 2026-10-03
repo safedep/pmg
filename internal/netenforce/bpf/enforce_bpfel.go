@@ -19,7 +19,7 @@ type EnforceCfg struct {
 	ProxyPort   uint16
 	Flags       uint16
 	DaemonTgid  uint32
-	Pad         uint32
+	PidnsInum   uint32
 	NetnsCookie uint64
 	ProxyIp6    [4]uint32
 }

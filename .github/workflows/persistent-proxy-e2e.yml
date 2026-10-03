@@ -131,9 +131,11 @@ jobs:
           env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1 | grep -q "SafeDep PMG Proxy CA"
           code=$(env -i /usr/bin/curl -sS -o /dev/null -w '%{http_code}' https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz)
           test "$code" = "403"
-          # grep -v would pass on any non-matching line, so the absence is
-          # checked as a failed positive match.
-          if env -i /usr/bin/curl -sS -o /dev/null -v https://github.com/ 2>&1 | grep -q "SafeDep PMG Proxy CA"; then
+          # The request must succeed, or a refused connection would pass as
+          # "not intercepted". grep -v would pass on any non-matching line,
+          # so the absence is checked as a failed positive match.
+          out=$(env -i /usr/bin/curl -sS -o /dev/null -v https://github.com/ 2>&1)
+          if grep -q "SafeDep PMG Proxy CA" <<<"$out"; then
             echo "ERROR: github.com was intercepted" >&2
             exit 1
           fi
@@ -157,7 +159,8 @@ jobs:
             echo "ERROR: stop should have exited non-zero (a package was blocked)"
             exit 1
           fi
-          if env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1 | grep -q "SafeDep PMG Proxy CA"; then
+          out=$(env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1)
+          if grep -q "SafeDep PMG Proxy CA" <<<"$out"; then
             echo "ERROR: enforcement is still on after the stop" >&2
             exit 1
           fi
