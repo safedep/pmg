@@ -39,6 +39,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/caarlos0/env/v11 v11.4.1 // indirect
+	github.com/cilium/ebpf v0.22.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/denisbrodbeck/machineid v1.0.1 // indirect
@@ -89,3 +90,5 @@ require (
 	modernc.org/sqlite v1.60.1 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+tool github.com/cilium/ebpf/cmd/bpf2go
