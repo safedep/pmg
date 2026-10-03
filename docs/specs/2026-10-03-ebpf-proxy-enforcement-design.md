@@ -1,6 +1,6 @@
 # eBPF enforcement for the persistent proxy on Linux
 
-Status: proposal, revision 6. POC verified on 2026-10-03. See
+Status: proposal, revision 7. POC verified on 2026-10-03. See
 [scripts/ebpf-enforce-poc](../../scripts/ebpf-enforce-poc/README.md).
 
 ## Problem
@@ -704,3 +704,27 @@ this design should own.
    Self-hosted operators set `eligible_users` themselves.
 3. Commit the compiled BPF object with a CI reproducibility check, or build
    it at release time. I recommend committing it.
+
+## Follow-ups
+
+Items found during the review of PR #507 that stay out of it. Phases 4 and 5
+of the rollout are not repeated here.
+
+1. **Configuration surface.** Every policy key except `enabled` is file-only,
+   and a root daemon reads the managed config or root's per-user file, never
+   the file a user edits. Spec:
+   [2026-10-03-ebpf-enforcement-config-surface-design.md](./2026-10-03-ebpf-enforcement-config-surface-design.md).
+2. **Refuse a second enforcing daemon on the same cgroup.** Two daemons with
+   different state files both attach, because link attachments are
+   multi-attach. The first one takes every redirect. The second sees a
+   loopback destination, which the skip list passes, and never gets a
+   connection, but its status says active. The preflight should query the
+   programs attached to the cgroup, which cilium/ebpf can do, and refuse
+   when one of ours (`pmg_connect4`) is already there: "another pmg daemon
+   already enforces `<cgroup>`". The same-state-file case is already refused
+   through the state file.
+3. **Say that a crash fails open.** The kernel detaches the programs when
+   the daemon dies, which `lifecycle/detach-on-crash` proves. Until a
+   restart nothing routes through PMG. `docs/persistent-proxy.md` should say
+   so next to the detach guarantee, and point at `Restart=on-failure` in the
+   example unit, which already has it.
