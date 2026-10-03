@@ -6,6 +6,7 @@ require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261001145028-14c0defb961c.1
 	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261001145028-14c0defb961c.2
 	github.com/Masterminds/semver v1.5.0
+	github.com/cilium/ebpf v0.22.0
 	github.com/elazarl/goproxy v1.9.2
 	github.com/fatih/color v1.19.0
 	github.com/goccy/go-yaml v1.19.2
@@ -39,7 +40,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/caarlos0/env/v11 v11.4.1 // indirect
-	github.com/cilium/ebpf v0.22.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/denisbrodbeck/machineid v1.0.1 // indirect

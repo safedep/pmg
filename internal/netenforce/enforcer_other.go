@@ -2,10 +2,10 @@
 
 package netenforce
 
-import "runtime"
+import "github.com/safedep/pmg/internal/platform"
 
 func newPlatformEnforcer() (Enforcer, error) {
-	return nil, &unsupportedError{goos: runtime.GOOS}
+	return nil, &unsupportedError{goos: platform.OSName()}
 }
 
 // unsupportedError names the platform and unwraps to ErrUnsupported.
