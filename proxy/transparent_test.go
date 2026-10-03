@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,9 +57,15 @@ func TestRefuseOwnAddress(t *testing.T) {
 	assert.NoError(t, ps.refuseOwnAddress("tcp", "203.0.113.9:443", nil))
 }
 
+// The OS error list is platform.IsTransientAcceptError's, tested there.
 func TestIsTemporaryAcceptError(t *testing.T) {
-	assert.True(t, isTemporaryAcceptError(&net.OpError{Op: "accept", Err: syscall.EMFILE}))
-	assert.True(t, isTemporaryAcceptError(syscall.ECONNABORTED))
+	assert.True(t, isTemporaryAcceptError(&net.OpError{Op: "accept", Err: timeoutError{}}))
 	assert.False(t, isTemporaryAcceptError(net.ErrClosed))
 	assert.False(t, isTemporaryAcceptError(errors.New("listener gone")))
 }
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }

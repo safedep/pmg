@@ -14,10 +14,10 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // OriginalDestinationResolver returns where a redirected client wanted to
@@ -117,12 +117,7 @@ func isTemporaryAcceptError(err error) bool {
 	if errors.As(err, &ne) && ne.Timeout() {
 		return true
 	}
-	for _, errno := range []syscall.Errno{syscall.EMFILE, syscall.ENFILE, syscall.ECONNABORTED, syscall.ENOBUFS} {
-		if errors.Is(err, errno) {
-			return true
-		}
-	}
-	return false
+	return platform.IsTransientAcceptError(err)
 }
 
 // Accept returns the next connection the http.Server should serve. The sniff
@@ -215,6 +210,8 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 	}
 
 	host, port := l.ps.transparentTarget(sni, tc.orig, 443)
+	log.Debugf("transparent: TLS from %s to %s, server name %q, target %s:%d",
+		tc.RemoteAddr(), tc.orig, sni, host, port)
 	if l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS") {
 		tlsConfig, err := l.ps.config.CertManager.GetTLSConfig(host)
 		if err != nil {
@@ -369,6 +366,10 @@ func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.
 		http.Error(w, "PMG proxy: a redirected request cannot target the proxy itself", http.StatusBadRequest)
 		return
 	}
+
+	orig, _ := originalDestinationFromContext(req.Context())
+	log.Debugf("transparent: %s from %s to %s, host header %q, target %s",
+		scheme, req.RemoteAddr, orig, req.Host, host)
 
 	req.URL.Scheme = scheme
 	req.URL.Host = host
