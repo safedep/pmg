@@ -1206,6 +1206,34 @@ func NewManagedConfigError() error {
 	return managedError(fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath))
 }
 
+// RequireUserScope returns nil when a config write without --system may
+// change the per-user file. A managed config refuses, and names --system
+// when the process is root, because root may change that file. Sudo without
+// a managed config refuses too, because the write would land in root's
+// per-user file.
+func RequireUserScope(command string) error {
+	if globalConfig.IsManaged() {
+		if platform.IsPrivileged() {
+			return newManagedNeedsSystemError(command)
+		}
+		return NewManagedConfigError()
+	}
+	if platform.IsSudo() {
+		return NewSudoNeedsSystemError(command)
+	}
+	return nil
+}
+
+func newManagedNeedsSystemError(command string) error {
+	human := fmt.Sprintf("configuration is globally managed (%s), and only `pmg config %s --system` changes it",
+		globalConfig.configFilePath, command)
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(human).
+		WithHelp(fmt.Sprintf("Run `pmg config %s --system` to change the managed config.", command)).
+		Wrap(errors.New(human))
+}
+
 // NewSudoNeedsSystemError refuses a config write under sudo that names no
 // scope. Without --system the command would change root's per-user file,
 // which the user never sees and no daemon is meant to read.

@@ -9,7 +9,6 @@ import (
 
 	appConfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/editor"
-	"github.com/safedep/pmg/internal/platform"
 	"github.com/spf13/cobra"
 )
 
@@ -84,8 +83,8 @@ func setValue(key, value string, system bool) error {
 	if system {
 		return appConfig.SetSystemConfigValue(key, value)
 	}
-	if platform.IsSudo() {
-		return appConfig.NewSudoNeedsSystemError("set")
+	if err := appConfig.RequireUserScope("set"); err != nil {
+		return err
 	}
 	return appConfig.SetConfigValue(key, value)
 }
@@ -124,9 +123,9 @@ func runEdit(system bool) error {
 }
 
 // editPath picks the file to open and creates it when it is missing. The
-// managed file needs root. Under sudo without --system the command refuses,
-// because it would open root's per-user file, which no daemon is meant to
-// read and which the user never sees.
+// managed file needs root. Without --system the command refuses under a
+// managed config, and under sudo, because it would open root's per-user
+// file, which no daemon is meant to read and which the user never sees.
 func editPath(system bool) (string, error) {
 	if system {
 		if err := appConfig.RequireSystemScope("pmg config edit --system"); err != nil {
@@ -134,16 +133,11 @@ func editPath(system bool) (string, error) {
 		}
 		return appConfig.EnsureSystemConfigFile()
 	}
-	if platform.IsSudo() {
-		return "", appConfig.NewSudoNeedsSystemError("edit")
+	if err := appConfig.RequireUserScope("edit"); err != nil {
+		return "", err
 	}
 
-	cfg := appConfig.Get()
-	if cfg.IsManaged() {
-		return "", appConfig.NewManagedConfigError()
-	}
-
-	path := cfg.ConfigFilePath()
+	path := appConfig.Get().ConfigFilePath()
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		if err := appConfig.WriteTemplateConfig(); err != nil {
 			return "", fmt.Errorf("failed to create config file: %w", err)

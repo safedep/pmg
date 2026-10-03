@@ -1,5 +1,6 @@
 # guarantee: under sudo, pmg config edit and set without --system refuse and
 # name both files, instead of changing root's per-user config in silence.
+# Under a managed config they refuse as globally managed and name --system.
 
 [!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
 
@@ -12,3 +13,13 @@ stderr 'pmg config edit. would change root.s per-user config at'
 
 ! exec pmg config set paranoid true
 stderr 'pmg config set. would change root.s per-user config at'
+
+exec pmg config set --system paranoid false
+
+! exec pmg config set paranoid true
+stderr 'globally managed'
+stderr 'pmg config set --system'
+
+! exec pmg config edit
+stderr 'globally managed'
+stderr 'pmg config edit --system'

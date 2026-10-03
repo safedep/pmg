@@ -12,12 +12,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// isolateUserConfig points the per-user config at a temporary directory.
+// A refusal that does not fire would otherwise write the test's value into
+// the real config of the account that runs the tests.
+func isolateUserConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	appConfig.Reload()
+	t.Cleanup(appConfig.Reload)
+}
+
 func asSudo(t *testing.T) {
 	t.Helper()
+	isolateUserConfig(t)
 	orig := platform.IsPrivileged
 	platform.IsPrivileged = func() bool { return true }
 	t.Cleanup(func() { platform.IsPrivileged = orig })
 	t.Setenv("SUDO_USER", "alice")
+	if !platform.IsSudo() {
+		t.Skip("sudo cannot be faked on this platform")
+	}
 }
 
 func requirePermissionDenied(t *testing.T, err error) usefulerror.UsefulError {
@@ -45,6 +59,7 @@ func TestEditUnderSudoWithoutSystemRefuses(t *testing.T) {
 }
 
 func TestSystemScopeNeedsRoot(t *testing.T) {
+	isolateUserConfig(t)
 	orig := platform.IsPrivileged
 	platform.IsPrivileged = func() bool { return false }
 	t.Cleanup(func() { platform.IsPrivileged = orig })

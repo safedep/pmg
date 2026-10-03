@@ -507,7 +507,7 @@
   title: "sudo config edit without --system refuses"
   category: enforce
   tier: P1
-  guarantee: "Under sudo, pmg config edit and set without --system refuse and name both files."
+  guarantee: "Under sudo, pmg config edit and set without --system refuse and name both files. Under a managed config they refuse as globally managed and name --system."
   labels: [config]
 - id: enforce/policy/flags-add-to-file
   title: "policy flags add to the file"

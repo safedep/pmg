@@ -125,7 +125,8 @@ pmg config get --system proxy.server.enforce.ports
 `edit` and `set` need root and create the file from the template when it is missing, with the
 same ownership checks as `pmg setup install --system`. `get` works for any user. Under `sudo`
 without `--system`, `edit` and `set` refuse and name both files, instead of changing root's
-per-user config in silence.
+per-user config in silence. When a managed config exists, they refuse without `--system` for
+every user, and tell root to add the flag.
 
 ## Globally Managed Configuration
 
