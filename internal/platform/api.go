@@ -44,6 +44,7 @@ func SystemProfilePath() string { return systemProfilePath() }
 // IsTransientAcceptError reports whether err is the OS saying that accept
 // failed for a reason that clears on its own, such as the descriptor limit.
 // A listener keeps accepting after one. Any other error ends the listener.
+// Linux names the errno values. Every other platform reports false.
 func IsTransientAcceptError(err error) bool { return isTransientAcceptError(err) }
 
 // ParentProcessName returns the file name of the image that started this
