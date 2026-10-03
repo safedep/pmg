@@ -98,6 +98,18 @@ type ProxyConfig struct {
 	// upstream connections (e.g. to trust a mock registry's certificate). nil
 	// keeps the production default.
 	UpstreamTLSClientConfig *tls.Config
+
+	// Transparent accepts clients that the kernel redirected to the listener
+	// and that do not speak the proxy protocol. The listener sniffs each
+	// connection: TLS to a registry host is terminated with CertManager, other
+	// TLS is spliced to its destination, and origin-form HTTP is served as a
+	// proxy request. Proxy-aware clients are unaffected. Off by default.
+	Transparent bool
+
+	// OriginalDestination recovers where a redirected client wanted to go.
+	// The enforcement layer provides it. nil means the listener falls back to
+	// the SNI or the Host header.
+	OriginalDestination OriginalDestinationResolver
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -183,6 +195,7 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	}
 
 	ps.registerHandlers()
+	proxy.NonproxyHandler = http.HandlerFunc(ps.serveTransparentRequest)
 
 	return ps, nil
 }
@@ -254,6 +267,9 @@ func (ps *proxyServer) Start() error {
 	}
 
 	ps.listener = listener
+	if ps.config.Transparent {
+		listener = newTransparentListener(listener, ps)
+	}
 
 	serverTimeout := ps.config.ServerReadWriteTimeout
 	if serverTimeout == 0 {
@@ -264,12 +280,13 @@ func (ps *proxyServer) Start() error {
 		Handler:      ps.proxy,
 		ReadTimeout:  serverTimeout,
 		WriteTimeout: serverTimeout,
+		ConnContext:  transparentConnContext,
 	}
 
 	log.Debugf("Proxy server listening on %s", ps.Address())
 
 	go func() {
-		if err := ps.server.Serve(ps.listener); err != nil && err != http.ErrServerClosed {
+		if err := ps.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Errorf("Proxy server error: %v", err)
 		}
 	}()
@@ -324,38 +341,7 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-		reqCtx, err := newRequestContextFromURL(host, "CONNECT")
-		if err != nil {
-			log.Errorf("Failed to parse CONNECT request for %s: %v", host, err)
-			return goproxy.OkConnect, host
-		}
-
-		ps.mu.RLock()
-		shouldMITM := false
-		for _, interceptor := range ps.interceptors {
-			if !interceptor.ShouldIntercept(reqCtx) {
-				continue
-			}
-
-			mitm := true
-			if decider, ok := interceptor.(MITMDecider); ok {
-				mitm = decider.ShouldMITM(reqCtx)
-			}
-
-			if !mitm {
-				// Allow non-MITM interceptors (e.g., telemetry) to observe CONNECT traffic.
-				if _, err := interceptor.HandleRequest(reqCtx); err != nil {
-					log.Errorf("[%s] Interceptor %s error on CONNECT: %v", reqCtx.RequestID, interceptor.Name(), err)
-				}
-				continue
-			}
-
-			shouldMITM = true
-			log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
-		}
-		ps.mu.RUnlock()
-
-		if shouldMITM {
+		if ps.shouldMITM(host, "CONNECT") {
 			mitmAction := &goproxy.ConnectAction{
 				Action: goproxy.ConnectMitm,
 				TLSConfig: func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
@@ -371,10 +357,51 @@ func (ps *proxyServer) configureMITM() {
 			return mitmAction, host
 		}
 
-		// Tunnel without interception
-		log.Debugf("[%s] Tunneling %s (no interceptor)", reqCtx.RequestID, host)
 		return goproxy.OkConnect, host
 	}))
+}
+
+// shouldMITM asks the interceptors whether a tunnel to host:port must be
+// terminated. Interceptors that observe but never MITM, such as telemetry,
+// see the tunnel through HandleRequest. The CONNECT handler and the
+// transparent listener share this decision, so a redirected client and a
+// proxy-aware client get the same answer for the same host.
+func (ps *proxyServer) shouldMITM(host, via string) bool {
+	reqCtx, err := newRequestContextFromURL(host, "CONNECT")
+	if err != nil {
+		log.Errorf("Failed to parse %s request for %s: %v", via, host, err)
+		return false
+	}
+
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+
+	shouldMITM := false
+	for _, interceptor := range ps.interceptors {
+		if !interceptor.ShouldIntercept(reqCtx) {
+			continue
+		}
+
+		mitm := true
+		if decider, ok := interceptor.(MITMDecider); ok {
+			mitm = decider.ShouldMITM(reqCtx)
+		}
+
+		if !mitm {
+			if _, err := interceptor.HandleRequest(reqCtx); err != nil {
+				log.Errorf("[%s] Interceptor %s error on %s: %v", reqCtx.RequestID, interceptor.Name(), via, err)
+			}
+			continue
+		}
+
+		shouldMITM = true
+		log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
+	}
+
+	if !shouldMITM {
+		log.Debugf("[%s] Tunneling %s (no interceptor)", reqCtx.RequestID, host)
+	}
+	return shouldMITM
 }
 
 // upstreamRoundTrip executes the upstream round-trip with bounded retries for

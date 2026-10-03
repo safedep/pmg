@@ -134,6 +134,7 @@ type Registry struct {
 	pypiMounts  []mount
 	requests    []RecordedRequest
 	server      *httptest.Server
+	plainServer *httptest.Server
 	goServer    *httptest.Server
 	cargoServer *httptest.Server
 }
@@ -146,6 +147,9 @@ func newRegistry() *Registry {
 		cargo: map[string]CargoCrate{},
 	}
 	r.server = httptest.NewTLSServer(http.HandlerFunc(r.serve))
+	// Plain-HTTP twin of the registry. A client the kernel redirected from
+	// port 80 speaks plain HTTP, and the proxy forwards it as plain HTTP.
+	r.plainServer = httptest.NewServer(http.HandlerFunc(r.serve))
 	// Plain-HTTP GOPROXY endpoint for the interceptor's out-of-band .info
 	// fetches, which go straight to the upstream base URL rather than through
 	// the proxy under test. It also serves the /goproxy base path used to
@@ -165,12 +169,15 @@ func newRegistry() *Registry {
 
 func (r *Registry) addr() string { return r.server.Listener.Addr().String() }
 
+func (r *Registry) plainAddr() string { return r.plainServer.Listener.Addr().String() }
+
 func (r *Registry) goBaseURL() string { return r.goServer.URL }
 
 func (r *Registry) cargoBaseURL() string { return r.cargoServer.URL }
 
 func (r *Registry) close() {
 	r.server.Close()
+	r.plainServer.Close()
 	r.goServer.Close()
 	r.cargoServer.Close()
 }
