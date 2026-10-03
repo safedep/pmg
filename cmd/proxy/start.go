@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	daemonFlag             bool
-	logFileFlag            string
-	foregroundInternalFlag bool
-	enforceExemptExecutablesFlag      []string
+	daemonFlag                   bool
+	logFileFlag                  string
+	foregroundInternalFlag       bool
+	enforceExemptExecutablesFlag []string
 )
 
 func newStartCommand() *cobra.Command {
