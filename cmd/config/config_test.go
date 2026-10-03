@@ -17,9 +17,9 @@ import (
 // the real config of the account that runs the tests.
 func isolateUserConfig(t *testing.T) {
 	t.Helper()
+	t.Cleanup(appConfig.Reload)
 	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
 	appConfig.Reload()
-	t.Cleanup(appConfig.Reload)
 }
 
 func asSudo(t *testing.T) {

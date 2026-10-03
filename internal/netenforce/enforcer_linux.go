@@ -156,7 +156,7 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	}
 
 	if err := h.fillMaps(t); err != nil {
-		return nil, errors.Join(err, h.objs.Close())
+		return nil, errors.Join(err, h.Close())
 	}
 	if err := h.attach(cgroupPath); err != nil {
 		return nil, errors.Join(err, h.Close())
