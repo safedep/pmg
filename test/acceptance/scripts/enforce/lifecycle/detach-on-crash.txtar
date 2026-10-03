@@ -1,0 +1,21 @@
+# guarantee: when the daemon dies without a clean stop, the kernel removes
+# enforcement. No process is left redirected to a dead port.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:curl] skip 'curl not installed'
+[!exec:jq] skip 'jq not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec curl -sSv -o /dev/null https://registry.npmjs.org/
+stderr 'issuer:.*SafeDep PMG Proxy CA'
+
+exec sh -c 'kill -9 "$(jq -r .pid "$ENFORCE_STATE")"'
+sleep 1s
+
+exec curl -sSv -o /dev/null https://registry.npmjs.org/
+! stderr 'SafeDep PMG Proxy CA'

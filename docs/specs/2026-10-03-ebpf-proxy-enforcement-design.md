@@ -1,6 +1,6 @@
 # eBPF enforcement for the persistent proxy on Linux
 
-Status: proposal, revision 3. POC verified on 2026-10-03. See
+Status: proposal, revision 4. POC verified on 2026-10-03. See
 [scripts/ebpf-enforce-poc](../../scripts/ebpf-enforce-poc/README.md).
 
 ## Problem
@@ -108,13 +108,17 @@ and every client started with `env -i`:
 | --- | --- |
 | `curl`, Python `urllib`, Go `net/http` | yes |
 | pip 26.2 upstream, pip 24.0 Debian | yes |
-| npm 10.9 on Node 22.22 | no |
-| npm and `fetch()` with `--use-system-ca` | yes |
+| bun 1.3 | yes |
+| npm 10.9, pnpm 10.28, yarn 1.22 on Node 22.22 | no |
+| the same with `NODE_USE_SYSTEM_CA=1` | yes |
+| uv 0.8 | no |
+| uv 0.8 with `UV_NATIVE_TLS=1` | yes |
 | Python `requests` (`certifi` bundle) | no |
+| poetry 2.1 | not conclusive in the POC |
 
 Node is the one gap that matters, because it holds npm, pnpm, yarn and aube.
 Node 22.15 and later read the system store when `NODE_USE_SYSTEM_CA=1` is
-set. Enforce mode keeps that one variable. The action writes it to
+set. Enforce mode keeps that variable. The action writes it to
 `$GITHUB_ENV`, and a systemd deployment writes it to the runner's `.env`.
 When a process drops it, Node fails closed. Node 20 has no switch, and it
 reached end of life in April 2026. Enforce mode does not support it.
@@ -123,11 +127,12 @@ A script that uses `requests` directly fails closed on registry hosts. That
 is the wanted result for an install script. pip does not use the `certifi`
 bundle for its own downloads, so pip works.
 
-Not measured yet: `uv`, `poetry`, `pipx`, `bun`. `uv` validates against its
-own bundled roots unless `UV_NATIVE_TLS` is set, so it probably needs a
-second variable. Phase 3 measures each supported package manager in the
-acceptance suite and adds a variable only where a measurement shows the
-need.
+uv validates against its own bundled roots. Enforce mode keeps
+`UV_NATIVE_TLS=1` as a second variable. So the full set is two variables,
+`NODE_USE_SYSTEM_CA=1` and `UV_NATIVE_TLS=1`, and both only point a tool at
+the system store. The acceptance suite measures each supported package
+manager. A new variable is added only when a script there shows the need.
+poetry is the open case.
 
 ## Mechanism choice
 
@@ -362,6 +367,12 @@ proxy:
       deny_udp: true
 ```
 
+`pmg proxy start --enforce` returns only after the programs are attached
+and the maps are filled. There is no window in which the proxy runs and a
+connection is not enforced. Without `CAP_BPF`, `CAP_NET_ADMIN` or
+`CAP_PERFMON` it fails before it binds the listener, and the error names the
+missing capability.
+
 `State` gains an `Enforce` block: cgroup, ports, namespace cookie, the
 resolved exemptions, and the kernel and loader versions. `pmg proxy status`
 prints it. `pmg proxy stop` is unchanged. The daemon exits, the kernel
@@ -375,8 +386,41 @@ action fails with a clear error.
 A systemd unit for a self-hosted runner runs `pmg proxy start --enforce`
 in the foreground as root with a fixed `listen_port`. The operator runs
 `pmg setup cert install --system` once. The runner's `.env` file carries
-`NODE_USE_SYSTEM_CA=1`. The CA is persisted, so it is stable across
+`NODE_USE_SYSTEM_CA=1` and `UV_NATIVE_TLS=1`. The CA is persisted, so it is stable across
 restarts.
+
+## Acceptance
+
+`test/acceptance/scripts/enforce/` holds one script for each guarantee in
+this spec. The scripts skip unless the run is root with kernel BTF and
+cgroup v2. The harness runs them one at a time and stops a daemon that a
+failed script leaves behind.
+
+| Script | Tier | Guarantee |
+| --- | --- | --- |
+| `routing/scrubbed-env-blocks-malware` | P0 | npm with no proxy environment is blocked on a malicious package |
+| `routing/clean-install-allowed` | P0 | a clean install with no proxy environment succeeds |
+| `routing/direct-fetch-blocks-malware` | P0 | a script download with its own HTTP client gets a 403 |
+| `routing/quic-denied` | P1 | UDP to an enforced port is denied, UDP 53 is not |
+| `trust/untrusted-client-fails-closed` | P0 | a client without the CA fails closed on a registry host |
+| `trust/non-registry-not-intercepted` | P0 | other hosts keep their real certificate |
+| `package-manager/<pm>-clean-install` | P1 | pnpm, yarn, bun, pip, uv, poetry work with the trust table above |
+| `exempt/pmg-wrapped-flow` | P1 | `pmg npm` keeps its own flow and bypasses the daemon |
+| `exempt/executable-glob` | P1 | a configured executable connects directly |
+| `scope/containers-unaffected` | P1 | a container reaches the registry directly |
+| `lifecycle/detach-on-stop` | P0 | connections go direct after `pmg proxy stop` |
+| `lifecycle/detach-on-crash` | P0 | the kernel detaches when the daemon is killed |
+| `preflight/requires-capabilities` | P1 | start refuses without the capabilities |
+| `status/reports-enforcement` | P2 | status shows enforcement |
+
+Two catalog rows have no script. `preflight/requires-trusted-ca` needs a
+trust store without the CA, which the other scripts install.
+`preflight/unsupported-platform` needs a macOS or Windows runner. Unit
+tests in `internal/netenforce` cover both until then.
+
+On 2026-10-03, as root on this host, every script ran up to
+`pmg proxy start --enforce` and stopped on the unknown flag. As a non-root
+user every script skipped.
 
 ## Requirements
 
@@ -405,10 +449,11 @@ restarts.
 2. `internal/netenforce` contract and Linux implementation, `--enforce` and
    config, state and status, and an e2e test behind
    `//go:build linux && ebpf_e2e` that runs under `sudo` on `ubuntu-latest` in
-   `persistent-proxy-e2e.yml`. About 900 lines of Go and 250 of C.
+   `persistent-proxy-e2e.yml`. A root job in `acceptance.yml` runs
+   `ACCEPTANCE_CATEGORY=enforce`, and the enforce scripts must pass before
+   the phase merges. About 900 lines of Go and 250 of C.
 3. `action.yml` input, `persistent-proxy.md` update, a systemd unit example,
-   and an acceptance script with a `catalog.yaml` row. The acceptance suite
-   checks trust for each supported package manager in enforce mode.
+   and the two acceptance scripts that have only a catalog row today.
 4. Privilege drop: attach as root, serve as the invoking user.
 
 ## Decisions needed

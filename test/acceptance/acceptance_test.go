@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/cloudauth"
+	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,6 +78,9 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
+					if category == enforceCategory {
+						isolateEnforcement(env, pmgBin)
+					}
 					return nil
 				},
 				Condition: func(cond string) (bool, error) {
@@ -86,6 +91,10 @@ func TestAcceptance(t *testing.T) {
 						return appArmorRestrictsUserns(), nil
 					case "userns":
 						return exec.Command("unshare", "-U", "true").Run() == nil, nil
+					case "enforce":
+						return hostCanEnforce(), nil
+					case "docker":
+						return exec.Command("docker", "info").Run() == nil, nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}
@@ -93,6 +102,66 @@ func TestAcceptance(t *testing.T) {
 			})
 		})
 	}
+}
+
+const enforceCategory = "enforce"
+
+var enforceSerial sync.Mutex
+
+// isolateEnforcement runs enforce scripts one at a time and stops the daemon
+// that a script started. An enforcing daemon attaches to the root cgroup, so
+// two of them at once rewrite each other's connections. testscript runs the
+// scripts of one directory in parallel, so the lock is necessary. A failed
+// script must not leave the host redirected to a proxy that nobody stops.
+// Scripts pass $ENFORCE_STATE to every pmg proxy command.
+func isolateEnforcement(env *testscript.Env, pmgBin string) {
+	enforceSerial.Lock()
+	statePath := filepath.Join(env.WorkDir, "proxy-state.json")
+	env.Setenv("ENFORCE_STATE", statePath)
+	env.Defer(func() {
+		defer enforceSerial.Unlock()
+		stopEnforcingDaemon(pmgBin, statePath)
+	})
+}
+
+func stopEnforcingDaemon(pmgBin, statePath string) {
+	st := proxyserver.GetStatus(statePath)
+	if !st.Running {
+		return
+	}
+
+	out, err := exec.Command(pmgBin, "proxy", "stop", "--state", statePath).CombinedOutput()
+	if err == nil {
+		return
+	}
+	log.Warnf("acceptance: pmg proxy stop failed, killing pid %d: %v: %s", st.PID, err, out)
+
+	// The kernel detaches the BPF programs when the daemon exits.
+	proc, err := os.FindProcess(st.PID)
+	if err != nil {
+		log.Warnf("acceptance: find enforcing daemon pid %d: %v", st.PID, err)
+		return
+	}
+	if err := proc.Kill(); err != nil {
+		log.Warnf("acceptance: kill enforcing daemon pid %d: %v", st.PID, err)
+	}
+}
+
+// hostCanEnforce reports whether this host can attach the enforcement
+// programs: root, kernel BTF, and a cgroup v2 mount.
+func hostCanEnforce() bool {
+	if os.Geteuid() != 0 {
+		return false
+	}
+	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err != nil {
+		return false
+	}
+	for _, p := range []string{"/sys/fs/cgroup/cgroup.controllers", "/sys/fs/cgroup/unified/cgroup.controllers"} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 type scriptFile struct {

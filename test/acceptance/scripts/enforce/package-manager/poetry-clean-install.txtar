@@ -1,0 +1,21 @@
+# guarantee: poetry installs a clean package under enforcement with the system
+# trust store only. This script is the first measurement for poetry. Add a
+# trust variable only when it fails here.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:poetry] skip 'poetry not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec poetry init -n --name t
+exec poetry add requests==2.32.4
+exists poetry.lock
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'
+

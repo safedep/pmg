@@ -1,0 +1,20 @@
+# guarantee: the pmg binary is exempt. pmg npm keeps its own per-command
+# proxy flow under enforcement, and its traffic does not reach the
+# persistent proxy.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:npm] skip 'npm not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec pmg npm init -y
+! exec pmg npm --no-cache --prefer-online install safedep-test-pkg@0.1.3
+stdout 'Malicious package blocked'
+! exists node_modules/safedep-test-pkg
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'

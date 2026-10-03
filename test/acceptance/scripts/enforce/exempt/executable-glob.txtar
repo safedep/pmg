@@ -1,0 +1,30 @@
+# guarantee: an executable listed in proxy.server.enforce.exempt_executables
+# connects directly. The same program at another path is routed through the
+# proxy.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:curl] skip 'curl not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+mkdir $WORK/bin $WORK/config
+exec sh -c 'cp "$(command -v curl)" "$WORK/bin/curl-exempt"'
+exec sed -i s|@WORK@|$WORK|g config.yml
+cp config.yml $WORK/config/config.yml
+env PMG_CONFIG_DIR=$WORK/config
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec $WORK/bin/curl-exempt -sSv -o /dev/null https://registry.npmjs.org/
+! stderr 'SafeDep PMG Proxy CA'
+
+exec curl -sSv -o /dev/null https://registry.npmjs.org/
+stderr 'issuer:.*SafeDep PMG Proxy CA'
+
+-- config.yml --
+proxy:
+  server:
+    enforce:
+      exempt_executables:
+        - @WORK@/bin/curl-*
