@@ -305,9 +305,11 @@ a constant cost. That cost explains most of the decisions above:
   65533 with no capabilities. Permission bits decide each access, even for files that
   root owns. A root-owned directory at mode `0555` rejects a write that real root could
   do. Files of a different user are out of reach.
-- **A root caller has no passwd entry in the sandbox.** The target runs as uid 65533, and
-  `/etc/passwd` is the host file, so `getpwuid(65533)` fails. A tool that reads the home
-  directory or the user name from `HOME`, `USER` or `LOGNAME` first does not notice. npm
+- **A root caller usually has no passwd entry in the sandbox.** The target runs as the
+  unmapped uid (65533, or 65532 when the kernel overflow uid is 65533), and `/etc/passwd`
+  is the host file. On most hosts that file has no entry for either uid, so `getpwuid`
+  fails. A tool that reads the home directory or the user name from `HOME`, `USER` or
+  `LOGNAME` first does not notice. npm
   and its lifecycle scripts, pnpm, yarn, pip and uv install as root with the default
   profiles. A tool that looks the uid up directly fails: Node's `os.userInfo()` throws
   `uv_os_get_passwd returned ENOENT`, Python's `pwd.getpwuid(os.getuid())` raises
