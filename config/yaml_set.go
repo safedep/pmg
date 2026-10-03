@@ -36,7 +36,7 @@ func SetConfigValue(key, value string) error {
 // created from the template when it is missing, through the same ownership
 // and mode checks as `pmg setup install --system`.
 func SetSystemConfigValue(key, value string) error {
-	if err := platform.RequirePrivilege("pmg config set --system"); err != nil {
+	if err := RequireSystemScope("pmg config set --system"); err != nil {
 		return err
 	}
 	configPath, err := EnsureSystemConfigFile()

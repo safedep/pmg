@@ -14,6 +14,7 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
@@ -119,10 +120,33 @@ func isolateEnforcement(env *testscript.Env, pmgBin string) {
 	enforceSerial.Lock()
 	statePath := filepath.Join(env.WorkDir, "proxy-state.json")
 	env.Setenv("ENFORCE_STATE", statePath)
+	managedBefore := fileExists(config.SystemConfigFilePath())
 	env.Defer(func() {
 		defer enforceSerial.Unlock()
 		stopEnforcingDaemon(pmgBin, statePath)
+		removeManagedConfigFromScript(managedBefore)
 	})
+}
+
+// removeManagedConfigFromScript deletes a managed config that a script
+// created. The file governs every later script and every later pmg run on
+// the host, so it must not outlive the script that wrote it.
+func removeManagedConfigFromScript(existedBefore bool) {
+	path := config.SystemConfigFilePath()
+	if existedBefore || path == "" || !fileExists(path) {
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		log.Warnf("acceptance: remove managed config %s: %v", path, err)
+	}
+}
+
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func stopEnforcingDaemon(pmgBin, statePath string) {

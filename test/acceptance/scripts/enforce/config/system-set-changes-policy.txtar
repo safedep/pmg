@@ -1,0 +1,22 @@
+# guarantee: pmg config set --system changes the managed config, which the
+# next enforcing daemon reads. pmg config get --system reads it back, and
+# status names the managed file.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+
+exec pmg config set --system proxy.server.enforce.deny_udp false
+exec pmg config get --system proxy.server.enforce.deny_udp
+stdout '^false$'
+
+exec pmg config path
+stdout '/etc/safedep/pmg/config\.yml \(managed, authoritative\)'
+
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'config: /etc/safedep/pmg/config\.yml \(managed\)'
+stdout 'udp to enforced ports: allowed'

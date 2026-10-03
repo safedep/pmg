@@ -1,0 +1,14 @@
+# guarantee: under sudo, pmg config edit and set without --system refuse and
+# name both files, instead of changing root's per-user config in silence.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env SUDO_USER=tester
+
+! exec pmg config edit
+stderr 'pmg config edit. would change root.s per-user config at'
+
+! exec pmg config set paranoid true
+stderr 'pmg config set. would change root.s per-user config at'

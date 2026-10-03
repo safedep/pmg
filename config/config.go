@@ -1218,11 +1218,29 @@ func NewSudoNeedsSystemError(command string) error {
 	if system := globalConfigFilePath(); system != "" {
 		help = fmt.Sprintf("Use `--system` for the managed config at %s, or run the command without sudo for your own.", system)
 	}
+	// cobra prints the wrapped error, so it carries the sentence a user
+	// needs, as managedError does.
+	human := fmt.Sprintf("under sudo, `pmg config %s` would change root's per-user config at %s", command, rootPath)
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.PermissionDenied).
-		WithHumanError(fmt.Sprintf("under sudo, `pmg config %s` would change root's per-user config at %s", command, rootPath)).
+		WithHumanError(human).
 		WithHelp(help).
-		Wrap(errors.New("config command under sudo without --system"))
+		Wrap(errors.New(human))
+}
+
+// RequireSystemScope returns nil when the process may change the managed
+// config, which is root only. The error names the command and says to use
+// sudo.
+func RequireSystemScope(command string) error {
+	if platform.IsPrivileged() {
+		return nil
+	}
+	human := fmt.Sprintf("`%s` requires root", command)
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(human).
+		WithHelp(fmt.Sprintf("Run it as root: `sudo %s`", command)).
+		Wrap(errors.New(human))
 }
 
 // managedError builds the standard "globally managed" CLI error with a useful

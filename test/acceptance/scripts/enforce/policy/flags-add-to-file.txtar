@@ -1,0 +1,25 @@
+# guarantee: an --enforce-* list flag adds to the config file's list and
+# never replaces it. The parent reports an unknown user before it detaches.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir -p $WORK/home/.config/safedep/pmg
+cp config.yml $WORK/home/.config/safedep/pmg/config.yml
+
+exec pmg setup cert install --system
+
+! exec pmg proxy start --daemon --enforce --enforce-exempt-user pmg-no-such-user-0b1 --state $ENFORCE_STATE
+stderr 'pmg-no-such-user-0b1'
+
+exec pmg proxy start --daemon --enforce --enforce-skip-destination 10.30.0.0/16 --enforce-port 8443 --state $ENFORCE_STATE
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'ports 80,443,8443'
+stdout 'skip destination: 10.20.0.0/16'
+stdout 'skip destination: 10.30.0.0/16'
+
+-- config.yml --
+proxy:
+  server:
+    enforce:
+      skip_destinations: [10.20.0.0/16]

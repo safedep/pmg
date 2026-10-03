@@ -1,0 +1,23 @@
+# guarantee: a root daemon started through sudo reads root's per-user config,
+# never the file of the user who ran sudo. The start warns, names the system
+# config, and status shows which file the daemon loaded.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+
+# SUDO_USER is the marker pmg reads for a sudo run. The harness is root.
+env SUDO_USER=tester
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+stdout 'Reading root.s per-user config at'
+stdout 'pmg config edit --system'
+
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'config: .*config\.yml \(root per-user\)'
+stdout 'Reading root.s per-user config'
+
+exec pmg config path
+stdout '\(root per-user\)'

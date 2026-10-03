@@ -129,7 +129,7 @@ func runEdit(system bool) error {
 // read and which the user never sees.
 func editPath(system bool) (string, error) {
 	if system {
-		if err := platform.RequirePrivilege("pmg config edit --system"); err != nil {
+		if err := appConfig.RequireSystemScope("pmg config edit --system"); err != nil {
 			return "", err
 		}
 		return appConfig.EnsureSystemConfigFile()

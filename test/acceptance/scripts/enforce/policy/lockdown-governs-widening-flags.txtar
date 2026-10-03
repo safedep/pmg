@@ -1,0 +1,25 @@
+# guarantee: under global_lockdown a flag that loosens the policy fails fast,
+# and a flag that only narrows the scope is accepted.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+
+# The harness removes a managed config a script created.
+mkdir -p /etc/safedep/pmg
+cp managed.yml /etc/safedep/pmg/config.yml
+
+! exec pmg proxy start --daemon --enforce --enforce-exempt-user nobody --state $ENFORCE_STATE
+stderr 'globally managed'
+stderr '--enforce-exempt-user'
+
+exec pmg proxy start --daemon --enforce --enforce-port 8443 --state $ENFORCE_STATE
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'ports 80,443,8443'
+stdout 'config: /etc/safedep/pmg/config\.yml \(managed\)'
+
+-- managed.yml --
+global_lockdown: true
