@@ -432,12 +432,18 @@
   tier: P1
   guarantee: "poetry installs a clean package with the system trust store only."
   labels: [clean, trust]
-- id: enforce/exempt/pmg-wrapped-flow
-  title: "pmg itself is exempt from enforcement"
+- id: enforce/routing/insecure-pmg-cannot-bypass
+  title: "pmg with the insecure flag cannot bypass enforcement"
+  category: enforce
+  tier: P0
+  guarantee: "The pmg binary is not exempt. PMG_INSECURE_INSTALLATION=true pmg npm install of a malicious package is still blocked by the enforcing daemon."
+  labels: [malware, block, bypass]
+- id: enforce/routing/pmg-wrapped-flow-chained
+  title: "pmg npm works under enforcement"
   category: enforce
   tier: P1
-  guarantee: "pmg npm keeps its per-command proxy flow under enforcement, and its traffic does not reach the persistent proxy."
-  labels: [exempt, malware, block]
+  guarantee: "pmg npm install of a clean package succeeds with its per-command proxy chained into the enforcing daemon."
+  labels: [clean]
 - id: enforce/exempt/executable-glob
   title: "configured executables connect directly"
   category: enforce
