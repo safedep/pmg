@@ -179,6 +179,10 @@ jobs:
   # as a pull request that its maintainers review. The secrets live in the
   # same environment as the npm token. Without a secret the job builds and
   # tests the package and skips the publish step.
+  #
+  # Both packages build and test before either one publishes. Chocolatey
+  # rejects a second push of the same version, so a push that ran before a
+  # failed winget step would stop every re-run of the job at the push.
   publish-windows-packages:
     needs: test-msi
     if: ${{ !contains(github.ref_name, '-') }}
@@ -210,17 +214,6 @@ jobs:
           PMG_MSI_VERSION: ${{ env.VERSION }}
         run: pwsh -NoProfile -File scripts/choco/tests/choco_e2e_test.ps1
 
-      - name: Push the package to the Chocolatey community repository
-        env:
-          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
-        run: |
-          if (-not $env:CHOCO_API_KEY) {
-            Write-Host '::warning::CHOCO_API_KEY is not set. The Chocolatey package was built and tested but not pushed.'
-            exit 0
-          }
-          choco push "$env:RUNNER_TEMP\choco\pmg.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Install winget
         run: scripts/winget/install_winget.ps1
 
@@ -232,6 +225,17 @@ jobs:
           PMG_WINGET_MANIFEST_DIR: ${{ runner.temp }}\winget
           PMG_MSI_VERSION: ${{ env.VERSION }}
         run: pwsh -NoProfile -File scripts/winget/tests/winget_e2e_test.ps1
+
+      - name: Push the package to the Chocolatey community repository
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          if (-not $env:CHOCO_API_KEY) {
+            Write-Host '::warning::CHOCO_API_KEY is not set. The Chocolatey package was built and tested but not pushed.'
+            exit 0
+          }
+          choco push "$env:RUNNER_TEMP\choco\pmg.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A classic token with the public_repo scope. wingetcreate forks
       # microsoft/winget-pkgs under the token owner and opens the pull request
