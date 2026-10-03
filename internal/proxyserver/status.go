@@ -7,6 +7,7 @@ type StatusInfo struct {
 	PID     int
 	Addr    string
 	CACert  string
+	Enforce *EnforceState
 }
 
 // GetStatus reports the proxy status from the state file at statePath.
@@ -22,5 +23,6 @@ func GetStatus(statePath string) StatusInfo {
 		PID:     state.PID,
 		Addr:    state.Addr,
 		CACert:  state.CACertPath,
+		Enforce: state.Enforce,
 	}
 }

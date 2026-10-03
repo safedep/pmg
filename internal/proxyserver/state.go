@@ -23,6 +23,10 @@ type State struct {
 	// suppressed without --debug), so the state file is how the result reaches
 	// the stop process. nil when cloud sync is disabled.
 	CloudSync *CloudSyncResult `json:"cloud_sync,omitempty"`
+
+	// Enforce describes kernel enforcement. nil when the proxy routes through
+	// environment variables only.
+	Enforce *EnforceState `json:"enforce,omitempty"`
 }
 
 // CloudSyncResult is the outcome of the daemon's shutdown flush to SafeDep Cloud.

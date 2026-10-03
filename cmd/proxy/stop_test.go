@@ -3,6 +3,7 @@ package proxy
 import (
 	"testing"
 
+	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,4 +36,26 @@ func TestStopExitError(t *testing.T) {
 		err := stopExitError(proxyserver.StopResult{StateVerified: false}, false)
 		assert.NoError(t, err)
 	})
+}
+
+func TestStatusTextShowsEnforcement(t *testing.T) {
+	assert.Contains(t, statusText(proxyserver.StatusInfo{}), "not running")
+	assert.Contains(t, statusText(proxyserver.StatusInfo{Found: true, PID: 9}), "stale state for pid 9")
+
+	plain := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777", CACert: "/tmp/ca.pem"})
+	assert.Contains(t, plain, "running (pid 9, addr 127.0.0.1:7777, ca /tmp/ca.pem)")
+	assert.NotContains(t, plain, "enforcement")
+
+	enforced := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777", Enforce: &proxyserver.EnforceState{
+		Status: netenforce.Status{
+			CgroupPath:        "/sys/fs/cgroup",
+			Ports:             []uint16{80, 443},
+			KernelVersion:     "6.8.0",
+			ExemptExecutables: []netenforce.ExemptedFile{{Path: "/opt/Runner.Worker"}},
+		},
+		Warnings: []string{"Docker is running."},
+	}})
+	assert.Contains(t, enforced, "Kernel enforcement: active (cgroup /sys/fs/cgroup, ports 80,443, kernel 6.8.0)")
+	assert.Contains(t, enforced, "exempt executable: /opt/Runner.Worker")
+	assert.Contains(t, enforced, "Docker is running.")
 }

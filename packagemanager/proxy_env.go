@@ -72,3 +72,15 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		"CARGO_HTTP_CHECK_REVOKE=false",
 	}
 }
+
+// EnvVarForSystemTrust returns the variables that point a tool at the
+// system trust store. An enforcing proxy routes traffic in the kernel and
+// delivers trust through the store, so these are the only variables it
+// emits. Node ignores the store unless NODE_USE_SYSTEM_CA is set, and uv
+// validates against its bundled roots unless UV_NATIVE_TLS is set.
+func EnvVarForSystemTrust() []string {
+	return []string{
+		"NODE_USE_SYSTEM_CA=1",
+		"UV_NATIVE_TLS=1",
+	}
+}

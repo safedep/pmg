@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,11 @@ type ProxyServer interface {
 
 	// Address returns the listening address (useful when using port 0)
 	Address() string
+
+	// AdditionalAddresses returns the addresses of the listeners that
+	// AdditionalListenAddrs opened, in order. An address the server could
+	// not bind is absent.
+	AdditionalAddresses() []string
 
 	// AddInterceptor registers an interceptor
 	AddInterceptor(interceptor Interceptor) error
@@ -110,6 +116,12 @@ type ProxyConfig struct {
 	// The enforcement layer provides it. nil means the listener falls back to
 	// the SNI or the Host header.
 	OriginalDestination OriginalDestinationResolver
+
+	// AdditionalListenAddrs are served by the same server as ListenAddr. A
+	// port of 0 means the port ListenAddr got. The enforcing daemon uses it
+	// for an IPv6 loopback listener on the same port. A bind failure here
+	// is logged and skipped, so the primary listener still serves.
+	AdditionalListenAddrs []string
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -131,9 +143,10 @@ type proxyServer struct {
 	server       *http.Server
 	roundTripper goproxy.RoundTripper
 
-	listener     net.Listener
-	interceptors map[string]Interceptor
-	mu           sync.RWMutex
+	listener            net.Listener
+	additionalListeners []net.Listener
+	interceptors        map[string]Interceptor
+	mu                  sync.RWMutex
 }
 
 var _ ProxyServer = &proxyServer{}
@@ -267,9 +280,7 @@ func (ps *proxyServer) Start() error {
 	}
 
 	ps.listener = listener
-	if ps.config.Transparent {
-		listener = newTransparentListener(listener, ps)
-	}
+	ps.additionalListeners = ps.listenAdditional(listener.Addr().(*net.TCPAddr).Port)
 
 	serverTimeout := ps.config.ServerReadWriteTimeout
 	if serverTimeout == 0 {
@@ -285,13 +296,45 @@ func (ps *proxyServer) Start() error {
 
 	log.Debugf("Proxy server listening on %s", ps.Address())
 
-	go func() {
-		if err := ps.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Errorf("Proxy server error: %v", err)
-		}
-	}()
+	for _, l := range append([]net.Listener{listener}, ps.additionalListeners...) {
+		ps.serve(l)
+	}
 
 	return nil
+}
+
+func (ps *proxyServer) serve(l net.Listener) {
+	if ps.config.Transparent {
+		l = newTransparentListener(l, ps)
+	}
+	go func() {
+		if err := ps.server.Serve(l); err != nil && err != http.ErrServerClosed {
+			log.Errorf("Proxy server error on %s: %v", l.Addr(), err)
+		}
+	}()
+}
+
+// listenAdditional binds the extra addresses. A port of 0 takes the primary
+// port, so every listener of one proxy answers on the same port.
+func (ps *proxyServer) listenAdditional(primaryPort int) []net.Listener {
+	var listeners []net.Listener
+	for _, addr := range ps.config.AdditionalListenAddrs {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			log.Warnf("Skipping additional listen address %q: %v", addr, err)
+			continue
+		}
+		if port == "0" {
+			port = strconv.Itoa(primaryPort)
+		}
+		l, err := net.Listen("tcp", net.JoinHostPort(host, port))
+		if err != nil {
+			log.Warnf("Skipping additional listen address %q: %v", addr, err)
+			continue
+		}
+		listeners = append(listeners, l)
+	}
+	return listeners
 }
 
 func (ps *proxyServer) Stop(ctx context.Context) error {
@@ -314,6 +357,14 @@ func (ps *proxyServer) Address() string {
 	}
 
 	return ps.listener.Addr().String()
+}
+
+func (ps *proxyServer) AdditionalAddresses() []string {
+	addrs := make([]string, 0, len(ps.additionalListeners))
+	for _, l := range ps.additionalListeners {
+		addrs = append(addrs, l.Addr().String())
+	}
+	return addrs
 }
 
 func (ps *proxyServer) AddInterceptor(interceptor Interceptor) error {

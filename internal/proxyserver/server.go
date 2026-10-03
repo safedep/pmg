@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
+	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -61,10 +64,29 @@ type ProxyDaemonConfig struct {
 	ReadyTimeout time.Duration
 }
 
+// RunOptions are the parameters of one proxy run that the command line
+// decides. The rest comes from the config.
+type RunOptions struct {
+	StatePath string
+	Host      string
+	Port      int
+
+	// Enforce turns on kernel enforcement. Linux and root only.
+	Enforce bool
+
+	// ExemptExecutables are globs the parent computed before the daemon
+	// detached, such as the GitHub runner binaries. They are added to the
+	// configured exempt_executables.
+	ExemptExecutables []string
+}
+
 // Run starts the persistent proxy server in the foreground and blocks until it
 // receives SIGINT/SIGTERM. It writes the state file on startup, auto-blocks
 // suspicious packages, and records the final blocked count on shutdown.
-func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string, port int) error {
+// With Enforce, it attaches the kernel programs before it reports ready,
+// so there is no window in which the proxy runs and a connection is not
+// enforced.
+func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error {
 	// The daemon runs intercepted traffic for every ecosystem, so an
 	// unloadable proxy.registries entry must abort here rather than fall
 	// back to defaults. Non-install commands (pmg config, proxy stop, ...)
@@ -73,16 +95,38 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 		return err
 	}
 
+	statePath := opts.StatePath
 	if existing, err := readState(statePath); err == nil && existing.IsRunning() {
 		return fmt.Errorf("proxy already running (pid %d, addr %s) — run 'pmg proxy stop' first", existing.PID, existing.Addr)
 	}
 
 	startTime := time.Now()
 
-	caCertPath := certmanager.ProxyCABundlePath(cfg.ConfigDir())
-	caCert, _, err := flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
-	if err != nil {
-		return fmt.Errorf("setup CA certificate: %w", err)
+	var (
+		caCert     *certmanager.Certificate
+		caCertPath string
+		enforcer   netenforce.Enforcer
+		policy     netenforce.Policy
+		warnings   []string
+		err        error
+	)
+	if opts.Enforce {
+		policy, err = enforcePolicy(cfg, opts.ExemptExecutables)
+		if err != nil {
+			return err
+		}
+		policy.TraceDecisions = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
+		enforcer, caCert, warnings, err = enforcePreflight(cfg, policy)
+		if err != nil {
+			return err
+		}
+		caCertPath = certmanager.CACertPath(config.SystemConfigDir())
+	} else {
+		caCertPath = certmanager.ProxyCABundlePath(cfg.ConfigDir())
+		caCert, _, err = flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
+		if err != nil {
+			return fmt.Errorf("setup CA certificate: %w", err)
+		}
 	}
 
 	certMgr, err := certmanager.NewCertificateManagerWithCA(caCert, certmanager.DefaultCertManagerConfig())
@@ -115,11 +159,20 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	}
 
 	proxyConfig := pmgproxy.DefaultProxyConfig()
-	proxyConfig.ListenAddr = listenAddr(host, port)
+	proxyConfig.ListenAddr = listenAddr(opts.Host, opts.Port)
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
+
+	resolver := &destinationResolver{}
+	if opts.Enforce {
+		proxyConfig.Transparent = true
+		proxyConfig.OriginalDestination = resolver
+		if addr6 := ipv6LoopbackAddr(); addr6 != "" {
+			proxyConfig.AdditionalListenAddrs = []string{addr6}
+		}
+	}
 
 	server, err := pmgproxy.NewProxyServer(proxyConfig)
 	if err != nil {
@@ -129,23 +182,42 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("start proxy server: %w", err)
 	}
+	stopServer := func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
+		defer cancel()
+		if serr := server.Stop(stopCtx); serr != nil {
+			log.Warnf("failed to stop proxy: %v", serr)
+		}
+	}
 
 	state := State{
 		PID:        os.Getpid(),
 		Addr:       server.Address(),
 		CACertPath: caCertPath,
 	}
-	if err := writeState(statePath, state); err != nil {
-		stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
-		defer cancel()
-		if serr := server.Stop(stopCtx); serr != nil {
-			log.Warnf("failed to stop proxy after state write failure: %v", serr)
+
+	var enforceHandle netenforce.Handle
+	if opts.Enforce {
+		enforceHandle, state.Enforce, err = attachEnforcement(ctx, enforcer, policy, server, warnings)
+		if err != nil {
+			stopServer()
+			return err
 		}
+		resolver.set(enforceHandle)
+	}
+
+	if err := writeState(statePath, state); err != nil {
+		if enforceHandle != nil {
+			if cerr := enforceHandle.Close(); cerr != nil {
+				log.Warnf("failed to detach enforcement after state write failure: %v", cerr)
+			}
+		}
+		stopServer()
 		return fmt.Errorf("write proxy state: %w", err)
 	}
 
 	log.Infof("PMG persistent proxy running on %s (pid %d)", state.Addr, state.PID)
-	if _, err := fmt.Fprintf(os.Stderr, "PMG proxy running on %s\nRun: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n", state.Addr); err != nil {
+	if _, err := fmt.Fprint(os.Stderr, startupMessage(state)); err != nil {
 		log.Warnf("failed to write startup message: %v", err)
 	}
 
@@ -159,9 +231,18 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 
 	// Drain in-flight requests before closing the confirmation channel, so no
 	// request handler can send on a closed channel (panic) during shutdown.
+	// Enforcement stays on while the server drains, so a client that connects
+	// now is refused instead of going direct. The kernel detaches at exit in
+	// any case.
 	stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
 	defer cancel()
 	stopErr := server.Stop(stopCtx)
+
+	if enforceHandle != nil {
+		if cerr := enforceHandle.Close(); cerr != nil {
+			log.Warnf("failed to detach enforcement: %v", cerr)
+		}
+	}
 
 	close(confirmationChan)
 
@@ -193,6 +274,58 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, statePath, host string,
 	}
 
 	return stopErr
+}
+
+// attachEnforcement routes eligible connections to the running listeners.
+// It returns the handle and the state block, with the policy as the kernel
+// resolved it.
+func attachEnforcement(ctx context.Context, enforcer netenforce.Enforcer, policy netenforce.Policy, server pmgproxy.ProxyServer, warnings []string) (netenforce.Handle, *EnforceState, error) {
+	target := netenforce.Target{}
+	addr, err := netip.ParseAddrPort(server.Address())
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse proxy address %q: %w", server.Address(), err)
+	}
+	target.Addr = addr
+
+	for _, extra := range server.AdditionalAddresses() {
+		if addr6, err := netip.ParseAddrPort(extra); err == nil && addr6.Addr().Is6() {
+			target.Addr6 = addr6
+		}
+	}
+
+	handle, err := enforcer.Attach(ctx, target, policy)
+	if err != nil {
+		return nil, nil, fmt.Errorf("attach enforcement: %w", err)
+	}
+
+	es := &EnforceState{Status: handle.Status(), Warnings: warnings}
+	if target.Addr6.IsValid() {
+		es.Addr6 = target.Addr6.String()
+	}
+	return handle, es, nil
+}
+
+func startupMessage(state State) string {
+	if state.Enforce == nil {
+		return fmt.Sprintf("PMG proxy running on %s\nRun: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n", state.Addr)
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
+		state.Addr, state.Enforce.CgroupPath, formatPorts(state.Enforce.Ports)))
+	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
+	for _, w := range state.Enforce.Warnings {
+		b.WriteString(fmt.Sprintf("%s %s\n", ui.Colors.Yellow("⚠"), w))
+	}
+	return b.String()
+}
+
+func formatPorts(ports []uint16) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(int(p))
+	}
+	return strings.Join(parts, ",")
 }
 
 func buildInterceptors(
