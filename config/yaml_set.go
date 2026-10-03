@@ -47,16 +47,22 @@ func SetSystemConfigValue(key, value string) error {
 }
 
 // EnsureSystemConfigFile creates the managed config from the template when
-// it is missing and returns its path.
+// it is missing and returns its path. An existing file is checked, not
+// merged with the template. A managed config may hold only the keys an
+// administrator set, and a merge would freeze the other defaults into it.
 func EnsureSystemConfigFile() (string, error) {
 	path := globalConfigFilePath()
 	if path == "" {
 		return "", fmt.Errorf("system config is not supported on %s", platform.OSName())
 	}
-	if err := WriteSystemTemplateConfig(); err != nil {
-		return "", err
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return path, WriteSystemTemplateConfig()
 	}
-	return path, nil
+	if err != nil {
+		return "", fmt.Errorf("failed to stat managed config %q: %w", path, err)
+	}
+	return path, requireTrustedManagedFile(path)
 }
 
 // GetSystemConfigValue reads a key from the managed config file alone, with

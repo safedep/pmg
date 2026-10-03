@@ -35,7 +35,7 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&srv.ListenHost, "host", srv.ListenHost, "Host to bind")
 	cmd.Flags().IntVar(&srv.ListenPort, "port", srv.ListenPort, "Port to bind (0 = a random free port)")
 	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log)")
-	cmd.Flags().BoolVar(&srv.Enforce.Enabled, "enforce", srv.Enforce.Enabled,
+	cmd.Flags().BoolVar(&srv.Enforce.Enabled, flagEnforce, srv.Enforce.Enabled,
 		"Route every eligible process through the proxy in the kernel (Linux, root). See proxy.server.enforce in the config")
 	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
 	if err := cmd.Flags().MarkHidden("foreground-internal"); err != nil {
@@ -58,19 +58,15 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	// A locked managed config owns the policy. A flag that only narrows
 	// the scope stays allowed.
 	if cfg.IsLocked() {
-		if widening := wideningFlags(cmd.Flags().Changed, cfg.Config.Proxy.Server.Enforce.DenyUDP); len(widening) > 0 {
+		if widening := wideningFlags(cmd.Flags().Changed, cfg.Config.Proxy.Server.Enforce); len(widening) > 0 {
 			ui.ErrorExit(config.NewManagedFlagOverrideError(widening))
 		}
 	}
 
-	// The runner walk needs this process's ancestors. The daemon has none
-	// after it detaches, so the walk happens here and the result travels in
-	// the re-exec arguments, on an internal flag that only the child reads.
-	if !foregroundInternalFlag {
-		opts.Overrides.RunnerExecutables = nil
-		if opts.Enforce {
-			opts.Overrides.RunnerExecutables = proxyserver.RunnerExemptGlobs()
-		}
+	// The parent and the daemon child both walk their ancestors. The globs
+	// never travel on a flag, so a caller cannot forge them under lockdown.
+	if opts.Enforce {
+		opts.Overrides.RunnerExecutables = proxyserver.RunnerExemptGlobs()
 	}
 
 	if daemonFlag && !foregroundInternalFlag {
@@ -149,7 +145,7 @@ func daemonArgs(cmd *cobra.Command, opts proxyserver.RunOptions) []string {
 		"--state", opts.StatePath,
 		"--host", opts.Host,
 		"--port", strconv.Itoa(opts.Port),
-		"--enforce="+strconv.FormatBool(opts.Enforce),
+		"--"+flagEnforce+"="+strconv.FormatBool(opts.Enforce),
 	)
 	return append(args, enforceFlagArgs(cmd, opts.Overrides, config.Get().Config.Proxy.Server.Enforce)...)
 }

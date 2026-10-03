@@ -163,7 +163,12 @@ exports the binary path as `PMG_BIN` and the state file path as
 ```
 
 The policy inputs cover the common cases without a config file. Each list
-adds to the config's list, and the runner binaries stay exempt:
+adds to the config's list, and the runner binaries stay exempt. The config
+is the staged `config-file` when the job sets one, because the action passes
+its directory to the root daemon through `PMG_CONFIG_DIR`. Without one, a
+hosted runner has no config file for root, so the inputs add to the
+defaults: ports 80 and 443 plus the ports of the configured registries. The
+daemon log and `pmg proxy status` name the file it loaded.
 
 ```yaml
 - uses: safedep/pmg@v1

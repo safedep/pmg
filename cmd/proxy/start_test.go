@@ -58,7 +58,6 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 				Overrides: proxyserver.EnforceOverrides{
 					Ports:             []int{8443},
 					ExemptExecutables: []string{"/opt/agent/bin/agent"},
-					RunnerExecutables: []string{"/opt/runner/Runner.*"},
 				},
 			})
 		},
@@ -84,7 +83,6 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 		"--enforce=true",
 		"--enforce-port", "8443",
 		"--enforce-exempt-executable", "/opt/agent/bin/agent",
-		"--enforce-runner-executable", "/opt/runner/Runner.*",
 		"--enforce-cgroup", "/sys/fs/cgroup/ci.slice",
 		"--enforce-deny-udp=false",
 	}, got)
@@ -102,9 +100,9 @@ func TestWideningFlagsUnderLockdown(t *testing.T) {
 		}
 	}
 
-	assert.Empty(t, wideningFlags(changed("enforce-port", "enforce-cgroup"), true), "a port or a cgroup only narrows the scope")
-	assert.Empty(t, wideningFlags(changed("enforce-runner-executable"), true), "the runner globs are pmg's own, not a user's override")
-	assert.Empty(t, wideningFlags(changed("enforce-deny-udp"), true), "turning the UDP denial on is not a widening")
-	assert.Equal(t, []string{"--enforce-exempt-user", "--enforce-skip-destination", "--enforce-deny-udp=false"},
-		wideningFlags(changed("enforce-exempt-user", "enforce-skip-destination", "enforce-deny-udp"), false))
+	on := config.ProxyEnforceConfig{Enabled: true, DenyUDP: true}
+	assert.Empty(t, wideningFlags(changed("enforce-port", "enforce-cgroup"), on), "a port or a cgroup only narrows the scope")
+	assert.Empty(t, wideningFlags(changed("enforce", "enforce-deny-udp"), on), "turning enforcement or the UDP denial on is not a widening")
+	assert.Equal(t, []string{"--enforce=false", "--enforce-exempt-user", "--enforce-skip-destination", "--enforce-deny-udp=false"},
+		wideningFlags(changed("enforce", "enforce-exempt-user", "enforce-skip-destination", "enforce-deny-udp"), config.ProxyEnforceConfig{}))
 }

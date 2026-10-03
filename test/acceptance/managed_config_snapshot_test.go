@@ -15,7 +15,8 @@ func TestManagedConfigSnapshotRestoresContentsAndMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yml")
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o640))
 
-	s := saveManagedConfig(path)
+	s, err := saveManagedConfig(path)
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: false\n"), 0o644))
 	s.restore()
 
@@ -30,10 +31,20 @@ func TestManagedConfigSnapshotRestoresContentsAndMode(t *testing.T) {
 func TestManagedConfigSnapshotRemovesAFileAScriptCreated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yml")
 
-	s := saveManagedConfig(path)
+	s, err := saveManagedConfig(path)
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte("global_lockdown: true\n"), 0o644))
 	s.restore()
 	assert.NoFileExists(t, path)
 
-	saveManagedConfig("").restore()
+	empty, err := saveManagedConfig("")
+	require.NoError(t, err)
+	empty.restore()
+}
+
+func TestManagedConfigSnapshotFailsWhenTheFileCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	_, err := saveManagedConfig(dir)
+	require.Error(t, err, "a path that exists but is not readable as a file must not count as absent")
+	assert.DirExists(t, dir)
 }

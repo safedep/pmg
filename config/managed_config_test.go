@@ -298,3 +298,18 @@ func TestRequireUserScope(t *testing.T) {
 		require.NoError(t, RequireUserScope("set"))
 	})
 }
+
+func TestSystemConfigSetKeepsAPartialFile(t *testing.T) {
+	if !platform.IsPrivileged() {
+		t.Skip("the managed config takes root ownership, which needs an elevated process")
+	}
+	globalDir := t.TempDir()
+	path := filepath.Join(globalDir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
+	useManagedConfigDir(t, globalDir)
+
+	require.NoError(t, SetSystemConfigValue("paranoid", "false"))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "paranoid: false\n", string(data), "the other template keys stay out of the file")
+}

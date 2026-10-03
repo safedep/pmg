@@ -12,6 +12,7 @@ import (
 // config's list. The scalars bind to the config fields, so the usual
 // precedence holds: flag, then PMG_* variable, then file, then default.
 const (
+	flagEnforce                 = "enforce"
 	flagEnforcePort             = "enforce-port"
 	flagEnforceEligibleUser     = "enforce-eligible-user"
 	flagEnforceExemptUser       = "enforce-exempt-user"
@@ -19,11 +20,6 @@ const (
 	flagEnforceSkipDestination  = "enforce-skip-destination"
 	flagEnforceCgroup           = "enforce-cgroup"
 	flagEnforceDenyUDP          = "enforce-deny-udp"
-
-	// flagEnforceRunnerExecutable carries the runner globs the parent found
-	// to the daemon child. It is internal and hidden, and only the child
-	// honors it, so it is not a way around a locked managed config.
-	flagEnforceRunnerExecutable = "enforce-runner-executable"
 )
 
 var enforceOverridesFlag proxyserver.EnforceOverrides
@@ -44,25 +40,24 @@ func addEnforceFlags(cmd *cobra.Command, ec *config.ProxyEnforceConfig) {
 		"cgroup v2 directory to enforce, instead of the root (proxy.server.enforce.cgroup)")
 	fs.BoolVar(&ec.DenyUDP, flagEnforceDenyUDP, ec.DenyUDP,
 		"Deny UDP to the enforced ports so QUIC clients fall back to TCP (proxy.server.enforce.deny_udp)")
-	fs.StringArrayVar(&enforceOverridesFlag.RunnerExecutables, flagEnforceRunnerExecutable, nil,
-		"Internal: runner globs the parent found, for the daemon child")
-	if err := fs.MarkHidden(flagEnforceRunnerExecutable); err != nil {
-		panic(err)
-	}
 }
 
 // wideningFlags returns the enforce flags that loosen the policy a locked
-// managed config set: more users or programs that go direct, more
-// destinations the kernel skips, or UDP left open. A port or a cgroup only
-// narrows or moves the scope and stays allowed under lockdown.
-func wideningFlags(changed func(string) bool, denyUDP bool) []string {
+// managed config set: enforcement turned off, more users or programs that
+// go direct, more destinations the kernel skips, or UDP left open. A port
+// or a cgroup only narrows or moves the scope and stays allowed under
+// lockdown.
+func wideningFlags(changed func(string) bool, ec config.ProxyEnforceConfig) []string {
 	var out []string
+	if changed(flagEnforce) && !ec.Enabled {
+		out = append(out, "--"+flagEnforce+"=false")
+	}
 	for _, name := range []string{flagEnforceEligibleUser, flagEnforceExemptUser, flagEnforceExemptExecutable, flagEnforceSkipDestination} {
 		if changed(name) {
 			out = append(out, "--"+name)
 		}
 	}
-	if changed(flagEnforceDenyUDP) && !denyUDP {
+	if changed(flagEnforceDenyUDP) && !ec.DenyUDP {
 		out = append(out, "--"+flagEnforceDenyUDP+"=false")
 	}
 	return out
@@ -88,9 +83,6 @@ func enforceFlagArgs(cmd *cobra.Command, o proxyserver.EnforceOverrides, ec conf
 		for _, v := range l.values {
 			args = append(args, "--"+l.name, v)
 		}
-	}
-	for _, glob := range o.RunnerExecutables {
-		args = append(args, "--"+flagEnforceRunnerExecutable, glob)
 	}
 	if cmd.Flags().Changed(flagEnforceCgroup) {
 		args = append(args, "--"+flagEnforceCgroup, ec.Cgroup)

@@ -200,7 +200,9 @@ routes through PMG. A supervisor that restarts it closes that window, as
 
 One daemon enforces a cgroup. A second `pmg proxy start --enforce` on the
 same cgroup fails with `EnforceAlreadyActive`, because the kernel would
-accept a second set of programs that never sees a connection.
+accept a second set of programs that never sees a connection. The daemon
+holds a lock on the cgroup directory while it is attached, so two daemons
+that start at the same moment cannot both pass the check.
 
 The daemon attaches before it reports ready. There is no window in which the
 proxy runs and a connection is not enforced.

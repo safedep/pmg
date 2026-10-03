@@ -16,6 +16,10 @@ cp managed.yml /etc/safedep/pmg/config.yml
 stderr 'globally managed'
 stderr '--enforce-exempt-user'
 
+! exec pmg proxy start --daemon --enforce=false --state $ENFORCE_STATE
+stderr 'globally managed'
+stderr '--enforce=false'
+
 exec pmg proxy start --daemon --enforce --enforce-port 8443 --state $ENFORCE_STATE
 exec pmg proxy status --state $ENFORCE_STATE
 stdout 'ports 80,443,8443'

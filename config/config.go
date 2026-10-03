@@ -1128,12 +1128,8 @@ func WriteSystemTemplateConfig() error {
 	if err := platform.PrepareSystemDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	if err := platform.RequireTrustedSystemFile(path); err != nil {
-		return usefulerror.NewUsefulError().
-			WithCode(errcodes.PermissionDenied).
-			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
-			WithHelp("Inspect the file, delete it, and run the install again").
-			Wrap(err)
+	if err := requireTrustedManagedFile(path); err != nil {
+		return err
 	}
 
 	if err := writeTemplateConfigFile(path); err != nil {
@@ -1145,6 +1141,17 @@ func WriteSystemTemplateConfig() error {
 
 // RemoveSystemConfigFile deletes the globally managed config file. A missing
 // file is not an error. Returns an error when the platform has no system path.
+func requireTrustedManagedFile(path string) error {
+	if err := platform.RequireTrustedSystemFile(path); err != nil {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.PermissionDenied).
+			WithHumanError(fmt.Sprintf("the managed config %s is not a file PMG wrote", path)).
+			WithHelp("Inspect the file, delete it, and run the install again").
+			Wrap(err)
+	}
+	return nil
+}
+
 func RemoveSystemConfigFile() error {
 	path := globalConfigFilePath()
 	if path == "" {

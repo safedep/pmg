@@ -109,10 +109,14 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	if cgroupPath == "" {
 		cgroupPath = pr.CgroupPath
 	}
-	if on, err := attached(cgroupPath); err != nil {
+	lock, err := lockCgroup(cgroupPath)
+	if err != nil {
 		return nil, err
+	}
+	if on, err := attached(cgroupPath); err != nil {
+		return nil, errors.Join(err, lock.Close())
 	} else if on {
-		return nil, ErrAlreadyEnforced
+		return nil, errors.Join(ErrAlreadyEnforced, lock.Close())
 	}
 	ports := p.Ports
 	if len(ports) == 0 {
@@ -126,6 +130,7 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	}
 
 	h := &linuxHandle{
+		lock:       lock,
 		policy:     p,
 		trace:      p.TraceDecisions,
 		decisions:  make(chan Decision, 1024),
@@ -143,9 +148,11 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	if err := bpf.LoadEnforceObjects(&h.objs, nil); err != nil {
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
-			return nil, fmt.Errorf("enforce: the kernel rejected a program: %+v", ve)
+			err = fmt.Errorf("enforce: the kernel rejected a program: %+v", ve)
+		} else {
+			err = fmt.Errorf("enforce: load programs: %w", err)
 		}
-		return nil, fmt.Errorf("enforce: load programs: %w", err)
+		return nil, errors.Join(err, lock.Close())
 	}
 
 	if err := h.fillMaps(t); err != nil {
@@ -158,7 +165,27 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	return h, nil
 }
 
+// lockCgroup takes an exclusive flock on the cgroup directory. The query
+// for an attached program and the attach are two steps, so two daemons
+// that start together would both pass the query and both attach. The lock
+// lives as long as the handle, and the kernel drops it with the process,
+// the same as the links.
+func lockCgroup(cgroupPath string) (*os.File, error) {
+	dir, err := os.Open(cgroupPath)
+	if err != nil {
+		return nil, fmt.Errorf("enforce: open cgroup %s: %w", cgroupPath, err)
+	}
+	if err := unix.Flock(int(dir.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		if errors.Is(err, unix.EWOULDBLOCK) {
+			return nil, errors.Join(ErrAlreadyEnforced, dir.Close())
+		}
+		return nil, errors.Join(fmt.Errorf("enforce: lock cgroup %s: %w", cgroupPath, err), dir.Close())
+	}
+	return dir, nil
+}
+
 type linuxHandle struct {
+	lock   *os.File
 	objs   bpf.EnforceObjects
 	links  []link.Link
 	policy Policy
@@ -477,7 +504,7 @@ func (h *linuxHandle) Close() error {
 			errs = append(errs, h.traceRd.Close())
 		}
 		h.readers.Wait()
-		errs = append(errs, h.objs.Close())
+		errs = append(errs, h.objs.Close(), h.lock.Close())
 		h.closeErr = errors.Join(errs...)
 	})
 	return h.closeErr
