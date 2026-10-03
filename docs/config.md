@@ -89,6 +89,34 @@ Under a [globally managed config](#globally-managed-configuration) with `global_
   return a "key not found" error. To fix this, uncomment or add the key manually via `pmg config edit`,
   or run `pmg setup install` to merge missing template keys into your config.
 
+## Which file a command reads
+
+`pmg config path` prints the active config file and why PMG chose it:
+
+```
+/home/alice/.config/safedep/pmg/config.yml (user)
+  ignored by a root daemon: it reads /root/.config/safedep/pmg/config.yml, or /etc/safedep/pmg/config.yml when that exists
+```
+
+The source is one of `user`, `root per-user`, `PMG_CONFIG_DIR` or `managed`. A command under
+`sudo` reads root's own per-user file, never the file of the user who ran `sudo`, so a root
+daemon such as `sudo pmg proxy start --enforce` does not see edits a user makes with
+`pmg config edit`. `pmg proxy status` names the file the daemon loaded.
+
+The file for a root daemon is the managed config. `--system` on `pmg config edit`, `config set`
+and `config get` works on it:
+
+```bash
+sudo pmg config edit --system
+sudo pmg config set --system proxy.server.enforce.deny_udp false
+pmg config get --system proxy.server.enforce.ports
+```
+
+`edit` and `set` need root and create the file from the template when it is missing, with the
+same ownership checks as `pmg setup install --system`. `get` works for any user. Under `sudo`
+without `--system`, `edit` and `set` refuse and name both files, instead of changing root's
+per-user config in silence.
+
 ## Globally Managed Configuration
 
 For centrally managed or fleet deployments, PMG can read an OS-level **global config file**. When this file exists, it is authoritative: PMG uses it and ignores the per-user `config.yml` (the two are never merged). An administrator ships a machine-wide baseline this way, and can lock it (see [Lockdown](#lockdown)) to forbid user overrides.
@@ -115,7 +143,7 @@ pmg setup info
 Whenever a global config file is present:
 
 - **It is authoritative.** PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to a user's values.
-- **`config set` and `config edit` fail.** They return an error stating the config is globally managed. To change it, deploy an updated file at the OS path, which is root-owned and not writable by users.
+- **`config set` and `config edit` fail.** They return an error stating the config is globally managed. To change it, deploy an updated file at the OS path, which is root-owned and not writable by users, or run `sudo pmg config edit --system` (see below).
 - **`pmg setup install` skips the per-user config.** It still creates shell aliases and shims per user.
 
 By default a user can still override the global config's values at runtime through `PMG_*` environment variables and CLI flags. Enable lockdown to forbid that.

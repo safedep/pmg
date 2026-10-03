@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -190,6 +191,28 @@ func TestRemoveUserConfigFileNeverTouchesGlobal(t *testing.T) {
 	require.NoError(t, RemoveUserConfigFile())
 	assert.NoFileExists(t, userFile, "per-user file should be removed")
 	assert.FileExists(t, globalFile, "globally managed file must be left intact")
+}
+
+func TestSystemConfigValueRoundTrip(t *testing.T) {
+	globalDir := t.TempDir()
+	useManagedConfigDir(t, globalDir)
+	orig := platform.IsPrivileged
+	platform.IsPrivileged = func() bool { return true }
+	t.Cleanup(func() { platform.IsPrivileged = orig })
+
+	require.NoError(t, SetSystemConfigValue("paranoid", "true"), "the file is created from the template first")
+	got, err := GetSystemConfigValue("paranoid")
+	require.NoError(t, err)
+	assert.Equal(t, true, got)
+
+	_, err = GetSystemConfigValue("no.such.key")
+	require.Error(t, err)
+
+	platform.IsPrivileged = func() bool { return false }
+	require.Error(t, SetSystemConfigValue("paranoid", "false"), "only root may change the managed config")
+	got, err = GetSystemConfigValue("paranoid")
+	require.NoError(t, err)
+	assert.Equal(t, true, got, "any user may read it")
 }
 
 func TestWriteAndRemoveSystemTemplateConfig(t *testing.T) {

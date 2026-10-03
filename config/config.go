@@ -1206,6 +1206,25 @@ func NewManagedConfigError() error {
 	return managedError(fmt.Sprintf("configuration is globally managed (%s) and cannot be changed", globalConfig.configFilePath))
 }
 
+// NewSudoNeedsSystemError refuses a config write under sudo that names no
+// scope. Without --system the command would change root's per-user file,
+// which the user never sees and no daemon is meant to read.
+func NewSudoNeedsSystemError(command string) error {
+	rootPath, err := RootUserConfigFilePath()
+	if err != nil {
+		rootPath = globalConfig.userConfigFilePath
+	}
+	help := "Run the command without sudo for your own config."
+	if system := globalConfigFilePath(); system != "" {
+		help = fmt.Sprintf("Use `--system` for the managed config at %s, or run the command without sudo for your own.", system)
+	}
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.PermissionDenied).
+		WithHumanError(fmt.Sprintf("under sudo, `pmg config %s` would change root's per-user config at %s", command, rootPath)).
+		WithHelp(help).
+		Wrap(errors.New("config command under sudo without --system"))
+}
+
 // managedError builds the standard "globally managed" CLI error with a useful
 // code and actionable help.
 func managedError(message string) error {
