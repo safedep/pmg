@@ -234,8 +234,18 @@ jobs:
             Write-Host '::warning::CHOCO_API_KEY is not set. The Chocolatey package was built and tested but not pushed.'
             exit 0
           }
-          choco push "$env:RUNNER_TEMP\choco\pmg.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $output = & choco push "$env:RUNNER_TEMP\choco\pmg.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY 2>&1 | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) {
+            # A re-run after a failed winget submit pushes the same version
+            # again. Chocolatey answers HTTP 409 for a version it already has.
+            # Treat that as done so the re-run reaches the winget submit.
+            if ($output -match '\(409\)') {
+              Write-Host "::warning::pmg $env:VERSION is already on the Chocolatey repository. Skipping the push."
+            } else {
+              exit $LASTEXITCODE
+            }
+          }
 
       # A classic token with the public_repo scope. wingetcreate forks
       # microsoft/winget-pkgs under the token owner and opens the pull request
