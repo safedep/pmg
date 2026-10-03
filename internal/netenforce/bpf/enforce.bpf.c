@@ -227,12 +227,18 @@ static __always_inline void fill_exe(struct event *e)
 	e->exe_dev = in->i_sb->s_dev;
 }
 
+#define MAX_PID_NS_LEVEL 32
+
 /* tgid_in_ns returns the thread group id of the current task as the PID
  * namespace with inode inum numbers it, or 0 when the task has no id there.
  * bpf_get_current_pid_tgid reports the id of the initial namespace, which
- * is not the id the daemon knows when it runs in a container. The index
- * into numbers is a variable, so the reads go through bpf_probe_read_kernel:
- * the verifier rejects a variable offset on a BTF pointer. */
+ * is not the id the daemon knows when it runs in a container. numbers holds
+ * one entry per namespace from the initial one to the task's own, and the
+ * daemon's is any of them: a sandboxed child lives one level deeper than
+ * the daemon. The search starts at the task's own namespace, the common
+ * case. The index is a variable, so the reads go through
+ * bpf_probe_read_kernel: the verifier rejects a variable offset on a BTF
+ * pointer. */
 static __always_inline __u32 tgid_in_ns(__u32 inum)
 {
 	struct task_struct *t = bpf_get_current_task_btf();
@@ -240,21 +246,28 @@ static __always_inline __u32 tgid_in_ns(__u32 inum)
 	if (!pid)
 		return 0;
 	__u32 level = pid->level;
-	if (level > 32)
+	if (level > MAX_PID_NS_LEVEL)
 		return 0;
 
-	struct upid *u = (struct upid *)((char *)pid + bpf_core_field_offset(pid->numbers) +
-					 level * bpf_core_type_size(struct upid));
-	int nr;
-	struct pid_namespace *ns;
-	__u32 got;
-	if (bpf_probe_read_kernel(&nr, sizeof(nr), &u->nr))
-		return 0;
-	if (bpf_probe_read_kernel(&ns, sizeof(ns), &u->ns) || !ns)
-		return 0;
-	if (bpf_probe_read_kernel(&got, sizeof(got), &ns->ns.inum))
-		return 0;
-	return got == inum ? (__u32)nr : 0;
+	char *numbers = (char *)pid + bpf_core_field_offset(pid->numbers);
+	__u32 size = bpf_core_type_size(struct upid);
+	for (__u32 i = 0; i <= MAX_PID_NS_LEVEL; i++) {
+		if (i > level)
+			break;
+		struct upid *u = (struct upid *)(numbers + (level - i) * size);
+		int nr;
+		struct pid_namespace *ns;
+		__u32 got;
+		if (bpf_probe_read_kernel(&nr, sizeof(nr), &u->nr))
+			return 0;
+		if (bpf_probe_read_kernel(&ns, sizeof(ns), &u->ns) || !ns)
+			return 0;
+		if (bpf_probe_read_kernel(&got, sizeof(got), &ns->ns.inum))
+			return 0;
+		if (got == inum)
+			return (__u32)nr;
+	}
+	return 0;
 }
 
 static __always_inline void finish(struct cfg *c, struct event *e, __u8 action)

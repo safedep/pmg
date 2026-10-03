@@ -356,9 +356,20 @@ func TestE2E_ExecutableThatAppearsLaterIsExempted(t *testing.T) {
 	e.assertLaterExecutableExempt(netip.MustParseAddrPort("192.0.2.14:80"))
 }
 
+// The sandbox runs a package manager in a PID namespace of its own, one
+// level below the daemon. The exec hook must still report a pid the daemon
+// can look up in /proc.
+func TestE2E_ExecutableInChildPIDNamespaceIsExempted(t *testing.T) {
+	requireUnshare(t)
+	e := newE2E(t)
+	e.assertLaterExecutableExempt(netip.MustParseAddrPort("192.0.2.18:80"), "unshare", "-pf")
+}
+
 // assertLaterExecutableExempt copies the test binary to a path the glob
-// matches after attach and expects the exec hook to exempt it.
-func (e *e2e) assertLaterExecutableExempt(dst netip.AddrPort) {
+// matches after attach and expects the exec hook to exempt it. With a
+// wrapper the connecting pid is a child of the one run returns, so the
+// decision is matched on the destination.
+func (e *e2e) assertLaterExecutableExempt(dst netip.AddrPort, wrapper ...string) {
 	t := e.t
 	t.Helper()
 	assert.Empty(t, e.handle.Status().ExemptExecutables, "the glob matches nothing at attach")
@@ -370,10 +381,16 @@ func (e *e2e) assertLaterExecutableExempt(dst netip.AddrPort) {
 
 	// The exec hook reports the new inode, and the daemon adds it before
 	// the delayed connect happens.
-	pid, out := e.runBinary(runner, "tcp4-delayed", dst)
+	pid, out := e.runBinary(runner, "tcp4-delayed", dst, wrapper...)
 	assert.NotContains(t, out, "helper: ok", "an exempt process goes direct and never reaches the listener")
 
-	d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) })
+	var d Decision
+	if len(wrapper) == 0 {
+		d = e.decision(func(d Decision) bool { return d.PID == uint32(pid) })
+	} else {
+		d = e.decision(func(d Decision) bool { return d.Destination == dst })
+		assert.NotZero(t, d.PID, "a process in a child namespace still has a pid in the daemon's")
+	}
 	assert.Equal(t, ActionExemptExe, d.Action)
 
 	files := e.handle.Status().ExemptExecutables
@@ -435,8 +452,9 @@ func TestE2E_NestedPIDNamespaceInner(t *testing.T) {
 	assert.True(t, e.acceptedFor(dst, 2*time.Second))
 
 	// The exec hook reports the pid in this namespace too, so the daemon
-	// can confirm the executable through its own /proc.
-	e.assertLaterExecutableExempt(netip.MustParseAddrPort("192.0.2.32:80"))
+	// can confirm the executable through its own /proc, also for a process
+	// one more level down.
+	e.assertLaterExecutableExempt(netip.MustParseAddrPort("192.0.2.32:80"), "unshare", "-pf")
 }
 
 func TestE2E_OtherNetworkNamespaceIsLeftAlone(t *testing.T) {
