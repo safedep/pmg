@@ -16,6 +16,7 @@ struct cfg {
 	__u32 proxy_ip4;   /* network order */
 	__u16 proxy_port;  /* network order */
 	__u16 _pad;
+	__u64 netns_cookie; /* only sockets in the proxy's netns are redirected */
 };
 
 struct exe_key {
@@ -188,6 +189,11 @@ int pmg_connect4(struct bpf_sock_addr *ctx)
 	struct cfg *c = bpf_map_lookup_elem(&pmg_cfg, &key0);
 	if (!c || !c->proxy_port)
 		return 1;
+	if (c->netns_cookie && bpf_get_netns_cookie(ctx) != c->netns_cookie) {
+		e.action = 6;
+		emit(&e);
+		return 1;
+	}
 
 	if (bpf_map_lookup_elem(&exempt_tgid, &e.tgid)) {
 		e.action = 1;

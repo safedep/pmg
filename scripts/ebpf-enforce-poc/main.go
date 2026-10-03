@@ -40,9 +40,10 @@ import (
 )
 
 type cfg struct {
-	ProxyIP4  uint32
-	ProxyPort uint16
-	_         uint16
+	ProxyIP4    uint32
+	ProxyPort   uint16
+	_           uint16
+	NetnsCookie uint64
 }
 
 type exeKey struct {
@@ -68,7 +69,7 @@ type event struct {
 	Comm    [16]byte
 }
 
-var actionNames = map[uint8]string{1: "EXEMPT-PID", 2: "EXEMPT-EXE", 3: "EXEMPT-UID", 4: "REDIRECT", 5: "DENY-UDP"}
+var actionNames = map[uint8]string{1: "EXEMPT-PID", 2: "EXEMPT-EXE", 3: "EXEMPT-UID", 4: "REDIRECT", 5: "DENY-UDP", 6: "OTHER-NETNS"}
 
 type stringList []string
 
@@ -136,7 +137,12 @@ func run(cgroupPath, listen, obj, caOut, pinDir string, exemptExe, exemptPid, ex
 	copy(ipb[:], addr.IP.To4())
 	var portb [2]byte
 	binary.BigEndian.PutUint16(portb[:], uint16(addr.Port))
-	c := cfg{ProxyIP4: binary.LittleEndian.Uint32(ipb[:]), ProxyPort: binary.LittleEndian.Uint16(portb[:])}
+	cookie, err := netnsCookie(ln)
+	if err != nil {
+		return err
+	}
+	log.Printf("proxy netns cookie %d", cookie)
+	c := cfg{ProxyIP4: binary.LittleEndian.Uint32(ipb[:]), ProxyPort: binary.LittleEndian.Uint16(portb[:]), NetnsCookie: cookie}
 	if err := coll.Maps["pmg_cfg"].Put(uint32(0), c); err != nil {
 		return err
 	}
@@ -374,6 +380,23 @@ func ip4(v uint32) net.IP {
 func ntohs(v uint16) uint16 {
 	b := (*[2]byte)(unsafe.Pointer(&v))
 	return binary.BigEndian.Uint16(b[:])
+}
+
+// netnsCookie returns the kernel's cookie for the listener's network namespace
+// (SO_NETNS_COOKIE, Linux 5.14+).
+func netnsCookie(ln net.Listener) (uint64, error) {
+	raw, err := ln.(*net.TCPListener).SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var cookie uint64
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		cookie, gerr = unix.GetsockoptUint64(int(fd), unix.SOL_SOCKET, unix.SO_NETNS_COOKIE)
+	}); err != nil {
+		return 0, err
+	}
+	return cookie, gerr
 }
 
 func signalNotify(ch chan os.Signal) {

@@ -13,7 +13,8 @@ It is a separate Go module and it is not in the repo `go.work`. Build it with
   80 or 443 from an eligible process, it rewrites the destination to the local
   listener. It stores the original destination in socket storage. A `sockops`
   program copies it to a hash map keyed by the client source port. It denies
-  UDP to the same ports (QUIC) for eligible processes.
+  UDP to the same ports (QUIC) for eligible processes. It only acts on sockets
+  in the same network namespace as the listener, so containers are left alone.
 - `main.go` loads the object with `cilium/ebpf` (no cgo), publishes the
   listener address and the exemptions, and runs a transparent listener. The
   listener recovers the original destination from the map, sniffs TLS vs plain
@@ -36,6 +37,9 @@ env -i node -e "fetch('https://registry.npmjs.org/express').then(r=>r.text()).th
 
 # Exempt by executable inode. Reaches the real registry.
 env -i ./curl-exempt -sS https://registry.npmjs.org/ -o /dev/null -w '%{http_code}\n'
+
+# A process in another network namespace is not redirected.
+unshare -n env -i curl -m 3 https://104.16.11.34/
 
 # Unprivileged read of the pinned map.
 setpriv --reuid=65534 --regid=65534 --clear-groups ./maplookup/maplookup /sys/fs/bpf/pmgpoc/orig_dst
