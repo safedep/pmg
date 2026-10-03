@@ -152,6 +152,40 @@ func TestIsTrustedPackageVersion(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "lower-case cargo purl matches canonical-case crate name",
+			trustedPackages: []TrustedPackage{
+				{
+					Purl:   "pkg:cargo/inflector",
+					Reason: "crates.io names are case-insensitive",
+				},
+			},
+			pkgVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Name:      "Inflector",
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_CARGO,
+				},
+				Version: "0.11.4",
+			},
+			want: true,
+		},
+		{
+			name: "go module purl keeps the case of the module path",
+			trustedPackages: []TrustedPackage{
+				{
+					Purl:   "pkg:golang/github.com/BurntSushi/toml@v1.4.0",
+					Reason: "go module paths are case-sensitive",
+				},
+			},
+			pkgVersion: &packagev1.PackageVersion{
+				Package: &packagev1.Package{
+					Name:      "github.com/BurntSushi/toml",
+					Ecosystem: packagev1.Ecosystem_ECOSYSTEM_GO,
+				},
+				Version: "v1.4.0",
+			},
+			want: true,
+		},
+		{
 			name: "multiple trusted packages finds correct match",
 			trustedPackages: []TrustedPackage{
 				{

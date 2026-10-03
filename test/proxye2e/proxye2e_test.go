@@ -950,6 +950,40 @@ func TestProxyFlow_Go(t *testing.T) {
 			},
 		},
 		{
+			Name: "trusted mixed-case module path skips analysis",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:golang/github.com/BurntSushi/toml@v1.4.0"}}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "github.com/BurntSushi/toml",
+					Versions: []GoVersion{{Version: "v1.4.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("github.com/BurntSushi/toml", "v1.4.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("github.com/BurntSushi/toml", "v1.4.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				assert.True(t, h.Registry.DownloadedGoZip("github.com/BurntSushi/toml", "v1.4.0"))
+				assert.Empty(t, h.Analyzer.Calls())
+			},
+		},
+		{
+			Name: "trusted lower-case module path does not trust the mixed-case module",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:golang/github.com/burntsushi/toml@v1.4.0"}}
+			},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "github.com/BurntSushi/toml",
+					Versions: []GoVersion{{Version: "v1.4.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("github.com/BurntSushi/toml", "v1.4.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Go().Install("github.com/BurntSushi/toml", "v1.4.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedGoZip("github.com/BurntSushi/toml", "v1.4.0"))
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("github.com/BurntSushi/toml", "v1.4.0"))
+			},
+		},
+		{
 			Name: "toolchain module is allowed without analysis",
 			Setup: func(h *Harness) {
 				h.Registry.AddGoModule(GoModule{Path: "golang.org/toolchain",
