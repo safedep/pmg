@@ -1,0 +1,18 @@
+# guarantee: enforcement intercepts TLS only for registry hosts. A connection
+# to any other host is passed through with its real certificate, so
+# enforcement adds no trust requirement for hosts such as github.com.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:curl] skip 'curl not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec curl -sSv -o /dev/null https://github.com/
+! stderr 'SafeDep PMG Proxy CA'
+
+exec curl -sSv -o /dev/null https://registry.npmjs.org/
+stderr 'issuer:.*SafeDep PMG Proxy CA'

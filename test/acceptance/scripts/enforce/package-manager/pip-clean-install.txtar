@@ -1,0 +1,19 @@
+# guarantee: pip installs a clean package under enforcement with the system
+# trust store only.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:pip] skip 'pip not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec pip install --target=$WORK/site requests==2.32.4
+exists $WORK/site/requests
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'
+

@@ -12,10 +12,13 @@ import (
 type TestCase struct {
 	Name           string
 	PinnedVersions map[string]string
-	Config         func(rc *config.RuntimeConfig)
-	Setup          func(h *Harness)
-	Exec           func(h *Harness) ExecResult
-	Assert         func(t *testing.T, h *Harness, result ExecResult)
+	// Options configure the harness beyond the pinned versions, for example
+	// the transparent listener a redirected client needs.
+	Options []Option
+	Config  func(rc *config.RuntimeConfig)
+	Setup   func(h *Harness)
+	Exec    func(h *Harness) ExecResult
+	Assert  func(t *testing.T, h *Harness, result ExecResult)
 }
 
 // RunCases runs each case serially. Serial execution is required because the
@@ -26,7 +29,7 @@ func RunCases(t *testing.T, cases []TestCase) {
 		t.Run(tc.Name, func(t *testing.T) {
 			applyConfig(t, tc.Config)
 
-			h := New(t, WithPinnedVersions(tc.PinnedVersions))
+			h := New(t, append([]Option{WithPinnedVersions(tc.PinnedVersions)}, tc.Options...)...)
 			defer h.Close()
 
 			if tc.Setup != nil {

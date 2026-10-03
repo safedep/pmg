@@ -1,0 +1,19 @@
+# guarantee: with enforcement on, a clean npm install with no proxy environment
+# succeeds through the proxy, and the proxy records no block.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:npm] skip 'npm not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env NODE_USE_SYSTEM_CA=1
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec npm init -y
+exec npm install lodash@4.17.21
+exists node_modules/lodash
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'

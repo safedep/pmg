@@ -40,6 +40,14 @@ const (
 	ProxyPolicyViolation   = "ProxyPolicyViolation"
 	InvalidProxyRegistries = "InvalidProxyRegistries"
 
+	// Enforce error codes. EnforceRequirements is returned when the host
+	// cannot attach the kernel programs: a missing capability, no kernel
+	// BTF, or no cgroup v2. EnforceRequiresTrustedCA is returned when the
+	// PMG CA is not in the system trust store, which every enforced client
+	// depends on.
+	EnforceRequirements      = "EnforceRequirements"
+	EnforceRequiresTrustedCA = "EnforceRequiresTrustedCA"
+
 	// Cloud error codes. CloudCredentialsNotFound is returned when a cloud
 	// operation needs SafeDep Cloud credentials but none are configured in the
 	// keychain or environment.

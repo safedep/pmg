@@ -48,6 +48,7 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | ----------------------------- | --------------------------------- |
 | `paranoid`                    | `PMG_PARANOID`                    |
 | `proxy.install_only`          | `PMG_PROXY_INSTALL_ONLY`          |
+| `proxy.server.enforce.enabled` | `PMG_PROXY_SERVER_ENFORCE_ENABLED` |
 | `verbosity`                   | `PMG_VERBOSITY`                   |
 | `skip_event_logging`          | `PMG_SKIP_EVENT_LOGGING`          |
 | `sandbox.enabled`             | `PMG_SANDBOX_ENABLED`             |

@@ -1,0 +1,21 @@
+# guarantee: poetry installs a clean package under enforcement with the
+# variables that pmg proxy env prints. poetry validates through requests
+# and certifi, which ignore the system store, so it needs REQUESTS_CA_BUNDLE
+# pointed at the system bundle. pmg proxy env prints it.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:poetry] skip 'poetry not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec poetry init -n --name t
+exec sh -c 'export $(pmg proxy env --state "$ENFORCE_STATE" | xargs) && poetry add requests==2.32.4'
+exists poetry.lock
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'
+
