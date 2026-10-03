@@ -18,7 +18,7 @@ Open a new issue with the `enhancement` label.
 
 ### Requirements
 
-- Go 1.25+
+- Go 1.27+
 - Git
 - Make
 
