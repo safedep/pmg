@@ -305,6 +305,15 @@ a constant cost. That cost explains most of the decisions above:
   65533 with no capabilities. Permission bits decide each access, even for files that
   root owns. A root-owned directory at mode `0555` rejects a write that real root could
   do. Files of a different user are out of reach.
+- **A root caller has no passwd entry in the sandbox.** The target runs as uid 65533, and
+  `/etc/passwd` is the host file, so `getpwuid(65533)` fails. A tool that reads the home
+  directory or the user name from `HOME`, `USER` or `LOGNAME` first does not notice. npm
+  and its lifecycle scripts, pnpm, yarn, pip and uv install as root with the default
+  profiles. A tool that looks the uid up directly fails: Node's `os.userInfo()` throws
+  `uv_os_get_passwd returned ENOENT`, Python's `pwd.getpwuid(os.getuid())` raises
+  `KeyError`, and Go's `user.Current()` in a cgo build returns an error. Keep `HOME` set
+  when you run pmg as root. The earlier `0 -> host_uid` map always resolved, and it gave
+  the target every capability in the namespace.
 - **TOCTOU between the path read and the deny reply.** The window is microseconds. A
   process can rewrite the path bytes in its memory, or replace a symlink on disk, after
   the supervisor reads them and before the kernel resolves the path. This is adequate for

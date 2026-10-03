@@ -201,7 +201,8 @@ npm install -g @safedep/pmg
 
 ```bash
 # Ensure $(go env GOPATH)/bin is in your $PATH
-go install github.com/safedep/pmg@latest
+# The Linux sandbox hangs in a cgo build. Release binaries set CGO_ENABLED=0.
+CGO_ENABLED=0 go install github.com/safedep/pmg@latest
 ```
 
 </details>
