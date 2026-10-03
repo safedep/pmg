@@ -1,0 +1,8 @@
+hdr/
+*.o
+pmgpoc
+maplookup/maplookup
+poc-ca.pem
+poc.log
+bpftool*
+curl-exempt
