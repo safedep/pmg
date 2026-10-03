@@ -191,9 +191,11 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	}
 
 	state := State{
-		PID:        os.Getpid(),
-		Addr:       server.Address(),
-		CACertPath: caCertPath,
+		PID:          os.Getpid(),
+		Addr:         server.Address(),
+		CACertPath:   caCertPath,
+		ConfigPath:   cfg.ConfigFilePath(),
+		ConfigSource: string(cfg.ConfigSource()),
 	}
 
 	var enforceHandle netenforce.Handle
@@ -306,18 +308,31 @@ func attachEnforcement(ctx context.Context, enforcer netenforce.Enforcer, policy
 }
 
 func startupMessage(state State) string {
+	var b strings.Builder
 	if state.Enforce == nil {
-		return fmt.Sprintf("PMG proxy running on %s\nRun: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n", state.Addr)
+		fmt.Fprintf(&b, "PMG proxy running on %s\n", state.Addr)
+		b.WriteString(configSourceLine(state))
+		b.WriteString("Run: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n")
+		return b.String()
 	}
 
-	var b strings.Builder
 	fmt.Fprintf(&b, "PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
 		state.Addr, state.Enforce.CgroupPath, state.Enforce.PortList())
+	b.WriteString(configSourceLine(state))
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
 	for _, w := range state.Enforce.Warnings {
 		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
+}
+
+// configSourceLine names the file the daemon loaded. An older state file
+// has no path, and then there is nothing to say.
+func configSourceLine(state State) string {
+	if state.ConfigPath == "" {
+		return ""
+	}
+	return fmt.Sprintf("  config: %s (%s)\n", state.ConfigPath, state.ConfigSource)
 }
 
 func buildInterceptors(

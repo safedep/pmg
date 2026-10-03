@@ -357,7 +357,8 @@ type RuntimeConfig struct {
 	configDir                string
 	configFilePath           string // active config: globally managed file if present, else per-user
 	userConfigFilePath       string // per-user config file, used for writes and removal
-	configLocked             bool   // global file present and opted into lockdown (global_lockdown: true)
+	configSource             ConfigSource
+	configLocked             bool // global file present and opted into lockdown (global_lockdown: true)
 	eventLogDir              string
 	sandboxProfileDir        string
 	sandboxOverlayDir        string
@@ -395,6 +396,53 @@ func (r *RuntimeConfig) CloudCheckInLastRunPath() string {
 // managed file when present, otherwise the per-user file).
 func (r *RuntimeConfig) ConfigFilePath() string {
 	return r.configFilePath
+}
+
+// ConfigSource names where the active config file came from. A root daemon
+// reads a different file than the user who started it edits, and the label
+// is how status and `pmg config path` make that visible.
+type ConfigSource string
+
+const (
+	// ConfigSourceManaged is the globally managed file, authoritative for
+	// every user.
+	ConfigSourceManaged ConfigSource = "managed"
+	// ConfigSourceEnvDir is the file under PMG_CONFIG_DIR.
+	ConfigSourceEnvDir ConfigSource = "PMG_CONFIG_DIR"
+	// ConfigSourceRootPerUser is root's own per-user file, read under sudo.
+	ConfigSourceRootPerUser ConfigSource = "root per-user"
+	// ConfigSourceUser is the per-user file of the account that runs pmg.
+	ConfigSourceUser ConfigSource = "user"
+)
+
+// ConfigSource reports where the active config file came from.
+func (r *RuntimeConfig) ConfigSource() ConfigSource {
+	return r.configSource
+}
+
+// RootUserConfigFilePath returns the per-user config file of root, the one
+// a daemon started with sudo reads when no managed config exists. It fails
+// where root has no passwd entry.
+func RootUserConfigFilePath() (string, error) {
+	dirs, err := rootDirs()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dirs.Config, pmgDefaultHomeRelativePath, pmgConfigFileName), nil
+}
+
+func resolveConfigSource(managed bool) ConfigSource {
+	switch {
+	case managed:
+		return ConfigSourceManaged
+	case os.Getenv(pmgConfigDirEnvKey) != "":
+		return ConfigSourceEnvDir
+	default:
+		if _, ok := sudoRootDirs(); ok {
+			return ConfigSourceRootPerUser
+		}
+		return ConfigSourceUser
+	}
 }
 
 // UserConfigFilePath returns the per-user config file path, regardless of
@@ -626,6 +674,7 @@ func initConfig() {
 	globalConfig.configDir = configDir
 	globalConfig.configFilePath = activeConfigPath
 	globalConfig.userConfigFilePath = userConfigPath
+	globalConfig.configSource = resolveConfigSource(activeConfigPath != userConfigPath)
 	globalConfig.eventLogDir = eventLogDir
 	globalConfig.sandboxProfileDir = sandboxProfileDir
 	globalConfig.sandboxOverlayDir = sandboxOverlayDir

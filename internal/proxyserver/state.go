@@ -18,6 +18,11 @@ type State struct {
 	CACertPath   string `json:"ca_cert_path"`
 	BlockedCount int    `json:"blocked_count"`
 
+	// ConfigPath and ConfigSource say which file the daemon loaded. A root
+	// daemon reads a different file than the user who started it edits.
+	ConfigPath   string `json:"config_path,omitempty"`
+	ConfigSource string `json:"config_source,omitempty"`
+
 	// CloudSync records the daemon's shutdown cloud flush so `pmg proxy stop`
 	// can report the outcome. The daemon's own logs go to proxy.log (and are
 	// suppressed without --debug), so the state file is how the result reaches

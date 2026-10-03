@@ -136,7 +136,7 @@ func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy) (netenforc
 		return nil, nil, nil, err
 	}
 
-	return enforcer, caCert, enforceWarnings(p), nil
+	return enforcer, caCert, enforceWarnings(cfg, p), nil
 }
 
 func enforceRequirementsHelp(probe netenforce.ProbeResult) string {
@@ -179,9 +179,13 @@ func loadEnforceCA() (*certmanager.Certificate, error) {
 
 // enforceWarnings names the gaps an operator must know about: a container
 // engine on the host, whose containers live outside the enforced network
-// namespace, and an eligible user who can become root through sudo.
-func enforceWarnings(p netenforce.Policy) []string {
+// namespace, an eligible user who can become root through sudo, and a
+// daemon that reads root's personal config instead of the system one.
+func enforceWarnings(cfg *config.RuntimeConfig, p netenforce.Policy) []string {
 	var warnings []string
+	if cfg.ConfigSource() == config.ConfigSourceRootPerUser {
+		warnings = append(warnings, rootPerUserConfigWarning(cfg.ConfigFilePath()))
+	}
 	if processRunning("dockerd") {
 		warnings = append(warnings, "Docker is running. Containers have their own network namespace and are not enforced. See docs/persistent-proxy.md for the workaround.")
 	}
@@ -191,6 +195,17 @@ func enforceWarnings(p netenforce.Policy) []string {
 		}
 	}
 	return warnings
+}
+
+// rootPerUserConfigWarning tells the operator which file the daemon read.
+// Under sudo that is root's own per-user file, which `pmg config edit`
+// without sudo never touches. The system config is the one for a daemon.
+func rootPerUserConfigWarning(path string) string {
+	system := config.SystemConfigFilePath()
+	if system == "" {
+		return fmt.Sprintf("Reading root's per-user config at %s.", path)
+	}
+	return fmt.Sprintf("Reading root's per-user config at %s. A system daemon normally reads %s. Run `sudo pmg config edit --system` to create it.", path, system)
 }
 
 func userCanSudo(name string) bool {

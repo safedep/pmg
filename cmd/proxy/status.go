@@ -44,6 +44,9 @@ func statusText(st proxyserver.StatusInfo) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "PMG proxy: running (pid %d, addr %s, ca %s)\n", st.PID, st.Addr, st.CACert)
+	if st.ConfigPath != "" {
+		fmt.Fprintf(&b, "  config: %s (%s)\n", st.ConfigPath, st.ConfigSource)
+	}
 	if st.Enforce == nil {
 		return b.String()
 	}
@@ -51,6 +54,14 @@ func statusText(st proxyserver.StatusInfo) string {
 	e := st.Enforce
 	fmt.Fprintf(&b, "Kernel enforcement: active (cgroup %s, ports %s, kernel %s)\n",
 		e.CgroupPath, e.PortList(), e.KernelVersion)
+	if e.DenyUDP {
+		b.WriteString("  udp to enforced ports: denied\n")
+	} else {
+		b.WriteString("  udp to enforced ports: allowed\n")
+	}
+	for _, prefix := range e.SkipDestinations {
+		fmt.Fprintf(&b, "  skip destination: %s\n", prefix)
+	}
 	if len(e.EligibleUIDs) > 0 {
 		fmt.Fprintf(&b, "  eligible uids: %v\n", e.EligibleUIDs)
 	}

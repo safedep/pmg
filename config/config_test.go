@@ -427,6 +427,22 @@ proxy:
 	assert.False(t, got.DenyUDP)
 }
 
+func TestConfigSourceNamesTheOrigin(t *testing.T) {
+	t.Cleanup(initConfig)
+
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	initConfig()
+	assert.Equal(t, ConfigSourceEnvDir, Get().ConfigSource())
+
+	t.Setenv("PMG_CONFIG_DIR", "")
+	initConfig()
+	if !Get().IsManaged() {
+		assert.Equal(t, ConfigSourceUser, Get().ConfigSource(), "no sudo marker in a test")
+	}
+
+	assert.Equal(t, ConfigSourceManaged, resolveConfigSource(true))
+}
+
 func TestProxyEnforceConfigDefaults(t *testing.T) {
 	got := DefaultConfig().Config.Proxy.Server.Enforce
 	assert.False(t, got.Enabled)

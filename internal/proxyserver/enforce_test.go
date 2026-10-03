@@ -121,6 +121,10 @@ func TestStartupMessage(t *testing.T) {
 	plain := startupMessage(State{Addr: "127.0.0.1:7777"})
 	assert.Contains(t, plain, "pmg proxy env")
 	assert.NotContains(t, plain, "enforcement")
+	assert.NotContains(t, plain, "config:", "an older state file has no path")
+
+	sourced := startupMessage(State{Addr: "127.0.0.1:7777", ConfigPath: "/etc/safedep/pmg/config.yml", ConfigSource: "managed"})
+	assert.Contains(t, sourced, "config: /etc/safedep/pmg/config.yml (managed)")
 
 	enforced := startupMessage(State{Addr: "127.0.0.1:7777", Enforce: &EnforceState{
 		Status:   netenforce.Status{CgroupPath: "/sys/fs/cgroup", Ports: []uint16{80, 443}},
@@ -128,6 +132,15 @@ func TestStartupMessage(t *testing.T) {
 	}})
 	assert.Contains(t, enforced, "kernel enforcement (cgroup /sys/fs/cgroup, ports 80,443)")
 	assert.Contains(t, enforced, "Docker is running.")
+}
+
+func TestRootPerUserConfigWarningNamesBothFiles(t *testing.T) {
+	w := rootPerUserConfigWarning("/root/.config/safedep/pmg/config.yml")
+	assert.Contains(t, w, "/root/.config/safedep/pmg/config.yml")
+	if system := config.SystemConfigFilePath(); system != "" {
+		assert.Contains(t, w, system)
+		assert.Contains(t, w, "pmg config edit --system")
+	}
 }
 
 func TestDestinationResolverBeforeAttach(t *testing.T) {
