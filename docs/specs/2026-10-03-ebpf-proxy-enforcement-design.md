@@ -728,3 +728,10 @@ of the rollout are not repeated here.
    restart nothing routes through PMG. `docs/persistent-proxy.md` should say
    so next to the detach guarantee, and point at `Restart=on-failure` in the
    example unit, which already has it.
+4. **Report the system keypair in `setup info` and `setup doctor`.** Both
+   inspect the user's keypair and report "not installed" after
+   `sudo pmg setup cert install --system`, which wrote `/etc/safedep/pmg`.
+   `certStatusDir` already picks the system directory when the process is
+   privileged. The two commands should show both keypairs with their
+   location and trust state, so an unprivileged user sees that the system
+   CA exists and that the enforcing daemon uses it.
