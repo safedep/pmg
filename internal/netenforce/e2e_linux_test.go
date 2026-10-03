@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,9 +20,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// The e2e test attaches the real programs to the cgroup root and drives
-// connections from child processes, because this process is the daemon
-// and the daemon's pid is exempt. Destinations are in TEST-NET-1
+// The e2e test attaches the real programs to a private child cgroup that
+// holds only this process and its helpers, so no other process on the host
+// is touched and no other traffic reaches the test listener. It drives
+// connections from child processes, because this process is the daemon and
+// the daemon's pid is exempt. Destinations are in TEST-NET-1
 // (192.0.2.0/24), which no host routes, so a connection the kernel does
 // not redirect fails on its own and never reaches the network.
 //
@@ -63,12 +66,18 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+// helperTCP4 connects and waits for one line. The listener answers at once.
+// A reachable destination that the kernel did not redirect, such as a cloud
+// metadata service, answers nothing, so the read has a deadline too.
 func helperTCP4(addr netip.AddrPort) error {
 	conn, err := net.DialTimeout("tcp4", addr.String(), 2*time.Second)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
 	buf := make([]byte, 16)
 	_, err = conn.Read(buf)
 	return err
@@ -92,8 +101,10 @@ func helperTCP6Mapped(addr netip.AddrPort) error {
 	sa.Addr = mapped.As16()
 
 	tv := unix.NsecToTimeval(int64(2 * time.Second))
-	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, &tv); err != nil {
-		return err
+	for _, opt := range []int{unix.SO_SNDTIMEO, unix.SO_RCVTIMEO} {
+		if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, opt, &tv); err != nil {
+			return err
+		}
 	}
 	if err := unix.Connect(fd, sa); err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -146,6 +157,7 @@ func newE2E(t *testing.T) *e2e {
 	policy.TraceDecisions = true
 	policy.ExemptExecutables = []string{filepath.Join(exeDir, "Runner.*")}
 	policy.SkipDestinations = []netip.Prefix{netip.MustParsePrefix("192.0.2.128/25")}
+	policy.CgroupPath = privateCgroup(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -156,6 +168,42 @@ func newE2E(t *testing.T) *e2e {
 	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan netip.AddrPort, 16), exeDir: exeDir}
 	go e.acceptLoop()
 	return e
+}
+
+// privateCgroup creates a child cgroup under this process's own, moves the
+// process into it, and restores the old placement at cleanup. The helpers
+// inherit it. A CI runner's agent, which polls its service over 443, stays
+// outside and is never redirected into the test listener.
+func privateCgroup(t *testing.T) string {
+	t.Helper()
+
+	root, err := cgroup2Root()
+	require.NoError(t, err)
+	current, err := currentCgroup()
+	require.NoError(t, err)
+
+	path := filepath.Join(root, current, fmt.Sprintf("pmg-e2e-%d", os.Getpid()))
+	require.NoError(t, os.Mkdir(path, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "cgroup.procs"), []byte(strconv.Itoa(os.Getpid())), 0o644))
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(root, current, "cgroup.procs"), []byte(strconv.Itoa(os.Getpid())), 0o644)
+		_ = os.Remove(path)
+	})
+	return path
+}
+
+// currentCgroup returns this process's cgroup v2 path, from the "0::" line.
+func currentCgroup() (string, error) {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(line, "0::"); ok {
+			return rest, nil
+		}
+	}
+	return "", fmt.Errorf("no cgroup v2 entry in /proc/self/cgroup")
 }
 
 func (e *e2e) acceptLoop() {
@@ -212,12 +260,19 @@ func (e *e2e) decision(match func(Decision) bool) Decision {
 	}
 }
 
-func (e *e2e) acceptedWithin(d time.Duration) (netip.AddrPort, bool) {
-	select {
-	case orig := <-e.accepted:
-		return orig, true
-	case <-time.After(d):
-		return netip.AddrPort{}, false
+// acceptedFor waits for a redirected connection whose original destination
+// is dst, and ignores any other.
+func (e *e2e) acceptedFor(dst netip.AddrPort, d time.Duration) bool {
+	deadline := time.After(d)
+	for {
+		select {
+		case orig := <-e.accepted:
+			if orig == dst {
+				return true
+			}
+		case <-deadline:
+			return false
+		}
 	}
 }
 
@@ -242,10 +297,7 @@ func TestE2E_RedirectRecoversOriginalDestination(t *testing.T) {
 	d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) && d.Destination == dst })
 	assert.Equal(t, ActionRedirect, d.Action)
 	assert.Equal(t, "tcp", d.Protocol)
-
-	orig, ok := e.acceptedWithin(2 * time.Second)
-	require.True(t, ok)
-	assert.Equal(t, dst, orig)
+	assert.True(t, e.acceptedFor(dst, 2*time.Second), "the listener recovers the original destination")
 }
 
 func TestE2E_IPv4MappedIPv6IsRedirected(t *testing.T) {
@@ -259,10 +311,7 @@ func TestE2E_IPv4MappedIPv6IsRedirected(t *testing.T) {
 	d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) })
 	assert.Equal(t, ActionRedirect, d.Action)
 	assert.Equal(t, dst, d.Destination, "the mapped address is reported as IPv4")
-
-	orig, ok := e.acceptedWithin(2 * time.Second)
-	require.True(t, ok)
-	assert.Equal(t, dst, orig, "the original destination is keyed as IPv4 too")
+	assert.True(t, e.acceptedFor(dst, 2*time.Second), "the original destination is keyed as IPv4 too")
 }
 
 func TestE2E_SkipListPassesBuiltinAndConfiguredDestinations(t *testing.T) {
@@ -275,9 +324,8 @@ func TestE2E_SkipListPassesBuiltinAndConfiguredDestinations(t *testing.T) {
 		pid, _ := e.run("tcp4", dst)
 		d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) })
 		assert.Equal(t, ActionSkipDst, d.Action, "destination %s", dst)
+		assert.False(t, e.acceptedFor(dst, 500*time.Millisecond), "a skipped destination never reaches the listener")
 	}
-	_, accepted := e.acceptedWithin(500 * time.Millisecond)
-	assert.False(t, accepted, "a skipped destination never reaches the listener")
 }
 
 func TestE2E_UDPToEnforcedPortIsDenied(t *testing.T) {
@@ -296,10 +344,10 @@ func TestE2E_UDPToEnforcedPortIsDenied(t *testing.T) {
 func TestE2E_NonEnforcedPortIsNotRedirected(t *testing.T) {
 	e := newE2E(t)
 
-	_, out := e.run("tcp4", netip.MustParseAddrPort("192.0.2.13:8080"))
+	dst := netip.MustParseAddrPort("192.0.2.13:8080")
+	_, out := e.run("tcp4", dst)
 	assert.NotContains(t, out, "helper: ok")
-	_, accepted := e.acceptedWithin(500 * time.Millisecond)
-	assert.False(t, accepted)
+	assert.False(t, e.acceptedFor(dst, 500*time.Millisecond))
 }
 
 func TestE2E_ExecutableThatAppearsLaterIsExempted(t *testing.T) {
@@ -344,14 +392,13 @@ func TestE2E_CloseDetaches(t *testing.T) {
 
 	_, out := e.run("tcp4", dst)
 	require.Contains(t, out, "helper: ok")
-	_, _ = e.acceptedWithin(2 * time.Second)
+	require.True(t, e.acceptedFor(dst, 2*time.Second))
 
 	require.NoError(t, e.handle.Close())
 
 	_, out = e.run("tcp4", dst)
 	assert.NotContains(t, out, "helper: ok", "after Close the connection goes direct and times out")
-	_, accepted := e.acceptedWithin(500 * time.Millisecond)
-	assert.False(t, accepted)
+	assert.False(t, e.acceptedFor(dst, 500*time.Millisecond))
 }
 
 func TestE2E_StatusAndCounters(t *testing.T) {
@@ -366,9 +413,10 @@ func TestE2E_StatusAndCounters(t *testing.T) {
 	assert.NotEmpty(t, s.KernelVersion)
 	assert.Contains(t, s.LoaderVersion, "cilium/ebpf")
 
-	_, out := e.run("tcp4", netip.MustParseAddrPort("192.0.2.17:80"))
+	dst := netip.MustParseAddrPort("192.0.2.17:80")
+	_, out := e.run("tcp4", dst)
 	require.Contains(t, out, "helper: ok")
-	_, _ = e.acceptedWithin(2 * time.Second)
+	require.True(t, e.acceptedFor(dst, 2*time.Second))
 
 	counters, err := e.handle.Counters()
 	require.NoError(t, err)

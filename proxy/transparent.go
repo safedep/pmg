@@ -344,12 +344,13 @@ func peekClientHello(r *bufio.Reader) ([]byte, error) {
 
 // clientHelloServerName extracts the SNI from a raw ClientHello record. It
 // drives crypto/tls over the bytes and stops the handshake in
-// GetConfigForClient, so there is no second parser to maintain. An empty
-// result means the client sent no SNI, or the bytes are not a ClientHello.
+// GetConfigForClient, which runs before the version is negotiated, so there
+// is no second parser to maintain and no protocol version to accept. An
+// empty result means the client sent no SNI, or the bytes are not a
+// ClientHello.
 func clientHelloServerName(record []byte) string {
 	var serverName string
 	conn := tls.Server(readOnlyConn{r: bytes.NewReader(record)}, &tls.Config{
-		MinVersion: tls.VersionTLS10,
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			serverName = hello.ServerName
 			return nil, errStopHandshake

@@ -130,6 +130,10 @@ jobs:
       - name: Stop and verify it fails on the block
         if: always()
         run: |
+          # An earlier step failed before the daemon started: nothing to stop.
+          if [ ! -f "$RUNNER_TEMP/proxy-state.json" ]; then
+            exit 0
+          fi
           if sudo "$GITHUB_WORKSPACE/bin/pmg" proxy stop --state "$RUNNER_TEMP/proxy-state.json" --fail-on-violation; then
             echo "ERROR: stop should have exited non-zero (a package was blocked)"
             exit 1
