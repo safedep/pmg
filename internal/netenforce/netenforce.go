@@ -50,6 +50,11 @@ type Policy struct {
 	// DenyUDP returns EPERM for UDP to a routed port from an eligible
 	// process, so a QUIC client falls back to TCP. Default true.
 	DenyUDP bool
+
+	// TraceDecisions makes the kernel report every decision through a ring
+	// buffer, for debug logs and tests. It costs one record per connection
+	// on the host, so it is off in normal operation.
+	TraceDecisions bool
 }
 
 // DefaultPolicy returns the policy the daemon uses when the config names

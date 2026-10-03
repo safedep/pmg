@@ -263,6 +263,10 @@ static __always_inline int in_skip6(const __u32 ip6[4])
  */
 static __always_inline int decide(struct bpf_sock_addr *ctx, struct cfg *c, struct event *e, int skipped)
 {
+	e->tgid = bpf_get_current_pid_tgid() >> 32;
+	e->uid = bpf_get_current_uid_gid();
+	bpf_get_current_comm(e->comm, sizeof(e->comm));
+
 	if (c->netns_cookie && bpf_get_netns_cookie(ctx) != c->netns_cookie) {
 		finish(c, e, ACT_OTHER_NETNS);
 		return 0;
@@ -271,10 +275,6 @@ static __always_inline int decide(struct bpf_sock_addr *ctx, struct cfg *c, stru
 		finish(c, e, ACT_SKIP_DST);
 		return 0;
 	}
-
-	e->tgid = bpf_get_current_pid_tgid() >> 32;
-	e->uid = bpf_get_current_uid_gid();
-	bpf_get_current_comm(e->comm, sizeof(e->comm));
 
 	if (e->tgid == c->daemon_tgid) {
 		finish(c, e, ACT_EXEMPT_DAEMON);
