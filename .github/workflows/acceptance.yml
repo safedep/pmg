@@ -287,12 +287,20 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
+      # The module download runs as the runner user, so the root step only
+      # reads the module cache. A root process that unpacks modules leaves
+      # root-owned directories the runner user cannot write to later. Root
+      # gets its own build cache for the same reason.
+      - name: Download modules
+        run: go mod download
+
       # sudo resets PATH, so the tools the scripts exec travel through
-      # --preserve-env. The Go caches stay the runner user's.
+      # --preserve-env.
       - name: Run enforce acceptance scripts as root
         env:
           PMG_BIN: ${{ github.workspace }}/bin/pmg
           ACCEPTANCE_CATEGORY: enforce
+          GOCACHE: ${{ runner.temp }}/go-build-root
         run: |
           sudo --preserve-env=PATH,HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS,PMG_BIN,ACCEPTANCE_CATEGORY,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_ENDPOINT_ID \
             "$(command -v gotestsum)" --junitfile "${RUNNER_TEMP}/acceptance.xml" --format testname \

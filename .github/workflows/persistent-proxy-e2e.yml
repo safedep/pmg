@@ -100,11 +100,20 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Run the enforcement e2e test as root
-        run: sudo --preserve-env=CI,HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS "$(command -v go)" test -tags ebpf_e2e -count=1 -v ./internal/netenforce/ -run E2E
-
+      # The build and the module download run as the runner user first, so
+      # the root step only reads the module cache. A root process that
+      # unpacks modules leaves root-owned directories the runner user cannot
+      # write to later. Root gets its own build cache for the same reason.
       - name: Build PMG
         run: make
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run the enforcement e2e test as root
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build-root
+        run: sudo --preserve-env=CI,HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS "$(command -v go)" test -tags ebpf_e2e -count=1 -v ./internal/netenforce/ -run E2E
 
       - name: Install the system CA and start the enforcing daemon
         run: |
