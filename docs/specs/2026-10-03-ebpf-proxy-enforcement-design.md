@@ -1,6 +1,6 @@
 # eBPF enforcement for the persistent proxy on Linux
 
-Status: proposal, revision 2. POC verified on 2026-10-03. See
+Status: proposal, revision 3. POC verified on 2026-10-03. See
 [scripts/ebpf-enforce-poc](../../scripts/ebpf-enforce-poc/README.md).
 
 ## Problem
@@ -77,12 +77,57 @@ capabilities it refuses to start with a clear error. The consequences:
 - Cloud credentials come from the environment, not from a keychain. The
   action already does this.
 
-Enforcement removes the need for the proxy environment variables. It does
-not remove the need for the trust variables. A client that reaches a registry
-host is MITM'd and must trust the PMG CA. `pmg proxy env` keeps emitting
-`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE` and the others. Root makes
-`pmg setup cert install --system` possible as well, but Node ignores the OS
-store by default, so the variables stay.
+- The CA keypair moves. `pmg setup cert install` refuses to run under `sudo`
+  today, because it keeps the keypair in the user's config directory for an
+  unprivileged proxy. A root daemon reads root's config directory. In enforce
+  mode the daemon reads the keypair from `/etc/safedep/pmg/` (key mode
+  `0600`, owned by root), and `pmg setup cert install --system` writes it
+  there when it runs as root. The user scope flow does not change.
+
+### Trust delivery
+
+eBPF cannot set a process's environment. The hooks see syscalls, and the
+environment is userspace memory that `exec()` fixes. Enforcement removes the
+proxy variables (`HTTP_PROXY` and the others). It does not deliver trust.
+
+Enforce mode uses one mechanism for trust: the system trust store, through
+the existing `pmg setup cert install --system`. `pmg proxy start --enforce`
+refuses to start when the CA is not in the store. It does not emit the
+per-tool trust variables.
+
+Trust only decides whether a legitimate tool works. It never decides whether
+a connection bypasses the proxy. The kernel routes every eligible connection
+to the proxy first. A client that does not trust the CA fails the handshake
+on a registry host and gets nothing. So a gap in trust delivery breaks a
+tool. It does not open a hole.
+
+Measured on 2026-10-03 with the POC, the CA in `/usr/local/share/ca-certificates`,
+and every client started with `env -i`:
+
+| Client | Trusts the system store |
+| --- | --- |
+| `curl`, Python `urllib`, Go `net/http` | yes |
+| pip 26.2 upstream, pip 24.0 Debian | yes |
+| npm 10.9 on Node 22.22 | no |
+| npm and `fetch()` with `--use-system-ca` | yes |
+| Python `requests` (`certifi` bundle) | no |
+
+Node is the one gap that matters, because it holds npm, pnpm, yarn and aube.
+Node 22.15 and later read the system store when `NODE_USE_SYSTEM_CA=1` is
+set. Enforce mode keeps that one variable. The action writes it to
+`$GITHUB_ENV`, and a systemd deployment writes it to the runner's `.env`.
+When a process drops it, Node fails closed. Node 20 has no switch, and it
+reached end of life in April 2026. Enforce mode does not support it.
+
+A script that uses `requests` directly fails closed on registry hosts. That
+is the wanted result for an install script. pip does not use the `certifi`
+bundle for its own downloads, so pip works.
+
+Not measured yet: `uv`, `poetry`, `pipx`, `bun`. `uv` validates against its
+own bundled roots unless `UV_NATIVE_TLS` is set, so it probably needs a
+second variable. Phase 3 measures each supported package manager in the
+acceptance suite and adds a variable only where a measurement shows the
+need.
 
 ## Mechanism choice
 
@@ -323,15 +368,15 @@ prints it. `pmg proxy stop` is unchanged. The daemon exits, the kernel
 detaches.
 
 `action.yml` gains `enforce: "true"`, valid with `server-mode`. The action
-runs `start`, `env` and `stop` under `sudo` with one explicit `--state` path
+runs `pmg setup cert install --system`, then `start` and `stop` under `sudo` with one explicit `--state` path
 and passes the cloud variables through `--preserve-env`. Without `sudo` the
 action fails with a clear error.
 
 A systemd unit for a self-hosted runner runs `pmg proxy start --enforce`
-in the foreground as root with a fixed `listen_port`. The runner's `.env`
-file carries the trust variables, which `pmg proxy env` prints once at
-install time. The CA is the persisted one from `pmg setup cert install`, so
-it is stable across restarts.
+in the foreground as root with a fixed `listen_port`. The operator runs
+`pmg setup cert install --system` once. The runner's `.env` file carries
+`NODE_USE_SYSTEM_CA=1`. The CA is persisted, so it is stable across
+restarts.
 
 ## Requirements
 
@@ -362,12 +407,14 @@ it is stable across restarts.
    `//go:build linux && ebpf_e2e` that runs under `sudo` on `ubuntu-latest` in
    `persistent-proxy-e2e.yml`. About 900 lines of Go and 250 of C.
 3. `action.yml` input, `persistent-proxy.md` update, a systemd unit example,
-   and an acceptance script with a `catalog.yaml` row.
+   and an acceptance script with a `catalog.yaml` row. The acceptance suite
+   checks trust for each supported package manager in enforce mode.
 4. Privilege drop: attach as root, serve as the invoking user.
 
 ## Decisions needed
 
 1. Root daemon in the first version, with the privilege drop as a follow-up.
+   The CA keypair moves to `/etc/safedep/pmg/` in enforce mode.
 2. Default eligibility for the action: every user, with computed exemptions.
    Self-hosted operators set `eligible_users` themselves.
 3. Commit the compiled BPF object with a CI reproducibility check, or build
