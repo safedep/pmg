@@ -27,7 +27,7 @@ VERSION := "$(shell git describe --tags --abbrev=0)-$(shell git rev-parse --shor
 GO_CFLAGS=-X 'github.com/safedep/pmg/internal/version.Commit=$(GITCOMMIT)' -X 'github.com/safedep/pmg/internal/version.Version=$(VERSION)'
 GO_LDFLAGS=-ldflags "-w $(GO_CFLAGS)"
 
-.PHONY: all pmg create_bin clean test sandbox-e2e
+.PHONY: all pmg create_bin clean test sandbox-e2e bpf ebpf-e2e
 
 all: pmg
 
@@ -57,6 +57,15 @@ sandbox-e2e: pmg
 	NPM_TOKEN=pmg-e2e-keep \
 	NODE_AUTH_TOKEN=pmg-e2e-keep \
 	./$(BIN) --sandbox --sandbox-enforce npm exec -- node ./test/sandbox-e2e.js
+
+# Rebuilds the committed enforcement BPF object. Needs clang 18. CI runs the
+# same command and fails when the object differs from the committed one.
+bpf:
+	$(GO) generate ./internal/netenforce/bpf
+
+# Runs the eBPF enforcement e2e test. Needs root, kernel BTF and cgroup v2.
+ebpf-e2e:
+	$(GO) test -tags ebpf_e2e -count=1 -v ./internal/netenforce/ -run E2E
 
 fmt:
 	$(GO) fmt ./...

@@ -223,3 +223,95 @@ jobs:
           path: |
             ${{ runner.temp }}/acceptance-report.md
             ${{ runner.temp }}/acceptance.xml
+
+  # The enforce category attaches kernel programs and installs the PMG CA
+  # into the system trust store, so it runs as root on its own disposable
+  # runner. Every enforce script must pass here.
+  enforce:
+    name: Acceptance Suite - enforce (root)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      SAFEDEP_API_KEY: ${{ secrets.SAFEDEP_CLOUD_API_KEY }}
+      SAFEDEP_TENANT_ID: ${{ secrets.SAFEDEP_CLOUD_TENANT_DOMAIN }}
+      PMG_CLOUD_ENABLED: "true"
+      PMG_CLOUD_ENDPOINT_ID: "gh:${{ github.repository }}"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+
+      - name: Build PMG
+        run: make
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      # sudo resets PATH, so the tools the scripts exec travel through
+      # --preserve-env. The Go caches stay the runner user's.
+      - name: Run enforce acceptance scripts as root
+        env:
+          PMG_BIN: ${{ github.workspace }}/bin/pmg
+          ACCEPTANCE_CATEGORY: enforce
+        run: |
+          sudo --preserve-env=PATH,HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS,PMG_BIN,ACCEPTANCE_CATEGORY,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_ENDPOINT_ID \
+            "$(command -v gotestsum)" --junitfile "${RUNNER_TEMP}/acceptance.xml" --format testname \
+            -- -tags acceptance -timeout 20m ./test/acceptance
+
+      - name: Render report
+        if: always()
+        run: |
+          go run ./test/acceptance/report \
+            -junit "${RUNNER_TEMP}/acceptance.xml" \
+            -catalog test/acceptance/catalog.yaml \
+            -scripts test/acceptance/scripts \
+            | tee "${RUNNER_TEMP}/acceptance-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: acceptance-report-enforce
+          path: |
+            ${{ runner.temp }}/acceptance-report.md
+            ${{ runner.temp }}/acceptance.xml
