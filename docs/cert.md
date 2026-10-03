@@ -34,6 +34,10 @@ pmg setup cert install
 # Windows: run from an elevated prompt.
 pmg setup cert install --system
 
+# System scope for a root proxy daemon (pmg proxy start --enforce). Run as
+# root. The keypair goes to the system config directory, root-owned.
+sudo pmg setup cert install --system
+
 # Inspect presence, trust scope, expiry, and drift.
 pmg setup cert status
 
@@ -47,11 +51,22 @@ pmg setup cert uninstall [--system] [--purge]
 ## Trust scopes
 
 `pmg setup cert install` installs at user scope by default, which needs no elevation. Pass
-`--system` to install for all users. Always run the command as your normal user, not under
-sudo. PMG generates a keypair owned by you and elevates only the trust store write, prompting
-for sudo on macOS and Linux. On Windows, run it from an elevated prompt. Running the whole
-command under sudo is refused, because the keypair would be persisted in root's config
-directory where the unprivileged proxy never looks.
+`--system` to install for all users. Run the command as your normal user, not under sudo.
+PMG generates a keypair owned by you and elevates only the trust store write, prompting
+for sudo on macOS and Linux. On Windows, run it from an elevated prompt. A user-scope
+install under sudo is refused. The keypair would land in root's config directory, which
+your unprivileged proxy does not read and, as a non-root process, cannot read.
+
+`sudo pmg setup cert install --system` is the one case where root is intended. It writes a
+separate keypair to the system config directory (`/etc/safedep/pmg` on Linux). The
+certificate is world-readable. The private key is root-owned with mode `0600`, so only a
+root process can sign with it. That process is the proxy daemon that `pmg proxy start
+--enforce` runs as root. It loads the keypair from the system directory and never from a
+user's home, so it does not depend on any user account. An unprivileged `pmg proxy start`
+loads the keypair in your own config directory and never the system one, so no user can
+sign with the system CA. See
+[persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux). `pmg setup cert
+status` as root inspects the system keypair when it exists.
 
 | Platform | User scope (default) | System scope (`--system`) |
 | --- | --- | --- |
@@ -69,9 +84,11 @@ The CA keypair is stored under PMG's config directory as `ca-cert.pem` (`0644`) 
 `ca-key.pem` (`0600`). The private key never leaves disk. Only the public certificate is
 installed into the OS trust store, since the trust store cannot hold or return a private key.
 
-The keypair always belongs to you. The unprivileged proxy must read the private key it signs
-with, so the command runs as your normal user and writes to your config directory. `--system`
-only widens where the public certificate is trusted, not where the key lives.
+The keypair belongs to the account that runs the proxy. The unprivileged proxy must read the
+private key it signs with, so the command runs as your normal user and writes to your config
+directory. `--system` as a normal user only widens where the public certificate is trusted,
+not where the key lives. `--system` as root is the exception above: the key belongs to root,
+for the root daemon.
 
 A persistent CA that the OS trusts is sensitive. Anyone who can read `ca-key.pem` can
 intercept your TLS traffic for tools that trust the CA. PMG mitigates this with restrictive

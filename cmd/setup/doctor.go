@@ -13,6 +13,7 @@ import (
 	"github.com/safedep/pmg/internal/alias"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/fsutil"
+	"github.com/safedep/pmg/internal/netenforce"
 	pmgplatform "github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/internal/ui"
@@ -39,6 +40,7 @@ const (
 	checkProtectionPip      = "protection-pip"
 	checkCA                 = "ca-cert"
 	checkSystemBinary       = "system-binary"
+	checkProxyEnforce       = "proxy-enforce"
 
 	aliasesInstalledMessage = "Shell aliases installed"
 
@@ -237,6 +239,17 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Run: func() doctor.CheckResult {
 				user, system, _ := truststore.Status(certmanager.CACommonName)
 				return evaluateCACheck(cfg.ConfigDir(), user, system, truststore.UserScopeSupported())
+			},
+		},
+		{
+			Name:     checkProxyEnforce,
+			Category: "Security",
+			Run: func() doctor.CheckResult {
+				enforcer, err := netenforce.New()
+				if err != nil {
+					return evaluateEnforceCheck(err, netenforce.ProbeResult{})
+				}
+				return evaluateEnforceCheck(nil, enforcer.Probe())
 			},
 		},
 	}
@@ -535,6 +548,7 @@ var checkDisplayNames = map[string]string{
 	checkProtectionPip:      "pip protection",
 	checkCA:                 "MITM CA",
 	checkSystemBinary:       "System binary",
+	checkProxyEnforce:       "Proxy enforcement",
 }
 
 var checkFixes = map[string]string{
@@ -550,6 +564,7 @@ var checkFixes = map[string]string{
 	checkProtectionNpm:      "pmg setup install",
 	checkProtectionPip:      "pmg setup install",
 	checkCA:                 "pmg setup cert install",
+	checkProxyEnforce:       "Run as root on Linux 5.15+ with kernel BTF and cgroup v2",
 }
 
 // evaluateSandboxCheck is the testable core of the sandbox doctor check. An
@@ -585,6 +600,29 @@ func evaluateSandboxCheck(sb sandbox.Sandbox, supported bool, enabled bool) doct
 		Status:  doctor.StatusPass,
 		Message: fmt.Sprintf("Sandbox enabled (%s)", sb.Name()),
 	}
+}
+
+// evaluateEnforceCheck reports whether `pmg proxy start --enforce` can run
+// here. Enforcement is opt-in and Linux-only, so a host that cannot enforce
+// gets a warning, not a failure. newErr is the error from netenforce.New.
+func evaluateEnforceCheck(newErr error, probe netenforce.ProbeResult) doctor.CheckResult {
+	if newErr != nil {
+		return doctor.CheckResult{
+			Status:  doctor.StatusPass,
+			Message: fmt.Sprintf("Kernel enforcement is not available on %s (Linux only)", pmgplatform.OSName()),
+		}
+	}
+	if probe.Supported {
+		return doctor.CheckResult{
+			Status:  doctor.StatusPass,
+			Message: fmt.Sprintf("Kernel enforcement available (kernel %s, cgroup %s)", probe.KernelVersion, probe.CgroupPath),
+		}
+	}
+	message := "Kernel enforcement unavailable"
+	if len(probe.Missing) > 0 {
+		message += ": " + probe.Missing[0]
+	}
+	return doctor.CheckResult{Status: doctor.StatusWarn, Message: message}
 }
 
 // evaluateCACheck is the testable core of the CA doctor check. Trust booleans

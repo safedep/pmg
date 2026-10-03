@@ -72,3 +72,22 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		"CARGO_HTTP_CHECK_REVOKE=false",
 	}
 }
+
+// EnvVarForSystemTrust returns the variables that point a tool at the
+// system trust store. An enforcing proxy routes traffic in the kernel and
+// delivers trust through the store, so these are the only variables it
+// emits. Node ignores the store unless NODE_USE_SYSTEM_CA is set, and uv
+// validates against its bundled roots unless UV_NATIVE_TLS is set. Tools
+// built on Python requests validate against certifi, so REQUESTS_CA_BUNDLE
+// names the system bundle when the host has one. poetry needs it. pip does
+// not.
+func EnvVarForSystemTrust(systemBundlePath string) []string {
+	vars := []string{
+		"NODE_USE_SYSTEM_CA=1",
+		"UV_NATIVE_TLS=1",
+	}
+	if systemBundlePath != "" {
+		vars = append(vars, fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", systemBundlePath))
+	}
+	return vars
+}

@@ -158,8 +158,193 @@ intentionally not used: it needs root (breaking container and locked-down
 runners), persistently installs a MITM-capable CA into the machine trust store,
 and still does not remove the need for the env vars.
 
+[Kernel enforcement](#kernel-enforcement-linux) is the exception. It runs as
+root in any case and uses the system trust store instead of the variables.
+
 Loopback addresses are always excluded from proxying via `NO_PROXY`
 (`localhost,127.0.0.1,::1`).
+
+## Kernel enforcement (Linux)
+
+Environment variables are a request. A process decides whether it honors
+them. Node ignores `HTTP_PROXY` unless `NODE_USE_ENV_PROXY=1` is set, `env -i`
+and `sudo` drop the variables, and an install script with its own HTTP client
+never reads them. `pmg proxy start --enforce` closes that gap on Linux. The
+kernel routes every TCP connection to ports 80 and 443 from every eligible
+process to the proxy. A process cannot opt out.
+
+```bash
+sudo pmg setup cert install --system
+sudo pmg proxy start --daemon --enforce --state "$RUNNER_TEMP/pmg-proxy-state.json"
+sudo pmg proxy env --state "$RUNNER_TEMP/pmg-proxy-state.json" >> "$GITHUB_ENV"
+# ... job steps ...
+sudo pmg proxy stop --state "$RUNNER_TEMP/pmg-proxy-state.json" --fail-on-violation
+```
+
+The [safedep/pmg action](../action.yml) does this with `server-mode: true`
+and `enforce: true`. See [github-action.md](./github-action.md).
+
+### How it works
+
+The daemon attaches BPF programs to the cgroup v2 root through `bpf_link`.
+The `connect` hooks rewrite the destination of an eligible connection to the
+proxy's loopback listener and record the original destination. The proxy
+sniffs each redirected connection: TLS to a registry host is terminated with
+the PMG CA, every other host is passed through with its real certificate,
+and plain HTTP is served as a proxy request. UDP to an enforced port gets
+`EPERM`, so a QUIC client falls back to TCP. When the daemon exits, for any
+reason, the kernel detaches the programs. There is nothing to clean up after
+a crash.
+
+The daemon attaches before it reports ready. There is no window in which the
+proxy runs and a connection is not enforced.
+
+### Eligibility
+
+Every process is eligible unless the policy says otherwise. The daemon's own
+pid is the only process exempt by pid. The `pmg` binary is not exempt: the
+per-command proxy of `pmg npm install` chains into the daemon, so
+`PMG_INSECURE_INSTALLATION=true pmg npm install` cannot bypass it.
+
+The policy lives in `proxy.server.enforce`:
+
+```yaml
+proxy:
+  server:
+    listen_port: 7777
+    enforce:
+      enabled: true
+      ports: [80, 443]
+      eligible_users: []
+      exempt_users: []
+      exempt_executables:
+        - /home/runner/actions-runner/bin/Runner.*
+      skip_destinations: [10.20.0.0/16]
+      cgroup: ""
+      deny_udp: true
+```
+
+- `ports` are the destination ports to route. The ports of `proxy.registries`
+  endpoints are always added.
+- `exempt_executables` are absolute paths or globs. A CI runner agent belongs
+  here, because its traffic to the CI service must not depend on the proxy.
+  On GitHub Actions the action finds `Runner.Worker` among its ancestors and
+  exempts `<runner dir>/Runner.*` itself. When a listed binary appears or
+  changes after the daemon starts, the daemon picks up the new file. Never
+  exempt an interpreter (`node`, `python3`, `sh`) or a general HTTP client
+  (`curl`, `wget`). An install script can run any of them.
+- `eligible_users` narrows enforcement to some users. It is safe only when no
+  eligible user can become another one. `sudo curl` runs as root, and root is
+  then not eligible. Leave it empty on a runner whose user has `sudo`. The
+  daemon warns when an eligible user is in the `sudo` or `wheel` group.
+- `skip_destinations` adds to the built-in skip list: loopback, link-local
+  (cloud instance metadata) and the Azure host address `168.63.129.16`.
+- `cgroup` narrows the scope to one cgroup v2 directory. The default, the
+  root, covers every process on the host, including a runner that `systemd`
+  started in its own slice.
+
+### Trust
+
+eBPF cannot set a process's environment, so enforcement does not deliver
+trust. It uses one mechanism: the system trust store. `sudo pmg setup cert
+install --system` writes the keypair to `/etc/safedep/pmg/`, root-owned with
+a `0600` key, and installs the certificate into the store. `pmg proxy start
+--enforce` refuses to start when the CA is not in the store, and it never
+generates an ephemeral CA.
+
+Trust only decides whether a tool works. It never decides whether a
+connection bypasses the proxy. A client that does not trust the CA fails the
+TLS handshake on a registry host and gets nothing. Non-registry hosts keep
+their real certificate, so enforcement adds no trust requirement for
+`github.com` or `apt`.
+
+In enforce mode `pmg proxy env` prints no proxy variables and no CA path. It
+prints the variables that point a tool at the system store:
+
+| Variable | Why |
+| --- | --- |
+| `NODE_USE_SYSTEM_CA=1` | Node, and with it npm, pnpm, yarn and aube, ignores the store without it. Node 20 has no switch and is not supported. |
+| `UV_NATIVE_TLS=1` | uv validates against its bundled roots without it. |
+| `REQUESTS_CA_BUNDLE=<system bundle>` | Tools built on Python `requests` validate against `certifi`. poetry needs it. pip does not. |
+
+`curl`, Go, pip and bun trust the store on their own.
+
+### Requirements
+
+- Linux 5.15 or later with kernel BTF (`CONFIG_DEBUG_INFO_BTF`) and cgroup v2.
+  GitHub hosted runners meet this.
+- `CAP_BPF`, `CAP_NET_ADMIN` and `CAP_PERFMON`, so root in practice. The
+  daemon runs as root. Every `pmg proxy` lifecycle command then runs under
+  `sudo` with an explicit `--state` path, because `sudo` resets `HOME`.
+- The PMG CA in the system trust store, through `sudo pmg setup cert install
+  --system`.
+
+`pmg setup doctor` reports whether the host can enforce. `pmg proxy start
+--enforce` fails before it binds a port when a requirement is missing, and
+the error names it. On macOS and Windows it fails with an error that names
+the platform.
+
+### Self-hosted runners
+
+A `systemd` unit can start the enforcing proxy at boot, with a fixed
+`listen_port`. See [examples/systemd/pmg-proxy.service](../examples/systemd/pmg-proxy.service).
+The runner's `.env` file carries the trust variables. The operator runs
+`pmg setup cert install --system` once as root. On a self-hosted runner the
+runner cannot stop a root daemon at job end, so the daemon serves later jobs
+until an operator stops it. `pmg proxy status` shows that it is still
+enforcing.
+
+### Known gap: containers
+
+Enforcement covers the host network namespace only. A process in another
+network namespace passes unchanged, because the kernel would otherwise send
+it to its own loopback. On GitHub Actions this leaves three paths outside
+enforcement: `RUN` steps in `docker build`, container jobs
+(`jobs.<id>.container`) and Docker container actions. Image pulls are still
+enforced, because `dockerd` runs on the host, and the proxy passes image
+registries through. The daemon prints a warning when Docker is running, and
+`pmg proxy status` repeats it.
+
+The workaround puts the install step in the host network namespace and gives
+it trust in the PMG CA, with the CA as a build secret so it never lands in
+the image:
+
+```bash
+docker build --network=host --secret id=pmg-ca,src=/etc/safedep/pmg/ca-cert.pem .
+```
+
+```dockerfile
+RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
+```
+
+A `docker run` step takes `--network host` and the same mount. Container
+jobs and Docker actions have no workaround, because GitHub does not accept
+`--network` in `container.options`. Trust must add to the container's
+existing trust. A bundle that holds only the PMG CA breaks the non-registry
+hosts the proxy passes through. `NODE_EXTRA_CA_CERTS` adds. For tools that
+replace the bundle (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`),
+mount the host bundle, which holds the PMG CA after `pmg setup cert install
+--system`.
+
+### Limitations
+
+- A process of the same user can reuse an exempt binary. A job step runs as
+  the same user as `Runner.Worker`, and it can hard-link that binary next to
+  its own code and run under the exempt inode. This needs deliberate,
+  runner-specific work. It is not something a package manager does by
+  accident. The sandbox owns that threat.
+- `eligible_users` is bypassed by `sudo`. See above.
+- The proxy decides by name. A redirected TLS connection without SNI, or
+  with Encrypted ClientHello, and a plain HTTP request without a `Host`
+  header are dropped, because an IP never matches a registry and would pass
+  one without analysis. A registry that clients reach by IP literal needs a
+  name, or a `skip_destinations` entry so the kernel never redirects it.
+- A passed-through TLS connection is dialed by its server name, not by the
+  address the client resolved. A client cannot steer the root daemon to an
+  address through a false name, and the proxy resolves the name once more.
+- A client that pins certificates fails closed on registry hosts. Same as
+  today.
+- The daemon runs as root. A privilege drop after attach is a follow-up.
 
 ## Cloud event sync
 
@@ -195,10 +380,11 @@ proxy regardless of how the package manager reported the failure.
   packages are always auto-blocked. This is intentional for CI.
 - **Single proxy per state file.** Starting a second proxy that points at the
   same state file is refused while one is running.
-- **System-level trust enforcement is out of scope.** The server relies on env
-  var propagation. Enforcing interception for `sudo`-scrubbed environments (e.g.
-  via `iptables`) is tracked separately. For system-wide shell shims on Linux,
-  see [system-install.md](./system-install.md).
+- **Environment-based routing is best effort.** Without `--enforce` the
+  server relies on env var propagation, and a process that drops or ignores
+  the variables bypasses it. Use [kernel enforcement](#kernel-enforcement-linux)
+  on Linux. For system-wide shell shims on Linux, see
+  [system-install.md](./system-install.md).
 
 ## References
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ proxy:
 	logFileFlag = filepath.Join(notDirectory, "proxy.log")
 	t.Cleanup(func() { logFileFlag = originalLogFileFlag })
 
-	err := startDaemon(&cobra.Command{}, config.Get(), filepath.Join(configDir, "state.json"), "127.0.0.1", 0)
+	err := startDaemon(&cobra.Command{}, config.Get(), proxyserver.RunOptions{StatePath: filepath.Join(configDir, "state.json"), Host: "127.0.0.1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy registries")
 }
@@ -45,7 +46,13 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 	start := &cobra.Command{
 		Use: "start",
 		Run: func(cmd *cobra.Command, _ []string) {
-			got = daemonArgs(cmd, "/tmp/proxy-state.json", "127.0.0.1", 9000)
+			got = daemonArgs(cmd, proxyserver.RunOptions{
+				StatePath:         "/tmp/proxy-state.json",
+				Host:              "127.0.0.1",
+				Port:              9000,
+				Enforce:           true,
+				ExemptExecutables: []string{"/opt/runner/Runner.*"},
+			})
 		},
 	}
 	proxyCmd := &cobra.Command{Use: "proxy"}
@@ -65,5 +72,7 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 		"--state", "/tmp/proxy-state.json",
 		"--host", "127.0.0.1",
 		"--port", "9000",
+		"--enforce=true",
+		"--enforce-exempt-executable", "/opt/runner/Runner.*",
 	}, got)
 }

@@ -182,6 +182,43 @@ type ProxyServerConfig struct {
 	// ListenPort is the port the persistent proxy binds to. 0 (default) means a
 	// random free port. The --port flag overrides this.
 	ListenPort int `mapstructure:"listen_port"`
+
+	// Enforce makes the Linux kernel route the connections of every eligible
+	// process to the proxy, so a process cannot opt out through its
+	// environment. See docs/persistent-proxy.md.
+	Enforce ProxyEnforceConfig `mapstructure:"enforce"`
+}
+
+// ProxyEnforceConfig is the eligibility policy for kernel enforcement. Users
+// describe it in terms they know in advance: ports, users and executable
+// paths. The daemon itself is always exempt. Nothing else is.
+type ProxyEnforceConfig struct {
+	// Enabled turns enforcement on. The --enforce flag overrides this.
+	Enabled bool `mapstructure:"enabled"`
+
+	// Ports are the destination ports the kernel routes. The ports of
+	// proxy.registries endpoints are always added.
+	Ports []int `mapstructure:"ports"`
+
+	// EligibleUsers narrows enforcement to these users. Empty means every
+	// user. Unsafe when an eligible user has sudo.
+	EligibleUsers []string `mapstructure:"eligible_users"`
+
+	// ExemptUsers are never routed.
+	ExemptUsers []string `mapstructure:"exempt_users"`
+
+	// ExemptExecutables are absolute paths or globs of programs that connect
+	// directly, such as a CI runner agent.
+	ExemptExecutables []string `mapstructure:"exempt_executables"`
+
+	// SkipDestinations are CIDR prefixes added to the built-in skip list.
+	SkipDestinations []string `mapstructure:"skip_destinations"`
+
+	// Cgroup is the cgroup v2 directory to attach to. Empty means the root.
+	Cgroup string `mapstructure:"cgroup"`
+
+	// DenyUDP denies UDP to the routed ports, so QUIC falls back to TCP.
+	DenyUDP bool `mapstructure:"deny_udp"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -502,6 +539,10 @@ func DefaultConfig() RuntimeConfig {
 				SkipCommands: map[string][]string{},
 				Server: ProxyServerConfig{
 					ListenHost: "127.0.0.1",
+					Enforce: ProxyEnforceConfig{
+						Ports:   []int{80, 443},
+						DenyUDP: true,
+					},
 				},
 			},
 		},
