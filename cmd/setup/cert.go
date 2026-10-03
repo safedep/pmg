@@ -87,7 +87,7 @@ func newCertInstallCommand() *cobra.Command {
 			return runCertInstall(dir, scope, force, defaultTrustStore{}, os.Stdout)
 		},
 	}
-	cmd.Flags().BoolVar(&system, "system", false, "Install into the system (all-users) trust store (PMG prompts for elevation; on Windows run from an elevated prompt). As root, the keypair goes to the system config directory.")
+	cmd.Flags().BoolVar(&system, "system", false, "Install into the system (all-users) trust store (PMG prompts for elevation. On Windows run from an elevated prompt). As root, the keypair goes to the system config directory.")
 	cmd.Flags().BoolVar(&force, "force", false, "Regenerate and re-trust the CA even if one already exists")
 	return cmd
 }
