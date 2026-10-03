@@ -395,3 +395,43 @@ proxy:
 		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly, "new proxy.install_only should win over old proxy_install_only")
 	})
 }
+
+func TestProxyEnforceConfigLoadsFromFileAndEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PMG_CONFIG_DIR", tmpDir)
+	t.Setenv("PMG_PROXY_SERVER_ENFORCE_ENABLED", "true")
+	t.Cleanup(initConfig)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte(`
+proxy:
+  server:
+    enforce:
+      enabled: false
+      ports: [80, 443, 8443]
+      eligible_users: [runner]
+      exempt_executables:
+        - /home/runner/actions-runner/bin/Runner.*
+      skip_destinations: [10.20.0.0/16]
+      cgroup: /sys/fs/cgroup/system.slice
+      deny_udp: false
+`), 0o644))
+
+	initConfig()
+	got := Get().Config.Proxy.Server.Enforce
+	assert.True(t, got.Enabled, "the env var wins over the file")
+	assert.Equal(t, []int{80, 443, 8443}, got.Ports)
+	assert.Equal(t, []string{"runner"}, got.EligibleUsers)
+	assert.Equal(t, []string{"/home/runner/actions-runner/bin/Runner.*"}, got.ExemptExecutables)
+	assert.Equal(t, []string{"10.20.0.0/16"}, got.SkipDestinations)
+	assert.Equal(t, "/sys/fs/cgroup/system.slice", got.Cgroup)
+	assert.False(t, got.DenyUDP)
+}
+
+func TestProxyEnforceConfigDefaults(t *testing.T) {
+	got := DefaultConfig().Config.Proxy.Server.Enforce
+	assert.False(t, got.Enabled)
+	assert.Equal(t, []int{80, 443}, got.Ports)
+	assert.True(t, got.DenyUDP)
+	assert.Empty(t, got.EligibleUsers)
+	assert.Empty(t, got.ExemptExecutables)
+}
