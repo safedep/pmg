@@ -70,6 +70,10 @@ default.
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
 | `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job. Needs a job-end `pmg proxy stop --fail-on-violation` step. | `false` (shims) |
 | `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. | `false` |
+| `enforce-ports` | With `enforce`, destination ports to route in addition to the config, comma or newline separated. Passed as `--enforce-port`. | unset |
+| `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
+| `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config and the runner binaries. Passed as `--enforce-exempt-executable`. | unset |
+| `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 
 ## Outputs
 
@@ -157,6 +161,23 @@ exports the binary path as `PMG_BIN` and the state file path as
   if: always()
   run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
+
+The policy inputs cover the common cases without a config file. Each list
+adds to the config's list, and the runner binaries stay exempt:
+
+```yaml
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    enforce: true
+    enforce-exempt-executables: /opt/agent/bin/agent
+    enforce-skip-destinations: 10.20.0.0/16
+```
+
+`eligible_users`, `cgroup` and `deny_udp` stay in the config file. A job that
+needs them has a reason to ship one with `config-file`. The inputs need a
+PMG release that has the `--enforce-*` flags. See
+[persistent-proxy.md](./persistent-proxy.md#policy-from-the-command-line).
 
 Containers that a step starts are not enforced. See
 [persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux).
