@@ -100,7 +100,7 @@ func TestProxyFlow_TransparentRedirect(t *testing.T) {
 			},
 		},
 		{
-			Name:    "redirected plain HTTP without Host uses the original destination",
+			Name:    "redirected plain HTTP without Host is refused",
 			Options: []Option{WithTransparent(plainResolver)},
 			Setup: func(h *Harness) {
 				plainResolver.Addr = h.MockPlainRegistryAddrPort()
@@ -112,10 +112,28 @@ func TestProxyFlow_TransparentRedirect(t *testing.T) {
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				require.NoError(t, res.Requests[0].Err)
-				// The mock knows no registry at its own IP, so it answers 404.
-				// The request reached it, which proves the fallback.
-				assert.Equal(t, http.StatusNotFound, res.Requests[0].StatusCode)
-				assert.Contains(t, h.DialedAddrs(), h.Registry.plainAddr())
+				// The interceptors match names. An IP would pass a registry
+				// without analysis, so the kernel entry never stands in for
+				// the Host header.
+				assert.Equal(t, http.StatusBadRequest, res.Requests[0].StatusCode)
+				assert.Empty(t, h.DialedAddrs(), "nothing is forwarded")
+			},
+		},
+		{
+			Name:    "a redirected request that names the proxy itself is refused",
+			Options: []Option{WithTransparent(nil)},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.RedirectedHTTP(h.proxy.Address(), "/"))
+				res.add(h.RedirectedHTTP("localhost:80", "/"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				for _, r := range res.Requests {
+					require.NoError(t, r.Err)
+					assert.Equal(t, http.StatusBadRequest, r.StatusCode, r.URL)
+				}
+				assert.Empty(t, h.DialedAddrs(), "the proxy never forwards to itself")
 			},
 		},
 		{
@@ -141,26 +159,23 @@ func TestProxyFlow_TransparentRedirect(t *testing.T) {
 	})
 }
 
-// A redirected TLS client without SNI gives the proxy no name. The original
-// destination from the kernel is the only way to reach the right server.
-func TestProxyFlow_TransparentNoSNIUsesOriginalDestination(t *testing.T) {
+// A redirected TLS client without SNI gives the proxy no name to decide on.
+// The original destination is only an IP, and an IP never matches a
+// registry, so the connection is dropped instead of spliced.
+func TestProxyFlow_TransparentNoSNIIsDropped(t *testing.T) {
 	applyConfig(t, nil)
 
-	// The harness address is only known after New, so build the resolver in
-	// two steps: a placeholder first, then the real address.
 	resolver := &StaticOriginalDestination{}
 	h := New(t, WithTransparent(resolver))
 	defer h.Close()
 	resolver.Addr = h.MockRegistryAddrPort()
 
-	cert, err := h.RedirectedTLSPeerCert("")
-	require.NoError(t, err)
-	assert.NotEqual(t, certmanager.CACommonName, cert.Issuer.CommonName)
-	assert.Contains(t, h.DialedAddrs(), h.Registry.addr())
+	_, err := h.RedirectedTLSPeerCert("")
+	require.Error(t, err)
+	assert.Empty(t, h.DialedAddrs(), "a nameless connection is never spliced to the registry IP")
 }
 
-// A redirected TLS client without SNI and without a kernel entry cannot be
-// routed. The proxy closes the connection instead of guessing.
+// The same holds without a kernel entry.
 func TestProxyFlow_TransparentNoSNINoDestinationIsDropped(t *testing.T) {
 	applyConfig(t, nil)
 

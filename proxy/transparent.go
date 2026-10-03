@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -168,10 +169,21 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 		return
 	}
 
-	sni := clientHelloServerName(hello)
-	host, port := l.ps.transparentTarget(sni, tc.orig, 443)
+	// Without a name the interceptors cannot decide, so the connection must
+	// not be spliced: a client could reach a registry by IP without analysis.
+	// The same holds for Encrypted ClientHello, whose outer name is a decoy.
+	// A destination that must stay reachable this way belongs in the skip
+	// list, where the kernel never redirects it.
+	sni, ech := clientHelloServerName(hello)
+	if sni == "" || ech {
+		log.Warnf("transparent: dropping TLS connection from %s to %s: no server name to decide on (ech=%t)",
+			tc.RemoteAddr(), tc.orig, ech)
+		l.drop(tc.Conn, "TLS without a server name", io.EOF)
+		return
+	}
 
-	if host != "" && l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS") {
+	host, port := l.ps.transparentTarget(sni, tc.orig, 443)
+	if l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS") {
 		tlsConfig, err := l.ps.config.CertManager.GetTLSConfig(host)
 		if err != nil {
 			l.drop(tc.Conn, fmt.Sprintf("certificate for %s", host), err)
@@ -210,22 +222,16 @@ func (ps *proxyServer) lookupOriginalDestination(c net.Conn) netip.AddrPort {
 	return orig
 }
 
-// transparentTarget picks the host the interceptors decide on and the
-// address the splice dials. The name from SNI wins, because the interceptors
-// match registry names. The original destination supplies the port, and the
-// address when there is no name. defaultPort applies when both are unknown.
+// transparentTarget pairs the name the client sent with the port it
+// connected to. The interceptors match registry names, so the name decides.
+// The original destination supplies the port, because the name does not
+// carry one. defaultPort applies when the kernel entry is gone.
 func (ps *proxyServer) transparentTarget(name string, orig netip.AddrPort, defaultPort uint16) (string, uint16) {
 	port := defaultPort
 	if orig.IsValid() {
 		port = orig.Port()
 	}
-	if name != "" {
-		return name, port
-	}
-	if orig.IsValid() {
-		return orig.Addr().String(), port
-	}
-	return "", port
+	return name, port
 }
 
 // splice copies bytes between a redirected client and its real destination.
@@ -237,11 +243,6 @@ func (ps *proxyServer) splice(client *transparentConn, host string, port uint16)
 			log.Debugf("transparent: close client %s: %v", client.RemoteAddr(), err)
 		}
 	}()
-
-	if host == "" {
-		log.Warnf("transparent: dropping TLS connection from %s without SNI or original destination", client.RemoteAddr())
-		return
-	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(int(port)))
 	upstream, err := ps.proxy.ConnectDial("tcp", addr)
@@ -301,8 +302,10 @@ func originalDestinationFromContext(ctx context.Context) (netip.AddrPort, bool) 
 // serveTransparentRequest handles an origin-form request from a redirected
 // client. It rebuilds the absolute URL the interceptors need and hands the
 // request back to goproxy, so the interceptors, the block rendering and the
-// upstream retries run unchanged. The Host header names the registry. The
-// original destination fills in when a client sends no Host.
+// upstream retries run unchanged. The Host header names the registry. A
+// request without one is refused: the interceptors match names, and an IP
+// would pass a registry without analysis. The original destination supplies
+// the port when the Host header carries none.
 func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.Request) {
 	if !ps.config.Transparent {
 		http.Error(w, "This is a proxy server. Does not respond to non-proxy requests.", http.StatusInternalServerError)
@@ -316,21 +319,53 @@ func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.
 		defaultPort = 443
 	}
 
-	orig, _ := originalDestinationFromContext(req.Context())
+	if req.Host == "" {
+		http.Error(w, "PMG proxy: a redirected request needs a Host header", http.StatusBadRequest)
+		return
+	}
 	host := req.Host
-	if host == "" {
-		name, port := ps.transparentTarget("", orig, defaultPort)
-		if name == "" {
-			http.Error(w, "PMG proxy: request has no Host header and no original destination", http.StatusBadRequest)
-			return
-		}
-		host = net.JoinHostPort(name, strconv.Itoa(int(port)))
+	if _, _, err := net.SplitHostPort(host); err != nil {
+		orig, _ := originalDestinationFromContext(req.Context())
+		_, port := ps.transparentTarget(host, orig, defaultPort)
+		host = net.JoinHostPort(host, strconv.Itoa(int(port)))
+	}
+
+	// The kernel never redirects a loopback destination, so a redirected
+	// request cannot legitimately name the proxy. A request that does would
+	// make the proxy forward to itself without limit.
+	if ps.targetsSelf(host) {
+		http.Error(w, "PMG proxy: a redirected request cannot target the proxy itself", http.StatusBadRequest)
+		return
 	}
 
 	req.URL.Scheme = scheme
 	req.URL.Host = host
 	req.RequestURI = ""
 	ps.proxy.ServeHTTP(w, req)
+}
+
+// targetsSelf reports whether host:port is loopback or one of the proxy's
+// own listeners.
+func (ps *proxyServer) targetsSelf(hostport string) bool {
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	if addr.Unmap().IsLoopback() {
+		return true
+	}
+	p, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		return false
+	}
+	return ps.isOwnAddress(netip.AddrPortFrom(addr.Unmap(), uint16(p)))
 }
 
 // peekClientHello returns every record of the ClientHello without consuming
@@ -369,24 +404,30 @@ func peekClientHello(r *bufio.Reader) ([]byte, error) {
 	return r.Peek(total)
 }
 
-// clientHelloServerName extracts the SNI from a raw ClientHello record. It
-// drives crypto/tls over the bytes and stops the handshake in
-// GetConfigForClient, which runs before the version is negotiated, so there
-// is no second parser to maintain and no protocol version to accept. An
-// empty result means the client sent no SNI, or the bytes are not a
-// ClientHello.
-func clientHelloServerName(record []byte) string {
+// extensionEncryptedClientHello is the TLS extension id of ECH. The outer
+// ClientHello then carries a public name, not the real one.
+const extensionEncryptedClientHello = 0xfe0d
+
+// clientHelloServerName extracts the SNI from a raw ClientHello and reports
+// whether the hello carries Encrypted ClientHello. It drives crypto/tls over
+// the bytes and stops the handshake in GetConfigForClient, which runs before
+// the version is negotiated, so there is no second parser to maintain and no
+// protocol version to accept. An empty name means the client sent no SNI,
+// or the bytes are not a ClientHello.
+func clientHelloServerName(record []byte) (string, bool) {
 	var serverName string
+	var ech bool
 	conn := tls.Server(readOnlyConn{r: bytes.NewReader(record)}, &tls.Config{
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			serverName = hello.ServerName
+			ech = slices.Contains(hello.Extensions, uint16(extensionEncryptedClientHello))
 			return nil, errStopHandshake
 		},
 	})
 	if err := conn.Handshake(); err != nil && !errors.Is(err, errStopHandshake) {
 		log.Debugf("transparent: ClientHello parse: %v", err)
 	}
-	return serverName
+	return serverName, ech
 }
 
 var errStopHandshake = errors.New("stop after ClientHello")

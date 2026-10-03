@@ -334,8 +334,14 @@ mount the host bundle, which holds the PMG CA after `pmg setup cert install
   runner-specific work. It is not something a package manager does by
   accident. The sandbox owns that threat.
 - `eligible_users` is bypassed by `sudo`. See above.
-- A TLS client with Encrypted ClientHello hides the SNI. The proxy passes
-  the connection through to its original destination.
+- The proxy decides by name. A redirected TLS connection without SNI, or
+  with Encrypted ClientHello, and a plain HTTP request without a `Host`
+  header are dropped, because an IP never matches a registry and would pass
+  one without analysis. A registry that clients reach by IP literal needs a
+  name, or a `skip_destinations` entry so the kernel never redirects it.
+- A passed-through TLS connection is dialed by its server name, not by the
+  address the client resolved. A client cannot steer the root daemon to an
+  address through a false name, and the proxy resolves the name once more.
 - A client that pins certificates fails closed on registry hosts. Same as
   today.
 - The daemon runs as root. A privilege drop after attach is a follow-up.

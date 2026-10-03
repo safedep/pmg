@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/elazarl/goproxy"
@@ -145,8 +149,63 @@ type proxyServer struct {
 
 	listener            net.Listener
 	additionalListeners []net.Listener
+	ownAddrs            []netip.AddrPort
 	interceptors        map[string]Interceptor
 	mu                  sync.RWMutex
+}
+
+var errDialSelf = errors.New("the proxy refuses to connect to its own listener")
+
+// collectOwnAddrs lists every address a client can reach this proxy on. A
+// listener on an unspecified address answers on every interface, so each
+// interface address counts for its port.
+func (ps *proxyServer) collectOwnAddrs() []netip.AddrPort {
+	var own []netip.AddrPort
+	for _, l := range append([]net.Listener{ps.listener}, ps.additionalListeners...) {
+		tcp, ok := l.Addr().(*net.TCPAddr)
+		if !ok {
+			continue
+		}
+		port := uint16(tcp.Port)
+		addr := tcp.AddrPort().Addr().Unmap()
+		if !addr.IsUnspecified() {
+			own = append(own, netip.AddrPortFrom(addr, port))
+			continue
+		}
+		own = append(own, netip.AddrPortFrom(netip.IPv4Unspecified(), port), netip.AddrPortFrom(netip.IPv6Unspecified(), port))
+		ifaddrs, err := net.InterfaceAddrs()
+		if err != nil {
+			log.Warnf("Could not list interface addresses: %v", err)
+			continue
+		}
+		for _, a := range ifaddrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				if ip, ok := netip.AddrFromSlice(ipnet.IP); ok {
+					own = append(own, netip.AddrPortFrom(ip.Unmap(), port))
+				}
+			}
+		}
+	}
+	return own
+}
+
+func (ps *proxyServer) isOwnAddress(addr netip.AddrPort) bool {
+	return slices.Contains(ps.ownAddrs, netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port()))
+}
+
+// refuseOwnAddress is the dialer control for upstream connections. A
+// request that names the proxy's own address, directly or through a name
+// that resolves to it, would make the proxy forward to itself without
+// limit. The dialer sees the resolved address, so a name cannot hide it.
+func (ps *proxyServer) refuseOwnAddress(_, address string, _ syscall.RawConn) error {
+	addr, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return nil
+	}
+	if ps.isOwnAddress(addr) {
+		return errDialSelf
+	}
+	return nil
 }
 
 var _ ProxyServer = &proxyServer{}
@@ -173,9 +232,14 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		config.ListenAddr = "127.0.0.1:0"
 	}
 
+	ps := &proxyServer{
+		config:       config,
+		interceptors: make(map[string]Interceptor),
+	}
+
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Logger = &goproxyLoggerWrapper{}
-	proxy.Tr = newUpstreamTransport(config)
+	proxy.Tr = newUpstreamTransport(config, ps.refuseOwnAddress)
 
 	// goproxy emits several log lines per request when Verbose is set. During a
 	// large install (5000+ packages) that is a substantial amount of per-request
@@ -186,12 +250,7 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	proxy.Verbose = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
 
 	proxy.ConnectDial = newConnectDial(proxy.Tr, config.ConnectTimeout)
-
-	ps := &proxyServer{
-		config:       config,
-		proxy:        proxy,
-		interceptors: make(map[string]Interceptor),
-	}
+	ps.proxy = proxy
 
 	ps.roundTripper = goproxy.RoundTripperFunc(func(req *http.Request, _ *goproxy.ProxyCtx) (*http.Response, error) {
 		return ps.upstreamRoundTrip(req)
@@ -222,9 +281,12 @@ func proxyWithLoopbackBypass(req *http.Request) (*url.URL, error) {
 	return http.ProxyFromEnvironment(req)
 }
 
-func newUpstreamTransport(config *ProxyConfig) *http.Transport {
+// newUpstreamTransport builds the upstream transport. control runs on every
+// dial with the resolved address, so the proxy never connects to itself.
+func newUpstreamTransport(config *ProxyConfig, control func(network, address string, c syscall.RawConn) error) *http.Transport {
 	dialer := &net.Dialer{
 		Timeout: config.ConnectTimeout,
+		Control: control,
 	}
 
 	dialContext := dialer.DialContext
@@ -281,6 +343,7 @@ func (ps *proxyServer) Start() error {
 
 	ps.listener = listener
 	ps.additionalListeners = ps.listenAdditional(listener.Addr().(*net.TCPAddr).Port)
+	ps.ownAddrs = ps.collectOwnAddrs()
 
 	serverTimeout := ps.config.ServerReadWriteTimeout
 	if serverTimeout == 0 {
