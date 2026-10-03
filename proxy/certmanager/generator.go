@@ -369,8 +369,10 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 // SystemCABundlePath returns the readable system CA bundle, or "" when the
 // host has none. After `pmg setup cert install --system` the bundle holds
 // the PMG CA, so a tool that reads one bundle file can be pointed at it.
+// Only the platform paths count. An inherited SSL_CERT_FILE or
+// CURL_CA_BUNDLE can name a bundle without the PMG CA.
 func SystemCABundlePath() string {
-	return firstReadablePath(systemCABundleCandidates()...)
+	return firstReadablePath(platformCABundleCandidates(platform.OSName())...)
 }
 
 func firstReadablePath(paths ...string) string {
@@ -411,6 +413,13 @@ func systemCABundleCandidatesForOS(goos string) []string {
 	appendIfSet("SSL_CERT_FILE")
 	appendIfSet("CURL_CA_BUNDLE")
 
+	return append(candidates, platformCABundleCandidates(goos)...)
+}
+
+// platformCABundleCandidates lists where the OS keeps its CA bundle, without
+// the environment overrides.
+func platformCABundleCandidates(goos string) []string {
+	var candidates []string
 	switch goos {
 	case goosDarwin:
 		candidates = append(candidates,

@@ -465,9 +465,13 @@ int pmg_exec(__u64 *ctx)
 	if (bpf_map_update_elem(&seen_exe, &k, &one, BPF_NOEXIST) != 0)
 		return 0;
 
+	/* A full ring buffer must not mark the inode as reported, or the daemon
+	 * never hears about it. The next exec of the same file reports it. */
 	struct exec_event *ev = bpf_ringbuf_reserve(&exec_events, sizeof(*ev), 0);
-	if (!ev)
+	if (!ev) {
+		bpf_map_delete_elem(&seen_exe, &k);
 		return 0;
+	}
 	ev->dev = k.dev;
 	ev->ino = k.ino;
 	bpf_ringbuf_submit(ev, 0);

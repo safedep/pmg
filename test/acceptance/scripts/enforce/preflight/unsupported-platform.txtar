@@ -1,0 +1,14 @@
+# guarantee: pmg proxy start --enforce fails on macOS and Windows with an
+# error that names the platform. The unit test TestNewIsUnsupportedOffLinux
+# covers the same contract in the macOS and Windows CI jobs. This script runs
+# when the suite runs on one of those platforms.
+
+[linux] skip 'covers macOS and Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+! exec pmg proxy start --enforce --state $ENFORCE_STATE
+stderr 'UnsupportedPlatform'
+stderr 'kernel enforcement is not available on'
+! exists $ENFORCE_STATE

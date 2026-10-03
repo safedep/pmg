@@ -357,9 +357,8 @@
 
 # --- enforce: eBPF enforcement for the persistent proxy (docs/persistent-proxy.md, "Kernel enforcement") ---
 # Scripts skip unless the host runs as root with kernel BTF and cgroup v2.
-# preflight/requires-trusted-ca and preflight/unsupported-platform have no script.
-# The first needs a host trust store without the CA, which the other scripts install.
-# The second needs a macOS or Windows runner in the enforce job.
+# preflight/unsupported-platform is the exception: it runs on macOS and
+# Windows and skips on Linux.
 - id: enforce/routing/scrubbed-env-blocks-malware
   title: "package manager without proxy env is still blocked"
   category: enforce
