@@ -400,6 +400,8 @@ func TestProxyEnforceConfigLoadsFromFileAndEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("PMG_CONFIG_DIR", tmpDir)
 	t.Setenv("PMG_PROXY_SERVER_ENFORCE_ENABLED", "true")
+	t.Setenv("PMG_PROXY_SERVER_ENFORCE_EXEMPT_USERS", "root,65534")
+	t.Setenv("PMG_PROXY_SERVER_ENFORCE_PORTS", "8080,8443")
 	t.Cleanup(initConfig)
 
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte(`
@@ -419,7 +421,8 @@ proxy:
 	initConfig()
 	got := Get().Config.Proxy.Server.Enforce
 	assert.True(t, got.Enabled, "the env var wins over the file")
-	assert.Equal(t, []int{80, 443, 8443}, got.Ports)
+	assert.Equal(t, []int{8080, 8443}, got.Ports, "a comma-separated variable replaces a list")
+	assert.Equal(t, []string{"root", "65534"}, got.ExemptUsers)
 	assert.Equal(t, []string{"runner"}, got.EligibleUsers)
 	assert.Equal(t, []string{"/home/runner/actions-runner/bin/Runner.*"}, got.ExemptExecutables)
 	assert.Equal(t, []string{"10.20.0.0/16"}, got.SkipDestinations)

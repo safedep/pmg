@@ -80,6 +80,11 @@ func (p Policy) Validate() error {
 			return fmt.Errorf("enforce: skip destination %q is not a valid prefix", prefix)
 		}
 	}
+	for _, users := range [][]string{p.EligibleUsers, p.ExemptUsers} {
+		if _, err := resolveUIDs(users); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

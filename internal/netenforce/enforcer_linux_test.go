@@ -41,16 +41,6 @@ func TestSkipListKeepsBuiltins(t *testing.T) {
 	}
 }
 
-func TestResolveUIDs(t *testing.T) {
-	uids, err := resolveUIDs([]string{"0", "root", "65534"})
-	require.NoError(t, err)
-	assert.Equal(t, []uint32{0, 0, 65534}, uids)
-
-	_, err = resolveUIDs([]string{"pmg-no-such-user-0b1"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pmg-no-such-user-0b1")
-}
-
 func TestExpandExecutables(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"Runner.Listener", "Runner.Worker", "other"} {

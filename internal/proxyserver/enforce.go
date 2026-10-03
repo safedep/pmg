@@ -30,21 +30,20 @@ type EnforceState struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// enforcePolicy turns the config section into the kernel policy. The ports
-// of every proxy.registries endpoint are added, so a private registry on a
-// non-standard port is routed too. extraExempt holds the globs the parent
-// computed, such as the GitHub runner binaries.
-func enforcePolicy(cfg *config.RuntimeConfig, extraExempt []string) (netenforce.Policy, error) {
+// enforcePolicy turns the config section and the command line overrides
+// into the kernel policy. The ports of every proxy.registries endpoint are
+// added, so a private registry on a non-standard port is routed too.
+func enforcePolicy(cfg *config.RuntimeConfig, o EnforceOverrides) (netenforce.Policy, error) {
 	ec := cfg.Config.Proxy.Server.Enforce
 	p := netenforce.DefaultPolicy()
 	p.DenyUDP = ec.DenyUDP
 	p.CgroupPath = ec.Cgroup
-	p.EligibleUsers = ec.EligibleUsers
-	p.ExemptUsers = ec.ExemptUsers
-	p.ExemptExecutables = append(slices.Clone(ec.ExemptExecutables), extraExempt...)
+	p.EligibleUsers = append(slices.Clone(ec.EligibleUsers), o.EligibleUsers...)
+	p.ExemptUsers = append(slices.Clone(ec.ExemptUsers), o.ExemptUsers...)
+	p.ExemptExecutables = append(slices.Clone(ec.ExemptExecutables), o.ExemptExecutables...)
 
-	ports := make([]uint16, 0, len(ec.Ports)+len(cfg.Config.Proxy.Registries))
-	for _, port := range ec.Ports {
+	ports := make([]uint16, 0, len(ec.Ports)+len(o.Ports)+len(cfg.Config.Proxy.Registries))
+	for _, port := range append(slices.Clone(ec.Ports), o.Ports...) {
 		if port < 1 || port > 65535 {
 			return netenforce.Policy{}, fmt.Errorf("proxy.server.enforce.ports: %d is not a valid port", port)
 		}
@@ -62,7 +61,7 @@ func enforcePolicy(cfg *config.RuntimeConfig, extraExempt []string) (netenforce.
 	slices.Sort(ports)
 	p.Ports = slices.Compact(ports)
 
-	for _, raw := range ec.SkipDestinations {
+	for _, raw := range append(slices.Clone(ec.SkipDestinations), o.SkipDestinations...) {
 		prefix, err := netip.ParsePrefix(raw)
 		if err != nil {
 			return netenforce.Policy{}, fmt.Errorf("proxy.server.enforce.skip_destinations: %q is not a CIDR prefix: %w", raw, err)
@@ -98,8 +97,8 @@ func endpointPort(raw string) (uint16, error) {
 // parent of a daemon calls it before it detaches, so a missing capability or
 // an untrusted CA is reported at once with its help text, instead of as a
 // readiness timeout that points at the log.
-func PreflightEnforce(cfg *config.RuntimeConfig, extraExempt []string) error {
-	policy, err := enforcePolicy(cfg, extraExempt)
+func PreflightEnforce(cfg *config.RuntimeConfig, o EnforceOverrides) error {
+	policy, err := enforcePolicy(cfg, o)
 	if err != nil {
 		return err
 	}

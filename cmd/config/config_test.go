@@ -50,8 +50,8 @@ func TestSystemScopeNeedsRoot(t *testing.T) {
 	t.Cleanup(func() { platform.IsPrivileged = orig })
 
 	_, err := editPath(true)
-	requirePermissionDenied(t, err)
-	requirePermissionDenied(t, setValue("paranoid", "true", true))
+	_ = requirePermissionDenied(t, err)
+	_ = requirePermissionDenied(t, setValue("paranoid", "true", true))
 }
 
 func TestConfigPathTextExplainsTheUserFile(t *testing.T) {

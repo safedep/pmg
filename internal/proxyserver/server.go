@@ -74,10 +74,21 @@ type RunOptions struct {
 	// Enforce turns on kernel enforcement. Linux and root only.
 	Enforce bool
 
-	// ExemptExecutables are globs the parent computed before the daemon
-	// detached, such as the GitHub runner binaries. They are added to the
-	// configured exempt_executables.
+	// Overrides are the policy values from the command line.
+	Overrides EnforceOverrides
+}
+
+// EnforceOverrides are policy lists from the command line, and the globs
+// the parent computed before the daemon detached, such as the GitHub runner
+// binaries. Each list adds to the config's list and never replaces it, so
+// a flag cannot drop a skip destination or an exempt user an administrator
+// set. The scalars, cgroup and deny_udp, bind to the config fields directly.
+type EnforceOverrides struct {
+	Ports             []int
+	EligibleUsers     []string
+	ExemptUsers       []string
 	ExemptExecutables []string
+	SkipDestinations  []string
 }
 
 // Run starts the persistent proxy server in the foreground and blocks until it
@@ -111,7 +122,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		err        error
 	)
 	if opts.Enforce {
-		policy, err = enforcePolicy(cfg, opts.ExemptExecutables)
+		policy, err = enforcePolicy(cfg, opts.Overrides)
 		if err != nil {
 			return err
 		}

@@ -49,11 +49,21 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | `paranoid`                    | `PMG_PARANOID`                    |
 | `proxy.install_only`          | `PMG_PROXY_INSTALL_ONLY`          |
 | `proxy.server.enforce.enabled` | `PMG_PROXY_SERVER_ENFORCE_ENABLED` |
+| `proxy.server.enforce.ports` | `PMG_PROXY_SERVER_ENFORCE_PORTS` (comma-separated) |
+| `proxy.server.enforce.eligible_users` | `PMG_PROXY_SERVER_ENFORCE_ELIGIBLE_USERS` (comma-separated) |
+| `proxy.server.enforce.exempt_users` | `PMG_PROXY_SERVER_ENFORCE_EXEMPT_USERS` (comma-separated) |
+| `proxy.server.enforce.exempt_executables` | `PMG_PROXY_SERVER_ENFORCE_EXEMPT_EXECUTABLES` (comma-separated) |
+| `proxy.server.enforce.skip_destinations` | `PMG_PROXY_SERVER_ENFORCE_SKIP_DESTINATIONS` (comma-separated) |
+| `proxy.server.enforce.cgroup` | `PMG_PROXY_SERVER_ENFORCE_CGROUP` |
+| `proxy.server.enforce.deny_udp` | `PMG_PROXY_SERVER_ENFORCE_DENY_UDP` |
 | `verbosity`                   | `PMG_VERBOSITY`                   |
 | `skip_event_logging`          | `PMG_SKIP_EVENT_LOGGING`          |
 | `sandbox.enabled`             | `PMG_SANDBOX_ENABLED`             |
 | `dependency_cooldown.enabled` | `PMG_DEPENDENCY_COOLDOWN_ENABLED` |
 | `cloud.enabled`               | `PMG_CLOUD_ENABLED`               |
+
+A variable for a list key replaces the whole list. The `--enforce-*` flags of `pmg proxy start`
+add to a list instead. See [persistent-proxy.md](persistent-proxy.md#policy-from-the-command-line).
 
 The legacy flat key `proxy_install_only` is still supported when the `proxy:` section does not exist in the config file.
 

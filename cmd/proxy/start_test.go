@@ -42,26 +42,34 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 	root := &cobra.Command{Use: "pmg"}
 	config.ApplyCobraFlags(root)
 
+	t.Cleanup(config.Reload)
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	config.Reload()
+
 	var got []string
 	start := &cobra.Command{
 		Use: "start",
 		Run: func(cmd *cobra.Command, _ []string) {
 			got = daemonArgs(cmd, proxyserver.RunOptions{
-				StatePath:         "/tmp/proxy-state.json",
-				Host:              "127.0.0.1",
-				Port:              9000,
-				Enforce:           true,
-				ExemptExecutables: []string{"/opt/runner/Runner.*"},
+				StatePath: "/tmp/proxy-state.json",
+				Host:      "127.0.0.1",
+				Port:      9000,
+				Enforce:   true,
+				Overrides: proxyserver.EnforceOverrides{
+					Ports:             []int{8443},
+					ExemptExecutables: []string{"/opt/runner/Runner.*"},
+				},
 			})
 		},
 	}
+	addEnforceFlags(start, &config.Get().Config.Proxy.Server.Enforce)
 	proxyCmd := &cobra.Command{Use: "proxy"}
 	proxyCmd.AddCommand(start)
 	root.AddCommand(proxyCmd)
 	root.SetArgs([]string{
 		"--paranoid",
 		"--skip-dependency-cooldown",
-		"proxy", "start",
+		"proxy", "start", "--enforce-deny-udp=false", "--enforce-cgroup", "/sys/fs/cgroup/ci.slice",
 	})
 
 	require.NoError(t, root.Execute())
@@ -73,6 +81,27 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 		"--host", "127.0.0.1",
 		"--port", "9000",
 		"--enforce=true",
+		"--enforce-port", "8443",
 		"--enforce-exempt-executable", "/opt/runner/Runner.*",
+		"--enforce-cgroup", "/sys/fs/cgroup/ci.slice",
+		"--enforce-deny-udp=false",
 	}, got)
+}
+
+func TestWideningFlagsUnderLockdown(t *testing.T) {
+	changed := func(set ...string) func(string) bool {
+		return func(name string) bool {
+			for _, s := range set {
+				if s == name {
+					return true
+				}
+			}
+			return false
+		}
+	}
+
+	assert.Empty(t, wideningFlags(changed("enforce-port", "enforce-cgroup"), true), "a port or a cgroup only narrows the scope")
+	assert.Empty(t, wideningFlags(changed("enforce-deny-udp"), true), "turning the UDP denial on is not a widening")
+	assert.Equal(t, []string{"--enforce-exempt-user", "--enforce-skip-destination", "--enforce-deny-udp=false"},
+		wideningFlags(changed("enforce-exempt-user", "enforce-skip-destination", "enforce-deny-udp"), false))
 }
