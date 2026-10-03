@@ -19,6 +19,11 @@ const (
 	flagEnforceSkipDestination  = "enforce-skip-destination"
 	flagEnforceCgroup           = "enforce-cgroup"
 	flagEnforceDenyUDP          = "enforce-deny-udp"
+
+	// flagEnforceRunnerExecutable carries the runner globs the parent found
+	// to the daemon child. It is internal and hidden, and only the child
+	// honors it, so it is not a way around a locked managed config.
+	flagEnforceRunnerExecutable = "enforce-runner-executable"
 )
 
 var enforceOverridesFlag proxyserver.EnforceOverrides
@@ -39,6 +44,11 @@ func addEnforceFlags(cmd *cobra.Command, ec *config.ProxyEnforceConfig) {
 		"cgroup v2 directory to enforce, instead of the root (proxy.server.enforce.cgroup)")
 	fs.BoolVar(&ec.DenyUDP, flagEnforceDenyUDP, ec.DenyUDP,
 		"Deny UDP to the enforced ports so QUIC clients fall back to TCP (proxy.server.enforce.deny_udp)")
+	fs.StringArrayVar(&enforceOverridesFlag.RunnerExecutables, flagEnforceRunnerExecutable, nil,
+		"Internal: runner globs the parent found, for the daemon child")
+	if err := fs.MarkHidden(flagEnforceRunnerExecutable); err != nil {
+		panic(err)
+	}
 }
 
 // wideningFlags returns the enforce flags that loosen the policy a locked
@@ -78,6 +88,9 @@ func enforceFlagArgs(cmd *cobra.Command, o proxyserver.EnforceOverrides, ec conf
 		for _, v := range l.values {
 			args = append(args, "--"+l.name, v)
 		}
+	}
+	for _, glob := range o.RunnerExecutables {
+		args = append(args, "--"+flagEnforceRunnerExecutable, glob)
 	}
 	if cmd.Flags().Changed(flagEnforceCgroup) {
 		args = append(args, "--"+flagEnforceCgroup, ec.Cgroup)

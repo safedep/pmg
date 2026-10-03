@@ -41,6 +41,7 @@ func enforcePolicy(cfg *config.RuntimeConfig, o EnforceOverrides) (netenforce.Po
 	p.EligibleUsers = append(slices.Clone(ec.EligibleUsers), o.EligibleUsers...)
 	p.ExemptUsers = append(slices.Clone(ec.ExemptUsers), o.ExemptUsers...)
 	p.ExemptExecutables = append(slices.Clone(ec.ExemptExecutables), o.ExemptExecutables...)
+	p.ExemptExecutables = append(p.ExemptExecutables, o.RunnerExecutables...)
 
 	ports := make([]uint16, 0, len(ec.Ports)+len(o.Ports)+len(cfg.Config.Proxy.Registries))
 	for _, port := range append(slices.Clone(ec.Ports), o.Ports...) {

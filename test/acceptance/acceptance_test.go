@@ -120,33 +120,61 @@ func isolateEnforcement(env *testscript.Env, pmgBin string) {
 	enforceSerial.Lock()
 	statePath := filepath.Join(env.WorkDir, "proxy-state.json")
 	env.Setenv("ENFORCE_STATE", statePath)
-	managedBefore := fileExists(config.SystemConfigFilePath())
+	saved := saveManagedConfig(config.SystemConfigFilePath())
 	env.Defer(func() {
 		defer enforceSerial.Unlock()
 		stopEnforcingDaemon(pmgBin, statePath)
-		removeManagedConfigFromScript(managedBefore)
+		saved.restore()
 	})
 }
 
-// removeManagedConfigFromScript deletes a managed config that a script
-// created. The file governs every later script and every later pmg run on
-// the host, so it must not outlive the script that wrote it.
-func removeManagedConfigFromScript(existedBefore bool) {
-	path := config.SystemConfigFilePath()
-	if existedBefore || path == "" || !fileExists(path) {
-		return
-	}
-	if err := os.Remove(path); err != nil {
-		log.Warnf("acceptance: remove managed config %s: %v", path, err)
-	}
+// managedConfigSnapshot is the managed config as it was before a script
+// ran. The file governs every later script and every later pmg run on the
+// host, so a script's changes to it must not outlive the script: one that
+// did not exist is removed, one that existed gets its contents and mode
+// back.
+type managedConfigSnapshot struct {
+	path    string
+	existed bool
+	data    []byte
+	mode    os.FileMode
 }
 
-func fileExists(path string) bool {
+func saveManagedConfig(path string) managedConfigSnapshot {
+	s := managedConfigSnapshot{path: path}
 	if path == "" {
-		return false
+		return s
 	}
-	_, err := os.Stat(path)
-	return err == nil
+	info, err := os.Stat(path)
+	if err != nil {
+		return s
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Warnf("acceptance: read managed config %s: %v", path, err)
+		return s
+	}
+	s.existed, s.data, s.mode = true, data, info.Mode().Perm()
+	return s
+}
+
+func (s managedConfigSnapshot) restore() {
+	if s.path == "" {
+		return
+	}
+	if !s.existed {
+		if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+			log.Warnf("acceptance: remove managed config %s: %v", s.path, err)
+		}
+		return
+	}
+	if err := os.WriteFile(s.path, s.data, s.mode); err != nil {
+		log.Warnf("acceptance: restore managed config %s: %v", s.path, err)
+		return
+	}
+	if err := os.Chmod(s.path, s.mode); err != nil {
+		log.Warnf("acceptance: restore mode of %s: %v", s.path, err)
+	}
 }
 
 func stopEnforcingDaemon(pmgBin, statePath string) {

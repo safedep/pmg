@@ -65,9 +65,12 @@ func runStart(cmd *cobra.Command, _ []string) error {
 
 	// The runner walk needs this process's ancestors. The daemon has none
 	// after it detaches, so the walk happens here and the result travels in
-	// the re-exec arguments.
-	if opts.Enforce && !foregroundInternalFlag {
-		opts.Overrides.ExemptExecutables = append(opts.Overrides.ExemptExecutables, proxyserver.RunnerExemptGlobs()...)
+	// the re-exec arguments, on an internal flag that only the child reads.
+	if !foregroundInternalFlag {
+		opts.Overrides.RunnerExecutables = nil
+		if opts.Enforce {
+			opts.Overrides.RunnerExecutables = proxyserver.RunnerExemptGlobs()
+		}
 	}
 
 	if daemonFlag && !foregroundInternalFlag {

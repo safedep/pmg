@@ -89,6 +89,11 @@ type EnforceOverrides struct {
 	ExemptUsers       []string
 	ExemptExecutables []string
 	SkipDestinations  []string
+
+	// RunnerExecutables are the globs pmg found itself, such as the GitHub
+	// runner binaries. They are not a user's override, so a locked managed
+	// config does not govern them.
+	RunnerExecutables []string
 }
 
 // Run starts the persistent proxy server in the foreground and blocks until it

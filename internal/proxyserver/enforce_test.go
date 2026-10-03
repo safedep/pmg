@@ -40,14 +40,15 @@ func TestEnforcePolicyFromConfig(t *testing.T) {
 		Ports:             []int{9443},
 		EligibleUsers:     []string{"1001"},
 		ExemptUsers:       []string{"65534"},
-		ExemptExecutables: []string{"/home/runner/actions-runner/bin/Runner.*"},
+		ExemptExecutables: []string{"/opt/ci/bin/worker"},
 		SkipDestinations:  []string{"10.30.0.0/16"},
+		RunnerExecutables: []string{"/home/runner/actions-runner/bin/Runner.*"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []uint16{80, 443, 8443, 9443}, p.Ports, "registry and flag ports are added and the list is sorted and unique")
 	assert.Equal(t, []string{"1000", "1001"}, p.EligibleUsers, "a flag adds to the file")
 	assert.Equal(t, []string{"0", "65534"}, p.ExemptUsers)
-	assert.Equal(t, []string{"/opt/agent/bin/agent", "/home/runner/actions-runner/bin/Runner.*"}, p.ExemptExecutables)
+	assert.Equal(t, []string{"/opt/agent/bin/agent", "/opt/ci/bin/worker", "/home/runner/actions-runner/bin/Runner.*"}, p.ExemptExecutables)
 	assert.Equal(t, []netip.Prefix{netip.MustParsePrefix("10.20.0.0/16"), netip.MustParsePrefix("10.30.0.0/16")}, p.SkipDestinations)
 	assert.Equal(t, "/sys/fs/cgroup/system.slice", p.CgroupPath)
 	assert.False(t, p.DenyUDP)

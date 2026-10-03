@@ -170,7 +170,7 @@ func executeSetupInfo() error {
 	caStatus.UserTrusted, caStatus.SystemTrusted = caUser, caSystem
 
 	caEntries := make(map[string]string)
-	caEntries["Installed"] = strconv.FormatBool(caStatus.CertPresent && (caStatus.KeyPresent || caIsSystem))
+	caEntries["Installed"] = strconv.FormatBool(caStatus.KeyPresent && caStatus.CertPresent)
 	if caStatus.CertPresent {
 		caEntries["Keypair"] = caDir
 		if caIsSystem {
