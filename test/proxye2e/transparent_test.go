@@ -61,6 +61,26 @@ func TestProxyFlow_TransparentRedirect(t *testing.T) {
 			},
 		},
 		{
+			Name:    "a ClientHello split across two records is still terminated and blocked",
+			Options: []Option{WithTransparent(nil)},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "evil", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("evil", "1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				var res ExecResult
+				res.add(h.RedirectedTLSFragmented("registry.npmjs.org", "/evil/-/evil-1.0.0.tgz"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked(), "fragmentation must not splice the connection past the interceptors")
+				assert.False(t, h.Registry.DownloadedTarball("evil", "1.0.0"))
+				assert.NotContains(t, h.DialedAddrs(), "registry.npmjs.org:443", "no splice to the registry")
+			},
+		},
+		{
 			Name:    "redirected plain HTTP is analyzed and forwarded as plain HTTP",
 			Options: []Option{WithTransparent(nil)},
 			Setup: func(h *Harness) {

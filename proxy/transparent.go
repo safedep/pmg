@@ -30,9 +30,13 @@ const (
 	// it sends its first bytes. A TLS client sends the ClientHello at once.
 	sniffTimeout = 10 * time.Second
 
-	// maxClientHello is the largest TLS record the sniffer peeks. A
-	// ClientHello fits one record, and 16 KiB is the TLS record limit.
-	maxClientHello = 16 * 1024
+	// maxClientHello bounds the bytes the sniffer peeks for one ClientHello.
+	// A record carries at most 16 KiB, and a ClientHello that needs more
+	// than four records is not one a package manager sends.
+	maxClientHello = 64 * 1024
+
+	// tlsHandshakeClientHello is the handshake message type of a ClientHello.
+	tlsHandshakeClientHello = 0x01
 )
 
 type originalDestinationKey struct{}
@@ -329,17 +333,40 @@ func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.
 	ps.proxy.ServeHTTP(w, req)
 }
 
-// peekClientHello returns the first TLS record without consuming it.
+// peekClientHello returns every record of the ClientHello without consuming
+// them. A handshake message may span several records. A parser that saw
+// only the first would miss the SNI, and the connection would be spliced
+// past the interceptors. The handshake header in the first record gives
+// the message length, and the peek grows record by record until the
+// records hold it.
 func peekClientHello(r *bufio.Reader) ([]byte, error) {
-	header, err := r.Peek(5)
+	head, err := r.Peek(9)
 	if err != nil {
 		return nil, err
 	}
-	n := 5 + (int(header[3])<<8 | int(header[4]))
-	if n > maxClientHello {
-		return nil, fmt.Errorf("TLS record of %d bytes exceeds %d", n, maxClientHello)
+	if head[5] != tlsHandshakeClientHello {
+		return nil, fmt.Errorf("TLS handshake type %#x is not a ClientHello", head[5])
 	}
-	return r.Peek(n)
+	need := 4 + (int(head[6])<<16 | int(head[7])<<8 | int(head[8]))
+
+	total, have := 0, 0
+	for have < need {
+		buf, err := r.Peek(total + 5)
+		if err != nil {
+			return nil, err
+		}
+		record := buf[total:]
+		if record[0] != tlsHandshakeRecord {
+			return nil, fmt.Errorf("TLS record type %#x inside the ClientHello", record[0])
+		}
+		n := int(record[3])<<8 | int(record[4])
+		total += 5 + n
+		have += n
+		if total > maxClientHello {
+			return nil, fmt.Errorf("ClientHello of %d bytes exceeds %d", total, maxClientHello)
+		}
+	}
+	return r.Peek(total)
 }
 
 // clientHelloServerName extracts the SNI from a raw ClientHello record. It

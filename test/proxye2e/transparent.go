@@ -20,6 +20,63 @@ func (h *Harness) RedirectedTLS(sni, path string) RequestOutcome {
 	return h.redirectedTLS(sni, path, &tls.Config{RootCAs: h.caPool, ServerName: sni})
 }
 
+// RedirectedTLSFragmented is RedirectedTLS with a client that splits its
+// ClientHello across two TLS records, as TLS allows. The proxy must still
+// read the SNI and terminate the connection.
+func (h *Harness) RedirectedTLSFragmented(sni, path string) RequestOutcome {
+	h.t.Helper()
+
+	out := RequestOutcome{URL: "https://" + sni + path}
+	raw, err := net.DialTimeout("tcp", h.proxy.Address(), 10*time.Second)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	if err := raw.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		_ = raw.Close()
+		out.Err = err
+		return out
+	}
+
+	conn := tls.Client(&fragmentingConn{Conn: raw}, &tls.Config{RootCAs: h.caPool, ServerName: sni})
+	if err := conn.Handshake(); err != nil {
+		_ = raw.Close()
+		out.Err = err
+		return out
+	}
+	defer func() { _ = conn.Close() }()
+
+	return writeOriginForm(conn, sni, path, out)
+}
+
+// fragmentingConn splits the first record it writes, the ClientHello, into
+// two records with half the payload each.
+type fragmentingConn struct {
+	net.Conn
+	split bool
+}
+
+func (c *fragmentingConn) Write(p []byte) (int, error) {
+	if c.split || len(p) < 10 {
+		return c.Conn.Write(p)
+	}
+	c.split = true
+
+	header, payload := p[:5], p[5:]
+	half := len(payload) / 2
+	var out []byte
+	for _, part := range [][]byte{payload[:half], payload[half:]} {
+		h := append([]byte{}, header...)
+		h[3], h[4] = byte(len(part)>>8), byte(len(part))
+		out = append(out, h...)
+		out = append(out, part...)
+	}
+	if _, err := c.Conn.Write(out); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 // RedirectedTLSPeerCert dials the proxy as a redirected client would and
 // returns the certificate the server presented. It proves whether the proxy
 // terminated TLS or spliced the connection to the mock upstream.
