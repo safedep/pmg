@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -79,18 +80,49 @@ func newTransparentListener(inner net.Listener, ps *proxyServer) *transparentLis
 	return l
 }
 
+// acceptLoop keeps accepting through temporary errors such as an exhausted
+// file descriptor table, with the backoff http.Server uses. Only a terminal
+// error ends the listener.
 func (l *transparentListener) acceptLoop() {
+	var delay time.Duration
 	for {
 		conn, err := l.Listener.Accept()
 		if err != nil {
-			l.errMu.Lock()
-			l.err = err
-			l.errMu.Unlock()
-			l.once.Do(func() { close(l.closed) })
-			return
+			if !isTemporaryAcceptError(err) {
+				l.errMu.Lock()
+				l.err = err
+				l.errMu.Unlock()
+				l.once.Do(func() { close(l.closed) })
+				return
+			}
+			delay = min(max(2*delay, 5*time.Millisecond), time.Second)
+			log.Warnf("transparent: accept failed, retrying in %s: %v", delay, err)
+			select {
+			case <-time.After(delay):
+				continue
+			case <-l.closed:
+				return
+			}
 		}
+		delay = 0
 		go l.classify(conn)
 	}
+}
+
+func isTemporaryAcceptError(err error) bool {
+	if errors.Is(err, net.ErrClosed) {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	for _, errno := range []syscall.Errno{syscall.EMFILE, syscall.ENFILE, syscall.ECONNABORTED, syscall.ENOBUFS} {
+		if errors.Is(err, errno) {
+			return true
+		}
+	}
+	return false
 }
 
 // Accept returns the next connection the http.Server should serve. The sniff
@@ -358,7 +390,7 @@ func (ps *proxyServer) targetsSelf(hostport string) bool {
 	if err != nil {
 		return false
 	}
-	if addr.Unmap().IsLoopback() {
+	if a := addr.Unmap(); a.IsLoopback() || a.IsUnspecified() {
 		return true
 	}
 	p, err := strconv.ParseUint(port, 10, 16)

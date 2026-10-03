@@ -130,3 +130,24 @@ func TestKernelReleaseAtLeast(t *testing.T) {
 	assert.False(t, kernelRelease{5, 14, 9}.atLeast(5, 15))
 	assert.False(t, kernelRelease{4, 19, 0}.atLeast(5, 15))
 }
+
+func TestParseSchedTGID(t *testing.T) {
+	tgid, ok := parseSchedTGID("pmg (4242, #threads: 3)\n---------------\nse.exec_start : 1.0\n")
+	require.True(t, ok)
+	assert.Equal(t, uint32(4242), tgid)
+
+	_, ok = parseSchedTGID("garbage")
+	assert.False(t, ok)
+
+	// This test runs in the namespace it reads, so the global id is its own
+	// unless the test itself runs in a nested PID namespace.
+	assert.NotZero(t, globalTGID())
+}
+
+func TestProcessRunsFile(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	assert.True(t, processRunsFile(uint32(os.Getpid()), exe))
+	assert.False(t, processRunsFile(uint32(os.Getpid()), "/bin/sh"))
+	assert.False(t, processRunsFile(4294967295, exe), "a process that is gone proves nothing")
+}

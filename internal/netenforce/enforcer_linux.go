@@ -11,8 +11,11 @@ import (
 	"math/bits"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -168,7 +171,7 @@ func (h *linuxHandle) fillMaps(t Target) error {
 	cfg := bpf.EnforceCfg{
 		ProxyIp4:    ipv4Word(t.Addr.Addr().Unmap().As4()),
 		ProxyPort:   portWord(t.Addr.Port()),
-		DaemonTgid:  uint32(os.Getpid()),
+		DaemonTgid:  globalTGID(),
 		NetnsCookie: cookie,
 	}
 	if h.trace {
@@ -215,9 +218,10 @@ func (h *linuxHandle) addSkip(prefix netip.Prefix) error {
 //
 // stat reports a device number that can differ from the one the kernel
 // compares: btrfs gives each subvolume its own, and overlayfs reports a
-// layer's. The exec event carries the kernel's pair, so a match on the
-// inode number also exempts the kernel's (dev, inode). The daemon learns
-// that pair only from an exec, which is when it matters.
+// layer's. The exec event carries the kernel's pair and the process, so a
+// match on the inode number also exempts the kernel's (dev, inode) once
+// /proc/<tgid>/exe confirms that the process runs the matched file. Inode
+// numbers repeat across filesystems, so the inode alone proves nothing.
 func (h *linuxHandle) refreshExempt(exec *bpf.EnforceExecEvent) error {
 	files, err := expandExecutables(h.policy.ExemptExecutables)
 	if err != nil {
@@ -230,13 +234,27 @@ func (h *linuxHandle) refreshExempt(exec *bpf.EnforceExecEvent) error {
 		if err := h.exempt(f); err != nil {
 			return err
 		}
-		if exec != nil && exec.Ino == f.Inode && exec.Dev != f.Dev {
+		if exec != nil && exec.Ino == f.Inode && exec.Dev != f.Dev && processRunsFile(exec.Tgid, f.Path) {
 			if err := h.exempt(ExemptedFile{Path: f.Path, Dev: exec.Dev, Inode: exec.Ino}); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// processRunsFile reports whether the process executes path. A process that
+// exited, or any lookup failure, counts as no. The next exec reports again.
+func processRunsFile(tgid uint32, path string) bool {
+	exe, err := os.Readlink(filepath.Join("/proc", strconv.FormatUint(uint64(tgid), 10), "exe"))
+	if err != nil {
+		return false
+	}
+	want, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	return exe == want
 }
 
 func (h *linuxHandle) exempt(f ExemptedFile) error {
@@ -461,6 +479,37 @@ func netnsCookie() (uint64, error) {
 		return 0, fmt.Errorf("enforce: read the network namespace cookie: %w", err)
 	}
 	return cookie, nil
+}
+
+// globalTGID returns this process's thread group id as the kernel sees it.
+// bpf_get_current_pid_tgid reports ids of the initial PID namespace, and
+// os.Getpid reports the id in this process's namespace. They differ when
+// the daemon runs in a container. /proc/self/sched prints the global id in
+// its first line. Without that file the namespaced id is the best guess.
+func globalTGID() uint32 {
+	data, err := os.ReadFile("/proc/self/sched")
+	if err != nil {
+		return uint32(os.Getpid())
+	}
+	if tgid, ok := parseSchedTGID(string(data)); ok {
+		return tgid
+	}
+	return uint32(os.Getpid())
+}
+
+// parseSchedTGID reads "comm (tgid, #threads: n)" from /proc/<pid>/sched.
+func parseSchedTGID(sched string) (uint32, bool) {
+	line, _, _ := strings.Cut(sched, "\n")
+	start := strings.LastIndex(line, "(")
+	end := strings.Index(line, ",")
+	if start < 0 || end < start {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(line[start+1:end]), 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(n), true
 }
 
 func loaderVersion() string {

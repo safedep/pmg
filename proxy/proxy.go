@@ -162,27 +162,35 @@ var errDialSelf = errors.New("the proxy refuses to connect to its own listener")
 func (ps *proxyServer) collectOwnAddrs() []netip.AddrPort {
 	var own []netip.AddrPort
 	for _, l := range append([]net.Listener{ps.listener}, ps.additionalListeners...) {
-		tcp, ok := l.Addr().(*net.TCPAddr)
-		if !ok {
-			continue
+		if tcp, ok := l.Addr().(*net.TCPAddr); ok {
+			own = append(own, ps.collectOwnAddrsFor(tcp.AddrPort())...)
 		}
-		port := uint16(tcp.Port)
-		addr := tcp.AddrPort().Addr().Unmap()
-		if !addr.IsUnspecified() {
-			own = append(own, netip.AddrPortFrom(addr, port))
-			continue
-		}
-		own = append(own, netip.AddrPortFrom(netip.IPv4Unspecified(), port), netip.AddrPortFrom(netip.IPv6Unspecified(), port))
-		ifaddrs, err := net.InterfaceAddrs()
-		if err != nil {
-			log.Warnf("Could not list interface addresses: %v", err)
-			continue
-		}
-		for _, a := range ifaddrs {
-			if ipnet, ok := a.(*net.IPNet); ok {
-				if ip, ok := netip.AddrFromSlice(ipnet.IP); ok {
-					own = append(own, netip.AddrPortFrom(ip.Unmap(), port))
-				}
+	}
+	return own
+}
+
+// collectOwnAddrsFor lists the addresses that reach one listener. A dial to
+// an unspecified address reaches a local listener on Linux, so those always
+// count. A listener on an unspecified address answers on every interface.
+func (ps *proxyServer) collectOwnAddrsFor(listen netip.AddrPort) []netip.AddrPort {
+	port := listen.Port()
+	addr := listen.Addr().Unmap()
+	own := []netip.AddrPort{
+		netip.AddrPortFrom(netip.IPv4Unspecified(), port),
+		netip.AddrPortFrom(netip.IPv6Unspecified(), port),
+	}
+	if !addr.IsUnspecified() {
+		return append(own, netip.AddrPortFrom(addr, port))
+	}
+	ifaddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Warnf("Could not list interface addresses: %v", err)
+		return own
+	}
+	for _, a := range ifaddrs {
+		if ipnet, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(ipnet.IP); ok {
+				own = append(own, netip.AddrPortFrom(ip.Unmap(), port))
 			}
 		}
 	}

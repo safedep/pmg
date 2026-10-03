@@ -81,6 +81,8 @@ struct dst_key {
 struct exec_event {
 	__u64 dev;
 	__u64 ino;
+	__u32 tgid;
+	__u32 _pad;
 };
 
 struct event {
@@ -474,6 +476,8 @@ int pmg_exec(__u64 *ctx)
 	}
 	ev->dev = k.dev;
 	ev->ino = k.ino;
+	ev->tgid = bpf_get_current_pid_tgid() >> 32;
+	ev->_pad = 0;
 	bpf_ringbuf_submit(ev, 0);
 	return 0;
 }

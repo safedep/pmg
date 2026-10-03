@@ -59,9 +59,11 @@ type EnforceExeKey struct {
 }
 
 type EnforceExecEvent struct {
-	_   structs.HostLayout
-	Dev uint64
-	Ino uint64
+	_    structs.HostLayout
+	Dev  uint64
+	Ino  uint64
+	Tgid uint32
+	Pad  uint32
 }
 
 type EnforceSkip4Key struct {

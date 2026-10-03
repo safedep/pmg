@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"errors"
+	"net"
 	"net/netip"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,6 +31,8 @@ func TestTargetsSelf(t *testing.T) {
 		"[::1]:443":              true,
 		"[::ffff:127.0.0.1]:443": true,
 		"localhost:7777":         true,
+		"0.0.0.0:7777":           true,
+		"[::]:443":               true,
 		"192.0.2.1:7777":         true,
 		"192.0.2.1:7778":         false,
 		"registry.npmjs.org:443": false,
@@ -45,5 +50,17 @@ func TestRefuseOwnAddress(t *testing.T) {
 	assert.ErrorIs(t, ps.refuseOwnAddress("tcp", "127.0.0.1:7777", nil), errDialSelf)
 	assert.ErrorIs(t, ps.refuseOwnAddress("tcp", "[::ffff:127.0.0.1]:7777", nil), errDialSelf)
 	assert.NoError(t, ps.refuseOwnAddress("tcp", "127.0.0.1:7778", nil))
+
+	ps.ownAddrs = ps.collectOwnAddrsFor(netip.MustParseAddrPort("127.0.0.1:7777"))
+	assert.ErrorIs(t, ps.refuseOwnAddress("tcp", "0.0.0.0:7777", nil), errDialSelf)
+	assert.ErrorIs(t, ps.refuseOwnAddress("tcp", "[::]:7777", nil), errDialSelf)
+	assert.ErrorIs(t, ps.refuseOwnAddress("tcp", "127.0.0.1:7777", nil), errDialSelf)
 	assert.NoError(t, ps.refuseOwnAddress("tcp", "203.0.113.9:443", nil))
+}
+
+func TestIsTemporaryAcceptError(t *testing.T) {
+	assert.True(t, isTemporaryAcceptError(&net.OpError{Op: "accept", Err: syscall.EMFILE}))
+	assert.True(t, isTemporaryAcceptError(syscall.ECONNABORTED))
+	assert.False(t, isTemporaryAcceptError(net.ErrClosed))
+	assert.False(t, isTemporaryAcceptError(errors.New("listener gone")))
 }
