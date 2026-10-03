@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/safedep/pmg/packagemanager"
+	"github.com/safedep/pmg/proxy/certmanager"
 )
 
 // EnvVars returns the proxy environment variables (KEY=VALUE lines) for the
@@ -17,7 +18,7 @@ func EnvVars(statePath string) ([]string, error) {
 	}
 
 	if state.Enforce != nil {
-		return packagemanager.EnvVarForSystemTrust(), nil
+		return packagemanager.EnvVarForSystemTrust(certmanager.SystemCABundlePath()), nil
 	}
 	return packagemanager.EnvVarForProxy(state.Addr, state.CACertPath), nil
 }

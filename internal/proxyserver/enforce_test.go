@@ -87,9 +87,11 @@ func TestEnvVarsInEnforceModeAreTrustOnly(t *testing.T) {
 
 	vars, err := EnvVars(path)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"NODE_USE_SYSTEM_CA=1", "UV_NATIVE_TLS=1"}, vars)
+	assert.Contains(t, vars, "NODE_USE_SYSTEM_CA=1")
+	assert.Contains(t, vars, "UV_NATIVE_TLS=1")
 	for _, v := range vars {
 		assert.NotContains(t, v, "PROXY", "no proxy variable in enforce mode")
+		assert.NotContains(t, v, "NODE_EXTRA_CA_CERTS", "trust comes from the system store")
 	}
 }
 

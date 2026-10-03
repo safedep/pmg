@@ -366,6 +366,13 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 	}, nil
 }
 
+// SystemCABundlePath returns the readable system CA bundle, or "" when the
+// host has none. After `pmg setup cert install --system` the bundle holds
+// the PMG CA, so a tool that reads one bundle file can be pointed at it.
+func SystemCABundlePath() string {
+	return firstReadablePath(systemCABundleCandidates()...)
+}
+
 func firstReadablePath(paths ...string) string {
 	for _, path := range paths {
 		if path == "" {
