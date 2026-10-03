@@ -134,7 +134,9 @@ jobs:
         run: |
           out=$(env -i "$(command -v node)" -e 'fetch("https://registry.npmjs.org/lodash").then(r => console.log("status", r.status), e => console.log("error", e.cause?.code ?? e.message))')
           echo "$out"
-          grep -q "SELF_SIGNED_CERT_IN_CHAIN" <<<"$out"
+          # Node names the failure after the chain it saw. Both codes are a
+          # closed failure on the PMG certificate.
+          grep -Eq "SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE" <<<"$out"
 
       - name: Stop and verify it fails on the block
         if: always()
