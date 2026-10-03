@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"golang.org/x/net/http2"
 )
 
 // TestLoadHTTP2UpstreamConcurrent hammers the MITM proxy with many concurrent
@@ -48,9 +46,7 @@ func TestLoadHTTP2UpstreamConcurrent(t *testing.T) {
 		}
 	}
 	// Bound concurrent streams per h2 connection like a real CDN.
-	if err := http2.ConfigureServer(upstream.Config, &http2.Server{MaxConcurrentStreams: maxConcurStreams}); err != nil {
-		t.Fatalf("configure h2: %v", err)
-	}
+	upstream.Config.HTTP2 = &http.HTTP2Config{MaxConcurrentStreams: maxConcurStreams}
 	upstream.StartTLS()
 	defer upstream.Close()
 
