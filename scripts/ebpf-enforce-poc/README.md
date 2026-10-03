@@ -41,6 +41,12 @@ env -i ./curl-exempt -sS https://registry.npmjs.org/ -o /dev/null -w '%{http_cod
 # A process in another network namespace is not redirected.
 unshare -n env -i curl -m 3 https://104.16.11.34/
 
+# Containers: the future direction in the spec. Redirect other network
+# namespaces to the docker0 address instead of leaving them alone.
+sudo ./pmgpoc -cgroup /sys/fs/cgroup -listen 127.0.0.1:18443 -container-target 172.17.0.1 &
+docker run --rm -v $PWD/poc-ca.pem:/ca.pem:ro curlimages/curl:8.11.1 \
+  -sS --cacert /ca.pem https://registry.npmjs.org/left-pad
+
 # Unprivileged read of the pinned map.
 setpriv --reuid=65534 --regid=65534 --clear-groups ./maplookup/maplookup /sys/fs/bpf/pmgpoc/orig_dst
 ```

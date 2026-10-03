@@ -17,6 +17,8 @@ struct cfg {
 	__u16 proxy_port;  /* network order */
 	__u16 _pad;
 	__u64 netns_cookie; /* only sockets in the proxy's netns are redirected */
+	__u32 ctr_ip4;      /* network order; 0 = leave other netns alone */
+	__u32 _pad2;
 };
 
 struct exe_key {
@@ -189,10 +191,15 @@ int pmg_connect4(struct bpf_sock_addr *ctx)
 	struct cfg *c = bpf_map_lookup_elem(&pmg_cfg, &key0);
 	if (!c || !c->proxy_port)
 		return 1;
+	__u32 target_ip = c->proxy_ip4;
 	if (c->netns_cookie && bpf_get_netns_cookie(ctx) != c->netns_cookie) {
-		e.action = 6;
-		emit(&e);
-		return 1;
+		if (!c->ctr_ip4) {
+			e.action = 6;
+			emit(&e);
+			return 1;
+		}
+		target_ip = c->ctr_ip4;
+		e.action = 7;
 	}
 
 	if (bpf_map_lookup_elem(&exempt_tgid, &e.tgid)) {
@@ -220,10 +227,11 @@ int pmg_connect4(struct bpf_sock_addr *ctx)
 		d->port = ctx->user_port;
 	}
 
-	ctx->user_ip4 = c->proxy_ip4;
+	ctx->user_ip4 = target_ip;
 	ctx->user_port = c->proxy_port;
 
-	e.action = 4;
+	if (!e.action)
+		e.action = 4;
 	emit(&e);
 	return 1;
 }

@@ -1,6 +1,6 @@
 # eBPF enforcement for the persistent proxy on Linux
 
-Status: proposal, revision 5. POC verified on 2026-10-03. See
+Status: proposal, revision 6. POC verified on 2026-10-03. See
 [scripts/ebpf-enforce-poc](../../scripts/ebpf-enforce-poc/README.md).
 
 ## Problem
@@ -33,8 +33,9 @@ not exempt.
 
 - Containment of a hostile process. A process with the same uid can borrow an
   exemption with `ptrace` where Yama allows it. The sandbox owns that threat.
-- Traffic from containers. They have their own network namespace and their
-  own loopback. See "Scope".
+- Traffic from containers in v1. They have their own network namespace and
+  their own loopback. This is a known gap. See "Known gap: containers" for
+  what it covers, the workaround, and the future direction.
 - DNS. Only TCP to the configured ports is routed.
 - Routing on macOS and Windows. The interface exists there and reports that
   enforcement is not supported.
@@ -188,6 +189,23 @@ Loader: `cilium/ebpf` v0.22, no cgo, CO-RE object built with clang 18.
 | UDP 80/443 denied for eligible processes (`connect4` + `sendmsg4`) | pass, `curl` probed QUIC 12 times and then fell back to TCP |
 | Unprivileged process opens a pinned map read-only | pass, not needed by the final design |
 | `cgroup/sockops` loads with libbpf section name `sockops` | pass |
+
+Container checks, with Docker 29.6 and BuildKit 0.31 on the same host. The
+"v1" column is the design in this spec. The "bridge redirect" column is the
+future direction in "Known gap: containers", run with a POC extension.
+
+| Check | v1 | Bridge redirect |
+| --- | --- | --- |
+| `docker build`, default network | bypassed | redirected |
+| `docker run`, default bridge | bypassed | redirected |
+| `docker run` on a user-defined network, as GitHub runs container jobs and Docker actions | bypassed | redirected, the container reaches the docker0 address |
+| `docker build --network=host`, `docker run --network host` | enforced | enforced |
+| Container without the PMG CA | n/a | fails closed on a registry host |
+| Container with the PMG CA mounted | n/a | works, original destination recovered |
+
+The buildx `docker-container` driver was not measured. The BuildKit
+container could not pull its image through the egress gateway of the test
+host.
 
 The POC does not cover IPv6 (`connect6`), the exec tracepoint, and a
 `BPF_MAP_TYPE_LRU_HASH` for the original destination map. All three are
@@ -558,12 +576,105 @@ user every script skipped.
   stop a root daemon at job end, so the daemon serves later jobs until an
   operator stops it. `pmg proxy status` shows that it is still enforcing.
 - Processes in other network namespaces, including containers, are not
-  covered. A later version can redirect them to the bridge address instead
-  of loopback.
+  covered. See "Known gap: containers".
 - A TLS client with Encrypted ClientHello hides the SNI. The listener splices
   it to the original destination and logs it. It cannot inspect it.
 - A client that pins certificates fails closed on registry hosts. Same as today.
 - The daemon runs as root until the privilege-drop follow-up lands.
+
+## Known gap: containers
+
+v1 enforces the host network namespace only. A process in another network
+namespace passes unchanged. On GitHub Actions this leaves three paths
+outside enforcement:
+
+- `docker build` and `docker buildx build`. Each `RUN` step runs in a build
+  container. A `RUN npm ci` reaches the registry directly.
+- Container jobs (`jobs.<id>.container`). The runner runs every step in a
+  container on a job network.
+- Docker container actions. The runner runs them on the same job network.
+
+`dockerd` and `containerd` run in the host namespace, so image pulls are
+enforced. Image registries are not package registries, so the proxy passes
+them through unchanged.
+
+`pmg proxy start --enforce` prints a warning when it finds `dockerd`
+running, and `pmg proxy status` repeats it, so the gap is never silent.
+`persistent-proxy.md` documents the gap and the workaround in phase 3.
+
+### Workaround in v1
+
+A container in the host network namespace is enforced, because its
+connections are host connections. The workaround puts the install step
+there and gives it trust in the PMG CA. Both steps are manual.
+
+- `docker build`: build with `--network=host`. For buildx with the
+  `docker-container` driver, create the builder with
+  `driver-opts: network=host`, allow `network.host`, and use
+  `RUN --network=host`. Pass the CA as a build secret and use it only in the
+  install step, so the CA never lands in the image:
+
+  ```
+  docker build --network=host --secret id=pmg-ca,src=/etc/safedep/pmg/ca-cert.pem .
+  RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
+  ```
+
+- `docker run` in a workflow step: add `--network host` and mount the CA in
+  the same way.
+- Container jobs and Docker actions: no workaround. GitHub does not accept
+  `--network` in `container.options`. Run the install step on the host, or
+  accept the gap.
+
+Trust must add to the container's existing trust, not replace it. The proxy
+passes non-registry hosts through with their real certificates, so a bundle
+that holds only the PMG CA breaks them. `NODE_EXTRA_CA_CERTS` adds. For
+tools that replace the bundle (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+`PIP_CERT`), mount the host bundle, which holds the PMG CA after
+`pmg setup cert install --system`.
+
+### Future direction: redirect containers to the bridge address
+
+The cgroup hooks already run for container processes, because they are
+attached at the root cgroup and containers live in child cgroups. The POC
+logged them as "other network namespace" and passed them. Only the
+redirect target is wrong for them: a container cannot reach the host's
+`127.0.0.1`. Every container on every Docker network on the host can reach
+the docker0 address, `172.17.0.1` by default. The POC verified this from
+the default bridge, from a user-defined network on `172.18.0.0/16`, and
+from a `docker build` step.
+
+The change:
+
+- The config map gains a second target. A socket in the host namespace
+  goes to `127.0.0.1`. A socket in any other namespace goes to the docker0
+  address. This is about ten lines of C, tested in the POC.
+- The daemon opens a second listener on the docker0 address, on the same
+  port, served by the same handler. When docker0 does not exist, the daemon
+  leaves other namespaces alone, as in v1.
+- The original destination key adds the source address. Every network
+  namespace has its own port space, so two containers can use the same
+  source port at the same time.
+- A connection that crosses more than one NAT, such as a `RUN` step in a
+  buildx `docker-container` builder, can arrive with a changed source port.
+  The lookup then misses, and the listener falls back to SNI or `Host`,
+  which is enough for registry hosts.
+- Traffic between containers on ports 80 and 443 also goes through the
+  proxy. The proxy passes it through to the original destination.
+- The setting is `proxy.server.enforce.containers: ignore | redirect`.
+  `ignore` is the v1 behavior and the first default. The default changes to
+  `redirect` one release after it ships.
+
+Trust stays manual. With `redirect`, a container that does not trust the
+PMG CA fails closed on registry hosts and works on every other host. A
+build that installs packages breaks loudly until its owner adds the CA. It
+does not bypass the proxy. A third-party Docker action that installs
+packages cannot be changed by its user, so it fails on registry hosts.
+
+Automatic trust is out of scope. eBPF cannot change a container's files or
+environment. The only general method is a wrapper around the OCI runtime
+that adds a mount and environment variables to every container. It needs a
+change to the Docker daemon configuration and a restart, which is more than
+this design should own.
 
 ## Rollout
 
@@ -581,6 +692,9 @@ user every script skipped.
 3. `action.yml` input, `persistent-proxy.md` update, a systemd unit example,
    and the two acceptance scripts that have only a catalog row today.
 4. Privilege drop: attach as root, serve as the invoking user.
+5. Container redirect, as described in "Known gap: containers", behind
+   `enforce.containers: redirect`. The acceptance script
+   `scope/containers-unaffected` then splits into one case per setting.
 
 ## Decisions needed
 

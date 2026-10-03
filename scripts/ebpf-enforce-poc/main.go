@@ -44,6 +44,8 @@ type cfg struct {
 	ProxyPort   uint16
 	_           uint16
 	NetnsCookie uint64
+	CtrIP4      uint32
+	_           uint32
 }
 
 type exeKey struct {
@@ -69,7 +71,9 @@ type event struct {
 	Comm    [16]byte
 }
 
-var actionNames = map[uint8]string{1: "EXEMPT-PID", 2: "EXEMPT-EXE", 3: "EXEMPT-UID", 4: "REDIRECT", 5: "DENY-UDP", 6: "OTHER-NETNS"}
+var actionNames = map[uint8]string{1: "EXEMPT-PID", 2: "EXEMPT-EXE", 3: "EXEMPT-UID", 4: "REDIRECT", 5: "DENY-UDP", 6: "OTHER-NETNS", 7: "REDIRECT-CTR"}
+
+var certsForCtr *certCache
 
 type stringList []string
 
@@ -86,18 +90,19 @@ func main() {
 		exemptPid  stringList
 		exemptUID  stringList
 		pinDir     = flag.String("pin-dir", "", "pin orig_dst_by_sport map under this bpffs dir (mode 0644)")
+		ctrIP      = flag.String("container-target", "", "redirect other netns to this host IPv4 (e.g. docker0 address)")
 	)
 	flag.Var(&exemptExe, "exempt-exe", "executable path to exempt (repeatable)")
 	flag.Var(&exemptPid, "exempt-pid", "pid to exempt (repeatable)")
 	flag.Var(&exemptUID, "exempt-uid", "uid to exempt (repeatable)")
 	flag.Parse()
 
-	if err := run(*cgroupPath, *listen, *obj, *caOut, *pinDir, exemptExe, exemptPid, exemptUID); err != nil {
+	if err := run(*cgroupPath, *listen, *obj, *caOut, *pinDir, *ctrIP, exemptExe, exemptPid, exemptUID); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(cgroupPath, listen, obj, caOut, pinDir string, exemptExe, exemptPid, exemptUID []string) error {
+func run(cgroupPath, listen, obj, caOut, pinDir, ctrIP string, exemptExe, exemptPid, exemptUID []string) error {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return err
 	}
@@ -124,6 +129,7 @@ func run(cgroupPath, listen, obj, caOut, pinDir string, exemptExe, exemptPid, ex
 		return err
 	}
 
+	certsForCtr = &certCache{ca: ca, caKey: caKey, m: map[string]*tls.Certificate{}}
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
@@ -143,6 +149,23 @@ func run(cgroupPath, listen, obj, caOut, pinDir string, exemptExe, exemptPid, ex
 	}
 	log.Printf("proxy netns cookie %d", cookie)
 	c := cfg{ProxyIP4: binary.LittleEndian.Uint32(ipb[:]), ProxyPort: binary.LittleEndian.Uint16(portb[:]), NetnsCookie: cookie}
+	if ctrIP != "" {
+		c.CtrIP4 = binary.LittleEndian.Uint32(net.ParseIP(ctrIP).To4())
+		ctrLn, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ctrIP, addr.Port))
+		if err != nil {
+			return err
+		}
+		log.Printf("container listener on %s", ctrLn.Addr())
+		go func() {
+			for {
+				conn, err := ctrLn.Accept()
+				if err != nil {
+					return
+				}
+				go handle(conn, coll.Maps["orig_dst_by_sport"], certsForCtr)
+			}
+		}()
+	}
 	if err := coll.Maps["pmg_cfg"].Put(uint32(0), c); err != nil {
 		return err
 	}
@@ -237,7 +260,7 @@ func run(cgroupPath, listen, obj, caOut, pinDir string, exemptExe, exemptPid, ex
 	}()
 
 	origDst := coll.Maps["orig_dst_by_sport"]
-	certs := &certCache{ca: ca, caKey: caKey, m: map[string]*tls.Certificate{}}
+	certs := certsForCtr
 
 	sig := make(chan os.Signal, 1)
 	signalNotify(sig)
@@ -297,7 +320,7 @@ func handle(conn net.Conn, origDst *ebpf.Map, certs *certCache) {
 		log.Printf("[proxy] read request (%s) orig=%s: %v", kind, orig, err)
 		return
 	}
-	log.Printf("[proxy] %s sport=%d orig_dst=%s sni=%q host=%q %s %s", kind, sport, orig, sni, req.Host, req.Method, req.URL.Path)
+	log.Printf("[proxy] %s peer=%s orig_dst=%s sni=%q host=%q %s %s", kind, conn.RemoteAddr(), orig, sni, req.Host, req.Method, req.URL.Path)
 
 	body := fmt.Sprintf("intercepted-by-pmg-poc kind=%s orig_dst=%s sni=%s host=%s path=%s\n", kind, orig, sni, req.Host, req.URL.Path)
 	resp := &http.Response{StatusCode: 200, ProtoMajor: 1, ProtoMinor: 1, Header: http.Header{"Content-Type": {"text/plain"}, "Connection": {"close"}}, ContentLength: int64(len(body)), Body: nopCloser{strings.NewReader(body)}, Close: true}
