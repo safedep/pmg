@@ -68,6 +68,8 @@ default.
 | `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
+| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job. Needs a job-end `pmg proxy stop --fail-on-violation` step. | `false` (shims) |
+| `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. | `false` |
 
 ## Outputs
 
@@ -129,6 +131,35 @@ trusted_packages:
 The action copies the file to `~/.config/safedep/pmg/config.yml` before
 `pmg setup install` runs. PMG merges any missing template keys into the
 file. Specify only the keys to override.
+
+### Kernel enforcement
+
+Environment variables are a request a process can ignore. With `enforce`,
+the Linux kernel routes every eligible process through the proxy. A step
+cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own. The
+action installs the PMG CA into the system trust store, starts the daemon as
+root, and exports the trust variables. The runner binaries stay exempt. The
+daemon runs as root, and `sudo` resets `HOME` and `PATH`, so the action
+exports the binary path as `PMG_BIN` and the state file path as
+`PMG_PROXY_STATE` for the job-end step.
+
+```yaml
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    enforce: true
+    api-key: ${{ secrets.SAFEDEP_API_KEY }}
+    tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
+
+- run: npm ci
+
+- name: Enforce PMG policy
+  if: always()
+  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
+```
+
+Containers that a step starts are not enforced. See
+[persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux).
 
 ### Sandbox mode
 

@@ -34,6 +34,10 @@ pmg setup cert install
 # Windows: run from an elevated prompt.
 pmg setup cert install --system
 
+# System scope for a root proxy daemon (pmg proxy start --enforce). Run as
+# root. The keypair goes to the system config directory, root-owned.
+sudo pmg setup cert install --system
+
 # Inspect presence, trust scope, expiry, and drift.
 pmg setup cert status
 
@@ -47,11 +51,17 @@ pmg setup cert uninstall [--system] [--purge]
 ## Trust scopes
 
 `pmg setup cert install` installs at user scope by default, which needs no elevation. Pass
-`--system` to install for all users. Always run the command as your normal user, not under
-sudo. PMG generates a keypair owned by you and elevates only the trust store write, prompting
-for sudo on macOS and Linux. On Windows, run it from an elevated prompt. Running the whole
-command under sudo is refused, because the keypair would be persisted in root's config
+`--system` to install for all users. Run the command as your normal user, not under sudo.
+PMG generates a keypair owned by you and elevates only the trust store write, prompting
+for sudo on macOS and Linux. On Windows, run it from an elevated prompt. A user-scope
+install under sudo is refused, because the keypair would be persisted in root's config
 directory where the unprivileged proxy never looks.
+
+`sudo pmg setup cert install --system` is the one case where root is intended. It writes
+the keypair to the system config directory (`/etc/safedep/pmg` on Linux), root-owned with a
+`0600` key, for the proxy daemon that `pmg proxy start --enforce` runs as root. See
+[persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux). `pmg setup cert
+status` as root inspects that keypair when it exists.
 
 | Platform | User scope (default) | System scope (`--system`) |
 | --- | --- | --- |

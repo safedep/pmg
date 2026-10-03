@@ -1,0 +1,15 @@
+# guarantee: pmg proxy start --enforce refuses to start without the
+# capabilities that enforcement needs. It names the missing capability and
+# never runs a proxy that only looks enforced.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:setpriv] skip 'setpriv not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+
+! exec setpriv --inh-caps=-all --bounding-set=-bpf,-net_admin,-perfmon,-sys_admin pmg proxy start --enforce --state $ENFORCE_STATE
+stderr 'CAP_BPF'
+! exists $ENFORCE_STATE

@@ -1,0 +1,43 @@
+# guarantee: an eligible process cannot send UDP to an enforced port. A QUIC
+# client falls back to TCP, which the proxy sees. UDP to other ports, such as
+# DNS, is not touched.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:python3] skip 'python3 not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec python3 udp.py
+stdout 'sendto-443 denied'
+stdout 'connect-443 denied'
+stdout 'sendto-53 allowed'
+
+-- udp.py --
+import socket
+
+
+def sendto(port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.sendto(b"x", ("1.1.1.1", port))
+        return "allowed"
+    except PermissionError:
+        return "denied"
+
+
+def connect(port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("1.1.1.1", port))
+        return "allowed"
+    except PermissionError:
+        return "denied"
+
+
+print("sendto-443", sendto(443))
+print("connect-443", connect(443))
+print("sendto-53", sendto(53))

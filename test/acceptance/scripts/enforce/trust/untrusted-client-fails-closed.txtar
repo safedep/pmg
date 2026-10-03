@@ -1,0 +1,22 @@
+# guarantee: a client that does not trust the PMG CA fails closed on a
+# registry host. It does not reach the registry directly. Node without
+# NODE_USE_SYSTEM_CA ignores the system trust store, so it is such a client.
+# Node names the failure after the chain it saw, so either code is a pass.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:node] skip 'node not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec node fetch.js https://registry.npmjs.org/lodash
+stdout 'error (SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE)'
+
+-- fetch.js --
+fetch(process.argv[2]).then(
+  (r) => console.log('status ' + r.status),
+  (e) => console.log('error ' + (e.cause?.code ?? e.message)),
+);
