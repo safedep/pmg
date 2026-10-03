@@ -41,6 +41,54 @@ func newPlatformEnforcer() (Enforcer, error) {
 
 func (linuxEnforcer) Probe() ProbeResult { return probe() }
 
+func (linuxEnforcer) Attached(cgroupPath string) (bool, error) { return attached(cgroupPath) }
+
+// attached looks for pmg_connect4 among the connect4 programs on the
+// cgroup. Link attachments are multi-attach, so the kernel would accept a
+// second set without complaint.
+func attached(cgroupPath string) (bool, error) {
+	if cgroupPath == "" {
+		root, err := cgroup2Root()
+		if err != nil {
+			return false, err
+		}
+		cgroupPath = root
+	}
+	dir, err := os.Open(cgroupPath)
+	if err != nil {
+		return false, fmt.Errorf("enforce: open cgroup %s: %w", cgroupPath, err)
+	}
+	defer func() { _ = dir.Close() }()
+
+	result, err := link.QueryPrograms(link.QueryOptions{Target: int(dir.Fd()), Attach: ebpf.AttachCGroupInet4Connect})
+	if err != nil {
+		return false, fmt.Errorf("enforce: query programs on %s: %w", cgroupPath, err)
+	}
+	for _, p := range result.Programs {
+		name, err := programName(p.ID)
+		if err != nil {
+			return false, err
+		}
+		if name == bpf.EnforceProgPmgConnect4 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func programName(id ebpf.ProgramID) (string, error) {
+	prog, err := ebpf.NewProgramFromID(id)
+	if err != nil {
+		return "", fmt.Errorf("enforce: open program %d: %w", id, err)
+	}
+	defer func() { _ = prog.Close() }()
+	info, err := prog.Info()
+	if err != nil {
+		return "", fmt.Errorf("enforce: read program %d: %w", id, err)
+	}
+	return info.Name, nil
+}
+
 // Attach fills every map before it attaches a program, so no connection
 // ever meets a half-configured policy. The links detach when the owner
 // closes the handle or the process exits. Nothing else detaches them.
@@ -60,6 +108,11 @@ func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, erro
 	cgroupPath := p.CgroupPath
 	if cgroupPath == "" {
 		cgroupPath = pr.CgroupPath
+	}
+	if on, err := attached(cgroupPath); err != nil {
+		return nil, err
+	} else if on {
+		return nil, ErrAlreadyEnforced
 	}
 	ports := p.Ports
 	if len(ports) == 0 {

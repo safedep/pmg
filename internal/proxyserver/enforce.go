@@ -131,12 +131,39 @@ func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy) (netenforc
 			Wrap(perr)
 	}
 
+	if err := refuseSecondDaemon(enforcer, p); err != nil {
+		return nil, nil, nil, err
+	}
+
 	caCert, err := loadEnforceCA()
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	return enforcer, caCert, enforceWarnings(cfg, p), nil
+}
+
+// refuseSecondDaemon fails when a pmg daemon already enforces the cgroup.
+// The kernel would attach a second set of programs, and this daemon would
+// then report active and route nothing.
+func refuseSecondDaemon(enforcer netenforce.Enforcer, p netenforce.Policy) error {
+	on, err := enforcer.Attached(p.CgroupPath)
+	if err != nil {
+		return err
+	}
+	if !on {
+		return nil
+	}
+	cgroup := p.CgroupPath
+	if cgroup == "" {
+		cgroup = "the cgroup root"
+	}
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.EnforceAlreadyActive).
+		WithHumanError(fmt.Sprintf("another pmg daemon already enforces %s", cgroup)).
+		WithMsg(netenforce.ErrAlreadyEnforced.Error()).
+		WithHelp("Stop it with `sudo pmg proxy stop --state <its state file>`, or give this daemon its own cgroup with proxy.server.enforce.cgroup").
+		Wrap(netenforce.ErrAlreadyEnforced)
 }
 
 func enforceRequirementsHelp(probe netenforce.ProbeResult) string {

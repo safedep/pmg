@@ -194,7 +194,13 @@ the PMG CA, every other host is passed through with its real certificate,
 and plain HTTP is served as a proxy request. UDP to an enforced port gets
 `EPERM`, so a QUIC client falls back to TCP. When the daemon exits, for any
 reason, the kernel detaches the programs. There is nothing to clean up after
-a crash.
+a crash. A crash therefore fails open: until the daemon runs again, nothing
+routes through PMG. A supervisor that restarts it closes that window, as
+`Restart=on-failure` does in the [example unit](../examples/systemd/pmg-proxy.service).
+
+One daemon enforces a cgroup. A second `pmg proxy start --enforce` on the
+same cgroup fails with `EnforceAlreadyActive`, because the kernel would
+accept a second set of programs that never sees a connection.
 
 The daemon attaches before it reports ready. There is no window in which the
 proxy runs and a connection is not enforced.

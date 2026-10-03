@@ -47,6 +47,7 @@ const (
 	// depends on.
 	EnforceRequirements      = "EnforceRequirements"
 	EnforceRequiresTrustedCA = "EnforceRequiresTrustedCA"
+	EnforceAlreadyActive     = "EnforceAlreadyActive"
 
 	// Cloud error codes. CloudCredentialsNotFound is returned when a cloud
 	// operation needs SafeDep Cloud credentials but none are configured in the

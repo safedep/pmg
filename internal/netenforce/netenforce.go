@@ -98,12 +98,22 @@ type Target struct {
 type Enforcer interface {
 	// Attach loads the programs, fills the maps and attaches to the cgroup.
 	// It returns only when every eligible connection is routed. The programs
-	// stay attached until the Handle is closed or the process exits.
+	// stay attached until the Handle is closed or the process exits. It
+	// fails with ErrAlreadyEnforced when another daemon enforces the cgroup.
 	Attach(ctx context.Context, t Target, p Policy) (Handle, error)
 
 	// Probe reports whether this host can enforce, and what is missing.
 	Probe() ProbeResult
+
+	// Attached reports whether a pmg program is attached to the cgroup. An
+	// empty path means the cgroup v2 root.
+	Attached(cgroupPath string) (bool, error)
 }
+
+// ErrAlreadyEnforced means another pmg daemon has its programs on the
+// cgroup. Two sets would both attach, and the first would take every
+// connection while the second reports active and does nothing.
+var ErrAlreadyEnforced = errors.New("enforce: another pmg daemon already enforces this cgroup")
 
 // Handle is one attached enforcement. It is the proxy's source for the
 // original destination of a redirected client.

@@ -131,6 +131,11 @@ func TestKernelReleaseAtLeast(t *testing.T) {
 	assert.False(t, kernelRelease{4, 19, 0}.atLeast(5, 15))
 }
 
+func TestAttachedFailsOnAMissingCgroup(t *testing.T) {
+	_, err := attached(filepath.Join(t.TempDir(), "no-such-cgroup"))
+	require.Error(t, err)
+}
+
 func TestPIDNamespace(t *testing.T) {
 	inum, err := pidNamespace()
 	require.NoError(t, err)
