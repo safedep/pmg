@@ -73,6 +73,6 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 		"--host", "127.0.0.1",
 		"--port", "9000",
 		"--enforce=true",
-		"--enforce-exempt", "/opt/runner/Runner.*",
+		"--enforce-exempt-executable", "/opt/runner/Runner.*",
 	}, got)
 }

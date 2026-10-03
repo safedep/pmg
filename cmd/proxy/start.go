@@ -16,7 +16,7 @@ var (
 	daemonFlag             bool
 	logFileFlag            string
 	foregroundInternalFlag bool
-	enforceExemptFlag      []string
+	enforceExemptExecutablesFlag      []string
 )
 
 func newStartCommand() *cobra.Command {
@@ -39,8 +39,8 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&srv.Enforce.Enabled, "enforce", srv.Enforce.Enabled,
 		"Route every eligible process through the proxy in the kernel (Linux, root). See proxy.server.enforce in the config")
 	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
-	cmd.Flags().StringArrayVar(&enforceExemptFlag, "enforce-exempt", nil, "Internal: executable globs the parent computed for the daemon")
-	for _, name := range []string{"foreground-internal", "enforce-exempt"} {
+	cmd.Flags().StringArrayVar(&enforceExemptExecutablesFlag, "enforce-exempt-executable", nil, "Internal: executable globs the parent computed for the daemon, added to proxy.server.enforce.exempt_executables")
+	for _, name := range []string{"foreground-internal", "enforce-exempt-executable"} {
 		if err := cmd.Flags().MarkHidden(name); err != nil {
 			panic(err)
 		}
@@ -55,7 +55,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		Host:              cfg.Config.Proxy.Server.ListenHost,
 		Port:              cfg.Config.Proxy.Server.ListenPort,
 		Enforce:           cfg.Config.Proxy.Server.Enforce.Enabled,
-		ExemptExecutables: enforceExemptFlag,
+		ExemptExecutables: enforceExemptExecutablesFlag,
 	}
 
 	// The runner walk needs this process's ancestors. The daemon has none
@@ -135,7 +135,7 @@ func daemonArgs(cmd *cobra.Command, opts proxyserver.RunOptions) []string {
 		"--enforce="+strconv.FormatBool(opts.Enforce),
 	)
 	for _, glob := range opts.ExemptExecutables {
-		args = append(args, "--enforce-exempt", glob)
+		args = append(args, "--enforce-exempt-executable", glob)
 	}
 	return args
 }
