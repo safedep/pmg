@@ -311,11 +311,11 @@ func startupMessage(state State) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
-		state.Addr, state.Enforce.CgroupPath, formatPorts(state.Enforce.Ports)))
+	fmt.Fprintf(&b, "PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
+		state.Addr, state.Enforce.CgroupPath, formatPorts(state.Enforce.Ports))
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
 	for _, w := range state.Enforce.Warnings {
-		b.WriteString(fmt.Sprintf("%s %s\n", ui.Colors.Yellow("⚠"), w))
+		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
 }

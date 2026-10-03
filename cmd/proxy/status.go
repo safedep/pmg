@@ -42,25 +42,25 @@ func statusText(st proxyserver.StatusInfo) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("PMG proxy: running (pid %d, addr %s, ca %s)\n", st.PID, st.Addr, st.CACert))
+	fmt.Fprintf(&b, "PMG proxy: running (pid %d, addr %s, ca %s)\n", st.PID, st.Addr, st.CACert)
 	if st.Enforce == nil {
 		return b.String()
 	}
 
 	e := st.Enforce
-	b.WriteString(fmt.Sprintf("Kernel enforcement: active (cgroup %s, ports %s, kernel %s)\n",
-		e.CgroupPath, joinPorts(e.Ports), e.KernelVersion))
+	fmt.Fprintf(&b, "Kernel enforcement: active (cgroup %s, ports %s, kernel %s)\n",
+		e.CgroupPath, joinPorts(e.Ports), e.KernelVersion)
 	if len(e.EligibleUIDs) > 0 {
-		b.WriteString(fmt.Sprintf("  eligible uids: %v\n", e.EligibleUIDs))
+		fmt.Fprintf(&b, "  eligible uids: %v\n", e.EligibleUIDs)
 	}
 	if len(e.ExemptUIDs) > 0 {
-		b.WriteString(fmt.Sprintf("  exempt uids: %v\n", e.ExemptUIDs))
+		fmt.Fprintf(&b, "  exempt uids: %v\n", e.ExemptUIDs)
 	}
 	for _, f := range e.ExemptExecutables {
-		b.WriteString(fmt.Sprintf("  exempt executable: %s\n", f.Path))
+		fmt.Fprintf(&b, "  exempt executable: %s\n", f.Path)
 	}
 	for _, w := range e.Warnings {
-		b.WriteString(fmt.Sprintf("%s %s\n", ui.Colors.Yellow("⚠"), w))
+		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
 }

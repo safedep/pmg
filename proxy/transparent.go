@@ -159,7 +159,7 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 		l.drop(tc.Conn, "peek ClientHello", err)
 		return
 	}
-	if err := tc.Conn.SetReadDeadline(time.Time{}); err != nil {
+	if err := tc.SetReadDeadline(time.Time{}); err != nil {
 		l.drop(tc.Conn, "clear sniff deadline", err)
 		return
 	}
