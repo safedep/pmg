@@ -3,10 +3,12 @@
 package netenforce
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/bits"
 	"net/netip"
 	"os"
 	"runtime/debug"
@@ -38,9 +40,9 @@ func newPlatformEnforcer() (Enforcer, error) {
 func (linuxEnforcer) Probe() ProbeResult { return probe() }
 
 // Attach fills every map before it attaches a program, so no connection
-// ever meets a half-configured policy. The links detach when the handle
-// closes or the process exits.
-func (linuxEnforcer) Attach(ctx context.Context, t Target, p Policy) (Handle, error) {
+// ever meets a half-configured policy. The links detach when the owner
+// closes the handle or the process exits. Nothing else detaches them.
+func (linuxEnforcer) Attach(_ context.Context, t Target, p Policy) (Handle, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
@@ -97,7 +99,7 @@ func (linuxEnforcer) Attach(ctx context.Context, t Target, p Policy) (Handle, er
 	if err := h.attach(cgroupPath); err != nil {
 		return nil, errors.Join(err, h.Close())
 	}
-	h.startReaders(ctx)
+	h.startReaders()
 	return h, nil
 }
 
@@ -153,7 +155,7 @@ func (h *linuxHandle) fillMaps(t Target) error {
 		}
 	}
 
-	if err := h.refreshExempt(); err != nil {
+	if err := h.refreshExempt(nil); err != nil {
 		return err
 	}
 
@@ -164,8 +166,8 @@ func (h *linuxHandle) fillMaps(t Target) error {
 	h.status.NetnsCookie = cookie
 
 	cfg := bpf.EnforceCfg{
-		ProxyIp4:    beUint32(t.Addr.Addr().Unmap().As4()),
-		ProxyPort:   beUint16(t.Addr.Port()),
+		ProxyIp4:    ipv4Word(t.Addr.Addr().Unmap().As4()),
+		ProxyPort:   portWord(t.Addr.Port()),
 		DaemonTgid:  uint32(os.Getpid()),
 		NetnsCookie: cookie,
 	}
@@ -182,7 +184,7 @@ func (h *linuxHandle) fillMaps(t Target) error {
 		cfg.Flags |= cfgHasProxy6
 		a := t.Addr6.Addr().As16()
 		for i := range cfg.ProxyIp6 {
-			cfg.ProxyIp6[i] = beUint32([4]byte(a[i*4 : i*4+4]))
+			cfg.ProxyIp6[i] = ipv4Word([4]byte(a[i*4 : i*4+4]))
 		}
 	}
 	if err := h.objs.PmgCfg.Put(uint32(0), cfg); err != nil {
@@ -194,7 +196,7 @@ func (h *linuxHandle) fillMaps(t Target) error {
 func (h *linuxHandle) addSkip(prefix netip.Prefix) error {
 	addr := prefix.Addr()
 	if addr.Is4() {
-		key := bpf.EnforceSkip4Key{Prefixlen: uint32(prefix.Bits()), Addr: beUint32(addr.As4())}
+		key := bpf.EnforceSkip4Key{Prefixlen: uint32(prefix.Bits()), Addr: ipv4Word(addr.As4())}
 		if err := h.objs.Skip4.Put(key, uint8(1)); err != nil {
 			return fmt.Errorf("enforce: add skip destination %s: %w", prefix, err)
 		}
@@ -210,7 +212,13 @@ func (h *linuxHandle) addSkip(prefix netip.Prefix) error {
 // refreshExempt expands the executable globs and adds every new file to the
 // kernel map. It runs at attach and again when the kernel reports an
 // executable it has not seen, so a binary that appears later is covered.
-func (h *linuxHandle) refreshExempt() error {
+//
+// stat reports a device number that can differ from the one the kernel
+// compares: btrfs gives each subvolume its own, and overlayfs reports a
+// layer's. The exec event carries the kernel's pair, so a match on the
+// inode number also exempts the kernel's (dev, inode). The daemon learns
+// that pair only from an exec, which is when it matters.
+func (h *linuxHandle) refreshExempt(exec *bpf.EnforceExecEvent) error {
 	files, err := expandExecutables(h.policy.ExemptExecutables)
 	if err != nil {
 		return err
@@ -219,17 +227,29 @@ func (h *linuxHandle) refreshExempt() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, f := range files {
-		key := bpf.EnforceExeKey{Dev: f.Dev, Ino: f.Inode}
-		if _, seen := h.exemptKeys[key]; seen {
-			continue
+		if err := h.exempt(f); err != nil {
+			return err
 		}
-		if err := h.objs.ExemptExe.Put(key, uint8(1)); err != nil {
-			return fmt.Errorf("enforce: exempt %s: %w", f.Path, err)
+		if exec != nil && exec.Ino == f.Inode && exec.Dev != f.Dev {
+			if err := h.exempt(ExemptedFile{Path: f.Path, Dev: exec.Dev, Inode: exec.Ino}); err != nil {
+				return err
+			}
 		}
-		h.exemptKeys[key] = struct{}{}
-		h.status.ExemptExecutables = append(h.status.ExemptExecutables, f)
-		log.Debugf("enforce: exempt executable %s (dev %d, inode %d)", f.Path, f.Dev, f.Inode)
 	}
+	return nil
+}
+
+func (h *linuxHandle) exempt(f ExemptedFile) error {
+	key := bpf.EnforceExeKey{Dev: f.Dev, Ino: f.Inode}
+	if _, seen := h.exemptKeys[key]; seen {
+		return nil
+	}
+	if err := h.objs.ExemptExe.Put(key, uint8(1)); err != nil {
+		return fmt.Errorf("enforce: exempt %s: %w", f.Path, err)
+	}
+	h.exemptKeys[key] = struct{}{}
+	h.status.ExemptExecutables = append(h.status.ExemptExecutables, f)
+	log.Debugf("enforce: exempt executable %s (dev %d, inode %d)", f.Path, f.Dev, f.Inode)
 	return nil
 }
 
@@ -264,7 +284,7 @@ func (h *linuxHandle) attach(cgroupPath string) error {
 	return nil
 }
 
-func (h *linuxHandle) startReaders(ctx context.Context) {
+func (h *linuxHandle) startReaders() {
 	if len(h.policy.ExemptExecutables) > 0 {
 		rd, err := ringbuf.NewReader(h.objs.ExecEvents)
 		if err != nil {
@@ -285,12 +305,6 @@ func (h *linuxHandle) startReaders(ctx context.Context) {
 			go h.readDecisions(rd)
 		}
 	}
-	go func() {
-		<-ctx.Done()
-		if err := h.Close(); err != nil {
-			log.Warnf("enforce: detach after context end: %v", err)
-		}
-	}()
 }
 
 func (h *linuxHandle) readExecEvents(rd *ringbuf.Reader) {
@@ -304,7 +318,12 @@ func (h *linuxHandle) readExecEvents(rd *ringbuf.Reader) {
 			log.Debugf("enforce: read exec event: %v", err)
 			continue
 		}
-		if err := h.refreshExempt(); err != nil {
+		var exec bpf.EnforceExecEvent
+		if err := binary.Read(bytes.NewReader(rec.RawSample), binary.LittleEndian, &exec); err != nil {
+			log.Debugf("enforce: decode exec event: %v", err)
+			continue
+		}
+		if err := h.refreshExempt(&exec); err != nil {
 			log.Warnf("enforce: refresh exempt executables: %v", err)
 		}
 	}
@@ -409,21 +428,23 @@ func (h *linuxHandle) Counters() (map[string]uint64, error) {
 }
 
 func decodeDst(d bpf.EnforceDst) netip.AddrPort {
-	port := binary.BigEndian.Uint16([]byte{byte(d.Port), byte(d.Port >> 8)})
+	port := bits.ReverseBytes16(d.Port)
 	if d.Family == unix.AF_INET {
 		return netip.AddrPortFrom(netip.AddrFrom4([4]byte(d.Addr[:4])), port)
 	}
 	return netip.AddrPortFrom(netip.AddrFrom16(d.Addr), port)
 }
 
-// beUint32 returns the little-endian integer whose bytes are the network
-// order address, which is how the kernel stores user_ip4.
-func beUint32(b [4]byte) uint32 { return binary.LittleEndian.Uint32(b[:]) }
+// ipv4Word returns the address as the kernel stores user_ip4: the four
+// network-order bytes read as one native integer.
+func ipv4Word(b [4]byte) uint32 { return binary.NativeEndian.Uint32(b[:]) }
 
-func beUint16(v uint16) uint16 {
+// portWord returns the port as the kernel stores user_port: the two
+// network-order bytes read as one native integer.
+func portWord(v uint16) uint16 {
 	var b [2]byte
 	binary.BigEndian.PutUint16(b[:], v)
-	return binary.LittleEndian.Uint16(b[:])
+	return binary.NativeEndian.Uint16(b[:])
 }
 
 // netnsCookie identifies the network namespace of this process. A socket

@@ -15,6 +15,7 @@ import (
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/internal/cloudauth"
+	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/stretchr/testify/require"
 )
@@ -148,20 +149,13 @@ func stopEnforcingDaemon(pmgBin, statePath string) {
 }
 
 // hostCanEnforce reports whether this host can attach the enforcement
-// programs: root, kernel BTF, and a cgroup v2 mount.
+// programs, with the same probe the daemon runs.
 func hostCanEnforce() bool {
-	if os.Geteuid() != 0 {
+	enforcer, err := netenforce.New()
+	if err != nil {
 		return false
 	}
-	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err != nil {
-		return false
-	}
-	for _, p := range []string{"/sys/fs/cgroup/cgroup.controllers", "/sys/fs/cgroup/unified/cgroup.controllers"} {
-		if _, err := os.Stat(p); err == nil {
-			return true
-		}
-	}
-	return false
+	return enforcer.Probe().Supported
 }
 
 type scriptFile struct {

@@ -84,6 +84,15 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 		return err
 	}
 
+	// The daemon runs the same checks again. Running them here first turns a
+	// missing capability or an untrusted CA into an immediate error with its
+	// help, instead of a readiness timeout.
+	if opts.Enforce {
+		if err := proxyserver.PreflightEnforce(cfg, opts.ExemptExecutables); err != nil {
+			return err
+		}
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)

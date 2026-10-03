@@ -118,9 +118,12 @@ jobs:
       - name: Install the system CA and start the enforcing daemon
         run: |
           sudo "$GITHUB_WORKSPACE/bin/pmg" setup cert install --system
-          sudo "$GITHUB_WORKSPACE/bin/pmg" proxy start --daemon --enforce --state "$RUNNER_TEMP/proxy-state.json"
+          # GITHUB_ACTIONS tells the parent to walk its ancestors to
+          # Runner.Worker and exempt the runner binaries, as the action does.
+          sudo --preserve-env=GITHUB_ACTIONS "$GITHUB_WORKSPACE/bin/pmg" proxy start --daemon --enforce --state "$RUNNER_TEMP/proxy-state.json"
           sudo "$GITHUB_WORKSPACE/bin/pmg" proxy status --state "$RUNNER_TEMP/proxy-state.json" | tee status.txt
           grep -q "Kernel enforcement: active" status.txt
+          grep -q "exempt executable: .*/Runner.Worker" status.txt
           sudo "$GITHUB_WORKSPACE/bin/pmg" proxy env --state "$RUNNER_TEMP/proxy-state.json" >> "$GITHUB_ENV"
 
       - name: A scrubbed-environment client is routed and blocked

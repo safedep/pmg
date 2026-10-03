@@ -94,6 +94,19 @@ func endpointPort(raw string) (uint16, error) {
 	return uint16(port), nil
 }
 
+// PreflightEnforce runs the enforce checks without starting anything. The
+// parent of a daemon calls it before it detaches, so a missing capability or
+// an untrusted CA is reported at once with its help text, instead of as a
+// readiness timeout that points at the log.
+func PreflightEnforce(cfg *config.RuntimeConfig, extraExempt []string) error {
+	policy, err := enforcePolicy(cfg, extraExempt)
+	if err != nil {
+		return err
+	}
+	_, _, _, err = enforcePreflight(cfg, policy)
+	return err
+}
+
 // enforcePreflight fails before the proxy binds a port when the host cannot
 // enforce or no client could trust the proxy. Each failure names what to
 // do. The returned warnings are printed and recorded in the state file.

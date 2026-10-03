@@ -3,7 +3,6 @@ package proxy
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/safedep/pmg/config"
@@ -37,6 +36,8 @@ func statusText(st proxyserver.StatusInfo) string {
 	switch {
 	case !st.Found:
 		return "PMG proxy: not running (no state file)\n"
+	case st.Unreadable:
+		return "PMG proxy: state file is not readable by this user (an enforcing proxy runs as root, re-run with sudo)\n"
 	case !st.Running:
 		return fmt.Sprintf("PMG proxy: stopped (stale state for pid %d — run 'pmg proxy stop' to clean up)\n", st.PID)
 	}
@@ -49,7 +50,7 @@ func statusText(st proxyserver.StatusInfo) string {
 
 	e := st.Enforce
 	fmt.Fprintf(&b, "Kernel enforcement: active (cgroup %s, ports %s, kernel %s)\n",
-		e.CgroupPath, joinPorts(e.Ports), e.KernelVersion)
+		e.CgroupPath, e.PortList(), e.KernelVersion)
 	if len(e.EligibleUIDs) > 0 {
 		fmt.Fprintf(&b, "  eligible uids: %v\n", e.EligibleUIDs)
 	}
@@ -63,12 +64,4 @@ func statusText(st proxyserver.StatusInfo) string {
 		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
-}
-
-func joinPorts(ports []uint16) string {
-	parts := make([]string, len(ports))
-	for i, p := range ports {
-		parts[i] = strconv.Itoa(int(p))
-	}
-	return strings.Join(parts, ",")
 }

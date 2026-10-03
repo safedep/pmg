@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // ErrUnsupported is returned by New on every platform but Linux.
@@ -129,6 +131,15 @@ type Status struct {
 	DenyUDP           bool           `json:"deny_udp"`
 	KernelVersion     string         `json:"kernel_version"`
 	LoaderVersion     string         `json:"loader_version"`
+}
+
+// PortList renders the routed ports for a status line.
+func (s Status) PortList() string {
+	parts := make([]string, len(s.Ports))
+	for i, p := range s.Ports {
+		parts[i] = strconv.Itoa(int(p))
+	}
+	return strings.Join(parts, ",")
 }
 
 // ExemptedFile is one executable the kernel lets connect directly.

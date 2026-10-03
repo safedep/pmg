@@ -41,6 +41,7 @@ func TestStopExitError(t *testing.T) {
 func TestStatusTextShowsEnforcement(t *testing.T) {
 	assert.Contains(t, statusText(proxyserver.StatusInfo{}), "not running")
 	assert.Contains(t, statusText(proxyserver.StatusInfo{Found: true, PID: 9}), "stale state for pid 9")
+	assert.Contains(t, statusText(proxyserver.StatusInfo{Found: true, Unreadable: true}), "re-run with sudo")
 
 	plain := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777", CACert: "/tmp/ca.pem"})
 	assert.Contains(t, plain, "running (pid 9, addr 127.0.0.1:7777, ca /tmp/ca.pem)")

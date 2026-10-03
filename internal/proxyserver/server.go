@@ -312,20 +312,12 @@ func startupMessage(state State) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
-		state.Addr, state.Enforce.CgroupPath, formatPorts(state.Enforce.Ports))
+		state.Addr, state.Enforce.CgroupPath, state.Enforce.PortList())
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
 	for _, w := range state.Enforce.Warnings {
 		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
-}
-
-func formatPorts(ports []uint16) string {
-	parts := make([]string, len(ports))
-	for i, p := range ports {
-		parts[i] = strconv.Itoa(int(p))
-	}
-	return strings.Join(parts, ",")
 }
 
 func buildInterceptors(

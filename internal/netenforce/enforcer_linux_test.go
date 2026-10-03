@@ -85,19 +85,19 @@ func TestStatExecutableUsesKernelDeviceLayout(t *testing.T) {
 }
 
 func TestDecodeDstRoundTrip(t *testing.T) {
-	v4 := bpf.EnforceDst{Family: unix.AF_INET, Port: beUint16(8443)}
+	v4 := bpf.EnforceDst{Family: unix.AF_INET, Port: portWord(8443)}
 	copy(v4.Addr[:], []byte{203, 0, 113, 9})
 	assert.Equal(t, netip.MustParseAddrPort("203.0.113.9:8443"), decodeDst(v4))
 
-	v6 := bpf.EnforceDst{Family: unix.AF_INET6, Port: beUint16(443)}
+	v6 := bpf.EnforceDst{Family: unix.AF_INET6, Port: portWord(443)}
 	v6.Addr = netip.MustParseAddr("2001:db8::1").As16()
 	assert.Equal(t, netip.MustParseAddrPort("[2001:db8::1]:443"), decodeDst(v6))
 }
 
 func TestBigEndianHelpers(t *testing.T) {
 	// 10.0.0.1 in network order, read back as the kernel stores user_ip4.
-	assert.Equal(t, binary.LittleEndian.Uint32([]byte{10, 0, 0, 1}), beUint32([4]byte{10, 0, 0, 1}))
-	assert.Equal(t, uint16(0xbb01), beUint16(443))
+	assert.Equal(t, binary.NativeEndian.Uint32([]byte{10, 0, 0, 1}), ipv4Word([4]byte{10, 0, 0, 1}))
+	assert.Equal(t, binary.NativeEndian.Uint16([]byte{0x01, 0xbb}), portWord(443))
 }
 
 func TestDecodeDecision(t *testing.T) {
