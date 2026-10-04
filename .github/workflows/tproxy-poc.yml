@@ -1,0 +1,43 @@
+name: tproxy-poc
+
+on:
+  push:
+    branches: [claude/ebpf-proxy-enforcement-grrwvp]
+    paths:
+      - scripts/tproxy-poc/**
+      - .github/workflows/tproxy-poc.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  poc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: scripts/tproxy-poc
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: scripts/tproxy-poc/go.mod
+          cache: false
+      - name: Install nftables
+        run: sudo apt-get update -q && sudo apt-get install -y -q nftables
+      - name: Local leg, redirect mode, br_netfilter on
+        run: sudo env "PATH=$PATH" MODE=redirect BRNF=1 ./local.sh | tee local-redirect-brnf1.log
+      - name: Local leg, tproxy mode, br_netfilter on
+        continue-on-error: true
+        run: sudo env "PATH=$PATH" MODE=tproxy BRNF=1 ./local.sh | tee local-tproxy-brnf1.log
+      - name: Local leg, tproxy mode, br_netfilter off
+        continue-on-error: true
+        run: sudo env "PATH=$PATH" MODE=tproxy BRNF=0 ./local.sh | tee local-tproxy-brnf0.log
+      - name: Docker leg
+        run: sudo env "PATH=$PATH" ./docker.sh | tee docker.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: tproxy-poc-logs
+          path: scripts/tproxy-poc/*.log
