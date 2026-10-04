@@ -49,9 +49,9 @@ a Docker network goes direct.
 
 ## Design
 
-Six changes. The first three make the redirect work. The fourth keeps
+Seven changes. The first three make the redirect work. The fourth keeps
 container-to-container traffic out of the proxy. The fifth says who is
-eligible in a container. The sixth is the switch.
+eligible in a container. The sixth is the switch. The seventh is the action.
 
 ### 1. A second target, chosen by namespace
 
@@ -186,6 +186,34 @@ bridge address, and status prints one of:
 The Docker warning keeps its text under `ignore`. Under `redirect` a one-line
 warning takes its place: containers that do not trust the PMG CA fail on
 registry hosts.
+
+### 7. The action
+
+With `enforce-containers: redirect` the action exports `PMG_CA_BUNDLE`, the
+path of the host bundle that holds the PMG CA after the system install. A
+workflow passes it to a build as a secret and to a `docker run` as a mount,
+and never hardcodes a path that differs per distribution:
+
+```yaml
+- run: docker build --secret id=pmg-ca,src=$PMG_CA_BUNDLE -t app .
+```
+
+```dockerfile
+RUN --mount=type=secret,id=pmg-ca,target=/run/ca.pem \
+    NODE_EXTRA_CA_CERTS=/run/ca.pem npm ci
+```
+
+The bundle, not the CA alone, is the file to pass. It holds the public roots
+too, so it works for a tool that adds trust, like Node, and for a tool that
+replaces its bundle, like pip with `PIP_CERT`. `docs/github-action.md` gets
+one `RUN` block per ecosystem, because that line is the whole container
+story for a user.
+
+A third-party Docker action gets the workspace mounted, so a step before it
+copies the bundle into the workspace and the action step sets the trust
+variable through `env:`. That covers an action that installs packages when
+it runs. An action whose image installs packages at build time has no path
+and fails closed.
 
 ### Limits
 
