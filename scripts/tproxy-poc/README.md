@@ -35,3 +35,20 @@ br_netfilter off.
 supports DNAT in the bridge pass by design. The listener sees the container
 address as the peer and the original destination from conntrack. A nested
 namespace behind its own NAT keeps the destination and the port.
+
+## Runner results
+
+GitHub `ubuntu-24.04`, kernel 6.17 azure, Docker 28.0.4, nftables 1.0.9,
+iptables 1.8.10 over nf_tables. The image does not load br_netfilter.
+Docker 28 does not load it either. Both Docker legs pass 22 of 22 with
+br_netfilter not loaded and with it on. The emulation on the same kernel
+repeats the local result: redirect passes in both states, tproxy fails
+with br_netfilter on and passes with it off.
+
+The Docker legs cover the default bridge, a user-defined network created
+after the rules, a `docker build` RUN step with the default builder and
+with a `docker-container` builder, port 8443 through the nested builder
+NAT, no steering for cross-network, same-bridge, host-network and
+published-port traffic, a listener guard, and fail closed after the proxy
+dies. The first runner leg also showed that the proxy must refuse an own
+address, or a host-local connection makes it dial itself in a loop.
