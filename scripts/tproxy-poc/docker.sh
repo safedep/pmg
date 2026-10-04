@@ -3,9 +3,12 @@
 # SO_ORIGINAL_DST, the shape that survives br_netfilter. Needs root, nft,
 # docker, go. The proxy splices every steered connection to its original
 # destination, so TLS still ends at the real server and curl verifies it.
+# BRNF=1 loads br_netfilter and turns bridge-nf-call-iptables on, the shape
+# of a Kubernetes node. Unset, the host keeps its own setting.
 set -uo pipefail
 cd "$(dirname "$0")"
 
+BRNF=${BRNF:-}
 PORT=18443
 PASS=0
 FAIL=0
@@ -47,7 +50,8 @@ uname -r
 nft --version
 iptables --version
 docker --version
-printf 'bridge-nf-call-iptables=%s\n' "$(cat /proc/sys/net/bridge/bridge-nf-call-iptables)"
+[ "$BRNF" = 1 ] && modprobe br_netfilter && sysctl -q -w net.bridge.bridge-nf-call-iptables=1
+printf 'bridge-nf-call-iptables=%s\n' "$(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo "module not loaded")"
 ip -br addr show docker0
 GOWORK=off go build -o poc . || exit 1
 docker pull -q $CURL >/dev/null && docker pull -q $NGINX >/dev/null || exit 1

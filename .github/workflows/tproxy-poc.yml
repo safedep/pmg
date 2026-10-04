@@ -34,8 +34,10 @@ jobs:
       - name: Local leg, tproxy mode, br_netfilter off
         continue-on-error: true
         run: sudo env "PATH=$PATH" MODE=tproxy BRNF=0 ./local.sh | tee local-tproxy-brnf0.log
-      - name: Docker leg
-        run: sudo env "PATH=$PATH" ./docker.sh | tee docker.log
+      - name: Docker leg, host setting (br_netfilter not loaded on this image)
+        run: sudo env "PATH=$PATH" ./docker.sh | tee docker-hostsetting.log
+      - name: Docker leg, br_netfilter on
+        run: sudo env "PATH=$PATH" BRNF=1 ./docker.sh | tee docker-brnf1.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

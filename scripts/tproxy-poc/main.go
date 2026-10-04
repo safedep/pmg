@@ -64,22 +64,53 @@ func runProxy(listen string) {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	log.Printf("proxy listening on %s with IP_TRANSPARENT", ln.Addr())
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Fatalf("accept: %v", err)
 		}
-		go handle(conn, ln.Addr().String())
+		go handle(conn, port)
 	}
 }
 
-func handle(conn net.Conn, own string) {
+func isOwnAddr(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() {
+		return true
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return true
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// handle decides whether a connection was steered. In redirect mode the
+// conntrack original destination differs from the local address. In tproxy
+// mode the local port is the client's destination port, never the listen
+// port. A local address on this host is never dialled, or the proxy would
+// connect to itself in a loop, as the first runner leg showed.
+func handle(conn net.Conn, ownPort string) {
 	defer conn.Close()
 	local := conn.LocalAddr().String()
-	steered := local != own
+	_, port, _ := net.SplitHostPort(local)
+	steered := port != ownPort
 	if od := originalDst(conn); od != "" && od != local {
 		local, steered = od, true
+	}
+	if host, port, _ := net.SplitHostPort(local); port == ownPort && isOwnAddr(host) {
+		log.Printf("refuse remote=%s local=%s: destination is this proxy", conn.RemoteAddr(), local)
+		return
 	}
 	br := bufio.NewReader(conn)
 	first, err := br.Peek(1)

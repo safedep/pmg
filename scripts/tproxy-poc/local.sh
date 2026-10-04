@@ -33,6 +33,9 @@ cleanup() {
   ip link del hext 2>/dev/null
   nft delete table inet pmgpoc 2>/dev/null
   nft delete table ip pmgnat 2>/dev/null
+  if command -v iptables >/dev/null; then
+    for i in $BR hext; do iptables -D FORWARD -i $i -j ACCEPT 2>/dev/null; iptables -D FORWARD -o $i -j ACCEPT 2>/dev/null; done
+  fi
   ip rule del fwmark 1 lookup 100 2>/dev/null
   ip route flush table 100 2>/dev/null
   conntrack -F >/dev/null 2>&1
@@ -63,6 +66,11 @@ ip addr add $EXT_HOST/24 dev hext && ip link set hext up
 ip -n ext addr add $EXT/24 dev pext && ip -n ext link set pext up && ip -n ext link set lo up
 ip -n ext route add default via $EXT_HOST
 sysctl -q net.ipv4.ip_forward=1
+# A Docker host sets the FORWARD policy to DROP and accepts only its own
+# bridges. The emulated interfaces need the same accept rules.
+if command -v iptables >/dev/null; then
+  for i in $BR hext; do iptables -I FORWARD -i $i -j ACCEPT; iptables -I FORWARD -o $i -j ACCEPT; done
+fi
 # Docker-like masquerade for the emulated network.
 nft -f - <<EOF
 table ip pmgnat {
@@ -100,8 +108,10 @@ say "baseline without rules"
 check "c1 reaches the external origin directly" \
   "ccurl c1 -sS -m 5 --cacert origin.pem https://$EXT/baseline | grep -q 'origin ok'"
 
-sysctl -q -w net.bridge.bridge-nf-call-iptables=$BRNF
-say "rules: mode=$MODE bridge-nf-call-iptables=$BRNF exclude_same_bridge=$EXCLUDE_SAME_BRIDGE"
+[ "$BRNF" = 1 ] && modprobe br_netfilter 2>/dev/null
+[ -e /proc/sys/net/bridge/bridge-nf-call-iptables ] && sysctl -q -w net.bridge.bridge-nf-call-iptables=$BRNF
+BRNF_LIVE=$(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo "module not loaded")
+say "rules: mode=$MODE bridge-nf-call-iptables=$BRNF_LIVE exclude_same_bridge=$EXCLUDE_SAME_BRIDGE"
 SAME=""
 [ "$EXCLUDE_SAME_BRIDGE" = 1 ] && SAME='fib daddr . iif oif exists counter return'
 if [ "$MODE" = tproxy ]; then
@@ -163,7 +173,7 @@ say "T5 a destination on the host is not steered"
 check "fib daddr type local counter is nonzero after a connection to the bridge address" \
   "ccurl c1 -s -m 2 http://$BRIP:9/ >/dev/null 2>&1; nft list chain inet pmgpoc steer | grep 'type local' | grep -q 'packets [1-9]'"
 
-say "T6 same-bridge container to container, bridge-nf-call-iptables=$(cat /proc/sys/net/bridge/bridge-nf-call-iptables)"
+say "T6 same-bridge container to container, bridge-nf-call-iptables=$BRNF_LIVE"
 BEFORE=$(grep -c 'origdst=172.30.0.12' proxy.log)
 if ccurl c1 -sS -m 5 http://172.30.0.12/t6 | grep -q 'origin ok'; then
   ok "c1 reaches c2 over port 80"
