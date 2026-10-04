@@ -634,6 +634,9 @@ tools that replace the bundle (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
 
 ### Future direction: redirect containers to the bridge address
 
+[2026-10-04-ebpf-enforcement-container-redirect-design.md](./2026-10-04-ebpf-enforcement-container-redirect-design.md)
+specifies this direction and supersedes this section where the two differ.
+
 The cgroup hooks already run for container processes, because they are
 attached at the root cgroup and containers live in child cgroups. The POC
 logged them as "other network namespace" and passed them. Only the
@@ -735,3 +738,6 @@ of the rollout are not repeated here.
    privileged. The two commands should show both keypairs with their
    location and trust state, so an unprivileged user sees that the system
    CA exists and that the enforcing daemon uses it.
+5. **Redirect containers to the bridge address.** The container gap above.
+   Spec:
+   [2026-10-04-ebpf-enforcement-container-redirect-design.md](./2026-10-04-ebpf-enforcement-container-redirect-design.md).
