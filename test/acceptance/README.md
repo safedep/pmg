@@ -107,6 +107,26 @@ when its first path segment is `cloud`. The community-category scripts always us
 `community-api.safedep.io` path; only `cloud/...` scripts use the authenticated `api.safedep.io`
 path. Put an authenticated-path guarantee under `scripts/cloud/`.
 
+### Enforce cases
+
+The `enforce` category covers eBPF enforcement for the persistent proxy
+(`pmg proxy start --enforce`). A script guards on the `enforce` condition, which is true only
+when the run is root and the kernel has BTF and cgroup v2:
+
+```
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+```
+
+An enforcing daemon changes how the whole host connects, so the harness runs enforce scripts one
+at a time. It sets `$ENFORCE_STATE` to a state file in the script's work directory. Pass it to
+every `pmg proxy` command. When the script ends, the harness stops any daemon that this state file
+names, also when the script fails. Each script installs the PMG CA into the system trust store with
+`pmg setup cert install --system`, so run this category only on a disposable host. A script may
+create the managed config at `/etc/safedep/pmg/config.yml`, with `pmg config set --system` or by
+copying a file there. The harness removes it when the script ends, unless it existed before.
+
+A case that needs Docker guards on the `docker` condition.
+
 ## Category and labels
 
 Every guarantee has a `category` (the first path segment) and optional `labels`. A run filters on

@@ -139,6 +139,30 @@ jobs:
           echo "apparmor_restrict_unprivileged_userns=$v"
           test "$v" = "0" -o "$v" = "missing"
 
+  enforce-flags:
+    name: enforce-* inputs become flags
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Lists with commas, newlines and blanks
+        env:
+          INPUT_ENFORCE_PORTS: "8443, 9443"
+          INPUT_ENFORCE_EXEMPT_USERS: ""
+          INPUT_ENFORCE_EXEMPT_EXECUTABLES: |
+            /opt/agent/bin/agent
+            /opt/agent/bin/worker-*
+          INPUT_ENFORCE_SKIP_DESTINATIONS: "10.20.0.0/16,"
+        run: |
+          set -euo pipefail
+          got="$(.github/scripts/enforce-flags.sh | tr '\n' ' ')"
+          want="--enforce-port 8443 --enforce-port 9443 --enforce-exempt-executable /opt/agent/bin/agent --enforce-exempt-executable /opt/agent/bin/worker-* --enforce-skip-destination 10.20.0.0/16 "
+          test "$got" = "$want" || { echo "got:  $got"; echo "want: $want"; exit 1; }
+      - name: No inputs give no flags
+        run: |
+          set -euo pipefail
+          test -z "$(.github/scripts/enforce-flags.sh)"
+
   non-linux-fail-fast:
     name: Action fails fast on non-Linux runners
     strategy:

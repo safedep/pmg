@@ -1,0 +1,13 @@
+# guarantee: pmg proxy status reports that enforcement is active, so an
+# operator can tell an enforced proxy from an environment-only one.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'enforce'

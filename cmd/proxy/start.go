@@ -35,36 +35,66 @@ func newStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&srv.ListenHost, "host", srv.ListenHost, "Host to bind")
 	cmd.Flags().IntVar(&srv.ListenPort, "port", srv.ListenPort, "Port to bind (0 = a random free port)")
 	cmd.Flags().StringVar(&logFileFlag, "log-file", "", "File for the daemon's output (default: <cache-dir>/proxy.log)")
+	cmd.Flags().BoolVar(&srv.Enforce.Enabled, flagEnforce, srv.Enforce.Enabled,
+		"Route every eligible process through the proxy in the kernel (Linux, root). See proxy.server.enforce in the config")
 	cmd.Flags().BoolVar(&foregroundInternalFlag, "foreground-internal", false, "Internal: run the foreground server (used by --daemon)")
 	if err := cmd.Flags().MarkHidden("foreground-internal"); err != nil {
 		panic(err)
 	}
+	addEnforceFlags(cmd, &srv.Enforce)
 	return cmd
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
 	cfg := config.Get()
-	statePath := proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir())
-	host := cfg.Config.Proxy.Server.ListenHost
-	port := cfg.Config.Proxy.Server.ListenPort
+	opts := proxyserver.RunOptions{
+		StatePath: proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir()),
+		Host:      cfg.Config.Proxy.Server.ListenHost,
+		Port:      cfg.Config.Proxy.Server.ListenPort,
+		Enforce:   cfg.Config.Proxy.Server.Enforce.Enabled,
+		Overrides: enforceOverridesFlag,
+	}
+
+	// A locked managed config owns the policy. A flag that only narrows
+	// the scope stays allowed.
+	if cfg.IsLocked() {
+		if widening := wideningFlags(cmd.Flags().Changed, cfg.Config.Proxy.Server.Enforce); len(widening) > 0 {
+			ui.ErrorExit(config.NewManagedFlagOverrideError(widening))
+		}
+	}
+
+	// The parent and the daemon child both walk their ancestors. The globs
+	// never travel on a flag, so a caller cannot forge them under lockdown.
+	if opts.Enforce {
+		opts.Overrides.RunnerExecutables = proxyserver.RunnerExemptGlobs()
+	}
 
 	if daemonFlag && !foregroundInternalFlag {
-		if err := startDaemon(cmd, cfg, statePath, host, port); err != nil {
+		if err := startDaemon(cmd, cfg, opts); err != nil {
 			ui.ErrorExit(err)
 		}
 		return nil
 	}
 
-	if err := proxyserver.Run(cmd.Context(), cfg, statePath, host, port); err != nil {
+	if err := proxyserver.Run(cmd.Context(), cfg, opts); err != nil {
 		ui.ErrorExit(err)
 	}
 	return nil
 }
 
-func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host string, port int) error {
+func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver.RunOptions) error {
 	// The daemon is a re-exec; surface its config error instead of a parent-side readiness timeout.
 	if err := config.LoadError(); err != nil {
 		return err
+	}
+
+	// The daemon runs the same checks again. Running them here first turns a
+	// missing capability or an untrusted CA into an immediate error with its
+	// help, instead of a readiness timeout.
+	if opts.Enforce {
+		if err := proxyserver.PreflightEnforce(cfg, opts.Overrides); err != nil {
+			return err
+		}
 	}
 
 	exe, err := os.Executable()
@@ -82,27 +112,40 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, statePath, host 
 		return fmt.Errorf("create daemon log dir: %w", err)
 	}
 
-	args := daemonArgs(cmd, statePath, host, port)
+	args := daemonArgs(cmd, opts)
 
 	daemonCfg := proxyserver.ProxyDaemonConfig{
 		LogPath:      logPath,
 		ReadyTimeout: proxyserver.DefaultDaemonReadyTimeout,
 	}
-	state, err := proxyserver.Daemonize(daemonCfg, statePath, exe, args)
+	if opts.Enforce {
+		// Loading and verifying the programs adds to the start.
+		daemonCfg.ReadyTimeout = proxyserver.DefaultDaemonReadyTimeout * 3
+	}
+	state, err := proxyserver.Daemonize(daemonCfg, opts.StatePath, exe, args)
 	if err != nil {
 		return err
 	}
 
-	_, werr := fmt.Fprintf(os.Stdout, "PMG proxy daemon started on %s (pid %d)\n", state.Addr, state.PID)
+	line := fmt.Sprintf("PMG proxy daemon started on %s (pid %d)\n", state.Addr, state.PID)
+	if state.Enforce != nil {
+		line = fmt.Sprintf("PMG proxy daemon started on %s (pid %d) with kernel enforcement\n", state.Addr, state.PID)
+		for _, w := range state.Enforce.Warnings {
+			line += fmt.Sprintf("%s %s\n", ui.Colors.Yellow("⚠"), w)
+		}
+	}
+	_, werr := fmt.Fprint(os.Stdout, line)
 	return werr
 }
 
-func daemonArgs(cmd *cobra.Command, statePath, host string, port int) []string {
+func daemonArgs(cmd *cobra.Command, opts proxyserver.RunOptions) []string {
 	args := append([]string{}, config.ChangedConfigFlagArgs(cmd)...)
-	return append(args,
+	args = append(args,
 		"proxy", "start", "--foreground-internal",
-		"--state", statePath,
-		"--host", host,
-		"--port", strconv.Itoa(port),
+		"--state", opts.StatePath,
+		"--host", opts.Host,
+		"--port", strconv.Itoa(opts.Port),
+		"--"+flagEnforce+"="+strconv.FormatBool(opts.Enforce),
 	)
+	return append(args, enforceFlagArgs(cmd, opts.Overrides, config.Get().Config.Proxy.Server.Enforce)...)
 }

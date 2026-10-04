@@ -395,3 +395,62 @@ proxy:
 		assert.Equal(t, false, cfg.Config.Proxy.InstallOnly, "new proxy.install_only should win over old proxy_install_only")
 	})
 }
+
+func TestProxyEnforceConfigLoadsFromFileAndEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("PMG_CONFIG_DIR", tmpDir)
+	t.Setenv("PMG_PROXY_SERVER_ENFORCE_ENABLED", "true")
+	t.Setenv("PMG_PROXY_SERVER_ENFORCE_EXEMPT_USERS", "root,65534")
+	t.Setenv("PMG_PROXY_SERVER_ENFORCE_PORTS", "8080,8443")
+	t.Cleanup(initConfig)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yml"), []byte(`
+proxy:
+  server:
+    enforce:
+      enabled: false
+      ports: [80, 443, 8443]
+      eligible_users: [runner]
+      exempt_executables:
+        - /home/runner/actions-runner/bin/Runner.*
+      skip_destinations: [10.20.0.0/16]
+      cgroup: /sys/fs/cgroup/system.slice
+      deny_udp: false
+`), 0o644))
+
+	initConfig()
+	got := Get().Config.Proxy.Server.Enforce
+	assert.True(t, got.Enabled, "the env var wins over the file")
+	assert.Equal(t, []int{8080, 8443}, got.Ports, "a comma-separated variable replaces a list")
+	assert.Equal(t, []string{"root", "65534"}, got.ExemptUsers)
+	assert.Equal(t, []string{"runner"}, got.EligibleUsers)
+	assert.Equal(t, []string{"/home/runner/actions-runner/bin/Runner.*"}, got.ExemptExecutables)
+	assert.Equal(t, []string{"10.20.0.0/16"}, got.SkipDestinations)
+	assert.Equal(t, "/sys/fs/cgroup/system.slice", got.Cgroup)
+	assert.False(t, got.DenyUDP)
+}
+
+func TestConfigSourceNamesTheOrigin(t *testing.T) {
+	t.Cleanup(initConfig)
+
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	initConfig()
+	assert.Equal(t, ConfigSourceEnvDir, Get().ConfigSource())
+
+	t.Setenv("PMG_CONFIG_DIR", "")
+	initConfig()
+	if !Get().IsManaged() {
+		assert.Equal(t, ConfigSourceUser, Get().ConfigSource(), "no sudo marker in a test")
+	}
+
+	assert.Equal(t, ConfigSourceManaged, resolveConfigSource(true))
+}
+
+func TestProxyEnforceConfigDefaults(t *testing.T) {
+	got := DefaultConfig().Config.Proxy.Server.Enforce
+	assert.False(t, got.Enabled)
+	assert.Equal(t, []int{80, 443}, got.Ports)
+	assert.True(t, got.DenyUDP)
+	assert.Empty(t, got.EligibleUsers)
+	assert.Empty(t, got.ExemptExecutables)
+}

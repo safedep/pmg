@@ -79,13 +79,15 @@ func newCertInstallCommand() *cobra.Command {
 		Short:        "Generate, persist, and trust PMG's MITM CA",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := errIfRunningUnderSudo(); err != nil {
+			scope := scopeFromFlag(system)
+			dir, err := certDir(config.Get(), scope)
+			if err != nil {
 				return err
 			}
-			return runCertInstall(config.Get().ConfigDir(), scopeFromFlag(system), force, defaultTrustStore{}, os.Stdout)
+			return runCertInstall(dir, scope, force, defaultTrustStore{}, os.Stdout)
 		},
 	}
-	cmd.Flags().BoolVar(&system, "system", false, "Install into the system (all-users) trust store (PMG prompts for elevation; on Windows run from an elevated prompt)")
+	cmd.Flags().BoolVar(&system, "system", false, "Install into the system (all-users) trust store (PMG prompts for elevation. On Windows run from an elevated prompt). As root, the keypair goes to the system config directory.")
 	cmd.Flags().BoolVar(&force, "force", false, "Regenerate and re-trust the CA even if one already exists")
 	return cmd
 }
@@ -97,10 +99,12 @@ func newCertUninstallCommand() *cobra.Command {
 		Short:        "Remove PMG's MITM CA from the OS trust store",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := errIfRunningUnderSudo(); err != nil {
+			scope := scopeFromFlag(system)
+			dir, err := certDir(config.Get(), scope)
+			if err != nil {
 				return err
 			}
-			return runCertUninstall(config.Get().ConfigDir(), scopeFromFlag(system), purge, defaultTrustStore{}, os.Stdout)
+			return runCertUninstall(dir, scope, purge, defaultTrustStore{}, os.Stdout)
 		},
 	}
 	cmd.Flags().BoolVar(&system, "system", false, "Remove from the system (all-users) trust store (PMG prompts for elevation; on Windows run from an elevated prompt)")
@@ -114,10 +118,11 @@ func newCertStatusCommand() *cobra.Command {
 		Short:        "Show PMG MITM CA presence, trust scope, and expiry",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := errIfRunningUnderSudo(); err != nil {
+			dir, err := certStatusDir(config.Get())
+			if err != nil {
 				return err
 			}
-			return runCertStatus(config.Get().ConfigDir(), defaultTrustStore{}, os.Stdout)
+			return runCertStatus(dir, defaultTrustStore{}, os.Stdout)
 		},
 	}
 }
@@ -307,11 +312,60 @@ func otherScope(s truststore.Scope) truststore.Scope {
 	return truststore.ScopeSystem
 }
 
+// certDir picks where the CA keypair lives. A privileged system-scope
+// install writes it to the system config directory, root-owned, because a
+// root proxy daemon in enforce mode reads it from there and must not depend
+// on one user's home. Every other case keeps the keypair in the user's
+// config directory, and a sudo caller is sent back to their own account.
+func certDir(cfg *config.RuntimeConfig, scope truststore.Scope) (string, error) {
+	if scope == truststore.ScopeSystem && platform.IsPrivileged() {
+		return config.SystemConfigDir(), nil
+	}
+	if err := errIfRunningUnderSudo(); err != nil {
+		return "", err
+	}
+	return cfg.ConfigDir(), nil
+}
+
+// keypairDir is the directory `pmg setup info` and `pmg setup doctor`
+// inspect: the user's keypair when there is one, else the system keypair
+// that `sudo pmg setup cert install --system` wrote, which an enforcing
+// daemon uses and any user may read. The bool reports the system one.
+func keypairDir(cfg *config.RuntimeConfig) (string, bool) {
+	user := cfg.ConfigDir()
+	if st, err := certmanager.InspectCA(user); err == nil && (st.CertPresent || st.KeyPresent) {
+		return user, false
+	}
+	system := config.SystemConfigDir()
+	if system == "" {
+		return user, false
+	}
+	if st, err := certmanager.InspectCA(system); err == nil && st.CertPresent {
+		return system, true
+	}
+	return user, false
+}
+
+// certStatusDir inspects the system keypair when the process is privileged
+// and one exists, and the user's keypair otherwise.
+func certStatusDir(cfg *config.RuntimeConfig) (string, error) {
+	if platform.IsPrivileged() {
+		system := config.SystemConfigDir()
+		if st, err := certmanager.InspectCA(system); err == nil && (st.CertPresent || st.KeyPresent) {
+			return system, nil
+		}
+	}
+	if err := errIfRunningUnderSudo(); err != nil {
+		return "", err
+	}
+	return cfg.ConfigDir(), nil
+}
+
 func errIfRunningUnderSudo() error {
 	if platform.IsSudo() {
 		return newCertCommandError(errcodes.PermissionDenied,
 			"run `pmg setup cert` as your normal user, not with sudo",
-			"PMG generates a per-user CA keypair and elevates only the system trust step. Re-run without sudo (use --system for machine-wide trust).",
+			"PMG generates a per-user CA keypair and elevates only the system trust step. Re-run without sudo, or run `sudo pmg setup cert install --system` to keep a root-owned keypair for an enforcing proxy.",
 			errors.New("invoked under sudo"))
 	}
 	return nil

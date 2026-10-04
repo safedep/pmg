@@ -78,6 +78,27 @@ inputs:
     required: false
     default: "false"
 
+  enforce:
+    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation".
+    required: false
+    default: "false"
+  enforce-ports:
+    description: With enforce, destination ports to route in addition to proxy.server.enforce.ports (comma or newline separated). Passed as --enforce-port.
+    required: false
+    default: ""
+  enforce-exempt-users:
+    description: With enforce, users never routed, in addition to proxy.server.enforce.exempt_users (comma or newline separated). Passed as --enforce-exempt-user.
+    required: false
+    default: ""
+  enforce-exempt-executables:
+    description: With enforce, absolute paths or globs of programs that connect directly, in addition to proxy.server.enforce.exempt_executables and the runner binaries (comma or newline separated). Passed as --enforce-exempt-executable.
+    required: false
+    default: ""
+  enforce-skip-destinations:
+    description: With enforce, CIDR prefixes the kernel never routes, in addition to proxy.server.enforce.skip_destinations (comma or newline separated). Passed as --enforce-skip-destination.
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -343,8 +364,13 @@ runs:
           exit 1
         fi
 
+    - name: Warn about enforce inputs without enforce
+      if: inputs.enforce != 'true' && (inputs.enforce-ports != '' || inputs.enforce-exempt-users != '' || inputs.enforce-exempt-executables != '' || inputs.enforce-skip-destinations != '')
+      shell: bash
+      run: echo "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
+
     - name: Start PMG proxy server (server mode)
-      if: inputs.server-mode == 'true'
+      if: inputs.server-mode == 'true' && inputs.enforce != 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -353,6 +379,52 @@ runs:
         # the proxy without touching the OS trust store.
         pmg proxy start --daemon
         pmg proxy env >> "$GITHUB_ENV"
+
+    - name: Start PMG proxy server with kernel enforcement (server mode)
+      if: inputs.server-mode == 'true' && inputs.enforce == 'true'
+      shell: bash
+      env:
+        PMG_BIN_DIR: ${{ steps.install.outputs.pmg-bin-dir }}
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_ENFORCE_PORTS: ${{ inputs.enforce-ports }}
+        INPUT_ENFORCE_EXEMPT_USERS: ${{ inputs.enforce-exempt-users }}
+        INPUT_ENFORCE_EXEMPT_EXECUTABLES: ${{ inputs.enforce-exempt-executables }}
+        INPUT_ENFORCE_SKIP_DESTINATIONS: ${{ inputs.enforce-skip-destinations }}
+      run: |
+        set -euo pipefail
+        if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
+          echo "::error::enforce needs passwordless sudo on the runner. Attaching the kernel programs needs root." >&2
+          exit 1
+        fi
+
+        # The daemon runs as root. sudo resets PATH and HOME, so every call
+        # names the binary by absolute path and the state file explicitly.
+        # The cloud variables travel through --preserve-env. So does the
+        # config directory: a staged config-file sits in the runner user's
+        # config directory, and root would otherwise read its own.
+        pmg_bin="${PMG_BIN_DIR}/pmg"
+        state="${RUNNER_TEMP}/pmg-proxy-state.json"
+        echo "PMG_BIN=${pmg_bin}" >> "$GITHUB_ENV"
+        echo "PMG_PROXY_STATE=${state}" >> "$GITHUB_ENV"
+        if [ -n "$INPUT_CONFIG_FILE" ]; then
+          export PMG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
+          echo "PMG_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
+        fi
+
+        # Trust goes through the system store: the keypair lands in
+        # /etc/safedep/pmg and the certificate in the trust store.
+        sudo "$pmg_bin" setup cert install --system
+
+        # The policy inputs travel as flags, which the job log shows, where a
+        # variable preserved through sudo would not. A flag adds to the
+        # config file's list.
+        mapfile -t enforce_flags < <("$GITHUB_ACTION_PATH/.github/scripts/enforce-flags.sh")
+
+        sudo --preserve-env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS \
+          "$pmg_bin" proxy start --daemon --enforce --state "$state" "${enforce_flags[@]}"
+
+        # Only the trust variables. The kernel routes the traffic.
+        sudo "$pmg_bin" proxy env --state "$state" >> "$GITHUB_ENV"
 
     - name: Verify PMG
       shell: bash

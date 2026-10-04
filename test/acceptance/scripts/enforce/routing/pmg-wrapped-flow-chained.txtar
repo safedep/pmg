@@ -1,0 +1,20 @@
+# guarantee: pmg npm keeps working under enforcement. Its per-command proxy
+# connects upstream through the enforcing daemon, and a clean install
+# succeeds with both proxies in the path.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:npm] skip 'npm not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env NODE_USE_SYSTEM_CA=1
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec pmg npm init -y
+exec pmg npm install lodash@4.17.21
+exists node_modules/lodash
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'

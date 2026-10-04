@@ -9,7 +9,9 @@ on:
     paths:
       - "cmd/proxy/**"
       - "internal/proxyserver/**"
+      - "internal/netenforce/**"
       - "internal/flows/cert.go"
+      - "proxy/**"
       - "action.yml"
 
 permissions:
@@ -71,3 +73,94 @@ jobs:
             exit 1
           fi
           echo "OK: stop correctly failed on the policy violation"
+
+  # Kernel enforcement needs root, kernel BTF and cgroup v2. The hosted
+  # runner has all three. The e2e test drives child processes through the
+  # attached programs. The second half runs the real daemon with --enforce
+  # and proves that a scrubbed-environment client is routed and blocked.
+  ebpf-enforce-e2e:
+    name: eBPF Enforcement E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      # The build and the module download run as the runner user first, so
+      # the root step only reads the module cache. A root process that
+      # unpacks modules leaves root-owned directories the runner user cannot
+      # write to later. Root gets its own build cache for the same reason.
+      - name: Build PMG
+        run: make
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run the enforcement e2e test as root
+        env:
+          GOCACHE: ${{ runner.temp }}/go-build-root
+        run: sudo --preserve-env=CI,HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS "$(command -v go)" test -tags ebpf_e2e -count=1 -v ./internal/netenforce/ -run E2E
+
+      - name: Install the system CA and start the enforcing daemon
+        run: |
+          sudo "$GITHUB_WORKSPACE/bin/pmg" setup cert install --system
+          # GITHUB_ACTIONS tells the parent to walk its ancestors to
+          # Runner.Worker and exempt the runner binaries, as the action does.
+          sudo --preserve-env=GITHUB_ACTIONS "$GITHUB_WORKSPACE/bin/pmg" proxy start --daemon --enforce --state "$RUNNER_TEMP/proxy-state.json"
+          sudo "$GITHUB_WORKSPACE/bin/pmg" proxy status --state "$RUNNER_TEMP/proxy-state.json" | tee status.txt
+          grep -q "Kernel enforcement: active" status.txt
+          grep -q "exempt executable: .*/Runner.Worker" status.txt
+          sudo "$GITHUB_WORKSPACE/bin/pmg" proxy env --state "$RUNNER_TEMP/proxy-state.json" >> "$GITHUB_ENV"
+
+      - name: A scrubbed-environment client is routed and blocked
+        run: |
+          env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1 | grep -q "SafeDep PMG Proxy CA"
+          code=$(env -i /usr/bin/curl -sS -o /dev/null -w '%{http_code}' https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz)
+          test "$code" = "403"
+          # The request must succeed, or a refused connection would pass as
+          # "not intercepted". grep -v would pass on any non-matching line,
+          # so the absence is checked as a failed positive match.
+          out=$(env -i /usr/bin/curl -sS -o /dev/null -v https://github.com/ 2>&1)
+          if grep -q "SafeDep PMG Proxy CA" <<<"$out"; then
+            echo "ERROR: github.com was intercepted" >&2
+            exit 1
+          fi
+
+      - name: Node without the trust variable fails closed
+        run: |
+          out=$(env -i "$(command -v node)" -e 'fetch("https://registry.npmjs.org/lodash").then(r => console.log("status", r.status), e => console.log("error", e.cause?.code ?? e.message))')
+          echo "$out"
+          # Node names the failure after the chain it saw. Both codes are a
+          # closed failure on the PMG certificate.
+          grep -Eq "SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE" <<<"$out"
+
+      - name: Stop and verify it fails on the block
+        if: always()
+        run: |
+          # An earlier step failed before the daemon started: nothing to stop.
+          if [ ! -f "$RUNNER_TEMP/proxy-state.json" ]; then
+            exit 0
+          fi
+          if sudo "$GITHUB_WORKSPACE/bin/pmg" proxy stop --state "$RUNNER_TEMP/proxy-state.json" --fail-on-violation; then
+            echo "ERROR: stop should have exited non-zero (a package was blocked)"
+            exit 1
+          fi
+          out=$(env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1)
+          if grep -q "SafeDep PMG Proxy CA" <<<"$out"; then
+            echo "ERROR: enforcement is still on after the stop" >&2
+            exit 1
+          fi

@@ -164,12 +164,19 @@ func executeSetupInfo() error {
 	ui.PrintInfoSection("Sandbox", sandboxEntries)
 
 	// Certificate Authority section
-	caStatus, _ := certmanager.InspectCA(cfg.ConfigDir())
+	caDir, caIsSystem := keypairDir(cfg)
+	caStatus, _ := certmanager.InspectCA(caDir)
 	caUser, caSystem, _ := truststore.Status(certmanager.CACommonName)
 	caStatus.UserTrusted, caStatus.SystemTrusted = caUser, caSystem
 
 	caEntries := make(map[string]string)
 	caEntries["Installed"] = strconv.FormatBool(caStatus.KeyPresent && caStatus.CertPresent)
+	if caStatus.CertPresent {
+		caEntries["Keypair"] = caDir
+		if caIsSystem {
+			caEntries["Keypair"] = caDir + " (system, used by the enforcing daemon)"
+		}
+	}
 	caScope := "none"
 	if caStatus.SystemTrusted {
 		caScope = "system"

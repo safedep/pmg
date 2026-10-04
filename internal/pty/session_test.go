@@ -88,11 +88,12 @@ func TestSessionConfigCmdLineReachesSpawnOpts(t *testing.T) {
 	}
 
 	assert.Equal(t, ptyx.SpawnOpts{
-		Prog:    cfg.Command,
-		CmdLine: cfg.CmdLine,
-		Cols:    120,
-		Rows:    40,
-		Env:     cfg.Env,
+		Prog:          cfg.Command,
+		CmdLine:       cfg.CmdLine,
+		Cols:          120,
+		Rows:          40,
+		Env:           cfg.Env,
+		InheritCursor: true,
 	}, cfg.spawnOpts(120, 40))
 }
 

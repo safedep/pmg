@@ -70,7 +70,7 @@ proxy:
 	config.Reload()
 	require.Error(t, config.LoadError())
 
-	err := Run(context.Background(), config.Get(), filepath.Join(dir, "state.json"), "127.0.0.1", 0)
+	err := Run(context.Background(), config.Get(), RunOptions{StatePath: filepath.Join(dir, "state.json"), Host: "127.0.0.1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid proxy registries")
 }

@@ -42,10 +42,14 @@ type Harness struct {
 
 	dialMu      sync.Mutex
 	dialedAddrs []string
+
+	caPool *x509.CertPool
 }
 
 type options struct {
 	pinnedVersions map[string]string
+	transparent    bool
+	origDst        proxy.OriginalDestinationResolver
 }
 
 type Option func(*options)
@@ -54,6 +58,16 @@ type Option func(*options)
 // cooldown uses to report when an explicitly requested version is blocked.
 func WithPinnedVersions(pinned map[string]string) Option {
 	return func(o *options) { o.pinnedVersions = pinned }
+}
+
+// WithTransparent turns on the transparent listener, as the enforcing daemon
+// does, and installs resolver as the original destination source. A nil
+// resolver models a kernel lookup miss for every connection.
+func WithTransparent(resolver proxy.OriginalDestinationResolver) Option {
+	return func(o *options) {
+		o.transparent = true
+		o.origDst = resolver
+	}
 }
 
 func New(t *testing.T, opts ...Option) *Harness {
@@ -136,7 +150,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan: confChan,
 	}
 
-	h.proxy = buildProxy(t, certMgr, registry.addr(), interceptorList, h.recordDial)
+	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, o)
 
 	caPool := x509.NewCertPool()
 	caPool.AddCert(caCert.X509Cert)
@@ -151,25 +165,34 @@ func New(t *testing.T, opts ...Option) *Harness {
 			TLSClientConfig: &tls.Config{RootCAs: caPool},
 		},
 	}
+	h.caPool = caPool
 
 	return h
 }
 
-func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, upstreamAddr string, interceptorList []proxy.Interceptor, recordDial func(string)) proxy.ProxyServer {
+func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor, recordDial func(string), o options) proxy.ProxyServer {
 	t.Helper()
 
 	cfg := proxy.DefaultProxyConfig()
 	cfg.CertManager = certMgr
 	cfg.Interceptors = interceptorList
+	cfg.Transparent = o.transparent
+	cfg.OriginalDestination = o.origDst
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	cfg.BlockMessageRenderer = presenter.BlockMessage
 
 	// All upstream connections — MITM'd round-trips and CONNECT tunnels for
 	// non-MITM hosts alike — terminate at the mock registry, so no test reaches
-	// the network regardless of the hostname being proxied.
+	// the network regardless of the hostname being proxied. Port 80 goes to
+	// the plain-HTTP twin, because the proxy forwards a redirected plain HTTP
+	// request as plain HTTP.
 	cfg.UpstreamDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		recordDial(addr)
-		return (&net.Dialer{}).DialContext(ctx, network, upstreamAddr)
+		target := registry.addr()
+		if _, port, err := net.SplitHostPort(addr); err == nil && port == "80" || addr == registry.plainAddr() {
+			target = registry.plainAddr()
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, target)
 	}
 	// Test-only: the mock's self-signed cert cannot match the real registry SNIs
 	// the proxy presents upstream, so verification is skipped for this in-process

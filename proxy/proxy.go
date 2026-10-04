@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/elazarl/goproxy"
@@ -43,6 +48,11 @@ type ProxyServer interface {
 
 	// Address returns the listening address (useful when using port 0)
 	Address() string
+
+	// AdditionalAddresses returns the addresses of the listeners that
+	// AdditionalListenAddrs opened, in order. An address the server could
+	// not bind is absent.
+	AdditionalAddresses() []string
 
 	// AddInterceptor registers an interceptor
 	AddInterceptor(interceptor Interceptor) error
@@ -98,6 +108,24 @@ type ProxyConfig struct {
 	// upstream connections (e.g. to trust a mock registry's certificate). nil
 	// keeps the production default.
 	UpstreamTLSClientConfig *tls.Config
+
+	// Transparent accepts clients that the kernel redirected to the listener
+	// and that do not speak the proxy protocol. The listener sniffs each
+	// connection: TLS to a registry host is terminated with CertManager, other
+	// TLS is spliced to its destination, and origin-form HTTP is served as a
+	// proxy request. Proxy-aware clients are unaffected. Off by default.
+	Transparent bool
+
+	// OriginalDestination recovers where a redirected client wanted to go.
+	// The enforcement layer provides it. nil means the listener falls back to
+	// the SNI or the Host header.
+	OriginalDestination OriginalDestinationResolver
+
+	// AdditionalListenAddrs are served by the same server as ListenAddr. A
+	// port of 0 means the port ListenAddr got. The enforcing daemon uses it
+	// for an IPv6 loopback listener on the same port. A bind failure here
+	// is logged and skipped, so the primary listener still serves.
+	AdditionalListenAddrs []string
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -119,9 +147,73 @@ type proxyServer struct {
 	server       *http.Server
 	roundTripper goproxy.RoundTripper
 
-	listener     net.Listener
-	interceptors map[string]Interceptor
-	mu           sync.RWMutex
+	listener            net.Listener
+	additionalListeners []net.Listener
+	ownAddrs            []netip.AddrPort
+	interceptors        map[string]Interceptor
+	mu                  sync.RWMutex
+}
+
+var errDialSelf = errors.New("the proxy refuses to connect to its own listener")
+
+// collectOwnAddrs lists every address a client can reach this proxy on. A
+// listener on an unspecified address answers on every interface, so each
+// interface address counts for its port.
+func (ps *proxyServer) collectOwnAddrs() []netip.AddrPort {
+	var own []netip.AddrPort
+	for _, l := range append([]net.Listener{ps.listener}, ps.additionalListeners...) {
+		if tcp, ok := l.Addr().(*net.TCPAddr); ok {
+			own = append(own, ps.collectOwnAddrsFor(tcp.AddrPort())...)
+		}
+	}
+	return own
+}
+
+// collectOwnAddrsFor lists the addresses that reach one listener. A dial to
+// an unspecified address reaches a local listener on Linux, so those always
+// count. A listener on an unspecified address answers on every interface.
+func (ps *proxyServer) collectOwnAddrsFor(listen netip.AddrPort) []netip.AddrPort {
+	port := listen.Port()
+	addr := listen.Addr().Unmap()
+	own := []netip.AddrPort{
+		netip.AddrPortFrom(netip.IPv4Unspecified(), port),
+		netip.AddrPortFrom(netip.IPv6Unspecified(), port),
+	}
+	if !addr.IsUnspecified() {
+		return append(own, netip.AddrPortFrom(addr, port))
+	}
+	ifaddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Warnf("Could not list interface addresses: %v", err)
+		return own
+	}
+	for _, a := range ifaddrs {
+		if ipnet, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(ipnet.IP); ok {
+				own = append(own, netip.AddrPortFrom(ip.Unmap(), port))
+			}
+		}
+	}
+	return own
+}
+
+func (ps *proxyServer) isOwnAddress(addr netip.AddrPort) bool {
+	return slices.Contains(ps.ownAddrs, netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port()))
+}
+
+// refuseOwnAddress is the dialer control for upstream connections. A
+// request that names the proxy's own address, directly or through a name
+// that resolves to it, would make the proxy forward to itself without
+// limit. The dialer sees the resolved address, so a name cannot hide it.
+func (ps *proxyServer) refuseOwnAddress(_, address string, _ syscall.RawConn) error {
+	addr, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return nil
+	}
+	if ps.isOwnAddress(addr) {
+		return errDialSelf
+	}
+	return nil
 }
 
 var _ ProxyServer = &proxyServer{}
@@ -148,9 +240,14 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		config.ListenAddr = "127.0.0.1:0"
 	}
 
+	ps := &proxyServer{
+		config:       config,
+		interceptors: make(map[string]Interceptor),
+	}
+
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Logger = &goproxyLoggerWrapper{}
-	proxy.Tr = newUpstreamTransport(config)
+	proxy.Tr = newUpstreamTransport(config, ps.refuseOwnAddress)
 
 	// goproxy emits several log lines per request when Verbose is set. During a
 	// large install (5000+ packages) that is a substantial amount of per-request
@@ -161,12 +258,7 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	proxy.Verbose = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
 
 	proxy.ConnectDial = newConnectDial(proxy.Tr, config.ConnectTimeout)
-
-	ps := &proxyServer{
-		config:       config,
-		proxy:        proxy,
-		interceptors: make(map[string]Interceptor),
-	}
+	ps.proxy = proxy
 
 	ps.roundTripper = goproxy.RoundTripperFunc(func(req *http.Request, _ *goproxy.ProxyCtx) (*http.Response, error) {
 		return ps.upstreamRoundTrip(req)
@@ -183,6 +275,7 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 	}
 
 	ps.registerHandlers()
+	proxy.NonproxyHandler = http.HandlerFunc(ps.serveTransparentRequest)
 
 	return ps, nil
 }
@@ -196,9 +289,12 @@ func proxyWithLoopbackBypass(req *http.Request) (*url.URL, error) {
 	return http.ProxyFromEnvironment(req)
 }
 
-func newUpstreamTransport(config *ProxyConfig) *http.Transport {
+// newUpstreamTransport builds the upstream transport. control runs on every
+// dial with the resolved address, so the proxy never connects to itself.
+func newUpstreamTransport(config *ProxyConfig, control func(network, address string, c syscall.RawConn) error) *http.Transport {
 	dialer := &net.Dialer{
 		Timeout: config.ConnectTimeout,
+		Control: control,
 	}
 
 	dialContext := dialer.DialContext
@@ -254,6 +350,8 @@ func (ps *proxyServer) Start() error {
 	}
 
 	ps.listener = listener
+	ps.additionalListeners = ps.listenAdditional(listener.Addr().(*net.TCPAddr).Port)
+	ps.ownAddrs = ps.collectOwnAddrs()
 
 	serverTimeout := ps.config.ServerReadWriteTimeout
 	if serverTimeout == 0 {
@@ -264,17 +362,50 @@ func (ps *proxyServer) Start() error {
 		Handler:      ps.proxy,
 		ReadTimeout:  serverTimeout,
 		WriteTimeout: serverTimeout,
+		ConnContext:  transparentConnContext,
 	}
 
 	log.Debugf("Proxy server listening on %s", ps.Address())
 
-	go func() {
-		if err := ps.server.Serve(ps.listener); err != nil && err != http.ErrServerClosed {
-			log.Errorf("Proxy server error: %v", err)
-		}
-	}()
+	for _, l := range append([]net.Listener{listener}, ps.additionalListeners...) {
+		ps.serve(l)
+	}
 
 	return nil
+}
+
+func (ps *proxyServer) serve(l net.Listener) {
+	if ps.config.Transparent {
+		l = newTransparentListener(l, ps)
+	}
+	go func() {
+		if err := ps.server.Serve(l); err != nil && err != http.ErrServerClosed {
+			log.Errorf("Proxy server error on %s: %v", l.Addr(), err)
+		}
+	}()
+}
+
+// listenAdditional binds the extra addresses. A port of 0 takes the primary
+// port, so every listener of one proxy answers on the same port.
+func (ps *proxyServer) listenAdditional(primaryPort int) []net.Listener {
+	var listeners []net.Listener
+	for _, addr := range ps.config.AdditionalListenAddrs {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			log.Warnf("Skipping additional listen address %q: %v", addr, err)
+			continue
+		}
+		if port == "0" {
+			port = strconv.Itoa(primaryPort)
+		}
+		l, err := net.Listen("tcp", net.JoinHostPort(host, port))
+		if err != nil {
+			log.Warnf("Skipping additional listen address %q: %v", addr, err)
+			continue
+		}
+		listeners = append(listeners, l)
+	}
+	return listeners
 }
 
 func (ps *proxyServer) Stop(ctx context.Context) error {
@@ -297,6 +428,14 @@ func (ps *proxyServer) Address() string {
 	}
 
 	return ps.listener.Addr().String()
+}
+
+func (ps *proxyServer) AdditionalAddresses() []string {
+	addrs := make([]string, 0, len(ps.additionalListeners))
+	for _, l := range ps.additionalListeners {
+		addrs = append(addrs, l.Addr().String())
+	}
+	return addrs
 }
 
 func (ps *proxyServer) AddInterceptor(interceptor Interceptor) error {
@@ -324,38 +463,7 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-		reqCtx, err := newRequestContextFromURL(host, "CONNECT")
-		if err != nil {
-			log.Errorf("Failed to parse CONNECT request for %s: %v", host, err)
-			return goproxy.OkConnect, host
-		}
-
-		ps.mu.RLock()
-		shouldMITM := false
-		for _, interceptor := range ps.interceptors {
-			if !interceptor.ShouldIntercept(reqCtx) {
-				continue
-			}
-
-			mitm := true
-			if decider, ok := interceptor.(MITMDecider); ok {
-				mitm = decider.ShouldMITM(reqCtx)
-			}
-
-			if !mitm {
-				// Allow non-MITM interceptors (e.g., telemetry) to observe CONNECT traffic.
-				if _, err := interceptor.HandleRequest(reqCtx); err != nil {
-					log.Errorf("[%s] Interceptor %s error on CONNECT: %v", reqCtx.RequestID, interceptor.Name(), err)
-				}
-				continue
-			}
-
-			shouldMITM = true
-			log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
-		}
-		ps.mu.RUnlock()
-
-		if shouldMITM {
+		if ps.shouldMITM(host, "CONNECT") {
 			mitmAction := &goproxy.ConnectAction{
 				Action: goproxy.ConnectMitm,
 				TLSConfig: func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
@@ -371,10 +479,51 @@ func (ps *proxyServer) configureMITM() {
 			return mitmAction, host
 		}
 
-		// Tunnel without interception
-		log.Debugf("[%s] Tunneling %s (no interceptor)", reqCtx.RequestID, host)
 		return goproxy.OkConnect, host
 	}))
+}
+
+// shouldMITM asks the interceptors whether a tunnel to host:port must be
+// terminated. Interceptors that observe but never MITM, such as telemetry,
+// see the tunnel through HandleRequest. The CONNECT handler and the
+// transparent listener share this decision, so a redirected client and a
+// proxy-aware client get the same answer for the same host.
+func (ps *proxyServer) shouldMITM(host, via string) bool {
+	reqCtx, err := newRequestContextFromURL(host, "CONNECT")
+	if err != nil {
+		log.Errorf("Failed to parse %s request for %s: %v", via, host, err)
+		return false
+	}
+
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+
+	shouldMITM := false
+	for _, interceptor := range ps.interceptors {
+		if !interceptor.ShouldIntercept(reqCtx) {
+			continue
+		}
+
+		mitm := true
+		if decider, ok := interceptor.(MITMDecider); ok {
+			mitm = decider.ShouldMITM(reqCtx)
+		}
+
+		if !mitm {
+			if _, err := interceptor.HandleRequest(reqCtx); err != nil {
+				log.Errorf("[%s] Interceptor %s error on %s: %v", reqCtx.RequestID, interceptor.Name(), via, err)
+			}
+			continue
+		}
+
+		shouldMITM = true
+		log.Debugf("[%s] Interceptor %s will handle %s", reqCtx.RequestID, interceptor.Name(), host)
+	}
+
+	if !shouldMITM {
+		log.Debugf("[%s] Tunneling %s (no interceptor)", reqCtx.RequestID, host)
+	}
+	return shouldMITM
 }
 
 // upstreamRoundTrip executes the upstream round-trip with bounded retries for

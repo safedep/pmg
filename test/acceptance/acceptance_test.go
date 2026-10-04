@@ -9,11 +9,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/cloudauth"
+	"github.com/safedep/pmg/internal/netenforce"
+	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,6 +80,9 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
+					if category == enforceCategory {
+						return isolateEnforcement(env, pmgBin)
+					}
 					return nil
 				},
 				Condition: func(cond string) (bool, error) {
@@ -86,6 +93,10 @@ func TestAcceptance(t *testing.T) {
 						return appArmorRestrictsUserns(), nil
 					case "userns":
 						return exec.Command("unshare", "-U", "true").Run() == nil, nil
+					case "enforce":
+						return hostCanEnforce(), nil
+					case "docker":
+						return exec.Command("docker", "info").Run() == nil, nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}
@@ -93,6 +104,118 @@ func TestAcceptance(t *testing.T) {
 			})
 		})
 	}
+}
+
+const enforceCategory = "enforce"
+
+var enforceSerial sync.Mutex
+
+// isolateEnforcement runs enforce scripts one at a time and stops the daemon
+// that a script started. An enforcing daemon attaches to the root cgroup, so
+// two of them at once rewrite each other's connections. testscript runs the
+// scripts of one directory in parallel, so the lock is necessary. A failed
+// script must not leave the host redirected to a proxy that nobody stops.
+// Scripts pass $ENFORCE_STATE to every pmg proxy command.
+func isolateEnforcement(env *testscript.Env, pmgBin string) error {
+	enforceSerial.Lock()
+	statePath := filepath.Join(env.WorkDir, "proxy-state.json")
+	env.Setenv("ENFORCE_STATE", statePath)
+	saved, err := saveManagedConfig(config.SystemConfigFilePath())
+	if err != nil {
+		enforceSerial.Unlock()
+		return err
+	}
+	env.Defer(func() {
+		defer enforceSerial.Unlock()
+		stopEnforcingDaemon(pmgBin, statePath)
+		saved.restore()
+	})
+	return nil
+}
+
+// managedConfigSnapshot is the managed config as it was before a script
+// ran. The file governs every later script and every later pmg run on the
+// host, so a script's changes to it must not outlive the script: one that
+// did not exist is removed, one that existed gets its contents and mode
+// back. A file that exists but cannot be read is an error, because the
+// restore would remove it.
+type managedConfigSnapshot struct {
+	path    string
+	existed bool
+	data    []byte
+	mode    os.FileMode
+}
+
+func saveManagedConfig(path string) (managedConfigSnapshot, error) {
+	s := managedConfigSnapshot{path: path}
+	if path == "" {
+		return s, nil
+	}
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return s, nil
+	}
+	if err != nil {
+		return s, fmt.Errorf("acceptance: stat managed config %s: %w", path, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return s, fmt.Errorf("acceptance: read managed config %s: %w", path, err)
+	}
+	s.existed, s.data, s.mode = true, data, info.Mode().Perm()
+	return s, nil
+}
+
+func (s managedConfigSnapshot) restore() {
+	if s.path == "" {
+		return
+	}
+	if !s.existed {
+		if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+			log.Warnf("acceptance: remove managed config %s: %v", s.path, err)
+		}
+		return
+	}
+	if err := os.WriteFile(s.path, s.data, s.mode); err != nil {
+		log.Warnf("acceptance: restore managed config %s: %v", s.path, err)
+		return
+	}
+	if err := os.Chmod(s.path, s.mode); err != nil {
+		log.Warnf("acceptance: restore mode of %s: %v", s.path, err)
+	}
+}
+
+func stopEnforcingDaemon(pmgBin, statePath string) {
+	st := proxyserver.GetStatus(statePath)
+	if !st.Running {
+		return
+	}
+
+	out, err := exec.Command(pmgBin, "proxy", "stop", "--state", statePath).CombinedOutput()
+	if err == nil {
+		return
+	}
+	log.Warnf("acceptance: pmg proxy stop failed, killing pid %d: %v: %s", st.PID, err, out)
+
+	// The kernel detaches the BPF programs when the daemon exits.
+	proc, err := os.FindProcess(st.PID)
+	if err != nil {
+		log.Warnf("acceptance: find enforcing daemon pid %d: %v", st.PID, err)
+		return
+	}
+	if err := proc.Kill(); err != nil {
+		log.Warnf("acceptance: kill enforcing daemon pid %d: %v", st.PID, err)
+	}
+}
+
+// hostCanEnforce reports whether this host can attach the enforcement
+// programs, with the same probe the daemon runs.
+func hostCanEnforce() bool {
+	enforcer, err := netenforce.New()
+	if err != nil {
+		return false
+	}
+	return enforcer.Probe().Supported
 }
 
 type scriptFile struct {

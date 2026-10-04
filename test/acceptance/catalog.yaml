@@ -2,7 +2,7 @@
 # coverage is derived (a script whose path-id matches => covered), never authored.
 #
 # category is one of:
-#   npm|pnpm|bun|yarn|aube|aubr|npx|pnpx|aubx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|setup|sandbox|cloud|config|version|audit
+#   npm|pnpm|bun|yarn|aube|aubr|npx|pnpx|aubx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|enforce|setup|sandbox|cloud|config|version|audit
 # The category is also the first path segment of the script id.
 # tier is P0 (incident) | P1 (important) | P2 (tracked). Tier is metadata in Part 1;
 # it records the Part 2 gate policy and gates nothing yet.
@@ -354,3 +354,170 @@
   tier: P2
   guarantee: "pmg version prints the build version and commit."
   labels: [version, offline]
+
+# --- enforce: eBPF enforcement for the persistent proxy (docs/persistent-proxy.md, "Kernel enforcement") ---
+# Scripts skip unless the host runs as root with kernel BTF and cgroup v2.
+# preflight/unsupported-platform is the exception: it runs on macOS and
+# Windows and skips on Linux.
+- id: enforce/routing/scrubbed-env-blocks-malware
+  title: "package manager without proxy env is still blocked"
+  category: enforce
+  tier: P0
+  guarantee: "With enforcement on, npm with no proxy environment goes through the proxy, a known-malicious package is blocked, and the proxy records the block."
+  labels: [malware, block]
+- id: enforce/routing/clean-install-allowed
+  title: "clean install succeeds under enforcement"
+  category: enforce
+  tier: P0
+  guarantee: "With enforcement on, a clean npm install with no proxy environment succeeds and the proxy records no block."
+  labels: [clean]
+- id: enforce/routing/direct-fetch-blocks-malware
+  title: "script download outside a package manager is blocked"
+  category: enforce
+  tier: P0
+  guarantee: "A script that downloads a malicious tarball with its own HTTP client goes through the proxy and gets a 403."
+  labels: [malware, block]
+- id: enforce/routing/quic-denied
+  title: "UDP to enforced ports is denied"
+  category: enforce
+  tier: P1
+  guarantee: "An eligible process cannot send UDP to an enforced port, so QUIC falls back to TCP. UDP to other ports is not touched."
+  labels: [bypass]
+- id: enforce/trust/untrusted-client-fails-closed
+  title: "client without the PMG CA fails closed"
+  category: enforce
+  tier: P0
+  guarantee: "A client that does not trust the PMG CA fails the TLS handshake on a registry host and never reaches the registry directly."
+  labels: [trust, bypass]
+- id: enforce/trust/non-registry-not-intercepted
+  title: "non-registry hosts keep their real certificate"
+  category: enforce
+  tier: P0
+  guarantee: "Enforcement intercepts TLS only for registry hosts. Other hosts are passed through with their real certificate."
+  labels: [trust]
+- id: enforce/package-manager/pnpm-clean-install
+  title: "pnpm works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "pnpm installs a clean package with the system trust store and NODE_USE_SYSTEM_CA=1."
+  labels: [clean, trust]
+- id: enforce/package-manager/yarn-clean-install
+  title: "yarn works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "yarn 1 installs a clean package with the system trust store and NODE_USE_SYSTEM_CA=1."
+  labels: [clean, trust]
+- id: enforce/package-manager/bun-clean-install
+  title: "bun works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "bun installs a clean package with the system trust store only."
+  labels: [clean, trust]
+- id: enforce/package-manager/pip-clean-install
+  title: "pip works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "pip installs a clean package with the system trust store only."
+  labels: [clean, trust]
+- id: enforce/package-manager/uv-clean-install
+  title: "uv works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "uv installs a clean package with the system trust store and UV_NATIVE_TLS=1."
+  labels: [clean, trust]
+- id: enforce/package-manager/poetry-clean-install
+  title: "poetry works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "poetry installs a clean package with the variables pmg proxy env prints. poetry validates through requests and certifi, so it needs REQUESTS_CA_BUNDLE pointed at the system bundle."
+  labels: [clean, trust]
+- id: enforce/routing/insecure-pmg-cannot-bypass
+  title: "pmg with the insecure flag cannot bypass enforcement"
+  category: enforce
+  tier: P0
+  guarantee: "The pmg binary is not exempt. PMG_INSECURE_INSTALLATION=true pmg npm install of a malicious package is still blocked by the enforcing daemon."
+  labels: [malware, block, bypass]
+- id: enforce/routing/pmg-wrapped-flow-chained
+  title: "pmg npm works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "pmg npm install of a clean package succeeds with its per-command proxy chained into the enforcing daemon."
+  labels: [clean]
+- id: enforce/exempt/executable-glob
+  title: "configured executables connect directly"
+  category: enforce
+  tier: P1
+  guarantee: "An executable that matches proxy.server.enforce.exempt_executables connects directly. Other executables are routed."
+  labels: [exempt]
+- id: enforce/scope/containers-unaffected
+  title: "containers keep their own network"
+  category: enforce
+  tier: P1
+  guarantee: "Enforcement does not touch a process in another network namespace, so a container reaches the registry directly."
+  labels: [scope]
+- id: enforce/lifecycle/detach-on-stop
+  title: "stop removes enforcement"
+  category: enforce
+  tier: P0
+  guarantee: "After pmg proxy stop, connections go direct and do not hit a closed proxy port."
+  labels: [lifecycle]
+- id: enforce/lifecycle/detach-on-crash
+  title: "daemon crash removes enforcement"
+  category: enforce
+  tier: P0
+  guarantee: "When the daemon dies without a clean stop, the kernel removes enforcement."
+  labels: [lifecycle]
+- id: enforce/preflight/requires-capabilities
+  title: "enforce refuses to start without capabilities"
+  category: enforce
+  tier: P1
+  guarantee: "pmg proxy start --enforce refuses to start without CAP_BPF and the related capabilities, and names the missing one."
+  labels: [preflight]
+- id: enforce/preflight/requires-trusted-ca
+  title: "enforce refuses to start without a trusted CA"
+  category: enforce
+  tier: P1
+  guarantee: "pmg proxy start --enforce refuses to start when the PMG CA is not in the system trust store."
+  labels: [preflight, trust]
+- id: enforce/preflight/unsupported-platform
+  title: "enforce fails clearly on macOS and Windows"
+  category: enforce
+  tier: P2
+  guarantee: "pmg proxy start --enforce fails with an error that names the platform on macOS and Windows."
+  labels: [preflight]
+- id: enforce/status/reports-enforcement
+  title: "status shows enforcement"
+  category: enforce
+  tier: P2
+  guarantee: "pmg proxy status reports that enforcement is active."
+  labels: [lifecycle]
+- id: enforce/config/status-names-root-per-user-file
+  title: "a sudo start names root's per-user config"
+  category: enforce
+  tier: P1
+  guarantee: "A root daemon started through sudo warns that it reads root's per-user config, and status names the file."
+  labels: [config]
+- id: enforce/config/system-set-changes-policy
+  title: "config set --system reaches the daemon"
+  category: enforce
+  tier: P1
+  guarantee: "pmg config set --system changes the managed config that the next enforcing daemon reads, and get --system reads it back."
+  labels: [config]
+- id: enforce/config/sudo-edit-refuses
+  title: "sudo config edit without --system refuses"
+  category: enforce
+  tier: P1
+  guarantee: "Under sudo, pmg config edit and set without --system refuse and name both files. Under a managed config they refuse as globally managed and name --system."
+  labels: [config]
+- id: enforce/policy/flags-add-to-file
+  title: "policy flags add to the file"
+  category: enforce
+  tier: P1
+  guarantee: "An --enforce-* list flag adds to the config file's list, and an unknown user fails before the daemon detaches."
+  labels: [policy]
+- id: enforce/policy/lockdown-governs-widening-flags
+  title: "lockdown refuses widening flags"
+  category: enforce
+  tier: P1
+  guarantee: "Under global_lockdown a flag that loosens the policy fails fast and a narrowing flag is accepted."
+  labels: [policy]

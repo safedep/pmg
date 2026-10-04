@@ -73,6 +73,34 @@ proxy:
     # --port flag overrides this.
     listen_port: 0
 
+    # Kernel enforcement (Linux only, needs root). When enabled, the kernel
+    # routes every TCP connection to the ports below from every eligible
+    # process to the proxy. A process cannot opt out through its environment.
+    # The --enforce flag overrides `enabled`. See docs/persistent-proxy.md.
+    enforce:
+      enabled: false
+      # Destination ports to route. The ports of proxy.registries endpoints
+      # are always added.
+      ports: [80, 443]
+      # Only these users are routed. Empty means every user. Leave it empty
+      # when an eligible user has sudo, because root is then a bypass.
+      eligible_users: []
+      # These users are never routed.
+      exempt_users: []
+      # Programs that connect directly, as absolute paths or globs. List a
+      # CI runner agent here. Never list an interpreter (node, python3, sh)
+      # or a general HTTP client (curl, wget).
+      # On GitHub Actions the runner binaries are added automatically.
+      exempt_executables: []
+      # CIDR prefixes that are never routed, in addition to loopback,
+      # link-local and cloud metadata addresses.
+      skip_destinations: []
+      # cgroup v2 directory to attach to. Empty means the root, which covers
+      # every process on the host.
+      cgroup: ""
+      # Deny UDP to the routed ports so a QUIC client falls back to TCP.
+      deny_udp: true
+
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.
 # Example:
