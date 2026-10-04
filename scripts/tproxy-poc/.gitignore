@@ -3,3 +3,4 @@ poc
 *.pem
 *.fifo
 build/
+*.err
