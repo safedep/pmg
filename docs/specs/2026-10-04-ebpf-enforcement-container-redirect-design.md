@@ -39,8 +39,8 @@ a Docker network goes direct.
 ## Non-goals
 
 - Trust inside a container. eBPF cannot change a container's files or
-  environment. The CA reaches the container as today, as a build secret or a
-  mount. The rejected alternatives are at the end.
+  environment. The host bundle reaches the container as a build secret or a
+  mount, as in part 7. The rejected alternatives are at the end.
 - Rootless Docker and Podman. Their containers do not share the host's view
   of a bridge. `mode: ignore` stays correct for them.
 - IPv6 in containers. Docker leaves it off by default. Part 1 says what
@@ -82,9 +82,9 @@ from the listener that bound, the way `attachEnforcement` takes `Addr6` from
 the bound addresses, so the kernel never sends a container to a closed port.
 The daemon binds the bridge address only, never `0.0.0.0`.
 
-The bridge listener serves redirected traffic only. It refuses a `CONNECT`
-and an absolute-URI request, which only a proxy-aware client sends on
-purpose. A redirected connection on any listener never dials a destination
+The bridge listener accepts only what a redirected client sends: TLS with a
+server name, and origin-form HTTP. It refuses a `CONNECT` and an absolute-URI
+request, which only a proxy-aware client sends on purpose. A redirected connection on any listener never dials a destination
 in the built-in skip list, so a `Host` header or a server name cannot steer
 the proxy at the cloud metadata address. The own-address guard of the
 transparent listener already covers every listener the server opened, so a
@@ -131,8 +131,7 @@ outside them and stays enforced.
 
 The skip applies in both modes. A host process that connects to a service
 container on port 443 goes direct, where today it is redirected and dropped
-for want of a server name. This is the one host change, and it is an
-improvement.
+for want of a server name. This is the one host change.
 
 ### 5. Users across namespaces
 
@@ -165,11 +164,11 @@ bridge is not `docker0`. The surface follows the config surface spec:
 
 - `--enforce-containers <mode>` on `pmg proxy start`, bound to `mode`.
 - `PMG_PROXY_SERVER_ENFORCE_CONTAINERS_MODE` and
-  `PMG_PROXY_SERVER_ENFORCE_CONTAINERS_BRIDGE_ADDRESS`, which the Viper
-  mapping already gives every key.
+  `PMG_PROXY_SERVER_ENFORCE_CONTAINERS_BRIDGE_ADDRESS`. Both keys go in the
+  embedded template, which is what makes Viper bind a variable.
 - `enforce-containers` as an action input, passed as the flag.
-- Under `global_lockdown`, `redirect` to `ignore` is a widening flag and is
-  refused, like `--enforce-deny-udp=false`.
+- Under `global_lockdown` the parent refuses `--enforce-containers ignore`,
+  as it refuses `--enforce-deny-udp=false`.
 
 Under `redirect` with no bridge at start, the daemon runs as `ignore`,
 records a warning, and `pmg proxy status` repeats it. An explicit
@@ -189,31 +188,49 @@ registry hosts.
 
 ### 7. The action
 
-With `enforce-containers: redirect` the action exports `PMG_CA_BUNDLE`, the
-path of the host bundle that holds the PMG CA after the system install. A
-workflow passes it to a build as a secret and to a `docker run` as a mount,
-and never hardcodes a path that differs per distribution:
+`pmg proxy env` prints `PMG_CA_BUNDLE=<path>` under enforcement, in both
+modes, next to `REQUESTS_CA_BUNDLE`, from `certmanager.SystemCABundlePath`.
+The variable is absent when the host has no bundle. The action needs no
+change, because it already appends the output of `pmg proxy env` to
+`GITHUB_ENV`. A workflow passes the bundle to a build as a secret and to a
+`docker run` as a mount, and never hardcodes a path that differs per
+distribution:
 
 ```yaml
 - run: docker build --secret id=pmg-ca,src=$PMG_CA_BUNDLE -t app .
 ```
 
 ```dockerfile
-RUN --mount=type=secret,id=pmg-ca,target=/run/ca.pem \
-    NODE_EXTRA_CA_CERTS=/run/ca.pem npm ci
+RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
+    NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
 ```
 
-The bundle, not the CA alone, is the file to pass. It holds the public roots
-too, so it works for a tool that adds trust, like Node, and for a tool that
-replaces its bundle, like pip with `PIP_CERT`. `docs/github-action.md` gets
-one `RUN` block per ecosystem, because that line is the whole container
-story for a user.
+`mode=0444` matters, because BuildKit mounts a secret readable by root only
+and a Dockerfile with `USER node` could not read it. The bundle, not the CA
+alone, is the file to pass. It holds the public roots too. `NODE_EXTRA_CA_CERTS`
+adds the file to Node's roots. `PIP_CERT` replaces pip's bundle with the
+file. Both work with the bundle. `docs/github-action.md` shows one `RUN`
+block that mounts the secret and sets the trust variables from
+`EnvVarForProxy` at the mount path, so the doc has one list to keep in step
+with the code.
 
-A third-party Docker action gets the workspace mounted, so a step before it
-copies the bundle into the workspace and the action step sets the trust
-variable through `env:`. That covers an action that installs packages when
-it runs. An action whose image installs packages at build time has no path
-and fails closed.
+A Docker action gets the workspace mounted at `/github/workspace`, and the
+runner passes the step's `env:` into the container. A step before the action
+copies the bundle into the workspace, and the variable names the path as the
+container sees it:
+
+```yaml
+- run: cp "$PMG_CA_BUNDLE" pmg-ca.pem
+- uses: some/docker-action@v1
+  env:
+    NODE_EXTRA_CA_CERTS: /github/workspace/pmg-ca.pem
+```
+
+That covers an action that installs packages when it runs. An action with
+`image: Dockerfile` that installs packages in a `RUN` step fails closed,
+because the runner builds that image at job start and passes no secret. An
+action with a prebuilt `image: docker://...` installs nothing on the runner
+and is not affected.
 
 ### Limits
 
@@ -225,10 +242,10 @@ and fails closed.
   workstation, drops traffic from `docker0` to the host. Every redirected
   container connection is then refused, not only registry ones. The doc
   names the rule to add.
-- A container on an `--internal` network, or behind egress rules in
-  `DOCKER-USER`, has no egress of its own. Under `redirect` the proxy dials
-  on its behalf with the host's reachability, on the enforced ports, for
-  the names it sends. The daemon checks only that `bridge_address` is a
+- Any container that can route to the bridge address gets the host's
+  reachability on the enforced ports, for the names it sends. `DOCKER-USER`
+  rules do not stop this, because they filter forwarded traffic, not
+  delivery to the host. The daemon checks only that `bridge_address` is a
   local address.
 
 ## Trust
@@ -238,10 +255,10 @@ with a certificate from the PMG CA. A container that does not trust the CA
 fails closed on registry hosts, and its tool reports a certificate error.
 It works on every other host, because the proxy passes those through with
 their real certificate. The workaround in `docs/persistent-proxy.md`
-becomes the way to make a build pass: the CA as a build secret with
-`NODE_EXTRA_CA_CERTS`, or the host bundle mounted for tools that replace
-their bundle. A third-party Docker action that installs packages fails
-until its author adds the CA.
+becomes the way to make a build pass: the host bundle as a build secret,
+named by `PMG_CA_BUNDLE`, with the trust variables pointed at the mount. A
+Docker action that installs packages when it runs gets the bundle through
+the workspace. Part 7 has both.
 
 Under `redirect` the proxy is an egress path for every container on the
 enforced ports, with the host's reachability. Part 2 limits it to
@@ -260,12 +277,12 @@ status scripts that exist gain the new assertions instead of new scripts.
 | `scope/containers-ignore` | Under `mode: ignore` a container reaches the registry directly with the real certificate. |
 | `scope/containers-redirected-fail-closed` | Under `redirect` a container without the CA gets a certificate error on a registry host and a 200 on a non-registry host. |
 | `scope/containers-redirected-trusted` | Under `redirect` a container with the host bundle mounted installs a clean package and is blocked on a malicious one. |
-| `scope/containers-build-step` | A `docker build` with `RUN npm ci` fails without the CA and passes with the secret mount from the doc. |
+| `scope/containers-build-step` | A `docker build` with `RUN npm ci` fails without the CA and passes with the secret mount from the doc, with the path read from `pmg proxy env`. |
 | `scope/containers-to-container-untouched` | Two containers on a user-defined network created after the daemon started talk over port 80 by name. |
 | `scope/containers-root-not-exempt` | `exempt_users: root` on the host does not exempt a root process in a container. |
 | `scope/containers-no-relay` | A container cannot use the bridge listener as a proxy: a `CONNECT` is refused, and a redirected request with the metadata address as its `Host` is refused. |
 | `policy/lockdown-governs-widening-flags` | Also: under lockdown `--enforce-containers ignore` is refused and `redirect` is accepted. |
-| `status/reports-enforcement` | Also: status prints the mode and the bridge address, or the no-bridge note. |
+| `status/reports-enforcement` | Also: status prints the mode and the bridge address, or the no-bridge note, and `pmg proxy env` prints `PMG_CA_BUNDLE` for a file that holds the PMG CA. |
 
 The kernel e2e gains one case. The harness uses `unshare -n`, where no route
 exists, so this case needs a veth pair, with the host end's address as the
@@ -293,6 +310,10 @@ handler does not change.
 3. `containers` is a block with `mode` and `bridge_address`. Recommended:
    yes. A scalar would need a rename for the first extra key.
 4. The default changes to `redirect` after one release. Recommended: yes.
+5. Open: whether a container on an `--internal` network can route to
+   `docker0` on the Docker version the CI runners ship. Docker has changed
+   this across releases. The acceptance run answers it, and the doc records
+   the answer.
 
 ## Rejected alternatives
 
