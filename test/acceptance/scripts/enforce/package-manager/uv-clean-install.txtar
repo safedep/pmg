@@ -1,0 +1,20 @@
+# guarantee: uv installs a clean package under enforcement with the system
+# trust store and UV_NATIVE_TLS=1. uv validates against its own bundled roots
+# without it.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:uv] skip 'uv not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env UV_NATIVE_TLS=1
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec uv pip install --no-cache --target=$WORK/site requests==2.32.4
+exists $WORK/site/requests
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'
+

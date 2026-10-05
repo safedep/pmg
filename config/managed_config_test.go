@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,6 +195,30 @@ func TestRemoveUserConfigFileNeverTouchesGlobal(t *testing.T) {
 	assert.FileExists(t, globalFile, "globally managed file must be left intact")
 }
 
+func TestSystemConfigValueRoundTrip(t *testing.T) {
+	if !platform.IsPrivileged() {
+		t.Skip("the managed config takes root ownership, which needs an elevated process")
+	}
+	globalDir := t.TempDir()
+	useManagedConfigDir(t, globalDir)
+	orig := platform.IsPrivileged
+	t.Cleanup(func() { platform.IsPrivileged = orig })
+
+	require.NoError(t, SetSystemConfigValue("paranoid", "true"), "the file is created from the template first")
+	got, err := GetSystemConfigValue("paranoid")
+	require.NoError(t, err)
+	assert.Equal(t, true, got)
+
+	_, err = GetSystemConfigValue("no.such.key")
+	require.Error(t, err)
+
+	platform.IsPrivileged = func() bool { return false }
+	require.Error(t, SetSystemConfigValue("paranoid", "false"), "only root may change the managed config")
+	got, err = GetSystemConfigValue("paranoid")
+	require.NoError(t, err)
+	assert.Equal(t, true, got, "any user may read it")
+}
+
 func TestWriteAndRemoveSystemTemplateConfig(t *testing.T) {
 	globalDir := t.TempDir()
 	useManagedConfigDir(t, globalDir)
@@ -206,4 +233,83 @@ func TestWriteAndRemoveSystemTemplateConfig(t *testing.T) {
 	require.NoError(t, RemoveSystemConfigFile())
 	assert.NoFileExists(t, filepath.Join(globalDir, "config.yml"))
 	require.NoError(t, RemoveSystemConfigFile())
+}
+
+func TestRequireUserScope(t *testing.T) {
+	stubPrivileged := func(t *testing.T, privileged bool) {
+		t.Helper()
+		orig := platform.IsPrivileged
+		platform.IsPrivileged = func() bool { return privileged }
+		t.Cleanup(func() { platform.IsPrivileged = orig })
+	}
+	requireDenied := func(t *testing.T, err error) usefulerror.UsefulError {
+		t.Helper()
+		require.Error(t, err)
+		ue, ok := usefulerror.AsUsefulError(err)
+		require.True(t, ok, "%v", err)
+		assert.Equal(t, errcodes.PermissionDenied, ue.Code())
+		return ue
+	}
+	useManagedFile := func(t *testing.T) {
+		t.Helper()
+		globalDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
+		useManagedConfigDir(t, globalDir)
+		t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+		initConfig()
+		require.True(t, Get().IsManaged())
+	}
+
+	t.Run("a managed config names --system to root", func(t *testing.T) {
+		useManagedFile(t)
+		stubPrivileged(t, true)
+		ue := requireDenied(t, RequireUserScope("set"))
+		assert.Contains(t, ue.HumanError(), "globally managed")
+		assert.Contains(t, ue.HumanError(), "`pmg config set --system`", "cobra prints the sentence, not the help")
+	})
+
+	t.Run("a managed config refuses a user", func(t *testing.T) {
+		useManagedFile(t)
+		stubPrivileged(t, false)
+		ue := requireDenied(t, RequireUserScope("set"))
+		assert.Contains(t, ue.HumanError(), "globally managed")
+		assert.Contains(t, ue.HumanError(), "cannot be changed")
+	})
+
+	t.Run("sudo without a managed config refuses", func(t *testing.T) {
+		useManagedConfigDir(t, t.TempDir())
+		t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+		initConfig()
+		stubPrivileged(t, true)
+		t.Setenv("SUDO_USER", "alice")
+		if !platform.IsSudo() {
+			t.Skip("sudo cannot be faked on this platform")
+		}
+		ue := requireDenied(t, RequireUserScope("edit"))
+		assert.Contains(t, ue.HumanError(), "`pmg config edit` would change root's per-user config")
+	})
+
+	t.Run("a plain user passes", func(t *testing.T) {
+		useManagedConfigDir(t, t.TempDir())
+		t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+		t.Setenv("SUDO_USER", "")
+		initConfig()
+		stubPrivileged(t, false)
+		require.NoError(t, RequireUserScope("set"))
+	})
+}
+
+func TestSystemConfigSetKeepsAPartialFile(t *testing.T) {
+	if !platform.IsPrivileged() {
+		t.Skip("the managed config takes root ownership, which needs an elevated process")
+	}
+	globalDir := t.TempDir()
+	path := filepath.Join(globalDir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o644))
+	useManagedConfigDir(t, globalDir)
+
+	require.NoError(t, SetSystemConfigValue("paranoid", "false"))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "paranoid: false\n", string(data), "the other template keys stay out of the file")
 }

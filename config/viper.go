@@ -32,19 +32,8 @@ func loadViperConfig() error {
 		v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	}
 
-	// Load the embedded template as the base so Viper knows all keys and their
-	// defaults, and (when env overrides are enabled) can resolve PMG_* vars for
-	// keys that are absent from or newer than the user's config file.
-	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
-		return fmt.Errorf("failed to load default config: %w", err)
-	}
-
-	// Merge user config on top if it exists.
-	if _, statErr := os.Stat(configPath); statErr == nil {
-		v.SetConfigFile(configPath)
-		if err := v.MergeInConfig(); err != nil {
-			return fmt.Errorf("failed to read config file %s: %w", configPath, err)
-		}
+	if err := mergeTemplateAndFile(v, configPath); err != nil {
+		return err
 	}
 
 	var merged Config
@@ -66,6 +55,33 @@ func loadViperConfig() error {
 	}
 
 	return nil
+}
+
+// mergeTemplateAndFile loads the embedded template as the base, so Viper
+// knows every key and its default, and merges the file at configPath on
+// top when it exists.
+func mergeTemplateAndFile(v *viper.Viper, configPath string) error {
+	if err := v.ReadConfig(strings.NewReader(templateConfig)); err != nil {
+		return fmt.Errorf("failed to load default config: %w", err)
+	}
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		v.SetConfigFile(configPath)
+		if err := v.MergeInConfig(); err != nil {
+			return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		}
+	}
+	return nil
+}
+
+// newFileViper reads one config file over the template, without the
+// environment, so a caller can inspect that file and nothing else.
+func newFileViper(configPath string) (*viper.Viper, error) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := mergeTemplateAndFile(v, configPath); err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
 // readConfigFileKeys reads path and returns its top-level YAML mapping.

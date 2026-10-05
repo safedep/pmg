@@ -1,0 +1,48 @@
+# PMG persistent proxy with kernel enforcement for a self-hosted CI runner.
+#
+# The unit runs the proxy as root, because attaching cgroup BPF programs
+# needs CAP_BPF, CAP_NET_ADMIN and CAP_PERFMON. It attaches to the cgroup
+# v2 root, so it covers the runner service too, which systemd starts in its
+# own slice. Exempt the runner binaries in the PMG config, and give the
+# runner the trust variables through its .env file:
+#
+#   NODE_USE_SYSTEM_CA=1
+#   UV_NATIVE_TLS=1
+#
+# Before the first start, as root:
+#
+#   pmg setup cert install --system
+#
+# The keypair lands in /etc/safedep/pmg and the certificate in the system
+# trust store. /etc/safedep/pmg/config.yml holds the policy, for example:
+#
+#   proxy:
+#     server:
+#       listen_port: 7777
+#       enforce:
+#         enabled: true
+#         exempt_executables:
+#           - /home/runner/actions-runner/bin/Runner.*
+#
+# Install: cp pmg-proxy.service /etc/systemd/system/ && systemctl enable --now pmg-proxy
+
+[Unit]
+Description=PMG persistent proxy with kernel enforcement
+Documentation=https://github.com/safedep/pmg/blob/main/docs/persistent-proxy.md
+After=network-online.target
+Wants=network-online.target
+Before=actions.runner.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pmg proxy start --enforce --state /run/pmg/proxy-state.json
+RuntimeDirectory=pmg
+Restart=on-failure
+RestartSec=5
+# The kernel detaches the programs when the process exits, so a stop or a
+# crash never leaves enforcement on.
+KillSignal=SIGTERM
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+# guarantee: pmg proxy start --enforce refuses to start when the PMG CA is not
+# in the system trust store. Every redirected client would fail on an
+# untrusted CA, so the daemon never generates an ephemeral one. The harness
+# runs enforce scripts one at a time, so this script can remove the CA. The
+# next script installs it again.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert uninstall --system --purge
+
+! exec pmg proxy start --enforce --state $ENFORCE_STATE
+stderr 'EnforceRequiresTrustedCA'
+stderr 'pmg setup cert install --system'
+! exists $ENFORCE_STATE
