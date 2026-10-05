@@ -209,7 +209,7 @@ To install the latest release without a local repository clone:
 CGO_ENABLED=0 go install github.com/safedep/pmg@latest
 ```
 
-To build from a local repository clone, run this command in the repository root, see [CONTRIBUTING.md](CONTRIBUTING.md#developer-setup).
+To build from a local repository clone, follow the [developer setup instructions](CONTRIBUTING.md#developer-setup).
 
 </details>
 
