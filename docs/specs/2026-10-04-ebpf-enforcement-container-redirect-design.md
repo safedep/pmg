@@ -1,6 +1,6 @@
 # Container redirect for kernel enforcement
 
-Status: proposal, revision 1. Follows the enforcement design in
+Status: proposal, revision 2. Follows the enforcement design in
 [2026-10-03-ebpf-proxy-enforcement-design.md](./2026-10-03-ebpf-proxy-enforcement-design.md),
 sections "Known gap: containers" and "Future direction", and the configuration
 surface in
@@ -8,185 +8,295 @@ surface in
 PR #507 and PR #508 implement those two. This spec supersedes the "Future
 direction" section where the two differ.
 
+Revision 1 steered container sockets with a second target in the kernel
+programs. Revision 2 steers them with nftables at the bridge. The section
+"Why revision 2" names what changed and why. The POC under
+`scripts/tproxy-poc/` measured every claim below on two kernels and against
+Docker 28 on a GitHub runner. Its README has the numbers.
+
 ## Problem
 
 Enforcement attaches to the root cgroup, so the kernel programs run for every
 process on the host, containers included. The programs route only sockets in
-the daemon's network namespace. A socket in any other namespace passes
-(`decide`, `ACT_OTHER_NETNS`), because the redirect target is `127.0.0.1`,
-and inside a container that address is the container's own loopback.
+the daemon's network namespace. A socket in any other network namespace
+passes (`decide`, `ACT_OTHER_NETNS`), because the redirect target is
+`127.0.0.1`, and inside that namespace the address is its own loopback.
 
-On a hosted GitHub runner this leaves `RUN` steps in `docker build`,
-`docker run` steps and Docker container actions outside enforcement. A
-container job runs every step inside the job container, the pmg action
-included, so no daemon exists on the host and the gap there closes only on a
-self-hosted runner whose host runs the daemon. The daemon warns when
-`dockerd` runs, and the documented workaround puts the install step in the
-host namespace with `--network=host`.
+The gap is not about containers. It is about network namespaces. Docker,
+Podman, nerdctl, kind and a buildx `docker-container` builder all run their
+workloads in another network namespace and hand the traffic to the host
+through a bridge. On a hosted GitHub runner this leaves `RUN` steps in
+`docker build`, `docker run` steps and Docker container actions outside
+enforcement. A container job runs every step inside the job container, the
+pmg action included, so no daemon exists on the host and that gap closes
+only on a self-hosted runner whose host runs the daemon.
 
-The POC reached the `docker0` address, `172.17.0.1` by default, from a
-container on the default bridge. The acceptance scripts below prove the
-user-defined network and the build step.
+Two things cannot be fixed by a better key or a better target in the kernel
+programs, and they decided this revision:
+
+- The hook at `connect()` records the address and port the client socket
+  has. The listener sees the pair the host receives. Any NAT between the two,
+  such as the one inside a buildx `docker-container` builder, rewrites the
+  pair, and no lookup can join them. Revision 1 accepted that miss and lost
+  every non-standard port behind a nested namespace. `docker/setup-buildx-action`
+  creates exactly that builder, so the nested case is the common case in
+  Actions.
+- The hook cannot tell a Docker network from the internet, so revision 1
+  needed a skip list of Docker prefixes with a netlink route watch to keep
+  it current.
+
+Conntrack and the routing table already know both answers at the moment a
+packet enters the host. This revision asks them.
 
 ## Goal
 
-A connection from a container to an enforced port reaches the proxy. A
-container that trusts the PMG CA installs through the proxy. A container that
-does not trust it fails closed on registry hosts and keeps working on every
-other host. Host processes see one change, named in part 4: a connection to
-a Docker network goes direct.
+A connection from another network namespace to an enforced port reaches the
+proxy. A namespace that trusts the PMG CA installs through the proxy. A
+namespace that does not trust it fails closed on registry hosts, with a
+message that names the fix, and keeps working on every other host. Host
+processes see no change.
 
 ## Non-goals
 
-- Trust inside a container. eBPF cannot change a container's files or
-  environment. The host bundle reaches the container as a build secret or a
-  mount, as in part 7. The rejected alternatives are at the end.
-- Rootless Docker and Podman. Their containers do not share the host's view
-  of a bridge. `mode: ignore` stays correct for them.
-- IPv6 in containers. Docker leaves it off by default. Part 1 says what
-  happens to an IPv6 socket.
-- A bridge that appears after the daemon starts. See limits.
+- Trust inside a namespace. Neither eBPF nor nftables can change a
+  container's files or environment. The host bundle reaches the container as
+  a build secret or a mount, as in part 8. The rejected alternatives are at
+  the end.
+- Rootless Docker and Podman with pasta or slirp4netns. Their user-mode
+  network stack opens host sockets, so their traffic already takes the host
+  path through the cgroup programs. Only the trust problem remains for them.
+- IPv6 in containers. Docker leaves it off by default. The `inet` table in
+  part 1 takes an IPv6 rule later without a new mechanism.
+- Steering a virtual machine. A tap or tun ingress is not matched by
+  default, because a VM is the same trust problem with a longer path to the
+  fix. An operator can name one in `ingress`.
+- A change to the host path. Revision 1 made a host connection to a Docker
+  network go direct. This revision leaves the host path as it is.
 
 ## Design
 
-Seven changes. The first three make the redirect work. The fourth keeps
-container-to-container traffic out of the proxy. The fifth says who is
-eligible in a container. The sixth is the switch. The seventh is the action.
+Eight parts. The first four make the redirect work. The fifth says who is
+eligible. The sixth says what happens when the daemon stops. The seventh is
+the switch. The eighth is trust and the action.
 
-### 1. A second target, chosen by namespace
+### 1. Steer at the ingress interface
 
-`struct cfg` gains `bridge_ip4`. `decide` keeps its namespace check, and the
-callers pick the target.
+The daemon owns one nftables table. A nat prerouting chain matches traffic
+that enters the host from a bridge and rewrites the destination of an
+enforced port to the daemon's listener. This is the ruleset, in `nft` syntax,
+for the defaults:
 
-- `handle4` sends a socket in the daemon's namespace to `proxy_ip4`, as
-  today. It sends a socket in any other namespace to `bridge_ip4` when that
-  is set, and finishes with `ACT_OTHER_NETNS` when it is zero.
-- `handle6` finishes with `ACT_OTHER_NETNS` for a socket in another
-  namespace until the config holds an IPv6 bridge target. Without this line
-  the existing `ACT_DENY_IPV6` branch would return `EPERM` to every
-  container with IPv6.
-- The UDP rule applies in both namespaces. With `deny_udp`, a container's
-  QUIC attempt on an enforced port is denied and the client falls back to
-  TCP, as on the host.
+```
+table inet pmg {
+  flags owner
 
-The port is the same. One field now. A later per-network target would key on
-the source prefix, which the daemon can fill. This design does not prevent
-that change.
+  chain ingress {
+    type nat hook prerouting priority dstnat; policy accept;
+    iifname "docker0" jump steer
+    iifname "br-*" jump steer
+  }
 
-### 2. A listener on the bridge address
+  chain steer {
+    fib daddr type local return
+    fib daddr oifname "docker0" return
+    fib daddr oifname "br-*" return
+    tcp dport { 80, 443 } dnat ip to 169.254.200.1:18443
+  }
 
-The daemon opens a listener on the bridge address on the proxy port and
-passes it in `AdditionalListenAddrs`, the way the IPv6 loopback listener
-already travels. The same handler serves it. The daemon sets `bridge_ip4`
-from the listener that bound, the way `attachEnforcement` takes `Addr6` from
-the bound addresses, so the kernel never sends a container to a closed port.
-The daemon binds the bridge address only, never `0.0.0.0`.
+  chain guard {
+    type filter hook input priority filter; policy accept;
+    ip daddr 169.254.200.1 iifname "lo" accept
+    ip daddr 169.254.200.1 iifname "docker0" accept
+    ip daddr 169.254.200.1 iifname "br-*" accept
+    ip daddr 169.254.200.1 drop
+  }
 
-The bridge listener accepts only what a redirected client sends: TLS with a
-server name, and origin-form HTTP. It refuses a `CONNECT` and an absolute-URI
-request, which only a proxy-aware client sends on purpose. A redirected connection on any listener never dials a destination
-in the built-in skip list, so a `Host` header or a server name cannot steer
-the proxy at the cloud metadata address. The own-address guard of the
-transparent listener already covers every listener the server opened, so a
-redirected request that names the bridge listener is refused like one that
-names loopback.
+  chain quic {
+    type filter hook forward priority filter; policy accept;
+    iifname "docker0" udp dport 443 reject
+    iifname "br-*" udp dport 443 reject
+  }
+}
+```
 
-### 3. The original destination key gains the address
+The daemon never shells out to `nft`. The GitHub runner image does not ship
+the binary. The daemon builds the same rules over netlink with
+`google/nftables`, and `pmg proxy status` can print them in this syntax so
+an operator can compare them with `nft list table inet pmg`.
 
-`orig_dst` is keyed by address family and source port. Every network
-namespace has its own port space, so two containers can use the same port at
-the same moment. The key becomes family, local address and local port. The
-sockops program has the address in `local_ip4` and `local_ip6`, and picks the
-field by the stored family, so an IPv4-mapped destination on an IPv6 socket
-uses `local_ip4`. The kernel does not translate delivery to a host address on
-a bridge, so the listener sees the pair the client socket had.
+Why each piece is what it is:
 
-Nested namespaces, such as a buildx `docker-container` builder, Docker in
-Docker or kind, run behind their own NAT and reuse private addresses. Their
-entries can overwrite each other and never match the translated pair the
-listener sees. The lookup misses, and the listener falls back to the server
-name or the `Host` header with the default port for the protocol, as it does
-today for any miss. That is enough for a registry on 443 or 80. A private
-registry on another port is not reachable through a nested namespace, and
-the doc says so. The key must not gain a namespace cookie, because the proxy
-cannot learn a peer's cookie.
+- **A nat chain, not TPROXY.** `nft tproxy` and the xtables `TPROXY` target
+  attach the listener socket to the packet with the `sock_edemux`
+  destructor. On a host with `bridge-nf-call-iptables=1`, br_netfilter runs
+  the IP prerouting hooks during the bridge pass, and `ip_rcv_core` then
+  orphans every socket that does not carry `sock_pfree`. The SYN reaches TCP
+  with no socket and the kernel resets it. The POC measured this on 6.17
+  and 6.18, and read it in the source. br_netfilter supports DNAT in the
+  bridge pass by design, so a nat chain works with the setting on or off.
+- **`dnat` to one fixed address, not `redirect`.** `redirect` picks the
+  ingress bridge's own address, which would need a listener per bridge or a
+  listener on `0.0.0.0`. One address the daemon owns needs neither. Part 2
+  has the address.
+- **`fib daddr type local return`.** A destination on the host is never
+  steered. A published port reached through the bridge gateway, and the
+  daemon's own listener, stay as they are.
+- **`fib daddr oifname ... return`.** A destination that routes back out a
+  Docker bridge is never steered, on the same bridge or another one.
+  Without this rule the proxy would dial the other container from the
+  host, and Docker's isolation between networks, which filters forwarded
+  traffic, would never see the connection. These two rules replace the
+  route watch of revision 1. The routing table is read per packet, so a
+  network that `docker compose up` creates mid-job is covered the moment
+  its route exists.
+- **`flags owner`.** The table belongs to the daemon's netlink socket, and
+  the kernel deletes it when that socket closes. Part 6 has the lifecycle.
+- **`ingress` names.** `docker0` and `br-*` are the defaults. The same list
+  feeds the `iifname` rules, the `fib` exclusions and the guard. `podman*`,
+  `cni*`, `virbr*` or `lxdbr*` are one config line each. The POC confirmed
+  that `meta iifkind "bridge"` matches every bridge without a name, but the
+  `fib` expression has no `oifkind`, so a kind-based default would need a
+  set the daemon keeps in step with the links. Names keep the daemon free of
+  any link watch.
 
-### 4. Skip the Docker networks
+### 2. One listener on an address the daemon owns
 
-A connection the proxy passes through is dialed by its server name. A
-container reaches another container by a name that only Docker's embedded
-DNS inside that network resolves, so the proxy cannot dial it. Traffic that
-stays inside Docker's networks is not registry traffic, and it must not
-reach the proxy at all.
+The daemon adds `169.254.200.1/32` to `lo` at start and removes it at stop.
+An address on `lo` is a local address, so a DNAT to it is delivered on the
+host from any bridge, with br_netfilter on or off, and the address is not
+routable from the LAN. The POC measured this in the emulation on 6.18,
+with br_netfilter on and off. The daemon
+opens a listener on that address on the proxy port and passes it in
+`AdditionalListenAddrs`, the way the IPv6 loopback listener already travels.
+The same handler serves it. The address is configurable for a host that
+already uses it.
 
-The daemon reads the host routing table and adds the prefix of every route
-over `docker0`, a `br-*` interface, or the interface that carries
-`bridge_address`, to the skip list, next to the built-in loopback,
-link-local and metadata entries. It watches netlink for route changes and
-updates the kernel map while it runs, the way the exec watcher updates the
-exemptions, because `docker compose up`, `buildx create` and kind create a
-network after the daemon started. `pmg proxy status` lists the prefixes with
-the other skip destinations. A private registry on the corporate network is
-outside them and stays enforced.
+The `guard` chain drops the address on every ingress but `lo` and the
+listed bridges. The own-address guard of the transparent listener already
+covers every listener the server opened, so a redirected request that names
+this address is refused like one that names loopback. The POC's first runner
+leg showed why that guard is not optional: a listener without it dialed
+itself in a loop.
 
-The skip applies in both modes. A host process that connects to a service
-container on port 443 goes direct, where today it is redirected and dropped
-for want of a server name. This is the one host change.
+The listener accepts only what a redirected client sends: TLS with a server
+name, and origin-form HTTP. It refuses a `CONNECT` and an absolute-URI
+request, which only a proxy-aware client sends on purpose. A redirected
+connection on any listener never dials a destination in the built-in skip
+list, so a `Host` header or a server name cannot steer the proxy at the
+cloud metadata address.
 
-### 5. Users across namespaces
+### 3. The original destination from conntrack
 
-Eligibility works on the kernel uid. Without user namespace remapping,
-root in a container is root on the host, and most container processes run as
-root. A host policy with `exempt_users: root`, or `eligible_users: runner`,
-would exempt every container.
+DNAT leaves the pre-NAT destination in conntrack, and the listener reads it
+with one `getsockopt(SOL_IP, SO_ORIGINAL_DST)` on the accepted socket. That
+is the destination the client wrote, after every inner NAT and before ours.
+The POC proved a request to port 8443 through a buildx `docker-container`
+builder on the runner.
 
-A socket in another namespace is eligible regardless of `eligible_users` and
-`exempt_users`. The daemon exemption by tgid still applies, because the
-programs translate through the PID namespace hierarchy. An executable
-exemption matches by device and inode, so it follows a bind-mounted host
-file into a container, and an overlay copy of the same program is not
-exempt. The doc says both.
+`lookupOriginalDestination` in `proxy/transparent.go` already receives the
+connection. It asks the kernel programs first, as today, and on a miss asks
+conntrack. The `orig_dst` map and its key do not change. A miss on both is
+what it is today, a proxy-aware client that was never redirected.
 
-### 6. Config, flag, variable and input
+### 4. What is not steered
+
+Three cases, all decided by the `steer` chain and all measured against
+Docker 28:
+
+- A destination on the host, including a published port on the bridge
+  gateway address.
+- A container on the same bridge, by address or by Docker's embedded DNS.
+- A container on another bridge. Docker's own rules still decide whether
+  that traffic passes.
+
+A `--network host` container runs in the daemon's namespace and takes the
+host path. Nothing in this table sees it.
+
+### 5. Who is eligible
+
+Every socket outside the daemon's network namespace is steered when its
+packets enter through a listed bridge. The user lists and the executable
+exemptions of the host path do not apply, because a packet at the bridge
+carries no task. Without user namespace remapping, root in a container is
+root on the host, so a host policy with `exempt_users: root` would have
+exempted every container under a task-based design. The doc says both.
+
+The daemon's own upstream connections leave from the host namespace and
+never cross a bridge, so the daemon needs no exemption here.
+
+### 6. Lifecycle and failure
+
+The table carries `flags owner`. The daemon holds one lasting netlink
+connection for its lifetime, and the kernel deletes the table when that
+connection closes, on `kill -9` and on OOM alike. The POC measured the
+deletion. A dead daemon leaves containers with direct egress, the posture
+the cgroup programs already have when their links close, and
+`docs/persistent-proxy.md` already documents. A clean stop deletes the table
+before the listener closes, so an upgrade never leaves rules that point at a
+closed port.
+
+A daemon that hangs keeps its connection open, so the table stays and the
+listener does not answer. Connections then time out. The loopback listener
+has the same gap today, and a watchdog on the listener is the fix for both.
+It is not part of this spec.
+
+The probe checks that the kernel accepts an `inet` table with `flags owner`,
+which needs 5.13, and that conntrack answers `SO_ORIGINAL_DST`. Every Docker
+host has both, because Docker's own NAT runs on them. A host that uses
+`iptables-legacy` keeps its rules. Both hook sets run.
+
+On a kernel that refuses the owner flag the daemon runs as `ignore` and
+records the reason, because a table that outlives the daemon is a posture
+this spec does not ship. `pmg proxy status` prints the table state, and
+`pmg doctor` reports a `pmg` table with no daemon behind it as a fault.
+
+### 7. Config, flag, variable and input
 
 ```yaml
 proxy:
   server:
     enforce:
-      containers:
-        mode: ignore          # ignore | redirect
-        bridge_address: ""    # default: the IPv4 address of docker0 at start
+      namespaces:
+        mode: ignore                  # ignore | redirect
+        ingress: [docker0, "br-*"]    # interface names, wildcards allowed
+        address: 169.254.200.1        # listener address added to lo
 ```
 
-`containers` is a block, not a scalar, so a later key, such as a per-network
-rule, needs no rename. `bridge_address` names a local IPv4 address when the
-bridge is not `docker0`. The surface follows the config surface spec:
+`namespaces` is a block, so a later key needs no rename. The surface follows
+the config surface spec:
 
-- `--enforce-containers <mode>` on `pmg proxy start`, bound to `mode`.
-- `PMG_PROXY_SERVER_ENFORCE_CONTAINERS_MODE` and
-  `PMG_PROXY_SERVER_ENFORCE_CONTAINERS_BRIDGE_ADDRESS`. Both keys go in the
+- `--enforce-namespaces <mode>` on `pmg proxy start`, bound to `mode`.
+- `PMG_PROXY_SERVER_ENFORCE_NAMESPACES_MODE`,
+  `PMG_PROXY_SERVER_ENFORCE_NAMESPACES_INGRESS` and
+  `PMG_PROXY_SERVER_ENFORCE_NAMESPACES_ADDRESS`. All three keys go in the
   embedded template, which is what makes Viper bind a variable.
-- `enforce-containers` as an action input, passed as the flag.
-- Under `global_lockdown` the parent refuses `--enforce-containers ignore`,
+- `enforce-namespaces` as an action input, passed as the flag.
+- Under `global_lockdown` the parent refuses `--enforce-namespaces ignore`,
   as it refuses `--enforce-deny-udp=false`.
 
-Under `redirect` with no bridge at start, the daemon runs as `ignore`,
-records a warning, and `pmg proxy status` repeats it. An explicit
-`bridge_address` that the daemon cannot bind fails the start, because an
-administrator set it on purpose. The state file records the mode and the
-bridge address, and status prints one of:
+Under `redirect` the daemon adds the address, opens the listener and loads
+the table in that order, and fails the start if any step fails, because
+`redirect` is explicit. The state file records the mode, the address and
+the ingress list, and status prints one of:
 
 ```
-  containers: redirect (bridge 172.17.0.1)
-  containers: ignore
-  containers: ignore (no bridge at start)
+  namespaces: redirect (169.254.200.1:18443 from docker0, br-*)
+  namespaces: ignore
 ```
 
-The Docker warning keeps its text under `ignore`. Under `redirect` a one-line
-warning takes its place: containers that do not trust the PMG CA fail on
-registry hosts.
+The Docker warning keeps its text under `ignore`. Under `redirect` a
+one-line warning takes its place: a container that does not trust the PMG
+CA fails on registry hosts.
 
-### 7. The action
+### 8. Trust and the action
+
+The capture is transparent. Trust is not, and no capture mechanism changes
+that. The proxy terminates a redirected connection to a registry host with
+a certificate from the PMG CA, and a client in the namespace that does not
+trust the CA fails the handshake. The listener sees the client's
+`unknown_ca` alert and logs one line that names the fix, so a build that
+fails closed fails with the reason in the daemon log and in
+`pmg proxy status`.
 
 `pmg proxy env` prints `PMG_CA_BUNDLE=<path>` under enforcement, in both
 modes, next to `REQUESTS_CA_BUNDLE`, from `certmanager.SystemCABundlePath`.
@@ -234,37 +344,71 @@ and is not affected.
 
 ### Limits
 
-- The daemon reads the bridge address once, at attach. A bridge that
-  appears later is not seen, and status says `ignore (no bridge at start)`.
-  The route watch of part 4 can grow an address watch later without a
-  config change.
+- A bridge whose name is not in `ingress` is not steered, and nothing warns.
+  `pmg doctor` lists the bridges on the host next to the configured names.
 - A host firewall with a default deny on input, such as `ufw` on a
   workstation, drops traffic from `docker0` to the host. Every redirected
   container connection is then refused, not only registry ones. The doc
   names the rule to add.
-- Any container that can route to the bridge address gets the host's
-  reachability on the enforced ports, for the names it sends. `DOCKER-USER`
-  rules do not stop this, because they filter forwarded traffic, not
-  delivery to the host. The daemon checks only that `bridge_address` is a
-  local address.
+- Any container on a listed bridge gets the host's reachability on the
+  enforced ports, for the names it sends. The proxy applies its skip list
+  and its own-address guard. It does not apply Docker's network isolation.
+- A client that pins its certificate, or keeps its own trust store, fails
+  closed on registry hosts under `redirect` with no path to make it pass.
 
 ## Trust
 
-Unchanged. The proxy terminates a redirected connection to a registry host
-with a certificate from the PMG CA. A container that does not trust the CA
-fails closed on registry hosts, and its tool reports a certificate error.
-It works on every other host, because the proxy passes those through with
-their real certificate. The workaround in `docs/persistent-proxy.md`
-becomes the way to make a build pass: the host bundle as a build secret,
-named by `PMG_CA_BUNDLE`, with the trust variables pointed at the mount. A
-Docker action that installs packages when it runs gets the bundle through
-the workspace. Part 7 has both.
+Unchanged in substance. A container that does not trust the CA fails closed
+on registry hosts, and its tool reports a certificate error. It works on
+every other host, because the proxy passes those through with their real
+certificate. The workaround in `docs/persistent-proxy.md` becomes the way to
+make a build pass: the host bundle as a build secret, named by
+`PMG_CA_BUNDLE`, with the trust variables pointed at the mount. Part 8 has
+the forms, and the new log line points at the doc.
 
-Under `redirect` the proxy is an egress path for every container on the
-enforced ports, with the host's reachability. Part 2 limits it to
-redirected traffic and keeps it away from the built-in skip list. A later
-`exclude_networks` key in the `containers` block can keep a chosen network
-out of the redirect without a new mechanism.
+Under `redirect` the proxy is an egress path for every container on a
+listed bridge on the enforced ports, with the host's reachability. Part 2
+limits it to redirected traffic and keeps it away from the built-in skip
+list. A later `exclude` key in the `namespaces` block can keep a chosen
+bridge out of the redirect without a new mechanism.
+
+## Code and maintenance
+
+What the kernel enforcement owns today, on `main`, for scale: 527 lines of
+BPF C, 605 lines in `enforcer_linux.go`, about 570 more lines of Go across
+the contract, probe, policy and decision files, and 526 lines of kernel
+e2e tests.
+
+What this revision adds, by file, with estimates from the POC code:
+
+| Piece | Where | Non-test Go | Tests |
+| --- | --- | --- | --- |
+| Table, chains and rules over netlink | `internal/netenforce/nft_linux.go` | 180 | 120, rendered rules compared with the text above |
+| Owner flag on the table | same file | 30, one raw `NFTA_TABLE_FLAGS` attribute, because `google/nftables` v0.3.0 writes zero | in the above |
+| Address on `lo`, add and remove | `internal/netenforce/addr_linux.go` | 40, two rtnetlink messages, no new dependency | 30 |
+| Conntrack original destination | `proxy/transparent_linux.go` | 40, plus a 10-line stub for other platforms | 40 |
+| Listener, status, state, probe and doctor | `internal/proxyserver/enforce.go`, `cmd/proxy` | 120 | 60 |
+| Config block, flag, variables, input, lockdown | `config`, `cmd/proxy/enforce_flags.go`, `action.yml` | 80 | 60 |
+| Kernel e2e, a bridge and two namespaces as in the POC | `internal/netenforce/e2e_linux_test.go` | 0 | 200 |
+| Acceptance scripts | `test/acceptance` | 0 | 9 scripts |
+
+About 500 lines of non-test Go, no BPF C change, one new direct dependency
+(`google/nftables`, which brings `mdlayher/netlink`), and about 500 lines of
+Go tests plus the scripts. Revision 1 was never built. Its estimate was
+about 60 lines of C and 350 lines of Go for the second target, the key
+change, the bridge listener and the route watch, plus a kernel e2e case, so
+the two revisions cost about the same to write. The difference is what has to be maintained afterwards.
+Revision 1 kept a route watch loop, a kernel map in step with it, and a
+documented gap for nested namespaces. Revision 2 keeps a ruleset that the
+kernel evaluates per packet, and its maintenance is the ruleset text in
+part 1 and the e2e that loads it.
+
+The one piece to watch is `google/nftables`. It is a Google project with
+releases a year apart, and the owner flag needs the raw attribute above
+until a release carries it. If the library stalls, the daemon can send the
+nine messages the table needs through `mdlayher/netlink` directly. The POC
+needed none of this, because it used the `nft` binary, which the daemon
+cannot.
 
 ## Acceptance
 
@@ -274,22 +418,25 @@ status scripts that exist gain the new assertions instead of new scripts.
 
 | Script | Guarantee |
 | --- | --- |
-| `scope/containers-ignore` | Under `mode: ignore` a container reaches the registry directly with the real certificate. |
-| `scope/containers-redirected-fail-closed` | Under `redirect` a container without the CA gets a certificate error on a registry host and a 200 on a non-registry host. |
-| `scope/containers-redirected-trusted` | Under `redirect` a container with the host bundle mounted installs a clean package and is blocked on a malicious one. |
-| `scope/containers-build-step` | A `docker build` with `RUN npm ci` fails without the CA and passes with the secret mount from the doc, with the path read from `pmg proxy env`. |
-| `scope/containers-to-container-untouched` | Two containers on a user-defined network created after the daemon started talk over port 80 by name. |
-| `scope/containers-root-not-exempt` | `exempt_users: root` on the host does not exempt a root process in a container. |
-| `scope/containers-no-relay` | A container cannot use the bridge listener as a proxy: a `CONNECT` is refused, and a redirected request with the metadata address as its `Host` is refused. |
-| `policy/lockdown-governs-widening-flags` | Also: under lockdown `--enforce-containers ignore` is refused and `redirect` is accepted. |
-| `status/reports-enforcement` | Also: status prints the mode and the bridge address, or the no-bridge note, and `pmg proxy env` prints `PMG_CA_BUNDLE` for a file that holds the PMG CA. |
+| `scope/namespaces-ignore` | Under `mode: ignore` a container reaches the registry directly with the real certificate. |
+| `scope/namespaces-redirected-fail-closed` | Under `redirect` a container without the CA gets a certificate error on a registry host and a 200 on a non-registry host, and the daemon log names the fix. |
+| `scope/namespaces-redirected-trusted` | Under `redirect` a container with the host bundle mounted installs a clean package and is blocked on a malicious one. |
+| `scope/namespaces-build-step` | A `docker build` with `RUN npm ci` fails without the CA and passes with the secret mount from the doc, with the path read from `pmg proxy env`. |
+| `scope/namespaces-nested-builder` | A `docker buildx` build in a `docker-container` builder reaches a registry on a non-standard port through the proxy. |
+| `scope/namespaces-to-container-untouched` | Two containers on a user-defined network created after the daemon started talk over port 80 by name, and a container on another network is not reachable through the proxy. |
+| `scope/namespaces-root-not-exempt` | `exempt_users: root` on the host does not exempt a root process in a container. |
+| `scope/namespaces-no-relay` | A container cannot use the listener as a proxy: a `CONNECT` is refused, and a redirected request with the metadata address as its `Host` is refused. |
+| `scope/namespaces-owner-table` | After `kill -9` of the daemon the table is gone and a container reaches the registry directly. |
+| `policy/lockdown-governs-widening-flags` | Also: under lockdown `--enforce-namespaces ignore` is refused and `redirect` is accepted. |
+| `status/reports-enforcement` | Also: status prints the mode, the address and the ingress list, and `pmg proxy env` prints `PMG_CA_BUNDLE` for a file that holds the PMG CA. |
 
-The kernel e2e gains one case. The harness uses `unshare -n`, where no route
-exists, so this case needs a veth pair, with the host end's address as the
-bridge target and the helper in the peer namespace. It checks that the socket
-is routed to the bridge target and that the lookup by address and port
-returns its original destination. `test/proxye2e` needs no case, because the
-handler does not change.
+The kernel e2e gains the POC's local topology in Go: a bridge, two
+namespaces on it, one external namespace behind the host and one nested
+namespace behind its own NAT. It loads the table, steers from each
+namespace, reads the original destination through conntrack, and checks the
+three exclusions. It runs with `bridge-nf-call-iptables` on and off when the
+module loads. `test/proxye2e` needs no case, because the handler does not
+change.
 
 ## Rollout
 
@@ -301,19 +448,38 @@ handler does not change.
 
 ## Decisions needed
 
-1. Every socket in another namespace is eligible, regardless of the user
-   lists. Recommended: yes. The alternative makes the common CI policy a
-   silent bypass.
-2. The Docker network prefixes are skipped automatically, in both modes,
-   with a route watch. Recommended: yes. The alternative asks every operator
-   to list their bridges and breaks a network created mid-job.
-3. `containers` is a block with `mode` and `bridge_address`. Recommended:
-   yes. A scalar would need a rename for the first extra key.
-4. The default changes to `redirect` after one release. Recommended: yes.
-5. Open: whether a container on an `--internal` network can route to
-   `docker0` on the Docker version the CI runners ship. Docker has changed
-   this across releases. The acceptance run answers it, and the doc records
-   the answer.
+1. Every socket outside the daemon's namespace is steered, regardless of
+   the user lists and exemptions. Recommended: yes. A packet carries no task,
+   and the alternative makes the common CI policy a silent bypass.
+2. The table carries `flags owner`, so the rules die with the daemon.
+   Recommended: yes. It matches the posture of the cgroup programs. A plain
+   table fails closed and belongs with lockdown, later, if an operator asks.
+3. `ingress` is a list of names with wildcards, default `docker0` and
+   `br-*`. Recommended: yes. A kind-based match needs a set the daemon keeps
+   in step with the links, which is the watch this revision removed.
+4. The listener address is `169.254.200.1/32` on `lo`, configurable.
+   Recommended: yes. `100.64.0.0/10` collides with Tailscale and
+   `192.0.2.0/24` is in use on hosted runners.
+5. The default changes to `redirect` after one release. Recommended: yes.
+
+## Why revision 2
+
+The POC tested revision 1's data path against three alternatives.
+
+- **TPROXY on bridge ingress.** Rejected. It fails whenever
+  `bridge-nf-call-iptables` is 1, for the kernel reason in part 1. The
+  GitHub runner image does not load br_netfilter and Docker 28 does not
+  load it, so TPROXY would have passed there and failed on every Kubernetes
+  node.
+- **A second target in the kernel programs.** Revision 1. It works for a
+  container on a bridge and loses non-standard ports behind any inner NAT,
+  for the reason in the problem statement. It also needs the route watch
+  and the key change.
+- **A TC program on each bridge with `bpf_sk_assign`.** Workable, because
+  that helper sets `sock_pfree` and survives br_netfilter. It needs an
+  attach per bridge, a link watch, and the policy route for the mark, so it
+  is more code than the ruleset for the same result. It stays the fallback
+  if nftables is ever a firm no.
 
 ## Rejected alternatives
 
@@ -322,10 +488,15 @@ handler does not change.
   the configuration step stays. Every download transits SafeDep, the mirror
   becomes a build-critical dependency, and a private registry is out of its
   reach.
-- A public certificate for the local proxy on the bridge address. A name that
-  resolves to `172.17.0.1` would need a certificate per ephemeral runner,
-  past the rate limits of every public CA, and a shared key on every host is
-  worse.
+- A public certificate for the local proxy. A name that resolves to a
+  link-local address would need a certificate per ephemeral runner, past the
+  rate limits of every public CA, and a shared key on every host is worse.
 - A wrapper around the OCI runtime that adds the CA mount and variables to
-  every container. It needs a Docker daemon configuration change and a
-  restart, which is more than this feature should own.
+  every container. It is the only way to make trust transparent. It needs a
+  Docker daemon configuration change and a restart, does not reach the inner
+  runtime of a `docker-container` builder, and misses a client with its own
+  trust store. It stays rejected for this feature and is the first thing to
+  revisit if the explicit trust step proves too much for users.
+- A listener on `0.0.0.0` with an input guard. It works, and the POC ran
+  that way first. One address on `lo` needs no guard on every interface and
+  no exposure to explain.
