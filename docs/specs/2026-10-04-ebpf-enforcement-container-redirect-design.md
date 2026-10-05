@@ -164,8 +164,9 @@ Why each piece is what it is:
 The daemon adds `169.254.200.1/32` to `lo` at start and removes it at stop.
 An address on `lo` is a local address, so a DNAT to it is delivered on the
 host from any bridge, with br_netfilter on or off, and the address is not
-routable from the LAN. The POC measured this in the emulation on 6.18,
-with br_netfilter on and off. The daemon
+routable from the LAN. The POC measured this in the emulation on 6.18 and
+6.17, and against Docker 28 on a runner, with br_netfilter on and off. The
+daemon
 opens a listener on that address on the proxy port and passes it in
 `AdditionalListenAddrs`, the way the IPv6 loopback listener already travels.
 The same handler serves it. The address is configurable for a host that

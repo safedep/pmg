@@ -52,3 +52,8 @@ NAT, no steering for cross-network, same-bridge, host-network and
 published-port traffic, a listener guard, and fail closed after the proxy
 dies. The first runner leg also showed that the proxy must refuse an own
 address, or a host-local connection makes it dial itself in a loop.
+
+The dnat mode binds one link-local address on `lo` and sends every bridge
+to it with `dnat`. It passes 15 of 15 in the emulation and 23 of 23 against
+Docker 28, with br_netfilter on and off, on the same runner. The spec uses
+this mode.
