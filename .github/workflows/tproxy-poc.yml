@@ -38,6 +38,12 @@ jobs:
         run: sudo env "PATH=$PATH" ./docker.sh | tee docker-hostsetting.log
       - name: Docker leg, br_netfilter on
         run: sudo env "PATH=$PATH" BRNF=1 ./docker.sh | tee docker-brnf1.log
+      - name: Docker leg, dnat to an address on lo, br_netfilter not loaded
+        run: sudo env "PATH=$PATH" MODE=dnat ./docker.sh | tee docker-dnat-hostsetting.log
+      - name: Docker leg, dnat to an address on lo, br_netfilter on
+        run: sudo env "PATH=$PATH" MODE=dnat BRNF=1 ./docker.sh | tee docker-dnat-brnf1.log
+      - name: Local leg, dnat mode, br_netfilter on
+        run: sudo env "PATH=$PATH" MODE=dnat BRNF=1 ./local.sh | tee local-dnat-brnf1.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

@@ -9,6 +9,8 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 BRNF=${BRNF:-}
+MODE=${MODE:-redirect}
+ADDR=169.254.200.1
 PORT=18443
 PASS=0
 FAIL=0
@@ -40,6 +42,7 @@ cleanup() {
   docker buildx rm -f pocbuilder >/dev/null 2>&1
   docker network rm pocnet pocnet2 >/dev/null 2>&1
   nft delete table inet pmgpoc 2>/dev/null
+  ip addr del $ADDR/32 dev lo 2>/dev/null
   rm -rf build
 }
 [ "${KEEP:-0}" = 1 ] || trap cleanup EXIT
@@ -67,8 +70,17 @@ echo "nginx on pocnet2 $NGINX_IP, nginx on docker0 $NGINX_SAME_IP, docker0 $DOCK
 say "baseline without rules"
 check "default bridge container reaches npm" "docker run --rm $CURL -sS -m 20 $PING | grep -q '{}'"
 
-say "rules: nft redirect on docker0 and br-*, listener on 0.0.0.0:$PORT guarded to bridge ingress"
-./poc -mode proxy -listen 0.0.0.0:$PORT >proxy.log 2>&1 &
+if [ "$MODE" = dnat ]; then
+  say "rules: nft dnat on docker0 and br-* to $ADDR:$PORT on lo"
+  ip addr add $ADDR/32 dev lo
+  LISTEN=$ADDR
+  ACTION="counter dnat ip to $ADDR:$PORT"
+else
+  say "rules: nft redirect on docker0 and br-*, listener on 0.0.0.0:$PORT guarded to bridge ingress"
+  LISTEN=0.0.0.0
+  ACTION="counter redirect to :$PORT"
+fi
+./poc -mode proxy -listen $LISTEN:$PORT >proxy.log 2>&1 &
 sleep 0.5
 nft -f - <<EOF
 table inet pmgpoc {
@@ -76,7 +88,7 @@ table inet pmgpoc {
     fib daddr type local counter return
     fib daddr oifname "docker0" counter return
     fib daddr oifname "br-*" counter return
-    tcp dport { 80, 443, 8443 } counter redirect to :$PORT
+    tcp dport { 80, 443, 8443 } $ACTION
   }
   chain pre {
     type nat hook prerouting priority dstnat; policy accept;
@@ -136,7 +148,8 @@ expect_steered "D8" none "docker run --rm $CURL -sS -m 10 http://$DOCKER0_IP:180
 
 say "D9 listener guard: the host cannot reach the proxy on a non-bridge interface"
 HOST_IP=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
-check "D9: connect to $HOST_IP:$PORT is dropped" "! curl -sS -m 3 http://$HOST_IP:$PORT/ >/dev/null 2>&1"
+check "D9: connect to $HOST_IP:$PORT is dropped or refused" "! curl -sS -m 3 http://$HOST_IP:$PORT/ >/dev/null 2>&1"
+check "D9: a host process that reaches the listener is refused as an own address" "! curl -sS -m 3 http://$LISTEN:$PORT/ >/dev/null 2>&1 && grep -q refuse proxy.log"
 
 say "D10 rules left behind after the proxy dies fail closed"
 pkill -f '^\./poc -mode proxy'

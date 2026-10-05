@@ -3,6 +3,8 @@
 # namespaces, then runs the steering tests. Needs root, iproute2, nft, curl.
 # MODE=tproxy steers with nft tproxy and an IP_TRANSPARENT listener.
 # MODE=redirect (default) steers with nft redirect and SO_ORIGINAL_DST.
+# MODE=dnat steers with nft dnat to one address the daemon adds to lo,
+# matched by interface kind instead of name.
 # BRNF sets bridge-nf-call-iptables, 1 is what Docker hosts run with.
 # Set EXCLUDE_SAME_BRIDGE=0 to run without the same-bridge exclusion rule.
 set -uo pipefail
@@ -31,6 +33,7 @@ cleanup() {
   for ns in c1 c2 n1 ext; do ip netns del $ns 2>/dev/null; done
   ip link del $BR 2>/dev/null
   ip link del hext 2>/dev/null
+  ip addr del 169.254.200.1/32 dev lo 2>/dev/null
   nft delete table inet pmgpoc 2>/dev/null
   nft delete table ip pmgnat 2>/dev/null
   if command -v iptables >/dev/null; then
@@ -121,11 +124,24 @@ if [ "$MODE" = tproxy ]; then
   ip route add local 0.0.0.0/0 dev lo table 100
   STEER="type filter hook prerouting priority mangle; policy accept;"
   ACTION="counter meta mark set 0x1 tproxy ip to 127.0.0.1:$PORT accept"
+elif [ "$MODE" = dnat ]; then
+  ip addr add 169.254.200.1/32 dev lo
+  ./poc -mode proxy -listen 169.254.200.1:$PORT >proxy.log 2>&1 &
+  sleep 0.5
+  STEER="type nat hook prerouting priority dstnat; policy accept;"
+  ACTION="counter dnat ip to 169.254.200.1:$PORT"
 else
   ./poc -mode proxy -listen $BRIP:$PORT >proxy.log 2>&1 &
   sleep 0.5
   STEER="type nat hook prerouting priority dstnat; policy accept;"
   ACTION="counter redirect to :$PORT"
+fi
+if [ "$MODE" = dnat ]; then
+  INGRESS='meta iifkind "bridge" jump steer'
+else
+  INGRESS="iifname \"$BR\" jump steer
+    iifname \"docker0\" jump steer
+    iifname \"br-*\" jump steer"
 fi
 nft -f - <<EOF
 table inet pmgpoc {
@@ -136,9 +152,7 @@ table inet pmgpoc {
   }
   chain pre {
     $STEER
-    iifname "$BR" jump steer
-    iifname "docker0" jump steer
-    iifname "br-*" jump steer
+    $INGRESS
   }
   chain udpdeny {
     type filter hook forward priority filter; policy accept;
