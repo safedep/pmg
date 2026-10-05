@@ -121,8 +121,8 @@ table inet pmg {
 
 The daemon never shells out to `nft`. The GitHub runner image does not ship
 the binary. The daemon builds the same rules over netlink with
-`google/nftables`, and `pmg proxy status` can print them in this syntax so
-an operator can compare them with `nft list table inet pmg`.
+`google/nftables`. The ports live in a named set, so `nft list table inet
+pmg` shows `tcp dport @ports` where this text shows the list.
 
 Why each piece is what it is:
 
@@ -416,7 +416,7 @@ What this revision adds, by file, with estimates from the POC code:
 | Piece | Where | Non-test Go | Tests |
 | --- | --- | --- | --- |
 | Table, chains and rules over netlink | `internal/netenforce/nft_linux.go` | 180 | 120, rendered rules compared with the text above |
-| Owner flag on the table | same file | 30, one raw `NFTA_TABLE_FLAGS` attribute, because `google/nftables` v0.3.0 writes zero | in the above |
+| Owner flag on the table | same file | 0, the library's main branch carries `TableFlagOwner`, pinned as a pseudo-version until a release | in the above |
 | Address on `lo`, add and remove | `internal/netenforce/addr_linux.go` | 40, two rtnetlink messages, no new dependency | 30 |
 | Conntrack original destination | `proxy/transparent_linux.go` | 40, plus a 10-line stub for other platforms | 40 |
 | Listener, status, state, probe and doctor | `internal/proxyserver/enforce.go`, `cmd/proxy` | 120 | 60 |
@@ -436,9 +436,10 @@ kernel evaluates per packet, and its maintenance is the ruleset text in
 part 1 and the e2e that loads it.
 
 The one piece to watch is `google/nftables`. It is a Google project with
-releases a year apart, and the owner flag needs the raw attribute above
-until a release carries it. If the library stalls, the daemon can send the
-nine messages the table needs through `mdlayher/netlink` directly. The POC
+releases a year apart. The owner flag landed on its main branch after
+v0.3.0, so the daemon pins a pseudo-version until a release carries it. If
+the library stalls, the daemon can send the messages the table needs
+through `mdlayher/netlink` directly, which is already a dependency. The POC
 needed none of this, because it used the `nft` binary, which the daemon
 cannot.
 
