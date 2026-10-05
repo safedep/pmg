@@ -50,6 +50,7 @@ type options struct {
 	pinnedVersions map[string]string
 	transparent    bool
 	origDst        proxy.OriginalDestinationResolver
+	redirectOnlyIP string
 }
 
 type Option func(*options)
@@ -68,6 +69,13 @@ func WithTransparent(resolver proxy.OriginalDestinationResolver) Option {
 		o.transparent = true
 		o.origDst = resolver
 	}
+}
+
+// WithRedirectOnlyListener adds a second listener on ip, on the proxy's
+// port, that serves redirected clients only, the way the enforcing daemon
+// listens for containers.
+func WithRedirectOnlyListener(ip string) Option {
+	return func(o *options) { o.redirectOnlyIP = ip }
 }
 
 func New(t *testing.T, opts ...Option) *Harness {
@@ -178,6 +186,10 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 	cfg.Interceptors = interceptorList
 	cfg.Transparent = o.transparent
 	cfg.OriginalDestination = o.origDst
+	if o.redirectOnlyIP != "" {
+		cfg.AdditionalListenAddrs = []string{net.JoinHostPort(o.redirectOnlyIP, "0")}
+		cfg.RedirectOnlyAddrs = []string{o.redirectOnlyIP}
+	}
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	cfg.BlockMessageRenderer = presenter.BlockMessage
 

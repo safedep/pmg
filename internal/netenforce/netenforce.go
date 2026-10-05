@@ -166,23 +166,30 @@ type ExemptedFile struct {
 
 // ProbeResult says whether the host can enforce. Missing holds one line per
 // requirement the host does not meet, so a preflight error can name it.
+// Subject names what the host cannot do, in the error. Empty means
+// "enforce".
 type ProbeResult struct {
 	Supported     bool
 	Missing       []string
 	KernelVersion string
 	CgroupPath    string
+	Subject       string
 }
 
 // Err turns a failed probe into one error that lists every missing
-// requirement. nil when the host can enforce.
+// requirement. nil when the host can do what the probe asked.
 func (r ProbeResult) Err() error {
 	if r.Supported {
 		return nil
 	}
-	if len(r.Missing) == 0 {
-		return errors.New("enforce: this host cannot enforce")
+	subject := r.Subject
+	if subject == "" {
+		subject = "enforce"
 	}
-	msg := "enforce: this host cannot enforce:"
+	msg := "enforce: this host cannot " + subject
+	if len(r.Missing) > 0 {
+		msg += ":"
+	}
 	for _, m := range r.Missing {
 		msg += "\n  - " + m
 	}

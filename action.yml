@@ -98,6 +98,10 @@ inputs:
     description: With enforce, CIDR prefixes the kernel never routes, in addition to proxy.server.enforce.skip_destinations (comma or newline separated). Passed as --enforce-skip-destination.
     required: false
     default: ""
+  enforce-namespaces:
+    description: With enforce, what happens to containers that steps start, such as docker run and docker build. ignore leaves them alone. redirect sends them through the proxy and fails the job when the runner cannot. auto redirects where the runner can. A container must trust the PMG CA, see PMG_CA_BUNDLE in docs/persistent-proxy.md. Passed as --enforce-namespaces.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -365,7 +369,7 @@ runs:
         fi
 
     - name: Warn about enforce inputs without enforce
-      if: inputs.enforce != 'true' && (inputs.enforce-ports != '' || inputs.enforce-exempt-users != '' || inputs.enforce-exempt-executables != '' || inputs.enforce-skip-destinations != '')
+      if: inputs.enforce != 'true' && (inputs.enforce-ports != '' || inputs.enforce-exempt-users != '' || inputs.enforce-exempt-executables != '' || inputs.enforce-skip-destinations != '' || inputs.enforce-namespaces != '')
       shell: bash
       run: echo "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
 
@@ -390,6 +394,7 @@ runs:
         INPUT_ENFORCE_EXEMPT_USERS: ${{ inputs.enforce-exempt-users }}
         INPUT_ENFORCE_EXEMPT_EXECUTABLES: ${{ inputs.enforce-exempt-executables }}
         INPUT_ENFORCE_SKIP_DESTINATIONS: ${{ inputs.enforce-skip-destinations }}
+        INPUT_ENFORCE_NAMESPACES: ${{ inputs.enforce-namespaces }}
       run: |
         set -euo pipefail
         if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then

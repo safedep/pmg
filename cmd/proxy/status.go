@@ -59,6 +59,9 @@ func statusText(st proxyserver.StatusInfo) string {
 	} else {
 		b.WriteString("  udp to enforced ports: allowed\n")
 	}
+	if line := proxyserver.NamespaceStatusLine(e.Namespaces); line != "" {
+		fmt.Fprintf(&b, "  %s\n", line)
+	}
 	for _, prefix := range e.SkipDestinations {
 		fmt.Fprintf(&b, "  skip destination: %s\n", prefix)
 	}

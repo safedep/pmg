@@ -55,6 +55,10 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		Overrides: enforceOverridesFlag,
 	}
 
+	if err := proxyserver.NamespacesNeedEnforce(cfg, opts.Enforce); err != nil {
+		ui.ErrorExit(err)
+	}
+
 	// A locked managed config owns the policy. A flag that only narrows
 	// the scope stays allowed.
 	if cfg.IsLocked() {

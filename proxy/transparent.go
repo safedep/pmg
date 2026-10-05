@@ -27,6 +27,14 @@ type OriginalDestinationResolver interface {
 	OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool)
 }
 
+// ConnOriginalDestinationResolver recovers the destination from the
+// connection itself, for a client the kernel translated with NAT at a
+// bridge instead of redirecting at connect. A resolver that implements it
+// is asked after the keyed lookup misses.
+type ConnOriginalDestinationResolver interface {
+	OriginalDestinationOf(c net.Conn) (netip.AddrPort, bool)
+}
+
 const (
 	// sniffTimeout bounds how long a redirected client may stay silent before
 	// it sends its first bytes. A TLS client sends the ClientHello at once.
@@ -156,6 +164,10 @@ func (l *transparentListener) deliver(c net.Conn) {
 func (l *transparentListener) classify(raw net.Conn) {
 	tc := &transparentConn{Conn: raw, r: bufio.NewReaderSize(raw, maxClientHello)}
 	tc.orig = l.ps.lookupOriginalDestination(raw)
+	if !tc.orig.IsValid() && l.ps.isRedirectOnly(raw) {
+		l.drop(raw, "direct connection to a redirect-only listener", errRedirectOnly)
+		return
+	}
 
 	if err := raw.SetReadDeadline(time.Now().Add(sniffTimeout)); err != nil {
 		l.drop(raw, "set sniff deadline", err)
@@ -184,6 +196,8 @@ func (l *transparentListener) classify(raw net.Conn) {
 }
 
 const tlsHandshakeRecord = 0x16
+
+var errRedirectOnly = errors.New("the listener serves redirected clients only")
 
 func (l *transparentListener) classifyTLS(tc *transparentConn) {
 	hello, err := peekClientHello(tc.r)
@@ -235,20 +249,25 @@ func (l *transparentListener) drop(c net.Conn, what string, err error) {
 }
 
 // lookupOriginalDestination asks the resolver where the client wanted to
-// go. A miss is normal for a proxy-aware client, which was never redirected.
+// go, first by the client's address and port, then from the connection.
+// A miss on both is normal for a proxy-aware client, which was never
+// redirected.
 func (ps *proxyServer) lookupOriginalDestination(c net.Conn) netip.AddrPort {
-	if ps.config.OriginalDestination == nil {
+	r := ps.config.OriginalDestination
+	if r == nil {
 		return netip.AddrPort{}
 	}
-	peer, ok := c.RemoteAddr().(*net.TCPAddr)
-	if !ok {
-		return netip.AddrPort{}
+	if peer, ok := c.RemoteAddr().(*net.TCPAddr); ok {
+		if orig, found := r.OriginalDestination(peer.AddrPort()); found {
+			return orig
+		}
 	}
-	orig, found := ps.config.OriginalDestination.OriginalDestination(peer.AddrPort())
-	if !found {
-		return netip.AddrPort{}
+	if cr, ok := r.(ConnOriginalDestinationResolver); ok {
+		if orig, found := cr.OriginalDestinationOf(c); found {
+			return orig
+		}
 	}
-	return orig
+	return netip.AddrPort{}
 }
 
 // transparentTarget pairs the name the client sent with the port it

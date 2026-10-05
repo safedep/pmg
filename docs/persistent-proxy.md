@@ -344,37 +344,116 @@ runner cannot stop a root daemon at job end, so the daemon serves later jobs
 until an operator stops it. `pmg proxy status` shows that it is still
 enforcing.
 
-### Known gap: containers
+### Containers and other network namespaces
 
-Enforcement covers the host network namespace only. A process in another
-network namespace passes unchanged, because the kernel would otherwise send
-it to its own loopback. On GitHub Actions this leaves three paths outside
-enforcement: `RUN` steps in `docker build`, container jobs
-(`jobs.<id>.container`) and Docker container actions. Image pulls are still
-enforced, because `dockerd` runs on the host, and the proxy passes image
-registries through. The daemon prints a warning when Docker is running, and
-`pmg proxy status` repeats it.
+Enforcement at `connect()` covers the host network namespace only. A process
+in another network namespace, such as a container, is left alone by the
+kernel programs, because the kernel would otherwise send it to its own
+loopback. Its traffic enters the host through a bridge, and that is where
+`proxy.server.enforce.namespaces` redirects it:
 
-The workaround puts the install step in the host network namespace and gives
-it trust in the PMG CA, with the CA as a build secret so it never lands in
-the image:
+```yaml
+proxy:
+  server:
+    enforce:
+      namespaces:
+        mode: redirect              # ignore | redirect | auto
+        ingress: [docker0, "br-*"]  # interface names, a trailing * is a wildcard
+        address: 169.254.200.1      # listener address the daemon adds to lo
+```
+
+`mode` is the only key to set. `redirect` turns it on and fails the start
+when the host cannot redirect. `auto` turns it on where the host can and
+runs as `ignore` elsewhere, with the reason in `pmg proxy status`. The flag
+is `--enforce-namespaces <mode>`, the variable is
+`PMG_PROXY_SERVER_ENFORCE_NAMESPACES_MODE`, and the action input is
+`enforce-namespaces`. Under `global_lockdown` only `redirect` is accepted
+on the command line.
+
+The daemon adds the address to `lo`, listens on it, and loads one nftables
+table named `pmg`. A nat rule on every `ingress` interface sends TCP to the
+enforced ports to that listener. Three destinations are never redirected: an
+address on the host, a container on the same bridge, and a container on
+another bridge, so Docker's own network rules still decide those. The table
+carries the owner flag, so the kernel deletes it when the daemon's netlink
+socket closes, on a clean stop and on a crash alike. `pmg proxy status`
+prints one line:
+
+```
+  namespaces: redirect (169.254.200.1:18443 from docker0, br-*)
+```
+
+The host needs Linux 5.13 or later with nf_tables and conntrack, which every
+Docker host has. The redirect covers `docker run`, `RUN` steps in
+`docker build` with the default builder and with a `docker-container`
+builder, and Docker container actions. A `--network host` container runs in
+the host namespace and takes the `connect()` path. Container jobs
+(`jobs.<id>.container`) run the pmg action inside the job container, so no
+daemon exists on the host and they stay outside enforcement.
+
+#### Trust inside a container
+
+The redirect is transparent. Trust is not. The proxy terminates a connection
+to a registry host with a certificate from the PMG CA, and a client in a
+container that does not trust the CA fails the handshake. The daemon log
+then carries one line that names the fix. Every other host is passed through
+with its real certificate, so `curl https://ifconfig.co` from a container
+succeeds with or without the CA and is not the enforcement check.
+
+`pmg proxy env` prints `PMG_CA_BUNDLE=<path>`, the host bundle that holds the
+PMG CA and the public roots. Pass that file, not the bare CA, so the
+passthrough hosts keep working. Trust must add to the container's own.
+`NODE_EXTRA_CA_CERTS` adds. For tools that replace the bundle
+(`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`, `CURL_CA_BUNDLE`), the
+host bundle is the right file to mount.
+
+A build takes the bundle as a secret, so it never lands in the image:
 
 ```bash
-docker build --network=host --secret id=pmg-ca,src=/etc/safedep/pmg/ca-cert.pem .
+docker build --secret id=pmg-ca,src=$PMG_CA_BUNDLE -t app .
 ```
 
 ```dockerfile
-RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
+RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
+    NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
 ```
 
-A `docker run` step takes `--network host` and the same mount. Container
-jobs and Docker actions have no workaround, because GitHub does not accept
-`--network` in `container.options`. Trust must add to the container's
-existing trust. A bundle that holds only the PMG CA breaks the non-registry
-hosts the proxy passes through. `NODE_EXTRA_CA_CERTS` adds. For tools that
-replace the bundle (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`),
-mount the host bundle, which holds the PMG CA after `pmg setup cert install
---system`.
+`mode=0444` matters, because BuildKit mounts a secret readable by root only.
+A `docker run` step mounts the file and sets the variable:
+
+```bash
+docker run -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e NODE_EXTRA_CA_CERTS=/pmg-ca.pem node:22 npm ci
+```
+
+A Docker container action gets the workspace at `/github/workspace` and the
+step's `env:`. Copy the bundle into the workspace in a step before it and
+name the path as the container sees it:
+
+```yaml
+- run: cp "$PMG_CA_BUNDLE" pmg-ca.pem
+- uses: some/docker-action@v1
+  env:
+    NODE_EXTRA_CA_CERTS: /github/workspace/pmg-ca.pem
+```
+
+#### Checking it on a desktop
+
+```sh
+sudo pmg proxy start --enforce --enforce-namespaces redirect
+pmg proxy status                                 # the namespaces line
+sudo nft list table inet pmg                     # the rules and counters
+
+docker run --rm -it curlimages/curl sh
+curl -sS https://registry.npmjs.org/-/ping       # curl: (60) certificate error
+curl -sS https://ifconfig.co                     # passed through, succeeds
+
+eval "$(sudo pmg proxy env)"
+docker run --rm -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem \
+  curlimages/curl -sS https://registry.npmjs.org/-/ping   # {}
+```
+
+After `sudo kill -9 $(pidof pmg)`, `nft list tables` no longer shows
+`inet pmg` and the container reaches the registry directly.
 
 ### Limitations
 

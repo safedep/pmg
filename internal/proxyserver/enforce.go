@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"os/user"
 	"slices"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/platform"
+	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
 )
@@ -26,8 +28,9 @@ import (
 // can repeat them.
 type EnforceState struct {
 	netenforce.Status
-	Addr6    string   `json:"addr6,omitempty"`
-	Warnings []string `json:"warnings,omitempty"`
+	Addr6      string          `json:"addr6,omitempty"`
+	Namespaces *NamespaceState `json:"namespaces,omitempty"`
+	Warnings   []string        `json:"warnings,omitempty"`
 }
 
 // enforcePolicy turns the config section and the command line overrides
@@ -103,14 +106,18 @@ func PreflightEnforce(cfg *config.RuntimeConfig, o EnforceOverrides) error {
 	if err != nil {
 		return err
 	}
-	_, _, _, err = enforcePreflight(cfg, policy)
+	ns, err := newNamespaceRedirect(cfg.Config.Proxy.Server.Enforce.Namespaces, policy)
+	if err != nil {
+		return err
+	}
+	_, _, _, err = enforcePreflight(cfg, policy, ns.active())
 	return err
 }
 
 // enforcePreflight fails before the proxy binds a port when the host cannot
 // enforce or no client could trust the proxy. Each failure names what to
 // do. The returned warnings are printed and recorded in the state file.
-func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy) (netenforce.Enforcer, *certmanager.Certificate, []string, error) {
+func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy, redirecting bool) (netenforce.Enforcer, *certmanager.Certificate, []string, error) {
 	enforcer, err := netenforce.New()
 	if err != nil {
 		return nil, nil, nil, usefulerror.NewUsefulError().
@@ -140,7 +147,16 @@ func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy) (netenforc
 		return nil, nil, nil, err
 	}
 
-	return enforcer, caCert, enforceWarnings(cfg, p), nil
+	return enforcer, caCert, enforceWarnings(cfg, p, redirecting), nil
+}
+
+// certificateRejectedNotice tells the operator what a rejected handshake
+// means and what to do. It goes to stderr, which is the daemon's log file,
+// because the logger is off without --debug.
+func certificateRejectedNotice(line string) {
+	if _, err := fmt.Fprintf(os.Stderr, "%s %s. A client that fails the handshake this way does not trust the PMG CA. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md\n", ui.Colors.Yellow("⚠"), line); err != nil {
+		log.Warnf("%s: the client does not trust the PMG CA", line)
+	}
 }
 
 // refuseSecondDaemon fails when a pmg daemon already enforces the cgroup.
@@ -206,14 +222,15 @@ func loadEnforceCA() (*certmanager.Certificate, error) {
 
 // enforceWarnings names the gaps an operator must know about: a container
 // engine on the host, whose containers live outside the enforced network
-// namespace, an eligible user who can become root through sudo, and a
-// daemon that reads root's personal config instead of the system one.
-func enforceWarnings(cfg *config.RuntimeConfig, p netenforce.Policy) []string {
+// namespace unless they are redirected, an eligible user who can become
+// root through sudo, and a daemon that reads root's personal config
+// instead of the system one.
+func enforceWarnings(cfg *config.RuntimeConfig, p netenforce.Policy, redirecting bool) []string {
 	var warnings []string
 	if cfg.ConfigSource() == config.ConfigSourceRootPerUser {
 		warnings = append(warnings, rootPerUserConfigWarning(cfg.ConfigFilePath()))
 	}
-	if processRunning("dockerd") {
+	if !redirecting && processRunning("dockerd") {
 		warnings = append(warnings, "Docker is running. Containers have their own network namespace and are not enforced. See docs/persistent-proxy.md for the workaround.")
 	}
 	for _, name := range p.EligibleUsers {
@@ -271,12 +288,24 @@ func ipv6LoopbackAddr() string {
 
 // destinationResolver hands the proxy a resolver before the kernel handle
 // exists. The proxy must listen before Attach knows the target address, so
-// the handle arrives a moment later.
+// the handle arrives a moment later. With the namespace redirect on, a
+// miss in the kernel map is asked of conntrack, which holds the record for
+// a client the bridge rule translated.
 type destinationResolver struct {
-	handle atomic.Pointer[netenforce.Handle]
+	handle    atomic.Pointer[netenforce.Handle]
+	conntrack atomic.Bool
 }
 
 func (r *destinationResolver) set(h netenforce.Handle) { r.handle.Store(&h) }
+
+func (r *destinationResolver) useConntrack(on bool) { r.conntrack.Store(on) }
+
+func (r *destinationResolver) OriginalDestinationOf(c net.Conn) (netip.AddrPort, bool) {
+	if !r.conntrack.Load() {
+		return netip.AddrPort{}, false
+	}
+	return netenforce.ConntrackOriginalDestination(c)
+}
 
 func (r *destinationResolver) OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool) {
 	h := r.handle.Load()

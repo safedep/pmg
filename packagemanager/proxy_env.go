@@ -87,7 +87,13 @@ func EnvVarForSystemTrust(systemBundlePath string) []string {
 		"UV_NATIVE_TLS=1",
 	}
 	if systemBundlePath != "" {
-		vars = append(vars, fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", systemBundlePath))
+		vars = append(vars,
+			fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", systemBundlePath),
+			// PMG_CA_BUNDLE names the file a workflow passes into a
+			// container, as a build secret or a mount. Distributions keep
+			// the bundle at different paths, so no step hardcodes one.
+			fmt.Sprintf("PMG_CA_BUNDLE=%s", systemBundlePath),
+		)
 	}
 	return vars
 }

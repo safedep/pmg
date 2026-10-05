@@ -1,0 +1,21 @@
+# guarantee: under namespaces mode redirect, a container with the host bundle
+# mounted installs a clean package through the proxy and is blocked on a
+# known-malicious one.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!docker] skip 'docker not available'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --enforce-namespaces redirect --state $ENFORCE_STATE
+exec sh -c 'pmg proxy env --state "$ENFORCE_STATE" | grep PMG_CA_BUNDLE= | cut -d= -f2 > bundle.path'
+exec sh -c 'test -s bundle.path'
+
+exec sh -c 'docker run --rm -v "$(cat bundle.path)":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem curlimages/curl:8.11.1 -sSv -o /dev/null -w "%{http_code}" https://registry.npmjs.org/ 2>&1'
+stdout 'SafeDep PMG Proxy CA'
+stdout '200$'
+
+exec sh -c 'docker run --rm -v "$(cat bundle.path)":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem curlimages/curl:8.11.1 -sS -o /dev/null -w "%{http_code}" https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz'
+stdout '^403$'

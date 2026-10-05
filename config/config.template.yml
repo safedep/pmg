@@ -100,6 +100,19 @@ proxy:
       cgroup: ""
       # Deny UDP to the routed ports so a QUIC client falls back to TCP.
       deny_udp: true
+      # Sockets in another network namespace, such as a container's.
+      # ignore leaves them alone. redirect sends their enforced ports
+      # through the proxy from the bridge, and fails the start when the
+      # host cannot. auto redirects where the host can and ignores
+      # elsewhere. A container must trust the PMG CA to install through
+      # the proxy. See docs/persistent-proxy.md.
+      namespaces:
+        mode: ignore
+        # Interfaces whose incoming traffic is redirected. A trailing *
+        # matches a prefix. The default covers every Docker network.
+        ingress: [docker0, "br-*"]
+        # Listener address the daemon adds to lo for redirected traffic.
+        address: 169.254.200.1
 
 # Trusted packages are packages that are trusted by the user and will be ignored by the security guardrails.
 # This is useful for packages that are known to be safe and are used in the application.

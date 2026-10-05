@@ -126,6 +126,19 @@ type ProxyConfig struct {
 	// for an IPv6 loopback listener on the same port. A bind failure here
 	// is logged and skipped, so the primary listener still serves.
 	AdditionalListenAddrs []string
+
+	// OnCertificateRejected receives http.Server's log line when a client
+	// aborts the TLS handshake because it does not trust the proxy
+	// certificate, at most once a minute. The caller owns the words the
+	// operator reads. nil means the log.
+	OnCertificateRejected func(line string)
+
+	// RedirectOnlyAddrs are the IP addresses among AdditionalListenAddrs
+	// that serve redirected clients only. A connection to one of them
+	// without an original destination was made on purpose, and is refused,
+	// so a container cannot use the listener as a proxy with the host's
+	// reachability.
+	RedirectOnlyAddrs []string
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -150,6 +163,7 @@ type proxyServer struct {
 	listener            net.Listener
 	additionalListeners []net.Listener
 	ownAddrs            []netip.AddrPort
+	redirectOnly        map[netip.Addr]struct{}
 	interceptors        map[string]Interceptor
 	mu                  sync.RWMutex
 }
@@ -195,6 +209,17 @@ func (ps *proxyServer) collectOwnAddrsFor(listen netip.AddrPort) []netip.AddrPor
 		}
 	}
 	return own
+}
+
+// isRedirectOnly reports whether the connection arrived on a listener that
+// serves redirected clients only.
+func (ps *proxyServer) isRedirectOnly(c net.Conn) bool {
+	local, ok := c.LocalAddr().(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	_, only := ps.redirectOnly[local.AddrPort().Addr().Unmap()]
+	return only
 }
 
 func (ps *proxyServer) isOwnAddress(addr netip.AddrPort) bool {
@@ -352,6 +377,14 @@ func (ps *proxyServer) Start() error {
 	ps.listener = listener
 	ps.additionalListeners = ps.listenAdditional(listener.Addr().(*net.TCPAddr).Port)
 	ps.ownAddrs = ps.collectOwnAddrs()
+	ps.redirectOnly = make(map[netip.Addr]struct{}, len(ps.config.RedirectOnlyAddrs))
+	for _, raw := range ps.config.RedirectOnlyAddrs {
+		addr, err := netip.ParseAddr(raw)
+		if err != nil {
+			return fmt.Errorf("redirect-only address %q: %w", raw, err)
+		}
+		ps.redirectOnly[addr.Unmap()] = struct{}{}
+	}
 
 	serverTimeout := ps.config.ServerReadWriteTimeout
 	if serverTimeout == 0 {
@@ -363,6 +396,7 @@ func (ps *proxyServer) Start() error {
 		ReadTimeout:  serverTimeout,
 		WriteTimeout: serverTimeout,
 		ConnContext:  transparentConnContext,
+		ErrorLog:     newServerLog(ps.config.OnCertificateRejected),
 	}
 
 	log.Debugf("Proxy server listening on %s", ps.Address())

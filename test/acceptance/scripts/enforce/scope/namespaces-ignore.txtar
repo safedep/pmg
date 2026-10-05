@@ -1,0 +1,17 @@
+# guarantee: under namespaces mode ignore, enforcement does not touch a
+# process in another network namespace. A container keeps its own network
+# and reaches the registry with the real certificate.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!docker] skip 'docker not available'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --enforce-namespaces ignore --state $ENFORCE_STATE
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'namespaces: ignore'
+
+exec docker run --rm curlimages/curl:8.11.1 -sSv -o /dev/null https://registry.npmjs.org/
+! stderr 'SafeDep PMG Proxy CA'
