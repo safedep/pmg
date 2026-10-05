@@ -263,6 +263,23 @@ proxy:
         address: 169.254.200.1        # listener address added to lo
 ```
 
+The values shown are the defaults. `mode` is the only key an operator
+sets to turn the feature on. The other two exist for a host that differs
+from a Docker host, and the embedded template carries all three with these
+values, because that is what makes Viper bind a variable.
+
+- `ingress` unset means `docker0` and `br-*`, which covers the default
+  bridge and every user-defined network Docker creates. An operator on
+  Podman or libvirt adds `podman*` or `virbr*`. A value replaces the list
+  and does not extend it, so an operator who adds a name repeats the two
+  defaults.
+- `address` unset means `169.254.200.1`. The daemon checks at start that
+  no interface on the host carries the address, apart from a stale copy of
+  its own on `lo` from a crash, which it removes. If another interface has
+  it, the daemon under `redirect` fails the start and names the key to set.
+  It does not pick another address on its own, because the acceptance
+  scripts, the doc and the guard chain name one address.
+
 `namespaces` is a block, so a later key needs no rename. The surface follows
 the config surface spec:
 
