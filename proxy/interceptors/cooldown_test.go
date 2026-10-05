@@ -8,6 +8,7 @@ import (
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCooldownExemptVersions(t *testing.T) {
@@ -25,11 +26,7 @@ func TestCooldownExemptVersions(t *testing.T) {
 		"4.0.0": now.Add(-100 * day), // skip-listed but out of window -> not exempt
 		"5.0.0": now.Add(-1 * day),   // in window, neither -> stripped
 	}
-	skip := pmgconfig.CooldownSkipInfo{Versions: map[string]bool{
-		"1.0.0": true,
-		"3.0.0": true,
-		"4.0.0": true,
-	}}
+	skip := cooldownSkipForTest(t, "pkg:npm/pkg@1.0.0", "pkg:npm/pkg@3.0.0", "pkg:npm/pkg@4.0.0")
 
 	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
 
@@ -46,7 +43,7 @@ func TestCooldownExemptVersions_NoActiveWindow(t *testing.T) {
 	now := time.Now()
 	day := 24 * time.Hour
 	dates := map[string]time.Time{"1.0.0": now.Add(-100 * day)}
-	skip := pmgconfig.CooldownSkipInfo{Versions: map[string]bool{"1.0.0": true}}
+	skip := cooldownSkipForTest(t, "pkg:npm/pkg@1.0.0")
 
 	oldVersion := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
 	assert.Empty(t, oldVersion.skipListed)
@@ -74,6 +71,24 @@ func TestCooldownExemptVersions_SkipAll(t *testing.T) {
 	exempt := cooldownExemptVersions(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", skip, dates, 5)
 	assert.ElementsMatch(t, []string{"1.0.0", "2.0.0"}, keysOf(exempt.all))
 	assert.Empty(t, exempt.skipListed, "whole-package skip must not emit per-version events")
+}
+
+// cooldownSkipForTest installs the PURLs as the dependency_cooldown.skip list
+// and returns the skip info of pkg:npm/pkg.
+func cooldownSkipForTest(t *testing.T, purls ...string) pmgconfig.CooldownSkipInfo {
+	t.Helper()
+	cfg := &pmgconfig.Get().Config
+	orig := cfg.DependencyCooldown.Skip
+	cfg.DependencyCooldown.Skip = nil
+	for _, purl := range purls {
+		cfg.DependencyCooldown.Skip = append(cfg.DependencyCooldown.Skip, pmgconfig.TrustedPackage{Purl: purl})
+	}
+	require.NoError(t, pmgconfig.PreprocessPackageRefs(cfg))
+	t.Cleanup(func() {
+		cfg.DependencyCooldown.Skip = orig
+		assert.NoError(t, pmgconfig.PreprocessPackageRefs(cfg))
+	})
+	return pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg")
 }
 
 func keysOf(m map[string]bool) []string {
@@ -284,6 +299,7 @@ func TestRecordCooldownStats(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		ecosystem     packagev1.Ecosystem
 		pinnedVersion string
 		dates         map[string]time.Time
 		stripped      []string
@@ -313,6 +329,31 @@ func TestRecordCooldownStats(t *testing.T) {
 			remaining:    1,
 			wantBlocked:  []string{"2.0.0"},
 			wantWithheld: map[string][]string{},
+		},
+		{
+			name:          "pypi pinned version in another spelling records a block",
+			ecosystem:     packagev1.Ecosystem_ECOSYSTEM_PYPI,
+			pinnedVersion: "2.0",
+			dates: map[string]time.Time{
+				"1.0.0": now.Add(-100 * day),
+				"2.0.0": now.Add(-1 * day),
+			},
+			stripped:     []string{"2.0.0"},
+			remaining:    1,
+			wantBlocked:  []string{"2.0"},
+			wantWithheld: map[string][]string{},
+		},
+		{
+			name:          "npm pinned version in another spelling records withheld",
+			pinnedVersion: "2.0",
+			dates: map[string]time.Time{
+				"1.0.0": now.Add(-100 * day),
+				"2.0.0": now.Add(-1 * day),
+			},
+			stripped:     []string{"2.0.0"},
+			remaining:    1,
+			wantBlocked:  nil,
+			wantWithheld: map[string][]string{"pkg": {"2.0.0"}},
 		},
 		{
 			name:          "surviving pinned version records others as withheld",
@@ -353,8 +394,12 @@ func TestRecordCooldownStats(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ecosystem := tt.ecosystem
+			if ecosystem == packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED {
+				ecosystem = packagev1.Ecosystem_ECOSYSTEM_NPM
+			}
 			collector := NewAnalysisStatsCollector()
-			recordCooldownStats(collector, packagev1.Ecosystem_ECOSYSTEM_NPM, "pkg", tt.pinnedVersion, tt.dates, tt.stripped, tt.remaining, 5)
+			recordCooldownStats(collector, ecosystem, "pkg", tt.pinnedVersion, tt.dates, tt.stripped, tt.remaining, 5)
 
 			var blocked []string
 			for _, b := range collector.GetCooldownBlocks() {

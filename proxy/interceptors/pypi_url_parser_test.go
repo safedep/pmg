@@ -422,6 +422,12 @@ func TestParseWheelFilename(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "wheel keeps trailing zero release segments",
+			filename:    "calcboxlite-1.0.0-py3-none-any.whl",
+			wantName:    "calcboxlite",
+			wantVersion: "1.0.0",
+		},
+		{
 			name:        "wheel with cpython tag",
 			filename:    "numpy-1.24.0-cp311-cp311-linux_x86_64.whl",
 			wantName:    "numpy",

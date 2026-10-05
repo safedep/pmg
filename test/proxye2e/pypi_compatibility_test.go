@@ -148,6 +148,75 @@ func TestProxyFlow_PypiNormalizedPolicyPins(t *testing.T) {
 	RunCases(t, cases)
 }
 
+func TestProxyFlow_PypiPolicySpellings(t *testing.T) {
+	const (
+		name    = "calcboxlite"
+		version = "1.0.0"
+	)
+	addPackage := func(h *Harness) {
+		h.Registry.AddPypi(PypiPackage{Name: name, Versions: []PypiVersion{
+			{Version: "0.9", PublishedAt: old()}, {Version: version, PublishedAt: recent()},
+		}})
+	}
+	cooldown := config.DependencyCooldownConfig{Enabled: true, Days: 2}
+
+	RunCases(t, []TestCase{
+		{
+			Name: "trusted entry in another spelling is trusted",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = cooldown
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:pypi/CalcBoxLite@1.0"}}
+			},
+			Setup: func(h *Harness) {
+				addPackage(h)
+				h.Analyzer.SetPypi(name, version, VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install(name, version) },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				require.Len(t, res.Requests, 2)
+				assert.Equal(t, 200, res.Requests[1].StatusCode)
+				assert.Empty(t, h.Analyzer.Calls())
+				assert.Empty(t, h.CooldownBlocks())
+			},
+		},
+		{
+			Name: "trusted entry for a different project is not trusted",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.TrustedPackages = []config.TrustedPackage{{Purl: "pkg:pypi/calc-box-lite@1.0"}}
+			},
+			Setup: func(h *Harness) {
+				addPackage(h)
+				h.Analyzer.SetPypi(name, version, VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install(name, version) },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount(name, version))
+			},
+		},
+		{
+			Name: "cooldown skip entry in another spelling waives the wait",
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.DependencyCooldown = cooldown
+				rc.Config.DependencyCooldown.Skip = []config.TrustedPackage{{Purl: "pkg:pypi/CalcBoxLite@1.0"}}
+			},
+			Setup: func(h *Harness) {
+				addPackage(h)
+				h.Analyzer.SetPypi(name, version, Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Pypi().Install(name, version) },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.False(t, res.Blocked())
+				require.Len(t, res.Requests, 2)
+				assert.Equal(t, 200, res.Requests[1].StatusCode)
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount(name, version))
+				assert.Empty(t, h.CooldownBlocks())
+			},
+		},
+	})
+}
+
 func TestProxyFlow_PypiCustomIndexHTML(t *testing.T) {
 	var cases []TestCase
 	for _, base := range []string{"/simple", "/user/index/+simple"} {
