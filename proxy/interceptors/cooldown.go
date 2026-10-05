@@ -7,11 +7,11 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/Masterminds/semver"
+	"github.com/safedep/dry/api/pb"
 	"github.com/safedep/dry/log"
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
 	"github.com/safedep/pmg/internal/models"
-	"github.com/safedep/pmg/internal/pypi"
 	"github.com/safedep/pmg/proxy"
 )
 
@@ -209,19 +209,14 @@ func recordCooldownStats(statsCollector *AnalysisStatsCollector, ecosystem packa
 	// pinned block: an in-window pinned version that survived stripping via
 	// the skip list or trusted_packages is installable and must not be
 	// reported as blocked.
-	strippedSet := make(map[string]bool, len(stripped))
+	strippedByKey := make(map[string]string, len(stripped))
 	for _, v := range stripped {
-		strippedSet[v] = true
+		strippedByKey[pb.NewPackageVersionFromParts(ecosystem, packageName, v).Key()] = v
 	}
 
-	lookupVersion := pinnedVersion
-	if ecosystem == packagev1.Ecosystem_ECOSYSTEM_PYPI {
-		if normalized, valid := pypi.NormalizeVersion(pinnedVersion); valid {
-			lookupVersion = normalized
-		}
-	}
-	if pinnedVersion != "" && strippedSet[lookupVersion] {
-		pinnedDate := dates[lookupVersion]
+	pinnedKey := pb.NewPackageVersionFromParts(ecosystem, packageName, pinnedVersion).Key()
+	if strippedVersion, ok := strippedByKey[pinnedKey]; pinnedVersion != "" && ok {
+		pinnedDate := dates[strippedVersion]
 		_, daysAgo, daysLeft := cooldownIsWithinWindow(pinnedDate, cooldownDays)
 		logCooldown(pinnedVersion, pinnedDate, daysAgo, daysLeft)
 		return
