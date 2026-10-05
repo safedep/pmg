@@ -246,10 +246,15 @@ which needs 5.13, and that conntrack answers `SO_ORIGINAL_DST`. Every Docker
 host has both, because Docker's own NAT runs on them. A host that uses
 `iptables-legacy` keeps its rules. Both hook sets run.
 
-On a kernel that refuses the owner flag the daemon runs as `ignore` and
-records the reason, because a table that outlives the daemon is a posture
-this spec does not ship. `pmg proxy status` prints the table state, and
-`pmg doctor` reports a `pmg` table with no daemon behind it as a fault.
+The probe runs before the listener opens. Under `redirect` a failed probe
+fails the start with the failing check in the message, the way `--enforce`
+fails on a host without the BPF features it needs, because an operator who
+set `redirect` wants to know that containers are not covered. Under `auto`
+a failed probe runs the daemon as `ignore` and records the reason, and
+status repeats it. The daemon never creates a table without the owner flag,
+because a table that outlives the daemon is a posture this spec does not
+ship. `pmg proxy status` prints the table state, and `pmg doctor` reports
+a `pmg` table with no daemon behind it as a fault.
 
 ### 7. Config, flag, variable and input
 
@@ -258,7 +263,7 @@ proxy:
   server:
     enforce:
       namespaces:
-        mode: ignore                  # ignore | redirect
+        mode: ignore                  # ignore | redirect | auto
         ingress: [docker0, "br-*"]    # interface names, wildcards allowed
         address: 169.254.200.1        # listener address added to lo
 ```
@@ -267,6 +272,12 @@ The values shown are the defaults. `mode` is the only key an operator
 sets to turn the feature on. The other two exist for a host that differs
 from a Docker host, and the embedded template carries all three with these
 values, because that is what makes Viper bind a variable.
+
+- `redirect` means on, and the start fails when the host cannot do it.
+- `auto` means on where the probe passes and `ignore` elsewhere, with the
+  reason in status. It exists so a later default does not fail the start on
+  a host without nftables.
+- `ignore` means off.
 
 - `ingress` unset means `docker0` and `br-*`, which covers the default
   bridge and every user-defined network Docker creates. An operator on
@@ -289,17 +300,20 @@ the config surface spec:
   `PMG_PROXY_SERVER_ENFORCE_NAMESPACES_ADDRESS`. All three keys go in the
   embedded template, which is what makes Viper bind a variable.
 - `enforce-namespaces` as an action input, passed as the flag.
-- Under `global_lockdown` the parent refuses `--enforce-namespaces ignore`,
-  as it refuses `--enforce-deny-udp=false`.
+- Under `global_lockdown` the parent refuses `--enforce-namespaces ignore`
+  and `auto`, as it refuses `--enforce-deny-udp=false`. A mode that can
+  degrade on its own is a widening.
 
-Under `redirect` the daemon adds the address, opens the listener and loads
-the table in that order, and fails the start if any step fails, because
-`redirect` is explicit. The state file records the mode, the address and
-the ingress list, and status prints one of:
+Under `redirect` the daemon probes, adds the address, opens the listener
+and loads the table in that order, and fails the start if any step fails,
+because `redirect` is explicit. The state file records the mode as
+configured, the mode in effect, the address and the ingress list, and
+status prints one of:
 
 ```
   namespaces: redirect (169.254.200.1:18443 from docker0, br-*)
   namespaces: ignore
+  namespaces: ignore (auto: nf_tables owner flag refused by the kernel)
 ```
 
 The Docker warning keeps its text under `ignore`. Under `redirect` a
@@ -428,6 +442,67 @@ nine messages the table needs through `mdlayher/netlink` directly. The POC
 needed none of this, because it used the `nft` binary, which the daemon
 cannot.
 
+## Manual verification
+
+A desktop with Docker is enough. Use a registry host for the fail-closed
+check. Any other host is passed through with its real certificate, so
+`curl https://ifconfig.co` succeeds with or without the CA and shows the
+same address either way, because the container's egress leaves through the
+host in both cases. It is the "everything else still works" check, not the
+enforcement check.
+
+```sh
+# terminal 1
+sudo pmg proxy start --enforce --enforce-namespaces redirect
+pmg proxy status        # namespaces: redirect (169.254.200.1:18443 from docker0, br-*)
+
+# terminal 2, the rules and their counters, live
+sudo watch -n1 nft list table inet pmg
+
+# terminal 3, no trust
+docker run --rm -it curlimages/curl sh
+curl -sS https://registry.npmjs.org/-/ping    # curl: (60) certificate error
+curl -sS https://ifconfig.co                  # passed through, succeeds
+curl -sS http://registry.npmjs.org/-/ping     # {} , plain HTTP is steered too
+```
+
+Then with the host bundle in the container. The bundle, not the bare CA,
+keeps the public roots for the passthrough hosts:
+
+```sh
+eval "$(pmg proxy env)"                       # exports PMG_CA_BUNDLE
+docker run --rm -it \
+  -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem \
+  curlimages/curl sh
+curl -sS https://registry.npmjs.org/-/ping    # {}
+```
+
+`CURL_CA_BUNDLE` is curl's variable. An npm or pip image takes
+`NODE_EXTRA_CA_CERTS` or `PIP_CERT`, as in part 8.
+
+Three more checks:
+
+- **Crash.** `sudo kill -9 $(pidof pmg)`. `sudo nft list tables` no longer
+  lists `inet pmg`, and the next curl in the container succeeds directly.
+  That is the owner flag at work.
+- **Hint line.** After the failing curl, the daemon log carries the
+  `unknown_ca` line that names `PMG_CA_BUNDLE`. If it does not, part 8 has
+  a bug.
+- **Not steered.** `docker run --rm --network host curlimages/curl -sS
+  https://registry.npmjs.org/-/ping` fails the same way through the cgroup
+  programs, and the `steer` counters in terminal 2 do not move.
+
+Two host notes. Arch ships the legacy `iptables` by default, so Docker's
+rules live in the legacy tables and ours in nf_tables. Both hook sets run.
+`br_netfilter` is often not loaded on a desktop. The redirect path does not
+depend on it either way, and `sudo modprobe br_netfilter` before the POC's
+tproxy mode shows the failure that decided this revision.
+
+Before the implementation lands, `sudo MODE=dnat ./scripts/tproxy-poc/docker.sh`
+runs the same ruleset against a live dockerd. It splices TLS instead of
+terminating it, so it proves steering, the exclusions and fail closed, and
+not the certificate checks above.
+
 ## Acceptance
 
 Scripts under `test/acceptance/scripts/enforce/`, each with a catalog row.
@@ -445,7 +520,8 @@ status scripts that exist gain the new assertions instead of new scripts.
 | `scope/namespaces-root-not-exempt` | `exempt_users: root` on the host does not exempt a root process in a container. |
 | `scope/namespaces-no-relay` | A container cannot use the listener as a proxy: a `CONNECT` is refused, and a redirected request with the metadata address as its `Host` is refused. |
 | `scope/namespaces-owner-table` | After `kill -9` of the daemon the table is gone and a container reaches the registry directly. |
-| `policy/lockdown-governs-widening-flags` | Also: under lockdown `--enforce-namespaces ignore` is refused and `redirect` is accepted. |
+| `policy/lockdown-governs-widening-flags` | Also: under lockdown `--enforce-namespaces ignore` and `auto` are refused and `redirect` is accepted. |
+| `scope/namespaces-redirect-fails-fast` | With nf_tables unavailable, `--enforce-namespaces redirect` fails the start and names the check, and `auto` starts as `ignore` with the reason in status. |
 | `status/reports-enforcement` | Also: status prints the mode, the address and the ingress list, and `pmg proxy env` prints `PMG_CA_BUNDLE` for a file that holds the PMG CA. |
 
 The kernel e2e gains the POC's local topology in Go: a bridge, two
@@ -460,9 +536,10 @@ change.
 
 1. Ship with `mode: ignore` as the default. Status and the Docker warning
    tell every operator the switch exists.
-2. One release later, change the default to `redirect`, with a changelog
+2. One release later, change the default to `auto`, with a changelog
    entry that names the failure a build without the CA will see. An operator
-   who needs time sets `mode: ignore` in the managed config.
+   who needs time sets `mode: ignore` in the managed config, and one who
+   wants the start to fail on a host that cannot redirect sets `redirect`.
 
 ## Decisions needed
 
@@ -478,7 +555,8 @@ change.
 4. The listener address is `169.254.200.1/32` on `lo`, configurable.
    Recommended: yes. `100.64.0.0/10` collides with Tailscale and
    `192.0.2.0/24` is in use on hosted runners.
-5. The default changes to `redirect` after one release. Recommended: yes.
+5. The default changes to `auto` after one release, and `redirect` stays
+   the explicit, fail-fast form. Recommended: yes.
 
 ## Why revision 2
 
