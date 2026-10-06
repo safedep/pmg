@@ -444,24 +444,52 @@ name the path as the container sees it:
     NODE_EXTRA_CA_CERTS: /github/workspace/pmg-ca.pem
 ```
 
-#### Checking it on a desktop
+#### Checking the redirect on a desktop
+
+Three steps show the whole contract. Start the daemon, then run each
+container command from another terminal.
 
 ```sh
 sudo pmg proxy start --enforce --enforce-namespaces redirect
-pmg proxy status                                 # the namespaces line
-sudo nft list table inet pmg                     # the rules and counters
-
-docker run --rm -it curlimages/curl sh
-curl -sS https://registry.npmjs.org/-/ping       # curl: (60) certificate error
-curl -sS https://ifconfig.co                     # passed through, succeeds
-
-eval "$(sudo pmg proxy env)"
-docker run --rm -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem \
-  curlimages/curl -sS https://registry.npmjs.org/-/ping   # {}
+pmg proxy status        # namespaces: redirect (169.254.200.1:<port> from docker0, br-*)
 ```
 
-After `sudo kill -9 $(pidof pmg)`, `nft list tables` no longer shows
-`inet pmg` and the container reaches the registry directly.
+If the start printed a firewall warning, add the rule it names first. On
+ufw that is `sudo ufw allow in on docker0 to 169.254.200.1`. Without it a
+container hangs instead of failing.
+
+1. A host that is not a registry passes through with its real certificate.
+   The container needs nothing.
+
+   ```sh
+   docker run --rm curlimages/curl -sS https://ifconfig.co
+   ```
+
+2. A registry host is intercepted. Without the PMG CA the container fails
+   closed, and the daemon log names the fix.
+
+   ```sh
+   docker run --rm curlimages/curl -sS https://registry.npmjs.org/-/ping
+   # curl: (60) SSL certificate problem
+   ```
+
+3. With the host bundle mounted, the registry works through the proxy and a
+   known-malicious package is blocked.
+
+   ```sh
+   eval "$(sudo pmg proxy env)"      # exports PMG_CA_BUNDLE
+   docker run --rm -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem \
+     curlimages/curl -sS https://registry.npmjs.org/-/ping
+   # {}
+   docker run --rm -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem \
+     curlimages/curl -sS -o /dev/null -w '%{http_code}\n' \
+     https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz
+   # 403
+   ```
+
+`sudo nft list table inet pmg` shows the rules. After
+`sudo kill -9 $(pidof pmg)`, `nft list tables` no longer shows `inet pmg`
+and the container reaches the registry directly.
 
 ### Limitations
 
