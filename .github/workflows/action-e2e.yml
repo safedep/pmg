@@ -163,6 +163,179 @@ jobs:
           set -euo pipefail
           test -z "$(.github/scripts/enforce-flags.sh)"
 
+  job-container-loopback:
+    name: Server mode in a job container keeps the loopback bind
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: node:24
+      # PMG v0.30.0 and older hang on proxy stop when PID 1 does not reap the
+      # daemon (#510). An init process reaps it.
+      options: --init
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./
+        with:
+          server-mode: true
+      - name: The proxy listens on loopback
+        run: |
+          set -euo pipefail
+          case "$HTTPS_PROXY" in
+            http://127.0.0.1:*) ;;
+            *) echo "::error::Expected a loopback proxy, got ${HTTPS_PROXY}" >&2; exit 1 ;;
+          esac
+      - name: A benign install succeeds
+        run: |
+          set -euo pipefail
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: A malicious install is blocked
+        run: |
+          set -euo pipefail
+          mkdir mal && cd mal
+          npm init -y >/dev/null
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "::error::The malicious install succeeded." >&2
+            exit 1
+          fi
+      - name: Stop reports the block
+        run: |
+          set +e
+          out="$(pmg proxy stop --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -q "were blocked" <<<"$out"
+
+  job-container-expose:
+    name: Docker actions reach the proxy with expose-to-job-network
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: node:24
+      # PMG v0.30.0 and older hang on proxy stop when PID 1 does not reap the
+      # daemon (#510). An init process reaps it.
+      options: --init
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./
+        with:
+          server-mode: true
+          expose-to-job-network: true
+      - name: The proxy listens on the job container address
+        run: |
+          set -euo pipefail
+          addr="$(getent ahostsv4 "$HOSTNAME" | awk 'NR == 1 { print $1 }')"
+          echo "job container address: ${addr}, HTTPS_PROXY: ${HTTPS_PROXY}"
+          case "$HTTPS_PROXY" in
+            "http://${addr}:"*) ;;
+            *) echo "::error::Expected the proxy on ${addr}, got ${HTTPS_PROXY}" >&2; exit 1 ;;
+          esac
+          case "$NODE_EXTRA_CA_CERTS" in
+            /github/home/*) ;;
+            *) echo "::error::Expected the CA under /github/home, got ${NODE_EXTRA_CA_CERTS}" >&2; exit 1 ;;
+          esac
+      - name: A benign install in the job container succeeds
+        run: |
+          set -euo pipefail
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: Write the check that runs in the Docker actions
+        run: |
+          cat > pmg-docker-check.sh <<'EOF'
+          set -euo pipefail
+          case "$HTTPS_PROXY" in
+            http://127.0.0.1:*|"") echo "::error::No reachable proxy in the Docker action: '${HTTPS_PROXY}'" >&2; exit 1 ;;
+          esac
+          test -r "$NODE_EXTRA_CA_CERTS"
+          cd "$(mktemp -d)"
+          case "$1" in
+            npm)
+              npm init -y >/dev/null
+              npm install lodash@4.17.21
+              test -d node_modules/lodash
+              malicious=(npm --no-cache --prefer-online install safedep-test-pkg@0.1.3)
+              ;;
+            pip)
+              python -m venv venv
+              . venv/bin/activate
+              pip install --no-cache-dir six
+              malicious=(pip install --no-cache-dir safedep-test-pkg)
+              ;;
+          esac
+          set +e
+          out="$("${malicious[@]}" 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          if [ "$code" -eq 0 ]; then
+            echo "::error::The malicious $1 install succeeded in the Docker action." >&2
+            exit 1
+          fi
+          # The proxy answers a block with 403. Any other failure is not a block.
+          grep -q 403 <<<"$out"
+          EOF
+      - name: npm in a Docker action goes through the proxy
+        uses: docker://node:24
+        with:
+          entrypoint: bash
+          args: /github/workspace/pmg-docker-check.sh npm
+      - name: pip in a Docker action goes through the proxy
+        uses: docker://python:3.12-slim
+        with:
+          entrypoint: bash
+          args: /github/workspace/pmg-docker-check.sh pip
+      - name: Stop reports the blocks from the Docker actions
+        run: |
+          set +e
+          out="$(pmg proxy stop --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -q "were blocked" <<<"$out"
+
+  expose-needs-job-container:
+    name: expose-to-job-network fails without a job container
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A service container gives the job a container network but no job
+    # container, which the action must not mistake for one.
+    services:
+      web:
+        image: nginx:alpine
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: The job has a container network and no job container
+        run: |
+          set -euo pipefail
+          test -n "${{ job.container.network }}"
+          test -z "${{ job.container.id }}"
+      - name: Action must exit non-zero
+        id: run
+        continue-on-error: true
+        uses: ./
+        with:
+          server-mode: true
+          expose-to-job-network: true
+      - name: The action failed and started no proxy
+        run: |
+          set -euo pipefail
+          test "${{ steps.run.outcome }}" = "failure"
+          pmg proxy status | tee status.txt
+          grep -q "not running" status.txt
+
   non-linux-fail-fast:
     name: Action fails fast on non-Linux runners
     strategy:

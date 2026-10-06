@@ -77,6 +77,10 @@ inputs:
     description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job. Requires a job-end "pmg proxy stop --fail-on-violation" step.
     required: false
     default: "false"
+  expose-to-job-network:
+    description: With server-mode in a job that has a job container, bind the proxy to the job container's address on the job network instead of 127.0.0.1. Docker container actions and docker:// steps in the same job can then reach the proxy. Every container on the job network can reach the proxy. Fails when the job has no job container.
+    required: false
+    default: "false"
 
   enforce:
     description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation".
@@ -373,16 +377,65 @@ runs:
       shell: bash
       run: echo "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
 
+    - name: Warn about expose-to-job-network without server mode
+      if: inputs.expose-to-job-network == 'true' && (inputs.server-mode != 'true' || inputs.enforce == 'true')
+      shell: bash
+      run: echo "::warning::expose-to-job-network applies only with server-mode true and enforce false. It is ignored."
+
     - name: Start PMG proxy server (server mode)
       if: inputs.server-mode == 'true' && inputs.enforce != 'true'
       shell: bash
+      env:
+        INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network }}
+        JOB_CONTAINER_ID: ${{ job.container.id }}
       run: |
         set -euo pipefail
         # No cert install needed: `pmg proxy env` exports the CA path via
         # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
         # the proxy without touching the OS trust store.
-        pmg proxy start --daemon
-        pmg proxy env >> "$GITHUB_ENV"
+        if [ "$INPUT_EXPOSE_TO_JOB_NETWORK" != "true" ]; then
+          pmg proxy start --daemon
+          pmg proxy env >> "$GITHUB_ENV"
+          exit 0
+        fi
+
+        # The runner sets job.container.id only for a job container, never
+        # for a job on the runner itself. On the runner, the address would be
+        # the host's own, and the proxy would be open to its network.
+        if [ -z "$JOB_CONTAINER_ID" ]; then
+          echo "::error::expose-to-job-network needs a job container (jobs.<job_id>.container)." >&2
+          exit 1
+        fi
+
+        # Docker writes the container's address on the job network next to
+        # its hostname in /etc/hosts. Read it in bash, because the image may
+        # not have the hostname or getent tools.
+        host=""
+        while read -r addr names; do
+          case "$addr" in ""|"#"*|127.*|*:*) continue ;; esac
+          for name in $names; do
+            if [ "$name" = "$HOSTNAME" ]; then
+              host="$addr"
+              break 2
+            fi
+          done
+        done < /etc/hosts
+        if [ -z "$host" ]; then
+          echo "::error::Cannot find the address of the job container for hostname ${HOSTNAME} in /etc/hosts." >&2
+          exit 1
+        fi
+
+        pmg proxy start --daemon --host "$host"
+        proxy_env="$(pmg proxy env)"
+        printf '%s\n' "$proxy_env" >> "$GITHUB_ENV"
+
+        # The runner mounts /github/home in the job container (as HOME) and
+        # in Docker actions. A CA outside it is missing in Docker actions.
+        ca="$(printf '%s\n' "$proxy_env" | sed -n 's/^NODE_EXTRA_CA_CERTS=//p')"
+        case "$ca" in
+          /github/home/*) ;;
+          *) echo "::warning::The PMG CA is at ${ca}, outside /github/home. Docker actions cannot read it, so their TLS connections through the proxy fail." ;;
+        esac
 
     - name: Start PMG proxy server with kernel enforcement (server mode)
       if: inputs.server-mode == 'true' && inputs.enforce == 'true'

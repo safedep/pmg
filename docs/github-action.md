@@ -69,6 +69,7 @@ default.
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
 | `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job. Needs a job-end `pmg proxy stop --fail-on-violation` step. | `false` (shims) |
+| `expose-to-job-network` | With `server-mode` in a job that has a job container, bind the proxy to the job container's address on the job network. Docker actions and `docker://` steps in the job can then reach the proxy. The action fails when the job has no job container. See [Job containers and Docker actions](#job-containers-and-docker-actions). | `false` |
 | `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. | `false` |
 | `enforce-ports` | With `enforce`, destination ports to route in addition to the config, comma or newline separated. Passed as `--enforce-port`. | unset |
 | `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
@@ -199,6 +200,63 @@ the action exports as `PMG_CA_BUNDLE`:
 
 See [persistent-proxy.md](./persistent-proxy.md#containers-and-other-network-namespaces)
 for the `RUN` block that mounts the secret.
+
+### Job containers and Docker actions
+
+In a job that has a job container (`jobs.<job_id>.container`), the action
+and the proxy run in the job container. The `run:` steps in the job
+container reach the proxy at `127.0.0.1`.
+
+A Docker action or a `docker://` step runs in a different container on the
+job network. In that container, `127.0.0.1` is its own loopback, so the
+connection to the proxy fails. To give these steps access to the proxy, set
+`expose-to-job-network`:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: node:24
+      options: --init
+    steps:
+      - uses: actions/checkout@v4
+      - uses: safedep/pmg@v1
+        with:
+          server-mode: true
+          expose-to-job-network: true
+      - run: npm ci
+      - uses: docker://node:24
+        with:
+          args: npm ci
+      - if: always()
+        run: pmg proxy stop --fail-on-violation
+```
+
+The action binds the proxy to the address of the job container on the job
+network. All containers on the job network can then reach the proxy,
+including service containers. The proxy does not listen on `127.0.0.1`.
+
+The CA is in `/github/home`, which is `HOME` in the job container. The
+runner also mounts `/github/home` in Docker actions, so the exported CA path
+is valid in both. If the image sets `HOME` or `XDG_CONFIG_HOME` to a
+different directory, the action shows a warning, and TLS through the proxy
+fails in Docker actions. `SSL_CERT_FILE` points to a bundle made from the
+system CAs of the job container and the PMG CA. A tool in a Docker action
+that reads `SSL_CERT_FILE` uses this bundle instead of the system CAs of the
+image.
+
+PMG v0.30.0 and older need `options: --init` in a job container. Without
+it, `pmg proxy stop` waits until its timeout and fails.
+
+`expose-to-job-network` does not help these containers:
+
+- Docker actions and `docker://` steps in a job without a job container.
+  The container cannot reach the runner's loopback, and it does not have
+  the PMG CA.
+- Containers that a script starts with `docker run`. On a job without a job
+  container, `enforce-namespaces` can redirect them. See
+  [Kernel enforcement](#kernel-enforcement).
 
 ### Sandbox mode
 
