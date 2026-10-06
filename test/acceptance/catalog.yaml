@@ -449,12 +449,42 @@
   tier: P1
   guarantee: "An executable that matches proxy.server.enforce.exempt_executables connects directly. Other executables are routed."
   labels: [exempt]
-- id: enforce/scope/containers-unaffected
-  title: "containers keep their own network"
+- id: enforce/scope/namespaces-ignore
+  title: "containers keep their own network under namespaces ignore"
   category: enforce
   tier: P1
-  guarantee: "Enforcement does not touch a process in another network namespace, so a container reaches the registry directly."
+  guarantee: "Under namespaces mode ignore, enforcement does not touch a process in another network namespace, so a container reaches the registry directly."
   labels: [scope]
+- id: enforce/scope/namespaces-redirected-fail-closed
+  title: "redirected container without the CA fails closed"
+  category: enforce
+  tier: P0
+  guarantee: "Under namespaces mode redirect, a container without the PMG CA gets a certificate error on a registry host and still reaches a non-registry host."
+  labels: [scope, trust, bypass]
+- id: enforce/scope/namespaces-redirected-trusted
+  title: "redirected container with the bundle installs through the proxy"
+  category: enforce
+  tier: P0
+  guarantee: "Under namespaces mode redirect, a container with the host bundle mounted reaches the registry through the proxy and is blocked on a malicious package."
+  labels: [scope, trust, malware, block]
+- id: enforce/scope/namespaces-build-step
+  title: "docker build RUN step is redirected"
+  category: enforce
+  tier: P1
+  guarantee: "A docker build RUN step fails without the CA and passes with the host bundle as a build secret named by pmg proxy env."
+  labels: [scope, trust]
+- id: enforce/scope/namespaces-to-container-untouched
+  title: "container to container traffic is not redirected"
+  category: enforce
+  tier: P1
+  guarantee: "Two containers on a network created after the daemon started talk over port 80 by name, outside the proxy."
+  labels: [scope]
+- id: enforce/scope/namespaces-owner-table
+  title: "redirect table dies with the daemon"
+  category: enforce
+  tier: P1
+  guarantee: "After kill -9 of the daemon the nftables table is gone and a container reaches the registry directly."
+  labels: [scope, lifecycle]
 - id: enforce/lifecycle/detach-on-stop
   title: "stop removes enforcement"
   category: enforce

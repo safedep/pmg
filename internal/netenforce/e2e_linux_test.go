@@ -34,6 +34,8 @@ const (
 	helperEnv  = "PMG_ENFORCE_HELPER"
 	helperAddr = "PMG_ENFORCE_HELPER_ADDR"
 	nestedEnv  = "PMG_ENFORCE_NESTED"
+
+	helperListening = "helper: listening"
 )
 
 // TestHelperProcess is the body of every child. It runs only when the test
@@ -48,10 +50,14 @@ func TestHelperProcess(t *testing.T) {
 	var err error
 	switch action {
 	case "tcp4":
-		err = helperTCP4(addr)
+		err = helperTCP("tcp4", addr)
+	case "tcp6":
+		err = helperTCP("tcp6", addr)
+	case "tcp6-listen":
+		err = helperTCPListen("tcp6", addr)
 	case "tcp4-delayed":
 		time.Sleep(500 * time.Millisecond)
-		err = helperTCP4(addr)
+		err = helperTCP("tcp4", addr)
 	case "tcp6-mapped":
 		err = helperTCP6Mapped(addr)
 	case "udp4":
@@ -70,8 +76,8 @@ func TestHelperProcess(t *testing.T) {
 // helperTCP4 connects and waits for one line. The listener answers at once.
 // A reachable destination that the kernel did not redirect, such as a cloud
 // metadata service, answers nothing, so the read has a deadline too.
-func helperTCP4(addr netip.AddrPort) error {
-	conn, err := net.DialTimeout("tcp4", addr.String(), 2*time.Second)
+func helperTCP(network string, addr netip.AddrPort) error {
+	conn, err := net.DialTimeout(network, addr.String(), 2*time.Second)
 	if err != nil {
 		return err
 	}
@@ -81,6 +87,27 @@ func helperTCP4(addr netip.AddrPort) error {
 	}
 	buf := make([]byte, 16)
 	_, err = conn.Read(buf)
+	return err
+}
+
+// helperTCPListen accepts one connection on addr and answers it. It prints
+// a line once it listens, so a test can wait for it before it connects.
+func helperTCPListen(network string, addr netip.AddrPort) error {
+	ln, err := net.Listen(network, addr.String())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ln.Close() }()
+	fmt.Println(helperListening)
+	if err := ln.(*net.TCPListener).SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	conn, err := ln.Accept()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	_, err = conn.Write([]byte("hello\n"))
 	return err
 }
 
@@ -133,7 +160,7 @@ type e2e struct {
 	t        *testing.T
 	handle   *linuxHandle
 	listener net.Listener
-	accepted chan netip.AddrPort // the original destination of each accepted client
+	accepted chan Origin // the original destination of each accepted client, and who asked
 	exeDir   string
 }
 
@@ -166,7 +193,7 @@ func newE2E(t *testing.T) *e2e {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
 
-	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan netip.AddrPort, 16), exeDir: exeDir}
+	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan Origin, 16), exeDir: exeDir}
 	go e.acceptLoop()
 	return e
 }
@@ -215,11 +242,10 @@ func (e *e2e) acceptLoop() {
 		}
 		client := netip.MustParseAddrPort(conn.RemoteAddr().String())
 		orig, ok := e.handle.OriginalDestination(client)
-		if ok {
-			e.accepted <- orig
-		} else {
-			e.accepted <- netip.AddrPort{}
+		if !ok {
+			orig = Origin{}
 		}
+		e.accepted <- orig
 		_, _ = conn.Write([]byte("pmg\n"))
 		_ = conn.Close()
 	}
@@ -264,15 +290,21 @@ func (e *e2e) decision(match func(Decision) bool) Decision {
 // acceptedFor waits for a redirected connection whose original destination
 // is dst, and ignores any other.
 func (e *e2e) acceptedFor(dst netip.AddrPort, d time.Duration) bool {
+	_, ok := e.originFor(dst, d)
+	return ok
+}
+
+// originFor is acceptedFor with the record the listener recovered.
+func (e *e2e) originFor(dst netip.AddrPort, d time.Duration) (Origin, bool) {
 	deadline := time.After(d)
 	for {
 		select {
 		case orig := <-e.accepted:
-			if orig == dst {
-				return true
+			if orig.Dst == dst {
+				return orig, true
 			}
 		case <-deadline:
-			return false
+			return Origin{}, false
 		}
 	}
 }
@@ -298,7 +330,18 @@ func TestE2E_RedirectRecoversOriginalDestination(t *testing.T) {
 	d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) && d.Destination == dst })
 	assert.Equal(t, ActionRedirect, d.Action)
 	assert.Equal(t, "tcp", d.Protocol)
-	assert.True(t, e.acceptedFor(dst, 2*time.Second), "the listener recovers the original destination")
+	orig, ok := e.originFor(dst, 2*time.Second)
+	require.True(t, ok, "the listener recovers the original destination")
+	assert.Equal(t, uint32(pid), orig.PID, "the record names the client process")
+	assert.Equal(t, truncateComm(filepath.Base(os.Args[0])), orig.Comm)
+}
+
+// truncateComm shortens a name the way the kernel stores a task name.
+func truncateComm(name string) string {
+	if len(name) > 15 {
+		return name[:15]
+	}
+	return name
 }
 
 func TestE2E_IPv4MappedIPv6IsRedirected(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/netenforce"
+	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,6 +98,7 @@ func TestEnvVarsInEnforceModeAreTrustOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, vars, "NODE_USE_SYSTEM_CA=1")
 	assert.Contains(t, vars, "UV_NATIVE_TLS=1")
+	assert.Contains(t, vars, "PMG_CA_BUNDLE="+certmanager.SystemCABundlePath())
 	for _, v := range vars {
 		assert.NotContains(t, v, "PROXY", "no proxy variable in enforce mode")
 		assert.NotContains(t, v, "NODE_EXTRA_CA_CERTS", "trust comes from the system store")

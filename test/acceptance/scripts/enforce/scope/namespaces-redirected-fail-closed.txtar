@@ -1,0 +1,20 @@
+# guarantee: under namespaces mode redirect, a container that does not trust
+# the PMG CA gets a certificate error on a registry host and still reaches a
+# non-registry host with its real certificate.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!docker] skip 'docker not available'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --enforce-namespaces redirect --state $ENFORCE_STATE
+exec pmg proxy status --state $ENFORCE_STATE
+stdout 'namespaces: redirect \(169\.254\.200\.1:[0-9]+ from docker0, br-\*\)'
+
+! exec docker run --rm curlimages/curl:8.11.1 -sS -o /dev/null https://registry.npmjs.org/
+stderr 'certificate'
+
+exec docker run --rm curlimages/curl:8.11.1 -sS -o /dev/null -w '%{http_code}' https://github.com/
+stdout '^200$'

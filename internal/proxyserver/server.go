@@ -123,6 +123,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		caCertPath string
 		enforcer   netenforce.Enforcer
 		policy     netenforce.Policy
+		namespaces *namespaceRedirect
 		warnings   []string
 		err        error
 	)
@@ -132,8 +133,15 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 			return err
 		}
 		policy.TraceDecisions = strings.EqualFold(os.Getenv("APP_LOG_LEVEL"), "debug")
-		enforcer, caCert, warnings, err = enforcePreflight(cfg, policy)
+		namespaces, err = newNamespaceRedirect(cfg.Config.Proxy.Server.Enforce.Namespaces, policy)
 		if err != nil {
+			return err
+		}
+		enforcer, caCert, warnings, err = enforcePreflight(cfg, policy, namespaces.active())
+		if err != nil {
+			return err
+		}
+		if err := namespaces.prepare(); err != nil {
 			return err
 		}
 		caCertPath = certmanager.CACertPath(config.SystemConfigDir())
@@ -144,6 +152,18 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 			return fmt.Errorf("setup CA certificate: %w", err)
 		}
 	}
+
+	// prepare put the listener address on lo. Until the proxy serves, a
+	// failed start must take it off again. stopServer owns that afterwards.
+	serving := false
+	defer func() {
+		if serving {
+			return
+		}
+		if nerr := namespaces.detachAll(); nerr != nil {
+			log.Warnf("failed to remove the namespace redirect: %v", nerr)
+		}
+	}()
 
 	certMgr, err := certmanager.NewCertificateManagerWithCA(caCert, certmanager.DefaultCertManagerConfig())
 	if err != nil {
@@ -185,8 +205,13 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	if opts.Enforce {
 		proxyConfig.Transparent = true
 		proxyConfig.OriginalDestination = resolver
+		proxyConfig.OnCertificateRejected = certificateRejectedNotice
 		if addr6 := ipv6LoopbackAddr(); addr6 != "" {
 			proxyConfig.AdditionalListenAddrs = []string{addr6}
+		}
+		if addr := namespaces.listenAddr(); addr != "" {
+			proxyConfig.AdditionalListenAddrs = append(proxyConfig.AdditionalListenAddrs, addr)
+			proxyConfig.RedirectOnlyAddrs = []string{namespaces.policy.Address.String()}
 		}
 	}
 
@@ -198,11 +223,15 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	if err := server.Start(); err != nil {
 		return fmt.Errorf("start proxy server: %w", err)
 	}
+	serving = true
 	stopServer := func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
 		defer cancel()
 		if serr := server.Stop(stopCtx); serr != nil {
 			log.Warnf("failed to stop proxy: %v", serr)
+		}
+		if nerr := namespaces.detachAll(); nerr != nil {
+			log.Warnf("failed to remove the namespace redirect: %v", nerr)
 		}
 	}
 
@@ -222,6 +251,18 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 			return err
 		}
 		resolver.set(enforceHandle)
+		if err := namespaces.attach(ctx, server.AdditionalAddresses()); err != nil {
+			if cerr := enforceHandle.Close(); cerr != nil {
+				log.Warnf("failed to detach enforcement after the namespace redirect failed: %v", cerr)
+			}
+			stopServer()
+			return err
+		}
+		// Under auto the attach can turn the mode into ignore, so the
+		// namespace warnings and the resolver follow the mode in effect.
+		resolver.useConntrack(namespaces.active())
+		state.Enforce.Namespaces = namespaces.state()
+		state.Enforce.Warnings = append(state.Enforce.Warnings, namespaces.warnings()...)
 	}
 
 	if err := writeState(statePath, state); err != nil {
@@ -252,6 +293,12 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// Enforcement stays on while the server drains, so a client that connects
 	// now is refused instead of going direct. The kernel detaches at exit in
 	// any case.
+	// The redirect table goes first, so no container is sent to a listener
+	// that is closing. The address stays until the server drained, because
+	// a connection whose local address is gone cannot answer.
+	if nerr := namespaces.detach(); nerr != nil {
+		log.Warnf("failed to remove the namespace redirect table: %v", nerr)
+	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
 	defer cancel()
 	stopErr := server.Stop(stopCtx)
@@ -260,6 +307,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		if cerr := enforceHandle.Close(); cerr != nil {
 			log.Warnf("failed to detach enforcement: %v", cerr)
 		}
+	}
+	if nerr := namespaces.releaseAddress(); nerr != nil {
+		log.Warnf("%v", nerr)
 	}
 
 	close(confirmationChan)
@@ -335,6 +385,9 @@ func startupMessage(state State) string {
 	fmt.Fprintf(&b, "PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
 		state.Addr, state.Enforce.CgroupPath, state.Enforce.PortList())
 	b.WriteString(configSourceLine(state))
+	if line := NamespaceStatusLine(state.Enforce.Namespaces); line != "" {
+		fmt.Fprintf(&b, "  %s\n", line)
+	}
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
 	for _, w := range state.Enforce.Warnings {
 		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)

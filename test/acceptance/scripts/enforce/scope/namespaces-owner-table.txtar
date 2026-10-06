@@ -1,0 +1,23 @@
+# guarantee: the redirect table dies with the daemon. After kill -9 the
+# table is gone and a container reaches the registry directly.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!docker] skip 'docker not available'
+[!exec:nft] skip 'nft not installed'
+[!exec:jq] skip 'jq not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --enforce-namespaces redirect --state $ENFORCE_STATE
+exec nft list tables
+stdout 'table inet pmg'
+
+exec sh -c 'kill -9 "$(jq -r .pid "$ENFORCE_STATE")"'
+exec sleep 1
+
+exec nft list tables
+! stdout 'table inet pmg'
+exec docker run --rm curlimages/curl:8.11.1 -sS -o /dev/null -w '%{http_code}' https://registry.npmjs.org/
+stdout '^200$'

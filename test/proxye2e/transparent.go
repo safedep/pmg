@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/safedep/pmg/proxy"
 	"net"
 	"net/http"
 	"net/netip"
@@ -110,9 +111,24 @@ func (h *Harness) redirectedTLS(sni, path string, cfg *tls.Config) RequestOutcom
 // which makes the proxy fall back to the original destination.
 func (h *Harness) RedirectedHTTP(host, path string) RequestOutcome {
 	h.t.Helper()
+	return h.RedirectedHTTPTo(h.proxy.Address(), host, path)
+}
+
+// RedirectOnlyAddr returns the address of the redirect-only listener, or ""
+// when the harness has none or the host could not bind it.
+func (h *Harness) RedirectOnlyAddr() string {
+	for _, addr := range h.proxy.AdditionalAddresses() {
+		return addr
+	}
+	return ""
+}
+
+// RedirectedHTTPTo is RedirectedHTTP against one of the proxy's listeners.
+func (h *Harness) RedirectedHTTPTo(listener, host, path string) RequestOutcome {
+	h.t.Helper()
 
 	out := RequestOutcome{URL: "http://" + host + path}
-	conn, err := net.DialTimeout("tcp", h.proxy.Address(), 10*time.Second)
+	conn, err := net.DialTimeout("tcp", listener, 10*time.Second)
 	if err != nil {
 		out.Err = err
 		return out
@@ -170,8 +186,8 @@ type StaticOriginalDestination struct {
 	Addr netip.AddrPort
 }
 
-func (s *StaticOriginalDestination) OriginalDestination(netip.AddrPort) (netip.AddrPort, bool) {
-	return s.Addr, s.Addr.IsValid()
+func (s *StaticOriginalDestination) OriginalDestination(netip.AddrPort) (proxy.Origin, bool) {
+	return proxy.Origin{Dst: s.Addr}, s.Addr.IsValid()
 }
 
 // MockRegistryAddrPort returns the mock registry's TLS address as the kernel

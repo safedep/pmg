@@ -21,10 +21,12 @@ const (
 	minKernelMinor = 15
 )
 
-var requiredCapabilities = []struct {
+type capability struct {
 	name string
 	bit  uint
-}{
+}
+
+var requiredCapabilities = []capability{
 	{"CAP_BPF", unix.CAP_BPF},
 	{"CAP_NET_ADMIN", unix.CAP_NET_ADMIN},
 	{"CAP_PERFMON", unix.CAP_PERFMON},
@@ -54,7 +56,7 @@ func probe() ProbeResult {
 		r.CgroupPath = path
 	}
 
-	for _, missing := range missingCapabilities() {
+	for _, missing := range missingCapabilities(requiredCapabilities...) {
 		r.Missing = append(r.Missing, missing+" is not in the effective capability set (run as root)")
 	}
 
@@ -120,14 +122,14 @@ func isCgroup2(path string) bool {
 	return err == nil
 }
 
-// missingCapabilities returns the names of the required capabilities the
-// process lacks. The effective set is what the bpf syscall checks.
-func missingCapabilities() []string {
+// missingCapabilities returns the names of the given capabilities the
+// process lacks. The effective set is what the kernel checks.
+func missingCapabilities(required ...capability) []string {
 	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
 	var data [2]unix.CapUserData
 	if err := unix.Capget(&hdr, &data[0]); err != nil {
-		names := make([]string, 0, len(requiredCapabilities))
-		for _, c := range requiredCapabilities {
+		names := make([]string, 0, len(required))
+		for _, c := range required {
 			names = append(names, c.name)
 		}
 		return names
@@ -135,7 +137,7 @@ func missingCapabilities() []string {
 
 	effective := uint64(data[0].Effective) | uint64(data[1].Effective)<<32
 	var missing []string
-	for _, c := range requiredCapabilities {
+	for _, c := range required {
 		if effective&(1<<c.bit) == 0 {
 			missing = append(missing, c.name)
 		}
