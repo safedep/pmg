@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 const stateFileName = "proxy-state.json"
@@ -71,7 +73,10 @@ func removeState(path string) error {
 	return os.Remove(path)
 }
 
-// IsRunning reports whether the recorded PID is a live process.
+// IsRunning reports whether the recorded PID is a live process. Signal(0)
+// succeeds for a zombie, so a daemon that exited counts as live until its
+// parent reaps it. A container whose PID 1 never reaps (the GitHub Actions
+// job container runs `tail -f /dev/null`) keeps the zombie forever.
 func (s State) IsRunning() bool {
 	if s.PID <= 0 {
 		return false
@@ -80,7 +85,7 @@ func (s State) IsRunning() bool {
 	if err != nil {
 		return false
 	}
-	return proc.Signal(syscall.Signal(0)) == nil
+	return proc.Signal(syscall.Signal(0)) == nil && !platform.IsZombieProcess(s.PID)
 }
 
 // ResolveStatePath returns the effective state file path: the flag override
