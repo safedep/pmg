@@ -3,6 +3,8 @@ package proxye2e
 import (
 	"context"
 	"database/sql"
+	"net/netip"
+	"sync"
 	"testing"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -10,6 +12,7 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,7 +90,7 @@ func TestProxyFlow_HostObservationDedup(t *testing.T) {
 				assertHostObservation(t, first[0], host, "CONNECT")
 				assert.Nil(t, first[0].GetDedupContext())
 
-				expireDedupWindows(t, walPath)
+				expireDedupWindows(t, walPath, 1)
 
 				carrier := drainCloudWAL(t, walPath)
 				require.Len(t, carrier, 1)
@@ -97,6 +100,91 @@ func TestProxyFlow_HostObservationDedup(t *testing.T) {
 			},
 		},
 	})
+}
+
+// Two programs that reach one host are two clients. The dedup rule keeps
+// them apart, so neither event is attributed to the other program.
+func TestProxyFlow_HostObservationDedupSeparatesClients(t *testing.T) {
+	t.Cleanup(config.Reload)
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	config.Reload()
+
+	const host = "registry.example.com"
+	exes := []string{"/usr/bin/curl", "/usr/bin/node"}
+	resolver := &RotatingClients{Exes: exes}
+
+	RunCases(t, []TestCase{
+		{
+			Name:    "observations by two programs stay two events",
+			Options: []Option{WithTransparent(resolver)},
+			Config: func(rc *config.RuntimeConfig) {
+				rc.Config.Cloud.Enabled = true
+				rc.Config.SkipEventLogging = true
+			},
+			Setup: func(h *Harness) {
+				require.NoError(h.t, audit.Initialize(config.Get()))
+				h.t.Cleanup(func() {
+					require.NoError(h.t, audit.Close())
+					require.NoError(h.t, audit.Initialize(&config.RuntimeConfig{}))
+				})
+			},
+			Exec: func(h *Harness) ExecResult {
+				// Each request opens a new connection, and the resolver names
+				// the next program for it. Four requests are two per program.
+				for range 2 * len(exes) {
+					_, _ = h.RawClient().Get("https://" + host + "/package")
+					h.RawClient().CloseIdleConnections()
+				}
+				return ExecResult{}
+			},
+			Assert: func(t *testing.T, h *Harness, _ ExecResult) {
+				walPath := config.Get().CloudSyncDBPath()
+
+				first := drainCloudWAL(t, walPath)
+				require.Len(t, first, len(exes), "one event per program")
+				assert.ElementsMatch(t, exes, clientExes(first))
+				for _, event := range first {
+					assertHostObservation(t, event, host, "CONNECT")
+					assert.Nil(t, event.GetDedupContext())
+				}
+
+				expireDedupWindows(t, walPath, len(exes))
+
+				carriers := drainCloudWAL(t, walPath)
+				require.Len(t, carriers, len(exes), "one carrier per program")
+				assert.ElementsMatch(t, exes, clientExes(carriers))
+				for _, event := range carriers {
+					require.NotNil(t, event.GetDedupContext())
+					assert.EqualValues(t, 1, event.GetDedupContext().GetRepeatCount())
+				}
+			},
+		},
+	})
+}
+
+// RotatingClients names a different program for each connection, the way
+// the kernel record does for a client of the proxy itself. It returns no
+// destination, so the client stays an explicit one.
+type RotatingClients struct {
+	Exes []string
+	mu   sync.Mutex
+	n    int
+}
+
+func (r *RotatingClients) OriginalDestination(netip.AddrPort) (proxy.Origin, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	exe := r.Exes[r.n%len(r.Exes)]
+	r.n++
+	return proxy.Origin{PID: uint32(r.n), Comm: "client", Exe: exe}, true
+}
+
+func clientExes(events []*servicev1.ToolEvent) []string {
+	exes := make([]string, 0, len(events))
+	for _, event := range events {
+		exes = append(exes, event.GetPmgEvent().GetHostObservation().GetClient().GetExecutable())
+	}
+	return exes
 }
 
 // drainCloudWAL syncs the WAL against an in-process transport. The sweep reads
@@ -118,7 +206,7 @@ func drainCloudWAL(t *testing.T, walPath string) []*servicev1.ToolEvent {
 // expireDedupWindows moves every open dedup window into the past. The
 // emitter's clock is not injectable, so the test edits the DRY state table
 // directly. DRY registers the sqlite driver.
-func expireDedupWindows(t *testing.T, walPath string) {
+func expireDedupWindows(t *testing.T, walPath string, windows int) {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", walPath)
@@ -131,7 +219,7 @@ func expireDedupWindows(t *testing.T, walPath string) {
 	require.NoError(t, err)
 	rows, err := result.RowsAffected()
 	require.NoError(t, err)
-	require.EqualValues(t, 1, rows)
+	require.EqualValues(t, windows, rows)
 }
 
 func assertHostObservation(t *testing.T, event *servicev1.ToolEvent, hostname, method string) {

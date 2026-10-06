@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"strconv"
 	"time"
 
 	controltowerv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
@@ -25,8 +26,24 @@ func hostObservationDedupRule() endpointsync.DedupRule {
 				return nil, false
 			}
 
-			return []string{observation.GetHostname(), observation.GetMethod()}, true
+			return hostObservationDedupKey(observation), true
 		},
+	}
+}
+
+// hostObservationDedupKey separates the clients of one host, so the surviving
+// event names the right one. The executable and the address identify a
+// client. The pid changes with every run of the same program, and the comm is
+// the process's own choice, so neither is part of the key.
+func hostObservationDedupKey(observation *controltowerv1.PmgHostObservation) []string {
+	client := observation.GetClient()
+	return []string{
+		observation.GetHostname(),
+		observation.GetMethod(),
+		strconv.FormatUint(uint64(observation.GetPort()), 10),
+		observation.GetEntryPoint().String(),
+		client.GetExecutable(),
+		client.GetAddress(),
 	}
 }
 
