@@ -444,10 +444,14 @@ name the path as the container sees it:
     NODE_EXTRA_CA_CERTS: /github/workspace/pmg-ca.pem
 ```
 
-#### Checking the redirect on a desktop
+[Developer testing](#developer-testing) has the three commands that show
+the redirect end to end.
 
-Three steps show the whole contract. Start the daemon, then run each
-container command from another terminal.
+### Developer testing
+
+Three steps show the whole redirect contract on a laptop or a development
+server with Docker. Start the daemon, then run each container command from
+another terminal.
 
 ```sh
 sudo pmg proxy start --enforce --enforce-namespaces redirect
