@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 const stateFileName = "proxy-state.json"
@@ -83,7 +85,7 @@ func (s State) IsRunning() bool {
 	if err != nil {
 		return false
 	}
-	return proc.Signal(syscall.Signal(0)) == nil && !isZombie(s.PID)
+	return proc.Signal(syscall.Signal(0)) == nil && !platform.IsZombieProcess(s.PID)
 }
 
 // ResolveStatePath returns the effective state file path: the flag override

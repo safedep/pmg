@@ -1,6 +1,6 @@
 //go:build linux
 
-package proxyserver
+package platform
 
 import (
 	"os/exec"
@@ -34,19 +34,17 @@ func TestZombieStat(t *testing.T) {
 }
 
 // The test process is the child's parent and reaps it only in the cleanup, so
-// the child stays a zombie in between, as the daemon does under a PID 1 that
-// never reaps.
-func TestIsRunningZombie(t *testing.T) {
+// the child stays a zombie in between.
+func TestIsZombieProcess(t *testing.T) {
 	cmd := exec.Command("true")
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { assert.NoError(t, cmd.Wait()) })
 
 	pid := cmd.Process.Pid
-	require.Eventually(t, func() bool { return isZombie(pid) }, 5*time.Second, 10*time.Millisecond)
-	assert.False(t, State{PID: pid}.IsRunning())
+	assert.Eventually(t, func() bool { return IsZombieProcess(pid) }, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestIsRunningLiveChild(t *testing.T) {
+func TestIsZombieProcessLiveChild(t *testing.T) {
 	cmd := exec.Command("sleep", "30")
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() {
@@ -54,5 +52,9 @@ func TestIsRunningLiveChild(t *testing.T) {
 		assert.Error(t, cmd.Wait())
 	})
 
-	assert.True(t, State{PID: cmd.Process.Pid}.IsRunning())
+	assert.False(t, IsZombieProcess(cmd.Process.Pid))
+}
+
+func TestIsZombieProcessNoProcess(t *testing.T) {
+	assert.False(t, IsZombieProcess(-1))
 }

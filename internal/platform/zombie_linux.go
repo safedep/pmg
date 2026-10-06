@@ -1,6 +1,6 @@
 //go:build linux
 
-package proxyserver
+package platform
 
 import (
 	"fmt"
@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-// isZombie reports whether pid has exited and waits for its parent to reap
-// it. A read or parse failure (for example /proc mounted with hidepid) reports
-// false, so the caller keeps the Signal(0) result.
-func isZombie(pid int) bool {
+// A read failure, for example with /proc mounted with hidepid, reports false,
+// so the caller keeps its own liveness result.
+func isZombieProcess(pid int) bool {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		return false
