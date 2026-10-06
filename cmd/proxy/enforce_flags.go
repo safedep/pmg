@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,7 @@ const (
 	flagEnforceSkipDestination  = "enforce-skip-destination"
 	flagEnforceCgroup           = "enforce-cgroup"
 	flagEnforceDenyUDP          = "enforce-deny-udp"
+	flagEnforceNamespaces       = "enforce-namespaces"
 )
 
 var enforceOverridesFlag proxyserver.EnforceOverrides
@@ -40,13 +42,15 @@ func addEnforceFlags(cmd *cobra.Command, ec *config.ProxyEnforceConfig) {
 		"cgroup v2 directory to enforce, instead of the root (proxy.server.enforce.cgroup)")
 	fs.BoolVar(&ec.DenyUDP, flagEnforceDenyUDP, ec.DenyUDP,
 		"Deny UDP to the enforced ports so QUIC clients fall back to TCP (proxy.server.enforce.deny_udp)")
+	fs.StringVar(&ec.Namespaces.Mode, flagEnforceNamespaces, ec.Namespaces.Mode,
+		"What happens to containers and other network namespaces: ignore, redirect or auto (proxy.server.enforce.namespaces.mode)")
 }
 
 // wideningFlags returns the enforce flags that loosen the policy a locked
 // managed config set: enforcement turned off, more users or programs that
-// go direct, more destinations the kernel skips, or UDP left open. A port
-// or a cgroup only narrows or moves the scope and stays allowed under
-// lockdown.
+// go direct, more destinations the kernel skips, UDP left open, or other
+// namespaces left alone. A port or a cgroup only narrows or moves the
+// scope and stays allowed under lockdown.
 func wideningFlags(changed func(string) bool, ec config.ProxyEnforceConfig) []string {
 	var out []string
 	if changed(flagEnforce) && !ec.Enabled {
@@ -59,6 +63,13 @@ func wideningFlags(changed func(string) bool, ec config.ProxyEnforceConfig) []st
 	}
 	if changed(flagEnforceDenyUDP) && !ec.DenyUDP {
 		out = append(out, "--"+flagEnforceDenyUDP+"=false")
+	}
+	// auto can degrade to ignore on its own, so only redirect holds under
+	// lockdown. A value that does not parse fails the start anyway.
+	if changed(flagEnforceNamespaces) {
+		if mode, err := netenforce.ParseNamespaceMode(ec.Namespaces.Mode); err != nil || mode != netenforce.NamespaceRedirect {
+			out = append(out, "--"+flagEnforceNamespaces+"="+ec.Namespaces.Mode)
+		}
 	}
 	return out
 }
@@ -89,6 +100,9 @@ func enforceFlagArgs(cmd *cobra.Command, o proxyserver.EnforceOverrides, ec conf
 	}
 	if cmd.Flags().Changed(flagEnforceDenyUDP) {
 		args = append(args, "--"+flagEnforceDenyUDP+"="+strconv.FormatBool(ec.DenyUDP))
+	}
+	if cmd.Flags().Changed(flagEnforceNamespaces) {
+		args = append(args, "--"+flagEnforceNamespaces, ec.Namespaces.Mode)
 	}
 	return args
 }

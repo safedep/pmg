@@ -20,11 +20,44 @@ import (
 	"github.com/safedep/pmg/internal/platform"
 )
 
+// Origin is where a redirected client wanted to connect, and the process
+// that asked when the kernel saw it. The proxy logs it and takes the port
+// from it. It never decides on the process.
+type Origin struct {
+	Dst  netip.AddrPort
+	PID  uint32
+	Comm string
+	Exe  string
+}
+
+// IsValid reports whether a destination was recovered.
+func (o Origin) IsValid() bool { return o.Dst.IsValid() }
+
+// String renders the destination, and the process when there is one.
+func (o Origin) String() string {
+	if o.PID == 0 {
+		return o.Dst.String()
+	}
+	s := fmt.Sprintf("%s pid=%d comm=%s", o.Dst, o.PID, o.Comm)
+	if o.Exe != "" {
+		s += " exe=" + o.Exe
+	}
+	return s
+}
+
 // OriginalDestinationResolver returns where a redirected client wanted to
 // connect, keyed by the client's address and source port. The kernel
 // enforcement layer implements it. The proxy only consumes it.
 type OriginalDestinationResolver interface {
-	OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool)
+	OriginalDestination(client netip.AddrPort) (Origin, bool)
+}
+
+// ConnOriginalDestinationResolver recovers the destination from the
+// connection itself, for a client the kernel translated with NAT at a
+// bridge instead of redirecting at connect. A resolver that implements it
+// is asked after the keyed lookup misses.
+type ConnOriginalDestinationResolver interface {
+	OriginalDestinationOf(c net.Conn) (Origin, bool)
 }
 
 const (
@@ -48,7 +81,7 @@ type originalDestinationKey struct{}
 type transparentConn struct {
 	net.Conn
 	r    *bufio.Reader
-	orig netip.AddrPort
+	orig Origin
 }
 
 func (c *transparentConn) Read(p []byte) (int, error) { return c.r.Read(p) }
@@ -156,6 +189,10 @@ func (l *transparentListener) deliver(c net.Conn) {
 func (l *transparentListener) classify(raw net.Conn) {
 	tc := &transparentConn{Conn: raw, r: bufio.NewReaderSize(raw, maxClientHello)}
 	tc.orig = l.ps.lookupOriginalDestination(raw)
+	if !tc.orig.IsValid() && l.ps.isRedirectOnly(raw) {
+		l.drop(raw, "direct connection to a redirect-only listener", errRedirectOnly)
+		return
+	}
 
 	if err := raw.SetReadDeadline(time.Now().Add(sniffTimeout)); err != nil {
 		l.drop(raw, "set sniff deadline", err)
@@ -185,6 +222,8 @@ func (l *transparentListener) classify(raw net.Conn) {
 
 const tlsHandshakeRecord = 0x16
 
+var errRedirectOnly = errors.New("the listener serves redirected clients only")
+
 func (l *transparentListener) classifyTLS(tc *transparentConn) {
 	hello, err := peekClientHello(tc.r)
 	if err != nil {
@@ -209,7 +248,7 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 		return
 	}
 
-	host, port := l.ps.transparentTarget(sni, tc.orig, 443)
+	host, port := l.ps.transparentTarget(sni, tc.orig.Dst, 443)
 	log.Debugf("transparent: TLS from %s to %s, server name %q, target %s:%d",
 		tc.RemoteAddr(), tc.orig, sni, host, port)
 	if l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS") {
@@ -235,20 +274,25 @@ func (l *transparentListener) drop(c net.Conn, what string, err error) {
 }
 
 // lookupOriginalDestination asks the resolver where the client wanted to
-// go. A miss is normal for a proxy-aware client, which was never redirected.
-func (ps *proxyServer) lookupOriginalDestination(c net.Conn) netip.AddrPort {
-	if ps.config.OriginalDestination == nil {
-		return netip.AddrPort{}
+// go, first by the client's address and port, then from the connection.
+// A miss on both is normal for a proxy-aware client, which was never
+// redirected.
+func (ps *proxyServer) lookupOriginalDestination(c net.Conn) Origin {
+	r := ps.config.OriginalDestination
+	if r == nil {
+		return Origin{}
 	}
-	peer, ok := c.RemoteAddr().(*net.TCPAddr)
-	if !ok {
-		return netip.AddrPort{}
+	if peer, ok := c.RemoteAddr().(*net.TCPAddr); ok {
+		if orig, found := r.OriginalDestination(peer.AddrPort()); found {
+			return orig
+		}
 	}
-	orig, found := ps.config.OriginalDestination.OriginalDestination(peer.AddrPort())
-	if !found {
-		return netip.AddrPort{}
+	if cr, ok := r.(ConnOriginalDestinationResolver); ok {
+		if orig, found := cr.OriginalDestinationOf(c); found {
+			return orig
+		}
 	}
-	return orig
+	return Origin{}
 }
 
 // transparentTarget pairs the name the client sent with the port it
@@ -323,8 +367,8 @@ func transparentConnContext(ctx context.Context, c net.Conn) context.Context {
 	return context.WithValue(ctx, originalDestinationKey{}, tc.orig)
 }
 
-func originalDestinationFromContext(ctx context.Context) (netip.AddrPort, bool) {
-	orig, ok := ctx.Value(originalDestinationKey{}).(netip.AddrPort)
+func originalDestinationFromContext(ctx context.Context) (Origin, bool) {
+	orig, ok := ctx.Value(originalDestinationKey{}).(Origin)
 	return orig, ok
 }
 
@@ -355,7 +399,7 @@ func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.
 	host := req.Host
 	if _, _, err := net.SplitHostPort(host); err != nil {
 		orig, _ := originalDestinationFromContext(req.Context())
-		_, port := ps.transparentTarget(host, orig, defaultPort)
+		_, port := ps.transparentTarget(host, orig.Dst, defaultPort)
 		host = net.JoinHostPort(host, strconv.Itoa(int(port)))
 	}
 

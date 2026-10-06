@@ -1,0 +1,26 @@
+# guarantee: a docker build RUN step is redirected. It fails without the CA
+# and passes with the host bundle as a build secret, with the path read from
+# pmg proxy env.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!docker] skip 'docker not available'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --enforce-namespaces redirect --state $ENFORCE_STATE
+exec sh -c 'pmg proxy env --state "$ENFORCE_STATE" | grep PMG_CA_BUNDLE= | cut -d= -f2 > bundle.path'
+
+! exec docker build --no-cache -f Dockerfile.untrusted .
+stderr 'certificate'
+
+exec sh -c 'docker build --no-cache --secret id=pmg-ca,src="$(cat bundle.path)" -f Dockerfile.trusted .'
+
+-- Dockerfile.untrusted --
+FROM curlimages/curl:8.11.1
+RUN curl -sS -o /dev/null https://registry.npmjs.org/
+-- Dockerfile.trusted --
+FROM curlimages/curl:8.11.1
+RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
+    curl -sS --cacert /run/pmg-ca.pem -o /dev/null https://registry.npmjs.org/

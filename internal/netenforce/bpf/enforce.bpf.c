@@ -66,11 +66,15 @@ struct skip6_key {
 	__u8 addr[16];
 };
 
-/* The destination a client asked for, before the rewrite. */
+/* The destination a client asked for, before the rewrite, and the process
+ * that asked. The listener logs the process, so an operator can name the
+ * program behind a dropped or blocked connection. */
 struct dst {
 	__u16 family; /* AF_INET also for an IPv4-mapped IPv6 destination */
 	__u16 port;   /* network order */
 	__u8 addr[16];
+	__u32 tgid;   /* in the daemon's PID namespace, 0 outside it */
+	char comm[16];
 };
 
 struct dst_key {
@@ -350,7 +354,7 @@ static __always_inline int enforced_port(struct bpf_sock_addr *ctx, struct event
 	return bpf_map_lookup_elem(&ports, &dport) != 0;
 }
 
-static __always_inline void store_dst(struct bpf_sock_addr *ctx, __u16 family, const void *addr, int len)
+static __always_inline void store_dst(struct bpf_sock_addr *ctx, const struct event *e, __u16 family, const void *addr, int len)
 {
 	struct dst *d = bpf_sk_storage_get(&orig_dst_sk, ctx->sk, 0, BPF_SK_STORAGE_GET_F_CREATE);
 	if (!d)
@@ -358,6 +362,8 @@ static __always_inline void store_dst(struct bpf_sock_addr *ctx, __u16 family, c
 	d->family = family;
 	d->port = ctx->user_port;
 	__builtin_memcpy(d->addr, addr, len);
+	d->tgid = e->tgid;
+	__builtin_memcpy(d->comm, e->comm, sizeof(d->comm));
 }
 
 /* handle4 covers an IPv4 socket and an IPv4-mapped destination on an IPv6
@@ -384,7 +390,7 @@ static __always_inline int handle4(struct bpf_sock_addr *ctx, __u32 *addr_word, 
 		return 0;
 	}
 
-	store_dst(ctx, AF_INET, &addr, 4);
+	store_dst(ctx, &e, AF_INET, &addr, 4);
 	*addr_word = c->proxy_ip4;
 	ctx->user_port = c->proxy_port;
 	finish(c, &e, ACT_REDIRECT);
@@ -423,7 +429,7 @@ static __always_inline int handle6(struct bpf_sock_addr *ctx)
 		return 0;
 	}
 
-	store_dst(ctx, AF_INET6, ip6, 16);
+	store_dst(ctx, &e, AF_INET6, ip6, 16);
 	ctx->user_ip6[0] = c->proxy_ip6[0];
 	ctx->user_ip6[1] = c->proxy_ip6[1];
 	ctx->user_ip6[2] = c->proxy_ip6[2];

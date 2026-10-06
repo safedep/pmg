@@ -120,12 +120,23 @@ type Enforcer interface {
 // connection while the second reports active and does nothing.
 var ErrAlreadyEnforced = errors.New("enforce: another pmg daemon already enforces this cgroup")
 
+// Origin is where a redirected client wanted to connect, and the process
+// that asked. The kernel records the process at connect, so a log line can
+// name the program behind a connection. A client in another network
+// namespace has a destination and no process.
+type Origin struct {
+	Dst  netip.AddrPort
+	PID  uint32
+	Comm string
+	Exe  string
+}
+
 // Handle is one attached enforcement. It is the proxy's source for the
 // original destination of a redirected client.
 type Handle interface {
 	// OriginalDestination returns where the client at the given address
-	// wanted to connect. It consumes the entry.
-	OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool)
+	// wanted to connect, and who asked. It consumes the entry.
+	OriginalDestination(client netip.AddrPort) (Origin, bool)
 
 	// Status describes the attached enforcement for the state file.
 	Status() Status
@@ -166,23 +177,30 @@ type ExemptedFile struct {
 
 // ProbeResult says whether the host can enforce. Missing holds one line per
 // requirement the host does not meet, so a preflight error can name it.
+// Subject names what the host cannot do, in the error. Empty means
+// "enforce".
 type ProbeResult struct {
 	Supported     bool
 	Missing       []string
 	KernelVersion string
 	CgroupPath    string
+	Subject       string
 }
 
 // Err turns a failed probe into one error that lists every missing
-// requirement. nil when the host can enforce.
+// requirement. nil when the host can do what the probe asked.
 func (r ProbeResult) Err() error {
 	if r.Supported {
 		return nil
 	}
-	if len(r.Missing) == 0 {
-		return errors.New("enforce: this host cannot enforce")
+	subject := r.Subject
+	if subject == "" {
+		subject = "enforce"
 	}
-	msg := "enforce: this host cannot enforce:"
+	msg := "enforce: this host cannot " + subject
+	if len(r.Missing) > 0 {
+		msg += ":"
+	}
 	for _, m := range r.Missing {
 		msg += "\n  - " + m
 	}

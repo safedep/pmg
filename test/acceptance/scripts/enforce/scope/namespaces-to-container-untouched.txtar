@@ -1,0 +1,22 @@
+# guarantee: traffic between containers is not redirected. Two containers
+# on a user-defined network created after the daemon started talk over port
+# 80 by name, and the proxy never sees the connection.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!docker] skip 'docker not available'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+# Pull before the daemon starts, so the image fetch is not part of the check.
+exec docker pull -q nginx:alpine
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --enforce-namespaces redirect --state $ENFORCE_STATE
+
+exec docker network create pmg-acc-net
+exec docker run -d --rm --name pmg-acc-web --network pmg-acc-net nginx:alpine
+exec docker run --rm --network pmg-acc-net curlimages/curl:8.11.1 -sS --retry 5 --retry-connrefused -o /dev/null -w '%{http_code}' http://pmg-acc-web/
+stdout '^200$'
+exec docker rm -f pmg-acc-web
+exec docker network rm pmg-acc-net

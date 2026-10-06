@@ -29,6 +29,8 @@ type EnforceDst struct {
 	Family uint16
 	Port   uint16
 	Addr   [16]uint8
+	Tgid   uint32
+	Comm   [16]int8
 }
 
 type EnforceDstKey struct {

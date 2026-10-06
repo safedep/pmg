@@ -184,8 +184,21 @@ needs them has a reason to ship one with `config-file`. The inputs need a
 PMG release that has the `--enforce-*` flags. See
 [persistent-proxy.md](./persistent-proxy.md#policy-from-the-command-line).
 
-Containers that a step starts are not enforced. See
-[persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux).
+Containers that a step starts are not enforced unless `enforce-namespaces`
+is `redirect` or `auto`. A redirected container must trust the PMG CA, which
+the action exports as `PMG_CA_BUNDLE`:
+
+```yaml
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    enforce: true
+    enforce-namespaces: redirect
+- run: docker build --secret id=pmg-ca,src=$PMG_CA_BUNDLE -t app .
+```
+
+See [persistent-proxy.md](./persistent-proxy.md#containers-and-other-network-namespaces)
+for the `RUN` block that mounts the secret.
 
 ### Sandbox mode
 

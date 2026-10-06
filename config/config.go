@@ -219,6 +219,26 @@ type ProxyEnforceConfig struct {
 
 	// DenyUDP denies UDP to the routed ports, so QUIC falls back to TCP.
 	DenyUDP bool `mapstructure:"deny_udp"`
+
+	// Namespaces says what happens to a socket in another network
+	// namespace, such as a container's. See docs/persistent-proxy.md.
+	Namespaces ProxyEnforceNamespacesConfig `mapstructure:"namespaces"`
+}
+
+// ProxyEnforceNamespacesConfig is the redirect for other network
+// namespaces. Their traffic enters the host through a bridge, where an
+// nftables rule sends the enforced ports to the proxy.
+type ProxyEnforceNamespacesConfig struct {
+	// Mode is ignore, redirect or auto. redirect fails the start when the
+	// host cannot redirect. auto falls back to ignore and says why.
+	Mode string `mapstructure:"mode"`
+
+	// Ingress names the interfaces whose incoming traffic is redirected. A
+	// trailing * matches a prefix. The default covers Docker's networks.
+	Ingress []string `mapstructure:"ingress"`
+
+	// Address is the IPv4 address the daemon adds to lo and listens on.
+	Address string `mapstructure:"address"`
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
