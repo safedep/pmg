@@ -16,10 +16,11 @@ import (
 // fakeRedirector stands in for the host. It records what the daemon asked
 // for and fails where the test says.
 type fakeRedirector struct {
-	missing    []string
-	addressErr error
-	attachErr  error
-	dropChains []netenforce.InputDropChain
+	missing        []string
+	addressPresent bool
+	addressErr     error
+	attachErr      error
+	dropChains     []netenforce.InputDropChain
 
 	addresses []netip.Addr
 	removed   []netip.Addr
@@ -44,9 +45,9 @@ func (f *fakeRedirector) InputDropChains() ([]netenforce.InputDropChain, error) 
 	return f.dropChains, nil
 }
 
-func (f *fakeRedirector) EnsureAddress(addr netip.Addr) error {
+func (f *fakeRedirector) EnsureAddress(addr netip.Addr) (bool, error) {
 	f.addresses = append(f.addresses, addr)
-	return f.addressErr
+	return !f.addressPresent && f.addressErr == nil, f.addressErr
 }
 
 func (f *fakeRedirector) RemoveAddress(addr netip.Addr) error {
@@ -159,6 +160,31 @@ func TestNamespaceRedirectFailsFastWhereAutoFallsBack(t *testing.T) {
 			assert.Contains(t, n.warnings()[0], "not redirected")
 		})
 	}
+}
+
+// An address another daemon put on lo is not this daemon's to remove until
+// it owns the table. A second daemon that loses the table must leave the
+// first daemon's listener address alone.
+func TestNamespaceRedirectKeepsAnAddressItDidNotAdd(t *testing.T) {
+	t.Run("table lost", func(t *testing.T) {
+		f := &fakeRedirector{addressPresent: true, attachErr: netenforce.ErrNamespaceTableOwned}
+		useFakeRedirector(t, f, nil)
+		n, err := newNamespaceRedirect(nsConfig("redirect"), basePolicy)
+		require.NoError(t, err)
+		require.NoError(t, n.prepare())
+		require.Error(t, n.attach(context.Background(), []string{"169.254.200.1:7777"}))
+		assert.Empty(t, f.removed)
+	})
+	t.Run("table claimed", func(t *testing.T) {
+		f := &fakeRedirector{addressPresent: true}
+		useFakeRedirector(t, f, nil)
+		n, err := newNamespaceRedirect(nsConfig("redirect"), basePolicy)
+		require.NoError(t, err)
+		require.NoError(t, n.prepare())
+		require.NoError(t, n.attach(context.Background(), []string{"169.254.200.1:7777"}))
+		require.NoError(t, n.detachAll())
+		assert.Equal(t, []netip.Addr{netip.MustParseAddr("169.254.200.1")}, f.removed, "the owner table makes the address this daemon's")
+	})
 }
 
 func TestNamespaceRedirectWarnsAboutAnInputDropFirewall(t *testing.T) {

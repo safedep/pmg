@@ -365,6 +365,9 @@ and `br-*` by default, sends TCP to the enforced ports to that listener. The
 listener reads the original destination from conntrack. Three destinations
 are never redirected: an address on the host, a container on the same
 bridge, and a container on another bridge. Docker's own rules decide those.
+A connection over IPv6 to an enforced port is refused, because the listener
+has an IPv4 address, and the client falls back to IPv4. UDP to an enforced
+port is refused too when `deny_udp` is on.
 
 The table carries the owner flag, so the kernel deletes it when the daemon's
 netlink socket closes, after a clean stop and after a crash. `pmg proxy

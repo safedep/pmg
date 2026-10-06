@@ -74,7 +74,11 @@ type namespaceRedirect struct {
 	policy     netenforce.NamespacePolicy
 	redirector netenforce.NamespaceRedirector
 	handle     netenforce.NamespaceHandle
-	addressOn  bool
+
+	// addressOn means this daemon owns the address on lo and removes it at
+	// stop. An address another daemon put there stays until the table is
+	// claimed, because the owner table proves no other daemon uses it.
+	addressOn bool
 }
 
 // newNamespaceRedirect reads the config block, probes the host, and decides
@@ -161,10 +165,11 @@ func (n *namespaceRedirect) prepare() error {
 	if !n.active() {
 		return nil
 	}
-	if err := n.redirector.EnsureAddress(n.policy.Address); err != nil {
+	added, err := n.redirector.EnsureAddress(n.policy.Address)
+	if err != nil {
 		return n.degrade(err)
 	}
-	n.addressOn = true
+	n.addressOn = added
 	return nil
 }
 
@@ -183,11 +188,12 @@ func (n *namespaceRedirect) attach(ctx context.Context, listeners []string) erro
 		return n.fail(fmt.Errorf("load the redirect table: %w", err))
 	}
 	n.handle = h
+	n.addressOn = true
 	return nil
 }
 
-// fail is degrade for a failure after the address went on. The address
-// comes off again, because nothing will listen for it.
+// fail is degrade for a failure after the address went on. An address this
+// daemon added comes off again, because nothing will listen for it.
 func (n *namespaceRedirect) fail(cause error) error {
 	if rerr := n.releaseAddress(); rerr != nil {
 		log.Warnf("%v", rerr)

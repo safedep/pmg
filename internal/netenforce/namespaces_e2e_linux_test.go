@@ -5,6 +5,7 @@
 package netenforce
 
 import (
+	"bufio"
 	"context"
 	"net"
 	"net/netip"
@@ -23,19 +24,26 @@ import (
 // that stands for the internet. A listener on the lo address plays the
 // proxy. The test loads the real table and checks that a connection from
 // the client namespace lands on the listener with its original destination
-// in conntrack, that a destination on the host is left alone, and that the
-// table is gone once the handle closes.
+// in conntrack, that a destination on the host is left alone, that the
+// same destination over IPv6 is refused, and that the table is gone once
+// the handle closes.
 //
 // Run as root: sudo go test -tags ebpf_e2e ./internal/netenforce/ -run E2E_Namespace -v
 
 const (
-	nsBridge   = "pmgtbr0"
-	nsClient   = "pmgt-client"
-	nsServer   = "pmgt-server"
-	bridgeAddr = "172.30.9.1"
-	clientAddr = "172.30.9.11"
-	hostExt    = "10.99.9.1"
-	serverExt  = "10.99.9.2"
+	nsBridge    = "pmgtbr0"
+	nsClient    = "pmgt-client"
+	nsServer    = "pmgt-server"
+	bridgeAddr  = "172.30.9.1"
+	clientAddr  = "172.30.9.11"
+	hostExt     = "10.99.9.1"
+	serverExt   = "10.99.9.2"
+	bridgeAddr6 = "fd00:9::1"
+	clientAddr6 = "fd00:9::11"
+	hostExt6    = "fd00:99::1"
+	serverExt6  = "fd00:99::2"
+
+	ipv6ForwardingPath = "/proc/sys/net/ipv6/conf/all/forwarding"
 )
 
 func TestE2E_NamespaceRedirect(t *testing.T) {
@@ -52,9 +60,13 @@ func TestE2E_NamespaceRedirect(t *testing.T) {
 	require.True(t, r.Probe().Supported, strings.Join(r.Probe().Missing, "\n"))
 
 	addr := netip.MustParseAddr("169.254.209.1")
-	require.NoError(t, r.EnsureAddress(addr))
+	added, err := r.EnsureAddress(addr)
+	require.NoError(t, err)
+	assert.True(t, added)
 	t.Cleanup(func() { assert.NoError(t, r.RemoveAddress(addr)) })
-	require.NoError(t, r.EnsureAddress(addr), "a second add is a no-op")
+	added, err = r.EnsureAddress(addr)
+	require.NoError(t, err, "a second add is a no-op")
+	assert.False(t, added, "the second caller did not add it")
 
 	ln, err := net.Listen("tcp4", net.JoinHostPort(addr.String(), "0"))
 	require.NoError(t, err)
@@ -77,7 +89,7 @@ func TestE2E_NamespaceRedirect(t *testing.T) {
 
 	t.Run("a client in the namespace is steered with its original destination", func(t *testing.T) {
 		accepted := acceptOne(t, ln, 5*time.Second)
-		out, err := connectFrom(nsClient, serverExt+":8443")
+		out, err := connectFrom(nsClient, "tcp4", serverExt+":8443")
 		require.NoError(t, err, string(out))
 		conn := <-accepted
 		require.NotNil(t, conn)
@@ -98,16 +110,72 @@ func TestE2E_NamespaceRedirect(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			accepted := acceptOne(t, ln, time.Second)
-			out, err := connectFrom(nsClient, dst)
+			out, err := connectFrom(nsClient, "tcp4", dst)
 			require.Error(t, err, "nothing listens at %s: %s", dst, out)
 			assert.Nil(t, <-accepted, "the listener saw the connection")
 		})
 	}
 
+	t.Run("the same destination over IPv6 is refused", func(t *testing.T) {
+		requireIPv6Topology(t)
+		stop := listenIn(t, nsServer, "["+serverExt6+"]:8443")
+		defer stop()
+		out, err := connectFrom(nsClient, "tcp6", "["+serverExt6+"]:8443")
+		require.Error(t, err, string(out))
+		assert.Contains(t, string(out), "connection refused", "the reject sends a reset, so the client falls back to IPv4")
+	})
+
 	require.NoError(t, h.Close())
 	loaded, err = NamespaceTableLoaded()
 	require.NoError(t, err)
 	assert.False(t, loaded, "the table is gone after Close")
+
+	t.Run("IPv6 is open again once the table is gone", func(t *testing.T) {
+		requireIPv6Topology(t)
+		stop := listenIn(t, nsServer, "["+serverExt6+"]:8443")
+		defer stop()
+		out, err := connectFrom(nsClient, "tcp6", "["+serverExt6+"]:8443")
+		require.NoError(t, err, string(out))
+	})
+}
+
+func hasIPv6() bool {
+	_, err := os.Stat(ipv6ForwardingPath)
+	return err == nil
+}
+
+func requireIPv6Topology(t *testing.T) {
+	t.Helper()
+	if !hasIPv6() {
+		t.Skip("the kernel has no IPv6")
+	}
+}
+
+// listenIn starts the tcp6-listen helper inside ns and returns once it
+// listens. The returned func stops it.
+func listenIn(t *testing.T, ns, addr string) func() {
+	t.Helper()
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command("ip", "netns", "exec", ns, exe, "-test.run", "^TestHelperProcess$")
+	cmd.Env = []string{helperEnv + "=tcp6-listen", helperAddr + "=" + addr, "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	cmd.Stderr = cmd.Stdout
+	require.NoError(t, cmd.Start())
+	stop := func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}
+	sc := bufio.NewScanner(stdout)
+	for sc.Scan() {
+		if strings.Contains(sc.Text(), helperListening) {
+			return stop
+		}
+	}
+	stop()
+	require.FailNow(t, "the listener in "+ns+" did not start")
+	return stop
 }
 
 func requireRoot(t *testing.T) {
@@ -135,14 +203,15 @@ func acceptOne(t *testing.T, ln net.Listener, wait time.Duration) <-chan net.Con
 	return ch
 }
 
-// connectFrom runs the tcp4 helper of this test binary inside ns.
-func connectFrom(ns, addr string) ([]byte, error) {
+// connectFrom runs the connect helper of this test binary inside ns.
+// action is tcp4 or tcp6.
+func connectFrom(ns, action, addr string) ([]byte, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.Command("ip", "netns", "exec", ns, exe, "-test.run", "^TestHelperProcess$")
-	cmd.Env = []string{helperEnv + "=tcp4", helperAddr + "=" + addr, "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	cmd.Env = []string{helperEnv + "=" + action, helperAddr + "=" + addr, "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
 	return cmd.CombinedOutput()
 }
 
@@ -178,6 +247,22 @@ func buildTopology(t *testing.T) {
 	ipCmd(t, "-n", nsServer, "route", "add", "default", "via", hostExt)
 
 	require.NoError(t, os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0o644))
+	if hasIPv6() {
+		buildIPv6Topology(t)
+	}
+}
+
+// buildIPv6Topology gives the same links IPv6 addresses, so the client can
+// reach the server over IPv6 as a container on an IPv6 Docker network can.
+func buildIPv6Topology(t *testing.T) {
+	t.Helper()
+	ipCmd(t, "-6", "addr", "add", bridgeAddr6+"/64", "dev", nsBridge)
+	ipCmd(t, "-6", "-n", nsClient, "addr", "add", clientAddr6+"/64", "dev", "pmgte0")
+	ipCmd(t, "-6", "-n", nsClient, "route", "add", "default", "via", bridgeAddr6)
+	ipCmd(t, "-6", "addr", "add", hostExt6+"/64", "dev", "pmgthx")
+	ipCmd(t, "-6", "-n", nsServer, "addr", "add", serverExt6+"/64", "dev", "pmgtpx")
+	ipCmd(t, "-6", "-n", nsServer, "route", "add", "default", "via", hostExt6)
+	require.NoError(t, os.WriteFile(ipv6ForwardingPath, []byte("1"), 0o644))
 }
 
 func cleanupTopology() {

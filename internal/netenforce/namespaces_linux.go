@@ -31,7 +31,8 @@ const (
 	chainIngress = "ingress"
 	chainSteer   = "steer"
 	chainGuard   = "guard"
-	chainQUIC    = "quic"
+	chainForward = "forward"
+	chainDeny    = "deny"
 	setPorts     = "ports"
 )
 
@@ -43,7 +44,9 @@ func newPlatformNamespaceRedirector() (NamespaceRedirector, error) {
 
 func (linuxNamespaceRedirector) Probe() ProbeResult { return probeNamespaces() }
 
-func (linuxNamespaceRedirector) EnsureAddress(addr netip.Addr) error { return ensureAddress(addr) }
+func (linuxNamespaceRedirector) EnsureAddress(addr netip.Addr) (bool, error) {
+	return ensureAddress(addr)
+}
 
 func (linuxNamespaceRedirector) RemoveAddress(addr netip.Addr) error { return removeAddress(addr) }
 
@@ -243,17 +246,32 @@ func (h *namespaceHandle) load(port uint16, p NamespacePolicy) error {
 	}
 	h.rule(guard, ipv4Daddr(addr, verdict(expr.VerdictDrop, ""))...)
 
+	// The steer chain redirects IPv4 only, because the listener has an IPv4
+	// address. A container on an IPv6 network would otherwise reach a
+	// registry over IPv6 with no analysis, so the forward path refuses TCP
+	// over IPv6 to the ports and the client falls back to IPv4. UDP gets the
+	// same treatment when the policy asks, so QUIC falls back to TCP.
+	// Traffic between containers is never redirected and is left alone here
+	// as well.
+	forward := h.conn.AddChain(&nftables.Chain{
+		Name: chainForward, Table: t, Type: nftables.ChainTypeFilter,
+		Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &accept,
+	})
+	deny := h.conn.AddChain(&nftables.Chain{Name: chainDeny, Table: t})
+	for _, name := range p.Ingress {
+		h.rule(forward, meta(expr.MetaKeyIIFNAME), ifnameCmp(name), verdict(expr.VerdictJump, chainDeny))
+		h.rule(deny, &expr.Fib{Register: 1, FlagDADDR: true, ResultOIFNAME: true}, ifnameCmp(name), verdict(expr.VerdictReturn, ""))
+	}
+	h.rule(deny,
+		meta(expr.MetaKeyNFPROTO), cmp([]byte{unix.NFPROTO_IPV6}),
+		meta(expr.MetaKeyL4PROTO), cmp([]byte{unix.IPPROTO_TCP}),
+		transportDestPort(), lookup(ports),
+		&expr.Reject{Type: unix.NFT_REJECT_TCP_RST})
 	if p.DenyUDP {
-		quic := h.conn.AddChain(&nftables.Chain{
-			Name: chainQUIC, Table: t, Type: nftables.ChainTypeFilter,
-			Hooknum: nftables.ChainHookForward, Priority: nftables.ChainPriorityFilter, Policy: &accept,
-		})
-		for _, name := range p.Ingress {
-			h.rule(quic, meta(expr.MetaKeyIIFNAME), ifnameCmp(name),
-				meta(expr.MetaKeyL4PROTO), cmp([]byte{unix.IPPROTO_UDP}),
-				transportDestPort(), lookup(ports),
-				&expr.Reject{Type: unix.NFT_REJECT_ICMPX_UNREACH, Code: unix.NFT_REJECT_ICMPX_PORT_UNREACH})
-		}
+		h.rule(deny,
+			meta(expr.MetaKeyL4PROTO), cmp([]byte{unix.IPPROTO_UDP}),
+			transportDestPort(), lookup(ports),
+			&expr.Reject{Type: unix.NFT_REJECT_ICMPX_UNREACH, Code: unix.NFT_REJECT_ICMPX_PORT_UNREACH})
 	}
 
 	if err := h.flush("load table"); err != nil {

@@ -181,9 +181,10 @@ type NamespaceRedirector interface {
 	// because nothing in its own table can override another table's drop.
 	InputDropChains() ([]InputDropChain, error)
 
-	// EnsureAddress adds the address to lo as a /32. It is a no-op when lo
-	// already has it, and an error when another interface has it.
-	EnsureAddress(addr netip.Addr) error
+	// EnsureAddress adds the address to lo as a /32 and reports whether it
+	// added it. It is a no-op when lo already has it, and an error when
+	// another interface has it.
+	EnsureAddress(addr netip.Addr) (added bool, err error)
 
 	// RemoveAddress removes the address from lo. A missing address is not
 	// an error.

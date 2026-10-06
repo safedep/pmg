@@ -15,26 +15,31 @@ import (
 
 const loopbackName = "lo"
 
-// ensureAddress adds addr/32 to lo. lo already carrying it, for instance
-// after a crash, is fine. Another interface carrying it is a conflict the
-// operator resolves with the address key.
-func ensureAddress(addr netip.Addr) error {
+// ensureAddress adds addr/32 to lo and reports whether it did. lo already
+// carrying it, for instance after a crash or under another daemon, is
+// fine. Another interface carrying it is a conflict the operator resolves
+// with the address key.
+func ensureAddress(addr netip.Addr) (bool, error) {
 	owner, err := interfaceWithAddress(addr)
 	if err != nil {
-		return err
+		return false, err
 	}
 	switch owner {
 	case loopbackName:
-		return nil
+		return false, nil
 	case "":
 	default:
-		return fmt.Errorf("enforce: namespaces address %s is already on interface %s, set another with proxy.server.enforce.namespaces.address", addr, owner)
+		return false, fmt.Errorf("enforce: namespaces address %s is already on interface %s, set another with proxy.server.enforce.namespaces.address", addr, owner)
 	}
 	err = changeAddress(unix.RTM_NEWADDR, netlink.Request|netlink.Acknowledge|netlink.Create|netlink.Excl, addr)
-	if err != nil && !errors.Is(err, unix.EEXIST) {
-		return fmt.Errorf("enforce: add %s to %s: %w", addr, loopbackName, err)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, unix.EEXIST):
+		return false, nil
+	default:
+		return false, fmt.Errorf("enforce: add %s to %s: %w", addr, loopbackName, err)
 	}
-	return nil
 }
 
 func removeAddress(addr netip.Addr) error {
