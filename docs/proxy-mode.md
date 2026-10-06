@@ -95,7 +95,7 @@ PMG decides in two steps.
 
 At CONNECT time, before any request path is visible, PMG checks the hostname and port. PMG decrypts the connection when they match the exact origin of a configured HTTPS endpoint. An `http://` endpoint never causes an HTTPS connection to be decrypted. PMG also decrypts traffic for the built-in registry hosts that it analyzes. It recognizes but does not decrypt a few other built-in hosts, for example GitHub's npm registry mirror and the PyPI test instances.
 
-Traffic to every other host goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also names the client: the pid, name and executable of a host process, or the address of a container.
+Traffic to every other host goes through an ordinary encrypted tunnel. PMG cannot see the request path or body. PMG records the host in the audit log as a Host Observation event, so you can see which outside hosts your build reached. The event records the port and how the connection reached the proxy. Under [kernel enforcement](./persistent-proxy.md#kernel-enforcement-linux) it also names the client: the pid, name and executable of a host process, or the address of a container. A process outside the daemon's PID namespace has a name only.
 
 After decryption, PMG matches each request against an endpoint by:
 

@@ -80,7 +80,7 @@ type fakeResolver struct {
 	byConn Origin
 }
 
-func (f *fakeResolver) OriginalDestination(peer netip.AddrPort) (Origin, bool) {
+func (f *fakeResolver) OriginalDestination(peer, _ netip.AddrPort) (Origin, bool) {
 	o, ok := f.byPeer[peer]
 	return o, ok
 }
@@ -95,6 +95,7 @@ type peerConn struct {
 }
 
 func (c peerConn) RemoteAddr() net.Addr { return c.remote }
+func (c peerConn) LocalAddr() net.Addr  { return tcpPeer("127.0.0.1:7777") }
 
 func tcpPeer(s string) net.Addr {
 	ap := netip.MustParseAddrPort(s)

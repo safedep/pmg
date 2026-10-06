@@ -43,7 +43,6 @@ func newRequestContext(req *http.Request) (*RequestContext, error) {
 		Port:      port,
 		RequestID: requestID,
 		StartTime: time.Now(),
-		Origin:    originFromContext(req.Context()),
 		Data:      make(map[string]interface{}),
 	}, nil
 }

@@ -68,22 +68,17 @@ func expandExecutables(patterns []string) ([]ExemptedFile, error) {
 // identity. st_dev uses the glibc layout. The kernel's s_dev is
 // MKDEV(major, minor), which is major << 20 | minor.
 func statExecutable(path string) (ExemptedFile, error) {
-	var st unix.Stat_t
-	if err := unix.Stat(path, &st); err != nil {
-		return ExemptedFile{}, fmt.Errorf("enforce: stat exempt executable %s: %w", path, err)
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return ExemptedFile{}, fmt.Errorf("enforce: open exempt executable %s: %w", path, err)
 	}
-	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+	defer func() { _ = unix.Close(fd) }()
+	id, err := identify(fd)
+	if err != nil {
+		return ExemptedFile{}, fmt.Errorf("enforce: identify exempt executable %s: %w", path, err)
+	}
+	if !id.Regular {
 		return ExemptedFile{Path: path}, nil
 	}
-	return ExemptedFile{
-		Path:  path,
-		Dev:   kernelDev(st.Dev),
-		Inode: st.Ino,
-	}, nil
-}
-
-// kernelDev turns a glibc st_dev into the kernel's s_dev, MKDEV(major,
-// minor), which is major << 20 | minor.
-func kernelDev(dev uint64) uint64 {
-	return uint64(unix.Major(dev))<<20 | uint64(unix.Minor(dev))
+	return ExemptedFile{Path: path, Dev: id.Dev, Inode: id.Inode}, nil
 }

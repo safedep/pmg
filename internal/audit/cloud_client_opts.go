@@ -32,9 +32,8 @@ func hostObservationDedupRule() endpointsync.DedupRule {
 }
 
 // hostObservationDedupKey separates the clients of one host, so the surviving
-// event names the right one. The executable and the address identify a
-// client. The pid changes with every run of the same program, and the comm is
-// the process's own choice, so neither is part of the key.
+// event names the right one. The pid changes with every run of the same
+// program, so it is not part of the key.
 func hostObservationDedupKey(observation *controltowerv1.PmgHostObservation) []string {
 	client := observation.GetClient()
 	return []string{
@@ -42,9 +41,22 @@ func hostObservationDedupKey(observation *controltowerv1.PmgHostObservation) []s
 		observation.GetMethod(),
 		strconv.FormatUint(uint64(observation.GetPort()), 10),
 		observation.GetEntryPoint().String(),
-		client.GetExecutable(),
+		programOf(client),
 		client.GetAddress(),
 	}
+}
+
+// programOf names the program behind a client. The executable is the
+// kernel's verified name. Without one, the comm is the process's own
+// choice, and still keeps two programs apart.
+func programOf(client *controltowerv1.PmgProxyClient) string {
+	if exe := client.GetExecutable(); exe != "" {
+		return exe
+	}
+	if comm := client.GetComm(); comm != "" {
+		return "comm:" + comm
+	}
+	return ""
 }
 
 func cloudSyncOptions(walPath string) []endpointsync.SyncOption {

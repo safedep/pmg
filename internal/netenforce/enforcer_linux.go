@@ -452,7 +452,7 @@ func (h *linuxHandle) readDecisions(rd *ringbuf.Reader) {
 			log.Debugf("enforce: decode decision: %v", err)
 			continue
 		}
-		log.Debugf("enforce: %s pid=%d uid=%d comm=%s exe=%s dst=%s", d.Action, d.PID, d.UID, d.Comm, exePath(d.PID, d.ExeDev, d.ExeInode), d.Destination)
+		log.Debugf("enforce: %s pid=%d uid=%d comm=%s exe=%s dst=%s", d.Action, d.PID, d.UID, d.Comm, traceExe(d), d.Destination)
 		select {
 		case h.decisions <- d:
 		default:
@@ -499,31 +499,6 @@ func commString(comm [16]int8) string {
 		b = append(b, byte(c))
 	}
 	return string(b)
-}
-
-// exePath names the executable of a process, when it is still the file
-// the kernel saw at connect. A process can exec another binary after it
-// connected, or exit and leave its pid to another process, so the path
-// counts only when the file's device and inode match the kernel's record.
-// It is "" for a process outside the daemon's PID namespace. The comm
-// still names it then.
-func exePath(tgid uint32, dev, ino uint64) string {
-	if tgid == 0 || ino == 0 {
-		return ""
-	}
-	link := filepath.Join("/proc", strconv.FormatUint(uint64(tgid), 10), "exe")
-	var st unix.Stat_t
-	if err := unix.Stat(link, &st); err != nil {
-		return ""
-	}
-	if kernelDev(st.Dev) != dev || st.Ino != ino {
-		return ""
-	}
-	exe, err := os.Readlink(link)
-	if err != nil {
-		return ""
-	}
-	return exe
 }
 
 func (h *linuxHandle) Status() Status {

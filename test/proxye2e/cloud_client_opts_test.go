@@ -68,13 +68,8 @@ func TestProxyFlow_HostObservationDedup(t *testing.T) {
 				})
 			},
 			Exec: func(h *Harness) ExecResult {
-				// An unknown host is tunneled, so each CONNECT is one host
-				// observation. The TLS handshake with the mock fails after the
-				// tunnel opens, which is fine: the observation already happened.
-				// Closing idle connections forces a new tunnel per request.
 				for range observations {
-					_, _ = h.RawClient().Get("https://" + host + "/package")
-					h.RawClient().CloseIdleConnections()
+					openTunnel(h, host)
 				}
 				return ExecResult{}
 			},
@@ -129,11 +124,10 @@ func TestProxyFlow_HostObservationDedupSeparatesClients(t *testing.T) {
 				})
 			},
 			Exec: func(h *Harness) ExecResult {
-				// Each request opens a new connection, and the resolver names
-				// the next program for it. Four requests are two per program.
+				// Each tunnel is a new connection, and the resolver names the
+				// next program for it. Four tunnels are two per program.
 				for range 2 * len(exes) {
-					_, _ = h.RawClient().Get("https://" + host + "/package")
-					h.RawClient().CloseIdleConnections()
+					openTunnel(h, host)
 				}
 				return ExecResult{}
 			},
@@ -162,6 +156,18 @@ func TestProxyFlow_HostObservationDedupSeparatesClients(t *testing.T) {
 	})
 }
 
+// openTunnel sends one CONNECT for an unknown host, which is one host
+// observation. The TLS handshake with the mock fails after the tunnel
+// opens, and that is fine. The observation already happened. Closing the
+// idle connections forces a new tunnel for the next call.
+func openTunnel(h *Harness, host string) {
+	resp, err := h.RawClient().Get("https://" + host + "/package")
+	if err == nil {
+		require.NoError(h.t, resp.Body.Close())
+	}
+	h.RawClient().CloseIdleConnections()
+}
+
 // RotatingClients names a different program for each connection, the way
 // the kernel record does for a client of the proxy itself. It returns no
 // destination, so the client stays an explicit one.
@@ -171,7 +177,7 @@ type RotatingClients struct {
 	n    int
 }
 
-func (r *RotatingClients) OriginalDestination(netip.AddrPort) (proxy.Origin, bool) {
+func (r *RotatingClients) OriginalDestination(_, _ netip.AddrPort) (proxy.Origin, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	exe := r.Exes[r.n%len(r.Exes)]

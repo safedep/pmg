@@ -103,9 +103,14 @@ func TestHostObservationDedupKeySeparatesClients(t *testing.T) {
 	curlAgain := &controltowerv1.PmgProxyClient{Pid: proto.Uint32(2), Comm: proto.String("renamed"), Executable: proto.String("/usr/bin/curl")}
 	node := &controltowerv1.PmgProxyClient{Pid: proto.Uint32(3), Comm: proto.String("node"), Executable: proto.String("/usr/bin/node")}
 
+	namedCurl := &controltowerv1.PmgProxyClient{Comm: proto.String("curl")}
+	namedWget := &controltowerv1.PmgProxyClient{Comm: proto.String("wget")}
+
 	assert.True(t, same(curl, curlAgain), "a new run of the same program, under any comm, is the same client")
 	assert.False(t, same(curl, node), "another program is another client")
 	assert.False(t, same(curl, &controltowerv1.PmgProxyClient{}), "a program and an unknown client differ")
+	assert.False(t, same(namedCurl, namedWget), "without an executable the comm keeps two programs apart")
+	assert.False(t, same(curl, namedCurl), "a verified name and a self-reported one differ")
 }
 
 func toolEventWithPmgEvent(event *controltowerv1.PmgEvent) *servicev1.ToolEvent {

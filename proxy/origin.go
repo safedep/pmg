@@ -66,9 +66,10 @@ func (o Origin) String() string {
 
 // OriginalDestinationResolver returns where a redirected client wanted to
 // connect, by the client's own address and port. A kernel record answers
-// it.
+// it. The local address is the listener the client reached, so a record
+// of a connect that reached nothing is not mistaken for it.
 type OriginalDestinationResolver interface {
-	OriginalDestination(client netip.AddrPort) (Origin, bool)
+	OriginalDestination(client, local netip.AddrPort) (Origin, bool)
 }
 
 // ConnOriginalDestinationResolver recovers the destination from the
@@ -90,8 +91,12 @@ func (ps *proxyServer) lookupOriginalDestination(c net.Conn) Origin {
 	if err != nil {
 		return orig
 	}
+	local, err := netip.ParseAddrPort(c.LocalAddr().String())
+	if err != nil {
+		return orig
+	}
 	if r := ps.config.OriginalDestination; r != nil {
-		if o, found := r.OriginalDestination(peer); found {
+		if o, found := r.OriginalDestination(peer, local); found {
 			orig = o
 			orig.EntryPoint = EntryPointExplicit
 			if o.IsValid() {
