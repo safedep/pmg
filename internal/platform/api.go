@@ -51,3 +51,8 @@ func IsTransientAcceptError(err error) bool { return isTransientAcceptError(err)
 // process, for example "pwsh.exe". Windows only. Unix returns
 // errors.ErrUnsupported, because SHELL answers the question there.
 func ParentProcessName() (string, error) { return parentProcessName() }
+
+// IsZombieProcess reports whether pid has exited and waits for its parent to
+// reap it. Linux reads the state from /proc. A read or parse failure, and
+// every other platform, reports false.
+func IsZombieProcess(pid int) bool { return isZombieProcess(pid) }
