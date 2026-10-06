@@ -47,6 +47,35 @@ func (linuxNamespaceRedirector) EnsureAddress(addr netip.Addr) error { return en
 
 func (linuxNamespaceRedirector) RemoveAddress(addr netip.Addr) error { return removeAddress(addr) }
 
+// InputDropChains reads every base chain and keeps the input chains with a
+// drop policy that could see an IPv4 packet, outside the pmg table. A
+// legacy iptables firewall is not an nftables chain and is not listed.
+func (linuxNamespaceRedirector) InputDropChains() ([]InputDropChain, error) {
+	conn, err := nftables.New()
+	if err != nil {
+		return nil, fmt.Errorf("enforce: open nftables: %w", err)
+	}
+	chains, err := conn.ListChains()
+	if err != nil {
+		return nil, fmt.Errorf("enforce: list nftables chains: %w", err)
+	}
+	var out []InputDropChain
+	for _, c := range chains {
+		if c.Table == nil || c.Table.Name == NamespaceTable || c.Hooknum == nil || c.Policy == nil {
+			continue
+		}
+		if *c.Hooknum != *nftables.ChainHookInput || *c.Policy != nftables.ChainPolicyDrop {
+			continue
+		}
+		family, ok := map[nftables.TableFamily]string{nftables.TableFamilyIPv4: "ip", nftables.TableFamilyINet: "inet"}[c.Table.Family]
+		if !ok {
+			continue
+		}
+		out = append(out, InputDropChain{Family: family, Table: c.Table.Name, Chain: c.Name})
+	}
+	return out, nil
+}
+
 // probeNamespaces checks what the redirect needs: a kernel with owned
 // tables, CAP_NET_ADMIN, and nf_tables that answers over netlink.
 func probeNamespaces() ProbeResult {

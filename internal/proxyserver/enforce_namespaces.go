@@ -238,18 +238,43 @@ func (n *namespaceRedirect) state() *NamespaceState {
 }
 
 // warnings names what an operator must know: redirected containers need
-// the CA, or the reason the redirect is off under auto.
+// the CA, a host firewall that would drop them, or the reason the redirect
+// is off under auto.
 func (n *namespaceRedirect) warnings() []string {
 	switch {
 	case n == nil:
 		return nil
 	case n.active():
-		return []string{fmt.Sprintf("Containers on %s are redirected through the proxy. A container that does not trust the PMG CA fails on registry hosts. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md.", strings.Join(n.policy.Ingress, ", "))}
+		w := []string{fmt.Sprintf("Containers on %s are redirected through the proxy. A container that does not trust the PMG CA fails on registry hosts. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md.", strings.Join(n.policy.Ingress, ", "))}
+		if fw := n.firewallWarning(); fw != "" {
+			w = append(w, fw)
+		}
+		return w
 	case n.reason != "":
 		return []string{"Containers are not redirected through the proxy: " + n.reason}
 	default:
 		return nil
 	}
+}
+
+// firewallWarning names the input chains that drop by default. The daemon
+// cannot see whether a rule in them already accepts the listener, so it
+// names the rule to add and lets the operator judge.
+func (n *namespaceRedirect) firewallWarning() string {
+	chains, err := n.redirector.InputDropChains()
+	if err != nil {
+		log.Warnf("%v", err)
+		return ""
+	}
+	if len(chains) == 0 {
+		return ""
+	}
+	names := make([]string, len(chains))
+	for i, c := range chains {
+		names[i] = c.String()
+	}
+	return fmt.Sprintf("The host firewall drops input by default in %s. A redirected container hangs until a rule accepts the listener on every ingress interface, for example `%s`. ufw keeps `ufw allow in on %s to %s`.",
+		strings.Join(names, ", "), chains[0].AcceptRule(n.policy.Ingress[0], n.policy.Address), n.policy.Ingress[0], n.policy.Address)
 }
 
 // detachAll is the error-path cleanup: table and address together.

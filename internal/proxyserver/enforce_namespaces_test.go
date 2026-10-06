@@ -19,6 +19,7 @@ type fakeRedirector struct {
 	missing    []string
 	addressErr error
 	attachErr  error
+	dropChains []netenforce.InputDropChain
 
 	addresses []netip.Addr
 	removed   []netip.Addr
@@ -37,6 +38,10 @@ func (h *fakeHandle) Close() error                       { h.closed = true; retu
 
 func (f *fakeRedirector) Probe() netenforce.ProbeResult {
 	return netenforce.ProbeResult{Supported: len(f.missing) == 0, Missing: f.missing}
+}
+
+func (f *fakeRedirector) InputDropChains() ([]netenforce.InputDropChain, error) {
+	return f.dropChains, nil
 }
 
 func (f *fakeRedirector) EnsureAddress(addr netip.Addr) error {
@@ -154,6 +159,22 @@ func TestNamespaceRedirectFailsFastWhereAutoFallsBack(t *testing.T) {
 			assert.Contains(t, n.warnings()[0], "not redirected")
 		})
 	}
+}
+
+func TestNamespaceRedirectWarnsAboutAnInputDropFirewall(t *testing.T) {
+	f := &fakeRedirector{dropChains: []netenforce.InputDropChain{{Family: "ip", Table: "filter", Chain: "INPUT"}}}
+	useFakeRedirector(t, f, nil)
+
+	n, err := newNamespaceRedirect(nsConfig("redirect"), basePolicy)
+	require.NoError(t, err)
+	w := n.warnings()
+	require.Len(t, w, 2)
+	assert.Contains(t, w[1], "ip filter INPUT")
+	assert.Contains(t, w[1], "iptables -I INPUT -i docker0 -d 169.254.200.1 -j ACCEPT")
+	assert.Contains(t, w[1], "ufw allow in on docker0 to 169.254.200.1")
+
+	f.dropChains = nil
+	assert.Len(t, n.warnings(), 1, "no firewall line without a drop chain")
 }
 
 func TestNamespaceRedirectRejectsBadConfig(t *testing.T) {

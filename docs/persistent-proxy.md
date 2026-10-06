@@ -383,6 +383,14 @@ prints one line:
   namespaces: redirect (169.254.200.1:18443 from docker0, br-*)
 ```
 
+A host firewall with a default deny on input, such as ufw or firewalld on a
+workstation, drops a redirected connection on its way to the listener, and
+the container hangs. The daemon warns at start when it finds such a chain
+and names the rule to add. For ufw it is `sudo ufw allow in on docker0 to
+169.254.200.1`, for a plain nftables firewall an `accept` for `iifname
+"docker0" ip daddr 169.254.200.1` in the input chain. Docker's own forward
+rules do not cover this, because the connection is to the host now.
+
 The host needs Linux 5.13 or later with nf_tables and conntrack, which every
 Docker host has. The redirect covers `docker run`, `RUN` steps in
 `docker build` with the default builder and with a `docker-container`

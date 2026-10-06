@@ -56,6 +56,14 @@ func TestNamespacePolicyValidate(t *testing.T) {
 	}
 }
 
+func TestInputDropChainAcceptRule(t *testing.T) {
+	addr := netip.MustParseAddr("169.254.200.1")
+	assert.Equal(t, "iptables -I INPUT -i docker0 -d 169.254.200.1 -j ACCEPT",
+		InputDropChain{Family: "ip", Table: "filter", Chain: "INPUT"}.AcceptRule("docker0", addr))
+	assert.Equal(t, `nft insert rule inet firewall input iifname "docker0" ip daddr 169.254.200.1 accept`,
+		InputDropChain{Family: "inet", Table: "firewall", Chain: "input"}.AcceptRule("docker0", addr))
+}
+
 func TestNamespaceStatusTarget(t *testing.T) {
 	assert.Equal(t, "169.254.200.1:18443", NamespaceStatus{Address: "169.254.200.1", Port: 18443}.Target())
 }

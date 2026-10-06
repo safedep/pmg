@@ -148,11 +148,38 @@ type NamespaceHandle interface {
 	Close() error
 }
 
+// InputDropChain is a firewall chain on the input hook with a drop policy,
+// outside the daemon's table. The redirect delivers a container's
+// connection to the host, so such a chain drops it unless a rule accepts
+// the listener address, and the container hangs.
+type InputDropChain struct {
+	Family string
+	Table  string
+	Chain  string
+}
+
+func (c InputDropChain) String() string { return c.Family + " " + c.Table + " " + c.Chain }
+
+// AcceptRule is the command that lets the redirect through this chain. A
+// chain in the shape iptables-nft creates takes an iptables command, so an
+// operator on ufw or firewalld recognises it. Any other chain takes nft.
+func (c InputDropChain) AcceptRule(ingress string, addr netip.Addr) string {
+	if c.Family == "ip" && c.Table == "filter" && c.Chain == "INPUT" {
+		return fmt.Sprintf("iptables -I INPUT -i %s -d %s -j ACCEPT", ingress, addr)
+	}
+	return fmt.Sprintf("nft insert rule %s %s %s iifname %q ip daddr %s accept", c.Family, c.Table, c.Chain, ingress, addr)
+}
+
 // NamespaceRedirector loads the redirect at the bridge. The kernel side is
 // nftables, and the daemon's listener on the address does the rest.
 type NamespaceRedirector interface {
 	// Probe reports whether this host can redirect, and what is missing.
 	Probe() ProbeResult
+
+	// InputDropChains lists the firewall chains that can drop a redirected
+	// connection on its way to the listener. The daemon warns about them,
+	// because nothing in its own table can override another table's drop.
+	InputDropChains() ([]InputDropChain, error)
 
 	// EnsureAddress adds the address to lo as a /32. It is a no-op when lo
 	// already has it, and an error when another interface has it.
