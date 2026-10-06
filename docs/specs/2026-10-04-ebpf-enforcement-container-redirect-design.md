@@ -65,8 +65,10 @@ processes see no change.
 - Rootless Docker and Podman with pasta or slirp4netns. Their user-mode
   network stack opens host sockets, so their traffic already takes the host
   path through the cgroup programs. Only the trust problem remains for them.
-- IPv6 in containers. Docker leaves it off by default. The `inet` table in
-  part 1 takes an IPv6 rule later without a new mechanism.
+- Redirecting IPv6 in containers. Docker leaves IPv6 off by default. The
+  table refuses TCP over IPv6 to the enforced ports, so a client falls back
+  to IPv4. An IPv6 listener and a `dnat ip6` rule can come later without a
+  new mechanism.
 - Steering a virtual machine. A tap or tun ingress is not matched by
   default, because a VM is the same trust problem with a longer path to the
   fix. An operator can name one in `ingress`.
@@ -111,13 +113,28 @@ table inet pmg {
     ip daddr 169.254.200.1 drop
   }
 
-  chain quic {
+  chain forward {
     type filter hook forward priority filter; policy accept;
-    iifname "docker0" udp dport 443 reject
-    iifname "br-*" udp dport 443 reject
+    iifname "docker0" jump deny
+    iifname "br-*" jump deny
+  }
+
+  chain deny {
+    fib daddr oifname "docker0" return
+    fib daddr oifname "br-*" return
+    meta nfproto ipv6 tcp dport 443 reject with tcp reset
+    udp dport 443 reject
   }
 }
 ```
+
+The `steer` chain redirects IPv4 only, because the listener has an IPv4
+address. The `deny` chain refuses TCP over IPv6 to the enforced ports with a
+reset, so a container on an IPv6 Docker network falls back to IPv4 and is
+redirected. Without it the container reaches a registry over IPv6 with no
+analysis. The UDP reject lives in the same chain and applies when
+`deny_udp` is on. Traffic between containers is never redirected, so the
+chain leaves it alone, as `steer` does.
 
 The daemon never shells out to `nft`. The GitHub runner image does not ship
 the binary. The daemon builds the same rules over netlink with
