@@ -4,7 +4,9 @@
 #
 # The action fails the check on an attack (fail-on: attacks): malware, an
 # impostor commit or a suspicious command. This policy also fails the check
-# on each critical or high finding that the pull request adds.
+# on each critical or high finding that the pull request adds. A malware
+# finding is critical and a suspicious package is high, so this rule also
+# fails on them.
 version: 2
 
 rules:
@@ -13,8 +15,8 @@ rules:
     when: finding.severity in ["critical", "high"]
     action: fail
   - id: fresh-packages
-    description: A version that the registry published in the last 5 days.
-    when: package.days_since_publish < 5
+    description: A version that the registry published in the last 2 days.
+    when: package.days_since_publish < 2
     action: warn
 
 # A suppression hides findings from the gate. The findings stay in the
