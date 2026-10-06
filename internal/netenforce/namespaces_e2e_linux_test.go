@@ -263,9 +263,33 @@ func buildIPv6Topology(t *testing.T) {
 	ipCmd(t, "-6", "-n", nsServer, "addr", "add", serverExt6+"/64", "dev", "pmgtpx")
 	ipCmd(t, "-6", "-n", nsServer, "route", "add", "default", "via", hostExt6)
 	require.NoError(t, os.WriteFile(ipv6ForwardingPath, []byte("1"), 0o644))
+	ip6tablesForward(t, "-I")
+}
+
+// ip6tablesForward accepts forwarded IPv6 traffic for the test bridge. A
+// Docker host with IPv6 on sets the FORWARD policy to DROP, and an accept
+// in another table cannot override a drop policy, so the rule goes into
+// that chain. The rule is best effort: without ip6tables the host has no
+// such policy either.
+func ip6tablesForward(t *testing.T, op string) {
+	t.Helper()
+	if _, err := exec.LookPath("ip6tables"); err != nil {
+		return
+	}
+	for _, dir := range []string{"-i", "-o"} {
+		out, err := exec.Command("ip6tables", op, "FORWARD", dir, nsBridge, "-j", "ACCEPT").CombinedOutput()
+		if err != nil {
+			t.Logf("ip6tables %s FORWARD %s %s: %v: %s", op, dir, nsBridge, err, out)
+		}
+	}
 }
 
 func cleanupTopology() {
+	if _, err := exec.LookPath("ip6tables"); err == nil {
+		for _, dir := range []string{"-i", "-o"} {
+			_ = exec.Command("ip6tables", "-D", "FORWARD", dir, nsBridge, "-j", "ACCEPT").Run()
+		}
+	}
 	for _, ns := range []string{nsClient, nsServer} {
 		_ = exec.Command("ip", "netns", "del", ns).Run()
 	}
