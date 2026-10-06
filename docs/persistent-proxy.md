@@ -66,7 +66,8 @@ GitHub Actions with raw commands:
   if: always()
 ```
 
-GitHub Actions with the [safedep/pmg action](../action.yml):
+GitHub Actions with the [safedep/pmg action](../action.yml), described in
+[github-action.md](./github-action.md):
 
 ```yaml
 - uses: safedep/pmg@v1
