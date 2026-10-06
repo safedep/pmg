@@ -176,9 +176,10 @@ func TestCircuitBreaker_NotFoundDoesNotCountAsFailure(t *testing.T) {
 			ctx := newTestRequestContext()
 
 			for i := 0; i < 5; i++ {
-				result, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("unknown-%d", i), "1.0.0")
-				require.NoError(t, err)
-				assert.Equal(t, analyzer.ActionAllow, result.Action)
+				result, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, "unknown", "1.0.0")
+				require.Error(t, err)
+				assert.Equal(t, codes.NotFound, status.Code(err))
+				assert.Nil(t, result)
 			}
 
 			assert.Equal(t, 5, mock.callCount, "all calls should reach analyzer (breaker never tripped)")
@@ -194,8 +195,8 @@ func TestCircuitBreaker_NotFoundFollowedByRealFailures(t *testing.T) {
 	// 3 NotFound calls — should NOT trip the breaker
 	for i := 0; i < 3; i++ {
 		result, err := base.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_NPM, fmt.Sprintf("notfound-%d", i), "1.0.0")
-		require.NoError(t, err)
-		assert.Equal(t, analyzer.ActionAllow, result.Action)
+		require.Error(t, err)
+		assert.Nil(t, result)
 	}
 
 	// Switch to real failures

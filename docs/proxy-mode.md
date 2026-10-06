@@ -116,7 +116,10 @@ Paranoid mode returns HTTP 403 when an enabled registry parser fails or an artif
 This check applies to GET and HEAD requests unless the user enables insecure installation.
 PMG allows npm API paths under `/-/` and PyPI root index listings without a package identity.
 Endpoints with analysis disabled, including the GitHub npm endpoints, remain outside this check.
-Analyzer errors still allow downloads in both modes.
+Both modes block downloads with HTTP 503 if analysis fails or returns no valid verdict.
+To skip malware analysis, run `PMG_INSECURE_INSTALLATION=true pmg npm install`.
+Other controls can still block downloads.
+Locked managed configuration disables this bypass.
 
 Cooldown keeps entries whose filenames PMG cannot parse.
 An unrecognized artifact URL does not become a project metadata request.
