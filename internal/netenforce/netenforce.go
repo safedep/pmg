@@ -120,12 +120,23 @@ type Enforcer interface {
 // connection while the second reports active and does nothing.
 var ErrAlreadyEnforced = errors.New("enforce: another pmg daemon already enforces this cgroup")
 
+// Origin is where a redirected client wanted to connect, and the process
+// that asked. The kernel records the process at connect, so a log line can
+// name the program behind a connection. A client in another network
+// namespace has a destination and no process.
+type Origin struct {
+	Dst  netip.AddrPort
+	PID  uint32
+	Comm string
+	Exe  string
+}
+
 // Handle is one attached enforcement. It is the proxy's source for the
 // original destination of a redirected client.
 type Handle interface {
 	// OriginalDestination returns where the client at the given address
-	// wanted to connect. It consumes the entry.
-	OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool)
+	// wanted to connect, and who asked. It consumes the entry.
+	OriginalDestination(client netip.AddrPort) (Origin, bool)
 
 	// Status describes the attached enforcement for the state file.
 	Status() Status

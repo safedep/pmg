@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/internal/ui"
+	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
 )
@@ -300,17 +301,19 @@ func (r *destinationResolver) set(h netenforce.Handle) { r.handle.Store(&h) }
 
 func (r *destinationResolver) useConntrack(on bool) { r.conntrack.Store(on) }
 
-func (r *destinationResolver) OriginalDestinationOf(c net.Conn) (netip.AddrPort, bool) {
+func (r *destinationResolver) OriginalDestinationOf(c net.Conn) (pmgproxy.Origin, bool) {
 	if !r.conntrack.Load() {
-		return netip.AddrPort{}, false
+		return pmgproxy.Origin{}, false
 	}
-	return netenforce.ConntrackOriginalDestination(c)
+	dst, ok := netenforce.ConntrackOriginalDestination(c)
+	return pmgproxy.Origin{Dst: dst}, ok
 }
 
-func (r *destinationResolver) OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool) {
+func (r *destinationResolver) OriginalDestination(client netip.AddrPort) (pmgproxy.Origin, bool) {
 	h := r.handle.Load()
 	if h == nil {
-		return netip.AddrPort{}, false
+		return pmgproxy.Origin{}, false
 	}
-	return (*h).OriginalDestination(client)
+	o, ok := (*h).OriginalDestination(client)
+	return pmgproxy.Origin(o), ok
 }

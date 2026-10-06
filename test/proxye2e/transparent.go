@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/safedep/pmg/proxy"
 	"net"
 	"net/http"
 	"net/netip"
@@ -185,8 +186,8 @@ type StaticOriginalDestination struct {
 	Addr netip.AddrPort
 }
 
-func (s *StaticOriginalDestination) OriginalDestination(netip.AddrPort) (netip.AddrPort, bool) {
-	return s.Addr, s.Addr.IsValid()
+func (s *StaticOriginalDestination) OriginalDestination(netip.AddrPort) (proxy.Origin, bool) {
+	return proxy.Origin{Dst: s.Addr}, s.Addr.IsValid()
 }
 
 // MockRegistryAddrPort returns the mock registry's TLS address as the kernel

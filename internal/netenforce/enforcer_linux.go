@@ -452,7 +452,7 @@ func (h *linuxHandle) readDecisions(rd *ringbuf.Reader) {
 			log.Debugf("enforce: decode decision: %v", err)
 			continue
 		}
-		log.Debugf("enforce: %s pid=%d uid=%d comm=%s dst=%s", d.Action, d.PID, d.UID, d.Comm, d.Destination)
+		log.Debugf("enforce: %s pid=%d uid=%d comm=%s exe=%s dst=%s", d.Action, d.PID, d.UID, d.Comm, exePath(d.PID), d.Destination)
 		select {
 		case h.decisions <- d:
 		default:
@@ -463,7 +463,7 @@ func (h *linuxHandle) readDecisions(rd *ringbuf.Reader) {
 // OriginalDestination reads and removes the kernel's record for the client.
 // The key family is the destination's: an IPv4-mapped destination on an
 // IPv6 socket is stored as IPv4, which is the family the proxy sees too.
-func (h *linuxHandle) OriginalDestination(client netip.AddrPort) (netip.AddrPort, bool) {
+func (h *linuxHandle) OriginalDestination(client netip.AddrPort) (Origin, bool) {
 	key := bpf.EnforceDstKey{Family: unix.AF_INET6, Sport: client.Port()}
 	if client.Addr().Unmap().Is4() {
 		key.Family = unix.AF_INET
@@ -471,12 +471,42 @@ func (h *linuxHandle) OriginalDestination(client netip.AddrPort) (netip.AddrPort
 
 	var d bpf.EnforceDst
 	if err := h.objs.OrigDst.Lookup(key, &d); err != nil {
-		return netip.AddrPort{}, false
+		return Origin{}, false
 	}
 	if err := h.objs.OrigDst.Delete(key); err != nil {
 		log.Debugf("enforce: delete original destination for %s: %v", client, err)
 	}
-	return decodeDst(d), true
+	return Origin{
+		Dst:  decodeDst(d),
+		PID:  d.Tgid,
+		Comm: commString(d.Comm),
+		Exe:  exePath(d.Tgid),
+	}, true
+}
+
+// commString reads the NUL-terminated task name the kernel wrote.
+func commString(comm [16]int8) string {
+	b := make([]byte, 0, len(comm))
+	for _, c := range comm {
+		if c == 0 {
+			break
+		}
+		b = append(b, byte(c))
+	}
+	return string(b)
+}
+
+// exePath names the executable of a process, or "" when the process is
+// gone or outside the daemon's PID namespace. The comm still names it then.
+func exePath(tgid uint32) string {
+	if tgid == 0 {
+		return ""
+	}
+	exe, err := os.Readlink(filepath.Join("/proc", strconv.FormatUint(uint64(tgid), 10), "exe"))
+	if err != nil {
+		return ""
+	}
+	return exe
 }
 
 func (h *linuxHandle) Status() Status {

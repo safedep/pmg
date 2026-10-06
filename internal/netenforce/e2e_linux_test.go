@@ -133,7 +133,7 @@ type e2e struct {
 	t        *testing.T
 	handle   *linuxHandle
 	listener net.Listener
-	accepted chan netip.AddrPort // the original destination of each accepted client
+	accepted chan Origin // the original destination of each accepted client, and who asked
 	exeDir   string
 }
 
@@ -166,7 +166,7 @@ func newE2E(t *testing.T) *e2e {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
 
-	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan netip.AddrPort, 16), exeDir: exeDir}
+	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan Origin, 16), exeDir: exeDir}
 	go e.acceptLoop()
 	return e
 }
@@ -215,11 +215,10 @@ func (e *e2e) acceptLoop() {
 		}
 		client := netip.MustParseAddrPort(conn.RemoteAddr().String())
 		orig, ok := e.handle.OriginalDestination(client)
-		if ok {
-			e.accepted <- orig
-		} else {
-			e.accepted <- netip.AddrPort{}
+		if !ok {
+			orig = Origin{}
 		}
+		e.accepted <- orig
 		_, _ = conn.Write([]byte("pmg\n"))
 		_ = conn.Close()
 	}
@@ -264,15 +263,21 @@ func (e *e2e) decision(match func(Decision) bool) Decision {
 // acceptedFor waits for a redirected connection whose original destination
 // is dst, and ignores any other.
 func (e *e2e) acceptedFor(dst netip.AddrPort, d time.Duration) bool {
+	_, ok := e.originFor(dst, d)
+	return ok
+}
+
+// originFor is acceptedFor with the record the listener recovered.
+func (e *e2e) originFor(dst netip.AddrPort, d time.Duration) (Origin, bool) {
 	deadline := time.After(d)
 	for {
 		select {
 		case orig := <-e.accepted:
-			if orig == dst {
-				return true
+			if orig.Dst == dst {
+				return orig, true
 			}
 		case <-deadline:
-			return false
+			return Origin{}, false
 		}
 	}
 }
@@ -298,7 +303,18 @@ func TestE2E_RedirectRecoversOriginalDestination(t *testing.T) {
 	d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) && d.Destination == dst })
 	assert.Equal(t, ActionRedirect, d.Action)
 	assert.Equal(t, "tcp", d.Protocol)
-	assert.True(t, e.acceptedFor(dst, 2*time.Second), "the listener recovers the original destination")
+	orig, ok := e.originFor(dst, 2*time.Second)
+	require.True(t, ok, "the listener recovers the original destination")
+	assert.Equal(t, uint32(pid), orig.PID, "the record names the client process")
+	assert.Equal(t, truncateComm(filepath.Base(os.Args[0])), orig.Comm)
+}
+
+// truncateComm shortens a name the way the kernel stores a task name.
+func truncateComm(name string) string {
+	if len(name) > 15 {
+		return name[:15]
+	}
+	return name
 }
 
 func TestE2E_IPv4MappedIPv6IsRedirected(t *testing.T) {
