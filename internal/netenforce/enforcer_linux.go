@@ -452,7 +452,7 @@ func (h *linuxHandle) readDecisions(rd *ringbuf.Reader) {
 			log.Debugf("enforce: decode decision: %v", err)
 			continue
 		}
-		log.Debugf("enforce: %s pid=%d uid=%d comm=%s exe=%s dst=%s", d.Action, d.PID, d.UID, d.Comm, exePath(d.PID), d.Destination)
+		log.Debugf("enforce: %s pid=%d uid=%d comm=%s exe=%s dst=%s", d.Action, d.PID, d.UID, d.Comm, exePath(d.PID, d.ExeDev, d.ExeInode), d.Destination)
 		select {
 		case h.decisions <- d:
 		default:
@@ -465,8 +465,12 @@ func (h *linuxHandle) readDecisions(rd *ringbuf.Reader) {
 // IPv6 socket is stored as IPv4, which is the family the proxy sees too.
 func (h *linuxHandle) OriginalDestination(client netip.AddrPort) (Origin, bool) {
 	key := bpf.EnforceDstKey{Family: unix.AF_INET6, Sport: client.Port()}
-	if client.Addr().Unmap().Is4() {
+	if addr := client.Addr().Unmap(); addr.Is4() {
 		key.Family = unix.AF_INET
+		a4 := addr.As4()
+		copy(key.Saddr[:], a4[:])
+	} else {
+		key.Saddr = addr.As16()
 	}
 
 	var d bpf.EnforceDst
@@ -477,10 +481,11 @@ func (h *linuxHandle) OriginalDestination(client netip.AddrPort) (Origin, bool) 
 		log.Debugf("enforce: delete original destination for %s: %v", client, err)
 	}
 	return Origin{
-		Dst:  decodeDst(d),
-		PID:  d.Tgid,
-		Comm: commString(d.Comm),
-		Exe:  exePath(d.Tgid),
+		Dst:     decodeDst(d),
+		PID:     d.Tgid,
+		Comm:    commString(d.Comm),
+		Exe:     exePath(d.Tgid, d.ExeDev, d.ExeIno),
+		ToProxy: d.ToProxy != 0,
 	}, true
 }
 
@@ -496,13 +501,25 @@ func commString(comm [16]int8) string {
 	return string(b)
 }
 
-// exePath names the executable of a process, or "" when the process is
-// gone or outside the daemon's PID namespace. The comm still names it then.
-func exePath(tgid uint32) string {
-	if tgid == 0 {
+// exePath names the executable of a process, when it is still the file
+// the kernel saw at connect. A process can exec another binary after it
+// connected, or exit and leave its pid to another process, so the path
+// counts only when the file's device and inode match the kernel's record.
+// It is "" for a process outside the daemon's PID namespace. The comm
+// still names it then.
+func exePath(tgid uint32, dev, ino uint64) string {
+	if tgid == 0 || ino == 0 {
 		return ""
 	}
-	exe, err := os.Readlink(filepath.Join("/proc", strconv.FormatUint(uint64(tgid), 10), "exe"))
+	link := filepath.Join("/proc", strconv.FormatUint(uint64(tgid), 10), "exe")
+	var st unix.Stat_t
+	if err := unix.Stat(link, &st); err != nil {
+		return ""
+	}
+	if kernelDev(st.Dev) != dev || st.Ino != ino {
+		return ""
+	}
+	exe, err := os.Readlink(link)
 	if err != nil {
 		return ""
 	}

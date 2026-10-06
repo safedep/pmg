@@ -3,7 +3,6 @@ package proxy
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -20,46 +19,6 @@ import (
 	"github.com/safedep/pmg/internal/platform"
 )
 
-// Origin is where a redirected client wanted to connect, and the process
-// that asked when the kernel saw it. The proxy logs it and takes the port
-// from it. It never decides on the process.
-type Origin struct {
-	Dst  netip.AddrPort
-	PID  uint32
-	Comm string
-	Exe  string
-}
-
-// IsValid reports whether a destination was recovered.
-func (o Origin) IsValid() bool { return o.Dst.IsValid() }
-
-// String renders the destination, and the process when there is one.
-func (o Origin) String() string {
-	if o.PID == 0 {
-		return o.Dst.String()
-	}
-	s := fmt.Sprintf("%s pid=%d comm=%s", o.Dst, o.PID, o.Comm)
-	if o.Exe != "" {
-		s += " exe=" + o.Exe
-	}
-	return s
-}
-
-// OriginalDestinationResolver returns where a redirected client wanted to
-// connect, keyed by the client's address and source port. The kernel
-// enforcement layer implements it. The proxy only consumes it.
-type OriginalDestinationResolver interface {
-	OriginalDestination(client netip.AddrPort) (Origin, bool)
-}
-
-// ConnOriginalDestinationResolver recovers the destination from the
-// connection itself, for a client the kernel translated with NAT at a
-// bridge instead of redirecting at connect. A resolver that implements it
-// is asked after the keyed lookup misses.
-type ConnOriginalDestinationResolver interface {
-	OriginalDestinationOf(c net.Conn) (Origin, bool)
-}
-
 const (
 	// sniffTimeout bounds how long a redirected client may stay silent before
 	// it sends its first bytes. A TLS client sends the ClientHello at once.
@@ -73,8 +32,6 @@ const (
 	// tlsHandshakeClientHello is the handshake message type of a ClientHello.
 	tlsHandshakeClientHello = 0x01
 )
-
-type originalDestinationKey struct{}
 
 // transparentConn carries the recovered original destination from the
 // listener to the request handler through http.Server.ConnContext.
@@ -251,7 +208,7 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 	host, port := l.ps.transparentTarget(sni, tc.orig.Dst, 443)
 	log.Debugf("transparent: TLS from %s to %s, server name %q, target %s:%d",
 		tc.RemoteAddr(), tc.orig, sni, host, port)
-	if l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS") {
+	if l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS", tc.orig) {
 		tlsConfig, err := l.ps.config.CertManager.GetTLSConfig(host)
 		if err != nil {
 			l.drop(tc.Conn, fmt.Sprintf("certificate for %s", host), err)
@@ -271,28 +228,6 @@ func (l *transparentListener) drop(c net.Conn, what string, err error) {
 	if cerr := c.Close(); cerr != nil {
 		log.Debugf("transparent: close %s: %v", c.RemoteAddr(), cerr)
 	}
-}
-
-// lookupOriginalDestination asks the resolver where the client wanted to
-// go, first by the client's address and port, then from the connection.
-// A miss on both is normal for a proxy-aware client, which was never
-// redirected.
-func (ps *proxyServer) lookupOriginalDestination(c net.Conn) Origin {
-	r := ps.config.OriginalDestination
-	if r == nil {
-		return Origin{}
-	}
-	if peer, ok := c.RemoteAddr().(*net.TCPAddr); ok {
-		if orig, found := r.OriginalDestination(peer.AddrPort()); found {
-			return orig
-		}
-	}
-	if cr, ok := r.(ConnOriginalDestinationResolver); ok {
-		if orig, found := cr.OriginalDestinationOf(c); found {
-			return orig
-		}
-	}
-	return Origin{}
 }
 
 // transparentTarget pairs the name the client sent with the port it
@@ -353,25 +288,6 @@ func closeWrite(c net.Conn) {
 	}
 }
 
-// transparentConnContext stores the original destination for the requests
-// that arrive on a redirected connection. A TLS connection hides the
-// transparentConn one level down.
-func transparentConnContext(ctx context.Context, c net.Conn) context.Context {
-	if tc, ok := c.(*tls.Conn); ok {
-		c = tc.NetConn()
-	}
-	tc, ok := c.(*transparentConn)
-	if !ok || !tc.orig.IsValid() {
-		return ctx
-	}
-	return context.WithValue(ctx, originalDestinationKey{}, tc.orig)
-}
-
-func originalDestinationFromContext(ctx context.Context) (Origin, bool) {
-	orig, ok := ctx.Value(originalDestinationKey{}).(Origin)
-	return orig, ok
-}
-
 // serveTransparentRequest handles an origin-form request from a redirected
 // client. It rebuilds the absolute URL the interceptors need and hands the
 // request back to goproxy, so the interceptors, the block rendering and the
@@ -398,8 +314,7 @@ func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.
 	}
 	host := req.Host
 	if _, _, err := net.SplitHostPort(host); err != nil {
-		orig, _ := originalDestinationFromContext(req.Context())
-		_, port := ps.transparentTarget(host, orig.Dst, defaultPort)
+		_, port := ps.transparentTarget(host, originFromContext(req.Context()).Dst, defaultPort)
 		host = net.JoinHostPort(host, strconv.Itoa(int(port)))
 	}
 
@@ -411,9 +326,8 @@ func (ps *proxyServer) serveTransparentRequest(w http.ResponseWriter, req *http.
 		return
 	}
 
-	orig, _ := originalDestinationFromContext(req.Context())
 	log.Debugf("transparent: %s from %s to %s, host header %q, target %s",
-		scheme, req.RemoteAddr, orig, req.Host, host)
+		scheme, req.RemoteAddr, originFromContext(req.Context()), req.Host, host)
 
 	req.URL.Scheme = scheme
 	req.URL.Host = host

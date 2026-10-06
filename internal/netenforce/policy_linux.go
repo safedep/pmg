@@ -77,7 +77,13 @@ func statExecutable(path string) (ExemptedFile, error) {
 	}
 	return ExemptedFile{
 		Path:  path,
-		Dev:   uint64(unix.Major(st.Dev))<<20 | uint64(unix.Minor(st.Dev)),
+		Dev:   kernelDev(st.Dev),
 		Inode: st.Ino,
 	}, nil
+}
+
+// kernelDev turns a glibc st_dev into the kernel's s_dev, MKDEV(major,
+// minor), which is major << 20 | minor.
+func kernelDev(dev uint64) uint64 {
+	return uint64(unix.Major(dev))<<20 | uint64(unix.Minor(dev))
 }

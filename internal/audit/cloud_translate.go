@@ -115,9 +115,17 @@ func newCooldownBlockedEvent(event AuditEvent) *controltowerv1.PmgEvent {
 }
 
 func newHostObservationEvent(event AuditEvent) *controltowerv1.PmgEvent {
+	seen := event.HostObservation
 	obs := &controltowerv1.PmgHostObservation{}
-	obs.SetHostname(event.Hostname)
-	obs.SetMethod(event.Method)
+	obs.SetHostname(seen.Hostname)
+	obs.SetMethod(seen.Method)
+	if seen.Port != 0 {
+		obs.SetPort(uint32(seen.Port))
+	}
+	obs.SetEntryPoint(mapEntryPoint(seen.EntryPoint))
+	if !seen.Client.IsZero() {
+		obs.SetClient(newProxyClient(seen.Client))
+	}
 
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION)
@@ -294,4 +302,37 @@ func mapKubernetesWorkloadKind(kind string) controltowerv1.EndpointKubernetesWor
 	default:
 		return controltowerv1.EndpointKubernetesWorkloadKind_ENDPOINT_KUBERNETES_WORKLOAD_KIND_UNSPECIFIED
 	}
+}
+
+func mapEntryPoint(ep ProxyEntryPoint) controltowerv1.PmgProxyEntryPoint {
+	switch ep {
+	case ProxyEntryPointExplicit:
+		return controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_EXPLICIT
+	case ProxyEntryPointRedirectedHost:
+		return controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST
+	case ProxyEntryPointRedirectedNamespace:
+		return controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_NAMESPACE
+	default:
+		return controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_UNSPECIFIED
+	}
+}
+
+// newProxyClient sets only the fields the proxy knew. The message fields
+// have presence, so an unset field reads as unknown and not as zero.
+// HostObservation.details writes the same fields for the event log.
+func newProxyClient(c ProxyClient) *controltowerv1.PmgProxyClient {
+	client := &controltowerv1.PmgProxyClient{}
+	if c.PID != 0 {
+		client.SetPid(c.PID)
+	}
+	if c.Comm != "" {
+		client.SetComm(c.Comm)
+	}
+	if c.Exe != "" {
+		client.SetExecutable(c.Exe)
+	}
+	if c.Address != "" {
+		client.SetAddress(c.Address)
+	}
+	return client
 }

@@ -197,21 +197,44 @@ func LogExecStarted(workload, command string, args []string) {
 }
 
 // LogProxyHostObserved records an outbound host observed by the proxy that is not a known registry.
-func LogProxyHostObserved(hostname, method, reason string, details map[string]any) {
-	base := map[string]any{
-		"hostname": hostname,
-		"method":   method,
+func LogProxyHostObserved(obs HostObservation, reason string, details map[string]any) {
+	logEvent(AuditEvent{
+		Type:            EventTypeProxyHostObserved,
+		Message:         fmt.Sprintf("Proxy observed outbound host: %s", obs.Hostname),
+		Details:         mergeDetails(obs.details(reason), details),
+		HostObservation: obs,
+		Reason:          reason,
+	})
+}
+
+// details writes the known fields for the event log. The cloud sink sets
+// the same fields on the protobuf message in newHostObservationEvent, so a
+// new field goes to both.
+func (obs HostObservation) details(reason string) map[string]any {
+	d := map[string]any{
+		"hostname": obs.Hostname,
+		"method":   obs.Method,
 		"reason":   reason,
 	}
-
-	logEvent(AuditEvent{
-		Type:     EventTypeProxyHostObserved,
-		Message:  fmt.Sprintf("Proxy observed outbound host: %s", hostname),
-		Details:  mergeDetails(base, details),
-		Hostname: hostname,
-		Method:   method,
-		Reason:   reason,
-	})
+	if obs.Port != 0 {
+		d["port"] = obs.Port
+	}
+	if obs.EntryPoint != "" {
+		d["entry_point"] = string(obs.EntryPoint)
+	}
+	if obs.Client.PID != 0 {
+		d["client_pid"] = obs.Client.PID
+	}
+	if obs.Client.Comm != "" {
+		d["client_comm"] = obs.Client.Comm
+	}
+	if obs.Client.Exe != "" {
+		d["client_exe"] = obs.Client.Exe
+	}
+	if obs.Client.Address != "" {
+		d["client_address"] = obs.Client.Address
+	}
+	return d
 }
 
 // LogDependencyCooldown records that a package was blocked by the dependency cooldown policy.

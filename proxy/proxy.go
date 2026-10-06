@@ -499,7 +499,9 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-		if ps.shouldMITM(host, "CONNECT") {
+		orig := originFromContext(ctx.Req.Context())
+		ctx.UserData = orig
+		if ps.shouldMITM(host, "CONNECT", orig) {
 			mitmAction := &goproxy.ConnectAction{
 				Action: goproxy.ConnectMitm,
 				TLSConfig: func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
@@ -521,15 +523,17 @@ func (ps *proxyServer) configureMITM() {
 
 // shouldMITM asks the interceptors whether a tunnel to host:port must be
 // terminated. Interceptors that observe but never MITM, such as telemetry,
-// see the tunnel through HandleRequest. The CONNECT handler and the
-// transparent listener share this decision, so a redirected client and a
-// proxy-aware client get the same answer for the same host.
-func (ps *proxyServer) shouldMITM(host, via string) bool {
+// see the tunnel through HandleRequest, with the origin of the connection.
+// The CONNECT handler and the transparent listener share this decision, so
+// a redirected client and a proxy-aware client get the same answer for the
+// same host.
+func (ps *proxyServer) shouldMITM(host, via string, orig Origin) bool {
 	reqCtx, err := newRequestContextFromURL(host, "CONNECT")
 	if err != nil {
 		log.Errorf("Failed to parse %s request for %s: %v", via, host, err)
 		return false
 	}
+	reqCtx.Origin = orig
 
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -630,6 +634,7 @@ func (ps *proxyServer) registerHandlers() {
 			log.Errorf("Failed to create request context: %v", err)
 			return req, nil
 		}
+		reqCtx.Origin = originOfRequest(req, ctx.UserData)
 
 		log.Debugf("[%s] %s %s", reqCtx.RequestID, req.Method, req.URL.String())
 
