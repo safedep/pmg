@@ -153,6 +153,18 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		}
 	}
 
+	// prepare put the listener address on lo. Until the proxy serves, a
+	// failed start must take it off again. stopServer owns that afterwards.
+	serving := false
+	defer func() {
+		if serving {
+			return
+		}
+		if nerr := namespaces.detachAll(); nerr != nil {
+			log.Warnf("failed to remove the namespace redirect: %v", nerr)
+		}
+	}()
+
 	certMgr, err := certmanager.NewCertificateManagerWithCA(caCert, certmanager.DefaultCertManagerConfig())
 	if err != nil {
 		return fmt.Errorf("create certificate manager: %w", err)
@@ -205,12 +217,13 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	server, err := pmgproxy.NewProxyServer(proxyConfig)
 	if err != nil {
-		return errors.Join(fmt.Errorf("create proxy server: %w", err), namespaces.detachAll())
+		return fmt.Errorf("create proxy server: %w", err)
 	}
 
 	if err := server.Start(); err != nil {
-		return errors.Join(fmt.Errorf("start proxy server: %w", err), namespaces.detachAll())
+		return fmt.Errorf("start proxy server: %w", err)
 	}
+	serving = true
 	stopServer := func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), serverStopTimeout)
 		defer cancel()
