@@ -379,9 +379,12 @@ and is not affected.
 - A bridge whose name is not in `ingress` is not steered, and nothing warns.
   `pmg doctor` lists the bridges on the host next to the configured names.
 - A host firewall with a default deny on input, such as `ufw` on a
-  workstation, drops traffic from `docker0` to the host. Every redirected
-  container connection is then refused, not only registry ones. The doc
-  names the rule to add.
+  workstation, drops a redirected connection on its way to the listener,
+  and the container hangs. Nothing in the daemon's table can override a
+  drop in another table. The daemon lists input chains with a drop policy
+  at start, warns with the rule to add, and status repeats it. A legacy
+  iptables firewall is not visible to that check, so the doc names the
+  rule as well.
 - Any container on a listed bridge gets the host's reachability on the
   enforced ports, for the names it sends. The proxy applies its skip list
   and its own-address guard. It does not apply Docker's network isolation.
