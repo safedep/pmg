@@ -369,6 +369,15 @@ func newUpstreamTransport(config *ProxyConfig, control func(network, address str
 }
 
 func (ps *proxyServer) Start() error {
+	redirectOnly := make(map[netip.Addr]struct{}, len(ps.config.RedirectOnlyAddrs))
+	for _, raw := range ps.config.RedirectOnlyAddrs {
+		addr, err := netip.ParseAddr(raw)
+		if err != nil {
+			return fmt.Errorf("redirect-only address %q: %w", raw, err)
+		}
+		redirectOnly[addr.Unmap()] = struct{}{}
+	}
+
 	listener, err := net.Listen("tcp", ps.config.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
@@ -377,14 +386,7 @@ func (ps *proxyServer) Start() error {
 	ps.listener = listener
 	ps.additionalListeners = ps.listenAdditional(listener.Addr().(*net.TCPAddr).Port)
 	ps.ownAddrs = ps.collectOwnAddrs()
-	ps.redirectOnly = make(map[netip.Addr]struct{}, len(ps.config.RedirectOnlyAddrs))
-	for _, raw := range ps.config.RedirectOnlyAddrs {
-		addr, err := netip.ParseAddr(raw)
-		if err != nil {
-			return fmt.Errorf("redirect-only address %q: %w", raw, err)
-		}
-		ps.redirectOnly[addr.Unmap()] = struct{}{}
-	}
+	ps.redirectOnly = redirectOnly
 
 	serverTimeout := ps.config.ServerReadWriteTimeout
 	if serverTimeout == 0 {

@@ -141,7 +141,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		if err != nil {
 			return err
 		}
-		warnings = append(warnings, namespaces.warnings()...)
 		if err := namespaces.prepare(); err != nil {
 			return err
 		}
@@ -239,7 +238,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 			return err
 		}
 		resolver.set(enforceHandle)
-		resolver.useConntrack(namespaces.active())
 		if err := namespaces.attach(ctx, server.AdditionalAddresses()); err != nil {
 			if cerr := enforceHandle.Close(); cerr != nil {
 				log.Warnf("failed to detach enforcement after the namespace redirect failed: %v", cerr)
@@ -247,7 +245,11 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 			stopServer()
 			return err
 		}
+		// Under auto the attach can turn the mode into ignore, so the
+		// namespace warnings and the resolver follow the mode in effect.
+		resolver.useConntrack(namespaces.active())
 		state.Enforce.Namespaces = namespaces.state()
+		state.Enforce.Warnings = append(state.Enforce.Warnings, namespaces.warnings()...)
 	}
 
 	if err := writeState(statePath, state); err != nil {
