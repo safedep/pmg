@@ -42,6 +42,23 @@ func TestSeccompStructSizes(t *testing.T) {
 	}
 }
 
+func TestRespondFailed(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "no error", err: nil, want: false},
+		{name: "expired notification", err: fmt.Errorf("ioctl SECCOMP_IOCTL_NOTIF_SEND (continue): %w", unix.ENOENT), want: false},
+		{name: "other error", err: fmt.Errorf("ioctl SECCOMP_IOCTL_NOTIF_SEND (deny): %w", unix.EBADF), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, respondFailed(tt.err))
+		})
+	}
+}
+
 func TestLandlockNotifySyscalls(t *testing.T) {
 	execOnly := []uint32{uint32(unix.SYS_EXECVE), uint32(unix.SYS_EXECVEAT)}
 

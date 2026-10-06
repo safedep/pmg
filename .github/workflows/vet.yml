@@ -1,0 +1,23 @@
+name: vet
+on:
+  pull_request:
+permissions: {}
+concurrency:
+  group: vet-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  vet:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: safedep/vet@f33989160951ed1681658a39927e1274c8a30c8a # v2.0.0-alpha.20261006112842
+        with:
+          # The vet v2 alpha publishes a release on each merge. A short
+          # cooldown lets PMG test each release soon after it ships. Remove
+          # the input to use the default cooldown of 24 hours.
+          cooldown: 1

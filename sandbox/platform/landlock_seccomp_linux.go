@@ -866,21 +866,29 @@ func (s *seccompSupervisor) notifValid(id uint64) bool {
 }
 
 func (s *seccompSupervisor) continueSyscall(id uint64) {
-	if err := respondContinue(s.notifyFd, id); err != nil {
-		log.Warnf("seccomp continue for notif %d failed: %v", id, err)
-	}
+	warnRespond("continue", id, respondContinue(s.notifyFd, id))
 }
 
 func (s *seccompSupervisor) deny(id uint64) {
-	if err := respondDeny(s.notifyFd, id); err != nil {
-		log.Warnf("seccomp deny for notif %d failed: %v", id, err)
-	}
+	warnRespond("deny", id, respondDeny(s.notifyFd, id))
 }
 
 func (s *seccompSupervisor) denyConnRefused(id uint64) {
-	if err := respondDenyConnRefused(s.notifyFd, id); err != nil {
-		log.Warnf("seccomp network deny for notif %d failed: %v", id, err)
+	warnRespond("network deny", id, respondDenyConnRefused(s.notifyFd, id))
+}
+
+func warnRespond(kind string, id uint64, err error) {
+	if respondFailed(err) {
+		log.Warnf("seccomp %s for notif %d failed: %v", kind, id, err)
 	}
+}
+
+// respondFailed reports an answer error that needs a warning. ENOENT means
+// that the notification expired: the target exited, or a signal interrupted
+// the syscall. A restarted syscall gets a new notification, so the
+// supervisor still decides on it.
+func respondFailed(err error) bool {
+	return err != nil && !errors.Is(err, unix.ENOENT)
 }
 
 // respondContinue tells the kernel to continue the syscall as if the filter
