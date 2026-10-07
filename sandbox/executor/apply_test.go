@@ -172,6 +172,21 @@ func TestApplyRuntimeOverrides_NetConnect(t *testing.T) {
 	assert.Contains(t, policy.Network.AllowOutbound, "example.com:443")
 }
 
+func TestApplyRuntimeOverrides_NetConnectRemovesExactDeny(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Network: sandbox.NetworkPolicy{
+			DenyOutbound: []string{"*:*", "github.com:443"},
+		},
+	}
+
+	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "github.com:443", Raw: "net-connect=github.com:443"},
+	}, nil)
+
+	assert.Contains(t, policy.Network.AllowOutbound, "github.com:443")
+	assert.Equal(t, []string{"*:*"}, policy.Network.DenyOutbound)
+}
+
 func TestApplyRuntimeOverrides_NetBind(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Network: sandbox.NetworkPolicy{
@@ -432,6 +447,143 @@ func TestResolvePolicySandboxDisabledReturnsEmptyResolution(t *testing.T) {
 	require.NotNil(t, res)
 	assert.Nil(t, res.Policy)
 	assert.Equal(t, "npm", res.PackageManager)
+}
+
+func TestResolvePolicyOutboundRules(t *testing.T) {
+	tests := []struct {
+		name        string
+		profile     string
+		wantErr     string
+		wantMatcher bool
+	}{
+		{
+			name: "enforce with lockdown builds a matcher",
+			profile: `
+name: t
+package_managers: ["npm"]
+network_via_proxy_only: true
+enforce_outbound_rules: true
+network:
+  allow_outbound: ["registry.npmjs.org:443"]
+  deny_outbound: ["*:*"]
+`,
+			wantMatcher: true,
+		},
+		{
+			name: "enforce without lockdown fails",
+			profile: `
+name: t
+package_managers: ["npm"]
+enforce_outbound_rules: true
+network:
+  allow_outbound: ["registry.npmjs.org:443"]
+`,
+			wantErr: "requires network_via_proxy_only",
+		},
+		{
+			name: "enforce with an invalid rule fails",
+			profile: `
+name: t
+package_managers: ["npm"]
+network_via_proxy_only: true
+enforce_outbound_rules: true
+network:
+  allow_outbound: ["registry.npmjs.org"]
+`,
+			wantErr: "registry.npmjs.org",
+		},
+		{
+			name: "no enforce builds no matcher and ignores invalid rules",
+			profile: `
+name: t
+package_managers: ["npm"]
+network:
+  allow_outbound: ["registry.npmjs.org"]
+`,
+		},
+	}
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+	})
+	cfg.Config.Sandbox.Enabled = true
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "p.yml")
+			require.NoError(t, os.WriteFile(path, []byte(tc.profile), 0o600))
+			cfg.SandboxProfileOverride = path
+
+			res, err := ResolvePolicy("npm", false)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				var usefulErr usefulerror.UsefulError
+				require.ErrorAs(t, err, &usefulErr)
+				assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMatcher, res.Outbound != nil)
+		})
+	}
+}
+
+func TestResolvePolicyOutboundMatcherSeesRuntimeOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "p.yml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+name: t
+package_managers: ["npm"]
+network_via_proxy_only: true
+enforce_outbound_rules: true
+network:
+  allow_outbound: ["registry.npmjs.org:443"]
+  deny_outbound: ["*:*", "github.com:443"]
+`), 0o600))
+
+	cfg := config.Get()
+	oldEnabled := cfg.Config.Sandbox.Enabled
+	oldOverride := cfg.SandboxProfileOverride
+	oldAllow := cfg.SandboxAllowOverrides
+	t.Cleanup(func() {
+		cfg.Config.Sandbox.Enabled = oldEnabled
+		cfg.SandboxProfileOverride = oldOverride
+		cfg.SandboxAllowOverrides = oldAllow
+	})
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = path
+	cfg.SandboxAllowOverrides = []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "github.com:443", Raw: "net-connect=github.com:443"},
+	}
+
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res.Outbound)
+	assert.True(t, res.Outbound.Allows("github.com", 443))
+	assert.True(t, res.Outbound.Allows("registry.npmjs.org", 443))
+	assert.False(t, res.Outbound.Allows("evil.example", 443))
+}
+
+func TestIneffectiveNetConnectOverrides(t *testing.T) {
+	m, err := sandbox.NewOutboundMatcher(sandbox.NetworkPolicy{
+		AllowOutbound: []string{"registry.npmjs.org:443", "evil.example:443", "Codeload.GitHub.com:443"},
+		DenyOutbound:  []string{"*:*", "evil.example:*", "*.corp.example:443"},
+	})
+	require.NoError(t, err)
+
+	overrides := []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "evil.example:443", Raw: "net-connect=evil.example:443"},
+		{Type: config.SandboxAllowNetConnect, Value: "git.corp.example:443", Raw: "net-connect=git.corp.example:443"},
+		{Type: config.SandboxAllowNetConnect, Value: "codeload.github.com:443", Raw: "net-connect=codeload.github.com:443"},
+		{Type: config.SandboxAllowNetConnect, Value: "registry.npmjs.org:*", Raw: "net-connect=registry.npmjs.org:*"},
+		{Type: config.SandboxAllowWrite, Value: "/tmp/x", Raw: "write=/tmp/x"},
+	}
+
+	assert.Equal(t, []string{"evil.example:443", "git.corp.example:443"}, ineffectiveNetConnectOverrides(m, overrides))
 }
 
 func TestApplySandboxEmptyResolutionRunsUnsandboxed(t *testing.T) {

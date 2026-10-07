@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -34,6 +36,10 @@ type applySandboxConfig struct {
 type Resolution struct {
 	PackageManager string
 	Policy         *sandbox.SandboxPolicy
+
+	// Outbound enforces the outbound rules of the policy in the PMG proxy.
+	// It is nil unless the policy sets enforce_outbound_rules.
+	Outbound *sandbox.OutboundMatcher
 }
 
 // ApplySandboxOpt configures ApplySandbox.
@@ -216,7 +222,74 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 			Wrap(errors.New(msg))
 	}
 
-	return &Resolution{PackageManager: pmName, Policy: policy}, nil
+	outbound, err := outboundMatcher(policy)
+	if err != nil {
+		return nil, err
+	}
+
+	if outbound != nil {
+		for _, dest := range ineffectiveNetConnectOverrides(outbound, cfg.SandboxAllowOverrides) {
+			log.Warnf("Sandbox override: net-connect=%s has no effect, a deny_outbound rule still blocks it", dest)
+			if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: --sandbox-allow net-connect=%s has no effect. A deny_outbound rule in policy %s still blocks it.\n", dest, policy.Name); werr != nil {
+				log.Warnf("failed to write override warning to stderr: %v", werr)
+			}
+		}
+	}
+
+	return &Resolution{PackageManager: pmName, Policy: policy, Outbound: outbound}, nil
+}
+
+// ineffectiveNetConnectOverrides returns the net-connect overrides that the
+// outbound rules still deny. A wildcard deny such as host:* is never removed
+// by an override, and it wins over the allow rule the override adds.
+// Overrides with a wildcard port name no single destination and are skipped.
+func ineffectiveNetConnectOverrides(m *sandbox.OutboundMatcher, overrides []config.SandboxAllowOverride) []string {
+	var out []string
+	for _, o := range overrides {
+		if o.Type != config.SandboxAllowNetConnect {
+			continue
+		}
+		host, portStr, err := net.SplitHostPort(o.Value)
+		if err != nil {
+			continue
+		}
+		port, err := strconv.ParseUint(portStr, 10, 16)
+		if err != nil {
+			continue
+		}
+		if !m.Allows(host, uint16(port)) {
+			out = append(out, o.Value)
+		}
+	}
+	return out
+}
+
+func outboundMatcher(policy *sandbox.SandboxPolicy) (*sandbox.OutboundMatcher, error) {
+	if !utils.SafelyGetValue(policy.EnforceOutboundRules) {
+		return nil, nil
+	}
+
+	if !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		msg := fmt.Sprintf("policy %s sets enforce_outbound_rules, which requires network_via_proxy_only", policy.Name)
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.SandboxPolicyInvalid).
+			WithHumanError(msg).
+			WithHelp("Set network_via_proxy_only: true in the profile, or remove enforce_outbound_rules.").
+			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
+			Wrap(errors.New(msg))
+	}
+
+	m, err := sandbox.NewOutboundMatcher(policy.Network)
+	if err != nil {
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.SandboxPolicyInvalid).
+			WithHumanError(fmt.Sprintf("Policy %s has an invalid outbound rule: %v", policy.Name, err)).
+			WithHelp("Write each rule as host:port, for example registry.npmjs.org:443.").
+			WithAdditionalHelp("See https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
+			Wrap(err)
+	}
+
+	return m, nil
 }
 
 // ApplySandbox applies a resolved sandbox policy to cmd. A resolution with no
@@ -330,6 +403,7 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 		case config.SandboxAllowNetConnect:
 			log.Infof("Sandbox override: allowing outbound connection to %s", override.Value)
 			policy.Network.AllowOutbound = append(policy.Network.AllowOutbound, override.Value)
+			policy.Network.DenyOutbound = removeExactMatch(policy.Network.DenyOutbound, override.Value)
 
 		case config.SandboxAllowNetBind:
 			log.Infof("Sandbox override: allowing network bind on %s", override.Value)

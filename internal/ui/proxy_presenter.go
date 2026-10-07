@@ -58,6 +58,10 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
 			blockCtx.CooldownDaysAgo, blockCtx.CooldownDays, blockCtx.CooldownDaysLeft)
 
+	case proxy.BlockReasonEgressDenied:
+		message = fmt.Sprintf("PMG sandbox blocked the connection to %s. The outbound rules of the sandbox profile do not allow it.",
+			blockCtx.Destination)
+
 	default:
 		return ""
 	}

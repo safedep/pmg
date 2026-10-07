@@ -31,7 +31,7 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
-- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Network filtering is coarse-grained — host-level filtering is not enforced on either platform.
+- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. The sandbox drivers do not filter network traffic per host. The PMG proxy does, for a profile that sets `enforce_outbound_rules`. See [Per-Host Outbound Rules](#per-host-outbound-rules).
 
 </details>
 
@@ -132,6 +132,112 @@ On Ubuntu 23.10 and later, AppArmor also refuses a connect to a host socket from
 driver's user namespace, even with `allow_unix_sockets: true`. Install the pmg AppArmor profile
 described in [AppArmor blocks the Landlock driver](#apparmor-blocks-the-landlock-driver-ubuntu-2310)
 to lift that restriction for pmg.
+
+### Per-Host Outbound Rules
+
+The sandbox drivers cannot filter outbound traffic per host. Seatbelt and Landlock see IP
+addresses and ports, not host names. With `network_via_proxy_only: true`, the PMG proxy is the
+only way out of the sandbox. Set `enforce_outbound_rules: true` to make the proxy enforce
+`network.allow_outbound` and `network.deny_outbound` for each destination.
+
+```yaml
+name: npm-locked
+inherits: npm-restrictive
+package_managers: [npm]
+network_via_proxy_only: true
+enforce_outbound_rules: true
+network:
+  allow_outbound:
+    - "*.mycorp.example:443"
+  deny_outbound:
+    - github.com:443
+```
+
+This profile allows the hosts from `npm-restrictive` (except `github.com`) and the subdomains of
+`mycorp.example`. It blocks all other hosts.
+
+**Requirements**
+
+- `enforce_outbound_rules` requires `network_via_proxy_only: true`. Without it, a tool can skip
+  the proxy. PMG does not run the command, and `pmg sandbox profile lint` reports an error.
+- The setting is off by default. It is inherited like `network_via_proxy_only`.
+- It applies only to commands that run in the sandbox through the PMG proxy, for example
+  `pmg npm install`. `pmg sandbox exec` and the persistent proxy (`pmg proxy start`) do not
+  support it.
+
+**Rule syntax**
+
+Each rule is `host:port`.
+
+- The host is an exact name, `*.example.com`, `*`, an IPv4 address, or an IPv6 address in
+  brackets, for example `[2001:db8::1]:443`.
+- `*.example.com` matches subdomains at any depth. It does not match `example.com`.
+- The port is a number from 1 to 65535, or `*`.
+- Hosts match without case and without a trailing dot.
+- An invalid rule stops the command when `enforce_outbound_rules` is on. Otherwise
+  `pmg sandbox profile lint` shows a warning.
+
+**Decision order**
+
+1. A `deny_outbound` rule other than `*:*` matches. PMG blocks the connection.
+2. An `allow_outbound` rule matches. PMG allows the connection.
+3. `allow_outbound` is not empty, or `deny_outbound` contains `*:*`. PMG blocks the connection.
+4. Otherwise PMG allows the connection.
+
+`*:*` in `deny_outbound` means "block by default". A specific deny rule always wins over an allow
+rule. When a request has no port, the proxy uses 443 for `https` and 80 for `http`.
+
+**Narrow an inherited list**
+
+A child profile adds to the lists of its parent. It cannot remove an inherited allow rule. To
+block a host that the parent allows, add the host to `deny_outbound`, as the example does with
+`github.com:443`. For a strict list, write a profile with no `inherits`.
+
+**Allow a host for one run**
+
+```bash
+pmg --sandbox-allow net-connect=codeload.github.com:443 npm install
+```
+
+The override adds the host to `allow_outbound` and removes an exact match from `deny_outbound`.
+It does not remove a wildcard deny rule, such as `codeload.github.com:*` or `*.github.com:443`.
+When a deny rule still blocks the host, PMG prints a warning before the command runs.
+
+**What you see**
+
+The proxy refuses a blocked connection with `403 Forbidden`. The package manager prints its own
+error. At the end of the run, PMG lists each blocked destination:
+
+```text
+⊘ The sandbox blocked outbound connections to:
+    codeload.github.com:443
+  Allow a host for one run with --sandbox-allow net-connect=<host>:<port>.
+```
+
+**Limits**
+
+- The proxy sees HTTP and HTTPS traffic only. Lockdown blocks every other direct connection, and
+  an allow rule cannot open one. For example, a Postgres client cannot reach a remote database.
+- The proxy matches the host name that the client sends. It does not resolve DNS. A deny rule for
+  a name does not block a connection to the IP address of that name. Use an allow list for a
+  strict boundary.
+- `allow_direct_dns: true` lets data leave through DNS queries. `pmg sandbox profile lint` warns
+  when it is set together with `enforce_outbound_rules`.
+- `allow_unix_sockets: true` lets traffic leave through a host socket, such as the Docker daemon.
+- Loopback traffic with `allow_network_bind` does not go through the proxy, so the rules do not
+  apply to it.
+
+**Tools that do not use the proxy**
+
+- Connect to a local service on loopback with `allow_network_bind`, for example a Docker
+  container on `localhost:5432`.
+- Start an SSH tunnel outside the sandbox (`ssh -L 5432:db.example.com:5432 bastion`), and connect
+  to `localhost:5432`.
+- Send the tool through the proxy with HTTP CONNECT, if the tool supports it. For example, `ssh`
+  can use `ProxyCommand nc -X connect -x 127.0.0.1:<pmg-proxy-port> %h %p`. The outbound rules
+  then apply to that traffic too.
+- Set `network_via_proxy_only: false` in the profile for that tool. This turns off the per-host
+  rules for the profile.
 
 ## Requirements
 
@@ -541,7 +647,8 @@ and port 53 when it sets `allow_direct_dns`). Denials surface as `network_connec
 violations. The fail-closed contract is the same as on macOS: no running proxy, no command.
 Known gaps (e.g. `sendmmsg`, unix-socket DNS) are documented in
 [sandbox-landlock.md](./sandbox-landlock.md). Outside lockdown there is no fine-grained
-host filtering; Landlock V4's native port rules are not yet used.
+host filtering; Landlock V4's native port rules are not yet used. Under lockdown, the PMG proxy
+can filter per host. See [Per-Host Outbound Rules](#per-host-outbound-rules).
 
 **PID/IPC namespace isolation**: Applied best-effort via `CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWNS`.
 If unavailable, a warning is printed and the command continues. Set `PMG_SANDBOX_DRIVER=bubblewrap`
@@ -635,7 +742,8 @@ running PMG proxy's port is reachable, and profiles with `allow_network_bind` ad
 loopback↔loopback connects open. Raw sockets, QUIC, and arbitrary non-loopback ports are blocked
 at the kernel.
 Direct DNS is disabled by default (the proxy resolves names); `allow_direct_dns: true` re-opens
-it. The Go profile ships with lockdown enabled.
+it. The Go profile ships with lockdown enabled. To allow only some hosts, see
+[Per-Host Outbound Rules](#per-host-outbound-rules).
 
 **Deny targets are pinned against a move**: Seatbelt checks a rename against its source and its
 destination only, so a denied file would move along with its parent directory and a prepared

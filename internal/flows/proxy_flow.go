@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/sandbox/executor"
 )
 
 type proxyFlow struct {
@@ -226,8 +227,20 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
 			runerror.ReasonProxySetupFailed)
 	}
+	// Resolve the sandbox policy once, before the proxy starts. The proxy
+	// enforces its outbound rules and the runner applies the same policy.
+	// The status line is cleared first, so a project overlay warning does
+	// not print over the spinner.
+	ui.ClearStatus()
+	sandboxRes, err := executor.ResolvePolicy(f.pm.Name(), false)
+	if err != nil {
+		return runerror.Wrap(fmt.Errorf("failed to apply sandbox: %w", err),
+			runerror.ReasonExecutionSetupFailed)
+	}
+	egress, egressPolicy := egressPolicyFor(sandboxRes)
+
 	// Create and start proxy server
-	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
+	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList, egressPolicy)
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to start proxy server: %w", err),
 			runerror.ReasonProxySetupFailed)
@@ -252,6 +265,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		SandboxProxyAddr:   proxyAddr,
+		Sandbox:            sandboxRes,
 		Mode:               runner.ExecutionModeAuto,
 		EnvOverrides:       append(packagemanager.EnvVarForProxy(proxyAddr, caCertPath), routing.ExtraEnv...),
 		DirectEnvOverrides: ciEnvOverride(),
@@ -323,6 +337,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
+	if egress != nil {
+		reportData.EgressDenied = egress.Denied()
+	}
 
 	// Set outcome based on execution result using shared inference logic
 	reportData.Outcome = inferOutcome(cfg.InsecureInstallation, cfg.DryRun, reportData.BlockedCount, stats.UserCancelledCount, executionError)
@@ -394,10 +411,12 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 func (f *proxyFlow) createAndStartProxyServer(
 	certMgr certmanager.CertificateManager,
 	interceptorsList []proxy.Interceptor,
+	egress proxy.EgressPolicy,
 ) (proxy.ProxyServer, string, error) {
 	proxyConfig := proxy.DefaultProxyConfig()
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorsList
+	proxyConfig.Egress = egress
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
 

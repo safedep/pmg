@@ -31,6 +31,9 @@ const (
 	// SandboxPolicyDisabled is returned when `pmg sandbox exec` finds its
 	// policy disabled in the config. The command never runs unsandboxed.
 	SandboxPolicyDisabled = "SandboxPolicyDisabled"
+	// SandboxPolicyInvalid is returned when a sandbox policy cannot be
+	// enforced as written, for example outbound rules without lockdown.
+	SandboxPolicyInvalid = "SandboxPolicyInvalid"
 
 	// Proxy error codes. ProxyPolicyViolation is returned when the proxy blocked
 	// one or more packages by policy (malware, dependency cooldown, or a denied

@@ -66,11 +66,11 @@ filesystem:
     - /usr/**
 
 network:
-  # These hosts are documentation of the default Go module endpoints and the
-  # future input to proxy-level per-host policy. They are NOT kernel-enforced:
-  # with network_via_proxy_only, the sandbox denies all non-loopback outbound
-  # traffic, and the proxy (with fail-closed GOPROXY rewrite) controls module
-  # traffic.
+  # These hosts document the default Go module endpoints. They are not
+  # enforced by default. Set enforce_outbound_rules: true to make the PMG
+  # proxy allow only these hosts. With network_via_proxy_only, the sandbox
+  # denies all non-loopback outbound traffic that skips the proxy, and the
+  # proxy (with fail-closed GOPROXY rewrite) controls module traffic.
   allow_outbound:
     - proxy.golang.org:443
     - sum.golang.org:443

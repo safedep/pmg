@@ -367,6 +367,46 @@ func TestMergeWithParentAllowDirectDNS(t *testing.T) {
 	}
 }
 
+func TestMergeWithParentEnforceOutboundRules(t *testing.T) {
+	tests := []struct {
+		name     string
+		parent   *bool
+		child    *bool
+		expected bool
+	}{
+		{
+			name:     "child overrides parent true with false",
+			parent:   utils.PtrTo(true),
+			child:    utils.PtrTo(false),
+			expected: false,
+		},
+		{
+			name:     "child nil inherits parent true",
+			parent:   utils.PtrTo(true),
+			child:    nil,
+			expected: true,
+		},
+		{
+			name:     "both nil defaults to false",
+			parent:   nil,
+			child:    nil,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := &SandboxPolicy{EnforceOutboundRules: tt.parent}
+			child := &SandboxPolicy{EnforceOutboundRules: tt.child}
+
+			child.MergeWithParent(parent)
+
+			assert.NotNil(t, child.EnforceOutboundRules)
+			assert.Equal(t, tt.expected, *child.EnforceOutboundRules)
+		})
+	}
+}
+
 func TestMergeWithParentAllowUnixSockets(t *testing.T) {
 	tests := []struct {
 		name     string

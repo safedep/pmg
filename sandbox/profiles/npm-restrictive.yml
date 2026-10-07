@@ -81,7 +81,8 @@ filesystem:
 
 network:
   # MacOS sandbox-exec does not support network restrictions, so we allow all outbound traffic
-  # when at least one allow outbound rule is present.
+  # when at least one allow outbound rule is present. The PMG proxy enforces these hosts only
+  # when a profile sets network_via_proxy_only and enforce_outbound_rules.
   allow_outbound:
     - registry.npmjs.org:443
     - registry.yarnpkg.com:443

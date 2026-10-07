@@ -99,6 +99,13 @@ func TestProxyPresenterBlockMessage(t *testing.T) {
 			expected: "Package blocked by dependency cooldown: go/example.com/fresh@v1.1.0\n\nPublished 2 day(s) ago; cooldown window is 7 day(s) (5 remaining).\n\nRequest an exemption at go/pmg-exceptions",
 		},
 		{
+			name:     "egress denied",
+			reason:   proxy.BlockReasonEgressDenied,
+			blockCtx: &proxy.BlockContext{Destination: "evil.example:443"},
+			advisory: "Contact #security-help",
+			expected: "PMG sandbox blocked the connection to evil.example:443. The outbound rules of the sandbox profile do not allow it.\n\nContact #security-help",
+		},
+		{
 			name:     "nil context",
 			reason:   proxy.BlockReasonMalware,
 			blockCtx: nil,
