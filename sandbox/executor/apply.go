@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -225,7 +227,41 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		return nil, err
 	}
 
+	if outbound != nil {
+		for _, dest := range ineffectiveNetConnectOverrides(outbound, cfg.SandboxAllowOverrides) {
+			log.Warnf("Sandbox override: net-connect=%s has no effect, a deny_outbound rule still blocks it", dest)
+			if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: --sandbox-allow net-connect=%s has no effect. A deny_outbound rule in policy %s still blocks it.\n", dest, policy.Name); werr != nil {
+				log.Warnf("failed to write override warning to stderr: %v", werr)
+			}
+		}
+	}
+
 	return &Resolution{PackageManager: pmName, Policy: policy, Outbound: outbound}, nil
+}
+
+// ineffectiveNetConnectOverrides returns the net-connect overrides that the
+// outbound rules still deny. A wildcard deny such as host:* is never removed
+// by an override, and it wins over the allow rule the override adds.
+// Overrides with a wildcard port name no single destination and are skipped.
+func ineffectiveNetConnectOverrides(m *sandbox.OutboundMatcher, overrides []config.SandboxAllowOverride) []string {
+	var out []string
+	for _, o := range overrides {
+		if o.Type != config.SandboxAllowNetConnect {
+			continue
+		}
+		host, portStr, err := net.SplitHostPort(o.Value)
+		if err != nil {
+			continue
+		}
+		port, err := strconv.ParseUint(portStr, 10, 16)
+		if err != nil {
+			continue
+		}
+		if !m.Allows(host, uint16(port)) {
+			out = append(out, o.Value)
+		}
+	}
+	return out
 }
 
 func outboundMatcher(policy *sandbox.SandboxPolicy) (*sandbox.OutboundMatcher, error) {

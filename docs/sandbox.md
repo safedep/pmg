@@ -200,6 +200,8 @@ pmg --sandbox-allow net-connect=codeload.github.com:443 npm install
 ```
 
 The override adds the host to `allow_outbound` and removes an exact match from `deny_outbound`.
+It does not remove a wildcard deny rule, such as `codeload.github.com:*` or `*.github.com:443`.
+When a deny rule still blocks the host, PMG prints a warning before the command runs.
 
 **What you see**
 

@@ -568,6 +568,24 @@ network:
 	assert.False(t, res.Outbound.Allows("evil.example", 443))
 }
 
+func TestIneffectiveNetConnectOverrides(t *testing.T) {
+	m, err := sandbox.NewOutboundMatcher(sandbox.NetworkPolicy{
+		AllowOutbound: []string{"registry.npmjs.org:443", "evil.example:443", "Codeload.GitHub.com:443"},
+		DenyOutbound:  []string{"*:*", "evil.example:*", "*.corp.example:443"},
+	})
+	require.NoError(t, err)
+
+	overrides := []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "evil.example:443", Raw: "net-connect=evil.example:443"},
+		{Type: config.SandboxAllowNetConnect, Value: "git.corp.example:443", Raw: "net-connect=git.corp.example:443"},
+		{Type: config.SandboxAllowNetConnect, Value: "codeload.github.com:443", Raw: "net-connect=codeload.github.com:443"},
+		{Type: config.SandboxAllowNetConnect, Value: "registry.npmjs.org:*", Raw: "net-connect=registry.npmjs.org:*"},
+		{Type: config.SandboxAllowWrite, Value: "/tmp/x", Raw: "write=/tmp/x"},
+	}
+
+	assert.Equal(t, []string{"evil.example:443", "git.corp.example:443"}, ineffectiveNetConnectOverrides(m, overrides))
+}
+
 func TestApplySandboxEmptyResolutionRunsUnsandboxed(t *testing.T) {
 	fake := &fakeApplySandbox{}
 	result, err := ApplySandbox(context.Background(), exec.Command("npm"),
