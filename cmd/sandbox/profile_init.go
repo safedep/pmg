@@ -174,6 +174,9 @@ func renderScaffold(name, description, inheritsFrom string, pms []string, placeh
 	b.WriteString("  allow_outbound: []\n")
 	b.WriteString("  deny_outbound: []\n")
 	b.WriteString("  allow_bind: []\n")
+	b.WriteString("\n# Uncomment to make the PMG proxy allow only the outbound rules above.\n")
+	b.WriteString("# It requires network_via_proxy_only: true.\n")
+	b.WriteString("# enforce_outbound_rules: true\n")
 
 	b.WriteString("\n# Process execution rules — additive over the parent (if any).\n")
 	b.WriteString("process:\n")

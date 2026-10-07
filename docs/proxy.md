@@ -8,6 +8,9 @@ Built with [goproxy](https://github.com/elazarl/goproxy) library.
 - Selective interception of HTTPS traffic
 - Pluggable interceptors for different use cases
 - Certificate generation and management for HTTPS interception (MITM)
+- Optional egress policy (`ProxyConfig.Egress`) that allows or blocks each destination `host:port`.
+  PMG uses it to enforce the outbound rules of a sandbox profile. See
+  [Per-Host Outbound Rules](./sandbox.md#per-host-outbound-rules).
 
 ## Architecture
 

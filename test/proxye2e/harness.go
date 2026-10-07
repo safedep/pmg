@@ -51,6 +51,7 @@ type options struct {
 	transparent    bool
 	origDst        proxy.OriginalDestinationResolver
 	redirectOnlyIP string
+	egress         proxy.EgressPolicy
 }
 
 type Option func(*options)
@@ -76,6 +77,12 @@ func WithTransparent(resolver proxy.OriginalDestinationResolver) Option {
 // listens for containers.
 func WithRedirectOnlyListener(ip string) Option {
 	return func(o *options) { o.redirectOnlyIP = ip }
+}
+
+// WithEgress makes the proxy enforce p on every destination, as the proxy
+// flow does for a sandbox profile with enforce_outbound_rules.
+func WithEgress(p proxy.EgressPolicy) Option {
+	return func(o *options) { o.egress = p }
 }
 
 func New(t *testing.T, opts ...Option) *Harness {
@@ -186,6 +193,7 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 	cfg.Interceptors = interceptorList
 	cfg.Transparent = o.transparent
 	cfg.OriginalDestination = o.origDst
+	cfg.Egress = o.egress
 	if o.redirectOnlyIP != "" {
 		cfg.AdditionalListenAddrs = []string{net.JoinHostPort(o.redirectOnlyIP, "0")}
 		cfg.RedirectOnlyAddrs = []string{o.redirectOnlyIP}

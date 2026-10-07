@@ -56,6 +56,11 @@ type SandboxPolicy struct {
 	// NetworkViaProxyOnly. No effect otherwise. Default false: the proxy
 	// resolves names and direct DNS is an exfiltration channel.
 	AllowDirectDNS *bool `yaml:"allow_direct_dns" json:"allow_direct_dns"`
+
+	// EnforceOutboundRules makes the PMG proxy enforce network.allow_outbound
+	// and network.deny_outbound per host. It requires NetworkViaProxyOnly,
+	// because without it a tool can skip the proxy.
+	EnforceOutboundRules *bool `yaml:"enforce_outbound_rules" json:"enforce_outbound_rules"`
 }
 
 // FilesystemPolicy defines allowed and denied filesystem access patterns.
@@ -194,6 +199,10 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 
 	if child.AllowDirectDNS == nil {
 		child.AllowDirectDNS = utils.PtrTo(utils.SafelyGetValue(parent.AllowDirectDNS))
+	}
+
+	if child.EnforceOutboundRules == nil {
+		child.EnforceOutboundRules = utils.PtrTo(utils.SafelyGetValue(parent.EnforceOutboundRules))
 	}
 }
 

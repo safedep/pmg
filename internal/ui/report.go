@@ -86,6 +86,11 @@ type ReportData struct {
 	// Rendered as a hint when the install fails.
 	CooldownWithheldPackages []models.CooldownWithheld
 
+	// EgressDenied lists the host:port destinations that the sandbox
+	// outbound rules blocked. Rendered as a hint for every outcome, because
+	// a blocked host can matter even when the install succeeds.
+	EgressDenied []string
+
 	// AdvisoryMessage is the optional org-configured message appended to block
 	// output regardless of which control blocked. Set from advisory_message.
 	AdvisoryMessage string
@@ -176,6 +181,8 @@ func reportNormal(data *ReportData) {
 	if data.Outcome == OutcomeDryRun {
 		return // Dry run already shows its own message
 	}
+
+	printEgressDeniedHint(data.EgressDenied)
 
 	if data.Outcome == OutcomeError {
 		// The child's own error output and PMG's exit line render elsewhere.
@@ -354,6 +361,24 @@ func reportVerbose(data *ReportData) {
 		printAdvisoryMessage(data.AdvisoryMessage)
 	}
 
+	printEgressDeniedHint(data.EgressDenied)
+
+	fmt.Println()
+}
+
+// printEgressDeniedHint lists the destinations that the sandbox outbound
+// rules blocked, and tells the user how to allow one for a single run.
+func printEgressDeniedHint(denied []string) {
+	if len(denied) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("%s %s\n", Colors.Yellow("⊘"), Colors.Yellow("The sandbox blocked outbound connections to:"))
+	for _, d := range denied {
+		fmt.Printf("    %s\n", Colors.Yellow(d))
+	}
+	fmt.Printf("  %s\n", Colors.Dim("Allow a host for one run with --sandbox-allow net-connect=<host>:<port>."))
 	fmt.Println()
 }
 

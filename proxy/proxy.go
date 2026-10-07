@@ -139,6 +139,11 @@ type ProxyConfig struct {
 	// so a container cannot use the listener as a proxy with the host's
 	// reachability.
 	RedirectOnlyAddrs []string
+
+	// Egress, when set, decides which destinations the proxy may forward to.
+	// The proxy checks every CONNECT and every request. It cannot be used
+	// with Transparent, because the splice path does not run the check.
+	Egress EgressPolicy
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -293,6 +298,13 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		if err := ps.AddInterceptor(interceptor); err != nil {
 			return nil, fmt.Errorf("failed to add interceptor %s: %w", interceptor.Name(), err)
 		}
+	}
+
+	if config.Egress != nil {
+		if config.Transparent {
+			return nil, fmt.Errorf("egress policy cannot be used with the transparent listener")
+		}
+		ps.configureEgress()
 	}
 
 	if config.EnableMITM {
@@ -672,25 +684,7 @@ func (ps *proxyServer) registerHandlers() {
 				}
 
 				log.Debugf("[%s] Blocked by %s: %s", reqCtx.RequestID, interceptor.Name(), req.URL.String())
-				r := goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
-
-				// goproxy v1.8.x writes the response via (*http.Response).Write for MITM traffic.
-				// Ensure the protocol version is valid (defaults to HTTP/0.0 otherwise).
-				// Ref: https://github.com/elazarl/goproxy/issues/745
-				if req.ProtoMajor > 0 {
-					r.Proto = req.Proto
-					r.ProtoMajor = req.ProtoMajor
-					r.ProtoMinor = req.ProtoMinor
-				} else {
-					r.Proto = "HTTP/1.1"
-					r.ProtoMajor = 1
-					r.ProtoMinor = 1
-				}
-				r.Close = true
-				r.Header.Set("Connection", "close")
-				r.Header.Set("Proxy-Connection", "close")
-
-				return req, r
+				return req, blockResponse(req, statusCode, message)
 
 			case ActionModifyRequest:
 				if resp.ModifiedHeaders != nil {

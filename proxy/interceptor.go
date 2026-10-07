@@ -55,6 +55,7 @@ const (
 	BlockReasonUserDeclined
 	BlockReasonConfirmationFailed
 	BlockReasonDependencyCooldown
+	BlockReasonEgressDenied
 )
 
 // BlockContext carries the structured facts of a block decision so a
@@ -73,6 +74,9 @@ type BlockContext struct {
 	CooldownDays     int
 	CooldownDaysAgo  int
 	CooldownDaysLeft int
+
+	// For BlockReasonEgressDenied: the denied host:port.
+	Destination string
 }
 
 // InterceptorResponse defines how the proxy should handle the request

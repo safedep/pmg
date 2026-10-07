@@ -62,10 +62,11 @@ filesystem:
     - /usr/**
 
 network:
-  # These hosts document the default crates.io endpoints. They are the
-  # future input to proxy-level per-host policy. They are NOT
-  # kernel-enforced. With network_via_proxy_only, the sandbox denies all
-  # non-loopback outbound traffic. The proxy controls registry traffic.
+  # These hosts document the default crates.io endpoints. They are not
+  # enforced by default. Set enforce_outbound_rules: true to make the PMG
+  # proxy allow only these hosts. With network_via_proxy_only, the sandbox
+  # denies all non-loopback outbound traffic that skips the proxy. The proxy
+  # controls registry traffic.
   allow_outbound:
     - index.crates.io:443
     - static.crates.io:443

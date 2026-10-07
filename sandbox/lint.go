@@ -138,6 +138,43 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		})
 	}
 
+	enforceOutbound := utils.SafelyGetValue(policy.EnforceOutboundRules)
+
+	if enforceOutbound && !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		errors = append(errors, LintIssue{
+			Level:   LintLevelError,
+			Code:    "enforce-outbound-rules-without-lockdown",
+			Message: "enforce_outbound_rules requires network_via_proxy_only: true",
+			Field:   "enforce_outbound_rules",
+		})
+	}
+
+	if enforceOutbound && utils.SafelyGetValue(policy.AllowDirectDNS) {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "enforce-outbound-rules-with-direct-dns",
+			Message: "allow_direct_dns lets data leave through DNS, past the outbound rules",
+			Field:   "allow_direct_dns",
+		})
+	}
+
+	// No driver reads the outbound rules unless the proxy enforces them, so
+	// an invalid rule only breaks a run when enforce_outbound_rules is on.
+	if _, err := NewOutboundMatcher(policy.Network); err != nil {
+		issue := LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "network.invalid-rule",
+			Message: err.Error(),
+			Field:   "network",
+		}
+		if enforceOutbound {
+			issue.Level = LintLevelError
+			errors = append(errors, issue)
+		} else {
+			warns = append(warns, issue)
+		}
+	}
+
 	conflictPairs := []struct {
 		allowName string
 		allow     []string

@@ -124,15 +124,16 @@ func TestResolveProfileDoesNotMutateRegistry(t *testing.T) {
 
 func TestExpandPolicyPathsIsolatesBoolPointers(t *testing.T) {
 	source := &SandboxPolicy{
-		Name:                "ptr-isolation",
-		PackageManagers:     []string{"npm"},
-		Filesystem:          FilesystemPolicy{AllowRead: []string{"/tmp"}},
-		AllowGitConfig:      utils.PtrTo(true),
-		AllowPTY:            utils.PtrTo(true),
-		AllowNetworkBind:    utils.PtrTo(true),
-		NetworkViaProxyOnly: utils.PtrTo(true),
-		AllowDirectDNS:      utils.PtrTo(true),
-		AllowUnixSockets:    utils.PtrTo(true),
+		Name:                 "ptr-isolation",
+		PackageManagers:      []string{"npm"},
+		Filesystem:           FilesystemPolicy{AllowRead: []string{"/tmp"}},
+		AllowGitConfig:       utils.PtrTo(true),
+		AllowPTY:             utils.PtrTo(true),
+		AllowNetworkBind:     utils.PtrTo(true),
+		NetworkViaProxyOnly:  utils.PtrTo(true),
+		AllowDirectDNS:       utils.PtrTo(true),
+		AllowUnixSockets:     utils.PtrTo(true),
+		EnforceOutboundRules: utils.PtrTo(true),
 	}
 
 	resolved, err := expandPolicyPaths(source, ResolveOptions{CWD: "/x", Home: "/y"})
@@ -148,6 +149,7 @@ func TestExpandPolicyPathsIsolatesBoolPointers(t *testing.T) {
 		{"NetworkViaProxyOnly", source.NetworkViaProxyOnly, resolved.NetworkViaProxyOnly},
 		{"AllowDirectDNS", source.AllowDirectDNS, resolved.AllowDirectDNS},
 		{"AllowUnixSockets", source.AllowUnixSockets, resolved.AllowUnixSockets},
+		{"EnforceOutboundRules", source.EnforceOutboundRules, resolved.EnforceOutboundRules},
 	}
 	for _, f := range fields {
 		assert.NotSame(t, f.source, f.resolved, f.name)

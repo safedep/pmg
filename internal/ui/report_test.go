@@ -137,6 +137,50 @@ func withheldData(outcome ExecutionOutcome) *ReportData {
 	return data
 }
 
+func TestReportEgressDeniedHint(t *testing.T) {
+	tests := []struct {
+		name      string
+		verbosity VerbosityLevel
+		outcome   ExecutionOutcome
+		wantHint  bool
+	}{
+		{"normal error", VerbosityLevelNormal, OutcomeError, true},
+		{"normal success with no analysis", VerbosityLevelNormal, OutcomeSuccess, true},
+		{"verbose error", VerbosityLevelVerbose, OutcomeError, true},
+		{"silent error", VerbosityLevelSilent, OutcomeError, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withVerbosity(t, tc.verbosity)
+
+			data := NewReportData()
+			data.Outcome = tc.outcome
+			data.EgressDenied = []string{"codeload.github.com:443", "evil.example:443"}
+
+			out := captureStdout(t, func() { Report(data) })
+			if !tc.wantHint {
+				assert.NotContains(t, out, "codeload.github.com:443")
+				return
+			}
+			assert.Contains(t, out, "The sandbox blocked outbound connections to:")
+			assert.Contains(t, out, "codeload.github.com:443")
+			assert.Contains(t, out, "evil.example:443")
+			assert.Contains(t, out, "--sandbox-allow net-connect=<host>:<port>")
+		})
+	}
+}
+
+func TestReportNormalNoEgressHintWithoutDenials(t *testing.T) {
+	withVerbosity(t, VerbosityLevelNormal)
+
+	data := NewReportData()
+	data.Outcome = OutcomeError
+
+	out := captureStdout(t, func() { Report(data) })
+	assert.NotContains(t, out, "sandbox blocked")
+}
+
 func TestReportNormalWithheldHintOnError(t *testing.T) {
 	withVerbosity(t, VerbosityLevelNormal)
 

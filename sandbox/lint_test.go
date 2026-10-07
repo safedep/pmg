@@ -310,3 +310,77 @@ func TestLintProfile_AllowUnixSocketsWithLockdown(t *testing.T) {
 		})
 	}
 }
+
+func TestLintProfile_OutboundRules(t *testing.T) {
+	tests := []struct {
+		name  string
+		edit  func(p *SandboxPolicy)
+		code  string
+		level LintLevel
+	}{
+		{
+			name: "enforce without lockdown is an error",
+			edit: func(p *SandboxPolicy) {
+				p.EnforceOutboundRules = utils.PtrTo(true)
+			},
+			code:  "enforce-outbound-rules-without-lockdown",
+			level: LintLevelError,
+		},
+		{
+			name: "invalid rule with enforce is an error",
+			edit: func(p *SandboxPolicy) {
+				p.NetworkViaProxyOnly = utils.PtrTo(true)
+				p.EnforceOutboundRules = utils.PtrTo(true)
+				p.Network.AllowOutbound = []string{"registry.npmjs.org"}
+			},
+			code:  "network.invalid-rule",
+			level: LintLevelError,
+		},
+		{
+			name: "invalid rule without enforce is a warning",
+			edit: func(p *SandboxPolicy) {
+				p.Network.AllowOutbound = []string{"registry.npmjs.org"}
+			},
+			code:  "network.invalid-rule",
+			level: LintLevelWarn,
+		},
+		{
+			name: "enforce with direct DNS is a warning",
+			edit: func(p *SandboxPolicy) {
+				p.NetworkViaProxyOnly = utils.PtrTo(true)
+				p.EnforceOutboundRules = utils.PtrTo(true)
+				p.AllowDirectDNS = utils.PtrTo(true)
+			},
+			code:  "enforce-outbound-rules-with-direct-dns",
+			level: LintLevelWarn,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := cleanPolicy()
+			tc.edit(p)
+
+			var found *LintIssue
+			for _, i := range LintProfile(p) {
+				if i.Code == tc.code {
+					issue := i
+					found = &issue
+					break
+				}
+			}
+			require.NotNil(t, found, "expected lint code %s", tc.code)
+			assert.Equal(t, tc.level, found.Level)
+		})
+	}
+}
+
+func TestLintProfile_OutboundRulesCleanWithLockdown(t *testing.T) {
+	p := cleanPolicy()
+	p.NetworkViaProxyOnly = utils.PtrTo(true)
+	p.EnforceOutboundRules = utils.PtrTo(true)
+	p.Network.AllowOutbound = []string{"registry.npmjs.org:443"}
+	p.Network.DenyOutbound = []string{"*:*"}
+
+	assert.Empty(t, LintProfile(p))
+}
