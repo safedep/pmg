@@ -24,10 +24,16 @@ import (
 )
 
 type applySandboxConfig struct {
-	sb             sandbox.Sandbox
-	rt             *sandbox.ExecutionContext
-	processLabel   string
-	requireSandbox bool
+	sb           sandbox.Sandbox
+	rt           *sandbox.ExecutionContext
+	processLabel string
+}
+
+// Resolution is a sandbox policy resolved for one package manager run.
+// A nil Policy means the run has no sandbox.
+type Resolution struct {
+	PackageManager string
+	Policy         *sandbox.SandboxPolicy
 }
 
 // ApplySandboxOpt configures ApplySandbox.
@@ -58,29 +64,21 @@ func WithProcessLabel(label string) ApplySandboxOpt {
 	}
 }
 
-// WithRequireSandbox makes a disabled policy an error instead of a run without
-// a sandbox. `pmg sandbox exec` sets it: the user asked for the sandbox by name.
-func WithRequireSandbox() ApplySandboxOpt {
-	return func(c *applySandboxConfig) {
-		c.requireSandbox = true
-	}
-}
-
-// ApplySandbox applies sandbox isolation to the command if sandbox mode is enabled.
-// This is a helper function used by the command runner to avoid code duplication.
+// ResolvePolicy loads the sandbox policy for pmName and applies the project
+// overlay and the runtime overrides. It writes the override audit events and
+// the overlay warning, so call it once per run.
+//
+// requireSandbox makes a disabled policy an error instead of a run without a
+// sandbox. `pmg sandbox exec` sets it, because the user asked for the sandbox
+// by name.
 //
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.
-func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 	cfg := config.Get()
 
 	if !cfg.Config.Sandbox.Enabled {
-		return sandbox.NewExecutionResult(), nil
-	}
-
-	applyConfig := &applySandboxConfig{}
-	for _, opt := range opts {
-		opt(applyConfig)
+		return &Resolution{PackageManager: pmName}, nil
 	}
 
 	if !platform.Supported() {
@@ -138,7 +136,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 
 		// The policy is explicitly disabled for this package manager, so we skip sandbox
 		if !policyRef.Enabled {
-			if applyConfig.requireSandbox {
+			if requireSandbox {
 				msg := fmt.Sprintf("the %s sandbox policy is disabled in the PMG config", pmName)
 				return nil, usefulerror.NewUsefulError().
 					WithCode(errcodes.SandboxPolicyDisabled).
@@ -148,7 +146,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			}
 
 			log.Warnf("sandbox policy %s is explicitly disabled for %s, skipping sandbox", policyRef.Profile, pmName)
-			return sandbox.NewExecutionResult(), nil
+			return &Resolution{PackageManager: pmName}, nil
 		}
 
 		log.Debugf("Loading sandbox policy %s", policyRef.Profile)
@@ -218,7 +216,31 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			Wrap(errors.New(msg))
 	}
 
-	var sb sandbox.Sandbox
+	return &Resolution{PackageManager: pmName, Policy: policy}, nil
+}
+
+// ApplySandbox applies a resolved sandbox policy to cmd. A resolution with no
+// policy leaves cmd unchanged.
+//
+// This is a security sensitive operation. It fails when the sandbox driver is
+// not available, so the command never runs without the policy it resolved.
+func ApplySandbox(ctx context.Context, cmd *exec.Cmd, res *Resolution, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+	if res == nil || res.Policy == nil {
+		return sandbox.NewExecutionResult(), nil
+	}
+
+	applyConfig := &applySandboxConfig{}
+	for _, opt := range opts {
+		opt(applyConfig)
+	}
+
+	policy := res.Policy
+	pmName := res.PackageManager
+
+	var (
+		sb  sandbox.Sandbox
+		err error
+	)
 	if applyConfig.sb != nil {
 		sb = applyConfig.sb
 	} else {
