@@ -234,7 +234,8 @@ jobs:
       - name: The proxy listens on the job container address
         run: |
           set -euo pipefail
-          addr="$(getent ahostsv4 "$HOSTNAME" | awk 'NR == 1 { print $1 }')"
+          read -r hostname < /proc/sys/kernel/hostname
+          addr="$(getent ahostsv4 "$hostname" | awk 'NR == 1 { print $1 }')"
           echo "job container address: ${addr}, HTTPS_PROXY: ${HTTPS_PROXY}"
           case "$HTTPS_PROXY" in
             "http://${addr}:"*) ;;
@@ -287,12 +288,12 @@ jobs:
           grep -q 403 <<<"$out"
           EOF
       - name: npm in a Docker action goes through the proxy
-        uses: docker://node:24
+        uses: docker://node:24@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
         with:
           entrypoint: bash
           args: /github/workspace/pmg-docker-check.sh npm
       - name: pip in a Docker action goes through the proxy
-        uses: docker://python:3.12-slim
+        uses: docker://python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
         with:
           entrypoint: bash
           args: /github/workspace/pmg-docker-check.sh pip
