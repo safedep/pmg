@@ -131,10 +131,10 @@ func TestCloudSinkSkipsUntranslatableEvents(t *testing.T) {
 	}()
 
 	err := sink.Handle(context.Background(), AuditEvent{
-		Type:      EventTypeProxyHostObserved,
-		Timestamp: time.Now(),
-		Message:   "observed proxy host",
-		Hostname:  "example.com",
+		Type:            EventTypeProxyHostObserved,
+		Timestamp:       time.Now(),
+		Message:         "observed proxy host",
+		HostObservation: HostObservation{Hostname: "example.com"},
 	})
 	assert.NoError(t, err)
 }
@@ -164,16 +164,14 @@ func TestCloudSinkDeduplicatesOnlyMatchingHostObservations(t *testing.T) {
 
 	for range 3 {
 		require.NoError(t, sink.Handle(ctx, AuditEvent{
-			Type:     EventTypeProxyHostObserved,
-			Hostname: "registry.example.com",
-			Method:   "CONNECT",
+			Type:            EventTypeProxyHostObserved,
+			HostObservation: HostObservation{Hostname: "registry.example.com", Method: "CONNECT"},
 		}))
 	}
 
 	require.NoError(t, sink.Handle(ctx, AuditEvent{
-		Type:     EventTypeProxyHostObserved,
-		Hostname: "registry.example.com",
-		Method:   "GET",
+		Type:            EventTypeProxyHostObserved,
+		HostObservation: HostObservation{Hostname: "registry.example.com", Method: "GET"},
 	}))
 
 	for range 2 {
@@ -216,18 +214,16 @@ func TestCloudSinkDeduplicatesAcrossInvocations(t *testing.T) {
 
 	first := newTestCloudSinkAtPath(t, walPath)
 	require.NoError(t, first.Handle(context.Background(), AuditEvent{
-		Type:     EventTypeProxyHostObserved,
-		Hostname: "registry.example.com",
-		Method:   "CONNECT",
+		Type:            EventTypeProxyHostObserved,
+		HostObservation: HostObservation{Hostname: "registry.example.com", Method: "CONNECT"},
 	}))
 	require.NoError(t, first.Close())
 
 	second := newTestCloudSinkAtPath(t, walPath)
 	second.invocationID = "second-invocation"
 	require.NoError(t, second.Handle(context.Background(), AuditEvent{
-		Type:     EventTypeProxyHostObserved,
-		Hostname: "registry.example.com",
-		Method:   "CONNECT",
+		Type:            EventTypeProxyHostObserved,
+		HostObservation: HostObservation{Hostname: "registry.example.com", Method: "CONNECT"},
 	}))
 	require.NoError(t, second.Close())
 
@@ -255,9 +251,8 @@ func TestCloudSinkDeduplicatesConcurrentInvocations(t *testing.T) {
 			<-start
 			for range 20 {
 				errs <- sink.Handle(context.Background(), AuditEvent{
-					Type:     EventTypeProxyHostObserved,
-					Hostname: "registry.example.com",
-					Method:   "CONNECT",
+					Type:            EventTypeProxyHostObserved,
+					HostObservation: HostObservation{Hostname: "registry.example.com", Method: "CONNECT"},
 				})
 			}
 		}()
@@ -286,9 +281,8 @@ func TestCloudSinkFlushesRepeatCountAfterWindow(t *testing.T) {
 	sink := newTestCloudSinkAtPath(t, walPath)
 	for range 4 {
 		require.NoError(t, sink.Handle(context.Background(), AuditEvent{
-			Type:     EventTypeProxyHostObserved,
-			Hostname: "registry.example.com",
-			Method:   "CONNECT",
+			Type:            EventTypeProxyHostObserved,
+			HostObservation: HostObservation{Hostname: "registry.example.com", Method: "CONNECT"},
 		}))
 	}
 

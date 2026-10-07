@@ -155,6 +155,6 @@ func TestRootPerUserConfigWarningNamesBothFiles(t *testing.T) {
 
 func TestDestinationResolverBeforeAttach(t *testing.T) {
 	var r destinationResolver
-	_, ok := r.OriginalDestination(netip.MustParseAddrPort("127.0.0.1:40000"))
+	_, ok := r.OriginalDestination(netip.MustParseAddrPort("127.0.0.1:40000"), netip.MustParseAddrPort("127.0.0.1:7777"))
 	assert.False(t, ok)
 }

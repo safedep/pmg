@@ -35,20 +35,22 @@ const (
 	ActionRedirect       = "redirect"
 	ActionDenyUDP        = "deny-udp"
 	ActionDenyIPv6       = "deny-ipv6"
+	ActionToProxy        = "to-proxy"
 
 	actionMax = 16
 )
 
 var actionNames = map[uint8]string{
-	1: ActionOtherNetns,
-	2: ActionSkipDst,
-	3: ActionExemptDaemon,
-	4: ActionExemptUID,
-	5: ActionNotEligibleUID,
-	6: ActionExemptExe,
-	7: ActionRedirect,
-	8: ActionDenyUDP,
-	9: ActionDenyIPv6,
+	1:  ActionOtherNetns,
+	2:  ActionSkipDst,
+	3:  ActionExemptDaemon,
+	4:  ActionExemptUID,
+	5:  ActionNotEligibleUID,
+	6:  ActionExemptExe,
+	7:  ActionRedirect,
+	8:  ActionDenyUDP,
+	9:  ActionDenyIPv6,
+	10: ActionToProxy,
 }
 
 func actionName(code uint8) string {

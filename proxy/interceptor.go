@@ -40,6 +40,8 @@ type RequestContext struct {
 	RequestID string
 	StartTime time.Time
 
+	Origin Origin
+
 	// Interceptor can store custom data
 	Data map[string]interface{}
 }

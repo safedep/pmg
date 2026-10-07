@@ -309,11 +309,38 @@ func (r *destinationResolver) OriginalDestinationOf(c net.Conn) (pmgproxy.Origin
 	return pmgproxy.Origin{Dst: dst}, ok
 }
 
-func (r *destinationResolver) OriginalDestination(client netip.AddrPort) (pmgproxy.Origin, bool) {
+func (r *destinationResolver) OriginalDestination(client, local netip.AddrPort) (pmgproxy.Origin, bool) {
 	h := r.handle.Load()
 	if h == nil {
 		return pmgproxy.Origin{}, false
 	}
 	o, ok := (*h).OriginalDestination(client)
-	return pmgproxy.Origin(o), ok
+	if !ok || !recordIsOfThisConnection(o, local) {
+		return pmgproxy.Origin{}, false
+	}
+	return originFromKernel(o), true
+}
+
+// recordIsOfThisConnection rejects a stale record of a client of the proxy.
+// The kernel writes the record when the client sends its SYN. A connect to
+// a loopback address nobody listens on is refused, and its record stays
+// until the map evicts it. A later client that reuses the source port must
+// not take that identity. A record of the proxy itself names the listener
+// the client reached, so the listener address is the check.
+func recordIsOfThisConnection(o netenforce.Origin, local netip.AddrPort) bool {
+	if !o.ToProxy {
+		return true
+	}
+	return o.Dst.Addr().Unmap() == local.Addr().Unmap() && o.Dst.Port() == local.Port()
+}
+
+// originFromKernel turns the kernel's record into the proxy's view. A
+// client of the proxy itself keeps its process and loses the destination,
+// so the proxy treats it as an explicit client.
+func originFromKernel(o netenforce.Origin) pmgproxy.Origin {
+	out := pmgproxy.Origin{PID: o.PID, Comm: o.Comm, Exe: o.Exe}
+	if !o.ToProxy {
+		out.Dst = o.Dst
+	}
+	return out
 }

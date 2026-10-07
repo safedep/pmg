@@ -25,18 +25,23 @@ type EnforceCfg struct {
 }
 
 type EnforceDst struct {
-	_      structs.HostLayout
-	Family uint16
-	Port   uint16
-	Addr   [16]uint8
-	Tgid   uint32
-	Comm   [16]int8
+	_       structs.HostLayout
+	ExeDev  uint64
+	ExeIno  uint64
+	Family  uint16
+	Port    uint16
+	Addr    [16]uint8
+	Tgid    uint32
+	Comm    [16]int8
+	ToProxy uint8
+	Pad     [7]uint8
 }
 
 type EnforceDstKey struct {
 	_      structs.HostLayout
 	Family uint16
 	Sport  uint16
+	Saddr  [16]uint8
 }
 
 type EnforceEvent struct {

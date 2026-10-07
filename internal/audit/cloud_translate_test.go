@@ -200,9 +200,8 @@ func TestTranslateCooldownBlocked(t *testing.T) {
 
 func TestTranslateHostObservation(t *testing.T) {
 	event := AuditEvent{
-		Type:     EventTypeProxyHostObserved,
-		Hostname: "evil.example.com",
-		Method:   "CONNECT",
+		Type:            EventTypeProxyHostObserved,
+		HostObservation: HostObservation{Hostname: "evil.example.com", Method: "CONNECT"},
 	}
 
 	results := testSink.translateToPmgEvents(event)
@@ -497,6 +496,64 @@ func TestMapSessionOutcome(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, mapSessionOutcome(tc.input))
+		})
+	}
+}
+
+func TestTranslateHostObservationDetails(t *testing.T) {
+	cases := map[string]struct {
+		seen  HostObservation
+		check func(t *testing.T, obs *controltowerv1.PmgHostObservation)
+	}{
+		"a container carries its address": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", Port: 443, EntryPoint: ProxyEntryPointRedirectedNamespace, Client: ProxyClient{Address: "172.17.0.2"}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				assert.True(t, obs.HasPort())
+				assert.Equal(t, uint32(443), obs.GetPort())
+				assert.Equal(t, controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_NAMESPACE, obs.GetEntryPoint())
+				require.True(t, obs.HasClient())
+				assert.Equal(t, "172.17.0.2", obs.GetClient().GetAddress())
+				assert.False(t, obs.GetClient().HasPid(), "a container names no process")
+				assert.False(t, obs.GetClient().HasComm())
+				assert.False(t, obs.GetClient().HasExecutable())
+			},
+		},
+		"a host process carries its identity": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", EntryPoint: ProxyEntryPointRedirectedHost, Client: ProxyClient{PID: 42, Comm: "curl", Exe: "/usr/bin/curl"}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				require.True(t, obs.HasClient())
+				assert.Equal(t, uint32(42), obs.GetClient().GetPid())
+				assert.Equal(t, "curl", obs.GetClient().GetComm())
+				assert.Equal(t, "/usr/bin/curl", obs.GetClient().GetExecutable())
+				assert.False(t, obs.GetClient().HasAddress())
+			},
+		},
+		"a process outside the PID namespace has a comm and no pid": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "CONNECT", EntryPoint: ProxyEntryPointRedirectedHost, Client: ProxyClient{Comm: "curl"}},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				require.True(t, obs.HasClient())
+				assert.False(t, obs.GetClient().HasPid())
+				assert.Equal(t, "curl", obs.GetClient().GetComm())
+			},
+		},
+		"nothing known stays unset": {
+			seen: HostObservation{Hostname: "cdn.example.com", Method: "GET"},
+			check: func(t *testing.T, obs *controltowerv1.PmgHostObservation) {
+				assert.False(t, obs.HasPort(), "an unknown port is unset, not zero")
+				assert.Equal(t, controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_UNSPECIFIED, obs.GetEntryPoint())
+				assert.False(t, obs.HasClient())
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			results := testSink.translateToPmgEvents(AuditEvent{Type: EventTypeProxyHostObserved, HostObservation: tc.seen})
+			require.Len(t, results, 1)
+			obs := results[0].GetHostObservation()
+			require.NotNil(t, obs)
+			assert.Equal(t, tc.seen.Hostname, obs.GetHostname())
+			assert.Equal(t, tc.seen.Method, obs.GetMethod())
+			tc.check(t, obs)
 		})
 	}
 }

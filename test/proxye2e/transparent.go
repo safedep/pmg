@@ -186,7 +186,7 @@ type StaticOriginalDestination struct {
 	Addr netip.AddrPort
 }
 
-func (s *StaticOriginalDestination) OriginalDestination(netip.AddrPort) (proxy.Origin, bool) {
+func (s *StaticOriginalDestination) OriginalDestination(_, _ netip.AddrPort) (proxy.Origin, bool) {
 	return proxy.Origin{Dst: s.Addr}, s.Addr.IsValid()
 }
 

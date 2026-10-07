@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	buf.build/gen/go/safedep/api/grpc/go v1.6.2-20261001145028-14c0defb961c.1
-	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261001145028-14c0defb961c.2
+	buf.build/gen/go/safedep/api/protocolbuffers/go v1.36.12-20261006161805-a0b2edba8623.2
 	github.com/Masterminds/semver v1.5.0
 	github.com/cilium/ebpf v0.22.0
 	github.com/elazarl/goproxy v1.9.2

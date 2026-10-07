@@ -93,9 +93,8 @@ type AuditEvent struct {
 	Overrides   []map[string]string
 
 	// Proxy context
-	Hostname string
-	Method   string
-	Reason   string
+	HostObservation HostObservation
+	Reason          string
 
 	// Cooldown context
 	PublishDate  time.Time
@@ -108,4 +107,41 @@ type AuditEvent struct {
 
 	// Session summary data — populated only for EventTypeSessionComplete
 	SessionData *SessionData
+}
+
+// ProxyEntryPoint says how a connection reached the proxy.
+type ProxyEntryPoint string
+
+const (
+	// ProxyEntryPointExplicit is a client configured to use the proxy.
+	ProxyEntryPointExplicit ProxyEntryPoint = "explicit"
+	// ProxyEntryPointRedirectedHost is a connection kernel enforcement
+	// redirected from a process on the host.
+	ProxyEntryPointRedirectedHost ProxyEntryPoint = "redirected_host"
+	// ProxyEntryPointRedirectedNamespace is a connection redirected from
+	// another network namespace, such as a container.
+	ProxyEntryPointRedirectedNamespace ProxyEntryPoint = "redirected_namespace"
+)
+
+// ProxyClient is who opened a connection to the proxy. A zero field is
+// unknown. A host process has a PID, a Comm and an Exe. A client in another
+// network namespace has an Address.
+type ProxyClient struct {
+	PID     uint32
+	Comm    string
+	Exe     string
+	Address string
+}
+
+// IsZero reports whether nothing about the client is known.
+func (c ProxyClient) IsZero() bool { return c == ProxyClient{} }
+
+// HostObservation is one connection to a host outside the known
+// registries, as the proxy saw it.
+type HostObservation struct {
+	Hostname   string
+	Method     string
+	Port       uint16
+	EntryPoint ProxyEntryPoint
+	Client     ProxyClient
 }

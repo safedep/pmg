@@ -153,7 +153,7 @@ func TestPublicAPISilentWhenNotInitialized(t *testing.T) {
 	LogInstallTrustedAllowed(nil)
 	LogInstallInsecureBypass(nil)
 	LogInstallStarted("npm", []string{"install"})
-	LogProxyHostObserved("host", "GET", "reason", nil)
+	LogProxyHostObserved(HostObservation{Hostname: "host", Method: "GET"}, "reason", nil)
 	LogSandboxOverride("profile", nil)
 	LogError("err", nil)
 }
@@ -337,4 +337,46 @@ func TestInitializeWithCloudDisabled(t *testing.T) {
 
 	// Should have exactly one sink (eventlog)
 	assert.Len(t, global.sinks, 1)
+}
+
+func TestLogProxyHostObservedCarriesTheClient(t *testing.T) {
+	s := &mockSink{}
+	setGlobal(newAuditor(s))
+	defer resetGlobal()
+
+	obs := HostObservation{
+		Hostname:   "cdn.example.com",
+		Method:     "CONNECT",
+		Port:       8443,
+		EntryPoint: ProxyEntryPointRedirectedHost,
+		Client:     ProxyClient{PID: 42, Comm: "curl", Exe: "/usr/bin/curl"},
+	}
+	LogProxyHostObserved(obs, "audit_logger_interceptor", map[string]any{"request_id": "r1"})
+
+	events := s.getEvents()
+	require.Len(t, events, 1)
+	e := events[0]
+	assert.Equal(t, EventTypeProxyHostObserved, e.Type)
+	assert.Equal(t, obs, e.HostObservation)
+	assert.Equal(t, uint16(8443), e.Details["port"])
+	assert.Equal(t, "redirected_host", e.Details["entry_point"])
+	assert.Equal(t, uint32(42), e.Details["client_pid"])
+	assert.Equal(t, "curl", e.Details["client_comm"])
+	assert.Equal(t, "/usr/bin/curl", e.Details["client_exe"])
+	assert.NotContains(t, e.Details, "client_address")
+	assert.Equal(t, "r1", e.Details["request_id"])
+}
+
+func TestLogProxyHostObservedLeavesUnknownFieldsOut(t *testing.T) {
+	s := &mockSink{}
+	setGlobal(newAuditor(s))
+	defer resetGlobal()
+
+	LogProxyHostObserved(HostObservation{Hostname: "cdn.example.com", Method: "GET"}, "r", nil)
+
+	events := s.getEvents()
+	require.Len(t, events, 1)
+	for _, key := range []string{"port", "entry_point", "client_pid", "client_comm", "client_exe", "client_address"} {
+		assert.NotContains(t, events[0].Details, key)
+	}
 }
