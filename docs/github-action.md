@@ -239,12 +239,12 @@ including service containers. The proxy does not listen on `127.0.0.1`.
 
 The CA is in `/github/home`, which is `HOME` in the job container. The
 runner also mounts `/github/home` in Docker actions, so the exported CA path
-is valid in both. If the image sets `HOME` or `XDG_CONFIG_HOME` to a
-different directory, the action shows a warning, and TLS through the proxy
-fails in Docker actions. `SSL_CERT_FILE` points to a bundle made from the
-system CAs of the job container and the PMG CA. A tool in a Docker action
-that reads `SSL_CERT_FILE` uses this bundle instead of the system CAs of the
-image.
+is valid in both. If the job sets `HOME`, `XDG_CONFIG_HOME` or
+`PMG_CONFIG_DIR` to a different directory, the action shows a warning, and
+TLS through the proxy fails in Docker actions. `SSL_CERT_FILE` points to a
+bundle made from the system CAs of the job container and the PMG CA. A tool
+in a Docker action that reads `SSL_CERT_FILE` uses this bundle instead of
+the system CAs of the image.
 
 PMG v0.30.0 and older need `options: --init` in a job container. Without
 it, `pmg proxy stop` waits until its timeout and fails.

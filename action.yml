@@ -408,20 +408,22 @@ runs:
         fi
 
         # Docker writes the container's address on the job network next to
-        # its hostname in /etc/hosts. Read it in bash, because the image may
-        # not have the hostname or getent tools.
+        # its hostname in /etc/hosts. Read both in bash, because the image may
+        # not have the hostname or getent tools. The kernel holds the
+        # hostname. A workflow env can replace the HOSTNAME variable.
+        read -r hostname < /proc/sys/kernel/hostname
         host=""
         while read -r addr names; do
           case "$addr" in ""|"#"*|127.*|*:*) continue ;; esac
           for name in $names; do
-            if [ "$name" = "$HOSTNAME" ]; then
+            if [ "$name" = "$hostname" ]; then
               host="$addr"
               break 2
             fi
           done
         done < /etc/hosts
         if [ -z "$host" ]; then
-          echo "::error::Cannot find the address of the job container for hostname ${HOSTNAME} in /etc/hosts." >&2
+          echo "::error::Cannot find the address of the job container for hostname ${hostname} in /etc/hosts." >&2
           exit 1
         fi
 
