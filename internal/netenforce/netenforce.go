@@ -129,6 +129,10 @@ type Origin struct {
 	PID  uint32
 	Comm string
 	Exe  string
+
+	// ToProxy means the client connected to the proxy itself and Dst is the
+	// proxy. The kernel recorded who asked and rewrote nothing.
+	ToProxy bool
 }
 
 // Handle is one attached enforcement. It is the proxy's source for the

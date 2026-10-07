@@ -55,6 +55,8 @@ func TestHelperProcess(t *testing.T) {
 		err = helperTCP("tcp6", addr)
 	case "tcp6-listen":
 		err = helperTCPListen("tcp6", addr)
+	case "tcp4-from-127.0.0.3":
+		err = helperTCPFrom(netip.MustParseAddr("127.0.0.3"), addr)
 	case "tcp4-delayed":
 		time.Sleep(500 * time.Millisecond)
 		err = helperTCP("tcp4", addr)
@@ -81,13 +83,27 @@ func helperTCP(network string, addr netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
+	return readOneLine(conn)
+}
+
+func readOneLine(conn net.Conn) error {
 	defer func() { _ = conn.Close() }()
 	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return err
 	}
 	buf := make([]byte, 16)
-	_, err = conn.Read(buf)
+	_, err := conn.Read(buf)
 	return err
+}
+
+// helperTCPFrom is helperTCP with a chosen source address.
+func helperTCPFrom(src netip.Addr, addr netip.AddrPort) error {
+	dialer := net.Dialer{Timeout: 2 * time.Second, LocalAddr: &net.TCPAddr{IP: src.AsSlice()}}
+	conn, err := dialer.Dial("tcp4", addr.String())
+	if err != nil {
+		return err
+	}
+	return readOneLine(conn)
 }
 
 // helperTCPListen accepts one connection on addr and answers it. It prints
@@ -160,8 +176,14 @@ type e2e struct {
 	t        *testing.T
 	handle   *linuxHandle
 	listener net.Listener
-	accepted chan Origin // the original destination of each accepted client, and who asked
+	accepted chan accepted
 	exeDir   string
+}
+
+// accepted is one client the listener took, with the record found for it.
+type accepted struct {
+	client netip.AddrPort
+	orig   Origin
 }
 
 func newE2E(t *testing.T) *e2e {
@@ -193,7 +215,7 @@ func newE2E(t *testing.T) *e2e {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
 
-	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan Origin, 16), exeDir: exeDir}
+	e := &e2e{t: t, handle: h.(*linuxHandle), listener: ln, accepted: make(chan accepted, 16), exeDir: exeDir}
 	go e.acceptLoop()
 	return e
 }
@@ -245,7 +267,7 @@ func (e *e2e) acceptLoop() {
 		if !ok {
 			orig = Origin{}
 		}
-		e.accepted <- orig
+		e.accepted <- accepted{client: client, orig: orig}
 		_, _ = conn.Write([]byte("pmg\n"))
 		_ = conn.Close()
 	}
@@ -296,15 +318,20 @@ func (e *e2e) acceptedFor(dst netip.AddrPort, d time.Duration) bool {
 
 // originFor is acceptedFor with the record the listener recovered.
 func (e *e2e) originFor(dst netip.AddrPort, d time.Duration) (Origin, bool) {
+	a, ok := e.acceptedClient(dst, d)
+	return a.orig, ok
+}
+
+func (e *e2e) acceptedClient(dst netip.AddrPort, d time.Duration) (accepted, bool) {
 	deadline := time.After(d)
 	for {
 		select {
-		case orig := <-e.accepted:
-			if orig.Dst == dst {
-				return orig, true
+		case a := <-e.accepted:
+			if a.orig.Dst == dst {
+				return a, true
 			}
 		case <-deadline:
-			return Origin{}, false
+			return accepted{}, false
 		}
 	}
 }
@@ -566,4 +593,44 @@ func TestE2E_StatusAndCounters(t *testing.T) {
 	counters, err := e.handle.Counters()
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, counters[ActionRedirect], uint64(1))
+}
+
+func TestE2E_ClientOfTheProxyIsRecorded(t *testing.T) {
+	e := newE2E(t)
+	dst := netip.MustParseAddrPort(e.listener.Addr().String())
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	pid, out := e.run("tcp4", dst)
+	assert.Contains(t, out, "helper: ok", "the connection reaches the listener untouched")
+
+	d := e.decision(func(d Decision) bool { return d.PID == uint32(pid) && d.Destination == dst })
+	assert.Equal(t, ActionToProxy, d.Action)
+	assert.Equal(t, "tcp", d.Protocol)
+
+	orig, ok := e.originFor(dst, 2*time.Second)
+	require.True(t, ok, "the listener finds a record for the client")
+	assert.True(t, orig.ToProxy)
+	assert.Equal(t, uint32(pid), orig.PID)
+	assert.Equal(t, truncateComm(filepath.Base(os.Args[0])), orig.Comm)
+	assert.Equal(t, exe, orig.Exe, "the executable matches the file the kernel saw")
+}
+
+// A record is keyed by the source address as well as the port. A client in
+// another network namespace, or on another listener, can share a source
+// port with a host process and must not read its record.
+func TestE2E_RecordIsKeyedBySourceAddress(t *testing.T) {
+	e := newE2E(t)
+	dst := netip.MustParseAddrPort("192.0.2.10:80")
+
+	_, out := e.run("tcp4-from-127.0.0.3", dst)
+	assert.Contains(t, out, "helper: ok", "the client must reach the listener")
+
+	a, ok := e.acceptedClient(dst, 2*time.Second)
+	require.True(t, ok, "the listener recovers the original destination")
+	assert.Equal(t, netip.MustParseAddr("127.0.0.3"), a.client.Addr())
+
+	other := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), a.client.Port())
+	_, ok = e.handle.OriginalDestination(other)
+	assert.False(t, ok, "the same port from another address has no record")
 }

@@ -16,6 +16,12 @@
  *   5. exempt executable (dev, inode): pass
  *   6. store the original destination, rewrite to the proxy
  *
+ * A TCP connect to the proxy's own address is not routed. The programs
+ * record who made it, with to_proxy set, so the proxy knows its proxy-aware
+ * clients the way it knows its redirected ones. The record follows the
+ * policy's user lists. A user the lists keep out of enforcement is not
+ * named either.
+ *
  * The kernel requires a GPL-compatible licence for bpf_get_current_task_btf.
  * The Go code around these programs stays Apache-2.0.
  */
@@ -38,6 +44,7 @@ enum action {
 	ACT_REDIRECT = 7,
 	ACT_DENY_UDP = 8,
 	ACT_DENY_IPV6 = 9,
+	ACT_TO_PROXY = 10,
 	ACT_MAX = 16,
 };
 
@@ -70,16 +77,24 @@ struct skip6_key {
  * that asked. The listener logs the process, so an operator can name the
  * program behind a dropped or blocked connection. */
 struct dst {
+	__u64 exe_dev; /* of the executable at connect, for the daemon to check the path against */
+	__u64 exe_ino;
 	__u16 family; /* AF_INET also for an IPv4-mapped IPv6 destination */
 	__u16 port;   /* network order */
 	__u8 addr[16];
 	__u32 tgid;   /* in the daemon's PID namespace, 0 outside it */
 	char comm[16];
+	__u8 to_proxy; /* the client connected to the proxy itself, nothing was rewritten */
+	__u8 _pad[7];
 };
 
+/* The source address is part of the key. A connection from another network
+ * namespace, or to another listener, can share a source port with a host
+ * connection, and must not read its record. */
 struct dst_key {
-	__u16 family; /* dst.family */
-	__u16 sport;  /* host order */
+	__u16 family;   /* dst.family */
+	__u16 sport;    /* host order */
+	__u8 saddr[16]; /* network order, the first 4 bytes for AF_INET */
 };
 
 struct exec_event {
@@ -307,16 +322,38 @@ static __always_inline int in_skip6(const __u32 ip6[4])
 	return bpf_map_lookup_elem(&skip6, &k) != 0;
 }
 
+/* identify fills the task fields of the trace event. */
+static __always_inline void identify(struct cfg *c, struct event *e)
+{
+	e->tgid = tgid_in_ns(c->pidns_inum);
+	e->uid = bpf_get_current_uid_gid();
+	bpf_get_current_comm(e->comm, sizeof(e->comm));
+}
+
+static __always_inline int in_other_netns(struct bpf_sock_addr *ctx, const struct cfg *c)
+{
+	return c->netns_cookie && bpf_get_netns_cookie(ctx) != c->netns_cookie;
+}
+
+/* subject_uid says whether the policy's user lists leave the task subject
+ * to enforcement. decide reports the two cases apart, for the trace. */
+static __always_inline int subject_uid(const struct cfg *c, const struct event *e)
+{
+	if (bpf_map_lookup_elem(&exempt_uid, &e->uid))
+		return 0;
+	if ((c->flags & CFG_ELIGIBLE_UIDS) && !bpf_map_lookup_elem(&eligible_uid, &e->uid))
+		return 0;
+	return 1;
+}
+
 /* decide runs steps 1 to 5 and returns 0 when the connection passes. On a
  * return of 1 the caller routes or denies. The event holds the trace data.
  */
 static __always_inline int decide(struct bpf_sock_addr *ctx, struct cfg *c, struct event *e, int skipped)
 {
-	e->tgid = tgid_in_ns(c->pidns_inum);
-	e->uid = bpf_get_current_uid_gid();
-	bpf_get_current_comm(e->comm, sizeof(e->comm));
+	identify(c, e);
 
-	if (c->netns_cookie && bpf_get_netns_cookie(ctx) != c->netns_cookie) {
+	if (in_other_netns(ctx, c)) {
 		finish(c, e, ACT_OTHER_NETNS);
 		return 0;
 	}
@@ -354,7 +391,7 @@ static __always_inline int enforced_port(struct bpf_sock_addr *ctx, struct event
 	return bpf_map_lookup_elem(&ports, &dport) != 0;
 }
 
-static __always_inline void store_dst(struct bpf_sock_addr *ctx, const struct event *e, __u16 family, const void *addr, int len)
+static __always_inline void store_dst(struct bpf_sock_addr *ctx, const struct event *e, __u16 family, const void *addr, int len, __u8 to_proxy)
 {
 	struct dst *d = bpf_sk_storage_get(&orig_dst_sk, ctx->sk, 0, BPF_SK_STORAGE_GET_F_CREATE);
 	if (!d)
@@ -364,6 +401,44 @@ static __always_inline void store_dst(struct bpf_sock_addr *ctx, const struct ev
 	__builtin_memcpy(d->addr, addr, len);
 	d->tgid = e->tgid;
 	__builtin_memcpy(d->comm, e->comm, sizeof(d->comm));
+	d->exe_dev = e->exe_dev;
+	d->exe_ino = e->exe_ino;
+	d->to_proxy = to_proxy;
+}
+
+/* record_client stores who connects to the proxy itself. Nothing is
+ * rewritten. Only a TCP socket in the daemon's network namespace counts.
+ * In another namespace the proxy's loopback address is that namespace's
+ * own. Returns 1 when the connection was the proxy's. */
+static __always_inline int record_client(struct bpf_sock_addr *ctx, struct cfg *c, struct event *e, __u16 family, const void *addr, int len)
+{
+	if (ctx->protocol != IPPROTO_TCP || in_other_netns(ctx, c))
+		return 0;
+	identify(c, e);
+	if (!subject_uid(c, e))
+		return 0;
+	e->dport = bpf_ntohs(ctx->user_port);
+	fill_exe(e);
+	store_dst(ctx, e, family, addr, len, 1);
+	finish(c, e, ACT_TO_PROXY);
+	return 1;
+}
+
+/* is_proxy4 and is_proxy6 match the proxy's address, and any loopback
+ * address, because a proxy bound to every interface is reached by
+ * 127.0.0.1 as well. A loopback port nobody listens on is refused by the
+ * kernel, and the record of it is evicted unread. */
+static __always_inline int is_proxy4(const struct cfg *c, __u32 addr)
+{
+	return addr == c->proxy_ip4 || (addr & bpf_htonl(0xff000000)) == bpf_htonl(0x7f000000);
+}
+
+static __always_inline int is_proxy6(const struct cfg *c, const __u32 ip6[4])
+{
+	if ((c->flags & CFG_HAS_PROXY6) && ip6[0] == c->proxy_ip6[0] && ip6[1] == c->proxy_ip6[1] &&
+	    ip6[2] == c->proxy_ip6[2] && ip6[3] == c->proxy_ip6[3])
+		return 1;
+	return ip6[0] == 0 && ip6[1] == 0 && ip6[2] == 0 && ip6[3] == bpf_htonl(1);
 }
 
 /* handle4 covers an IPv4 socket and an IPv4-mapped destination on an IPv6
@@ -375,10 +450,12 @@ static __always_inline int handle4(struct bpf_sock_addr *ctx, __u32 *addr_word, 
 	e.proto = ctx->protocol;
 	__builtin_memcpy(e.dst, &addr, 4);
 
-	if (!enforced_port(ctx, &e))
-		return 1;
 	struct cfg *c = get_cfg();
 	if (!c || !c->proxy_port)
+		return 1;
+	if (is_proxy4(c, addr) && ctx->user_port == c->proxy_port && record_client(ctx, c, &e, AF_INET, &addr, 4))
+		return 1;
+	if (!enforced_port(ctx, &e))
 		return 1;
 	if (!decide(ctx, c, &e, in_skip4(addr)))
 		return 1;
@@ -390,7 +467,7 @@ static __always_inline int handle4(struct bpf_sock_addr *ctx, __u32 *addr_word, 
 		return 0;
 	}
 
-	store_dst(ctx, &e, AF_INET, &addr, 4);
+	store_dst(ctx, &e, AF_INET, &addr, 4, 0);
 	*addr_word = c->proxy_ip4;
 	ctx->user_port = c->proxy_port;
 	finish(c, &e, ACT_REDIRECT);
@@ -408,10 +485,12 @@ static __always_inline int handle6(struct bpf_sock_addr *ctx)
 	e.proto = ctx->protocol;
 	__builtin_memcpy(e.dst, ip6, 16);
 
-	if (!enforced_port(ctx, &e))
-		return 1;
 	struct cfg *c = get_cfg();
 	if (!c || !c->proxy_port)
+		return 1;
+	if (is_proxy6(c, ip6) && ctx->user_port == c->proxy_port && record_client(ctx, c, &e, AF_INET6, ip6, 16))
+		return 1;
+	if (!enforced_port(ctx, &e))
 		return 1;
 	if (!decide(ctx, c, &e, in_skip6(ip6)))
 		return 1;
@@ -429,7 +508,7 @@ static __always_inline int handle6(struct bpf_sock_addr *ctx)
 		return 0;
 	}
 
-	store_dst(ctx, &e, AF_INET6, ip6, 16);
+	store_dst(ctx, &e, AF_INET6, ip6, 16, 0);
 	ctx->user_ip6[0] = c->proxy_ip6[0];
 	ctx->user_ip6[1] = c->proxy_ip6[1];
 	ctx->user_ip6[2] = c->proxy_ip6[2];
@@ -493,6 +572,17 @@ int pmg_sockops(struct bpf_sock_ops *skops)
 		return 1;
 
 	struct dst_key k = { .family = d->family, .sport = skops->local_port };
+	/* Each context field is read at a fixed offset. The verifier refuses a
+	 * computed one. An IPv4-mapped destination on an IPv6 socket has a
+	 * mapped source, in the last word. */
+	__u32 a4 = skops->local_ip4;
+	__u32 a6[4] = { skops->local_ip6[0], skops->local_ip6[1], skops->local_ip6[2], skops->local_ip6[3] };
+	if (d->family == AF_INET6)
+		__builtin_memcpy(k.saddr, a6, 16);
+	else if (skops->family == AF_INET)
+		__builtin_memcpy(k.saddr, &a4, 4);
+	else
+		__builtin_memcpy(k.saddr, &a6[3], 4);
 	bpf_map_update_elem(&orig_dst, &k, d, BPF_ANY);
 	return 1;
 }

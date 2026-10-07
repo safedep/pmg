@@ -176,7 +176,9 @@ listener and record the original destination. The proxy looks at the first
 bytes of each redirected connection. TLS to a registry host is terminated
 with the PMG CA. Every other host is passed through with its real
 certificate. Plain HTTP is served as a proxy request. UDP to an enforced port
-gets `EPERM`, so a QUIC client falls back to TCP.
+gets `EPERM`, so a QUIC client falls back to TCP. The kernel also records
+which process opened each connection, and the
+[Host Observation event](./proxy-mode.md#how-pmg-matches-a-request) names it.
 
 When the daemon exits, for any reason, the kernel detaches the programs.
 Nothing is left to clean up after a crash. Until the daemon runs again,
