@@ -413,6 +413,36 @@ func (f *fakeApplySandbox) Name() sandbox.DriverName { return "fake" }
 func (f *fakeApplySandbox) IsAvailable() bool        { return true }
 func (f *fakeApplySandbox) Close() error             { return nil }
 
+func resolveAndApply(cmd *exec.Cmd, pmName string, requireSandbox bool, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+	res, err := ResolvePolicy(pmName, requireSandbox)
+	if err != nil {
+		return nil, err
+	}
+	return ApplySandbox(context.Background(), cmd, res, opts...)
+}
+
+func TestResolvePolicySandboxDisabledReturnsEmptyResolution(t *testing.T) {
+	cfg := config.Get()
+	old := cfg.Config.Sandbox.Enabled
+	t.Cleanup(func() { cfg.Config.Sandbox.Enabled = old })
+	cfg.Config.Sandbox.Enabled = false
+
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Nil(t, res.Policy)
+	assert.Equal(t, "npm", res.PackageManager)
+}
+
+func TestApplySandboxEmptyResolutionRunsUnsandboxed(t *testing.T) {
+	fake := &fakeApplySandbox{}
+	result, err := ApplySandbox(context.Background(), exec.Command("npm"),
+		&Resolution{PackageManager: "npm"}, WithSandbox(fake))
+	require.NoError(t, err)
+	assert.True(t, result.ShouldRun())
+	assert.Nil(t, fake.rt)
+}
+
 func TestApplySandboxLockdownRequiresExecutionContext(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "lockdown.yml")
 	require.NoError(t, os.WriteFile(profile, []byte(`
@@ -435,13 +465,13 @@ network_via_proxy_only: true
 
 	fake := &fakeApplySandbox{}
 
-	_, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm", WithSandbox(fake))
+	_, err := resolveAndApply(exec.Command("npm"), "npm", false, WithSandbox(fake))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires the PMG proxy")
 	assert.Nil(t, fake.rt)
 
 	rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}
-	result, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm",
+	result, err := resolveAndApply(exec.Command("npm"), "npm", false,
 		WithSandbox(fake), WithExecutionContext(rt))
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -480,7 +510,7 @@ environment:
 		"PATH=/usr/bin",
 	}
 
-	result, err := ApplySandbox(context.Background(), cmd, "npm",
+	result, err := resolveAndApply(cmd, "npm", false,
 		WithSandbox(&fakeApplySandbox{}))
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -518,7 +548,7 @@ filesystem:
 	cmd := exec.Command("claude")
 	cmd.Env = []string{"ANTHROPIC_API_KEY=scrub-me", "PATH=/usr/bin"}
 
-	result, err := ApplySandbox(context.Background(), cmd, "exec",
+	result, err := resolveAndApply(cmd, "exec", false,
 		WithSandbox(&fakeApplySandbox{}), WithProcessLabel("claude"))
 	require.NoError(t, err)
 
@@ -543,13 +573,13 @@ func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
 		sandbox.WorkloadExec: {Enabled: false, Profile: "exec"},
 	}
 
-	result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+	result, err := resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, false,
 		WithSandbox(&fakeApplySandbox{}))
 	require.NoError(t, err, "without RequireSandbox a disabled policy skips the sandbox")
 	assert.True(t, result.ShouldRun())
 
-	_, err = ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
-		WithSandbox(&fakeApplySandbox{}), WithRequireSandbox())
+	_, err = resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, true,
+		WithSandbox(&fakeApplySandbox{}))
 	var usefulErr usefulerror.UsefulError
 	require.ErrorAs(t, err, &usefulErr)
 	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
@@ -608,8 +638,8 @@ network_via_proxy_only: false
 			cfg.SandboxProfileOverride = profile
 
 			fake := &fakeApplySandbox{}
-			result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
-				WithSandbox(fake), WithRequireSandbox())
+			result, err := resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, true,
+				WithSandbox(fake))
 
 			if !tt.wantErr {
 				require.NoError(t, err)

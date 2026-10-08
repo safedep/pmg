@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/safedep/pmg/internal/shim"
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/sandbox"
+	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,6 +101,34 @@ func TestExecuteWithOptionsRunsDirectHookBeforeSandbox(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, hookCalled)
+}
+
+func TestExecuteWithOptionsUsesPassedResolution(t *testing.T) {
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() {
+		*cfg = previous
+	})
+
+	// The sandbox is on but no policy exists, so a second resolution in the
+	// runner would fail with "No sandbox policy configured".
+	cfg.Config.Sandbox.Enabled = true
+	cfg.Config.Sandbox.Policies = map[string]config.SandboxPolicyRef{}
+
+	exe, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("needs the POSIX true binary")
+	}
+
+	err = ExecuteWithOptions(context.Background(), &packagemanager.ParsedCommand{
+		Command: packagemanager.Command{Exe: exe},
+	}, ExecuteOptions{
+		PackageManagerName: "npm",
+		Mode:               ExecutionModeDirect,
+		Sandbox:            &executor.Resolution{PackageManager: "npm"},
+	})
+
+	require.NoError(t, err)
 }
 
 func TestExecuteWithOptionsMissingPackageManager(t *testing.T) {
