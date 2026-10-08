@@ -112,6 +112,10 @@ Bind another address, such as `0.0.0.0`, only for a deployment you host on
 purpose. It exposes the proxy to the network, and every client you route
 through it must trust the PMG CA.
 
+With a wildcard bind such as `0.0.0.0`, `pmg proxy env` exports
+`127.0.0.1` on the same port, because a client cannot connect to a wildcard
+address. A client on another machine must use the address of this machine.
+
 ## Custom registries
 
 The daemon reads `proxy.registries` once, at start, from the same config

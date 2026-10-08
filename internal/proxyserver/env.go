@@ -2,6 +2,7 @@ package proxyserver
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/safedep/pmg/packagemanager"
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -20,5 +21,19 @@ func EnvVars(statePath string) ([]string, error) {
 	if state.Enforce != nil {
 		return packagemanager.EnvVarForSystemTrust(certmanager.SystemCABundlePath()), nil
 	}
-	return packagemanager.EnvVarForProxy(state.Addr, state.CACertPath), nil
+	return packagemanager.EnvVarForProxy(clientAddr(state.Addr), state.CACertPath), nil
+}
+
+// clientAddr turns a wildcard bind address, which a client cannot connect
+// to, into the loopback address on the same port. A client on another machine
+// needs this machine's own address, which PMG cannot know.
+func clientAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
 }
