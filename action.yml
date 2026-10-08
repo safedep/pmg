@@ -386,7 +386,7 @@ runs:
       if: inputs.server-mode == 'true' && inputs.enforce != 'true'
       shell: bash
       env:
-        INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network }}
+        INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network == 'true' }}
         JOB_CONTAINER_ID: ${{ job.container.id }}
       run: |
         set -euo pipefail
