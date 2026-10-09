@@ -34,6 +34,8 @@ Before=actions.runner.service
 
 [Service]
 Type=simple
+# systemd sets HOME only with User=. PMG needs it for root's config folder.
+Environment=HOME=/root
 ExecStart=/usr/local/bin/pmg proxy start --enforce --state /run/pmg/proxy-state.json
 RuntimeDirectory=pmg
 Restart=on-failure

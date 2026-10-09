@@ -198,16 +198,16 @@ which passes it through with the real certificate. An exemption would be a
 bypass, because the user that runs the jobs can write the runner's folder.
 
 If the daemon stops serving but keeps running, the runner cannot report.
-GitHub cancels the job at its `timeout-minutes`, and later steps, the stop
-step included, do not run. The GitHub default is 360 minutes.
+GitHub cancels the job about 5 minutes after its `timeout-minutes`, and
+later steps, the stop step included, do not run. The GitHub default is 360 minutes.
 
 #### Containers
 
 Containers that a step starts are not enforced unless `enforce-namespaces`
 is `redirect` or `auto`. The redirect covers `docker run`, `RUN` steps in
 `docker build`, and Docker container actions. In a container job
-(`jobs.<id>.container`), the action runs inside the job container. No daemon
-then runs on the host, and the job stays outside enforcement.
+(`jobs.<id>.container`), the action runs inside the job container. It cannot
+attach the kernel programs there, so the action fails.
 
 A redirected container must trust the PMG CA, which the action exports as
 `PMG_CA_BUNDLE`:
