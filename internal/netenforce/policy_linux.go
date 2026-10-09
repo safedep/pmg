@@ -63,45 +63,6 @@ func expandExecutables(patterns []string) ([]ExemptedFile, error) {
 	return files, nil
 }
 
-// WritableExemptPaths returns the folder of each exempt pattern, and each
-// file that matches it now, when a user other than root can write it. That
-// user can put any program there under an exempt name. A pattern that does
-// not compile is skipped, because expandExecutables reports it at attach.
-func WritableExemptPaths(patterns []string) []string {
-	var out []string
-	seen := make(map[string]bool)
-	check := func(path string) {
-		if seen[path] {
-			return
-		}
-		seen[path] = true
-		if writableByNonRoot(path) {
-			out = append(out, path)
-		}
-	}
-	for _, pattern := range patterns {
-		check(filepath.Dir(pattern))
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			continue
-		}
-		for _, path := range matches {
-			check(path)
-		}
-	}
-	return out
-}
-
-// writableByNonRoot reports a path that another user owns, or that its
-// group or everyone can write. A path that does not exist is not writable.
-func writableByNonRoot(path string) bool {
-	var st unix.Stat_t
-	if err := unix.Stat(path, &st); err != nil {
-		return false
-	}
-	return st.Uid != 0 || st.Mode&0o022 != 0
-}
-
 // statExecutable follows symlinks and returns the identity of the file the
 // kernel sees as the executable. A directory match is skipped with a zero
 // identity. st_dev uses the glibc layout. The kernel's s_dev is

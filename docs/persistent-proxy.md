@@ -224,11 +224,10 @@ proxy:
 - `ports` are the destination ports to route. The ports of
   `proxy.registries` endpoints are always added.
 - `exempt_executables` are absolute paths or globs of programs that connect
-  directly. The daemon also exempts a matching file that appears later, and
-  it warns when a user other than root can write a listed file or its
-  folder. Never exempt an interpreter such as `node`, `python3` or `sh`, an
-  HTTP client such as `curl` or `wget`, or a CI runner. An install script can
-  run any of them.
+  directly. The daemon also exempts a matching file that appears later, so
+  a user who can write the folder can add one. Never exempt an interpreter
+  such as `node`, `python3` or `sh`, an HTTP client such as `curl` or `wget`,
+  or a CI runner. An install script can run any of them.
 - `eligible_users` limits enforcement to some users. It is safe only when no
   eligible user can become another one. `sudo curl` runs as root, and root is
   then not eligible. Leave it empty on a runner whose user has `sudo`. The

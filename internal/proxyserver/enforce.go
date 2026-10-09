@@ -223,8 +223,8 @@ func loadEnforceCA() (*certmanager.Certificate, error) {
 // enforceWarnings names the gaps an operator must know about: a container
 // engine on the host, whose containers live outside the enforced network
 // namespace unless they are redirected, an eligible user who can become
-// root through sudo, an exempt path that another user can write, and a
-// daemon that reads root's personal config instead of the system one.
+// root through sudo, and a daemon that reads root's personal config
+// instead of the system one.
 func enforceWarnings(cfg *config.RuntimeConfig, p netenforce.Policy, redirecting bool) []string {
 	var warnings []string
 	if cfg.ConfigSource() == config.ConfigSourceRootPerUser {
@@ -237,9 +237,6 @@ func enforceWarnings(cfg *config.RuntimeConfig, p netenforce.Policy, redirecting
 		if userCanSudo(name) {
 			warnings = append(warnings, fmt.Sprintf("eligible user %q is in the sudo or wheel group. `sudo` runs commands as root, which is not eligible. Leave eligible_users empty and exempt host daemons by executable instead.", name))
 		}
-	}
-	for _, path := range netenforce.WritableExemptPaths(p.ExemptExecutables) {
-		warnings = append(warnings, fmt.Sprintf("Exempt executable path %s can be written by a user other than root. That user can put any program there and connect directly. See docs/persistent-proxy.md.", path))
 	}
 	return warnings
 }

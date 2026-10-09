@@ -61,34 +61,6 @@ func TestExpandExecutables(t *testing.T) {
 	assert.Contains(t, err.Error(), "not an absolute path")
 }
 
-func TestWritableExemptPaths(t *testing.T) {
-	open := t.TempDir()
-	require.NoError(t, os.Chmod(open, 0o777))
-	agent := filepath.Join(open, "agent")
-	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\n"), 0o755))
-
-	cases := []struct {
-		name    string
-		pattern string
-		want    []string
-	}{
-		{"a folder everyone can write", filepath.Join(open, "agent-*"), []string{open}},
-		{"a 0755 file in that folder", agent, []string{open}},
-		{"a root-owned folder and file", "/usr/bin/env", nil},
-		{"a folder that does not exist", "/nonexistent-pmg/agent", nil},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if os.Geteuid() != 0 && tc.pattern == agent {
-				// Without root the test user owns the file, which makes it
-				// writable by a non-root user.
-				tc.want = []string{open, agent}
-			}
-			assert.Equal(t, tc.want, WritableExemptPaths([]string{tc.pattern}))
-		})
-	}
-}
-
 func TestStatExecutableUsesKernelDeviceLayout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bin")
 	require.NoError(t, os.WriteFile(path, []byte("x"), 0o755))

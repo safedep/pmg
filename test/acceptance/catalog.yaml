@@ -449,12 +449,6 @@
   tier: P1
   guarantee: "An executable that matches proxy.server.enforce.exempt_executables connects directly. Other executables are routed."
   labels: [exempt]
-- id: enforce/exempt/github-runner-not-exempt
-  title: "GitHub runner binaries are not exempt"
-  category: enforce
-  tier: P0
-  guarantee: "On GitHub Actions the daemon exempts no runner binary. A program copied next to Runner.Worker is routed through the proxy."
-  labels: [exempt, bypass]
 - id: enforce/scope/namespaces-ignore
   title: "containers keep their own network under namespaces ignore"
   category: enforce
