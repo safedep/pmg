@@ -73,7 +73,7 @@ default.
 | `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. | `false` |
 | `enforce-ports` | With `enforce`, destination ports to route in addition to the config, comma or newline separated. Passed as `--enforce-port`. | unset |
 | `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
-| `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config and the runner binaries. Passed as `--enforce-exempt-executable`. | unset |
+| `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 
 ## Outputs
@@ -143,10 +143,9 @@ Environment variables are a request a process can ignore. With `enforce`,
 the Linux kernel routes every eligible process through the proxy. A step
 cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own. The
 action installs the PMG CA into the system trust store, starts the daemon as
-root, and exports the trust variables. The runner binaries stay exempt. The
-daemon runs as root, and `sudo` resets `HOME` and `PATH`, so the action
-exports the binary path as `PMG_BIN` and the state file path as
-`PMG_PROXY_STATE` for the job-end step.
+root, and exports the trust variables. The daemon runs as root, and `sudo`
+resets `HOME` and `PATH`, so the action exports the binary path as `PMG_BIN`
+and the state file path as `PMG_PROXY_STATE` for the job-end step.
 
 ```yaml
 - uses: safedep/pmg@v1
@@ -163,10 +162,13 @@ exports the binary path as `PMG_BIN` and the state file path as
   run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
+The runner is not exempt. Set `timeout-minutes` on every enforced job. See
+[CI runners](./persistent-proxy.md#ci-runners).
+
 The policy inputs cover the common cases without a config file. Each list
-adds to the config's list, and the runner binaries stay exempt. The config
-is the staged `config-file` when the job sets one, because the action passes
-its directory to the root daemon through `PMG_CONFIG_DIR`. Without one, a
+adds to the config's list. The config is the staged `config-file` when the
+job sets one, because the action passes its directory to the root daemon
+through `PMG_CONFIG_DIR`. Without one, a
 hosted runner has no config file for root, so the inputs add to the
 defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.

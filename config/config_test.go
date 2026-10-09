@@ -412,7 +412,7 @@ proxy:
       ports: [80, 443, 8443]
       eligible_users: [runner]
       exempt_executables:
-        - /home/runner/actions-runner/bin/Runner.*
+        - /opt/agent/bin/agent-*
       skip_destinations: [10.20.0.0/16]
       cgroup: /sys/fs/cgroup/system.slice
       deny_udp: false
@@ -424,7 +424,7 @@ proxy:
 	assert.Equal(t, []int{8080, 8443}, got.Ports, "a comma-separated variable replaces a list")
 	assert.Equal(t, []string{"root", "65534"}, got.ExemptUsers)
 	assert.Equal(t, []string{"runner"}, got.EligibleUsers)
-	assert.Equal(t, []string{"/home/runner/actions-runner/bin/Runner.*"}, got.ExemptExecutables)
+	assert.Equal(t, []string{"/opt/agent/bin/agent-*"}, got.ExemptExecutables)
 	assert.Equal(t, []string{"10.20.0.0/16"}, got.SkipDestinations)
 	assert.Equal(t, "/sys/fs/cgroup/system.slice", got.Cgroup)
 	assert.False(t, got.DenyUDP)

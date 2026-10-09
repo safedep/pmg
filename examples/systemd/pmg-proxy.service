@@ -3,8 +3,9 @@
 # The unit runs the proxy as root, because attaching cgroup BPF programs
 # needs CAP_BPF, CAP_NET_ADMIN and CAP_PERFMON. It attaches to the cgroup
 # v2 root, so it covers the runner service too, which systemd starts in its
-# own slice. Exempt the runner binaries in the PMG config, and give the
-# runner the trust variables through its .env file:
+# own slice. Do not exempt the runner binaries, because the user that runs
+# the jobs can write their folder. Give the runner the trust variables
+# through its .env file:
 #
 #   NODE_USE_SYSTEM_CA=1
 #   UV_NATIVE_TLS=1
@@ -21,8 +22,6 @@
 #       listen_port: 7777
 #       enforce:
 #         enabled: true
-#         exempt_executables:
-#           - /home/runner/actions-runner/bin/Runner.*
 #
 # Install: cp pmg-proxy.service /etc/systemd/system/ && systemctl enable --now pmg-proxy
 

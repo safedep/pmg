@@ -87,10 +87,10 @@ proxy:
       eligible_users: []
       # These users are never routed.
       exempt_users: []
-      # Programs that connect directly, as absolute paths or globs. List a
-      # CI runner agent here. Never list an interpreter (node, python3, sh)
-      # or a general HTTP client (curl, wget).
-      # On GitHub Actions the runner binaries are added automatically.
+      # Programs that connect directly, as absolute paths or globs. Code that
+      # a process loads into a listed program with LD_PRELOAD is exempt too.
+      # Never list an interpreter (node, python3, sh), a general HTTP client
+      # (curl, wget) or a CI runner.
       exempt_executables: []
       # CIDR prefixes that are never routed, in addition to loopback,
       # link-local and cloud metadata addresses.

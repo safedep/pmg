@@ -67,12 +67,6 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// The parent and the daemon child both walk their ancestors. The globs
-	// never travel on a flag, so a caller cannot forge them under lockdown.
-	if opts.Enforce {
-		opts.Overrides.RunnerExecutables = proxyserver.RunnerExemptGlobs()
-	}
-
 	if daemonFlag && !foregroundInternalFlag {
 		if err := startDaemon(cmd, cfg, opts); err != nil {
 			ui.ErrorExit(err)

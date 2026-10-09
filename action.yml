@@ -95,7 +95,7 @@ inputs:
     required: false
     default: ""
   enforce-exempt-executables:
-    description: With enforce, absolute paths or globs of programs that connect directly, in addition to proxy.server.enforce.exempt_executables and the runner binaries (comma or newline separated). Passed as --enforce-exempt-executable.
+    description: With enforce, absolute paths or globs of programs that connect directly, in addition to proxy.server.enforce.exempt_executables (comma or newline separated). Passed as --enforce-exempt-executable.
     required: false
     default: ""
   enforce-skip-destinations:

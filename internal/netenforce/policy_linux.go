@@ -37,7 +37,7 @@ func skipList(extra []netip.Prefix) []netip.Prefix {
 }
 
 // expandExecutables turns globs into the files that exist now. A pattern
-// without a match is not an error: a runner binary can appear after the
+// without a match is not an error: a listed binary can appear after the
 // daemon starts, and the exec watcher picks it up then.
 func expandExecutables(patterns []string) ([]ExemptedFile, error) {
 	var files []ExemptedFile
