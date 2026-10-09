@@ -147,7 +147,12 @@ jobs:
       # must still be routed, whatever its name.
       - name: A program copied into the runner folder is not exempt
         run: |
-          worker="$(readlink "/proc/$(pgrep -x Runner.Worker | head -1)/exe")"
+          pid="$(pgrep -x Runner.Worker | head -1 || true)"
+          if [ -z "$pid" ]; then
+            echo "ERROR: no Runner.Worker process found, so the runner folder is unknown" >&2
+            exit 1
+          fi
+          worker="$(readlink "/proc/$pid/exe")"
           copy="$(dirname "$worker")/Runner.PmgE2E"
           trap 'rm -f "$copy"' EXIT
           cp /usr/bin/curl "$copy"

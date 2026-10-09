@@ -224,13 +224,11 @@ proxy:
 - `ports` are the destination ports to route. The ports of
   `proxy.registries` endpoints are always added.
 - `exempt_executables` are absolute paths or globs of programs that connect
-  directly. The daemon also exempts a matching file that appears or changes
-  later. So a process that can write a listed file or its folder can put its
-  own program there and connect directly. List only root-owned files in
-  folders that no enforced user can write. Never exempt an interpreter such
-  as `node`, `python3` or `sh`, an HTTP client such as `curl` or `wget`, or a
-  CI runner. An install script can run any of them. See
-  [CI runners](#ci-runners).
+  directly. The daemon also exempts a matching file that appears later, and
+  it warns when a user other than root can write a listed file or its
+  folder. Never exempt an interpreter such as `node`, `python3` or `sh`, an
+  HTTP client such as `curl` or `wget`, or a CI runner. An install script can
+  run any of them.
 - `eligible_users` limits enforcement to some users. It is safe only when no
   eligible user can become another one. `sudo curl` runs as root, and root is
   then not eligible. Leave it empty on a runner whose user has `sudo`. The
@@ -242,25 +240,14 @@ proxy:
 
 ### CI runners
 
-A CI runner is not exempt. Its own connections go through the proxy like
-those of every other process. GitHub and the storage hosts a runner uses are
-not registry hosts, so the proxy passes their TLS through with the real
-certificate. It does not decrypt or analyze them. They appear as host
-observations, with the runner binary, such as `Runner.Worker`, as the client.
+A CI runner is not exempt. Its traffic to GitHub goes through the proxy,
+which passes it through with the real certificate. An exemption would be a
+bypass, because the user that runs the jobs can write the runner's folder.
 
-An exemption for the runner binaries would be a bypass. The runner's folder
-belongs to the user that runs the jobs. Every job step could copy its own
-program into that folder, or start a runner binary with `LD_PRELOAD`, and
-connect directly. The connection would make no block and no audit event.
-
-The runner depends on the daemon in return:
-
-| Daemon state | Effect on the job |
-| --- | --- |
-| Serving | The runner streams logs and reports through the proxy. |
-| Exited or crashed | The kernel detaches the programs. The runner connects directly again. |
-| Alive but not serving | The runner cannot upload logs or report the job. GitHub ends the job after its `timeout-minutes`. |
-
+If the daemon stops serving but keeps running, the runner cannot report.
+GitHub cancels the job at its `timeout-minutes`, and later steps, the stop
+step included, do not run. A self-hosted runner goes offline until the
+daemon restarts, and `Restart=on-failure` does not restart a hung daemon.
 Set `timeout-minutes` on every enforced job. The GitHub default is 360
 minutes.
 
@@ -359,8 +346,7 @@ The runner's `.env` file carries the trust variables. The operator runs
 daemon at job end, so the daemon serves later jobs until an operator stops
 it. `pmg proxy status` shows that it still enforces.
 
-Do not exempt the runner binaries. The user that runs the jobs can write
-their folder. See [CI runners](#ci-runners).
+Do not exempt the runner binaries. See [CI runners](#ci-runners).
 
 ### Containers and other network namespaces
 
@@ -532,10 +518,7 @@ reaches the registry directly.
 ### Limitations
 
 - An exemption covers a file, not the code that runs in it. Any process can
-  start an exempt program with `LD_PRELOAD` and run its own code in it. A
-  process that can write a listed file or its folder can replace the
-  program. Keep `exempt_executables` empty unless a program cannot work
-  through the proxy.
+  start an exempt program with `LD_PRELOAD` and run its own code in it.
 - `sudo` bypasses `eligible_users`. See above.
 - The proxy decides by name. A redirected TLS connection without SNI, or
   with Encrypted ClientHello, and a plain HTTP request without a `Host`

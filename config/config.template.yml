@@ -87,11 +87,10 @@ proxy:
       eligible_users: []
       # These users are never routed.
       exempt_users: []
-      # Programs that connect directly, as absolute paths or globs. A process
-      # that can write a listed file or its folder can use the exemption, so
-      # list only root-owned files in root-owned folders. Never list an
-      # interpreter (node, python3, sh), a general HTTP client (curl, wget)
-      # or a CI runner.
+      # Programs that connect directly, as absolute paths or globs. Code that
+      # a process loads into a listed program with LD_PRELOAD is exempt too.
+      # Never list an interpreter (node, python3, sh), a general HTTP client
+      # (curl, wget) or a CI runner.
       exempt_executables: []
       # CIDR prefixes that are never routed, in addition to loopback,
       # link-local and cloud metadata addresses.
