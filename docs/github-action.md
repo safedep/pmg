@@ -75,6 +75,7 @@ default.
 | `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
+| `enforce-namespaces` | With `enforce`, what happens to containers that steps start: `ignore`, `redirect` or `auto`. See [Containers](#containers). Passed as `--enforce-namespaces`. | unset (`ignore`) |
 
 ## Outputs
 
@@ -145,7 +146,11 @@ cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own. The
 action installs the PMG CA into the system trust store, starts the daemon as
 root, and exports the trust variables. The daemon runs as root, and `sudo`
 resets `HOME` and `PATH`, so the action exports the binary path as `PMG_BIN`
-and the state file path as `PMG_PROXY_STATE` for the job-end step.
+and the state file path as `PMG_PROXY_STATE` for the job-end step. GitHub
+hosted Ubuntu runners meet the
+[requirements](./persistent-proxy.md#requirements).
+[persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux)
+describes how enforcement works.
 
 ```yaml
 - uses: safedep/pmg@v1
@@ -162,14 +167,13 @@ and the state file path as `PMG_PROXY_STATE` for the job-end step.
   run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
-The runner is not exempt. Set `timeout-minutes` on every enforced job. See
-[CI runners](./persistent-proxy.md#ci-runners).
+Set `timeout-minutes` on every enforced job. See
+[Runner traffic](#runner-traffic).
 
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the
-job sets one, because the action passes its directory to the root daemon
-through `PMG_CONFIG_DIR`. Without one, a
-hosted runner has no config file for root, so the inputs add to the
+job sets one, because the action passes it to the root daemon. Without one,
+a hosted runner has no config file for root, so the inputs add to the
 defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
 
@@ -187,9 +191,26 @@ needs them has a reason to ship one with `config-file`. The inputs need a
 PMG release that has the `--enforce-*` flags. See
 [persistent-proxy.md](./persistent-proxy.md#policy-from-the-command-line).
 
+#### Runner traffic
+
+The runner is not exempt. Its traffic to GitHub goes through the proxy,
+which passes it through with the real certificate. An exemption would be a
+bypass, because the user that runs the jobs can write the runner's folder.
+
+If the daemon stops serving but keeps running, the runner cannot report.
+GitHub cancels the job at its `timeout-minutes`, and later steps, the stop
+step included, do not run. The GitHub default is 360 minutes.
+
+#### Containers
+
 Containers that a step starts are not enforced unless `enforce-namespaces`
-is `redirect` or `auto`. A redirected container must trust the PMG CA, which
-the action exports as `PMG_CA_BUNDLE`:
+is `redirect` or `auto`. The redirect covers `docker run`, `RUN` steps in
+`docker build`, and Docker container actions. In a container job
+(`jobs.<id>.container`), the action runs inside the job container. No daemon
+then runs on the host, and the job stays outside enforcement.
+
+A redirected container must trust the PMG CA, which the action exports as
+`PMG_CA_BUNDLE`:
 
 ```yaml
 - uses: safedep/pmg@v1
@@ -200,8 +221,27 @@ the action exports as `PMG_CA_BUNDLE`:
 - run: docker build --secret id=pmg-ca,src=$PMG_CA_BUNDLE -t app .
 ```
 
-See [persistent-proxy.md](./persistent-proxy.md#containers-and-other-network-namespaces)
+See [Trust inside a container](./persistent-proxy.md#trust-inside-a-container)
 for the `RUN` block that mounts the secret.
+
+A Docker container action gets the workspace at `/github/workspace` and the
+step's `env:`. Copy the bundle into the workspace in a step before it:
+
+```yaml
+- run: cp "$PMG_CA_BUNDLE" pmg-ca.pem
+- uses: some/docker-action@v1
+  env:
+    NODE_EXTRA_CA_CERTS: /github/workspace/pmg-ca.pem
+```
+
+#### Self-hosted runners
+
+Run the daemon as a `systemd` service on the runner host. See
+[Run it as a service](./persistent-proxy.md#run-it-as-a-service). Put the
+trust variables in the runner's `.env` file. A runner cannot stop a root
+daemon at job end, so the daemon serves later jobs until an operator stops
+it. `Restart=on-failure` does not restart a hung daemon, and the runner
+stays offline until an operator restarts the daemon.
 
 ### Job containers and Docker actions
 

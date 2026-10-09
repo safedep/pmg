@@ -152,6 +152,30 @@ store, so the persistent proxy does not use it. [Kernel
 enforcement](#kernel-enforcement-linux) is the exception. It runs as root
 and uses the system store.
 
+## Cloud event sync
+
+With SafeDep Cloud enabled, a block event must reach the cloud even from a
+runner that is destroyed when the job ends. The daemon records each blocked
+package in a local event log at once, syncs pending events while it serves,
+and flushes the rest on shutdown.
+
+`pmg proxy stop` reports the result, `Synced N event(s) to SafeDep Cloud` or
+a `Cloud sync failed` line. A failed flush does not change the
+`--fail-on-violation` exit code.
+
+## Fail on violation
+
+`pmg proxy stop` exits `0` by default. `--fail-on-violation` makes it a gate:
+
+- It exits non-zero when any package was blocked.
+- It fails closed. When the daemon stopped without a final state it could
+  verify, for example after a crash, it fails too. A security gate must not
+  pass on a run it cannot verify.
+
+The package manager's own non-zero exit, from the `403` on a blocked
+download, is a separate signal. `--fail-on-violation` is the proxy's own
+verdict, whatever the package manager reported.
+
 ## Kernel enforcement (Linux)
 
 A variable is a request. A process can ignore it. Node needs
@@ -161,16 +185,79 @@ variables, and an install script with its own HTTP client never reads them.
 TCP connection to ports 80 and 443 from every eligible process to the proxy.
 A process cannot opt out.
 
+This section covers a Linux machine, such as a VM or a build host. For
+GitHub Actions, see [github-action.md](./github-action.md#kernel-enforcement).
+
+### Requirements
+
+- Linux 5.15 or later with kernel BTF (`CONFIG_DEBUG_INFO_BTF`) and cgroup
+  v2.
+- `CAP_BPF`, `CAP_NET_ADMIN` and `CAP_PERFMON`, so root in practice. Run
+  every `pmg proxy` command under `sudo`, so that it finds the state file of
+  the root daemon.
+- The PMG CA in the system trust store.
+
+`pmg setup doctor` reports whether the host can enforce. `pmg proxy start
+--enforce` fails before it binds a port when a requirement is missing, and
+the error names it. On macOS and Windows it fails with an error that names
+the platform.
+
+### Set it up
+
+1. Install the PMG CA in the system trust store:
+
+   ```bash
+   sudo pmg setup cert install --system
+   ```
+
+2. Turn on enforcement in the managed config,
+   `/etc/safedep/pmg/config.yml`:
+
+   ```bash
+   sudo pmg config set --system proxy.server.enforce.enabled true
+   ```
+
+3. Start the daemon:
+
+   ```bash
+   sudo pmg proxy start --daemon
+   ```
+
+4. Set the [trust variables](#trust) in your shell:
+
+   ```bash
+   eval "$(sudo pmg proxy env --export)"
+   ```
+
+5. Use your package managers as usual. A blocked package fails with a `403`.
+
+6. To end enforcement, stop the daemon:
+
+   ```bash
+   sudo pmg proxy stop
+   ```
+
+`pmg proxy start --enforce` turns on enforcement without step 2. The daemon
+then reads root's per-user config and warns. See
+[Which config file the daemon reads](#which-config-file-the-daemon-reads).
+
+`eval` sets the trust variables in the current shell only. To set them in
+every login shell, write them to a profile script:
+
 ```bash
-sudo pmg setup cert install --system
-sudo pmg proxy start --daemon --enforce --state "$RUNNER_TEMP/pmg-proxy-state.json"
-sudo pmg proxy env --state "$RUNNER_TEMP/pmg-proxy-state.json" >> "$GITHUB_ENV"
-# ... job steps ...
-sudo pmg proxy stop --state "$RUNNER_TEMP/pmg-proxy-state.json" --fail-on-violation
+sudo pmg proxy env --export | sudo tee /etc/profile.d/pmg.sh
 ```
 
-The [safedep/pmg action](../action.yml) does this with `server-mode: true`
-and `enforce: true`. See [github-action.md](./github-action.md).
+### Run it as a service
+
+To enforce from boot, run the daemon as a `systemd` service. See the
+[example unit](../examples/systemd/pmg-proxy.service). `Restart=on-failure`
+starts it again after a crash. The unit writes its state to
+`/run/pmg/proxy-state.json`, so give that path to the other commands:
+
+```bash
+sudo pmg proxy status --state /run/pmg/proxy-state.json
+```
 
 ### How it works
 
@@ -226,29 +313,16 @@ proxy:
 - `exempt_executables` are absolute paths or globs of programs that connect
   directly. The daemon also exempts a matching file that appears later, so
   a user who can write the folder can add one. Never exempt an interpreter
-  such as `node`, `python3` or `sh`, an HTTP client such as `curl` or `wget`,
-  or a CI runner. An install script can run any of them.
+  such as `node`, `python3` or `sh`, or an HTTP client such as `curl` or
+  `wget`. An install script can run any of them.
 - `eligible_users` limits enforcement to some users. It is safe only when no
   eligible user can become another one. `sudo curl` runs as root, and root is
-  then not eligible. Leave it empty on a runner whose user has `sudo`. The
+  then not eligible. Leave it empty when an eligible user has `sudo`. The
   daemon warns when an eligible user is in the `sudo` or `wheel` group.
 - `skip_destinations` adds to the built-in skip list: loopback, link-local
   (cloud instance metadata) and the Azure host address `168.63.129.16`.
 - `cgroup` limits the scope to one cgroup v2 directory. The default is the
   root, which covers every process on the host.
-
-### CI runners
-
-A CI runner is not exempt. Its traffic to GitHub goes through the proxy,
-which passes it through with the real certificate. An exemption would be a
-bypass, because the user that runs the jobs can write the runner's folder.
-
-If the daemon stops serving but keeps running, the runner cannot report.
-GitHub cancels the job at its `timeout-minutes`, and later steps, the stop
-step included, do not run. A self-hosted runner goes offline until the
-daemon restarts, and `Restart=on-failure` does not restart a hung daemon.
-Set `timeout-minutes` on every enforced job. The GitHub default is 360
-minutes.
 
 ### Which config file the daemon reads
 
@@ -320,33 +394,6 @@ variables that point a tool at the system store, and the path of the bundle:
 
 `curl`, Go, pip and bun trust the store on their own.
 
-### Requirements
-
-- Linux 5.15 or later with kernel BTF (`CONFIG_DEBUG_INFO_BTF`) and cgroup
-  v2. GitHub hosted runners meet this.
-- `CAP_BPF`, `CAP_NET_ADMIN` and `CAP_PERFMON`, so root in practice. Every
-  `pmg proxy` command then runs under `sudo` with an explicit `--state` path,
-  because `sudo` resets `HOME`.
-- The PMG CA in the system trust store, through `sudo pmg setup cert install
-  --system`.
-
-`pmg setup doctor` reports whether the host can enforce. `pmg proxy start
---enforce` fails before it binds a port when a requirement is missing, and
-the error names it. On macOS and Windows it fails with an error that names
-the platform.
-
-### Self-hosted runners
-
-A `systemd` unit can start the enforcing proxy at boot with a fixed
-`listen_port`. See
-[examples/systemd/pmg-proxy.service](../examples/systemd/pmg-proxy.service).
-The runner's `.env` file carries the trust variables. The operator runs
-`pmg setup cert install --system` once as root. A runner cannot stop a root
-daemon at job end, so the daemon serves later jobs until an operator stops
-it. `pmg proxy status` shows that it still enforces.
-
-Do not exempt the runner binaries. See [CI runners](#ci-runners).
-
 ### Containers and other network namespaces
 
 A container has its own network namespace, so the `connect` hooks do not
@@ -366,13 +413,10 @@ proxy:
   the reason in `pmg proxy status`.
 - `ignore` is the default.
 
-The flag is `--enforce-namespaces <mode>` and the action input is
-`enforce-namespaces`. The redirect covers `docker run`, `RUN` steps in
-`docker build` with the default builder and with a `docker-container`
-builder, and Docker container actions. A `--network host` container is in
-the host namespace and takes the `connect` path. A container job
-(`jobs.<id>.container`) runs the action inside the job container, so no
-daemon exists on the host and it stays outside enforcement.
+The flag is `--enforce-namespaces <mode>`. The redirect covers `docker run`,
+and `RUN` steps in `docker build` with the default builder and with a
+`docker-container` builder. A `--network host` container is in the host
+namespace and takes the `connect` path.
 
 A container must trust the PMG CA to install through the proxy. See
 [Trust inside a container](#trust-inside-a-container).
@@ -451,24 +495,15 @@ RUN --mount=type=secret,id=pmg-ca,target=/run/pmg-ca.pem,mode=0444 \
     NODE_EXTRA_CA_CERTS=/run/pmg-ca.pem npm ci
 ```
 
-A Docker container action gets the workspace at `/github/workspace` and the
-step's `env:`. Copy the bundle into the workspace in a step before it:
-
-```yaml
-- run: cp "$PMG_CA_BUNDLE" pmg-ca.pem
-- uses: some/docker-action@v1
-  env:
-    NODE_EXTRA_CA_CERTS: /github/workspace/pmg-ca.pem
-```
-
 ### Test it before you deploy
 
-Run these on a Linux machine with Docker before you turn enforcement on in
-a workflow. Start the daemon, then run each command from another terminal.
+Run these on a Linux machine with Docker. If a daemon runs, stop it first.
+Start the daemon with the container redirect, and set the trust variables:
 
 ```sh
-sudo pmg proxy start --enforce --enforce-namespaces redirect
-pmg proxy status        # namespaces: redirect (169.254.200.1:<port> from docker0, br-*)
+sudo pmg proxy start --daemon --enforce --enforce-namespaces redirect
+sudo pmg proxy status   # namespaces: redirect (169.254.200.1:<port> from docker0, br-*)
+eval "$(sudo pmg proxy env --export)"
 ```
 
 If the start printed a firewall warning, add the rule it names first.
@@ -493,14 +528,13 @@ If the start printed a firewall warning, add the rule it names first.
 
    ```sh
    docker run --rm curlimages/curl -sS https://registry.npmjs.org/-/ping
-   # curl: (60) SSL certificate problem
+   # curl: (60) SSL certificate ...
    ```
 
 4. With the bundle mounted, the registry works through the proxy, and a
    known-malicious package is blocked.
 
    ```sh
-   eval "$(sudo pmg proxy env)"      # exports PMG_CA_BUNDLE
    docker run --rm -v "$PMG_CA_BUNDLE":/pmg-ca.pem:ro -e CURL_CA_BUNDLE=/pmg-ca.pem \
      curlimages/curl -sS https://registry.npmjs.org/-/ping
    # {}
@@ -528,30 +562,6 @@ reaches the registry directly.
   address the client resolved, so a false name cannot steer the daemon.
 - A client that pins certificates fails closed on registry hosts.
 - The daemon runs as root. A privilege drop after attach is a follow-up.
-
-## Cloud event sync
-
-With SafeDep Cloud enabled, a block event must reach the cloud even from a
-runner that is destroyed when the job ends. The daemon records each blocked
-package in a local event log at once, syncs pending events while it serves,
-and flushes the rest on shutdown.
-
-`pmg proxy stop` reports the result, `Synced N event(s) to SafeDep Cloud` or
-a `Cloud sync failed` line. A failed flush does not change the
-`--fail-on-violation` exit code.
-
-## Fail on violation
-
-`pmg proxy stop` exits `0` by default. `--fail-on-violation` makes it a gate:
-
-- It exits non-zero when any package was blocked.
-- It fails closed. When the daemon stopped without a final state it could
-  verify, for example after a crash, it fails too. A security gate must not
-  pass on a run it cannot verify.
-
-The package manager's own non-zero exit, from the `403` on a blocked
-download, is a separate signal. `--fail-on-violation` is the proxy's own
-verdict, whatever the package manager reported.
 
 ## Limitations
 
