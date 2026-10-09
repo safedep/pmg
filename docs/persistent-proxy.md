@@ -210,6 +210,9 @@ the platform.
    sudo pmg setup cert install --system
    ```
 
+   The command runs `update-ca-certificates`, or `update-ca-trust` on
+   Fedora, RHEL and Arch. Then it checks that the system bundle has the CA.
+
 2. Turn on enforcement in the managed config,
    `/etc/safedep/pmg/config.yml`:
 
