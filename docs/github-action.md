@@ -170,6 +170,13 @@ describes how enforcement works.
 Set `timeout-minutes` on every enforced job. See
 [Runner traffic](#runner-traffic).
 
+Node, and with it npm, needs version 22.19 or later. For an older Node, add
+this step after the action:
+
+```yaml
+- run: echo "NODE_EXTRA_CA_CERTS=$PMG_CA_BUNDLE" >> "$GITHUB_ENV"
+```
+
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the
 job sets one, because the action passes it to the root daemon. Without one,

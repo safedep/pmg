@@ -390,12 +390,20 @@ variables that point a tool at the system store, and the path of the bundle:
 
 | Variable | Why |
 | --- | --- |
-| `NODE_USE_SYSTEM_CA=1` | Node, and with it npm, pnpm, yarn and aube, ignores the store without it. Node 20 has no switch and is not supported. |
+| `NODE_USE_SYSTEM_CA=1` | Node, and with it npm, pnpm, yarn and aube, ignores the store without it. Node 22.19 or later reads it. |
 | `UV_NATIVE_TLS=1` | uv validates against its bundled roots without it. |
 | `REQUESTS_CA_BUNDLE=<system bundle>` | Tools built on Python `requests` validate against `certifi`. poetry needs it. pip does not. |
 | `PMG_CA_BUNDLE=<system bundle>` | The file to pass into a container. See below. |
 
 `curl`, Go, pip and bun trust the store on their own.
+
+Node earlier than 22.19 ignores `NODE_USE_SYSTEM_CA` and fails the TLS
+handshake on a registry host. To use an older Node, point
+`NODE_EXTRA_CA_CERTS` at the bundle:
+
+```bash
+export NODE_EXTRA_CA_CERTS="$PMG_CA_BUNDLE"
+```
 
 ### Containers and other network namespaces
 
