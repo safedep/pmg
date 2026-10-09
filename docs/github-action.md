@@ -167,8 +167,8 @@ The runner is not exempt. Set `timeout-minutes` on every enforced job. See
 
 The policy inputs cover the common cases without a config file. Each list
 adds to the config's list. The config is the staged `config-file` when the
-job sets one. The root daemon reads a copy of it in the job's temp
-directory. Without one, a
+job sets one, because the action passes its directory to the root daemon
+through `PMG_CONFIG_DIR`. Without one, a
 hosted runner has no config file for root, so the inputs add to the
 defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
