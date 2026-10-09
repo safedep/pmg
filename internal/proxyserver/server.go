@@ -78,22 +78,16 @@ type RunOptions struct {
 	Overrides EnforceOverrides
 }
 
-// EnforceOverrides are policy lists from the command line, and the globs
-// the parent computed before the daemon detached, such as the GitHub runner
-// binaries. Each list adds to the config's list and never replaces it, so
-// a flag cannot drop a skip destination or an exempt user an administrator
-// set. The scalars, cgroup and deny_udp, bind to the config fields directly.
+// EnforceOverrides are policy lists from the command line. Each list adds to
+// the config's list and never replaces it, so a flag cannot drop a skip
+// destination or an exempt user an administrator set. The scalars, cgroup
+// and deny_udp, bind to the config fields directly.
 type EnforceOverrides struct {
 	Ports             []int
 	EligibleUsers     []string
 	ExemptUsers       []string
 	ExemptExecutables []string
 	SkipDestinations  []string
-
-	// RunnerExecutables are the globs pmg found itself, such as the GitHub
-	// runner binaries. They are not a user's override, so a locked managed
-	// config does not govern them.
-	RunnerExecutables []string
 }
 
 // Run starts the persistent proxy server in the foreground and blocks until it

@@ -118,12 +118,15 @@ jobs:
       - name: Install the system CA and start the enforcing daemon
         run: |
           sudo "$GITHUB_WORKSPACE/bin/pmg" setup cert install --system
-          # GITHUB_ACTIONS tells the parent to walk its ancestors to
-          # Runner.Worker and exempt the runner binaries, as the action does.
+          # GITHUB_ACTIONS reaches the daemon, as in the action. The runner
+          # is still not exempt.
           sudo --preserve-env=GITHUB_ACTIONS "$GITHUB_WORKSPACE/bin/pmg" proxy start --daemon --enforce --state "$RUNNER_TEMP/proxy-state.json"
           sudo "$GITHUB_WORKSPACE/bin/pmg" proxy status --state "$RUNNER_TEMP/proxy-state.json" | tee status.txt
           grep -q "Kernel enforcement: active" status.txt
-          grep -q "exempt executable: .*/Runner.Worker" status.txt
+          if grep -q "exempt executable" status.txt; then
+            echo "ERROR: the daemon exempted an executable that no policy lists" >&2
+            exit 1
+          fi
           sudo "$GITHUB_WORKSPACE/bin/pmg" proxy env --state "$RUNNER_TEMP/proxy-state.json" >> "$GITHUB_ENV"
 
       - name: A scrubbed-environment client is routed and blocked
@@ -139,6 +142,22 @@ jobs:
             echo "ERROR: github.com was intercepted" >&2
             exit 1
           fi
+
+      # A job step can write the runner's folder. A program it copies there
+      # must still be routed, whatever its name.
+      - name: A program copied into the runner folder is not exempt
+        run: |
+          pid="$(pgrep -x Runner.Worker | head -1 || true)"
+          if [ -z "$pid" ]; then
+            echo "ERROR: no Runner.Worker process found, so the runner folder is unknown" >&2
+            exit 1
+          fi
+          worker="$(readlink "/proc/$pid/exe")"
+          copy="$(dirname "$worker")/Runner.PmgE2E"
+          trap 'rm -f "$copy"' EXIT
+          cp /usr/bin/curl "$copy"
+          code=$("$copy" -sS -o /dev/null -w '%{http_code}' https://registry.npmjs.org/safedep-test-pkg/-/safedep-test-pkg-0.1.3.tgz)
+          test "$code" = "403"
 
       - name: Node without the trust variable fails closed
         run: |

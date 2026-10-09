@@ -395,7 +395,7 @@ func (h *linuxHandle) startReaders() {
 	if len(h.policy.ExemptExecutables) > 0 {
 		rd, err := ringbuf.NewReader(h.objs.ExecEvents)
 		if err != nil {
-			log.Warnf("enforce: exec events unavailable, new runner binaries are not exempted: %v", err)
+			log.Warnf("enforce: exec events unavailable, an exempt executable that appears later is not exempted: %v", err)
 		} else {
 			h.execRd = rd
 			h.readers.Add(1)
