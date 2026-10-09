@@ -148,36 +148,27 @@ resets `HOME` and `PATH`, so the action exports the binary path as `PMG_BIN`
 and the state file path as `PMG_PROXY_STATE` for the job-end step.
 
 ```yaml
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: safedep/pmg@v1
-        with:
-          server-mode: true
-          enforce: true
-          api-key: ${{ secrets.SAFEDEP_API_KEY }}
-          tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    enforce: true
+    api-key: ${{ secrets.SAFEDEP_API_KEY }}
+    tenant-id: ${{ secrets.SAFEDEP_TENANT_ID }}
 
-      - run: npm ci
+- run: npm ci
 
-      - name: Enforce PMG policy
-        if: always()
-        run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
+- name: Enforce PMG policy
+  if: always()
+  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
 ```
 
-The runner is not exempt. Its connections to GitHub go through the proxy,
-which passes them through with GitHub's certificate. A job step therefore
-cannot bypass enforcement from the runner's folder. The runner depends on
-the daemon in return. If the daemon stops serving but keeps running, the
-job ends only at its `timeout-minutes`, so set it on every enforced job. See
+The runner is not exempt. Set `timeout-minutes` on every enforced job. See
 [CI runners](./persistent-proxy.md#ci-runners).
 
 The policy inputs cover the common cases without a config file. Each list
-adds to the config's list. The config
-is the staged `config-file` when the job sets one, because the action passes
-its directory to the root daemon through `PMG_CONFIG_DIR`. Without one, a
+adds to the config's list. The config is the staged `config-file` when the
+job sets one. The root daemon reads a copy of it in the job's temp
+directory. Without one, a
 hosted runner has no config file for root, so the inputs add to the
 defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
