@@ -215,7 +215,7 @@ proxy:
       eligible_users: []
       exempt_users: []
       exempt_executables:
-        - /home/runner/actions-runner/bin/Runner.*
+        - /opt/observability/bin/agent
       skip_destinations: [10.20.0.0/16]
       cgroup: ""
       deny_udp: true
@@ -224,11 +224,13 @@ proxy:
 - `ports` are the destination ports to route. The ports of
   `proxy.registries` endpoints are always added.
 - `exempt_executables` are absolute paths or globs of programs that connect
-  directly. A CI runner agent belongs here. On GitHub Actions the action
-  finds `Runner.Worker` among its ancestors and exempts `<runner dir>/Runner.*`
-  itself. The daemon applies the list to a binary that appears or changes
-  later. Never exempt an interpreter such as `node`, `python3` or `sh`, or an
-  HTTP client such as `curl` or `wget`. An install script can run any of them.
+  directly. The daemon also exempts a matching file that appears or changes
+  later. So a process that can write a listed file or its folder can put its
+  own program there and connect directly. List only root-owned files in
+  folders that no enforced user can write. Never exempt an interpreter such
+  as `node`, `python3` or `sh`, an HTTP client such as `curl` or `wget`, or a
+  CI runner. An install script can run any of them. See
+  [CI runners](#ci-runners).
 - `eligible_users` limits enforcement to some users. It is safe only when no
   eligible user can become another one. `sudo curl` runs as root, and root is
   then not eligible. Leave it empty on a runner whose user has `sudo`. The
@@ -237,6 +239,30 @@ proxy:
   (cloud instance metadata) and the Azure host address `168.63.129.16`.
 - `cgroup` limits the scope to one cgroup v2 directory. The default is the
   root, which covers every process on the host.
+
+### CI runners
+
+A CI runner is not exempt. Its own connections go through the proxy like
+those of every other process. GitHub and the storage hosts a runner uses are
+not registry hosts, so the proxy passes their TLS through with the real
+certificate. It does not decrypt or analyze them. They appear as host
+observations, with the runner binary, such as `Runner.Worker`, as the client.
+
+An exemption for the runner binaries would be a bypass. The runner's folder
+belongs to the user that runs the jobs. Every job step could copy its own
+program into that folder, or start a runner binary with `LD_PRELOAD`, and
+connect directly. The connection would make no block and no audit event.
+
+The runner depends on the daemon in return:
+
+| Daemon state | Effect on the job |
+| --- | --- |
+| Serving | The runner streams logs and reports through the proxy. |
+| Exited or crashed | The kernel detaches the programs. The runner connects directly again. |
+| Alive but not serving | The runner cannot upload logs or report the job. GitHub ends the job after its `timeout-minutes`. |
+
+Set `timeout-minutes` on every enforced job. The GitHub default is 360
+minutes.
 
 ### Which config file the daemon reads
 
@@ -332,6 +358,9 @@ The runner's `.env` file carries the trust variables. The operator runs
 `pmg setup cert install --system` once as root. A runner cannot stop a root
 daemon at job end, so the daemon serves later jobs until an operator stops
 it. `pmg proxy status` shows that it still enforces.
+
+Do not exempt the runner binaries. The user that runs the jobs can write
+their folder. See [CI runners](#ci-runners).
 
 ### Containers and other network namespaces
 
@@ -502,10 +531,11 @@ reaches the registry directly.
 
 ### Limitations
 
-- A process of the same user can reuse an exempt binary. A job step runs as
-  the same user as `Runner.Worker`. It can hard-link that binary next to its
-  own code and run under the exempt inode. This takes deliberate,
-  runner-specific work. The sandbox covers that threat.
+- An exemption covers a file, not the code that runs in it. Any process can
+  start an exempt program with `LD_PRELOAD` and run its own code in it. A
+  process that can write a listed file or its folder can replace the
+  program. Keep `exempt_executables` empty unless a program cannot work
+  through the proxy.
 - `sudo` bypasses `eligible_users`. See above.
 - The proxy decides by name. A redirected TLS connection without SNI, or
   with Encrypted ClientHello, and a plain HTTP request without a `Host`
