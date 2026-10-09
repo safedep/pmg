@@ -459,16 +459,17 @@ runs:
 
         # The daemon runs as root. sudo resets PATH and HOME, so every call
         # names the binary by absolute path and the state file explicitly.
-        # The cloud variables travel through --preserve-env. So does the
-        # config directory: a staged config-file sits in the runner user's
-        # config directory, and root would otherwise read its own.
+        # The cloud variables travel through --preserve-env, and so do the
+        # GitHub variables that name the run in the daemon's cloud events. So
+        # does the config directory: the daemon gets a root-owned copy of a
+        # staged config-file, so it never writes into the user's directory.
         pmg_bin="${PMG_BIN_DIR}/pmg"
         state="${RUNNER_TEMP}/pmg-proxy-state.json"
         echo "PMG_BIN=${pmg_bin}" >> "$GITHUB_ENV"
         echo "PMG_PROXY_STATE=${state}" >> "$GITHUB_ENV"
         if [ -n "$INPUT_CONFIG_FILE" ]; then
-          export PMG_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
-          echo "PMG_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
+          export PMG_CONFIG_DIR="${RUNNER_TEMP}/pmg-daemon-config"
+          sudo install -D -m 0644 "${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml" "${PMG_CONFIG_DIR}/config.yml"
         fi
 
         # Trust goes through the system store: the keypair lands in
@@ -480,7 +481,7 @@ runs:
         # config file's list.
         mapfile -t enforce_flags < <("$GITHUB_ACTION_PATH/.github/scripts/enforce-flags.sh")
 
-        sudo --preserve-env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS \
+        sudo --preserve-env=PMG_CONFIG_DIR,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_AUTO_SYNC_ENABLED,PMG_CLOUD_ENDPOINT_ID,PMG_PARANOID,PMG_DEPENDENCY_COOLDOWN_ENABLED,PMG_DEPENDENCY_COOLDOWN_DAYS,PMG_VERBOSITY,PMG_DISABLE_TELEMETRY,PMG_SKIP_EVENT_LOGGING,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_ACTOR,GITHUB_REF,GITHUB_REF_NAME,GITHUB_HEAD_REF,GITHUB_WORKFLOW,GITHUB_JOB,GITHUB_SERVER_URL \
           "$pmg_bin" proxy start --daemon --enforce --state "$state" "${enforce_flags[@]}"
 
         # Only the trust variables. The kernel routes the traffic.
