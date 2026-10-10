@@ -60,6 +60,11 @@ func MaybeSpawnBackgroundSync(cfg *config.RuntimeConfig) {
 	if !cfg.Config.Cloud.Enabled || !cfg.Config.Cloud.AutoSync.Enabled {
 		return
 	}
+	// The cooldown file lives in the config directory. Without one, its path
+	// would resolve against the working directory.
+	if cfg.ConfigDir() == "" {
+		return
+	}
 
 	if !SyncCooldownElapsed(cfg.CloudSyncLastRunPath(), cfg.Config.Cloud.AutoSync.MinInterval) {
 		log.Debugf("Auto-sync cooldown not elapsed; skipping spawn")

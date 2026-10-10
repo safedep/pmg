@@ -117,6 +117,16 @@ func TestMaybeSpawnBackgroundSyncShortCircuits(t *testing.T) {
 		assert.Equal(t, 0, rec.callCount())
 	})
 
+	t.Run("config directory unresolved", func(t *testing.T) {
+		rec := withMockSpawner(t)
+		cfg := &config.RuntimeConfig{}
+		cfg.Config.Cloud.Enabled = true
+		cfg.Config.Cloud.AutoSync.Enabled = true
+
+		MaybeSpawnBackgroundSync(cfg)
+		assert.Equal(t, 0, rec.callCount())
+	})
+
 	t.Run("we are the sync-background child", func(t *testing.T) {
 		rec := withMockSpawner(t)
 		cfg := newAutoSyncConfig(t)

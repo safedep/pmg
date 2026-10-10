@@ -24,6 +24,13 @@ func withPrivilege(t *testing.T, privileged bool) {
 	t.Cleanup(func() { platform.IsPrivileged = orig })
 }
 
+func withoutRootHome(t *testing.T) {
+	t.Helper()
+	orig := rootHomeDirResolver
+	rootHomeDirResolver = func() (string, error) { return "", assert.AnError }
+	t.Cleanup(func() { rootHomeDirResolver = orig })
+}
+
 func poisonUserEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("PMG_CONFIG_DIR", "")
@@ -118,9 +125,7 @@ func TestRootDirsFallBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
-	orig := rootHomeDirResolver
-	rootHomeDirResolver = func() (string, error) { return "", assert.AnError }
-	t.Cleanup(func() { rootHomeDirResolver = orig })
+	withoutRootHome(t)
 
 	dir, err := configDir()
 	require.NoError(t, err)
@@ -186,22 +191,11 @@ func TestUserHomeDirFallsBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "victim")
 
-	orig := rootHomeDirResolver
-	rootHomeDirResolver = func() (string, error) { return "", assert.AnError }
-	t.Cleanup(func() { rootHomeDirResolver = orig })
+	withoutRootHome(t)
 
 	home, err := UserHomeDir()
 	require.NoError(t, err)
 	assert.Equal(t, "/home/victim", home)
-}
-
-// clearUserEnv unsets every variable that names a directory of the user, as
-// a systemd unit without User= does.
-func clearUserEnv(t *testing.T) {
-	t.Helper()
-	for _, key := range []string{"PMG_CONFIG_DIR", "PMG_CACHE_DIR", "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "SUDO_USER"} {
-		t.Setenv(key, "")
-	}
 }
 
 func TestUserDirsFallBackToPasswdHomeWithoutEnv(t *testing.T) {
@@ -249,6 +243,18 @@ func TestUserDirsFallBackPerDirectory(t *testing.T) {
 	assert.Equal(t, filepath.Join(platform.HomeDirs("/home/fromdb").Cache, pmgDefaultHomeRelativePath), dir)
 }
 
+func TestUserDirsUnderSudoFallBackToPasswdHomeWithoutRootEntry(t *testing.T) {
+	clearUserEnv(t)
+	withPrivilege(t, true)
+	t.Setenv("SUDO_USER", "victim")
+	withoutRootHome(t)
+	withCurrentUserHome(t, "/home/fromdb")
+
+	dir, err := configDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(platform.HomeDirs("/home/fromdb").Config, pmgDefaultHomeRelativePath), dir)
+}
+
 func TestUserDirsPreferEnvOverPasswdHome(t *testing.T) {
 	poisonUserEnv(t)
 	withPrivilege(t, false)
@@ -283,17 +289,6 @@ func TestInitConfigWithoutUserHome(t *testing.T) {
 		require.NotPanics(t, initConfig)
 		requireUserDirUnresolved(t, InitError())
 		assert.NotNil(t, Get())
-	})
-
-	t.Run("succeeds with the pmg directory variables", func(t *testing.T) {
-		clearUserEnv(t)
-		withPrivilege(t, false)
-		withoutCurrentUserHome(t)
-		t.Setenv("PMG_CONFIG_DIR", t.TempDir())
-		t.Setenv("PMG_CACHE_DIR", t.TempDir())
-
-		initConfig()
-		assert.NoError(t, InitError())
 	})
 
 	t.Run("still loads the managed config", func(t *testing.T) {

@@ -8,8 +8,9 @@ import (
 )
 
 // PasswdHomeDir returns the home directory of the current user from the user
-// database. It reads no environment variable, so a HOME that another account
-// left in the environment cannot steer it. Tests replace it.
+// database, so a HOME that another account left in the environment does not
+// steer it. In a build without cgo, Go's os/user takes HOME when the database
+// has no entry for the user. Tests replace it.
 var PasswdHomeDir = passwdHomeDir
 
 func passwdHomeDir() (string, error) {

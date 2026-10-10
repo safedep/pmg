@@ -683,8 +683,9 @@ func (r *RuntimeConfig) resolvePaths() error {
 
 	// Where the config directory roams with the profile, the logs go beside
 	// the data instead: https://github.com/safedep/pmg/pull/82#discussion_r2636746036
+	// PMG_CONFIG_DIR names no roaming directory, so the logs stay under it.
 	logBaseDir, logErr := configDir, configErr
-	if platform.UserConfigDirRoams {
+	if platform.UserConfigDirRoams && os.Getenv(pmgConfigDirEnvKey) == "" {
 		logBaseDir, logErr = UserDataDir()
 	}
 	if logErr == nil {
@@ -794,8 +795,9 @@ func sudoRootHome() (string, bool) {
 // userBaseDir resolves a base directory of the user pmg runs as. Under sudo,
 // root's passwd home wins over a HOME preserved from the invoking user, so an
 // elevated run never reads or writes that user's dotfiles. Otherwise fromEnv
-// reads the environment. When the environment does not name the directory,
-// as in a systemd unit without User=, the current user's passwd home does.
+// reads the environment. When fromEnv fails, the directory derives from the
+// home that platform.UserHomeDir resolves. That covers an invalid XDG_*
+// value, and a systemd unit without User= that sets no HOME.
 func userBaseDir(fromEnv func() (string, error), fromHome func(home string) string) (string, error) {
 	if home, ok := sudoRootHome(); ok {
 		return fromHome(home), nil
@@ -806,7 +808,7 @@ func userBaseDir(fromEnv func() (string, error), fromHome func(home string) stri
 		return dir, nil
 	}
 
-	home, err := platform.PasswdHomeDir()
+	home, err := platform.UserHomeDir()
 	if err != nil {
 		return "", newUnresolvedUserDirError(errors.Join(envErr, err))
 	}
@@ -817,7 +819,7 @@ func newUnresolvedUserDirError(err error) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.UserDirUnresolved).
 		WithHumanError("failed to find the home directory of the current user").
-		WithHelp(fmt.Sprintf("Set HOME, or set %s and %s, then retry.", pmgConfigDirEnvKey, pmgCacheDirEnvKey)).
+		WithHelp(fmt.Sprintf("Set %s, or set %s and %s, then retry.", platform.UserDirEnvVars(), pmgConfigDirEnvKey, pmgCacheDirEnvKey)).
 		Wrap(err)
 }
 

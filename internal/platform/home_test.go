@@ -21,6 +21,7 @@ func TestUserHomeDir(t *testing.T) {
 	}{
 		{"environment wins", "/home/env", "/home/fromdb", nil, "/home/env"},
 		{"user database without HOME", "", "/home/fromdb", nil, "/home/fromdb"},
+		{"neither resolves", "", "", assert.AnError, ""},
 	}
 
 	for _, tc := range cases {
@@ -29,26 +30,13 @@ func TestUserHomeDir(t *testing.T) {
 			platformtest.StubPasswdHomeDir(t, tc.passwd, tc.passwdErr)
 
 			home, err := platform.UserHomeDir()
+			if tc.passwdErr != nil {
+				assert.ErrorIs(t, err, tc.passwdErr)
+				assert.Contains(t, err.Error(), "$HOME")
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, home)
 		})
 	}
-}
-
-func TestUserHomeDirFailsWithoutEnvOrUserDatabase(t *testing.T) {
-	t.Setenv("HOME", "")
-	platformtest.StubPasswdHomeDir(t, "", assert.AnError)
-
-	_, err := platform.UserHomeDir()
-	require.Error(t, err)
-	assert.ErrorIs(t, err, assert.AnError)
-	assert.Contains(t, err.Error(), "$HOME")
-}
-
-func TestPasswdHomeDirIgnoresEnv(t *testing.T) {
-	t.Setenv("HOME", "/home/env")
-
-	home, err := platform.PasswdHomeDir()
-	require.NoError(t, err)
-	assert.NotEqual(t, "/home/env", home)
 }
