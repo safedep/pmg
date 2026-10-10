@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -917,4 +918,12 @@ func TestTranslateNetworkUnixSockets(t *testing.T) {
 			tt.assert(t, out)
 		})
 	}
+}
+
+func TestSeatbeltTranslatorDarwinFailsClosedWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	platformtest.StubPasswdHomeDir(t, "", assert.AnError)
+
+	_, err := newSeatbeltPolicyTranslator().translate(&sandbox.SandboxPolicy{}, nil)
+	assert.ErrorIs(t, err, assert.AnError)
 }

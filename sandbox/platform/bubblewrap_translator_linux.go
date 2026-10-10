@@ -263,28 +263,9 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 	args = append(args, t.addEssentialDevices()...)
 
 	// 3. Process deny_write rules after allow_write so read-only binds override writable parents.
-	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
+	mandatoryResult, err := mandatoryDenies(policy)
 	if err != nil {
-		log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
-		expandedAllowRead = nil
-	}
-	expandedAllowWrite, err := expandAll(policy.Filesystem.AllowWrite)
-	if err != nil {
-		log.Warnf("sandbox: failed to expand allow_write for mandatory deny suppression, all mandatory denies preserved: %v", err)
-		expandedAllowWrite = nil
-	}
-
-	mandatoryResult := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{
-		AllowGitConfig: utils.SafelyGetValue(policy.AllowGitConfig),
-		AllowRead:      expandedAllowRead,
-		AllowWrite:     expandedAllowWrite,
-	})
-
-	for _, p := range mandatoryResult.SuppressedRead {
-		log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
-	}
-	for _, p := range mandatoryResult.SuppressedWrite {
-		log.Warnf("sandbox: mandatory deny %q suppressed for write by explicit allow rule in policy %q", p, policy.Name)
+		return nil, err
 	}
 
 	// bwrap has no primitive that denies reads while allowing writes — --bind
@@ -351,8 +332,8 @@ func (t *bubblewrapPolicyTranslator) translateFilesystem(policy *sandbox.Sandbox
 	// ordering, so the re-bind must come after all allow_write mounts. The
 	// write-only case matters for a linked worktree, where .git is a file
 	// that names the repository.
-	allowReadSet := make(map[string]bool, len(expandedAllowRead))
-	for _, p := range expandedAllowRead {
+	allowReadSet := make(map[string]bool, len(mandatoryResult.expandedAllowRead))
+	for _, p := range mandatoryResult.expandedAllowRead {
 		allowReadSet[filepath.Clean(p)] = true
 	}
 	denyReadSet := make(map[string]bool, len(mandatoryResult.DenyRead))
@@ -984,18 +965,6 @@ func (t *bubblewrapPolicyTranslator) addPTYSupport() []string {
 
 // addTmpdirSupport adds arguments for temporary directory access.
 // Package managers need writable temp space for downloads, extraction, etc.
-func expandAll(patterns []string) ([]string, error) {
-	out := make([]string, 0, len(patterns))
-	for _, p := range patterns {
-		expanded, err := util.ExpandVariables(p)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand pattern %q: %w", p, err)
-		}
-		out = append(out, expanded)
-	}
-	return out, nil
-}
-
 // intersectStrings returns the order-preserving intersection of a and b.
 func intersectStrings(a, b []string) []string {
 	bset := make(map[string]bool, len(b))

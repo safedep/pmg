@@ -354,6 +354,12 @@
   tier: P2
   guarantee: "pmg version prints the build version and commit."
   labels: [version, offline]
+- id: version/runs-without-home
+  title: "pmg starts without HOME"
+  category: version
+  tier: P1
+  guarantee: "pmg starts and does not panic when HOME and XDG_* are not set."
+  labels: [version, offline]
 
 # --- enforce: eBPF enforcement for the persistent proxy (docs/persistent-proxy.md, "Kernel enforcement") ---
 # Scripts skip unless the host runs as root with kernel BTF and cgroup v2.

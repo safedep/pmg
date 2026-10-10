@@ -5,11 +5,11 @@ package truststore
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 )
 
 const systemKeychainPath = "/Library/Keychains/System.keychain"
@@ -17,7 +17,7 @@ const systemKeychainPath = "/Library/Keychains/System.keychain"
 func userScopeSupportedPlatform() bool { return true }
 
 func loginKeychainPath() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := platform.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve home dir: %w", err)
 	}

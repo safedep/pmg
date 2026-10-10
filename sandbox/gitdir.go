@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/sandbox/util"
 )
 
@@ -55,12 +56,13 @@ func checkGitDirs(cwd, gitDir, commonDir string, linked bool) error {
 		return fmt.Errorf("%s is not a git directory", gitDir)
 	}
 
-	home, err := os.UserHomeDir()
+	// Without a home directory the check below cannot run, so fail closed.
+	home, err := platform.UserHomeDir()
 	if err != nil {
-		home = ""
+		return fmt.Errorf("failed to resolve the home directory: %w", err)
 	}
 	for _, target := range []string{gitDir, commonDir} {
-		if home != "" && pathCovers(target, home) {
+		if pathCovers(target, home) {
 			return fmt.Errorf("%s contains the home directory", target)
 		}
 		if pathCovers(target, cwd) {

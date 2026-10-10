@@ -13,6 +13,7 @@ import (
 
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/safedep/pmg/sandbox"
 )
 
@@ -883,4 +884,12 @@ func TestLandlockTranslatePolicy_GlobDenyKeptAsPattern(t *testing.T) {
 	entry = findDenyPath(ep.DenyPaths, "**/.env")
 	require.NotNil(t, entry, "the anywhere form stays a pattern")
 	assert.Equal(t, denyBoth, entry.Mode)
+}
+
+func TestLandlockTranslatePolicyFailsClosedWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	platformtest.StubPasswdHomeDir(t, "", assert.AnError)
+
+	_, err := landlockTranslatePolicy(&sandbox.SandboxPolicy{}, newLandlockABI(3), nil)
+	assert.ErrorIs(t, err, assert.AnError)
 }

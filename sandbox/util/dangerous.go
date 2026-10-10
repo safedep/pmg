@@ -1,9 +1,12 @@
 package util
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // GitDirPath, GitConfigPath and GitHooksPath are the git mandatory deny
@@ -233,7 +236,7 @@ type MandatoryDenyResult struct {
 // .git/config is emitted only when !AllowGitConfig and may be suppressed.
 // PROJECT_AUTOEXEC_DIRS, and the whole .git directory when !AllowGitConfig,
 // are emitted on the write side only.
-func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
+func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) (MandatoryDenyResult, error) {
 	allowReadSet := toSet(opts.AllowRead)
 	allowWriteSet := toSet(opts.AllowWrite)
 
@@ -242,9 +245,11 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 		cwd = "."
 	}
 
-	home, err := os.UserHomeDir()
+	// Without a home directory the home-anchored denies would drop out, so
+	// fail closed.
+	home, err := platform.UserHomeDir()
 	if err != nil {
-		home = ""
+		return MandatoryDenyResult{}, fmt.Errorf("failed to resolve the home directory: %w", err)
 	}
 
 	// Naming an absolute form (CWD or HOME) of a dangerous file also suppresses
@@ -254,9 +259,7 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	absToDangerous := make(map[string]string)
 	for _, fileName := range DANGEROUS_FILES {
 		absToDangerous[filepath.Clean(filepath.Join(cwd, fileName))] = fileName
-		if home != "" {
-			absToDangerous[filepath.Clean(filepath.Join(home, fileName))] = fileName
-		}
+		absToDangerous[filepath.Clean(filepath.Join(home, fileName))] = fileName
 	}
 
 	readGlobAlsoSuppressed := make(map[string]bool)
@@ -277,30 +280,22 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	for _, fileName := range DANGEROUS_FILES {
 		suppressible = append(suppressible, filepath.Join(cwd, fileName))
 		suppressible = append(suppressible, filepath.Join("**", fileName))
-		if home != "" {
-			suppressible = append(suppressible, filepath.Join(home, fileName))
-		}
+		suppressible = append(suppressible, filepath.Join(home, fileName))
 	}
 
 	writeOnly := []string{}
 	for _, dir := range PROJECT_AUTOEXEC_DIRS {
 		writeOnly = append(writeOnly, filepath.Join(cwd, dir))
-		if home != "" {
-			writeOnly = append(writeOnly, filepath.Join(home, dir))
-		}
+		writeOnly = append(writeOnly, filepath.Join(home, dir))
 	}
 	if !opts.AllowGitConfig {
 		writeOnly = append(writeOnly, filepath.Join(cwd, GitDirPath))
-		if home != "" {
-			writeOnly = append(writeOnly, filepath.Join(home, GitDirPath))
-		}
+		writeOnly = append(writeOnly, filepath.Join(home, GitDirPath))
 	}
 
 	if !opts.AllowGitConfig {
 		suppressible = append(suppressible, filepath.Join(cwd, GitConfigPath))
-		if home != "" {
-			suppressible = append(suppressible, filepath.Join(home, GitConfigPath))
-		}
+		suppressible = append(suppressible, filepath.Join(home, GitConfigPath))
 	}
 
 	result := MandatoryDenyResult{}
@@ -334,12 +329,8 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 	gitHooks := []string{
 		filepath.Join(cwd, GitHooksPath),
 		filepath.Join(cwd, GitHooksPath, "**"),
-	}
-	if home != "" {
-		gitHooks = append(gitHooks,
-			filepath.Join(home, GitHooksPath),
-			filepath.Join(home, GitHooksPath, "**"),
-		)
+		filepath.Join(home, GitHooksPath),
+		filepath.Join(home, GitHooksPath, "**"),
 	}
 	for _, p := range gitHooks {
 		cleaned := filepath.Clean(p)
@@ -347,7 +338,7 @@ func GetMandatoryDenyPatterns(opts MandatoryDenyOptions) MandatoryDenyResult {
 		result.DenyWrite = append(result.DenyWrite, cleaned)
 	}
 
-	return result
+	return result, nil
 }
 
 // PathCoveredBy reports whether the anchor-relative path rel is base itself

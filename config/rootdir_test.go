@@ -3,10 +3,15 @@
 package config
 
 import (
+	"fmt"
+	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/safedep/dry/usefulerror"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -188,4 +193,129 @@ func TestUserHomeDirFallsBackToEnvWhenPasswdUnavailable(t *testing.T) {
 	home, err := UserHomeDir()
 	require.NoError(t, err)
 	assert.Equal(t, "/home/victim", home)
+}
+
+// clearUserEnv unsets every variable that names a directory of the user, as
+// a systemd unit without User= does.
+func clearUserEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"PMG_CONFIG_DIR", "PMG_CACHE_DIR", "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "SUDO_USER"} {
+		t.Setenv(key, "")
+	}
+}
+
+func TestUserDirsFallBackToPasswdHomeWithoutEnv(t *testing.T) {
+	const home = "/home/fromdb"
+	want := platform.HomeDirs(home)
+
+	resolvers := []struct {
+		name    string
+		resolve func() (string, error)
+		want    string
+	}{
+		{"config", configDir, filepath.Join(want.Config, pmgDefaultHomeRelativePath)},
+		{"cache", cacheDir, filepath.Join(want.Cache, pmgDefaultHomeRelativePath)},
+		{"data", UserDataDir, filepath.Join(want.Data, pmgDefaultHomeRelativePath)},
+		{"home", UserHomeDir, home},
+	}
+
+	for _, privileged := range []bool{false, true} {
+		for _, r := range resolvers {
+			t.Run(fmt.Sprintf("%s/privileged=%t", r.name, privileged), func(t *testing.T) {
+				clearUserEnv(t)
+				withPrivilege(t, privileged)
+				withCurrentUserHome(t, home)
+
+				dir, err := r.resolve()
+				require.NoError(t, err)
+				assert.Equal(t, r.want, dir)
+			})
+		}
+	}
+}
+
+func TestUserDirsFallBackPerDirectory(t *testing.T) {
+	clearUserEnv(t)
+	withPrivilege(t, false)
+	withCurrentUserHome(t, "/home/fromdb")
+	t.Setenv("PMG_CONFIG_DIR", "/custom/pmg")
+
+	dir, err := configDir()
+	require.NoError(t, err)
+	assert.Equal(t, "/custom/pmg", dir)
+
+	dir, err = cacheDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(platform.HomeDirs("/home/fromdb").Cache, pmgDefaultHomeRelativePath), dir)
+}
+
+func TestUserDirsPreferEnvOverPasswdHome(t *testing.T) {
+	poisonUserEnv(t)
+	withPrivilege(t, false)
+	withCurrentUserHome(t, "/home/fromdb")
+
+	for _, resolve := range []func() (string, error){configDir, cacheDir, UserDataDir, UserHomeDir} {
+		dir, err := resolve()
+		require.NoError(t, err)
+		assert.Contains(t, dir, "/home/victim")
+	}
+}
+
+func TestUserDirsWithoutEnvOrPasswdHomeReturnUsefulError(t *testing.T) {
+	clearUserEnv(t)
+	withPrivilege(t, false)
+	withoutCurrentUserHome(t)
+
+	for _, resolve := range []func() (string, error){configDir, cacheDir, UserDataDir, UserHomeDir} {
+		_, err := resolve()
+		requireUserDirUnresolved(t, err)
+	}
+}
+
+func TestInitConfigWithoutUserHome(t *testing.T) {
+	t.Cleanup(initConfig)
+
+	t.Run("records an error and does not panic", func(t *testing.T) {
+		clearUserEnv(t)
+		withPrivilege(t, false)
+		withoutCurrentUserHome(t)
+
+		require.NotPanics(t, initConfig)
+		requireUserDirUnresolved(t, InitError())
+		assert.NotNil(t, Get())
+	})
+
+	t.Run("succeeds with the pmg directory variables", func(t *testing.T) {
+		clearUserEnv(t)
+		withPrivilege(t, false)
+		withoutCurrentUserHome(t)
+		t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+		t.Setenv("PMG_CACHE_DIR", t.TempDir())
+
+		initConfig()
+		assert.NoError(t, InitError())
+	})
+
+	t.Run("still loads the managed config", func(t *testing.T) {
+		globalDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yml"), []byte("paranoid: true\n"), 0o644))
+		clearUserEnv(t)
+		withPrivilege(t, false)
+		withoutCurrentUserHome(t)
+		useManagedConfigDir(t, globalDir)
+
+		initConfig()
+		requireUserDirUnresolved(t, InitError())
+		assert.Equal(t, filepath.Join(globalDir, "config.yml"), Get().ConfigFilePath())
+		assert.True(t, Get().Config.Paranoid)
+	})
+}
+
+func requireUserDirUnresolved(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	ue, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok, "%v", err)
+	assert.Equal(t, errcodes.UserDirUnresolved, ue.Code())
+	assert.Contains(t, ue.Help(), "PMG_CONFIG_DIR")
 }

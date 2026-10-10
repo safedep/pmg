@@ -13,9 +13,16 @@ func emptyOpts() MandatoryDenyOptions {
 	return MandatoryDenyOptions{AllowGitConfig: false}
 }
 
+func mandatoryDenies(t *testing.T, opts MandatoryDenyOptions) MandatoryDenyResult {
+	t.Helper()
+	r, err := GetMandatoryDenyPatterns(opts)
+	require.NoError(t, err)
+	return r
+}
+
 func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 	t.Run("blocks dangerous file globs on both sides", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(emptyOpts())
+		r := mandatoryDenies(t, emptyOpts())
 
 		for _, p := range []string{
 			"**/.env", "**/.env.*", "**/.ssh", "**/.aws", "**/.azure",
@@ -37,7 +44,7 @@ func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
 
-		r := GetMandatoryDenyPatterns(emptyOpts())
+		r := mandatoryDenies(t, emptyOpts())
 
 		for _, p := range []string{
 			filepath.Join(cwd, ".git/hooks"),
@@ -56,7 +63,7 @@ func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
 
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowGitConfig: false})
+		r := mandatoryDenies(t, MandatoryDenyOptions{AllowGitConfig: false})
 
 		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/config"))
 		assert.Contains(t, r.DenyWrite, filepath.Join(home, ".git/config"))
@@ -70,7 +77,7 @@ func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
 
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowGitConfig: true})
+		r := mandatoryDenies(t, MandatoryDenyOptions{AllowGitConfig: true})
 
 		cwdGitConfig := filepath.Join(cwd, ".git/config")
 		homeGitConfig := filepath.Join(home, ".git/config")
@@ -87,7 +94,7 @@ func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
 
-		r := GetMandatoryDenyPatterns(emptyOpts())
+		r := mandatoryDenies(t, emptyOpts())
 
 		assert.Contains(t, r.DenyRead, filepath.Join(cwd, ".env"))
 		assert.Contains(t, r.DenyRead, filepath.Join(home, ".env"))
@@ -96,7 +103,7 @@ func TestGetMandatoryDenyPatterns_NoAllowList(t *testing.T) {
 	})
 
 	t.Run("does not use global globs for git operations", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(emptyOpts())
+		r := mandatoryDenies(t, emptyOpts())
 
 		for _, side := range [][]string{r.DenyRead, r.DenyWrite} {
 			assert.NotContains(t, side, "**/.git/hooks")
@@ -119,7 +126,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	cwdGitConfig := filepath.Join(cwd, ".git/config")
 
 	t.Run("CWD-absolute form suppresses CWD form and glob form on same direction", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead: []string{cwdEnv},
 		})
 
@@ -138,7 +145,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("HOME-absolute form suppresses HOME form and glob form on same direction", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead: []string{homeAws},
 		})
 
@@ -155,7 +162,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("glob form suppressed only when listed", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead: []string{globEnv},
 		})
 
@@ -167,7 +174,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("read-side suppression does not affect write side", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead:  []string{cwdEnv},
 			AllowWrite: []string{},
 		})
@@ -177,7 +184,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("write-side suppression does not affect read side", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowWrite: []string{cwdEnv},
 		})
 
@@ -187,7 +194,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 
 	t.Run("broad glob does NOT suppress", func(t *testing.T) {
 		broad := filepath.Join(cwd, "**")
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead: []string{broad},
 		})
 
@@ -196,7 +203,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("relative path in allow list does NOT suppress absolute form", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead: []string{".env"}, // post-Clean stays as ".env"
 		})
 
@@ -206,7 +213,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 
 	t.Run("broad write glob does NOT suppress", func(t *testing.T) {
 		broad := filepath.Join(cwd, "**")
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowWrite: []string{cwd, broad},
 		})
 
@@ -217,7 +224,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 
 	t.Run("github workflows suppressible via exact allow", func(t *testing.T) {
 		cwdWorkflows := filepath.Join(cwd, ".github/workflows")
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowWrite: []string{cwdWorkflows},
 		})
 
@@ -231,16 +238,16 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 		require.NoError(t, err)
 		cwdGit := filepath.Join(cwd, ".git")
 
-		r := GetMandatoryDenyPatterns(emptyOpts())
+		r := mandatoryDenies(t, emptyOpts())
 		assert.Contains(t, r.DenyWrite, cwdGit)
 		assert.Contains(t, r.DenyWrite, filepath.Join(home, ".git"))
 		assert.NotContains(t, r.DenyRead, cwdGit)
 
-		r = GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowGitConfig: true})
+		r = mandatoryDenies(t, MandatoryDenyOptions{AllowGitConfig: true})
 		assert.NotContains(t, r.DenyWrite, cwdGit)
 		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/hooks"), "hooks stay denied")
 
-		r = GetMandatoryDenyPatterns(MandatoryDenyOptions{AllowWrite: []string{cwdGit}})
+		r = mandatoryDenies(t, MandatoryDenyOptions{AllowWrite: []string{cwdGit}})
 		assert.NotContains(t, r.DenyWrite, cwdGit)
 		assert.Contains(t, r.SuppressedWrite, cwdGit)
 		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".git/hooks"), "the git preset opt-out keeps hooks denied")
@@ -251,7 +258,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 		home, err := os.UserHomeDir()
 		require.NoError(t, err)
 
-		r := GetMandatoryDenyPatterns(emptyOpts())
+		r := mandatoryDenies(t, emptyOpts())
 
 		for _, dir := range PROJECT_AUTOEXEC_DIRS {
 			assert.Contains(t, r.DenyWrite, filepath.Join(cwd, dir))
@@ -264,7 +271,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("git config CWD form suppressible via allow_write", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowGitConfig: false,
 			AllowWrite:     []string{cwdGitConfig},
 		})
@@ -281,7 +288,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 
 		hookPaths := []string{cwdHooks, cwdHooksGlob, homeHooks, homeHooksGlob}
 
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead:  hookPaths,
 			AllowWrite: hookPaths,
 		})
@@ -295,7 +302,7 @@ func TestGetMandatoryDenyPatterns_Suppression(t *testing.T) {
 	})
 
 	t.Run("multiple suppressions accumulate", func(t *testing.T) {
-		r := GetMandatoryDenyPatterns(MandatoryDenyOptions{
+		r := mandatoryDenies(t, MandatoryDenyOptions{
 			AllowRead:  []string{cwdEnv, globEnv},
 			AllowWrite: []string{cwdEnv},
 		})

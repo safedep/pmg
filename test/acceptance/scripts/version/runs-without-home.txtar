@@ -1,0 +1,14 @@
+# guarantee: pmg starts when the environment names no home directory, as in a
+# systemd unit without User=. pmg reads the home directory from the user
+# database. This needs no network or backend, so it runs in every mode.
+
+env HOME=
+env XDG_CONFIG_HOME=
+env XDG_CACHE_HOME=
+env XDG_DATA_HOME=
+env PMG_CONFIG_DIR=
+env PMG_CACHE_DIR=
+
+exec pmg version
+stdout 'Version:'
+! stderr 'panic'

@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/safedep/pmg/internal/platform"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,9 +20,12 @@ func platformRemedy() (ownershipCommand, leakedEnvVar string) {
 
 func withCurrentUserHome(t *testing.T, home string) {
 	t.Helper()
-	orig := currentUserHomeDir
-	currentUserHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { currentUserHomeDir = orig })
+	platformtest.StubPasswdHomeDir(t, home, nil)
+}
+
+func withoutCurrentUserHome(t *testing.T) {
+	t.Helper()
+	platformtest.StubPasswdHomeDir(t, "", assert.AnError)
 }
 
 func TestUnwritableConfigDirRemedy(t *testing.T) {
@@ -68,9 +73,7 @@ func TestUnwritableConfigDirRemedy(t *testing.T) {
 
 	t.Run("unresolvable home falls back to chown for own dir", func(t *testing.T) {
 		t.Setenv("PMG_CONFIG_DIR", "")
-		orig := currentUserHomeDir
-		currentUserHomeDir = func() (string, error) { return "", assert.AnError }
-		t.Cleanup(func() { currentUserHomeDir = orig })
+		withoutCurrentUserHome(t)
 
 		help, _ := UnwritableConfigDirRemedy("/home/alice/.config/safedep/pmg")
 		assert.Contains(t, help, ownershipCommand)
@@ -89,7 +92,7 @@ func TestClassifyUnwritableDir(t *testing.T) {
 }
 
 func TestCurrentUserHomeDirRejectsEmptyPasswdHome(t *testing.T) {
-	home, err := currentUserHomeDir()
+	home, err := platform.PasswdHomeDir()
 	if err != nil {
 		assert.Empty(t, home)
 		return

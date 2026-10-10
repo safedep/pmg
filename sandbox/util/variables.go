@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/safedep/pmg/internal/platform"
 )
 
 // Variable names recognised by ExpandVariablesWith. SupportedVariables is the
@@ -39,7 +41,7 @@ func ExpandVariables(pattern string) (string, error) {
 // The set of recognised tokens is SupportedVariables.
 func ExpandVariablesWith(pattern, cwd, home, tmpDir string) (string, error) {
 	if home == "" {
-		h, err := os.UserHomeDir()
+		h, err := platform.UserHomeDir()
 		if err != nil {
 			return "", err
 		}
