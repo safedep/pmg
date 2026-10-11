@@ -12,6 +12,12 @@ or `poetry add`. The proxy blocks malicious packages before they run.
 > the action to a full commit SHA. This improves supply chain security. See the
 > [GitHub security hardening guide](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions).
 
+> **Action version.** The `v1` tag points to an older action. It does not have
+> the `enforce`, `enforce-*` and `expose-to-job-network` inputs. Use
+> `safedep/pmg@v0.31.0` or later for these inputs. GitHub warns about an
+> unknown input and runs the job without it, so a job on `v1` with
+> `enforce: true` runs without kernel enforcement.
+
 Out of the box the action gives:
 
 - Malware blocking that uses the [SafeDep real-time threat intelligence](https://docs.safedep.io/cloud/malware-analysis).
@@ -153,7 +159,7 @@ hosted Ubuntu runners meet the
 describes how enforcement works.
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.31.0
   with:
     server-mode: true
     enforce: true
@@ -185,7 +191,7 @@ defaults: ports 80 and 443 plus the ports of the configured registries. The
 daemon log and `pmg proxy status` name the file it loaded.
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.31.0
   with:
     server-mode: true
     enforce: true
@@ -220,7 +226,7 @@ A redirected container must trust the PMG CA, which the action exports as
 `PMG_CA_BUNDLE`:
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.31.0
   with:
     server-mode: true
     enforce: true
@@ -270,7 +276,7 @@ jobs:
       options: --init
     steps:
       - uses: actions/checkout@v4
-      - uses: safedep/pmg@v1
+      - uses: safedep/pmg@v0.31.0
         with:
           server-mode: true
           expose-to-job-network: true

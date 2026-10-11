@@ -312,10 +312,11 @@ A step can ignore `HTTP_PROXY`. With `enforce`, PMG attaches eBPF programs
 that make the Linux kernel route every eligible process through the proxy. A
 step cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own.
 Enforcement needs passwordless `sudo`, which GitHub-hosted Ubuntu runners have.
-npm needs Node 22.19 or later.
+npm needs Node 22.19 or later. The `enforce` input needs action version
+`v0.31.0` or later. The `v1` tag does not have it.
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.31.0
   with:
     server-mode: true
     enforce: true
