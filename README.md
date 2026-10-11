@@ -46,7 +46,7 @@ Recent compromises in popular ecosystems:
 
 ## How PMG Works
 
-PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and Fish. Each intercepted install passes through the protection layers that apply to it before code runs, along with an audit trail.
+PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, Fish, and PowerShell on Windows. Each intercepted install passes through the protection layers that apply to it before code runs, along with an audit trail.
 
 <div align="center">
   <picture>
@@ -68,7 +68,7 @@ PMG takes a defense in depth approach. Zero config, works across Zsh, Bash, and 
 
 ## How PMG Compares
 
-PMG is the only free, open-source, install-time package firewall that covers developers and AI agents alike and ships with sandboxing and cooldown out of the box.
+PMG combines install-time malware blocking, dependency cooldown, and an OS-native sandbox in one free, open-source tool, for developers and AI coding agents alike.
 
 | Capability                              | PMG | Socket | safe-chain | Snyk | Dependabot |
 | --------------------------------------- | --- | ------ | ---------- | ---- | ---------- |
@@ -80,6 +80,8 @@ PMG is the only free, open-source, install-time package firewall that covers dev
 | Protects AI coding agents transparently | ✓   | ✗      | ✗          | ✗    | ✗          |
 | Local audit logs                        | ✓   | ✗      | ✗          | ✗    | ✗          |
 | Known-CVE remediation PRs               | ✗   | ✗      | ✗          | ✓    | ✓          |
+
+> **Note:** This comparison is accurate as of October 2026.
 
 ## Quick Start
 
@@ -128,9 +130,11 @@ See PMG blocking threats.
 
 ```bash
 npm install --no-cache --prefer-online safedep-test-pkg@0.1.3
+# or
+pip install --no-cache-dir safedep-test-pkg==0.0.4
 ```
 
-> **Note:** `safedep-test-pkg` is a benign test package flagged as malicious in SafeDep's database for
+> **Note:** `safedep-test-pkg` (on npm and PyPI) is a benign test package flagged as malicious in SafeDep's database for
 > testing and verification purposes.
 
 Continue using your package managers as usual, or let your AI coding agent run them. PMG sits in the path, blocking malicious packages.
@@ -162,10 +166,23 @@ PMG supports the tools you already use:
 |             | `uv`     | `uv add <pkg>`      |
 |             | `uvx`    | `uvx <pkg>`         |
 
+### Experimental
+
+Support for these ecosystems is experimental. Behavior and output can change between releases.
+`pmg setup install` does not wrap these tools. Run them through `pmg`.
+
+| Ecosystem         | Tools   | Command Example         |
+| ----------------- | ------- | ----------------------- |
+| **Go**            | `go`    | `pmg go get <module>`   |
+| **Rust (crates)** | `cargo` | `pmg cargo add <crate>` |
+
+> **Note:** On macOS and Windows, `pmg go` needs the PMG CA in the OS trust store. Run
+> `pmg setup cert install` first. See [Certificate Authority](docs/cert.md).
+
 ## Installation
 
 <details>
-<summary><strong>Install Script (MacOS/Linux)</strong></summary>
+<summary><strong>Install Script (macOS/Linux)</strong></summary>
 
 Downloads the latest release from GitHub, verifies its SHA-256 checksum, and installs to `$HOME/.local/bin` (if on `PATH`) or `/usr/local/bin`.
 
@@ -176,7 +193,7 @@ curl -fsSL https://raw.githubusercontent.com/safedep/pmg/main/install.sh | sh
 </details>
 
 <details>
-<summary><strong>Homebrew (MacOS/Linux)</strong></summary>
+<summary><strong>Homebrew (macOS/Linux)</strong></summary>
 
 ```bash
 brew tap safedep/tap
@@ -186,13 +203,43 @@ brew install safedep/tap/pmg
 </details>
 
 <details>
-<summary><strong>NPM (Cross-Platform)</strong></summary>
+<summary><strong>mise (Cross-Platform)</strong></summary>
+
+The [mise GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html) installs the latest release binary and verifies its checksum and GitHub attestation.
+
+```bash
+mise use -g github:safedep/pmg
+```
+
+</details>
+
+<details>
+<summary><strong>MSI or Chocolatey (Windows)</strong></summary>
+
+Every release ships `pmg_Windows_x86_64.msi`. The MSI installs `pmg.exe` for all users and runs `pmg setup install --system`. Run it from an elevated prompt:
+
+```powershell
+msiexec /i pmg_Windows_x86_64.msi /qn
+```
+
+The [Chocolatey package](https://community.chocolatey.org/packages/pmg) installs the same MSI:
+
+```powershell
+choco install pmg
+```
+
+See [docs/system-install.md](./docs/system-install.md) for MDM rollout and upgrades.
+
+</details>
+
+<details>
+<summary><strong>npm (Cross-Platform)</strong></summary>
 
 ```bash
 npm install -g @safedep/pmg
 ```
 
-> **Note:** NPM-based installs can be fragile when Node.js is managed by version managers like [`mise`](https://mise.jdx.dev/) or [`asdf`](https://asdf-vm.com/). The global `npm` bin path changes with the active Node version, so switching versions can leave `pmg` unavailable on `PATH` (or pointing to an old install). For these setups, prefer the install script or Homebrew.
+> **Note:** npm-based installs can be fragile when Node.js is managed by version managers like [`mise`](https://mise.jdx.dev/) or [`asdf`](https://asdf-vm.com/). The global `npm` bin path changes with the active Node version, so switching versions can leave `pmg` unavailable on `PATH` (or pointing to an old install). For these setups, prefer the install script, Homebrew, or mise.
 
 </details>
 
@@ -226,7 +273,7 @@ Download the latest binary for your platform from the [Releases Page](https://gi
 Prebuilt multi-arch (`linux/amd64`, `linux/arm64`) images are published to [GitHub Container Registry](https://github.com/safedep/pmg/pkgs/container/pmg) on every release. The image entrypoint is `pmg`.
 
 ```bash
-# Pull the latest image (or pin a version tag, e.g. :v1.2.3)
+# Pull the latest image (or pin a release tag, such as :v0.30.0)
 docker pull ghcr.io/safedep/pmg:latest
 
 # Run any pmg command
@@ -259,7 +306,41 @@ is opt-in via the `sandbox` input. Tune behavior via inputs (`paranoid`,
 `config-file` at a YAML in the repo. See
 [docs/github-action.md](docs/github-action.md) for the full reference.
 
+### Kernel Enforcement (Linux)
+
+A step can ignore `HTTP_PROXY`. With `enforce`, PMG attaches eBPF programs
+that make the Linux kernel route every eligible process through the proxy. A
+step cannot bypass it with `env -i`, `sudo`, or an HTTP client of its own.
+Enforcement needs passwordless `sudo`, which GitHub-hosted Ubuntu runners have.
+npm needs Node 22.19 or later.
+
+```yaml
+- uses: safedep/pmg@v1
+  with:
+    server-mode: true
+    enforce: true
+
+- run: npm ci
+
+- name: Enforce PMG policy
+  if: always()
+  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
+```
+
+See [Kernel enforcement](docs/github-action.md#kernel-enforcement) for
+container traffic and runner requirements. In a job with a job container, set
+`expose-to-job-network: true` so Docker actions in the job can reach the
+proxy. See
+[Job containers and Docker actions](docs/github-action.md#job-containers-and-docker-actions).
+
 ## Uninstallation
+
+If you installed the PMG CA with `pmg setup cert install`, remove it from the OS trust store
+first. `pmg setup remove` does not remove it. Add `--system` if you installed it for all users.
+
+```bash
+pmg setup cert uninstall --purge   # --purge also deletes the CA keypair on disk
+```
 
 Remove shell integration:
 
@@ -279,8 +360,24 @@ Then uninstall PMG itself:
 # Homebrew
 brew uninstall safedep/tap/pmg
 
-# NPM
+# npm
 npm uninstall -g @safedep/pmg
+
+# mise
+mise unuse -g github:safedep/pmg
+
+# Chocolatey (Windows)
+choco uninstall pmg
+```
+
+On Windows, remove an MSI install from Apps & Features.
+
+If you used the install script, delete the binary from the directory it installed to
+(`$HOME/.local/bin` or `/usr/local/bin`). For a binary download, delete the binary from
+where you put it.
+
+```bash
+rm "$(command -v pmg)"
 ```
 
 ## Trust and Security
@@ -297,11 +394,16 @@ PMG builds are reproducible and signed.
 - [Trusted Packages Configuration](docs/trusted-packages.md)
 - [Dependency Cooldown](docs/dependency-cooldown.md)
 - [Caching](docs/caching.md)
+- [Analysis Cache](docs/analysis-cache.md)
 - [Proxy Mode Architecture](docs/proxy-mode.md)
 - [Persistent Proxy Server](docs/persistent-proxy.md)
+- [Kernel Enforcement (Linux)](docs/persistent-proxy.md#kernel-enforcement-linux)
 - [Certificate Authority](docs/cert.md)
+- [System Install](docs/system-install.md)
 - [Windows Support](docs/windows-support.md)
+- [GitHub Action](docs/github-action.md)
 - [Sandbox install for package managers](docs/sandbox.md)
+- [Sandbox Presets](docs/sandbox-presets.md)
 - [Sandbox exec for coding agents](docs/sandbox-exec.md)
 
 ## Support
