@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/util"
@@ -552,28 +551,9 @@ func (t *seatbeltPolicyTranslator) translateFilesystem(policy *sandbox.SandboxPo
 
 	if t.enableDangerousFileBlocking {
 		sb.WriteString(";; Mandatory security denies (credentials, git hooks, etc.)\n")
-		expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
+		mandatoryResult, err := mandatoryDenies(policy)
 		if err != nil {
-			log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
-			expandedAllowRead = nil
-		}
-		expandedAllowWrite, err := expandAll(policy.Filesystem.AllowWrite)
-		if err != nil {
-			log.Warnf("sandbox: failed to expand allow_write for mandatory deny suppression, all mandatory denies preserved: %v", err)
-			expandedAllowWrite = nil
-		}
-
-		mandatoryResult := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{
-			AllowGitConfig: utils.SafelyGetValue(policy.AllowGitConfig),
-			AllowRead:      expandedAllowRead,
-			AllowWrite:     expandedAllowWrite,
-		})
-
-		for _, p := range mandatoryResult.SuppressedRead {
-			log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
-		}
-		for _, p := range mandatoryResult.SuppressedWrite {
-			log.Warnf("sandbox: mandatory deny %q suppressed for write by explicit allow rule in policy %q", p, policy.Name)
+			return err
 		}
 
 		for _, pattern := range mandatoryResult.DenyWrite {
@@ -791,16 +771,4 @@ func (t *seatbeltPolicyTranslator) translateProcess(policy *sandbox.SandboxPolic
 	sb.WriteString("\n")
 
 	return nil
-}
-
-func expandAll(patterns []string) ([]string, error) {
-	out := make([]string, 0, len(patterns))
-	for _, p := range patterns {
-		expanded, err := util.ExpandVariables(p)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand pattern %q: %w", p, err)
-		}
-		out = append(out, expanded)
-	}
-	return out, nil
 }

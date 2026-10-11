@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -444,11 +445,11 @@ func (r *RuntimeConfig) ConfigSource() ConfigSource {
 // a daemon started with sudo reads when no managed config exists. It fails
 // where root has no passwd entry.
 func RootUserConfigFilePath() (string, error) {
-	dirs, err := rootDirs()
+	home, err := rootHomeDirResolver()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dirs.Config, pmgDefaultHomeRelativePath, pmgConfigFileName), nil
+	return filepath.Join(platform.HomeDirs(home).Config, pmgDefaultHomeRelativePath, pmgConfigFileName), nil
 }
 
 func resolveConfigSource(managed bool) ConfigSource {
@@ -458,7 +459,7 @@ func resolveConfigSource(managed bool) ConfigSource {
 	case os.Getenv(pmgConfigDirEnvKey) != "":
 		return ConfigSourceEnvDir
 	default:
-		if _, ok := sudoRootDirs(); ok {
+		if _, ok := sudoRootHome(); ok {
 			return ConfigSourceRootPerUser
 		}
 		return ConfigSourceUser
@@ -641,67 +642,7 @@ func initConfig() {
 	defaultConfig := DefaultConfig()
 	globalConfig = &defaultConfig
 
-	configDir, err := configDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get config directory: %w", err))
-	}
-
-	activeConfigPath, err := resolveConfigFile()
-	if err != nil {
-		panic(fmt.Errorf("failed to resolve config file path: %w", err))
-	}
-
-	userConfigPath, err := userConfigFilePath()
-	if err != nil {
-		panic(fmt.Errorf("failed to get user config file path: %w", err))
-	}
-
-	eventLogDir, err := eventLogDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get event log directory: %w", err))
-	}
-
-	sandboxProfileDir, err := sandboxProfileDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get sandbox profile directory: %w", err))
-	}
-
-	sandboxViolationCacheDir, err := sandboxViolationCacheDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get sandbox violation cache directory: %w", err))
-	}
-
-	sandboxOverlayDir, err := sandboxOverlayDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get sandbox overlay directory: %w", err))
-	}
-
-	sandboxPresetDir, err := sandboxPresetDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get sandbox preset directory: %w", err))
-	}
-
-	cacheRootDir, err := cacheDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get cache directory: %w", err))
-	}
-
-	localDBDir, err := localDBDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get localdb directory: %w", err))
-	}
-
-	globalConfig.configDir = configDir
-	globalConfig.configFilePath = activeConfigPath
-	globalConfig.userConfigFilePath = userConfigPath
-	globalConfig.configSource = resolveConfigSource(activeConfigPath != userConfigPath)
-	globalConfig.eventLogDir = eventLogDir
-	globalConfig.sandboxProfileDir = sandboxProfileDir
-	globalConfig.sandboxOverlayDir = sandboxOverlayDir
-	globalConfig.sandboxPresetDir = sandboxPresetDir
-	globalConfig.sandboxViolationCacheDir = sandboxViolationCacheDir
-	globalConfig.localDBDir = localDBDir
-	globalConfig.cacheDir = cacheRootDir
+	configInitErr = globalConfig.resolvePaths()
 
 	// A globally managed config enforces lockdown only when it opts in via
 	// global_lockdown, read straight from the file so it cannot be flipped by
@@ -719,6 +660,56 @@ func initConfig() {
 	if err := preprocessPackageRefs(&globalConfig.Config); err != nil {
 		log.Warnf("Failed to preprocess package refs: %v", err)
 	}
+}
+
+// resolvePaths sets the per-user paths. A path that does not resolve stays
+// empty and resolvePaths returns the error, so a managed config still loads.
+func (r *RuntimeConfig) resolvePaths() error {
+	configDir, configErr := configDir()
+	if configErr == nil {
+		r.configDir = configDir
+		r.userConfigFilePath = filepath.Join(configDir, pmgConfigFileName)
+		r.sandboxProfileDir = filepath.Join(configDir, pmgDefaultSandboxProfileDir)
+		r.sandboxOverlayDir = filepath.Join(configDir, pmgDefaultSandboxOverlayDir)
+		r.sandboxPresetDir = filepath.Join(configDir, pmgDefaultSandboxPresetDir)
+	}
+
+	cacheDir, cacheErr := cacheDir()
+	if cacheErr == nil {
+		r.cacheDir = cacheDir
+		r.sandboxViolationCacheDir = filepath.Join(cacheDir, pmgDefaultSandboxViolationCacheDir)
+		r.localDBDir = filepath.Join(cacheDir, pmgDefaultLocalDBDir)
+	}
+
+	// Where the config directory roams with the profile, the logs go beside
+	// the data instead: https://github.com/safedep/pmg/pull/82#discussion_r2636746036
+	// PMG_CONFIG_DIR names no roaming directory, so the logs stay under it.
+	logBaseDir, logErr := configDir, configErr
+	if platform.UserConfigDirRoams && os.Getenv(pmgConfigDirEnvKey) == "" {
+		logBaseDir, logErr = UserDataDir()
+	}
+	if logErr == nil {
+		r.eventLogDir = filepath.Join(logBaseDir, pmgDefaultLogDir)
+	}
+
+	managed, isManaged := managedConfigFile()
+	r.configFilePath = r.userConfigFilePath
+	if isManaged {
+		r.configFilePath = managed
+	}
+	r.configSource = resolveConfigSource(isManaged)
+
+	return cmp.Or(configErr, cacheErr, logErr)
+}
+
+// configInitErr holds the error from the last resolvePaths call, if any,
+// exposed via InitError.
+var configInitErr error
+
+// InitError returns the error that left the per-user paths unresolved, or
+// nil. The CLI must abort on it before a command uses those paths.
+func InitError() error {
+	return configInitErr
 }
 
 // configLoadErr holds the fail-closed error from the last loadConfig call,
@@ -784,67 +775,80 @@ func rootHomeDir() (string, error) {
 	return u.HomeDir, nil
 }
 
-// rootDirs returns root's base directories from the passwd home.
-func rootDirs() (platform.Dirs, error) {
+// sudoRootHome returns root's passwd home when pmg runs as root through
+// sudo. Without a resolvable root passwd entry (scratch containers, minimal
+// chroots) it reports false and the caller resolves from the environment:
+// without a passwd database there is no user switching, so the cross-user
+// poisoning the diversion prevents cannot occur.
+func sudoRootHome() (string, bool) {
+	if !platform.IsSudo() {
+		return "", false
+	}
 	home, err := rootHomeDirResolver()
 	if err != nil {
-		return platform.Dirs{}, err
-	}
-	return platform.HomeDirs(home), nil
-}
-
-// sudoRootDirs returns root's own base directories when pmg runs as root
-// through sudo. Without a resolvable root passwd entry (scratch containers,
-// minimal chroots) it reports false and the caller resolves from the
-// environment: without a passwd database there is no user switching, so the
-// cross-user poisoning the diversion prevents cannot occur.
-func sudoRootDirs() (platform.Dirs, bool) {
-	if !platform.IsSudo() {
-		return platform.Dirs{}, false
-	}
-	dirs, err := rootDirs()
-	if err != nil {
 		log.Warnf("failed to resolve root home, using environment: %v", err)
-		return platform.Dirs{}, false
+		return "", false
 	}
-	return dirs, true
+	return home, true
 }
 
-// UserHomeDir returns the home directory pmg should treat as the current
-// user's. It applies the same sudo guard as configDir: under sudo the passwd
-// home of root wins over a HOME preserved from the invoking user, so an
-// elevated run never reads or writes that user's dotfiles. Callers resolving
-// paths that sit alongside the config directory must use this rather than
-// os.UserHomeDir, otherwise the two can disagree under sudo.
-func UserHomeDir() (string, error) {
-	if platform.IsSudo() {
-		if home, err := rootHomeDirResolver(); err == nil {
-			return home, nil
-		} else {
-			// Same fallback rationale as sudoRootDirs.
-			log.Warnf("failed to resolve root home, using environment: %v", err)
+// userBaseDir resolves a base directory of the user pmg runs as. Under sudo,
+// root's passwd home wins over a HOME preserved from the invoking user, so an
+// elevated run never reads or writes that user's dotfiles. Otherwise fromEnv
+// reads the environment. When fromEnv fails, the directory derives from the
+// home that platform.UserHomeDir resolves. That covers an invalid XDG_*
+// value, and a systemd unit without User= that sets no HOME.
+func userBaseDir(fromEnv func() (string, error), fromHome func(home string) string) (string, error) {
+	if home, ok := sudoRootHome(); ok {
+		return fromHome(home), nil
+	}
+
+	dir, envErr := fromEnv()
+	if envErr == nil {
+		return dir, nil
+	}
+
+	home, err := platform.UserHomeDir()
+	if err != nil {
+		return "", newUnresolvedUserDirError(errors.Join(envErr, err))
+	}
+	return fromHome(home), nil
+}
+
+func newUnresolvedUserDirError(err error) error {
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.UserDirUnresolved).
+		WithHumanError("failed to find the home directory of the current user").
+		WithHelp(fmt.Sprintf("Set %s, or set %s and %s, then retry.", platform.UserDirEnvVars(), pmgConfigDirEnvKey, pmgCacheDirEnvKey)).
+		Wrap(err)
+}
+
+// pmgUserDir returns pmg's directory under one base directory of the user.
+// A non-empty value of the overrideEnvKey variable wins.
+func pmgUserDir(overrideEnvKey string, fromEnv func() (string, error), pick func(platform.Dirs) string) (string, error) {
+	if overrideEnvKey != "" {
+		if dir := os.Getenv(overrideEnvKey); dir != "" {
+			return dir, nil
 		}
 	}
 
-	return os.UserHomeDir()
+	base, err := userBaseDir(fromEnv, func(home string) string { return pick(platform.HomeDirs(home)) })
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, pmgDefaultHomeRelativePath), nil
+}
+
+// UserHomeDir returns the home directory pmg should treat as the current
+// user's, with the same resolution as the config directory. Callers resolving
+// paths that sit alongside the config directory must use this rather than
+// os.UserHomeDir, otherwise the two can disagree under sudo.
+func UserHomeDir() (string, error) {
+	return userBaseDir(os.UserHomeDir, func(home string) string { return home })
 }
 
 // Overridable in tests to exercise the passwd-unavailable fallback.
 var rootHomeDirResolver = rootHomeDir
-
-// currentUserHomeDir returns the current user's home from the passwd
-// database, ignoring HOME and XDG_* env vars that may be leaked from another
-// account. Overridable in tests.
-var currentUserHomeDir = func() (string, error) {
-	u, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	if u.HomeDir == "" {
-		return "", fmt.Errorf("user %s has no home directory in the passwd database", u.Username)
-	}
-	return u.HomeDir, nil
-}
 
 // unwritableDirCause is why the current user cannot write a per-user
 // directory. The remedy must match the cause: chown-ing a directory that
@@ -870,7 +874,7 @@ func classifyUnwritableDir(dir string) unwritableDirCause {
 		return causeExplicitConfigDir
 	}
 
-	home, err := currentUserHomeDir()
+	home, err := platform.PasswdHomeDir()
 	if err == nil && !fsutil.PathWithinDir(dir, home) {
 		return causeLeakedHomeEnv
 	}
@@ -894,30 +898,33 @@ func UnwritableConfigDirRemedy(dir string) (help, fix string) {
 	}
 }
 
+func pickConfig(d platform.Dirs) string { return d.Config }
+func pickCache(d platform.Dirs) string  { return d.Cache }
+func pickData(d platform.Dirs) string   { return d.Data }
+
 // configDir computes the path to the config directory.
 func configDir() (string, error) {
-	dir := os.Getenv(pmgConfigDirEnvKey)
-	if dir != "" {
-		return dir, nil
-	}
+	return pmgUserDir(pmgConfigDirEnvKey, os.UserConfigDir, pickConfig)
+}
 
-	if dirs, ok := sudoRootDirs(); ok {
-		return filepath.Join(dirs.Config, pmgDefaultHomeRelativePath), nil
-	}
+// cacheDir computes the path to the cache root directory.
+func cacheDir() (string, error) {
+	return pmgUserDir(pmgCacheDirEnvKey, platform.UserCacheDir, pickCache)
+}
 
-	userConfigDir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve user config directory: %w", err)
-	}
-
-	return filepath.Join(userConfigDir, pmgDefaultHomeRelativePath), nil
+// UserDataDir returns the per-user directory for pmg data that is neither
+// config nor regenerable cache, such as the shim scripts installed by
+// `pmg setup install`. Linux follows XDG_DATA_HOME; macOS and Windows have no
+// separate data location, so they reuse the config convention.
+func UserDataDir() (string, error) {
+	return pmgUserDir("", platform.UserDataDir, pickData)
 }
 
 // userConfigFilePath computes the path to the per-user config file.
 func userConfigFilePath() (string, error) {
 	configDir, err := configDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get config directory: %w", err)
+		return "", err
 	}
 
 	return filepath.Join(configDir, pmgConfigFileName), nil
@@ -947,133 +954,33 @@ func globalConfigFilePath() string {
 	return filepath.Join(dir, pmgConfigFileName)
 }
 
-// resolveConfigFile picks the active config file. The globally managed file,
-// when present, is authoritative and the per-user file is ignored entirely.
-func resolveConfigFile() (string, error) {
-	if global := globalConfigFilePath(); global != "" && isRegularFile(global) {
-		// ProgramData lets any user create a directory or a file at the
-		// managed path. The file governs every account, so it is obeyed only
-		// when Administrators or SYSTEM own it, both directories above it,
-		// and nobody else may write any of the three. Unix has no such path,
-		// and the check is a no-op.
-		dir := filepath.Dir(global)
-		for _, p := range []string{filepath.Dir(dir), dir, global} {
-			if err := platform.RequireSystemControlled(p); err != nil {
-				log.Warnf("Ignoring the managed config at %s: %v", global, err)
-				return userConfigFilePath()
-			}
-		}
-		return global, nil
+// managedConfigFile returns the globally managed config file and true when it
+// is present and trusted. That file is authoritative, and the per-user file
+// is then ignored entirely.
+func managedConfigFile() (string, bool) {
+	global := globalConfigFilePath()
+	if global == "" || !isRegularFile(global) {
+		return "", false
 	}
 
-	return userConfigFilePath()
+	// ProgramData lets any user create a directory or a file at the managed
+	// path. The file governs every account, so it is obeyed only when
+	// Administrators or SYSTEM own it, both directories above it, and nobody
+	// else may write any of the three. Unix has no such path, and the check
+	// is a no-op.
+	dir := filepath.Dir(global)
+	for _, p := range []string{filepath.Dir(dir), dir, global} {
+		if err := platform.RequireSystemControlled(p); err != nil {
+			log.Warnf("Ignoring the managed config at %s: %v", global, err)
+			return "", false
+		}
+	}
+	return global, true
 }
 
 func isRegularFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
-}
-
-// eventLogDir computes the path to the event log directory. Where the config
-// directory roams with the profile, the logs go beside the data instead:
-// https://github.com/safedep/pmg/pull/82#discussion_r2636746036
-func eventLogDir() (string, error) {
-	baseDir := configDir
-	if platform.UserConfigDirRoams {
-		baseDir = UserDataDir
-	}
-
-	base, err := baseDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve the event log directory: %w", err)
-	}
-
-	return filepath.Join(base, pmgDefaultLogDir), nil
-}
-
-// cacheDir computes the path to the cache root directory.
-func cacheDir() (string, error) {
-	dir := os.Getenv(pmgCacheDirEnvKey)
-	if dir != "" {
-		return dir, nil
-	}
-
-	if dirs, ok := sudoRootDirs(); ok {
-		return filepath.Join(dirs.Cache, pmgDefaultHomeRelativePath), nil
-	}
-
-	userCacheDir, err := platform.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve user cache directory: %w", err)
-	}
-	return filepath.Join(userCacheDir, pmgDefaultHomeRelativePath), nil
-}
-
-// UserDataDir returns the per-user directory for pmg data that is neither
-// config nor regenerable cache, such as the shim scripts installed by
-// `pmg setup install`. Linux follows XDG_DATA_HOME; macOS and Windows have no
-// separate data location, so they reuse the config convention.
-func UserDataDir() (string, error) {
-	if dirs, ok := sudoRootDirs(); ok {
-		return filepath.Join(dirs.Data, pmgDefaultHomeRelativePath), nil
-	}
-
-	userDataDir, err := platform.UserDataDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve user data directory: %w", err)
-	}
-	return filepath.Join(userDataDir, pmgDefaultHomeRelativePath), nil
-}
-
-// sandboxProfileDir computes the path to the sandbox profile directory.
-func sandboxProfileDir() (string, error) {
-	configDir, err := configDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	return filepath.Join(configDir, pmgDefaultSandboxProfileDir), nil
-}
-
-// sandboxOverlayDir computes the path to the per-repo sandbox overlay directory.
-func sandboxOverlayDir() (string, error) {
-	configDir, err := configDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	return filepath.Join(configDir, pmgDefaultSandboxOverlayDir), nil
-}
-
-// sandboxPresetDir computes the path to the user sandbox preset directory.
-func sandboxPresetDir() (string, error) {
-	configDir, err := configDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	return filepath.Join(configDir, pmgDefaultSandboxPresetDir), nil
-}
-
-// sandboxViolationCacheDir computes the path to the sandbox violation cache directory.
-func sandboxViolationCacheDir() (string, error) {
-	cacheDir, err := cacheDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get cache directory: %w", err)
-	}
-
-	return filepath.Join(cacheDir, pmgDefaultSandboxViolationCacheDir), nil
-}
-
-// localDBDir computes the directory holding PMG's shared localdb SQLite file
-// and its WAL/shm siblings.
-func localDBDir() (string, error) {
-	cacheDir, err := cacheDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get cache directory: %w", err)
-	}
-
-	return filepath.Join(cacheDir, pmgDefaultLocalDBDir), nil
 }
 
 // Get returns the global configuration.

@@ -11,6 +11,11 @@ func OwnershipRestoreRemedy(dir string) (help, command string) { return ownershi
 // names APPDATA.
 func LeakedConfigDirRemedy(dir string) (help, fix string) { return leakedConfigDirRemedy(dir) }
 
+// UserDirEnvVars names the environment variables that locate the user's
+// directories, for help text. Unix names HOME. Windows names USERPROFILE,
+// APPDATA and LOCALAPPDATA.
+func UserDirEnvVars() string { return userDirEnvVars }
+
 // DefaultEditor is the fallback editor command when $VISUAL and $EDITOR are
 // both unset. Unix returns vi when it is on PATH, or empty when it is not.
 // Windows returns notepad, which is always present.

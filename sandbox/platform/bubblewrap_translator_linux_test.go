@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/internal/platform/platformtest"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/util"
 	"github.com/stretchr/testify/assert"
@@ -1305,7 +1306,8 @@ func TestBubblewrapMandatoryDenySuppression(t *testing.T) {
 	t.Run("no opt-out: tmpfs fires for the path", func(t *testing.T) {
 		// tmpfs only fires for paths that exist on the host; assert at the
 		// GetMandatoryDenyPatterns level instead of the translator output.
-		r := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{})
+		r, err := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{})
+		require.NoError(t, err)
 		assert.Contains(t, r.DenyRead, filepath.Join(cwd, ".env"))
 		assert.Contains(t, r.DenyWrite, filepath.Join(cwd, ".env"))
 	})
@@ -1675,4 +1677,12 @@ func countWriteBinds(args []string, path string) int {
 		}
 	}
 	return n
+}
+
+func TestBubblewrapTranslatorFailsClosedWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	platformtest.StubPasswdHomeDir(t, "", assert.AnError)
+
+	_, err := newBubblewrapPolicyTranslator(newDefaultBubblewrapConfig()).translate(&sandbox.SandboxPolicy{})
+	assert.ErrorIs(t, err, assert.AnError)
 }

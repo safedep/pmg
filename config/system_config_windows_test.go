@@ -102,8 +102,8 @@ func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 		require.NoError(t, platform.ProtectSystemPath(p, 0o755))
 	}
 
-	got, err := resolveConfigFile()
-	require.NoError(t, err)
+	got, ok := managedConfigFile()
+	require.True(t, ok)
 	assert.Equal(t, path, got)
 
 	loosened, err := windows.SecurityDescriptorFromString("O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)(A;;FW;;;BU)")
@@ -115,18 +115,16 @@ func TestResolveConfigFileTrustsAdministrativeControl(t *testing.T) {
 	require.NoError(t, windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		owner, nil, dacl, nil))
-	got, err = resolveConfigFile()
-	require.NoError(t, err)
-	assert.NotEqual(t, path, got, "a managed config Users may write is ignored")
+	_, ok = managedConfigFile()
+	assert.False(t, ok, "a managed config Users may write is ignored")
 
 	require.NoError(t, os.Remove(path))
 	target := filepath.Join(t.TempDir(), "elsewhere")
 	require.NoError(t, os.MkdirAll(target, 0o755))
 	require.NoError(t, exec.Command("cmd", "/c", "mklink", "/J", path, target).Run())
 
-	got, err = resolveConfigFile()
-	require.NoError(t, err)
-	assert.NotEqual(t, path, got, "a junction at the managed path is ignored")
+	_, ok = managedConfigFile()
+	assert.False(t, ok, "a junction at the managed path is ignored")
 }
 
 // The runtime trusts the file only with both directories above it under
@@ -143,14 +141,13 @@ func TestResolveConfigFileRequiresControlledParents(t *testing.T) {
 	for _, p := range []string{filepath.Dir(dir), dir, path} {
 		require.NoError(t, platform.ProtectSystemPath(p, 0o755))
 	}
-	got, err := resolveConfigFile()
-	require.NoError(t, err)
+	got, ok := managedConfigFile()
+	require.True(t, ok)
 	require.Equal(t, path, got)
 
 	applySDDL(t, filepath.Dir(dir), "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;BU)")
-	got, err = resolveConfigFile()
-	require.NoError(t, err)
-	assert.NotEqual(t, path, got, "a managed config under a directory Users may write is ignored")
+	_, ok = managedConfigFile()
+	assert.False(t, ok, "a managed config under a directory Users may write is ignored")
 }
 
 // Removal by name would follow a junction planted in place of the product

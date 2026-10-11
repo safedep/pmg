@@ -54,6 +54,10 @@ const (
 	// keychain or environment.
 	CloudCredentialsNotFound = "CloudCredentialsNotFound"
 
+	// UserDirUnresolved is returned when neither the environment nor the
+	// user database gives the home directory of the current user.
+	UserDirUnresolved = "UserDirUnresolved"
+
 	// Unknown mirrors the default code that dry/usefulerror returns for errors
 	// created without an explicit code, so unset and explicitly-unknown errors
 	// classify identically (e.g. the bug-report hint in ui.ErrorExit).

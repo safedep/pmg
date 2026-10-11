@@ -2,6 +2,8 @@ package platform
 
 import "fmt"
 
+const userDirEnvVars = "USERPROFILE, APPDATA and LOCALAPPDATA"
+
 func ownershipRestoreRemedy(dir string) (help, command string) {
 	// The path is quoted because most profile paths hold a space. /D Y answers
 	// the per-directory prompt takeown shows for a directory the user cannot

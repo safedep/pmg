@@ -97,6 +97,10 @@ func main() {
 				ui.ErrorExit(err)
 			}
 
+			if err := config.InitError(); err != nil {
+				ui.ErrorExit(err)
+			}
+
 			// Initialize event logging
 			var eventlogErr error
 			if logFile != "" {

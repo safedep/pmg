@@ -374,28 +374,9 @@ func landlockTranslatePolicy(policy *sandbox.SandboxPolicy, abi *landlockABI, rt
 		}
 	}
 
-	expandedAllowRead, err := expandAll(policy.Filesystem.AllowRead)
+	mandatoryResult, err := mandatoryDenies(policy)
 	if err != nil {
-		log.Warnf("sandbox: failed to expand allow_read for mandatory deny suppression, all mandatory denies preserved: %v", err)
-		expandedAllowRead = nil
-	}
-	expandedAllowWrite, err := expandAll(policy.Filesystem.AllowWrite)
-	if err != nil {
-		log.Warnf("sandbox: failed to expand allow_write for mandatory deny suppression, all mandatory denies preserved: %v", err)
-		expandedAllowWrite = nil
-	}
-
-	mandatoryResult := util.GetMandatoryDenyPatterns(util.MandatoryDenyOptions{
-		AllowGitConfig: utils.SafelyGetValue(policy.AllowGitConfig),
-		AllowRead:      expandedAllowRead,
-		AllowWrite:     expandedAllowWrite,
-	})
-
-	for _, p := range mandatoryResult.SuppressedRead {
-		log.Warnf("sandbox: mandatory deny %q suppressed for read by explicit allow rule in policy %q", p, policy.Name)
-	}
-	for _, p := range mandatoryResult.SuppressedWrite {
-		log.Warnf("sandbox: mandatory deny %q suppressed for write by explicit allow rule in policy %q", p, policy.Name)
+		return nil, err
 	}
 
 	// Collapse paths that appear in both directions into a single denyBoth
