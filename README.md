@@ -178,6 +178,7 @@ Support for these ecosystems is experimental. Behavior and output can change bet
 
 > **Note:** On macOS and Windows, `pmg go` needs the PMG CA in the OS trust store. Run
 > `pmg setup cert install` first. See [Certificate Authority](docs/cert.md).
+> The [persistent proxy](docs/persistent-proxy.md#go-modules) also analyzes Go module downloads.
 
 ## Installation
 

@@ -45,7 +45,7 @@ proxy:
   skip_commands:
     npm: []
 
-  # Additional npm/PyPI-compatible endpoints serving public packages through
+  # Additional npm, PyPI or Go module proxy endpoints serving public packages through
   # an internal mirror or registry proxy. Private packages are allowed but are
   # not protected by PMG's public-package malware analysis.
   registries: []
@@ -59,6 +59,10 @@ proxy:
   #     endpoints:
   #       - url: https://packages.example.com/artifactory/api/pypi/python/simple
   #       - url: https://artifacts.example.com/packages
+  #   - name: go-proxy
+  #     ecosystem: go
+  #     endpoints:
+  #       - url: https://packages.example.com/artifactory/api/go/go-virtual
 
   # Persistent proxy server (`pmg proxy start`) settings.
   server:
