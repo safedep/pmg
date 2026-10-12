@@ -97,7 +97,7 @@ func pypiIsSimpleAPIMetadataRequest(pkgInfo packageInfo) bool {
 // artifact download identified by canonical URL parsing. The canonical
 // name is used for the trust check; the parsed name is kept for
 // analyzePackage.
-func (i *PypiRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
+func (i *PypiRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
 	canonicalName := denormalizePyPIPackageName(name)
 	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_PYPI, canonicalName, version); ok {
 		return resp, nil

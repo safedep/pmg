@@ -50,26 +50,14 @@ func (g *goModuleInfo) IsFileDownload() bool { return g.requestType == goRequest
 //	/sumdb/<name>/...            -> proxied checksum-database traffic
 //
 // Uppercase letters in module path and version arrive escaped as '!'+lowercase
-// and are decoded before use as Malysis query keys.
-//
-// basePath is the path prefix of the GOPROXY entry (e.g. "/goproxy" for
-// GOPROXY=https://corp.example.com/goproxy): go sends requests under that
-// base, so it is stripped before the module path is parsed.
-type goProxyParser struct {
-	basePath string
-}
+// and are decoded before use as Malysis query keys. The registry set strips the
+// base path of a GOPROXY entry (e.g. "/goproxy" for
+// GOPROXY=https://corp.example.com/goproxy) before the parser runs.
+type goProxyParser struct{}
 
 var _ registryURLParser = goProxyParser{}
 
 func (g goProxyParser) ParseURL(urlPath string) (packageInfo, error) {
-	if g.basePath != "" {
-		rest, ok := strings.CutPrefix(urlPath, g.basePath)
-		if !ok || (rest != "" && rest[0] != '/') {
-			return nil, fmt.Errorf("go proxy URL %q is outside proxy base path %q", urlPath, g.basePath)
-		}
-		urlPath = rest
-	}
-
 	p := strings.TrimPrefix(urlPath, "/")
 	if p == "" {
 		return nil, fmt.Errorf("empty go proxy URL path")

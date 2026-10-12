@@ -126,13 +126,12 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan,
 		interceptors.InterceptorContext{
 			PinnedVersions: o.pinnedVersions,
-			// proxy.golang.org serves at the root of the plain-HTTP mock (also
-			// the base for out-of-band .info fetches); corp.example.com serves
-			// under a base path to exercise GOPROXY path-prefix stripping.
-			GoProxyBaseURLs: map[string]string{
-				"proxy.golang.org": registry.goBaseURL(),
-				"corp.example.com": registry.goBaseURL() + "/goproxy",
-			},
+			// proxy.golang.org is a built-in registry. corp.example.com is a
+			// GOPROXY entry of a `pmg go` run, served under a base path to
+			// exercise path-prefix stripping. Out-of-band .info fetches go to
+			// the plain-HTTP mock, which serves both layouts.
+			GoProxyURLs:           []string{"https://corp.example.com/goproxy"},
+			GoProxyUpstreamOrigin: registry.goBaseURL(),
 			// The cargo interceptor's out-of-band publish-time fetches go to
 			// the plain-HTTP mock index instead of the real crates.io.
 			CargoIndexBaseURL: registry.cargoBaseURL(),

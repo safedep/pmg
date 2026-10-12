@@ -9,17 +9,18 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/config"
 )
 
 // ProxyRouting is per-run routing a package manager contributes to the proxy
 // flow before the proxied child process launches. ExtraEnv is appended to the
-// standard proxy env injection. MITMHosts maps registry hostnames the proxy
-// must intercept dynamically to the upstream base URL packages are served
-// under (scheme + host + optional path prefix) — Go's module proxy is
-// user-configurable via GOPROXY, unlike npm/PyPI's fixed registry hosts.
+// standard proxy env injection. GoProxyURLs are the module proxy base URLs
+// (scheme, host and optional path prefix, with no credentials) that the proxy
+// must analyze for this run: Go's module proxy is user-configurable via
+// GOPROXY, unlike npm/PyPI's fixed registry hosts.
 type ProxyRouting struct {
-	ExtraEnv  []string
-	MITMHosts map[string]string
+	ExtraEnv    []string
+	GoProxyURLs []string
 }
 
 // ProxyRoutingProvider is implemented by package managers that need
@@ -27,8 +28,6 @@ type ProxyRouting struct {
 type ProxyRoutingProvider interface {
 	ProxyRouting(ctx context.Context) (*ProxyRouting, error)
 }
-
-const defaultGoProxyURL = "https://proxy.golang.org"
 
 var _ ProxyRoutingProvider = &goPackageManager{}
 
@@ -43,7 +42,7 @@ func (g *goPackageManager) ProxyRouting(ctx context.Context) (*ProxyRouting, err
 		return nil, err
 	}
 
-	childGoProxy, mitmHosts := normalizeGoProxy(env["GOPROXY"])
+	childGoProxy, goProxyURLs := normalizeGoProxy(env["GOPROXY"])
 
 	for _, key := range []string{"GOPRIVATE", "GONOPROXY"} {
 		if v := env[key]; v != "" {
@@ -52,8 +51,8 @@ func (g *goPackageManager) ProxyRouting(ctx context.Context) (*ProxyRouting, err
 	}
 
 	routing := &ProxyRouting{
-		ExtraEnv:  []string{fmt.Sprintf("GOPROXY=%s", childGoProxy)},
-		MITMHosts: mitmHosts,
+		ExtraEnv:    []string{fmt.Sprintf("GOPROXY=%s", childGoProxy)},
+		GoProxyURLs: goProxyURLs,
 	}
 
 	if env["GOINSECURE"] != "" {
@@ -82,8 +81,7 @@ func readEffectiveGoEnv(ctx context.Context, keys ...string) (map[string]string,
 }
 
 // normalizeGoProxy rebuilds the child's GOPROXY as a fail-closed proxy list
-// and returns the hostnames to MITM mapped to their upstream base URL (used
-// for base-path stripping and out-of-band .info fetches):
+// and returns the module proxy base URLs to analyze:
 //
 //   - `direct` entries are dropped so a module PMG cannot inspect fails with
 //     an error instead of silently bypassing analysis via a VCS fetch.
@@ -95,14 +93,16 @@ func readEffectiveGoEnv(ctx context.Context, keys ...string) (map[string]string,
 //   - file:// proxies are local (no network) and kept verbatim; there is no
 //     host to intercept.
 //
+// The child keeps credentials in its GOPROXY. The returned base URLs drop
+// them: the proxy matches requests by origin and path, and go sends the
+// credentials in each request's Authorization header.
+//
 // If nothing remains (GOPROXY was direct-only), the public Go proxy is
 // injected so module downloads stay analyzable.
-func normalizeGoProxy(goproxy string) (child string, mitmHosts map[string]string) {
+func normalizeGoProxy(goproxy string) (child string, goProxyURLs []string) {
 	if strings.TrimSpace(goproxy) == "" {
-		goproxy = defaultGoProxyURL + ",direct"
+		goproxy = config.GoModuleProxyURL + ",direct"
 	}
-
-	mitmHosts = map[string]string{}
 
 	var kept []string
 	droppedDirect := false
@@ -124,7 +124,8 @@ func normalizeGoProxy(goproxy string) (child string, mitmHosts map[string]string
 		kept = append(kept, entry)
 
 		if u, err := url.Parse(entry); err == nil && u.Hostname() != "" && (u.Scheme == "https" || u.Scheme == "http") {
-			mitmHosts[u.Hostname()] = strings.TrimSuffix(entry, "/")
+			u.User = nil
+			goProxyURLs = append(goProxyURLs, strings.TrimSuffix(u.String(), "/"))
 		}
 	}
 
@@ -133,10 +134,10 @@ func normalizeGoProxy(goproxy string) (child string, mitmHosts map[string]string
 	}
 
 	if len(kept) == 0 {
-		log.Warnf("GOPROXY=%q has no usable module proxy; PMG routes module downloads via %s for analysis", goproxy, defaultGoProxyURL)
-		kept = append(kept, defaultGoProxyURL)
-		mitmHosts["proxy.golang.org"] = defaultGoProxyURL
+		log.Warnf("GOPROXY=%q has no usable module proxy; PMG routes module downloads via %s for analysis", goproxy, config.GoModuleProxyURL)
+		kept = append(kept, config.GoModuleProxyURL)
+		goProxyURLs = append(goProxyURLs, config.GoModuleProxyURL)
 	}
 
-	return strings.Join(kept, ","), mitmHosts
+	return strings.Join(kept, ","), goProxyURLs
 }

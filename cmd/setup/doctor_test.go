@@ -242,7 +242,7 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://registry.npmjs.org/npm-virtual"}},
 			}},
 			wantStatus:  doctor.StatusFail,
-			wantMessage: "covered by the built-in",
+			wantMessage: "is covered by a built-in registry",
 		},
 		{
 			name: "endpoint on a reserved go host fails like proxy startup",
@@ -252,7 +252,7 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://sum.golang.org/npm"}},
 			}},
 			wantStatus:  doctor.StatusFail,
-			wantMessage: "reserved for PMG's built-in Go module handling",
+			wantMessage: "is covered by a built-in registry",
 		},
 	}
 

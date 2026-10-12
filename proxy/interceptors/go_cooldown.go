@@ -19,8 +19,9 @@ import (
 // there is no metadata to strip: the version go requests is already resolved
 // by the time the proxy sees it. Instead the publish timestamp is captured
 // from the .info response go fetches before each .zip, and an in-window .zip
-// download is blocked with HTTP 403 — terminal, because the child GOPROXY is
-// normalized to a comma-joined list with no direct fallback.
+// download is blocked with HTTP 403. go tries the next GOPROXY entry after a
+// comma only on 404 or 410, so the 403 is terminal for the default
+// "https://proxy.golang.org,direct". `pmg go` also removes `direct`.
 type goCooldownHandler struct {
 	statsCollector *AnalysisStatsCollector
 
@@ -89,6 +90,8 @@ func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL,
 
 // fetchPublishTime performs a one-shot authoritative $base/$module/@v/$version.info
 // fetch and caches the result. Best-effort: any failure means no publish time.
+// The fetch goes to the module proxy that served the zip request, so it
+// carries that request's Authorization header: a private proxy needs it.
 func (h *goCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, baseURL, module, version string) (time.Time, bool) {
 	if baseURL == "" {
 		return time.Time{}, false
@@ -106,7 +109,16 @@ func (h *goCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, baseURL,
 
 	infoURL := fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimSuffix(baseURL, "/"), escapedPath, escapedVersion)
 
-	resp, err := cooldownFetchClient.Get(infoURL)
+	req, err := http.NewRequest(http.MethodGet, infoURL, nil)
+	if err != nil {
+		log.Warnf("[%s] Cooldown: invalid .info URL %s: %v", ctx.RequestID, infoURL, err)
+		return time.Time{}, false
+	}
+	if authorization := ctx.Headers.Get("Authorization"); authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+
+	resp, err := cooldownFetchClient.Do(req)
 	if err != nil {
 		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, infoURL, err)
 		return time.Time{}, false

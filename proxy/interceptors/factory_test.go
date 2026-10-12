@@ -204,7 +204,7 @@ func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
 				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: tt.endpoint}},
 			}})
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "is covered by the built-in")
+			assert.Contains(t, err.Error(), "is covered by a built-in registry")
 		})
 	}
 }

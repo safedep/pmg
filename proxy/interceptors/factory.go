@@ -15,11 +15,14 @@ import (
 type InterceptorContext struct {
 	PinnedVersions map[string]string
 
-	// GoProxyBaseURLs maps module-proxy hostnames from the user's effective
-	// GOPROXY to their upstream base URL (scheme + host + optional path
-	// prefix). Go registry routing is derived dynamically from GOPROXY and
-	// remains separate from the npm/PyPI registry catalog.
-	GoProxyBaseURLs map[string]string
+	// GoProxyURLs are the module proxies from the GOPROXY of a `pmg go` run,
+	// with no credentials. They join the registry catalog as Go endpoints.
+	GoProxyURLs []string
+
+	// GoProxyUpstreamOrigin replaces the scheme and host of the out-of-band
+	// Go .info fetch. Empty means the origin of the request. Set by the
+	// hermetic proxy E2E tests.
+	GoProxyUpstreamOrigin string
 
 	// CargoIndexBaseURL overrides the upstream sparse-index base URL used for
 	// out-of-band publish-time fetches. Empty means the public crates.io
@@ -46,7 +49,7 @@ func NewInterceptorFactory(
 	execContext InterceptorContext,
 	registries []config.ProxyRegistryConfig,
 ) (*InterceptorFactory, error) {
-	catalog, err := NewRegistryCatalog(registries)
+	catalog, err := NewRegistryCatalog(registries, execContext.GoProxyURLs)
 	if err != nil {
 		return nil, config.NewInvalidProxyRegistriesError(err)
 	}
@@ -85,12 +88,13 @@ func (f *InterceptorFactory) CreateInterceptor(ecosystem packagev1.Ecosystem) (p
 		), nil
 
 	case packagev1.Ecosystem_ECOSYSTEM_GO:
-		return NewGoRegistryInterceptor(
+		return newGoRegistryInterceptor(
 			f.analyzer,
 			f.cache,
 			f.statsCollector,
 			f.confirmationChan,
 			f.execContext,
+			f.registries.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO),
 		), nil
 
 	case packagev1.Ecosystem_ECOSYSTEM_CARGO:

@@ -1948,7 +1948,7 @@ func TestProxyFlow_ReservedGoHostRefusesInterception(t *testing.T) {
 				config.Get().Config.Proxy.Registries,
 			)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "reserved for PMG's built-in Go module handling")
+			assert.Contains(t, err.Error(), "is covered by a built-in registry")
 		})
 	}
 }

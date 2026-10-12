@@ -17,10 +17,16 @@ type ProxyRegistryEcosystem string
 const (
 	ProxyRegistryEcosystemNpm  ProxyRegistryEcosystem = "npm"
 	ProxyRegistryEcosystemPypi ProxyRegistryEcosystem = "pypi"
+	ProxyRegistryEcosystemGo   ProxyRegistryEcosystem = "go"
 )
 
+// GoModuleProxyURL is the public Go module proxy, the default GOPROXY. The
+// proxy analyzes it as a built-in registry, and `pmg go` falls back to it when
+// GOPROXY names no usable module proxy.
+const GoModuleProxyURL = "https://proxy.golang.org"
+
 func ProxyRegistryEcosystems() []ProxyRegistryEcosystem {
-	return []ProxyRegistryEcosystem{ProxyRegistryEcosystemNpm, ProxyRegistryEcosystemPypi}
+	return []ProxyRegistryEcosystem{ProxyRegistryEcosystemNpm, ProxyRegistryEcosystemPypi, ProxyRegistryEcosystemGo}
 }
 
 func (e ProxyRegistryEcosystem) Valid() bool {
@@ -112,49 +118,66 @@ func NormalizeProxyRegistries(registries []ProxyRegistryConfig) ([]NormalizedReg
 		}
 
 		for endpointIndex, endpoint := range registry.Endpoints {
-			u, err := registryurl.Normalize(endpoint.URL)
+			entry, err := NormalizeRegistryEndpoint(name, registry.Ecosystem, endpoint.URL)
 			if err != nil {
 				return nil, fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
 			}
-			if owner, exists := owners[u.String()]; exists {
-				return nil, fmt.Errorf("proxy registry endpoint %q is already assigned to %q", u, owner)
+			if owner, exists := owners[entry.URL]; exists {
+				return nil, fmt.Errorf("proxy registry endpoint %q is already assigned to %q", entry.URL, owner)
 			}
-			owners[u.String()] = name
-
-			if err := validateEndpointHost(u.Hostname()); err != nil {
-				return nil, fmt.Errorf("proxy registry %q endpoint %d: %w", name, endpointIndex, err)
-			}
-
-			port, valid := registryurl.EffectivePort(u.Scheme, u.Port())
-			if !valid {
-				return nil, fmt.Errorf("proxy registry %q endpoint %d: URL port must be between 1 and 65535", name, endpointIndex)
-			}
-
-			entry := NormalizedRegistryEndpoint{
-				RegistryName: name,
-				Ecosystem:    registry.Ecosystem,
-				URL:          u.String(),
-				Scheme:       u.Scheme,
-				Host:         u.Hostname(),
-				Port:         port,
-				BasePath:     u.EscapedPath(),
-			}
+			owners[entry.URL] = name
 
 			// Nested base paths on one origin are ambiguous regardless of
 			// ecosystem: in daemon mode both interceptors would handle the
 			// nested requests, and even single-ecosystem nesting forces an
 			// arbitration rule the config should state explicitly instead.
-			for _, existing := range normalized {
-				if existing.origin() == entry.origin() && endpointPathsNest(existing.BasePath, entry.BasePath) {
-					return nil, fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: endpoint base paths on the same origin must not nest",
-						name, endpointIndex, endpoint.URL, existing.URL)
-				}
+			if existing := FindNestedEndpoint(entry, normalized); existing != nil {
+				return nil, fmt.Errorf("proxy registry %q endpoint %d (%q) overlaps %q: endpoint base paths on the same origin must not nest",
+					name, endpointIndex, endpoint.URL, existing.URL)
 			}
 			normalized = append(normalized, entry)
 		}
 	}
 
 	return normalized, nil
+}
+
+// NormalizeRegistryEndpoint validates and normalizes one endpoint URL of a
+// registry. proxy.registries and the per-run Go module proxies of `pmg go`
+// both go through it, so one set of URL, host and port rules applies to both.
+func NormalizeRegistryEndpoint(registryName string, ecosystem ProxyRegistryEcosystem, rawURL string) (NormalizedRegistryEndpoint, error) {
+	u, err := registryurl.Normalize(rawURL)
+	if err != nil {
+		return NormalizedRegistryEndpoint{}, err
+	}
+	if err := validateEndpointHost(u.Hostname()); err != nil {
+		return NormalizedRegistryEndpoint{}, err
+	}
+	port, valid := registryurl.EffectivePort(u.Scheme, u.Port())
+	if !valid {
+		return NormalizedRegistryEndpoint{}, fmt.Errorf("URL port must be between 1 and 65535")
+	}
+	return NormalizedRegistryEndpoint{
+		RegistryName: registryName,
+		Ecosystem:    ecosystem,
+		URL:          u.String(),
+		Scheme:       u.Scheme,
+		Host:         u.Hostname(),
+		Port:         port,
+		BasePath:     u.EscapedPath(),
+	}, nil
+}
+
+// FindNestedEndpoint returns the first endpoint in accepted on the same origin
+// as entry whose base path nests with entry's base path, or nil.
+func FindNestedEndpoint(entry NormalizedRegistryEndpoint, accepted []NormalizedRegistryEndpoint) *NormalizedRegistryEndpoint {
+	for index := range accepted {
+		existing := &accepted[index]
+		if existing.origin() == entry.origin() && endpointPathsNest(existing.BasePath, entry.BasePath) {
+			return existing
+		}
+	}
+	return nil
 }
 
 // validateEndpointHost rejects endpoint hosts PMG can never analyze:

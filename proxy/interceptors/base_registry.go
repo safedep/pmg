@@ -319,7 +319,7 @@ func (m *registryRequestMatcher) ShouldIntercept(ctx *proxy.RequestContext) bool
 // registryRequestHandler is the ecosystem-specific half of the shared
 // registry read-path flow.
 type registryRequestHandler interface {
-	handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error)
+	handleArtifact(ctx *proxy.RequestContext, match *registryMatch, name, version string) (*proxy.InterceptorResponse, error)
 	handleMetadataRequest(ctx *proxy.RequestContext, pkgInfo packageInfo) (*proxy.InterceptorResponse, error)
 }
 
@@ -358,7 +358,7 @@ func handleRegistryRequest(
 	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
 
 	if parseErr == nil && pkgInfo != nil && packageInfoHasCompleteIdentity(pkgInfo) {
-		return handler.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+		return handler.handleArtifact(ctx, match, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	if parseErr != nil {
