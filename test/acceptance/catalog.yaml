@@ -431,6 +431,12 @@
   tier: P1
   guarantee: "uv installs a clean package with the system trust store and UV_NATIVE_TLS=1."
   labels: [clean, trust]
+- id: enforce/package-manager/go-clean-install
+  title: "go works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "go downloads a clean module through a decrypted proxy.golang.org. sum.golang.org keeps its real certificate."
+  labels: [clean, trust]
 - id: enforce/package-manager/poetry-clean-install
   title: "poetry works under enforcement"
   category: enforce
