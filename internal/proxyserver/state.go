@@ -34,6 +34,11 @@ type State struct {
 	// Enforce describes kernel enforcement. nil when the proxy routes through
 	// environment variables only.
 	Enforce *EnforceState `json:"enforce,omitempty"`
+
+	// Warnings are notices about what the daemon does not protect, for
+	// `pmg proxy start` and `pmg proxy status` to print. Enforcement notices
+	// are in Enforce.Warnings.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // CloudSyncResult is the outcome of the daemon's shutdown flush to SafeDep Cloud.

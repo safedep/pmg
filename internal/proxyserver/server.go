@@ -8,11 +8,13 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -24,6 +26,7 @@ import (
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/truststore"
 )
 
 const (
@@ -181,8 +184,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 100)
 	go autoBlockConfirmations(confirmationChan)
 
+	ecosystems, notices := proxiedEcosystems(cfg.ConfigDir(), truststore.GoTrustsCA)
 	interceptorList, err := buildInterceptors(
-		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries,
+		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries, ecosystems,
 	)
 	if err != nil {
 		return err
@@ -235,6 +239,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		CACertPath:   caCertPath,
 		ConfigPath:   cfg.ConfigFilePath(),
 		ConfigSource: string(cfg.ConfigSource()),
+		Warnings:     notices,
 	}
 
 	var enforceHandle netenforce.Handle
@@ -404,6 +409,7 @@ func buildInterceptors(
 	statsCollector *interceptors.AnalysisStatsCollector,
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
+	ecosystems []packagev1.Ecosystem,
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
@@ -416,7 +422,28 @@ func buildInterceptors(
 	if err != nil {
 		return nil, err
 	}
-	return factory.CreateInterceptors(interceptors.SupportedEcosystems()...)
+	return factory.CreateInterceptors(ecosystems...)
+}
+
+// goNotAnalyzedNotice tells the user why the daemon leaves Go out and how to
+// fix it. The daemon logs only with --debug, so the notice goes in the state.
+const goNotAnalyzedNotice = "Go module downloads are not analyzed. Go on this OS reads only the OS trust store. " +
+	"That store does not trust the PMG CA. Run `pmg setup cert install`, then restart the proxy."
+
+// proxiedEcosystems returns the ecosystems the daemon analyzes and a notice for
+// each one it leaves out. Go is left out when it cannot trust the PMG CA,
+// because then every decrypted module download fails the TLS check.
+func proxiedEcosystems(configDir string, goTrustsCA func(configDir string) error) ([]packagev1.Ecosystem, []string) {
+	ecosystems := interceptors.SupportedEcosystems()
+	err := goTrustsCA(configDir)
+	if err == nil {
+		return ecosystems, nil
+	}
+	log.Warnf("Go module downloads are not analyzed: %v", err)
+	ecosystems = slices.DeleteFunc(ecosystems, func(ecosystem packagev1.Ecosystem) bool {
+		return ecosystem == packagev1.Ecosystem_ECOSYSTEM_GO
+	})
+	return ecosystems, []string{goNotAnalyzedNotice}
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the

@@ -49,6 +49,10 @@ func TestStatusTextShowsEnforcement(t *testing.T) {
 	assert.NotContains(t, plain, "enforcement")
 	assert.NotContains(t, plain, "config:", "an older state file has no path")
 
+	warned := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777",
+		Warnings: []string{"Go module downloads are not analyzed."}})
+	assert.Contains(t, warned, "Go module downloads are not analyzed.", "a daemon notice shows without enforcement")
+
 	sourced := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777",
 		ConfigPath: "/root/.config/safedep/pmg/config.yml", ConfigSource: "root per-user"})
 	assert.Contains(t, sourced, "config: /root/.config/safedep/pmg/config.yml (root per-user)")

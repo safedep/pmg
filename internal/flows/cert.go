@@ -61,13 +61,13 @@ func loadPersistedCA(dir string) (*certmanager.Certificate, bool) {
 }
 
 func warnIfCANotTrusted() {
-	user, system, err := truststore.Status(certmanager.CACommonName)
+	trusted, err := truststore.CATrusted()
 	if err != nil {
 		log.Debugf("Could not determine CA trust status: %v", err)
 		return
 	}
 
-	if !user && !system {
+	if !trusted {
 		log.Warnf("Persisted CA is not trusted in the OS store; native tools may reject TLS. Run `pmg setup cert install`.")
 	}
 }
