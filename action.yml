@@ -124,7 +124,7 @@ runs:
       env:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_CACHE: ${{ inputs.cache }}
-      run: |
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
 
         repo="safedep/pmg"
@@ -140,6 +140,11 @@ runs:
           fi
         else
           tag="$INPUT_VERSION"
+        fi
+        # The tag ends up in paths written to GITHUB_PATH and GITHUB_OUTPUT.
+        if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+          echo "::error::Invalid PMG version '${tag}'. Use a release tag such as v0.42.0 or v0.42.0-edge.1, or latest." >&2
+          exit 1
         fi
         echo "PMG version: $tag"
 
@@ -271,11 +276,21 @@ runs:
         IN_SKIP_EVENT_LOGGING: ${{ inputs.skip-event-logging }}
         IN_SERVER_MODE: ${{ inputs.server-mode }}
         GH_REPOSITORY: ${{ github.repository }}
-      run: |
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
+
+        # A line break would let an input inject other variables into
+        # GITHUB_ENV, or workflow commands into the log.
+        no_line_break() {
+          if [[ "$2" == *$'\n'* || "$2" == *$'\r'* ]]; then
+            echo "::error::The value for $1 contains a line break." >&2
+            exit 1
+          fi
+        }
 
         export_var() {
           local name="$1" value="$2"
+          no_line_break "$name" "$value"
           if [ -n "$value" ]; then
             printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
           fi
@@ -301,6 +316,7 @@ runs:
             echo "::error::api-key and tenant-id must be set together." >&2
             exit 1
           fi
+          no_line_break api-key "$IN_API_KEY"
           echo "::add-mask::$IN_API_KEY"
           export_var SAFEDEP_API_KEY "$IN_API_KEY"
           export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
@@ -353,7 +369,7 @@ runs:
     - name: Add PMG shims to PATH (shim mode)
       if: inputs.server-mode != 'true'
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
         # The shim directory depends on the installed pmg version: releases
         # before the XDG layout use ~/.pmg/bin, later ones use the data dir.
@@ -388,7 +404,7 @@ runs:
       env:
         INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network == 'true' }}
         JOB_CONTAINER_ID: ${{ job.container.id }}
-      run: |
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
         # No cert install needed: `pmg proxy env` exports the CA path via
         # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
@@ -450,7 +466,7 @@ runs:
         INPUT_ENFORCE_EXEMPT_EXECUTABLES: ${{ inputs.enforce-exempt-executables }}
         INPUT_ENFORCE_SKIP_DESTINATIONS: ${{ inputs.enforce-skip-destinations }}
         INPUT_ENFORCE_NAMESPACES: ${{ inputs.enforce-namespaces }}
-      run: |
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
         if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
           echo "::error::enforce needs passwordless sudo on the runner. Attaching the kernel programs needs root." >&2

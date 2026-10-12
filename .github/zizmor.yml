@@ -1,0 +1,13 @@
+# The e2e workflows install packages through PMG to test that it allows or
+# blocks them. Each install pins an exact version.
+rules:
+  adhoc-packages:
+    ignore:
+      - acceptance.yml
+      - action-e2e.yml
+      - pmg-e2e.yml
+      - pmg-e2e-windows.yml
+  # pmg-e2e-windows.yml runs the PMG shims under cmd.exe on purpose.
+  misfeature:
+    ignore:
+      - pmg-e2e-windows.yml

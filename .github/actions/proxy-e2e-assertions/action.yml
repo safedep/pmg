@@ -16,7 +16,7 @@ runs:
 
     - name: Benign npm install succeeds
       shell: bash
-      run: |
+      run: | # zizmor: ignore[adhoc-packages]
         mkdir benign-test && cd benign-test
         npm init -y
         npm install lodash@4.17.21
@@ -25,7 +25,7 @@ runs:
 
     - name: Malicious npm install is blocked
       shell: bash
-      run: |
+      run: | # zizmor: ignore[adhoc-packages]
         mkdir mal-npm && cd mal-npm
         npm init -y
         # The install MUST fail (proxy blocks it). Assert that, instead of

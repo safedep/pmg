@@ -11,6 +11,10 @@ concurrency: ci-release-automation
 permissions:
   contents: read
 
+# Release builds restore and save no cache. The cache service enforces this,
+# so no step can restore a cache that another workflow wrote.
+cache-mode: none
+
 jobs:
   release:
     timeout-minutes: 60
@@ -22,25 +26,27 @@ jobs:
       attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          # Release builds must not restore caches that other workflows can write.
+          cache: false
 
       - name: Enable corepack
         run: corepack enable
 
       - name: Set up Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: "pnpm"
+          package-manager-cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -63,7 +69,7 @@ jobs:
           fi
 
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           install-only: true
           version: "~> v2"
@@ -81,7 +87,7 @@ jobs:
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - name: Attest Go binary provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
 
@@ -104,9 +110,10 @@ jobs:
         node: ["18", "20", "22", "24"]
     steps:
       - name: Set up Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
+          package-manager-cache: false
 
       - name: Extract version
         id: version
@@ -129,11 +136,12 @@ jobs:
             [ "$i" -eq 20 ] && echo "Packages not available after 10 minutes" && exit 1
           done
 
+      # Installs the package this workflow just published; that is the test.
       - name: Install
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: npm install -g "@safedep/pmg@${VERSION}"
+        run: npm install -g "@safedep/pmg@${VERSION}" # zizmor: ignore[adhoc-packages]
 
       - name: Smoke test
         run: pmg version
@@ -149,7 +157,9 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download the installer from the release
         run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"
@@ -168,7 +178,7 @@ jobs:
 
       - name: Upload the installer logs
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msi-logs
           path: ${{ runner.temp }}\msi-logs
@@ -196,7 +206,9 @@ jobs:
       MSI_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/pmg_Windows_x86_64.msi
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download the installer from the release
         run: scripts/msi/download_release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME -OutDir "$env:RUNNER_TEMP\msi"

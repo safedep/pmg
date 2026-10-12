@@ -26,7 +26,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test standalone script generation
         run: bash scripts/mdm/tests/generate_standalone_test.sh
@@ -76,7 +78,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test multifile scripts on macOS
         env:
@@ -89,7 +93,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test standalone scripts on macOS
         env:
@@ -102,7 +108,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test multifile scripts on Linux
         env:
@@ -115,7 +123,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test standalone scripts on Linux
         env:
@@ -133,7 +143,9 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Lint Windows MDM scripts
         run: |
@@ -160,10 +172,12 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -186,7 +200,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test Windows standalone script generation
         run: bash scripts/mdm/tests/generate_standalone_windows_test.sh
@@ -213,7 +229,9 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout Source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Generate the standalone installer with embedded config and credentials
         shell: bash
