@@ -143,7 +143,7 @@ runs:
         fi
         # The tag ends up in paths written to GITHUB_PATH and GITHUB_OUTPUT.
         if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-          echo "::error::Invalid PMG version '${tag}'. Use a release tag such as v0.42.0, or latest." >&2
+          echo "::error::Invalid PMG version '${tag}'. Use a release tag such as v0.42.0 or v0.42.0-edge.1, or latest." >&2
           exit 1
         fi
         echo "PMG version: $tag"
@@ -279,13 +279,18 @@ runs:
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
 
-        export_var() {
-          local name="$1" value="$2"
-          # A newline would let an input inject other variables into GITHUB_ENV.
-          if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
-            echo "::error::The value for ${name} contains a line break." >&2
+        # A line break would let an input inject other variables into
+        # GITHUB_ENV, or workflow commands into the log.
+        no_line_break() {
+          if [[ "$2" == *$'\n'* || "$2" == *$'\r'* ]]; then
+            echo "::error::The value for $1 contains a line break." >&2
             exit 1
           fi
+        }
+
+        export_var() {
+          local name="$1" value="$2"
+          no_line_break "$name" "$value"
           if [ -n "$value" ]; then
             printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
           fi
@@ -311,6 +316,7 @@ runs:
             echo "::error::api-key and tenant-id must be set together." >&2
             exit 1
           fi
+          no_line_break api-key "$IN_API_KEY"
           echo "::add-mask::$IN_API_KEY"
           export_var SAFEDEP_API_KEY "$IN_API_KEY"
           export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
