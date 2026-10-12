@@ -11,6 +11,10 @@ concurrency: ci-release-automation
 permissions:
   contents: read
 
+# Release builds restore and save no cache. The cache service enforces this,
+# so no step can restore a cache that another workflow wrote.
+cache-mode: none
+
 jobs:
   release:
     timeout-minutes: 60
