@@ -366,42 +366,35 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
-      # TEMPORARY: find what remove-trusted-cert -d waits for on a runner with
-      # no GUI session.
-      - name: Diagnose macOS trust commands
+      # macOS asks for an admin password in a dialog before a process changes
+      # or removes admin trust settings that exist, also under sudo. A person
+      # answers it. The runner has no person, so pmg setup cert uninstall
+      # --system waits until the job times out. This step gives the runner user
+      # a random password and starts a script that answers only that dialog.
+      - name: Approve macOS trust settings prompts
         if: runner.os == 'macOS'
         run: |
-          t() {
-            echo "+ $*"
-            rc=0
-            perl -e 'alarm shift; exec @ARGV' 30 "$@" || rc=$?
-            echo "exit=${rc}"
-          }
-          # Keep the removal pending, then read which right authd evaluates and
-          # which window SecurityAgent shows.
-          c="${RUNNER_TEMP}/diag-e.pem"
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-e.key" -out "$c" \
-            -subj "/CN=PMG Diag e" -days 1 2>/dev/null
-          t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
-          sudo security remove-trusted-cert -d "$c" > "${RUNNER_TEMP}/rm.out" 2>&1 &
-          sleep 10
-          echo "=== processes"
-          ps -axo pid,ppid,user,comm | grep -iE 'securityagent|authorizationhost|remove-trusted|security$' | grep -v grep || true
-          echo "=== SecurityAgent windows"
-          osascript -e 'tell application "System Events" to get name of every window of process "SecurityAgent"' 2>&1 || true
-          osascript -e 'tell application "System Events" to get entire contents of window 1 of process "SecurityAgent"' 2>&1 || true
-          echo "=== authd"
-          log show --last 1m --style compact --predicate 'process == "authd"' 2>&1 \
-            | grep -iE 'right|engine|mechanism|credential|prompt|fail|succe|deny|allow' | tail -60 || true
-          echo "=== SecurityAgent and authorizationhost"
-          log show --last 1m --style compact \
-            --predicate 'process == "SecurityAgent" OR process == "authorizationhost"' 2>&1 | tail -40 || true
-          sudo pkill -f 'security remove-trusted-cert' || true
-          sleep 2
-          echo "=== removal output"
-          cat "${RUNNER_TEMP}/rm.out" || true
-          # Stop here until a removal works, so each try costs minutes.
-          exit 1
+          pw="$(openssl rand -hex 24)"
+          echo "::add-mask::${pw}"
+          sudo dscl . -passwd "/Users/$(id -un)" "${pw}"
+          PMG_CI_ADMIN_PASSWORD="${pw}" nohup .github/scripts/macos-approve-trust-prompts.sh \
+            > "${RUNNER_TEMP}/approve-trust-prompts.log" 2>&1 &
+
+          # Fail here, not after the test timeout, when the dialog still blocks.
+          c="${RUNNER_TEMP}/approve-check.pem"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/approve-check.key" -out "$c" \
+            -subj "/CN=PMG CI approve check" -days 1 2>/dev/null
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
+          if ! perl -e 'alarm shift; exec @ARGV' 60 sudo security remove-trusted-cert -d "$c"; then
+            cat "${RUNNER_TEMP}/approve-trust-prompts.log"
+            exit 1
+          fi
+          if security verify-cert -p ssl -l -L -c "$c" >/dev/null 2>&1; then
+            echo "the CA is still trusted after remove-trusted-cert -d"
+            exit 1
+          fi
+          sudo security delete-certificate -c "PMG CI approve check" /Library/Keychains/System.keychain
+          cat "${RUNNER_TEMP}/approve-trust-prompts.log"
 
       - name: Run truststore acceptance scripts
         env:
@@ -411,6 +404,10 @@ jobs:
           export PMG_BIN="${GITHUB_WORKSPACE}/bin/${PMG_EXE}"
           gotestsum --junitfile "${RUNNER_TEMP}/acceptance.xml" --format testname \
             -- -tags acceptance -timeout 15m ./test/acceptance
+
+      - name: Show approved macOS prompts
+        if: always() && runner.os == 'macOS'
+        run: cat "${RUNNER_TEMP}/approve-trust-prompts.log" || true
 
       - name: Render report
         if: always()
