@@ -119,7 +119,7 @@ const (
 // settings. A value that the user set for the key stays.
 func goDebugWithOSTrust(current string) string {
 	for _, setting := range strings.Split(current, ",") {
-		if key, _, _ := strings.Cut(setting, "="); key == goDebugOSTrustKey {
+		if key, _, ok := strings.Cut(setting, "="); ok && key == goDebugOSTrustKey {
 			return current
 		}
 	}

@@ -92,6 +92,7 @@ func TestGoDebugWithOSTrust(t *testing.T) {
 		{name: "other settings stay", current: "http2client=0", want: "http2client=0,x509sslcertoverrideplatform=0"},
 		{name: "user value stays", current: "x509sslcertoverrideplatform=1", want: "x509sslcertoverrideplatform=1"},
 		{name: "user value among others stays", current: "http2client=0,x509sslcertoverrideplatform=1", want: "http2client=0,x509sslcertoverrideplatform=1"},
+		{name: "bare key is not a user value", current: "http2client=0,x509sslcertoverrideplatform", want: "http2client=0,x509sslcertoverrideplatform,x509sslcertoverrideplatform=0"},
 	}
 
 	for _, tt := range tests {
