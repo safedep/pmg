@@ -15,6 +15,10 @@ const (
 	// MachineWidePath means a system install reaches every user through the
 	// machine PATH, not a login-shell profile.
 	MachineWidePath
+	// EnforcingProxy is a root proxy daemon under kernel enforcement
+	// (`pmg proxy start --enforce`). It is the only reader of the system CA
+	// keypair.
+	EnforcingProxy
 )
 
 // Supports reports whether the current platform has the capability.

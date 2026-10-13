@@ -8,7 +8,9 @@ The suite runs three ways: on manual dispatch, on a nightly schedule, and as an 
 pull requests that change code. The pull-request check does not block a merge. Keep it out of the
 required checks, so a stale fixture or a backend outage never blocks an unrelated pull request.
 The main job runs on Linux under Landlock. A second job runs the `sandbox` category under Seatbelt
-on macOS and under Bubblewrap on Linux, with `PMG_SANDBOX_DRIVER` forwarded to the scripts.
+on macOS and under Bubblewrap on Linux, with `PMG_SANDBOX_DRIVER` forwarded to the scripts. A third
+job runs the `truststore` category on Linux and Windows. Run it by hand on macOS, as the truststore
+section below shows.
 
 `test/proxye2e` stays separate. `proxye2e` runs in process and owns proxy-flow correctness. This
 suite owns the real-binary guarantees. The two do not overlap.
@@ -124,6 +126,40 @@ names, also when the script fails. Each script installs the PMG CA into the syst
 `pmg setup cert install --system`, so run this category only on a disposable host. A script may
 create the managed config at `/etc/safedep/pmg/config.yml`, with `pmg config set --system` or by
 copying a file there. The harness removes it when the script ends, unless it existed before.
+
+### Truststore cases
+
+The `truststore` category covers the PMG CA in the OS trust store: `pmg setup cert` and `pmg go`
+on Linux, macOS and Windows. The scripts change the system trust store, so they guard on the
+`truststore` condition. It is true only when `PMG_ACCEPTANCE_TRUSTSTORE=1` and `CI=true`. The CI
+job sets both on its disposable Linux and Windows runners:
+
+```
+[!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
+```
+
+The harness runs these scripts one at a time and gives each script its own home. On Windows it
+also sets `USERPROFILE`, `APPDATA` and `LOCALAPPDATA`. When a script ends, also when it fails, the
+harness runs `pmg setup cert uninstall --system --purge`. Use `--system` in these scripts. A
+user-scope install can need a confirmation that a CI runner cannot give. Use the `[darwin]`,
+`[windows]` and `[linux]` conditions for a step that differs by OS.
+
+CI does not run these scripts on macOS. When a process changes or removes admin trust settings
+that exist, macOS asks for an admin password in a dialog, also under `sudo`. A runner cannot
+answer it. safedep/pmg#543 tracks a fix. Until then, run the scripts on a Mac by hand before a
+change to the trust store code merges:
+
+```bash
+mkdir -p /tmp/pmg-acceptance
+go build -o /tmp/pmg-acceptance/pmg .
+CI=true PMG_ACCEPTANCE_TRUSTSTORE=1 ACCEPTANCE_CATEGORY=truststore \
+  PMG_BIN=/tmp/pmg-acceptance/pmg \
+  go test -tags acceptance -timeout 30m -count=1 -v ./test/acceptance
+```
+
+Approve each "System Certificate Trust Settings" dialog and each `sudo` prompt. The scripts and
+the cleanup remove the PMG CA from the System keychain and delete the keypair from the script
+home. Run `pmg setup cert install` again after the run if you use PMG on that Mac.
 
 A case that needs Docker guards on the `docker` condition.
 

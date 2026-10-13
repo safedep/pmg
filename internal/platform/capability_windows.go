@@ -8,6 +8,8 @@ func supports(c Capability) bool {
 		return true
 	case MachineWidePath:
 		return true
+	case EnforcingProxy:
+		return false
 	}
 	return false
 }

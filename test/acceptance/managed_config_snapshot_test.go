@@ -14,6 +14,10 @@ import (
 func TestManagedConfigSnapshotRestoresContentsAndMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yml")
 	require.NoError(t, os.WriteFile(path, []byte("paranoid: true\n"), 0o640))
+	// Windows keeps only a read-only bit, so compare with the mode the file
+	// had, not with 0o640.
+	orig, err := os.Stat(path)
+	require.NoError(t, err)
 
 	s, err := saveManagedConfig(path)
 	require.NoError(t, err)
@@ -25,7 +29,7 @@ func TestManagedConfigSnapshotRestoresContentsAndMode(t *testing.T) {
 	assert.Equal(t, "paranoid: true\n", string(data))
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	assert.Equal(t, orig.Mode().Perm(), info.Mode().Perm())
 }
 
 func TestManagedConfigSnapshotRemovesAFileAScriptCreated(t *testing.T) {

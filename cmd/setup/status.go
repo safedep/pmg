@@ -320,12 +320,13 @@ func collectCloudInfo(cfg *config.RuntimeConfig) *cloudInfo {
 func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
 	// An unreadable cert makes on-disk expiry/trust untrustworthy; report the
 	// layer as untrusted rather than encode contradictory data.
-	st, err := certmanager.InspectCA(cfg.ConfigDir())
+	dir, _ := newKeypairLayout(cfg).inspectDir()
+	st, err := certmanager.InspectCA(dir)
 	if err != nil {
 		log.Debugf("CA inspection failed; reporting CA layer as untrusted: %v", err)
 		return caInfo{Scope: "none"}
 	}
-	st.UserTrusted, st.SystemTrusted, _ = truststore.Status(cfg.ConfigDir())
+	st.UserTrusted, st.SystemTrusted, _ = truststore.Status(dir)
 
 	scope := "none"
 	if st.SystemTrusted {

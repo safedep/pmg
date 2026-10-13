@@ -164,7 +164,7 @@ func executeSetupInfo() error {
 	ui.PrintInfoSection("Sandbox", sandboxEntries)
 
 	// Certificate Authority section
-	caDir, caIsSystem := keypairDir(cfg)
+	caDir, caIsSystem := newKeypairLayout(cfg).inspectDir()
 	caStatus, _ := certmanager.InspectCA(caDir)
 	caUser, caSystem, _ := truststore.Status(caDir)
 	caStatus.UserTrusted, caStatus.SystemTrusted = caUser, caSystem

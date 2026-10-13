@@ -1,7 +1,6 @@
 //go:build linux
-// +build linux
 
-package truststore
+package platform
 
 import (
 	"crypto/x509"
@@ -14,10 +13,9 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/proxy/certmanager"
 )
 
-func userScopeSupportedPlatform() bool { return false }
+func caUserScopeSupported() bool { return false }
 
 type linuxTrustTool struct {
 	anchorDir  string
@@ -29,7 +27,7 @@ type linuxTrustTool struct {
 var (
 	lookPath         = exec.LookPath
 	detectTrustTool  = detectLinuxTrustTool
-	systemBundlePath = certmanager.SystemCABundlePath
+	systemBundlePath = SystemCABundlePath
 
 	// p11-kit reads anchors from a distribution-specific directory. Fedora
 	// and RHEL use the pki path. Arch ships the same update-ca-trust command
@@ -66,9 +64,9 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func installPlatform(certPEM []byte, scope Scope) error {
-	if scope == ScopeUser {
-		return ErrUserScopeUnsupported
+func installCA(cert *x509.Certificate, scope CAScope) error {
+	if scope == CAScopeUser {
+		return ErrCAUserScopeUnsupported
 	}
 
 	tool, err := detectTrustTool()
@@ -78,7 +76,7 @@ func installPlatform(certPEM []byte, scope Scope) error {
 
 	dest := filepath.Join(tool.anchorDir, tool.anchorName)
 
-	tmp, cleanup, err := writeTempCert(certPEM)
+	tmp, cleanup, err := writeTempCert(cert)
 	if err != nil {
 		return err
 	}
@@ -99,11 +97,7 @@ func installPlatform(certPEM []byte, scope Scope) error {
 	if bundle == "" {
 		return nil
 	}
-	installed, err := parseCert(certPEM)
-	if err != nil {
-		return err
-	}
-	found, err := bundleContains(bundle, func(c *x509.Certificate) bool { return c.Equal(installed) })
+	found, err := bundleContains(bundle, cert.Equal)
 	if err != nil {
 		return err
 	}
@@ -113,9 +107,9 @@ func installPlatform(certPEM []byte, scope Scope) error {
 	return nil
 }
 
-func uninstallPlatform(_ string, scope Scope) error {
-	if scope == ScopeUser {
-		return ErrUserScopeUnsupported
+func uninstallCA(_ string, scope CAScope) error {
+	if scope == CAScopeUser {
+		return ErrCAUserScopeUnsupported
 	}
 
 	tool, err := detectTrustTool()
@@ -141,27 +135,31 @@ func uninstallPlatform(_ string, scope Scope) error {
 	return nil
 }
 
-// statusPlatform reports the certificate as trusted only when the system
+// caStores reports the certificate as trusted only when the system
 // bundle holds it. The bundle also counts a CA that an administrator
 // installed by another path. An anchor file alone proves nothing: the update
 // tool may never have read its directory. Without a bundle to check, the
 // anchor is the best signal there is. User scope is never trusted on Linux.
-func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+func caStores(cert *x509.Certificate) (bool, bool, error) {
 	anchor := ""
 	if tool, err := detectTrustTool(); err == nil {
 		anchor = filepath.Join(tool.anchorDir, tool.anchorName)
 	}
 
-	hasAnchor, err := fileExists(anchor)
-	if err != nil {
-		return false, false, err
-	}
+	// The anchor decides the result only when there is no bundle. Otherwise an
+	// anchor that cannot be read must not hide a bundle that holds the CA.
+	hasAnchor, anchorErr := fileExists(anchor)
 	bundle := systemBundlePath()
 	if bundle == "" {
+		if anchorErr != nil {
+			return false, false, anchorErr
+		}
 		if !hasAnchor {
 			return false, false, nil
 		}
 		bundle = anchor
+	} else if anchorErr != nil {
+		log.Warnf("%v", anchorErr)
 	}
 	found, err := bundleContains(bundle, cert.Equal)
 	if err != nil {
@@ -189,9 +187,9 @@ func fileExists(path string) (bool, error) {
 	return true, nil
 }
 
-// caTrustedPlatform checks the system scope, the only scope on Linux.
-func caTrustedPlatform(_ string, cert *x509.Certificate) error {
-	_, system, err := statusPlatform(cert)
+// verifyCATrusted checks the system scope, the only scope on Linux.
+func verifyCATrusted(_ string, cert *x509.Certificate) error {
+	_, system, err := caStores(cert)
 	if err != nil {
 		return err
 	}
@@ -224,5 +222,15 @@ func bundleContains(bundle string, match func(*x509.Certificate) bool) (bool, er
 		if match(cert) {
 			return true, nil
 		}
+	}
+}
+
+func caBundleCandidates() []string {
+	return []string{
+		"/etc/ssl/certs/ca-certificates.crt",
+		"/etc/pki/tls/certs/ca-bundle.crt",
+		"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+		"/etc/ssl/ca-bundle.pem",
+		"/etc/ssl/cert.pem",
 	}
 }

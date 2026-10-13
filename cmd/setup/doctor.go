@@ -236,15 +236,7 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 		{
 			Name:     checkCA,
 			Category: "Security",
-			Run: func() doctor.CheckResult {
-				dir, isSystem := keypairDir(cfg)
-				user, system, _ := truststore.Status(dir)
-				result := evaluateCACheck(dir, user, system, truststore.UserScopeSupported())
-				if isSystem {
-					result.Message += fmt.Sprintf(" (system keypair in %s, used by the enforcing daemon)", dir)
-				}
-				return result
-			},
+			Run:      func() doctor.CheckResult { return caCheck(newKeypairLayout(cfg)) },
 		},
 		{
 			Name:     checkProxyEnforce,
@@ -633,6 +625,23 @@ func evaluateEnforceCheck(newErr error, probe netenforce.ProbeResult) doctor.Che
 // evaluateCACheck is the testable core of the CA doctor check. Trust booleans
 // and userScopeSupported are injected so the check is hermetic; the live check
 // fills them from truststore.
+func caCheck(l keypairLayout) doctor.CheckResult {
+	dir, isSystem := l.inspectDir()
+	user, system, _ := truststore.Status(dir)
+	result := evaluateCACheck(dir, user, system, truststore.UserScopeSupported())
+	if isSystem {
+		result.Message += fmt.Sprintf(" (system keypair in %s, used by the enforcing daemon)", dir)
+	}
+	if legacy := l.legacyKeypair(); legacy != "" {
+		if result.Status == doctor.StatusPass {
+			result.Status = doctor.StatusWarn
+		}
+		result.Message += fmt.Sprintf(". PMG no longer reads the CA keypair in %s, and its certificate can still be trusted. "+
+			"As administrator (sudo on macOS), run pmg setup cert uninstall --system --purge, then pmg setup cert install --system", legacy)
+	}
+	return result
+}
+
 func evaluateCACheck(dir string, userTrusted, systemTrusted, userScopeSupported bool) doctor.CheckResult {
 	st, err := certmanager.InspectCA(dir)
 	if err != nil {

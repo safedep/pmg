@@ -3,8 +3,12 @@ package setup
 import (
 	"bytes"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
 	"github.com/stretchr/testify/assert"
@@ -12,23 +16,27 @@ import (
 )
 
 type fakeStore struct {
-	installed     bool
 	installErr    error
-	uninstalled   bool
+	uninstallErr  error
 	user, system  bool
 	userSupported bool
+	calls         []string
 }
 
-func (f *fakeStore) Install(_ []byte, _ truststore.Scope) error {
-	if f.installErr != nil {
-		return f.installErr
-	}
-	f.installed = true
-	return nil
+func (f *fakeStore) Install(_ []byte, s truststore.Scope) error {
+	f.calls = append(f.calls, "install "+s.String())
+	return f.installErr
 }
-func (f *fakeStore) Uninstall(_ string, _ truststore.Scope) error { f.uninstalled = true; return nil }
-func (f *fakeStore) Status(_ string) (bool, bool, error)          { return f.user, f.system, nil }
-func (f *fakeStore) UserScopeSupported() bool                     { return f.userSupported }
+func (f *fakeStore) Uninstall(_ string, s truststore.Scope) error {
+	f.calls = append(f.calls, "uninstall "+s.String())
+	return f.uninstallErr
+}
+
+func (f *fakeStore) called(prefix string) bool {
+	return slices.ContainsFunc(f.calls, func(c string) bool { return strings.HasPrefix(c, prefix) })
+}
+func (f *fakeStore) Status(_ string) (bool, bool, error) { return f.user, f.system, nil }
+func (f *fakeStore) UserScopeSupported() bool            { return f.userSupported }
 
 func TestCertInstallGeneratesSavesAndInstalls(t *testing.T) {
 	dir := t.TempDir()
@@ -37,9 +45,19 @@ func TestCertInstallGeneratesSavesAndInstalls(t *testing.T) {
 
 	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 
-	assert.True(t, store.installed)
+	assert.True(t, store.called("install"))
 	_, err := certmanager.LoadCA(dir)
 	require.NoError(t, err) // keypair persisted
+}
+
+func TestCertInstallRemovesSameNameCertsBeforeInstall(t *testing.T) {
+	store := &fakeStore{userSupported: true}
+	var out bytes.Buffer
+
+	require.NoError(t, runCertInstall(t.TempDir(), truststore.ScopeSystem, false, store, &out))
+
+	assert.Equal(t, []string{"uninstall system", "install system"}, store.calls,
+		"a stale certificate with the PMG name must not stay trusted next to the new CA")
 }
 
 func TestCertInstallIdempotentWhenAlreadyTrusted(t *testing.T) {
@@ -52,7 +70,7 @@ func TestCertInstallIdempotentWhenAlreadyTrusted(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 
-	assert.False(t, store.installed) // already trusted → no re-install
+	assert.False(t, store.called("install")) // already trusted → no re-install
 	assert.Contains(t, out.String(), "already installed")
 }
 
@@ -75,8 +93,8 @@ func TestCertInstallForceRotates(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, true, store, &out))
 
-	assert.True(t, store.uninstalled) // rotation uninstalls old first
-	assert.True(t, store.installed)
+	assert.True(t, store.called("uninstall")) // rotation uninstalls old first
+	assert.True(t, store.called("install"))
 }
 
 func TestCertInstallReplacesCorruptedCA(t *testing.T) {
@@ -94,26 +112,41 @@ func TestCertInstallReplacesCorruptedCA(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 
-	assert.True(t, store.uninstalled, "old trusted root should be cleaned up")
-	assert.True(t, store.installed)
+	assert.True(t, store.called("uninstall"), "old trusted root should be cleaned up")
+	assert.True(t, store.called("install"))
 	_, err = certmanager.LoadCA(dir)
 	require.NoError(t, err) // a complete keypair is regenerated
 }
 
-func TestCertUninstallPurgeDeletesFiles(t *testing.T) {
-	dir := t.TempDir()
-	ca, err := certmanager.GenerateCA(certmanager.PersistentCACertManagerConfig())
-	require.NoError(t, err)
-	require.NoError(t, certmanager.SaveCA(dir, ca))
+func TestCertUninstallPurgeDeletesEveryKeypair(t *testing.T) {
+	tests := []struct {
+		name  string
+		dirs  int
+		scope truststore.Scope
+	}{
+		{name: "the user keypair", dirs: 1, scope: truststore.ScopeUser},
+		{name: "the user keypair and a legacy system keypair", dirs: 2, scope: truststore.ScopeSystem},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var dirs []string
+			for range tt.dirs {
+				dir := t.TempDir()
+				writeKeypair(t, dir)
+				dirs = append(dirs, dir)
+			}
+			store := &fakeStore{}
+			var out bytes.Buffer
 
-	store := &fakeStore{}
-	var out bytes.Buffer
-	require.NoError(t, runCertUninstall(dir, truststore.ScopeUser, true, store, &out))
+			require.NoError(t, runCertUninstall(dirs, tt.scope, true, store, &out))
 
-	assert.True(t, store.uninstalled)
-	_, err = certmanager.LoadCA(dir)
-	assert.Error(t, err) // files gone
-	assert.NoFileExists(t, certmanager.CAKeyPath(dir))
+			assert.True(t, store.called("uninstall"))
+			for _, dir := range dirs {
+				assert.NoFileExists(t, certmanager.CACertPath(dir))
+				assert.NoFileExists(t, certmanager.CAKeyPath(dir))
+			}
+		})
+	}
 }
 
 func TestCertStatusReportsDrift(t *testing.T) {
@@ -128,4 +161,123 @@ func TestCertStatusReportsDrift(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, runCertStatus(dir, store, &out))
 	assert.Contains(t, out.String(), "drift")
+}
+
+func writeKeypair(t *testing.T, dir string) {
+	t.Helper()
+	ca, err := certmanager.GenerateCA(certmanager.PersistentCACertManagerConfig())
+	require.NoError(t, err)
+	require.NoError(t, certmanager.SaveCA(dir, ca))
+}
+
+func TestKeypairLayoutDirs(t *testing.T) {
+	tests := []struct {
+		name          string
+		enforcing     bool
+		privileged    bool
+		scope         truststore.Scope
+		wantInstall   string
+		wantPurge     []string
+		wantStatusDir string
+	}{
+		{name: "enforcing proxy, root, system scope", enforcing: true, privileged: true, scope: truststore.ScopeSystem,
+			wantInstall: "system", wantPurge: []string{"system"}, wantStatusDir: "user"},
+		{name: "enforcing proxy, user, system scope", enforcing: true, scope: truststore.ScopeSystem,
+			wantInstall: "user", wantPurge: []string{"user"}, wantStatusDir: "user"},
+		{name: "no enforcing proxy, administrator, system scope", privileged: true, scope: truststore.ScopeSystem,
+			wantInstall: "user", wantPurge: []string{"user", "legacy"}, wantStatusDir: "user"},
+		{name: "no enforcing proxy, administrator, user scope", privileged: true, scope: truststore.ScopeUser,
+			wantInstall: "user", wantPurge: []string{"user"}, wantStatusDir: "user"},
+		{name: "no enforcing proxy, user, system scope", scope: truststore.ScopeSystem,
+			wantInstall: "user", wantPurge: []string{"user"}, wantStatusDir: "user"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirs := map[string]string{"user": t.TempDir(), "system": t.TempDir(), "legacy": t.TempDir()}
+			l := keypairLayout{user: dirs["user"], legacy: dirs["legacy"]}
+			if tt.enforcing {
+				l = keypairLayout{user: dirs["user"], system: dirs["system"]}
+			}
+			withPrivilege(t, tt.privileged)
+			t.Setenv("SUDO_USER", "")
+
+			dir, err := l.installDir(tt.scope)
+			require.NoError(t, err)
+			assert.Equal(t, dirs[tt.wantInstall], dir)
+
+			purge, err := l.purgeDirs(tt.scope)
+			require.NoError(t, err)
+			var want []string
+			for _, name := range tt.wantPurge {
+				want = append(want, dirs[name])
+			}
+			assert.Equal(t, want, purge)
+
+			dir, err = l.statusDir()
+			require.NoError(t, err)
+			assert.Equal(t, dirs[tt.wantStatusDir], dir, "with no keypair anywhere, status reads the user's")
+		})
+	}
+}
+
+func TestKeypairLayoutInspectsTheUsersKeypairFirst(t *testing.T) {
+	l := keypairLayout{user: t.TempDir(), system: t.TempDir()}
+	writeKeypair(t, l.system)
+
+	dir, isSystem := l.inspectDir()
+	assert.Equal(t, l.system, dir, "only the system keypair exists")
+	assert.True(t, isSystem)
+
+	writeKeypair(t, l.user)
+	dir, isSystem = l.inspectDir()
+	assert.Equal(t, l.user, dir)
+	assert.False(t, isSystem)
+}
+
+func TestKeypairLayoutStatusReadsTheSystemKeypairAsRoot(t *testing.T) {
+	l := keypairLayout{user: t.TempDir(), system: t.TempDir()}
+	writeKeypair(t, l.system)
+	withPrivilege(t, true)
+	t.Setenv("SUDO_USER", "")
+
+	dir, err := l.statusDir()
+	require.NoError(t, err)
+	assert.Equal(t, l.system, dir)
+}
+
+func TestKeypairLayoutFindsALegacyKeypair(t *testing.T) {
+	l := keypairLayout{user: t.TempDir(), legacy: t.TempDir()}
+	assert.Empty(t, l.legacyKeypair(), "no legacy keypair")
+
+	writeKeypair(t, l.legacy)
+	assert.Equal(t, l.legacy, l.legacyKeypair())
+
+	writeKeypair(t, l.user)
+	assert.Equal(t, l.legacy, l.legacyKeypair(), "its certificate can still be trusted next to the user's keypair")
+}
+
+func TestDoctorWarnsAboutALegacyKeypair(t *testing.T) {
+	for _, userKeypair := range []bool{false, true} {
+		l := keypairLayout{user: t.TempDir(), legacy: t.TempDir()}
+		writeKeypair(t, l.legacy)
+		if userKeypair {
+			writeKeypair(t, l.user)
+		}
+
+		result := caCheck(l)
+		assert.NotEqual(t, doctor.StatusPass, result.Status)
+		assert.Contains(t, result.Message, l.legacy)
+		assert.Contains(t, result.Message, "pmg setup cert uninstall --system --purge")
+	}
+}
+
+func TestCertInstallWritesNoKeypairWhenTheCleanupFails(t *testing.T) {
+	dir := t.TempDir()
+	store := &fakeStore{uninstallErr: assert.AnError}
+	var out bytes.Buffer
+
+	err := runCertInstall(dir, truststore.ScopeSystem, false, store, &out)
+	assertUsefulCode(t, err, errcodes.CertTrustStore)
+	assert.False(t, hasKeypair(dir), "a failed cleanup must leave the keypair and the trust as they were")
+	assert.False(t, store.called("install"))
 }

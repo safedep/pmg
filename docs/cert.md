@@ -53,8 +53,8 @@ pmg setup cert install
 # Windows: run from an elevated prompt.
 pmg setup cert install --system
 
-# System scope for a root proxy daemon (pmg proxy start --enforce). Run as
-# root. The keypair goes to the system config directory, root-owned.
+# Linux only: system scope for a root proxy daemon (pmg proxy start --enforce).
+# Run as root. The keypair goes to the system config directory, root-owned.
 sudo pmg setup cert install --system
 
 # Inspect presence, trust scope, expiry, and drift.
@@ -76,8 +76,8 @@ for sudo on macOS and Linux. On Windows, run it from an elevated prompt. A user-
 install under sudo is refused. The keypair would land in root's config directory, which
 your unprivileged proxy does not read and, as a non-root process, cannot read.
 
-`sudo pmg setup cert install --system` is the one case where root is intended. It writes a
-separate keypair to the system config directory (`/etc/safedep/pmg` on Linux). The
+On Linux, `sudo pmg setup cert install --system` is the one case where root is intended. It
+writes a separate keypair to the system config directory (`/etc/safedep/pmg`). The
 certificate is world-readable. The private key is root-owned with mode `0600`, so only a
 root process can sign with it. That process is the proxy daemon that `pmg proxy start
 --enforce` runs as root. It loads the keypair from the system directory and never from a
@@ -86,6 +86,17 @@ loads the keypair in your own config directory and never the system one, so no u
 sign with the system CA. See
 [persistent-proxy.md](./persistent-proxy.md#kernel-enforcement-linux). `pmg setup cert
 status` as root inspects the system keypair when it exists.
+
+macOS and Windows have no enforcing daemon, so nothing reads a system keypair there. An
+elevated `--system` install on Windows keeps the keypair in your config directory and writes
+only the certificate to `LocalMachine\Root`. `sudo pmg setup cert install --system` on macOS is refused,
+like a user-scope install under sudo. Older releases wrote a system keypair on macOS and Windows that
+nothing read. Its certificate can still be trusted machine-wide, so `pmg setup doctor` warns when it
+finds one. To remove it, run `pmg setup cert uninstall --system --purge` from an elevated prompt on
+Windows, or with sudo on macOS. Then install again.
+
+`pmg setup cert install` removes every certificate with the PMG name from the target store
+before it adds the CA. A certificate from a lost or older keypair then does not stay trusted.
 
 | Platform | User scope (default) | System scope (`--system`) |
 | --- | --- | --- |

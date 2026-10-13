@@ -24,7 +24,7 @@ jobs:
   # Steps run in pwsh and type the bare manager command, so each install goes
   # through the .cmd shim. Two steps repeat that in cmd.exe. Each step works in
   # RUNNER_TEMP, because the repo root is a pnpm workspace.
-  # Out: `pmg go` (needs `pmg setup cert install` first), the sandbox (not on
+  # Out: `pmg go` (the truststore acceptance job covers it), the sandbox (not on
   # Windows), aube (broken npm .ps1 wrapper upstream, see #457).
   e2e-windows:
     name: PMG E2E Tests - Windows

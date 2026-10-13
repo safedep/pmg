@@ -14,13 +14,12 @@ import (
 )
 
 // allowedGOOSRoots may read the runtime OS directly. platform hides the OS from
-// the rest of the tree, the sandbox drivers are per-OS by nature, cmd/landlock
-// is Linux only, and truststore wraps the OS trust store.
+// the rest of the tree, the sandbox drivers are per-OS by nature, and cmd/landlock
+// is Linux only.
 var allowedGOOSRoots = []string{
 	filepath.FromSlash("internal/platform"),
 	"sandbox",
 	filepath.FromSlash("cmd/landlock"),
-	"truststore",
 }
 
 // TestNoRuntimeGOOSInFeatureCode fails when a non-test Go file outside the
