@@ -1,0 +1,26 @@
+# guarantee: after pmg setup cert install --system, pmg go fetches and builds a
+# module through the PMG proxy. On macOS and Windows this proves that go reads
+# the OS trust store, which trusts the exact PMG CA.
+
+[!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
+
+exec pmg setup cert install --system
+stdout 'CA installed and trusted \(system scope\)'
+
+cd proj
+exec go mod init example.com/pmg-acceptance
+exec pmg go get github.com/google/uuid@v1.6.0
+grep 'github.com/google/uuid v1.6.0' go.mod
+exec pmg go run .
+stdout '^[0-9a-f-]{36}$'
+
+-- proj/main.go --
+package main
+
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
+
+func main() { fmt.Println(uuid.NewString()) }

@@ -1,0 +1,68 @@
+# guarantee: when the system trust store holds another certificate with the
+# PMG CA name, pmg setup cert status does not count it, and pmg setup cert
+# install --system installs the persisted CA. It does not report the other
+# certificate as an existing install.
+
+[!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
+
+exec pmg setup cert install --system
+stdout 'CA installed and trusted \(system scope\)'
+
+# Put another certificate with the PMG CA name in place of the persisted CA.
+exec pmg setup cert uninstall --system
+exec go run gencert.go stale.pem
+[darwin] exec sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain stale.pem
+[windows] exec certutil -addstore Root stale.pem
+[linux] exec sudo install -m 0644 -D stale.pem /usr/local/share/ca-certificates/pmg-proxy-ca.crt
+[linux] exec sudo update-ca-certificates
+
+exec pmg setup cert status
+stdout 'Trusted \(system\)\s+: false'
+
+exec pmg setup cert install --system
+! stdout 'already installed'
+stdout 'CA installed and trusted \(system scope\)'
+
+exec pmg setup cert status
+stdout 'Trusted \(system\)\s+: true'
+
+-- gencert.go --
+// gencert writes a self-signed CA with the PMG CA name to the file that the
+// first argument names. The certificate stands in for one that an older or
+// lost keypair left in the trust store.
+package main
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"time"
+)
+
+func main() {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: "SafeDep PMG Proxy CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(os.Args[1], pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		panic(err)
+	}
+}

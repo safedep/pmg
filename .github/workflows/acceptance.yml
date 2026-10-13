@@ -326,3 +326,69 @@ jobs:
           path: |
             ${{ runner.temp }}/acceptance-report.md
             ${{ runner.temp }}/acceptance.xml
+
+  # The truststore category changes the system trust store, so it runs on a
+  # disposable runner, one per OS. It runs as the runner user, as a developer
+  # does. pmg elevates the trust store write itself: sudo on Linux and macOS,
+  # and the elevated runner token on Windows.
+  truststore:
+    name: Acceptance Suite - truststore (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PMG_EXE: ${{ matrix.os == 'windows-latest' && 'pmg.exe' || 'pmg' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build PMG
+        run: go build -o "bin/${PMG_EXE}" .
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      - name: Run truststore acceptance scripts
+        env:
+          PMG_ACCEPTANCE_TRUSTSTORE: "1"
+          ACCEPTANCE_CATEGORY: truststore
+        run: |
+          export PMG_BIN="${GITHUB_WORKSPACE}/bin/${PMG_EXE}"
+          gotestsum --junitfile "${RUNNER_TEMP}/acceptance.xml" --format testname \
+            -- -tags acceptance -timeout 15m ./test/acceptance
+
+      - name: Render report
+        if: always()
+        run: |
+          go run ./test/acceptance/report \
+            -junit "${RUNNER_TEMP}/acceptance.xml" \
+            -catalog test/acceptance/catalog.yaml \
+            -scripts test/acceptance/scripts \
+            | tee "${RUNNER_TEMP}/acceptance-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: acceptance-report-truststore-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/acceptance-report.md
+            ${{ runner.temp }}/acceptance.xml

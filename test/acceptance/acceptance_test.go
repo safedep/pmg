@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -24,7 +25,7 @@ import (
 func TestAcceptance(t *testing.T) {
 	pmgBin := os.Getenv("PMG_BIN")
 	if pmgBin == "" {
-		pmgBin = filepath.Join(t.TempDir(), "pmg")
+		pmgBin = filepath.Join(t.TempDir(), "pmg"+exeSuffix())
 		build := exec.Command("go", "build", "-o", pmgBin, "../../main.go")
 		build.Stderr = os.Stderr
 		require.NoError(t, build.Run(), "build pmg for acceptance run")
@@ -80,8 +81,11 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
-					if category == enforceCategory {
+					switch category {
+					case enforceCategory:
 						return isolateEnforcement(env, pmgBin)
+					case trustStoreCategory:
+						return isolateTrustStore(env, pmgBin)
 					}
 					return nil
 				},
@@ -97,6 +101,8 @@ func TestAcceptance(t *testing.T) {
 						return hostCanEnforce(), nil
 					case "docker":
 						return exec.Command("docker", "info").Run() == nil, nil
+					case "truststore":
+						return trustStoreEnabled(), nil
 					default:
 						return false, fmt.Errorf("unknown testscript condition %q", cond)
 					}
@@ -106,7 +112,67 @@ func TestAcceptance(t *testing.T) {
 	}
 }
 
-const enforceCategory = "enforce"
+const (
+	enforceCategory    = "enforce"
+	trustStoreCategory = "truststore"
+
+	// trustStoreOptIn marks a disposable host. The truststore scripts change
+	// the system trust store, so they run only where CI sets it.
+	trustStoreOptIn = "PMG_ACCEPTANCE_TRUSTSTORE"
+)
+
+var trustStoreSerial sync.Mutex
+
+// isolateTrustStore runs truststore scripts one at a time, gives each its own
+// home, and removes the PMG CA from the system trust store when the script
+// ends, also when it fails. The system trust store is shared by the whole
+// host, so a CA that one script leaves behind would change what the next
+// script sees. On Windows the home of a process is USERPROFILE and the config
+// and cache directories come from APPDATA and LOCALAPPDATA, which testscript
+// does not set.
+func isolateTrustStore(env *testscript.Env, pmgBin string) error {
+	// Off a disposable host the scripts skip, and the cleanup must not remove
+	// a CA that the developer installed.
+	if !trustStoreEnabled() {
+		return nil
+	}
+	trustStoreSerial.Lock()
+	home := filepath.Join(env.WorkDir, "home")
+	for _, dir := range []string{
+		home,
+		filepath.Join(home, "AppData", "Roaming"),
+		filepath.Join(home, "AppData", "Local"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			trustStoreSerial.Unlock()
+			return err
+		}
+	}
+	env.Setenv("HOME", home)
+	env.Setenv("USERPROFILE", home)
+	env.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	env.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	forwardEnv(env, "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "SystemDrive", "windir", "PATHEXT", "GOTOOLCHAIN")
+	env.Defer(func() {
+		defer trustStoreSerial.Unlock()
+		cmd := exec.Command(pmgBin, "setup", "cert", "uninstall", "--system", "--purge")
+		cmd.Env = env.Vars
+		cmd.Dir = env.WorkDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warnf("acceptance: remove the PMG CA after a truststore script: %v: %s", err, out)
+		}
+	})
+	return nil
+}
+
+func trustStoreEnabled() bool { return os.Getenv(trustStoreOptIn) == "1" }
+
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
 
 var enforceSerial sync.Mutex
 

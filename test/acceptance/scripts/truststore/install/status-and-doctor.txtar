@@ -1,0 +1,16 @@
+# guarantee: after pmg setup cert install --system, pmg setup cert status and
+# pmg setup info report system trust, and the doctor CA check passes.
+
+[!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
+
+exec pmg setup cert install --system
+stdout 'CA installed and trusted \(system scope\)'
+
+exec pmg setup cert status
+stdout 'Trusted \(system\)\s+: true'
+
+# pmg setup info --json carries the doctor checks and exits zero. pmg setup
+# doctor exits non-zero here, because the host has no pmg setup install.
+exec pmg setup info --json
+stdout '"ca": \{\s+"trusted": true,\s+"scope": "system"'
+stdout '"name": "ca-cert",\s+"category": "Security",\s+"status": "pass"'

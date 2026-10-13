@@ -2,7 +2,7 @@
 # coverage is derived (a script whose path-id matches => covered), never authored.
 #
 # category is one of:
-#   npm|pnpm|bun|yarn|aube|aubr|npx|pnpx|aubx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|enforce|setup|sandbox|cloud|config|version|audit
+#   npm|pnpm|bun|yarn|aube|aubr|npx|pnpx|aubx|pip|pip3|uv|poetry|pipx|uvx|go|proxy|enforce|setup|sandbox|cloud|config|version|audit|truststore
 # The category is also the first path segment of the script id.
 # tier is P0 (incident) | P1 (important) | P2 (tracked). Tier is metadata in Part 1;
 # it records the Part 2 gate policy and gates nothing yet.
@@ -563,3 +563,30 @@
   tier: P1
   guarantee: "Under global_lockdown a flag that loosens the policy fails fast and a narrowing flag is accepted."
   labels: [policy]
+
+# truststore: the scripts change the system trust store. They run only in the
+# truststore job, one per OS, on a disposable CI host.
+- id: truststore/go/refuses-untrusted-ca
+  title: "pmg go stops when the OS store does not trust the PMG CA"
+  category: truststore
+  tier: P1
+  guarantee: "On macOS and Windows, pmg go exits non-zero before any module fetch when the OS trust store does not trust the PMG CA."
+  labels: [go, trust]
+- id: truststore/go/module-fetch-after-install
+  title: "pmg go fetches modules after pmg setup cert install --system"
+  category: truststore
+  tier: P0
+  guarantee: "After pmg setup cert install --system, pmg go get and pmg go run succeed through the PMG proxy on Linux, macOS and Windows."
+  labels: [go, trust, install]
+- id: truststore/install/status-and-doctor
+  title: "cert status and doctor report a trusted CA after install"
+  category: truststore
+  tier: P1
+  guarantee: "After pmg setup cert install --system, pmg setup cert status reports system trust and the doctor CA check passes."
+  labels: [trust, doctor]
+- id: truststore/install/replaces-same-name-cert
+  title: "cert install trusts the persisted CA over a certificate with the same name"
+  category: truststore
+  tier: P1
+  guarantee: "A different certificate with the PMG CA name does not count as trusted, and pmg setup cert install --system installs the persisted CA."
+  labels: [trust, install]
