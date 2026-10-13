@@ -366,6 +366,30 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
+      # TEMPORARY: find which macOS security command waits for a GUI prompt.
+      - name: Diagnose macOS trust commands
+        if: runner.os == 'macOS'
+        run: |
+          t() {
+            echo "+ $*"
+            rc=0
+            perl -e 'alarm shift; exec @ARGV' 30 "$@" || rc=$?
+            echo "exit=${rc}"
+          }
+          c="${RUNNER_TEMP}/diag-ca.pem"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-ca.key" -out "$c" \
+            -subj "/CN=PMG Diag CA" -days 1 2>/dev/null
+          t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
+          t security verify-cert -p ssl -l -L -c "$c"
+          t sudo security find-certificate -a -p -c "PMG Diag CA" /Library/Keychains/System.keychain
+          t sudo security remove-trusted-cert -d "$c"
+          t security verify-cert -p ssl -l -L -c "$c"
+          t sudo security delete-certificate -c "PMG Diag CA" /Library/Keychains/System.keychain
+          t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
+          t sudo security delete-certificate -c "PMG Diag CA" -t /Library/Keychains/System.keychain
+          t security verify-cert -p ssl -l -L -c "$c"
+          t security dump-trust-settings -d
+
       - name: Run truststore acceptance scripts
         env:
           PMG_ACCEPTANCE_TRUSTSTORE: "1"

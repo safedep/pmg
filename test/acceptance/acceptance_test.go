@@ -122,7 +122,7 @@ const (
 	// the system trust store, so they run only where CI sets it and CI=true.
 	trustStoreOptIn = "PMG_ACCEPTANCE_TRUSTSTORE"
 
-	trustStoreCleanupTimeout = 2 * time.Minute
+	trustStoreCleanupTimeout = 30 * time.Second
 )
 
 var trustStoreSerial sync.Mutex
