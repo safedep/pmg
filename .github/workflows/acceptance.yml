@@ -377,20 +377,39 @@ jobs:
             perl -e 'alarm shift; exec @ARGV' 30 "$@" || rc=$?
             echo "exit=${rc}"
           }
-          csrutil status || true
-          ls -lO /var/db/auth.db || true
+          db=/var/db/auth.db
+          q() { t sudo sqlite3 "$db" "$1"; }
+          # try N: install a fresh CA, then try to remove its admin trust.
+          try() {
+            c="${RUNNER_TEMP}/diag-$1.pem"
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-$1.key" -out "$c" \
+              -subj "/CN=PMG Diag $1" -days 1 2>/dev/null
+            t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
+            t sudo security remove-trusted-cert -d "$c"
+            t security verify-cert -p ssl -l -L -c "$c"
+            t sudo security delete-certificate -c "PMG Diag $1" /Library/Keychains/System.keychain
+          }
+          q "pragma journal_mode;"
+          q ".schema rules"
+          q ".schema delegates_map"
+          q "select id,name,type,class,version,kofn,flags from rules where name in ('com.apple.trust-settings.admin','allow','authenticate-admin','entitled');"
+          q "select d.r_id,d.d_id,d.ord,r.name from delegates_map d join rules r on r.id=d.d_id where d.r_id=(select id from rules where name='com.apple.trust-settings.admin');"
+
+          echo "=== A: delegate authenticate-admin to allow, no authd restart"
+          q "update delegates_map set d_id=(select id from rules where name='allow') where r_id=(select id from rules where name='com.apple.trust-settings.admin') and d_id=(select id from rules where name='authenticate-admin');"
           t sudo security authorizationdb read com.apple.trust-settings.admin
-          t sudo sqlite3 /var/db/auth.db "select id,name,type,class,kofn,flags from rules where name like 'com.apple.trust-settings%';"
-          t sudo sqlite3 /var/db/auth.db "update rules set class=4 where name='com.apple.trust-settings.admin';"
-          t sudo killall authd
+          try a
+
+          echo "=== B: authorizationdb write under sudo"
+          t sudo security authorizationdb write com.apple.trust-settings.admin allow
           t sudo security authorizationdb read com.apple.trust-settings.admin
-          c="${RUNNER_TEMP}/diag-ca.pem"
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-ca.key" -out "$c" \
-            -subj "/CN=PMG Diag CA" -days 1 2>/dev/null
-          t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
-          t sudo security remove-trusted-cert -d "$c"
-          t security verify-cert -p ssl -l -L -c "$c"
-          t sudo security delete-certificate -c "PMG Diag CA" /Library/Keychains/System.keychain
+          try b
+
+          echo "=== C: class allow and a high version, no authd restart"
+          q "update rules set class=4, version=1000 where name='com.apple.trust-settings.admin';"
+          t sudo security authorizationdb read com.apple.trust-settings.admin
+          try c
+
           t security dump-trust-settings -d
           # Stop here until a removal works, so each try costs minutes.
           exit 1
