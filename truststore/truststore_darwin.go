@@ -62,6 +62,14 @@ func uninstallPlatform(commonName string, scope Scope) error {
 			// delete-certificate (it has no -k flag, unlike add-trusted-cert).
 			args = append(args, "-t", systemKeychainPath)
 			runner = runElevated
+		} else {
+			// Without a keychain, delete-certificate searches the System keychain
+			// too and fails there without root.
+			kc, err := loginKeychainPath()
+			if err != nil {
+				return err
+			}
+			args = append(args, kc)
 		}
 
 		out, err := runner("security", args...)

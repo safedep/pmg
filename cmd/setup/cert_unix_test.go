@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/truststore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,8 +36,12 @@ func TestCertDirUsesSystemDirForPrivilegedSystemScope(t *testing.T) {
 	withPrivilege(t, true)
 	t.Setenv("SUDO_USER", "alice")
 	dir, err := certDir(cfg, truststore.ScopeSystem)
-	require.NoError(t, err, "sudo with --system is the enforce flow")
-	assert.Equal(t, config.SystemConfigDir(), dir)
+	if platform.Supports(platform.EnforcingProxy) {
+		require.NoError(t, err, "sudo with --system is the enforce flow")
+		assert.Equal(t, config.SystemConfigDir(), dir)
+	} else {
+		assertUsefulCode(t, err, errcodes.PermissionDenied)
+	}
 
 	_, err = certDir(cfg, truststore.ScopeUser)
 	assertUsefulCode(t, err, errcodes.PermissionDenied)
@@ -45,6 +50,14 @@ func TestCertDirUsesSystemDirForPrivilegedSystemScope(t *testing.T) {
 	dir, err = certDir(cfg, truststore.ScopeUser)
 	require.NoError(t, err)
 	assert.Equal(t, cfg.ConfigDir(), dir)
+
+	dir, err = certDir(cfg, truststore.ScopeSystem)
+	require.NoError(t, err)
+	if platform.Supports(platform.EnforcingProxy) {
+		assert.Equal(t, config.SystemConfigDir(), dir)
+	} else {
+		assert.Equal(t, cfg.ConfigDir(), dir, "with no enforcing proxy, nothing reads a system keypair")
+	}
 
 	withPrivilege(t, false)
 	dir, err = certDir(cfg, truststore.ScopeSystem)

@@ -238,6 +238,10 @@ func runCoreChecks(cfg *config.RuntimeConfig) []doctor.CheckResult {
 			Category: "Security",
 			Run: func() doctor.CheckResult {
 				dir, isSystem := keypairDir(cfg)
+				if legacy := legacySystemKeypair(dir); legacy != "" {
+					return doctor.CheckResult{Status: doctor.StatusWarn, Message: fmt.Sprintf(
+						"PMG no longer reads the CA keypair in %s on this OS. As administrator, run pmg setup cert uninstall --system --purge, then pmg setup cert install --system", legacy)}
+				}
 				user, system, _ := truststore.Status(dir)
 				result := evaluateCACheck(dir, user, system, truststore.UserScopeSupported())
 				if isSystem {
