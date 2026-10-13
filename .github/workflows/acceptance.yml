@@ -366,8 +366,8 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
-      # TEMPORARY: test whether root can let admin trust changes skip the GUI
-      # authorization prompt on a runner with no GUI session.
+      # TEMPORARY: find what remove-trusted-cert -d waits for on a runner with
+      # no GUI session.
       - name: Diagnose macOS trust commands
         if: runner.os == 'macOS'
         run: |
@@ -389,26 +389,32 @@ jobs:
             t security verify-cert -p ssl -l -L -c "$c"
             t sudo security delete-certificate -c "PMG Diag $1" /Library/Keychains/System.keychain
           }
-          q "pragma journal_mode;"
-          q ".schema rules"
-          q ".schema delegates_map"
-          q "select id,name,type,class,version,kofn,flags from rules where name in ('com.apple.trust-settings.admin','allow','authenticate-admin','entitled');"
-          q "select d.r_id,d.d_id,d.ord,r.name from delegates_map d join rules r on r.id=d.d_id where d.r_id=(select id from rules where name='com.apple.trust-settings.admin');"
+          echo "HOME=${HOME}"
+          sudo sh -c 'echo "sudo HOME=${HOME} USER=${USER}"'
+          sudo -H sh -c 'echo "sudo -H HOME=${HOME}"'
+          t security list-keychains
+          t security default-keychain
+          t security show-keychain-info "${HOME}/Library/Keychains/login.keychain-db"
+          t sudo security list-keychains
+          t sudo -H security list-keychains
 
-          echo "=== A: delegate authenticate-admin to allow, no authd restart"
-          q "update delegates_map set d_id=(select id from rules where name='allow') where r_id=(select id from rules where name='com.apple.trust-settings.admin') and d_id=(select id from rules where name='authenticate-admin');"
-          t sudo security authorizationdb read com.apple.trust-settings.admin
-          try a
+          # The keychain is named on the add and the delete, which work. The
+          # trust removal has no keychain flag. With HOME of root, security
+          # does not search the keychains of the runner user.
+          echo "=== D: sudo -H, so HOME is the home of root"
+          c="${RUNNER_TEMP}/diag-d.pem"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-d.key" -out "$c" \
+            -subj "/CN=PMG Diag d" -days 1 2>/dev/null
+          t sudo -H security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
+          t sudo -H security remove-trusted-cert -d "$c"
+          t security verify-cert -p ssl -l -L -c "$c"
+          t sudo -H security delete-certificate -c "PMG Diag d" /Library/Keychains/System.keychain
 
-          echo "=== B: authorizationdb write under sudo"
-          t sudo security authorizationdb write com.apple.trust-settings.admin allow
-          t sudo security authorizationdb read com.apple.trust-settings.admin
-          try b
-
-          echo "=== C: class allow and a high version, no authd restart"
-          q "update rules set class=4, version=1000 where name='com.apple.trust-settings.admin';"
-          t sudo security authorizationdb read com.apple.trust-settings.admin
-          try c
+          echo "=== what waits: processes and the security log"
+          ps -axo pid,user,comm | grep -iE 'securityagent|authorizationhost|security|trustd|authd' | grep -v grep || true
+          sudo log show --last 3m --style compact \
+            --predicate 'process IN {"authd","SecurityAgent","trustd","securityd","security","authorizationhost"}' \
+            | grep -viE 'debug' | tail -80 || true
 
           t security dump-trust-settings -d
           # Stop here until a removal works, so each try costs minutes.
