@@ -18,9 +18,15 @@ This requires no setup and covers the common cases: npm, pip, and Go on Linux.
 
 Environment variable injection does not reach tools that consult only the operating system
 trust store. The most important case is Go on macOS and Windows. Go's TLS stack on those
-platforms ignores `SSL_CERT_FILE` and validates against the platform verifier
-(Security.framework on macOS, CryptoAPI on Windows). On Linux, Go honors `SSL_CERT_FILE`, so
-the default behavior already covers it.
+platforms validates against the platform verifier (Security.framework on macOS, CryptoAPI on
+Windows). Go 1.27 and later use `SSL_CERT_FILE` instead when it is set. The PMG bundle does not
+hold the roots that only the OS store holds, such as a corporate CA. PMG therefore sets
+`GODEBUG=x509sslcertoverrideplatform=0`, so go uses the OS store on every version. A value
+that you set for `x509sslcertoverrideplatform` in `GODEBUG` stays. On Linux, Go honors
+`SSL_CERT_FILE`, so the default behavior already covers it.
+
+`pmg go` and the persistent proxy check that the OS store trusts the exact CA that PMG signs
+with. Another certificate with the same name does not pass.
 
 For those cases you can install a single persistent PMG CA into the OS trust store. This also
 avoids regenerating a CA on every run.

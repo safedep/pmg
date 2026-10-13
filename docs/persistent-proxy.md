@@ -137,13 +137,14 @@ does not change `GOPROXY`, and it does not analyze these fetches:
 - A module that is already in the module cache, for example a cache that the
   CI job restores.
 
-On macOS and Windows, go reads only the OS trust store. If that store does
-not trust the PMG CA, or the CA is expired, the daemon does not decrypt Go
-traffic. `pmg proxy start` and `pmg proxy status` then print a notice with
-the cause. Run
-`pmg setup cert install`, then restart the daemon. On Linux, go trusts the
-PMG CA through `SSL_CERT_FILE` from `pmg proxy env`, or through the system
-store under enforcement.
+On macOS and Windows, go reads only the OS trust store. `pmg proxy env`
+sets `GODEBUG=x509sslcertoverrideplatform=0`, so Go 1.27 and later also
+read the OS store and not `SSL_CERT_FILE`. If the OS store does not trust
+the PMG CA, or the CA is expired, the daemon does not decrypt Go traffic.
+`pmg proxy start` and `pmg proxy status` then print a notice with the
+cause. Run `pmg setup cert install`, then restart the daemon. On Linux, go
+trusts the PMG CA through `SSL_CERT_FILE` from `pmg proxy env`, or through
+the system store under enforcement.
 
 ## Custom registries
 
@@ -168,7 +169,7 @@ The proxy terminates TLS, so a client must trust its CA. `pmg proxy env`
 prints the variables that point each tool at the CA bundle:
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT` and
 `YARN_HTTPS_CA_FILE_PATH`. You do not install the CA into the OS trust
-store. `NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
+store, except for Go on macOS and Windows. See [Go modules](#go-modules). `NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
 
 The variables exist because tools do not agree on the OS store. Node ignores
 it by default, modern pip reads it, and `requests` ships its own bundle. The
