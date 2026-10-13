@@ -325,7 +325,7 @@ func collectCAInfo(cfg *config.RuntimeConfig) caInfo {
 		log.Debugf("CA inspection failed; reporting CA layer as untrusted: %v", err)
 		return caInfo{Scope: "none"}
 	}
-	st.UserTrusted, st.SystemTrusted, _ = truststore.Status(certmanager.CACommonName)
+	st.UserTrusted, st.SystemTrusted, _ = truststore.Status(cfg.ConfigDir())
 
 	scope := "none"
 	if st.SystemTrusted {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/safedep/pmg/internal/platform"
+	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -165,30 +166,55 @@ func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 	assert.Equal(t, "sudo", firstName)
 }
 
-func TestLinuxStatusReflectsAnchorFile(t *testing.T) {
-	noBundle(t)
+// persistedCert writes a CA certificate to a temporary config directory and
+// returns the directory and the PEM.
+func persistedCert(t *testing.T) (string, []byte) {
+	t.Helper()
 	dir := t.TempDir()
+	ca := certPEM(t, "Test CA")
+	require.NoError(t, os.WriteFile(certmanager.CACertPath(dir), ca, 0o644))
+	return dir, ca
+}
+
+func TestLinuxStatusChecksTheAnchorWithoutABundle(t *testing.T) {
+	noBundle(t)
+	anchorDir := t.TempDir()
 	origDetect := detectTrustTool
 	detectTrustTool = func() (linuxTrustTool, error) {
-		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
+		return linuxTrustTool{anchorDir: anchorDir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
 	t.Cleanup(func() { detectTrustTool = origDetect })
+	configDir, ca := persistedCert(t)
+	anchor := filepath.Join(anchorDir, "pmg-proxy-ca.crt")
 
-	_, system, err := Status("Test CA")
-	require.NoError(t, err)
-	assert.False(t, system)
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "pmg-proxy-ca.crt"), []byte("x"), 0o644))
-	_, system, err = Status("Test CA")
-	require.NoError(t, err)
-	assert.True(t, system, "without a bundle to check, the anchor is the signal")
+	tests := []struct {
+		name   string
+		anchor []byte
+		want   bool
+	}{
+		{name: "no anchor"},
+		{name: "the anchor holds another certificate with the same name", anchor: certPEM(t, "Test CA")},
+		{name: "the anchor holds the CA", anchor: ca, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, os.RemoveAll(anchor))
+			if tt.anchor != nil {
+				require.NoError(t, os.WriteFile(anchor, tt.anchor, 0o644))
+			}
+			user, system, err := Status(configDir)
+			require.NoError(t, err)
+			assert.False(t, user)
+			assert.Equal(t, tt.want, system)
+		})
+	}
 }
 
 func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
-	dir := t.TempDir()
+	anchorDir := t.TempDir()
 	origDetect := detectTrustTool
 	detectTrustTool = func() (linuxTrustTool, error) {
-		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-trust", anchorName: "pmg-proxy-ca.crt"}, nil
+		return linuxTrustTool{anchorDir: anchorDir, updateCmd: "update-ca-trust", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
 	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
 	origBundle := systemBundlePath
@@ -197,35 +223,31 @@ func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 		detectTrustTool = origDetect
 		systemBundlePath = origBundle
 	})
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "pmg-proxy-ca.crt"), certPEM(t, "Test CA"), 0o644))
+	configDir, ca := persistedCert(t)
+	require.NoError(t, os.WriteFile(filepath.Join(anchorDir, "pmg-proxy-ca.crt"), ca, 0o644))
 
-	require.NoError(t, os.WriteFile(bundle, certPEM(t, "Other CA"), 0o644))
-	_, system, err := Status("Test CA")
-	require.NoError(t, err)
-	assert.False(t, system, "an anchor the trust tool never read is not trusted")
-
-	require.NoError(t, os.WriteFile(bundle, append(certPEM(t, "Other CA"), certPEM(t, "Test CA")...), 0o644))
-	_, system, err = Status("Test CA")
-	require.NoError(t, err)
-	assert.True(t, system)
+	tests := []struct {
+		name   string
+		bundle []byte
+		want   bool
+	}{
+		{name: "an anchor the trust tool never read", bundle: certPEM(t, "Other CA")},
+		{name: "another certificate with the same name", bundle: certPEM(t, "Test CA")},
+		{name: "the bundle holds the CA", bundle: append(certPEM(t, "Other CA"), ca...), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, os.WriteFile(bundle, tt.bundle, 0o644))
+			_, system, err := Status(configDir)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, system)
+		})
+	}
 }
 
-func TestLinuxCATrustedMatchesTheExactCertificate(t *testing.T) {
-	block, _ := pem.Decode(certPEM(t, "Test CA"))
-	ca, err := x509.ParseCertificate(block.Bytes)
+func TestLinuxStatusWithoutAPersistedCA(t *testing.T) {
+	user, system, err := Status(t.TempDir())
 	require.NoError(t, err)
-	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
-	orig := systemBundlePath
-	systemBundlePath = func() string { return bundle }
-	t.Cleanup(func() { systemBundlePath = orig })
-
-	require.NoError(t, os.WriteFile(bundle, certPEM(t, "Test CA"), 0o644))
-	trusted, err := caTrustedPlatform("", ca)
-	require.NoError(t, err)
-	assert.False(t, trusted, "a different certificate with the same name is not this CA")
-
-	require.NoError(t, os.WriteFile(bundle, append(certPEM(t, "Other CA"), pem.EncodeToMemory(block)...), 0o644))
-	trusted, err = caTrustedPlatform("", ca)
-	require.NoError(t, err)
-	assert.True(t, trusted)
+	assert.False(t, user)
+	assert.False(t, system)
 }

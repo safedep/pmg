@@ -23,7 +23,7 @@ import (
 type trustStore interface {
 	Install(certPEM []byte, scope truststore.Scope) error
 	Uninstall(commonName string, scope truststore.Scope) error
-	Status(commonName string) (user, system bool, err error)
+	Status(dir string) (user, system bool, err error)
 	UserScopeSupported() bool
 }
 
@@ -33,8 +33,8 @@ func (defaultTrustStore) Install(p []byte, s truststore.Scope) error { return tr
 func (defaultTrustStore) Uninstall(cn string, s truststore.Scope) error {
 	return truststore.Uninstall(cn, s)
 }
-func (defaultTrustStore) Status(cn string) (bool, bool, error) { return truststore.Status(cn) }
-func (defaultTrustStore) UserScopeSupported() bool             { return truststore.UserScopeSupported() }
+func (defaultTrustStore) Status(dir string) (bool, bool, error) { return truststore.Status(dir) }
+func (defaultTrustStore) UserScopeSupported() bool              { return truststore.UserScopeSupported() }
 
 type certCommandError struct{ usefulerror.UsefulError }
 
@@ -148,7 +148,7 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 	}
 
 	if exists && !rotate {
-		user, system, _ := store.Status(certmanager.CACommonName)
+		user, system, _ := store.Status(dir)
 		if (scope == truststore.ScopeUser && user) || (scope == truststore.ScopeSystem && system) {
 			if _, err := fmt.Fprintf(out, "%s CA already installed and trusted (%s scope)\n", ui.Colors.Green("✓"), scope.String()); err != nil {
 				return err
@@ -263,7 +263,7 @@ func runCertStatus(dir string, store trustStore, out io.Writer) error {
 			"The CA file may be corrupt; re-run `pmg setup cert install`", err)
 	}
 
-	user, system, _ := store.Status(certmanager.CACommonName)
+	user, system, _ := store.Status(dir)
 	st.UserTrusted, st.SystemTrusted = user, system
 
 	entries := map[string]string{

@@ -25,8 +25,11 @@ hold the roots that only the OS store holds, such as a corporate CA. PMG therefo
 that you set for `x509sslcertoverrideplatform` in `GODEBUG` stays. On Linux, Go honors
 `SSL_CERT_FILE`, so the default behavior already covers it.
 
-`pmg go` and the persistent proxy check that the OS store trusts the exact CA that PMG signs
-with. Another certificate with the same name does not pass.
+PMG counts the CA as trusted only when the OS store trusts the exact certificate that PMG signs
+with. Another certificate with the same name does not count. `pmg go`, the persistent proxy,
+`pmg setup cert install`, `pmg setup cert status` and `pmg setup doctor` all apply this check.
+On macOS PMG runs `security verify-cert`. On Windows it looks up the certificate thumbprint in
+the Root stores.
 
 For those cases you can install a single persistent PMG CA into the OS trust store. This also
 avoids regenerating a CA on every run.

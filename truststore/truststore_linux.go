@@ -169,26 +169,26 @@ func statusPlatform(commonName string) (bool, bool, error) {
 	return false, found, nil
 }
 
-// caTrustedPlatform reports whether the system bundle holds this exact
-// certificate.
-func caTrustedPlatform(_ string, cert *x509.Certificate) (bool, error) {
+// caTrustedPlatform checks that the system bundle holds this exact
+// certificate. Without a bundle to check, it checks the anchor file, as
+// statusPlatform does.
+func caTrustedPlatform(_ string, cert *x509.Certificate) error {
 	bundle := systemBundlePath()
 	if bundle == "" {
-		return false, nil
+		tool, err := detectTrustTool()
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrCANotTrusted, err)
+		}
+		bundle = filepath.Join(tool.anchorDir, tool.anchorName)
 	}
-	return bundleContains(bundle, cert.Equal)
-}
-
-func parseCert(certPEM []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM certificate to install")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	found, err := bundleContains(bundle, cert.Equal)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate: %w", err)
+		return err
 	}
-	return cert, nil
+	if !found {
+		return fmt.Errorf("%w: %s does not hold the certificate", ErrCANotTrusted, bundle)
+	}
+	return nil
 }
 
 // bundleContains scans a PEM bundle for a certificate that match accepts. A

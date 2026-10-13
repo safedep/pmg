@@ -118,7 +118,7 @@ func TestDarwinGoTrustsCAVerifiesThePersistedCertificate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, "security", gotName)
-			assert.Equal(t, []string{"verify-cert", "-c", certmanager.CACertPath(dir)}, gotArgs)
+			assert.Equal(t, []string{"verify-cert", "-p", "ssl", "-l", "-L", "-c", certmanager.CACertPath(dir)}, gotArgs)
 		})
 	}
 }

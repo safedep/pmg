@@ -110,18 +110,21 @@ func EnvVarForSystemTrust(systemBundlePath string) []string {
 
 // goDebugOSTrust is the GODEBUG setting that makes go use the OS trust store
 // on macOS and Windows even when SSL_CERT_FILE is set.
-const goDebugOSTrust = "x509sslcertoverrideplatform"
+const (
+	goDebugOSTrustKey = "x509sslcertoverrideplatform"
+	goDebugOSTrust    = goDebugOSTrustKey + "=0"
+)
 
-// goDebugWithOSTrust adds x509sslcertoverrideplatform=0 to a GODEBUG value and
-// keeps the other settings. A value that the user set for that setting stays.
+// goDebugWithOSTrust adds goDebugOSTrust to a GODEBUG value and keeps the other
+// settings. A value that the user set for the key stays.
 func goDebugWithOSTrust(current string) string {
 	for _, setting := range strings.Split(current, ",") {
-		if key, _, _ := strings.Cut(setting, "="); strings.TrimSpace(key) == goDebugOSTrust {
+		if key, _, _ := strings.Cut(setting, "="); key == goDebugOSTrustKey {
 			return current
 		}
 	}
 	if current == "" {
-		return goDebugOSTrust + "=0"
+		return goDebugOSTrust
 	}
-	return current + "," + goDebugOSTrust + "=0"
+	return current + "," + goDebugOSTrust
 }

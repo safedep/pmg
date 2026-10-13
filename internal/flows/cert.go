@@ -21,7 +21,7 @@ func SetupCACertificate(configDir, outputPath string) (*certmanager.Certificate,
 
 	if persisted {
 		log.Debugf("Using persisted CA certificate from %s", configDir)
-		warnIfCANotTrusted()
+		warnIfCANotTrusted(configDir)
 	} else {
 		log.Debugf("Generating ephemeral CA certificate for proxy MITM")
 		generated, err := certmanager.GenerateCA(certmanager.DefaultCertManagerConfig())
@@ -56,14 +56,13 @@ func loadPersistedCA(dir string) (*certmanager.Certificate, bool) {
 	return nil, false
 }
 
-func warnIfCANotTrusted() {
-	trusted, err := truststore.CATrusted()
+func warnIfCANotTrusted(configDir string) {
+	user, system, err := truststore.Status(configDir)
 	if err != nil {
 		log.Debugf("Could not determine CA trust status: %v", err)
 		return
 	}
-
-	if !trusted {
-		log.Warnf("Persisted CA is not trusted in the OS store; native tools may reject TLS. Run `pmg setup cert install`.")
+	if !user && !system {
+		log.Warnf("The OS trust store does not trust the persisted CA. Native tools may reject TLS. Run `pmg setup cert install`.")
 	}
 }

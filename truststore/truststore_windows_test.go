@@ -55,7 +55,7 @@ func TestWindowsUninstallNotFoundIsOK(t *testing.T) {
 
 func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
 	dir, ca := persistedCA(t)
-	thumbprint := fmt.Sprintf("%x", sha1.Sum(ca.X509Cert.Raw))
+	thumbprint := fmt.Sprintf("%X", sha1.Sum(ca.X509Cert.Raw))
 	tests := []struct {
 		name        string
 		trustedArgs []string

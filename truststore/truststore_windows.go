@@ -56,9 +56,12 @@ func statusPlatform(commonName string) (bool, bool, error) {
 // caTrustedPlatform looks the certificate up by its SHA-1 thumbprint in the user
 // and the machine Root store. certutil identifies a certificate by this
 // thumbprint, so a different certificate with the same name does not match.
-func caTrustedPlatform(_ string, cert *x509.Certificate) (bool, error) {
-	thumbprint := fmt.Sprintf("%x", sha1.Sum(cert.Raw))
-	return certInWindowsStore(thumbprint, true) || certInWindowsStore(thumbprint, false), nil
+func caTrustedPlatform(_ string, cert *x509.Certificate) error {
+	thumbprint := fmt.Sprintf("%X", sha1.Sum(cert.Raw))
+	if certInWindowsStore(thumbprint, true) || certInWindowsStore(thumbprint, false) {
+		return nil
+	}
+	return fmt.Errorf("%w: no Root store holds the certificate with thumbprint %s", ErrCANotTrusted, thumbprint)
 }
 
 // certInWindowsStore reports whether certID, a common name or a thumbprint,

@@ -16,8 +16,8 @@ func uninstallPlatform(_ string, _ Scope) error   { return unsupportedPlatformEr
 func statusPlatform(_ string) (bool, bool, error) { return false, false, unsupportedPlatformError() }
 func userScopeSupportedPlatform() bool            { return false }
 
-func caTrustedPlatform(_ string, _ *x509.Certificate) (bool, error) {
-	return false, unsupportedPlatformError()
+func caTrustedPlatform(_ string, _ *x509.Certificate) error {
+	return unsupportedPlatformError()
 }
 
 func unsupportedPlatformError() error {

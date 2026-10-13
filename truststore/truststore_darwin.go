@@ -92,12 +92,17 @@ func statusPlatform(commonName string) (bool, bool, error) {
 }
 
 // caTrustedPlatform asks the OS to evaluate the certificate in certPath with the
-// trust settings of the user and the system. A copy of the CA that is in a
-// keychain but not trusted fails, and so does a different certificate with the
-// same name.
-func caTrustedPlatform(certPath string, _ *x509.Certificate) (bool, error) {
-	_, err := commandRunner("security", "verify-cert", "-c", certPath)
-	return err == nil, nil
+// trust settings of the user and the system, as go does. A copy of the CA that
+// is in a keychain but not trusted fails, and so does a different certificate
+// with the same name. -l accepts a CA certificate as the leaf, -p ssl is the
+// policy that go evaluates, and -L keeps the check off the network. Go used
+// the same arguments when it verified roots with security(1).
+func caTrustedPlatform(certPath string, _ *x509.Certificate) error {
+	out, err := commandRunner("security", "verify-cert", "-p", "ssl", "-l", "-L", "-c", certPath)
+	if err != nil {
+		return fmt.Errorf("%w: security verify-cert %s: %s", ErrCANotTrusted, certPath, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func certInKeychain(commonName, keychain string) bool {

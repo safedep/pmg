@@ -169,7 +169,8 @@ The proxy terminates TLS, so a client must trust its CA. `pmg proxy env`
 prints the variables that point each tool at the CA bundle:
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT` and
 `YARN_HTTPS_CA_FILE_PATH`. You do not install the CA into the OS trust
-store, except for Go on macOS and Windows. See [Go modules](#go-modules). `NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
+store, except for Go on macOS and Windows. See [Go modules](#go-modules).
+`NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
 
 The variables exist because tools do not agree on the OS store. Node ignores
 it by default, modern pip reads it, and `requests` ships its own bundle. The
