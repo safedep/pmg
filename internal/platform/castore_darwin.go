@@ -104,8 +104,13 @@ func uninstallCA(commonName string, scope CAScope) error {
 func removeAdminTrust(commonName string) error {
 	out, err := commandRunner("security", "find-certificate", "-a", "-p", "-c", commonName, systemKeychainPath)
 	if err != nil {
-		// find-certificate fails when no certificate has this name.
-		return nil
+		// find-certificate fails when no certificate has this name. Any other
+		// failure can leave a CA trusted, so it stops the uninstall.
+		msg := strings.TrimSpace(string(out))
+		if strings.Contains(msg, "could not be found") {
+			return nil
+		}
+		return fmt.Errorf("security find-certificate failed: %w: %s", err, msg)
 	}
 
 	for rest := out; ; {

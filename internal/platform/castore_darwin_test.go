@@ -104,6 +104,13 @@ func TestDarwinUninstallSystemRemovesAdminTrustThenDeletes(t *testing.T) {
 			wantCalls: []string{"find-certificate", "delete-certificate"},
 		},
 		{
+			name:      "System keychain cannot be read",
+			findOut:   []byte(`security: SecKeychainSearchCopyNext: The user name or passphrase you entered is not correct.`),
+			findErr:   assert.AnError,
+			wantCalls: []string{"find-certificate"},
+			wantErr:   true,
+		},
+		{
 			name:        "certificate without admin trust settings",
 			findOut:     certPEM,
 			removeOut:   []byte(`SecTrustSettingsRemoveTrustSettings: The specified item could not be found in the keychain.`),
