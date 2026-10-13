@@ -21,6 +21,7 @@ import (
 	"github.com/safedep/pmg/internal/cloudauth"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
+	sandboxplatform "github.com/safedep/pmg/sandbox/platform"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,6 +71,9 @@ func TestAcceptance(t *testing.T) {
 		relDir, scripts := relDir, byDir[relDir]
 		category, _, _ := strings.Cut(relDir, "/")
 		t.Run(relDir, func(t *testing.T) {
+			if category == sandboxCategory && !sandboxplatform.Supported() {
+				t.Skipf("PMG has no sandbox on %s", runtime.GOOS)
+			}
 			testscript.Run(t, testscript.Params{
 				Files: scripts,
 				Setup: func(env *testscript.Env) error {
@@ -82,6 +86,9 @@ func TestAcceptance(t *testing.T) {
 					// env, so without this the authenticated analyzer is never reached.
 					if category == "cloud" {
 						forwardCloudCredentials(env)
+					}
+					if err := isolateHome(env); err != nil {
+						return err
 					}
 					switch category {
 					case enforceCategory:
@@ -116,6 +123,7 @@ func TestAcceptance(t *testing.T) {
 
 const (
 	enforceCategory    = "enforce"
+	sandboxCategory    = "sandbox"
 	trustStoreCategory = "truststore"
 
 	// trustStoreOptIn marks a disposable host. The truststore scripts change
@@ -127,13 +135,10 @@ const (
 
 var trustStoreSerial sync.Mutex
 
-// isolateTrustStore runs truststore scripts one at a time, gives each its own
-// home, and removes the PMG CA from the system trust store when the script
-// ends, also when it fails. The system trust store is shared by the whole
-// host, so a CA that one script leaves behind would change what the next
-// script sees. On Windows the home of a process is USERPROFILE and the config
-// and cache directories come from APPDATA and LOCALAPPDATA, which testscript
-// does not set.
+// isolateTrustStore runs truststore scripts one at a time and removes the PMG
+// CA from the system trust store when the script ends, also when it fails. The
+// system trust store is shared by the whole host, so a CA that one script
+// leaves behind would change what the next script sees.
 func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 	// Off a disposable host the scripts skip, and the cleanup must not remove
 	// a CA that the developer installed.
@@ -157,8 +162,25 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 			env.T().Log(fmt.Sprintf("remove the PMG CA after a truststore script: %v: %s", err, out))
 		}
 	})
+	return nil
+}
 
+// isolateHome gives each script the home $WORK/home, so no script reads or
+// writes the home of the user who runs the suite. The scripts set HOME to the
+// same directory themselves. On Windows a program reads its home from
+// USERPROFILE and its config and cache directories from APPDATA and
+// LOCALAPPDATA, which testscript does not set, so the harness points them
+// into the same home.
+func isolateHome(env *testscript.Env) error {
 	home := filepath.Join(env.WorkDir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	env.Setenv("HOME", home)
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
 	roaming := filepath.Join(home, "AppData", "Roaming")
 	local := filepath.Join(home, "AppData", "Local")
 	for _, dir := range []string{roaming, local} {
@@ -166,12 +188,12 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 			return err
 		}
 	}
-	env.Setenv("HOME", home)
 	env.Setenv("USERPROFILE", home)
 	env.Setenv("APPDATA", roaming)
 	env.Setenv("LOCALAPPDATA", local)
-	// certutil, go and the CA bundle lookup of PMG read these on Windows.
-	forwardEnv(env, "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "SystemDrive", "windir", "PATHEXT")
+	// Package managers, certutil, go and the CA bundle lookup of PMG read
+	// these on Windows.
+	forwardEnv(env, "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "SystemDrive", "windir", "PATHEXT", "ComSpec")
 	return nil
 }
 
