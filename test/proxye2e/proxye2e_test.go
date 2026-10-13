@@ -927,6 +927,24 @@ func TestProxyFlow_Go(t *testing.T) {
 			},
 		},
 		{
+			Name:    "GOPROXY base path under the public proxy is analyzed and blocked",
+			Options: []Option{WithGoProxyURLs("https://proxy.golang.org/goproxy")},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/prefixed",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/prefixed", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZipVia("https://proxy.golang.org/goproxy", "example.com/prefixed", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.True(t, res.Blocked(), "the longest base path must win, so the module name has no base path in it")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/prefixed", "v1.0.0"))
+			},
+		},
+		{
 			Name: "repeated zip request for a blocked module records the verdict once",
 			Setup: func(h *Harness) {
 				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",

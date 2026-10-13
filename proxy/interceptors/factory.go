@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"errors"
 	"fmt"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -51,6 +52,10 @@ func NewInterceptorFactory(
 ) (*InterceptorFactory, error) {
 	catalog, err := NewRegistryCatalog(registries, execContext.GoProxyURLs)
 	if err != nil {
+		var conflict *config.GoProxyConflictError
+		if errors.As(err, &conflict) {
+			return nil, config.NewGoProxyConflictError(conflict)
+		}
 		return nil, config.NewInvalidProxyRegistriesError(err)
 	}
 	return &InterceptorFactory{
@@ -61,6 +66,12 @@ func NewInterceptorFactory(
 		execContext:      execContext,
 		registries:       catalog,
 	}, nil
+}
+
+// GoProxyNotices names the GOPROXY entries of this run that PMG does not
+// analyze.
+func (f *InterceptorFactory) GoProxyNotices() []string {
+	return f.registries.GoProxyNotices()
 }
 
 // CreateInterceptor creates an interceptor for the specified ecosystem

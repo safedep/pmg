@@ -356,6 +356,9 @@ func buildProxyFlowInterceptors(
 	if err != nil {
 		return nil, err
 	}
+	for _, notice := range factory.GoProxyNotices() {
+		ui.ShowWarning(notice)
+	}
 	return factory.CreateInterceptors(ecosystem)
 }
 

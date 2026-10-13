@@ -108,7 +108,8 @@ func (s registrySet) MatchURL(u *url.URL) *registryMatch {
 			continue
 		}
 		if best != nil {
-			better := exact && !bestExact || exact == bestExact && len(endpoint.Host) > len(best.Host)
+			better := exact && !bestExact || exact == bestExact && (len(endpoint.Host) > len(best.Host) ||
+				len(endpoint.Host) == len(best.Host) && len(endpoint.BasePath) > len(best.BasePath))
 			if !better {
 				continue
 			}

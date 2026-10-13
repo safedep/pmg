@@ -50,14 +50,13 @@ var proxyEcosystems = map[config.ProxyRegistryEcosystem]ecosystemSpec{
 const goProxyRegistryName = "GOPROXY"
 
 type RegistryCatalog struct {
-	byEcosystem map[packagev1.Ecosystem]registrySet
+	byEcosystem    map[packagev1.Ecosystem]registrySet
+	goProxyNotices []string
 }
 
 // NewRegistryCatalog builds the catalog from the built-in registries, the
 // configured proxy.registries and goProxyURLs, the module proxies from the
-// GOPROXY of a `pmg go` run. proxy.registries entries must be valid. A
-// GOPROXY entry that PMG cannot analyze, or that a registry already covers,
-// is skipped: go still uses it, and PMG must not refuse a run over it.
+// GOPROXY of a `pmg go` run. proxy.registries entries must be valid.
 func NewRegistryCatalog(registries []config.ProxyRegistryConfig, goProxyURLs []string) (*RegistryCatalog, error) {
 	// Keep this boundary self-validating because callers can construct a
 	// catalog directly without going through the global config loader.
@@ -67,39 +66,81 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig, goProxyURLs []s
 	}
 
 	catalog := newBuiltInRegistryCatalog()
+	var otherEcosystems []config.NormalizedRegistryEndpoint
 	for _, configured := range normalized {
 		if _, ok := proxyEcosystems[configured.Ecosystem]; !ok {
 			return nil, fmt.Errorf("invalid custom proxy registry %q: unsupported ecosystem %q", configured.RegistryName, configured.Ecosystem)
 		}
-		if catalog.builtInCoversHostname(configured.Host) {
+		if builtIn, _ := catalog.builtInEndpointFor(configured.Host); builtIn != nil {
 			return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by a built-in registry",
 				configured.Ecosystem, configured.RegistryName, configured.Host)
 		}
 		catalog.addCustomEndpoint(configured)
+		if configured.Ecosystem != config.ProxyRegistryEcosystemGo {
+			otherEcosystems = append(otherEcosystems, configured)
+		}
 	}
 
 	for _, rawURL := range goProxyURLs {
-		entry, err := config.NormalizeRegistryEndpoint(goProxyRegistryName, config.ProxyRegistryEcosystemGo, rawURL)
-		if err != nil {
-			log.Warnf("GOPROXY entry %q is not analyzed: %v", rawURL, err)
-			continue
+		if err := catalog.addGoProxyURL(rawURL, otherEcosystems); err != nil {
+			return nil, err
 		}
-		if baseURL, err := url.Parse(entry.URL); err == nil && catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(baseURL) != nil {
-			continue
-		}
-		if catalog.builtInCoversHostname(entry.Host) {
-			log.Warnf("GOPROXY entry %q is not analyzed: host %q is covered by a built-in registry", rawURL, entry.Host)
-			continue
-		}
-		if existing := config.FindNestedEndpoint(entry, normalized); existing != nil {
-			log.Warnf("GOPROXY entry %q is not analyzed: it overlaps the %s registry endpoint %q", rawURL, existing.Ecosystem, existing.URL)
-			continue
-		}
-		normalized = append(normalized, entry)
-		catalog.addCustomEndpoint(entry)
 	}
 
 	return catalog, nil
+}
+
+// GoProxyNotices names the GOPROXY entries that PMG does not analyze, with
+// the reason. go still fetches modules from them.
+func (c *RegistryCatalog) GoProxyNotices() []string {
+	return c.goProxyNotices
+}
+
+// addGoProxyURL adds a GOPROXY entry of a `pmg go` run as a Go endpoint. The
+// entry can nest with another Go endpoint, such as
+// proxy.golang.org/cached-only under the built-in proxy.golang.org. The
+// endpoint with the longest base path then parses the request. An entry that
+// nests with an endpoint of another ecosystem fails the run, because PMG
+// cannot tell which ecosystem owns a request there. An entry that PMG cannot
+// analyze gets a notice.
+func (c *RegistryCatalog) addGoProxyURL(rawURL string, otherEcosystems []config.NormalizedRegistryEndpoint) error {
+	entry, err := config.NormalizeRegistryEndpoint(goProxyRegistryName, config.ProxyRegistryEcosystemGo, rawURL)
+	if err != nil {
+		c.addGoProxyNotice(rawURL, err.Error())
+		return nil
+	}
+	if c.hasGoEndpoint(entry) {
+		return nil
+	}
+	if builtIn, ecosystem := c.builtInEndpointFor(entry.Host); builtIn != nil {
+		if ecosystem != packagev1.Ecosystem_ECOSYSTEM_GO {
+			return &config.GoProxyConflictError{GoProxyURL: rawURL, Endpoint: builtIn.Host}
+		}
+		if !builtIn.Analyze {
+			c.addGoProxyNotice(rawURL, fmt.Sprintf("PMG never decrypts %s", builtIn.Host))
+			return nil
+		}
+	}
+	if existing := config.FindNestedEndpoint(entry, otherEcosystems); existing != nil {
+		return &config.GoProxyConflictError{GoProxyURL: rawURL, Endpoint: existing.URL}
+	}
+	c.addCustomEndpoint(entry)
+	return nil
+}
+
+func (c *RegistryCatalog) addGoProxyNotice(rawURL, reason string) {
+	c.goProxyNotices = append(c.goProxyNotices, fmt.Sprintf("GOPROXY entry %s is not analyzed (%s)", rawURL, reason))
+}
+
+// hasGoEndpoint reports whether a Go endpoint already has the origin and the
+// base path of entry.
+func (c *RegistryCatalog) hasGoEndpoint(entry config.NormalizedRegistryEndpoint) bool {
+	baseURL, err := url.Parse(entry.URL)
+	if err != nil {
+		return false
+	}
+	match := c.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(baseURL)
+	return match != nil && match.Endpoint.BasePath == entry.BasePath
 }
 
 func (c *RegistryCatalog) addCustomEndpoint(configured config.NormalizedRegistryEndpoint) {
@@ -180,20 +221,22 @@ func (c *RegistryCatalog) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool
 	return false
 }
 
-func (c *RegistryCatalog) builtInCoversHostname(hostname string) bool {
+// builtInEndpointFor returns the built-in endpoint that covers hostname and
+// its ecosystem, or nil.
+func (c *RegistryCatalog) builtInEndpointFor(hostname string) (*registryEndpoint, packagev1.Ecosystem) {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
-	for _, set := range c.byEcosystem {
+	for ecosystem, set := range c.byEcosystem {
 		for index := range set.entries {
 			endpoint := &set.entries[index]
 			if endpoint.Source != registrySourceBuiltIn {
 				continue
 			}
 			if _, matches := endpointMatchesHostname(endpoint, hostname); matches {
-				return true
+				return endpoint, ecosystem
 			}
 		}
 	}
-	return false
+	return nil, packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED
 }
 
 func builtInRegistryEndpoint(host string, analyze bool, parser registryURLParser) registryEndpoint {

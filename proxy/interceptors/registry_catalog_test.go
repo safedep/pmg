@@ -3,6 +3,7 @@ package interceptors
 import (
 	"github.com/safedep/pmg/proxy"
 	"net/http"
+	"net/url"
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -123,38 +124,94 @@ func TestRegistryCatalogGoProxyURLs(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		goProxyURL  string
-		wantAdded   bool
-		matchedBase string
+		name         string
+		goProxyURL   string
+		wantBasePath string
+		wantNotice   string
+		wantConflict bool
 	}{
-		{name: "new module proxy is added", goProxyURL: "https://athens.corp.test/base", wantAdded: true, matchedBase: "/base"},
+		{name: "new module proxy is added", goProxyURL: "https://athens.corp.test/base", wantBasePath: "/base"},
 		{name: "public proxy is a built-in", goProxyURL: "https://proxy.golang.org"},
+		{name: "path under the public proxy is added", goProxyURL: "https://proxy.golang.org/cached-only", wantBasePath: "/cached-only"},
 		{name: "configured go registry already covers it", goProxyURL: "https://goproxy.corp.test/go"},
-		{name: "loopback proxy is skipped", goProxyURL: "http://localhost:3000"},
-		{name: "proxy nesting a configured endpoint is skipped", goProxyURL: "https://artifacts.corp.test"},
-		{name: "built-in host of another ecosystem is skipped", goProxyURL: "https://registry.npmjs.org/go"},
-		{name: "unsupported scheme is skipped", goProxyURL: "file:///var/goproxy"},
+		{name: "path under a configured go registry is added", goProxyURL: "https://goproxy.corp.test/go/team", wantBasePath: "/go/team"},
+		{name: "loopback proxy gets a notice", goProxyURL: "http://localhost:3000", wantNotice: "localhost"},
+		{name: "query string gets a notice", goProxyURL: "https://athens.corp.test/base?x=1", wantNotice: "query"},
+		{name: "checksum database host gets a notice", goProxyURL: "https://sum.golang.org/proxy", wantNotice: "PMG never decrypts sum.golang.org"},
+		{name: "proxy nesting an endpoint of another ecosystem fails", goProxyURL: "https://artifacts.corp.test", wantConflict: true},
+		{name: "built-in host of another ecosystem fails", goProxyURL: "https://registry.npmjs.org/go", wantConflict: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			catalog, err := NewRegistryCatalog(configured, []string{tt.goProxyURL})
-			require.NoError(t, err, "a GOPROXY entry never fails catalog construction")
+			if tt.wantConflict {
+				var conflict *config.GoProxyConflictError
+				require.ErrorAs(t, err, &conflict)
+				assert.Equal(t, tt.goProxyURL, conflict.GoProxyURL)
+				return
+			}
+			require.NoError(t, err)
 
-			goSet := catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO)
-			custom := 0
-			for _, entry := range goSet.entries {
+			var added []string
+			for _, entry := range catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).entries {
 				if entry.Name == goProxyRegistryName {
-					custom++
-					assert.Equal(t, tt.matchedBase, entry.BasePath)
+					added = append(added, entry.BasePath)
 				}
 			}
-			if tt.wantAdded {
-				assert.Equal(t, 1, custom)
+			if tt.wantBasePath != "" {
+				assert.Equal(t, []string{tt.wantBasePath}, added)
 			} else {
-				assert.Zero(t, custom)
+				assert.Empty(t, added)
 			}
+
+			if tt.wantNotice == "" {
+				assert.Empty(t, catalog.GoProxyNotices())
+				return
+			}
+			require.Len(t, catalog.GoProxyNotices(), 1)
+			assert.Contains(t, catalog.GoProxyNotices()[0], tt.goProxyURL)
+			assert.Contains(t, catalog.GoProxyNotices()[0], tt.wantNotice)
+		})
+	}
+}
+
+// A GOPROXY entry can nest with another Go endpoint on one origin. The
+// endpoint with the longest base path must parse the request, or the base
+// path ends up in the module name and the zip is not analyzed.
+func TestRegistryCatalogGoProxyURLsNestedMatchLongestBasePath(t *testing.T) {
+	catalog, err := NewRegistryCatalog(nil, []string{
+		"https://proxy.golang.org/cached-only",
+		"https://goproxy.corp.test/go",
+		"https://goproxy.corp.test/go/fallback",
+	})
+	require.NoError(t, err)
+	goSet := catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO)
+
+	tests := []struct {
+		rawURL       string
+		wantBasePath string
+		wantModule   string
+	}{
+		{rawURL: "https://proxy.golang.org/cached-only/example.com/evil/@v/v1.0.0.zip", wantBasePath: "/cached-only", wantModule: "example.com/evil"},
+		{rawURL: "https://proxy.golang.org/example.com/evil/@v/v1.0.0.zip", wantBasePath: "", wantModule: "example.com/evil"},
+		{rawURL: "https://goproxy.corp.test/go/example.com/evil/@v/v1.0.0.zip", wantBasePath: "/go", wantModule: "example.com/evil"},
+		{rawURL: "https://goproxy.corp.test/go/fallback/example.com/evil/@v/v1.0.0.zip", wantBasePath: "/go/fallback", wantModule: "example.com/evil"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.rawURL, func(t *testing.T) {
+			u, err := url.Parse(tt.rawURL)
+			require.NoError(t, err)
+
+			match := goSet.MatchURL(u)
+			require.NotNil(t, match)
+			assert.Equal(t, tt.wantBasePath, match.Endpoint.BasePath)
+
+			info, err := match.Endpoint.Parser.ParseURL(match.RelativePath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantModule, info.GetName())
+			assert.True(t, info.IsFileDownload())
 		})
 	}
 }

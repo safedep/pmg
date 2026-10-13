@@ -9,7 +9,9 @@ import (
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	drylog "github.com/safedep/dry/log"
+	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -207,6 +209,24 @@ func TestInterceptorFactoryRejectsEndpointsCoveredByBuiltIns(t *testing.T) {
 			assert.Contains(t, err.Error(), "is covered by a built-in registry")
 		})
 	}
+}
+
+func TestInterceptorFactoryRejectsGoProxyNestingAnotherEcosystem(t *testing.T) {
+	_, err := NewInterceptorFactory(nil, nil, nil, nil,
+		InterceptorContext{GoProxyURLs: []string{"https://artifacts.corp.test/api/go/go-virtual"}},
+		[]config.ProxyRegistryConfig{{
+			Name:      "company-npm",
+			Ecosystem: config.ProxyRegistryEcosystemNpm,
+			Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://artifacts.corp.test"}},
+		}})
+
+	var conflict *config.GoProxyConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, "https://artifacts.corp.test", conflict.Endpoint)
+	useful, ok := usefulerror.AsUsefulError(err)
+	require.True(t, ok)
+	assert.Equal(t, errcodes.InvalidProxyRegistries, useful.Code())
+	assert.Contains(t, useful.Help(), "GOPROXY")
 }
 
 func registryRequest(t *testing.T, rawURL string) *proxy.RequestContext {

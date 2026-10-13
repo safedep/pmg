@@ -64,6 +64,18 @@ func (e *ProxyRegistriesError) Unwrap() error {
 	return e.err
 }
 
+// GoProxyConflictError reports a GOPROXY entry of a `pmg go` run whose base
+// path nests with a registry endpoint of another ecosystem on one origin. PMG
+// cannot tell which ecosystem owns a request there, so the run fails closed.
+type GoProxyConflictError struct {
+	GoProxyURL string
+	Endpoint   string
+}
+
+func (e *GoProxyConflictError) Error() string {
+	return fmt.Sprintf("GOPROXY entry %q overlaps the registry endpoint %q", e.GoProxyURL, e.Endpoint)
+}
+
 // NormalizedRegistryEndpoint is one custom registry endpoint after
 // validation and URL normalization. The registry catalog consumes this model
 // directly, so config loading and catalog construction share one

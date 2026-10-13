@@ -81,6 +81,8 @@ proxy:
 
 Both PyPI URLs belong to one logical registry. List every metadata and artifact endpoint you want PMG to analyze. PMG does not trust hosts that it discovers through metadata links or redirects.
 
+For a Go module proxy, configure the exact base URL that `GOPROXY` uses, such as the URL of one Artifactory Go repository. PMG reads the module path after the base path.
+
 For a custom PyPI Simple API, configure a base URL that ends in `/simple` or `/+simple`.
 PMG uses this suffix to recognize project pages such as `/demo/` below that base.
 Other base paths must retain the standard `/simple/{project}/` or `/pypi/{project}/json` route.
@@ -255,9 +257,9 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
 <details>
 <summary>How it differs from npm/PyPI</summary>
 
-- The module proxy host comes from the effective `GOPROXY` (including
-  `go env -w` values), not a fixed registry. PMG intercepts whatever HTTPS
-  proxies are configured and rewrites the child's `GOPROXY` to a fail-closed,
+- PMG analyzes `proxy.golang.org`, the Go proxies in `proxy.registries`, and
+  each HTTP or HTTPS module proxy in the effective `GOPROXY` (including
+  `go env -w` values). PMG rewrites the child's `GOPROXY` to a fail-closed,
   comma-joined list: `direct` is removed (a module PMG cannot inspect fails
   instead of silently bypassing analysis) and pipe separators collapse to
   comma so a block is terminal.
@@ -273,9 +275,12 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   instructions if the PMG CA is not trusted. Linux works out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
   VCS host and are not analyzed; PMG warns when these are set.
-- PMG skips a `GOPROXY` entry that `proxy.registries` validation rejects,
-  for example an entry whose base path nests with a configured endpoint. PMG
-  logs a warning and does not analyze that entry.
+- PMG prints a warning for a `GOPROXY` entry that it cannot analyze, for
+  example a loopback host or a URL with a query string. go still uses that
+  entry.
+- `pmg go` fails when a `GOPROXY` entry and an npm or PyPI registry endpoint
+  share an origin and their base paths nest. PMG cannot tell which ecosystem
+  owns a request there.
 - The persistent proxy analyzes `proxy.golang.org` and the Go proxies in
   `proxy.registries` without `pmg go`. See
   [Go modules](./persistent-proxy.md#go-modules).

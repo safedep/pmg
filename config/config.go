@@ -738,6 +738,16 @@ func NewInvalidProxyRegistriesError(err error) error {
 		Wrap(err)
 }
 
+// NewGoProxyConflictError turns a GoProxyConflictError into the error that
+// `pmg go` reports.
+func NewGoProxyConflictError(err *GoProxyConflictError) error {
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.InvalidProxyRegistries).
+		WithHumanError(err.Error()).
+		WithHelp("Use a GOPROXY base path that does not nest with the base path of that registry endpoint, or remove the entry from GOPROXY.").
+		Wrap(err)
+}
+
 // loadConfig loads the configuration from the config file.
 // This is where we determine the source of config and use the appropriate loader.
 // Right now we only support loading from a config file using Viper. An
