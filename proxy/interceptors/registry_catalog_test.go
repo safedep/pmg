@@ -137,7 +137,8 @@ func TestRegistryCatalogGoProxyURLs(t *testing.T) {
 		{name: "path under a configured go registry is added", goProxyURL: "https://goproxy.corp.test/go/team", wantBasePath: "/go/team"},
 		{name: "loopback proxy gets a notice", goProxyURL: "http://localhost:3000", wantNotice: "localhost"},
 		{name: "query string gets a notice", goProxyURL: "https://athens.corp.test/base?x=1", wantNotice: "query"},
-		{name: "checksum database host gets a notice", goProxyURL: "https://sum.golang.org/proxy", wantNotice: "PMG never decrypts sum.golang.org"},
+		{name: "checksum database host gets a notice", goProxyURL: "https://sum.golang.org", wantNotice: "PMG never decrypts sum.golang.org"},
+		{name: "path on the checksum database host gets a notice", goProxyURL: "https://sum.golang.org/proxy", wantNotice: "PMG never decrypts sum.golang.org"},
 		{name: "proxy nesting an endpoint of another ecosystem fails", goProxyURL: "https://artifacts.corp.test", wantConflict: true},
 		{name: "built-in host of another ecosystem fails", goProxyURL: "https://registry.npmjs.org/go", wantConflict: true},
 	}

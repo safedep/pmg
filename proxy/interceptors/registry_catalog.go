@@ -132,15 +132,15 @@ func (c *RegistryCatalog) addGoProxyNotice(rawURL, reason string) {
 	c.goProxyNotices = append(c.goProxyNotices, fmt.Sprintf("GOPROXY entry %s is not analyzed (%s)", rawURL, reason))
 }
 
-// hasGoEndpoint reports whether a Go endpoint already has the origin and the
-// base path of entry.
+// hasGoEndpoint reports whether a Go endpoint that PMG analyzes already has the
+// origin and the base path of entry.
 func (c *RegistryCatalog) hasGoEndpoint(entry config.NormalizedRegistryEndpoint) bool {
 	baseURL, err := url.Parse(entry.URL)
 	if err != nil {
 		return false
 	}
 	match := c.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(baseURL)
-	return match != nil && match.Endpoint.BasePath == entry.BasePath
+	return match != nil && match.Endpoint.Analyze && match.Endpoint.BasePath == entry.BasePath
 }
 
 func (c *RegistryCatalog) addCustomEndpoint(configured config.NormalizedRegistryEndpoint) {
