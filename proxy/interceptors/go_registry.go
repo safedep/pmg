@@ -1,7 +1,6 @@
 package interceptors
 
 import (
-	"net/url"
 	"sync"
 	"time"
 
@@ -19,10 +18,6 @@ import (
 // treating them as ordinary (never-flagged) modules.
 const goToolchainModule = "golang.org/toolchain"
 
-// goChecksumDatabaseHost serves Go's checksum database. PMG never decrypts it,
-// so go's signature verification stays intact.
-const goChecksumDatabaseHost = "sum.golang.org"
-
 // zipVerdictTTL is how long a module zip verdict is reused. go asks again for
 // a zip that failed, seconds later, in the same command. The reuse keeps that
 // retry from recording the module twice and from asking the user twice. A
@@ -35,22 +30,16 @@ const zipVerdictTTL = time.Minute
 // decrypted. Module proxies from GOPROXY or proxy.registries are custom
 // endpoints.
 var goRegistryEndpoints = []registryEndpoint{
-	builtInRegistryEndpoint(urlHostname(pmgconfig.GoModuleProxyURL), true, goProxyParser{}),
-	builtInRegistryEndpoint(goChecksumDatabaseHost, false, goProxyParser{}),
+	builtInRegistryEndpoint(pmgconfig.GoModuleProxyHost, true, goProxyParser{}),
+	builtInRegistryEndpoint(pmgconfig.GoChecksumDatabaseHost, false, goProxyParser{}),
 }
 
 // GoRegistryInterceptor intercepts Go module proxy requests and analyzes
-// module zips for malware. It embeds baseRegistryInterceptor to reuse
-// ecosystem agnostic functionality.
+// module zips for malware.
 type GoRegistryInterceptor struct {
 	baseRegistryInterceptor
 	registryRequestMatcher
 	cooldownHandler *goCooldownHandler
-
-	// upstreamOrigin replaces the scheme and host of the out-of-band .info
-	// fetch. Empty means the origin of the request. The hermetic proxy E2E
-	// tests set it.
-	upstreamOrigin string
 
 	now           func() time.Time
 	zipVerdictsMu sync.Mutex
@@ -83,8 +72,7 @@ func newGoRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newGoCooldownHandler(statsCollector),
-		upstreamOrigin:         execContext.GoProxyUpstreamOrigin,
+		cooldownHandler:        newGoCooldownHandler(statsCollector, execContext.GoProxyUpstreamOrigin),
 		now:                    time.Now,
 		zipVerdicts:            map[string]zipVerdict{},
 	}
@@ -159,7 +147,7 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 ) (*proxy.InterceptorResponse, bool, error) {
 	cooldown := pmgconfig.Get().Config.DependencyCooldown
 	if cooldown.Enabled {
-		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, i.moduleProxyBaseURL(ctx, match), name, version, cooldown.Days); handled {
+		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, match.Endpoint.BasePath, name, version, cooldown.Days); handled {
 			return resp, true, nil
 		}
 	}
@@ -176,20 +164,6 @@ func (i *GoRegistryInterceptor) handleZipDownload(
 
 	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)
 	return resp, err == nil, err
-}
-
-// moduleProxyBaseURL is the base URL of the module proxy that served the
-// request: its origin and the base path of the matched endpoint.
-func (i *GoRegistryInterceptor) moduleProxyBaseURL(ctx *proxy.RequestContext, match *registryMatch) string {
-	origin := i.upstreamOrigin
-	if origin == "" {
-		u := registryAbsoluteRequestURL(ctx)
-		if u == nil {
-			return ""
-		}
-		origin = u.Scheme + "://" + u.Host
-	}
-	return origin + match.Endpoint.BasePath
 }
 
 func (i *GoRegistryInterceptor) recentZipVerdict(key string) *proxy.InterceptorResponse {
@@ -214,13 +188,4 @@ func (i *GoRegistryInterceptor) rememberZipVerdict(key string, resp *proxy.Inter
 		}
 	}
 	i.zipVerdicts[key] = zipVerdict{response: resp, expires: now.Add(zipVerdictTTL)}
-}
-
-// urlHostname returns the hostname of a built-in registry URL constant.
-func urlHostname(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		panic("interceptors: invalid built-in registry URL " + rawURL)
-	}
-	return u.Hostname()
 }

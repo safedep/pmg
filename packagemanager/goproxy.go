@@ -16,8 +16,7 @@ import (
 // flow before the proxied child process launches. ExtraEnv is appended to the
 // standard proxy env injection. GoProxyURLs are the module proxy base URLs
 // (scheme, host and optional path prefix, with no credentials) that the proxy
-// must analyze for this run: Go's module proxy is user-configurable via
-// GOPROXY, unlike npm/PyPI's fixed registry hosts.
+// must analyze for this run. The user sets the Go module proxy in GOPROXY.
 type ProxyRouting struct {
 	ExtraEnv    []string
 	GoProxyURLs []string
@@ -94,8 +93,8 @@ func readEffectiveGoEnv(ctx context.Context, keys ...string) (map[string]string,
 //     host to intercept.
 //
 // The child keeps credentials in its GOPROXY. The returned base URLs drop
-// them: the proxy matches requests by origin and path, and go sends the
-// credentials in each request's Authorization header.
+// them. The proxy matches requests by origin and path, and go sends the
+// credentials in the Authorization header of each request.
 //
 // If nothing remains (GOPROXY was direct-only), the public Go proxy is
 // injected so module downloads stay analyzable.
@@ -125,7 +124,7 @@ func normalizeGoProxy(goproxy string) (child string, goProxyURLs []string) {
 
 		if u, err := url.Parse(entry); err == nil && u.Hostname() != "" && (u.Scheme == "https" || u.Scheme == "http") {
 			u.User = nil
-			goProxyURLs = append(goProxyURLs, strings.TrimSuffix(u.String(), "/"))
+			goProxyURLs = append(goProxyURLs, u.String())
 		}
 	}
 

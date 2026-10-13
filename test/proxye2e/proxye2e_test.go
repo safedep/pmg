@@ -1940,12 +1940,12 @@ func TestProxyFlow_CustomRegistryTunneling(t *testing.T) {
 	})
 }
 
-// TestProxyFlow_ReservedGoHostRefusesInterception pins the fail-closed
-// startup contract for reserved Go hosts. The harness cannot start when the
+// TestProxyFlow_BuiltInGoHostRefusesCustomEndpoint pins the fail-closed
+// startup contract for the built-in Go hosts. The harness cannot start when the
 // catalog rejects the config, so this drives the same config path the runner
 // uses into the same factory the harness, the per-command flow, and the
 // daemon all build their interceptors from.
-func TestProxyFlow_ReservedGoHostRefusesInterception(t *testing.T) {
+func TestProxyFlow_BuiltInGoHostRefusesCustomEndpoint(t *testing.T) {
 	tests := []struct {
 		name     string
 		endpoint string
@@ -1972,7 +1972,7 @@ func TestProxyFlow_ReservedGoHostRefusesInterception(t *testing.T) {
 }
 
 // TestProxyFlow_GoChecksumDatabaseStaysTunneled pins the invariant the
-// reserved-host rejection protects: sum.golang.org is never decrypted.
+// built-in host rejection protects. PMG never decrypts sum.golang.org.
 func TestProxyFlow_GoChecksumDatabaseStaysTunneled(t *testing.T) {
 	RunCases(t, []TestCase{
 		{

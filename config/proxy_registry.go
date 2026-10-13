@@ -20,10 +20,17 @@ const (
 	ProxyRegistryEcosystemGo   ProxyRegistryEcosystem = "go"
 )
 
-// GoModuleProxyURL is the public Go module proxy, the default GOPROXY. The
-// proxy analyzes it as a built-in registry, and `pmg go` falls back to it when
-// GOPROXY names no usable module proxy.
-const GoModuleProxyURL = "https://proxy.golang.org"
+// GoModuleProxyHost serves the public Go module proxy, the default GOPROXY.
+// The proxy analyzes it as a built-in registry, and `pmg go` falls back to it
+// when GOPROXY names no usable module proxy.
+const (
+	GoModuleProxyHost = "proxy.golang.org"
+	GoModuleProxyURL  = "https://" + GoModuleProxyHost
+)
+
+// GoChecksumDatabaseHost serves the Go checksum database. PMG never decrypts
+// it, so go verifies the signatures of the database itself.
+const GoChecksumDatabaseHost = "sum.golang.org"
 
 func ProxyRegistryEcosystems() []ProxyRegistryEcosystem {
 	return []ProxyRegistryEcosystem{ProxyRegistryEcosystemNpm, ProxyRegistryEcosystemPypi, ProxyRegistryEcosystemGo}

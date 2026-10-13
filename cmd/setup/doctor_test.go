@@ -245,7 +245,7 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 			wantMessage: "is covered by a built-in registry",
 		},
 		{
-			name: "endpoint on a reserved go host fails like proxy startup",
+			name: "endpoint on a built-in go host fails like proxy startup",
 			registries: []config.ProxyRegistryConfig{{
 				Name:      "go-shadow",
 				Ecosystem: config.ProxyRegistryEcosystemNpm,

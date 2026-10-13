@@ -25,13 +25,19 @@ import (
 type goCooldownHandler struct {
 	statsCollector *AnalysisStatsCollector
 
+	// upstreamOrigin replaces the scheme and host of the out-of-band .info
+	// fetch. Empty means the origin of the request. Set by the hermetic proxy
+	// E2E tests.
+	upstreamOrigin string
+
 	mu           sync.Mutex
 	publishTimes map[string]time.Time
 }
 
-func newGoCooldownHandler(statsCollector *AnalysisStatsCollector) *goCooldownHandler {
+func newGoCooldownHandler(statsCollector *AnalysisStatsCollector, upstreamOrigin string) *goCooldownHandler {
 	return &goCooldownHandler{
 		statsCollector: statsCollector,
+		upstreamOrigin: upstreamOrigin,
 		publishTimes:   map[string]time.Time{},
 	}
 }
@@ -74,8 +80,9 @@ func (h *goCooldownHandler) HandleInfoRequest(ctx *proxy.RequestContext, module,
 // CheckZipDownload blocks the module zip when its publish time is within the
 // cooldown window. When the publish time was not observed on the wire (go
 // served .info from its local module cache, common on machines that used go
-// before PMG), it is fetched out-of-band from the upstream proxy.
-func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL, module, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
+// before PMG), it is fetched out-of-band from the module proxy that serves the
+// zip under basePath.
+func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, basePath, module, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
 	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, module, version, cooldownDays, h.statsCollector,
 		func() (time.Time, bool) {
 			h.mu.Lock()
@@ -84,14 +91,28 @@ func (h *goCooldownHandler) CheckZipDownload(ctx *proxy.RequestContext, baseURL,
 			if ok {
 				return publishTime, true
 			}
-			return h.fetchPublishTime(ctx, baseURL, module, version)
+			return h.fetchPublishTime(ctx, h.moduleProxyBaseURL(ctx, basePath), module, version)
 		})
+}
+
+// moduleProxyBaseURL is the origin of the request, or upstreamOrigin, with
+// basePath.
+func (h *goCooldownHandler) moduleProxyBaseURL(ctx *proxy.RequestContext, basePath string) string {
+	origin := h.upstreamOrigin
+	if origin == "" {
+		u := registryAbsoluteRequestURL(ctx)
+		if u == nil {
+			return ""
+		}
+		origin = u.Scheme + "://" + u.Host
+	}
+	return origin + basePath
 }
 
 // fetchPublishTime performs a one-shot authoritative $base/$module/@v/$version.info
 // fetch and caches the result. Best-effort: any failure means no publish time.
 // The fetch goes to the module proxy that served the zip request, so it
-// carries that request's Authorization header: a private proxy needs it.
+// carries the Authorization header of that request. A private proxy needs it.
 func (h *goCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, baseURL, module, version string) (time.Time, bool) {
 	if baseURL == "" {
 		return time.Time{}, false

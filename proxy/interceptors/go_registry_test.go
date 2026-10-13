@@ -57,12 +57,12 @@ func TestGoRegistryInterceptorModuleProxyBaseURL(t *testing.T) {
 	ctx := request("https://corp.example.com/goproxy/example.com/m/@v/v1.0.0.zip")
 	match := registryRequestMatch(interceptor.registries, ctx)
 	require.NotNil(t, match)
-	assert.Equal(t, "https://corp.example.com/goproxy", interceptor.moduleProxyBaseURL(ctx, match))
+	assert.Equal(t, "https://corp.example.com/goproxy", interceptor.cooldownHandler.moduleProxyBaseURL(ctx, match.Endpoint.BasePath))
 
 	ctx = request("https://proxy.golang.org/example.com/m/@v/v1.0.0.zip")
 	match = registryRequestMatch(interceptor.registries, ctx)
 	require.NotNil(t, match)
-	assert.Equal(t, "https://proxy.golang.org", interceptor.moduleProxyBaseURL(ctx, match))
+	assert.Equal(t, "https://proxy.golang.org", interceptor.cooldownHandler.moduleProxyBaseURL(ctx, match.Endpoint.BasePath))
 
 	overridden := newTestGoRegistryInterceptor(t, InterceptorContext{
 		GoProxyURLs:           []string{"https://corp.example.com/goproxy"},
@@ -71,7 +71,7 @@ func TestGoRegistryInterceptorModuleProxyBaseURL(t *testing.T) {
 	ctx = request("https://corp.example.com/goproxy/example.com/m/@v/v1.0.0.zip")
 	match = registryRequestMatch(overridden.registries, ctx)
 	require.NotNil(t, match)
-	assert.Equal(t, "http://127.0.0.1:9999/goproxy", overridden.moduleProxyBaseURL(ctx, match),
+	assert.Equal(t, "http://127.0.0.1:9999/goproxy", overridden.cooldownHandler.moduleProxyBaseURL(ctx, match.Endpoint.BasePath),
 		"the override replaces the origin and keeps the base path")
 }
 
