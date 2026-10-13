@@ -137,22 +137,6 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 		return nil
 	}
 	trustStoreSerial.Lock()
-	home := filepath.Join(env.WorkDir, "home")
-	for _, dir := range []string{
-		home,
-		filepath.Join(home, "AppData", "Roaming"),
-		filepath.Join(home, "AppData", "Local"),
-	} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			trustStoreSerial.Unlock()
-			return err
-		}
-	}
-	env.Setenv("HOME", home)
-	env.Setenv("USERPROFILE", home)
-	env.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
-	env.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
-	forwardEnv(env, "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "SystemDrive", "windir", "PATHEXT", "GOTOOLCHAIN")
 	env.Defer(func() {
 		defer trustStoreSerial.Unlock()
 		cmd := exec.Command(pmgBin, "setup", "cert", "uninstall", "--system", "--purge")
@@ -162,6 +146,21 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 			log.Warnf("acceptance: remove the PMG CA after a truststore script: %v: %s", err, out)
 		}
 	})
+
+	home := filepath.Join(env.WorkDir, "home")
+	roaming := filepath.Join(home, "AppData", "Roaming")
+	local := filepath.Join(home, "AppData", "Local")
+	for _, dir := range []string{roaming, local} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	env.Setenv("HOME", home)
+	env.Setenv("USERPROFILE", home)
+	env.Setenv("APPDATA", roaming)
+	env.Setenv("LOCALAPPDATA", local)
+	// certutil, go and the CA bundle lookup of PMG read these on Windows.
+	forwardEnv(env, "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "SystemDrive", "windir", "PATHEXT")
 	return nil
 }
 

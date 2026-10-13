@@ -48,7 +48,7 @@ func TestStatusCountsAStoreOnlyWhenTheOSTrustsTheExactCA(t *testing.T) {
 	}{
 		{name: "both stores hold the CA and the OS trusts it", user: true, system: true, wantUser: true, wantSys: true},
 		{name: "only the system store holds the CA", system: true, wantSys: true},
-		{name: "a store holds the CA without trust", user: true, verifyErr: fmt.Errorf("%w: no trust settings", ErrCANotTrusted)},
+		{name: "a store holds the CA without trust", user: true, verifyErr: fmt.Errorf("%w: no trust settings", platform.ErrCANotTrusted)},
 		{name: "no store holds the CA", user: false, system: false},
 		{name: "the trust check fails", system: true, verifyErr: assert.AnError, wantErr: true},
 	}
@@ -80,7 +80,7 @@ func TestStatusWithoutAPersistedCA(t *testing.T) {
 
 func TestGoTrustsCAChecksThePersistedCertificate(t *testing.T) {
 	dir, _ := persistedCA(t)
-	verified := fakePlatform(t, false, false, ErrCANotTrusted)
+	verified := fakePlatform(t, false, false, platform.ErrCANotTrusted)
 
 	err := GoTrustsCA(dir)
 	if !platform.CAUserScopeSupported() {
@@ -88,11 +88,6 @@ func TestGoTrustsCAChecksThePersistedCertificate(t *testing.T) {
 		assert.Empty(t, *verified)
 		return
 	}
-	assert.ErrorIs(t, err, ErrCANotTrusted)
+	assert.ErrorIs(t, err, platform.ErrCANotTrusted)
 	assert.Equal(t, []string{certmanager.CACertPath(dir)}, *verified)
-}
-
-func TestErrorsMatchThePlatformErrors(t *testing.T) {
-	assert.ErrorIs(t, ErrCANotTrusted, platform.ErrCANotTrusted)
-	assert.ErrorIs(t, ErrUserScopeUnsupported, platform.ErrCAUserScopeUnsupported)
 }

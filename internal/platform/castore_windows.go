@@ -12,7 +12,7 @@ import (
 
 func caUserScopeSupported() bool { return true }
 
-func installCA(cert *x509.Certificate, scope TrustScope) error {
+func installCA(cert *x509.Certificate, scope CAScope) error {
 	path, cleanup, err := writeTempCert(cert)
 	if err != nil {
 		return err
@@ -20,7 +20,7 @@ func installCA(cert *x509.Certificate, scope TrustScope) error {
 	defer cleanup()
 
 	args := []string{}
-	if scope == TrustScopeUser {
+	if scope == CAScopeUser {
 		args = append(args, "-user")
 	}
 	args = append(args, "-addstore", "Root", path)
@@ -31,9 +31,9 @@ func installCA(cert *x509.Certificate, scope TrustScope) error {
 	return nil
 }
 
-func uninstallCA(commonName string, scope TrustScope) error {
+func uninstallCA(commonName string, scope CAScope) error {
 	args := []string{}
-	if scope == TrustScopeUser {
+	if scope == CAScopeUser {
 		args = append(args, "-user")
 	}
 	args = append(args, "-delstore", "Root", commonName)
@@ -66,14 +66,14 @@ func verifyCATrusted(_ string, cert *x509.Certificate) error {
 	return fmt.Errorf("%w: no Root store holds the certificate with thumbprint %s", ErrCANotTrusted, id)
 }
 
-// certInWindowsStore reports whether certID, a common name or a thumbprint,
-// matches a certificate in the Root store.
-func certInWindowsStore(certID string, userScope bool) bool {
+// certInWindowsStore reports whether the Root store holds the certificate with
+// this thumbprint.
+func certInWindowsStore(thumbprint string, userScope bool) bool {
 	args := []string{}
 	if userScope {
 		args = append(args, "-user")
 	}
-	args = append(args, "-store", "Root", certID)
+	args = append(args, "-store", "Root", thumbprint)
 
 	_, err := commandRunner("certutil", args...)
 	return err == nil

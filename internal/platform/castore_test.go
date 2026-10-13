@@ -19,15 +19,17 @@ func TestFirstReadableFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(readable1, []byte("CERT1"), 0o600))
 	require.NoError(t, os.WriteFile(readable2, []byte("CERT2"), 0o600))
 
-	assert.Equal(t, readable1, FirstReadableFile("", dir, missing, readable1, readable2),
+	assert.Equal(t, readable1, firstReadableFile("", dir, missing, readable1, readable2),
 		"skips an empty path, a directory and a missing file")
-	assert.Equal(t, "", FirstReadableFile("", dir, missing))
+	assert.Equal(t, "", firstReadableFile("", dir, missing))
 }
 
-func TestSystemCABundlePathIsACandidate(t *testing.T) {
-	path := SystemCABundlePath()
-	if path == "" {
-		t.Skip("this host has no CA bundle file")
-	}
-	assert.Contains(t, CABundleCandidates(), path)
+func TestCABundlePathHonorsTheUserBundleAndSystemPathDoesNot(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "override.pem")
+	require.NoError(t, os.WriteFile(override, []byte("not the system bundle"), 0o644))
+	t.Setenv("SSL_CERT_FILE", override)
+	t.Setenv("CURL_CA_BUNDLE", "")
+
+	assert.Equal(t, override, CABundlePath(), "the merge for env-var trust honors the user's bundle")
+	assert.NotEqual(t, override, SystemCABundlePath(), "the enforce trust bundle is the system bundle, never an inherited override")
 }

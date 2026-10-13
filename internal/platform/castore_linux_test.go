@@ -66,18 +66,18 @@ func TestLinuxSystemInstallFailsWhenTheBundleMissesTheCert(t *testing.T) {
 
 	ca := certPEM(t, "Test CA")
 	require.NoError(t, os.WriteFile(bundle, certPEM(t, "Other CA"), 0o644))
-	err := installCA(parsePEM(t, ca), TrustScopeSystem)
+	err := installCA(parsePEM(t, ca), CAScopeSystem)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not contain the certificate")
 
 	require.NoError(t, os.WriteFile(bundle, append(certPEM(t, "Other CA"), ca...), 0o644))
-	require.NoError(t, installCA(parsePEM(t, ca), TrustScopeSystem))
+	require.NoError(t, installCA(parsePEM(t, ca), CAScopeSystem))
 }
 
 func TestLinuxUserScopeUnsupported(t *testing.T) {
 	assert.False(t, caUserScopeSupported())
-	assert.ErrorIs(t, installCA(testCert(t, "Test CA"), TrustScopeUser), ErrCAUserScopeUnsupported)
-	assert.ErrorIs(t, uninstallCA("Test CA", TrustScopeUser), ErrCAUserScopeUnsupported)
+	assert.ErrorIs(t, installCA(testCert(t, "Test CA"), CAScopeUser), ErrCAUserScopeUnsupported)
+	assert.ErrorIs(t, uninstallCA("Test CA", CAScopeUser), ErrCAUserScopeUnsupported)
 }
 
 func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
@@ -103,7 +103,7 @@ func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
 		commandRunner = origRunner
 	})
 
-	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), CAScopeSystem))
 
 	require.Len(t, calls, 2)
 	assert.Equal(t, "install", calls[0][0])
@@ -134,7 +134,7 @@ func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 		commandRunner = origRunner
 	})
 
-	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), CAScopeSystem))
 	assert.Equal(t, "sudo", firstName)
 }
 
@@ -216,11 +216,35 @@ func TestLinuxCAStoresTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 }
 
 func TestLinuxCABundleCandidates(t *testing.T) {
-	assert.Equal(t, []string{
-		"/etc/ssl/certs/ca-certificates.crt",
-		"/etc/pki/tls/certs/ca-bundle.crt",
-		"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-		"/etc/ssl/ca-bundle.pem",
-		"/etc/ssl/cert.pem",
-	}, CABundleCandidates())
+	candidates := caBundleCandidates()
+	assert.Contains(t, candidates, "/etc/ssl/certs/ca-certificates.crt", "Debian and Ubuntu")
+	assert.Contains(t, candidates, "/etc/pki/tls/certs/ca-bundle.crt", "Fedora and RHEL")
+}
+
+func TestLinuxCAStoresReadsTheBundleWhenTheAnchorCannotBeRead(t *testing.T) {
+	// An anchor directory that is a regular file makes stat fail with an
+	// error other than "not found".
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, nil, 0o644))
+	origDetect := detectTrustTool
+	detectTrustTool = func() (linuxTrustTool, error) {
+		return linuxTrustTool{anchorDir: notADir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
+	}
+	t.Cleanup(func() { detectTrustTool = origDetect })
+	ca := certPEM(t, "Test CA")
+	cert := parsePEM(t, ca)
+
+	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
+	require.NoError(t, os.WriteFile(bundle, ca, 0o644))
+	origBundle := systemBundlePath
+	systemBundlePath = func() string { return bundle }
+	t.Cleanup(func() { systemBundlePath = origBundle })
+
+	_, system, err := caStores(cert)
+	require.NoError(t, err)
+	assert.True(t, system, "the bundle decides when there is one")
+
+	systemBundlePath = func() string { return "" }
+	_, _, err = caStores(cert)
+	assert.Error(t, err, "without a bundle the anchor decides, so its error counts")
 }

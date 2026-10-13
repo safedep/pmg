@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/safedep/pmg/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -366,14 +365,4 @@ func TestGenerateCAWithSystemCA_SkipsOversizedSystemBundle(t *testing.T) {
 	assert.NoError(t, err, "oversized system CA bundle should be skipped")
 	assert.NotNil(t, ca, "CA certificate should not be nil")
 	assert.Less(t, len(ca.Certificate), int(maxSystemCABundleBytes), "oversized system CA content must not be merged")
-}
-
-func TestSystemCABundlePathIgnoresEnvironmentOverrides(t *testing.T) {
-	override := filepath.Join(t.TempDir(), "override.pem")
-	require.NoError(t, os.WriteFile(override, []byte("not the system bundle"), 0o644))
-	t.Setenv("SSL_CERT_FILE", override)
-	t.Setenv("CURL_CA_BUNDLE", override)
-
-	assert.Contains(t, systemCABundleCandidates(), override, "the merge for env-var trust honors the user's bundle")
-	assert.NotEqual(t, override, platform.SystemCABundlePath(), "the enforce trust bundle is the system bundle, never an inherited override")
 }

@@ -64,8 +64,8 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func installCA(cert *x509.Certificate, scope TrustScope) error {
-	if scope == TrustScopeUser {
+func installCA(cert *x509.Certificate, scope CAScope) error {
+	if scope == CAScopeUser {
 		return ErrCAUserScopeUnsupported
 	}
 
@@ -107,8 +107,8 @@ func installCA(cert *x509.Certificate, scope TrustScope) error {
 	return nil
 }
 
-func uninstallCA(_ string, scope TrustScope) error {
-	if scope == TrustScopeUser {
+func uninstallCA(_ string, scope CAScope) error {
+	if scope == CAScopeUser {
 		return ErrCAUserScopeUnsupported
 	}
 
@@ -146,16 +146,20 @@ func caStores(cert *x509.Certificate) (bool, bool, error) {
 		anchor = filepath.Join(tool.anchorDir, tool.anchorName)
 	}
 
-	hasAnchor, err := fileExists(anchor)
-	if err != nil {
-		return false, false, err
-	}
+	// The anchor decides the result only when there is no bundle. Otherwise an
+	// anchor that cannot be read must not hide a bundle that holds the CA.
+	hasAnchor, anchorErr := fileExists(anchor)
 	bundle := systemBundlePath()
 	if bundle == "" {
+		if anchorErr != nil {
+			return false, false, anchorErr
+		}
 		if !hasAnchor {
 			return false, false, nil
 		}
 		bundle = anchor
+	} else if anchorErr != nil {
+		log.Warnf("%v", anchorErr)
 	}
 	found, err := bundleContains(bundle, cert.Equal)
 	if err != nil {

@@ -89,7 +89,7 @@ status` as root inspects the system keypair when it exists.
 
 macOS and Windows have no enforcing daemon, so nothing reads a system keypair there. An
 elevated `--system` install on Windows keeps the keypair in your config directory and writes
-only the certificate to `LocalMachine\Root`. `sudo pmg setup cert install` on macOS is refused,
+only the certificate to `LocalMachine\Root`. `sudo pmg setup cert install --system` on macOS is refused,
 like a user-scope install under sudo. Older releases wrote a system keypair on macOS and Windows that
 nothing read. `pmg setup doctor` warns when it finds one. As administrator, run
 `pmg setup cert uninstall --system --purge` to remove it, then install again.

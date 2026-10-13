@@ -23,7 +23,7 @@ func loginKeychainPath() (string, error) {
 	return filepath.Join(home, "Library", "Keychains", "login.keychain-db"), nil
 }
 
-func installCA(cert *x509.Certificate, scope TrustScope) error {
+func installCA(cert *x509.Certificate, scope CAScope) error {
 	path, cleanup, err := writeTempCert(cert)
 	if err != nil {
 		return err
@@ -32,7 +32,7 @@ func installCA(cert *x509.Certificate, scope TrustScope) error {
 
 	var args []string
 	runner := commandRunner
-	if scope == TrustScopeSystem {
+	if scope == CAScopeSystem {
 		args = []string{"add-trusted-cert", "-d", "-r", "trustRoot", "-k", systemKeychainPath, path}
 		runner = runElevated
 	} else {
@@ -49,15 +49,15 @@ func installCA(cert *x509.Certificate, scope TrustScope) error {
 	return nil
 }
 
-func uninstallCA(commonName string, scope TrustScope) error {
-	// security delete-certificate removes a single match; loop until none remain
-	// so a --force rotation that left two same-CN certs is fully cleaned.
+func uninstallCA(commonName string, scope CAScope) error {
+	// security delete-certificate removes one match per run. The loop runs
+	// until none remain, so two certificates with the same name both go.
 	for i := 0; i < 16; i++ {
 		args := []string{"delete-certificate", "-c", commonName}
 		runner := commandRunner
-		if scope == TrustScopeSystem {
-			// -t clears trust settings; the keychain is a positional argument for
-			// delete-certificate (it has no -k flag, unlike add-trusted-cert).
+		if scope == CAScopeSystem {
+			// -t clears the trust settings. delete-certificate takes the keychain
+			// as a positional argument. It has no -k flag.
 			args = append(args, "-t", systemKeychainPath)
 			runner = runElevated
 		} else {
@@ -75,9 +75,8 @@ func uninstallCA(commonName string, scope TrustScope) error {
 			continue
 		}
 
-		// security reports no remaining match with "Unable to delete certificate
-		// matching ..." (older/other paths use "Could not find"). Either marks the
-		// terminal "nothing left to delete" case, so the loop ends successfully.
+		// security reports that no match remains with "Unable to delete
+		// certificate matching" or, in older releases, "Could not find".
 		msg := strings.TrimSpace(string(out))
 		if strings.Contains(msg, "Unable to delete certificate matching") || strings.Contains(msg, "Could not find") {
 			return nil
@@ -85,7 +84,7 @@ func uninstallCA(commonName string, scope TrustScope) error {
 		return fmt.Errorf("security delete-certificate failed: %w: %s", err, msg)
 	}
 
-	log.Warnf("security delete-certificate did not converge after 16 iterations; trust store cleanup may be incomplete")
+	log.Warnf("security delete-certificate still found a certificate after 16 runs. The keychain can still hold a PMG CA.")
 	return nil
 }
 

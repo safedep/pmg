@@ -249,14 +249,9 @@ func GenerateCA(config CertManagerConfig) (*Certificate, error) {
 }
 
 func parseCertificate(cert *Certificate) (*Certificate, error) {
-	certBlock, _ := pem.Decode(cert.Certificate)
-	if certBlock == nil {
-		return nil, fmt.Errorf("failed to decode PEM certificate")
-	}
-
-	x509Cert, err := x509.ParseCertificate(certBlock.Bytes)
+	x509Cert, err := ParseCertPEM(cert.Certificate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse X509 certificate: %w", err)
+		return nil, err
 	}
 
 	keyBlock, _ := pem.Decode(cert.PrivateKey)
@@ -300,7 +295,7 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 // system bundle results in certPEM being returned unchanged, so proxy startup is
 // never blocked by an optional enhancement.
 func MergeWithSystemCA(certPEM []byte) []byte {
-	systemBundlePath := platform.FirstReadableFile(systemCABundleCandidates()...)
+	systemBundlePath := platform.CABundlePath()
 	if systemBundlePath == "" {
 		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
 		return certPEM
@@ -360,14 +355,4 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 		X509Cert:    caCert.X509Cert,
 		PrivKey:     caCert.PrivKey,
 	}, nil
-}
-
-func systemCABundleCandidates() []string {
-	var candidates []string
-	for _, key := range []string{"SSL_CERT_FILE", "CURL_CA_BUNDLE"} {
-		if value := os.Getenv(key); value != "" {
-			candidates = append(candidates, value)
-		}
-	}
-	return append(candidates, platform.CABundleCandidates()...)
 }

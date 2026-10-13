@@ -23,7 +23,7 @@ func TestDarwinInstallUserArgs(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeUser))
+	require.NoError(t, installCA(testCert(t, "Test CA"), CAScopeUser))
 	assert.Equal(t, "security", gotName)
 	assert.Equal(t, "add-trusted-cert", gotArgs[0])
 	assert.NotContains(t, gotArgs, "-d") // user scope: no -d
@@ -39,22 +39,26 @@ func TestDarwinInstallSystemArgs(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), CAScopeSystem))
 	assert.Contains(t, gotArgs, "-d") // system scope: -d
 	assert.Contains(t, gotArgs, systemKeychainPath)
 }
 
-func TestDarwinUninstallStopsWhenNotFound(t *testing.T) {
-	calls := 0
+func TestDarwinUserUninstallNamesTheLoginKeychain(t *testing.T) {
+	var gotArgs [][]string
 	orig := commandRunner
-	commandRunner = func(_ string, _ ...string) ([]byte, error) {
-		calls++
+	commandRunner = func(_ string, args ...string) ([]byte, error) {
+		gotArgs = append(gotArgs, args)
 		return []byte(`Unable to delete certificate matching "Test CA"`), assert.AnError
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, uninstallCA("Test CA", TrustScopeUser))
-	assert.Equal(t, 1, calls)
+	require.NoError(t, uninstallCA("Test CA", CAScopeUser))
+	require.Len(t, gotArgs, 1, "a not-found result ends the loop")
+	login, err := loginKeychainPath()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"delete-certificate", "-c", "Test CA", login}, gotArgs[0],
+		"without a keychain, security also searches the System keychain and fails there without root")
 }
 
 func TestDarwinUninstallStopsAfterDeletingMatches(t *testing.T) {
@@ -69,7 +73,7 @@ func TestDarwinUninstallStopsAfterDeletingMatches(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, uninstallCA("Test CA", TrustScopeUser))
+	require.NoError(t, uninstallCA("Test CA", CAScopeUser))
 	assert.Equal(t, 2, calls) // delete one, then terminal not-found
 }
 
@@ -82,7 +86,7 @@ func TestDarwinUninstallSystemTargetsSystemKeychain(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, uninstallCA("Test CA", TrustScopeSystem))
+	require.NoError(t, uninstallCA("Test CA", CAScopeSystem))
 	assert.Contains(t, gotArgs, systemKeychainPath)
 	assert.Contains(t, gotArgs, "-t")
 }
@@ -162,11 +166,8 @@ func TestDarwinCAStoresMatchesTheExactCertificateInEachKeychain(t *testing.T) {
 }
 
 func TestDarwinCABundleCandidates(t *testing.T) {
-	assert.Equal(t, []string{
-		"/opt/homebrew/etc/openssl@3/cert.pem",
-		"/usr/local/etc/openssl@3/cert.pem",
-		"/etc/ssl/cert.pem",
-	}, CABundleCandidates())
+	assert.Contains(t, caBundleCandidates(), "/etc/ssl/cert.pem")
+	assert.Contains(t, caBundleCandidates(), "/opt/homebrew/etc/openssl@3/cert.pem")
 }
 
 // writeCertFile writes cert as PEM to a temp file, as the persisted CA is

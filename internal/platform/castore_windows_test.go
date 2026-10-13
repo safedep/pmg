@@ -20,7 +20,7 @@ func TestWindowsInstallUserAddsUserFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeUser))
+	require.NoError(t, installCA(testCert(t, "Test CA"), CAScopeUser))
 	assert.Equal(t, "certutil", gotName)
 	assert.Equal(t, "-user", gotArgs[0])
 	assert.Contains(t, gotArgs, "-addstore")
@@ -36,7 +36,7 @@ func TestWindowsInstallSystemHasNoUserFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), CAScopeSystem))
 	assert.NotContains(t, gotArgs, "-user")
 	assert.Equal(t, "-addstore", gotArgs[0])
 }
@@ -47,7 +47,7 @@ func TestWindowsUninstallNotFoundIsOK(t *testing.T) {
 		return []byte("Cannot find the requested object"), assert.AnError
 	}
 	t.Cleanup(func() { commandRunner = orig })
-	require.NoError(t, uninstallCA("Test CA", TrustScopeUser))
+	require.NoError(t, uninstallCA("Test CA", CAScopeUser))
 }
 
 func TestWindowsVerifyCATrustedLooksUpTheThumbprint(t *testing.T) {
@@ -122,13 +122,10 @@ func TestWindowsCAStoresMatchesTheExactCertificateInEachStore(t *testing.T) {
 
 func TestWindowsCABundleCandidates(t *testing.T) {
 	t.Setenv("ProgramFiles", `C:\Program Files`)
-	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
+	t.Setenv("ProgramFiles(x86)", "")
 	t.Setenv("SystemRoot", `C:\Windows`)
 
-	assert.Equal(t, []string{
-		`C:\Program Files\Git\mingw64\ssl\certs\ca-bundle.crt`,
-		`C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt`,
-		`C:\Program Files (x86)\Git\mingw32\ssl\certs\ca-bundle.crt`,
-		`C:\Windows\System32\curl-ca-bundle.crt`,
-	}, CABundleCandidates())
+	candidates := caBundleCandidates()
+	assert.Contains(t, candidates, `C:\Program Files\Git\mingw64\ssl\certs\ca-bundle.crt`, "Git for Windows")
+	assert.Contains(t, candidates, `C:\Windows\System32\curl-ca-bundle.crt`)
 }

@@ -10,8 +10,8 @@ import (
 	"github.com/safedep/pmg/errcodes"
 )
 
-func installCA(_ *x509.Certificate, _ TrustScope) error { return unsupportedPlatformError() }
-func uninstallCA(_ string, _ TrustScope) error          { return unsupportedPlatformError() }
+func installCA(_ *x509.Certificate, _ CAScope) error { return unsupportedPlatformError() }
+func uninstallCA(_ string, _ CAScope) error          { return unsupportedPlatformError() }
 func caStores(_ *x509.Certificate) (bool, bool, error) {
 	return false, false, unsupportedPlatformError()
 }

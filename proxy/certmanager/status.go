@@ -2,10 +2,7 @@ package certmanager
 
 import (
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/hex"
-	"encoding/pem"
-	"fmt"
 	"os"
 	"time"
 )
@@ -63,14 +60,9 @@ func InspectCA(dir string) (CAStatus, error) {
 	}
 	st.CertPresent = true
 
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return st, fmt.Errorf("failed to decode CA certificate PEM")
-	}
-
-	x509Cert, err := x509.ParseCertificate(block.Bytes)
+	x509Cert, err := ParseCertPEM(certPEM)
 	if err != nil {
-		return st, fmt.Errorf("failed to parse CA certificate: %w", err)
+		return st, err
 	}
 
 	st.NotAfter = x509Cert.NotAfter

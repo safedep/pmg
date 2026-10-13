@@ -4,32 +4,12 @@
 package truststore
 
 import (
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/proxy/certmanager"
 )
-
-// Scope selects which trust store to operate on.
-type Scope = platform.TrustScope
-
-const (
-	ScopeUser   = platform.TrustScopeUser
-	ScopeSystem = platform.TrustScopeSystem
-)
-
-// ErrUserScopeUnsupported is returned by Install and Uninstall when the
-// platform has no per-user trust store (Linux). Callers treat it as
-// information.
-var ErrUserScopeUnsupported = platform.ErrCAUserScopeUnsupported
-
-// ErrCANotTrusted is returned when the OS trust store does not trust the
-// persisted PMG CA.
-var ErrCANotTrusted = platform.ErrCANotTrusted
 
 // Tests replace these to drive Status and GoTrustsCA on any OS.
 var (
@@ -38,8 +18,8 @@ var (
 )
 
 // Install adds certPEM (a PEM-encoded CA certificate) to the OS trust store.
-func Install(certPEM []byte, scope Scope) error {
-	cert, err := parseCert(certPEM)
+func Install(certPEM []byte, scope platform.CAScope) error {
+	cert, err := certmanager.ParseCertPEM(certPEM)
 	if err != nil {
 		return err
 	}
@@ -47,7 +27,7 @@ func Install(certPEM []byte, scope Scope) error {
 }
 
 // Uninstall removes every certificate named commonName from the OS trust store.
-func Uninstall(commonName string, scope Scope) error {
+func Uninstall(commonName string, scope platform.CAScope) error {
 	return platform.UninstallCA(commonName, scope)
 }
 
@@ -56,8 +36,7 @@ func Uninstall(commonName string, scope Scope) error {
 // certificate with the same name does not count, because a TLS client rejects
 // what the CA signs. With no CA on disk, no store trusts it.
 func Status(configDir string) (user bool, system bool, err error) {
-	certPath := certmanager.CACertPath(configDir)
-	cert, err := readCert(certPath)
+	cert, err := certmanager.LoadCACert(configDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, false, nil
 	}
@@ -68,8 +47,8 @@ func Status(configDir string) (user bool, system bool, err error) {
 	if err != nil || (!user && !system) {
 		return false, false, err
 	}
-	if err := verifyCATrusted(certPath, cert); err != nil {
-		if errors.Is(err, ErrCANotTrusted) {
+	if err := verifyCATrusted(certmanager.CACertPath(configDir), cert); err != nil {
+		if errors.Is(err, platform.ErrCANotTrusted) {
 			return false, false, nil
 		}
 		return false, false, err
@@ -94,24 +73,4 @@ func GoTrustsCA(configDir string) error {
 		return err
 	}
 	return verifyCATrusted(certmanager.CACertPath(configDir), ca.X509Cert)
-}
-
-func readCert(path string) (*x509.Certificate, error) {
-	certPEM, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseCert(certPEM)
-}
-
-func parseCert(certPEM []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, errors.New("no PEM certificate found")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate: %w", err)
-	}
-	return cert, nil
 }

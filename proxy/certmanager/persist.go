@@ -1,6 +1,8 @@
 package certmanager
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -108,4 +110,28 @@ func LoadCA(dir string) (*Certificate, error) {
 	}
 
 	return parsed, nil
+}
+
+// ParseCertPEM parses the first PEM block of certPEM as a certificate.
+func ParseCertPEM(certPEM []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, errors.New("failed to decode PEM certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse X509 certificate: %w", err)
+	}
+	return cert, nil
+}
+
+// LoadCACert reads the CA certificate persisted in dir. It does not read the
+// private key, so a process that cannot read the key can still check trust.
+// When the file is missing the error wraps os.ErrNotExist.
+func LoadCACert(dir string) (*x509.Certificate, error) {
+	certPEM, err := os.ReadFile(CACertPath(dir))
+	if err != nil {
+		return nil, err
+	}
+	return ParseCertPEM(certPEM)
 }

@@ -6,19 +6,19 @@ import (
 	"os"
 )
 
-// TrustScope selects the OS trust store that holds the PMG CA.
-type TrustScope int
+// CAScope selects the OS trust store that holds the PMG CA.
+type CAScope int
 
 const (
-	// TrustScopeUser is the per-user trust store. It needs no elevation.
+	// CAScopeUser is the per-user trust store. It needs no elevation.
 	// Linux has none.
-	TrustScopeUser TrustScope = iota
-	// TrustScopeSystem is the machine-wide trust store. PMG elevates the write.
-	TrustScopeSystem
+	CAScopeUser CAScope = iota
+	// CAScopeSystem is the machine-wide trust store. PMG elevates the write.
+	CAScopeSystem
 )
 
-func (s TrustScope) String() string {
-	if s == TrustScopeSystem {
+func (s CAScope) String() string {
+	if s == CAScopeSystem {
 		return "system"
 	}
 	return "user"
@@ -32,11 +32,11 @@ var ErrCAUserScopeUnsupported = errors.New("user-scope trust store is not suppor
 var ErrCANotTrusted = errors.New("the OS trust store does not trust the PMG CA")
 
 // InstallCA adds the CA certificate to the trust store of scope.
-func InstallCA(cert *x509.Certificate, scope TrustScope) error { return installCA(cert, scope) }
+func InstallCA(cert *x509.Certificate, scope CAScope) error { return installCA(cert, scope) }
 
 // UninstallCA removes every certificate named commonName from the trust store
 // of scope. A store that holds none is not an error.
-func UninstallCA(commonName string, scope TrustScope) error { return uninstallCA(commonName, scope) }
+func UninstallCA(commonName string, scope CAScope) error { return uninstallCA(commonName, scope) }
 
 // CAStores reports which trust store holds this exact certificate. A
 // different certificate with the same name does not count.
@@ -52,18 +52,21 @@ func VerifyCATrusted(certPath string, cert *x509.Certificate) error {
 // store. Linux has none.
 func CAUserScopeSupported() bool { return caUserScopeSupported() }
 
-// CABundleCandidates lists where the OS keeps its CA bundle file, without the
-// environment overrides.
-func CABundleCandidates() []string { return caBundleCandidates() }
-
 // SystemCABundlePath returns the first readable CA bundle of the OS, or ""
 // when the host has none. An inherited SSL_CERT_FILE or CURL_CA_BUNDLE does
 // not count, because it can name a bundle without the PMG CA.
-func SystemCABundlePath() string { return FirstReadableFile(CABundleCandidates()...) }
+func SystemCABundlePath() string { return firstReadableFile(caBundleCandidates()...) }
 
-// FirstReadableFile returns the first of paths that is a regular file the
+// CABundlePath returns the CA bundle that the user's tools read: the one in
+// SSL_CERT_FILE or CURL_CA_BUNDLE, else the bundle of the OS. It returns ""
+// when none is readable.
+func CABundlePath() string {
+	return firstReadableFile(append([]string{os.Getenv("SSL_CERT_FILE"), os.Getenv("CURL_CA_BUNDLE")}, caBundleCandidates()...)...)
+}
+
+// firstReadableFile returns the first of paths that is a regular file the
 // process can open, or "".
-func FirstReadableFile(paths ...string) string {
+func firstReadableFile(paths ...string) string {
 	for _, path := range paths {
 		if path == "" {
 			continue
