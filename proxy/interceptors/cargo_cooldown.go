@@ -3,9 +3,9 @@ package interceptors
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,32 +23,49 @@ import (
 // downloads .crate files without touching the index, so downloads are also
 // checked against publish times captured from index responses, with an
 // out-of-band index fetch as fallback (like the Go handler).
+//
+// Publish times are kept per registry. The built-in crates.io hosts form one
+// registry, and each Cargo entry of proxy.registries is another, so one crate
+// name in two registries never shares a publish time.
 type cargoCooldownHandler struct {
 	statsCollector *AnalysisStatsCollector
-	indexBaseURL   string
+	registries     registrySet
+
+	// upstreamOrigin replaces the scheme and host of the out-of-band index
+	// fetch. Empty means the origin of the endpoint. Set by the hermetic proxy
+	// E2E tests.
+	upstreamOrigin string
 
 	mu           sync.Mutex
 	publishTimes map[string]time.Time
+	// indexEndpoints remembers, for each registry, the position in
+	// registries of the endpoint that last served the index.
+	indexEndpoints map[string]int
 }
 
-const defaultCargoIndexBaseURL = "https://index.crates.io"
-
-func newCargoCooldownHandler(statsCollector *AnalysisStatsCollector, indexBaseURL string) *cargoCooldownHandler {
-	if indexBaseURL == "" {
-		indexBaseURL = defaultCargoIndexBaseURL
-	}
-
+func newCargoCooldownHandler(statsCollector *AnalysisStatsCollector, registries registrySet, upstreamOrigin string) *cargoCooldownHandler {
 	return &cargoCooldownHandler{
 		statsCollector: statsCollector,
-		indexBaseURL:   indexBaseURL,
+		registries:     registries,
+		upstreamOrigin: upstreamOrigin,
 		publishTimes:   map[string]time.Time{},
+		indexEndpoints: map[string]int{},
 	}
 }
 
-// cargoCrateVersionKey keys publish times by lowercased crate name: index
-// paths are lowercase while download URLs use the crate's canonical case.
-func cargoCrateVersionKey(name, version string) string {
-	return strings.ToLower(name) + "@" + version
+// cargoRegistryKey names the registry that owns endpoint.
+func cargoRegistryKey(endpoint *registryEndpoint) string {
+	if endpoint.Source == registrySourceBuiltIn {
+		return "crates.io"
+	}
+	return "custom/" + endpoint.Name
+}
+
+// cargoCrateVersionKey keys publish times by registry and lowercased crate
+// name: index paths are lowercase while download URLs use the crate's
+// canonical case.
+func cargoCrateVersionKey(registry, name, version string) string {
+	return registry + "|" + strings.ToLower(name) + "@" + version
 }
 
 // cargoIndexEntry is one sparse-index NDJSON line. vers is empty for
@@ -62,7 +79,8 @@ type cargoIndexEntry struct {
 // publish times for the download check and strips versions within the
 // cooldown window. Skip-list semantics are handled here so callers do not
 // need to consult the config.
-func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, crate string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, endpoint *registryEndpoint, crate string, cooldownDays int, pinnedVersion string) (*proxy.InterceptorResponse, error) {
+	registry := cargoRegistryKey(endpoint)
 	skip := pmgconfig.CooldownSkip(packagev1.Ecosystem_ECOSYSTEM_CARGO, crate)
 
 	forceUncompressedNonConditionalResponse(ctx.Headers)
@@ -73,7 +91,7 @@ func (h *cargoCooldownHandler) HandleIndexRequest(ctx *proxy.RequestContext, cra
 		}
 
 		entries, dates := parseCargoIndexBody(ctx.RequestID, crate, body)
-		h.recordPublishTimes(crate, dates)
+		h.recordPublishTimes(registry, crate, dates)
 
 		if skip.SkipAll {
 			// Whole crate is on the cooldown skip list: pass the index through
@@ -145,11 +163,11 @@ func parseCargoIndexBody(requestID, crate string, body []byte) ([]cargoIndexEntr
 
 // recordPublishTimes caches a crate's per-version publish times for the
 // upcoming .crate download checks.
-func (h *cargoCooldownHandler) recordPublishTimes(crate string, dates map[string]time.Time) {
+func (h *cargoCooldownHandler) recordPublishTimes(registry, crate string, dates map[string]time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for version, t := range dates {
-		h.publishTimes[cargoCrateVersionKey(crate, version)] = t
+		h.publishTimes[cargoCrateVersionKey(registry, crate, version)] = t
 	}
 }
 
@@ -195,47 +213,117 @@ func stripCargoIndexLines(entries []cargoIndexEntry, dates map[string]time.Time,
 // CheckCrateDownload blocks a .crate download when its publish time is within
 // the cooldown window. When the publish time was not observed on the wire
 // (cargo resolved from Cargo.lock or a warm index cache), it is fetched
-// out-of-band from the upstream sparse index.
-func (h *cargoCooldownHandler) CheckCrateDownload(ctx *proxy.RequestContext, crate, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
+// out-of-band from the index of the registry that owns endpoint.
+func (h *cargoCooldownHandler) CheckCrateDownload(ctx *proxy.RequestContext, endpoint *registryEndpoint, crate, version string, cooldownDays int) (*proxy.InterceptorResponse, bool) {
+	registry := cargoRegistryKey(endpoint)
 	return cooldownCheckDownload(ctx, packagev1.Ecosystem_ECOSYSTEM_CARGO, crate, version, cooldownDays, h.statsCollector,
 		func() (time.Time, bool) {
 			h.mu.Lock()
-			publishTime, ok := h.publishTimes[cargoCrateVersionKey(crate, version)]
+			publishTime, ok := h.publishTimes[cargoCrateVersionKey(registry, crate, version)]
 			h.mu.Unlock()
 			if ok {
 				return publishTime, true
 			}
-			return h.fetchPublishTime(ctx, crate, version)
+			return h.fetchPublishTime(ctx, registry, crate, version)
 		})
 }
 
-// fetchPublishTime performs a one-shot authoritative sparse-index fetch for
-// the crate and caches every version's publish time from it. Best-effort: any
-// failure means no publish time.
-func (h *cargoCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, crate, version string) (time.Time, bool) {
-	indexURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(h.indexBaseURL, "/"), cargoSparseIndexPath(crate))
+// fetchPublishTime fetches the index file of the crate from the endpoints of
+// the registry and caches every version's publish time from it. An endpoint
+// does not say whether it serves the index or the downloads, so each endpoint
+// of the registry is tried as an index base, the last one that answered
+// first. Best-effort: any failure means no publish time.
+func (h *cargoCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, registry, crate, version string) (time.Time, bool) {
+	for _, position := range h.indexCandidates(registry) {
+		dates, ok := h.fetchIndex(ctx, &h.registries.entries[position], crate)
+		if !ok {
+			continue
+		}
 
-	resp, err := cooldownFetchClient.Get(indexURL)
+		h.mu.Lock()
+		h.indexEndpoints[registry] = position
+		h.mu.Unlock()
+		h.recordPublishTimes(registry, crate, dates)
+
+		publishTime, found := dates[version]
+		return publishTime, found
+	}
+	return time.Time{}, false
+}
+
+// indexCandidates returns the positions in registries of the endpoints of
+// registry that PMG analyzes, the one that last served the index first.
+func (h *cargoCooldownHandler) indexCandidates(registry string) []int {
+	h.mu.Lock()
+	last, known := h.indexEndpoints[registry]
+	h.mu.Unlock()
+
+	var candidates []int
+	if known {
+		candidates = append(candidates, last)
+	}
+	for position := range h.registries.entries {
+		endpoint := &h.registries.entries[position]
+		if position != last && endpoint.Analyze && cargoRegistryKey(endpoint) == registry {
+			candidates = append(candidates, position)
+		}
+	}
+	return candidates
+}
+
+// fetchIndex reads the index file of crate from endpoint. It succeeds only
+// for HTTP 200 with at least one index entry, so a download endpoint that
+// answers with an error page is skipped. A custom endpoint gets the
+// Authorization header of the download request: cargo sends the token of a
+// registry to its index and to its downloads alike, and the endpoints of one
+// proxy.registries entry belong to one registry. crates.io gets none.
+func (h *cargoCooldownHandler) fetchIndex(ctx *proxy.RequestContext, endpoint *registryEndpoint, crate string) (map[string]time.Time, bool) {
+	indexURL := h.indexBaseURL(endpoint) + "/" + cargoSparseIndexPath(crate)
+
+	req, err := http.NewRequest(http.MethodGet, indexURL, nil)
+	if err != nil {
+		log.Warnf("[%s] Cooldown: invalid index URL %s: %v", ctx.RequestID, indexURL, err)
+		return nil, false
+	}
+	if endpoint.Source == registrySourceCustom {
+		if authorization := ctx.Headers.Get("Authorization"); authorization != "" {
+			req.Header.Set("Authorization", authorization)
+		}
+	}
+
+	resp, err := cooldownFetchClient.Do(req)
 	if err != nil {
 		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, indexURL, err)
-		return time.Time{}, false
+		return nil, false
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Warnf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, indexURL, resp.StatusCode)
-		return time.Time{}, false
+		log.Debugf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, indexURL, resp.StatusCode)
+		return nil, false
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		log.Warnf("[%s] Cooldown: failed to read %s: %v", ctx.RequestID, indexURL, err)
-		return time.Time{}, false
+		return nil, false
 	}
 
-	_, dates := parseCargoIndexBody(ctx.RequestID, crate, body)
-	h.recordPublishTimes(crate, dates)
+	entries, dates := parseCargoIndexBody(ctx.RequestID, crate, body)
+	if !slices.ContainsFunc(entries, func(entry cargoIndexEntry) bool { return entry.vers != "" }) {
+		log.Debugf("[%s] Cooldown: %s is not a sparse index file", ctx.RequestID, indexURL)
+		return nil, false
+	}
+	return dates, true
+}
 
-	publishTime, ok := dates[version]
-	return publishTime, ok
+// indexBaseURL is the origin of endpoint, or upstreamOrigin, with the base
+// path of endpoint. The built-in crates.io endpoints have no scheme and are
+// served over HTTPS.
+func (h *cargoCooldownHandler) indexBaseURL(endpoint *registryEndpoint) string {
+	origin := h.upstreamOrigin
+	if origin == "" {
+		origin = endpoint.origin()
+	}
+	return strings.TrimSuffix(origin+endpoint.BasePath, "/")
 }

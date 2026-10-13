@@ -43,6 +43,13 @@ var proxyEcosystems = map[config.ProxyRegistryEcosystem]ecosystemSpec{
 			return goProxyParser{}
 		},
 	},
+	config.ProxyRegistryEcosystemCargo: {
+		proto:    packagev1.Ecosystem_ECOSYSTEM_CARGO,
+		builtIns: cargoRegistryEndpoints,
+		newCustomParser: func(string) registryURLParser {
+			return cargoCustomParser{}
+		},
+	},
 }
 
 // goProxyRegistryName names the endpoints that come from the GOPROXY of a
@@ -173,13 +180,10 @@ func (c *RegistryCatalog) addCustomEndpoint(configured config.NormalizedRegistry
 }
 
 func newBuiltInRegistryCatalog() *RegistryCatalog {
-	byEcosystem := make(map[packagev1.Ecosystem]registrySet, len(proxyEcosystems)+1)
+	byEcosystem := make(map[packagev1.Ecosystem]registrySet, len(proxyEcosystems))
 	for _, spec := range proxyEcosystems {
 		byEcosystem[spec.proto] = registrySet{entries: append([]registryEndpoint(nil), spec.builtIns...)}
 	}
-	// Cargo has built-in endpoints only. proxy.registries does not support
-	// custom cargo registries yet, so cargo is not in the spec table.
-	byEcosystem[packagev1.Ecosystem_ECOSYSTEM_CARGO] = registrySet{entries: append([]registryEndpoint(nil), cargoRegistryEndpoints...)}
 	return &RegistryCatalog{byEcosystem: byEcosystem}
 }
 

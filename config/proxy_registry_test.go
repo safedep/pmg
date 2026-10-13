@@ -588,3 +588,50 @@ func TestValidateProxyRegistriesRejectsGoAliases(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already assigned")
 }
+
+func TestNormalizeRegistryEndpointCargo(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantURL string
+		wantErr string
+	}{
+		{name: "sparse index URL", rawURL: "https://cargo.example.test/api/cargo/team/index/", wantURL: "https://cargo.example.test/api/cargo/team/index"},
+		{name: "sparse+ prefix from .cargo/config.toml", rawURL: "sparse+https://cargo.example.test/api/cargo/team/index/", wantURL: "https://cargo.example.test/api/cargo/team/index"},
+		{name: "git protocol is not a URL scheme", rawURL: "git+https://cargo.example.test/index", wantErr: "scheme"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry, err := NormalizeRegistryEndpoint("company-cargo", ProxyRegistryEcosystemCargo, tt.rawURL)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, entry.URL)
+		})
+	}
+}
+
+func TestValidateProxyRegistriesCargo(t *testing.T) {
+	assert.NoError(t, ValidateProxyRegistries([]ProxyRegistryConfig{{
+		Name:      "company-cargo",
+		Ecosystem: ProxyRegistryEcosystemCargo,
+		Endpoints: []ProxyRegistryEndpointConfig{
+			{URL: "sparse+https://cargo.example.test/api/cargo/team/index/"},
+			{URL: "https://cargo.example.test/api/cargo/team/v1/crates"},
+		},
+	}}))
+
+	err := ValidateProxyRegistries([]ProxyRegistryConfig{{
+		Name:      "company-cargo",
+		Ecosystem: ProxyRegistryEcosystemCargo,
+		Endpoints: []ProxyRegistryEndpointConfig{
+			{URL: "sparse+https://cargo.example.test/index/"},
+			{URL: "https://cargo.example.test/index"},
+		},
+	}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already assigned")
+}

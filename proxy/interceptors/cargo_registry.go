@@ -52,7 +52,7 @@ func newCargoRegistryInterceptor(
 			execContext:      execContext,
 		},
 		registryRequestMatcher: registryRequestMatcher{registries: registries},
-		cooldownHandler:        newCargoCooldownHandler(statsCollector, execContext.CargoIndexBaseURL),
+		cooldownHandler:        newCargoCooldownHandler(statsCollector, registries, execContext.CargoUpstreamOrigin),
 	}
 }
 
@@ -70,6 +70,7 @@ func (i *CargoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pr
 // request. The registry config.json passes through untouched.
 func (i *CargoRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	match *registryMatch,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
 	info, ok := pkgInfo.(*cargoCrateInfo)
@@ -84,15 +85,15 @@ func (i *CargoRegistryInterceptor) handleMetadataRequest(
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	return i.cooldownHandler.HandleIndexRequest(ctx, info.name, depCooldownConfig.Days, i.execContext.PinnedVersions[info.name])
+	return i.cooldownHandler.HandleIndexRequest(ctx, match.Endpoint, info.name, depCooldownConfig.Days, i.execContext.PinnedVersions[info.name])
 }
 
 // handleArtifact runs the cooldown, trust, analysis, and verdict pipeline
 // for a .crate download.
-func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
+func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, match *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
 	if depCooldownConfig.Enabled {
-		if resp, handled := i.cooldownHandler.CheckCrateDownload(ctx, name, version, depCooldownConfig.Days); handled {
+		if resp, handled := i.cooldownHandler.CheckCrateDownload(ctx, match.Endpoint, name, version, depCooldownConfig.Days); handled {
 			return resp, nil
 		}
 	}

@@ -320,7 +320,7 @@ func (m *registryRequestMatcher) ShouldIntercept(ctx *proxy.RequestContext) bool
 // registry read-path flow.
 type registryRequestHandler interface {
 	handleArtifact(ctx *proxy.RequestContext, match *registryMatch, name, version string) (*proxy.InterceptorResponse, error)
-	handleMetadataRequest(ctx *proxy.RequestContext, pkgInfo packageInfo) (*proxy.InterceptorResponse, error)
+	handleMetadataRequest(ctx *proxy.RequestContext, match *registryMatch, pkgInfo packageInfo) (*proxy.InterceptorResponse, error)
 }
 
 // handleRegistryRequest is the shared registry request flow: match the
@@ -389,7 +389,7 @@ func handleRegistryRequest(
 	}
 
 	if !pkgInfo.IsFileDownload() {
-		return handler.handleMetadataRequest(ctx, pkgInfo)
+		return handler.handleMetadataRequest(ctx, match, pkgInfo)
 	}
 
 	return unresolvedRegistryIdentity(ctx), nil

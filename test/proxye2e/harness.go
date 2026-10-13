@@ -140,7 +140,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 			GoProxyUpstreamOrigin: registry.goBaseURL(),
 			// The cargo interceptor's out-of-band publish-time fetches go to
 			// the plain-HTTP mock index instead of the real crates.io.
-			CargoIndexBaseURL: registry.cargoBaseURL(),
+			CargoUpstreamOrigin: registry.cargoBaseURL(),
 		},
 		config.Get().Config.Proxy.Registries,
 	)

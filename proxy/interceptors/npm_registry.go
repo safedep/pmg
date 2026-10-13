@@ -62,6 +62,7 @@ func (i *NpmRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 // handleMetadataRequest applies dependency cooldown to a metadata request.
 func (i *NpmRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	_ *registryMatch,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
