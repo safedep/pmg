@@ -313,7 +313,7 @@ jobs:
           ACCEPTANCE_CATEGORY: enforce
           GOCACHE: ${{ runner.temp }}/go-build-root
         run: |
-          sudo --preserve-env=PATH,HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS,PMG_BIN,ACCEPTANCE_CATEGORY,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_ENDPOINT_ID \
+          sudo --preserve-env=PATH,HOME,RUSTUP_HOME,CARGO_HOME,GOPATH,GOMODCACHE,GOCACHE,GOFLAGS,PMG_BIN,ACCEPTANCE_CATEGORY,SAFEDEP_API_KEY,SAFEDEP_TENANT_ID,PMG_CLOUD_ENABLED,PMG_CLOUD_ENDPOINT_ID \
             "$(command -v gotestsum)" --junitfile "${RUNNER_TEMP}/acceptance.xml" --format testname \
             -- -tags acceptance -timeout 20m ./test/acceptance
 

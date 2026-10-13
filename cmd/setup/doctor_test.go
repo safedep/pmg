@@ -254,6 +254,29 @@ func TestCheckProxyRegistriesResult(t *testing.T) {
 			wantStatus:  doctor.StatusFail,
 			wantMessage: "is covered by a built-in registry",
 		},
+		{
+			name: "cargo registry with index and dl endpoints passes",
+			registries: []config.ProxyRegistryConfig{{
+				Name:      "cargo-mirror",
+				Ecosystem: config.ProxyRegistryEcosystemCargo,
+				Endpoints: []config.ProxyRegistryEndpointConfig{
+					{URL: "sparse+https://cargo.example.test/api/cargo/team/index/"},
+					{URL: "https://cargo.example.test/api/cargo/team/v1/crates"},
+				},
+			}},
+			wantStatus:  doctor.StatusPass,
+			wantMessage: "2 custom registry endpoint(s) configured",
+		},
+		{
+			name: "cargo endpoint on a built-in crates.io host fails like proxy startup",
+			registries: []config.ProxyRegistryConfig{{
+				Name:      "cargo-shadow",
+				Ecosystem: config.ProxyRegistryEcosystemCargo,
+				Endpoints: []config.ProxyRegistryEndpointConfig{{URL: "https://index.crates.io/mirror"}},
+			}},
+			wantStatus:  doctor.StatusFail,
+			wantMessage: "is covered by a built-in registry",
+		},
 	}
 
 	for _, tt := range tests {
