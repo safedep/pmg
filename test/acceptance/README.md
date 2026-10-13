@@ -9,7 +9,8 @@ pull requests that change code. The pull-request check does not block a merge. K
 required checks, so a stale fixture or a backend outage never blocks an unrelated pull request.
 The main job runs on Linux under Landlock. A second job runs the `sandbox` category under Seatbelt
 on macOS and under Bubblewrap on Linux, with `PMG_SANDBOX_DRIVER` forwarded to the scripts. A third
-job runs the `truststore` category on Linux, macOS and Windows.
+job runs the `truststore` category on Linux and Windows. Run it by hand on macOS, as the truststore
+section below shows.
 
 `test/proxye2e` stays separate. `proxye2e` runs in process and owns proxy-flow correctness. This
 suite owns the real-binary guarantees. The two do not overlap.
@@ -149,6 +150,7 @@ answer it. safedep/pmg#543 tracks a fix. Until then, run the scripts on a Mac by
 change to the trust store code merges:
 
 ```bash
+mkdir -p /tmp/pmg-acceptance
 go build -o /tmp/pmg-acceptance/pmg .
 CI=true PMG_ACCEPTANCE_TRUSTSTORE=1 ACCEPTANCE_CATEGORY=truststore \
   PMG_BIN=/tmp/pmg-acceptance/pmg \
