@@ -2,6 +2,11 @@
 # interceptor. go get resolves the module through the pmg proxy and records it in
 # go.mod.
 
+# On macOS and Windows go reads only the OS trust store, so pmg go stops until
+# the OS trusts the PMG CA. truststore/go/module-fetch-after-install covers that
+# case on a host where the scripts may change the trust store.
+[!linux] skip 'pmg go needs the PMG CA in the OS trust store on this OS'
+
 env HOME=$WORK/home
 mkdir $WORK/home
 mkdir $WORK/proj

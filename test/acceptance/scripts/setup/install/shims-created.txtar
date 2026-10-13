@@ -1,15 +1,25 @@
-# guarantee: pmg setup install provisions package-manager shims under the XDG data
-# dir. This needs no network or backend, so it runs in every mode.
+# guarantee: pmg setup install provisions package-manager shims under the user
+# data dir of the OS and writes the user config. This needs no network or
+# backend, so it runs in every mode.
 
 env HOME=$WORK/home
 env XDG_CONFIG_HOME=$WORK/home/.config
 env XDG_DATA_HOME=$WORK/home/.local/share
 mkdir $WORK/home
 
+[linux] env SHIMS=$WORK/home/.local/share/safedep/pmg/bin
+[linux] env CONFIG=$WORK/home/.config/safedep/pmg
+[darwin] env SHIMS=$WORK/home/Library/'Application Support'/safedep/pmg/bin
+[darwin] env CONFIG=$WORK/home/Library/'Application Support'/safedep/pmg
+[windows] env SHIMS=$WORK/home/AppData/Local/safedep/pmg/bin
+[windows] env CONFIG=$WORK/home/AppData/Roaming/safedep/pmg
+env SHIM_EXT=
+[windows] env SHIM_EXT=.cmd
+
 exec pmg setup install
-exists $WORK/home/.local/share/safedep/pmg/bin
-exists $WORK/home/.local/share/safedep/pmg/bin/npm
-exists $WORK/home/.local/share/safedep/pmg/bin/aube
-exists $WORK/home/.local/share/safedep/pmg/bin/aubr
-exists $WORK/home/.local/share/safedep/pmg/bin/aubx
-exists $WORK/home/.config/safedep/pmg/config.yml
+exists $SHIMS
+exists $SHIMS/npm$SHIM_EXT
+exists $SHIMS/aube$SHIM_EXT
+exists $SHIMS/aubr$SHIM_EXT
+exists $SHIMS/aubx$SHIM_EXT
+exists $CONFIG/config.yml

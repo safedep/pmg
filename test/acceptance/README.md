@@ -7,10 +7,16 @@ hermetic.
 The suite runs three ways: on manual dispatch, on a nightly schedule, and as an advisory check on
 pull requests that change code. The pull-request check does not block a merge. Keep it out of the
 required checks, so a stale fixture or a backend outage never blocks an unrelated pull request.
-The main job runs on Linux under Landlock. A second job runs the `sandbox` category under Seatbelt
-on macOS and under Bubblewrap on Linux, with `PMG_SANDBOX_DRIVER` forwarded to the scripts. A third
-job runs the `truststore` category on Linux and Windows. Run it by hand on macOS, as the truststore
-section below shows.
+The main job runs every category on Linux, macOS and Windows. The sandbox scripts run there under
+Landlock on Linux and under Seatbelt on macOS. PMG has no sandbox on Windows, so the harness skips
+the `sandbox` category there. A second job runs the `sandbox` category under Bubblewrap on Linux,
+with `PMG_SANDBOX_DRIVER` forwarded to the scripts. A third job runs the `truststore` category on
+Linux and Windows. Run it by hand on macOS, as the truststore section below shows.
+
+The harness gives every script the home `$WORK/home`. On Windows it also sets `USERPROFILE`,
+`APPDATA` and `LOCALAPPDATA` into that home. A script that cannot hold on an OS skips there with
+a reason, as in `[windows] skip 'pmg proxy start --daemon is not supported on Windows'`. A
+guarantee that should hold on an OS and fails there is a bug. File it, and do not skip the script.
 
 `test/proxye2e` stays separate. `proxye2e` runs in process and owns proxy-flow correctness. This
 suite owns the real-binary guarantees. The two do not overlap.
@@ -138,8 +144,7 @@ job sets both on its disposable Linux and Windows runners:
 [!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
 ```
 
-The harness runs these scripts one at a time and gives each script its own home. On Windows it
-also sets `USERPROFILE`, `APPDATA` and `LOCALAPPDATA`. When a script ends, also when it fails, the
+The harness runs these scripts one at a time. When a script ends, also when it fails, the
 harness runs `pmg setup cert uninstall --system --purge`. Use `--system` in these scripts. A
 user-scope install can need a confirmation that a CI runner cannot give. Use the `[darwin]`,
 `[windows]` and `[linux]` conditions for a step that differs by OS.
