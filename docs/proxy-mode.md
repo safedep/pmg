@@ -275,9 +275,15 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   instructions if the PMG CA is not trusted. Linux works out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
   VCS host and are not analyzed; PMG warns when these are set.
+- PMG matches each `GOPROXY` entry by the path that go sends, not by the
+  text of the entry. go trims a trailing slash and cleans the path before it
+  appends the module path.
 - PMG prints a warning for a `GOPROXY` entry that it cannot analyze, for
-  example a loopback host or a URL with a query string. go still uses that
-  entry.
+  example a loopback host. go still uses that entry.
+- Two `GOPROXY` entries on one host can have nested base paths, such as
+  `https://proxy.golang.org/example.com` and `https://proxy.golang.org`.
+  When the two bases read one request as two different modules, PMG blocks
+  the request. PMG cannot tell which base go used.
 - `pmg go` fails when a `GOPROXY` entry and an npm or PyPI registry endpoint
   share an origin and their base paths nest. PMG cannot tell which ecosystem
   owns a request there.

@@ -4,12 +4,15 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"net/http"
 	"net/url"
+	"path"
+	"strings"
 	"testing"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gomodule "golang.org/x/mod/module"
 )
 
 func TestRegistryCatalogCompilesBuiltInAndCustomEndpoints(t *testing.T) {
@@ -136,7 +139,11 @@ func TestRegistryCatalogGoProxyURLs(t *testing.T) {
 		{name: "configured go registry already covers it", goProxyURL: "https://goproxy.corp.test/go"},
 		{name: "path under a configured go registry is added", goProxyURL: "https://goproxy.corp.test/go/team", wantBasePath: "/go/team"},
 		{name: "loopback proxy gets a notice", goProxyURL: "http://localhost:3000", wantNotice: "localhost"},
-		{name: "query string gets a notice", goProxyURL: "https://athens.corp.test/base?x=1", wantNotice: "query"},
+		{name: "query string does not change the base path", goProxyURL: "https://athens.corp.test/base?x=1", wantBasePath: "/base"},
+		{name: "trailing slash is trimmed as go does", goProxyURL: "https://athens.corp.test/base/", wantBasePath: "/base"},
+		{name: "escaped trailing slash is trimmed as go does", goProxyURL: "https://athens.corp.test/goproxy%2F", wantBasePath: "/goproxy"},
+		{name: "escaped inner slash stays escaped as go sends it", goProxyURL: "https://athens.corp.test/a%2Fb", wantBasePath: "/a%2Fb"},
+		{name: "dot segments are cleaned as go does", goProxyURL: "https://athens.corp.test/x/../base", wantBasePath: "/base"},
 		{name: "checksum database host gets a notice", goProxyURL: "https://sum.golang.org", wantNotice: "PMG never decrypts sum.golang.org"},
 		{name: "path on the checksum database host gets a notice", goProxyURL: "https://sum.golang.org/proxy", wantNotice: "PMG never decrypts sum.golang.org"},
 		{name: "proxy nesting an endpoint of another ecosystem fails", goProxyURL: "https://artifacts.corp.test", wantConflict: true},
@@ -215,4 +222,53 @@ func TestRegistryCatalogGoProxyURLsNestedMatchLongestBasePath(t *testing.T) {
 			assert.True(t, info.IsFileDownload())
 		})
 	}
+}
+
+// A GOPROXY entry that the catalog accepts must match every request that go
+// builds for it and must parse the module that go asked for. The request below
+// follows newProxyRepo and getBody in cmd/go/internal/modfetch/proxy.go.
+func FuzzGoProxyURLMatchesGoRequests(f *testing.F) {
+	for _, seed := range [][2]string{
+		{"https://corp.example.com", "github.com/BurntSushi/toml"},
+		{"https://corp.example.com/goproxy%2F", "example.com/evil"},
+		{"https://corp.example.com/a%2Fb/", "example.com/m"},
+		{"https://corp.example.com/x/../go%20proxy", "golang.org/x/mod"},
+		{"https://corp.example.com/%2F", "example.com/0.0"},
+		{"https://proxy.golang.org/cached-only", "example.com/m"},
+	} {
+		f.Add(seed[0], seed[1])
+	}
+	f.Fuzz(func(t *testing.T, rawBase, modulePath string) {
+		base, err := url.Parse(rawBase)
+		if err != nil || (base.Scheme != "https" && base.Scheme != "http") {
+			t.Skip()
+		}
+		escaped, err := gomodule.EscapePath(modulePath)
+		if err != nil {
+			t.Skip()
+		}
+		catalog, err := NewRegistryCatalog(nil, []string{rawBase})
+		if err != nil || len(catalog.GoProxyNotices()) > 0 {
+			t.Skip()
+		}
+
+		request := *base
+		request.Path = strings.TrimSuffix(base.Path, "/") + "/" + escaped
+		request.RawPath = strings.TrimSuffix(base.RawPath, "/") + "/" + goPathEscape(escaped)
+		request.Path = path.Join(request.Path, "@v/v1.0.0.zip")
+		request.RawPath = path.Join(request.RawPath, goPathEscape("@v/v1.0.0.zip"))
+		sent, err := url.Parse(request.String())
+		require.NoError(t, err)
+
+		match := catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(sent)
+		require.NotNil(t, match, "request %s", sent)
+		require.True(t, match.Endpoint.Analyze, "request %s", sent)
+		info, err := match.Endpoint.Parser.ParseURL(match.RelativePath)
+		require.NoError(t, err, "request %s", sent)
+		assert.Equal(t, modulePath, info.GetName(), "request %s", sent)
+	})
+}
+
+func goPathEscape(s string) string {
+	return strings.ReplaceAll(url.PathEscape(s), "%2F", "/")
 }

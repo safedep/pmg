@@ -1,9 +1,11 @@
 package interceptors
 
 import (
+	"cmp"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/safedep/dry/log"
@@ -83,7 +85,20 @@ func (s registrySet) MatchConnect(hostname, port string) *registryMatch {
 	return &registryMatch{Endpoint: best, RelativePath: "/"}
 }
 
+// MatchURL returns the best endpoint for u, or nil. See MatchURLAll.
 func (s registrySet) MatchURL(u *url.URL) *registryMatch {
+	matches := s.MatchURLAll(u)
+	if len(matches) == 0 {
+		return nil
+	}
+	return &matches[0]
+}
+
+// MatchURLAll returns every endpoint that matches u, the best match first. An
+// exact host comes before a subdomain match, then the longer host, then the
+// longer base path. Only Go endpoints from GOPROXY can nest on one origin, so
+// other ecosystems get at most one match for each origin.
+func (s registrySet) MatchURLAll(u *url.URL) []registryMatch {
 	if u == nil || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
 		return nil
 	}
@@ -99,28 +114,40 @@ func (s registrySet) MatchURL(u *url.URL) *registryMatch {
 		return nil
 	}
 
-	var best *registryEndpoint
-	bestExact := false
+	type candidate struct {
+		match registryMatch
+		exact bool
+	}
+	var candidates []candidate
 	for index := range s.entries {
 		endpoint := &s.entries[index]
 		exact, matches := endpointMatchesHostname(endpoint, hostname)
 		if !matches || !endpointMatchesOrigin(endpoint, scheme, port) || !matchesRegistryPath(path, endpoint.BasePath) {
 			continue
 		}
-		if best != nil {
-			better := exact && !bestExact || exact == bestExact && (len(endpoint.Host) > len(best.Host) ||
-				len(endpoint.Host) == len(best.Host) && len(endpoint.BasePath) > len(best.BasePath))
-			if !better {
-				continue
+		candidates = append(candidates, candidate{
+			match: registryMatch{Endpoint: endpoint, RelativePath: relativePath(path, endpoint.BasePath)},
+			exact: exact,
+		})
+	}
+	slices.SortStableFunc(candidates, func(a, b candidate) int {
+		if a.exact != b.exact {
+			if a.exact {
+				return -1
 			}
+			return 1
 		}
-		best = endpoint
-		bestExact = exact
+		if c := cmp.Compare(len(b.match.Endpoint.Host), len(a.match.Endpoint.Host)); c != 0 {
+			return c
+		}
+		return cmp.Compare(len(b.match.Endpoint.BasePath), len(a.match.Endpoint.BasePath))
+	})
+
+	matches := make([]registryMatch, len(candidates))
+	for index, c := range candidates {
+		matches[index] = c.match
 	}
-	if best == nil {
-		return nil
-	}
-	return &registryMatch{Endpoint: best, RelativePath: relativePath(path, best.BasePath)}
+	return matches
 }
 
 func endpointMatchesHostname(endpoint *registryEndpoint, hostname string) (bool, bool) {
@@ -151,13 +178,26 @@ func registryHostSupportsAnalysis(registries registrySet, hostname, port string)
 }
 
 func registryRequestMatch(registries registrySet, ctx *proxy.RequestContext) *registryMatch {
+	matches := registryRequestMatches(registries, ctx)
+	if len(matches) == 0 {
+		return nil
+	}
+	return &matches[0]
+}
+
+// registryRequestMatches returns every endpoint that matches the request, the
+// best match first. A CONNECT request has no path, so it gets one match.
+func registryRequestMatches(registries registrySet, ctx *proxy.RequestContext) []registryMatch {
 	if ctx == nil || ctx.Hostname == "" {
 		return nil
 	}
 	if ctx.Method == http.MethodConnect || ctx.URL == nil {
-		return registries.MatchConnect(ctx.Hostname, ctx.Port)
+		if match := registries.MatchConnect(ctx.Hostname, ctx.Port); match != nil {
+			return []registryMatch{*match}
+		}
+		return nil
 	}
-	return registries.MatchURL(registryAbsoluteRequestURL(ctx))
+	return registries.MatchURLAll(registryAbsoluteRequestURL(ctx))
 }
 
 func registryAbsoluteRequestURL(ctx *proxy.RequestContext) *url.URL {

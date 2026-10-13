@@ -945,6 +945,69 @@ func TestProxyFlow_Go(t *testing.T) {
 			},
 		},
 		{
+			Name:    "nested GOPROXY bases that read one request as two modules block it",
+			Options: []Option{WithGoProxyURLs("https://proxy.golang.org/example.com", "https://proxy.golang.org")},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/github.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/github.com/evil", "v1.0.0", VerifiedMalware())
+				h.Analyzer.SetGo("github.com/evil", "v1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/github.com/evil", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked(), "PMG cannot tell which base go used, so it must not pick one module")
+				assert.False(t, h.Registry.DownloadedGoZip("example.com/github.com/evil", "v1.0.0"))
+				assert.Zero(t, h.Analyzer.AnalyzedCount("github.com/evil", "v1.0.0"))
+			},
+		},
+		{
+			Name:    "a nested GOPROXY base that cannot parse the request does not hide the module",
+			Options: []Option{WithGoProxyURLs("https://proxy.golang.org/example.com", "https://proxy.golang.org")},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/evil", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/evil", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked(), "the root base reads the module that the nested base cannot")
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/evil", "v1.0.0"))
+				assert.False(t, h.Registry.DownloadedGoZip("example.com/evil", "v1.0.0"))
+			},
+		},
+		{
+			Name:    "GOPROXY base with an escaped trailing slash matches the path go sends",
+			Options: []Option{WithGoProxyURLs("https://corp.example.com/goproxy%2F")},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/evil", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				// go trims the decoded trailing slash, so the escaped base
+				// disappears from the request path.
+				res := ExecResult{}
+				res.add(h.Go().DownloadZipVia("https://corp.example.com/goproxy", "example.com/evil", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/evil", "v1.0.0"))
+				assert.False(t, h.Registry.Requested("corp.example.com", "/goproxy/example.com/evil/@v/v1.0.0.zip"))
+			},
+		},
+		{
 			Name: "repeated zip request for a blocked module records the verdict once",
 			Setup: func(h *Harness) {
 				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",

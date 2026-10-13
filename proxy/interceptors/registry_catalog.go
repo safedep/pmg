@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
+	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -104,7 +106,12 @@ func (c *RegistryCatalog) GoProxyNotices() []string {
 // cannot tell which ecosystem owns a request there. An entry that PMG cannot
 // analyze gets a notice.
 func (c *RegistryCatalog) addGoProxyURL(rawURL string, otherEcosystems []config.NormalizedRegistryEndpoint) error {
-	entry, err := config.NormalizeRegistryEndpoint(goProxyRegistryName, config.ProxyRegistryEcosystemGo, rawURL)
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		c.addGoProxyNotice(rawURL, err.Error())
+		return nil
+	}
+	entry, err := config.NormalizeRegistryEndpoint(goProxyRegistryName, config.ProxyRegistryEcosystemGo, goRequestBaseURL(u))
 	if err != nil {
 		c.addGoProxyNotice(rawURL, err.Error())
 		return nil
@@ -126,6 +133,22 @@ func (c *RegistryCatalog) addGoProxyURL(rawURL string, otherEcosystems []config.
 	}
 	c.addCustomEndpoint(entry)
 	return nil
+}
+
+// goRequestBaseURL returns the base URL of the requests that go sends to the
+// module proxy u. go trims a trailing slash from the decoded path, appends the
+// module path and cleans the result (cmd/go/internal/modfetch/proxy.go). The
+// request path can then differ from the GOPROXY text, for example for an
+// escaped slash. The catalog matches requests by origin and path, so the
+// result has no credentials, query or fragment.
+func goRequestBaseURL(u *url.URL) string {
+	const module, file = "example.com/m", "@v/list"
+	request := url.URL{
+		Path:    path.Join(strings.TrimSuffix(u.Path, "/")+"/"+module, file),
+		RawPath: path.Join(strings.TrimSuffix(u.RawPath, "/")+"/"+module, file),
+	}
+	basePath := strings.TrimSuffix(request.EscapedPath(), "/"+module+"/"+file)
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String() + basePath
 }
 
 func (c *RegistryCatalog) addGoProxyNotice(rawURL, reason string) {
