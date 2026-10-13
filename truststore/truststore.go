@@ -79,18 +79,19 @@ func CATrusted() (bool, error) {
 }
 
 // GoTrustsCA returns nil when Go can verify TLS from a PMG proxy that signs
-// with the CA persisted in configDir. On macOS and Windows, Go's crypto/x509
-// ignores SSL_CERT_FILE and reads only the OS trust store, so the persisted CA
-// must be usable and trusted there. Linux Go honors SSL_CERT_FILE, so any CA
-// works.
+// with the CA persisted in configDir. On macOS and Windows, PMG makes go read
+// only the OS trust store (see packagemanager.EnvVarForProxy), so the OS store
+// must trust this exact CA. A certificate with the same name is not enough. On
+// Linux go reads SSL_CERT_FILE, so any CA works.
 func GoTrustsCA(configDir string) error {
 	if !UserScopeSupported() {
 		return nil
 	}
-	if _, err := certmanager.LoadUsableCA(configDir); err != nil {
+	ca, err := certmanager.LoadUsableCA(configDir)
+	if err != nil {
 		return err
 	}
-	trusted, err := CATrusted()
+	trusted, err := caTrustedPlatform(certmanager.CACertPath(configDir), ca.X509Cert)
 	if err != nil {
 		return err
 	}

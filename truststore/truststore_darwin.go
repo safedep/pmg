@@ -4,6 +4,7 @@
 package truststore
 
 import (
+	"crypto/x509"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -88,6 +89,15 @@ func statusPlatform(commonName string) (bool, bool, error) {
 		return false, certInKeychain(commonName, systemKeychainPath), nil
 	}
 	return certInKeychain(commonName, lkc), certInKeychain(commonName, systemKeychainPath), nil
+}
+
+// caTrustedPlatform asks the OS to evaluate the certificate in certPath with the
+// trust settings of the user and the system. A copy of the CA that is in a
+// keychain but not trusted fails, and so does a different certificate with the
+// same name.
+func caTrustedPlatform(certPath string, _ *x509.Certificate) (bool, error) {
+	_, err := commandRunner("security", "verify-cert", "-c", certPath)
+	return err == nil, nil
 }
 
 func certInKeychain(commonName, keychain string) bool {

@@ -4,6 +4,8 @@
 package truststore
 
 import (
+	"crypto/sha1"
+	"crypto/x509"
 	"fmt"
 	"strings"
 )
@@ -51,12 +53,22 @@ func statusPlatform(commonName string) (bool, bool, error) {
 	return certInWindowsStore(commonName, true), certInWindowsStore(commonName, false), nil
 }
 
-func certInWindowsStore(commonName string, userScope bool) bool {
+// caTrustedPlatform looks the certificate up by its SHA-1 thumbprint in the user
+// and the machine Root store. certutil identifies a certificate by this
+// thumbprint, so a different certificate with the same name does not match.
+func caTrustedPlatform(_ string, cert *x509.Certificate) (bool, error) {
+	thumbprint := fmt.Sprintf("%x", sha1.Sum(cert.Raw))
+	return certInWindowsStore(thumbprint, true) || certInWindowsStore(thumbprint, false), nil
+}
+
+// certInWindowsStore reports whether certID, a common name or a thumbprint,
+// matches a certificate in the Root store.
+func certInWindowsStore(certID string, userScope bool) bool {
 	args := []string{}
 	if userScope {
 		args = append(args, "-user")
 	}
-	args = append(args, "-store", "Root", commonName)
+	args = append(args, "-store", "Root", certID)
 
 	_, err := commandRunner("certutil", args...)
 	return err == nil

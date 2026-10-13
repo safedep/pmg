@@ -4,6 +4,9 @@
 package truststore
 
 import (
+	"crypto/sha1"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,4 +51,40 @@ func TestWindowsUninstallNotFoundIsOK(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 	require.NoError(t, Uninstall("Test CA", ScopeUser))
+}
+
+func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
+	dir, ca := persistedCA(t)
+	thumbprint := fmt.Sprintf("%x", sha1.Sum(ca.X509Cert.Raw))
+	tests := []struct {
+		name        string
+		trustedArgs []string
+		wantErr     error
+	}{
+		{name: "user Root store holds the CA", trustedArgs: []string{"-user", "-store", "Root", thumbprint}},
+		{name: "machine Root store holds the CA", trustedArgs: []string{"-store", "Root", thumbprint}},
+		{name: "no Root store holds the CA", wantErr: ErrCANotTrusted},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := commandRunner
+			commandRunner = func(name string, args ...string) ([]byte, error) {
+				assert.Equal(t, "certutil", name)
+				assert.Contains(t, args, thumbprint, "the lookup uses the thumbprint, not the name")
+				if slices.Equal(args, tt.trustedArgs) {
+					return nil, nil
+				}
+				return []byte("CRYPT_E_NOT_FOUND 0x80092004"), assert.AnError
+			}
+			t.Cleanup(func() { commandRunner = orig })
+
+			err := GoTrustsCA(dir)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

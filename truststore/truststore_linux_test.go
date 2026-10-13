@@ -209,3 +209,23 @@ func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, system)
 }
+
+func TestLinuxCATrustedMatchesTheExactCertificate(t *testing.T) {
+	block, _ := pem.Decode(certPEM(t, "Test CA"))
+	ca, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
+	orig := systemBundlePath
+	systemBundlePath = func() string { return bundle }
+	t.Cleanup(func() { systemBundlePath = orig })
+
+	require.NoError(t, os.WriteFile(bundle, certPEM(t, "Test CA"), 0o644))
+	trusted, err := caTrustedPlatform("", ca)
+	require.NoError(t, err)
+	assert.False(t, trusted, "a different certificate with the same name is not this CA")
+
+	require.NoError(t, os.WriteFile(bundle, append(certPEM(t, "Other CA"), pem.EncodeToMemory(block)...), 0o644))
+	trusted, err = caTrustedPlatform("", ca)
+	require.NoError(t, err)
+	assert.True(t, trusted)
+}

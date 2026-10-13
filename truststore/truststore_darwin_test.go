@@ -6,6 +6,7 @@ package truststore
 import (
 	"testing"
 
+	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,4 +87,38 @@ func TestDarwinUninstallSystemTargetsSystemKeychain(t *testing.T) {
 
 func TestDarwinUserScopeSupported(t *testing.T) {
 	assert.True(t, UserScopeSupported())
+}
+
+func TestDarwinGoTrustsCAVerifiesThePersistedCertificate(t *testing.T) {
+	dir, _ := persistedCA(t)
+	tests := []struct {
+		name    string
+		runErr  error
+		wantErr error
+	}{
+		{name: "the OS trusts the persisted CA"},
+		{name: "the OS does not trust the persisted CA", runErr: assert.AnError, wantErr: ErrCANotTrusted},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotName string
+			var gotArgs []string
+			orig := commandRunner
+			commandRunner = func(name string, args ...string) ([]byte, error) {
+				gotName, gotArgs = name, args
+				return nil, tt.runErr
+			}
+			t.Cleanup(func() { commandRunner = orig })
+
+			err := GoTrustsCA(dir)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, "security", gotName)
+			assert.Equal(t, []string{"verify-cert", "-c", certmanager.CACertPath(dir)}, gotArgs)
+		})
+	}
 }

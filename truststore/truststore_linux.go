@@ -169,6 +169,16 @@ func statusPlatform(commonName string) (bool, bool, error) {
 	return false, found, nil
 }
 
+// caTrustedPlatform reports whether the system bundle holds this exact
+// certificate.
+func caTrustedPlatform(_ string, cert *x509.Certificate) (bool, error) {
+	bundle := systemBundlePath()
+	if bundle == "" {
+		return false, nil
+	}
+	return bundleContains(bundle, cert.Equal)
+}
+
 func parseCert(certPEM []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
