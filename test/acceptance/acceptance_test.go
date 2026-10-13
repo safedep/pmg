@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rogpeppe/go-internal/testscript"
 	"github.com/safedep/dry/log"
@@ -119,6 +121,8 @@ const (
 	// trustStoreOptIn marks a disposable host. The truststore scripts change
 	// the system trust store, so they run only where CI sets it and CI=true.
 	trustStoreOptIn = "PMG_ACCEPTANCE_TRUSTSTORE"
+
+	trustStoreCleanupTimeout = 2 * time.Minute
 )
 
 var trustStoreSerial sync.Mutex
@@ -139,11 +143,17 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 	trustStoreSerial.Lock()
 	env.Defer(func() {
 		defer trustStoreSerial.Unlock()
-		cmd := exec.Command(pmgBin, "setup", "cert", "uninstall", "--system", "--purge")
+		// A cleanup that hangs holds the script log until go test panics, and
+		// the panic drops the log. The timeout keeps the log of the script.
+		ctx, cancel := context.WithTimeout(context.Background(), trustStoreCleanupTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, pmgBin, "setup", "cert", "uninstall", "--system", "--purge")
 		cmd.Env = env.Vars
 		cmd.Dir = env.WorkDir
+		// sudo and security outlive a killed pmg and keep the output pipe open.
+		cmd.WaitDelay = 5 * time.Second
 		if out, err := cmd.CombinedOutput(); err != nil {
-			log.Warnf("acceptance: remove the PMG CA after a truststore script: %v: %s", err, out)
+			env.T().Log(fmt.Sprintf("remove the PMG CA after a truststore script: %v: %s", err, out))
 		}
 	})
 

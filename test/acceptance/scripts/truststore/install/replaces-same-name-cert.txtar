@@ -9,7 +9,8 @@ exec pmg setup cert install --system
 stdout 'installed and trusted \(system scope\)'
 
 # Put another certificate with the PMG CA name in place of the persisted CA.
-# On Linux it goes to the anchor path that pmg setup cert install uses.
+# On Linux it goes to the anchor path that pmg setup cert install uses. The
+# path is the Debian one, because the CI job runs on Ubuntu.
 exec pmg setup cert uninstall --system
 exec go run gencert.go stale.pem
 [darwin] exec sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain stale.pem
