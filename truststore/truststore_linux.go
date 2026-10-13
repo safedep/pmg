@@ -141,32 +141,36 @@ func uninstallPlatform(_ string, scope Scope) error {
 }
 
 // statusPlatform reports the certificate as trusted only when the system
-// bundle holds it. An anchor file alone proves nothing: the update tool
-// may never have read its directory. Without a bundle to check, the anchor
-// is the best signal there is.
+// bundle holds it. The bundle also counts a CA that an administrator
+// installed by another path. An anchor file alone proves nothing: the update
+// tool may never have read its directory. Without a bundle to check, the
+// anchor is the best signal there is. User scope is never trusted on Linux.
 func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
-	tool, err := detectTrustTool()
-	if err != nil {
-		return false, false, nil
-	}
-
-	anchor := filepath.Join(tool.anchorDir, tool.anchorName)
-	if _, err := os.Stat(anchor); err != nil {
-		return false, false, nil // user scope is never trusted on Linux
+	anchor := ""
+	if tool, err := detectTrustTool(); err == nil {
+		anchor = filepath.Join(tool.anchorDir, tool.anchorName)
 	}
 
 	bundle := systemBundlePath()
 	if bundle == "" {
+		if !fileExists(anchor) {
+			return false, false, nil
+		}
 		bundle = anchor
 	}
 	found, err := bundleContains(bundle, cert.Equal)
 	if err != nil {
 		return false, false, err
 	}
-	if !found && bundle != anchor {
+	if !found && bundle != anchor && fileExists(anchor) {
 		log.Warnf("CA anchor %s is installed but %s does not contain it: the trust tool did not read that directory", anchor, bundle)
 	}
 	return false, found, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // caTrustedPlatform checks the system scope, the only scope on Linux.

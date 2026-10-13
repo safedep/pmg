@@ -224,19 +224,25 @@ func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 		systemBundlePath = origBundle
 	})
 	configDir, ca := persistedCert(t)
-	require.NoError(t, os.WriteFile(filepath.Join(anchorDir, "pmg-proxy-ca.crt"), ca, 0o644))
+	anchor := filepath.Join(anchorDir, "pmg-proxy-ca.crt")
 
 	tests := []struct {
-		name   string
-		bundle []byte
-		want   bool
+		name     string
+		bundle   []byte
+		noAnchor bool
+		want     bool
 	}{
 		{name: "an anchor the trust tool never read", bundle: certPEM(t, "Other CA")},
 		{name: "another certificate with the same name", bundle: certPEM(t, "Test CA")},
 		{name: "the bundle holds the CA", bundle: append(certPEM(t, "Other CA"), ca...), want: true},
+		{name: "another path installed the CA, with no PMG anchor", bundle: ca, noAnchor: true, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, os.RemoveAll(anchor))
+			if !tt.noAnchor {
+				require.NoError(t, os.WriteFile(anchor, ca, 0o644))
+			}
 			require.NoError(t, os.WriteFile(bundle, tt.bundle, 0o644))
 			_, system, err := Status(configDir)
 			require.NoError(t, err)
