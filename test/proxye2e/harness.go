@@ -139,7 +139,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 			GoProxyURLs:           o.goProxyURLs,
 			GoProxyUpstreamOrigin: registry.goBaseURL(),
 			// The cargo interceptor's out-of-band publish-time fetches go to
-			// the plain-HTTP mock index instead of the real crates.io.
+			// the plain-HTTP mock index instead of the real registries.
 			CargoUpstreamOrigin: registry.cargoBaseURL(),
 		},
 		config.Get().Config.Proxy.Registries,
@@ -272,10 +272,16 @@ func (h *Harness) RawClient() *http.Client { return h.client }
 
 func (h *Harness) get(rawURL string, headers map[string]string) RequestOutcome {
 	h.t.Helper()
+	return h.do(http.MethodGet, rawURL, nil, headers)
+}
+
+// do sends one request through the proxy.
+func (h *Harness) do(method, rawURL string, body io.Reader, headers map[string]string) RequestOutcome {
+	h.t.Helper()
 
 	out := RequestOutcome{URL: rawURL}
 
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	req, err := http.NewRequest(method, rawURL, body)
 	if err != nil {
 		out.Err = err
 		return out

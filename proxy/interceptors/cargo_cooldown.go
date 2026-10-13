@@ -3,7 +3,6 @@ package interceptors
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -31,16 +30,15 @@ type cargoCooldownHandler struct {
 	statsCollector *AnalysisStatsCollector
 	registries     registrySet
 
-	// upstreamOrigin replaces the scheme and host of the out-of-band index
-	// fetch. Empty means the origin of the endpoint. Set by the hermetic proxy
-	// E2E tests.
+	// upstreamOrigin sends the out-of-band index fetch to a test server. See
+	// indexBaseURL. Set by the hermetic proxy E2E tests.
 	upstreamOrigin string
 
 	mu           sync.Mutex
 	publishTimes map[string]time.Time
-	// indexEndpoints remembers, for each registry, the position in
-	// registries of the endpoint that last served the index.
-	indexEndpoints map[string]int
+	// indexEndpoints remembers, for each registry, the endpoint that last
+	// served the index.
+	indexEndpoints map[string]*registryEndpoint
 }
 
 func newCargoCooldownHandler(statsCollector *AnalysisStatsCollector, registries registrySet, upstreamOrigin string) *cargoCooldownHandler {
@@ -49,7 +47,7 @@ func newCargoCooldownHandler(statsCollector *AnalysisStatsCollector, registries 
 		registries:     registries,
 		upstreamOrigin: upstreamOrigin,
 		publishTimes:   map[string]time.Time{},
-		indexEndpoints: map[string]int{},
+		indexEndpoints: map[string]*registryEndpoint{},
 	}
 }
 
@@ -228,20 +226,21 @@ func (h *cargoCooldownHandler) CheckCrateDownload(ctx *proxy.RequestContext, end
 		})
 }
 
-// fetchPublishTime fetches the index file of the crate from the endpoints of
+// fetchPublishTime fetches the index file of the crate from an endpoint of
 // the registry and caches every version's publish time from it. An endpoint
-// does not say whether it serves the index or the downloads, so each endpoint
-// of the registry is tried as an index base, the last one that answered
-// first. Best-effort: any failure means no publish time.
+// does not say whether it serves the index or the downloads. The handler
+// tries each endpoint of the registry as an index base. It tries the
+// endpoint that last served the index first. Best-effort: any failure means
+// no publish time.
 func (h *cargoCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, registry, crate, version string) (time.Time, bool) {
-	for _, position := range h.indexCandidates(registry) {
-		dates, ok := h.fetchIndex(ctx, &h.registries.entries[position], crate)
+	for _, endpoint := range h.indexCandidates(registry) {
+		dates, ok := h.fetchIndex(ctx, endpoint, crate)
 		if !ok {
 			continue
 		}
 
 		h.mu.Lock()
-		h.indexEndpoints[registry] = position
+		h.indexEndpoints[registry] = endpoint
 		h.mu.Unlock()
 		h.recordPublishTimes(registry, crate, dates)
 
@@ -251,21 +250,21 @@ func (h *cargoCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, regis
 	return time.Time{}, false
 }
 
-// indexCandidates returns the positions in registries of the endpoints of
-// registry that PMG analyzes, the one that last served the index first.
-func (h *cargoCooldownHandler) indexCandidates(registry string) []int {
+// indexCandidates returns the endpoints of registry that PMG analyzes, the
+// one that last served the index first.
+func (h *cargoCooldownHandler) indexCandidates(registry string) []*registryEndpoint {
 	h.mu.Lock()
-	last, known := h.indexEndpoints[registry]
+	last := h.indexEndpoints[registry]
 	h.mu.Unlock()
 
-	var candidates []int
-	if known {
+	var candidates []*registryEndpoint
+	if last != nil {
 		candidates = append(candidates, last)
 	}
-	for position := range h.registries.entries {
-		endpoint := &h.registries.entries[position]
-		if position != last && endpoint.Analyze && cargoRegistryKey(endpoint) == registry {
-			candidates = append(candidates, position)
+	for index := range h.registries.entries {
+		endpoint := &h.registries.entries[index]
+		if endpoint != last && endpoint.Analyze && cargoRegistryKey(endpoint) == registry {
+			candidates = append(candidates, endpoint)
 		}
 	}
 	return candidates
@@ -273,39 +272,21 @@ func (h *cargoCooldownHandler) indexCandidates(registry string) []int {
 
 // fetchIndex reads the index file of crate from endpoint. It succeeds only
 // for HTTP 200 with at least one index entry, so a download endpoint that
-// answers with an error page is skipped. A custom endpoint gets the
-// Authorization header of the download request: cargo sends the token of a
-// registry to its index and to its downloads alike, and the endpoints of one
-// proxy.registries entry belong to one registry. crates.io gets none.
+// answers with an error page does not pass as the index.
+//
+// A custom endpoint gets the Authorization header of the download request.
+// cargo sends the token of a registry to its index and to its downloads
+// alike. The endpoints of one proxy.registries entry belong to one registry.
+// crates.io gets no header.
 func (h *cargoCooldownHandler) fetchIndex(ctx *proxy.RequestContext, endpoint *registryEndpoint, crate string) (map[string]time.Time, bool) {
-	indexURL := h.indexBaseURL(endpoint) + "/" + cargoSparseIndexPath(crate)
-
-	req, err := http.NewRequest(http.MethodGet, indexURL, nil)
-	if err != nil {
-		log.Warnf("[%s] Cooldown: invalid index URL %s: %v", ctx.RequestID, indexURL, err)
-		return nil, false
-	}
+	authorization := ""
 	if endpoint.Source == registrySourceCustom {
-		if authorization := ctx.Headers.Get("Authorization"); authorization != "" {
-			req.Header.Set("Authorization", authorization)
-		}
+		authorization = ctx.Headers.Get("Authorization")
 	}
 
-	resp, err := cooldownFetchClient.Do(req)
-	if err != nil {
-		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, indexURL, err)
-		return nil, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Debugf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, indexURL, resp.StatusCode)
-		return nil, false
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		log.Warnf("[%s] Cooldown: failed to read %s: %v", ctx.RequestID, indexURL, err)
+	indexURL := h.indexBaseURL(endpoint) + "/" + cargoSparseIndexPath(crate)
+	body, ok := cooldownFetch(ctx, indexURL, authorization, 8<<20)
+	if !ok {
 		return nil, false
 	}
 
@@ -317,13 +298,14 @@ func (h *cargoCooldownHandler) fetchIndex(ctx *proxy.RequestContext, endpoint *r
 	return dates, true
 }
 
-// indexBaseURL is the origin of endpoint, or upstreamOrigin, with the base
-// path of endpoint. The built-in crates.io endpoints have no scheme and are
-// served over HTTPS.
+// indexBaseURL is the origin and the base path of endpoint. With
+// upstreamOrigin set, the host of the endpoint becomes the first path
+// segment under upstreamOrigin, so a test server still sees which endpoint
+// the fetch went to.
 func (h *cargoCooldownHandler) indexBaseURL(endpoint *registryEndpoint) string {
-	origin := h.upstreamOrigin
-	if origin == "" {
-		origin = endpoint.origin()
+	base := endpoint.origin() + endpoint.BasePath
+	if h.upstreamOrigin != "" {
+		base = h.upstreamOrigin + "/" + endpoint.Host + endpoint.BasePath
 	}
-	return strings.TrimSuffix(origin+endpoint.BasePath, "/")
+	return strings.TrimSuffix(base, "/")
 }

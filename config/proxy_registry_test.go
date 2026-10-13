@@ -615,23 +615,38 @@ func TestNormalizeRegistryEndpointCargo(t *testing.T) {
 }
 
 func TestValidateProxyRegistriesCargo(t *testing.T) {
-	assert.NoError(t, ValidateProxyRegistries([]ProxyRegistryConfig{{
-		Name:      "company-cargo",
-		Ecosystem: ProxyRegistryEcosystemCargo,
-		Endpoints: []ProxyRegistryEndpointConfig{
-			{URL: "sparse+https://cargo.example.test/api/cargo/team/index/"},
-			{URL: "https://cargo.example.test/api/cargo/team/v1/crates"},
+	tests := []struct {
+		name      string
+		endpoints []string
+		wantErr   string
+	}{
+		{
+			name:      "index and dl endpoints on one host",
+			endpoints: []string{"sparse+https://cargo.example.test/api/cargo/team/index/", "https://cargo.example.test/api/cargo/team/v1/crates"},
 		},
-	}}))
+		{
+			name:      "sparse+ and plain forms of one URL",
+			endpoints: []string{"sparse+https://cargo.example.test/index/", "https://cargo.example.test/index"},
+			wantErr:   "already assigned",
+		},
+	}
 
-	err := ValidateProxyRegistries([]ProxyRegistryConfig{{
-		Name:      "company-cargo",
-		Ecosystem: ProxyRegistryEcosystemCargo,
-		Endpoints: []ProxyRegistryEndpointConfig{
-			{URL: "sparse+https://cargo.example.test/index/"},
-			{URL: "https://cargo.example.test/index"},
-		},
-	}})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already assigned")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoints := make([]ProxyRegistryEndpointConfig, len(tt.endpoints))
+			for index, rawURL := range tt.endpoints {
+				endpoints[index] = ProxyRegistryEndpointConfig{URL: rawURL}
+			}
+			err := ValidateProxyRegistries([]ProxyRegistryConfig{{
+				Name:      "company-cargo",
+				Ecosystem: ProxyRegistryEcosystemCargo,
+				Endpoints: endpoints,
+			}})
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

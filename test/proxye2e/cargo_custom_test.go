@@ -1,7 +1,6 @@
 package proxye2e
 
 import (
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -98,7 +97,9 @@ func TestProxyFlow_CustomCargo(t *testing.T) {
 				h.Registry.AddCargo(CargoCrate{Name: "evil", Versions: []CargoVersion{{Version: "1.0.0", PublishedAt: old()}}})
 				h.Analyzer.SetCargo("evil", "1.0.0", VerifiedMalware())
 			},
-			Exec: func(h *Harness) ExecResult { return h.Cargo().InstallFrom(cargoIndexBase, cargoCDNBaseURL, "evil", "1.0.0") },
+			Exec: func(h *Harness) ExecResult {
+				return h.Cargo().InstallFrom(cargoIndexBase, cargoCDNBaseURL, "evil", "1.0.0")
+			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.True(t, res.Blocked())
 				assert.False(t, h.Registry.Requested(cargoCDNHost, "/files/evil/1.0.0/download"))
@@ -162,10 +163,10 @@ func TestProxyFlow_CustomCargo(t *testing.T) {
 				assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
 				assert.Empty(t, h.Analyzer.Calls())
 
-				fetch, ok := h.Registry.RequestForPath("/api/cargo/team/index/fr/es/fresh")
+				fetch, ok := h.Registry.RequestForPath("/cargo.example.test/api/cargo/team/index/fr/es/fresh")
 				require.True(t, ok, "the index of the registry answers the fetch")
 				assert.Equal(t, "registry-token", fetch.Headers.Get("Authorization"))
-				skipped, ok := h.Registry.RequestForPath("/api/cargo/team/v1/crates/fr/es/fresh")
+				skipped, ok := h.Registry.RequestForPath("/cargo.example.test/api/cargo/team/v1/crates/fr/es/fresh")
 				require.True(t, ok, "the dl endpoint comes first in the config")
 				assert.Equal(t, "registry-token", skipped.Headers.Get("Authorization"), "the dl endpoint belongs to the same registry")
 			},
@@ -183,7 +184,7 @@ func TestProxyFlow_CustomCargo(t *testing.T) {
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {
 				assert.True(t, res.Blocked())
-				fetch, ok := h.Registry.RequestForPath("/fr/es/fresh")
+				fetch, ok := h.Registry.RequestForPath("/index.crates.io/fr/es/fresh")
 				require.True(t, ok)
 				assert.Empty(t, fetch.Headers.Get("Authorization"))
 			},
@@ -228,22 +229,9 @@ func TestProxyFlow_CustomCargo(t *testing.T) {
 				h.Registry.AddCustomCargo(giteaHost, "/api/packages/acme/cargo", CargoServesIndex|CargoServesDownloads)
 			},
 			Exec: func(h *Harness) ExecResult {
-				out := RequestOutcome{URL: giteaIndexBase + "/api/v1/crates/new"}
-				req, err := http.NewRequest(http.MethodPut, out.URL, strings.NewReader("crate-bytes"))
-				require.NoError(t, err)
-				req.Header.Set("Authorization", "registry-token")
-				resp, err := h.RawClient().Do(req)
-				if err != nil {
-					out.Err = err
-				} else {
-					body, _ := io.ReadAll(resp.Body)
-					_ = resp.Body.Close()
-					out.StatusCode = resp.StatusCode
-					out.Blocked = resp.StatusCode == http.StatusForbidden
-					out.Body = string(body)
-				}
 				res := ExecResult{}
-				res.add(out)
+				res.add(h.do(http.MethodPut, giteaIndexBase+"/api/v1/crates/new", strings.NewReader("crate-bytes"),
+					map[string]string{"Authorization": "registry-token"}))
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {

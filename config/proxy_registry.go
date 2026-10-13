@@ -172,8 +172,8 @@ func NormalizeRegistryEndpoint(registryName string, ecosystem ProxyRegistryEcosy
 	case ProxyRegistryEcosystemGo:
 		rawURL = goRequestBaseURL(rawURL)
 	case ProxyRegistryEcosystemCargo:
-		// .cargo/config.toml names a sparse registry as sparse+https://...,
-		// so the index value can be copied from there unchanged.
+		// .cargo/config.toml names a sparse registry as sparse+https://...
+		// A user copies that value here unchanged.
 		rawURL = strings.TrimPrefix(rawURL, "sparse+")
 	}
 	u, err := registryurl.Normalize(rawURL)

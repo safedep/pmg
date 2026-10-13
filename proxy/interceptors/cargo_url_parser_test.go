@@ -122,6 +122,8 @@ func TestCargoCustomParserParseURL(t *testing.T) {
 		{name: "crate file under a lowerprefix", path: "/se/rd/serde-1.0.219.crate", crate: "serde", version: "1.0.219", requestType: cargoRequestDownload},
 		{name: "crate file with hyphens and a prerelease", path: "/files/foo-bar-1.0.0-rc.1.crate", crate: "foo-bar", version: "1.0.0-rc.1", requestType: cargoRequestDownload},
 		{name: "crate file whose name ends in a number", path: "/x-1-2.0.0.crate", crate: "x-1", version: "2.0.0", requestType: cargoRequestDownload},
+		{name: "index of a name with a leading underscore", path: "/_f/oo/_foo", crate: "_foo", requestType: cargoRequestIndex},
+		{name: "download of a name with a leading underscore", path: "/_foo/1.0.0/download", crate: "_foo", version: "1.0.0", requestType: cargoRequestDownload},
 	}
 
 	for _, tc := range cases {

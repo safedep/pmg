@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/cargo"
 	"golang.org/x/mod/module"
 )
 
@@ -126,11 +127,6 @@ const (
 	CargoServesDownloads
 )
 
-type cargoMount struct {
-	mount
-	roles CargoRole
-}
-
 type RecordedRequest struct {
 	Host    string
 	Method  string
@@ -149,7 +145,8 @@ type Registry struct {
 	cargo       map[string]CargoCrate
 	npmMounts   []mount
 	pypiMounts  []mount
-	cargoMounts []cargoMount
+	cargoMounts []mount
+	cargoRoles  map[mount]CargoRole
 	requests    []RecordedRequest
 	server      *httptest.Server
 	plainServer *httptest.Server
@@ -159,10 +156,11 @@ type Registry struct {
 
 func newRegistry() *Registry {
 	r := &Registry{
-		npm:   map[string]NpmPackage{},
-		pypi:  map[string]PypiPackage{},
-		gomod: map[string]GoModule{},
-		cargo: map[string]CargoCrate{},
+		npm:        map[string]NpmPackage{},
+		pypi:       map[string]PypiPackage{},
+		gomod:      map[string]GoModule{},
+		cargo:      map[string]CargoCrate{},
+		cargoRoles: map[mount]CargoRole{},
 	}
 	r.server = httptest.NewTLSServer(http.HandlerFunc(r.serve))
 	// Plain-HTTP twin of the registry. A client the kernel redirected from
@@ -177,9 +175,8 @@ func newRegistry() *Registry {
 		r.serveGoWithOptionalPrefix(w, req)
 	}))
 	// Plain-HTTP sparse-index endpoint for the cargo interceptor's
-	// out-of-band publish-time fetches. The fetch keeps the base path of the
-	// endpoint, so a custom mount answers under its base path, and only a
-	// mount with the CargoServesIndex role serves index files.
+	// out-of-band publish-time fetches. The fetch path starts with the host
+	// of the endpoint, so the server answers as that endpoint would.
 	r.cargoServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.record(req)
 		r.serveCargoUpstream(w, req)
@@ -245,7 +242,9 @@ func (r *Registry) AddCustomPypi(host, basePath string) {
 func (r *Registry) AddCustomCargo(host, basePath string, roles CargoRole) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cargoMounts = append(r.cargoMounts, cargoMount{mount: mount{host: host, basePath: normalizeMountBasePath(basePath)}, roles: roles})
+	m := mount{host: host, basePath: normalizeMountBasePath(basePath)}
+	r.cargoMounts = append(r.cargoMounts, m)
+	r.cargoRoles[m] |= roles
 }
 
 func (r *Registry) AddCargo(crate CargoCrate) {
@@ -301,7 +300,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	npmMount, npmOK := matchMount(r.npmMounts, host, req.URL.Path)
 	pypiMount, pypiOK := matchMount(r.pypiMounts, host, req.URL.Path)
-	cargoMount, cargoOK := r.matchCargoMount(host, req.URL.Path)
+	cargoMount, cargoOK := matchMount(r.cargoMounts, host, req.URL.Path)
 	r.mu.Unlock()
 
 	switch {
@@ -465,57 +464,56 @@ func (r *Registry) RequestForPath(path string) (RecordedRequest, bool) {
 	return RecordedRequest{}, false
 }
 
-// matchCargoMount returns the custom Cargo mount with the longest base path
-// that covers path. An empty host matches a mount on any host, as the
-// out-of-band fetch replaces the host. r.mu must be held.
-func (r *Registry) matchCargoMount(host, path string) (cargoMount, bool) {
-	var best cargoMount
-	found := false
-	for _, m := range r.cargoMounts {
-		if host != "" && m.host != host || host == "" && m.basePath == "" {
-			continue
-		}
-		if m.basePath != "" && path != m.basePath && !strings.HasPrefix(path, m.basePath+"/") {
-			continue
-		}
-		if !found || len(m.basePath) > len(best.basePath) {
-			best, found = m, true
-		}
-	}
-	return best, found
+func (r *Registry) serveCustomCargo(w http.ResponseWriter, req *http.Request, m mount) {
+	r.serveCargoAs(w, req, m, strings.TrimPrefix(req.URL.Path, m.basePath))
 }
 
-func (r *Registry) serveCustomCargo(w http.ResponseWriter, req *http.Request, m cargoMount) {
-	relative := strings.TrimPrefix(req.URL.Path, m.basePath)
+// serveCargoAs answers path as the custom Cargo mount m.
+func (r *Registry) serveCargoAs(w http.ResponseWriter, req *http.Request, m mount, path string) {
+	r.mu.Lock()
+	roles := r.cargoRoles[m]
+	r.mu.Unlock()
+
 	switch {
-	case m.roles&CargoServesDownloads != 0 && isCargoDownloadPath(relative):
+	case roles&CargoServesDownloads != 0 && isCargoDownloadPath(path):
 		r.serveCargoDownload(w, req)
-	case m.roles&CargoServesIndex != 0:
-		r.serveCargoIndex(w, relative)
+	case roles&CargoServesIndex != 0:
+		r.serveCargoIndex(w, path)
 	default:
 		http.NotFound(w, req)
 	}
 }
 
-// serveCargoUpstream answers the out-of-band index fetch, which reaches the
-// plain server with the base path of the endpoint and without its host.
+// serveCargoUpstream answers the out-of-band index fetch at
+// /<endpoint host><base path>/<index path>, as that endpoint would.
 func (r *Registry) serveCargoUpstream(w http.ResponseWriter, req *http.Request) {
+	host, path, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
+	path = "/" + path
+
 	r.mu.Lock()
-	m, ok := r.matchCargoMount("", req.URL.Path)
+	m, ok := matchMount(r.cargoMounts, host, path)
 	r.mu.Unlock()
-	if !ok {
-		r.serveCargoIndex(w, req.URL.Path)
-		return
-	}
-	if m.roles&CargoServesIndex == 0 {
+
+	switch {
+	case ok:
+		r.serveCargoAs(w, req, m, strings.TrimPrefix(path, m.basePath))
+	case host == "index.crates.io":
+		r.serveCargoIndex(w, path)
+	default:
 		http.NotFound(w, req)
-		return
 	}
-	r.serveCargoIndex(w, strings.TrimPrefix(req.URL.Path, m.basePath))
 }
 
+// isCargoDownloadPath reports whether path ends in a download layout. A
+// version segment tells the download of a crate apart from the index file of
+// a crate named download.
 func isCargoDownloadPath(path string) bool {
-	return strings.HasSuffix(path, ".crate") || strings.HasSuffix(path, "/download")
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	last := segments[len(segments)-1]
+	if last == "download" {
+		return len(segments) >= 3 && cargo.IsExactVersion(segments[len(segments)-2])
+	}
+	return strings.HasSuffix(last, ".crate")
 }
 
 // serveCargoIndex implements a minimal sparse index: config.json, and NDJSON

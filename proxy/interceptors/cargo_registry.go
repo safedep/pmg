@@ -22,8 +22,9 @@ var cargoRegistryEndpoints = []registryEndpoint{
 	builtInRegistryEndpoint(cargoStaticHost, true, cargoDownloadParser{}),
 }
 
-// CargoRegistryInterceptor intercepts crates.io sparse-index and .crate
-// download requests and analyzes crates for malware. It embeds
+// CargoRegistryInterceptor intercepts sparse-index and .crate download
+// requests on crates.io and on the Cargo registries of proxy.registries, and
+// analyzes crates for malware. It embeds
 // baseRegistryInterceptor to reuse ecosystem agnostic functionality.
 type CargoRegistryInterceptor struct {
 	baseRegistryInterceptor

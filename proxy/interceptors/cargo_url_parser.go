@@ -13,7 +13,7 @@ const (
 	cargoRequestDownload = "download"
 )
 
-// cargoCrateInfo is parsed crate information from a crates.io registry URL.
+// cargoCrateInfo is parsed crate information from a Cargo registry URL.
 type cargoCrateInfo struct {
 	name        string
 	version     string
@@ -149,18 +149,16 @@ func parseCargoDownloadPath(segments []string) (*cargoCrateInfo, bool) {
 	if !ok {
 		return nil, false
 	}
-	// A crate name has no dot and a version starts with "<n>.<n>.", so only
-	// one hyphen splits the stem into a valid name and a valid version.
-	for index := strings.IndexByte(stem, '-'); index > 0; {
+	// A crate name has no dot and a version starts with "<n>.<n>.", so at
+	// most one hyphen splits the stem into a valid name and a valid version.
+	for index, char := range stem {
+		if char != '-' {
+			continue
+		}
 		name, version := stem[:index], stem[index+1:]
 		if cargo.IsCrateName(name) && cargo.IsExactVersion(version) {
 			return newCargoDownload(name, version), true
 		}
-		next := strings.IndexByte(version, '-')
-		if next < 0 {
-			break
-		}
-		index += next + 1
 	}
 	return nil, false
 }

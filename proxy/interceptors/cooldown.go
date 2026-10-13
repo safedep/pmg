@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -41,6 +42,39 @@ func forceUncompressedNonConditionalResponse(headers http.Header) {
 // (which would re-intercept the request). It honors the process' own proxy
 // environment, not the child's injected one.
 var cooldownFetchClient = &http.Client{Timeout: 10 * time.Second}
+
+// cooldownFetch reads rawURL out-of-band and returns the body of an HTTP 200
+// response. It sends authorization when it is not empty. Any failure means no
+// body, so the caller fails open.
+func cooldownFetch(ctx *proxy.RequestContext, rawURL, authorization string, maxBytes int64) ([]byte, bool) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		log.Warnf("[%s] Cooldown: invalid URL %s: %v", ctx.RequestID, rawURL, err)
+		return nil, false
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+
+	resp, err := cooldownFetchClient.Do(req)
+	if err != nil {
+		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, rawURL, err)
+		return nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Warnf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, rawURL, resp.StatusCode)
+		return nil, false
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if err != nil {
+		log.Warnf("[%s] Cooldown: failed to read %s: %v", ctx.RequestID, rawURL, err)
+		return nil, false
+	}
+	return body, true
+}
 
 // cooldownCheckDownload runs the download-time cooldown gate shared by
 // ecosystems that enforce at download rather than by metadata stripping alone.

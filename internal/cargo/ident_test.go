@@ -40,6 +40,7 @@ func TestIsCrateName(t *testing.T) {
 		{"foo-bar", true},
 		{"Inflector", true},
 		{"x-1", true},
+		{"_private", true},
 		{"", false},
 		{"-foo", false},
 		{"foo.bar", false},

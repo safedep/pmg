@@ -25,9 +25,9 @@ type InterceptorContext struct {
 	// hermetic proxy E2E tests.
 	GoProxyUpstreamOrigin string
 
-	// CargoUpstreamOrigin replaces the scheme and host of the out-of-band
-	// Cargo index fetch. Empty means the origin of the endpoint. Set by the
-	// hermetic proxy E2E tests.
+	// CargoUpstreamOrigin sends the out-of-band Cargo index fetch to
+	// <origin>/<endpoint host><base path>. Empty means the endpoint itself.
+	// Set by the hermetic proxy E2E tests.
 	CargoUpstreamOrigin string
 }
 

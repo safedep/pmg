@@ -331,8 +331,9 @@ as dependency-installing commands.
 <details>
 <summary>How it differs from npm/PyPI</summary>
 
-- PMG intercepts two fixed crates.io hosts. `index.crates.io` serves the
-  sparse index. `static.crates.io` serves the `.crate` downloads. PMG
+- PMG intercepts two crates.io hosts and the endpoints of each Cargo
+  registry in `proxy.registries`. `index.crates.io` serves the sparse
+  index. `static.crates.io` serves the `.crate` downloads. PMG
   tunnels the crates.io API host without inspection. Registry tokens used
   by `cargo publish` never pass through the MITM path.
 - PMG sets `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` for the child
@@ -352,9 +353,9 @@ as dependency-installing commands.
   [Cargo registry requirements](#cargo-registry-requirements). Other
   registry traffic is tunneled and appears in the audit log as observed
   hosts.
-- An `http.proxy` value in `.cargo/config.toml` or `CARGO_HTTP_PROXY`
-  overrides the `HTTPS_PROXY` that PMG sets. cargo then sends its traffic
-  around PMG.
+- An `http.proxy` value in `.cargo/config.toml`, `CARGO_HTTP_PROXY`, or the
+  `http.proxy` value of the git configuration overrides the `HTTPS_PROXY`
+  that PMG sets. cargo then sends its traffic around PMG.
 
 </details>
 

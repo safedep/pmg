@@ -24,8 +24,10 @@ func cargoIndexLineJSON(name, version string, publishedAt time.Time) string {
 		name, version, publishedAt.UTC().Format("2006-01-02T15:04:05Z"))
 }
 
-// cratesIOEndpoint is the built-in index.crates.io endpoint.
-var cratesIOEndpoint = &cargoRegistryEndpoints[0]
+var (
+	cratesIOIndex    = &cargoRegistryEndpoints[0]
+	cratesIODownload = &cargoRegistryEndpoints[1]
+)
 
 func newBuiltInCargoCooldownHandler(stats *AnalysisStatsCollector, upstreamOrigin string) *cargoCooldownHandler {
 	return newCargoCooldownHandler(stats, registrySet{entries: cargoRegistryEndpoints}, upstreamOrigin)
@@ -36,7 +38,7 @@ func runCargoIndexModifier(t *testing.T, h *cargoCooldownHandler, crate string, 
 
 	ctx := &proxy.RequestContext{RequestID: "test", Headers: http.Header{}}
 
-	resp, err := h.HandleIndexRequest(ctx, cratesIOEndpoint, crate, days, "")
+	resp, err := h.HandleIndexRequest(ctx, cratesIOIndex, crate, days, "")
 	require.NoError(t, err)
 	require.Equal(t, proxy.ActionModifyResponse, resp.Action)
 	require.NotNil(t, resp.ResponseModifier)
@@ -105,7 +107,7 @@ func TestCargoCooldownHandleIndexRequest(t *testing.T) {
 		runCargoIndexModifier(t, h, "inflector", 7, body)
 
 		ctx := &proxy.RequestContext{RequestID: "test"}
-		resp, handled := h.CheckCrateDownload(ctx, &cargoRegistryEndpoints[1], "Inflector", "2.0.0", 7)
+		resp, handled := h.CheckCrateDownload(ctx, cratesIODownload, "Inflector", "2.0.0", 7)
 		require.True(t, handled)
 		assert.Equal(t, proxy.ActionBlock, resp.Action)
 	})
@@ -143,7 +145,7 @@ func TestCargoCooldownHandleIndexRequest(t *testing.T) {
 		h := newBuiltInCargoCooldownHandler(NewAnalysisStatsCollector(), "")
 
 		ctx := &proxy.RequestContext{RequestID: "test", Headers: http.Header{}}
-		resp, err := h.HandleIndexRequest(ctx, cratesIOEndpoint, "serde", 7, "")
+		resp, err := h.HandleIndexRequest(ctx, cratesIOIndex, "serde", 7, "")
 		require.NoError(t, err)
 
 		status, _, out, err := resp.ResponseModifier(http.StatusNotFound, http.Header{}, []byte("not found"))
@@ -157,7 +159,9 @@ func TestCargoCooldownCheckCrateDownloadSideFetch(t *testing.T) {
 	publishTime := time.Now().Add(-24 * time.Hour)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path == "/3/f/foo" {
+		// Only index.crates.io serves the index. A fetch from
+		// static.crates.io must not stand in for it.
+		if req.URL.Path == "/index.crates.io/3/f/foo" {
 			_, err := w.Write(cargoIndexBody(cargoIndexLineJSON("foo", "1.1.0", publishTime)))
 			require.NoError(t, err)
 			return
@@ -171,7 +175,7 @@ func TestCargoCooldownCheckCrateDownloadSideFetch(t *testing.T) {
 	t.Run("blocks using out-of-band publish time on cache miss", func(t *testing.T) {
 		h := newBuiltInCargoCooldownHandler(NewAnalysisStatsCollector(), server.URL)
 
-		resp, handled := h.CheckCrateDownload(ctx, &cargoRegistryEndpoints[1], "foo", "1.1.0", 7)
+		resp, handled := h.CheckCrateDownload(ctx, cratesIODownload, "foo", "1.1.0", 7)
 		require.True(t, handled)
 		assert.Equal(t, proxy.ActionBlock, resp.Action)
 		assert.Equal(t, http.StatusForbidden, resp.BlockCode)
@@ -189,14 +193,14 @@ func TestCargoCooldownCheckCrateDownloadSideFetch(t *testing.T) {
 	t.Run("allows an out-of-window version", func(t *testing.T) {
 		h := newBuiltInCargoCooldownHandler(NewAnalysisStatsCollector(), server.URL)
 
-		_, handled := h.CheckCrateDownload(ctx, &cargoRegistryEndpoints[1], "foo", "1.1.0", 1)
+		_, handled := h.CheckCrateDownload(ctx, cratesIODownload, "foo", "1.1.0", 1)
 		assert.False(t, handled)
 	})
 
 	t.Run("fails open when the out-of-band fetch fails", func(t *testing.T) {
 		h := newBuiltInCargoCooldownHandler(NewAnalysisStatsCollector(), server.URL)
 
-		_, handled := h.CheckCrateDownload(ctx, &cargoRegistryEndpoints[1], "unknown", "9.9.9", 7)
+		_, handled := h.CheckCrateDownload(ctx, cratesIODownload, "unknown", "9.9.9", 7)
 		assert.False(t, handled)
 	})
 }
@@ -225,10 +229,10 @@ func TestCargoCooldownCustomRegistryFetch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requests = append(requests, req)
 		switch req.URL.Path {
-		case "/index/3/f/foo":
+		case "/cargo.example.test/index/3/f/foo":
 			_, err := w.Write(cargoIndexBody(cargoIndexLineJSON("foo", "1.1.0", publishTime)))
 			require.NoError(t, err)
-		case "/dl/3/f/foo":
+		case "/cargo.example.test/dl/3/f/foo":
 			// A download endpoint can answer an unknown path with 200 and an
 			// error page. It must not pass as an index file.
 			_, err := w.Write([]byte(`{"errors":[{"detail":"not found"}]}`))
@@ -255,7 +259,8 @@ func TestCargoCooldownCustomRegistryFetch(t *testing.T) {
 		paths[index] = req.URL.Path
 		assert.Equal(t, "Bearer secret", req.Header.Get("Authorization"), "a custom registry gets the token of the request")
 	}
-	assert.Equal(t, []string{"/dl/3/f/foo", "/index/3/f/foo"}, paths, "only the endpoints of the registry, in config order")
+	assert.Equal(t, []string{"/cargo.example.test/dl/3/f/foo", "/cargo.example.test/index/3/f/foo"}, paths,
+		"only the endpoints of the registry, in config order")
 
 	requests = nil
 	_, handled = h.CheckCrateDownload(ctx, download, "foo", "1.1.0", 7)
@@ -265,7 +270,7 @@ func TestCargoCooldownCustomRegistryFetch(t *testing.T) {
 	_, handled = h.CheckCrateDownload(ctx, download, "fooo", "1.0.0", 7)
 	assert.False(t, handled)
 	require.NotEmpty(t, requests)
-	assert.Equal(t, "/index/fo/oo/fooo", requests[0].URL.Path, "the endpoint that served the index is tried first")
+	assert.Equal(t, "/cargo.example.test/index/fo/oo/fooo", requests[0].URL.Path, "the endpoint that served the index is tried first")
 }
 
 func TestCargoCooldownBuiltInFetchSendsNoAuthorization(t *testing.T) {
@@ -278,7 +283,7 @@ func TestCargoCooldownBuiltInFetchSendsNoAuthorization(t *testing.T) {
 
 	ctx := &proxy.RequestContext{RequestID: "test", Headers: http.Header{"Authorization": []string{"Bearer secret"}}}
 	h := newBuiltInCargoCooldownHandler(NewAnalysisStatsCollector(), server.URL)
-	_, handled := h.CheckCrateDownload(ctx, &cargoRegistryEndpoints[1], "foo", "1.1.0", 7)
+	_, handled := h.CheckCrateDownload(ctx, cratesIODownload, "foo", "1.1.0", 7)
 	assert.False(t, handled)
 	require.NotEmpty(t, authorization)
 	for _, value := range authorization {
@@ -294,10 +299,32 @@ func TestCargoCooldownKeepsPublishTimesPerRegistry(t *testing.T) {
 	h.recordPublishTimes(cargoRegistryKey(custom), "foo", map[string]time.Time{"1.0.0": time.Now()})
 
 	ctx := &proxy.RequestContext{RequestID: "test", Headers: http.Header{}}
-	_, handled := h.CheckCrateDownload(ctx, &cargoRegistryEndpoints[1], "foo", "1.0.0", 7)
+	_, handled := h.CheckCrateDownload(ctx, cratesIODownload, "foo", "1.0.0", 7)
 	assert.False(t, handled, "a publish time from another registry does not apply to crates.io")
 
 	resp, handled := h.CheckCrateDownload(ctx, custom, "foo", "1.0.0", 7)
 	require.True(t, handled)
 	assert.Equal(t, proxy.ActionBlock, resp.Action)
+}
+
+func TestCargoCooldownIndexCandidates(t *testing.T) {
+	h := newBuiltInCargoCooldownHandler(NewAnalysisStatsCollector(), "")
+	assert.Equal(t, []*registryEndpoint{cratesIOIndex, cratesIODownload}, h.indexCandidates("crates.io"),
+		"with no endpoint remembered, every endpoint is a candidate in config order")
+
+	h.indexEndpoints["crates.io"] = cratesIODownload
+	assert.Equal(t, []*registryEndpoint{cratesIODownload, cratesIOIndex}, h.indexCandidates("crates.io"))
+}
+
+func TestCargoCooldownIndexBaseURL(t *testing.T) {
+	registries := customCargoRegistry(t)
+	custom := &registries.entries[len(registries.entries)-1]
+
+	h := newCargoCooldownHandler(NewAnalysisStatsCollector(), registries, "")
+	assert.Equal(t, "https://index.crates.io", h.indexBaseURL(cratesIOIndex))
+	assert.Equal(t, "https://cargo.example.test/index", h.indexBaseURL(custom))
+
+	h = newCargoCooldownHandler(NewAnalysisStatsCollector(), registries, "http://127.0.0.1:8080")
+	assert.Equal(t, "http://127.0.0.1:8080/index.crates.io", h.indexBaseURL(cratesIOIndex))
+	assert.Equal(t, "http://127.0.0.1:8080/cargo.example.test/index", h.indexBaseURL(custom))
 }

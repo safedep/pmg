@@ -3,7 +3,6 @@ package interceptors
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -130,31 +129,15 @@ func (h *goCooldownHandler) fetchPublishTime(ctx *proxy.RequestContext, baseURL,
 
 	infoURL := fmt.Sprintf("%s/%s/@v/%s.info", strings.TrimSuffix(baseURL, "/"), escapedPath, escapedVersion)
 
-	req, err := http.NewRequest(http.MethodGet, infoURL, nil)
-	if err != nil {
-		log.Warnf("[%s] Cooldown: invalid .info URL %s: %v", ctx.RequestID, infoURL, err)
-		return time.Time{}, false
-	}
-	if authorization := ctx.Headers.Get("Authorization"); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
-
-	resp, err := cooldownFetchClient.Do(req)
-	if err != nil {
-		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, infoURL, err)
-		return time.Time{}, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Warnf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, infoURL, resp.StatusCode)
+	body, ok := cooldownFetch(ctx, infoURL, ctx.Headers.Get("Authorization"), 1<<20)
+	if !ok {
 		return time.Time{}, false
 	}
 
 	var info struct {
 		Time time.Time `json:"Time"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&info); err != nil || info.Time.IsZero() {
+	if err := json.Unmarshal(body, &info); err != nil || info.Time.IsZero() {
 		log.Warnf("[%s] Cooldown: failed to parse publish time from %s", ctx.RequestID, infoURL)
 		return time.Time{}, false
 	}

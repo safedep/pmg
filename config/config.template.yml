@@ -45,9 +45,10 @@ proxy:
   skip_commands:
     npm: []
 
-  # Additional npm, PyPI, Go module proxy or sparse Cargo registry endpoints serving public packages through
-  # an internal mirror or registry proxy. Private packages are allowed but are
-  # not protected by PMG's public-package malware analysis.
+  # Additional npm, PyPI, Go module proxy or sparse Cargo registry endpoints
+  # serving public packages through an internal mirror or registry proxy.
+  # Private packages are allowed but are not protected by PMG's
+  # public-package malware analysis.
   registries: []
   # registries:
   #   - name: npm-mirror
