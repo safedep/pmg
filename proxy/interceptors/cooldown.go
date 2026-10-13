@@ -74,7 +74,11 @@ func cooldownFetch(ctx *proxy.RequestContext, rawURL, authorization string, maxB
 		log.Warnf("[%s] Cooldown: failed to fetch %s: %v", ctx.RequestID, rawURL, err)
 		return nil, false
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Warnf("[%s] Cooldown: failed to close the response of %s: %v", ctx.RequestID, rawURL, err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Warnf("[%s] Cooldown: fetching %s returned HTTP %d", ctx.RequestID, rawURL, resp.StatusCode)
