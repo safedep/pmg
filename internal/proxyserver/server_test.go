@@ -2,7 +2,6 @@ package proxyserver
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +11,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/config"
 	pmgproxy "github.com/safedep/pmg/proxy"
+	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,11 +57,13 @@ func TestProxiedEcosystems(t *testing.T) {
 
 	t.Run("go is left out with a notice when go cannot trust the CA", func(t *testing.T) {
 		ecosystems, notices := proxiedEcosystems("config-dir", func(string) error {
-			return errors.New("not trusted")
+			return certmanager.ErrCAExpired
 		})
 		assert.NotContains(t, ecosystems, packagev1.Ecosystem_ECOSYSTEM_GO)
 		assert.Len(t, ecosystems, len(interceptors.SupportedEcosystems())-1)
-		assert.Equal(t, []string{goNotAnalyzedNotice}, notices)
+		require.Len(t, notices, 1)
+		assert.Contains(t, notices[0], "Go module downloads are not analyzed")
+		assert.Contains(t, notices[0], certmanager.ErrCAExpired.Error(), "the notice names the cause")
 	})
 }
 

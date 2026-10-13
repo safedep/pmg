@@ -69,8 +69,7 @@ func TestStatusTextShowsEnforcement(t *testing.T) {
 		Namespaces: &proxyserver.NamespaceState{Mode: "redirect", Effective: "redirect", Table: &netenforce.NamespaceStatus{
 			Address: "169.254.200.1", Port: 7777, Ingress: []string{"docker0", "br-*"},
 		}},
-		Warnings: []string{"Docker is running."},
-	}})
+	}, Warnings: []string{"Docker is running."}})
 	assert.Contains(t, enforced, "Kernel enforcement: active (cgroup /sys/fs/cgroup, ports 80,443, kernel 6.8.0)")
 	assert.Contains(t, enforced, "  namespaces: redirect (169.254.200.1:7777 from docker0, br-*)")
 	assert.Contains(t, enforced, "exempt executable: /opt/Runner.Worker")

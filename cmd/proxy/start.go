@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 
 	"github.com/safedep/pmg/config"
@@ -127,14 +126,10 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 	}
 
 	line := fmt.Sprintf("PMG proxy daemon started on %s (pid %d)\n", state.Addr, state.PID)
-	warnings := state.Warnings
 	if state.Enforce != nil {
 		line = fmt.Sprintf("PMG proxy daemon started on %s (pid %d) with kernel enforcement\n", state.Addr, state.PID)
-		warnings = append(slices.Clone(warnings), state.Enforce.Warnings...)
 	}
-	for _, w := range warnings {
-		line += fmt.Sprintf("%s %s\n", ui.Colors.Yellow("⚠"), w)
-	}
+	line += proxyserver.WarningLines(state.Notices())
 	_, werr := fmt.Fprint(os.Stdout, line)
 	return werr
 }

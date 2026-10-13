@@ -138,8 +138,9 @@ does not change `GOPROXY`, and it does not analyze these fetches:
   CI job restores.
 
 On macOS and Windows, go reads only the OS trust store. If that store does
-not trust the PMG CA, the daemon does not decrypt Go traffic, and
-`pmg proxy start` and `pmg proxy status` print a notice. Run
+not trust the PMG CA, or the CA is expired, the daemon does not decrypt Go
+traffic. `pmg proxy start` and `pmg proxy status` then print a notice with
+the cause. Run
 `pmg setup cert install`, then restart the daemon. On Linux, go trusts the
 PMG CA through `SSL_CERT_FILE` from `pmg proxy env`, or through the system
 store under enforcement.

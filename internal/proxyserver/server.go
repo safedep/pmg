@@ -117,6 +117,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	var (
 		caCert     *certmanager.Certificate
+		caDir      string
 		caCertPath string
 		enforcer   netenforce.Enforcer
 		policy     netenforce.Policy
@@ -141,10 +142,12 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		if err := namespaces.prepare(); err != nil {
 			return err
 		}
-		caCertPath = certmanager.CACertPath(config.SystemConfigDir())
+		caDir = config.SystemConfigDir()
+		caCertPath = certmanager.CACertPath(caDir)
 	} else {
-		caCertPath = certmanager.ProxyCABundlePath(cfg.ConfigDir())
-		caCert, _, err = flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
+		caDir = cfg.ConfigDir()
+		caCertPath = certmanager.ProxyCABundlePath(caDir)
+		caCert, _, err = flows.SetupCACertificate(caDir, caCertPath)
 		if err != nil {
 			return fmt.Errorf("setup CA certificate: %w", err)
 		}
@@ -184,7 +187,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 100)
 	go autoBlockConfirmations(confirmationChan)
 
-	ecosystems, notices := proxiedEcosystems(cfg.ConfigDir(), truststore.GoTrustsCA)
+	ecosystems, notices := proxiedEcosystems(caDir, truststore.GoTrustsCA)
 	interceptorList, err := buildInterceptors(
 		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries, ecosystems,
 	)
@@ -378,6 +381,7 @@ func startupMessage(state State) string {
 		fmt.Fprintf(&b, "PMG proxy running on %s\n", state.Addr)
 		b.WriteString(configSourceLine(state))
 		b.WriteString("Run: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n")
+		b.WriteString(WarningLines(state.Notices()))
 		return b.String()
 	}
 
@@ -388,7 +392,14 @@ func startupMessage(state State) string {
 		fmt.Fprintf(&b, "  %s\n", line)
 	}
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
-	for _, w := range state.Enforce.Warnings {
+	b.WriteString(WarningLines(state.Notices()))
+	return b.String()
+}
+
+// WarningLines renders daemon notices, one marked line each.
+func WarningLines(warnings []string) string {
+	var b strings.Builder
+	for _, w := range warnings {
 		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
@@ -425,25 +436,22 @@ func buildInterceptors(
 	return factory.CreateInterceptors(ecosystems...)
 }
 
-// goNotAnalyzedNotice tells the user why the daemon leaves Go out and how to
-// fix it. The daemon logs only with --debug, so the notice goes in the state.
-const goNotAnalyzedNotice = "Go module downloads are not analyzed. Go on this OS reads only the OS trust store. " +
-	"That store does not trust the PMG CA. Run `pmg setup cert install`, then restart the proxy."
-
 // proxiedEcosystems returns the ecosystems the daemon analyzes and a notice for
-// each one it leaves out. Go is left out when it cannot trust the PMG CA,
-// because then every decrypted module download fails the TLS check.
-func proxiedEcosystems(configDir string, goTrustsCA func(configDir string) error) ([]packagev1.Ecosystem, []string) {
+// each one it leaves out. Go is left out when it cannot trust the CA in caDir,
+// because then every decrypted module download fails the TLS check. The
+// daemon logs only with --debug, so the notice goes in the state.
+func proxiedEcosystems(caDir string, goTrustsCA func(caDir string) error) ([]packagev1.Ecosystem, []string) {
 	ecosystems := interceptors.SupportedEcosystems()
-	err := goTrustsCA(configDir)
+	err := goTrustsCA(caDir)
 	if err == nil {
 		return ecosystems, nil
 	}
-	log.Warnf("Go module downloads are not analyzed: %v", err)
+	notice := fmt.Sprintf("Go module downloads are not analyzed (%v). Run `pmg setup cert install`, then restart the proxy.", err)
+	log.Warnf("%s", notice)
 	ecosystems = slices.DeleteFunc(ecosystems, func(ecosystem packagev1.Ecosystem) bool {
 		return ecosystem == packagev1.Ecosystem_ECOSYSTEM_GO
 	})
-	return ecosystems, []string{goNotAnalyzedNotice}
+	return ecosystems, []string{notice}
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the

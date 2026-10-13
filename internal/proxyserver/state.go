@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"github.com/safedep/pmg/internal/platform"
@@ -35,10 +36,19 @@ type State struct {
 	// environment variables only.
 	Enforce *EnforceState `json:"enforce,omitempty"`
 
-	// Warnings are notices about what the daemon does not protect, for
-	// `pmg proxy start` and `pmg proxy status` to print. Enforcement notices
-	// are in Enforce.Warnings.
+	// Warnings are notices about what the daemon does not protect.
+	// Enforcement notices are in Enforce.Warnings. Notices returns both.
 	Warnings []string `json:"warnings,omitempty"`
+}
+
+// Notices returns every notice of the daemon, its own first, then the
+// enforcement notices.
+func (s State) Notices() []string {
+	notices := slices.Clone(s.Warnings)
+	if s.Enforce != nil {
+		notices = append(notices, s.Enforce.Warnings...)
+	}
+	return notices
 }
 
 // CloudSyncResult is the outcome of the daemon's shutdown flush to SafeDep Cloud.

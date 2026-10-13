@@ -5,7 +5,6 @@ package golang
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/safedep/dry/usefulerror"
@@ -60,27 +59,17 @@ func executeGoFlow(ctx context.Context, args []string) error {
 // requireTrustedCA fails fast when Go cannot trust PMG's MITM CA, so a module
 // download does not fail mid-build with an opaque x509 error.
 func requireTrustedCA() error {
-	err := truststore.GoTrustsCA(config.Get().ConfigDir())
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, truststore.ErrCANotTrusted):
-		return errGoCertNotTrusted(nil)
-	default:
+	if err := truststore.GoTrustsCA(config.Get().ConfigDir()); err != nil {
 		return errGoCertNotTrusted(err)
 	}
+	return nil
 }
 
 func errGoCertNotTrusted(cause error) error {
-	err := usefulerror.NewUsefulError().
+	return usefulerror.NewUsefulError().
 		WithCode(errcodes.CertTrustStore).
-		WithHumanError("Go ignores PMG's injected CA bundle on this OS; the PMG proxy CA must be trusted in the OS trust store.").
+		WithHumanError(fmt.Sprintf("Go cannot trust the PMG proxy CA (%v).", cause)).
 		WithHelp("Run `pmg setup cert install` to install and trust the PMG proxy CA, then retry.").
-		WithMsg("pmg proxy CA is not trusted in the OS trust store")
-
-	if cause != nil {
-		return err.Wrap(cause)
-	}
-
-	return err
+		WithMsg("pmg proxy CA is not trusted in the OS trust store").
+		Wrap(cause)
 }

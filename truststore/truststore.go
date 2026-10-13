@@ -69,7 +69,7 @@ func UserScopeSupported() bool { return userScopeSupportedPlatform() }
 
 // ErrCANotTrusted is returned by GoTrustsCA when the OS trust store does not
 // trust the PMG CA.
-var ErrCANotTrusted = errors.New("the PMG CA is not trusted in the OS trust store")
+var ErrCANotTrusted = errors.New("the OS trust store does not trust the PMG CA, and Go on this OS reads only that store")
 
 // CATrusted reports whether the OS trust store trusts the PMG CA, in the user
 // or the system scope.
@@ -81,12 +81,13 @@ func CATrusted() (bool, error) {
 // GoTrustsCA returns nil when Go can verify TLS from a PMG proxy that signs
 // with the CA persisted in configDir. On macOS and Windows, Go's crypto/x509
 // ignores SSL_CERT_FILE and reads only the OS trust store, so the persisted CA
-// must be trusted there. Linux Go honors SSL_CERT_FILE, so any CA works.
+// must be usable and trusted there. Linux Go honors SSL_CERT_FILE, so any CA
+// works.
 func GoTrustsCA(configDir string) error {
 	if !UserScopeSupported() {
 		return nil
 	}
-	if _, err := certmanager.LoadCA(configDir); err != nil {
+	if _, err := certmanager.LoadUsableCA(configDir); err != nil {
 		return err
 	}
 	trusted, err := CATrusted()
