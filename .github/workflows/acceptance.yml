@@ -366,7 +366,8 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
-      # TEMPORARY: find which macOS security command waits for a GUI prompt.
+      # TEMPORARY: test whether root can let admin trust changes skip the GUI
+      # authorization prompt on a runner with no GUI session.
       - name: Diagnose macOS trust commands
         if: runner.os == 'macOS'
         run: |
@@ -376,19 +377,23 @@ jobs:
             perl -e 'alarm shift; exec @ARGV' 30 "$@" || rc=$?
             echo "exit=${rc}"
           }
+          csrutil status || true
+          ls -lO /var/db/auth.db || true
+          t sudo security authorizationdb read com.apple.trust-settings.admin
+          t sudo sqlite3 /var/db/auth.db "select id,name,type,class,kofn,flags from rules where name like 'com.apple.trust-settings%';"
+          t sudo sqlite3 /var/db/auth.db "update rules set class=4 where name='com.apple.trust-settings.admin';"
+          t sudo killall authd
+          t sudo security authorizationdb read com.apple.trust-settings.admin
           c="${RUNNER_TEMP}/diag-ca.pem"
           openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-ca.key" -out "$c" \
             -subj "/CN=PMG Diag CA" -days 1 2>/dev/null
           t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
-          t security verify-cert -p ssl -l -L -c "$c"
-          t sudo security find-certificate -a -p -c "PMG Diag CA" /Library/Keychains/System.keychain
           t sudo security remove-trusted-cert -d "$c"
           t security verify-cert -p ssl -l -L -c "$c"
           t sudo security delete-certificate -c "PMG Diag CA" /Library/Keychains/System.keychain
-          t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
-          t sudo security delete-certificate -c "PMG Diag CA" -t /Library/Keychains/System.keychain
-          t security verify-cert -p ssl -l -L -c "$c"
           t security dump-trust-settings -d
+          # Stop here until a removal works, so each try costs minutes.
+          exit 1
 
       - name: Run truststore acceptance scripts
         env:
