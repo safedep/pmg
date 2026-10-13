@@ -11,6 +11,23 @@ import (
 	"github.com/safedep/pmg/proxy/certmanager"
 )
 
+// Scope selects the OS trust store. It aliases the platform type, so callers
+// outside this module can name it. internal/platform is closed to them.
+type Scope = platform.CAScope
+
+const (
+	ScopeUser   = platform.CAScopeUser
+	ScopeSystem = platform.CAScopeSystem
+)
+
+// ErrUserScopeUnsupported is returned by Install and Uninstall when the
+// platform has no per-user trust store (Linux).
+var ErrUserScopeUnsupported = platform.ErrCAUserScopeUnsupported
+
+// ErrCANotTrusted is returned when the OS trust store does not trust the
+// persisted PMG CA.
+var ErrCANotTrusted = platform.ErrCANotTrusted
+
 // Tests replace these to drive Status and GoTrustsCA on any OS.
 var (
 	caStores        = platform.CAStores
@@ -18,7 +35,7 @@ var (
 )
 
 // Install adds certPEM (a PEM-encoded CA certificate) to the OS trust store.
-func Install(certPEM []byte, scope platform.CAScope) error {
+func Install(certPEM []byte, scope Scope) error {
 	cert, err := certmanager.ParseCertPEM(certPEM)
 	if err != nil {
 		return err
@@ -27,7 +44,7 @@ func Install(certPEM []byte, scope platform.CAScope) error {
 }
 
 // Uninstall removes every certificate named commonName from the OS trust store.
-func Uninstall(commonName string, scope platform.CAScope) error {
+func Uninstall(commonName string, scope Scope) error {
 	return platform.UninstallCA(commonName, scope)
 }
 
@@ -48,7 +65,7 @@ func Status(configDir string) (user bool, system bool, err error) {
 		return false, false, err
 	}
 	if err := verifyCATrusted(certmanager.CACertPath(configDir), cert); err != nil {
-		if errors.Is(err, platform.ErrCANotTrusted) {
+		if errors.Is(err, ErrCANotTrusted) {
 			return false, false, nil
 		}
 		return false, false, err

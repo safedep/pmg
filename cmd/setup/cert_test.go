@@ -9,8 +9,8 @@ import (
 
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/doctor"
-	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/proxy/certmanager"
+	"github.com/safedep/pmg/truststore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,11 +23,11 @@ type fakeStore struct {
 	calls         []string
 }
 
-func (f *fakeStore) Install(_ []byte, s platform.CAScope) error {
+func (f *fakeStore) Install(_ []byte, s truststore.Scope) error {
 	f.calls = append(f.calls, "install "+s.String())
 	return f.installErr
 }
-func (f *fakeStore) Uninstall(_ string, s platform.CAScope) error {
+func (f *fakeStore) Uninstall(_ string, s truststore.Scope) error {
 	f.calls = append(f.calls, "uninstall "+s.String())
 	return f.uninstallErr
 }
@@ -43,7 +43,7 @@ func TestCertInstallGeneratesSavesAndInstalls(t *testing.T) {
 	store := &fakeStore{userSupported: true}
 	var out bytes.Buffer
 
-	require.NoError(t, runCertInstall(dir, platform.CAScopeUser, false, store, &out))
+	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 
 	assert.True(t, store.called("install"))
 	_, err := certmanager.LoadCA(dir)
@@ -54,7 +54,7 @@ func TestCertInstallRemovesSameNameCertsBeforeInstall(t *testing.T) {
 	store := &fakeStore{userSupported: true}
 	var out bytes.Buffer
 
-	require.NoError(t, runCertInstall(t.TempDir(), platform.CAScopeSystem, false, store, &out))
+	require.NoError(t, runCertInstall(t.TempDir(), truststore.ScopeSystem, false, store, &out))
 
 	assert.Equal(t, []string{"uninstall system", "install system"}, store.calls,
 		"a stale certificate with the PMG name must not stay trusted next to the new CA")
@@ -68,7 +68,7 @@ func TestCertInstallIdempotentWhenAlreadyTrusted(t *testing.T) {
 
 	store := &fakeStore{user: true, userSupported: true}
 	var out bytes.Buffer
-	require.NoError(t, runCertInstall(dir, platform.CAScopeUser, false, store, &out))
+	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 
 	assert.False(t, store.called("install")) // already trusted → no re-install
 	assert.Contains(t, out.String(), "already installed")
@@ -76,10 +76,10 @@ func TestCertInstallIdempotentWhenAlreadyTrusted(t *testing.T) {
 
 func TestCertInstallLinuxUserNoopIsFriendly(t *testing.T) {
 	dir := t.TempDir()
-	store := &fakeStore{installErr: platform.ErrCAUserScopeUnsupported, userSupported: false}
+	store := &fakeStore{installErr: truststore.ErrUserScopeUnsupported, userSupported: false}
 	var out bytes.Buffer
 
-	require.NoError(t, runCertInstall(dir, platform.CAScopeUser, false, store, &out))
+	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 	assert.Contains(t, out.String(), "--system")
 }
 
@@ -91,7 +91,7 @@ func TestCertInstallForceRotates(t *testing.T) {
 
 	store := &fakeStore{userSupported: true}
 	var out bytes.Buffer
-	require.NoError(t, runCertInstall(dir, platform.CAScopeUser, true, store, &out))
+	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, true, store, &out))
 
 	assert.True(t, store.called("uninstall")) // rotation uninstalls old first
 	assert.True(t, store.called("install"))
@@ -110,7 +110,7 @@ func TestCertInstallReplacesCorruptedCA(t *testing.T) {
 
 	store := &fakeStore{userSupported: true}
 	var out bytes.Buffer
-	require.NoError(t, runCertInstall(dir, platform.CAScopeUser, false, store, &out))
+	require.NoError(t, runCertInstall(dir, truststore.ScopeUser, false, store, &out))
 
 	assert.True(t, store.called("uninstall"), "old trusted root should be cleaned up")
 	assert.True(t, store.called("install"))
@@ -122,10 +122,10 @@ func TestCertUninstallPurgeDeletesEveryKeypair(t *testing.T) {
 	tests := []struct {
 		name  string
 		dirs  int
-		scope platform.CAScope
+		scope truststore.Scope
 	}{
-		{name: "the user keypair", dirs: 1, scope: platform.CAScopeUser},
-		{name: "the user keypair and a legacy system keypair", dirs: 2, scope: platform.CAScopeSystem},
+		{name: "the user keypair", dirs: 1, scope: truststore.ScopeUser},
+		{name: "the user keypair and a legacy system keypair", dirs: 2, scope: truststore.ScopeSystem},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,20 +175,20 @@ func TestKeypairLayoutDirs(t *testing.T) {
 		name          string
 		enforcing     bool
 		privileged    bool
-		scope         platform.CAScope
+		scope         truststore.Scope
 		wantInstall   string
 		wantPurge     []string
 		wantStatusDir string
 	}{
-		{name: "enforcing proxy, root, system scope", enforcing: true, privileged: true, scope: platform.CAScopeSystem,
+		{name: "enforcing proxy, root, system scope", enforcing: true, privileged: true, scope: truststore.ScopeSystem,
 			wantInstall: "system", wantPurge: []string{"system"}, wantStatusDir: "user"},
-		{name: "enforcing proxy, user, system scope", enforcing: true, scope: platform.CAScopeSystem,
+		{name: "enforcing proxy, user, system scope", enforcing: true, scope: truststore.ScopeSystem,
 			wantInstall: "user", wantPurge: []string{"user"}, wantStatusDir: "user"},
-		{name: "no enforcing proxy, administrator, system scope", privileged: true, scope: platform.CAScopeSystem,
+		{name: "no enforcing proxy, administrator, system scope", privileged: true, scope: truststore.ScopeSystem,
 			wantInstall: "user", wantPurge: []string{"user", "legacy"}, wantStatusDir: "user"},
-		{name: "no enforcing proxy, administrator, user scope", privileged: true, scope: platform.CAScopeUser,
+		{name: "no enforcing proxy, administrator, user scope", privileged: true, scope: truststore.ScopeUser,
 			wantInstall: "user", wantPurge: []string{"user"}, wantStatusDir: "user"},
-		{name: "no enforcing proxy, user, system scope", scope: platform.CAScopeSystem,
+		{name: "no enforcing proxy, user, system scope", scope: truststore.ScopeSystem,
 			wantInstall: "user", wantPurge: []string{"user"}, wantStatusDir: "user"},
 	}
 	for _, tt := range tests {
@@ -276,7 +276,7 @@ func TestCertInstallWritesNoKeypairWhenTheCleanupFails(t *testing.T) {
 	store := &fakeStore{uninstallErr: assert.AnError}
 	var out bytes.Buffer
 
-	err := runCertInstall(dir, platform.CAScopeSystem, false, store, &out)
+	err := runCertInstall(dir, truststore.ScopeSystem, false, store, &out)
 	assertUsefulCode(t, err, errcodes.CertTrustStore)
 	assert.False(t, hasKeypair(dir), "a failed cleanup must leave the keypair and the trust as they were")
 	assert.False(t, store.called("install"))

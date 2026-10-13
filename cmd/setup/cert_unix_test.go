@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/errcodes"
-	"github.com/safedep/pmg/internal/platform"
+	"github.com/safedep/pmg/truststore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,17 +18,17 @@ func TestKeypairLayoutUnderSudo(t *testing.T) {
 	t.Setenv("SUDO_USER", "alice")
 
 	enforcing := keypairLayout{user: user, system: system}
-	dir, err := enforcing.installDir(platform.CAScopeSystem)
+	dir, err := enforcing.installDir(truststore.ScopeSystem)
 	require.NoError(t, err, "sudo with --system is the enforce flow")
 	assert.Equal(t, system, dir)
 
-	_, err = enforcing.installDir(platform.CAScopeUser)
+	_, err = enforcing.installDir(truststore.ScopeUser)
 	assertUsefulCode(t, err, errcodes.PermissionDenied)
 
 	noProxy := keypairLayout{user: user, legacy: system}
-	_, err = noProxy.installDir(platform.CAScopeSystem)
+	_, err = noProxy.installDir(truststore.ScopeSystem)
 	assertUsefulCode(t, err, errcodes.PermissionDenied)
-	dirs, err := noProxy.purgeDirs(platform.CAScopeSystem)
+	dirs, err := noProxy.purgeDirs(truststore.ScopeSystem)
 	require.NoError(t, err, "macOS needs sudo to delete the root-owned legacy keypair")
 	assert.Equal(t, []string{system}, dirs, "sudo purges the legacy keypair, not the user's")
 	assert.NotContains(t, noProxy.refuseSudo().Error(), "enforcing proxy",

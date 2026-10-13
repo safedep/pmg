@@ -21,16 +21,16 @@ import (
 
 // trustStore is the testability seam; defaultTrustStore delegates to the package.
 type trustStore interface {
-	Install(certPEM []byte, scope platform.CAScope) error
-	Uninstall(commonName string, scope platform.CAScope) error
+	Install(certPEM []byte, scope truststore.Scope) error
+	Uninstall(commonName string, scope truststore.Scope) error
 	Status(dir string) (user, system bool, err error)
 	UserScopeSupported() bool
 }
 
 type defaultTrustStore struct{}
 
-func (defaultTrustStore) Install(p []byte, s platform.CAScope) error { return truststore.Install(p, s) }
-func (defaultTrustStore) Uninstall(cn string, s platform.CAScope) error {
+func (defaultTrustStore) Install(p []byte, s truststore.Scope) error { return truststore.Install(p, s) }
+func (defaultTrustStore) Uninstall(cn string, s truststore.Scope) error {
 	return truststore.Uninstall(cn, s)
 }
 func (defaultTrustStore) Status(dir string) (bool, bool, error) { return truststore.Status(dir) }
@@ -65,11 +65,11 @@ func NewCertCommand() *cobra.Command {
 	return cmd
 }
 
-func scopeFromFlag(system bool) platform.CAScope {
+func scopeFromFlag(system bool) truststore.Scope {
 	if system {
-		return platform.CAScopeSystem
+		return truststore.ScopeSystem
 	}
-	return platform.CAScopeUser
+	return truststore.ScopeUser
 }
 
 func newCertInstallCommand() *cobra.Command {
@@ -127,7 +127,7 @@ func newCertStatusCommand() *cobra.Command {
 	}
 }
 
-func runCertInstall(dir string, scope platform.CAScope, force bool, store trustStore, out io.Writer) error {
+func runCertInstall(dir string, scope truststore.Scope, force bool, store trustStore, out io.Writer) error {
 	caCert, loadErr := certmanager.LoadCA(dir)
 	exists := loadErr == nil
 	// A failed load with files still on disk means a corrupt or partial CA (e.g.
@@ -149,7 +149,7 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 
 	if exists && !rotate {
 		user, system, _ := store.Status(dir)
-		if (scope == platform.CAScopeUser && user) || (scope == platform.CAScopeSystem && system) {
+		if (scope == truststore.ScopeUser && user) || (scope == truststore.ScopeSystem && system) {
 			if _, err := fmt.Fprintf(out, "%s CA already installed and trusted (%s scope)\n", ui.Colors.Green("✓"), scope.String()); err != nil {
 				return err
 			}
@@ -169,7 +169,7 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 		// Best-effort cleanup of the opposite scope so a scope change during
 		// rotation leaves no stale same-CN cert behind. Non-fatal: the other
 		// scope may need privileges we do not hold.
-		if err := store.Uninstall(certmanager.CACommonName, otherScope(scope)); err != nil && !errors.Is(err, platform.ErrCAUserScopeUnsupported) {
+		if err := store.Uninstall(certmanager.CACommonName, otherScope(scope)); err != nil && !errors.Is(err, truststore.ErrUserScopeUnsupported) {
 			log.Debugf("best-effort cleanup of %s-scope CA during rotation failed: %v", otherScope(scope), err)
 		}
 	}
@@ -179,7 +179,7 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 	// release. Its private key can still exist, so remove every one before
 	// the store trusts this CA. The removal runs before a new keypair is
 	// written, so a failure leaves the keypair and the trust as they were.
-	if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, platform.ErrCAUserScopeUnsupported) {
+	if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, truststore.ErrUserScopeUnsupported) {
 		return newCertCommandError(errcodes.CertTrustStore, "failed to remove an old PMG CA from the trust store", trustHelp(scope), err)
 	}
 
@@ -209,7 +209,7 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 	}
 
 	if err := store.Install(caCert.Certificate, scope); err != nil {
-		if errors.Is(err, platform.ErrCAUserScopeUnsupported) {
+		if errors.Is(err, truststore.ErrUserScopeUnsupported) {
 			// Linux has no per-user trust store; treat as a friendly no-op.
 			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"),
 				"This platform has no per-user trust store. The CA keypair is persisted. "+
@@ -227,9 +227,9 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 	return nil
 }
 
-func runCertUninstall(dirs []string, scope platform.CAScope, purge bool, store trustStore, out io.Writer) error {
+func runCertUninstall(dirs []string, scope truststore.Scope, purge bool, store trustStore, out io.Writer) error {
 	switch err := store.Uninstall(certmanager.CACommonName, scope); {
-	case errors.Is(err, platform.ErrCAUserScopeUnsupported):
+	case errors.Is(err, truststore.ErrUserScopeUnsupported):
 		if _, e := fmt.Fprintf(out, "%s This platform has no per-user trust store; nothing to remove. Use --system for machine-wide.\n", ui.Colors.Dim("ℹ")); e != nil {
 			return e
 		}
@@ -315,11 +315,11 @@ func runCertStatus(dir string, store trustStore, out io.Writer) error {
 	return nil
 }
 
-func otherScope(s platform.CAScope) platform.CAScope {
-	if s == platform.CAScopeSystem {
-		return platform.CAScopeUser
+func otherScope(s truststore.Scope) truststore.Scope {
+	if s == truststore.ScopeSystem {
+		return truststore.ScopeUser
 	}
-	return platform.CAScopeSystem
+	return truststore.ScopeSystem
 }
 
 // keypairLayout names the directories that can hold a CA keypair. The
@@ -347,8 +347,8 @@ func newKeypairLayout(cfg *config.RuntimeConfig) keypairLayout {
 // privileged system-scope install on a platform with the enforcing proxy
 // uses the system directory. A sudo caller is sent back to their own
 // account.
-func (l keypairLayout) installDir(scope platform.CAScope) (string, error) {
-	if l.system != "" && scope == platform.CAScopeSystem && platform.IsPrivileged() {
+func (l keypairLayout) installDir(scope truststore.Scope) (string, error) {
+	if l.system != "" && scope == truststore.ScopeSystem && platform.IsPrivileged() {
 		return l.system, nil
 	}
 	if err := l.refuseSudo(); err != nil {
@@ -359,10 +359,10 @@ func (l keypairLayout) installDir(scope platform.CAScope) (string, error) {
 
 // purgeDirs are the keypair directories that `pmg setup cert uninstall
 // --purge` deletes. An administrator also deletes the legacy keypair.
-func (l keypairLayout) purgeDirs(scope platform.CAScope) ([]string, error) {
+func (l keypairLayout) purgeDirs(scope truststore.Scope) ([]string, error) {
 	// macOS needs sudo to delete the root-owned legacy keypair. The user's own
 	// keypair is not root's to delete, so sudo purges the legacy one only.
-	if l.legacy != "" && scope == platform.CAScopeSystem && platform.IsSudo() {
+	if l.legacy != "" && scope == truststore.ScopeSystem && platform.IsSudo() {
 		return []string{l.legacy}, nil
 	}
 	dir, err := l.installDir(scope)
@@ -370,7 +370,7 @@ func (l keypairLayout) purgeDirs(scope platform.CAScope) ([]string, error) {
 		return nil, err
 	}
 	dirs := []string{dir}
-	if l.legacy != "" && scope == platform.CAScopeSystem && platform.IsPrivileged() {
+	if l.legacy != "" && scope == truststore.ScopeSystem && platform.IsPrivileged() {
 		dirs = append(dirs, l.legacy)
 	}
 	return dirs, nil
@@ -428,8 +428,8 @@ func hasKeypair(dir string) bool {
 	return err == nil && (st.CertPresent || st.KeyPresent)
 }
 
-func trustHelp(scope platform.CAScope) string {
-	if scope == platform.CAScopeSystem {
+func trustHelp(scope truststore.Scope) string {
+	if scope == truststore.ScopeSystem {
 		return "Approve the elevation prompt when asked (macOS/Linux), or run from an elevated prompt (Windows)"
 	}
 	return "Approve the keychain prompt if shown; on Linux use --system (no per-user store)"
