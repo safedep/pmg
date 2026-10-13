@@ -114,6 +114,23 @@ type CargoCrate struct {
 	Versions []CargoVersion
 }
 
+// CargoRole says what a custom Cargo mount serves.
+type CargoRole uint8
+
+const (
+	// CargoServesIndex serves config.json and the sparse index files at the base
+	// path.
+	CargoServesIndex CargoRole = 1 << iota
+	// CargoServesDownloads serves .crate files under the base path, in the
+	// <name>/<version>/download and <name>-<version>.crate layouts.
+	CargoServesDownloads
+)
+
+type cargoMount struct {
+	mount
+	roles CargoRole
+}
+
 type RecordedRequest struct {
 	Host    string
 	Method  string
@@ -132,6 +149,7 @@ type Registry struct {
 	cargo       map[string]CargoCrate
 	npmMounts   []mount
 	pypiMounts  []mount
+	cargoMounts []cargoMount
 	requests    []RecordedRequest
 	server      *httptest.Server
 	plainServer *httptest.Server
@@ -159,10 +177,12 @@ func newRegistry() *Registry {
 		r.serveGoWithOptionalPrefix(w, req)
 	}))
 	// Plain-HTTP sparse-index endpoint for the cargo interceptor's
-	// out-of-band publish-time fetches.
+	// out-of-band publish-time fetches. The fetch keeps the base path of the
+	// endpoint, so a custom mount answers under its base path, and only a
+	// mount with the CargoServesIndex role serves index files.
 	r.cargoServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.record(req)
-		r.serveCargoIndex(w, req)
+		r.serveCargoUpstream(w, req)
 	}))
 	return r
 }
@@ -218,6 +238,16 @@ func (r *Registry) AddCustomPypi(host, basePath string) {
 	r.pypiMounts = append(r.pypiMounts, mount{host: host, basePath: normalizeMountBasePath(basePath)})
 }
 
+// AddCustomCargo registers a custom Cargo mount point on host under basePath,
+// serving crates registered via AddCargo in the given roles. A registry that
+// serves the index and the downloads under one base, as Gitea does, gets
+// both roles.
+func (r *Registry) AddCustomCargo(host, basePath string, roles CargoRole) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cargoMounts = append(r.cargoMounts, cargoMount{mount: mount{host: host, basePath: normalizeMountBasePath(basePath)}, roles: roles})
+}
+
 func (r *Registry) AddCargo(crate CargoCrate) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -271,6 +301,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	npmMount, npmOK := matchMount(r.npmMounts, host, req.URL.Path)
 	pypiMount, pypiOK := matchMount(r.pypiMounts, host, req.URL.Path)
+	cargoMount, cargoOK := r.matchCargoMount(host, req.URL.Path)
 	r.mu.Unlock()
 
 	switch {
@@ -279,6 +310,9 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	case pypiOK:
 		r.serveCustomPypi(w, req, pypiMount)
+		return
+	case cargoOK:
+		r.serveCustomCargo(w, req, cargoMount)
 		return
 	}
 
@@ -292,7 +326,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 	case "proxy.golang.org", "corp.example.com", "goproxy.corp.test":
 		r.serveGoWithOptionalPrefix(w, req)
 	case "index.crates.io":
-		r.serveCargoIndex(w, req)
+		r.serveCargoIndex(w, req.URL.Path)
 	case "static.crates.io":
 		r.serveCargoDownload(w, req)
 	default:
@@ -431,24 +465,77 @@ func (r *Registry) RequestForPath(path string) (RecordedRequest, bool) {
 	return RecordedRequest{}, false
 }
 
-// serveCargoIndex implements a minimal crates.io sparse index: NDJSON per
-// registered crate with the optional pubtime field, addressed by the last
-// path segment (the lowercase crate name).
-func (r *Registry) serveCargoIndex(w http.ResponseWriter, req *http.Request) {
-	if req.URL.Path == "/config.json" {
+// matchCargoMount returns the custom Cargo mount with the longest base path
+// that covers path. An empty host matches a mount on any host, as the
+// out-of-band fetch replaces the host. r.mu must be held.
+func (r *Registry) matchCargoMount(host, path string) (cargoMount, bool) {
+	var best cargoMount
+	found := false
+	for _, m := range r.cargoMounts {
+		if host != "" && m.host != host || host == "" && m.basePath == "" {
+			continue
+		}
+		if m.basePath != "" && path != m.basePath && !strings.HasPrefix(path, m.basePath+"/") {
+			continue
+		}
+		if !found || len(m.basePath) > len(best.basePath) {
+			best, found = m, true
+		}
+	}
+	return best, found
+}
+
+func (r *Registry) serveCustomCargo(w http.ResponseWriter, req *http.Request, m cargoMount) {
+	relative := strings.TrimPrefix(req.URL.Path, m.basePath)
+	switch {
+	case m.roles&CargoServesDownloads != 0 && isCargoDownloadPath(relative):
+		r.serveCargoDownload(w, req)
+	case m.roles&CargoServesIndex != 0:
+		r.serveCargoIndex(w, relative)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+// serveCargoUpstream answers the out-of-band index fetch, which reaches the
+// plain server with the base path of the endpoint and without its host.
+func (r *Registry) serveCargoUpstream(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	m, ok := r.matchCargoMount("", req.URL.Path)
+	r.mu.Unlock()
+	if !ok {
+		r.serveCargoIndex(w, req.URL.Path)
+		return
+	}
+	if m.roles&CargoServesIndex == 0 {
+		http.NotFound(w, req)
+		return
+	}
+	r.serveCargoIndex(w, strings.TrimPrefix(req.URL.Path, m.basePath))
+}
+
+func isCargoDownloadPath(path string) bool {
+	return strings.HasSuffix(path, ".crate") || strings.HasSuffix(path, "/download")
+}
+
+// serveCargoIndex implements a minimal sparse index: config.json, and NDJSON
+// per registered crate with the optional pubtime field at the sparse-index
+// path of the crate.
+func (r *Registry) serveCargoIndex(w http.ResponseWriter, path string) {
+	if path == "/config.json" {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"dl":"https://static.crates.io/crates","api":"https://crates.io"}`)
 		return
 	}
 
-	segments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
-	name := segments[len(segments)-1]
+	trimmed := strings.Trim(path, "/")
+	name := trimmed[strings.LastIndex(trimmed, "/")+1:]
 
 	r.mu.Lock()
 	crate, ok := r.cargo[strings.ToLower(name)]
 	r.mu.Unlock()
-	if !ok {
-		http.NotFound(w, req)
+	if !ok || cargoTestIndexPath(name) != trimmed {
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
