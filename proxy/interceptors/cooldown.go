@@ -41,7 +41,20 @@ func forceUncompressedNonConditionalResponse(headers http.Header) {
 // the upstream registry rather than back through PMG's own in-process proxy
 // (which would re-intercept the request). It honors the process' own proxy
 // environment, not the child's injected one.
-var cooldownFetchClient = &http.Client{Timeout: 10 * time.Second}
+//
+// It does not follow a redirect of a request with an Authorization header.
+// Go keeps the header on a redirect to the same host or a subdomain, also to
+// plain HTTP, so a redirect could send the registry token to a URL that the
+// user did not configure. The fetch then fails and the cooldown fails open.
+var cooldownFetchClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if via[0].Header.Get("Authorization") != "" {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	},
+}
 
 // cooldownFetch reads rawURL out-of-band and returns the body of an HTTP 200
 // response. It sends authorization when it is not empty. Any failure means no

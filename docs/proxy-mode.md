@@ -203,7 +203,7 @@ PMG rejects these values:
 
 - A `name` that is empty, whitespace-only, or has leading or trailing whitespace
 - A duplicate `name`
-- An `ecosystem` other than `npm`, `pypi` or `go`
+- An `ecosystem` other than `npm`, `pypi`, `go` or `cargo`
 - A registry with no `endpoints`
 - A URL that is relative, invalid, or uses a scheme other than `http` or `https`
 - A URL that contains credentials, a query string, or a fragment
