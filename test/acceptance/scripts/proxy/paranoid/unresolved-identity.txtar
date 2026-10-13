@@ -1,3 +1,8 @@
+# guarantee: in paranoid mode the persistent proxy refuses a download when it
+# cannot identify the package from the URL.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
 env HOME=$WORK/home
 mkdir $WORK/home
 
