@@ -81,3 +81,29 @@ func TestEnvVarForProxyOverridesNpmConfig(t *testing.T) {
 		assert.Equal(t, "localhost,127.0.0.1,::1", env[key], "%s must not exempt any registry host", key)
 	}
 }
+
+func TestGoDebugWithOSTrust(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		want    string
+	}{
+		{name: "unset", current: "", want: "x509sslcertoverrideplatform=0"},
+		{name: "other settings stay", current: "http2client=0", want: "http2client=0,x509sslcertoverrideplatform=0"},
+		{name: "user value stays", current: "x509sslcertoverrideplatform=1", want: "x509sslcertoverrideplatform=1"},
+		{name: "user value among others stays", current: "http2client=0,x509sslcertoverrideplatform=1", want: "http2client=0,x509sslcertoverrideplatform=1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, goDebugWithOSTrust(tt.current))
+		})
+	}
+}
+
+func TestEnvVarForProxyKeepsGoOnTheOSTrustStore(t *testing.T) {
+	t.Setenv("GODEBUG", "http2client=0")
+
+	env := envToMap(EnvVarForProxy("127.0.0.1:8888", "/tmp/ca.pem"))
+	assert.Equal(t, "http2client=0,x509sslcertoverrideplatform=0", env["GODEBUG"])
+}
