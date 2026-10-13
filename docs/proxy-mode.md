@@ -57,7 +57,7 @@ Note one trade-off versus the removed guard mode: the proxy analyzes packages as
 
 ## Custom Registries
 
-By default PMG analyzes packages from its built-in registries, such as `registry.npmjs.org` and `pypi.org`. It can also analyze packages from your own npm or PyPI compatible endpoint, or from a Go module proxy. Use this for an internal mirror or a registry proxy such as Artifactory, Nexus or Athens.
+By default PMG analyzes packages from its built-in registries, such as `registry.npmjs.org` and `pypi.org`. It can also analyze packages from your own npm- or PyPI-compatible endpoint, or from a Go module proxy. Use this for an internal mirror or a registry proxy such as Artifactory, Nexus or Athens.
 
 Configure custom registries under `proxy.registries`:
 
