@@ -71,12 +71,15 @@ func TestAcceptance(t *testing.T) {
 		relDir, scripts := relDir, byDir[relDir]
 		category, _, _ := strings.Cut(relDir, "/")
 		t.Run(relDir, func(t *testing.T) {
-			if category == sandboxCategory && !sandboxplatform.Supported() {
-				t.Skipf("PMG has no sandbox on %s", runtime.GOOS)
-			}
 			testscript.Run(t, testscript.Params{
 				Files: scripts,
 				Setup: func(env *testscript.Env) error {
+					// Skip each script, not the directory. The report reads one
+					// result for each script and shows a script with no result
+					// as unknown.
+					if category == sandboxCategory && !sandboxplatform.Supported() {
+						env.T().Skip("PMG has no sandbox on " + runtime.GOOS)
+					}
 					env.Setenv("PATH", binDir+string(os.PathListSeparator)+env.Getenv("PATH"))
 					// The CI driver matrix picks the Linux sandbox driver for the run.
 					forwardEnv(env, "PMG_SANDBOX_DRIVER")
