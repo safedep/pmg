@@ -962,7 +962,28 @@ func TestProxyFlow_Go(t *testing.T) {
 				require.NoError(t, res.Requests[0].Err)
 				assert.True(t, res.Blocked(), "PMG cannot tell which base go used, so it must not pick one module")
 				assert.False(t, h.Registry.DownloadedGoZip("example.com/github.com/evil", "v1.0.0"))
-				assert.Zero(t, h.Analyzer.AnalyzedCount("github.com/evil", "v1.0.0"))
+				assert.Empty(t, h.Analyzer.Calls(), "PMG blocks before analysis, so the verdict of either module does not matter")
+			},
+		},
+		{
+			Name:    "nested GOPROXY bases block an ambiguous request whichever module is malicious",
+			Options: []Option{WithGoProxyURLs("https://proxy.golang.org/example.com", "https://proxy.golang.org")},
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/github.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/github.com/evil", "v1.0.0", Clean())
+				h.Analyzer.SetGo("github.com/evil", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				res := ExecResult{}
+				res.add(h.Go().DownloadZip("example.com/github.com/evil", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked())
+				assert.False(t, h.Registry.DownloadedGoZip("example.com/github.com/evil", "v1.0.0"))
+				assert.Empty(t, h.Analyzer.Calls(), "PMG blocks before analysis, so the verdict of either module does not matter")
 			},
 		},
 		{

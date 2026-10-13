@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
+	"path"
 	"strings"
 	"unicode"
 
@@ -165,6 +167,9 @@ func NormalizeProxyRegistries(registries []ProxyRegistryConfig) ([]NormalizedReg
 // registry. proxy.registries and the per-run Go module proxies of `pmg go`
 // both go through it, so one set of URL, host and port rules applies to both.
 func NormalizeRegistryEndpoint(registryName string, ecosystem ProxyRegistryEcosystem, rawURL string) (NormalizedRegistryEndpoint, error) {
+	if ecosystem == ProxyRegistryEcosystemGo {
+		rawURL = goRequestBaseURL(rawURL)
+	}
 	u, err := registryurl.Normalize(rawURL)
 	if err != nil {
 		return NormalizedRegistryEndpoint{}, err
@@ -185,6 +190,32 @@ func NormalizeRegistryEndpoint(registryName string, ecosystem ProxyRegistryEcosy
 		Port:         port,
 		BasePath:     u.EscapedPath(),
 	}, nil
+}
+
+// goRequestBaseURL returns rawURL with the path that go puts in front of the
+// module path when it sends a request to that module proxy. go trims a
+// trailing slash from the decoded path, appends the module path and cleans the
+// result (cmd/go/internal/modfetch/proxy.go). The request path can then differ
+// from the URL text, for example for an escaped slash. A configured Go
+// endpoint and a GOPROXY entry must match the requests that go sends, so both
+// get this path. Credentials, the query and the fragment stay, so that
+// validation still rejects them. A URL that does not parse is returned as is.
+func goRequestBaseURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	const module, file = "example.com/m", "@v/list"
+	request := url.URL{
+		Path:    path.Join(strings.TrimSuffix(u.Path, "/")+"/"+module, file),
+		RawPath: path.Join(strings.TrimSuffix(u.RawPath, "/")+"/"+module, file),
+	}
+	u.RawPath = strings.TrimSuffix(request.EscapedPath(), "/"+module+"/"+file)
+	u.Path, err = url.PathUnescape(u.RawPath)
+	if err != nil {
+		return rawURL
+	}
+	return u.String()
 }
 
 // FindNestedEndpoint returns the first endpoint in accepted on the same origin

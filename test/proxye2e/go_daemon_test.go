@@ -99,6 +99,28 @@ func TestProxyFlow_GoDaemon(t *testing.T) {
 			},
 		},
 		{
+			Name:   "a Go proxy from proxy.registries with an escaped trailing slash matches the path go sends",
+			Config: customRegistry("company-go", "go", "https://goproxy.corp.test/goproxy%2F"),
+			Setup: func(h *Harness) {
+				h.Registry.AddGoModule(GoModule{Path: "example.com/evil",
+					Versions: []GoVersion{{Version: "v1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetGo("example.com/evil", "v1.0.0", VerifiedMalware())
+			},
+			Exec: func(h *Harness) ExecResult {
+				// go trims the decoded trailing slash, so the escaped base
+				// disappears from the request path.
+				var res ExecResult
+				res.add(h.Go().DownloadZipVia("https://goproxy.corp.test/goproxy", "example.com/evil", "v1.0.0"))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.True(t, res.Blocked())
+				assert.Equal(t, 1, h.Analyzer.AnalyzedCount("example.com/evil", "v1.0.0"))
+				assert.False(t, h.Registry.Requested("goproxy.corp.test", "/goproxy/example.com/evil/@v/v1.0.0.zip"))
+			},
+		},
+		{
 			Name:   "a Go proxy from proxy.registries is analyzed under its base path",
 			Config: customRegistry("company-go", "go", "https://goproxy.corp.test/goproxy"),
 			Setup: func(h *Harness) {

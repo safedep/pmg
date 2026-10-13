@@ -224,10 +224,11 @@ func TestRegistryCatalogGoProxyURLsNestedMatchLongestBasePath(t *testing.T) {
 	}
 }
 
-// A GOPROXY entry that the catalog accepts must match every request that go
-// builds for it and must parse the module that go asked for. The request below
-// follows newProxyRepo and getBody in cmd/go/internal/modfetch/proxy.go.
-func FuzzGoProxyURLMatchesGoRequests(f *testing.F) {
+// A Go endpoint that the catalog accepts, from GOPROXY or from proxy.registries,
+// must match every request that go builds for it and must parse the module that
+// go asked for. The request follows newProxyRepo and getBody in
+// cmd/go/internal/modfetch/proxy.go.
+func FuzzGoEndpointMatchesGoRequests(f *testing.F) {
 	for _, seed := range [][2]string{
 		{"https://corp.example.com", "github.com/BurntSushi/toml"},
 		{"https://corp.example.com/goproxy%2F", "example.com/evil"},
@@ -247,26 +248,43 @@ func FuzzGoProxyURLMatchesGoRequests(f *testing.F) {
 		if err != nil {
 			t.Skip()
 		}
-		catalog, err := NewRegistryCatalog(nil, []string{rawBase})
-		if err != nil || len(catalog.GoProxyNotices()) > 0 {
-			t.Skip()
+		catalogs := map[string]func() (*RegistryCatalog, error){
+			"GOPROXY": func() (*RegistryCatalog, error) { return NewRegistryCatalog(nil, []string{rawBase}) },
+			"proxy.registries": func() (*RegistryCatalog, error) {
+				return NewRegistryCatalog([]config.ProxyRegistryConfig{{
+					Name:      "company-go",
+					Ecosystem: config.ProxyRegistryEcosystemGo,
+					Endpoints: []config.ProxyRegistryEndpointConfig{{URL: rawBase}},
+				}}, nil)
+			},
 		}
-
-		request := *base
-		request.Path = strings.TrimSuffix(base.Path, "/") + "/" + escaped
-		request.RawPath = strings.TrimSuffix(base.RawPath, "/") + "/" + goPathEscape(escaped)
-		request.Path = path.Join(request.Path, "@v/v1.0.0.zip")
-		request.RawPath = path.Join(request.RawPath, goPathEscape("@v/v1.0.0.zip"))
-		sent, err := url.Parse(request.String())
-		require.NoError(t, err)
-
-		match := catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(sent)
-		require.NotNil(t, match, "request %s", sent)
-		require.True(t, match.Endpoint.Analyze, "request %s", sent)
-		info, err := match.Endpoint.Parser.ParseURL(match.RelativePath)
-		require.NoError(t, err, "request %s", sent)
-		assert.Equal(t, modulePath, info.GetName(), "request %s", sent)
+		for source, newCatalog := range catalogs {
+			catalog, err := newCatalog()
+			if err != nil || len(catalog.GoProxyNotices()) > 0 {
+				continue
+			}
+			assertGoProxyURLMatchesGoRequest(t, catalog, source, base, escaped, modulePath)
+		}
 	})
+}
+
+func assertGoProxyURLMatchesGoRequest(t *testing.T, catalog *RegistryCatalog, source string, base *url.URL, escaped, modulePath string) {
+	t.Helper()
+
+	request := *base
+	request.Path = strings.TrimSuffix(base.Path, "/") + "/" + escaped
+	request.RawPath = strings.TrimSuffix(base.RawPath, "/") + "/" + goPathEscape(escaped)
+	request.Path = path.Join(request.Path, "@v/v1.0.0.zip")
+	request.RawPath = path.Join(request.RawPath, goPathEscape("@v/v1.0.0.zip"))
+	sent, err := url.Parse(request.String())
+	require.NoError(t, err)
+
+	match := catalog.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(sent)
+	require.NotNil(t, match, "%s request %s", source, sent)
+	require.True(t, match.Endpoint.Analyze, "%s request %s", source, sent)
+	info, err := match.Endpoint.Parser.ParseURL(match.RelativePath)
+	require.NoError(t, err, "%s request %s", source, sent)
+	assert.Equal(t, modulePath, info.GetName(), "%s request %s", source, sent)
 }
 
 func goPathEscape(s string) string {
