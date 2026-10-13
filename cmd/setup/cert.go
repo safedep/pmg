@@ -160,7 +160,7 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 	if rotate && (exists || corrupted) {
 		msg := "Rotating existing CA"
 		if corrupted {
-			msg = "Persisted CA is incomplete or unreadable; replacing it"
+			msg = "Persisted CA is incomplete or unreadable. PMG replaces it"
 		}
 		if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"), msg); err != nil {
 			return err
@@ -210,7 +210,7 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 
 	if err := store.Install(caCert.Certificate, scope); err != nil {
 		if errors.Is(err, truststore.ErrUserScopeUnsupported) {
-			// Linux has no per-user trust store; treat as a friendly no-op.
+			// Linux has no per-user trust store. Treat this as a friendly no-op.
 			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"),
 				"This platform has no per-user trust store. The CA keypair is persisted. "+
 					"Re-run with --system for machine-wide trust (PMG prompts for elevation)."); err != nil {
@@ -230,7 +230,7 @@ func runCertInstall(dir string, scope truststore.Scope, force bool, store trustS
 func runCertUninstall(dirs []string, scope truststore.Scope, purge bool, store trustStore, out io.Writer) error {
 	switch err := store.Uninstall(certmanager.CACommonName, scope); {
 	case errors.Is(err, truststore.ErrUserScopeUnsupported):
-		if _, e := fmt.Fprintf(out, "%s This platform has no per-user trust store; nothing to remove. Use --system for machine-wide.\n", ui.Colors.Dim("ℹ")); e != nil {
+		if _, e := fmt.Fprintf(out, "%s This platform has no per-user trust store. There is nothing to remove. Use --system for machine-wide.\n", ui.Colors.Dim("ℹ")); e != nil {
 			return e
 		}
 	case err != nil:
