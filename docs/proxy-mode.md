@@ -334,8 +334,10 @@ as dependency-installing commands.
 - PMG intercepts two crates.io hosts and the endpoints of each Cargo
   registry in `proxy.registries`. `index.crates.io` serves the sparse
   index. `static.crates.io` serves the `.crate` downloads. PMG
-  tunnels the crates.io API host without inspection. Registry tokens used
-  by `cargo publish` never pass through the MITM path.
+  tunnels the crates.io API host without inspection, so a crates.io token
+  of `cargo publish` never passes through the MITM path. PMG decrypts the
+  origin of a custom registry endpoint, also for `cargo publish`. See
+  [Cargo registry requirements](#cargo-registry-requirements).
 - PMG sets `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` for the child
   process so PMG can intercept index traffic. PMG sets `CARGO_HTTP_CAINFO`
   because cargo's libcurl reads only this CA variable. You do not need to

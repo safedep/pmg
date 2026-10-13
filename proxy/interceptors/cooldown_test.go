@@ -486,3 +486,16 @@ func TestCooldownFetchRedirects(t *testing.T) {
 		})
 	}
 }
+
+func TestCooldownFetchStopsARedirectLoop(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		http.Redirect(w, req, "/loop", http.StatusFound)
+	}))
+	defer server.Close()
+
+	_, ok := cooldownFetch(&proxy.RequestContext{RequestID: "test"}, server.URL+"/index", "", 1<<10)
+	assert.False(t, ok)
+	assert.Equal(t, cooldownFetchMaxRedirects, requests)
+}

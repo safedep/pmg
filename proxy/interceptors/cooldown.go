@@ -46,15 +46,23 @@ func forceUncompressedNonConditionalResponse(headers http.Header) {
 // Go keeps the header on a redirect to the same host or a subdomain, also to
 // plain HTTP, so a redirect could send the registry token to a URL that the
 // user did not configure. The fetch then fails and the cooldown fails open.
+// A CheckRedirect function replaces the default limit of Go, so the function
+// keeps that limit.
 var cooldownFetchClient = &http.Client{
 	Timeout: 10 * time.Second,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if via[0].Header.Get("Authorization") != "" {
 			return http.ErrUseLastResponse
 		}
+		if len(via) >= cooldownFetchMaxRedirects {
+			return fmt.Errorf("stopped after %d redirects", cooldownFetchMaxRedirects)
+		}
 		return nil
 	},
 }
+
+// cooldownFetchMaxRedirects is the default redirect limit of net/http.
+const cooldownFetchMaxRedirects = 10
 
 // cooldownFetch reads rawURL out-of-band and returns the body of an HTTP 200
 // response. It sends authorization when it is not empty. Any failure means no
