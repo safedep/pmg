@@ -131,7 +131,7 @@ copying a file there. The harness removes it when the script ends, unless it exi
 The `truststore` category covers the PMG CA in the OS trust store: `pmg setup cert` and `pmg go`
 on Linux, macOS and Windows. The scripts change the system trust store, so they guard on the
 `truststore` condition. It is true only when `PMG_ACCEPTANCE_TRUSTSTORE=1` and `CI=true`. The CI
-job sets both on its disposable runner:
+job sets both on its disposable Linux and Windows runners:
 
 ```
 [!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
@@ -142,6 +142,22 @@ also sets `USERPROFILE`, `APPDATA` and `LOCALAPPDATA`. When a script ends, also 
 harness runs `pmg setup cert uninstall --system --purge`. Use `--system` in these scripts. A
 user-scope install can need a confirmation that a CI runner cannot give. Use the `[darwin]`,
 `[windows]` and `[linux]` conditions for a step that differs by OS.
+
+CI does not run these scripts on macOS. When a process changes or removes admin trust settings
+that exist, macOS asks for an admin password in a dialog, also under `sudo`. A runner cannot
+answer it. safedep/pmg#543 tracks a fix. Until then, run the scripts on a Mac by hand before a
+change to the trust store code merges:
+
+```bash
+go build -o /tmp/pmg-acceptance/pmg .
+CI=true PMG_ACCEPTANCE_TRUSTSTORE=1 ACCEPTANCE_CATEGORY=truststore \
+  PMG_BIN=/tmp/pmg-acceptance/pmg \
+  go test -tags acceptance -timeout 30m -count=1 -v ./test/acceptance
+```
+
+Approve each "System Certificate Trust Settings" dialog and each `sudo` prompt. The scripts and
+the cleanup remove the PMG CA from the System keychain and delete the keypair from the script
+home. Run `pmg setup cert install` again after the run if you use PMG on that Mac.
 
 A case that needs Docker guards on the `docker` condition.
 

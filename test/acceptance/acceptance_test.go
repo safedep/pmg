@@ -122,7 +122,7 @@ const (
 	// the system trust store, so they run only where CI sets it and CI=true.
 	trustStoreOptIn = "PMG_ACCEPTANCE_TRUSTSTORE"
 
-	trustStoreCleanupTimeout = 30 * time.Second
+	trustStoreCleanupTimeout = 2 * time.Minute
 )
 
 var trustStoreSerial sync.Mutex
@@ -144,7 +144,8 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 	env.Defer(func() {
 		defer trustStoreSerial.Unlock()
 		// A cleanup that hangs holds the script log until go test panics, and
-		// the panic drops the log. The timeout keeps the log of the script.
+		// the panic drops the log. The timeout keeps the log of the script. It
+		// leaves time to answer the macOS password dialog in a local run.
 		ctx, cancel := context.WithTimeout(context.Background(), trustStoreCleanupTimeout)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, pmgBin, "setup", "cert", "uninstall", "--system", "--purge")
