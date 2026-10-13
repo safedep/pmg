@@ -626,15 +626,18 @@ func evaluateEnforceCheck(newErr error, probe netenforce.ProbeResult) doctor.Che
 // and userScopeSupported are injected so the check is hermetic; the live check
 // fills them from truststore.
 func caCheck(l keypairLayout) doctor.CheckResult {
-	if legacy := l.unusedLegacyKeypair(); legacy != "" {
-		return doctor.CheckResult{Status: doctor.StatusWarn, Message: fmt.Sprintf(
-			"PMG no longer reads the CA keypair in %s on this OS. As administrator, run pmg setup cert uninstall --system --purge, then pmg setup cert install --system", legacy)}
-	}
 	dir, isSystem := l.inspectDir()
 	user, system, _ := truststore.Status(dir)
 	result := evaluateCACheck(dir, user, system, truststore.UserScopeSupported())
 	if isSystem {
 		result.Message += fmt.Sprintf(" (system keypair in %s, used by the enforcing daemon)", dir)
+	}
+	if legacy := l.legacyKeypair(); legacy != "" {
+		if result.Status == doctor.StatusPass {
+			result.Status = doctor.StatusWarn
+		}
+		result.Message += fmt.Sprintf(". PMG no longer reads the CA keypair in %s, and its certificate can still be trusted. "+
+			"As administrator (sudo on macOS), run pmg setup cert uninstall --system --purge, then pmg setup cert install --system", legacy)
 	}
 	return result
 }

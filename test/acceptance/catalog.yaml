@@ -570,7 +570,7 @@
   title: "pmg go stops when the OS store does not trust the PMG CA"
   category: truststore
   tier: P1
-  guarantee: "On macOS and Windows, pmg go exits non-zero before any module fetch when the OS trust store does not trust the PMG CA."
+  guarantee: "On macOS and Windows, pmg go exits non-zero before any module fetch when the OS trust store does not trust the persisted PMG CA."
   labels: [go, trust]
 - id: truststore/go/module-fetch-after-install
   title: "pmg go fetches modules after pmg setup cert install --system"

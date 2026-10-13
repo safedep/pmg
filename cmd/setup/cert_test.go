@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/doctor"
 	"github.com/safedep/pmg/internal/platform"
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -16,6 +17,7 @@ import (
 
 type fakeStore struct {
 	installErr    error
+	uninstallErr  error
 	user, system  bool
 	userSupported bool
 	calls         []string
@@ -27,7 +29,7 @@ func (f *fakeStore) Install(_ []byte, s platform.CAScope) error {
 }
 func (f *fakeStore) Uninstall(_ string, s platform.CAScope) error {
 	f.calls = append(f.calls, "uninstall "+s.String())
-	return nil
+	return f.uninstallErr
 }
 
 func (f *fakeStore) called(prefix string) bool {
@@ -243,23 +245,39 @@ func TestKeypairLayoutStatusReadsTheSystemKeypairAsRoot(t *testing.T) {
 	assert.Equal(t, l.system, dir)
 }
 
-func TestKeypairLayoutFindsAnUnusedLegacyKeypair(t *testing.T) {
+func TestKeypairLayoutFindsALegacyKeypair(t *testing.T) {
 	l := keypairLayout{user: t.TempDir(), legacy: t.TempDir()}
-	assert.Empty(t, l.unusedLegacyKeypair(), "no legacy keypair")
+	assert.Empty(t, l.legacyKeypair(), "no legacy keypair")
 
 	writeKeypair(t, l.legacy)
-	assert.Equal(t, l.legacy, l.unusedLegacyKeypair())
+	assert.Equal(t, l.legacy, l.legacyKeypair())
 
 	writeKeypair(t, l.user)
-	assert.Empty(t, l.unusedLegacyKeypair(), "the user's keypair is the one PMG reads")
+	assert.Equal(t, l.legacy, l.legacyKeypair(), "its certificate can still be trusted next to the user's keypair")
 }
 
-func TestDoctorWarnsAboutAnUnusedLegacyKeypair(t *testing.T) {
-	l := keypairLayout{user: t.TempDir(), legacy: t.TempDir()}
-	writeKeypair(t, l.legacy)
+func TestDoctorWarnsAboutALegacyKeypair(t *testing.T) {
+	for _, userKeypair := range []bool{false, true} {
+		l := keypairLayout{user: t.TempDir(), legacy: t.TempDir()}
+		writeKeypair(t, l.legacy)
+		if userKeypair {
+			writeKeypair(t, l.user)
+		}
 
-	result := caCheck(l)
-	assert.Equal(t, doctor.StatusWarn, result.Status)
-	assert.Contains(t, result.Message, l.legacy)
-	assert.Contains(t, result.Message, "pmg setup cert uninstall --system --purge")
+		result := caCheck(l)
+		assert.NotEqual(t, doctor.StatusPass, result.Status)
+		assert.Contains(t, result.Message, l.legacy)
+		assert.Contains(t, result.Message, "pmg setup cert uninstall --system --purge")
+	}
+}
+
+func TestCertInstallWritesNoKeypairWhenTheCleanupFails(t *testing.T) {
+	dir := t.TempDir()
+	store := &fakeStore{uninstallErr: assert.AnError}
+	var out bytes.Buffer
+
+	err := runCertInstall(dir, platform.CAScopeSystem, false, store, &out)
+	assertUsefulCode(t, err, errcodes.CertTrustStore)
+	assert.False(t, hasKeypair(dir), "a failed cleanup must leave the keypair and the trust as they were")
+	assert.False(t, store.called("install"))
 }

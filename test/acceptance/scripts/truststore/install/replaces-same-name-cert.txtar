@@ -6,7 +6,7 @@
 [!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
 
 exec pmg setup cert install --system
-stdout 'CA installed and trusted \(system scope\)'
+stdout 'installed and trusted \(system scope\)'
 
 # Put another certificate with the PMG CA name in place of the persisted CA.
 # On Linux it goes to the anchor path that pmg setup cert install uses.

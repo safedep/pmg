@@ -129,3 +129,19 @@ func TestWindowsCABundleCandidates(t *testing.T) {
 	assert.Contains(t, candidates, `C:\Program Files\Git\mingw64\ssl\certs\ca-bundle.crt`, "Git for Windows")
 	assert.Contains(t, candidates, `C:\Windows\System32\curl-ca-bundle.crt`)
 }
+
+func TestWindowsUninstallRemovesEveryMatch(t *testing.T) {
+	runs := 0
+	orig := commandRunner
+	commandRunner = func(_ string, _ ...string) ([]byte, error) {
+		runs++
+		if runs <= 2 {
+			return nil, nil
+		}
+		return []byte("CRYPT_E_NOT_FOUND 0x80092004"), assert.AnError
+	}
+	t.Cleanup(func() { commandRunner = orig })
+
+	require.NoError(t, uninstallCA("Test CA", CAScopeSystem))
+	assert.Equal(t, 3, runs, "two matches, then the terminal not-found run")
+}

@@ -31,6 +31,8 @@ func installCA(cert *x509.Certificate, scope CAScope) error {
 	return nil
 }
 
+// uninstallCA runs certutil -delstore until no certificate with the name
+// remains. The loop removes every match even if one run removes only one.
 func uninstallCA(commonName string, scope CAScope) error {
 	args := []string{}
 	if scope == CAScopeUser {
@@ -38,15 +40,18 @@ func uninstallCA(commonName string, scope CAScope) error {
 	}
 	args = append(args, "-delstore", "Root", commonName)
 
-	if out, err := commandRunner("certutil", args...); err != nil {
+	for range 16 {
+		out, err := commandRunner("certutil", args...)
+		if err == nil {
+			continue
+		}
 		msg := strings.TrimSpace(string(out))
-		lower := strings.ToLower(msg)
-		if strings.Contains(lower, "cannot find") || strings.Contains(msg, "0x80092004") {
+		if strings.Contains(strings.ToLower(msg), "cannot find") || strings.Contains(msg, "0x80092004") {
 			return nil
 		}
 		return fmt.Errorf("certutil -delstore failed: %w: %s", err, msg)
 	}
-	return nil
+	return fmt.Errorf("certutil -delstore still found a certificate named %s after 16 runs", commonName)
 }
 
 // caStores reports which Root store holds this exact certificate.

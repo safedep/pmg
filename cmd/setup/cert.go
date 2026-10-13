@@ -157,24 +157,33 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 		}
 	}
 
-	if !exists || rotate {
-		if rotate && (exists || corrupted) {
-			msg := "Rotating existing CA"
-			if corrupted {
-				msg = "Persisted CA is incomplete or unreadable; replacing it"
-			}
-			if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"), msg); err != nil {
-				return err
-			}
-
-			// Best-effort cleanup of the opposite scope so a scope change during
-			// rotation leaves no stale same-CN cert behind. Non-fatal: the other
-			// scope may need privileges we do not hold.
-			if err := store.Uninstall(certmanager.CACommonName, otherScope(scope)); err != nil && !errors.Is(err, platform.ErrCAUserScopeUnsupported) {
-				log.Debugf("best-effort cleanup of %s-scope CA during rotation failed: %v", otherScope(scope), err)
-			}
+	if rotate && (exists || corrupted) {
+		msg := "Rotating existing CA"
+		if corrupted {
+			msg = "Persisted CA is incomplete or unreadable; replacing it"
+		}
+		if _, err := fmt.Fprintf(out, "%s %s\n", ui.Colors.Dim("ℹ"), msg); err != nil {
+			return err
 		}
 
+		// Best-effort cleanup of the opposite scope so a scope change during
+		// rotation leaves no stale same-CN cert behind. Non-fatal: the other
+		// scope may need privileges we do not hold.
+		if err := store.Uninstall(certmanager.CACommonName, otherScope(scope)); err != nil && !errors.Is(err, platform.ErrCAUserScopeUnsupported) {
+			log.Debugf("best-effort cleanup of %s-scope CA during rotation failed: %v", otherScope(scope), err)
+		}
+	}
+
+	// A certificate with the PMG name that is not this CA can stay trusted:
+	// a rotated CA, a lost keypair, or the system keypair of an older
+	// release. Its private key can still exist, so remove every one before
+	// the store trusts this CA. The removal runs before a new keypair is
+	// written, so a failure leaves the keypair and the trust as they were.
+	if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, platform.ErrCAUserScopeUnsupported) {
+		return newCertCommandError(errcodes.CertTrustStore, "failed to remove an old PMG CA from the trust store", trustHelp(scope), err)
+	}
+
+	if !exists || rotate {
 		generated, err := certmanager.GenerateCA(certmanager.PersistentCACertManagerConfig())
 		if err != nil {
 			return newCertCommandError(errcodes.CertGeneration, "failed to generate CA certificate",
@@ -192,14 +201,6 @@ func runCertInstall(dir string, scope platform.CAScope, force bool, store trustS
 		if _, err := fmt.Fprintf(out, "%s Reusing existing CA keypair at %s\n", ui.Colors.Dim("ℹ"), certmanager.CACertPath(dir)); err != nil {
 			return err
 		}
-	}
-
-	// A certificate with the PMG name that is not this CA can stay trusted:
-	// a rotated CA, a lost keypair, or the system keypair of an older
-	// release. Its private key can still exist, so remove every one before
-	// the store trusts this CA.
-	if err := store.Uninstall(certmanager.CACommonName, scope); err != nil && !errors.Is(err, platform.ErrCAUserScopeUnsupported) {
-		return newCertCommandError(errcodes.CertTrustStore, "failed to remove an old PMG CA from the trust store", trustHelp(scope), err)
 	}
 
 	if _, err := fmt.Fprintf(out, "%s Installing an OS-trusted MITM CA (%s scope). This lets PMG inspect HTTPS package traffic.\n",
@@ -359,6 +360,11 @@ func (l keypairLayout) installDir(scope platform.CAScope) (string, error) {
 // purgeDirs are the keypair directories that `pmg setup cert uninstall
 // --purge` deletes. An administrator also deletes the legacy keypair.
 func (l keypairLayout) purgeDirs(scope platform.CAScope) ([]string, error) {
+	// macOS needs sudo to delete the root-owned legacy keypair. The user's own
+	// keypair is not root's to delete, so sudo purges the legacy one only.
+	if l.legacy != "" && scope == platform.CAScopeSystem && platform.IsSudo() {
+		return []string{l.legacy}, nil
+	}
 	dir, err := l.installDir(scope)
 	if err != nil {
 		return nil, err
@@ -392,10 +398,11 @@ func (l keypairLayout) statusDir() (string, error) {
 	return l.user, nil
 }
 
-// unusedLegacyKeypair returns the legacy directory when it holds the only
-// keypair, or "".
-func (l keypairLayout) unusedLegacyKeypair() string {
-	if !hasKeypair(l.user) && hasKeypair(l.legacy) {
+// legacyKeypair returns the legacy directory when it holds a keypair, or "".
+// Its certificate can still be trusted machine-wide, so it matters also when
+// the user has a keypair of their own.
+func (l keypairLayout) legacyKeypair() string {
+	if hasKeypair(l.legacy) {
 		return l.legacy
 	}
 	return ""

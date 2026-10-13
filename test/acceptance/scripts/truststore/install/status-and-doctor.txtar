@@ -4,7 +4,7 @@
 [!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
 
 exec pmg setup cert install --system
-stdout 'CA installed and trusted \(system scope\)'
+stdout 'installed and trusted \(system scope\)'
 
 exec pmg setup cert status
 stdout 'Trusted \(system\)\s+: true'

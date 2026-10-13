@@ -130,8 +130,8 @@ copying a file there. The harness removes it when the script ends, unless it exi
 
 The `truststore` category covers the PMG CA in the OS trust store: `pmg setup cert` and `pmg go`
 on Linux, macOS and Windows. The scripts change the system trust store, so they guard on the
-`truststore` condition. It is true only when `PMG_ACCEPTANCE_TRUSTSTORE=1`, which the CI job sets
-on its disposable runner:
+`truststore` condition. It is true only when `PMG_ACCEPTANCE_TRUSTSTORE=1` and `CI=true`. The CI
+job sets both on its disposable runner:
 
 ```
 [!truststore] skip 'changes the system trust store: runs only on a disposable CI host'

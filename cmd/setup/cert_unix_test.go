@@ -28,6 +28,9 @@ func TestKeypairLayoutUnderSudo(t *testing.T) {
 	noProxy := keypairLayout{user: user, legacy: system}
 	_, err = noProxy.installDir(platform.CAScopeSystem)
 	assertUsefulCode(t, err, errcodes.PermissionDenied)
+	dirs, err := noProxy.purgeDirs(platform.CAScopeSystem)
+	require.NoError(t, err, "macOS needs sudo to delete the root-owned legacy keypair")
+	assert.Equal(t, []string{system}, dirs, "sudo purges the legacy keypair, not the user's")
 	assert.NotContains(t, noProxy.refuseSudo().Error(), "enforcing proxy",
 		"the help must not name a command that this platform refuses")
 

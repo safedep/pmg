@@ -117,7 +117,7 @@ const (
 	trustStoreCategory = "truststore"
 
 	// trustStoreOptIn marks a disposable host. The truststore scripts change
-	// the system trust store, so they run only where CI sets it.
+	// the system trust store, so they run only where CI sets it and CI=true.
 	trustStoreOptIn = "PMG_ACCEPTANCE_TRUSTSTORE"
 )
 
@@ -164,7 +164,9 @@ func isolateTrustStore(env *testscript.Env, pmgBin string) error {
 	return nil
 }
 
-func trustStoreEnabled() bool { return os.Getenv(trustStoreOptIn) == "1" }
+func trustStoreEnabled() bool {
+	return os.Getenv(trustStoreOptIn) == "1" && os.Getenv("CI") == "true"
+}
 
 func exeSuffix() string {
 	if runtime.GOOS == "windows" {

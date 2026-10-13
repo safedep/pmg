@@ -91,8 +91,9 @@ macOS and Windows have no enforcing daemon, so nothing reads a system keypair th
 elevated `--system` install on Windows keeps the keypair in your config directory and writes
 only the certificate to `LocalMachine\Root`. `sudo pmg setup cert install --system` on macOS is refused,
 like a user-scope install under sudo. Older releases wrote a system keypair on macOS and Windows that
-nothing read. `pmg setup doctor` warns when it finds one. As administrator, run
-`pmg setup cert uninstall --system --purge` to remove it, then install again.
+nothing read. Its certificate can still be trusted machine-wide, so `pmg setup doctor` warns when it
+finds one. To remove it, run `pmg setup cert uninstall --system --purge` from an elevated prompt on
+Windows, or with sudo on macOS. Then install again.
 
 `pmg setup cert install` removes every certificate with the PMG name from the target store
 before it adds the CA. A certificate from a lost or older keypair then does not stay trusted.

@@ -1,14 +1,20 @@
 # guarantee: on macOS and Windows, pmg go stops before any module fetch when
-# the OS trust store does not trust the PMG CA. go reads only the OS store
-# there, so a fetch through the proxy would fail on TLS.
+# the OS trust store does not trust the persisted PMG CA. go reads only the OS
+# store there, so a fetch through the proxy would fail on TLS.
 
 [!truststore] skip 'changes the system trust store: runs only on a disposable CI host'
 [linux] skip 'go on Linux reads SSL_CERT_FILE, so it needs no OS trust'
+
+# Keep the keypair but remove its trust, so the trust check decides, not a
+# missing keypair.
+exec pmg setup cert install --system
+exec pmg setup cert uninstall --system
 
 cd proj
 exec go mod init example.com/pmg-acceptance
 ! exec pmg go get github.com/google/uuid@v1.6.0
 stderr 'Go cannot trust the PMG proxy CA'
+stderr 'does not trust the PMG CA'
 ! grep github.com/google/uuid go.mod
 
 -- proj/.keep --
