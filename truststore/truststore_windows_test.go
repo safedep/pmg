@@ -4,8 +4,6 @@
 package truststore
 
 import (
-	"crypto/sha1"
-	"fmt"
 	"slices"
 	"testing"
 
@@ -55,14 +53,14 @@ func TestWindowsUninstallNotFoundIsOK(t *testing.T) {
 
 func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
 	dir, ca := persistedCA(t)
-	thumbprint := fmt.Sprintf("%X", sha1.Sum(ca.X509Cert.Raw))
+	id := thumbprint(ca.X509Cert)
 	tests := []struct {
 		name        string
 		trustedArgs []string
 		wantErr     error
 	}{
-		{name: "user Root store holds the CA", trustedArgs: []string{"-user", "-store", "Root", thumbprint}},
-		{name: "machine Root store holds the CA", trustedArgs: []string{"-store", "Root", thumbprint}},
+		{name: "user Root store holds the CA", trustedArgs: []string{"-user", "-store", "Root", id}},
+		{name: "machine Root store holds the CA", trustedArgs: []string{"-store", "Root", id}},
 		{name: "no Root store holds the CA", wantErr: ErrCANotTrusted},
 	}
 
@@ -71,7 +69,7 @@ func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
 			orig := commandRunner
 			commandRunner = func(name string, args ...string) ([]byte, error) {
 				assert.Equal(t, "certutil", name)
-				assert.Contains(t, args, thumbprint, "the lookup uses the thumbprint, not the name")
+				assert.Contains(t, args, id, "the lookup uses the thumbprint, not the name")
 				if slices.Equal(args, tt.trustedArgs) {
 					return nil, nil
 				}
@@ -85,6 +83,40 @@ func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
 				return
 			}
 			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestWindowsStatusMatchesTheExactCertificateInEachStore(t *testing.T) {
+	dir, ca := persistedCA(t)
+	id := thumbprint(ca.X509Cert)
+	tests := []struct {
+		name              string
+		inUser, inMachine bool
+	}{
+		{name: "exact CA in the user store only", inUser: true},
+		{name: "exact CA in the machine store only", inMachine: true},
+		{name: "only a certificate with the same name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := commandRunner
+			commandRunner = func(_ string, args ...string) ([]byte, error) {
+				if !slices.Contains(args, id) {
+					return nil, assert.AnError
+				}
+				userStore := slices.Contains(args, "-user")
+				if userStore && tt.inUser || !userStore && tt.inMachine {
+					return nil, nil
+				}
+				return []byte("CRYPT_E_NOT_FOUND 0x80092004"), assert.AnError
+			}
+			t.Cleanup(func() { commandRunner = orig })
+
+			user, system, err := Status(dir)
+			require.NoError(t, err)
+			assert.Equal(t, tt.inUser, user)
+			assert.Equal(t, tt.inMachine, system)
 		})
 	}
 }

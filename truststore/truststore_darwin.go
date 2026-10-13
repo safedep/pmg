@@ -83,12 +83,16 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	return nil
 }
 
-func statusPlatform(commonName string) (bool, bool, error) {
+// statusPlatform reports which keychain holds this exact certificate. It
+// compares the SHA-1 hash, so a different certificate with the same name in
+// a keychain does not count.
+func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+	system := certInKeychain(cert, systemKeychainPath)
 	lkc, err := loginKeychainPath()
 	if err != nil {
-		return false, certInKeychain(commonName, systemKeychainPath), nil
+		return false, system, nil
 	}
-	return certInKeychain(commonName, lkc), certInKeychain(commonName, systemKeychainPath), nil
+	return certInKeychain(cert, lkc), system, nil
 }
 
 // caTrustedPlatform asks the OS to evaluate the certificate in certPath with the
@@ -105,11 +109,10 @@ func caTrustedPlatform(certPath string, _ *x509.Certificate) error {
 	return nil
 }
 
-func certInKeychain(commonName, keychain string) bool {
-	args := []string{"find-certificate", "-c", commonName}
-	if keychain != "" {
-		args = append(args, keychain)
+func certInKeychain(cert *x509.Certificate, keychain string) bool {
+	out, err := commandRunner("security", "find-certificate", "-a", "-Z", "-c", cert.Subject.CommonName, keychain)
+	if err != nil {
+		return false
 	}
-	_, err := commandRunner("security", args...)
-	return err == nil
+	return strings.Contains(strings.ToUpper(string(out)), "SHA-1 HASH: "+thumbprint(cert))
 }

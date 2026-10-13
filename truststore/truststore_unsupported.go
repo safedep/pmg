@@ -11,10 +11,12 @@ import (
 	"github.com/safedep/pmg/errcodes"
 )
 
-func installPlatform(_ []byte, _ Scope) error     { return unsupportedPlatformError() }
-func uninstallPlatform(_ string, _ Scope) error   { return unsupportedPlatformError() }
-func statusPlatform(_ string) (bool, bool, error) { return false, false, unsupportedPlatformError() }
-func userScopeSupportedPlatform() bool            { return false }
+func installPlatform(_ []byte, _ Scope) error   { return unsupportedPlatformError() }
+func uninstallPlatform(_ string, _ Scope) error { return unsupportedPlatformError() }
+func statusPlatform(_ *x509.Certificate) (bool, bool, error) {
+	return false, false, unsupportedPlatformError()
+}
+func userScopeSupportedPlatform() bool { return false }
 
 func caTrustedPlatform(_ string, _ *x509.Certificate) error {
 	return unsupportedPlatformError()

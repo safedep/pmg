@@ -74,7 +74,7 @@ func Status(configDir string) (user bool, system bool, err error) {
 	if err != nil {
 		return false, false, err
 	}
-	user, system, err = statusPlatform(cert.Subject.CommonName)
+	user, system, err = statusPlatform(cert)
 	if err != nil || (!user && !system) {
 		return false, false, err
 	}

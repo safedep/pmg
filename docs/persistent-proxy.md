@@ -139,7 +139,9 @@ does not change `GOPROXY`, and it does not analyze these fetches:
 
 On macOS and Windows, go reads only the OS trust store. `pmg proxy env`
 sets `GODEBUG=x509sslcertoverrideplatform=0`, so Go 1.27 and later also
-read the OS store and not `SSL_CERT_FILE`. If the OS store does not trust
+read the OS store and not `SSL_CERT_FILE`. If you set that key to `1` in
+`GODEBUG`, PMG keeps your value, and Go 1.27 and later read `SSL_CERT_FILE`.
+PMG still requires the OS store to trust the CA. If the OS store does not trust
 the PMG CA, or the CA is expired, the daemon does not decrypt Go traffic.
 `pmg proxy start` and `pmg proxy status` then print a notice with the
 cause. Run `pmg setup cert install`, then restart the daemon. On Linux, go
@@ -176,8 +178,8 @@ The variables exist because tools do not agree on the OS store. Node ignores
 it by default, modern pip reads it, and `requests` ships its own bundle. The
 variables work for all of them.
 
-You do not run `pmg setup cert install`. The proxy reuses that CA when it
-exists and makes one for this run when it does not. `pmg setup cert install
+Except for Go on macOS and Windows, you do not run `pmg setup cert
+install`. The proxy reuses that CA when it exists and makes one for this run when it does not. `pmg setup cert install
 --system` needs root and puts a CA that can intercept into the machine
 store, so the persistent proxy does not use it. [Kernel
 enforcement](#kernel-enforcement-linux) is the exception. It runs as root

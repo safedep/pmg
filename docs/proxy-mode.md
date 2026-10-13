@@ -272,7 +272,8 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   checksum verification.
 - On macOS and Windows, go trusts only the OS trust store. PMG sets
   `GODEBUG=x509sslcertoverrideplatform=0` for the child, so Go 1.27 and
-  later also ignore `SSL_CERT_FILE` there. Run `pmg setup cert install`
+  later also ignore `SSL_CERT_FILE` there. PMG keeps a value that you set
+  for that key. Run `pmg setup cert install`
   first. `pmg go` fails fast with instructions if the OS store does not
   trust the exact PMG CA. Linux works out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their

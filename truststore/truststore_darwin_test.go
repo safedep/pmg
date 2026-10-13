@@ -122,3 +122,42 @@ func TestDarwinGoTrustsCAVerifiesThePersistedCertificate(t *testing.T) {
 		})
 	}
 }
+
+func TestDarwinStatusMatchesTheExactCertificateInEachKeychain(t *testing.T) {
+	dir, ca := persistedCA(t)
+	sameName := "SHA-256 hash: 00\nSHA-1 hash: 0000000000000000000000000000000000000000\n"
+	exact := "SHA-1 hash: " + thumbprint(ca.X509Cert) + "\n"
+	tests := []struct {
+		name              string
+		system, login     string
+		verifyErr         error
+		wantUser, wantSys bool
+	}{
+		{name: "exact CA in login, stale copy in System", login: exact, system: sameName, wantUser: true},
+		{name: "exact CA in System, stale copy in login", login: sameName, system: exact, wantSys: true},
+		{name: "exact CA in a keychain without trust settings", login: exact, verifyErr: assert.AnError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := commandRunner
+			commandRunner = func(_ string, args ...string) ([]byte, error) {
+				switch args[0] {
+				case "verify-cert":
+					return nil, tt.verifyErr
+				case "find-certificate":
+					if args[len(args)-1] == systemKeychainPath {
+						return []byte(tt.system), nil
+					}
+					return []byte(tt.login), nil
+				}
+				return nil, assert.AnError
+			}
+			t.Cleanup(func() { commandRunner = orig })
+
+			user, system, err := Status(dir)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantUser, user)
+			assert.Equal(t, tt.wantSys, system)
+		})
+	}
+}
