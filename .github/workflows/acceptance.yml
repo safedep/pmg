@@ -360,15 +360,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # A change to the admin trust settings asks for authorization in a GUI
-      # prompt, also under sudo. The runner has no GUI session, so security
-      # add-trusted-cert -d fails and security delete-certificate -t waits for
-      # the prompt until the job times out. A person at the Mac answers this
-      # prompt. This step grants the right without the prompt.
-      - name: Allow admin trust settings without a prompt
-        if: runner.os == 'macOS'
-        run: sudo security authorizationdb write com.apple.trust-settings.admin allow
-
       - name: Build PMG
         run: go build -o "bin/${PMG_EXE}" .
 
