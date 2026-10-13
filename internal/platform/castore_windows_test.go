@@ -131,17 +131,47 @@ func TestWindowsCABundleCandidates(t *testing.T) {
 }
 
 func TestWindowsUninstallRemovesEveryMatch(t *testing.T) {
-	runs := 0
-	orig := commandRunner
-	commandRunner = func(_ string, _ ...string) ([]byte, error) {
-		runs++
-		if runs <= 2 {
-			return nil, nil
-		}
-		return []byte("CRYPT_E_NOT_FOUND 0x80092004"), assert.AnError
+	tests := []struct {
+		name        string
+		matches     int
+		deleteWorks bool
+		wantErr     bool
+		wantDeletes int
+	}{
+		{name: "two matches", matches: 2, deleteWorks: true, wantDeletes: 2},
+		{name: "no match", matches: 0, deleteWorks: true},
+		{name: "certutil exits zero but deletes nothing", matches: 1, wantErr: true, wantDeletes: 16},
 	}
-	t.Cleanup(func() { commandRunner = orig })
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			remaining, deletes := tt.matches, 0
+			orig := commandRunner
+			commandRunner = func(_ string, args ...string) ([]byte, error) {
+				switch {
+				case slices.Contains(args, "-store"):
+					if remaining == 0 {
+						return []byte("CRYPT_E_NOT_FOUND 0x80092004"), assert.AnError
+					}
+					return nil, nil
+				case slices.Contains(args, "-delstore"):
+					deletes++
+					if tt.deleteWorks && remaining > 0 {
+						remaining--
+					}
+					return nil, nil
+				}
+				return nil, assert.AnError
+			}
+			t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, uninstallCA("Test CA", CAScopeSystem))
-	assert.Equal(t, 3, runs, "two matches, then the terminal not-found run")
+			err := uninstallCA("Test CA", CAScopeSystem)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Zero(t, remaining)
+			}
+			assert.Equal(t, tt.wantDeletes, deletes)
+		})
+	}
 }

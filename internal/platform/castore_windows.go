@@ -31,8 +31,9 @@ func installCA(cert *x509.Certificate, scope CAScope) error {
 	return nil
 }
 
-// uninstallCA runs certutil -delstore until no certificate with the name
-// remains. The loop removes every match even if one run removes only one.
+// uninstallCA runs certutil -delstore until the Root store holds no
+// certificate with the name. certutil -delstore exits zero also when nothing
+// matches, so the loop checks the store with certutil -store.
 func uninstallCA(commonName string, scope CAScope) error {
 	args := []string{}
 	if scope == CAScopeUser {
@@ -41,15 +42,12 @@ func uninstallCA(commonName string, scope CAScope) error {
 	args = append(args, "-delstore", "Root", commonName)
 
 	for range 16 {
-		out, err := commandRunner("certutil", args...)
-		if err == nil {
-			continue
-		}
-		msg := strings.TrimSpace(string(out))
-		if strings.Contains(strings.ToLower(msg), "cannot find") || strings.Contains(msg, "0x80092004") {
+		if !certInWindowsStore(commonName, scope == CAScopeUser) {
 			return nil
 		}
-		return fmt.Errorf("certutil -delstore failed: %w: %s", err, msg)
+		if out, err := commandRunner("certutil", args...); err != nil {
+			return fmt.Errorf("certutil -delstore failed: %w: %s", err, strings.TrimSpace(string(out)))
+		}
 	}
 	return fmt.Errorf("certutil -delstore still found a certificate named %s after 16 runs", commonName)
 }
@@ -71,14 +69,14 @@ func verifyCATrusted(_ string, cert *x509.Certificate) error {
 	return fmt.Errorf("%w: no Root store holds the certificate with thumbprint %s", ErrCANotTrusted, id)
 }
 
-// certInWindowsStore reports whether the Root store holds the certificate with
-// this thumbprint.
-func certInWindowsStore(thumbprint string, userScope bool) bool {
+// certInWindowsStore reports whether the Root store holds a certificate that
+// certID matches. certutil matches a thumbprint or a common name.
+func certInWindowsStore(certID string, userScope bool) bool {
 	args := []string{}
 	if userScope {
 		args = append(args, "-user")
 	}
-	args = append(args, "-store", "Root", thumbprint)
+	args = append(args, "-store", "Root", certID)
 
 	_, err := commandRunner("certutil", args...)
 	return err == nil
