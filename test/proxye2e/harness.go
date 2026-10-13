@@ -48,6 +48,7 @@ type Harness struct {
 
 type options struct {
 	pinnedVersions map[string]string
+	goProxyURLs    []string
 	transparent    bool
 	origDst        proxy.OriginalDestinationResolver
 	redirectOnlyIP string
@@ -59,6 +60,11 @@ type Option func(*options)
 // cooldown uses to report when an explicitly requested version is blocked.
 func WithPinnedVersions(pinned map[string]string) Option {
 	return func(o *options) { o.pinnedVersions = pinned }
+}
+
+// WithGoProxyURLs replaces the GOPROXY entries of the modeled `pmg go` run.
+func WithGoProxyURLs(urls ...string) Option {
+	return func(o *options) { o.goProxyURLs = urls }
 }
 
 // WithTransparent turns on the transparent listener, as the enforcing daemon
@@ -96,7 +102,11 @@ func New(t *testing.T, opts ...Option) *Harness {
 		t.Setenv(name, "")
 	}
 
-	var o options
+	// proxy.golang.org is a built-in registry. corp.example.com is a GOPROXY
+	// entry of a `pmg go` run, served under a base path to exercise
+	// path-prefix stripping. Out-of-band .info fetches go to the plain-HTTP
+	// mock, which serves both layouts.
+	o := options{goProxyURLs: []string{"https://corp.example.com/goproxy"}}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -125,14 +135,9 @@ func New(t *testing.T, opts ...Option) *Harness {
 		stats,
 		confChan,
 		interceptors.InterceptorContext{
-			PinnedVersions: o.pinnedVersions,
-			// proxy.golang.org serves at the root of the plain-HTTP mock (also
-			// the base for out-of-band .info fetches); corp.example.com serves
-			// under a base path to exercise GOPROXY path-prefix stripping.
-			GoProxyBaseURLs: map[string]string{
-				"proxy.golang.org": registry.goBaseURL(),
-				"corp.example.com": registry.goBaseURL() + "/goproxy",
-			},
+			PinnedVersions:        o.pinnedVersions,
+			GoProxyURLs:           o.goProxyURLs,
+			GoProxyUpstreamOrigin: registry.goBaseURL(),
 			// The cargo interceptor's out-of-band publish-time fetches go to
 			// the plain-HTTP mock index instead of the real crates.io.
 			CargoIndexBaseURL: registry.cargoBaseURL(),

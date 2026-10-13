@@ -1,0 +1,51 @@
+# guarantee: go downloads a clean module from proxy.golang.org under
+# enforcement with the system trust store. The proxy decrypts proxy.golang.org
+# to analyze the module zip. It never decrypts sum.golang.org, so go verifies
+# the checksum database itself.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:go] skip 'go not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env GOMODCACHE=$WORK/modcache
+env GOTOOLCHAIN=local
+env GOFLAGS='-mod=mod -modcacherw'
+env GOPROXY=https://proxy.golang.org,direct
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec go run issuer.go proxy.golang.org
+stdout '^issuer SafeDep PMG Proxy CA$'
+exec go run issuer.go sum.golang.org
+! stdout 'SafeDep PMG Proxy CA'
+
+exec go mod download github.com/google/uuid@v1.6.0
+exists $WORK/modcache/github.com/google/uuid@v1.6.0/uuid.go
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'
+
+-- go.mod --
+module t
+
+go 1.21
+-- issuer.go --
+package main
+
+import (
+	"crypto/tls"
+	"fmt"
+	"os"
+)
+
+func main() {
+	conn, err := tls.Dial("tcp", os.Args[1]+":443", &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	fmt.Println("issuer", conn.ConnectionState().PeerCertificates[0].Issuer.CommonName)
+}

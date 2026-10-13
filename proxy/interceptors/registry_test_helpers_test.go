@@ -10,7 +10,7 @@ import (
 
 func newTestRegistryCatalog(t *testing.T, registries []config.ProxyRegistryConfig) *RegistryCatalog {
 	t.Helper()
-	catalog, err := NewRegistryCatalog(registries)
+	catalog, err := NewRegistryCatalog(registries, nil)
 	require.NoError(t, err)
 	return catalog
 }

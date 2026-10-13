@@ -49,6 +49,10 @@ func TestStatusTextShowsEnforcement(t *testing.T) {
 	assert.NotContains(t, plain, "enforcement")
 	assert.NotContains(t, plain, "config:", "an older state file has no path")
 
+	warned := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777",
+		Warnings: []string{"Go module downloads are not analyzed."}})
+	assert.Contains(t, warned, "Go module downloads are not analyzed.", "a daemon notice shows without enforcement")
+
 	sourced := statusText(proxyserver.StatusInfo{Found: true, Running: true, PID: 9, Addr: "127.0.0.1:7777",
 		ConfigPath: "/root/.config/safedep/pmg/config.yml", ConfigSource: "root per-user"})
 	assert.Contains(t, sourced, "config: /root/.config/safedep/pmg/config.yml (root per-user)")
@@ -65,8 +69,7 @@ func TestStatusTextShowsEnforcement(t *testing.T) {
 		Namespaces: &proxyserver.NamespaceState{Mode: "redirect", Effective: "redirect", Table: &netenforce.NamespaceStatus{
 			Address: "169.254.200.1", Port: 7777, Ingress: []string{"docker0", "br-*"},
 		}},
-		Warnings: []string{"Docker is running."},
-	}})
+	}, Warnings: []string{"Docker is running."}})
 	assert.Contains(t, enforced, "Kernel enforcement: active (cgroup /sys/fs/cgroup, ports 80,443, kernel 6.8.0)")
 	assert.Contains(t, enforced, "  namespaces: redirect (169.254.200.1:7777 from docker0, br-*)")
 	assert.Contains(t, enforced, "exempt executable: /opt/Runner.Worker")

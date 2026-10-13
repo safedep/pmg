@@ -1,9 +1,11 @@
 package certmanager
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const (
@@ -67,6 +69,24 @@ func SaveCA(dir string, ca *Certificate) error {
 	}
 
 	return nil
+}
+
+// ErrCAExpired is returned by LoadUsableCA for a CA that expires within an
+// hour.
+var ErrCAExpired = errors.New("the persisted PMG CA is expired")
+
+// LoadUsableCA loads the persisted CA from dir and rejects a CA that expires
+// within an hour. The proxy signs with an ephemeral CA instead of an expired
+// one, and no trust store trusts an ephemeral CA.
+func LoadUsableCA(dir string) (*Certificate, error) {
+	ca, err := LoadCA(dir)
+	if err != nil {
+		return nil, err
+	}
+	if ca.IsExpired(time.Hour) {
+		return nil, ErrCAExpired
+	}
+	return ca, nil
 }
 
 // LoadCA reads and parses the persisted CA from dir. When a file is missing

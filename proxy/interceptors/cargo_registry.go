@@ -89,7 +89,7 @@ func (i *CargoRegistryInterceptor) handleMetadataRequest(
 
 // handleArtifact runs the cooldown, trust, analysis, and verdict pipeline
 // for a .crate download.
-func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error) {
+func (i *CargoRegistryInterceptor) handleArtifact(ctx *proxy.RequestContext, _ *registryMatch, name, version string) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
 	if depCooldownConfig.Enabled {
 		if resp, handled := i.cooldownHandler.CheckCrateDownload(ctx, name, version, depCooldownConfig.Days); handled {

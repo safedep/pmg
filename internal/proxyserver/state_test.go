@@ -66,3 +66,36 @@ func TestResolveStatePath(t *testing.T) {
 		assert.Equal(t, filepath.Join("/cache", "proxy-state.json"), ResolveStatePath("", "/cache"))
 	})
 }
+
+func TestStateNotices(t *testing.T) {
+	tests := []struct {
+		name  string
+		state State
+		want  []string
+	}{
+		{name: "no notices", state: State{}, want: nil},
+		{name: "daemon notices only", state: State{Warnings: []string{"go"}}, want: []string{"go"}},
+		{
+			name:  "daemon notices come before enforcement notices",
+			state: State{Warnings: []string{"go"}, Enforce: &EnforceState{Warnings: []string{"docker"}}},
+			want:  []string{"go", "docker"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.state.Notices())
+		})
+	}
+}
+
+func TestGetStatusReportsEveryNotice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	require.NoError(t, writeState(path, State{
+		PID:      os.Getpid(),
+		Warnings: []string{"go"},
+		Enforce:  &EnforceState{Warnings: []string{"docker"}},
+	}))
+
+	assert.Equal(t, []string{"go", "docker"}, GetStatus(path).Warnings)
+}

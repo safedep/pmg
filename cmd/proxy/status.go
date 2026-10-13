@@ -48,6 +48,7 @@ func statusText(st proxyserver.StatusInfo) string {
 		fmt.Fprintf(&b, "  config: %s (%s)\n", st.ConfigPath, st.ConfigSource)
 	}
 	if st.Enforce == nil {
+		b.WriteString(proxyserver.WarningLines(st.Warnings))
 		return b.String()
 	}
 
@@ -74,8 +75,6 @@ func statusText(st proxyserver.StatusInfo) string {
 	for _, f := range e.ExemptExecutables {
 		fmt.Fprintf(&b, "  exempt executable: %s\n", f.Path)
 	}
-	for _, w := range e.Warnings {
-		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
-	}
+	b.WriteString(proxyserver.WarningLines(st.Warnings))
 	return b.String()
 }

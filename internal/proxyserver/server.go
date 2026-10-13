@@ -8,11 +8,13 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
@@ -24,6 +26,7 @@ import (
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/truststore"
 )
 
 const (
@@ -114,6 +117,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	var (
 		caCert     *certmanager.Certificate
+		caDir      string
 		caCertPath string
 		enforcer   netenforce.Enforcer
 		policy     netenforce.Policy
@@ -138,10 +142,12 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		if err := namespaces.prepare(); err != nil {
 			return err
 		}
-		caCertPath = certmanager.CACertPath(config.SystemConfigDir())
+		caDir = config.SystemConfigDir()
+		caCertPath = certmanager.CACertPath(caDir)
 	} else {
-		caCertPath = certmanager.ProxyCABundlePath(cfg.ConfigDir())
-		caCert, _, err = flows.SetupCACertificate(cfg.ConfigDir(), caCertPath)
+		caDir = cfg.ConfigDir()
+		caCertPath = certmanager.ProxyCABundlePath(caDir)
+		caCert, _, err = flows.SetupCACertificate(caDir, caCertPath)
 		if err != nil {
 			return fmt.Errorf("setup CA certificate: %w", err)
 		}
@@ -181,8 +187,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	confirmationChan := make(chan *interceptors.ConfirmationRequest, 100)
 	go autoBlockConfirmations(confirmationChan)
 
+	ecosystems, notices := proxiedEcosystems(caDir, truststore.GoTrustsCA)
 	interceptorList, err := buildInterceptors(
-		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries,
+		malysisAnalyzer, cache, statsCollector, confirmationChan, cfg.Config.Proxy.Registries, ecosystems,
 	)
 	if err != nil {
 		return err
@@ -235,6 +242,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		CACertPath:   caCertPath,
 		ConfigPath:   cfg.ConfigFilePath(),
 		ConfigSource: string(cfg.ConfigSource()),
+		Warnings:     notices,
 	}
 
 	var enforceHandle netenforce.Handle
@@ -373,6 +381,7 @@ func startupMessage(state State) string {
 		fmt.Fprintf(&b, "PMG proxy running on %s\n", state.Addr)
 		b.WriteString(configSourceLine(state))
 		b.WriteString("Run: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n")
+		b.WriteString(WarningLines(state.Notices()))
 		return b.String()
 	}
 
@@ -383,7 +392,14 @@ func startupMessage(state State) string {
 		fmt.Fprintf(&b, "  %s\n", line)
 	}
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
-	for _, w := range state.Enforce.Warnings {
+	b.WriteString(WarningLines(state.Notices()))
+	return b.String()
+}
+
+// WarningLines renders daemon notices, one marked line each.
+func WarningLines(warnings []string) string {
+	var b strings.Builder
+	for _, w := range warnings {
 		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
 	}
 	return b.String()
@@ -404,6 +420,7 @@ func buildInterceptors(
 	statsCollector *interceptors.AnalysisStatsCollector,
 	confirmationChan chan *interceptors.ConfirmationRequest,
 	registries []config.ProxyRegistryConfig,
+	ecosystems []packagev1.Ecosystem,
 ) ([]pmgproxy.Interceptor, error) {
 	factory, err := interceptors.NewInterceptorFactory(
 		malysisAnalyzer,
@@ -416,7 +433,25 @@ func buildInterceptors(
 	if err != nil {
 		return nil, err
 	}
-	return factory.CreateInterceptors(interceptors.SupportedEcosystems()...)
+	return factory.CreateInterceptors(ecosystems...)
+}
+
+// proxiedEcosystems returns the ecosystems the daemon analyzes and a notice for
+// each one it leaves out. Go is left out when it cannot trust the CA in caDir,
+// because then every decrypted module download fails the TLS check. The
+// daemon logs only with --debug, so the notice goes in the state.
+func proxiedEcosystems(caDir string, goTrustsCA func(caDir string) error) ([]packagev1.Ecosystem, []string) {
+	ecosystems := interceptors.SupportedEcosystems()
+	err := goTrustsCA(caDir)
+	if err == nil {
+		return ecosystems, nil
+	}
+	notice := fmt.Sprintf("Go module downloads are not analyzed (%v). Run `pmg setup cert install`, then restart the proxy.", err)
+	log.Warnf("%s", notice)
+	ecosystems = slices.DeleteFunc(ecosystems, func(ecosystem packagev1.Ecosystem) bool {
+		return ecosystem == packagev1.Ecosystem_ECOSYSTEM_GO
+	})
+	return ecosystems, []string{notice}
 }
 
 // logSessionSummary emits an aggregate session-complete audit event for the

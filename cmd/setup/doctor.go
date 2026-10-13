@@ -738,9 +738,9 @@ func checkProxyRegistriesResult(loadErr error, registries []config.ProxyRegistry
 	}
 
 	// Build the same catalog that proxy startup builds. The check then
-	// fails on everything startup rejects (built-in host overlap, reserved
-	// Go hosts), not only on load-time validation errors.
-	if _, err := interceptors.NewRegistryCatalog(registries); err != nil {
+	// fails on everything startup rejects, such as an endpoint on a built-in
+	// registry host, not only on load-time validation errors.
+	if _, err := interceptors.NewRegistryCatalog(registries, nil); err != nil {
 		return doctor.CheckResult{
 			Status:  doctor.StatusFail,
 			Message: fmt.Sprintf("%v. Installs and proxy start fail closed", err),

@@ -34,9 +34,9 @@ func TestGoCooldownCheckZipDownloadSideFetch(t *testing.T) {
 	ctx := &proxy.RequestContext{RequestID: "test"}
 
 	t.Run("blocks using out-of-band publish time on cache miss", func(t *testing.T) {
-		h := newGoCooldownHandler(NewAnalysisStatsCollector())
+		h := newGoCooldownHandler(NewAnalysisStatsCollector(), server.URL)
 
-		resp, handled := h.CheckZipDownload(ctx, server.URL, "example.com/fresh", "v1.1.0", 7)
+		resp, handled := h.CheckZipDownload(ctx, "", "example.com/fresh", "v1.1.0", 7)
 		require.True(t, handled)
 		assert.Equal(t, proxy.ActionBlock, resp.Action)
 		assert.Equal(t, http.StatusForbidden, resp.BlockCode)
@@ -52,14 +52,42 @@ func TestGoCooldownCheckZipDownloadSideFetch(t *testing.T) {
 	})
 
 	t.Run("fails open when the out-of-band fetch fails", func(t *testing.T) {
-		h := newGoCooldownHandler(NewAnalysisStatsCollector())
+		h := newGoCooldownHandler(NewAnalysisStatsCollector(), server.URL)
 
-		_, handled := h.CheckZipDownload(ctx, server.URL, "example.com/unknown", "v9.9.9", 7)
+		_, handled := h.CheckZipDownload(ctx, "", "example.com/unknown", "v9.9.9", 7)
 		assert.False(t, handled)
 	})
 
-	t.Run("fails open without a base URL", func(t *testing.T) {
-		h := newGoCooldownHandler(NewAnalysisStatsCollector())
+	t.Run("forwards the request's Authorization header", func(t *testing.T) {
+		var gotAuthorization string
+		private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			gotAuthorization = req.Header.Get("Authorization")
+			if gotAuthorization != "Basic dXNlcjp0b2tlbg==" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]string{
+				"Version": "v1.1.0",
+				"Time":    publishTime.UTC().Format(time.RFC3339),
+			}))
+		}))
+		defer private.Close()
+
+		h := newGoCooldownHandler(NewAnalysisStatsCollector(), private.URL)
+		authorized := &proxy.RequestContext{
+			RequestID: "test",
+			Headers:   http.Header{"Authorization": []string{"Basic dXNlcjp0b2tlbg=="}},
+		}
+
+		resp, handled := h.CheckZipDownload(authorized, "", "example.com/fresh", "v1.1.0", 7)
+		require.True(t, handled)
+		assert.Equal(t, proxy.ActionBlock, resp.Action)
+		assert.Equal(t, "Basic dXNlcjp0b2tlbg==", gotAuthorization)
+	})
+
+	t.Run("fails open without a request URL", func(t *testing.T) {
+		h := newGoCooldownHandler(NewAnalysisStatsCollector(), "")
 
 		_, handled := h.CheckZipDownload(ctx, "", "example.com/fresh", "v1.1.0", 7)
 		assert.False(t, handled)

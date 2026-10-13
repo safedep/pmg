@@ -132,15 +132,19 @@ func TestStartupMessage(t *testing.T) {
 	assert.NotContains(t, plain, "enforcement")
 	assert.NotContains(t, plain, "config:", "an older state file has no path")
 
+	noticed := startupMessage(State{Addr: "127.0.0.1:7777", Warnings: []string{"Go module downloads are not analyzed."}})
+	assert.Contains(t, noticed, "Go module downloads are not analyzed.", "a daemon notice shows without enforcement")
+
 	sourced := startupMessage(State{Addr: "127.0.0.1:7777", ConfigPath: "/etc/safedep/pmg/config.yml", ConfigSource: "managed"})
 	assert.Contains(t, sourced, "config: /etc/safedep/pmg/config.yml (managed)")
 
 	enforced := startupMessage(State{Addr: "127.0.0.1:7777", Enforce: &EnforceState{
 		Status:   netenforce.Status{CgroupPath: "/sys/fs/cgroup", Ports: []uint16{80, 443}},
 		Warnings: []string{"Docker is running."},
-	}})
+	}, Warnings: []string{"Go module downloads are not analyzed."}})
 	assert.Contains(t, enforced, "kernel enforcement (cgroup /sys/fs/cgroup, ports 80,443)")
 	assert.Contains(t, enforced, "Docker is running.")
+	assert.Contains(t, enforced, "Go module downloads are not analyzed.")
 }
 
 func TestRootPerUserConfigWarningNamesBothFiles(t *testing.T) {

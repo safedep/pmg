@@ -541,3 +541,50 @@ proxy:
 	require.NoError(t, err)
 	assert.Equal(t, true, value)
 }
+
+// go builds a request path from a module proxy URL with its own rules. A Go
+// endpoint must store that path, or requests do not match and pass without
+// analysis.
+func TestNormalizeRegistryEndpointGoRequestPath(t *testing.T) {
+	tests := []struct {
+		name         string
+		rawURL       string
+		wantBasePath string
+		wantErr      string
+	}{
+		{name: "escaped trailing slash is trimmed", rawURL: "https://corp.example.com/goproxy%2F", wantBasePath: "/goproxy"},
+		{name: "escaped inner slash stays escaped", rawURL: "https://corp.example.com/a%2Fb", wantBasePath: "/a%2Fb"},
+		{name: "trailing slash is trimmed", rawURL: "https://corp.example.com/goproxy/", wantBasePath: "/goproxy"},
+		{name: "dot segments are cleaned", rawURL: "https://corp.example.com/x/../goproxy", wantBasePath: "/goproxy"},
+		{name: "credentials are still rejected", rawURL: "https://user:token@corp.example.com/goproxy", wantErr: "credentials"},
+		{name: "query is still rejected", rawURL: "https://corp.example.com/goproxy?x=1", wantErr: "query"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry, err := NormalizeRegistryEndpoint("company-go", ProxyRegistryEcosystemGo, tt.rawURL)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBasePath, entry.BasePath)
+		})
+	}
+}
+
+// Duplicate and nesting checks run on the path that go sends, so two URLs
+// that go reads as one base cannot both be configured.
+func TestValidateProxyRegistriesRejectsGoAliases(t *testing.T) {
+	err := ValidateProxyRegistries([]ProxyRegistryConfig{{
+		Name:      "company-go",
+		Ecosystem: ProxyRegistryEcosystemGo,
+		Endpoints: []ProxyRegistryEndpointConfig{
+			{URL: "https://corp.example.com/goproxy"},
+			{URL: "https://corp.example.com/goproxy%2F"},
+		},
+	}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already assigned")
+}

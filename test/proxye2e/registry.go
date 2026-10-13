@@ -289,7 +289,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		r.servePypiSimple(w, req)
 	case "files.pythonhosted.org":
 		r.servePypiFile(w, req)
-	case "proxy.golang.org", "corp.example.com":
+	case "proxy.golang.org", "corp.example.com", "goproxy.corp.test":
 		r.serveGoWithOptionalPrefix(w, req)
 	case "index.crates.io":
 		r.serveCargoIndex(w, req)
@@ -301,8 +301,8 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 }
 
 // serveGoWithOptionalPrefix serves the GOPROXY protocol either at the root
-// (proxy.golang.org) or under the /goproxy base path (corp.example.com and
-// the corp base URL of the plain-HTTP go server).
+// (proxy.golang.org) or under the /goproxy base path (corp.example.com,
+// goproxy.corp.test and the corp base URL of the plain-HTTP go server).
 func (r *Registry) serveGoWithOptionalPrefix(w http.ResponseWriter, req *http.Request) {
 	if strings.HasPrefix(req.URL.Path, "/goproxy/") {
 		http.StripPrefix("/goproxy", http.HandlerFunc(r.serveGo)).ServeHTTP(w, req)

@@ -28,37 +28,6 @@ func newTestRegistrySet(entries ...registryEndpoint) registrySet {
 	return registrySet{entries: entries}
 }
 
-func TestGoRegistryConfigMapMatchesMostSpecificHostname(t *testing.T) {
-	configs := goRegistryConfigMap{
-		"example.org":          {Host: "example.org", Parser: mockParser{}},
-		"registry.example.org": {Host: "registry.example.org", Parser: mockParser{}},
-	}
-
-	tests := []struct {
-		host string
-		want string
-	}{
-		{host: "registry.example.org", want: "registry.example.org"},
-		{host: "cdn.registry.example.org", want: "registry.example.org"},
-		{host: "other.example.org", want: "example.org"},
-		{host: "unknown.org"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.host, func(t *testing.T) {
-			got := configs.GetConfigForHostname(tt.host)
-			if tt.want == "" {
-				assert.Nil(t, got)
-				assert.False(t, configs.ContainsHostname(tt.host))
-				return
-			}
-			require.NotNil(t, got)
-			assert.Equal(t, tt.want, got.Host)
-			assert.True(t, configs.ContainsHostname(tt.host))
-		})
-	}
-}
-
 func TestRegistrySetMatchURL(t *testing.T) {
 	set := newTestRegistrySet(
 		registryEndpoint{Name: "root", Source: registrySourceCustom, Scope: registryScopeOrigin, Host: "root.example.test", Scheme: "https", BasePath: "/", Analyze: true},

@@ -1,10 +1,10 @@
 package flows
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/proxy/certmanager"
@@ -44,30 +44,26 @@ func SetupCACertificate(configDir, outputPath string) (*certmanager.Certificate,
 }
 
 func loadPersistedCA(dir string) (*certmanager.Certificate, bool) {
-	caCert, err := certmanager.LoadCA(dir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warnf("Failed to load persisted CA, using ephemeral: %v", err)
-		}
-		return nil, false
-	}
-
-	if caCert.IsExpired(time.Hour) {
+	caCert, err := certmanager.LoadUsableCA(dir)
+	switch {
+	case err == nil:
+		return caCert, true
+	case errors.Is(err, certmanager.ErrCAExpired):
 		log.Warnf("Persisted CA is expired; using ephemeral. Re-run `pmg setup cert install`")
-		return nil, false
+	case !errors.Is(err, os.ErrNotExist):
+		log.Warnf("Failed to load persisted CA, using ephemeral: %v", err)
 	}
-
-	return caCert, true
+	return nil, false
 }
 
 func warnIfCANotTrusted() {
-	user, system, err := truststore.Status(certmanager.CACommonName)
+	trusted, err := truststore.CATrusted()
 	if err != nil {
 		log.Debugf("Could not determine CA trust status: %v", err)
 		return
 	}
 
-	if !user && !system {
+	if !trusted {
 		log.Warnf("Persisted CA is not trusted in the OS store; native tools may reject TLS. Run `pmg setup cert install`.")
 	}
 }

@@ -1,9 +1,8 @@
 package interceptors
 
 import (
-	"net/url"
-	"strings"
 	"sync"
+	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -19,50 +18,50 @@ import (
 // treating them as ordinary (never-flagged) modules.
 const goToolchainModule = "golang.org/toolchain"
 
+// zipVerdictTTL is how long a module zip verdict is reused. go asks again for
+// a zip that failed, seconds later, in the same command. The reuse keeps that
+// retry from recording the module twice and from asking the user twice. A
+// later client of a long-running proxy gets a fresh verdict, so its block is
+// recorded and audited too.
+const zipVerdictTTL = time.Minute
+
+// goRegistryEndpoints are the built-in Go hosts. The public module proxy is
+// analyzed. The checksum database is a known registry host that is never
+// decrypted. Module proxies from GOPROXY or proxy.registries are custom
+// endpoints.
+var goRegistryEndpoints = []registryEndpoint{
+	builtInRegistryEndpoint(pmgconfig.GoModuleProxyHost, true, goProxyParser{}),
+	builtInRegistryEndpoint(pmgconfig.GoChecksumDatabaseHost, false, goProxyParser{}),
+}
+
 // GoRegistryInterceptor intercepts Go module proxy requests and analyzes
-// module zips for malware. Unlike npm/PyPI, the registry hosts are not fixed:
-// they come from the user's effective GOPROXY via
-// InterceptorContext.GoProxyBaseURLs. sum.golang.org is never in that set, so
-// checksum-database traffic is tunneled, not MITM'd.
+// module zips for malware.
 type GoRegistryInterceptor struct {
 	baseRegistryInterceptor
-	domains         goRegistryConfigMap
-	baseURLs        map[string]string
+	registryRequestMatcher
 	cooldownHandler *goCooldownHandler
 
-	// zipVerdicts memoizes the final response per module zip. go re-requests
-	// a failed zip (once more during go get's load phase), and without this
-	// the repeat would double-record stats — the report would show the same
-	// blocked module twice — and re-prompt the user on a Confirm verdict.
+	now           func() time.Time
 	zipVerdictsMu sync.Mutex
-	zipVerdicts   map[string]*proxy.InterceptorResponse
+	zipVerdicts   map[string]zipVerdict
+}
+
+type zipVerdict struct {
+	response *proxy.InterceptorResponse
+	expires  time.Time
 }
 
 var _ proxy.Interceptor = (*GoRegistryInterceptor)(nil)
 var _ proxy.MITMDecider = (*GoRegistryInterceptor)(nil)
 
-func NewGoRegistryInterceptor(
+func newGoRegistryInterceptor(
 	analyzer analyzer.PackageVersionAnalyzer,
 	cache AnalysisCache,
 	statsCollector *AnalysisStatsCollector,
 	confirmationChan chan *ConfirmationRequest,
 	execContext InterceptorContext,
+	registries registrySet,
 ) *GoRegistryInterceptor {
-	domains := goRegistryConfigMap{}
-	baseURLs := map[string]string{}
-	for host, baseURL := range execContext.GoProxyBaseURLs {
-		basePath := ""
-		if u, err := url.Parse(baseURL); err == nil {
-			basePath = strings.TrimSuffix(u.Path, "/")
-		}
-
-		domains[host] = &goRegistryConfig{
-			Host:   host,
-			Parser: goProxyParser{basePath: basePath},
-		}
-		baseURLs[host] = baseURL
-	}
-
 	return &GoRegistryInterceptor{
 		baseRegistryInterceptor: baseRegistryInterceptor{
 			analyzer:         analyzer,
@@ -72,10 +71,10 @@ func NewGoRegistryInterceptor(
 			circuitBreaker:   newAnalyzerCircuitBreaker("malysis-analyzer-go"),
 			execContext:      execContext,
 		},
-		domains:         domains,
-		baseURLs:        baseURLs,
-		cooldownHandler: newGoCooldownHandler(statsCollector),
-		zipVerdicts:     map[string]*proxy.InterceptorResponse{},
+		registryRequestMatcher: registryRequestMatcher{registries: registries},
+		cooldownHandler:        newGoCooldownHandler(statsCollector, execContext.GoProxyUpstreamOrigin),
+		now:                    time.Now,
+		zipVerdicts:            map[string]zipVerdict{},
 	}
 }
 
@@ -83,122 +82,110 @@ func (i *GoRegistryInterceptor) Name() string {
 	return "go-registry-interceptor"
 }
 
-func (i *GoRegistryInterceptor) ShouldMITM(ctx *proxy.RequestContext) bool {
-	config := i.domains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
-		return false
-	}
-
-	return true
-}
-
-func (i *GoRegistryInterceptor) ShouldIntercept(ctx *proxy.RequestContext) bool {
-	return i.domains.ContainsHostname(ctx.Hostname)
-}
-
-// HandleRequest processes the request and returns response action.
-// We take a fail-open approach here, allowing requests that we can't parse the
-// package information from the URL — but an unparseable .zip means an
-// unanalyzed source download, so that case is logged loudly.
+// HandleRequest runs the shared registry flow with Go's artifact and metadata
+// handlers.
 func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy.InterceptorResponse, error) {
-	log.Debugf("[%s] Handling Go module proxy request: %s", ctx.RequestID, ctx.URL.Path)
+	return handleRegistryRequest(ctx, i.registries, "Go", i)
+}
 
-	config := i.domains.GetConfigForHostname(ctx.Hostname)
-	if config == nil {
-		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	pkgInfo, err := config.Parser.ParseURL(ctx.URL.Path)
-	if err != nil {
-		if strings.HasSuffix(ctx.URL.Path, ".zip") {
-			log.Warnf("[%s] Failed to parse Go module proxy zip URL %s: %v — download allowed without analysis",
-				ctx.RequestID, ctx.URL.Path, err)
-		} else {
-			log.Debugf("[%s] Failed to parse Go module proxy URL %s: %v", ctx.RequestID, ctx.URL.Path, err)
-		}
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
+// handleMetadataRequest passes checksum-database traffic through untouched
+// and captures the publish time from .info for the cooldown check of the zip.
+func (i *GoRegistryInterceptor) handleMetadataRequest(
+	ctx *proxy.RequestContext,
+	pkgInfo packageInfo,
+) (*proxy.InterceptorResponse, error) {
 	info, ok := pkgInfo.(*goModuleInfo)
-	if !ok {
+	if !ok || info.requestType != goRequestInfo || info.version == "" || info.name == goToolchainModule {
+		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, ctx.URL.Path)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if info.requestType == goRequestSumDB {
-		log.Debugf("[%s] Allowing proxied checksum-database request: %s", ctx.RequestID, ctx.URL.Path)
+	if !pmgconfig.Get().Config.DependencyCooldown.Enabled {
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	if info.name == goToolchainModule {
-		if info.IsFileDownload() {
-			log.Infof("[%s] Allowing Go toolchain download %s@%s (verified by Go's checksum database)",
-				ctx.RequestID, info.name, info.version)
-		}
+	return i.cooldownHandler.HandleInfoRequest(ctx, info.name, info.version)
+}
+
+// handleArtifact runs the security controls for a module zip and reuses a
+// recent verdict for a repeated request.
+func (i *GoRegistryInterceptor) handleArtifact(
+	ctx *proxy.RequestContext,
+	match *registryMatch,
+	name, version string,
+) (*proxy.InterceptorResponse, error) {
+	if name == goToolchainModule {
+		log.Infof("[%s] Allowing Go toolchain download %s@%s (verified by Go's checksum database)",
+			ctx.RequestID, name, version)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
 
-	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown
-
-	if !info.IsFileDownload() {
-		if info.requestType == goRequestInfo && info.version != "" && depCooldownConfig.Enabled {
-			return i.cooldownHandler.HandleInfoRequest(ctx, info.name, info.version)
-		}
-
-		log.Debugf("[%s] Skipping analysis for metadata request: %s", ctx.RequestID, info.name)
-		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
-	}
-
-	key := goModuleVersionKey(info.name, info.version)
-
-	i.zipVerdictsMu.Lock()
-	memo := i.zipVerdicts[key]
-	i.zipVerdictsMu.Unlock()
-	if memo != nil {
+	key := goModuleVersionKey(name, version)
+	if resp := i.recentZipVerdict(key); resp != nil {
 		log.Debugf("[%s] Reusing verdict for repeated zip request: %s", ctx.RequestID, key)
-		return memo, nil
+		return resp, nil
 	}
 
-	resp, memoize, err := i.handleZipDownload(ctx, config, info, depCooldownConfig)
+	resp, memoize, err := i.handleZipDownload(ctx, match, name, version)
 	if err != nil {
 		return resp, err
 	}
-
 	if memoize {
-		i.zipVerdictsMu.Lock()
-		i.zipVerdicts[key] = resp
-		i.zipVerdictsMu.Unlock()
+		i.rememberZipVerdict(key, resp)
 	}
-
 	return resp, nil
 }
 
-// handleZipDownload runs the security controls for a module source download:
-// dependency cooldown, then trusted/insecure fast-allow, then malware
-// analysis. memoize is false only when the outcome is a fail-open allow after
-// an analyzer error, so a retried request gets another chance to be analyzed.
+// handleZipDownload runs dependency cooldown, then trusted/insecure
+// fast-allow, then malware analysis. memoize is false only when the outcome is
+// a fail-open allow after an analyzer error, so a retried request gets another
+// chance to be analyzed.
 func (i *GoRegistryInterceptor) handleZipDownload(
 	ctx *proxy.RequestContext,
-	config *goRegistryConfig,
-	info *goModuleInfo,
-	depCooldownConfig pmgconfig.DependencyCooldownConfig,
+	match *registryMatch,
+	name, version string,
 ) (*proxy.InterceptorResponse, bool, error) {
-	if depCooldownConfig.Enabled {
-		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, i.baseURLs[config.Host], info.name, info.version, depCooldownConfig.Days); handled {
+	cooldown := pmgconfig.Get().Config.DependencyCooldown
+	if cooldown.Enabled {
+		if resp, handled := i.cooldownHandler.CheckZipDownload(ctx, match.Endpoint.BasePath, name, version, cooldown.Days); handled {
 			return resp, true, nil
 		}
 	}
 
-	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version); ok {
+	if resp, ok := i.fastAllow(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version); ok {
 		return resp, true, nil
 	}
 
-	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version)
+	result, err := i.analyzePackage(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version)
 	if err != nil {
-		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, info.name, info.version, err)
+		log.Errorf("[%s] Failed to analyze package %s@%s: %v", ctx.RequestID, name, version, err)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, false, nil
 	}
 
-	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, info.name, info.version, result)
+	resp, err := i.handleAnalysisResult(ctx, packagev1.Ecosystem_ECOSYSTEM_GO, name, version, result)
 	return resp, err == nil, err
+}
+
+func (i *GoRegistryInterceptor) recentZipVerdict(key string) *proxy.InterceptorResponse {
+	i.zipVerdictsMu.Lock()
+	defer i.zipVerdictsMu.Unlock()
+
+	verdict, ok := i.zipVerdicts[key]
+	if !ok || !i.now().Before(verdict.expires) {
+		return nil
+	}
+	return verdict.response
+}
+
+func (i *GoRegistryInterceptor) rememberZipVerdict(key string, resp *proxy.InterceptorResponse) {
+	i.zipVerdictsMu.Lock()
+	defer i.zipVerdictsMu.Unlock()
+
+	now := i.now()
+	for k, verdict := range i.zipVerdicts {
+		if !now.Before(verdict.expires) {
+			delete(i.zipVerdicts, k)
+		}
+	}
+	i.zipVerdicts[key] = zipVerdict{response: resp, expires: now.Add(zipVerdictTTL)}
 }

@@ -116,6 +116,35 @@ With a wildcard bind such as `0.0.0.0`, `pmg proxy env` exports
 `127.0.0.1` on the same port, because a client cannot connect to a wildcard
 address. A client on another machine must use the address of this machine.
 
+## Go modules
+
+The daemon analyzes Go module downloads from `proxy.golang.org` and from the
+Go proxies in `proxy.registries`. It runs malware analysis and the dependency
+cooldown on the module zip. It never decrypts `sum.golang.org`, so go
+verifies the checksum database itself.
+
+A block is a 403 response. After a comma in `GOPROXY`, go tries the next
+entry only after a 404 or 410 response, so the block is final. The daemon
+does not change `GOPROXY`, and it does not analyze these fetches:
+
+- A module that matches `GOPRIVATE` or `GONOPROXY`. go fetches it from its
+  VCS host.
+- Every module when `GOPROXY` is `direct` or `off`.
+- A module after a `|` separator in `GOPROXY`. go tries the next entry after
+  any error, also after a block.
+- A module that the module proxy does not have. With the default
+  `GOPROXY=https://proxy.golang.org,direct`, go fetches it from its VCS host.
+- A module that is already in the module cache, for example a cache that the
+  CI job restores.
+
+On macOS and Windows, go reads only the OS trust store. If that store does
+not trust the PMG CA, or the CA is expired, the daemon does not decrypt Go
+traffic. `pmg proxy start` and `pmg proxy status` then print a notice with
+the cause. Run
+`pmg setup cert install`, then restart the daemon. On Linux, go trusts the
+PMG CA through `SSL_CERT_FILE` from `pmg proxy env`, or through the system
+store under enforcement.
+
 ## Custom registries
 
 The daemon reads `proxy.registries` once, at start, from the same config

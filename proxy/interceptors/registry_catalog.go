@@ -3,7 +3,7 @@ package interceptors
 import (
 	"fmt"
 	"net/http"
-	"strings"
+	"net/url"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/dry/log"
@@ -36,13 +36,28 @@ var proxyEcosystems = map[config.ProxyRegistryEcosystem]ecosystemSpec{
 			return pypiCustomParser{baseEndsInSimple: pypiBaseEndsInSimple(basePath)}
 		},
 	},
+	config.ProxyRegistryEcosystemGo: {
+		proto:    packagev1.Ecosystem_ECOSYSTEM_GO,
+		builtIns: goRegistryEndpoints,
+		newCustomParser: func(string) registryURLParser {
+			return goProxyParser{}
+		},
+	},
 }
+
+// goProxyRegistryName names the endpoints that come from the GOPROXY of a
+// `pmg go` run in logs. They are not proxy.registries entries.
+const goProxyRegistryName = "GOPROXY"
 
 type RegistryCatalog struct {
-	byEcosystem map[packagev1.Ecosystem]registrySet
+	byEcosystem    map[packagev1.Ecosystem]registrySet
+	goProxyNotices []string
 }
 
-func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatalog, error) {
+// NewRegistryCatalog builds the catalog from the built-in registries, the
+// configured proxy.registries and goProxyURLs, the module proxies from the
+// GOPROXY of a `pmg go` run. proxy.registries entries must be valid.
+func NewRegistryCatalog(registries []config.ProxyRegistryConfig, goProxyURLs []string) (*RegistryCatalog, error) {
 	// Keep this boundary self-validating because callers can construct a
 	// catalog directly without going through the global config loader.
 	normalized, err := config.NormalizeProxyRegistries(registries)
@@ -51,45 +66,110 @@ func NewRegistryCatalog(registries []config.ProxyRegistryConfig) (*RegistryCatal
 	}
 
 	catalog := newBuiltInRegistryCatalog()
-
+	var otherEcosystems []config.NormalizedRegistryEndpoint
 	for _, configured := range normalized {
-		spec, ok := proxyEcosystems[configured.Ecosystem]
-		if !ok {
+		if _, ok := proxyEcosystems[configured.Ecosystem]; !ok {
 			return nil, fmt.Errorf("invalid custom proxy registry %q: unsupported ecosystem %q", configured.RegistryName, configured.Ecosystem)
 		}
-		if catalog.builtInCoversHostname(configured.Host) {
-			return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by the built-in npm/PyPI registries",
+		if builtIn, _ := catalog.builtInEndpointFor(configured.Host); builtIn != nil {
+			return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is covered by a built-in registry",
 				configured.Ecosystem, configured.RegistryName, configured.Host)
 		}
-		// The Go hosts are not catalog entries (Go routing derives from
-		// GOPROXY per run), so cover them here. A custom endpoint on them
-		// would decrypt Go module traffic, including sum.golang.org, which
-		// PMG never MITMs.
-		if reservedGoHost(configured.Host) {
-			return nil, fmt.Errorf("invalid custom %s registry %q endpoint: host %q is reserved for PMG's built-in Go module handling",
-				configured.Ecosystem, configured.RegistryName, configured.Host)
+		catalog.addCustomEndpoint(configured)
+		if configured.Ecosystem != config.ProxyRegistryEcosystemGo {
+			otherEcosystems = append(otherEcosystems, configured)
 		}
+	}
 
-		endpoint := registryEndpoint{
-			Name:     configured.RegistryName,
-			Source:   registrySourceCustom,
-			Scope:    registryScopeOrigin,
-			Scheme:   configured.Scheme,
-			Host:     configured.Host,
-			Port:     configured.Port,
-			BasePath: configured.BasePath,
-			Analyze:  true,
-			Parser:   spec.newCustomParser(configured.BasePath),
-		}
-		set := catalog.byEcosystem[spec.proto]
-		set.entries = append(set.entries, endpoint)
-		catalog.byEcosystem[spec.proto] = set
-		if configured.Scheme == "http" {
-			log.Warnf("Custom registry endpoint %q uses plain HTTP. Anyone on the network path can read and change this traffic", configured.URL)
+	for _, rawURL := range goProxyURLs {
+		if err := catalog.addGoProxyURL(rawURL, otherEcosystems); err != nil {
+			return nil, err
 		}
 	}
 
 	return catalog, nil
+}
+
+// GoProxyNotices names the GOPROXY entries that PMG does not analyze, with
+// the reason. go still fetches modules from them.
+func (c *RegistryCatalog) GoProxyNotices() []string {
+	return c.goProxyNotices
+}
+
+// addGoProxyURL adds a GOPROXY entry of a `pmg go` run as a Go endpoint. The
+// entry can nest with another Go endpoint, such as
+// proxy.golang.org/cached-only under the built-in proxy.golang.org. The
+// endpoint with the longest base path then parses the request. An entry that
+// nests with an endpoint of another ecosystem fails the run, because PMG
+// cannot tell which ecosystem owns a request there. An entry that PMG cannot
+// analyze gets a notice.
+func (c *RegistryCatalog) addGoProxyURL(rawURL string, otherEcosystems []config.NormalizedRegistryEndpoint) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		c.addGoProxyNotice(rawURL, err.Error())
+		return nil
+	}
+	// The catalog matches requests by origin and path. go sends GOPROXY
+	// credentials in a header and keeps the query, so neither changes a match.
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	entry, err := config.NormalizeRegistryEndpoint(goProxyRegistryName, config.ProxyRegistryEcosystemGo, u.String())
+	if err != nil {
+		c.addGoProxyNotice(rawURL, err.Error())
+		return nil
+	}
+	if c.hasGoEndpoint(entry) {
+		return nil
+	}
+	if builtIn, ecosystem := c.builtInEndpointFor(entry.Host); builtIn != nil {
+		if ecosystem != packagev1.Ecosystem_ECOSYSTEM_GO {
+			return &config.GoProxyConflictError{GoProxyURL: rawURL, Endpoint: builtIn.Host}
+		}
+		if !builtIn.Analyze {
+			c.addGoProxyNotice(rawURL, fmt.Sprintf("PMG never decrypts %s", builtIn.Host))
+			return nil
+		}
+	}
+	if existing := config.FindNestedEndpoint(entry, otherEcosystems); existing != nil {
+		return &config.GoProxyConflictError{GoProxyURL: rawURL, Endpoint: existing.URL}
+	}
+	c.addCustomEndpoint(entry)
+	return nil
+}
+
+func (c *RegistryCatalog) addGoProxyNotice(rawURL, reason string) {
+	c.goProxyNotices = append(c.goProxyNotices, fmt.Sprintf("GOPROXY entry %s is not analyzed (%s)", rawURL, reason))
+}
+
+// hasGoEndpoint reports whether a Go endpoint that PMG analyzes already has the
+// origin and the base path of entry.
+func (c *RegistryCatalog) hasGoEndpoint(entry config.NormalizedRegistryEndpoint) bool {
+	baseURL, err := url.Parse(entry.URL)
+	if err != nil {
+		return false
+	}
+	match := c.registrySet(packagev1.Ecosystem_ECOSYSTEM_GO).MatchURL(baseURL)
+	return match != nil && match.Endpoint.Analyze && match.Endpoint.BasePath == entry.BasePath
+}
+
+func (c *RegistryCatalog) addCustomEndpoint(configured config.NormalizedRegistryEndpoint) {
+	spec := proxyEcosystems[configured.Ecosystem]
+	endpoint := registryEndpoint{
+		Name:     configured.RegistryName,
+		Source:   registrySourceCustom,
+		Scope:    registryScopeOrigin,
+		Scheme:   configured.Scheme,
+		Host:     configured.Host,
+		Port:     configured.Port,
+		BasePath: configured.BasePath,
+		Analyze:  true,
+		Parser:   spec.newCustomParser(configured.BasePath),
+	}
+	set := c.byEcosystem[spec.proto]
+	set.entries = append(set.entries, endpoint)
+	c.byEcosystem[spec.proto] = set
+	if configured.Scheme == "http" {
+		log.Warnf("Custom registry endpoint %q uses plain HTTP. Anyone on the network path can read and change this traffic", configured.URL)
+	}
 }
 
 func newBuiltInRegistryCatalog() *RegistryCatalog {
@@ -121,9 +201,6 @@ func (c *RegistryCatalog) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool
 		return false
 	}
 	hostname := normalizeHostnameWithOptionalPort(ctx.Hostname)
-	if wellKnownGoHosts[hostname] {
-		return true
-	}
 
 	scheme := "https"
 	port := ctx.Port
@@ -152,33 +229,22 @@ func (c *RegistryCatalog) IsKnownRegistryRequest(ctx *proxy.RequestContext) bool
 	return false
 }
 
-func (c *RegistryCatalog) builtInCoversHostname(hostname string) bool {
+// builtInEndpointFor returns the built-in endpoint that covers hostname and
+// its ecosystem, or nil.
+func (c *RegistryCatalog) builtInEndpointFor(hostname string) (*registryEndpoint, packagev1.Ecosystem) {
 	hostname = normalizeHostnameWithOptionalPort(hostname)
-	for _, set := range c.byEcosystem {
+	for ecosystem, set := range c.byEcosystem {
 		for index := range set.entries {
 			endpoint := &set.entries[index]
 			if endpoint.Source != registrySourceBuiltIn {
 				continue
 			}
 			if _, matches := endpointMatchesHostname(endpoint, hostname); matches {
-				return true
+				return endpoint, ecosystem
 			}
 		}
 	}
-	return false
-}
-
-// reservedGoHost reports whether a hostname belongs to the well-known Go
-// module infrastructure, including subdomains. When PMG grows built-in Go
-// registry endpoints, proxy.golang.org moves into that built-in set and this
-// keeps guarding sum.golang.org.
-func reservedGoHost(hostname string) bool {
-	for host := range wellKnownGoHosts {
-		if hostname == host || strings.HasSuffix(hostname, "."+host) {
-			return true
-		}
-	}
-	return false
+	return nil, packagev1.Ecosystem_ECOSYSTEM_UNSPECIFIED
 }
 
 func builtInRegistryEndpoint(host string, analyze bool, parser registryURLParser) registryEndpoint {

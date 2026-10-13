@@ -14,6 +14,9 @@ type StatusInfo struct {
 	CACert  string
 	Enforce *EnforceState
 
+	// Warnings are every notice of the daemon, from State.Notices.
+	Warnings []string
+
 	// ConfigPath and ConfigSource are the file the daemon loaded, empty for
 	// a state file an older daemon wrote.
 	ConfigPath   string
@@ -41,6 +44,8 @@ func GetStatus(statePath string) StatusInfo {
 		Addr:    state.Addr,
 		CACert:  state.CACertPath,
 		Enforce: state.Enforce,
+
+		Warnings: state.Notices(),
 
 		ConfigPath:   state.ConfigPath,
 		ConfigSource: state.ConfigSource,

@@ -14,7 +14,6 @@ import (
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/packagemanager"
-	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
 	"github.com/spf13/cobra"
 )
@@ -57,42 +56,20 @@ func executeGoFlow(ctx context.Context, args []string) error {
 	return flows.RunProxy(ctx, packageManager, args)
 }
 
-// requireTrustedCA fails fast when Go cannot trust PMG's MITM CA. Go's
-// crypto/x509 ignores SSL_CERT_FILE on macOS and Windows and verifies TLS
-// against the OS trust store only, so without an OS-trusted persisted CA every
-// module download would fail mid-build with an opaque x509 error. Linux honors
-// the injected SSL_CERT_FILE bundle, so any CA (persisted or ephemeral) works.
+// requireTrustedCA fails fast when Go cannot trust PMG's MITM CA, so a module
+// download does not fail mid-build with an opaque x509 error.
 func requireTrustedCA() error {
-	if !truststore.UserScopeSupported() {
-		return nil
-	}
-
-	if _, err := certmanager.LoadCA(config.Get().ConfigDir()); err != nil {
+	if err := truststore.GoTrustsCA(config.Get().ConfigDir()); err != nil {
 		return errGoCertNotTrusted(err)
 	}
-
-	user, system, err := truststore.Status(certmanager.CACommonName)
-	if err != nil {
-		return errGoCertNotTrusted(err)
-	}
-
-	if !user && !system {
-		return errGoCertNotTrusted(nil)
-	}
-
 	return nil
 }
 
 func errGoCertNotTrusted(cause error) error {
-	err := usefulerror.NewUsefulError().
+	return usefulerror.NewUsefulError().
 		WithCode(errcodes.CertTrustStore).
-		WithHumanError("Go ignores PMG's injected CA bundle on this OS; the PMG proxy CA must be trusted in the OS trust store.").
+		WithHumanError(fmt.Sprintf("Go cannot trust the PMG proxy CA (%v).", cause)).
 		WithHelp("Run `pmg setup cert install` to install and trust the PMG proxy CA, then retry.").
-		WithMsg("pmg proxy CA is not trusted in the OS trust store")
-
-	if cause != nil {
-		return err.Wrap(cause)
-	}
-
-	return err
+		WithMsg("pmg proxy CA is not trusted in the OS trust store").
+		Wrap(cause)
 }

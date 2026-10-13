@@ -319,7 +319,7 @@ func (m *registryRequestMatcher) ShouldIntercept(ctx *proxy.RequestContext) bool
 // registryRequestHandler is the ecosystem-specific half of the shared
 // registry read-path flow.
 type registryRequestHandler interface {
-	handleArtifact(ctx *proxy.RequestContext, name, version string) (*proxy.InterceptorResponse, error)
+	handleArtifact(ctx *proxy.RequestContext, match *registryMatch, name, version string) (*proxy.InterceptorResponse, error)
 	handleMetadataRequest(ctx *proxy.RequestContext, pkgInfo packageInfo) (*proxy.InterceptorResponse, error)
 }
 
@@ -334,12 +334,13 @@ func handleRegistryRequest(
 ) (*proxy.InterceptorResponse, error) {
 	log.Debugf("[%s] Handling %s registry request: %s", ctx.RequestID, ecosystemLabel, ctx.URL.Path)
 
-	match := registryRequestMatch(registries, ctx)
-	if match == nil {
+	matches := registryRequestMatches(registries, ctx)
+	if len(matches) == 0 {
 		// Shouldn't happen if ShouldIntercept is working correctly
 		log.Warnf("[%s] No registry config found for hostname: %s", ctx.RequestID, ctx.Hostname)
 		return &proxy.InterceptorResponse{Action: proxy.ActionAllow}, nil
 	}
+	match := &matches[0]
 
 	// Analysis and cooldown only ever act on reads. Anything else (publish,
 	// registry API calls) passes through untouched: no header rewrites, no
@@ -356,9 +357,27 @@ func handleRegistryRequest(
 	}
 
 	pkgInfo, parseErr := endpoint.Parser.ParseURL(match.RelativePath)
+	for index := 1; index < len(matches); index++ {
+		other := &matches[index]
+		if !other.Endpoint.Analyze {
+			continue
+		}
+		otherInfo, err := other.Endpoint.Parser.ParseURL(other.RelativePath)
+		if err != nil || otherInfo == nil {
+			continue
+		}
+		if parseErr != nil || pkgInfo == nil {
+			match, pkgInfo, parseErr = other, otherInfo, nil
+			continue
+		}
+		if otherInfo.GetName() != pkgInfo.GetName() || otherInfo.GetVersion() != pkgInfo.GetVersion() {
+			return ambiguousRegistryIdentity(ctx), nil
+		}
+	}
+	endpoint = match.Endpoint
 
 	if parseErr == nil && pkgInfo != nil && packageInfoHasCompleteIdentity(pkgInfo) {
-		return handler.handleArtifact(ctx, pkgInfo.GetName(), pkgInfo.GetVersion())
+		return handler.handleArtifact(ctx, match, pkgInfo.GetName(), pkgInfo.GetVersion())
 	}
 
 	if parseErr != nil {
@@ -374,6 +393,19 @@ func handleRegistryRequest(
 	}
 
 	return unresolvedRegistryIdentity(ctx), nil
+}
+
+// ambiguousRegistryIdentity blocks a request that two nested endpoints on one
+// origin read as two packages, for example /example.com/github.com/x/@v/v1.zip
+// under the GOPROXY bases "" and "/example.com". PMG cannot tell which base
+// the client used, so it cannot pick the package to analyze.
+func ambiguousRegistryIdentity(ctx *proxy.RequestContext) *proxy.InterceptorResponse {
+	log.Warnf("[%s] Blocked a registry request that nested endpoints read as different packages", ctx.RequestID)
+	return &proxy.InterceptorResponse{
+		Action:       proxy.ActionBlock,
+		BlockCode:    http.StatusForbidden,
+		BlockMessage: "PMG blocked this registry request because two registry endpoints on this host read it as different packages. Remove the nested entry from GOPROXY.",
+	}
 }
 
 func unresolvedRegistryIdentity(ctx *proxy.RequestContext) *proxy.InterceptorResponse {

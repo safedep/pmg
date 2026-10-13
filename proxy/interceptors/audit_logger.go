@@ -80,8 +80,3 @@ func observedPort(ctx *proxy.RequestContext) uint16 {
 func (i *AuditLoggerInterceptor) isKnownRegistryRequest(ctx *proxy.RequestContext) bool {
 	return i != nil && i.registries != nil && i.registries.IsKnownRegistryRequest(ctx)
 }
-
-var wellKnownGoHosts = map[string]bool{
-	"proxy.golang.org": true,
-	"sum.golang.org":   true,
-}

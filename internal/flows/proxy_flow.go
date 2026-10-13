@@ -200,7 +200,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	// Package managers with run-specific proxy routing (Go's user-configurable
-	// GOPROXY) contribute extra child env vars and dynamic MITM hosts.
+	// GOPROXY) contribute extra child env vars and the module proxies to analyze.
 	routing := &packagemanager.ProxyRouting{}
 	if provider, ok := f.pm.(packagemanager.ProxyRoutingProvider); ok {
 		routing, err = provider.ProxyRouting(ctx)
@@ -218,8 +218,8 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		ecosystem,
 		cfg,
 		interceptors.InterceptorContext{
-			PinnedVersions:  pinnedVersions,
-			GoProxyBaseURLs: routing.MITMHosts,
+			PinnedVersions: pinnedVersions,
+			GoProxyURLs:    routing.GoProxyURLs,
 		},
 	)
 	if err != nil {
@@ -355,6 +355,9 @@ func buildProxyFlowInterceptors(
 	)
 	if err != nil {
 		return nil, err
+	}
+	for _, notice := range factory.GoProxyNotices() {
+		ui.ShowWarning(notice)
 	}
 	return factory.CreateInterceptors(ecosystem)
 }
