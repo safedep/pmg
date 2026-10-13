@@ -377,46 +377,29 @@ jobs:
             perl -e 'alarm shift; exec @ARGV' 30 "$@" || rc=$?
             echo "exit=${rc}"
           }
-          db=/var/db/auth.db
-          q() { t sudo sqlite3 "$db" "$1"; }
-          # try N: install a fresh CA, then try to remove its admin trust.
-          try() {
-            c="${RUNNER_TEMP}/diag-$1.pem"
-            openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-$1.key" -out "$c" \
-              -subj "/CN=PMG Diag $1" -days 1 2>/dev/null
-            t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
-            t sudo security remove-trusted-cert -d "$c"
-            t security verify-cert -p ssl -l -L -c "$c"
-            t sudo security delete-certificate -c "PMG Diag $1" /Library/Keychains/System.keychain
-          }
-          echo "HOME=${HOME}"
-          sudo sh -c 'echo "sudo HOME=${HOME} USER=${USER}"'
-          sudo -H sh -c 'echo "sudo -H HOME=${HOME}"'
-          t security list-keychains
-          t security default-keychain
-          t security show-keychain-info "${HOME}/Library/Keychains/login.keychain-db"
-          t sudo security list-keychains
-          t sudo -H security list-keychains
-
-          # The keychain is named on the add and the delete, which work. The
-          # trust removal has no keychain flag. With HOME of root, security
-          # does not search the keychains of the runner user.
-          echo "=== D: sudo -H, so HOME is the home of root"
-          c="${RUNNER_TEMP}/diag-d.pem"
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-d.key" -out "$c" \
-            -subj "/CN=PMG Diag d" -days 1 2>/dev/null
-          t sudo -H security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
-          t sudo -H security remove-trusted-cert -d "$c"
-          t security verify-cert -p ssl -l -L -c "$c"
-          t sudo -H security delete-certificate -c "PMG Diag d" /Library/Keychains/System.keychain
-
-          echo "=== what waits: processes and the security log"
-          ps -axo pid,user,comm | grep -iE 'securityagent|authorizationhost|security|trustd|authd' | grep -v grep || true
-          sudo log show --last 3m --style compact \
-            --predicate 'process IN {"authd","SecurityAgent","trustd","securityd","security","authorizationhost"}' \
-            | grep -viE 'debug' | tail -80 || true
-
-          t security dump-trust-settings -d
+          # Keep the removal pending, then read which right authd evaluates and
+          # which window SecurityAgent shows.
+          c="${RUNNER_TEMP}/diag-e.pem"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "${RUNNER_TEMP}/diag-e.key" -out "$c" \
+            -subj "/CN=PMG Diag e" -days 1 2>/dev/null
+          t sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$c"
+          sudo security remove-trusted-cert -d "$c" > "${RUNNER_TEMP}/rm.out" 2>&1 &
+          sleep 10
+          echo "=== processes"
+          ps -axo pid,ppid,user,comm | grep -iE 'securityagent|authorizationhost|remove-trusted|security$' | grep -v grep || true
+          echo "=== SecurityAgent windows"
+          osascript -e 'tell application "System Events" to get name of every window of process "SecurityAgent"' 2>&1 || true
+          osascript -e 'tell application "System Events" to get entire contents of window 1 of process "SecurityAgent"' 2>&1 || true
+          echo "=== authd"
+          log show --last 1m --style compact --predicate 'process == "authd"' 2>&1 \
+            | grep -iE 'right|engine|mechanism|credential|prompt|fail|succe|deny|allow' | tail -60 || true
+          echo "=== SecurityAgent and authorizationhost"
+          log show --last 1m --style compact \
+            --predicate 'process == "SecurityAgent" OR process == "authorizationhost"' 2>&1 | tail -40 || true
+          sudo pkill -f 'security remove-trusted-cert' || true
+          sleep 2
+          echo "=== removal output"
+          cat "${RUNNER_TEMP}/rm.out" || true
           # Stop here until a removal works, so each try costs minutes.
           exit 1
 
