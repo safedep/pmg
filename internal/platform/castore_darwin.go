@@ -1,7 +1,6 @@
 //go:build darwin
-// +build darwin
 
-package truststore
+package platform
 
 import (
 	"crypto/x509"
@@ -10,23 +9,22 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/log"
-	"github.com/safedep/pmg/internal/platform"
 )
 
 const systemKeychainPath = "/Library/Keychains/System.keychain"
 
-func userScopeSupportedPlatform() bool { return true }
+func caUserScopeSupported() bool { return true }
 
 func loginKeychainPath() (string, error) {
-	home, err := platform.UserHomeDir()
+	home, err := UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve home dir: %w", err)
 	}
 	return filepath.Join(home, "Library", "Keychains", "login.keychain-db"), nil
 }
 
-func installPlatform(certPEM []byte, scope Scope) error {
-	path, cleanup, err := writeTempCert(certPEM)
+func installCA(cert *x509.Certificate, scope TrustScope) error {
+	path, cleanup, err := writeTempCert(cert)
 	if err != nil {
 		return err
 	}
@@ -34,7 +32,7 @@ func installPlatform(certPEM []byte, scope Scope) error {
 
 	var args []string
 	runner := commandRunner
-	if scope == ScopeSystem {
+	if scope == TrustScopeSystem {
 		args = []string{"add-trusted-cert", "-d", "-r", "trustRoot", "-k", systemKeychainPath, path}
 		runner = runElevated
 	} else {
@@ -51,13 +49,13 @@ func installPlatform(certPEM []byte, scope Scope) error {
 	return nil
 }
 
-func uninstallPlatform(commonName string, scope Scope) error {
+func uninstallCA(commonName string, scope TrustScope) error {
 	// security delete-certificate removes a single match; loop until none remain
 	// so a --force rotation that left two same-CN certs is fully cleaned.
 	for i := 0; i < 16; i++ {
 		args := []string{"delete-certificate", "-c", commonName}
 		runner := commandRunner
-		if scope == ScopeSystem {
+		if scope == TrustScopeSystem {
 			// -t clears trust settings; the keychain is a positional argument for
 			// delete-certificate (it has no -k flag, unlike add-trusted-cert).
 			args = append(args, "-t", systemKeychainPath)
@@ -91,10 +89,10 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	return nil
 }
 
-// statusPlatform reports which keychain holds this exact certificate. It
+// caStores reports which keychain holds this exact certificate. It
 // compares the SHA-1 hash, so a different certificate with the same name in
 // a keychain does not count.
-func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+func caStores(cert *x509.Certificate) (bool, bool, error) {
 	system := certInKeychain(cert, systemKeychainPath)
 	lkc, err := loginKeychainPath()
 	if err != nil {
@@ -103,13 +101,13 @@ func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
 	return certInKeychain(cert, lkc), system, nil
 }
 
-// caTrustedPlatform asks the OS to evaluate the certificate in certPath with the
+// verifyCATrusted asks the OS to evaluate the certificate in certPath with the
 // trust settings of the user and the system, as go does. A copy of the CA that
 // is in a keychain but not trusted fails, and so does a different certificate
 // with the same name. -l accepts a CA certificate as the leaf, -p ssl is the
 // policy that go evaluates, and -L keeps the check off the network. Go used
 // the same arguments when it verified roots with security(1).
-func caTrustedPlatform(certPath string, _ *x509.Certificate) error {
+func verifyCATrusted(certPath string, _ *x509.Certificate) error {
 	out, err := commandRunner("security", "verify-cert", "-p", "ssl", "-l", "-L", "-c", certPath)
 	if err != nil {
 		return fmt.Errorf("%w: security verify-cert %s: %s", ErrCANotTrusted, certPath, strings.TrimSpace(string(out)))
@@ -123,4 +121,12 @@ func certInKeychain(cert *x509.Certificate, keychain string) bool {
 		return false
 	}
 	return strings.Contains(strings.ToUpper(string(out)), "SHA-1 HASH: "+thumbprint(cert))
+}
+
+func caBundleCandidates() []string {
+	return []string{
+		"/opt/homebrew/etc/openssl@3/cert.pem",
+		"/usr/local/etc/openssl@3/cert.pem",
+		"/etc/ssl/cert.pem",
+	}
 }

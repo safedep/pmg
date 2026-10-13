@@ -1,25 +1,26 @@
 //go:build windows
-// +build windows
 
-package truststore
+package platform
 
 import (
 	"crypto/x509"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
-func userScopeSupportedPlatform() bool { return true }
+func caUserScopeSupported() bool { return true }
 
-func installPlatform(certPEM []byte, scope Scope) error {
-	path, cleanup, err := writeTempCert(certPEM)
+func installCA(cert *x509.Certificate, scope TrustScope) error {
+	path, cleanup, err := writeTempCert(cert)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
 	args := []string{}
-	if scope == ScopeUser {
+	if scope == TrustScopeUser {
 		args = append(args, "-user")
 	}
 	args = append(args, "-addstore", "Root", path)
@@ -30,9 +31,9 @@ func installPlatform(certPEM []byte, scope Scope) error {
 	return nil
 }
 
-func uninstallPlatform(commonName string, scope Scope) error {
+func uninstallCA(commonName string, scope TrustScope) error {
 	args := []string{}
-	if scope == ScopeUser {
+	if scope == TrustScopeUser {
 		args = append(args, "-user")
 	}
 	args = append(args, "-delstore", "Root", commonName)
@@ -48,16 +49,16 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	return nil
 }
 
-// statusPlatform reports which Root store holds this exact certificate.
-func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+// caStores reports which Root store holds this exact certificate.
+func caStores(cert *x509.Certificate) (bool, bool, error) {
 	id := thumbprint(cert)
 	return certInWindowsStore(id, true), certInWindowsStore(id, false), nil
 }
 
-// caTrustedPlatform looks the certificate up by its SHA-1 thumbprint in the user
+// verifyCATrusted looks the certificate up by its SHA-1 thumbprint in the user
 // and the machine Root store. certutil identifies a certificate by this
 // thumbprint, so a different certificate with the same name does not match.
-func caTrustedPlatform(_ string, cert *x509.Certificate) error {
+func verifyCATrusted(_ string, cert *x509.Certificate) error {
 	id := thumbprint(cert)
 	if certInWindowsStore(id, true) || certInWindowsStore(id, false) {
 		return nil
@@ -76,4 +77,25 @@ func certInWindowsStore(certID string, userScope bool) bool {
 
 	_, err := commandRunner("certutil", args...)
 	return err == nil
+}
+
+// caBundleCandidates lists the bundles that Git for Windows and curl ship.
+// Windows itself keeps no bundle file.
+func caBundleCandidates() []string {
+	var candidates []string
+	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
+		candidates = append(candidates,
+			filepath.Join(programFiles, "Git", "mingw64", "ssl", "certs", "ca-bundle.crt"),
+			filepath.Join(programFiles, "Git", "usr", "ssl", "certs", "ca-bundle.crt"),
+		)
+	}
+	if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
+		candidates = append(candidates,
+			filepath.Join(programFilesX86, "Git", "mingw32", "ssl", "certs", "ca-bundle.crt"),
+		)
+	}
+	if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
+		candidates = append(candidates, filepath.Join(systemRoot, "System32", "curl-ca-bundle.crt"))
+	}
+	return candidates
 }

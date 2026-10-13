@@ -1,44 +1,16 @@
 //go:build linux
-// +build linux
 
-package truststore
+package platform
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"github.com/safedep/pmg/internal/platform"
-	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// certPEM returns a self-signed certificate with the given common name.
-func certPEM(t *testing.T, cn string) []byte {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: cn},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(time.Hour),
-		IsCA:         true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	require.NoError(t, err)
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-}
 
 // noBundle makes the install and status checks skip the bundle, as on a
 // host whose bundle path is unknown.
@@ -78,8 +50,8 @@ func TestLinuxSystemInstallFailsWhenTheBundleMissesTheCert(t *testing.T) {
 	detectTrustTool = func() (linuxTrustTool, error) {
 		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-trust", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
-	origPrivileged := platform.IsPrivileged
-	platform.IsPrivileged = func() bool { return true }
+	origPrivileged := IsPrivileged
+	IsPrivileged = func() bool { return true }
 	origRunner := commandRunner
 	commandRunner = func(string, ...string) ([]byte, error) { return nil, nil }
 	bundle := filepath.Join(t.TempDir(), "ca-certificates.crt")
@@ -87,25 +59,25 @@ func TestLinuxSystemInstallFailsWhenTheBundleMissesTheCert(t *testing.T) {
 	systemBundlePath = func() string { return bundle }
 	t.Cleanup(func() {
 		detectTrustTool = origDetect
-		platform.IsPrivileged = origPrivileged
+		IsPrivileged = origPrivileged
 		commandRunner = origRunner
 		systemBundlePath = origBundle
 	})
 
 	ca := certPEM(t, "Test CA")
 	require.NoError(t, os.WriteFile(bundle, certPEM(t, "Other CA"), 0o644))
-	err := Install(ca, ScopeSystem)
+	err := installCA(parsePEM(t, ca), TrustScopeSystem)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not contain the certificate")
 
 	require.NoError(t, os.WriteFile(bundle, append(certPEM(t, "Other CA"), ca...), 0o644))
-	require.NoError(t, Install(ca, ScopeSystem))
+	require.NoError(t, installCA(parsePEM(t, ca), TrustScopeSystem))
 }
 
 func TestLinuxUserScopeUnsupported(t *testing.T) {
-	assert.False(t, UserScopeSupported())
-	assert.ErrorIs(t, Install([]byte("PEM"), ScopeUser), ErrUserScopeUnsupported)
-	assert.ErrorIs(t, Uninstall("Test CA", ScopeUser), ErrUserScopeUnsupported)
+	assert.False(t, caUserScopeSupported())
+	assert.ErrorIs(t, installCA(testCert(t, "Test CA"), TrustScopeUser), ErrCAUserScopeUnsupported)
+	assert.ErrorIs(t, uninstallCA("Test CA", TrustScopeUser), ErrCAUserScopeUnsupported)
 }
 
 func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
@@ -117,8 +89,8 @@ func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
 	detectTrustTool = func() (linuxTrustTool, error) {
 		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
-	origPrivileged := platform.IsPrivileged
-	platform.IsPrivileged = func() bool { return true } // run as root so no sudo prefix is added
+	origPrivileged := IsPrivileged
+	IsPrivileged = func() bool { return true } // run as root so no sudo prefix is added
 	var calls [][]string
 	origRunner := commandRunner
 	commandRunner = func(name string, args ...string) ([]byte, error) {
@@ -127,11 +99,11 @@ func TestLinuxSystemInstallStagesAnchorAndUpdates(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		detectTrustTool = origDetect
-		platform.IsPrivileged = origPrivileged
+		IsPrivileged = origPrivileged
 		commandRunner = origRunner
 	})
 
-	require.NoError(t, Install([]byte("PEM-BYTES"), ScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
 
 	require.Len(t, calls, 2)
 	assert.Equal(t, "install", calls[0][0])
@@ -146,8 +118,8 @@ func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 	detectTrustTool = func() (linuxTrustTool, error) {
 		return linuxTrustTool{anchorDir: dir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
-	origPrivileged := platform.IsPrivileged
-	platform.IsPrivileged = func() bool { return false }
+	origPrivileged := IsPrivileged
+	IsPrivileged = func() bool { return false }
 	var firstName string
 	origRunner := commandRunner
 	commandRunner = func(name string, _ ...string) ([]byte, error) {
@@ -158,25 +130,15 @@ func TestLinuxSystemInstallElevatesWhenNotRoot(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		detectTrustTool = origDetect
-		platform.IsPrivileged = origPrivileged
+		IsPrivileged = origPrivileged
 		commandRunner = origRunner
 	})
 
-	require.NoError(t, Install([]byte("PEM"), ScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
 	assert.Equal(t, "sudo", firstName)
 }
 
-// persistedCert writes a CA certificate to a temporary config directory and
-// returns the directory and the PEM.
-func persistedCert(t *testing.T) (string, []byte) {
-	t.Helper()
-	dir := t.TempDir()
-	ca := certPEM(t, "Test CA")
-	require.NoError(t, os.WriteFile(certmanager.CACertPath(dir), ca, 0o644))
-	return dir, ca
-}
-
-func TestLinuxStatusChecksTheAnchorWithoutABundle(t *testing.T) {
+func TestLinuxCAStoresChecksTheAnchorWithoutABundle(t *testing.T) {
 	noBundle(t)
 	anchorDir := t.TempDir()
 	origDetect := detectTrustTool
@@ -184,7 +146,8 @@ func TestLinuxStatusChecksTheAnchorWithoutABundle(t *testing.T) {
 		return linuxTrustTool{anchorDir: anchorDir, updateCmd: "update-ca-certificates", anchorName: "pmg-proxy-ca.crt"}, nil
 	}
 	t.Cleanup(func() { detectTrustTool = origDetect })
-	configDir, ca := persistedCert(t)
+	ca := certPEM(t, "Test CA")
+	cert := parsePEM(t, ca)
 	anchor := filepath.Join(anchorDir, "pmg-proxy-ca.crt")
 
 	tests := []struct {
@@ -202,7 +165,7 @@ func TestLinuxStatusChecksTheAnchorWithoutABundle(t *testing.T) {
 			if tt.anchor != nil {
 				require.NoError(t, os.WriteFile(anchor, tt.anchor, 0o644))
 			}
-			user, system, err := Status(configDir)
+			user, system, err := caStores(cert)
 			require.NoError(t, err)
 			assert.False(t, user)
 			assert.Equal(t, tt.want, system)
@@ -210,7 +173,7 @@ func TestLinuxStatusChecksTheAnchorWithoutABundle(t *testing.T) {
 	}
 }
 
-func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
+func TestLinuxCAStoresTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 	anchorDir := t.TempDir()
 	origDetect := detectTrustTool
 	detectTrustTool = func() (linuxTrustTool, error) {
@@ -223,7 +186,8 @@ func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 		detectTrustTool = origDetect
 		systemBundlePath = origBundle
 	})
-	configDir, ca := persistedCert(t)
+	ca := certPEM(t, "Test CA")
+	cert := parsePEM(t, ca)
 	anchor := filepath.Join(anchorDir, "pmg-proxy-ca.crt")
 
 	tests := []struct {
@@ -244,16 +208,19 @@ func TestLinuxStatusTrustsOnlyWhatTheBundleHolds(t *testing.T) {
 				require.NoError(t, os.WriteFile(anchor, ca, 0o644))
 			}
 			require.NoError(t, os.WriteFile(bundle, tt.bundle, 0o644))
-			_, system, err := Status(configDir)
+			_, system, err := caStores(cert)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, system)
 		})
 	}
 }
 
-func TestLinuxStatusWithoutAPersistedCA(t *testing.T) {
-	user, system, err := Status(t.TempDir())
-	require.NoError(t, err)
-	assert.False(t, user)
-	assert.False(t, system)
+func TestLinuxCABundleCandidates(t *testing.T) {
+	assert.Equal(t, []string{
+		"/etc/ssl/certs/ca-certificates.crt",
+		"/etc/pki/tls/certs/ca-bundle.crt",
+		"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+		"/etc/ssl/ca-bundle.pem",
+		"/etc/ssl/cert.pem",
+	}, CABundleCandidates())
 }

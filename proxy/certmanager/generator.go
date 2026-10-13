@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -22,9 +21,6 @@ import (
 const (
 	maxSystemCABundleBytes int64         = 10 * 1024 * 1024
 	certExpiryThreshold    time.Duration = 1 * time.Hour
-	goosDarwin                           = "darwin"
-	goosLinux                            = "linux"
-	goosWindows                          = "windows"
 )
 
 // CACommonName is the subject CN of the PMG CA. It is the single source of truth
@@ -304,7 +300,7 @@ func ParseTLSCertificate(cert *Certificate) (tls.Certificate, error) {
 // system bundle results in certPEM being returned unchanged, so proxy startup is
 // never blocked by an optional enhancement.
 func MergeWithSystemCA(certPEM []byte) []byte {
-	systemBundlePath := firstReadablePath(systemCABundleCandidates()...)
+	systemBundlePath := platform.FirstReadableFile(systemCABundleCandidates()...)
 	if systemBundlePath == "" {
 		log.Warnf("Skipping system CA bundle merge: No system CA bundle file found")
 		return certPEM
@@ -366,97 +362,12 @@ func GenerateCAWithSystemCA(config CertManagerConfig) (*Certificate, error) {
 	}, nil
 }
 
-// SystemCABundlePath returns the readable system CA bundle, or "" when the
-// host has none. After `pmg setup cert install --system` the bundle holds
-// the PMG CA, so a tool that reads one bundle file can be pointed at it.
-// Only the platform paths count. An inherited SSL_CERT_FILE or
-// CURL_CA_BUNDLE can name a bundle without the PMG CA.
-func SystemCABundlePath() string {
-	return firstReadablePath(platformCABundleCandidates(platform.OSName())...)
-}
-
-func firstReadablePath(paths ...string) string {
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
-			continue
-		}
-
-		f, err := os.Open(path)
-		if err != nil {
-			continue
-		}
-		_ = f.Close()
-
-		return path
-	}
-
-	return ""
-}
-
 func systemCABundleCandidates() []string {
-	return systemCABundleCandidatesForOS(platform.OSName())
-}
-
-func systemCABundleCandidatesForOS(goos string) []string {
 	var candidates []string
-	appendIfSet := func(key string) {
+	for _, key := range []string{"SSL_CERT_FILE", "CURL_CA_BUNDLE"} {
 		if value := os.Getenv(key); value != "" {
 			candidates = append(candidates, value)
 		}
 	}
-
-	appendIfSet("SSL_CERT_FILE")
-	appendIfSet("CURL_CA_BUNDLE")
-
-	return append(candidates, platformCABundleCandidates(goos)...)
-}
-
-// platformCABundleCandidates lists where the OS keeps its CA bundle, without
-// the environment overrides.
-func platformCABundleCandidates(goos string) []string {
-	var candidates []string
-	switch goos {
-	case goosDarwin:
-		candidates = append(candidates,
-			"/opt/homebrew/etc/openssl@3/cert.pem",
-			"/usr/local/etc/openssl@3/cert.pem",
-			"/etc/ssl/cert.pem",
-		)
-	case goosLinux:
-		candidates = append(candidates,
-			"/etc/ssl/certs/ca-certificates.crt",
-			"/etc/pki/tls/certs/ca-bundle.crt",
-			"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-			"/etc/ssl/ca-bundle.pem",
-			"/etc/ssl/cert.pem",
-		)
-	case goosWindows:
-		programFiles := os.Getenv("ProgramFiles")
-		programFilesX86 := os.Getenv("ProgramFiles(x86)")
-		systemRoot := os.Getenv("SystemRoot")
-
-		if programFiles != "" {
-			candidates = append(candidates,
-				filepath.Join(programFiles, "Git", "mingw64", "ssl", "certs", "ca-bundle.crt"),
-				filepath.Join(programFiles, "Git", "usr", "ssl", "certs", "ca-bundle.crt"),
-			)
-		}
-		if programFilesX86 != "" {
-			candidates = append(candidates,
-				filepath.Join(programFilesX86, "Git", "mingw32", "ssl", "certs", "ca-bundle.crt"),
-			)
-		}
-		if systemRoot != "" {
-			candidates = append(candidates,
-				filepath.Join(systemRoot, "System32", "curl-ca-bundle.crt"),
-			)
-		}
-	}
-
-	return candidates
+	return append(candidates, platform.CABundleCandidates()...)
 }

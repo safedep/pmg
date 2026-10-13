@@ -1,7 +1,6 @@
 //go:build windows
-// +build windows
 
-package truststore
+package platform
 
 import (
 	"slices"
@@ -21,7 +20,7 @@ func TestWindowsInstallUserAddsUserFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Install([]byte("PEM"), ScopeUser))
+	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeUser))
 	assert.Equal(t, "certutil", gotName)
 	assert.Equal(t, "-user", gotArgs[0])
 	assert.Contains(t, gotArgs, "-addstore")
@@ -37,7 +36,7 @@ func TestWindowsInstallSystemHasNoUserFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Install([]byte("PEM"), ScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
 	assert.NotContains(t, gotArgs, "-user")
 	assert.Equal(t, "-addstore", gotArgs[0])
 }
@@ -48,12 +47,12 @@ func TestWindowsUninstallNotFoundIsOK(t *testing.T) {
 		return []byte("Cannot find the requested object"), assert.AnError
 	}
 	t.Cleanup(func() { commandRunner = orig })
-	require.NoError(t, Uninstall("Test CA", ScopeUser))
+	require.NoError(t, uninstallCA("Test CA", TrustScopeUser))
 }
 
-func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
-	dir, ca := persistedCA(t)
-	id := thumbprint(ca.X509Cert)
+func TestWindowsVerifyCATrustedLooksUpTheThumbprint(t *testing.T) {
+	cert := testCert(t, "Test CA")
+	id := thumbprint(cert)
 	tests := []struct {
 		name        string
 		trustedArgs []string
@@ -77,7 +76,7 @@ func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
 			}
 			t.Cleanup(func() { commandRunner = orig })
 
-			err := GoTrustsCA(dir)
+			err := verifyCATrusted("", cert)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
@@ -87,9 +86,9 @@ func TestWindowsGoTrustsCALooksUpTheThumbprint(t *testing.T) {
 	}
 }
 
-func TestWindowsStatusMatchesTheExactCertificateInEachStore(t *testing.T) {
-	dir, ca := persistedCA(t)
-	id := thumbprint(ca.X509Cert)
+func TestWindowsCAStoresMatchesTheExactCertificateInEachStore(t *testing.T) {
+	cert := testCert(t, "Test CA")
+	id := thumbprint(cert)
 	tests := []struct {
 		name              string
 		inUser, inMachine bool
@@ -113,10 +112,23 @@ func TestWindowsStatusMatchesTheExactCertificateInEachStore(t *testing.T) {
 			}
 			t.Cleanup(func() { commandRunner = orig })
 
-			user, system, err := Status(dir)
+			user, system, err := caStores(cert)
 			require.NoError(t, err)
 			assert.Equal(t, tt.inUser, user)
 			assert.Equal(t, tt.inMachine, system)
 		})
 	}
+}
+
+func TestWindowsCABundleCandidates(t *testing.T) {
+	t.Setenv("ProgramFiles", `C:\Program Files`)
+	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
+	t.Setenv("SystemRoot", `C:\Windows`)
+
+	assert.Equal(t, []string{
+		`C:\Program Files\Git\mingw64\ssl\certs\ca-bundle.crt`,
+		`C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt`,
+		`C:\Program Files (x86)\Git\mingw32\ssl\certs\ca-bundle.crt`,
+		`C:\Windows\System32\curl-ca-bundle.crt`,
+	}, CABundleCandidates())
 }

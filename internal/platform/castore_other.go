@@ -1,7 +1,6 @@
 //go:build !darwin && !linux && !windows
-// +build !darwin,!linux,!windows
 
-package truststore
+package platform
 
 import (
 	"crypto/x509"
@@ -11,14 +10,14 @@ import (
 	"github.com/safedep/pmg/errcodes"
 )
 
-func installPlatform(_ []byte, _ Scope) error   { return unsupportedPlatformError() }
-func uninstallPlatform(_ string, _ Scope) error { return unsupportedPlatformError() }
-func statusPlatform(_ *x509.Certificate) (bool, bool, error) {
+func installCA(_ *x509.Certificate, _ TrustScope) error { return unsupportedPlatformError() }
+func uninstallCA(_ string, _ TrustScope) error          { return unsupportedPlatformError() }
+func caStores(_ *x509.Certificate) (bool, bool, error) {
 	return false, false, unsupportedPlatformError()
 }
-func userScopeSupportedPlatform() bool { return false }
+func caUserScopeSupported() bool { return false }
 
-func caTrustedPlatform(_ string, _ *x509.Certificate) error {
+func verifyCATrusted(_ string, _ *x509.Certificate) error {
 	return unsupportedPlatformError()
 }
 
@@ -29,3 +28,5 @@ func unsupportedPlatformError() error {
 		WithHelp("Use PMG's default env-var trust injection, or install the CA manually").
 		Wrap(errors.New("unsupported platform"))
 }
+
+func caBundleCandidates() []string { return nil }

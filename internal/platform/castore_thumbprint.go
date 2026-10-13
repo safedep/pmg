@@ -1,6 +1,6 @@
 //go:build darwin || windows
 
-package truststore
+package platform
 
 import (
 	"crypto/sha1"

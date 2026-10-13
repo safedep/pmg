@@ -350,72 +350,6 @@ func TestGenerateCAWithSystemCA(t *testing.T) {
 	assert.True(t, strings.Contains(string(ca.Certificate), "SYSTEM_CA_CERT"), "Merged certificate should contain system CA content")
 }
 
-func TestSystemCABundleCandidatesForOS_WindowsIncludesCommonBundlePaths(t *testing.T) {
-	t.Setenv("SSL_CERT_FILE", "")
-
-	t.Setenv("CURL_CA_BUNDLE", "")
-	t.Setenv("ProgramFiles", `C:\Program Files`)
-	t.Setenv("ProgramFiles(x86)", `C:\Program Files (x86)`)
-	t.Setenv("SystemRoot", `C:\Windows`)
-
-	candidates := systemCABundleCandidatesForOS(goosWindows)
-	joined := strings.Join(candidates, "|")
-
-	assert.Contains(t, joined, filepath.FromSlash("Git/mingw64/ssl/certs/ca-bundle.crt"))
-	assert.Contains(t, joined, filepath.FromSlash("Git/usr/ssl/certs/ca-bundle.crt"))
-	assert.Contains(t, joined, filepath.FromSlash("Git/mingw32/ssl/certs/ca-bundle.crt"))
-	assert.Contains(t, joined, filepath.FromSlash("System32/curl-ca-bundle.crt"))
-}
-
-func TestSystemCABundleCandidatesForOS_DarwinIncludesKnownBundlePaths(t *testing.T) {
-	t.Setenv("SSL_CERT_FILE", "")
-
-	t.Setenv("CURL_CA_BUNDLE", "")
-	candidates := systemCABundleCandidatesForOS(goosDarwin)
-	joined := strings.Join(candidates, "|")
-
-	assert.Contains(t, joined, "/opt/homebrew/etc/openssl@3/cert.pem")
-	assert.Contains(t, joined, "/usr/local/etc/openssl@3/cert.pem")
-	assert.Contains(t, joined, "/etc/ssl/cert.pem")
-}
-
-func TestSystemCABundleCandidatesForOS_LinuxIncludesKnownBundlePaths(t *testing.T) {
-	t.Setenv("SSL_CERT_FILE", "")
-
-	t.Setenv("CURL_CA_BUNDLE", "")
-	candidates := systemCABundleCandidatesForOS(goosLinux)
-	joined := strings.Join(candidates, "|")
-
-	assert.Contains(t, joined, "/etc/ssl/certs/ca-certificates.crt")
-	assert.Contains(t, joined, "/etc/pki/tls/certs/ca-bundle.crt")
-	assert.Contains(t, joined, "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
-	assert.Contains(t, joined, "/etc/ssl/ca-bundle.pem")
-	assert.Contains(t, joined, "/etc/ssl/cert.pem")
-}
-
-func TestFirstReadablePath(t *testing.T) {
-	tempDir := t.TempDir()
-
-	readableFile1 := filepath.Join(tempDir, "ca1.pem")
-	readableFile2 := filepath.Join(tempDir, "ca2.pem")
-	dirPath := filepath.Join(tempDir, "certs")
-	missingFile := filepath.Join(tempDir, "missing.pem")
-
-	assert.NoError(t, os.MkdirAll(dirPath, 0o755))
-	assert.NoError(t, os.WriteFile(readableFile1, []byte("CERT1"), 0o600))
-	assert.NoError(t, os.WriteFile(readableFile2, []byte("CERT2"), 0o600))
-
-	t.Run("returns first readable file and skips empty, directory, and missing", func(t *testing.T) {
-		got := firstReadablePath("", dirPath, missingFile, readableFile1, readableFile2)
-		assert.Equal(t, readableFile1, got)
-	})
-
-	t.Run("returns empty when no readable file exists", func(t *testing.T) {
-		got := firstReadablePath("", dirPath, missingFile)
-		assert.Equal(t, "", got)
-	})
-}
-
 func TestGenerateCAWithSystemCA_SkipsOversizedSystemBundle(t *testing.T) {
 	config := DefaultCertManagerConfig()
 
@@ -440,6 +374,6 @@ func TestSystemCABundlePathIgnoresEnvironmentOverrides(t *testing.T) {
 	t.Setenv("SSL_CERT_FILE", override)
 	t.Setenv("CURL_CA_BUNDLE", override)
 
-	assert.Contains(t, systemCABundleCandidatesForOS(platform.OSName()), override)
-	assert.NotEqual(t, override, SystemCABundlePath(), "the enforce trust bundle is the system bundle, never an inherited override")
+	assert.Contains(t, systemCABundleCandidates(), override, "the merge for env-var trust honors the user's bundle")
+	assert.NotEqual(t, override, platform.SystemCABundlePath(), "the enforce trust bundle is the system bundle, never an inherited override")
 }

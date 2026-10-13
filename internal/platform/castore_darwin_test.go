@@ -1,12 +1,14 @@
 //go:build darwin
-// +build darwin
 
-package truststore
+package platform
 
 import (
+	"crypto/x509"
+	"encoding/pem"
+	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +23,7 @@ func TestDarwinInstallUserArgs(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Install([]byte("PEM"), ScopeUser))
+	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeUser))
 	assert.Equal(t, "security", gotName)
 	assert.Equal(t, "add-trusted-cert", gotArgs[0])
 	assert.NotContains(t, gotArgs, "-d") // user scope: no -d
@@ -37,7 +39,7 @@ func TestDarwinInstallSystemArgs(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Install([]byte("PEM"), ScopeSystem))
+	require.NoError(t, installCA(testCert(t, "Test CA"), TrustScopeSystem))
 	assert.Contains(t, gotArgs, "-d") // system scope: -d
 	assert.Contains(t, gotArgs, systemKeychainPath)
 }
@@ -51,7 +53,7 @@ func TestDarwinUninstallStopsWhenNotFound(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Uninstall("Test CA", ScopeUser))
+	require.NoError(t, uninstallCA("Test CA", TrustScopeUser))
 	assert.Equal(t, 1, calls)
 }
 
@@ -67,7 +69,7 @@ func TestDarwinUninstallStopsAfterDeletingMatches(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Uninstall("Test CA", ScopeUser))
+	require.NoError(t, uninstallCA("Test CA", TrustScopeUser))
 	assert.Equal(t, 2, calls) // delete one, then terminal not-found
 }
 
@@ -80,24 +82,25 @@ func TestDarwinUninstallSystemTargetsSystemKeychain(t *testing.T) {
 	}
 	t.Cleanup(func() { commandRunner = orig })
 
-	require.NoError(t, Uninstall("Test CA", ScopeSystem))
+	require.NoError(t, uninstallCA("Test CA", TrustScopeSystem))
 	assert.Contains(t, gotArgs, systemKeychainPath)
 	assert.Contains(t, gotArgs, "-t")
 }
 
 func TestDarwinUserScopeSupported(t *testing.T) {
-	assert.True(t, UserScopeSupported())
+	assert.True(t, caUserScopeSupported())
 }
 
-func TestDarwinGoTrustsCAVerifiesThePersistedCertificate(t *testing.T) {
-	dir, _ := persistedCA(t)
+func TestDarwinVerifyCATrustedRunsVerifyCert(t *testing.T) {
+	cert := testCert(t, "Test CA")
+	path := writeCertFile(t, cert)
 	tests := []struct {
 		name    string
 		runErr  error
 		wantErr error
 	}{
-		{name: "the OS trusts the persisted CA"},
-		{name: "the OS does not trust the persisted CA", runErr: assert.AnError, wantErr: ErrCANotTrusted},
+		{name: "the OS trusts the CA"},
+		{name: "the OS does not trust the CA", runErr: assert.AnError, wantErr: ErrCANotTrusted},
 	}
 
 	for _, tt := range tests {
@@ -111,53 +114,66 @@ func TestDarwinGoTrustsCAVerifiesThePersistedCertificate(t *testing.T) {
 			}
 			t.Cleanup(func() { commandRunner = orig })
 
-			err := GoTrustsCA(dir)
+			err := verifyCATrusted(path, cert)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 			} else {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, "security", gotName)
-			assert.Equal(t, []string{"verify-cert", "-p", "ssl", "-l", "-L", "-c", certmanager.CACertPath(dir)}, gotArgs)
+			assert.Equal(t, []string{"verify-cert", "-p", "ssl", "-l", "-L", "-c", path}, gotArgs)
 		})
 	}
 }
 
-func TestDarwinStatusMatchesTheExactCertificateInEachKeychain(t *testing.T) {
-	dir, ca := persistedCA(t)
+func TestDarwinCAStoresMatchesTheExactCertificateInEachKeychain(t *testing.T) {
+	cert := testCert(t, "Test CA")
 	sameName := "SHA-256 hash: 00\nSHA-1 hash: 0000000000000000000000000000000000000000\n"
-	exact := "SHA-1 hash: " + thumbprint(ca.X509Cert) + "\n"
+	exact := "SHA-1 hash: " + thumbprint(cert) + "\n"
 	tests := []struct {
 		name              string
 		system, login     string
-		verifyErr         error
 		wantUser, wantSys bool
 	}{
 		{name: "exact CA in login, stale copy in System", login: exact, system: sameName, wantUser: true},
 		{name: "exact CA in System, stale copy in login", login: sameName, system: exact, wantSys: true},
-		{name: "exact CA in a keychain without trust settings", login: exact, verifyErr: assert.AnError},
+		{name: "only stale copies", login: sameName, system: sameName},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			orig := commandRunner
 			commandRunner = func(_ string, args ...string) ([]byte, error) {
-				switch args[0] {
-				case "verify-cert":
-					return nil, tt.verifyErr
-				case "find-certificate":
-					if args[len(args)-1] == systemKeychainPath {
-						return []byte(tt.system), nil
-					}
-					return []byte(tt.login), nil
+				if args[0] != "find-certificate" {
+					return nil, assert.AnError
 				}
-				return nil, assert.AnError
+				if args[len(args)-1] == systemKeychainPath {
+					return []byte(tt.system), nil
+				}
+				return []byte(tt.login), nil
 			}
 			t.Cleanup(func() { commandRunner = orig })
 
-			user, system, err := Status(dir)
+			user, system, err := caStores(cert)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantUser, user)
 			assert.Equal(t, tt.wantSys, system)
 		})
 	}
+}
+
+func TestDarwinCABundleCandidates(t *testing.T) {
+	assert.Equal(t, []string{
+		"/opt/homebrew/etc/openssl@3/cert.pem",
+		"/usr/local/etc/openssl@3/cert.pem",
+		"/etc/ssl/cert.pem",
+	}, CABundleCandidates())
+}
+
+// writeCertFile writes cert as PEM to a temp file, as the persisted CA is
+// stored, and returns its path.
+func writeCertFile(t *testing.T, cert *x509.Certificate) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ca-cert.pem")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o644))
+	return path
 }
