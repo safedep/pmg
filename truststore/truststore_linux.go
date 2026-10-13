@@ -6,6 +6,7 @@ package truststore
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -151,9 +152,13 @@ func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
 		anchor = filepath.Join(tool.anchorDir, tool.anchorName)
 	}
 
+	hasAnchor, err := fileExists(anchor)
+	if err != nil {
+		return false, false, err
+	}
 	bundle := systemBundlePath()
 	if bundle == "" {
-		if !fileExists(anchor) {
+		if !hasAnchor {
 			return false, false, nil
 		}
 		bundle = anchor
@@ -162,15 +167,26 @@ func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
 	if err != nil {
 		return false, false, err
 	}
-	if !found && bundle != anchor && fileExists(anchor) {
+	if !found && hasAnchor && bundle != anchor {
 		log.Warnf("CA anchor %s is installed but %s does not contain it: the trust tool did not read that directory", anchor, bundle)
 	}
 	return false, found, nil
 }
 
-func fileExists(path string) bool {
+// fileExists reports a missing path as false. Any other stat error is
+// returned, so a permission problem does not read as "not trusted".
+func fileExists(path string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
 	_, err := os.Stat(path)
-	return err == nil
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("stat CA anchor %s: %w", path, err)
+	}
+	return true, nil
 }
 
 // caTrustedPlatform checks the system scope, the only scope on Linux.
