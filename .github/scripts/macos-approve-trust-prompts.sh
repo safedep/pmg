@@ -5,13 +5,13 @@
 # admin password there. The runner has no person, so the trust store commands
 # of pmg wait until the job times out.
 #
-# The script clicks only that dialog. It reads the password from
-# PMG_CI_ADMIN_PASSWORD so the password is not on a command line.
+# The script clicks only that dialog. It reads the admin name and password
+# from PMG_CI_ADMIN_USER and PMG_CI_ADMIN_PASSWORD, so the password is not on a
+# command line.
 set -u
 
+: "${PMG_CI_ADMIN_USER:?set PMG_CI_ADMIN_USER}"
 : "${PMG_CI_ADMIN_PASSWORD:?set PMG_CI_ADMIN_PASSWORD}"
-user="${PMG_CI_ADMIN_USER:-$(id -un)}"
-export PMG_CI_ADMIN_USER="$user"
 
 while true; do
   result="$(osascript 2>&1 <<'EOF'

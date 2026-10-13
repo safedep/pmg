@@ -369,15 +369,19 @@ jobs:
       # macOS asks for an admin password in a dialog before a process changes
       # or removes admin trust settings that exist, also under sudo. A person
       # answers it. The runner has no person, so pmg setup cert uninstall
-      # --system waits until the job times out. This step gives the runner user
-      # a random password and starts a script that answers only that dialog.
+      # --system waits until the job times out. This step adds an admin user
+      # with a random password and starts a script that answers only that
+      # dialog with it. The dialog takes the name of any admin.
       - name: Approve macOS trust settings prompts
         if: runner.os == 'macOS'
         run: |
+          user=pmgciapprover
           pw="$(openssl rand -hex 24)"
           echo "::add-mask::${pw}"
-          sudo dscl . -passwd "/Users/$(id -un)" "${pw}"
-          PMG_CI_ADMIN_PASSWORD="${pw}" nohup .github/scripts/macos-approve-trust-prompts.sh \
+          sudo sysadminctl -addUser "${user}" -password "${pw}" -admin
+          dscl . -authonly "${user}" "${pw}"
+          PMG_CI_ADMIN_USER="${user}" PMG_CI_ADMIN_PASSWORD="${pw}" \
+            nohup .github/scripts/macos-approve-trust-prompts.sh \
             > "${RUNNER_TEMP}/approve-trust-prompts.log" 2>&1 &
 
           # Fail here, not after the test timeout, when the dialog still blocks.
