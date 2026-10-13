@@ -4,6 +4,7 @@ package platform
 
 import (
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -50,15 +51,21 @@ func installCA(cert *x509.Certificate, scope CAScope) error {
 }
 
 func uninstallCA(commonName string, scope CAScope) error {
+	if scope == CAScopeSystem {
+		if err := removeAdminTrust(commonName); err != nil {
+			return err
+		}
+	}
+
 	// security delete-certificate removes one match per run. The loop runs
 	// until none remain, so two certificates with the same name both go.
 	for i := 0; i < 16; i++ {
 		args := []string{"delete-certificate", "-c", commonName}
 		runner := commandRunner
 		if scope == CAScopeSystem {
-			// -t clears the trust settings. delete-certificate takes the keychain
-			// as a positional argument. It has no -k flag.
-			args = append(args, "-t", systemKeychainPath)
+			// delete-certificate takes the keychain as a positional argument. It
+			// has no -k flag.
+			args = append(args, systemKeychainPath)
 			runner = runElevated
 		} else {
 			// Without a keychain, delete-certificate searches the System keychain
@@ -86,6 +93,54 @@ func uninstallCA(commonName string, scope CAScope) error {
 
 	log.Warnf("security delete-certificate still found a certificate after 16 runs. The keychain can still hold a PMG CA.")
 	return nil
+}
+
+// removeAdminTrust removes the admin trust settings of each System keychain
+// certificate with this name. The settings belong to the certificate hash, not
+// to the keychain item, so without this step a deleted CA stays trusted when a
+// TLS peer sends it in its chain. delete-certificate -t cannot do it: -t
+// removes the user trust settings, and as root that waits for an authorization
+// prompt that never shows on a host with no GUI session.
+func removeAdminTrust(commonName string) error {
+	out, err := commandRunner("security", "find-certificate", "-a", "-p", "-c", commonName, systemKeychainPath)
+	if err != nil {
+		// find-certificate fails when no certificate has this name.
+		return nil
+	}
+
+	for rest := out; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return nil
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("parse a System keychain certificate named %s: %w", commonName, err)
+		}
+		if err := removeAdminTrustOf(cert); err != nil {
+			return err
+		}
+	}
+}
+
+func removeAdminTrustOf(cert *x509.Certificate) error {
+	path, cleanup, err := writeTempCert(cert)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	out, err := runElevated("security", "remove-trusted-cert", "-d", path)
+	if err == nil {
+		return nil
+	}
+	// A certificate with no admin trust settings has nothing to remove.
+	msg := strings.TrimSpace(string(out))
+	if strings.Contains(msg, "could not be found") {
+		return nil
+	}
+	return fmt.Errorf("security remove-trusted-cert failed: %w: %s", err, msg)
 }
 
 // caStores reports which keychain holds this exact certificate. It

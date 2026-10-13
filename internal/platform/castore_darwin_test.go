@@ -77,18 +77,89 @@ func TestDarwinUninstallStopsAfterDeletingMatches(t *testing.T) {
 	assert.Equal(t, 2, calls) // delete one, then terminal not-found
 }
 
-func TestDarwinUninstallSystemTargetsSystemKeychain(t *testing.T) {
-	var gotArgs []string
-	orig := commandRunner
-	commandRunner = func(_ string, args ...string) ([]byte, error) {
-		gotArgs = args
-		return []byte("Could not find"), assert.AnError
-	}
-	t.Cleanup(func() { commandRunner = orig })
+func TestDarwinUninstallSystemRemovesAdminTrustThenDeletes(t *testing.T) {
+	cert := testCert(t, "Test CA")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 
-	require.NoError(t, uninstallCA("Test CA", CAScopeSystem))
-	assert.Contains(t, gotArgs, systemKeychainPath)
-	assert.Contains(t, gotArgs, "-t")
+	tests := []struct {
+		name        string
+		findOut     []byte
+		findErr     error
+		removeOut   []byte
+		removeErr   error
+		wantCalls   []string
+		wantErr     bool
+		wantRemoved []byte
+	}{
+		{
+			name:        "trusted certificate",
+			findOut:     certPEM,
+			wantCalls:   []string{"find-certificate", "remove-trusted-cert", "delete-certificate"},
+			wantRemoved: certPEM,
+		},
+		{
+			name:      "no certificate with the name",
+			findOut:   []byte(`security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.`),
+			findErr:   assert.AnError,
+			wantCalls: []string{"find-certificate", "delete-certificate"},
+		},
+		{
+			name:        "certificate without admin trust settings",
+			findOut:     certPEM,
+			removeOut:   []byte(`SecTrustSettingsRemoveTrustSettings: The specified item could not be found in the keychain.`),
+			removeErr:   assert.AnError,
+			wantCalls:   []string{"find-certificate", "remove-trusted-cert", "delete-certificate"},
+			wantRemoved: certPEM,
+		},
+		{
+			name:        "trust removal fails",
+			findOut:     certPEM,
+			removeOut:   []byte(`SecTrustSettingsRemoveTrustSettings: The authorization was denied.`),
+			removeErr:   assert.AnError,
+			wantCalls:   []string{"find-certificate", "remove-trusted-cert"},
+			wantErr:     true,
+			wantRemoved: certPEM,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			var removed []byte
+			orig := commandRunner
+			commandRunner = func(name string, args ...string) ([]byte, error) {
+				if name == "sudo" {
+					args = args[1:]
+				}
+				calls = append(calls, args[0])
+				switch args[0] {
+				case "find-certificate":
+					assert.Contains(t, args, systemKeychainPath)
+					return tc.findOut, tc.findErr
+				case "remove-trusted-cert":
+					assert.Equal(t, "-d", args[1])
+					b, err := os.ReadFile(args[2])
+					require.NoError(t, err)
+					removed = b
+					return tc.removeOut, tc.removeErr
+				default:
+					assert.Contains(t, args, systemKeychainPath)
+					assert.NotContains(t, args, "-t", "-t waits for a GUI prompt as root")
+					return []byte("Could not find"), assert.AnError
+				}
+			}
+			t.Cleanup(func() { commandRunner = orig })
+
+			err := uninstallCA("Test CA", CAScopeSystem)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.wantCalls, calls)
+			assert.Equal(t, tc.wantRemoved, removed)
+		})
+	}
 }
 
 func TestDarwinUserScopeSupported(t *testing.T) {
