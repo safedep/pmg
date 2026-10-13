@@ -1,6 +1,10 @@
 package packagemanager
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strings"
+)
 
 // proxyNoProxyList is the NO_PROXY value for proxied package-manager runs.
 //
@@ -53,6 +57,12 @@ func EnvVarForProxy(proxyAddr, certPath string) []string {
 		fmt.Sprintf("YARN_HTTPS_PROXY=%s", proxyURL),
 		fmt.Sprintf("NODE_EXTRA_CA_CERTS=%s", certPath),
 		fmt.Sprintf("SSL_CERT_FILE=%s", certPath),
+		// Go 1.27 and later on macOS and Windows use SSL_CERT_FILE instead of
+		// the OS trust store. The PMG bundle lacks roots that only the OS
+		// store holds, such as a corporate CA, so go would reject those
+		// hosts. This setting keeps go on the OS store on every version.
+		// Linux and older go ignore it.
+		fmt.Sprintf("GODEBUG=%s", goDebugWithOSTrust(os.Getenv("GODEBUG"))),
 		fmt.Sprintf("REQUESTS_CA_BUNDLE=%s", certPath),
 		fmt.Sprintf("PIP_CERT=%s", certPath),
 		fmt.Sprintf("YARN_HTTPS_CA_FILE_PATH=%s", certPath),
@@ -96,4 +106,25 @@ func EnvVarForSystemTrust(systemBundlePath string) []string {
 		)
 	}
 	return vars
+}
+
+// goDebugOSTrust is the GODEBUG setting that makes go use the OS trust store
+// on macOS and Windows even when SSL_CERT_FILE is set.
+const (
+	goDebugOSTrustKey = "x509sslcertoverrideplatform"
+	goDebugOSTrust    = goDebugOSTrustKey + "=0"
+)
+
+// goDebugWithOSTrust adds goDebugOSTrust to a GODEBUG value and keeps the other
+// settings. A value that the user set for the key stays.
+func goDebugWithOSTrust(current string) string {
+	for _, setting := range strings.Split(current, ",") {
+		if key, _, ok := strings.Cut(setting, "="); ok && key == goDebugOSTrustKey {
+			return current
+		}
+	}
+	if current == "" {
+		return goDebugOSTrust
+	}
+	return current + "," + goDebugOSTrust
 }

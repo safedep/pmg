@@ -5,7 +5,11 @@
 package truststore
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 
@@ -57,45 +61,71 @@ func Install(certPEM []byte, scope Scope) error { return installPlatform(certPEM
 // Uninstall removes the certificate matched by commonName from the OS trust store.
 func Uninstall(commonName string, scope Scope) error { return uninstallPlatform(commonName, scope) }
 
-// Status reports whether the certificate matched by commonName is trusted in the
-// user and/or system store. It is best-effort; callers may treat errors as not trusted.
-func Status(commonName string) (user bool, system bool, err error) {
-	return statusPlatform(commonName)
+// Status reports which stores trust the CA persisted in configDir. A store
+// counts only when the OS trusts that exact certificate. A different
+// certificate with the same name does not count, because a TLS client rejects
+// what the CA signs. With no CA on disk, no store trusts it.
+func Status(configDir string) (user bool, system bool, err error) {
+	certPath := certmanager.CACertPath(configDir)
+	cert, err := readCert(certPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	user, system, err = statusPlatform(cert)
+	if err != nil || (!user && !system) {
+		return false, false, err
+	}
+	if err := caTrustedPlatform(certPath, cert); err != nil {
+		if errors.Is(err, ErrCANotTrusted) {
+			return false, false, nil
+		}
+		return false, false, err
+	}
+	return user, system, nil
 }
 
 // UserScopeSupported reports whether the platform has a per-user trust store
 // (false on Linux). Consumers use it to interpret "not trusted" correctly.
 func UserScopeSupported() bool { return userScopeSupportedPlatform() }
 
-// ErrCANotTrusted is returned by GoTrustsCA when the OS trust store does not
-// trust the PMG CA.
-var ErrCANotTrusted = errors.New("the OS trust store does not trust the PMG CA, and Go on this OS reads only that store")
-
-// CATrusted reports whether the OS trust store trusts the PMG CA, in the user
-// or the system scope.
-func CATrusted() (bool, error) {
-	user, system, err := Status(certmanager.CACommonName)
-	return user || system, err
-}
+// ErrCANotTrusted is returned when the OS trust store does not trust the
+// persisted PMG CA.
+var ErrCANotTrusted = errors.New("the OS trust store does not trust the PMG CA")
 
 // GoTrustsCA returns nil when Go can verify TLS from a PMG proxy that signs
-// with the CA persisted in configDir. On macOS and Windows, Go's crypto/x509
-// ignores SSL_CERT_FILE and reads only the OS trust store, so the persisted CA
-// must be usable and trusted there. Linux Go honors SSL_CERT_FILE, so any CA
-// works.
+// with the CA persisted in configDir. On macOS and Windows, PMG makes go read
+// only the OS trust store (see packagemanager.EnvVarForProxy), so the OS store
+// must trust this exact CA. On Linux go reads SSL_CERT_FILE, so any CA works.
 func GoTrustsCA(configDir string) error {
 	if !UserScopeSupported() {
 		return nil
 	}
-	if _, err := certmanager.LoadUsableCA(configDir); err != nil {
-		return err
-	}
-	trusted, err := CATrusted()
+	ca, err := certmanager.LoadUsableCA(configDir)
 	if err != nil {
 		return err
 	}
-	if !trusted {
-		return ErrCANotTrusted
+	return caTrustedPlatform(certmanager.CACertPath(configDir), ca.X509Cert)
+}
+
+func readCert(path string) (*x509.Certificate, error) {
+	certPEM, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return parseCert(certPEM)
+}
+
+func parseCert(certPEM []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, errors.New("no PEM certificate found")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA certificate: %w", err)
+	}
+	return cert, nil
 }

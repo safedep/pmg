@@ -17,13 +17,32 @@ This requires no setup and covers the common cases: npm, pip, and Go on Linux.
 ## When you need a persistent CA trusted by the OS
 
 Environment variable injection does not reach tools that consult only the operating system
-trust store. The most important case is Go on macOS and Windows. Go's TLS stack on those
-platforms ignores `SSL_CERT_FILE` and validates against the platform verifier
-(Security.framework on macOS, CryptoAPI on Windows). On Linux, Go honors `SSL_CERT_FILE`, so
-the default behavior already covers it.
+trust store. The most important case is Go on macOS and Windows.
 
-For those cases you can install a single persistent PMG CA into the OS trust store. This also
-avoids regenerating a CA on every run.
+### Go on macOS and Windows
+
+Go's TLS stack on macOS and Windows validates against the platform verifier
+(Security.framework on macOS, CryptoAPI on Windows). Go 1.27 and later use `SSL_CERT_FILE`
+instead when it is set. The PMG bundle does not hold the roots that only the OS store holds,
+such as a corporate CA. PMG therefore sets `GODEBUG=x509sslcertoverrideplatform=0` for `pmg go`
+and in `pmg proxy env`, so go uses the OS store on every version. If you set
+`x509sslcertoverrideplatform` in `GODEBUG`, PMG keeps your value. With `1`, Go 1.27 and later
+read `SSL_CERT_FILE`, but PMG still requires the OS store to trust the CA.
+
+Run `pmg setup cert install` before you use Go through PMG. `pmg go` stops with instructions,
+and the persistent proxy does not decrypt Go traffic, until the OS store trusts the CA. On
+Linux, Go honors `SSL_CERT_FILE`, so the default behavior already covers it.
+
+PMG counts the CA as trusted only when the OS store trusts the exact certificate that PMG signs
+with. Another certificate with the same name does not count. `pmg go`, the persistent proxy,
+`pmg setup cert install`, `pmg setup cert status` and `pmg setup doctor` all apply this check.
+On macOS PMG compares the certificate hash in each keychain and runs `security verify-cert`. On
+Windows it looks up the certificate thumbprint in each Root store.
+
+### Install the persistent CA
+
+For tools that read only the OS store, install a single persistent PMG CA into the OS trust
+store. This also avoids regenerating a CA on every run.
 
 ```bash
 # User scope (no sudo). macOS login keychain / Windows CurrentUser\Root.

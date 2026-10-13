@@ -210,7 +210,7 @@ func loadEnforceCA() (*certmanager.Certificate, error) {
 		return nil, fail("enforcement needs the PMG CA keypair in "+dir, err)
 	}
 
-	_, system, err := truststore.Status(certmanager.CACommonName)
+	_, system, err := truststore.Status(dir)
 	if err != nil {
 		return nil, fail("could not read the system trust store", err)
 	}

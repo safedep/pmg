@@ -4,6 +4,7 @@
 package truststore
 
 import (
+	"crypto/x509"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -82,19 +83,36 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	return nil
 }
 
-func statusPlatform(commonName string) (bool, bool, error) {
+// statusPlatform reports which keychain holds this exact certificate. It
+// compares the SHA-1 hash, so a different certificate with the same name in
+// a keychain does not count.
+func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+	system := certInKeychain(cert, systemKeychainPath)
 	lkc, err := loginKeychainPath()
 	if err != nil {
-		return false, certInKeychain(commonName, systemKeychainPath), nil
+		return false, system, nil
 	}
-	return certInKeychain(commonName, lkc), certInKeychain(commonName, systemKeychainPath), nil
+	return certInKeychain(cert, lkc), system, nil
 }
 
-func certInKeychain(commonName, keychain string) bool {
-	args := []string{"find-certificate", "-c", commonName}
-	if keychain != "" {
-		args = append(args, keychain)
+// caTrustedPlatform asks the OS to evaluate the certificate in certPath with the
+// trust settings of the user and the system, as go does. A copy of the CA that
+// is in a keychain but not trusted fails, and so does a different certificate
+// with the same name. -l accepts a CA certificate as the leaf, -p ssl is the
+// policy that go evaluates, and -L keeps the check off the network. Go used
+// the same arguments when it verified roots with security(1).
+func caTrustedPlatform(certPath string, _ *x509.Certificate) error {
+	out, err := commandRunner("security", "verify-cert", "-p", "ssl", "-l", "-L", "-c", certPath)
+	if err != nil {
+		return fmt.Errorf("%w: security verify-cert %s: %s", ErrCANotTrusted, certPath, strings.TrimSpace(string(out)))
 	}
-	_, err := commandRunner("security", args...)
-	return err == nil
+	return nil
+}
+
+func certInKeychain(cert *x509.Certificate, keychain string) bool {
+	out, err := commandRunner("security", "find-certificate", "-a", "-Z", "-c", cert.Subject.CommonName, keychain)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToUpper(string(out)), "SHA-1 HASH: "+thumbprint(cert))
 }

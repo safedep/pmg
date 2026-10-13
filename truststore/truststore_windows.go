@@ -4,6 +4,7 @@
 package truststore
 
 import (
+	"crypto/x509"
 	"fmt"
 	"strings"
 )
@@ -47,16 +48,31 @@ func uninstallPlatform(commonName string, scope Scope) error {
 	return nil
 }
 
-func statusPlatform(commonName string) (bool, bool, error) {
-	return certInWindowsStore(commonName, true), certInWindowsStore(commonName, false), nil
+// statusPlatform reports which Root store holds this exact certificate.
+func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+	id := thumbprint(cert)
+	return certInWindowsStore(id, true), certInWindowsStore(id, false), nil
 }
 
-func certInWindowsStore(commonName string, userScope bool) bool {
+// caTrustedPlatform looks the certificate up by its SHA-1 thumbprint in the user
+// and the machine Root store. certutil identifies a certificate by this
+// thumbprint, so a different certificate with the same name does not match.
+func caTrustedPlatform(_ string, cert *x509.Certificate) error {
+	id := thumbprint(cert)
+	if certInWindowsStore(id, true) || certInWindowsStore(id, false) {
+		return nil
+	}
+	return fmt.Errorf("%w: no Root store holds the certificate with thumbprint %s", ErrCANotTrusted, id)
+}
+
+// certInWindowsStore reports whether certID, a common name or a thumbprint,
+// matches a certificate in the Root store.
+func certInWindowsStore(certID string, userScope bool) bool {
 	args := []string{}
 	if userScope {
 		args = append(args, "-user")
 	}
-	args = append(args, "-store", "Root", commonName)
+	args = append(args, "-store", "Root", certID)
 
 	_, err := commandRunner("certutil", args...)
 	return err == nil

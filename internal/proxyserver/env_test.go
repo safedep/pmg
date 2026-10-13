@@ -39,3 +39,14 @@ func TestEnvVarsWildcardBindExportsLoopback(t *testing.T) {
 	assert.Contains(t, vars, "HTTPS_PROXY=http://127.0.0.1:7777")
 	assert.Contains(t, vars, "HTTP_PROXY=http://127.0.0.1:7777")
 }
+
+func TestEnvVarsKeepGoOnTheOSTrustStore(t *testing.T) {
+	t.Setenv("GODEBUG", "")
+	path := filepath.Join(t.TempDir(), "proxy-state.json")
+	require.NoError(t, writeState(path, State{PID: 1, Addr: "127.0.0.1:7777", CACertPath: "/tmp/ca.pem"}))
+
+	vars, err := EnvVars(path)
+	require.NoError(t, err)
+	assert.Contains(t, vars, "GODEBUG=x509sslcertoverrideplatform=0",
+		"a Go 1.27 client of the daemon keeps the OS trust store on macOS and Windows")
+}

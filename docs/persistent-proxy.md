@@ -137,13 +137,11 @@ does not change `GOPROXY`, and it does not analyze these fetches:
 - A module that is already in the module cache, for example a cache that the
   CI job restores.
 
-On macOS and Windows, go reads only the OS trust store. If that store does
-not trust the PMG CA, or the CA is expired, the daemon does not decrypt Go
-traffic. `pmg proxy start` and `pmg proxy status` then print a notice with
-the cause. Run
-`pmg setup cert install`, then restart the daemon. On Linux, go trusts the
-PMG CA through `SSL_CERT_FILE` from `pmg proxy env`, or through the system
-store under enforcement.
+On macOS and Windows, the OS trust store must trust the PMG CA. See
+[Go on macOS and Windows](./cert.md#go-on-macos-and-windows). If it does not,
+or the CA is expired, the daemon does not decrypt Go traffic. `pmg proxy
+start` and `pmg proxy status` then print a notice with the cause. Run
+`pmg setup cert install`, then restart the daemon.
 
 ## Custom registries
 
@@ -168,16 +166,19 @@ The proxy terminates TLS, so a client must trust its CA. `pmg proxy env`
 prints the variables that point each tool at the CA bundle:
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT` and
 `YARN_HTTPS_CA_FILE_PATH`. You do not install the CA into the OS trust
-store. `NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
+store, except for Go on macOS and Windows. See
+[Go on macOS and Windows](./cert.md#go-on-macos-and-windows).
+`NO_PROXY` always excludes `localhost`, `127.0.0.1` and `::1`.
 
 The variables exist because tools do not agree on the OS store. Node ignores
 it by default, modern pip reads it, and `requests` ships its own bundle. The
 variables work for all of them.
 
-You do not run `pmg setup cert install`. The proxy reuses that CA when it
-exists and makes one for this run when it does not. `pmg setup cert install
---system` needs root and puts a CA that can intercept into the machine
-store, so the persistent proxy does not use it. [Kernel
+Except for Go on macOS and Windows, you do not run `pmg setup cert
+install`. The proxy reuses that CA when it exists and makes one for this
+run when it does not. `pmg setup cert install --system` needs root and
+puts a CA that can intercept into the machine store, so the persistent
+proxy does not use it. [Kernel
 enforcement](#kernel-enforcement-linux) is the exception. It runs as root
 and uses the system store.
 

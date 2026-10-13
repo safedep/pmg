@@ -6,6 +6,7 @@ package truststore
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -141,44 +142,63 @@ func uninstallPlatform(_ string, scope Scope) error {
 }
 
 // statusPlatform reports the certificate as trusted only when the system
-// bundle holds it. An anchor file alone proves nothing: the update tool
-// may never have read its directory. Without a bundle to check, the anchor
-// is the best signal there is.
-func statusPlatform(commonName string) (bool, bool, error) {
-	tool, err := detectTrustTool()
-	if err != nil {
-		return false, false, nil
+// bundle holds it. The bundle also counts a CA that an administrator
+// installed by another path. An anchor file alone proves nothing: the update
+// tool may never have read its directory. Without a bundle to check, the
+// anchor is the best signal there is. User scope is never trusted on Linux.
+func statusPlatform(cert *x509.Certificate) (bool, bool, error) {
+	anchor := ""
+	if tool, err := detectTrustTool(); err == nil {
+		anchor = filepath.Join(tool.anchorDir, tool.anchorName)
 	}
 
-	anchor := filepath.Join(tool.anchorDir, tool.anchorName)
-	if _, err := os.Stat(anchor); err != nil {
-		return false, false, nil // user scope is never trusted on Linux
-	}
-
-	bundle := systemBundlePath()
-	if bundle == "" {
-		return false, true, nil
-	}
-	found, err := bundleContains(bundle, func(c *x509.Certificate) bool { return c.Subject.CommonName == commonName })
+	hasAnchor, err := fileExists(anchor)
 	if err != nil {
 		return false, false, err
 	}
-	if !found {
+	bundle := systemBundlePath()
+	if bundle == "" {
+		if !hasAnchor {
+			return false, false, nil
+		}
+		bundle = anchor
+	}
+	found, err := bundleContains(bundle, cert.Equal)
+	if err != nil {
+		return false, false, err
+	}
+	if !found && hasAnchor && bundle != anchor {
 		log.Warnf("CA anchor %s is installed but %s does not contain it: the trust tool did not read that directory", anchor, bundle)
 	}
 	return false, found, nil
 }
 
-func parseCert(certPEM []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM certificate to install")
+// fileExists reports a missing path as false. Any other stat error is
+// returned, so a permission problem does not read as "not trusted".
+func fileExists(path string) (bool, error) {
+	if path == "" {
+		return false, nil
 	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate: %w", err)
+		return false, fmt.Errorf("stat CA anchor %s: %w", path, err)
 	}
-	return cert, nil
+	return true, nil
+}
+
+// caTrustedPlatform checks the system scope, the only scope on Linux.
+func caTrustedPlatform(_ string, cert *x509.Certificate) error {
+	_, system, err := statusPlatform(cert)
+	if err != nil {
+		return err
+	}
+	if !system {
+		return fmt.Errorf("%w: the system CA bundle does not hold the certificate", ErrCANotTrusted)
+	}
+	return nil
 }
 
 // bundleContains scans a PEM bundle for a certificate that match accepts. A

@@ -270,9 +270,9 @@ and is deliberately excluded from `pmg setup` shell aliases and PATH shims.
   unmodified, so Go's checksum-database verification stays fully intact.
   Toolchain downloads (`golang.org/toolchain`) are allowed on Go's own
   checksum verification.
-- On macOS and Windows, Go only trusts the OS trust store, so
-  `pmg setup cert install` is required first; `pmg go` fails fast with
-  instructions if the PMG CA is not trusted. Linux works out of the box.
+- On macOS and Windows, run `pmg setup cert install` first. See
+  [Go on macOS and Windows](./cert.md#go-on-macos-and-windows). Linux works
+  out of the box.
 - Modules matching `GOPRIVATE`/`GONOPROXY` are fetched directly from their
   VCS host and are not analyzed; PMG warns when these are set.
 - PMG matches each `GOPROXY` entry by the path that go sends, not by the
