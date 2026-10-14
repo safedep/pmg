@@ -17,9 +17,10 @@ import (
 type ProxyRegistryEcosystem string
 
 const (
-	ProxyRegistryEcosystemNpm  ProxyRegistryEcosystem = "npm"
-	ProxyRegistryEcosystemPypi ProxyRegistryEcosystem = "pypi"
-	ProxyRegistryEcosystemGo   ProxyRegistryEcosystem = "go"
+	ProxyRegistryEcosystemNpm   ProxyRegistryEcosystem = "npm"
+	ProxyRegistryEcosystemPypi  ProxyRegistryEcosystem = "pypi"
+	ProxyRegistryEcosystemGo    ProxyRegistryEcosystem = "go"
+	ProxyRegistryEcosystemCargo ProxyRegistryEcosystem = "cargo"
 )
 
 // GoModuleProxyHost serves the public Go module proxy, the default GOPROXY.
@@ -35,7 +36,7 @@ const (
 const GoChecksumDatabaseHost = "sum.golang.org"
 
 func ProxyRegistryEcosystems() []ProxyRegistryEcosystem {
-	return []ProxyRegistryEcosystem{ProxyRegistryEcosystemNpm, ProxyRegistryEcosystemPypi, ProxyRegistryEcosystemGo}
+	return []ProxyRegistryEcosystem{ProxyRegistryEcosystemNpm, ProxyRegistryEcosystemPypi, ProxyRegistryEcosystemGo, ProxyRegistryEcosystemCargo}
 }
 
 func (e ProxyRegistryEcosystem) Valid() bool {
@@ -167,8 +168,13 @@ func NormalizeProxyRegistries(registries []ProxyRegistryConfig) ([]NormalizedReg
 // registry. proxy.registries and the per-run Go module proxies of `pmg go`
 // both go through it, so one set of URL, host and port rules applies to both.
 func NormalizeRegistryEndpoint(registryName string, ecosystem ProxyRegistryEcosystem, rawURL string) (NormalizedRegistryEndpoint, error) {
-	if ecosystem == ProxyRegistryEcosystemGo {
+	switch ecosystem {
+	case ProxyRegistryEcosystemGo:
 		rawURL = goRequestBaseURL(rawURL)
+	case ProxyRegistryEcosystemCargo:
+		// .cargo/config.toml names a sparse registry as sparse+https://...
+		// A user copies that value here unchanged.
+		rawURL = strings.TrimPrefix(rawURL, "sparse+")
 	}
 	u, err := registryurl.Normalize(rawURL)
 	if err != nil {

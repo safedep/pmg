@@ -143,6 +143,24 @@ or the CA is expired, the daemon does not decrypt Go traffic. `pmg proxy
 start` and `pmg proxy status` then print a notice with the cause. Run
 `pmg setup cert install`, then restart the daemon.
 
+## Cargo crates
+
+The daemon analyzes crates from crates.io and from the Cargo registries in
+`proxy.registries`. It removes versions in the cooldown window from sparse
+index responses. It runs malware analysis and the dependency cooldown on
+each `.crate` download. It never decrypts the crates.io API host, so the
+token of `cargo publish` stays in the tunnel.
+
+The daemon does not analyze these fetches:
+
+- A git dependency. cargo fetches it from its VCS host.
+- A registry with a git index.
+- A crate that is already in the cargo cache in `$CARGO_HOME/registry`, for
+  example a cache that the CI job restores.
+
+cargo reads `CARGO_HTTP_CAINFO`, which `pmg proxy env` prints. Under
+enforcement cargo trusts the system trust store.
+
 ## Custom registries
 
 The daemon reads `proxy.registries` once, at start, from the same config
@@ -425,7 +443,7 @@ variables that point a tool at the system store, and the path of the bundle:
 | `REQUESTS_CA_BUNDLE=<system bundle>` | Tools built on Python `requests` validate against `certifi`. poetry needs it. pip does not. |
 | `PMG_CA_BUNDLE=<system bundle>` | The file to pass into a container. See below. |
 
-`curl`, Go, pip and bun trust the store on their own.
+`curl`, Go, cargo, pip and bun trust the store on their own.
 
 Node earlier than 22.19 ignores `NODE_USE_SYSTEM_CA` and fails the TLS
 handshake on a registry host. To use an older Node, point

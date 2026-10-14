@@ -588,3 +588,65 @@ func TestValidateProxyRegistriesRejectsGoAliases(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already assigned")
 }
+
+func TestNormalizeRegistryEndpointCargo(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantURL string
+		wantErr string
+	}{
+		{name: "sparse index URL", rawURL: "https://cargo.example.test/api/cargo/team/index/", wantURL: "https://cargo.example.test/api/cargo/team/index"},
+		{name: "sparse+ prefix from .cargo/config.toml", rawURL: "sparse+https://cargo.example.test/api/cargo/team/index/", wantURL: "https://cargo.example.test/api/cargo/team/index"},
+		{name: "git protocol is not a URL scheme", rawURL: "git+https://cargo.example.test/index", wantErr: "scheme"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry, err := NormalizeRegistryEndpoint("company-cargo", ProxyRegistryEcosystemCargo, tt.rawURL)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, entry.URL)
+		})
+	}
+}
+
+func TestValidateProxyRegistriesCargo(t *testing.T) {
+	tests := []struct {
+		name      string
+		endpoints []string
+		wantErr   string
+	}{
+		{
+			name:      "index and dl endpoints on one host",
+			endpoints: []string{"sparse+https://cargo.example.test/api/cargo/team/index/", "https://cargo.example.test/api/cargo/team/v1/crates"},
+		},
+		{
+			name:      "sparse+ and plain forms of one URL",
+			endpoints: []string{"sparse+https://cargo.example.test/index/", "https://cargo.example.test/index"},
+			wantErr:   "already assigned",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoints := make([]ProxyRegistryEndpointConfig, len(tt.endpoints))
+			for index, rawURL := range tt.endpoints {
+				endpoints[index] = ProxyRegistryEndpointConfig{URL: rawURL}
+			}
+			err := ValidateProxyRegistries([]ProxyRegistryConfig{{
+				Name:      "company-cargo",
+				Ecosystem: ProxyRegistryEcosystemCargo,
+				Endpoints: endpoints,
+			}})
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

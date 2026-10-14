@@ -2,7 +2,6 @@ package proxye2e
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -1631,21 +1630,8 @@ func TestProxyFlow_CustomNpm(t *testing.T) {
 				h.Analyzer.SetNpm("demo", "1.0.0", VerifiedMalware())
 			},
 			Exec: func(h *Harness) ExecResult {
-				out := RequestOutcome{URL: npmBase + "/demo"}
-				req, err := http.NewRequest(http.MethodPut, out.URL, strings.NewReader(`{"name":"demo"}`))
-				if err != nil {
-					out.Err = err
-				} else if resp, reqErr := h.RawClient().Do(req); reqErr != nil {
-					out.Err = reqErr
-				} else {
-					body, _ := io.ReadAll(resp.Body)
-					_ = resp.Body.Close()
-					out.StatusCode = resp.StatusCode
-					out.Blocked = resp.StatusCode == http.StatusForbidden
-					out.Body = string(body)
-				}
 				res := ExecResult{}
-				res.add(out)
+				res.add(h.do(http.MethodPut, npmBase+"/demo", strings.NewReader(`{"name":"demo"}`), nil))
 				return res
 			},
 			Assert: func(t *testing.T, h *Harness, res ExecResult) {

@@ -92,6 +92,7 @@ func (i *GoRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*proxy
 // and captures the publish time from .info for the cooldown check of the zip.
 func (i *GoRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	_ *registryMatch,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
 	info, ok := pkgInfo.(*goModuleInfo)

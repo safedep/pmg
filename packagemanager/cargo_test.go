@@ -183,25 +183,3 @@ func TestCargoPackageManagerParseCommand(t *testing.T) {
 		})
 	}
 }
-
-func TestCargoExactVersion(t *testing.T) {
-	cases := []struct {
-		version string
-		want    bool
-	}{
-		{"1.0.219", true},
-		{"0.1.0-alpha.1", true},
-		{"1.2.3+build.5", true},
-		{"1.0", false},
-		{"^1.0.3", false},
-		{"~1.2", false},
-		{">=1.0, <2.0", false},
-		{"*", false},
-		{"latest", false},
-		{"", false},
-	}
-
-	for _, tc := range cases {
-		assert.Equal(t, tc.want, cargoExactVersion.MatchString(tc.version), "version %q", tc.version)
-	}
-}

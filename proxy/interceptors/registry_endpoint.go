@@ -54,6 +54,22 @@ type registryEndpoint struct {
 	Parser   registryURLParser
 }
 
+// origin returns the scheme, host and port that serve the endpoint, with no
+// default port. A built-in endpoint has no scheme and is served over HTTPS.
+func (e *registryEndpoint) origin() string {
+	scheme := e.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	host := e.Host
+	if defaultPort, _ := registryurl.EffectivePort(scheme, ""); e.Port != "" && e.Port != defaultPort {
+		host = net.JoinHostPort(e.Host, e.Port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return scheme + "://" + host
+}
+
 type registryMatch struct {
 	Endpoint     *registryEndpoint
 	RelativePath string

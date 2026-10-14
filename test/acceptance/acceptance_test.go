@@ -90,6 +90,7 @@ func TestAcceptance(t *testing.T) {
 					if category == "cloud" {
 						forwardCloudCredentials(env)
 					}
+					forwardRustup(env)
 					if err := isolateHome(env); err != nil {
 						return err
 					}
@@ -371,6 +372,30 @@ func selectorFromEnv() Selector {
 // call this, so they keep their unauthenticated community path.
 func forwardCloudCredentials(env *testscript.Env) {
 	forwardEnv(env, "SAFEDEP_API_KEY", "SAFEDEP_TENANT_ID", "PMG_CLOUD_ENABLED", "PMG_CLOUD_ENDPOINT_ID")
+}
+
+// forwardRustup keeps the Rust toolchain reachable after the harness moves
+// the home. The cargo on PATH is a rustup proxy that finds its toolchains in
+// RUSTUP_HOME, which defaults to .rustup in the home. The Ubuntu runner sets
+// RUSTUP_HOME. The macOS and Windows runners install rustup in the home of
+// the runner and set nothing.
+func forwardRustup(env *testscript.Env) {
+	if rustupHome := os.Getenv("RUSTUP_HOME"); rustupHome != "" {
+		env.Setenv("RUSTUP_HOME", rustupHome)
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	if rustupHome := filepath.Join(home, ".rustup"); isDir(rustupHome) {
+		env.Setenv("RUSTUP_HOME", rustupHome)
+	}
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func forwardEnv(env *testscript.Env, keys ...string) {

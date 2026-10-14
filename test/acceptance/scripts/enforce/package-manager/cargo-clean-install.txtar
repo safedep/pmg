@@ -1,0 +1,61 @@
+# guarantee: cargo downloads a clean crate from crates.io under enforcement
+# with the system trust store. cargo runs without pmg and without
+# CARGO_HTTP_CAINFO. The proxy decrypts index.crates.io and static.crates.io to
+# apply the cooldown and to analyze the crate.
+
+[!enforce] skip 'enforcement needs root, kernel BTF and cgroup v2'
+[!exec:cargo] skip 'cargo not installed'
+[!exec:go] skip 'go not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env CARGO_HOME=$WORK/cargo-home
+env CARGO_TARGET_DIR=$WORK/target
+env CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+exec pmg setup cert install --system
+exec pmg proxy start --daemon --enforce --state $ENFORCE_STATE
+
+exec go run issuer.go index.crates.io
+stdout '^issuer SafeDep PMG Proxy CA$'
+exec go run issuer.go static.crates.io
+stdout '^issuer SafeDep PMG Proxy CA$'
+
+exec cargo fetch
+exec cargo run --offline --quiet
+stdout '^42$'
+
+exec pmg proxy stop --state $ENFORCE_STATE --fail-on-violation
+stdout '0 package\(s\) blocked'
+
+-- Cargo.toml --
+[package]
+name = "pmg-acceptance"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itoa = "=1.0.11"
+-- src/main.rs --
+fn main() {
+    let mut buffer = itoa::Buffer::new();
+    println!("{}", buffer.format(42));
+}
+-- issuer.go --
+package main
+
+import (
+	"crypto/tls"
+	"fmt"
+	"os"
+)
+
+func main() {
+	conn, err := tls.Dial("tcp", os.Args[1]+":443", &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	fmt.Println("issuer", conn.ConnectionState().PeerCertificates[0].Issuer.CommonName)
+}

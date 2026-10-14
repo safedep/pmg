@@ -45,9 +45,10 @@ proxy:
   skip_commands:
     npm: []
 
-  # Additional npm, PyPI or Go module proxy endpoints serving public packages through
-  # an internal mirror or registry proxy. Private packages are allowed but are
-  # not protected by PMG's public-package malware analysis.
+  # Additional npm, PyPI, Go module proxy or sparse Cargo registry endpoints
+  # serving public packages through an internal mirror or registry proxy.
+  # Private packages are allowed but are not protected by PMG's
+  # public-package malware analysis.
   registries: []
   # registries:
   #   - name: npm-mirror
@@ -63,6 +64,11 @@ proxy:
   #     ecosystem: go
   #     endpoints:
   #       - url: https://packages.example.com/artifactory/api/go/go-virtual
+  #   - name: cargo-mirror
+  #     ecosystem: cargo
+  #     endpoints:
+  #       - url: https://packages.example.com/artifactory/api/cargo/cargo-virtual/index
+  #       - url: https://packages.example.com/artifactory/api/cargo/cargo-virtual/v1/crates
 
   # Persistent proxy server (`pmg proxy start`) settings.
   server:

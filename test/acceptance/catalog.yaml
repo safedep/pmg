@@ -173,6 +173,14 @@
   guarantee: "A clean module passes analysis, is fetched, and pmg exits zero."
   labels: [clean, install]
 
+# cargo
+- id: cargo/install/clean-allow
+  title: "cargo fetch of a clean crate succeeds"
+  category: cargo
+  tier: P1
+  guarantee: "A clean crate passes analysis, is fetched, and cargo builds with it offline."
+  labels: [clean, install]
+
 # proxy
 - id: proxy/opt-out/rejected
   title: "removed proxy opt-out fails loudly"
@@ -436,6 +444,12 @@
   category: enforce
   tier: P1
   guarantee: "go downloads a clean module through a decrypted proxy.golang.org. sum.golang.org keeps its real certificate."
+  labels: [clean, trust]
+- id: enforce/package-manager/cargo-clean-install
+  title: "cargo works under enforcement"
+  category: enforce
+  tier: P1
+  guarantee: "cargo downloads a clean crate through a decrypted index.crates.io and static.crates.io, and trusts the PMG CA through the system trust store."
   labels: [clean, trust]
 - id: enforce/package-manager/poetry-clean-install
   title: "poetry works under enforcement"

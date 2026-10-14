@@ -25,10 +25,10 @@ type InterceptorContext struct {
 	// hermetic proxy E2E tests.
 	GoProxyUpstreamOrigin string
 
-	// CargoIndexBaseURL overrides the upstream sparse-index base URL used for
-	// out-of-band publish-time fetches. Empty means the public crates.io
-	// sparse index; set by the hermetic proxy E2E tests.
-	CargoIndexBaseURL string
+	// CargoUpstreamOrigin sends the out-of-band Cargo index fetch to
+	// <origin>/<endpoint host><base path>. Empty means the endpoint itself.
+	// Set by the hermetic proxy E2E tests.
+	CargoUpstreamOrigin string
 }
 
 // InterceptorFactory creates ecosystem-specific interceptors for the proxy

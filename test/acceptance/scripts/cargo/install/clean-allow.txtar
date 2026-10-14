@@ -1,0 +1,29 @@
+# guarantee: a clean crate fetch from crates.io passes analysis and succeeds
+# through the Cargo interceptor. cargo then builds with the crate offline.
+# cargo trusts the PMG CA through CARGO_HTTP_CAINFO, so this needs no trust
+# store change on any OS.
+
+[!exec:cargo] skip 'cargo not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env CARGO_HOME=$WORK/cargo-home
+env CARGO_TARGET_DIR=$WORK/target
+
+exec pmg cargo fetch
+exec cargo run --offline --quiet
+stdout '^42$'
+
+-- Cargo.toml --
+[package]
+name = "pmg-acceptance"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itoa = "=1.0.11"
+-- src/main.rs --
+fn main() {
+    let mut buffer = itoa::Buffer::new();
+    println!("{}", buffer.format(42));
+}

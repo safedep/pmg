@@ -1,11 +1,11 @@
 package packagemanager
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
+	"github.com/safedep/pmg/internal/cargo"
 )
 
 type CargoPackageManagerConfig struct {
@@ -121,15 +121,6 @@ var cargoValueFlags = map[string]bool{
 	"--jobs": true, "-j": true, "--color": true, "-Z": true,
 }
 
-// cargoExactVersion matches a fully-specified semver version. Anything else
-// (^1.0, ~1, 1.0, wildcard requirements) is a range cargo resolves, so it does
-// not count as an explicit version for cooldown reporting.
-var cargoExactVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
-
-// cargoCrateName matches valid crates.io package names. Local paths and git
-// URLs (values of flags not on the skip list) never match.
-var cargoCrateName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-
 // cargoCrateTargets extracts crate targets (crate[@version-req]) from add/install
 // args. A version requirement is stripped of leading =; only an exact semver
 // counts as explicit. `cargo install crate --version <v>` is folded into every
@@ -161,7 +152,7 @@ func cargoCrateTargets(args []string) []*PackageInstallTarget {
 			name, version = arg[:at], strings.TrimPrefix(arg[at+1:], "=")
 		}
 
-		if !cargoCrateName.MatchString(name) {
+		if !cargo.IsCrateName(name) {
 			continue
 		}
 
@@ -175,7 +166,7 @@ func cargoCrateTargets(args []string) []*PackageInstallTarget {
 				},
 				Version: version,
 			},
-			IsExplicitVersion: cargoExactVersion.MatchString(version),
+			IsExplicitVersion: cargo.IsExactVersion(version),
 		})
 	}
 
@@ -183,7 +174,7 @@ func cargoCrateTargets(args []string) []*PackageInstallTarget {
 		for _, target := range targets {
 			if !target.HasVersion() {
 				target.PackageVersion.SetVersion(flagVersion)
-				target.IsExplicitVersion = cargoExactVersion.MatchString(flagVersion)
+				target.IsExplicitVersion = cargo.IsExactVersion(flagVersion)
 			}
 		}
 	}

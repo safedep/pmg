@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/safedep/dry/log"
+	"github.com/safedep/pmg/internal/cargo"
 	"golang.org/x/mod/module"
 )
 
@@ -114,6 +115,18 @@ type CargoCrate struct {
 	Versions []CargoVersion
 }
 
+// CargoRole says what a custom Cargo mount serves.
+type CargoRole uint8
+
+const (
+	// CargoServesIndex serves config.json and the sparse index files at the base
+	// path.
+	CargoServesIndex CargoRole = 1 << iota
+	// CargoServesDownloads serves .crate files under the base path, in the
+	// <name>/<version>/download and <name>-<version>.crate layouts.
+	CargoServesDownloads
+)
+
 type RecordedRequest struct {
 	Host    string
 	Method  string
@@ -132,6 +145,8 @@ type Registry struct {
 	cargo       map[string]CargoCrate
 	npmMounts   []mount
 	pypiMounts  []mount
+	cargoMounts []mount
+	cargoRoles  map[mount]CargoRole
 	requests    []RecordedRequest
 	server      *httptest.Server
 	plainServer *httptest.Server
@@ -141,10 +156,11 @@ type Registry struct {
 
 func newRegistry() *Registry {
 	r := &Registry{
-		npm:   map[string]NpmPackage{},
-		pypi:  map[string]PypiPackage{},
-		gomod: map[string]GoModule{},
-		cargo: map[string]CargoCrate{},
+		npm:        map[string]NpmPackage{},
+		pypi:       map[string]PypiPackage{},
+		gomod:      map[string]GoModule{},
+		cargo:      map[string]CargoCrate{},
+		cargoRoles: map[mount]CargoRole{},
 	}
 	r.server = httptest.NewTLSServer(http.HandlerFunc(r.serve))
 	// Plain-HTTP twin of the registry. A client the kernel redirected from
@@ -159,10 +175,11 @@ func newRegistry() *Registry {
 		r.serveGoWithOptionalPrefix(w, req)
 	}))
 	// Plain-HTTP sparse-index endpoint for the cargo interceptor's
-	// out-of-band publish-time fetches.
+	// out-of-band publish-time fetches. The fetch path starts with the host
+	// of the endpoint, so the server answers as that endpoint would.
 	r.cargoServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.record(req)
-		r.serveCargoIndex(w, req)
+		r.serveCargoUpstream(w, req)
 	}))
 	return r
 }
@@ -218,6 +235,18 @@ func (r *Registry) AddCustomPypi(host, basePath string) {
 	r.pypiMounts = append(r.pypiMounts, mount{host: host, basePath: normalizeMountBasePath(basePath)})
 }
 
+// AddCustomCargo registers a custom Cargo mount point on host under basePath,
+// serving crates registered via AddCargo in the given roles. A registry that
+// serves the index and the downloads under one base, as Gitea does, gets
+// both roles.
+func (r *Registry) AddCustomCargo(host, basePath string, roles CargoRole) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	m := mount{host: host, basePath: normalizeMountBasePath(basePath)}
+	r.cargoMounts = append(r.cargoMounts, m)
+	r.cargoRoles[m] |= roles
+}
+
 func (r *Registry) AddCargo(crate CargoCrate) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -271,6 +300,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	npmMount, npmOK := matchMount(r.npmMounts, host, req.URL.Path)
 	pypiMount, pypiOK := matchMount(r.pypiMounts, host, req.URL.Path)
+	cargoMount, cargoOK := matchMount(r.cargoMounts, host, req.URL.Path)
 	r.mu.Unlock()
 
 	switch {
@@ -279,6 +309,9 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	case pypiOK:
 		r.serveCustomPypi(w, req, pypiMount)
+		return
+	case cargoOK:
+		r.serveCustomCargo(w, req, cargoMount)
 		return
 	}
 
@@ -292,7 +325,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 	case "proxy.golang.org", "corp.example.com", "goproxy.corp.test":
 		r.serveGoWithOptionalPrefix(w, req)
 	case "index.crates.io":
-		r.serveCargoIndex(w, req)
+		r.serveCargoIndex(w, req.URL.Path)
 	case "static.crates.io":
 		r.serveCargoDownload(w, req)
 	default:
@@ -431,24 +464,76 @@ func (r *Registry) RequestForPath(path string) (RecordedRequest, bool) {
 	return RecordedRequest{}, false
 }
 
-// serveCargoIndex implements a minimal crates.io sparse index: NDJSON per
-// registered crate with the optional pubtime field, addressed by the last
-// path segment (the lowercase crate name).
-func (r *Registry) serveCargoIndex(w http.ResponseWriter, req *http.Request) {
-	if req.URL.Path == "/config.json" {
+func (r *Registry) serveCustomCargo(w http.ResponseWriter, req *http.Request, m mount) {
+	r.serveCargoAs(w, req, m, strings.TrimPrefix(req.URL.Path, m.basePath))
+}
+
+// serveCargoAs answers path as the custom Cargo mount m.
+func (r *Registry) serveCargoAs(w http.ResponseWriter, req *http.Request, m mount, path string) {
+	r.mu.Lock()
+	roles := r.cargoRoles[m]
+	r.mu.Unlock()
+
+	switch {
+	case roles&CargoServesDownloads != 0 && isCargoDownloadPath(path):
+		r.serveCargoDownload(w, req)
+	case roles&CargoServesIndex != 0:
+		r.serveCargoIndex(w, path)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+// serveCargoUpstream answers the out-of-band index fetch at
+// /<endpoint host><base path>/<index path>, as that endpoint would.
+func (r *Registry) serveCargoUpstream(w http.ResponseWriter, req *http.Request) {
+	host, path, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/"), "/")
+	path = "/" + path
+
+	r.mu.Lock()
+	m, ok := matchMount(r.cargoMounts, host, path)
+	r.mu.Unlock()
+
+	switch {
+	case ok:
+		r.serveCargoAs(w, req, m, strings.TrimPrefix(path, m.basePath))
+	case host == "index.crates.io":
+		r.serveCargoIndex(w, path)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+// isCargoDownloadPath reports whether path ends in a download layout. A
+// version segment tells the download of a crate apart from the index file of
+// a crate named download.
+func isCargoDownloadPath(path string) bool {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	last := segments[len(segments)-1]
+	if last == "download" {
+		return len(segments) >= 3 && cargo.IsExactVersion(segments[len(segments)-2])
+	}
+	return strings.HasSuffix(last, ".crate")
+}
+
+// serveCargoIndex implements a minimal sparse index: config.json, and NDJSON
+// per registered crate with the optional pubtime field at the sparse-index
+// path of the crate.
+func (r *Registry) serveCargoIndex(w http.ResponseWriter, path string) {
+	if path == "/config.json" {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"dl":"https://static.crates.io/crates","api":"https://crates.io"}`)
 		return
 	}
 
-	segments := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
-	name := segments[len(segments)-1]
+	trimmed := strings.Trim(path, "/")
+	name := trimmed[strings.LastIndex(trimmed, "/")+1:]
 
 	r.mu.Lock()
 	crate, ok := r.cargo[strings.ToLower(name)]
 	r.mu.Unlock()
-	if !ok {
-		http.NotFound(w, req)
+	if !ok || cargoTestIndexPath(name) != trimmed {
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 

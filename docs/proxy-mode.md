@@ -57,7 +57,7 @@ Note one trade-off versus the removed guard mode: the proxy analyzes packages as
 
 ## Custom Registries
 
-By default PMG analyzes packages from its built-in registries, such as `registry.npmjs.org` and `pypi.org`. It can also analyze packages from your own npm- or PyPI-compatible endpoint, or from a Go module proxy. Use this for an internal mirror or a registry proxy such as Artifactory, Nexus or Athens.
+By default PMG analyzes packages from its built-in registries, such as `registry.npmjs.org` and `pypi.org`. It can also analyze packages from your own npm- or PyPI-compatible endpoint, from a Go module proxy, or from a sparse Cargo registry. Use this for an internal mirror or a registry proxy such as Artifactory, Nexus or Athens.
 
 Configure custom registries under `proxy.registries`:
 
@@ -77,6 +77,11 @@ proxy:
       ecosystem: go
       endpoints:
         - url: https://packages.example.com/artifactory/api/go/go-virtual
+    - name: cargo-mirror
+      ecosystem: cargo
+      endpoints:
+        - url: https://packages.example.com/artifactory/api/cargo/cargo-virtual/index
+        - url: https://packages.example.com/artifactory/api/cargo/cargo-virtual/v1/crates
 ```
 
 Both PyPI URLs belong to one logical registry. List every metadata and artifact endpoint you want PMG to analyze. PMG does not trust hosts that it discovers through metadata links or redirects.
@@ -90,7 +95,7 @@ Other base paths must retain the standard `/simple/{project}/` or `/pypi/{projec
 | Key               | Description                                                                                                                                           |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`            | A unique label for the registry. Used in logs.                                                                                                        |
-| `ecosystem`       | `npm`, `pypi` or `go`. No other ecosystem is supported.                                                                                               |
+| `ecosystem`       | `npm`, `pypi`, `go` or `cargo`. No other ecosystem is supported.                                                                                      |
 | `endpoints[].url` | The base URL PMG matches requests against. Must be absolute. Must use `http` or `https`. Must not contain credentials, a query string, or a fragment. |
 
 ### How PMG matches a request
@@ -149,6 +154,23 @@ The endpoint base does not have to end in `/simple`. PMG recognizes these projec
 
 A Simple API exposed some other way, such as a root-mounted index, gets no project page recognition and no dependency cooldown. PMG still analyzes distribution file downloads under that base, because it identifies them from their filename.
 
+### Cargo registry requirements
+
+A custom Cargo endpoint must serve a [sparse registry index](https://doc.rust-lang.org/cargo/reference/registry-index.html#sparse-protocol). PMG does not analyze a registry with a git index. Configure the index URL from `.cargo/config.toml`. PMG removes a `sparse+` prefix, so you can copy the value unchanged.
+
+PMG reads `config.json` and the index files at the base of the endpoint. It finds a crate download at any depth below the base, in one of these layouts:
+
+- `.../<crate>/<version>/download`. Cargo appends this path to a `dl` URL that has no markers.
+- `.../<crate>-<version>.crate`, for example from `dl = "https://cdn.example.com/{lowerprefix}/{crate}-{version}.crate"`.
+
+A download in another layout, such as one that names only `{sha256-checksum}`, has no package identity. Default mode allows it without analysis. Paranoid mode blocks it.
+
+The `dl` value is in `<index URL>/config.json`. When the `dl` URL is below the index URL, one endpoint covers the index and the downloads. When it is not, add the `dl` URL as a second endpoint of the same registry, as in the Artifactory example above.
+
+[Dependency cooldown](./dependency-cooldown.md) reads the `pubtime` field of each index entry. A registry whose index has no `pubtime` gets no cooldown protection. For a download whose publish time PMG did not see, for example in a `Cargo.lock` build, PMG fetches the index file from the endpoints of the same registry.
+
+PMG decrypts every request to the origin of a custom endpoint, also `cargo publish` and `cargo login`. It does not read or change a request that is not a GET or a HEAD.
+
 ### Artifacts on a different host
 
 Some registries serve metadata from one host and files from another host or path prefix. PMG analyzes an artifact from another origin only when that origin is itself a configured endpoint. Add each artifact origin or disjoint path prefix as its own endpoint.
@@ -159,7 +181,9 @@ PMG's malware database covers public packages. PMG allows a package it cannot fi
 
 ### Credentials
 
-PMG does not store, inject, or log registry credentials. Keep credentials where your package manager already expects them: npm's `.npmrc`, Yarn's or pnpm's own config, or pip's, Poetry's, or uv's configuration.
+PMG does not store, inject, or log registry credentials. Keep credentials where your package manager already expects them: npm's `.npmrc`, Yarn's or pnpm's own config, pip's, Poetry's, or uv's configuration, or Cargo's credential providers.
+
+When PMG fetches the index file of a crate for the cooldown, it sends the `Authorization` header of the download request. It sends the header only to the endpoints of the same custom registry, never to crates.io. Cargo sends the token of a registry to its index and to its downloads alike.
 
 ### Plain HTTP endpoints
 
@@ -179,7 +203,7 @@ PMG rejects these values:
 
 - A `name` that is empty, whitespace-only, or has leading or trailing whitespace
 - A duplicate `name`
-- An `ecosystem` other than `npm`, `pypi` or `go`
+- An `ecosystem` other than `npm`, `pypi`, `go` or `cargo`
 - A registry with no `endpoints`
 - A URL that is relative, invalid, or uses a scheme other than `http` or `https`
 - A URL that contains credentials, a query string, or a fragment
@@ -189,7 +213,7 @@ PMG rejects these values:
 - Two endpoints that normalize to the same origin and base path
 - Two endpoints on the same origin whose base paths nest into each other, such as `/npm` and `/npm/team`. Registries of different ecosystems may share a host, but their base paths must be disjoint subtrees
 - Endpoint paths with empty or dot segments (`/npm//team`, `/npm/../team`), which can never match real traffic
-- At proxy startup, an endpoint whose host is covered by a built-in registry (for example `registry.npmjs.org`, `pypi.org`, `proxy.golang.org`, `sum.golang.org`, or their subdomains). PMG already analyzes these hosts, or never decrypts them, as with `sum.golang.org`
+- At proxy startup, an endpoint whose host is covered by a built-in registry (for example `registry.npmjs.org`, `pypi.org`, `proxy.golang.org`, `sum.golang.org`, `index.crates.io`, `static.crates.io`, or their subdomains). PMG already analyzes these hosts, or never decrypts them, as with `sum.golang.org`
 
 The error names the registry and the specific problem. An empty name has no registry name to report, so the error names the entry position instead, for example `proxy.registries[0]`. While the error stands, commands that run intercepted traffic (`pmg <pkg-manager>` installs, `pmg proxy start`) fail closed, because a fallback to defaults would silently drop the configured protection. Commands such as `pmg config`, `pmg setup doctor`, and `pmg version` still work, so you can repair the file with PMG itself.
 
@@ -202,6 +226,8 @@ npm config get registry
 npm config get @myscope:registry
 pip config debug
 ```
+
+For Cargo, read the `[registries]` and `[source]` tables of each `.cargo/config.toml` that applies, and the `CARGO_REGISTRIES_*` environment variables. A `replace-with` source sends crates.io traffic to the mirror that it names, so configure that mirror as a custom registry.
 
 `npm config get @myscope:registry` reports the registry for one scope. Repeat it for every scope you use. `pip config debug` lists the `index-url` from every config file pip found, in the order pip applies them. It also lists active `PIP_*` environment variables under its `env_var:` section. An environment variable such as `PIP_INDEX_URL` overrides every config file.
 
@@ -305,10 +331,13 @@ as dependency-installing commands.
 <details>
 <summary>How it differs from npm/PyPI</summary>
 
-- PMG intercepts two fixed crates.io hosts. `index.crates.io` serves the
-  sparse index. `static.crates.io` serves the `.crate` downloads. PMG
-  tunnels the crates.io API host without inspection. Registry tokens used
-  by `cargo publish` never pass through the MITM path.
+- PMG intercepts two crates.io hosts and the endpoints of each Cargo
+  registry in `proxy.registries`. `index.crates.io` serves the sparse
+  index. `static.crates.io` serves the `.crate` downloads. PMG
+  tunnels the crates.io API host without inspection, so a crates.io token
+  of `cargo publish` never passes through the MITM path. PMG decrypts the
+  origin of a custom registry endpoint, also for `cargo publish`. See
+  [Cargo registry requirements](#cargo-registry-requirements).
 - PMG sets `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` for the child
   process so PMG can intercept index traffic. PMG sets `CARGO_HTTP_CAINFO`
   because cargo's libcurl reads only this CA variable. You do not need to
@@ -321,9 +350,14 @@ as dependency-installing commands.
   file out of band.
 - Malware analysis runs on every `.crate` download, direct and transitive.
 - Cargo fetches git dependencies from their VCS host. PMG does not analyze
-  them. PMG also does not analyze alternative registries and source
-  replacement. Their traffic is tunneled and appears in the audit log as
-  observed hosts.
+  them. PMG analyzes an alternative registry or a source replacement only
+  when its endpoints are in `proxy.registries`. See
+  [Cargo registry requirements](#cargo-registry-requirements). Other
+  registry traffic is tunneled and appears in the audit log as observed
+  hosts.
+- An `http.proxy` value in `.cargo/config.toml`, `CARGO_HTTP_PROXY`, or the
+  `http.proxy` value of the git configuration overrides the `HTTPS_PROXY`
+  that PMG sets. cargo then sends its traffic around PMG.
 
 </details>
 

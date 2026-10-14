@@ -71,6 +71,7 @@ func (i *PypiRegistryInterceptor) HandleRequest(ctx *proxy.RequestContext) (*pro
 // the JSON API, for version resolution.
 func (i *PypiRegistryInterceptor) handleMetadataRequest(
 	ctx *proxy.RequestContext,
+	_ *registryMatch,
 	pkgInfo packageInfo,
 ) (*proxy.InterceptorResponse, error) {
 	depCooldownConfig := pmgconfig.Get().Config.DependencyCooldown

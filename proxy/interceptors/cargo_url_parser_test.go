@@ -100,3 +100,70 @@ func TestCargoSparseIndexPath(t *testing.T) {
 		assert.Equal(t, tc.want, cargoSparseIndexPath(tc.name), "name %q", tc.name)
 	}
 }
+
+func TestCargoCustomParserParseURL(t *testing.T) {
+	cases := []struct {
+		name        string
+		path        string
+		crate       string
+		version     string
+		requestType string
+	}{
+		{name: "config at the base", path: "/config.json", requestType: cargoRequestConfig},
+		{name: "index, 1 character", path: "/1/a", crate: "a", requestType: cargoRequestIndex},
+		{name: "index, 3 characters", path: "/3/s/syn", crate: "syn", requestType: cargoRequestIndex},
+		{name: "index, long name", path: "/se/rd/serde", crate: "serde", requestType: cargoRequestIndex},
+		{name: "index of a crate named download", path: "/do/wn/download", crate: "download", requestType: cargoRequestIndex},
+		{name: "download appended to a dl URL", path: "/serde/1.0.219/download", crate: "serde", version: "1.0.219", requestType: cargoRequestDownload},
+		{name: "download under api/v1/crates (Gitea, Kellnr)", path: "/api/v1/crates/serde/1.0.219/download", crate: "serde", version: "1.0.219", requestType: cargoRequestDownload},
+		{name: "download keeps a prerelease", path: "/v1/crates/foo-bar/1.0.0-rc.1/download", crate: "foo-bar", version: "1.0.0-rc.1", requestType: cargoRequestDownload},
+		{name: "download name is lowercased", path: "/Inflector/0.11.4/download", crate: "inflector", version: "0.11.4", requestType: cargoRequestDownload},
+		{name: "crate file under its name", path: "/crates/serde/serde-1.0.219.crate", crate: "serde", version: "1.0.219", requestType: cargoRequestDownload},
+		{name: "crate file under a lowerprefix", path: "/se/rd/serde-1.0.219.crate", crate: "serde", version: "1.0.219", requestType: cargoRequestDownload},
+		{name: "crate file with hyphens and a prerelease", path: "/files/foo-bar-1.0.0-rc.1.crate", crate: "foo-bar", version: "1.0.0-rc.1", requestType: cargoRequestDownload},
+		{name: "crate file whose name ends in a number", path: "/x-1-2.0.0.crate", crate: "x-1", version: "2.0.0", requestType: cargoRequestDownload},
+		{name: "index of a name with a leading underscore", path: "/_f/oo/_foo", crate: "_foo", requestType: cargoRequestIndex},
+		{name: "download of a name with a leading underscore", path: "/_foo/1.0.0/download", crate: "_foo", version: "1.0.0", requestType: cargoRequestDownload},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info, err := cargoCustomParser{}.ParseURL(tc.path)
+			require.NoError(t, err)
+
+			crateInfo, ok := info.(*cargoCrateInfo)
+			require.True(t, ok)
+			assert.Equal(t, tc.crate, crateInfo.name)
+			assert.Equal(t, tc.version, crateInfo.version)
+			assert.Equal(t, tc.requestType, crateInfo.requestType)
+		})
+	}
+}
+
+func TestCargoCustomParserRejectsUnknownPaths(t *testing.T) {
+	for _, path := range []string{
+		"/",
+		"/api/v1/config.json",
+		"/serde",
+		"/xx/yy/serde",
+		"/serde/1.0/download",
+		"/serde/latest/download",
+		"/download",
+		"/1.0.219/download",
+		"/files/0f9a3c.crate",
+		"/files/serde.crate",
+		"/files/serde-1.0.crate",
+		"/files/serde.json-1.0.0.crate",
+		"/api/v1/crates/new",
+	} {
+		t.Run(path, func(t *testing.T) {
+			_, err := cargoCustomParser{}.ParseURL(path)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestCargoIndexParserRejectsCrateFiles(t *testing.T) {
+	_, err := cargoIndexParser{}.ParseURL("/se/rd/serde-1.0.219.crate")
+	assert.Error(t, err)
+}

@@ -158,10 +158,21 @@ func (c CargoIndex) HasVersion(v string) bool {
 	return slices.Contains(c.Versions, v)
 }
 
+const (
+	cratesIOIndexBase = "https://index.crates.io"
+	cratesIODownload  = "https://static.crates.io/crates"
+)
+
 // FetchIndex fetches a crate's sparse-index file through the proxy and parses
 // the surviving version lines.
 func (d CargoDriver) FetchIndex(name string) CargoIndex {
-	out := d.h.get(fmt.Sprintf("https://index.crates.io/%s", cargoTestIndexPath(name)), nil)
+	return d.FetchIndexFrom(cratesIOIndexBase, name)
+}
+
+// FetchIndexFrom fetches a crate's index file from the sparse index at
+// indexBase.
+func (d CargoDriver) FetchIndexFrom(indexBase, name string) CargoIndex {
+	out := d.h.get(fmt.Sprintf("%s/%s", indexBase, cargoTestIndexPath(name)), nil)
 
 	index := CargoIndex{Outcome: out}
 	if out.Err != nil || out.StatusCode != 200 {
@@ -185,20 +196,32 @@ func (d CargoDriver) FetchIndex(name string) CargoIndex {
 }
 
 func (d CargoDriver) Download(name, version string) RequestOutcome {
-	return d.h.get(fmt.Sprintf("https://static.crates.io/crates/%s/%s/download", name, version), nil)
+	return d.DownloadFrom(cratesIODownload, name, version)
+}
+
+// DownloadFrom downloads a .crate file from the dl URL dl, which has no
+// markers, so cargo appends /<name>/<version>/download.
+func (d CargoDriver) DownloadFrom(dl, name, version string) RequestOutcome {
+	return d.h.get(fmt.Sprintf("%s/%s/%s/download", dl, name, version), nil)
 }
 
 // Install replays cargo's resolve-then-download sequence: fetch the sparse
 // index and download the requested version only if it survived in the index
 // the proxy returned.
 func (d CargoDriver) Install(name, version string) ExecResult {
+	return d.InstallFrom(cratesIOIndexBase, cratesIODownload, name, version)
+}
+
+// InstallFrom is Install against the sparse index at indexBase and the dl
+// URL dl.
+func (d CargoDriver) InstallFrom(indexBase, dl, name, version string) ExecResult {
 	res := ExecResult{}
 
-	index := d.FetchIndex(name)
+	index := d.FetchIndexFrom(indexBase, name)
 	res.add(index.Outcome)
 
 	if index.HasVersion(version) {
-		res.add(d.Download(name, version))
+		res.add(d.DownloadFrom(dl, name, version))
 	}
 
 	return res

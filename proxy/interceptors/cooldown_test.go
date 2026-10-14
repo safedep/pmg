@@ -1,12 +1,15 @@
 package interceptors
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	pmgconfig "github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -445,4 +448,54 @@ func TestRecordCooldownWithheld_DeduplicatesAcrossFetches(t *testing.T) {
 	assert.Equal(t, 0, stats.TotalAnalyzed, "withheld versions are not analyzed packages")
 	assert.Equal(t, 0, stats.BlockedCount, "withheld versions are not blocks")
 	assert.Equal(t, 0, stats.CooldownBlockedCount)
+}
+
+func TestCooldownFetchRedirects(t *testing.T) {
+	var redirected []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/moved" {
+			redirected = append(redirected, req.Header.Get("Authorization"))
+			_, _ = w.Write([]byte("body"))
+			return
+		}
+		http.Redirect(w, req, "/moved", http.StatusFound)
+	}))
+	defer server.Close()
+
+	ctx := &proxy.RequestContext{RequestID: "test"}
+
+	tests := []struct {
+		name          string
+		authorization string
+		wantBody      bool
+	}{
+		{name: "follows a redirect without a token", wantBody: true},
+		{name: "does not follow a redirect with a token", authorization: "registry-token"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			redirected = nil
+			body, ok := cooldownFetch(ctx, server.URL+"/index", tt.authorization, 1<<10)
+			assert.Equal(t, tt.wantBody, ok)
+			if tt.wantBody {
+				assert.Equal(t, "body", string(body))
+				assert.Len(t, redirected, 1)
+				return
+			}
+			assert.Empty(t, redirected, "the token must not follow the redirect")
+		})
+	}
+}
+
+func TestCooldownFetchStopsARedirectLoop(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		http.Redirect(w, req, "/loop", http.StatusFound)
+	}))
+	defer server.Close()
+
+	_, ok := cooldownFetch(&proxy.RequestContext{RequestID: "test"}, server.URL+"/index", "", 1<<10)
+	assert.False(t, ok)
+	assert.Equal(t, cooldownFetchMaxRedirects, requests)
 }
