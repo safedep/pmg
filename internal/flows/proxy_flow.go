@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/sandbox/executor"
 )
 
 type proxyFlow struct {
@@ -226,6 +227,16 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
 			runerror.ReasonProxySetupFailed)
 	}
+	// The proxy reads the profile's network rules, so the policy resolves
+	// before the proxy starts and the runner gets the same resolution.
+	var sandboxRes *executor.Resolution
+	if !cfg.DryRun {
+		sandboxRes, err = executor.ResolvePolicy(f.pm.Name(), false)
+		if err != nil {
+			return fmt.Errorf("failed to apply sandbox: %w", err)
+		}
+	}
+
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
 	if err != nil {
@@ -252,6 +263,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		SandboxProxyAddr:   proxyAddr,
+		Sandbox:            sandboxRes,
 		Mode:               runner.ExecutionModeAuto,
 		EnvOverrides:       append(packagemanager.EnvVarForProxy(proxyAddr, caCertPath), routing.ExtraEnv...),
 		DirectEnvOverrides: ciEnvOverride(),

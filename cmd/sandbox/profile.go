@@ -17,9 +17,11 @@ func defaultRegistryFactory() (pmgsandbox.ProfileRegistry, error) {
 		return nil, err
 	}
 
+	cfg := config.Get()
 	return pmgsandbox.NewProfileRegistry(
-		pmgsandbox.WithUserProfileDir(config.Get().SandboxProfileDir()),
+		pmgsandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
 		pmgsandbox.WithPresetRegistry(presets),
+		pmgsandbox.WithPolicyTemplates(cfg.SandboxPolicyTemplatePaths()),
 	)
 }
 

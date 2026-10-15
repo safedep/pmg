@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -24,10 +23,21 @@ import (
 )
 
 type applySandboxConfig struct {
-	sb             sandbox.Sandbox
-	rt             *sandbox.ExecutionContext
-	processLabel   string
-	requireSandbox bool
+	sb           sandbox.Sandbox
+	rt           *sandbox.ExecutionContext
+	processLabel string
+}
+
+// Resolution is the sandbox policy resolved for one run. A nil Policy means
+// the run has no sandbox. The proxy reads the policy before the child
+// starts, so a run resolves it once and hands the same value to both.
+type Resolution struct {
+	PackageManager string
+	Policy         *sandbox.SandboxPolicy
+
+	// NetworkMode is the posture of the proxy for the policy's network
+	// rules, audit or enforce, from sandbox.network_mode.
+	NetworkMode string
 }
 
 // ApplySandboxOpt configures ApplySandbox.
@@ -58,29 +68,21 @@ func WithProcessLabel(label string) ApplySandboxOpt {
 	}
 }
 
-// WithRequireSandbox makes a disabled policy an error instead of a run without
-// a sandbox. `pmg sandbox exec` sets it: the user asked for the sandbox by name.
-func WithRequireSandbox() ApplySandboxOpt {
-	return func(c *applySandboxConfig) {
-		c.requireSandbox = true
-	}
-}
-
-// ApplySandbox applies sandbox isolation to the command if sandbox mode is enabled.
-// This is a helper function used by the command runner to avoid code duplication.
+// ResolvePolicy loads the sandbox policy for pmName and applies the project
+// overlay and the runtime overrides. It writes the override audit events and
+// the overlay warning, so call it once per run.
+//
+// requireSandbox makes a disabled policy an error instead of a run without a
+// sandbox. `pmg sandbox exec` sets it, because the user asked for the sandbox
+// by name.
 //
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.
-func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 	cfg := config.Get()
 
 	if !cfg.Config.Sandbox.Enabled {
-		return sandbox.NewExecutionResult(), nil
-	}
-
-	applyConfig := &applySandboxConfig{}
-	for _, opt := range opts {
-		opt(applyConfig)
+		return &Resolution{PackageManager: pmName}, nil
 	}
 
 	if !platform.Supported() {
@@ -97,9 +99,11 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 		return nil, fmt.Errorf("failed to create preset registry: %w", err)
 	}
 
+	templates := cfg.SandboxPolicyTemplatePaths()
 	registry, err := sandbox.NewProfileRegistry(
 		sandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
 		sandbox.WithPresetRegistry(presetRegistry),
+		sandbox.WithPolicyTemplates(templates),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create profile registry: %w", err)
@@ -138,7 +142,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 
 		// The policy is explicitly disabled for this package manager, so we skip sandbox
 		if !policyRef.Enabled {
-			if applyConfig.requireSandbox {
+			if requireSandbox {
 				msg := fmt.Sprintf("the %s sandbox policy is disabled in the PMG config", pmName)
 				return nil, usefulerror.NewUsefulError().
 					WithCode(errcodes.SandboxPolicyDisabled).
@@ -148,32 +152,22 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			}
 
 			log.Warnf("sandbox policy %s is explicitly disabled for %s, skipping sandbox", policyRef.Profile, pmName)
-			return sandbox.NewExecutionResult(), nil
+			return &Resolution{PackageManager: pmName}, nil
 		}
 
 		log.Debugf("Loading sandbox policy %s", policyRef.Profile)
 
-		// Check if there is a template for the policy and use it if it exists
-		// This is a way to override a built-in profile or create a custom profile.
-		if template, exists := cfg.Config.Sandbox.PolicyTemplates[policyRef.Profile]; exists {
-			if filepath.IsAbs(template.Path) {
-				policy, err = registry.GetProfile(template.Path)
-				if err != nil {
-					return nil, fmt.Errorf("failed to load sandbox policy %s: %w", template.Path, err)
-				}
-			} else {
-				policyPath := filepath.Join(cfg.ConfigDir(), template.Path)
-				policy, err = registry.GetProfile(policyPath)
-				if err != nil {
-					return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyPath, err)
-				}
-			}
-		} else {
-			// Load the policy from the registry by name
-			policy, err = registry.GetProfile(policyRef.Profile)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyRef.Profile, err)
-			}
+		// A template overrides a built-in profile or names a custom one. The
+		// registry gets the same map, so a profile can inherit a template by
+		// name.
+		profileRef := policyRef.Profile
+		if templatePath, exists := templates[profileRef]; exists {
+			profileRef = templatePath
+		}
+
+		policy, err = registry.GetProfile(profileRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load sandbox policy %s: %w", profileRef, err)
 		}
 	}
 
@@ -218,7 +212,35 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			Wrap(errors.New(msg))
 	}
 
-	var sb sandbox.Sandbox
+	return &Resolution{
+		PackageManager: pmName,
+		Policy:         policy,
+		NetworkMode:    cmp.Or(cfg.Config.Sandbox.NetworkMode, config.SandboxNetworkModeAudit),
+	}, nil
+}
+
+// ApplySandbox applies a resolved sandbox policy to cmd. A resolution with no
+// policy leaves cmd unchanged.
+//
+// This is a security sensitive operation. It fails when the sandbox driver is
+// not available, so the command never runs without the policy it resolved.
+func ApplySandbox(ctx context.Context, cmd *exec.Cmd, res *Resolution, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+	if res == nil || res.Policy == nil {
+		return sandbox.NewExecutionResult(), nil
+	}
+
+	applyConfig := &applySandboxConfig{}
+	for _, opt := range opts {
+		opt(applyConfig)
+	}
+
+	policy := res.Policy
+	pmName := res.PackageManager
+
+	var (
+		sb  sandbox.Sandbox
+		err error
+	)
 	if applyConfig.sb != nil {
 		sb = applyConfig.sb
 	} else {

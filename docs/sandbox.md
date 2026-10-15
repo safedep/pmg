@@ -27,7 +27,7 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
 - **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while hooks and config stay denied.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
-- **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`, `allow_unix_sockets`) in the child override the parent.
+- **Profile inheritance is a chain**: A profile inherits from one parent, and the parent can inherit in turn. A built-in profile inherits only from a built-in. A custom profile inherits from a built-in profile, a policy template (by name), a user profile (by name) or a file path, in that order. A relative path is read from the directory of the file that names it. Lists merge by union from the base down. Boolean fields (`allow_pty`, `allow_git_config`, `allow_unix_sockets`) in the child override the parent. A chain that loops is an error. `pmg sandbox profile show <name> --resolved --json` prints the chain as `lineage`.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
@@ -697,6 +697,28 @@ See [sandbox/profiles/README.md](../sandbox/profiles/README.md) for more details
 
 Policy template is a configuration primitive for overriding a built-in profile or creating a custom profile. It is used to map a profile name to a path.
 See [config/config.template.yml](../config/config.template.yml) for an example.
+
+### Network rules
+
+The `network.allow_outbound` and `network.deny_outbound` lists hold rules of the form
+`host:port`, with an optional client part, `<exe>=host:port`.
+
+- `host` is a name, compared without case and without a trailing dot. `*.example.com` matches
+  one or more labels before `example.com` and not `example.com` itself. `*` matches every host.
+  An IPv4 or IPv6 literal is a host. An IPv6 literal is written in brackets, `[2001:db8::1]:443`.
+- `port` is a number from 1 to 65535, or `*`.
+- `<exe>` is an absolute path or a bare program name, such as `git=github.com:443`. The
+  proxy matches it against the program that opened the connection, where it knows one.
+
+The most specific matching rule wins. An exact host beats a wildcard, a longer wildcard suffix
+beats a shorter one, and every host rule beats `*`. At equal host specificity an exact port
+beats `*`. At equal specificity deny wins. With no matching rule the connection is allowed, so a
+profile that wants an allow list denies `*:*`.
+
+`pmg sandbox profile lint` reports a rule the proxy cannot parse as an error. The proxy enforces
+these rules by host in a later release. `sandbox.network_mode` in the config, `audit` by
+default or `enforce`, is the posture the proxy takes for them. The mode lives in the config and
+not in the profile, so one profile can run in audit on one host and in enforce on another.
 
 </details>
 

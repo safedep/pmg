@@ -1,0 +1,39 @@
+# guarantee: `pmg sandbox profile lint` reports a network rule the proxy
+# cannot parse as an error and exits non-zero. A profile whose rules all
+# parse passes.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+
+! exec pmg sandbox profile lint $WORK/bad.yml
+stdout 'network.invalid-rule'
+stdout 'network.allow_outbound\[1\]'
+stdout 'network.deny_outbound\[0\]'
+
+exec pmg sandbox profile lint $WORK/good.yml
+stdout 'no issues found'
+
+-- bad.yml --
+name: bad
+description: two rules the proxy cannot parse
+package_managers: [npm]
+network:
+  allow_outbound:
+    - registry.npmjs.org:443
+    - registry.npmjs.org
+  deny_outbound:
+    - "evil.example:https"
+-- good.yml --
+name: good
+description: rules with a client part, a wildcard and an address
+package_managers: [npm]
+inherits: npm-restrictive
+network:
+  allow_outbound:
+    - git=github.com:443
+    - "*.githubusercontent.com:443"
+    - "[2001:db8::1]:443"
+    - 10.0.0.5:5000
+  deny_outbound:
+    - "*:*"

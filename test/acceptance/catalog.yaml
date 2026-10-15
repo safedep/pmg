@@ -604,3 +604,15 @@
   tier: P1
   guarantee: "A different certificate with the PMG CA name does not count as trusted, and pmg setup cert install --system installs the persisted CA."
   labels: [trust, install]
+- id: sandbox/profile/lint-rejects-invalid-network-rule
+  title: "profile lint rejects a network rule the proxy cannot parse"
+  category: sandbox
+  tier: P1
+  guarantee: "`pmg sandbox profile lint` reports an unparsable network rule as an error with its field and exits non-zero, and a profile whose rules parse passes."
+  labels: [sandbox, profile, network, offline]
+- id: sandbox/profile/inherits-a-chain
+  title: "profile inheritance resolves a chain and rejects a loop"
+  category: sandbox
+  tier: P1
+  guarantee: "A profile that inherits a user profile that inherits a built-in resolves the rules of all three, and a chain that loops fails with an error."
+  labels: [sandbox, profile, offline]

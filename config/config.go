@@ -242,6 +242,37 @@ type ProxyEnforceNamespacesConfig struct {
 	Address string `mapstructure:"address"`
 }
 
+const (
+	// SandboxNetworkModeAudit makes the proxy record what the network rules
+	// would deny and deny nothing.
+	SandboxNetworkModeAudit = "audit"
+
+	// SandboxNetworkModeEnforce makes the proxy deny what the network rules
+	// deny.
+	SandboxNetworkModeEnforce = "enforce"
+)
+
+// SandboxNetworkModeError reports a sandbox.network_mode value that is not
+// audit or enforce. It fails the config load closed, because a mode pmg
+// cannot read must not run as the weaker one.
+type SandboxNetworkModeError struct {
+	Mode string
+}
+
+func (e *SandboxNetworkModeError) Error() string {
+	return fmt.Sprintf("invalid sandbox.network_mode %q (expected %s or %s)", e.Mode, SandboxNetworkModeAudit, SandboxNetworkModeEnforce)
+}
+
+// ValidateSandboxNetworkMode checks a sandbox.network_mode value. An empty
+// value is the default, audit.
+func ValidateSandboxNetworkMode(mode string) error {
+	switch mode {
+	case "", SandboxNetworkModeAudit, SandboxNetworkModeEnforce:
+		return nil
+	}
+	return &SandboxNetworkModeError{Mode: mode}
+}
+
 // SandboxConfig configures the sandbox system for isolating package manager processes.
 type SandboxConfig struct {
 	// Enabled enables sandbox mode (opt-in by default for backward compatibility).
@@ -251,6 +282,13 @@ type SandboxConfig struct {
 	// - When true: sandbox applies to all package manager commands
 	// - When false: sandbox only applies to install commands, others run unrestricted (default)
 	EnforceAlways bool `mapstructure:"enforce_always"`
+
+	// NetworkMode is the posture of the PMG proxy for the network rules of
+	// the sandbox profile: audit records what the rules would deny and
+	// denies nothing, enforce denies it. The mode lives here and not in the
+	// profile, because one profile can run in audit on one host and in
+	// enforce on another.
+	NetworkMode string `mapstructure:"network_mode"`
 
 	// Policies maps package manager names to their sandbox policy references.
 	// Key is package manager name (e.g., "npm", "pip"), value is policy reference.
@@ -504,6 +542,20 @@ func (r *RuntimeConfig) SandboxProfileDir() string {
 	return r.sandboxProfileDir
 }
 
+// SandboxPolicyTemplatePaths returns the policy templates of the config as
+// template name to file path. A relative path is under the config directory.
+func (r *RuntimeConfig) SandboxPolicyTemplatePaths() map[string]string {
+	paths := make(map[string]string, len(r.Config.Sandbox.PolicyTemplates))
+	for name, template := range r.Config.Sandbox.PolicyTemplates {
+		path := template.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(r.ConfigDir(), path)
+		}
+		paths[name] = path
+	}
+	return paths
+}
+
 // SandboxOverlayDir returns the path to the per-repo sandbox overlay directory.
 func (r *RuntimeConfig) SandboxOverlayDir() string {
 	return r.sandboxOverlayDir
@@ -584,6 +636,7 @@ func DefaultConfig() RuntimeConfig {
 			Sandbox: SandboxConfig{
 				Enabled:       false,
 				EnforceAlways: false,
+				NetworkMode:   SandboxNetworkModeAudit,
 			},
 			DependencyCooldown: DependencyCooldownConfig{
 				Enabled: true,
@@ -717,11 +770,22 @@ func InitError() error {
 var configLoadErr error
 
 // LoadError returns the error that made configuration loading fail closed,
-// or nil. Only an invalid proxy.registries entry sets this, since falling
-// back to defaults would silently drop the user's custom-registry
-// protections; every other load failure still warns and continues.
+// or nil. An invalid proxy.registries entry and an invalid
+// sandbox.network_mode set this, since falling back to defaults would
+// silently drop a protection the user configured; every other load failure
+// still warns and continues.
 func LoadError() error {
 	return configLoadErr
+}
+
+// NewInvalidSandboxNetworkModeError turns a SandboxNetworkModeError into the
+// error the CLI reports.
+func NewInvalidSandboxNetworkModeError(err *SandboxNetworkModeError) error {
+	return usefulerror.NewUsefulError().
+		WithCode(errcodes.InvalidArgument).
+		WithHumanError(err.Error()).
+		WithHelp("Set sandbox.network_mode to audit or enforce in your PMG configuration file, then retry.").
+		Wrap(err)
 }
 
 func NewInvalidProxyRegistriesError(err error) error {
@@ -763,6 +827,11 @@ func loadConfig() error {
 	var registriesErr *ProxyRegistriesError
 	if errors.As(err, &registriesErr) {
 		return NewInvalidProxyRegistriesError(err)
+	}
+
+	var modeErr *SandboxNetworkModeError
+	if errors.As(err, &modeErr) {
+		return NewInvalidSandboxNetworkModeError(modeErr)
 	}
 
 	log.Warnf("Failed to load config, using defaults: %v", err)

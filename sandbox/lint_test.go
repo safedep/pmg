@@ -310,3 +310,78 @@ func TestLintProfile_AllowUnixSocketsWithLockdown(t *testing.T) {
 		})
 	}
 }
+
+func TestLintProfile_NetworkInvalidRule(t *testing.T) {
+	policy := cleanPolicy()
+	policy.Network.AllowOutbound = []string{"registry.npmjs.org:443", "registry.npmjs.org"}
+	policy.Network.DenyOutbound = []string{"*:*", "evil.example:https"}
+
+	var found []LintIssue
+	for _, i := range LintProfile(policy) {
+		if i.Code == "network.invalid-rule" {
+			found = append(found, i)
+		}
+	}
+
+	require.Len(t, found, 2)
+	assert.Equal(t, LintLevelError, found[0].Level)
+	assert.Equal(t, "network.allow_outbound[1]", found[0].Field)
+	assert.Equal(t, "registry.npmjs.org", found[0].Rule)
+	assert.Contains(t, found[0].Message, "is not host:port")
+	assert.Equal(t, "network.deny_outbound[1]", found[1].Field)
+	assert.Contains(t, found[1].Message, "has an invalid port")
+}
+
+func TestLintProfile_NetworkDirectDNSBypass(t *testing.T) {
+	tests := []struct {
+		name     string
+		rules    []string
+		wantWarn bool
+	}{
+		{name: "rules under lockdown with direct dns warns", rules: []string{"*:*"}, wantWarn: true},
+		{name: "no rules is clean", wantWarn: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := cleanPolicy()
+			policy.AllowDirectDNS = utils.PtrTo(true)
+			policy.NetworkViaProxyOnly = utils.PtrTo(true)
+			policy.Network.DenyOutbound = tc.rules
+
+			var found *LintIssue
+			for _, i := range LintProfile(policy) {
+				if i.Code == "network.direct-dns-bypass" {
+					issue := i
+					found = &issue
+					break
+				}
+			}
+
+			if !tc.wantWarn {
+				assert.Nil(t, found)
+				return
+			}
+			require.NotNil(t, found)
+			assert.Equal(t, LintLevelWarn, found.Level)
+			assert.Equal(t, "allow_direct_dns", found.Field)
+		})
+	}
+}
+
+func TestLintProfile_BuiltinNetworkRulesParse(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	summaries, err := registry.ListProfiles()
+	require.NoError(t, err)
+	require.NotEmpty(t, summaries)
+
+	for _, s := range summaries {
+		policy, err := registry.GetProfile(s.Name)
+		require.NoError(t, err)
+		for _, i := range LintProfile(policy) {
+			assert.NotEqual(t, "network.invalid-rule", i.Code, "%s: %s", s.Name, i.Message)
+		}
+	}
+}

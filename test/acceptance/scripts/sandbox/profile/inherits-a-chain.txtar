@@ -1,0 +1,52 @@
+# guarantee: a profile inherits through a chain of any depth. The leaf gets
+# the rules of a user profile and of the built-in that profile inherits. A
+# chain that loops is an error, not a hang.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+
+exec pmg sandbox profile show leaf --resolved
+stdout 'registry.npmjs.org:443'
+stdout 'corp.example.com:443'
+stdout 'leaf.example.com:443'
+
+exec pmg sandbox profile list
+stdout 'leaf'
+stdout 'corp'
+
+! exec pmg sandbox profile show loop-a --resolved
+stderr 'inheritance cycle'
+
+-- config/sandbox/profiles/corp.yml --
+name: corp
+description: the base every repository profile inherits
+package_managers: [npm]
+inherits: npm-restrictive
+network:
+  allow_outbound:
+    - corp.example.com:443
+-- config/sandbox/profiles/leaf.yml --
+name: leaf
+description: one repository's profile
+package_managers: [npm]
+inherits: corp
+network:
+  allow_outbound:
+    - leaf.example.com:443
+-- config/sandbox/profiles/loop-a.yml --
+name: loop-a
+description: inherits loop-b
+package_managers: [npm]
+inherits: loop-b
+filesystem:
+  allow_read:
+    - /a/**
+-- config/sandbox/profiles/loop-b.yml --
+name: loop-b
+description: inherits loop-a
+package_managers: [npm]
+inherits: loop-a
+filesystem:
+  allow_read:
+    - /b/**

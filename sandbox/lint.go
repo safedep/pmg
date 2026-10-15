@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox/util"
 )
 
@@ -118,6 +119,38 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 				Rule:    rule,
 			})
 		}
+	}
+
+	// The proxy enforces the network lists by host, so a rule it cannot parse
+	// is a profile that cannot run under the policy.
+	for _, list := range []struct {
+		name  string
+		rules []string
+	}{
+		{"network.allow_outbound", policy.Network.AllowOutbound},
+		{"network.deny_outbound", policy.Network.DenyOutbound},
+	} {
+		for i, rule := range list.rules {
+			if _, err := netpolicy.ParseRule(rule); err != nil {
+				errors = append(errors, LintIssue{
+					Level:   LintLevelError,
+					Code:    "network.invalid-rule",
+					Message: err.Error(),
+					Field:   fieldRef(list.name, i),
+					Rule:    rule,
+				})
+			}
+		}
+	}
+
+	hasNetworkRules := len(policy.Network.AllowOutbound) > 0 || len(policy.Network.DenyOutbound) > 0
+	if hasNetworkRules && utils.SafelyGetValue(policy.AllowDirectDNS) && utils.SafelyGetValue(policy.NetworkViaProxyOnly) {
+		warns = append(warns, LintIssue{
+			Level:   LintLevelWarn,
+			Code:    "network.direct-dns-bypass",
+			Message: "allow_direct_dns lets data leave through DNS, past the network rules",
+			Field:   "allow_direct_dns",
+		})
 	}
 
 	if utils.SafelyGetValue(policy.AllowDirectDNS) && !utils.SafelyGetValue(policy.NetworkViaProxyOnly) {

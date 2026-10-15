@@ -21,6 +21,11 @@ type SandboxPolicy struct {
 	// Names are kept post-expansion for provenance display.
 	Presets []string `yaml:"presets,omitempty" json:"presets,omitempty"`
 
+	// Lineage is the resolved inheritance chain from the base profile to
+	// this one: built-in names, template names and file paths. The registry
+	// sets it, so it is not read from YAML.
+	Lineage []string `yaml:"-" json:"lineage,omitempty"`
+
 	// These fields are affected by inheritance and are merged with the parent policy.
 	// Any new values added here should be handled in the MergeWithParent method.
 	Filesystem  FilesystemPolicy  `yaml:"filesystem" json:"filesystem"`
@@ -131,6 +136,15 @@ func (p *SandboxPolicy) ValidateResolved() error {
 	}
 
 	return nil
+}
+
+// Parent returns the profile this one inherited from, or "" for a base
+// profile. After resolution Inherits is empty, so the chain is the record.
+func (p *SandboxPolicy) Parent() string {
+	if len(p.Lineage) < 2 {
+		return ""
+	}
+	return p.Lineage[len(p.Lineage)-2]
 }
 
 // AppliesToPackageManager returns true if this policy applies to the given package manager.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ type defaultProfileRegistry struct {
 	builtinYAML    map[string][]byte
 	userProfileDir string
 	presets        PresetRegistry
+	templates      map[string]string
 }
 
 func newDefaultProfileRegistry(opts ...RegistryOption) (*defaultProfileRegistry, error) {
@@ -47,6 +49,7 @@ func newDefaultProfileRegistry(opts ...RegistryOption) (*defaultProfileRegistry,
 		builtinYAML:    make(map[string][]byte),
 		userProfileDir: options.userProfileDir,
 		presets:        presets,
+		templates:      options.templates,
 	}
 
 	if err := registry.loadBuiltinProfiles(); err != nil {
@@ -94,23 +97,33 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 		r.mu.Unlock()
 	}
 
-	// Second pass: resolve inheritance and validate
+	// Second pass: resolve inheritance for every profile before any preset
+	// expands, so a child merges its parent's preset names and expands them
+	// once, whatever order the map iterates in.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for name, policy := range r.profiles {
-		inherited := policy.Inherits != ""
-		if inherited {
-			if err := r.resolveInheritance(policy); err != nil {
-				return fmt.Errorf("failed to resolve inheritance for profile %s: %w", name, err)
-			}
-		}
+	names := make([]string, 0, len(r.profiles))
+	for name := range r.profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 
+	derived := make(map[string]bool, len(names))
+	for _, name := range names {
+		derived[name] = r.profiles[name].Inherits != ""
+		if err := r.resolveBuiltinInheritance(name, nil); err != nil {
+			return fmt.Errorf("failed to resolve inheritance for profile %s: %w", name, err)
+		}
+	}
+
+	for _, name := range names {
+		policy := r.profiles[name]
 		if err := r.applyPresets(policy); err != nil {
 			return fmt.Errorf("failed to apply presets for profile %s: %w", name, err)
 		}
 
-		if inherited || len(policy.Presets) > 0 {
+		if derived[name] || len(policy.Presets) > 0 {
 			if err := policy.ValidateResolved(); err != nil {
 				return fmt.Errorf("invalid profile %s after inheritance: %w: %w", name, ErrProfileInvalid, err)
 			}
@@ -135,32 +148,48 @@ func (r *defaultProfileRegistry) applyPresets(policy *SandboxPolicy) error {
 	return nil
 }
 
-// resolveInheritance resolves the inheritance chain for a policy.
-// This function is called during registry initialization and modifies the policy in place.
+// resolveBuiltinInheritance resolves the chain of a built-in profile in
+// place. A built-in may inherit only from a built-in. The parent resolves
+// first, so a chain of any depth merges from its base down. visiting holds
+// the names on the current path, so a cycle is an error and not a hang.
 // Assumes registry mutex is already held.
-func (r *defaultProfileRegistry) resolveInheritance(child *SandboxPolicy) error {
-	if child.Inherits == "" {
+func (r *defaultProfileRegistry) resolveBuiltinInheritance(name string, visiting []string) error {
+	policy := r.profiles[name]
+	if policy.Inherits == "" {
+		if len(policy.Lineage) == 0 {
+			policy.Lineage = []string{name}
+		}
 		return nil
 	}
 
-	// Look up parent profile (must be a built-in profile)
-	parent, exists := r.profiles[child.Inherits]
-	if !exists {
-		return fmt.Errorf("%w: parent profile '%s' (only built-in profiles can be inherited)", ErrProfileNotFound, child.Inherits)
+	if slices.Contains(visiting, name) {
+		return inheritanceCycleError(append(visiting, name))
+	}
+	visiting = append(visiting, name)
+
+	parentName := policy.Inherits
+	if _, isBuiltin := r.builtins[parentName]; !isBuiltin {
+		return fmt.Errorf("%w: parent profile '%s' (a built-in profile can inherit only from a built-in profile)", ErrProfileNotFound, parentName)
 	}
 
-	// Prevent inheritance chains (parent must not itself inherit)
-	if parent.Inherits != "" {
-		return fmt.Errorf("%w: inheritance chains not allowed: parent profile '%s' inherits from '%s'", ErrProfileInvalid, parent.Name, parent.Inherits)
+	if err := r.resolveBuiltinInheritance(parentName, visiting); err != nil {
+		return err
 	}
 
-	// Merge parent into child
-	child.MergeWithParent(parent)
-
-	// Clear the inherits field after resolution to indicate it's been processed
-	child.Inherits = ""
-
+	mergeInherited(policy, r.profiles[parentName], name)
 	return nil
+}
+
+// mergeInherited merges parent into child, records the chain and clears the
+// inherits field to mark the child as resolved.
+func mergeInherited(child, parent *SandboxPolicy, childID string) {
+	child.MergeWithParent(parent)
+	child.Lineage = append(append([]string(nil), parent.Lineage...), childID)
+	child.Inherits = ""
+}
+
+func inheritanceCycleError(chain []string) error {
+	return fmt.Errorf("%w: inheritance cycle: %s", ErrProfileInvalid, strings.Join(chain, " < "))
 }
 
 // GetProfile retrieves a policy by name.
@@ -245,9 +274,17 @@ func (r *defaultProfileRegistry) ListUserProfiles() ([]ProfileInfo, error) {
 	return profiles, nil
 }
 
-// LoadCustomProfile loads a policy from a custom YAML file path.
-// Inheritance is resolved if the profile inherits from a built-in profile.
+// LoadCustomProfile loads a policy from a custom YAML file path and
+// resolves its inheritance chain. A parent is a built-in profile, a
+// policy template, a user profile or a file path, in that order. A relative
+// path is read from the directory of the file that names it.
 func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy, error) {
+	return r.loadCustomProfile(path, nil)
+}
+
+// loadCustomProfile loads path with visiting as the chain of profile files
+// above it, so a cycle through files is an error and not a hang.
+func (r *defaultProfileRegistry) loadCustomProfile(path string, visiting []string) (*SandboxPolicy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read custom profile %s: %w", path, err)
@@ -263,24 +300,15 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 		return nil, fmt.Errorf("invalid custom profile %s: %w: %w", path, ErrProfileInvalid, err)
 	}
 
-	// Resolve inheritance if present
 	if policy.Inherits != "" {
-		r.mu.RLock()
-		parent, exists := r.profiles[policy.Inherits]
-		r.mu.RUnlock()
-
-		if !exists {
-			return nil, fmt.Errorf("%w: custom profile %s inherits from unknown profile '%s' (only built-in profiles can be inherited)", ErrProfileNotFound, path, policy.Inherits)
+		parent, err := r.resolveParent(policy.Inherits, path, visiting)
+		if err != nil {
+			return nil, fmt.Errorf("custom profile %s: %w", path, err)
 		}
 
-		// Prevent inheritance chains
-		if parent.Inherits != "" {
-			return nil, fmt.Errorf("%w: custom profile %s parent '%s' inherits from '%s' (chains not allowed)", ErrProfileInvalid, path, parent.Name, parent.Inherits)
-		}
-
-		// Merge parent into child
-		policy.MergeWithParent(parent)
-		policy.Inherits = ""
+		mergeInherited(policy, parent, path)
+	} else {
+		policy.Lineage = []string{path}
 	}
 
 	if err := r.applyPresets(policy); err != nil {
@@ -299,6 +327,66 @@ func (r *defaultProfileRegistry) LoadCustomProfile(path string) (*SandboxPolicy,
 	return policy, nil
 }
 
+// resolveParent finds and loads the profile that childPath inherits from.
+func (r *defaultProfileRegistry) resolveParent(ref, childPath string, visiting []string) (*SandboxPolicy, error) {
+	childID := profileFileID(childPath)
+	if slices.Contains(visiting, childID) {
+		return nil, inheritanceCycleError(append(visiting, childID))
+	}
+	visiting = append(visiting, childID)
+
+	r.mu.RLock()
+	_, isBuiltin := r.builtins[ref]
+	builtin := r.profiles[ref]
+	templatePath, isTemplate := r.templates[ref]
+	r.mu.RUnlock()
+
+	if isBuiltin {
+		return builtin, nil
+	}
+
+	parentPath := templatePath
+	if !isTemplate {
+		userPath, found, err := r.findUserProfileByName(ref)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case found:
+			parentPath = userPath
+		case filepath.IsAbs(ref):
+			parentPath = ref
+		default:
+			parentPath = filepath.Join(filepath.Dir(childPath), ref)
+		}
+	}
+
+	if !fileExists(parentPath) {
+		return nil, fmt.Errorf("%w: inherits from unknown profile '%s' (not a built-in profile, a policy template, a user profile, or a file)", ErrProfileNotFound, ref)
+	}
+
+	if slices.Contains(visiting, profileFileID(parentPath)) {
+		return nil, inheritanceCycleError(append(visiting, profileFileID(parentPath)))
+	}
+
+	parent, err := r.loadCustomProfile(parentPath, visiting)
+	if err != nil {
+		return nil, err
+	}
+
+	return parent, nil
+}
+
+// profileFileID identifies a profile file for cycle detection. Two paths
+// that name one file get one ID.
+func profileFileID(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return filepath.Clean(abs)
+}
+
 // ListProfiles returns all discoverable profiles: built-ins first, then user
 // profiles (including shadowed entries so the cmd layer can warn the user).
 func (r *defaultProfileRegistry) ListProfiles() ([]ProfileSummary, error) {
@@ -315,7 +403,7 @@ func (r *defaultProfileRegistry) ListProfiles() ([]ProfileSummary, error) {
 		summaries = append(summaries, ProfileSummary{
 			Name:            name,
 			Source:          ProfileSourceBuiltin,
-			Inherits:        p.Inherits,
+			Inherits:        p.Parent(),
 			PackageManagers: append([]string(nil), p.PackageManagers...),
 			Description:     p.Description,
 		})

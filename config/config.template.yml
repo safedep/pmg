@@ -169,11 +169,20 @@ sandbox:
   # Requires 'enabled: true' and per-PM policies to be active. May break workflows expecting unrestricted commands.
   enforce_always: false
 
+  # The posture of the PMG proxy for the network rules of the sandbox profile.
+  # - audit (default): the proxy records what the rules would deny and denies nothing
+  # - enforce: the proxy denies what the rules deny
+  # The mode lives here and not in the profile, so one profile can run in audit on
+  # one host and in enforce on another. The proxy applies this key in a later
+  # release. Today pmg validates the value only.
+  network_mode: audit
+
   # Policy templates define policy profiles by name and path.
   # They can be used to override a built-in profile or create a custom profile.
-  # Note: Custom profiles loaded via policy_templates can inherit from built-in
-  # profiles using the 'inherits' field in the YAML (e.g., inherits: npm-restrictive).
-  # Inheritance allows you to extend a base profile with additional permissions.
+  # Note: A custom profile can inherit from a built-in profile, another template
+  # (by name), a user profile or a file path with the 'inherits' field in the YAML
+  # (e.g., inherits: npm-restrictive). A chain can have any depth. Lists merge by
+  # union and the child's booleans win.
   policy_templates:
     # Name for the template. Can be used to override a built-in profile or create a custom profile.
     # Path is the path to the template file.
