@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +22,8 @@ const (
 	legacyUserDirName = ".pmg"
 	// shimPMGBinVar is the shell variable in every shim script that holds the
 	// pmg binary path. parseShimPMGBin reads it back, so the name is shared.
-	shimPMGBinVar = "PMG_BIN"
+	shimPMGBinVar  = "PMG_BIN"
+	pmgCommandName = "pmg"
 )
 
 type ShimConfig struct {
@@ -61,7 +63,7 @@ func NewDefaultShimManager() (*ShimManager, error) {
 	}
 
 	aliasCfg := alias.DefaultConfig()
-	pmgBin, err := currentExecutable()
+	pmgBin, err := stableExecutable()
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +90,7 @@ func NewDefaultShimManager() (*ShimManager, error) {
 
 func (m *ShimManager) Install() error {
 	if m.config.PMGBin == "" {
-		pmgBin, err := currentExecutable()
+		pmgBin, err := stableExecutable()
 		if err != nil {
 			return err
 		}
@@ -278,6 +280,50 @@ func currentExecutable() (string, error) {
 	}
 
 	return filepath.Abs(exe)
+}
+
+// stableExecutable returns the pmg path a per-user shim should name.
+// os.Executable resolves symlinks, so for an install that keeps each version
+// in its own directory (mise, asdf, Homebrew, Nix) it gives a path that goes
+// stale on upgrade. The PATH entry for pmg is the stable alias those tools
+// maintain, so it is preferred when it is the running binary.
+//
+// The system install does not use this. Its shims must name the validated,
+// root-owned binary, not an alias that can change later.
+func stableExecutable() (string, error) {
+	exe, err := currentExecutable()
+	if err != nil {
+		return "", err
+	}
+
+	return stableExecutablePath(exe), nil
+}
+
+func stableExecutablePath(exe string) string {
+	onPath, err := exec.LookPath(pmgCommandName)
+	if err != nil || !filepath.IsAbs(onPath) {
+		return exe
+	}
+
+	if !sameFile(onPath, exe) {
+		return exe
+	}
+
+	return filepath.Clean(onPath)
+}
+
+func sameFile(a, b string) bool {
+	aInfo, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+
+	bInfo, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+
+	return os.SameFile(aInfo, bInfo)
 }
 
 func (m *ShimManager) addPathToShells() error {

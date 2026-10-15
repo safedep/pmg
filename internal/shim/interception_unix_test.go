@@ -33,3 +33,27 @@ func TestInspectInterception(t *testing.T) {
 		{Name: "pip", Path: filepath.Join(nodeDir, "pip"), Origin: platform.PathOriginUnknown},
 	}, inspection.Resolutions, "configured order kept, unresolved manager omitted")
 }
+
+// A shim that names a stable alias of this binary, such as a version
+// manager's latest directory, names this binary.
+func TestInspectShimFilesThroughAlias(t *testing.T) {
+	pmgBin, err := currentExecutable()
+	require.NoError(t, err)
+
+	alias := filepath.Join(t.TempDir(), "pmg")
+	require.NoError(t, os.Symlink(pmgBin, alias))
+
+	dir := t.TempDir()
+	require.NoError(t, NewShimManager(ShimConfig{
+		BinDir:          dir,
+		PMGBin:          alias,
+		PackageManagers: []string{"npm"},
+		SkipUserPath:    true,
+	}).Install())
+
+	inspection, err := InspectShimFiles(dir, []string{"npm"})
+	require.NoError(t, err)
+	assert.Empty(t, inspection.Missing)
+	assert.Empty(t, inspection.BinaryMissing)
+	assert.Empty(t, inspection.BinaryDiffers)
+}

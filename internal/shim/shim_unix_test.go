@@ -139,3 +139,75 @@ func TestShimManagerInstallEscapesPMGBin(t *testing.T) {
 	assert.Contains(t, string(content), `PMG_BIN='`+homeDir+`/PMG'\''s bin/pmg'`)
 	assert.NotContains(t, string(content), "command -v pmg")
 }
+
+func TestStableExecutablePath(t *testing.T) {
+	writeExe := func(t *testing.T, path string) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755))
+	}
+
+	cases := []struct {
+		name string
+		// setup returns the running binary, the PATH and the expected path.
+		setup func(t *testing.T, root string) (exe, path, want string)
+	}{
+		{
+			name: "a version manager alias on PATH is preferred",
+			setup: func(t *testing.T, root string) (string, string, string) {
+				exe := filepath.Join(root, "installs", "pmg", "0.31.0", "pmg")
+				writeExe(t, exe)
+				alias := filepath.Join(root, "installs", "pmg", "latest")
+				require.NoError(t, os.Symlink(filepath.Dir(exe), alias))
+				return exe, alias, filepath.Join(alias, "pmg")
+			},
+		},
+		{
+			name: "a symlinked pmg on PATH is preferred",
+			setup: func(t *testing.T, root string) (string, string, string) {
+				exe := filepath.Join(root, "Cellar", "pmg", "0.31.0", "bin", "pmg")
+				writeExe(t, exe)
+				binDir := filepath.Join(root, "bin")
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
+				require.NoError(t, os.Symlink(exe, filepath.Join(binDir, "pmg")))
+				return exe, binDir, filepath.Join(binDir, "pmg")
+			},
+		},
+		{
+			name: "another pmg on PATH is not used",
+			setup: func(t *testing.T, root string) (string, string, string) {
+				exe := filepath.Join(root, "local", "pmg")
+				writeExe(t, exe)
+				other := filepath.Join(root, "other", "pmg")
+				writeExe(t, other)
+				return exe, filepath.Dir(other), exe
+			},
+		},
+		{
+			name: "no pmg on PATH",
+			setup: func(t *testing.T, root string) (string, string, string) {
+				exe := filepath.Join(root, "local", "pmg")
+				writeExe(t, exe)
+				return exe, filepath.Join(root, "empty"), exe
+			},
+		},
+		{
+			name: "a relative PATH entry is not used",
+			setup: func(t *testing.T, root string) (string, string, string) {
+				exe := filepath.Join(root, "local", "pmg")
+				writeExe(t, exe)
+				t.Chdir(filepath.Dir(exe))
+				return exe, ".", exe
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exe, path, want := tc.setup(t, t.TempDir())
+			t.Setenv("PATH", path)
+
+			assert.Equal(t, want, stableExecutablePath(exe))
+		})
+	}
+}
