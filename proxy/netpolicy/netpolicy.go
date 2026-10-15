@@ -84,12 +84,12 @@ func ParseRule(raw string) (Rule, error) {
 
 	rest := raw
 	if idx := strings.Index(rest, "="); idx >= 0 {
-		client := rest[:idx]
+		client := strings.TrimSpace(rest[:idx])
 		rest = rest[idx+1:]
 		if client == "" {
 			return Rule{}, &RuleError{Rule: raw, Reason: "has an empty client before \"=\""}
 		}
-		if strings.ContainsAny(client, " \t\n*") {
+		if strings.ContainsAny(client, "\t\n*") {
 			return Rule{}, &RuleError{Rule: raw, Reason: "has an invalid client before \"=\""}
 		}
 		rule.Client = client
@@ -211,9 +211,19 @@ func (r *Rule) matches(host string, port uint16) bool {
 		return true
 	}
 	if suffix, ok := strings.CutPrefix(r.Host, "*."); ok {
+		// A wildcard names labels, and an address has none, so "*.3.4"
+		// never matches 1.2.3.4.
+		if isAddress(host) {
+			return false
+		}
 		return strings.HasSuffix(host, "."+suffix)
 	}
 	return r.Host == host
+}
+
+func isAddress(host string) bool {
+	_, err := netip.ParseAddr(host)
+	return err == nil
 }
 
 // beats says whether r is more specific than other, or as specific and a
@@ -257,7 +267,10 @@ func normalizeRuleHost(host string) (string, error) {
 	if host == anyHost {
 		return "", fmt.Errorf("has an invalid host")
 	}
-	if _, err := netip.ParseAddr(host); err == nil {
+	if addr, err := netip.ParseAddr(host); err == nil {
+		if addr.Zone() != "" {
+			return "", fmt.Errorf("has an invalid host")
+		}
 		return host, nil
 	}
 
@@ -276,7 +289,7 @@ func validateName(name string) error {
 		return fmt.Errorf("has an invalid host")
 	}
 	for _, label := range strings.Split(name, ".") {
-		if label == "" || len(label) > maxLabelLen {
+		if label == "" || len(label) > maxLabelLen || label[0] == '-' || label[len(label)-1] == '-' {
 			return fmt.Errorf("has an invalid host")
 		}
 		for _, c := range label {

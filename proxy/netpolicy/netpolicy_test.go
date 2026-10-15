@@ -53,6 +53,8 @@ func TestDecide(t *testing.T) {
 		{name: "ipv6 connection in brackets", allow: []string{"[2001:db8::1]:443"}, deny: []string{"*:*"}, host: "[2001:db8::1]", port: 443, allowed: true, rule: "[2001:db8::1]:443"},
 		{name: "ipv4 mapped ipv6 matches the ipv4 rule", allow: []string{"10.0.0.5:443"}, deny: []string{"*:*"}, host: "::ffff:10.0.0.5", port: 443, allowed: true, rule: "10.0.0.5:443"},
 		{name: "wildcard does not match an ip literal", allow: []string{"*.example.com:443"}, deny: []string{"*:*"}, host: "10.0.0.5", port: 443, allowed: false, rule: "*:*"},
+		{name: "numeric wildcard does not match an ip literal", allow: []string{"*.0.5:443"}, deny: []string{"*:*"}, host: "10.0.0.5", port: 443, allowed: false, rule: "*:*"},
+		{name: "numeric wildcard matches a numeric name", allow: []string{"*.0.5:443"}, deny: []string{"*:*"}, host: "x.0.5", port: 443, allowed: true, rule: "*.0.5:443"},
 
 		{name: "client rule never matches without a client", allow: []string{"git=github.com:443"}, deny: []string{"*:*"}, host: "github.com", port: 443, allowed: false, rule: "*:*"},
 		{name: "client deny never matches without a client", allow: []string{"*:*"}, deny: []string{"curl=*:*"}, host: "example.com", port: 443, allowed: true, rule: "*:*"},
@@ -116,6 +118,8 @@ func TestParseRule(t *testing.T) {
 		{raw: "/usr/bin/git=*.github.com:443", client: "/usr/bin/git", host: "*.github.com", port: 443},
 		{raw: "curl=*:*", client: "curl", host: "*", port: 0},
 		{raw: "my_host.internal:8080", host: "my_host.internal", port: 8080},
+		{raw: "/opt/my tools/git=github.com:443", client: "/opt/my tools/git", host: "github.com", port: 443},
+		{raw: "git =github.com:443", client: "git", host: "github.com", port: 443},
 	}
 
 	for _, tc := range tests {
@@ -149,9 +153,12 @@ func TestParseRuleRejects(t *testing.T) {
 		"exa mple.com:443",
 		"example.com/path:443",
 		"=github.com:443",
-		"cu rl=github.com:443",
+		"cu\trl=github.com:443",
 		"git=github.com",
 		"2001:db8::1:443",
+		"[fe80::1%eth0]:443",
+		"-example.com:443",
+		"example-.com:443",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			_, err := ParseRule(raw)

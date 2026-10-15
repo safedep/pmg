@@ -112,6 +112,9 @@ func (r *defaultProfileRegistry) loadBuiltinProfiles() error {
 	derived := make(map[string]bool, len(names))
 	for _, name := range names {
 		derived[name] = r.profiles[name].Inherits != ""
+	}
+
+	for _, name := range names {
 		if err := r.resolveBuiltinInheritance(name, nil); err != nil {
 			return fmt.Errorf("failed to resolve inheritance for profile %s: %w", name, err)
 		}
@@ -193,8 +196,12 @@ func inheritanceCycleError(chain []string) error {
 }
 
 // GetProfile retrieves a policy by name.
-// Resolution order: built-in profiles first, then user profile directory
-// (by bare name, looking up <name>.yml or <name>.yaml), then a literal file path.
+// Resolution order: built-in profiles first, then policy templates by name,
+// then the user profile directory (by bare name, looking up <name>.yml or
+// <name>.yaml), then a literal file path. A template that shadows a
+// built-in name is reached only through policies.<pm>.profile, where the
+// executor maps the name to the template, because a template that
+// overrides a built-in inherits that built-in itself.
 func (r *defaultProfileRegistry) GetProfile(name string) (*SandboxPolicy, error) {
 	r.mu.RLock()
 	if _, isBuiltin := r.builtins[name]; isBuiltin {
@@ -202,7 +209,12 @@ func (r *defaultProfileRegistry) GetProfile(name string) (*SandboxPolicy, error)
 		r.mu.RUnlock()
 		return policy, nil
 	}
+	templatePath, isTemplate := r.templates[name]
 	r.mu.RUnlock()
+
+	if isTemplate {
+		return r.LoadCustomProfile(templatePath)
+	}
 
 	path, found, err := r.findUserProfileByName(name)
 	if err != nil {
@@ -303,6 +315,11 @@ func (r *defaultProfileRegistry) loadCustomProfile(path string, visiting []strin
 	if policy.Inherits != "" {
 		parent, err := r.resolveParent(policy.Inherits, path, visiting)
 		if err != nil {
+			// The leaf names itself once. A parent's error already names
+			// the file it is about, so a chain reports each file once.
+			if len(visiting) > 0 {
+				return nil, err
+			}
 			return nil, fmt.Errorf("custom profile %s: %w", path, err)
 		}
 
@@ -328,6 +345,8 @@ func (r *defaultProfileRegistry) loadCustomProfile(path string, visiting []strin
 }
 
 // resolveParent finds and loads the profile that childPath inherits from.
+// A built-in name wins over a template of the same name, so a template
+// that overrides a built-in can inherit that built-in without a cycle.
 func (r *defaultProfileRegistry) resolveParent(ref, childPath string, visiting []string) (*SandboxPolicy, error) {
 	childID := profileFileID(childPath)
 	if slices.Contains(visiting, childID) {

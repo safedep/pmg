@@ -11,6 +11,10 @@ stdout 'registry.npmjs.org:443'
 stdout 'corp.example.com:443'
 stdout 'leaf.example.com:443'
 
+exec pmg sandbox profile show leaf --resolved --json
+stdout '"lineage"'
+stdout 'npm-restrictive'
+
 exec pmg sandbox profile list
 stdout 'leaf'
 stdout 'corp'

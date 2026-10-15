@@ -182,7 +182,9 @@ sandbox:
   # Note: A custom profile can inherit from a built-in profile, another template
   # (by name), a user profile or a file path with the 'inherits' field in the YAML
   # (e.g., inherits: npm-restrictive). A chain can have any depth. Lists merge by
-  # union and the child's booleans win.
+  # union and the child's booleans win. In 'inherits' a built-in name wins over a
+  # template of the same name, so a template that overrides a built-in is used
+  # only where policies.<pm>.profile names it.
   policy_templates:
     # Name for the template. Can be used to override a built-in profile or create a custom profile.
     # Path is the path to the template file.

@@ -22,8 +22,8 @@ type SandboxPolicy struct {
 	Presets []string `yaml:"presets,omitempty" json:"presets,omitempty"`
 
 	// Lineage is the resolved inheritance chain from the base profile to
-	// this one: built-in names, template names and file paths. The registry
-	// sets it, so it is not read from YAML.
+	// this one: built-in names and file paths. The registry sets it, so it
+	// is not read from YAML.
 	Lineage []string `yaml:"-" json:"lineage,omitempty"`
 
 	// These fields are affected by inheritance and are merged with the parent policy.

@@ -79,6 +79,12 @@ func WithProcessLabel(label string) ApplySandboxOpt {
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.
 func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
+	// A config that failed closed holds defaults, with no policies and no
+	// mode, so a run must not resolve a policy from it.
+	if err := config.LoadError(); err != nil {
+		return nil, err
+	}
+
 	cfg := config.Get()
 
 	if !cfg.Config.Sandbox.Enabled {
@@ -185,7 +191,9 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		// A failed overlay load means the user's saved allowances were silently
 		// dropped. Echo to stderr so users at normal verbosity see why their
 		// sandbox is more restrictive than expected.
-		fmt.Fprintf(os.Stderr, "pmg: warning: project overlay could not be applied: %v\n", err)
+		if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: project overlay could not be applied: %v\n", err); werr != nil {
+			log.Warnf("failed to write overlay warning to stderr: %v", werr)
+		}
 	}
 
 	// Apply runtime --sandbox-allow overrides to the policy before execution

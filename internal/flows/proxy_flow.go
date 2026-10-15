@@ -227,14 +227,12 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
 			runerror.ReasonProxySetupFailed)
 	}
-	// The proxy reads the profile's network rules, so the policy resolves
-	// before the proxy starts and the runner gets the same resolution.
-	var sandboxRes *executor.Resolution
-	if !cfg.DryRun {
-		sandboxRes, err = executor.ResolvePolicy(f.pm.Name(), false)
-		if err != nil {
-			return fmt.Errorf("failed to apply sandbox: %w", err)
-		}
+	// The policy resolves once, before the proxy starts, and the runner gets
+	// the same resolution. A later step hands the network rules to the proxy.
+	sandboxRes, err := executor.ResolvePolicy(f.pm.Name(), false)
+	if err != nil {
+		return runerror.Wrap(fmt.Errorf("failed to apply sandbox: %w", err),
+			runerror.ReasonExecutionSetupFailed)
 	}
 
 	// Create and start proxy server

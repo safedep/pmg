@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -223,4 +224,153 @@ func TestResolveProfileCopiesLineage(t *testing.T) {
 	cached, err := registry.GetProfile("npx")
 	require.NoError(t, err)
 	assert.Equal(t, "npm-restrictive", cached.Lineage[0])
+}
+
+func registerFakeBuiltin(r *defaultProfileRegistry, name, inherits string) {
+	r.profiles[name] = &SandboxPolicy{
+		Name:            name,
+		Inherits:        inherits,
+		PackageManagers: []string{"npm"},
+		Filesystem:      FilesystemPolicy{AllowRead: []string{"/" + name + "/**"}},
+	}
+	r.builtins[name] = struct{}{}
+}
+
+func TestBuiltinInheritanceChainOfThree(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	registry.mu.Lock()
+	registerFakeBuiltin(registry, "fake-base", "")
+	registerFakeBuiltin(registry, "fake-mid", "fake-base")
+	registerFakeBuiltin(registry, "fake-leaf", "fake-mid")
+	// The leaf resolves first and pulls the chain with it.
+	err = registry.resolveBuiltinInheritance("fake-leaf", nil)
+	registry.mu.Unlock()
+	require.NoError(t, err)
+
+	leaf := registry.profiles["fake-leaf"]
+	assert.Equal(t, []string{"fake-base", "fake-mid", "fake-leaf"}, leaf.Lineage)
+	assert.ElementsMatch(t, []string{"/fake-base/**", "/fake-mid/**", "/fake-leaf/**"}, leaf.Filesystem.AllowRead)
+
+	mid := registry.profiles["fake-mid"]
+	assert.Equal(t, []string{"fake-base", "fake-mid"}, mid.Lineage)
+	assert.Empty(t, mid.Inherits)
+}
+
+func TestBuiltinInheritanceCycleIsAnError(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	registry.mu.Lock()
+	registerFakeBuiltin(registry, "cycle-a", "cycle-b")
+	registerFakeBuiltin(registry, "cycle-b", "cycle-a")
+	err = registry.resolveBuiltinInheritance("cycle-a", nil)
+	registry.mu.Unlock()
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrProfileInvalid)
+	assert.Contains(t, err.Error(), "inheritance cycle: cycle-a < cycle-b < cycle-a")
+}
+
+func TestBuiltinCannotInheritACustomProfile(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	registry.mu.Lock()
+	registerFakeBuiltin(registry, "fake-child", "not-a-builtin")
+	err = registry.resolveBuiltinInheritance("fake-child", nil)
+	registry.mu.Unlock()
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrProfileNotFound)
+}
+
+func TestTemplateNameResolution(t *testing.T) {
+	dir := t.TempDir()
+	overridePath := writeProfileYAML(t, filepath.Join(dir, "npm-override.yml"), `
+name: npm-restrictive
+description: template that overrides the built-in
+inherits: npm-restrictive
+package_managers: [npm]
+network:
+  allow_outbound:
+    - override.example.com:443
+`)
+	runnerPath := writeProfileYAML(t, filepath.Join(dir, "runner.yml"), `
+name: runner
+description: template with its own name
+inherits: npm-restrictive
+package_managers: [npm]
+network:
+  allow_outbound:
+    - runner.example.com:443
+`)
+	childPath := writeProfileYAML(t, filepath.Join(dir, "child.yml"), `
+name: child
+description: inherits the built-in name
+inherits: npm-restrictive
+package_managers: [npm]
+network:
+  allow_outbound:
+    - child.example.com:443
+`)
+
+	registry, err := newDefaultProfileRegistry(WithPolicyTemplates(map[string]string{
+		"npm-restrictive": overridePath,
+		"runner":          runnerPath,
+	}))
+	require.NoError(t, err)
+
+	// A template with its own name resolves by that name.
+	runner, err := registry.GetProfile("runner")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"npm-restrictive", runnerPath}, runner.Lineage)
+
+	// The built-in wins over the template that shadows its name, by name
+	// and in inherits, so the override template itself can inherit it.
+	builtin, err := registry.GetProfile("npm-restrictive")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"npm-restrictive"}, builtin.Lineage)
+	assert.NotContains(t, builtin.Network.AllowOutbound, "override.example.com:443")
+
+	child, err := registry.LoadCustomProfile(childPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"npm-restrictive", childPath}, child.Lineage)
+	assert.NotContains(t, child.Network.AllowOutbound, "override.example.com:443")
+
+	override, err := registry.LoadCustomProfile(overridePath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"npm-restrictive", overridePath}, override.Lineage)
+	assert.Contains(t, override.Network.AllowOutbound, "override.example.com:443")
+}
+
+func TestLoadCustomProfileCycleNamesEachFileOnce(t *testing.T) {
+	dir := t.TempDir()
+	aPath := writeProfileYAML(t, filepath.Join(dir, "a.yml"), `
+name: a
+description: a
+inherits: b.yml
+package_managers: [npm]
+filesystem:
+  allow_read:
+    - /a/**
+`)
+	writeProfileYAML(t, filepath.Join(dir, "b.yml"), `
+name: b
+description: b
+inherits: a.yml
+package_managers: [npm]
+filesystem:
+  allow_read:
+    - /b/**
+`)
+
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	_, err = registry.LoadCustomProfile(aPath)
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(err.Error(), "custom profile "))
+	assert.Equal(t, 1, strings.Count(err.Error(), "inheritance cycle"))
 }
