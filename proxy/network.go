@@ -21,6 +21,10 @@ type NetworkDecision struct {
 	Origin   Origin
 }
 
+// connectDefaultPort is the port goproxy appends to a CONNECT target that
+// names none, in its ConnectAccept path.
+const connectDefaultPort = 80
+
 // mitmSession is what the CONNECT handler leaves in goproxy's user data for
 // the requests inside a terminated tunnel.
 type mitmSession struct {
@@ -33,7 +37,10 @@ type mitmSession struct {
 // that returns a decision.
 func (ps *proxyServer) configureNetworkPolicy() {
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-		hostname, port := splitTarget(host, 443)
+		// goproxy dials port 80 for a CONNECT target without a port, so the
+		// decision is made on that port and not on 443. A port-specific deny
+		// then covers what is dialed.
+		hostname, port := splitTarget(host, connectDefaultPort)
 		decision, refused := ps.decideNetwork(hostname, port, originFromContext(ctx.Req.Context()))
 		if refused {
 			// goproxy writes ctx.Resp to the client when a CONNECT is rejected.

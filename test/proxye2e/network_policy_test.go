@@ -1,8 +1,12 @@
 package proxye2e
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
@@ -51,8 +55,62 @@ func (h *Harness) getWithHost(rawURL, host string) RequestOutcome {
 	return readOutcome(resp, out)
 }
 
+// rawConnect sends one CONNECT with target as written, so a target without a
+// port reaches the proxy as a client can craft it. It returns the status line.
+func (h *Harness) rawConnect(target string) RequestOutcome {
+	h.t.Helper()
+
+	out := RequestOutcome{URL: "CONNECT " + target}
+	conn, err := net.DialTimeout("tcp", h.proxy.Address(), 5*time.Second)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
+		out.Err = err
+		return out
+	}
+
+	// A 200 opens a tunnel with no body to read, so only the head is read.
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		out.Err = err
+		return out
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	out.StatusCode = resp.StatusCode
+	out.Blocked = resp.StatusCode == http.StatusForbidden
+	return out
+}
+
 func TestProxyFlow_NetworkPolicy(t *testing.T) {
 	RunCases(t, []TestCase{
+		{
+			Name: "CONNECT without a port is decided on the port the proxy dials",
+			Options: []Option{func() Option {
+				p, err := netpolicy.New(nil, []string{"evil.example:80"})
+				require.NoError(t, err)
+				return WithNetworkPolicy(p, true)
+			}()},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.rawConnect("evil.example")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Empty(t, h.DialedAddrs())
+
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, 1)
+				assert.Equal(t, uint16(80), decisions[0].Port)
+				assert.Equal(t, "evil.example:80", decisions[0].Rule)
+			},
+		},
 		{
 			Name:    "allowed registry host passes through MITM",
 			Options: []Option{registryOnly(t, true)},
