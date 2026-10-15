@@ -852,3 +852,47 @@ func TestObserveNetworkDenialsWritesAViolationRecord(t *testing.T) {
 	assert.Equal(t, "ci", record.Report.PolicyName)
 	assert.Equal(t, "evil.example:443", record.Report.Violations[0].Target)
 }
+
+// A relative profile path in the config resolves next to the config file
+// before the working directory, so a repository cannot replace the
+// user's file with one of the same path.
+func TestLoadProfileResolvesAConfigPathNextToTheConfigFile(t *testing.T) {
+	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
+
+	configDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "ci.yml"), []byte("name: config-ci\ninherits: npm-restrictive\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "bare.yml"), []byte("name: config-bare\ninherits: npm-restrictive\n"), 0o600))
+
+	workDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(workDir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "profiles", "ci.yml"), []byte(open), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "bare.yml"), []byte(open), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "local.yml"), []byte("name: local\ninherits: npm-restrictive\n"), 0o600))
+
+	t.Setenv("PMG_CONFIG_DIR", configDir)
+	config.Reload()
+	t.Cleanup(config.Reload)
+	cfg := config.Get()
+
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(workDir))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
+
+	policy, err := LoadProfile(cfg, "profiles/ci.yml")
+	require.NoError(t, err)
+	assert.Equal(t, "config-ci", policy.Name)
+
+	policy, err = LoadProfile(cfg, "bare.yml")
+	require.NoError(t, err)
+	assert.Equal(t, "config-bare", policy.Name, "a bare file name is a path too")
+
+	policy, err = LoadProfile(cfg, "local.yml")
+	require.NoError(t, err)
+	assert.Equal(t, "local", policy.Name, "a path with no file next to the config falls through to the working directory")
+
+	policy, err = LoadProfile(cfg, "npm-restrictive")
+	require.NoError(t, err)
+	assert.Equal(t, "npm-restrictive", policy.Name)
+}

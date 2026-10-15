@@ -143,3 +143,31 @@ func TestWideningFlagsUnderLockdown(t *testing.T) {
 		wideningFlags(changed("enforce", "enforce-exempt-user", "enforce-skip-destination", "enforce-deny-udp", "enforce-namespaces"),
 			config.ProxyEnforceConfig{Namespaces: config.ProxyEnforceNamespacesConfig{Mode: "auto"}}))
 }
+
+func TestAbsoluteProfileFlag(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ci.yml"), []byte("name: ci\n"), 0o600))
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
+
+	parse := func(t *testing.T, args ...string) (*pflag.FlagSet, *config.ProxyServerConfig) {
+		t.Helper()
+		srv := &config.ProxyServerConfig{Profile: "profiles/ci.yml"}
+		cmd := &cobra.Command{Use: "start"}
+		addNetworkFlags(cmd, srv)
+		require.NoError(t, cmd.Flags().Parse(args))
+		absoluteProfileFlag(cmd.Flags(), srv)
+		return cmd.Flags(), srv
+	}
+
+	_, srv := parse(t, "--profile", "ci.yml")
+	assert.Equal(t, filepath.Join(dir, "ci.yml"), srv.Profile, "a file in the working directory is named by its absolute path")
+
+	_, srv = parse(t, "--profile", "npm-restrictive")
+	assert.Equal(t, "npm-restrictive", srv.Profile, "a name stays a name")
+
+	_, srv = parse(t)
+	assert.Equal(t, "profiles/ci.yml", srv.Profile, "the config value resolves next to the config file, not here")
+}

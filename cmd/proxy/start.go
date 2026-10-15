@@ -49,6 +49,7 @@ func newStartCommand() *cobra.Command {
 
 func runStart(cmd *cobra.Command, _ []string) error {
 	cfg := config.Get()
+	absoluteProfileFlag(cmd.Flags(), &cfg.Config.Proxy.Server)
 	opts := proxyserver.RunOptions{
 		StatePath: proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir()),
 		Host:      cfg.Config.Proxy.Server.ListenHost,

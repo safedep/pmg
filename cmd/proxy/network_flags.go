@@ -1,6 +1,10 @@
 package proxy
 
 import (
+	"os"
+	"path/filepath"
+
+	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/spf13/cobra"
@@ -29,6 +33,24 @@ func addNetworkFlags(cmd *cobra.Command, srv *config.ProxyServerConfig) {
 		"host:port rule added to the profile's allow_outbound list (repeatable)")
 	fs.StringArrayVar(&networkOverridesFlag.Deny, flagNetworkDeny, nil,
 		"host:port rule added to the profile's deny_outbound list (repeatable)")
+}
+
+// absoluteProfileFlag makes a relative --profile path absolute, so the
+// daemon child and the config loader read the file the user named in the
+// working directory, and not one next to the config file.
+func absoluteProfileFlag(fs *pflag.FlagSet, srv *config.ProxyServerConfig) {
+	if !fs.Changed(flagProfile) || srv.Profile == "" || filepath.IsAbs(srv.Profile) {
+		return
+	}
+	if info, err := os.Stat(srv.Profile); err != nil || info.IsDir() {
+		return
+	}
+	abs, err := filepath.Abs(srv.Profile)
+	if err != nil {
+		log.Warnf("failed to resolve --profile %s: %v", srv.Profile, err)
+		return
+	}
+	srv.Profile = abs
 }
 
 // wideningNetworkFlags returns the network flags that loosen the policy a

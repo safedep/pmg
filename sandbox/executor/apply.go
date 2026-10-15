@@ -117,7 +117,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 	if cfg.SandboxProfileOverride != "" {
 		log.Debugf("Using sandbox profile override: %s", cfg.SandboxProfileOverride)
 
-		policy, err = registries.load(cfg.SandboxProfileOverride)
+		policy, err = registries.loadOverride(cfg.SandboxProfileOverride)
 		if err != nil {
 			return nil, profileLoadError("Failed to load sandbox profile override", cfg.SandboxProfileOverride, err)
 		}
@@ -247,29 +247,38 @@ func newProfileRegistries(cfg *config.RuntimeConfig) (*profileRegistries, error)
 		return nil, fmt.Errorf("failed to create profile registry: %w", err)
 	}
 
-	return &profileRegistries{presets: presets, profiles: profiles, templates: templates, configDir: cfg.ConfigDir()}, nil
+	return &profileRegistries{presets: presets, profiles: profiles, templates: templates, configDir: filepath.Dir(cfg.ConfigFilePath())}, nil
 }
 
-// load resolves ref as a template name first, so a template that overrides
-// a built-in profile wins over the built-in. The registry gets the same map,
-// so a profile can inherit a template by name. A relative path that does
-// not exist in the working directory resolves against the config directory.
+// load resolves a reference from the config: a template name first, so a
+// template that overrides a built-in profile wins over the built-in. The
+// registry gets the same map, so a profile can inherit a template by name.
+// A relative path resolves next to the config file before the working
+// directory, so a repository cannot replace the user's file with one of
+// the same path.
 func (r *profileRegistries) load(ref string) (*sandbox.SandboxPolicy, error) {
 	if templatePath, exists := r.templates[ref]; exists {
 		ref = templatePath
 	}
-
-	policy, err := r.profiles.GetProfile(ref)
-	if errors.Is(err, sandbox.ErrProfileNotFound) && isRelativeProfilePath(ref) {
-		if inConfigDir := filepath.Join(r.configDir, ref); fileExists(inConfigDir) {
-			return r.profiles.GetProfile(inConfigDir)
+	if isProfilePath(ref) && !filepath.IsAbs(ref) {
+		if next := filepath.Join(r.configDir, ref); fileExists(next) {
+			ref = next
 		}
 	}
-	return policy, err
+	return r.profiles.GetProfile(ref)
 }
 
-func isRelativeProfilePath(ref string) bool {
-	return !filepath.IsAbs(ref) && strings.ContainsAny(ref, `/\`)
+// loadOverride resolves a reference from the command line, where a
+// relative path is in the working directory.
+func (r *profileRegistries) loadOverride(ref string) (*sandbox.SandboxPolicy, error) {
+	return r.profiles.GetProfile(ref)
+}
+
+// isProfilePath reports whether ref names a file and not a profile: it has
+// a directory part or a YAML extension.
+func isProfilePath(ref string) bool {
+	ext := strings.ToLower(filepath.Ext(ref))
+	return strings.ContainsAny(ref, `/\`) || ext == ".yml" || ext == ".yaml"
 }
 
 func fileExists(path string) bool {
@@ -305,8 +314,8 @@ func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.Sandbox
 	path := ref
 	switch {
 	case filepath.IsAbs(ref):
-	case isRelativeProfilePath(ref):
-		path = filepath.Join(filepath.Dir(cfg.ConfigFilePath()), ref)
+	case isProfilePath(ref):
+		path = filepath.Join(registries.configDir, ref)
 	default:
 		if _, builtin := registries.profiles.BuiltinProfileYAML(ref); !builtin {
 			err := fmt.Errorf("%w: %s is not a built-in profile or a path", sandbox.ErrProfileNotFound, ref)

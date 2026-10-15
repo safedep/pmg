@@ -234,9 +234,9 @@ proxy:
 | none | `--network-allow` (repeatable) | none |
 | none | `--network-deny` (repeatable) | none |
 
-A relative `profile` path in the config resolves against the config
-directory. A relative `--profile` path resolves against the working
-directory. Under `global_lockdown` the managed config names a built-in
+A relative `profile` path in the config resolves next to the config file
+first. A relative `--profile` path resolves against the working directory.
+A bare file name such as `ci.yml` is a path. Under `global_lockdown` the managed config names a built-in
 profile, an absolute path, or a path relative to the managed config file,
 because a user profile, a template and the working directory are writable
 by the user. The two rule flags add one `host:port` rule each to the resolved
