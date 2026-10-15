@@ -475,7 +475,8 @@ jobs:
           MODE: ${{ matrix.mode }}
         run: |
           set -eu
-          mkdir gomod && cd gomod
+          # Outside the checkout, so go does not read the go.work of this repo.
+          cd "$(mktemp -d)"
           go mod init example.com/pmg-alpine
           if [ "$MODE" = shim ]; then
             pmg go get github.com/google/uuid@v1.6.0
