@@ -101,7 +101,7 @@ func (l *networkDecisionLog) observeViolations() {
 	for _, d := range report.Denials {
 		violations = append(violations, sandbox.Violation{
 			Kind:       sandbox.ViolationKindNetworkConnect,
-			RawKind:    "network_policy",
+			RawKind:    string(audit.EventTypeNetworkPolicy),
 			Target:     d.Destination,
 			RuleTarget: d.Rule,
 			Process:    d.Client,

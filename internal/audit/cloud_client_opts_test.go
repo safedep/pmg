@@ -124,3 +124,69 @@ func TestCloudSyncOptionsAreValid(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.Close())
 }
+
+func TestNetworkPolicyDedupRule(t *testing.T) {
+	rule := networkPolicyDedupRule()
+
+	assert.Equal(t, "pmg-network-policy-decision", rule.Name)
+	assert.Equal(t, 15*time.Minute, rule.Window)
+
+	denied := &controltowerv1.PmgNetworkPolicyDecision{}
+	denied.SetHostname("evil.example")
+	denied.SetPort(443)
+	denied.SetRule("*:*")
+	denied.SetAction(controltowerv1.PmgNetworkPolicyAction_PMG_NETWORK_POLICY_ACTION_DENIED)
+	denied.SetMode(controltowerv1.PmgNetworkPolicyMode_PMG_NETWORK_POLICY_MODE_ENFORCE)
+	denied.SetEntryPoint(controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST)
+	denied.SetClient(&controltowerv1.PmgProxyClient{Pid: proto.Uint32(42), Comm: proto.String("curl"), Executable: proto.String("/usr/bin/curl")})
+	observed := proto.Clone(denied).(*controltowerv1.PmgNetworkPolicyDecision)
+	observed.SetAction(controltowerv1.PmgNetworkPolicyAction_PMG_NETWORK_POLICY_ACTION_OBSERVED)
+	observed.SetMode(controltowerv1.PmgNetworkPolicyMode_PMG_NETWORK_POLICY_MODE_AUDIT)
+
+	tests := []struct {
+		name      string
+		event     *servicev1.ToolEvent
+		wantParts []string
+		wantMatch bool
+	}{
+		{
+			name: "denied decision",
+			event: toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+				EventType:             controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION,
+				NetworkPolicyDecision: denied,
+			}),
+			wantParts: []string{"evil.example", "443", "*:*", "PMG_NETWORK_POLICY_ACTION_DENIED", "PMG_NETWORK_POLICY_MODE_ENFORCE", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", ""},
+			wantMatch: true,
+		},
+		{
+			name: "observed decision of the same destination has another key",
+			event: toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+				EventType:             controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION,
+				NetworkPolicyDecision: observed,
+			}),
+			wantParts: []string{"evil.example", "443", "*:*", "PMG_NETWORK_POLICY_ACTION_OBSERVED", "PMG_NETWORK_POLICY_MODE_AUDIT", "PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST", "/usr/bin/curl", ""},
+			wantMatch: true,
+		},
+		{
+			name: "host observation is not covered",
+			event: toolEventWithPmgEvent(&controltowerv1.PmgEvent{
+				EventType:       controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION,
+				HostObservation: &controltowerv1.PmgHostObservation{Hostname: "registry.example.com"},
+			}),
+			wantMatch: false,
+		},
+		{
+			name:      "no pmg event",
+			event:     &servicev1.ToolEvent{},
+			wantMatch: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parts, ok := rule.Key(tc.event)
+			require.Equal(t, tc.wantMatch, ok)
+			assert.Equal(t, tc.wantParts, parts)
+		})
+	}
+}
