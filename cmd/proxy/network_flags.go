@@ -1,12 +1,12 @@
 package proxy
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
+	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -37,12 +37,11 @@ func addNetworkFlags(cmd *cobra.Command, srv *config.ProxyServerConfig) {
 
 // absoluteProfileFlag makes a relative --profile path absolute, so the
 // daemon child and the config loader read the file the user named in the
-// working directory, and not one next to the config file.
+// working directory, and not one next to the config file. A bare name
+// stays a name, so a file in the working directory cannot stand in for a
+// built-in profile.
 func absoluteProfileFlag(fs *pflag.FlagSet, srv *config.ProxyServerConfig) {
-	if !fs.Changed(flagProfile) || srv.Profile == "" || filepath.IsAbs(srv.Profile) {
-		return
-	}
-	if info, err := os.Stat(srv.Profile); err != nil || info.IsDir() {
+	if !fs.Changed(flagProfile) || !executor.IsProfilePath(srv.Profile) || filepath.IsAbs(srv.Profile) {
 		return
 	}
 	abs, err := filepath.Abs(srv.Profile)

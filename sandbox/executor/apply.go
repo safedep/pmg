@@ -260,7 +260,7 @@ func (r *profileRegistries) load(ref string) (*sandbox.SandboxPolicy, error) {
 	if templatePath, exists := r.templates[ref]; exists {
 		ref = templatePath
 	}
-	if isProfilePath(ref) && !filepath.IsAbs(ref) {
+	if IsProfilePath(ref) && !filepath.IsAbs(ref) {
 		if next := filepath.Join(r.configDir, ref); fileExists(next) {
 			ref = next
 		}
@@ -274,9 +274,10 @@ func (r *profileRegistries) loadOverride(ref string) (*sandbox.SandboxPolicy, er
 	return r.profiles.GetProfile(ref)
 }
 
-// isProfilePath reports whether ref names a file and not a profile: it has
-// a directory part or a YAML extension.
-func isProfilePath(ref string) bool {
+// IsProfilePath reports whether ref names a file and not a profile: it has
+// a directory part or a YAML extension. A bare name is a built-in, a
+// template or a user profile, whatever file the working directory holds.
+func IsProfilePath(ref string) bool {
 	ext := strings.ToLower(filepath.Ext(ref))
 	return strings.ContainsAny(ref, `/\`) || ext == ".yml" || ext == ".yaml"
 }
@@ -314,7 +315,7 @@ func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.Sandbox
 	path := ref
 	switch {
 	case filepath.IsAbs(ref):
-	case isProfilePath(ref):
+	case IsProfilePath(ref):
 		path = filepath.Join(registries.configDir, ref)
 	default:
 		if _, builtin := registries.profiles.BuiltinProfileYAML(ref); !builtin {

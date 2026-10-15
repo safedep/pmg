@@ -236,7 +236,9 @@ proxy:
 
 A relative `profile` path in the config resolves next to the config file
 first. A relative `--profile` path resolves against the working directory.
-A bare file name such as `ci.yml` is a path. Under `global_lockdown` the managed config names a built-in
+A reference with a directory part or a `.yml` extension is a path. A bare
+name such as `npm-restrictive` is a profile name, whatever file the working
+directory holds. Under `global_lockdown` the managed config names a built-in
 profile, an absolute path, or a path relative to the managed config file,
 because a user profile, a template and the working directory are writable
 by the user. The two rule flags add one `host:port` rule each to the resolved

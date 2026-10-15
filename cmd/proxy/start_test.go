@@ -168,8 +168,12 @@ func TestAbsoluteProfileFlag(t *testing.T) {
 	_, srv := parse(t, "--profile", "ci.yml")
 	assert.Equal(t, filepath.Join(dir, "ci.yml"), srv.Profile, "a file in the working directory is named by its absolute path")
 
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "npm-restrictive"), []byte("name: open\n"), 0o600))
 	_, srv = parse(t, "--profile", "npm-restrictive")
-	assert.Equal(t, "npm-restrictive", srv.Profile, "a name stays a name")
+	assert.Equal(t, "npm-restrictive", srv.Profile, "a name stays a name, whatever file the working directory holds")
+
+	_, srv = parse(t, "--profile", "missing/ci.yml")
+	assert.Equal(t, filepath.Join(dir, "missing", "ci.yml"), srv.Profile, "a path that does not exist still names the working directory, never the config directory")
 
 	_, srv = parse(t)
 	assert.Equal(t, "profiles/ci.yml", srv.Profile, "the config value resolves next to the config file, not here")
