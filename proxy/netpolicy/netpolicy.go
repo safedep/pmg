@@ -235,7 +235,8 @@ func isRelativePath(client string) bool {
 	if strings.HasPrefix(client, "/") {
 		return false
 	}
-	return !(len(client) > 2 && client[1] == ':' && (client[2] == '\\' || client[2] == '/'))
+	isDrivePath := len(client) > 2 && client[1] == ':' && (client[2] == '\\' || client[2] == '/')
+	return !isDrivePath
 }
 
 // beats says whether r is more specific than other, or as specific and a
