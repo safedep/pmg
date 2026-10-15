@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -373,4 +374,74 @@ filesystem:
 	require.Error(t, err)
 	assert.Equal(t, 1, strings.Count(err.Error(), "custom profile "))
 	assert.Equal(t, 1, strings.Count(err.Error(), "inheritance cycle"))
+}
+
+func TestLoadCustomProfilePresetsExpandAfterTheChainMerges(t *testing.T) {
+	presetDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(presetDir, "token.yml"), []byte(`
+schema_version: 1
+kind: preset
+name: token
+description: allows a token variable
+environment:
+  allow:
+    - MY_TOKEN
+`), 0o600))
+	presets, err := NewPresetRegistry(WithUserPresetDir(presetDir))
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	writeProfileYAML(t, filepath.Join(dir, "parent.yml"), `
+name: parent
+description: parent with a preset
+package_managers: [npm]
+presets: [token]
+filesystem:
+  allow_read:
+    - /parent/**
+`)
+	childPath := writeProfileYAML(t, filepath.Join(dir, "child.yml"), `
+name: child
+description: child that denies the token
+inherits: parent.yml
+package_managers: [npm]
+environment:
+  deny:
+    - MY_TOKEN
+`)
+
+	registry, err := newDefaultProfileRegistry(WithPresetRegistry(presets))
+	require.NoError(t, err)
+
+	child, err := registry.LoadCustomProfile(childPath)
+	require.NoError(t, err)
+	assert.NotContains(t, child.Environment.Allow, "MY_TOKEN", "the child deny covers the parent's preset allowance")
+	assert.Contains(t, child.Environment.Deny, "MY_TOKEN")
+	assert.Contains(t, child.Presets, "token")
+}
+
+func TestLoadCustomProfileCycleThroughASymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs a privilege on Windows")
+	}
+
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink(".", filepath.Join(dir, "link")))
+	aPath := writeProfileYAML(t, filepath.Join(dir, "a.yml"), `
+name: a
+description: inherits itself through a symlinked directory
+inherits: link/a.yml
+package_managers: [npm]
+filesystem:
+  allow_read:
+    - /a/**
+`)
+
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	_, err = registry.LoadCustomProfile(aPath)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrProfileInvalid)
+	assert.Contains(t, err.Error(), "inheritance cycle")
 }

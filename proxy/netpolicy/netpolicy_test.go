@@ -119,6 +119,8 @@ func TestParseRule(t *testing.T) {
 		{raw: "curl=*:*", client: "curl", host: "*", port: 0},
 		{raw: "my_host.internal:8080", host: "my_host.internal", port: 8080},
 		{raw: "/opt/my tools/git=github.com:443", client: "/opt/my tools/git", host: "github.com", port: 443},
+		{raw: `C:\tools\git.exe=github.com:443`, client: `C:\tools\git.exe`, host: "github.com", port: 443},
+		{raw: "D:/tools/git.exe=github.com:443", client: "D:/tools/git.exe", host: "github.com", port: 443},
 		{raw: "git =github.com:443", client: "git", host: "github.com", port: 443},
 	}
 
@@ -154,6 +156,9 @@ func TestParseRuleRejects(t *testing.T) {
 		"example.com/path:443",
 		"=github.com:443",
 		"cu\trl=github.com:443",
+		"bin/git=github.com:443",
+		"./git=github.com:443",
+		`tools\git.exe=github.com:443`,
 		"git=github.com",
 		"2001:db8::1:443",
 		"[fe80::1%eth0]:443",

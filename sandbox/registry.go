@@ -328,6 +328,14 @@ func (r *defaultProfileRegistry) loadCustomProfile(path string, visiting []strin
 		policy.Lineage = []string{path}
 	}
 
+	// A parent in a chain returns before its presets expand. The leaf
+	// expands every preset of the chain after the merge, so a deny in the
+	// child covers a preset allowance of the parent, as the preset filter
+	// requires.
+	if len(visiting) > 0 {
+		return policy, nil
+	}
+
 	if err := r.applyPresets(policy); err != nil {
 		return nil, fmt.Errorf("custom profile %s: %w", path, err)
 	}
@@ -351,6 +359,9 @@ func (r *defaultProfileRegistry) resolveParent(ref, childPath string, visiting [
 	childID := profileFileID(childPath)
 	if slices.Contains(visiting, childID) {
 		return nil, inheritanceCycleError(append(visiting, childID))
+	}
+	if len(visiting) >= maxInheritanceDepth {
+		return nil, fmt.Errorf("%w: inheritance chain deeper than %d profiles", ErrProfileInvalid, maxInheritanceDepth)
 	}
 	visiting = append(visiting, childID)
 
@@ -396,12 +407,19 @@ func (r *defaultProfileRegistry) resolveParent(ref, childPath string, visiting [
 	return parent, nil
 }
 
+// maxInheritanceDepth bounds a chain, so a loop the file identity check
+// misses ends in an error and not in an exhausted stack.
+const maxInheritanceDepth = 32
+
 // profileFileID identifies a profile file for cycle detection. Two paths
-// that name one file get one ID.
+// that name one file get one ID, through symbolic links too.
 func profileFileID(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return path
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
 	}
 	return filepath.Clean(abs)
 }

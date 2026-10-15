@@ -89,8 +89,8 @@ func ParseRule(raw string) (Rule, error) {
 		if client == "" {
 			return Rule{}, &RuleError{Rule: raw, Reason: "has an empty client before \"=\""}
 		}
-		if strings.ContainsAny(client, "\t\n*") {
-			return Rule{}, &RuleError{Rule: raw, Reason: "has an invalid client before \"=\""}
+		if strings.ContainsAny(client, "\t\n*") || isRelativePath(client) {
+			return Rule{}, &RuleError{Rule: raw, Reason: "has an invalid client before \"=\" (use an absolute path or a bare program name)"}
 		}
 		rule.Client = client
 	}
@@ -224,6 +224,18 @@ func (r *Rule) matches(host string, port uint16) bool {
 func isAddress(host string) bool {
 	_, err := netip.ParseAddr(host)
 	return err == nil
+}
+
+// isRelativePath reports a client with a path separator that is not an
+// absolute path. The proxy has no base to resolve it against.
+func isRelativePath(client string) bool {
+	if !strings.ContainsAny(client, `/\`) {
+		return false
+	}
+	if strings.HasPrefix(client, "/") {
+		return false
+	}
+	return !(len(client) > 2 && client[1] == ':' && (client[2] == '\\' || client[2] == '/'))
 }
 
 // beats says whether r is more specific than other, or as specific and a
