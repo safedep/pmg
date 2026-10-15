@@ -305,25 +305,11 @@ func stableExecutablePath(exe string) string {
 		return exe
 	}
 
-	if !sameFile(onPath, exe) {
+	if !fsutil.SameFile(onPath, exe) {
 		return exe
 	}
 
 	return filepath.Clean(onPath)
-}
-
-func sameFile(a, b string) bool {
-	aInfo, err := os.Stat(a)
-	if err != nil {
-		return false
-	}
-
-	bInfo, err := os.Stat(b)
-	if err != nil {
-		return false
-	}
-
-	return os.SameFile(aInfo, bInfo)
 }
 
 func (m *ShimManager) addPathToShells() error {
