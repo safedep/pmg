@@ -169,11 +169,15 @@ sandbox:
   # Requires 'enabled: true' and per-PM policies to be active. May break workflows expecting unrestricted commands.
   enforce_always: false
 
+  # What the PMG proxy does with a match on a deny_outbound rule of the profile.
+  # - audit (default): record the match and let the connection through
+  # - enforce: refuse the connection
+  network_mode: audit
+
   # Policy templates define policy profiles by name and path.
   # They can be used to override a built-in profile or create a custom profile.
-  # Note: Custom profiles loaded via policy_templates can inherit from built-in
-  # profiles using the 'inherits' field in the YAML (e.g., inherits: npm-restrictive).
-  # Inheritance allows you to extend a base profile with additional permissions.
+  # A profile inherits a built-in profile, a template, a user profile or a file
+  # with 'inherits'. A chain can have any depth. See docs/sandbox.md.
   policy_templates:
     # Name for the template. Can be used to override a built-in profile or create a custom profile.
     # Path is the path to the template file.

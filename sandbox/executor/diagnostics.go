@@ -35,19 +35,32 @@ func ObserveViolations(result *sandbox.ExecutionResult, runErr error) int {
 		return 0
 	}
 
+	persistViolationReport(report)
+	return len(report.Violations)
+}
+
+// ObserveNetworkDenials records the connections the proxy refused under
+// the network policy as violations, so `pmg sandbox explain --last` and
+// `pmg sandbox allow net-connect=<host>:<port>` work on them.
+func ObserveNetworkDenials(policyName string, denials []sandbox.Violation) {
+	if len(denials) == 0 {
+		return
+	}
+
+	persistViolationReport(&sandbox.ViolationReport{
+		SandboxName: sandbox.DriverProxy,
+		PolicyName:  policyName,
+		Violations:  denials,
+	})
+}
+
+func persistViolationReport(report *sandbox.ViolationReport) {
 	cfg := config.Get()
-	if cfg == nil {
-		return len(report.Violations)
+	if cfg == nil || cfg.SandboxViolationCacheDir() == "" {
+		return
 	}
 
-	dir := cfg.SandboxViolationCacheDir()
-	if dir == "" {
-		return len(report.Violations)
-	}
-
-	if _, err := sandbox.NewViolationCache(dir).Write(report); err != nil {
+	if _, err := sandbox.NewViolationCache(cfg.SandboxViolationCacheDir()).Write(report); err != nil {
 		log.Warnf("failed to persist sandbox violation report: %v", err)
 	}
-
-	return len(report.Violations)
 }

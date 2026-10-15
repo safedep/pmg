@@ -305,18 +305,19 @@ func TestResolveInheritance(t *testing.T) {
 		},
 	}
 
-	// Add parent to registry
+	// Register both as built-ins, because a built-in inherits built-ins only
 	registry.mu.Lock()
 	registry.profiles["test-parent"] = parent
-	registry.mu.Unlock()
-
-	// Resolve inheritance
-	registry.mu.Lock()
-	err = registry.resolveInheritance(child)
+	registry.profiles["test-child"] = child
+	registry.builtins["test-parent"] = struct{}{}
+	registry.builtins["test-child"] = struct{}{}
+	err = registry.resolveBuiltinInheritance("test-child", nil)
 	registry.mu.Unlock()
 
 	assert.NoError(t, err)
 	assert.Empty(t, child.Inherits)
+	assert.Equal(t, []string{"test-parent", "test-child"}, child.Lineage)
+	assert.Equal(t, "test-parent", child.Parent())
 
 	// Verify lists are merged
 	assert.ElementsMatch(t, []string{"/parent/**", "/child/**"}, child.Filesystem.AllowRead)

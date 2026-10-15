@@ -557,3 +557,51 @@ func TestTranslateHostObservationDetails(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslateNetworkPolicy(t *testing.T) {
+	sink := &cloudSink{}
+	events := sink.translateToPmgEvents(AuditEvent{
+		Type: EventTypeNetworkPolicy,
+		NetworkDecision: NetworkDecision{
+			Hostname:   "evil.example",
+			Port:       443,
+			Rule:       "*:*",
+			Enforced:   true,
+			EntryPoint: ProxyEntryPointRedirectedHost,
+			Client:     ProxyClient{PID: 42, Comm: "curl", Exe: "/usr/bin/curl"},
+		},
+	})
+	require.Len(t, events, 1)
+
+	e := events[0]
+	assert.Equal(t, controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION, e.GetEventType())
+	d := e.GetNetworkPolicyDecision()
+	require.NotNil(t, d)
+	assert.Equal(t, "evil.example", d.GetHostname())
+	assert.Equal(t, uint32(443), d.GetPort())
+	assert.Equal(t, "*:*", d.GetRule())
+	assert.Equal(t, controltowerv1.PmgNetworkPolicyAction_PMG_NETWORK_POLICY_ACTION_DENIED, d.GetAction())
+	assert.Equal(t, controltowerv1.PmgNetworkPolicyMode_PMG_NETWORK_POLICY_MODE_ENFORCE, d.GetMode())
+	assert.Equal(t, controltowerv1.PmgNetworkPolicySource_PMG_NETWORK_POLICY_SOURCE_RULE, d.GetSource())
+	assert.Equal(t, controltowerv1.PmgNetworkPolicyException_PMG_NETWORK_POLICY_EXCEPTION_NONE, d.GetException())
+	assert.Equal(t, controltowerv1.PmgProxyEntryPoint_PMG_PROXY_ENTRY_POINT_REDIRECTED_HOST, d.GetEntryPoint())
+	assert.Equal(t, "/usr/bin/curl", d.GetClient().GetExecutable())
+
+	observed := sink.translateToPmgEvents(AuditEvent{
+		Type:            EventTypeNetworkPolicy,
+		NetworkDecision: NetworkDecision{Hostname: "evil.example", Port: 80, Rule: "*:80"},
+	})
+	require.Len(t, observed, 1)
+	assert.Equal(t, controltowerv1.PmgNetworkPolicyAction_PMG_NETWORK_POLICY_ACTION_OBSERVED, observed[0].GetNetworkPolicyDecision().GetAction())
+	assert.Equal(t, controltowerv1.PmgNetworkPolicyMode_PMG_NETWORK_POLICY_MODE_AUDIT, observed[0].GetNetworkPolicyDecision().GetMode())
+	assert.Nil(t, observed[0].GetNetworkPolicyDecision().GetClient())
+}
+
+func TestNetworkDecisionDetails(t *testing.T) {
+	details := NetworkDecision{Hostname: "evil.example", Port: 443, Rule: "*:*", Enforced: false}.details()
+	assert.Equal(t, "observed", details["action"])
+	assert.Equal(t, "audit", details["mode"])
+	assert.Equal(t, "*:*", details["rule"])
+	assert.Equal(t, uint16(443), details["port"])
+	assert.NotContains(t, details, "method")
+}

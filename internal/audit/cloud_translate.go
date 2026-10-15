@@ -26,6 +26,8 @@ func (s *cloudSink) translateToPmgEvents(event AuditEvent) []*controltowerv1.Pmg
 		return nil
 	case EventTypeDependencyCooldown:
 		return []*controltowerv1.PmgEvent{newCooldownBlockedEvent(event)}
+	case EventTypeNetworkPolicy:
+		return []*controltowerv1.PmgEvent{newNetworkPolicyEvent(event)}
 	case EventTypeProxyHostObserved:
 		return []*controltowerv1.PmgEvent{newHostObservationEvent(event)}
 	case EventTypeSandboxOverride:
@@ -130,6 +132,34 @@ func newHostObservationEvent(event AuditEvent) *controltowerv1.PmgEvent {
 	e := &controltowerv1.PmgEvent{}
 	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION)
 	e.SetHostObservation(obs)
+	return e
+}
+
+func newNetworkPolicyEvent(event AuditEvent) *controltowerv1.PmgEvent {
+	d := event.NetworkDecision
+	decision := &controltowerv1.PmgNetworkPolicyDecision{}
+	decision.SetHostname(d.Hostname)
+	if d.Port != 0 {
+		decision.SetPort(uint32(d.Port))
+	}
+	decision.SetSource(controltowerv1.PmgNetworkPolicySource_PMG_NETWORK_POLICY_SOURCE_RULE)
+	decision.SetRule(d.Rule)
+	decision.SetException(controltowerv1.PmgNetworkPolicyException_PMG_NETWORK_POLICY_EXCEPTION_NONE)
+	if d.Enforced {
+		decision.SetAction(controltowerv1.PmgNetworkPolicyAction_PMG_NETWORK_POLICY_ACTION_DENIED)
+		decision.SetMode(controltowerv1.PmgNetworkPolicyMode_PMG_NETWORK_POLICY_MODE_ENFORCE)
+	} else {
+		decision.SetAction(controltowerv1.PmgNetworkPolicyAction_PMG_NETWORK_POLICY_ACTION_OBSERVED)
+		decision.SetMode(controltowerv1.PmgNetworkPolicyMode_PMG_NETWORK_POLICY_MODE_AUDIT)
+	}
+	decision.SetEntryPoint(mapEntryPoint(d.EntryPoint))
+	if !d.Client.IsZero() {
+		decision.SetClient(newProxyClient(d.Client))
+	}
+
+	e := &controltowerv1.PmgEvent{}
+	e.SetEventType(controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION)
+	e.SetNetworkPolicyDecision(decision)
 	return e
 }
 

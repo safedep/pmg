@@ -86,6 +86,10 @@ type ReportData struct {
 	// Rendered as a hint when the install fails.
 	CooldownWithheldPackages []models.CooldownWithheld
 
+	// NetworkPolicy holds the connections a deny rule matched. nil when no
+	// policy ran.
+	NetworkPolicy *NetworkPolicyReport
+
 	// AdvisoryMessage is the optional org-configured message appended to block
 	// output regardless of which control blocked. Set from advisory_message.
 	AdvisoryMessage string
@@ -171,11 +175,28 @@ func reportSilent(data *ReportData) {
 	printAdvisoryMessage(data.AdvisoryMessage)
 }
 
+// NetworkPolicyReport is what the network policy decided during a run.
+type NetworkPolicyReport struct {
+	Enforced bool
+	Denials  []NetworkDenial
+}
+
+// NetworkDenial is one destination a deny rule matched, with how many
+// connections it matched.
+type NetworkDenial struct {
+	Destination string
+	Rule        string
+	Client      string
+	Count       int
+}
+
 // reportNormal shows minimal, assuring output
 func reportNormal(data *ReportData) {
 	if data.Outcome == OutcomeDryRun {
 		return // Dry run already shows its own message
 	}
+
+	printNetworkPolicy(data.NetworkPolicy)
 
 	if data.Outcome == OutcomeError {
 		// The child's own error output and PMG's exit line render elsewhere.
@@ -354,7 +375,40 @@ func reportVerbose(data *ReportData) {
 		printAdvisoryMessage(data.AdvisoryMessage)
 	}
 
+	printNetworkPolicy(data.NetworkPolicy)
+
 	fmt.Println()
+}
+
+// printNetworkPolicy lists the destinations a deny rule matched. Under
+// enforce the proxy refused them. Under audit they went through.
+func printNetworkPolicy(report *NetworkPolicyReport) {
+	if report == nil || len(report.Denials) == 0 {
+		return
+	}
+
+	verb := "would deny"
+	if report.Enforced {
+		verb = "denied"
+	}
+
+	fmt.Println()
+	fmt.Printf("%s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("Network policy %s %d destination(s):", verb, len(report.Denials))))
+	for _, d := range report.Denials {
+		line := fmt.Sprintf("%s  rule %s", d.Destination, d.Rule)
+		if d.Client != "" {
+			line += "  " + d.Client
+		}
+		if d.Count > 1 {
+			line += fmt.Sprintf("  (%d)", d.Count)
+		}
+		fmt.Printf("    %s\n", Colors.Yellow(line))
+	}
+	if report.Enforced {
+		fmt.Printf("  %s\n", Colors.Dim("Allow one for this run with --sandbox-allow net-connect=<host>:<port>, or keep it with pmg sandbox allow net-connect=<host>:<port>."))
+	} else {
+		fmt.Printf("  %s\n", Colors.Dim("Set sandbox.network_mode: enforce to deny them."))
+	}
 }
 
 // cooldownWithheldHintMaxVersions bounds how many withheld versions are listed

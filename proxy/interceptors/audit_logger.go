@@ -46,17 +46,23 @@ func (i *AuditLoggerInterceptor) HandleRequest(ctx *proxy.RequestContext) (*prox
 }
 
 func hostObservation(ctx *proxy.RequestContext) audit.HostObservation {
-	obs := audit.HostObservation{
+	entryPoint, client := AuditClient(ctx.Origin)
+	return audit.HostObservation{
 		Hostname:   ctx.Hostname,
 		Method:     ctx.Method,
 		Port:       observedPort(ctx),
-		EntryPoint: audit.ProxyEntryPoint(ctx.Origin.EntryPoint),
-		Client:     audit.ProxyClient{PID: ctx.Origin.PID, Comm: ctx.Origin.Comm, Exe: ctx.Origin.Exe},
+		EntryPoint: entryPoint,
+		Client:     client,
 	}
-	if ctx.Origin.Address.IsValid() {
-		obs.Client.Address = ctx.Origin.Address.String()
+}
+
+// AuditClient maps the origin of a connection to the audit event fields.
+func AuditClient(o proxy.Origin) (audit.ProxyEntryPoint, audit.ProxyClient) {
+	client := audit.ProxyClient{PID: o.PID, Comm: o.Comm, Exe: o.Exe}
+	if o.Address.IsValid() {
+		client.Address = o.Address.String()
 	}
-	return obs
+	return audit.ProxyEntryPoint(o.EntryPoint), client
 }
 
 // observedPort is the port the client asked for. A URL without one means
