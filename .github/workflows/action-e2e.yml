@@ -433,10 +433,16 @@ jobs:
           test "$code" -ne 0
           printf '%s\n' "$out" | grep -q "were blocked"
 
-  alpine-golang-install:
-    name: Install in a golang Alpine job container with no bash or curl
+  # The node jobs install the latest release. These install a pinned
+  # release, so both download paths run with wget only.
+  alpine-golang:
+    name: ${{ matrix.mode }} mode in a golang Alpine job container with no bash or curl
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [shim, server]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     container:
       image: golang:1.26-alpine
       options: --init
@@ -457,8 +463,33 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/
-      - name: PMG runs
-        run: pmg version
+        with:
+          version: v0.32.0
+          server-mode: ${{ matrix.mode == 'server' }}
+      - name: The pinned release runs
+        run: pmg version | grep -q '0\.32\.0'
+      # go is not a shim. In shim mode PMG runs go itself. In server mode go
+      # reads HTTPS_PROXY and SSL_CERT_FILE from the job env.
+      - name: A Go module download goes through PMG
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -eu
+          mkdir gomod && cd gomod
+          go mod init example.com/pmg-alpine
+          if [ "$MODE" = shim ]; then
+            pmg go get github.com/google/uuid@v1.6.0
+          else
+            case "$HTTPS_PROXY" in
+              http://127.0.0.1:*) ;;
+              *) echo "::error::Expected a loopback proxy, got ${HTTPS_PROXY:-nothing}" >&2; exit 1 ;;
+            esac
+            go get github.com/google/uuid@v1.6.0
+          fi
+          grep -q 'github.com/google/uuid v1.6.0' go.mod
+      - name: Stop reports no block
+        if: matrix.mode == 'server'
+        run: pmg proxy stop --fail-on-violation
 
   expose-needs-job-container:
     name: expose-to-job-network fails without a job container
