@@ -206,14 +206,14 @@ func TestValidate(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name: "missing package managers",
+			name: "missing package managers is valid before the merge",
 			policy: &SandboxPolicy{
 				Name: "test",
 				Filesystem: FilesystemPolicy{
 					AllowRead: []string{"/usr/**"},
 				},
 			},
-			expectErr: true,
+			expectErr: false,
 		},
 		{
 			name: "policy with inherits but no rules is valid",

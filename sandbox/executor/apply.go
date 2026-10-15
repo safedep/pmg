@@ -127,12 +127,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 		policy, err = registry.GetProfile(cfg.SandboxProfileOverride)
 		if err != nil {
-			return nil, usefulerror.NewUsefulError().
-				WithCode(errcodes.InvalidArgument).
-				WithHumanError(fmt.Sprintf("Failed to load sandbox profile override: %s", cfg.SandboxProfileOverride)).
-				WithHelp("Please verify the sandbox profile path and try again.").
-				WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
-				Wrap(err)
+			return nil, profileLoadError("Failed to load sandbox profile override", cfg.SandboxProfileOverride, err)
 		}
 	} else {
 		log.Debugf("Looking up sandbox policy for %s", pmName)
@@ -178,7 +173,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 		policy, err = registry.GetProfile(profileRef)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load sandbox policy %s: %w", profileRef, err)
+			return nil, profileLoadError("Failed to load sandbox policy", profileRef, err)
 		}
 	}
 
@@ -241,6 +236,23 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		NetworkMode:    cmp.Or(cfg.Config.Sandbox.NetworkMode, config.SandboxNetworkModeAudit),
 		Network:        network,
 	}, nil
+}
+
+// profileLoadError carries the cause to the user. A profile that exists
+// but does not load points at the linter, which lists every issue.
+func profileLoadError(what, ref string, err error) error {
+	code := errcodes.InvalidArgument
+	help := fmt.Sprintf("Run `pmg sandbox profile lint %s` to see every issue.", ref)
+	if errors.Is(err, sandbox.ErrProfileNotFound) {
+		code = errcodes.NotFound
+		help = "Pass a built-in profile name, a user profile name, or the path of a profile file. `pmg sandbox profile list` shows the names."
+	}
+	return usefulerror.NewUsefulError().
+		WithCode(code).
+		WithHumanError(fmt.Sprintf("%s: %v", what, err)).
+		WithHelp(help).
+		WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
+		Wrap(err)
 }
 
 // warnIneffectiveNetConnectOverrides names each net-connect override a

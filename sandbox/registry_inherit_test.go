@@ -445,3 +445,50 @@ filesystem:
 	assert.ErrorIs(t, err, ErrProfileInvalid)
 	assert.Contains(t, err.Error(), "inheritance cycle")
 }
+
+func TestLoadCustomProfilePackageManagersComeFromTheParent(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	writeProfileYAML(t, filepath.Join(dir, "base.yml"), `
+name: base
+description: base
+package_managers: [npm, pnpm]
+filesystem:
+  allow_read:
+    - /base/**
+`)
+	leafPath := writeProfileYAML(t, filepath.Join(dir, "leaf.yml"), `
+name: leaf
+description: leaf
+inherits: base.yml
+network:
+  deny_outbound:
+    - "*:*"
+`)
+	leaf, err := registry.LoadCustomProfile(leafPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"npm", "pnpm"}, leaf.PackageManagers)
+
+	ownPath := writeProfileYAML(t, filepath.Join(dir, "own.yml"), `
+name: own
+description: keeps its own package managers
+inherits: base.yml
+package_managers: [yarn]
+`)
+	own, err := registry.LoadCustomProfile(ownPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"yarn"}, own.PackageManagers)
+
+	rootPath := writeProfileYAML(t, filepath.Join(dir, "root.yml"), `
+name: root
+description: no parent and no package managers
+filesystem:
+  allow_read:
+    - /root/**
+`)
+	_, err = registry.LoadCustomProfile(rootPath)
+	require.ErrorIs(t, err, ErrProfileInvalid)
+	assert.Contains(t, err.Error(), "at least one package manager")
+}

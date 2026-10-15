@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/dry/utils"
@@ -386,4 +387,51 @@ func TestLintProfile_BuiltinNetworkRulesParse(t *testing.T) {
 			assert.NotEqual(t, "network.invalid-rule", i.Code, "%s: %s", s.Name, i.Message)
 		}
 	}
+}
+
+func TestLintProfile_ConflictAcrossInheritance(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	writeProfileYAML(t, filepath.Join(dir, "base.yml"), `
+name: base
+description: base
+package_managers: [npm]
+filesystem:
+  allow_read:
+    - /etc/hosts
+  deny_read:
+    - /etc/shadow
+network:
+  allow_outbound:
+    - registry.npmjs.org:443
+`)
+	leafPath := writeProfileYAML(t, filepath.Join(dir, "leaf.yml"), `
+name: leaf
+description: narrows the parent and re-allows a parent deny
+inherits: base.yml
+filesystem:
+  allow_read:
+    - /etc/shadow
+  deny_read:
+    - /etc/hosts
+network:
+  deny_outbound:
+    - registry.npmjs.org:443
+`)
+	leaf, err := registry.LoadCustomProfile(leafPath)
+	require.NoError(t, err)
+
+	var conflicts []LintIssue
+	for _, i := range LintProfile(leaf) {
+		if i.Code == "conflict.allow_deny" {
+			conflicts = append(conflicts, i)
+		}
+	}
+
+	require.Len(t, conflicts, 1, "a deny of an inherited allow is not a conflict")
+	assert.Equal(t, "/etc/shadow", conflicts[0].Rule)
+	assert.Equal(t, "filesystem.allow_read[0]", conflicts[0].Field)
+	assert.Contains(t, conflicts[0].Message, "a parent profile denies the rule")
 }

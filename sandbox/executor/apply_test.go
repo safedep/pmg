@@ -238,6 +238,34 @@ network:
 	}
 }
 
+func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
+	dir := t.TempDir()
+	noPM := filepath.Join(dir, "no-pm.yml")
+	require.NoError(t, os.WriteFile(noPM, []byte(`
+name: no-pm
+network:
+  deny_outbound: ["*:*"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+
+	cfg.SandboxProfileOverride = noPM
+	_, err := ResolvePolicy("npm", false)
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
+	assert.Contains(t, usefulErr.HumanError(), "at least one package manager")
+	assert.Contains(t, usefulErr.Help(), "pmg sandbox profile lint "+noPM)
+
+	cfg.SandboxProfileOverride = filepath.Join(dir, "missing.yml")
+	_, err = ResolvePolicy("npm", false)
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
+}
+
 func TestApplyRuntimeOverrides_NetBind(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Network: sandbox.NetworkPolicy{

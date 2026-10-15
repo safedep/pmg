@@ -171,34 +171,52 @@ func LintProfile(policy *SandboxPolicy) []LintIssue {
 		})
 	}
 
+	// A conflict is an allow entry this file wrote that a deny entry cancels.
+	// A deny this file wrote against an inherited allow is how a child
+	// narrows its parent, so it is not reported.
+	own := policy.ownRules()
 	conflictPairs := []struct {
 		allowName string
 		allow     []string
 		denyName  string
+		ownDeny   []string
 		deny      []string
 	}{
-		{"filesystem.allow_read", policy.Filesystem.AllowRead, "filesystem.deny_read", policy.Filesystem.DenyRead},
-		{"filesystem.allow_write", policy.Filesystem.AllowWrite, "filesystem.deny_write", policy.Filesystem.DenyWrite},
-		{"network.allow_outbound", policy.Network.AllowOutbound, "network.deny_outbound", policy.Network.DenyOutbound},
-		{"process.allow_exec", policy.Process.AllowExec, "process.deny_exec", policy.Process.DenyExec},
+		{"filesystem.allow_read", own.Filesystem.AllowRead, "filesystem.deny_read", own.Filesystem.DenyRead, policy.Filesystem.DenyRead},
+		{"filesystem.allow_write", own.Filesystem.AllowWrite, "filesystem.deny_write", own.Filesystem.DenyWrite, policy.Filesystem.DenyWrite},
+		{"network.allow_outbound", own.Network.AllowOutbound, "network.deny_outbound", own.Network.DenyOutbound, policy.Network.DenyOutbound},
+		{"process.allow_exec", own.Process.AllowExec, "process.deny_exec", own.Process.DenyExec, policy.Process.DenyExec},
 	}
 	for _, pair := range conflictPairs {
-		denyIdx := map[string]int{}
-		for i, r := range pair.deny {
-			if _, exists := denyIdx[r]; !exists {
-				denyIdx[r] = i
+		ownDenyIdx := map[string]int{}
+		for i, r := range pair.ownDeny {
+			if _, exists := ownDenyIdx[r]; !exists {
+				ownDenyIdx[r] = i
+			}
+		}
+		inheritedDeny := map[string]bool{}
+		for _, r := range pair.deny {
+			if _, isOwn := ownDenyIdx[r]; !isOwn {
+				inheritedDeny[r] = true
 			}
 		}
 		for i, r := range pair.allow {
-			if j, ok := denyIdx[r]; ok {
-				warns = append(warns, LintIssue{
-					Level:   LintLevelWarn,
-					Code:    "conflict.allow_deny",
-					Message: "rule appears in both " + fieldRef(pair.allowName, i) + " and " + fieldRef(pair.denyName, j) + "; deny takes precedence",
-					Field:   fieldRef(pair.allowName, i),
-					Rule:    r,
-				})
+			var message string
+			switch j, isOwn := ownDenyIdx[r]; {
+			case isOwn:
+				message = "rule appears in both " + fieldRef(pair.allowName, i) + " and " + fieldRef(pair.denyName, j) + "; deny takes precedence"
+			case inheritedDeny[r]:
+				message = fieldRef(pair.allowName, i) + " has no effect; a parent profile denies the rule in " + pair.denyName
+			default:
+				continue
 			}
+			warns = append(warns, LintIssue{
+				Level:   LintLevelWarn,
+				Code:    "conflict.allow_deny",
+				Message: message,
+				Field:   fieldRef(pair.allowName, i),
+				Rule:    r,
+			})
 		}
 	}
 

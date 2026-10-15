@@ -1,6 +1,6 @@
 # guarantee: a profile inherits through a chain of any depth. The leaf gets
-# the rules of a user profile and of the built-in that profile inherits. A
-# chain that loops is an error, not a hang.
+# the rules and the package managers of a user profile and of the built-in
+# that profile inherits. A chain that loops is an error, not a hang.
 
 env HOME=$WORK/home
 mkdir $WORK/home
@@ -14,6 +14,8 @@ stdout 'leaf.example.com:443'
 exec pmg sandbox profile show leaf --resolved --json
 stdout '"lineage"'
 stdout 'npm-restrictive'
+stdout '"package_managers"'
+stdout '"npm"'
 
 exec pmg sandbox profile list
 stdout 'leaf'
@@ -32,8 +34,7 @@ network:
     - corp.example.com:443
 -- config/sandbox/profiles/leaf.yml --
 name: leaf
-description: one repository's profile
-package_managers: [npm]
+description: one repository's profile, with the package managers of corp
 inherits: corp
 network:
   allow_outbound:

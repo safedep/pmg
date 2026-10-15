@@ -186,7 +186,9 @@ func (r *defaultProfileRegistry) resolveBuiltinInheritance(name string, visiting
 // mergeInherited merges parent into child, records the chain and clears the
 // inherits field to mark the child as resolved.
 func mergeInherited(child, parent *SandboxPolicy, childID string) {
+	own := *child
 	child.MergeWithParent(parent)
+	child.own = &own
 	child.Lineage = append(append([]string(nil), parent.Lineage...), childID)
 	child.Inherits = ""
 }

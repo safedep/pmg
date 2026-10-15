@@ -614,7 +614,7 @@
   title: "profile inheritance resolves a chain and rejects a loop"
   category: sandbox
   tier: P1
-  guarantee: "A profile that inherits a user profile that inherits a built-in resolves the rules of all three, and a chain that loops fails with an error."
+  guarantee: "A profile that inherits a user profile that inherits a built-in resolves the rules and the package managers of all three, and a chain that loops fails with an error."
   labels: [sandbox, profile, offline]
 - id: sandbox/network/enforce-denies-a-registry-host
   title: "the proxy refuses a destination a profile deny rule covers"

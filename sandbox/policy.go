@@ -26,6 +26,11 @@ type SandboxPolicy struct {
 	// is not read from YAML.
 	Lineage []string `yaml:"-" json:"lineage,omitempty"`
 
+	// own is the policy as its file wrote it, before the merge with its
+	// parents. The linter reads it, so a finding names an entry the user
+	// can edit.
+	own *SandboxPolicy
+
 	// These fields are affected by inheritance and are merged with the parent policy.
 	// Any new values added here should be handled in the MergeWithParent method.
 	Filesystem  FilesystemPolicy  `yaml:"filesystem" json:"filesystem"`
@@ -97,16 +102,12 @@ type EnvironmentPolicy struct {
 }
 
 // Validate validates the sandbox policy for correctness before inheritance resolution.
-// Returns an error if the policy is invalid.
-// Note: Validation for "at least one rule" check is deferred to ValidateResolved(),
-// since a child policy might have no rules of its own but inherit rules from its parent.
+// Returns an error if the policy is invalid. The package managers and the
+// rules can come from a parent, so ValidateResolved checks them after the
+// merge.
 func (p *SandboxPolicy) Validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("policy name is required")
-	}
-
-	if len(p.PackageManagers) == 0 {
-		return fmt.Errorf("policy must specify at least one package manager")
 	}
 
 	return nil
@@ -117,6 +118,10 @@ func (p *SandboxPolicy) Validate() error {
 func (p *SandboxPolicy) ValidateResolved() error {
 	if err := p.Validate(); err != nil {
 		return err
+	}
+
+	if len(p.PackageManagers) == 0 {
+		return fmt.Errorf("policy must specify at least one package manager")
 	}
 
 	// Check that at least one access rule is defined (after inheritance)
@@ -160,9 +165,14 @@ func (p *SandboxPolicy) AppliesToPackageManager(pm string) bool {
 }
 
 // MergeWithParent merges the child policy with its parent policy.
-// Lists are unioned (additive), package_managers are replaced, booleans are overridden.
+// Lists are unioned (additive), booleans are overridden, and the parent's
+// package_managers apply when the child sets none.
 // This method modifies the receiver (child policy) in place.
 func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
+	if len(child.PackageManagers) == 0 {
+		child.PackageManagers = append([]string(nil), parent.PackageManagers...)
+	}
+
 	// Union filesystem lists
 	child.Filesystem.AllowRead = unionStringSlices(parent.Filesystem.AllowRead, child.Filesystem.AllowRead)
 	child.Filesystem.AllowWrite = unionStringSlices(parent.Filesystem.AllowWrite, child.Filesystem.AllowWrite)
@@ -209,6 +219,15 @@ func (child *SandboxPolicy) MergeWithParent(parent *SandboxPolicy) {
 	if child.AllowDirectDNS == nil {
 		child.AllowDirectDNS = utils.PtrTo(utils.SafelyGetValue(parent.AllowDirectDNS))
 	}
+}
+
+// ownRules returns the policy as its file wrote it, or the policy itself
+// when it inherits nothing.
+func (p *SandboxPolicy) ownRules() *SandboxPolicy {
+	if p.own != nil {
+		return p.own
+	}
+	return p
 }
 
 // unionStringSlices returns a new slice containing all unique elements from both slices.
