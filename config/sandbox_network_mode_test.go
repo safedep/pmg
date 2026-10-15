@@ -43,15 +43,18 @@ func TestDefaultConfigSandboxNetworkModeIsAudit(t *testing.T) {
 }
 
 func TestSandboxPolicyTemplatePaths(t *testing.T) {
-	cfg := RuntimeConfig{configDir: "/etc/pmg"}
+	configDir := t.TempDir()
+	absolute := filepath.Join(t.TempDir(), "runner.yml")
+
+	cfg := RuntimeConfig{configDir: configDir}
 	cfg.Config.Sandbox.PolicyTemplates = map[string]SandboxPolicyTemplate{
-		"relative": {Path: "profiles/ci.yml"},
-		"absolute": {Path: "/srv/profiles/runner.yml"},
+		"relative": {Path: filepath.Join("profiles", "ci.yml")},
+		"absolute": {Path: absolute},
 	}
 
 	paths := cfg.SandboxPolicyTemplatePaths()
-	assert.Equal(t, "/etc/pmg/profiles/ci.yml", paths["relative"])
-	assert.Equal(t, "/srv/profiles/runner.yml", paths["absolute"])
+	assert.Equal(t, filepath.Join(configDir, "profiles", "ci.yml"), paths["relative"])
+	assert.Equal(t, absolute, paths["absolute"])
 }
 
 func TestSandboxNetworkModeLoader(t *testing.T) {
