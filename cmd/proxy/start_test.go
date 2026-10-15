@@ -151,6 +151,9 @@ func TestAbsoluteProfileFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
+	// The temp dir can be a symbolic link, as on macOS. Abs resolves it.
+	dir, err = os.Getwd()
+	require.NoError(t, err)
 
 	parse := func(t *testing.T, args ...string) (*pflag.FlagSet, *config.ProxyServerConfig) {
 		t.Helper()

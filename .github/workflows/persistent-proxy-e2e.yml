@@ -62,7 +62,7 @@ jobs:
       - name: Start proxy daemon
         run: |
           pmg proxy start --daemon --profile test/e2e/network-profile.yml --network-mode enforce | tee start.txt
-          grep -q "Network policy: enforce, profile test/e2e/network-profile.yml, enforce: off, policy advisory" start.txt
+          grep -q "Network policy: enforce, profile $GITHUB_WORKSPACE/test/e2e/network-profile.yml, enforce: off, policy advisory" start.txt
 
       - name: Inject proxy env
         run: pmg proxy env >> "$GITHUB_ENV"
@@ -89,7 +89,7 @@ jobs:
           test "$code" -ne 0
           grep -q "Network policy: enforce, 1 denied, 0 would deny" <<<"$out"
           grep -q "denied  pastebin.com:443  rule pastebin.com:443" <<<"$out"
-          grep -q "Profile: test/e2e/network-profile.yml" <<<"$out"
+          grep -q "Profile: $GITHUB_WORKSPACE/test/e2e/network-profile.yml" <<<"$out"
           grep -q "connection(s) were denied by the network policy" <<<"$out"
           echo "OK: stop correctly failed on the policy violation"
 
@@ -145,7 +145,7 @@ jobs:
             --profile test/e2e/network-profile.yml --network-mode enforce
           sudo "$GITHUB_WORKSPACE/bin/pmg" proxy status --state "$RUNNER_TEMP/proxy-state.json" | tee status.txt
           grep -q "Kernel enforcement: active" status.txt
-          grep -q "Network policy: enforce, profile test/e2e/network-profile.yml$" status.txt
+          grep -q "Network policy: enforce, profile $GITHUB_WORKSPACE/test/e2e/network-profile.yml$" status.txt
           if grep -q "exempt executable" status.txt; then
             echo "ERROR: the daemon exempted an executable that no policy lists" >&2
             exit 1
@@ -216,7 +216,7 @@ jobs:
             exit 1
           fi
           grep -Eq "denied  pastebin.com:443  rule pastebin.com:443  /usr/bin/curl pid [0-9]+" <<<"$out"
-          grep -q "Profile: test/e2e/network-profile.yml  ports 80,443" <<<"$out"
+          grep -q "Profile: $GITHUB_WORKSPACE/test/e2e/network-profile.yml  ports 80,443" <<<"$out"
           out=$(env -i /usr/bin/curl -sS -o /dev/null -v https://registry.npmjs.org/ 2>&1)
           if grep -q "SafeDep PMG Proxy CA" <<<"$out"; then
             echo "ERROR: enforcement is still on after the stop" >&2

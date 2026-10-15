@@ -401,6 +401,11 @@ runs:
       shell: bash
       run: echo "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
 
+    - name: Warn about network inputs without server mode
+      if: inputs.server-mode != 'true' && (inputs.network-profile != '' || inputs.network-mode != '')
+      shell: bash
+      run: echo "::warning::network-profile and network-mode apply only with server-mode true. They are ignored."
+
     - name: Warn about expose-to-job-network without server mode
       if: inputs.expose-to-job-network == 'true' && (inputs.server-mode != 'true' || inputs.enforce == 'true')
       shell: bash
