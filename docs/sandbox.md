@@ -706,6 +706,10 @@ The `network.allow_outbound` and `network.deny_outbound` lists hold rules of the
 - `host` is a name, compared without case and without a trailing dot. `*.example.com` matches
   one or more labels before `example.com` and not `example.com` itself. `*` matches every host.
   An IPv4 or IPv6 literal is a host. An IPv6 literal is written in brackets, `[2001:db8::1]:443`.
+  The proxy compares a connection's host as the transport dials it: a name is mapped with IDNA,
+  so a fullwidth letter or a soft hyphen in a request names the plain host, an address in a
+  short or octal form such as `127.1` is `127.0.0.1`, and an IPv6 zone is dropped. A host the
+  proxy cannot read as a name or an address is denied.
 - `port` is a number from 1 to 65535, or `*`.
 - `<exe>` is an absolute path or a bare program name, such as `git=github.com:443`. The
   proxy cannot name the program behind a connection yet, so a profile with a client rule

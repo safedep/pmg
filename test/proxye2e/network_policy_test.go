@@ -301,6 +301,12 @@ func TestProxyFlow_NetworkPolicy(t *testing.T) {
 // inside the tunnel over TLS, as a client does when the proxy terminates
 // the tunnel. It returns the status of the GET.
 func (h *Harness) tunnelGet(target, host, path string) RequestOutcome {
+	return h.tunnelGetWithHost(target, host, host, path)
+}
+
+// tunnelGetWithHost is tunnelGet with the Host header of the inside
+// request set apart from the server name of the handshake.
+func (h *Harness) tunnelGetWithHost(target, serverName, host, path string) RequestOutcome {
 	h.t.Helper()
 
 	out := RequestOutcome{URL: "CONNECT " + target + " then https://" + host + path}
@@ -330,7 +336,7 @@ func (h *Harness) tunnelGet(target, host, path string) RequestOutcome {
 		return out
 	}
 
-	tlsConn := tls.Client(conn, &tls.Config{ServerName: host, RootCAs: h.caPool, MinVersion: tls.VersionTLS12})
+	tlsConn := tls.Client(conn, &tls.Config{ServerName: serverName, RootCAs: h.caPool, MinVersion: tls.VersionTLS12})
 	if err := tlsConn.Handshake(); err != nil {
 		out.Err = err
 		return out
@@ -374,6 +380,107 @@ func TestProxyFlow_NetworkPolicyPortlessConnectInsideTunnel(t *testing.T) {
 				require.Len(t, decisions, 1)
 				assert.Equal(t, uint16(443), decisions[0].Port)
 				assert.Equal(t, "registry.npmjs.org:443", decisions[0].Rule)
+			},
+		},
+	})
+}
+
+// rawGet writes one absolute-form GET to the proxy as the bytes are given,
+// so a request line the Go client would rewrite reaches the proxy as a
+// client can craft it. It returns the status of the response.
+func (h *Harness) rawGet(requestURL, hostHeader string) RequestOutcome {
+	h.t.Helper()
+
+	out := RequestOutcome{URL: requestURL}
+	conn, err := net.DialTimeout("tcp", h.proxy.Address(), 5*time.Second)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		out.Err = err
+		return out
+	}
+	if _, err := fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", requestURL, hostHeader); err != nil {
+		out.Err = err
+		return out
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	defer func() { _ = resp.Body.Close() }()
+	out.StatusCode = resp.StatusCode
+	out.Blocked = resp.StatusCode == http.StatusForbidden
+	return out
+}
+
+// The transport maps a host with IDNA before it dials, so a name written
+// with a fullwidth letter or a soft hyphen reaches the host a deny rule
+// names. The policy must decide on the mapped name.
+func TestProxyFlow_NetworkPolicyMappedHost(t *testing.T) {
+	denyPlain := func() Option {
+		p, err := netpolicy.New(nil, []string{"plain.example:80"})
+		require.NoError(t, err)
+		return WithNetworkPolicy(p, true)
+	}
+	denyEvil := func() Option {
+		p, err := netpolicy.New(nil, []string{"evil.example:443"})
+		require.NoError(t, err)
+		return WithNetworkPolicy(p, true)
+	}
+	refused := func(t *testing.T, h *Harness, res ExecResult, host, rule string) {
+		t.Helper()
+		require.NoError(t, res.Requests[0].Err)
+		assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
+		assert.Empty(t, h.DialedAddrs())
+		decisions := h.NetworkDecisions()
+		require.Len(t, decisions, 1)
+		assert.Equal(t, host, decisions[0].Host)
+		assert.Equal(t, rule, decisions[0].Rule)
+	}
+
+	RunCases(t, []TestCase{
+		{
+			Name:    "a fullwidth letter in the request line is decided as the mapped name",
+			Options: []Option{denyPlain()},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.rawGet("http://ｐlain.example/x", "plain.example")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				refused(t, h, res, "plain.example", "plain.example:80")
+			},
+		},
+		{
+			Name:    "a percent-encoded fullwidth letter in the request line is decided as the mapped name",
+			Options: []Option{denyPlain()},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.rawGet("http://%EF%BD%90lain.example/x", "plain.example")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				refused(t, h, res, "plain.example", "plain.example:80")
+			},
+		},
+		{
+			Name:    "a soft hyphen in the request line is decided as the mapped name",
+			Options: []Option{denyPlain()},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.rawGet("http://pla%C2%ADin.example/x", "plain.example")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				refused(t, h, res, "plain.example", "plain.example:80")
+			},
+		},
+		{
+			Name:    "a fullwidth letter in the Host header inside a tunnel is decided as the mapped name",
+			Options: []Option{denyEvil()},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.tunnelGetWithHost("registry.npmjs.org:443", "registry.npmjs.org", "ｅvil.example", "/x")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				refused(t, h, res, "evil.example", "evil.example:443")
 			},
 		},
 	})

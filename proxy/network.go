@@ -76,6 +76,9 @@ func (ps *proxyServer) decideNetwork(host string, port uint16, orig Origin) (Net
 		return NetworkDecision{}, false
 	}
 
+	// The record names the host as the transport dials it, so a report
+	// and an event show the destination and not its spelling.
+	host = netpolicy.NormalizeHost(host)
 	d := ps.config.NetworkPolicy.Decide(host, port)
 	if d.Allowed {
 		return NetworkDecision{}, false

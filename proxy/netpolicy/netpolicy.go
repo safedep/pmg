@@ -18,6 +18,8 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 const (
@@ -184,6 +186,9 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 	}
 
 	host = NormalizeHost(host)
+	if !isAddress(host) && validateName(host) != nil {
+		return Decision{Allowed: false, Rule: &unreadableHost}
+	}
 
 	var best *Rule
 	for i := range p.rules {
@@ -203,17 +208,62 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 	return Decision{Allowed: !best.Deny, Rule: best}
 }
 
-// NormalizeHost lowers the case, drops a trailing dot and brackets, and
-// writes an IP literal in canonical form, so a rule and a connection
-// compare as equal strings.
+// NormalizeHost writes a host as the transport dials it, so a rule and a
+// connection compare as equal strings: lower case, no trailing dot, no
+// brackets, an address in canonical form without a zone, and a name mapped
+// with IDNA. The transport maps a name the same way before it dials, so a
+// fullwidth letter or a soft hyphen in a request names the same host as
+// the plain spelling. A host that IDNA cannot map stays as written, and
+// Decide denies it.
 func NormalizeHost(host string) string {
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	if addr, err := netip.ParseAddr(host); err == nil {
-		return addr.Unmap().String()
+		return addr.Unmap().WithZone("").String()
+	}
+	if addr, ok := parseLegacyIPv4(host); ok {
+		return addr.String()
+	}
+	if mapped, err := idna.Lookup.ToASCII(host); err == nil {
+		return mapped
 	}
 	return host
 }
+
+// parseLegacyIPv4 reads the address forms inet_aton accepts, which the
+// system resolver on macOS and Windows turns into an address and the
+// policy would otherwise read as a name: one to four parts, each decimal,
+// octal with a leading 0 or hex with 0x, the last part filling the rest.
+func parseLegacyIPv4(host string) (netip.Addr, bool) {
+	parts := strings.Split(host, ".")
+	if len(parts) > 4 {
+		return netip.Addr{}, false
+	}
+	var value uint64
+	for i, part := range parts {
+		if part == "" || strings.ContainsAny(part, "_+-") || strings.HasPrefix(part, "0b") || strings.HasPrefix(part, "0o") {
+			return netip.Addr{}, false
+		}
+		n, err := strconv.ParseUint(part, 0, 32)
+		if err != nil {
+			return netip.Addr{}, false
+		}
+		width := uint(8)
+		if i == len(parts)-1 {
+			width = uint(8 * (4 - i))
+		}
+		if n >= 1<<width {
+			return netip.Addr{}, false
+		}
+		value = value<<width | n
+	}
+	return netip.AddrFrom4([4]byte{byte(value >> 24), byte(value >> 16), byte(value >> 8), byte(value)}), true
+}
+
+// unreadableHost is the rule that decides a host the policy cannot read as
+// a name or an address. The transport may still reach something by it, so
+// it is denied.
+var unreadableHost = Rule{Raw: "(unreadable host)", Deny: true}
 
 func (r *Rule) matches(host string, port uint16) bool {
 	if r.Port != anyPort && r.Port != port {
@@ -285,6 +335,10 @@ func normalizeRuleHost(host string) (string, error) {
 	if strings.TrimSpace(host) == anyHost {
 		return anyHost, nil
 	}
+	// A zone names an interface of this host, which a rule cannot mean.
+	if strings.Contains(host, "%") {
+		return "", fmt.Errorf("has an invalid host")
+	}
 	host = NormalizeHost(host)
 	if host == "" {
 		return "", fmt.Errorf("has an empty host")
@@ -292,10 +346,7 @@ func normalizeRuleHost(host string) (string, error) {
 	if host == anyHost {
 		return "", fmt.Errorf("has an invalid host")
 	}
-	if addr, err := netip.ParseAddr(host); err == nil {
-		if addr.Zone() != "" {
-			return "", fmt.Errorf("has an invalid host")
-		}
+	if isAddress(host) {
 		return host, nil
 	}
 
