@@ -204,6 +204,13 @@ package_managers: ["npm"]
 network:
   allow_outbound: ["registry.npmjs.org"]
 `), 0o600))
+	client := filepath.Join(dir, "client.yml")
+	require.NoError(t, os.WriteFile(client, []byte(`
+name: client
+package_managers: ["npm"]
+network:
+  deny_outbound: ["curl=*:*"]
+`), 0o600))
 
 	cfg := config.Get()
 	previous := *cfg
@@ -221,12 +228,14 @@ network:
 	assert.True(t, res.Network.Decide("cdn.example.com", 443).Allowed, "the override adds an allow rule")
 	assert.False(t, res.Network.Decide("evil.example", 443).Allowed)
 
-	cfg.SandboxProfileOverride = bad
 	cfg.SandboxAllowOverrides = nil
-	_, err = ResolvePolicy("npm", false)
-	var usefulErr usefulerror.UsefulError
-	require.ErrorAs(t, err, &usefulErr)
-	assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code())
+	for _, path := range []string{bad, client} {
+		cfg.SandboxProfileOverride = path
+		_, err = ResolvePolicy("npm", false)
+		var usefulErr usefulerror.UsefulError
+		require.ErrorAs(t, err, &usefulErr, path)
+		assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code(), path)
+	}
 }
 
 func TestApplyRuntimeOverrides_NetBind(t *testing.T) {

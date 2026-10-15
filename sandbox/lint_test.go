@@ -314,7 +314,7 @@ func TestLintProfile_AllowUnixSocketsWithLockdown(t *testing.T) {
 func TestLintProfile_NetworkInvalidRule(t *testing.T) {
 	policy := cleanPolicy()
 	policy.Network.AllowOutbound = []string{"registry.npmjs.org:443", "registry.npmjs.org"}
-	policy.Network.DenyOutbound = []string{"*:*", "evil.example:https"}
+	policy.Network.DenyOutbound = []string{"*:*", "evil.example:https", "curl=*:*"}
 
 	var found []LintIssue
 	for _, i := range LintProfile(policy) {
@@ -323,13 +323,15 @@ func TestLintProfile_NetworkInvalidRule(t *testing.T) {
 		}
 	}
 
-	require.Len(t, found, 2)
+	require.Len(t, found, 3)
 	assert.Equal(t, LintLevelError, found[0].Level)
 	assert.Equal(t, "network.allow_outbound[1]", found[0].Field)
 	assert.Equal(t, "registry.npmjs.org", found[0].Rule)
 	assert.Contains(t, found[0].Message, "is not host:port")
 	assert.Equal(t, "network.deny_outbound[1]", found[1].Field)
 	assert.Contains(t, found[1].Message, "has an invalid port")
+	assert.Equal(t, "network.deny_outbound[2]", found[2].Field)
+	assert.Contains(t, found[2].Message, "names a client")
 }
 
 func TestLintProfile_NetworkDirectDNSBypass(t *testing.T) {

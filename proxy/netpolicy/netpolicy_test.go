@@ -56,9 +56,6 @@ func TestDecide(t *testing.T) {
 		{name: "numeric wildcard does not match an ip literal", allow: []string{"*.0.5:443"}, deny: []string{"*:*"}, host: "10.0.0.5", port: 443, allowed: false, rule: "*:*"},
 		{name: "numeric wildcard matches a numeric name", allow: []string{"*.0.5:443"}, deny: []string{"*:*"}, host: "x.0.5", port: 443, allowed: true, rule: "*.0.5:443"},
 
-		{name: "client rule never matches without a client", allow: []string{"git=github.com:443"}, deny: []string{"*:*"}, host: "github.com", port: 443, allowed: false, rule: "*:*"},
-		{name: "client deny never matches without a client", allow: []string{"*:*"}, deny: []string{"curl=*:*"}, host: "example.com", port: 443, allowed: true, rule: "*:*"},
-
 		{name: "empty host is denied by deny all", allow: []string{"registry.npmjs.org:443"}, deny: []string{"*:*"}, host: "", port: 443, allowed: false, rule: "*:*"},
 	}
 
@@ -126,7 +123,7 @@ func TestParseRule(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.raw, func(t *testing.T) {
-			rule, err := ParseRule(tc.raw)
+			rule, err := parseRule(tc.raw)
 			require.NoError(t, err)
 			assert.Equal(t, tc.raw, rule.Raw)
 			assert.Equal(t, tc.client, rule.Client)
@@ -135,6 +132,17 @@ func TestParseRule(t *testing.T) {
 			assert.False(t, rule.Deny)
 		})
 	}
+}
+
+func TestParseRuleRejectsAClientRule(t *testing.T) {
+	_, err := ParseRule("git=github.com:443")
+	var ruleErr *RuleError
+	require.ErrorAs(t, err, &ruleErr)
+	assert.Equal(t, "names a client, which the proxy cannot match yet", ruleErr.Reason)
+
+	_, err = New(nil, []string{"curl=*:*"})
+	require.ErrorAs(t, err, &ruleErr)
+	assert.Equal(t, "network.deny_outbound", ruleErr.List)
 }
 
 func TestParseRuleRejects(t *testing.T) {

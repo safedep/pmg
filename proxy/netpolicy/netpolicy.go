@@ -2,8 +2,9 @@
 // allowed by the network rules of a sandbox profile. The proxy and the
 // sandbox linter share it, so the package depends on neither.
 //
-// A rule is "host:port" with an optional client part, "<exe>=host:port".
-// The most specific matching rule wins. An exact host beats a wildcard, a
+// A rule is "host:port". The grammar also has a client part,
+// "<exe>=host:port", that the proxy cannot match yet, so ParseRule rejects
+// it. The most specific matching rule wins. An exact host beats a wildcard, a
 // longer wildcard suffix beats a shorter one, and every host rule beats "*".
 // At equal host specificity an exact port beats "*". At equal specificity
 // deny wins. With no matching rule the connection is allowed, so a profile
@@ -78,8 +79,20 @@ type Policy struct {
 }
 
 // ParseRule parses one rule. It does not know which list the rule came from,
-// so Deny is false.
+// so Deny is false. The proxy has no client for a connection yet, so a rule
+// with a client part is an error and not a rule that never matches.
 func ParseRule(raw string) (Rule, error) {
+	rule, err := parseRule(raw)
+	if err != nil {
+		return Rule{}, err
+	}
+	if rule.Client != "" {
+		return Rule{}, &RuleError{Rule: raw, Reason: "names a client, which the proxy cannot match yet"}
+	}
+	return rule, nil
+}
+
+func parseRule(raw string) (Rule, error) {
 	rule := Rule{Raw: raw}
 
 	rest := raw
@@ -163,9 +176,8 @@ func (p *Policy) Rules() []Rule {
 	return append([]Rule(nil), p.rules...)
 }
 
-// Decide returns the decision for a connection to host and port from a
-// client the proxy cannot name. A rule with a client part never matches
-// here. A nil policy allows every connection.
+// Decide returns the decision for a connection to host and port. A nil
+// policy allows every connection.
 func (p *Policy) Decide(host string, port uint16) Decision {
 	if p == nil {
 		return Decision{Allowed: true}
@@ -176,7 +188,7 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 	var best *Rule
 	for i := range p.rules {
 		rule := &p.rules[i]
-		if rule.Client != "" || !rule.matches(host, port) {
+		if !rule.matches(host, port) {
 			continue
 		}
 		if best == nil || rule.beats(best) {

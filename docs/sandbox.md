@@ -708,7 +708,8 @@ The `network.allow_outbound` and `network.deny_outbound` lists hold rules of the
   An IPv4 or IPv6 literal is a host. An IPv6 literal is written in brackets, `[2001:db8::1]:443`.
 - `port` is a number from 1 to 65535, or `*`.
 - `<exe>` is an absolute path or a bare program name, such as `git=github.com:443`. The
-  proxy matches it against the program that opened the connection, where it knows one.
+  proxy cannot name the program behind a connection yet, so a profile with a client rule
+  fails to load and `pmg sandbox profile lint` reports it.
 
 The most specific matching rule wins. An exact host beats a wildcard, a longer wildcard suffix
 beats a shorter one, and every host rule beats `*`. At equal host specificity an exact port
