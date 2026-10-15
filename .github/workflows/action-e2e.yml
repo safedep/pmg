@@ -319,6 +319,179 @@ jobs:
           test "$code" -ne 0
           grep -q "were blocked" <<<"$out"
 
+  alpine-shim:
+    name: Shim mode in an Alpine job container with no bash or curl
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: node:24-alpine
+      options: --init
+    defaults:
+      run:
+        shell: sh
+    steps:
+      # The action needs only sh and the busybox userland, with wget.
+      # The job fails here if the image ever gains bash or curl.
+      - name: The image has no bash and no curl
+        run: |
+          set -eu
+          grep -q '^ID=alpine' /etc/os-release
+          if command -v bash >/dev/null 2>&1; then echo "::error::The image has bash." >&2; exit 1; fi
+          if command -v curl >/dev/null 2>&1; then echo "::error::The image has curl." >&2; exit 1; fi
+          command -v wget
+      # The image has no git, so checkout downloads the repository through
+      # the REST API.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/
+      - name: npm resolves to the PMG shim
+        run: |
+          set -eu
+          pmg version
+          npm_path="$(command -v npm)"
+          case "$npm_path" in
+            "${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin/npm"|"$HOME/.pmg/bin/npm") ;;
+            *) echo "::error::npm resolved outside the PMG shim dirs: $npm_path" >&2; exit 1 ;;
+          esac
+      - name: A benign install succeeds
+        run: |
+          set -eu
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install express@5.2.1
+          test -d node_modules/express
+      - name: A malicious install is blocked
+        run: |
+          set -eu
+          mkdir mal && cd mal
+          npm init -y >/dev/null
+          if npm --prefer-online --no-cache i safedep-test-pkg@0.1.3 >out.log 2>&1; then
+            cat out.log
+            echo "::error::The malicious install succeeded." >&2
+            exit 1
+          fi
+          cat out.log
+          grep -qi "Malicious package blocked" out.log
+
+  alpine-server:
+    name: Server mode in an Alpine job container with no bash or curl
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: node:24-alpine
+      options: --init
+    defaults:
+      run:
+        shell: sh
+    steps:
+      # The action needs only sh and the busybox userland, with wget.
+      # The job fails here if the image ever gains bash or curl.
+      - name: The image has no bash and no curl
+        run: |
+          set -eu
+          grep -q '^ID=alpine' /etc/os-release
+          if command -v bash >/dev/null 2>&1; then echo "::error::The image has bash." >&2; exit 1; fi
+          if command -v curl >/dev/null 2>&1; then echo "::error::The image has curl." >&2; exit 1; fi
+          command -v wget
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/
+        with:
+          server-mode: true
+      - name: The proxy listens on loopback
+        run: |
+          set -eu
+          case "$HTTPS_PROXY" in
+            http://127.0.0.1:*) ;;
+            *) echo "::error::Expected a loopback proxy, got ${HTTPS_PROXY}" >&2; exit 1 ;;
+          esac
+      - name: A benign install succeeds
+        run: |
+          set -eu
+          mkdir benign && cd benign
+          npm init -y >/dev/null
+          npm install lodash@4.17.21
+          test -d node_modules/lodash
+      - name: A malicious install is blocked
+        run: |
+          set -eu
+          mkdir mal && cd mal
+          npm init -y >/dev/null
+          if npm --no-cache --prefer-online install safedep-test-pkg@0.1.3; then
+            echo "::error::The malicious install succeeded." >&2
+            exit 1
+          fi
+      - name: Stop reports the block
+        run: |
+          set +e
+          out="$(pmg proxy stop --fail-on-violation 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$out"
+          test "$code" -ne 0
+          printf '%s\n' "$out" | grep -q "were blocked"
+
+  # The node jobs install the latest release. These install a pinned
+  # release, so both download paths run with wget only.
+  alpine-golang:
+    name: ${{ matrix.mode }} mode in a golang Alpine job container with no bash or curl
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [shim, server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: golang:1.26-alpine
+      options: --init
+    defaults:
+      run:
+        shell: sh
+    steps:
+      # The action needs only sh and the busybox userland, with wget.
+      # The job fails here if the image ever gains bash or curl.
+      - name: The image has no bash and no curl
+        run: |
+          set -eu
+          grep -q '^ID=alpine' /etc/os-release
+          if command -v bash >/dev/null 2>&1; then echo "::error::The image has bash." >&2; exit 1; fi
+          if command -v curl >/dev/null 2>&1; then echo "::error::The image has curl." >&2; exit 1; fi
+          command -v wget
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/
+        with:
+          version: v0.32.0
+          server-mode: ${{ matrix.mode == 'server' }}
+      - name: The pinned release runs
+        run: pmg version | grep -q '0\.32\.0'
+      # go is not a shim. In shim mode PMG runs go itself. In server mode go
+      # reads HTTPS_PROXY and SSL_CERT_FILE from the job env.
+      - name: A Go module download goes through PMG
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -eu
+          # Outside the checkout, so go does not read the go.work of this repo.
+          cd "$(mktemp -d)"
+          go mod init example.com/pmg-alpine
+          if [ "$MODE" = shim ]; then
+            pmg go get github.com/google/uuid@v1.6.0
+          else
+            case "$HTTPS_PROXY" in
+              http://127.0.0.1:*) ;;
+              *) echo "::error::Expected a loopback proxy, got ${HTTPS_PROXY:-nothing}" >&2; exit 1 ;;
+            esac
+            go get github.com/google/uuid@v1.6.0
+          fi
+          grep -q 'github.com/google/uuid v1.6.0' go.mod
+      - name: Stop reports no block
+        if: matrix.mode == 'server'
+        run: pmg proxy stop --fail-on-violation
+
   expose-needs-job-container:
     name: expose-to-job-network fails without a job container
     runs-on: ubuntu-latest

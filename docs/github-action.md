@@ -262,6 +262,19 @@ In a job that has a job container (`jobs.<job_id>.container`), the action
 and the proxy run in the job container. The `run:` steps in the job
 container reach the proxy at `127.0.0.1`.
 
+The action needs a POSIX shell and userland in the image, such as busybox:
+`sh`, `tar`, `sha256sum`, `grep`, `sed`, `tr`, `cut`, `head`, `uname`,
+`mktemp`, `mkdir`, `chmod`, `cp` and `rm`, and `curl` or `wget`. It does not
+need `bash`. Alpine images, such as `golang:1.26-alpine` and
+`node:24-alpine`, work as they are. The action at
+v0.32.0 and older runs every step with `bash` and fails on an image without
+it. On those versions, run `apk add --no-cache bash curl` in a step before
+the action.
+
+`enforce` does not work in a job container. See [Containers](#containers).
+`sandbox` changes kernel settings of the runner host, and may not start in a
+job container. Run those jobs on the runner.
+
 A Docker action or a `docker://` step runs in a different container on the
 job network. In that container, `127.0.0.1` is its own loopback, so the
 connection to the proxy fails. To give these steps access to the proxy, set
@@ -347,6 +360,7 @@ See [docs/config.md](./config.md) for the full mapping.
 | Runner | Supported |
 |---|---|
 | `ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04` (x86_64 and arm64) | Yes |
+| A job container on a Linux runner, Alpine included | Yes. See [Job containers and Docker actions](#job-containers-and-docker-actions). |
 | `macos-*` | No. The action stops. |
 | `windows-*` | No. The action stops. |
 

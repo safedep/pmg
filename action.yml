@@ -109,51 +109,104 @@ inputs:
 
 runs:
   using: composite
+  # The steps run with sh, not bash. In a job container they run inside the
+  # image, and minimal images such as Alpine have no bash. Ubuntu's sh is dash,
+  # whose echo expands backslash escapes, so the steps print values with
+  # printf '%s\n'. Two steps use bash: the OS check, which runs only on macOS
+  # and Windows, and kernel enforcement, which needs sudo on the runner host.
   steps:
+    # macOS and Windows runners have bash, and a Linux job container may not,
+    # so the check runs only where it fails.
     - name: Verify runner OS
+      if: runner.os != 'Linux'
       shell: bash
       run: |
-        if [ "${{ runner.os }}" != "Linux" ]; then
-          echo "::error::safedep/pmg action currently supports Linux runners only. See https://github.com/safedep/pmg/issues/248 for cross-platform tracking."
-          exit 1
-        fi
+        echo "::error::safedep/pmg action currently supports Linux runners only. See https://github.com/safedep/pmg/issues/248 for cross-platform tracking."
+        exit 1
 
     - name: Install PMG
       id: install
-      shell: bash
+      shell: sh
       env:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_CACHE: ${{ inputs.cache }}
       run: | # zizmor: ignore[github-env]
-        set -euo pipefail
+        set -eu
 
         repo="safedep/pmg"
+        nl='
+        '
+        cr=$(printf '\r')
 
-        # Resolve version tag.
+        # Minimal images such as Alpine have busybox wget but no curl. Both
+        # verify TLS and fail on an HTTP error.
+        if command -v curl >/dev/null 2>&1; then
+          downloader=curl
+        elif command -v wget >/dev/null 2>&1; then
+          downloader=wget
+        else
+          printf '%s\n' "::error::PMG needs curl or wget to download the release." >&2
+          exit 1
+        fi
+        printf '%s\n' "Downloading with ${downloader}"
+
+        # GNU wget -q prints nothing on a failure, so this line names the URL
+        # and the exit code. wget uses 4 for a network error, 5 for TLS and 8
+        # for an HTTP error.
+        download() {
+          if [ "$downloader" = curl ]; then
+            curl -fsSL -o "$2" "$1" && return 0
+          else
+            wget -q -O "$2" "$1" && return 0
+          fi
+          rc=$?
+          printf '%s\n' "::error::Could not download $1 with ${downloader} (exit ${rc})." >&2
+          exit 1
+        }
+
+        # Resolve version tag. GitHub redirects /releases/latest to the page
+        # of the latest tag.
         if [ "$INPUT_VERSION" = "latest" ] || [ -z "$INPUT_VERSION" ]; then
-          echo "Resolving latest PMG release..."
-          tag=$(curl -fsSI -o /dev/null -w '%{redirect_url}' \
-            "https://github.com/${repo}/releases/latest" | sed 's|.*/||' | tr -d '\r\n')
+          printf '%s\n' "Resolving latest PMG release..."
+          latest_url="https://github.com/${repo}/releases/latest"
+          if [ "$downloader" = curl ]; then
+            location=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$latest_url")
+          else
+            location=$(wget -q --spider -S "$latest_url" 2>&1 | sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | head -n 1)
+          fi
+          tag=$(printf '%s' "$location" | sed 's|.*/||' | tr -d '\r\n')
           if [ -z "$tag" ]; then
-            echo "::error::Could not resolve latest PMG release tag." >&2
+            printf '%s\n' "::error::Could not resolve latest PMG release tag." >&2
             exit 1
           fi
         else
           tag="$INPUT_VERSION"
         fi
         # The tag ends up in paths written to GITHUB_PATH and GITHUB_OUTPUT.
-        if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-          echo "::error::Invalid PMG version '${tag}'. Use a release tag such as v0.42.0 or v0.42.0-edge.1, or latest." >&2
+        # grep matches each line, so a line break is rejected first.
+        case "$tag" in
+          *"$nl"*|*"$cr"*) tag_ok=false ;;
+          *)
+            if printf '%s\n' "$tag" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?'; then
+              tag_ok=true
+            else
+              tag_ok=false
+            fi
+            ;;
+        esac
+        if [ "$tag_ok" != true ]; then
+          shown=$(printf '%s' "$tag" | tr -d '\r\n')
+          printf '%s\n' "::error::Invalid PMG version '${shown}'. Use a release tag such as v0.42.0 or v0.42.0-edge.1, or latest." >&2
           exit 1
         fi
-        echo "PMG version: $tag"
+        printf '%s\n' "PMG version: $tag"
 
         # Map architecture.
         case "$(uname -m)" in
           x86_64|amd64) arch="x86_64" ;;
           aarch64|arm64) arch="arm64" ;;
           *)
-            echo "::error::Unsupported architecture: $(uname -m)" >&2
+            printf '%s\n' "::error::Unsupported architecture: $(uname -m)" >&2
             exit 1
             ;;
         esac
@@ -174,11 +227,10 @@ runs:
         # tampered cache entry is caught before we run the binary.
         tmpdir=$(mktemp -d)
         trap 'rm -rf "$tmpdir"' EXIT
-        curl -fsSL -o "${tmpdir}/checksums.txt" \
-          "https://github.com/${repo}/releases/download/${tag}/checksums.txt"
+        download "https://github.com/${repo}/releases/download/${tag}/checksums.txt" "${tmpdir}/checksums.txt"
         expected=$(grep "  ${asset}\$" "${tmpdir}/checksums.txt" | cut -d' ' -f1 || true)
         if [ -z "$expected" ]; then
-          echo "::error::No checksum entry for ${asset} in ${tag}/checksums.txt" >&2
+          printf '%s\n' "::error::No checksum entry for ${asset} in ${tag}/checksums.txt" >&2
           exit 1
         fi
 
@@ -186,39 +238,48 @@ runs:
         if [ "$INPUT_CACHE" = "true" ] && [ -f "$tar_path" ] && [ -x "$bin_path" ]; then
           cached=$(sha256sum "$tar_path" | cut -d' ' -f1)
           if [ "$cached" = "$expected" ]; then
-            echo "Cached PMG ${tag} verified against upstream checksum"
+            printf '%s\n' "Cached PMG ${tag} verified against upstream checksum"
             need_download=false
           else
-            echo "Cached PMG ${tag} checksum drift (want ${expected}, got ${cached}); refreshing"
+            printf '%s\n' "Cached PMG ${tag} checksum drift (want ${expected}, got ${cached}); refreshing"
             rm -f "$tar_path" "$bin_path"
           fi
         fi
 
         if [ "$need_download" = "true" ]; then
-          curl -fsSL -o "$tar_path" \
-            "https://github.com/${repo}/releases/download/${tag}/${asset}"
+          download "https://github.com/${repo}/releases/download/${tag}/${asset}" "$tar_path"
           actual=$(sha256sum "$tar_path" | cut -d' ' -f1)
           if [ "$actual" != "$expected" ]; then
-            echo "::error::Checksum mismatch for ${asset}: want ${expected}, got ${actual}" >&2
+            printf '%s\n' "::error::Checksum mismatch for ${asset}: want ${expected}, got ${actual}" >&2
             exit 1
           fi
-          echo "Checksum verified for ${asset}"
+          printf '%s\n' "Checksum verified for ${asset}"
           tar -xzf "$tar_path" -C "$install_dir" pmg
           chmod +x "$bin_path"
         fi
 
-        echo "$install_dir" >> "$GITHUB_PATH"
-        echo "pmg-bin-dir=$install_dir" >> "$GITHUB_OUTPUT"
-        echo "pmg-version=$tag" >> "$GITHUB_OUTPUT"
+        printf '%s\n' "$install_dir" >> "$GITHUB_PATH"
+        printf '%s\n' "pmg-bin-dir=$install_dir" >> "$GITHUB_OUTPUT"
+        printf '%s\n' "pmg-version=$tag" >> "$GITHUB_OUTPUT"
 
     - name: Prepare sandbox (apt + AppArmor)
       if: inputs.sandbox == 'true'
-      shell: bash
+      shell: sh
       env:
         INPUT_DRIVER: ${{ inputs.sandbox-driver }}
+        JOB_CONTAINER_ID: ${{ job.container.id }}
       run: |
-        set -euo pipefail
+        set -eu
+        # The sandbox uses kernel features of the runner host. In a job
+        # container the AppArmor change below cannot reach the host.
+        if [ -n "$JOB_CONTAINER_ID" ]; then
+          printf '%s\n' "::warning::The sandbox runs in a job container. The action cannot relax AppArmor on the runner host from here, so the sandbox may not start."
+        fi
         if [ "$INPUT_DRIVER" = "bubblewrap" ]; then
+          if ! command -v apt-get >/dev/null 2>&1; then
+            printf '%s\n' "::error::sandbox-driver bubblewrap installs bubblewrap with apt-get, and this image has no apt-get. Use an Ubuntu runner or image." >&2
+            exit 1
+          fi
           if command -v sudo >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y bubblewrap
@@ -244,23 +305,23 @@ runs:
 
     - name: Stage user config file
       if: inputs.config-file != ''
-      shell: bash
+      shell: sh
       env:
         INPUT_CONFIG_FILE: ${{ inputs.config-file }}
       run: |
-        set -euo pipefail
+        set -eu
         src="${GITHUB_WORKSPACE}/${INPUT_CONFIG_FILE}"
         if [ ! -f "$src" ]; then
-          echo "::error::config-file not found: $src" >&2
+          printf '%s\n' "::error::config-file not found: $src" >&2
           exit 1
         fi
         dest_dir="${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg"
         mkdir -p "$dest_dir"
         cp "$src" "$dest_dir/config.yml"
-        echo "Staged $src -> $dest_dir/config.yml"
+        printf '%s\n' "Staged $src -> $dest_dir/config.yml"
 
     - name: Export PMG configuration
-      shell: bash
+      shell: sh
       env:
         IN_API_KEY: ${{ inputs.api-key }}
         IN_TENANT_ID: ${{ inputs.tenant-id }}
@@ -277,35 +338,40 @@ runs:
         IN_SERVER_MODE: ${{ inputs.server-mode }}
         GH_REPOSITORY: ${{ github.repository }}
       run: | # zizmor: ignore[github-env]
-        set -euo pipefail
+        set -eu
+
+        nl='
+        '
+        cr=$(printf '\r')
 
         # A line break would let an input inject other variables into
         # GITHUB_ENV, or workflow commands into the log.
         no_line_break() {
-          if [[ "$2" == *$'\n'* || "$2" == *$'\r'* ]]; then
-            echo "::error::The value for $1 contains a line break." >&2
-            exit 1
-          fi
+          case "$2" in
+            *"$nl"*|*"$cr"*)
+              printf '%s\n' "::error::The value for $1 contains a line break." >&2
+              exit 1
+              ;;
+          esac
         }
 
         export_var() {
-          local name="$1" value="$2"
-          no_line_break "$name" "$value"
-          if [ -n "$value" ]; then
-            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          no_line_break "$1" "$2"
+          if [ -n "$2" ]; then
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
           fi
         }
 
         # Guard mode is removed: fail loudly when a workflow still opts out of
         # proxy interception instead of silently switching it to proxy mode.
-        case "$(echo "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
+        case "$(printf '%s' "$IN_PROXY_MODE" | tr '[:upper:]' '[:lower:]')" in
           false|0|f)
-            echo "::error::PMG guard mode has been removed and proxy interception can no longer be disabled. Remove the 'proxy-mode' input." >&2
+            printf '%s\n' "::error::PMG guard mode has been removed and proxy interception can no longer be disabled. Remove the 'proxy-mode' input." >&2
             exit 1
             ;;
           "") ;;
           *)
-            echo "::warning::The 'proxy-mode' input is removed and has no effect. Remove it from your workflow." >&2
+            printf '%s\n' "::warning::The 'proxy-mode' input is removed and has no effect. Remove it from your workflow." >&2
             ;;
         esac
 
@@ -313,11 +379,11 @@ runs:
         # credential is found, so we skip "pmg cloud login" entirely.
         if [ -n "$IN_API_KEY" ] || [ -n "$IN_TENANT_ID" ]; then
           if [ -z "$IN_API_KEY" ] || [ -z "$IN_TENANT_ID" ]; then
-            echo "::error::api-key and tenant-id must be set together." >&2
+            printf '%s\n' "::error::api-key and tenant-id must be set together." >&2
             exit 1
           fi
           no_line_break api-key "$IN_API_KEY"
-          echo "::add-mask::$IN_API_KEY"
+          printf '%s\n' "::add-mask::$IN_API_KEY"
           export_var SAFEDEP_API_KEY "$IN_API_KEY"
           export_var SAFEDEP_TENANT_ID "$IN_TENANT_ID"
           export_var PMG_CLOUD_ENABLED "true"
@@ -363,14 +429,14 @@ runs:
 
     - name: Run pmg setup install (shim mode)
       if: inputs.server-mode != 'true'
-      shell: bash
+      shell: sh
       run: pmg setup install
 
     - name: Add PMG shims to PATH (shim mode)
       if: inputs.server-mode != 'true'
-      shell: bash
+      shell: sh
       run: | # zizmor: ignore[github-env]
-        set -euo pipefail
+        set -eu
         # The shim directory depends on the installed pmg version: releases
         # before the XDG layout use ~/.pmg/bin, later ones use the data dir.
         # This action installs a published release, which may be either, so
@@ -379,33 +445,33 @@ runs:
         found=""
         for dir in "${XDG_DATA_HOME:-$HOME/.local/share}/safedep/pmg/bin" "$HOME/.pmg/bin"; do
           if [ -d "$dir" ]; then
-            echo "$dir" >> "$GITHUB_PATH"
+            printf '%s\n' "$dir" >> "$GITHUB_PATH"
             found="$dir"
           fi
         done
         if [ -z "$found" ]; then
-          echo "::error::No PMG shim directory found after setup install." >&2
+          printf '%s\n' "::error::No PMG shim directory found after setup install." >&2
           exit 1
         fi
 
     - name: Warn about enforce inputs without enforce
       if: inputs.enforce != 'true' && (inputs.enforce-ports != '' || inputs.enforce-exempt-users != '' || inputs.enforce-exempt-executables != '' || inputs.enforce-skip-destinations != '' || inputs.enforce-namespaces != '')
-      shell: bash
-      run: echo "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
+      shell: sh
+      run: printf '%s\n' "::warning::The enforce-* inputs apply only with enforce true. They are ignored."
 
     - name: Warn about expose-to-job-network without server mode
       if: inputs.expose-to-job-network == 'true' && (inputs.server-mode != 'true' || inputs.enforce == 'true')
-      shell: bash
-      run: echo "::warning::expose-to-job-network applies only with server-mode true and enforce false. It is ignored."
+      shell: sh
+      run: printf '%s\n' "::warning::expose-to-job-network applies only with server-mode true and enforce false. It is ignored."
 
     - name: Start PMG proxy server (server mode)
       if: inputs.server-mode == 'true' && inputs.enforce != 'true'
-      shell: bash
+      shell: sh
       env:
         INPUT_EXPOSE_TO_JOB_NETWORK: ${{ inputs.expose-to-job-network == 'true' }}
         JOB_CONTAINER_ID: ${{ job.container.id }}
       run: | # zizmor: ignore[github-env]
-        set -euo pipefail
+        set -eu
         # No cert install needed: `pmg proxy env` exports the CA path via
         # NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/PIP_CERT, so package managers trust
         # the proxy without touching the OS trust store.
@@ -419,13 +485,13 @@ runs:
         # for a job on the runner itself. On the runner, the address would be
         # the host's own, and the proxy would be open to its network.
         if [ -z "$JOB_CONTAINER_ID" ]; then
-          echo "::error::expose-to-job-network needs a job container (jobs.<job_id>.container)." >&2
+          printf '%s\n' "::error::expose-to-job-network needs a job container (jobs.<job_id>.container)." >&2
           exit 1
         fi
 
         # Docker writes the container's address on the job network next to
-        # its hostname in /etc/hosts. Read both in bash, because the image may
-        # not have the hostname or getent tools. The kernel holds the
+        # its hostname in /etc/hosts. Read both in the shell, because the image
+        # may not have the hostname or getent tools. The kernel holds the
         # hostname. A workflow env can replace the HOSTNAME variable.
         read -r hostname < /proc/sys/kernel/hostname
         host=""
@@ -439,7 +505,7 @@ runs:
           done
         done < /etc/hosts
         if [ -z "$host" ]; then
-          echo "::error::Cannot find the address of the job container for hostname ${hostname} in /etc/hosts." >&2
+          printf '%s\n' "::error::Cannot find the address of the job container for hostname ${hostname} in /etc/hosts." >&2
           exit 1
         fi
 
@@ -452,8 +518,22 @@ runs:
         ca="$(printf '%s\n' "$proxy_env" | sed -n 's/^NODE_EXTRA_CA_CERTS=//p')"
         case "$ca" in
           /github/home/*) ;;
-          *) echo "::warning::The PMG CA is at ${ca}, outside /github/home. Docker actions cannot read it, so their TLS connections through the proxy fail." ;;
+          *) printf '%s\n' "::warning::The PMG CA is at ${ca}, outside /github/home. Docker actions cannot read it, so their TLS connections through the proxy fail." ;;
         esac
+
+    # The enforcement step runs with bash. In a job container it would fail
+    # with "bash: not found" on an image without bash, or on the sudo check,
+    # before it can say why. This check names the reason.
+    - name: Refuse kernel enforcement in a job container
+      if: inputs.server-mode == 'true' && inputs.enforce == 'true'
+      shell: sh
+      env:
+        JOB_CONTAINER_ID: ${{ job.container.id }}
+      run: |
+        if [ -n "$JOB_CONTAINER_ID" ]; then
+          printf '%s\n' "::error::enforce attaches kernel programs on the runner host, and this job runs in a job container (jobs.<job_id>.container). Run the job on the runner, or use server-mode without enforce." >&2
+          exit 1
+        fi
 
     - name: Start PMG proxy server with kernel enforcement (server mode)
       if: inputs.server-mode == 'true' && inputs.enforce == 'true'
@@ -504,10 +584,10 @@ runs:
         sudo "$pmg_bin" proxy env --state "$state" >> "$GITHUB_ENV"
 
     - name: Verify PMG
-      shell: bash
+      shell: sh
       run: |
         pmg version
-        echo "npm resolves to: $(command -v npm || echo '<not installed>')"
+        printf '%s\n' "npm resolves to: $(command -v npm || printf '%s' '<not installed>')"
 
 outputs:
   version:
