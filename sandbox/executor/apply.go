@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -105,27 +106,18 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 			Wrap(fmt.Errorf("sandbox not supported on %s/%s", runtime.GOOS, runtime.GOARCH))
 	}
 
-	presetRegistry, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))
+	registries, err := newProfileRegistries(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create preset registry: %w", err)
+		return nil, err
 	}
-
-	templates := cfg.SandboxPolicyTemplatePaths()
-	registry, err := sandbox.NewProfileRegistry(
-		sandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
-		sandbox.WithPresetRegistry(presetRegistry),
-		sandbox.WithPolicyTemplates(templates),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create profile registry: %w", err)
-	}
+	presetRegistry := registries.presets
 
 	var policy *sandbox.SandboxPolicy
 
 	if cfg.SandboxProfileOverride != "" {
 		log.Debugf("Using sandbox profile override: %s", cfg.SandboxProfileOverride)
 
-		policy, err = registry.GetProfile(cfg.SandboxProfileOverride)
+		policy, err = registries.load(cfg.SandboxProfileOverride)
 		if err != nil {
 			return nil, profileLoadError("Failed to load sandbox profile override", cfg.SandboxProfileOverride, err)
 		}
@@ -163,17 +155,9 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 		log.Debugf("Loading sandbox policy %s", policyRef.Profile)
 
-		// A template overrides a built-in profile or names a custom one. The
-		// registry gets the same map, so a profile can inherit a template by
-		// name.
-		profileRef := policyRef.Profile
-		if templatePath, exists := templates[profileRef]; exists {
-			profileRef = templatePath
-		}
-
-		policy, err = registry.GetProfile(profileRef)
+		policy, err = registries.load(policyRef.Profile)
 		if err != nil {
-			return nil, profileLoadError("Failed to load sandbox policy", profileRef, err)
+			return nil, profileLoadError("Failed to load sandbox policy", policyRef.Profile, err)
 		}
 	}
 
@@ -236,6 +220,109 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		NetworkMode:    cmp.Or(cfg.Config.Sandbox.NetworkMode, config.SandboxNetworkModeAudit),
 		Network:        network,
 	}, nil
+}
+
+// profileRegistries holds the registries of one config, so every loader
+// resolves a profile reference the same way.
+type profileRegistries struct {
+	presets   sandbox.PresetRegistry
+	profiles  sandbox.ProfileRegistry
+	templates map[string]string
+	configDir string
+}
+
+func newProfileRegistries(cfg *config.RuntimeConfig) (*profileRegistries, error) {
+	presets, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create preset registry: %w", err)
+	}
+
+	templates := cfg.SandboxPolicyTemplatePaths()
+	profiles, err := sandbox.NewProfileRegistry(
+		sandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
+		sandbox.WithPresetRegistry(presets),
+		sandbox.WithPolicyTemplates(templates),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create profile registry: %w", err)
+	}
+
+	return &profileRegistries{presets: presets, profiles: profiles, templates: templates, configDir: cfg.ConfigDir()}, nil
+}
+
+// load resolves ref as a template name first, so a template that overrides
+// a built-in profile wins over the built-in. The registry gets the same map,
+// so a profile can inherit a template by name. A relative path that does
+// not exist in the working directory resolves against the config directory.
+func (r *profileRegistries) load(ref string) (*sandbox.SandboxPolicy, error) {
+	if templatePath, exists := r.templates[ref]; exists {
+		ref = templatePath
+	}
+
+	policy, err := r.profiles.GetProfile(ref)
+	if errors.Is(err, sandbox.ErrProfileNotFound) && isRelativeProfilePath(ref) {
+		if inConfigDir := filepath.Join(r.configDir, ref); fileExists(inConfigDir) {
+			return r.profiles.GetProfile(inConfigDir)
+		}
+	}
+	return policy, err
+}
+
+func isRelativeProfilePath(ref string) bool {
+	return !filepath.IsAbs(ref) && strings.ContainsAny(ref, `/\`)
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+// LoadProfile resolves ref as `pmg <pm>` resolves sandbox.policies.<pm>.profile:
+// a template name, a built-in name, a user profile name, or a path.
+func LoadProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy, error) {
+	registries, err := newProfileRegistries(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	policy, err := registries.load(ref)
+	if err != nil {
+		return nil, profileLoadError("Failed to load sandbox profile", ref, err)
+	}
+	return policy, nil
+}
+
+// LoadManagedProfile resolves ref as a locked config may name it: a
+// built-in name, an absolute path, or a path relative to the managed config
+// file. A template, a user profile and the working directory are writable
+// by the user, so they do not count.
+func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy, error) {
+	registries, err := newProfileRegistries(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	path := ref
+	switch {
+	case filepath.IsAbs(ref):
+	case isRelativeProfilePath(ref):
+		path = filepath.Join(filepath.Dir(cfg.ConfigFilePath()), ref)
+	default:
+		if _, builtin := registries.profiles.BuiltinProfileYAML(ref); !builtin {
+			err := fmt.Errorf("%w: %s is not a built-in profile or a path", sandbox.ErrProfileNotFound, ref)
+			return nil, usefulerror.NewUsefulError().
+				WithCode(errcodes.NotFound).
+				WithHumanError(fmt.Sprintf("Failed to load the managed sandbox profile: %v", err)).
+				WithHelp("A globally managed configuration names a built-in profile, an absolute path, or a path relative to the managed config file.").
+				Wrap(err)
+		}
+	}
+
+	policy, err := registries.profiles.GetProfile(path)
+	if err != nil {
+		return nil, profileLoadError("Failed to load the managed sandbox profile", path, err)
+	}
+	return policy, nil
 }
 
 // profileLoadError carries the cause to the user. A profile that exists
@@ -383,8 +470,7 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 
 		case config.SandboxAllowNetConnect:
 			log.Infof("Sandbox override: allowing outbound connection to %s", override.Value)
-			policy.Network.AllowOutbound = append(policy.Network.AllowOutbound, override.Value)
-			policy.Network.DenyOutbound = removeExactMatch(policy.Network.DenyOutbound, override.Value)
+			policy.Network.Allow(override.Value)
 
 		case config.SandboxAllowNetBind:
 			log.Infof("Sandbox override: allowing network bind on %s", override.Value)

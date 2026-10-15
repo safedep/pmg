@@ -334,7 +334,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
-	reportData.NetworkPolicy = networkDecisions.report()
+	reportData.NetworkPolicy = networkDecisions.Report()
 	networkDecisions.observeViolations()
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 

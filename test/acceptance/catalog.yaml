@@ -577,6 +577,12 @@
   tier: P1
   guarantee: "Under global_lockdown a flag that loosens the policy fails fast and a narrowing flag is accepted."
   labels: [policy]
+- id: enforce/policy/lockdown-governs-network-flags
+  title: "lockdown refuses a widening network flag or profile"
+  category: enforce
+  tier: P1
+  guarantee: "Under global_lockdown --network-allow and --network-mode audit over enforce fail fast, a profile that adds an allow rule fails and names the rule, and a deny rule or a profile that only adds deny rules is accepted."
+  labels: [policy, network]
 
 # truststore: the scripts change the system trust store. They run only in the
 # truststore job, one per OS, on a disposable CI host.
@@ -616,6 +622,12 @@
   tier: P1
   guarantee: "A profile that inherits a user profile that inherits a built-in resolves the rules and the package managers of all three, and a chain that loops fails with an error."
   labels: [sandbox, profile, offline]
+- id: proxy/network/profile-denies-a-host
+  title: "the persistent proxy applies the profile's network rules"
+  category: proxy
+  tier: P0
+  guarantee: "With --profile and --network-mode enforce the daemon refuses a destination a deny_outbound rule covers with a 403, the stop report lists the denial with the profile chain, and --fail-on-violation fails. With --network-deny under audit the connection goes through and the report lists what the rule would deny."
+  labels: [proxy, network, block]
 - id: sandbox/network/enforce-denies-a-registry-host
   title: "the proxy refuses a destination a profile deny rule covers"
   category: sandbox

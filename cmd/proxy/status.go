@@ -47,6 +47,7 @@ func statusText(st proxyserver.StatusInfo) string {
 	if st.ConfigPath != "" {
 		fmt.Fprintf(&b, "  config: %s (%s)\n", st.ConfigPath, st.ConfigSource)
 	}
+	b.WriteString(proxyserver.NetworkPolicyLine(st.Network, st.Enforce != nil))
 	if st.Enforce == nil {
 		b.WriteString(proxyserver.WarningLines(st.Warnings))
 		return b.String()

@@ -182,12 +182,14 @@ type NetworkPolicyReport struct {
 }
 
 // NetworkDenial is one destination a deny rule matched, with how many
-// connections it matched.
+// connections it matched. The daemon keeps one per client, so the stop
+// report names the program behind each one.
 type NetworkDenial struct {
-	Destination string
-	Rule        string
-	Client      string
-	Count       int
+	Destination string `json:"destination"`
+	Rule        string `json:"rule"`
+	Client      string `json:"client,omitempty"`
+	PID         int    `json:"pid,omitempty"`
+	Count       int    `json:"count"`
 }
 
 // reportNormal shows minimal, assuring output

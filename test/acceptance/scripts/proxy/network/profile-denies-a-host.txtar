@@ -1,0 +1,52 @@
+# guarantee: the persistent proxy applies the network rules of the profile
+# --profile names. Under enforce a proxy-aware client gets a 403 on its
+# CONNECT, the stop report lists the denial, and --fail-on-violation fails. Under audit the connection goes through and the
+# report says what the rule would deny.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+
+exec sh enforce.sh
+stdout 'Network policy: enforce, profile npm-restrictive < .*deny-pastebin.yml, enforce: off, policy advisory'
+stdout 'connect 403'
+stdout 'Network policy: enforce, 1 denied, 0 would deny'
+stdout 'denied  pastebin.com:443  rule pastebin.com:443'
+stdout 'Profile: npm-restrictive < .*deny-pastebin.yml'
+stdout 'stop exit 1'
+stdout '1 connection\(s\) were denied by the network policy'
+
+exec sh audit.sh
+stdout 'status 200'
+stdout 'Network policy: audit, 0 denied, 1 would deny'
+stdout 'would deny  registry.npmjs.org:443  rule registry.npmjs.org:443'
+stdout 'stop exit 0'
+
+-- enforce.sh --
+set -eu
+pmg proxy start --daemon --port 0 --state "$PWD/state.json" --profile "$PWD/deny-pastebin.yml" --network-mode enforce
+eval "$(pmg proxy env --export --state "$PWD/state.json")"
+# curl drops the body of a refused CONNECT, so the CONNECT status is the check.
+status=$(curl --silent --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"
+set +e
+pmg proxy stop --state "$PWD/state.json" --fail-on-violation 2>&1
+echo "stop exit $?"
+-- audit.sh --
+set -eu
+pmg proxy start --daemon --port 0 --state "$PWD/state.json" --network-deny registry.npmjs.org:443 --network-mode audit
+eval "$(pmg proxy env --export --state "$PWD/state.json")"
+status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
+echo "status $status"
+set +e
+pmg proxy stop --state "$PWD/state.json" --fail-on-violation 2>&1
+echo "stop exit $?"
+-- deny-pastebin.yml --
+name: deny-pastebin
+inherits: npm-restrictive
+network:
+  deny_outbound:
+    - pastebin.com:443

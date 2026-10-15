@@ -48,6 +48,8 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | ----------------------------- | --------------------------------- |
 | `paranoid`                    | `PMG_PARANOID`                    |
 | `proxy.install_only`          | `PMG_PROXY_INSTALL_ONLY`          |
+| `proxy.server.profile` | `PMG_PROXY_SERVER_PROFILE` |
+| `proxy.server.network_mode` | `PMG_PROXY_SERVER_NETWORK_MODE` |
 | `proxy.server.enforce.enabled` | `PMG_PROXY_SERVER_ENFORCE_ENABLED` |
 | `proxy.server.enforce.ports` | `PMG_PROXY_SERVER_ENFORCE_PORTS` (comma-separated) |
 | `proxy.server.enforce.eligible_users` | `PMG_PROXY_SERVER_ENFORCE_ELIGIBLE_USERS` (comma-separated) |

@@ -8,6 +8,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,10 +60,15 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 					Ports:             []int{8443},
 					ExemptExecutables: []string{"/opt/agent/bin/agent"},
 				},
+				Network: proxyserver.NetworkOverrides{
+					Allow: []string{"registry.npmjs.org:443"},
+					Deny:  []string{"*:*"},
+				},
 			})
 		},
 	}
 	addEnforceFlags(start, &config.Get().Config.Proxy.Server.Enforce)
+	addNetworkFlags(start, &config.Get().Config.Proxy.Server)
 	proxyCmd := &cobra.Command{Use: "proxy"}
 	proxyCmd.AddCommand(start)
 	root.AddCommand(proxyCmd)
@@ -70,6 +76,7 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 		"--paranoid",
 		"--skip-dependency-cooldown",
 		"proxy", "start", "--enforce-deny-udp=false", "--enforce-cgroup", "/sys/fs/cgroup/ci.slice", "--enforce-namespaces", "redirect",
+		"--profile", "ci.yml", "--network-mode", "enforce",
 	})
 
 	require.NoError(t, root.Execute())
@@ -86,7 +93,35 @@ func TestDaemonArgsPrependsChangedConfigFlags(t *testing.T) {
 		"--enforce-cgroup", "/sys/fs/cgroup/ci.slice",
 		"--enforce-deny-udp=false",
 		"--enforce-namespaces", "redirect",
+		"--profile", "ci.yml",
+		"--network-mode", "enforce",
+		"--network-allow", "registry.npmjs.org:443",
+		"--network-deny", "*:*",
 	}, got)
+}
+
+func TestWideningNetworkFlagsUnderLockdown(t *testing.T) {
+	parse := func(t *testing.T, fileMode string, args ...string) (*pflag.FlagSet, config.ProxyServerConfig) {
+		t.Helper()
+		srv := config.ProxyServerConfig{Profile: "npm-restrictive", NetworkMode: fileMode}
+		cmd := &cobra.Command{Use: "start"}
+		addNetworkFlags(cmd, &srv)
+		require.NoError(t, cmd.Flags().Parse(args))
+		return cmd.Flags(), srv
+	}
+
+	fs, srv := parse(t, "enforce", "--network-deny", "evil.example:443", "--network-mode", "enforce", "--profile", "ci.yml")
+	assert.Empty(t, wideningNetworkFlags(fs, srv), "a deny rule, the file's mode and another profile narrow or are checked later")
+	assert.Equal(t, "npm-restrictive", lockedProfile(fs), "the daemon checks the named profile against the file's")
+
+	fs, srv = parse(t, "audit", "--network-mode", "enforce")
+	assert.Empty(t, wideningNetworkFlags(fs, srv), "enforce over audit narrows")
+
+	fs, srv = parse(t, "enforce", "--network-allow", "pastebin.com:443", "--network-mode", "audit")
+	assert.Equal(t, []string{"--network-allow", "--network-mode=audit"}, wideningNetworkFlags(fs, srv))
+
+	fs, srv = parse(t, "enforce", "--profile=", "--network-mode=")
+	assert.Equal(t, []string{"--profile=", "--network-mode="}, wideningNetworkFlags(fs, srv), "an empty value unsets the file's profile and mode")
 }
 
 func TestWideningFlagsUnderLockdown(t *testing.T) {
