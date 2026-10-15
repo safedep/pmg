@@ -262,9 +262,11 @@ In a job that has a job container (`jobs.<job_id>.container`), the action
 and the proxy run in the job container. The `run:` steps in the job
 container reach the proxy at `127.0.0.1`.
 
-The action needs these tools in the image: `sh`, `tar`, `sha256sum`, and
-`curl` or `wget`. It does not need `bash`. Alpine images, such as
-`golang:1.26-alpine` and `node:24-alpine`, work as they are. The action at
+The action needs a POSIX shell and userland in the image, such as busybox:
+`sh`, `tar`, `sha256sum`, `grep`, `sed`, `tr`, `cut`, `head`, `uname`,
+`mktemp`, `mkdir`, `chmod`, `cp` and `rm`, and `curl` or `wget`. It does not
+need `bash`. Alpine images, such as `golang:1.26-alpine` and
+`node:24-alpine`, work as they are. The action at
 v0.32.0 and older runs every step with `bash` and fails on an image without
 it. On those versions, run `apk add --no-cache bash curl` in a step before
 the action.

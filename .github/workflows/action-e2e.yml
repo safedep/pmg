@@ -330,7 +330,7 @@ jobs:
       run:
         shell: sh
     steps:
-      # The fix is that the action needs only sh, wget, tar and sha256sum.
+      # The action needs only sh and the busybox userland, with wget.
       # The job fails here if the image ever gains bash or curl.
       - name: The image has no bash and no curl
         run: |
@@ -385,7 +385,7 @@ jobs:
       run:
         shell: sh
     steps:
-      # The fix is that the action needs only sh, wget, tar and sha256sum.
+      # The action needs only sh and the busybox userland, with wget.
       # The job fails here if the image ever gains bash or curl.
       - name: The image has no bash and no curl
         run: |
@@ -444,7 +444,7 @@ jobs:
       run:
         shell: sh
     steps:
-      # The fix is that the action needs only sh, wget, tar and sha256sum.
+      # The action needs only sh and the busybox userland, with wget.
       # The job fails here if the image ever gains bash or curl.
       - name: The image has no bash and no curl
         run: |
