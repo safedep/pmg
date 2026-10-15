@@ -218,14 +218,24 @@ func (p *Policy) Decide(host string, port uint16) Decision {
 func NormalizeHost(host string) string {
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	// A wildcard suffix names labels and never an address, so it gets the
+	// name mapping only.
+	if suffix, ok := strings.CutPrefix(host, "*."); ok {
+		if mapped, err := idna.Lookup.ToASCII(suffix); err == nil {
+			suffix = mapped
+		}
+		return "*." + suffix
+	}
 	if addr, err := netip.ParseAddr(host); err == nil {
 		return addr.Unmap().WithZone("").String()
 	}
 	if addr, ok := parseLegacyIPv4(host); ok {
 		return addr.String()
 	}
-	if mapped, err := idna.Lookup.ToASCII(host); err == nil {
-		return mapped
+	// The mapping can turn fullwidth digits into an address, so the mapped
+	// name goes through the address checks again.
+	if mapped, err := idna.Lookup.ToASCII(host); err == nil && mapped != host {
+		return NormalizeHost(mapped)
 	}
 	return host
 }

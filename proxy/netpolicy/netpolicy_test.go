@@ -229,19 +229,35 @@ func TestNormalizeHost(t *testing.T) {
 
 		// The transport maps a name with IDNA before it dials, so the
 		// policy must read the same name.
-		"\uff4cocalhost":      "localhost",
-		"local\u00adhost":     "localhost",
-		"b\u00fccher.example": "xn--bcher-kva.example",
-		"[fe80::1%eth0]":      "fe80::1",
-		"127.1":               "127.0.0.1",
-		"0x7f000001":          "127.0.0.1",
-		"2130706433":          "127.0.0.1",
-		"0177.0.0.1":          "127.0.0.1",
-		"0177.0000.0.01":      "127.0.0.1",
+		"\uff4cocalhost":            "localhost",
+		"local\u00adhost":           "localhost",
+		"b\u00fccher.example":       "xn--bcher-kva.example",
+		"[fe80::1%eth0]":            "fe80::1",
+		"127.1":                     "127.0.0.1",
+		"0x7f000001":                "127.0.0.1",
+		"2130706433":                "127.0.0.1",
+		"0177.0.0.1":                "127.0.0.1",
+		"0177.0000.0.01":            "127.0.0.1",
+		"\uff11\uff12\uff17.\uff11": "127.0.0.1",
+		"*.b\u00fccher.example":     "*.xn--bcher-kva.example",
 	}
 	for in, want := range tests {
-		assert.Equal(t, want, NormalizeHost(in), in)
+		got := NormalizeHost(in)
+		assert.Equal(t, want, got, in)
+		assert.Equal(t, got, NormalizeHost(got), "normalization is idempotent for %q", in)
 	}
+}
+
+func TestWildcardRuleWithAnInternationalizedSuffix(t *testing.T) {
+	rule, err := ParseRule("*.b\u00fccher.example:443")
+	require.NoError(t, err)
+	assert.Equal(t, "*.xn--bcher-kva.example", rule.Host)
+
+	p, err := New(nil, []string{"*.b\u00fccher.example:443"})
+	require.NoError(t, err)
+	assert.False(t, p.Decide("shop.b\u00fccher.example", 443).Allowed)
+	assert.False(t, p.Decide("shop.xn--bcher-kva.example", 443).Allowed)
+	assert.True(t, p.Decide("b\u00fccher.example", 443).Allowed, "a wildcard does not match its own suffix")
 }
 
 // A host the policy cannot read as a name or an address is denied, because
