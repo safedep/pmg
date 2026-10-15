@@ -58,6 +58,9 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
 			blockCtx.CooldownDaysAgo, blockCtx.CooldownDays, blockCtx.CooldownDaysLeft)
 
+	case proxy.BlockReasonNetworkPolicy:
+		message = fmt.Sprintf("Connection to %s denied by the network policy (rule %s)", blockCtx.Destination, blockCtx.Rule)
+
 	default:
 		return ""
 	}

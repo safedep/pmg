@@ -24,6 +24,7 @@ func TestFormatSandboxOverrideFlagKinds(t *testing.T) {
 		{pmgsandbox.ViolationKindFSWrite, "--sandbox-allow write='./.env'"},
 		{pmgsandbox.ViolationKindFSDeleteOrRename, "--sandbox-allow write='./.env'"},
 		{pmgsandbox.ViolationKindExec, "--sandbox-allow exec='./.env'"},
+		{pmgsandbox.ViolationKindNetworkConnect, "--sandbox-allow net-connect=./.env"},
 		{pmgsandbox.ViolationKindGenericDeny, ""},
 	}
 	for _, tt := range tests {

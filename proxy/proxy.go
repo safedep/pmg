@@ -22,6 +22,7 @@ import (
 	"github.com/elazarl/goproxy"
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/proxy/certmanager"
+	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
 // defaultServerReadWriteTimeout is the default timeout for the http.Server's
@@ -139,6 +140,17 @@ type ProxyConfig struct {
 	// so a container cannot use the listener as a proxy with the host's
 	// reachability.
 	RedirectOnlyAddrs []string
+
+	// NetworkPolicy decides every destination by host and port. nil allows
+	// every destination.
+	NetworkPolicy *netpolicy.Policy
+
+	// NetworkEnforce makes the proxy refuse a denied destination. False is
+	// audit: the proxy records the decision and lets the connection through.
+	NetworkEnforce bool
+
+	// OnNetworkDecision receives every match on a deny rule.
+	OnNetworkDecision func(NetworkDecision)
 }
 
 // DefaultProxyConfig returns a configuration with sensible defaults
@@ -293,6 +305,10 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		if err := ps.AddInterceptor(interceptor); err != nil {
 			return nil, fmt.Errorf("failed to add interceptor %s: %w", interceptor.Name(), err)
 		}
+	}
+
+	if config.NetworkPolicy != nil {
+		ps.configureNetworkPolicy()
 	}
 
 	if config.EnableMITM {
@@ -500,7 +516,8 @@ func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
 		orig := originFromContext(ctx.Req.Context())
-		ctx.UserData = orig
+		hostname, port := splitTarget(host, 443)
+		ctx.UserData = mitmSession{origin: orig, target: normalizedTarget(hostname, port)}
 		if ps.shouldMITM(host, "CONNECT", orig) {
 			mitmAction := &goproxy.ConnectAction{
 				Action: goproxy.ConnectMitm,
@@ -672,25 +689,7 @@ func (ps *proxyServer) registerHandlers() {
 				}
 
 				log.Debugf("[%s] Blocked by %s: %s", reqCtx.RequestID, interceptor.Name(), req.URL.String())
-				r := goproxy.NewResponse(req, goproxy.ContentTypeText, statusCode, message)
-
-				// goproxy v1.8.x writes the response via (*http.Response).Write for MITM traffic.
-				// Ensure the protocol version is valid (defaults to HTTP/0.0 otherwise).
-				// Ref: https://github.com/elazarl/goproxy/issues/745
-				if req.ProtoMajor > 0 {
-					r.Proto = req.Proto
-					r.ProtoMajor = req.ProtoMajor
-					r.ProtoMinor = req.ProtoMinor
-				} else {
-					r.Proto = "HTTP/1.1"
-					r.ProtoMajor = 1
-					r.ProtoMinor = 1
-				}
-				r.Close = true
-				r.Header.Set("Connection", "close")
-				r.Header.Set("Proxy-Connection", "close")
-
-				return req, r
+				return req, blockResponse(req, statusCode, message)
 
 			case ActionModifyRequest:
 				if resp.ModifiedHeaders != nil {

@@ -1,0 +1,239 @@
+package proxye2e
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/safedep/pmg/proxy/netpolicy"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// registryOnly allows the npm registry and one plain host and denies the rest.
+func registryOnly(t *testing.T, enforce bool) Option {
+	t.Helper()
+
+	p, err := netpolicy.New(
+		[]string{"registry.npmjs.org:443", "plain.example:80"},
+		[]string{"*:*"},
+	)
+	require.NoError(t, err)
+	return WithNetworkPolicy(p, enforce)
+}
+
+// denyRegistry denies the npm registry and allows the rest.
+func denyRegistry(t *testing.T, enforce bool) Option {
+	t.Helper()
+
+	p, err := netpolicy.New(nil, []string{"registry.npmjs.org:443"})
+	require.NoError(t, err)
+	return WithNetworkPolicy(p, enforce)
+}
+
+// getWithHost sends one GET to rawURL with another Host header. Inside a
+// terminated tunnel goproxy builds the upstream URL from that header.
+func (h *Harness) getWithHost(rawURL, host string) RequestOutcome {
+	h.t.Helper()
+
+	out := RequestOutcome{URL: rawURL}
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	req.Host = host
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		out.Err = err
+		return out
+	}
+	return readOutcome(resp, out)
+}
+
+func TestProxyFlow_NetworkPolicy(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name:    "allowed registry host passes through MITM",
+			Options: []Option{registryOnly(t, true)},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult { return h.Npm().Install("left-pad", "1.0.0") },
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Len(t, res.Requests, 2)
+				for _, r := range res.Requests {
+					require.NoError(t, r.Err)
+					assert.Equal(t, http.StatusOK, r.StatusCode, r.URL)
+				}
+				assert.True(t, h.Registry.DownloadedTarball("left-pad", "1.0.0"))
+				assert.Empty(t, h.NetworkDecisions())
+			},
+		},
+		{
+			Name:    "CONNECT to a denied host is refused before any dial",
+			Options: []Option{registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://evil.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Error(t, res.Requests[0].Err)
+				assert.Contains(t, res.Requests[0].Err.Error(), "Forbidden")
+				assert.Empty(t, h.DialedAddrs())
+
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, 1)
+				assert.Equal(t, "evil.example", decisions[0].Host)
+				assert.Equal(t, uint16(443), decisions[0].Port)
+				assert.Equal(t, "*:*", decisions[0].Rule)
+				assert.True(t, decisions[0].Enforced)
+			},
+		},
+		{
+			Name:    "CONNECT to an IP literal is refused when only names are allowed",
+			Options: []Option{registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://104.16.0.35/left-pad", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Error(t, res.Requests[0].Err)
+				assert.Empty(t, h.DialedAddrs())
+			},
+		},
+		{
+			Name:    "plain HTTP to a denied host gets 403 with the destination and the rule",
+			Options: []Option{registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("http://evil.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Contains(t, res.Requests[0].Body, "evil.example:80")
+				assert.Contains(t, res.Requests[0].Body, "rule *:*")
+				assert.Empty(t, h.DialedAddrs())
+			},
+		},
+		{
+			Name:    "plain HTTP to an allowed host on the default port passes",
+			Options: []Option{registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("http://plain.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.NotEqual(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Contains(t, h.DialedAddrs(), "plain.example:80")
+			},
+		},
+		{
+			Name:    "a request inside an allowed tunnel that names a denied host gets 403",
+			Options: []Option{registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{
+					h.getWithHost("https://registry.npmjs.org/left-pad", "evil.example"),
+				}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Contains(t, res.Requests[0].Body, "evil.example:443")
+				assert.NotContains(t, h.DialedAddrs(), "evil.example:443")
+			},
+		},
+		{
+			Name:    "audit records the decision and lets the connection through",
+			Options: []Option{registryOnly(t, false)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("http://evil.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.NotEqual(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Contains(t, h.DialedAddrs(), "evil.example:80")
+
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, 1)
+				assert.False(t, decisions[0].Enforced)
+				assert.Equal(t, "*:*", decisions[0].Rule)
+			},
+		},
+		{
+			Name:    "audit decides a terminated tunnel once, not again for the request inside it",
+			Options: []Option{denyRegistry(t, false)},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://registry.npmjs.org/left-pad", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusOK, res.Requests[0].StatusCode)
+				assert.Len(t, h.NetworkDecisions(), 1)
+			},
+		},
+		{
+			Name: "no policy forwards every host",
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("http://evil.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.NotEqual(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Contains(t, h.DialedAddrs(), "evil.example:80")
+				assert.Empty(t, h.NetworkDecisions())
+			},
+		},
+		{
+			Name:    "redirected TLS to a denied host is closed before the handshake",
+			Options: []Option{WithTransparent(nil), registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.RedirectedTLS("evil.example", "/x")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.Error(t, res.Requests[0].Err)
+				assert.Empty(t, h.DialedAddrs())
+
+				decisions := h.NetworkDecisions()
+				require.Len(t, decisions, 1)
+				assert.Equal(t, "evil.example", decisions[0].Host)
+				assert.True(t, decisions[0].Enforced)
+			},
+		},
+		{
+			Name:    "redirected TLS to an allowed registry host is terminated and served",
+			Options: []Option{WithTransparent(nil), registryOnly(t, true)},
+			Setup: func(h *Harness) {
+				h.Registry.AddNpm(NpmPackage{Name: "left-pad", DistTagLatest: "1.0.0",
+					Versions: []NpmVersion{{Version: "1.0.0", PublishedAt: old()}}})
+				h.Analyzer.SetNpm("left-pad", "1.0.0", Clean())
+			},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.RedirectedTLS("registry.npmjs.org", "/left-pad")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusOK, res.Requests[0].StatusCode)
+				assert.Empty(t, h.NetworkDecisions())
+			},
+		},
+		{
+			Name:    "redirected plain HTTP to a denied host gets 403",
+			Options: []Option{WithTransparent(nil), registryOnly(t, true)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.RedirectedHTTP("evil.example", "/x")}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				require.NoError(t, res.Requests[0].Err)
+				assert.Equal(t, http.StatusForbidden, res.Requests[0].StatusCode)
+				assert.Contains(t, res.Requests[0].Body, "evil.example:80")
+				assert.Empty(t, h.DialedAddrs())
+			},
+		},
+	})
+}

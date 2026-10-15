@@ -237,6 +237,45 @@ func (obs HostObservation) details(reason string) map[string]any {
 	return d
 }
 
+// LogNetworkPolicy records a connection the network policy denied, or
+// would deny under audit.
+func LogNetworkPolicy(d NetworkDecision) {
+	logEvent(AuditEvent{
+		Type:            EventTypeNetworkPolicy,
+		Message:         fmt.Sprintf("Network policy %s %s:%d", d.action(), d.Hostname, d.Port),
+		Details:         d.details(),
+		NetworkDecision: d,
+	})
+}
+
+func (d NetworkDecision) action() string {
+	if d.Enforced {
+		return "denied"
+	}
+	return "observed"
+}
+
+func (d NetworkDecision) mode() string {
+	if d.Enforced {
+		return "enforce"
+	}
+	return "audit"
+}
+
+func (d NetworkDecision) details() map[string]any {
+	details := HostObservation{
+		Hostname:   d.Hostname,
+		Port:       d.Port,
+		EntryPoint: d.EntryPoint,
+		Client:     d.Client,
+	}.details("network_policy")
+	delete(details, "method")
+	details["rule"] = d.Rule
+	details["action"] = d.action()
+	details["mode"] = d.mode()
+	return details
+}
+
 // LogDependencyCooldown records that a package was blocked by the dependency cooldown policy.
 func LogDependencyCooldown(pv *packagev1.PackageVersion, publishDate time.Time, cooldownDays, daysAgo, daysLeft int) {
 	logEvent(AuditEvent{

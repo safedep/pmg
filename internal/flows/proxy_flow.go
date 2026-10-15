@@ -227,16 +227,18 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
 			runerror.ReasonProxySetupFailed)
 	}
-	// The policy resolves once, before the proxy starts, and the runner gets
-	// the same resolution. A later step hands the network rules to the proxy.
+	// The policy resolves once. The proxy gets its network rules and the
+	// runner gets the same resolution.
 	sandboxRes, err := executor.ResolvePolicy(f.pm.Name(), false)
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to apply sandbox: %w", err),
 			runerror.ReasonExecutionSetupFailed)
 	}
 
+	networkDecisions := newNetworkDecisionLog(sandboxRes)
+
 	// Create and start proxy server
-	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
+	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList, sandboxRes, networkDecisions.record)
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to start proxy server: %w", err),
 			runerror.ReasonProxySetupFailed)
@@ -332,6 +334,8 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
+	reportData.NetworkPolicy = networkDecisions.report()
+	networkDecisions.observeViolations()
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 
 	// Set outcome based on execution result using shared inference logic
@@ -407,12 +411,19 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 func (f *proxyFlow) createAndStartProxyServer(
 	certMgr certmanager.CertificateManager,
 	interceptorsList []proxy.Interceptor,
+	sandboxRes *executor.Resolution,
+	onNetworkDecision func(proxy.NetworkDecision),
 ) (proxy.ProxyServer, string, error) {
 	proxyConfig := proxy.DefaultProxyConfig()
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorsList
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
+	if sandboxRes != nil && sandboxRes.Network != nil {
+		proxyConfig.NetworkPolicy = sandboxRes.Network
+		proxyConfig.NetworkEnforce = sandboxRes.NetworkMode == config.SandboxNetworkModeEnforce
+		proxyConfig.OnNetworkDecision = onNetworkDecision
+	}
 
 	proxyServer, err := proxy.NewProxyServer(proxyConfig)
 	if err != nil {

@@ -67,6 +67,10 @@ const (
 	DriverSeatbelt   DriverName = "seatbelt"
 	DriverBubblewrap DriverName = "bubblewrap"
 	DriverLandlock   DriverName = "landlock"
+
+	// DriverProxy marks a violation the PMG proxy recorded, a connection the
+	// network policy denied.
+	DriverProxy DriverName = "proxy"
 )
 
 // ViolationKind is PMG's normalized taxonomy for sandbox denials.

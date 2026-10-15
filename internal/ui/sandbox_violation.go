@@ -49,6 +49,8 @@ func sandboxAllowArg(o *pmgsandbox.OverrideSuggestion) string {
 		return "write=" + platform.ShellQuote(o.Target)
 	case pmgsandbox.ViolationKindExec:
 		return "exec=" + platform.ShellQuote(o.Target)
+	case pmgsandbox.ViolationKindNetworkConnect:
+		return "net-connect=" + o.Target
 	case pmgsandbox.ViolationKindEnvScrub:
 		// The suggestion gate already holds names to this form. Check again
 		// here so a caller that skips the gate cannot put an odd name into

@@ -1,0 +1,48 @@
+# guarantee: under sandbox.network_mode enforce the proxy refuses a connection
+# a deny rule in the profile covers. The install fails, the report names the
+# destination and the rule, and `pmg sandbox explain --last` suggests the
+# override. Under audit the install succeeds and the report lists what the
+# rule would deny.
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+cd $WORK/proj
+
+env PMG_SANDBOX_NETWORK_MODE=enforce
+! exec pmg npm install left-pad --fetch-retries=0
+stdout 'Network policy denied'
+stdout 'registry.npmjs.org:443  rule registry.npmjs.org:443'
+! exists node_modules/left-pad/package.json
+
+exec pmg sandbox explain --last --json
+stdout 'net-connect=registry.npmjs.org:443'
+
+env PMG_SANDBOX_NETWORK_MODE=audit
+exec pmg npm install left-pad
+stdout 'Network policy would deny'
+stdout 'registry.npmjs.org:443'
+exists node_modules/left-pad/package.json
+
+-- proj/package.json --
+{
+  "name": "network-policy-acceptance",
+  "version": "1.0.0"
+}
+-- config/config.yml --
+disable_telemetry: true
+sandbox:
+  enabled: true
+  policies:
+    npm:
+      enabled: true
+      profile: deny-registry
+-- config/sandbox/profiles/deny-registry.yml --
+name: deny-registry
+description: the npm profile with the registry denied
+package_managers: [npm]
+inherits: npm
+network:
+  deny_outbound:
+    - registry.npmjs.org:443

@@ -172,6 +172,63 @@ func TestApplyRuntimeOverrides_NetConnect(t *testing.T) {
 	assert.Contains(t, policy.Network.AllowOutbound, "example.com:443")
 }
 
+func TestApplyRuntimeOverrides_NetConnectRemovesExactDeny(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Network: sandbox.NetworkPolicy{
+			DenyOutbound: []string{"example.com:443", "*:*"},
+		},
+	}
+
+	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "example.com:443", Raw: "net-connect=example.com:443"},
+	}, nil)
+
+	assert.Equal(t, []string{"*:*"}, policy.Network.DenyOutbound)
+	assert.Contains(t, policy.Network.AllowOutbound, "example.com:443")
+}
+
+func TestResolvePolicyParsesNetworkRulesAndFailsClosedOnABadOne(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.yml")
+	require.NoError(t, os.WriteFile(good, []byte(`
+name: good
+package_managers: ["npm"]
+network:
+  allow_outbound: ["registry.npmjs.org:443"]
+  deny_outbound: ["*:*"]
+`), 0o600))
+	bad := filepath.Join(dir, "bad.yml")
+	require.NoError(t, os.WriteFile(bad, []byte(`
+name: bad
+package_managers: ["npm"]
+network:
+  allow_outbound: ["registry.npmjs.org"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+
+	cfg.SandboxProfileOverride = good
+	cfg.SandboxAllowOverrides = []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "cdn.example.com:443", Raw: "net-connect=cdn.example.com:443"},
+	}
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res.Network)
+	assert.True(t, res.Network.Decide("registry.npmjs.org", 443).Allowed)
+	assert.True(t, res.Network.Decide("cdn.example.com", 443).Allowed, "the override adds an allow rule")
+	assert.False(t, res.Network.Decide("evil.example", 443).Allowed)
+
+	cfg.SandboxProfileOverride = bad
+	cfg.SandboxAllowOverrides = nil
+	_, err = ResolvePolicy("npm", false)
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code())
+}
+
 func TestApplyRuntimeOverrides_NetBind(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Network: sandbox.NetworkPolicy{
@@ -733,4 +790,28 @@ network:
 	assert.Contains(t, res.Policy.Network.AllowOutbound, "registry.npmjs.org:443")
 	assert.Contains(t, res.Policy.Network.AllowOutbound, "ci.example.com:443")
 	assert.Contains(t, res.Policy.Network.DenyOutbound, "*:*")
+}
+
+func TestObserveNetworkDenialsWritesAViolationRecord(t *testing.T) {
+	t.Setenv("PMG_CACHE_DIR", t.TempDir())
+	config.Reload()
+	t.Cleanup(config.Reload)
+
+	ObserveNetworkDenials("ci", []sandbox.Violation{{
+		Kind:       sandbox.ViolationKindNetworkConnect,
+		RawKind:    "network_policy",
+		Target:     "evil.example:443",
+		RuleTarget: "*:*",
+		Process:    "/usr/bin/curl",
+	}})
+
+	entry, err := sandbox.NewViolationCache(config.Get().SandboxViolationCacheDir()).Latest()
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	record, err := sandbox.NewViolationCache(config.Get().SandboxViolationCacheDir()).Read(entry.Path)
+	require.NoError(t, err)
+	require.Len(t, record.Report.Violations, 1)
+	assert.Equal(t, sandbox.DriverProxy, record.Report.SandboxName)
+	assert.Equal(t, "ci", record.Report.PolicyName)
+	assert.Equal(t, "evil.example:443", record.Report.Violations[0].Target)
 }

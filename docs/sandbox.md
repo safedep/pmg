@@ -31,7 +31,7 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
-- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Network filtering is coarse-grained — host-level filtering is not enforced on either platform.
+- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. The OS drivers turn the network on or off. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
 
 </details>
 
@@ -715,11 +715,27 @@ beats a shorter one, and every host rule beats `*`. At equal host specificity an
 beats `*`. At equal specificity deny wins. With no matching rule the connection is allowed, so a
 profile that wants an allow list denies `*:*`.
 
+The PMG proxy applies the rules to every connection it sees: a CONNECT, a redirected TLS
+connection, a plain HTTP request, and a request inside a terminated tunnel. The rules are a
+guarantee under `network_via_proxy_only` or kernel enforcement. Without them a process can go
+around the proxy.
+
+`sandbox.network_mode` in the config sets what the proxy does with a match on a deny rule.
+
+- `audit` (default): the proxy records the match and lets the connection through. The report
+  lists the destinations the rules would deny.
+- `enforce`: the proxy refuses the connection. A proxy-aware client gets a 403 that names the
+  destination and the rule. A redirected TLS connection is closed before the handshake. The
+  report lists the refused destinations, and `pmg sandbox explain --last` and
+  `pmg sandbox allow net-connect=<host>:<port>` work on them. `--sandbox-allow
+  net-connect=<host>:<port>` allows one destination for one run and removes an exact deny.
+
+The mode lives in the config and not in the profile, so one profile can run in audit on one host
+and in enforce on another. Every match writes a `network_policy` event to the event log.
+
 `pmg sandbox profile lint` reports a rule the proxy cannot parse as an error, and warns when
-`allow_direct_dns` is set under `network_via_proxy_only`, because DNS is a path past the rules.
-The proxy enforces these rules by host in a later release. `sandbox.network_mode` in the config, `audit` by
-default or `enforce`, is the posture the proxy takes for them. The mode lives in the config and
-not in the profile, so one profile can run in audit on one host and in enforce on another.
+`allow_direct_dns` is set under `network_via_proxy_only`, because DNS is a path past the rules. A
+profile with a rule the proxy cannot parse does not run.
 
 </details>
 

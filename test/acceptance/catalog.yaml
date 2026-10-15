@@ -616,3 +616,9 @@
   tier: P1
   guarantee: "A profile that inherits a user profile that inherits a built-in resolves the rules of all three, and a chain that loops fails with an error."
   labels: [sandbox, profile, offline]
+- id: sandbox/network/enforce-denies-a-registry-host
+  title: "the proxy refuses a destination a profile deny rule covers"
+  category: sandbox
+  tier: P0
+  guarantee: "Under sandbox.network_mode enforce the proxy refuses a connection a deny_outbound rule covers, the install fails, the report names the destination and the rule, and explain suggests the net-connect override. Under audit the install succeeds and the report lists what the rule would deny."
+  labels: [sandbox, network, block]

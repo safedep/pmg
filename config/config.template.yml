@@ -169,12 +169,9 @@ sandbox:
   # Requires 'enabled: true' and per-PM policies to be active. May break workflows expecting unrestricted commands.
   enforce_always: false
 
-  # The posture of the PMG proxy for the network rules of the sandbox profile.
-  # - audit (default): the proxy records what the rules would deny and denies nothing
-  # - enforce: the proxy denies what the rules deny
-  # The mode lives here and not in the profile, so one profile can run in audit on
-  # one host and in enforce on another. The proxy applies this key in a later
-  # release. Today pmg validates the value only.
+  # What the PMG proxy does with a match on a deny_outbound rule of the profile.
+  # - audit (default): record the match and let the connection through
+  # - enforce: refuse the connection
   network_mode: audit
 
   # Policy templates define policy profiles by name and path.
