@@ -150,15 +150,17 @@ runs:
         fi
         printf '%s\n' "Downloading with ${downloader}"
 
-        # busybox wget -q prints nothing on an HTTP error, so the failure
-        # names the URL here.
+        # GNU wget -q prints nothing on a failure, so this line names the URL
+        # and the exit code. wget uses 4 for a network error, 5 for TLS and 8
+        # for an HTTP error.
         download() {
           if [ "$downloader" = curl ]; then
             curl -fsSL -o "$2" "$1" && return 0
           else
             wget -q -O "$2" "$1" && return 0
           fi
-          printf '%s\n' "::error::Could not download $1 with ${downloader}." >&2
+          rc=$?
+          printf '%s\n' "::error::Could not download $1 with ${downloader} (exit ${rc})." >&2
           exit 1
         }
 
@@ -170,7 +172,7 @@ runs:
           if [ "$downloader" = curl ]; then
             location=$(curl -fsSI -o /dev/null -w '%{redirect_url}' "$latest_url")
           else
-            location=$(wget -q -S -O /dev/null "$latest_url" 2>&1 | sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | head -n 1)
+            location=$(wget -q --spider -S "$latest_url" 2>&1 | sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | head -n 1)
           fi
           tag=$(printf '%s' "$location" | sed 's|.*/||' | tr -d '\r\n')
           if [ -z "$tag" ]; then

@@ -269,10 +269,9 @@ v0.32.0 and older runs every step with `bash` and fails on an image without
 it. On those versions, run `apk add --no-cache bash curl` in a step before
 the action.
 
-`enforce` does not work in a job container, because it attaches kernel
-programs on the runner host. The action fails and says why. `sandbox` changes
-kernel settings of the runner host too, and may not start in a job container.
-Run those jobs on the runner.
+`enforce` does not work in a job container. See [Containers](#containers).
+`sandbox` changes kernel settings of the runner host, and may not start in a
+job container. Run those jobs on the runner.
 
 A Docker action or a `docker://` step runs in a different container on the
 job network. In that container, `127.0.0.1` is its own loopback, so the
