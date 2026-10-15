@@ -286,7 +286,8 @@ func currentExecutable() (string, error) {
 // os.Executable resolves symlinks, so for an install that keeps each version
 // in its own directory (mise, asdf, Homebrew, Nix) it gives a path that goes
 // stale on upgrade. The PATH entry for pmg is the stable alias those tools
-// maintain, so it is preferred when it is the running binary.
+// maintain, so it is preferred when it is the running binary and only the
+// current user or root can retarget it (see trustedAlias).
 //
 // The system install does not use this. Its shims must name the validated,
 // root-owned binary, not an alias that can change later.
@@ -305,7 +306,7 @@ func stableExecutablePath(exe string) string {
 		return exe
 	}
 
-	if !fsutil.SameFile(onPath, exe) {
+	if !fsutil.SameFile(onPath, exe) || !trustedAlias(onPath) {
 		return exe
 	}
 

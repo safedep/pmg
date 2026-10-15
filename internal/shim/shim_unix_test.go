@@ -174,6 +174,18 @@ func TestStableExecutablePath(t *testing.T) {
 			},
 		},
 		{
+			name: "an alias in a group-writable directory is not used",
+			setup: func(t *testing.T, root string) (string, string, string) {
+				exe := filepath.Join(root, "local", "pmg")
+				writeExe(t, exe)
+				binDir := filepath.Join(root, "bin")
+				require.NoError(t, os.MkdirAll(binDir, 0o755))
+				require.NoError(t, os.Chmod(binDir, 0o775))
+				require.NoError(t, os.Symlink(exe, filepath.Join(binDir, "pmg")))
+				return exe, binDir, exe
+			},
+		},
+		{
 			name: "another pmg on PATH is not used",
 			setup: func(t *testing.T, root string) (string, string, string) {
 				exe := filepath.Join(root, "local", "pmg")
