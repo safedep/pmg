@@ -620,5 +620,5 @@
   title: "the proxy refuses a destination a profile deny rule covers"
   category: sandbox
   tier: P0
-  guarantee: "Under sandbox.network_mode enforce the proxy refuses a connection a deny_outbound rule covers, the install fails, the report names the destination and the rule, and explain suggests the net-connect override. Under audit the install succeeds and the report lists what the rule would deny."
+  guarantee: "Under sandbox.network_mode enforce the proxy refuses a connection a deny_outbound rule covers, npm gets a 403, the install fails, the report names the destination and the rule, the violation is cached, explain suggests the net-connect override, and the override lets the install through. Under audit the install succeeds and the report lists what the rule would deny."
   labels: [sandbox, network, block]

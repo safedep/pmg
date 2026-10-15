@@ -1,8 +1,9 @@
 # guarantee: under sandbox.network_mode enforce the proxy refuses a connection
-# a deny rule in the profile covers. The install fails, the report names the
-# destination and the rule, and `pmg sandbox explain --last` suggests the
-# override. Under audit the install succeeds and the report lists what the
-# rule would deny.
+# a deny rule in the profile covers. npm gets a 403, the install fails, the
+# report names the destination and the rule, the violation is cached, and
+# `pmg sandbox explain --last` suggests the override. The override lets the
+# install through. Under audit the install succeeds and the report lists
+# what the rule would deny.
 
 env HOME=$WORK/home
 mkdir $WORK/home
@@ -12,12 +13,23 @@ cd $WORK/proj
 
 env PMG_SANDBOX_NETWORK_MODE=enforce
 ! exec pmg npm install left-pad --fetch-retries=0
+stderr 'E403'
 stdout 'Network policy denied'
 stdout 'registry.npmjs.org:443  rule registry.npmjs.org:443'
 ! exists node_modules/left-pad/package.json
 
+exec pmg sandbox violations list --json
+stdout '"sandbox_name": *"proxy"'
+stdout '"kind": *"network_connect"'
+stdout '"target": *"registry.npmjs.org:443"'
+
 exec pmg sandbox explain --last --json
 stdout 'net-connect=registry.npmjs.org:443'
+
+exec pmg --sandbox-allow net-connect=registry.npmjs.org:443 npm install left-pad
+! stdout 'Network policy'
+exists node_modules/left-pad/package.json
+rm node_modules package-lock.json
 
 env PMG_SANDBOX_NETWORK_MODE=audit
 exec pmg npm install left-pad
