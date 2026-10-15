@@ -106,10 +106,9 @@ filesystem:
     - ${HOME}/Library/Application Support/safedep/pmg/sandbox/**
 
 network:
-  # Current drivers cannot filter outbound traffic per host. A single allow
-  # rule means blanket outbound access, which an agent needs for its model
-  # API. pmg sandbox exec does not start the PMG proxy and refuses
-  # network_via_proxy_only.
+  # pmg sandbox exec does not start the PMG proxy, so no rule is applied by
+  # host and one allow rule turns the network on. An agent needs that for
+  # its model API.
   allow_outbound:
     - "*:*"
 

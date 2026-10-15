@@ -172,6 +172,100 @@ func TestApplyRuntimeOverrides_NetConnect(t *testing.T) {
 	assert.Contains(t, policy.Network.AllowOutbound, "example.com:443")
 }
 
+func TestApplyRuntimeOverrides_NetConnectRemovesExactDeny(t *testing.T) {
+	policy := &sandbox.SandboxPolicy{
+		Network: sandbox.NetworkPolicy{
+			DenyOutbound: []string{"example.com:443", "*:*"},
+		},
+	}
+
+	applyRuntimeOverrides(policy, []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "example.com:443", Raw: "net-connect=example.com:443"},
+	}, nil)
+
+	assert.Equal(t, []string{"*:*"}, policy.Network.DenyOutbound)
+	assert.Contains(t, policy.Network.AllowOutbound, "example.com:443")
+}
+
+func TestResolvePolicyParsesNetworkRulesAndFailsClosedOnABadOne(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.yml")
+	require.NoError(t, os.WriteFile(good, []byte(`
+name: good
+package_managers: ["npm"]
+network:
+  allow_outbound: ["registry.npmjs.org:443"]
+  deny_outbound: ["*:*"]
+`), 0o600))
+	bad := filepath.Join(dir, "bad.yml")
+	require.NoError(t, os.WriteFile(bad, []byte(`
+name: bad
+package_managers: ["npm"]
+network:
+  allow_outbound: ["registry.npmjs.org"]
+`), 0o600))
+	client := filepath.Join(dir, "client.yml")
+	require.NoError(t, os.WriteFile(client, []byte(`
+name: client
+package_managers: ["npm"]
+network:
+  deny_outbound: ["curl=*:*"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+
+	cfg.SandboxProfileOverride = good
+	cfg.SandboxAllowOverrides = []config.SandboxAllowOverride{
+		{Type: config.SandboxAllowNetConnect, Value: "cdn.example.com:443", Raw: "net-connect=cdn.example.com:443"},
+	}
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res.Network)
+	assert.True(t, res.Network.Decide("registry.npmjs.org", 443).Allowed)
+	assert.True(t, res.Network.Decide("cdn.example.com", 443).Allowed, "the override adds an allow rule")
+	assert.False(t, res.Network.Decide("evil.example", 443).Allowed)
+
+	cfg.SandboxAllowOverrides = nil
+	for _, path := range []string{bad, client} {
+		cfg.SandboxProfileOverride = path
+		_, err = ResolvePolicy("npm", false)
+		var usefulErr usefulerror.UsefulError
+		require.ErrorAs(t, err, &usefulErr, path)
+		assert.Equal(t, errcodes.SandboxPolicyInvalid, usefulErr.Code(), path)
+	}
+}
+
+func TestResolvePolicyOverrideErrorNamesTheCause(t *testing.T) {
+	dir := t.TempDir()
+	noPM := filepath.Join(dir, "no-pm.yml")
+	require.NoError(t, os.WriteFile(noPM, []byte(`
+name: no-pm
+network:
+  deny_outbound: ["*:*"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+
+	cfg.SandboxProfileOverride = noPM
+	_, err := ResolvePolicy("npm", false)
+	var usefulErr usefulerror.UsefulError
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.InvalidArgument, usefulErr.Code())
+	assert.Contains(t, usefulErr.HumanError(), "at least one package manager")
+	assert.Contains(t, usefulErr.Help(), "pmg sandbox profile lint "+noPM)
+
+	cfg.SandboxProfileOverride = filepath.Join(dir, "missing.yml")
+	_, err = ResolvePolicy("npm", false)
+	require.ErrorAs(t, err, &usefulErr)
+	assert.Equal(t, errcodes.NotFound, usefulErr.Code())
+}
+
 func TestApplyRuntimeOverrides_NetBind(t *testing.T) {
 	policy := &sandbox.SandboxPolicy{
 		Network: sandbox.NetworkPolicy{
@@ -413,6 +507,36 @@ func (f *fakeApplySandbox) Name() sandbox.DriverName { return "fake" }
 func (f *fakeApplySandbox) IsAvailable() bool        { return true }
 func (f *fakeApplySandbox) Close() error             { return nil }
 
+func resolveAndApply(cmd *exec.Cmd, pmName string, requireSandbox bool, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+	res, err := ResolvePolicy(pmName, requireSandbox)
+	if err != nil {
+		return nil, err
+	}
+	return ApplySandbox(context.Background(), cmd, res, opts...)
+}
+
+func TestResolvePolicySandboxDisabledReturnsEmptyResolution(t *testing.T) {
+	cfg := config.Get()
+	old := cfg.Config.Sandbox.Enabled
+	t.Cleanup(func() { cfg.Config.Sandbox.Enabled = old })
+	cfg.Config.Sandbox.Enabled = false
+
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Nil(t, res.Policy)
+	assert.Equal(t, "npm", res.PackageManager)
+}
+
+func TestApplySandboxEmptyResolutionRunsUnsandboxed(t *testing.T) {
+	fake := &fakeApplySandbox{}
+	result, err := ApplySandbox(context.Background(), exec.Command("npm"),
+		&Resolution{PackageManager: "npm"}, WithSandbox(fake))
+	require.NoError(t, err)
+	assert.True(t, result.ShouldRun())
+	assert.Nil(t, fake.rt)
+}
+
 func TestApplySandboxLockdownRequiresExecutionContext(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "lockdown.yml")
 	require.NoError(t, os.WriteFile(profile, []byte(`
@@ -435,13 +559,13 @@ network_via_proxy_only: true
 
 	fake := &fakeApplySandbox{}
 
-	_, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm", WithSandbox(fake))
+	_, err := resolveAndApply(exec.Command("npm"), "npm", false, WithSandbox(fake))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires the PMG proxy")
 	assert.Nil(t, fake.rt)
 
 	rt := &sandbox.ExecutionContext{ProxyAddr: "127.0.0.1:54321"}
-	result, err := ApplySandbox(context.Background(), exec.Command("npm"), "npm",
+	result, err := resolveAndApply(exec.Command("npm"), "npm", false,
 		WithSandbox(fake), WithExecutionContext(rt))
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -480,7 +604,7 @@ environment:
 		"PATH=/usr/bin",
 	}
 
-	result, err := ApplySandbox(context.Background(), cmd, "npm",
+	result, err := resolveAndApply(cmd, "npm", false,
 		WithSandbox(&fakeApplySandbox{}))
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -518,7 +642,7 @@ filesystem:
 	cmd := exec.Command("claude")
 	cmd.Env = []string{"ANTHROPIC_API_KEY=scrub-me", "PATH=/usr/bin"}
 
-	result, err := ApplySandbox(context.Background(), cmd, "exec",
+	result, err := resolveAndApply(cmd, "exec", false,
 		WithSandbox(&fakeApplySandbox{}), WithProcessLabel("claude"))
 	require.NoError(t, err)
 
@@ -543,13 +667,13 @@ func TestApplySandboxRequireSandboxFailsClosedOnDisabledPolicy(t *testing.T) {
 		sandbox.WorkloadExec: {Enabled: false, Profile: "exec"},
 	}
 
-	result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
+	result, err := resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, false,
 		WithSandbox(&fakeApplySandbox{}))
 	require.NoError(t, err, "without RequireSandbox a disabled policy skips the sandbox")
 	assert.True(t, result.ShouldRun())
 
-	_, err = ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
-		WithSandbox(&fakeApplySandbox{}), WithRequireSandbox())
+	_, err = resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, true,
+		WithSandbox(&fakeApplySandbox{}))
 	var usefulErr usefulerror.UsefulError
 	require.ErrorAs(t, err, &usefulErr)
 	assert.Equal(t, errcodes.SandboxPolicyDisabled, usefulErr.Code())
@@ -608,8 +732,8 @@ network_via_proxy_only: false
 			cfg.SandboxProfileOverride = profile
 
 			fake := &fakeApplySandbox{}
-			result, err := ApplySandbox(context.Background(), exec.Command("sh"), sandbox.WorkloadExec,
-				WithSandbox(fake), WithRequireSandbox())
+			result, err := resolveAndApply(exec.Command("sh"), sandbox.WorkloadExec, true,
+				WithSandbox(fake))
 
 			if !tt.wantErr {
 				require.NoError(t, err)
@@ -625,4 +749,106 @@ network_via_proxy_only: false
 			assert.Nil(t, fake.rt)
 		})
 	}
+}
+
+func TestResolvePolicyCarriesNetworkMode(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "mode.yml")
+	require.NoError(t, os.WriteFile(profile, []byte(`
+name: mode-test
+package_managers: ["npm"]
+filesystem:
+  allow_read: ["/tmp"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.SandboxProfileOverride = profile
+
+	tests := []struct {
+		name string
+		mode string
+		want string
+	}{
+		{name: "empty defaults to audit", mode: "", want: config.SandboxNetworkModeAudit},
+		{name: "audit", mode: config.SandboxNetworkModeAudit, want: config.SandboxNetworkModeAudit},
+		{name: "enforce", mode: config.SandboxNetworkModeEnforce, want: config.SandboxNetworkModeEnforce},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg.Config.Sandbox.NetworkMode = tc.mode
+
+			res, err := ResolvePolicy("npm", false)
+			require.NoError(t, err)
+			require.NotNil(t, res.Policy)
+			assert.Equal(t, tc.want, res.NetworkMode)
+			assert.Equal(t, []string{profile}, res.Policy.Lineage)
+		})
+	}
+}
+
+func TestResolvePolicyProfileInheritsTemplateByName(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "runner.yml")
+	require.NoError(t, os.WriteFile(templatePath, []byte(`
+name: runner
+package_managers: ["npm"]
+inherits: npm-restrictive
+network:
+  deny_outbound: ["*:*"]
+`), 0o600))
+
+	leafPath := filepath.Join(dir, "ci.yml")
+	require.NoError(t, os.WriteFile(leafPath, []byte(`
+name: ci
+package_managers: ["npm"]
+inherits: runner
+network:
+  allow_outbound: ["ci.example.com:443"]
+`), 0o600))
+
+	cfg := config.Get()
+	previous := *cfg
+	t.Cleanup(func() { *cfg = previous })
+	cfg.Config.Sandbox.Enabled = true
+	cfg.Config.Sandbox.PolicyTemplates = map[string]config.SandboxPolicyTemplate{
+		"runner": {Path: templatePath},
+	}
+	cfg.Config.Sandbox.Policies = map[string]config.SandboxPolicyRef{
+		"npm": {Enabled: true, Profile: leafPath},
+	}
+
+	res, err := ResolvePolicy("npm", false)
+	require.NoError(t, err)
+	require.NotNil(t, res.Policy)
+	assert.Equal(t, []string{"npm-restrictive", templatePath, leafPath}, res.Policy.Lineage)
+	assert.Contains(t, res.Policy.Network.AllowOutbound, "registry.npmjs.org:443")
+	assert.Contains(t, res.Policy.Network.AllowOutbound, "ci.example.com:443")
+	assert.Contains(t, res.Policy.Network.DenyOutbound, "*:*")
+}
+
+func TestObserveNetworkDenialsWritesAViolationRecord(t *testing.T) {
+	t.Setenv("PMG_CACHE_DIR", t.TempDir())
+	config.Reload()
+	t.Cleanup(config.Reload)
+
+	ObserveNetworkDenials("ci", []sandbox.Violation{{
+		Kind:       sandbox.ViolationKindNetworkConnect,
+		RawKind:    "network_policy",
+		Target:     "evil.example:443",
+		RuleTarget: "*:*",
+		Process:    "/usr/bin/curl",
+	}})
+
+	entry, err := sandbox.NewViolationCache(config.Get().SandboxViolationCacheDir()).Latest()
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	record, err := sandbox.NewViolationCache(config.Get().SandboxViolationCacheDir()).Read(entry.Path)
+	require.NoError(t, err)
+	require.Len(t, record.Report.Violations, 1)
+	assert.Equal(t, sandbox.DriverProxy, record.Report.SandboxName)
+	assert.Equal(t, "ci", record.Report.PolicyName)
+	assert.Equal(t, "evil.example:443", record.Report.Violations[0].Target)
 }

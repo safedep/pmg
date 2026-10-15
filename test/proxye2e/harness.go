@@ -22,6 +22,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,6 +44,9 @@ type Harness struct {
 	dialMu      sync.Mutex
 	dialedAddrs []string
 
+	decisionMu sync.Mutex
+	decisions  []proxy.NetworkDecision
+
 	caPool *x509.CertPool
 }
 
@@ -52,6 +56,8 @@ type options struct {
 	transparent    bool
 	origDst        proxy.OriginalDestinationResolver
 	redirectOnlyIP string
+	network        *netpolicy.Policy
+	networkEnforce bool
 }
 
 type Option func(*options)
@@ -82,6 +88,16 @@ func WithTransparent(resolver proxy.OriginalDestinationResolver) Option {
 // listens for containers.
 func WithRedirectOnlyListener(ip string) Option {
 	return func(o *options) { o.redirectOnlyIP = ip }
+}
+
+// WithNetworkPolicy makes the proxy decide every destination by p, as the
+// proxy flow does for the network block of a sandbox profile. enforce false
+// is audit.
+func WithNetworkPolicy(p *netpolicy.Policy, enforce bool) Option {
+	return func(o *options) {
+		o.network = p
+		o.networkEnforce = enforce
+	}
 }
 
 func New(t *testing.T, opts ...Option) *Harness {
@@ -163,7 +179,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 		confChan: confChan,
 	}
 
-	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, o)
+	h.proxy = buildProxy(t, certMgr, registry, interceptorList, h.recordDial, h.recordDecision, o)
 
 	caPool := x509.NewCertPool()
 	caPool.AddCert(caCert.X509Cert)
@@ -183,7 +199,7 @@ func New(t *testing.T, opts ...Option) *Harness {
 	return h
 }
 
-func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor, recordDial func(string), o options) proxy.ProxyServer {
+func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *Registry, interceptorList []proxy.Interceptor, recordDial func(string), recordDecision func(proxy.NetworkDecision), o options) proxy.ProxyServer {
 	t.Helper()
 
 	cfg := proxy.DefaultProxyConfig()
@@ -191,6 +207,9 @@ func buildProxy(t *testing.T, certMgr certmanager.CertificateManager, registry *
 	cfg.Interceptors = interceptorList
 	cfg.Transparent = o.transparent
 	cfg.OriginalDestination = o.origDst
+	cfg.NetworkPolicy = o.network
+	cfg.NetworkEnforce = o.networkEnforce
+	cfg.OnNetworkDecision = recordDecision
 	if o.redirectOnlyIP != "" {
 		cfg.AdditionalListenAddrs = []string{net.JoinHostPort(o.redirectOnlyIP, "0")}
 		cfg.RedirectOnlyAddrs = []string{o.redirectOnlyIP}
@@ -247,6 +266,19 @@ func (h *Harness) CooldownBlocks() []models.CooldownBlock { return h.stats.GetCo
 
 func (h *Harness) CooldownWithheld() []models.CooldownWithheld {
 	return h.stats.GetCooldownWithheld()
+}
+
+func (h *Harness) recordDecision(d proxy.NetworkDecision) {
+	h.decisionMu.Lock()
+	defer h.decisionMu.Unlock()
+	h.decisions = append(h.decisions, d)
+}
+
+// NetworkDecisions returns every match on a deny rule, in order.
+func (h *Harness) NetworkDecisions() []proxy.NetworkDecision {
+	h.decisionMu.Lock()
+	defer h.decisionMu.Unlock()
+	return append([]proxy.NetworkDecision(nil), h.decisions...)
 }
 
 func (h *Harness) recordDial(addr string) {

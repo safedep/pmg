@@ -3,6 +3,7 @@ package analytics
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,7 +73,7 @@ func (quietPosthogLogger) Warnf(format string, args ...any)  { log.Debugf(format
 func (quietPosthogLogger) Errorf(format string, args ...any) { log.Debugf(format, args...) }
 
 func isTelemetryDisabled() bool {
-	if config.Get().Config.DisableTelemetry {
+	if config.Get().Config.DisableTelemetry || isInternalCommand() {
 		return true
 	}
 
@@ -86,6 +87,13 @@ func isTelemetryDisabled() bool {
 
 func IsDisabled() bool {
 	return isTelemetryDisabled()
+}
+
+// isInternalCommand reports a hidden command pmg runs inside its own
+// sandbox, such as the Landlock helper. The outer pmg already tracks the
+// run, and the helper's events would go through the sandbox proxy.
+func isInternalCommand() bool {
+	return len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "__")
 }
 
 // We want to ensure that we do not collect any telemetry if the user has disabled them.

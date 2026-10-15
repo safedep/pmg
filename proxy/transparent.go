@@ -208,6 +208,14 @@ func (l *transparentListener) classifyTLS(tc *transparentConn) {
 	host, port := l.ps.transparentTarget(sni, tc.orig.Dst, 443)
 	log.Debugf("transparent: TLS from %s to %s, server name %q, target %s:%d",
 		tc.RemoteAddr(), tc.orig, sni, host, port)
+
+	// The client may not trust the PMG CA, so a denied connection is closed
+	// before the handshake and the log names the reason.
+	if _, refused := l.ps.decideNetwork(host, port, tc.orig); refused {
+		l.drop(tc.Conn, "denied by the network policy", io.EOF)
+		return
+	}
+
 	if l.ps.shouldMITM(net.JoinHostPort(host, strconv.Itoa(int(port))), "transparent TLS", tc.orig) {
 		tlsConfig, err := l.ps.config.CertManager.GetTLSConfig(host)
 		if err != nil {

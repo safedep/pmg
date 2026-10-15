@@ -152,8 +152,11 @@ func originFromContext(ctx context.Context) Origin {
 // inside a terminated CONNECT tunnel has a fresh context, so the CONNECT
 // handler leaves the origin in goproxy's user data for it.
 func originOfRequest(req *http.Request, userData any) Origin {
-	if o, ok := userData.(Origin); ok {
-		return o
+	switch v := userData.(type) {
+	case Origin:
+		return v
+	case mitmSession:
+		return v.origin
 	}
 	return originFromContext(req.Context())
 }
