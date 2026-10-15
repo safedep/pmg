@@ -41,3 +41,14 @@ func TestCloseIsImmutable(t *testing.T) {
 	Close()
 	assert.Nil(t, globalPosthogClient)
 }
+
+func TestIsDisabledForAnInternalCommand(t *testing.T) {
+	args := os.Args
+	t.Cleanup(func() { os.Args = args })
+
+	os.Args = []string{"pmg", "__landlock_sandbox_exec", "--policy-file", "p.json"}
+	assert.True(t, IsDisabled())
+
+	os.Args = []string{"pmg", "npm", "install"}
+	assert.False(t, IsDisabled())
+}
