@@ -896,3 +896,31 @@ func TestLoadProfileResolvesAConfigPathNextToTheConfigFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "npm-restrictive", policy.Name)
 }
+
+// A managed profile's chain resolves from managed locations only. A user
+// profile, a template or a user preset must not stand in for a parent the
+// managed file names.
+func TestLoadManagedProfileResolvesTheChainFromManagedLocations(t *testing.T) {
+	configDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "profiles"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "managed.yml"), []byte("name: managed\ninherits: base.yml\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "profiles", "base.yml"), []byte("name: managed-base\ninherits: npm-restrictive\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(configDir, "sandbox", "profiles"), 0o755))
+	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "sandbox", "profiles", "base.yml.yml"), []byte(open), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "sandbox", "profiles", "tpl.yml"), []byte(open), 0o600))
+
+	t.Setenv("PMG_CONFIG_DIR", configDir)
+	config.Reload()
+	t.Cleanup(config.Reload)
+	cfg := config.Get()
+	cfg.Config.Sandbox.PolicyTemplates = map[string]config.SandboxPolicyTemplate{
+		"base.yml": {Path: filepath.Join(configDir, "sandbox", "profiles", "tpl.yml")},
+	}
+
+	policy, err := LoadManagedProfile(cfg, "profiles/managed.yml")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"npm-restrictive", filepath.Join(configDir, "profiles", "base.yml"), filepath.Join(configDir, "profiles", "managed.yml")}, policy.Lineage)
+	assert.Contains(t, policy.Network.DenyOutbound, "*:*")
+	assert.NotContains(t, policy.Network.AllowOutbound, "*:*")
+}

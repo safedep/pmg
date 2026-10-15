@@ -304,21 +304,26 @@ func LoadProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy,
 
 // LoadManagedProfile resolves ref as a locked config may name it: a
 // built-in name, an absolute path, or a path relative to the managed config
-// file. A template, a user profile and the working directory are writable
-// by the user, so they do not count.
+// file. The chain resolves the same way: a parent is a built-in, an
+// absolute path, or a file next to its child. A template, a user profile
+// and a user preset are writable by the user, so the registry has none.
 func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy, error) {
-	registries, err := newProfileRegistries(cfg)
+	presets, err := sandbox.NewPresetRegistry()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create preset registry: %w", err)
+	}
+	profiles, err := sandbox.NewProfileRegistry(sandbox.WithPresetRegistry(presets))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create profile registry: %w", err)
 	}
 
 	path := ref
 	switch {
 	case filepath.IsAbs(ref):
 	case IsProfilePath(ref):
-		path = filepath.Join(registries.configDir, ref)
+		path = filepath.Join(filepath.Dir(cfg.ConfigFilePath()), ref)
 	default:
-		if _, builtin := registries.profiles.BuiltinProfileYAML(ref); !builtin {
+		if _, builtin := profiles.BuiltinProfileYAML(ref); !builtin {
 			err := fmt.Errorf("%w: %s is not a built-in profile or a path", sandbox.ErrProfileNotFound, ref)
 			return nil, usefulerror.NewUsefulError().
 				WithCode(errcodes.NotFound).
@@ -328,7 +333,7 @@ func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.Sandbox
 		}
 	}
 
-	policy, err := registries.profiles.GetProfile(path)
+	policy, err := profiles.GetProfile(path)
 	if err != nil {
 		return nil, profileLoadError("Failed to load the managed sandbox profile", path, err)
 	}
