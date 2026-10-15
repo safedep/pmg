@@ -1,6 +1,7 @@
 package flows
 
 import (
+	"cmp"
 	"net"
 	"sort"
 	"strconv"
@@ -17,16 +18,20 @@ import (
 // networkDecisionLog writes every network policy decision to the audit log
 // and keeps one line per destination for the report.
 type networkDecisionLog struct {
-	mu         sync.Mutex
-	policyName string
-	enforced   bool
-	denials    map[string]*ui.NetworkDenial
+	mu             sync.Mutex
+	policyName     string
+	packageManager string
+	enforced       bool
+	denials        map[string]*ui.NetworkDenial
 }
 
 func newNetworkDecisionLog(res *executor.Resolution) *networkDecisionLog {
 	l := &networkDecisionLog{denials: map[string]*ui.NetworkDenial{}}
-	if res != nil && res.Policy != nil {
-		l.policyName = res.Policy.Name
+	if res != nil {
+		l.packageManager = res.PackageManager
+		if res.Policy != nil {
+			l.policyName = res.Policy.Name
+		}
 	}
 	return l
 }
@@ -92,9 +97,18 @@ func (l *networkDecisionLog) report() *ui.NetworkPolicyReport {
 // observeViolations records the refused destinations as sandbox violations.
 // An audit decision is not a violation, because nothing was refused.
 func (l *networkDecisionLog) observeViolations() {
+	if violations := l.violations(); len(violations) > 0 {
+		executor.ObserveNetworkDenials(l.policyName, violations)
+	}
+}
+
+// violations returns one violation per refused destination. A proxy-aware
+// client has no process attribution, and the package manager is the only
+// client of the one-shot proxy, so its name stands in.
+func (l *networkDecisionLog) violations() []sandbox.Violation {
 	report := l.report()
 	if report == nil || !report.Enforced {
-		return
+		return nil
 	}
 
 	violations := make([]sandbox.Violation, 0, len(report.Denials))
@@ -104,8 +118,9 @@ func (l *networkDecisionLog) observeViolations() {
 			RawKind:    string(audit.EventTypeNetworkPolicy),
 			Target:     d.Destination,
 			RuleTarget: d.Rule,
-			Process:    d.Client,
+			RuleLabel:  ui.NetworkDenialMessage(d.Destination, d.Rule),
+			Process:    cmp.Or(d.Client, l.packageManager),
 		})
 	}
-	executor.ObserveNetworkDenials(l.policyName, violations)
+	return violations
 }

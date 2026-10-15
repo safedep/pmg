@@ -42,3 +42,22 @@ func TestNetworkDecisionLogAuditIsNotAViolation(t *testing.T) {
 	assert.False(t, report.Enforced)
 	assert.Equal(t, "", report.Denials[0].Client)
 }
+
+func TestNetworkDecisionLogViolations(t *testing.T) {
+	l := newNetworkDecisionLog(&executor.Resolution{PackageManager: "npm", Policy: &sandbox.SandboxPolicy{Name: "deny-registry"}})
+	l.record(proxy.NetworkDecision{Host: "registry.npmjs.org", Port: 443, Rule: "registry.npmjs.org:443", Enforced: true})
+	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true,
+		Origin: proxy.Origin{Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}})
+
+	violations := l.violations()
+	require.Len(t, violations, 2)
+
+	assert.Equal(t, sandbox.ViolationKindNetworkConnect, violations[0].Kind)
+	assert.Equal(t, "evil.example:443", violations[0].Target)
+	assert.Equal(t, "*:*", violations[0].RuleTarget)
+	assert.Equal(t, "/usr/bin/curl", violations[0].Process)
+
+	assert.Equal(t, "registry.npmjs.org:443", violations[1].Target)
+	assert.Equal(t, "Connection to registry.npmjs.org:443 denied by the network policy (rule registry.npmjs.org:443)", violations[1].RuleLabel)
+	assert.Equal(t, "npm", violations[1].Process, "a proxy-aware client is the package manager")
+}

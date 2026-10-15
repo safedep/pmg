@@ -25,6 +25,8 @@ stdout '"target": *"registry.npmjs.org:443"'
 
 exec pmg sandbox explain --last --json
 stdout 'net-connect=registry.npmjs.org:443'
+stdout 'denied by the network policy \(rule registry.npmjs.org:443\)'
+stdout '"process": *"npm"'
 
 exec pmg --sandbox-allow net-connect=registry.npmjs.org:443 npm install left-pad
 ! stdout 'Network policy'
