@@ -289,7 +289,7 @@ jobs:
         run: |
           sudo --preserve-env=GITHUB_ACTIONS "$GITHUB_WORKSPACE/bin/pmg" proxy start --daemon --enforce --state "$RUNNER_TEMP/proxy-state.json" \
             --profile "$RUNNER_TEMP/pmg-network.yml" --network-mode enforce | tee start.txt
-          grep -q "Network policy: enforce, profile $RUNNER_TEMP/pmg-network.yml" start.txt
+          grep -q "Network policy: enforce, profile exec < $RUNNER_TEMP/pmg-network.yml" start.txt
           code=$(env -i /usr/bin/curl -sS -o /dev/null -w '%{http_code}' https://registry.npmjs.org/lodash)
           test "$code" = "200"
           if env -i /usr/bin/curl -sS -o /dev/null https://pastebin.com/; then
