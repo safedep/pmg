@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/safedep/dry/log"
@@ -27,7 +26,7 @@ func Read(dir string, since time.Time, types ...string) ([]Event, error) {
 
 	var files []string
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "-pmg.log") {
+		if entry.IsDir() || !isLogFile(entry.Name()) {
 			continue
 		}
 		files = append(files, filepath.Join(dir, entry.Name()))

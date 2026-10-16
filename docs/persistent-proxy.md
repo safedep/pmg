@@ -290,12 +290,13 @@ line for `.pmg/profiles` so a change to it gets a review.
 
 ### Build the allow list
 
-The proxy records every destination a job reaches. A run under `audit`
-with no profile gives the baseline for the allow list. Three runs take a
-job from no policy to `enforce`.
+The proxy records every destination its clients reach. A run under
+`audit` with no profile gives the baseline for the allow list. Three runs
+take a daemon from no policy to `enforce`.
 
-1. **Observe.** Start the daemon with no profile, run the job, stop the
-   daemon. The stop report counts the destinations and names the run:
+1. **Observe.** Start the daemon with no profile, run the commands through
+   it, stop the daemon. The stop report counts the destinations and names
+   the run:
 
    ```text
    Destinations: 7 observed. Propose a profile with: pmg sandbox profile propose --run 3f2a9c1d7e4b
