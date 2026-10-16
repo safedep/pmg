@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
-	"os"
 	"os/user"
 	"slices"
 	"strconv"
@@ -147,15 +146,6 @@ func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy, redirectin
 	}
 
 	return enforcer, caCert, enforceWarnings(cfg, p, redirecting), nil
-}
-
-// certificateRejectedNotice tells the operator what a rejected handshake
-// means and what to do. It goes to stderr, which is the daemon's log file,
-// because the logger is off without --debug.
-func certificateRejectedNotice(line string) {
-	if _, err := fmt.Fprintf(os.Stderr, "%s %s. A client that fails the handshake this way does not trust the PMG CA. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md\n", WarningMark, line); err != nil {
-		log.Warnf("%s: the client does not trust the PMG CA", line)
-	}
 }
 
 // refuseSecondDaemon fails when a pmg daemon already enforces the cgroup.

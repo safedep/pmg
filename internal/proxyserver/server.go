@@ -82,10 +82,17 @@ type RunOptions struct {
 	// Network are the network policy values from the command line.
 	Network NetworkOverrides
 
-	// BlockMessage composes the response body of a blocked request. The
-	// command injects it, so the daemon does not depend on the ui package.
-	// nil leaves the proxy's one-line default.
+	// BlockMessage composes the response body of a blocked request. nil
+	// leaves the proxy's one-line default.
 	BlockMessage func(pmgproxy.BlockReason, *pmgproxy.BlockContext) string
+
+	// Started receives the state once the daemon serves. The command
+	// renders it, so the daemon holds no user-facing text.
+	Started func(State)
+
+	// CertificateRejected receives the server's log line for a handshake
+	// a client refused under kernel enforcement.
+	CertificateRejected func(line string)
 }
 
 // EnforceOverrides are policy lists from the command line. Each list adds to
@@ -223,7 +230,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	if opts.Enforce {
 		proxyConfig.Transparent = true
 		proxyConfig.OriginalDestination = resolver
-		proxyConfig.OnCertificateRejected = certificateRejectedNotice
+		proxyConfig.OnCertificateRejected = opts.CertificateRejected
 		if addr6 := ipv6LoopbackAddr(); addr6 != "" {
 			proxyConfig.AdditionalListenAddrs = []string{addr6}
 		}
@@ -296,8 +303,8 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	}
 
 	log.Infof("PMG persistent proxy running on %s (pid %d)", state.Addr, state.PID)
-	if _, err := fmt.Fprint(os.Stderr, startupMessage(state)); err != nil {
-		log.Warnf("failed to write startup message: %v", err)
+	if opts.Started != nil {
+		opts.Started(state)
 	}
 
 	// Periodically flush events to the cloud while serving so the shutdown flush
@@ -394,52 +401,6 @@ func attachEnforcement(ctx context.Context, enforcer netenforce.Enforcer, policy
 		es.Addr6 = target.Addr6.String()
 	}
 	return handle, es, nil
-}
-
-func startupMessage(state State) string {
-	var b strings.Builder
-	if state.Enforce == nil {
-		fmt.Fprintf(&b, "PMG proxy running on %s\n", state.Addr)
-		b.WriteString(configSourceLine(state))
-		b.WriteString(NetworkPolicyLine(state.Network, state.Enforce != nil))
-		b.WriteString("Run: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n")
-		b.WriteString(WarningLines(state.Notices(), WarningMark))
-		return b.String()
-	}
-
-	fmt.Fprintf(&b, "PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
-		state.Addr, state.Enforce.CgroupPath, state.Enforce.PortList())
-	b.WriteString(configSourceLine(state))
-	b.WriteString(NetworkPolicyLine(state.Network, state.Enforce != nil))
-	if line := NamespaceStatusLine(state.Enforce.Namespaces); line != "" {
-		fmt.Fprintf(&b, "  %s\n", line)
-	}
-	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
-	b.WriteString(WarningLines(state.Notices(), WarningMark))
-	return b.String()
-}
-
-// WarningMark opens a daemon notice.
-const WarningMark = "⚠"
-
-// WarningLines renders daemon notices, one line each behind mark. The
-// daemon passes WarningMark plain, because it writes to its log file. The
-// command paints the mark for the terminal.
-func WarningLines(warnings []string, mark string) string {
-	var b strings.Builder
-	for _, w := range warnings {
-		fmt.Fprintf(&b, "%s %s\n", mark, w)
-	}
-	return b.String()
-}
-
-// configSourceLine names the file the daemon loaded. An older state file
-// has no path, and then there is nothing to say.
-func configSourceLine(state State) string {
-	if state.ConfigPath == "" {
-		return ""
-	}
-	return fmt.Sprintf("  config: %s (%s)\n", state.ConfigPath, state.ConfigSource)
 }
 
 func buildInterceptors(

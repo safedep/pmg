@@ -217,17 +217,3 @@ func PreflightNetwork(cfg *config.RuntimeConfig, o NetworkOverrides) error {
 	_, err := resolveNetworkPolicy(cfg, o)
 	return err
 }
-
-// NetworkPolicyLine says which policy the daemon applies and how. Without
-// kernel enforcement a process can go around the proxy, so the policy is
-// advisory.
-func NetworkPolicyLine(network *NetworkState, kernelEnforced bool) string {
-	if network == nil {
-		return "Network policy: none. No profile is set, so every destination is allowed.\n"
-	}
-	line := fmt.Sprintf("Network policy: %s, profile %s", network.Mode, network.Profile())
-	if !kernelEnforced {
-		line += ", enforce: off, policy advisory"
-	}
-	return line + "\n"
-}

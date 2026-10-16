@@ -269,15 +269,6 @@ func TestResolveNetworkPolicyLoadsTheLockedProfileFromManagedLocations(t *testin
 	assert.Contains(t, err.Error(), "not a built-in profile, a policy template or a path")
 }
 
-func TestNetworkPolicyLine(t *testing.T) {
-	assert.Equal(t, "Network policy: none. No profile is set, so every destination is allowed.\n", NetworkPolicyLine(nil, false))
-
-	chained := &NetworkState{Chain: []string{"npm-restrictive", "/srv/ci.yml"}, Mode: "enforce"}
-	assert.Equal(t, "Network policy: enforce, profile npm-restrictive < /srv/ci.yml, enforce: off, policy advisory\n", NetworkPolicyLine(chained, false))
-	assert.Equal(t, "Network policy: enforce, profile npm-restrictive < /srv/ci.yml\n", NetworkPolicyLine(chained, true))
-	assert.Equal(t, "Network policy: audit, profile flags\n", NetworkPolicyLine(&NetworkState{Mode: "audit"}, true))
-}
-
 func TestNetworkStateDeniedCount(t *testing.T) {
 	denials := []netpolicy.Denial{{Destination: "a:443", Count: 2}, {Destination: "b:443", Count: 1}}
 	assert.Equal(t, 0, (*NetworkState)(nil).DeniedCount())
