@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetDefaultLogDir(t *testing.T) {
@@ -246,4 +247,13 @@ func TestCleanupOldLogs(t *testing.T) {
 	// Check that recent file still exists
 	_, err = os.Stat(recentLogFile)
 	assert.False(t, os.IsNotExist(err), "Recent log file should still exist")
+}
+
+func TestDirNamesTheDirectoryTheLogRotatesIn(t *testing.T) {
+	logDir := filepath.Join(t.TempDir(), "logs")
+	require.NoError(t, reinitializeForTest(logDir))
+	assert.Equal(t, logDir, Dir())
+
+	require.NoError(t, Close())
+	assert.Empty(t, Dir(), "a closed log has no directory to read")
 }

@@ -288,6 +288,45 @@ rule, of the managed profile fails the start and names the rule.
 A repository profile is as trusted as the workflow file. Add a `CODEOWNERS`
 line for `.pmg/profiles` so a change to it gets a review.
 
+### Build the allow list
+
+The proxy records every destination its clients reach. A run under
+`audit` with no profile gives the baseline for the allow list. Three runs
+take a daemon from no policy to `enforce`.
+
+1. **Observe.** Start the daemon with no profile, run the commands through
+   it, stop the daemon. The stop report counts the destinations and names
+   the run:
+
+   ```text
+   Destinations: 7 observed. Propose a profile with: pmg sandbox profile propose --run 3f2a9c1d7e4b
+   ```
+
+2. **Propose.** The command reads the run from the event log. It prints
+   each destination with its client, its count and the proposed action.
+   `--new` writes the profile. `--dry-run` shows the file and does not
+   write it.
+
+   ```bash
+   pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml
+   ```
+
+   The profile inherits `exec` and holds one allow rule per host and port,
+   plus a catch-all deny. A proposal from a one-shot run inherits the
+   built-in profile of the package manager and does not repeat the registry
+   hosts that profile already allows. Review every rule. Commit the file.
+
+3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
+   --network-mode enforce`. A destination the run did not reach gets a 403.
+
+A later run adds destinations with `--into .pmg/profiles/ci.yml`. A
+proposal adds allow rules and does not remove rules, because one run does
+not reach every destination. A destination that a deny rule of the profile
+matches stays denied. `--last` uses the newest run of the repository.
+`--since 30d` merges every run of the repository in the window. The event
+log keeps `event_log_retention_days` of runs. With `skip_event_logging` on,
+the command has no data.
+
 ## Fail on violation
 
 `pmg proxy stop` exits `0` by default. `--fail-on-violation` makes it a gate:

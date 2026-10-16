@@ -235,6 +235,9 @@ pmg sandbox profile lint ./my-profile.yml --strict
 
 # Compare two resolved profiles
 pmg sandbox profile diff npm-restrictive pypi-restrictive
+
+# Propose network rules from the destinations of the last run
+pmg sandbox profile propose --last --new my-npm
 ```
 
 `pmg sandbox profile edit` resolves the profile name to its file under the user profile
@@ -737,6 +740,17 @@ around the proxy.
 
 The mode lives in the config and not in the profile, so one profile can run in audit on one host
 and in enforce on another. Every match writes a `network_policy` event to the event log.
+
+Every run writes a `network_observation` event with every destination the proxy saw, allowed or
+denied, and the report names the run. `pmg sandbox profile propose --run <id>` turns the run into
+the `network` block of a profile: one allow rule per host and port, plus a catch-all deny. Hosts
+the inherited built-in profile already allows are not repeated. `--last` uses the newest run of
+this repository. `--since 30d` merges every run of the repository in the window. `--new <name>`
+writes a user profile. `--into <path>` adds the rules to a profile and keeps its other blocks.
+Without a target the command prints the table and the block. `--dry-run` shows what a target would
+get. The command reads the event log, so `skip_event_logging` must be off. With event logging off
+the report names no run. The other sections of a profile come from violations, not observation.
+Promote them with `pmg sandbox allow --last --all`.
 
 `pmg sandbox profile lint` reports a rule the proxy cannot parse as an error, and warns when
 `allow_direct_dns` is set under `network_via_proxy_only`, because DNS is a path past the rules. A

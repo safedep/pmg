@@ -42,6 +42,13 @@ type State struct {
 	// Warnings are notices about what the daemon does not protect.
 	// Enforcement notices are in Enforce.Warnings. Notices returns both.
 	Warnings []string `json:"warnings,omitempty"`
+
+	// RunID names this run in the event log. ObservedDestinations is how
+	// many destinations the event log holds for the run, written at
+	// shutdown for the stop report, which points at `pmg sandbox profile
+	// propose --run <id>`. It stays 0 when event logging is off.
+	RunID                string `json:"run_id,omitempty"`
+	ObservedDestinations int    `json:"observed_destinations,omitempty"`
 }
 
 // Notices returns every notice of the daemon, its own first, then the

@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
 var global *auditor
@@ -245,6 +246,28 @@ func LogNetworkPolicy(d NetworkDecision) {
 		Message:         fmt.Sprintf("Network policy %s %s:%d", d.action(), d.Hostname, d.Port),
 		Details:         d.details(),
 		NetworkDecision: d,
+	})
+}
+
+// LogNetworkObservation records every destination one run reached, as one
+// event, so `pmg sandbox profile propose` can read the run back. A run that
+// reached nothing writes no event.
+func LogNetworkObservation(obs netpolicy.Observation) {
+	if len(obs.Destinations) == 0 {
+		return
+	}
+	logEvent(AuditEvent{
+		Type:    EventTypeNetworkObservation,
+		Message: fmt.Sprintf("Network observation: %d destination(s) in run %s", len(obs.Destinations), obs.RunID),
+		Details: map[string]any{
+			"run_id":            obs.RunID,
+			"repo_root":         obs.RepoRoot,
+			"package_manager":   obs.PackageManager,
+			"profile":           obs.Profile,
+			"mode":              obs.Mode,
+			"destination_count": len(obs.Destinations),
+			"destinations":      obs.Destinations,
+		},
 	})
 }
 

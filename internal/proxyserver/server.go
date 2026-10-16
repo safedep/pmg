@@ -19,12 +19,15 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/proxy/netpolicy"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/truststore"
 )
 
@@ -220,10 +223,10 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.BlockMessageRenderer = opts.BlockMessage
 
 	networkDecisions := flows.NewNetworkDecisionLog(true)
+	proxyConfig.OnNetworkDecision = networkDecisions.Record
 	if network.policy != nil {
 		proxyConfig.NetworkPolicy = network.policy
 		proxyConfig.NetworkEnforce = network.state.Enforced()
-		proxyConfig.OnNetworkDecision = networkDecisions.Record
 	}
 
 	resolver := &destinationResolver{}
@@ -268,7 +271,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		ConfigSource: string(cfg.ConfigSource()),
 		Network:      network.state,
 		Warnings:     append(notices, network.warnings...),
+		RunID:        netpolicy.NewRunID(),
 	}
+	repoRoot := sandbox.RepoRootOfCwd()
 
 	var enforceHandle netenforce.Handle
 	if opts.Enforce {
@@ -350,9 +355,18 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	if report := networkDecisions.Report(); report != nil {
 		state.Network.Denials = report.Denials
 	}
+	profile, mode := "", ""
+	if network.state != nil {
+		profile, mode = network.state.Profile(), network.state.Mode
+	}
+	observation := networkDecisions.Observation(state.RunID, repoRoot, "", profile, mode)
+	if eventlog.Dir() != "" {
+		state.ObservedDestinations = len(observation.Destinations)
+	}
 	if werr := writeState(statePath, state); werr != nil {
 		log.Warnf("failed to write final proxy state: %v", werr)
 	}
+	audit.LogNetworkObservation(observation)
 
 	// Emit the daemon-lifetime session summary before the final flush so it is
 	// delivered alongside the run's other events. Unlike the per-invocation flow,

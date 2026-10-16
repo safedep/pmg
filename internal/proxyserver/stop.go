@@ -37,6 +37,11 @@ type StopResult struct {
 
 	// Enforce is the kernel enforcement state. nil without --enforce.
 	Enforce *EnforceState
+
+	// RunID names the run in the event log. Observed is how many
+	// destinations the proxy saw.
+	RunID    string
+	Observed int
 }
 
 // Stop signals the running proxy to terminate, waits for it to exit, and
@@ -95,5 +100,7 @@ func Stop(statePath string) (StopResult, error) {
 		CloudSync:     final.CloudSync,
 		Network:       final.Network,
 		Enforce:       final.Enforce,
+		RunID:         final.RunID,
+		Observed:      final.ObservedDestinations,
 	}, nil
 }

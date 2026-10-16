@@ -1,12 +1,14 @@
 package proxye2e
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/safedep/pmg/config"
+	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox/executor"
 	"github.com/stretchr/testify/assert"
@@ -188,4 +190,49 @@ func TestProxyFlow_NetworkProfileLocked(t *testing.T) {
 			},
 		},
 	})
+}
+
+// The proxy reports every destination it decides, allowed or denied, with
+// or without a policy, so a run can propose a profile from what it reached.
+func TestProxyFlow_NetworkDestinationsObserved(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name:  "without a policy every destination is an allowed observation",
+			Setup: cleanLeftPad,
+			Exec: func(h *Harness) ExecResult {
+				res := h.Npm().Install("left-pad", "1.0.0")
+				res.Requests = append(res.Requests, h.get("https://evil.example/x", nil))
+				return res
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assert.Empty(t, h.NetworkDecisions())
+				seen := map[string]int{}
+				for _, d := range h.Destinations() {
+					assert.True(t, d.Allowed)
+					seen[hostPort(d)]++
+				}
+				assert.Equal(t, 1, seen["registry.npmjs.org:443"], "one CONNECT tunnel carries both npm requests")
+				assert.Equal(t, 1, seen["evil.example:443"])
+			},
+		},
+		{
+			Name:    "under a profile a denied destination is an observation with its rule",
+			Options: []Option{profilePolicy(t, inheritsSystem, nil, nil)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://evil.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRefused(t, h, res, "evil.example", "*:*")
+				destinations := h.Destinations()
+				require.Len(t, destinations, 1)
+				assert.False(t, destinations[0].Allowed)
+				assert.Equal(t, "*:*", destinations[0].Rule)
+				assert.True(t, destinations[0].Enforced)
+			},
+		},
+	})
+}
+
+func hostPort(d proxy.NetworkDecision) string {
+	return fmt.Sprintf("%s:%d", d.Host, d.Port)
 }
