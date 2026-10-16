@@ -45,7 +45,8 @@ func yamlRule(rule string) string {
 // SetBlock replaces the allow_outbound and deny_outbound lists of the
 // network block in doc and leaves every other node as it is. Comments
 // survive, because the edit is on the YAML node tree. A network key with
-// no mapping, such as the `network:` of a skeleton, gets one.
+// no mapping, such as the `network:` of a skeleton, gets one. A network
+// key that is an alias edits the mapping the alias points at.
 func SetBlock(doc []byte, network sandbox.NetworkPolicy) ([]byte, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(doc, &root); err != nil {
@@ -60,6 +61,8 @@ func SetBlock(doc []byte, network sandbox.NetworkPolicy) ([]byte, error) {
 	case networkNode == nil:
 		networkNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		top.Content = append(top.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "network"}, networkNode)
+	case networkNode.Kind == yaml.AliasNode && networkNode.Alias != nil && networkNode.Alias.Kind == yaml.MappingNode:
+		networkNode = networkNode.Alias
 	case networkNode.Kind != yaml.MappingNode:
 		*networkNode = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Anchor: networkNode.Anchor}
 	}

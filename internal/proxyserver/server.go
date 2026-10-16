@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
@@ -359,7 +360,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		profile, mode = network.state.Profile(), network.state.Mode
 	}
 	observation := networkDecisions.Observation(state.RunID, repoRoot, "", profile, mode)
-	state.ObservedDestinations = len(observation.Destinations)
+	if eventlog.Dir() != "" {
+		state.ObservedDestinations = len(observation.Destinations)
+	}
 	if werr := writeState(statePath, state); werr != nil {
 		log.Warnf("failed to write final proxy state: %v", werr)
 	}

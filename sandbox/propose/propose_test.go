@@ -134,3 +134,18 @@ func TestSetBlockRefusesADocumentThatIsNotAMapping(t *testing.T) {
 	_, err := SetBlock([]byte("- a\n- b\n"), sandbox.NetworkPolicy{})
 	require.Error(t, err)
 }
+
+func TestSetBlockEditsTheMappingAnAliasPointsAt(t *testing.T) {
+	doc := "name: x\ndefaults: &net\n  allow_bind: true\nnetwork: *net\n"
+	out, err := SetBlock([]byte(doc), sandbox.NetworkPolicy{AllowOutbound: []string{"a.example:443"}})
+	require.NoError(t, err)
+	var parsed struct {
+		Network struct {
+			AllowBind     bool     `yaml:"allow_bind"`
+			AllowOutbound []string `yaml:"allow_outbound"`
+		} `yaml:"network"`
+	}
+	require.NoError(t, yaml.Unmarshal(out, &parsed))
+	assert.True(t, parsed.Network.AllowBind, "the other fields of the aliased mapping stay")
+	assert.Equal(t, []string{"a.example:443"}, parsed.Network.AllowOutbound)
+}

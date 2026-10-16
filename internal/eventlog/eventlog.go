@@ -52,8 +52,20 @@ var _ Logger = &fileWithRotationLogger{}
 
 var (
 	globalLogger Logger
+	globalDir    string
 	once         sync.Once
 )
+
+// Dir is the directory the event log rotates in. It is empty when event
+// logging is off, when the log is closed, or when --log-file sends the
+// events to one fixed file. A command that reads the directory back, such
+// as `pmg sandbox profile propose`, has nothing to read in those cases.
+func Dir() string {
+	if globalLogger == nil || !globalLogger.IsActive() {
+		return ""
+	}
+	return globalDir
+}
 
 // GetDefaultLogDir returns the default log directory based on the OS
 func GetDefaultLogDir() (string, error) {
@@ -101,6 +113,7 @@ func InitializeWithDir(logDir string) error {
 		fwrl := &fileWithRotationLogger{}
 		initErr = fwrl.init(logDir)
 		globalLogger = fwrl
+		globalDir = logDir
 	})
 
 	return initErr
@@ -118,6 +131,7 @@ func reinitializeForTest(logDir string) error {
 
 	// Reset once
 	once = sync.Once{}
+	globalDir = ""
 
 	// Initialize new logger
 	return InitializeWithDir(logDir)

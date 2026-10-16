@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -11,6 +12,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/runner"
@@ -246,15 +248,15 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 			runerror.ReasonProxySetupFailed)
 	}
 
-	// Ensure proxy is stopped on exit
-	defer func() {
+	stopProxy := sync.OnceFunc(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := proxyServer.Stop(shutdownCtx); err != nil {
 			log.Errorf("Failed to stop proxy server: %v", err)
 		}
-	}()
+	})
+	defer stopProxy()
 
 	ui.ClearStatus()
 
@@ -325,7 +327,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		},
 	})
 
-	// Populate report data from stats collector
+	// Drain the proxy before the counts are read, so a decision made while
+	// the child exits is in the report and in the observation.
+	stopProxy()
+
 	stats := statsCollector.GetStats()
 	reportData.StartTime = startTime
 	reportData.TotalAnalyzed = stats.TotalAnalyzed
@@ -340,7 +345,9 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	networkDecisions.observeViolations()
 	observation := networkDecisions.observation(runID, sandboxRes)
 	audit.LogNetworkObservation(observation)
-	reportData.NetworkRunID = runID
+	if eventlog.Dir() != "" {
+		reportData.NetworkRunID = runID
+	}
 	reportData.ObservedDestinations = len(observation.Destinations)
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 

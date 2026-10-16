@@ -44,8 +44,9 @@ type State struct {
 	Warnings []string `json:"warnings,omitempty"`
 
 	// RunID names this run in the event log. ObservedDestinations is how
-	// many destinations the proxy saw, written at shutdown for the stop
-	// report, which points at `pmg sandbox profile propose --run <id>`.
+	// many destinations the event log holds for the run, written at
+	// shutdown for the stop report, which points at `pmg sandbox profile
+	// propose --run <id>`. It stays 0 when event logging is off.
 	RunID                string `json:"run_id,omitempty"`
 	ObservedDestinations int    `json:"observed_destinations,omitempty"`
 }

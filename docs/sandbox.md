@@ -748,7 +748,8 @@ the registry hosts left to the built-in profile the proposal inherits. `--last` 
 run from this repository, `--since 30d` folds every run of the repository in the window into one
 table. `--new <name>` writes a user profile, `--into <path>` merges the block into a profile and
 leaves its other blocks as they are. Without `--write` the command prints the table and the
-proposal. The command reads the event log, so it needs `skip_event_logging` off. The other
+proposal. The command reads the event log, so it needs `skip_event_logging` off. With event
+logging off the report names no run. The other
 sections of a profile come from violations and not from observation. Promote them with
 `pmg sandbox allow --last --all`.
 
