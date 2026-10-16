@@ -644,7 +644,7 @@
   title: "a run without an event log does not name the proposal command"
   category: proxy
   tier: P2
-  guarantee: "When event logging is off, the stop report of a daemon run does not name `pmg sandbox profile propose`, because no run is stored. The proposal command fails and says that event logging is off."
+  guarantee: "When event logging is off, no run is stored. `pmg proxy env` exports no run id, and the stop report of a daemon run does not name `pmg sandbox profile propose`. The proposal command fails and says that event logging is off."
   labels: [proxy, network, propose]
 - id: sandbox/network/enforce-denies-a-registry-host
   title: "the proxy refuses a destination a profile deny rule covers"

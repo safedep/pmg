@@ -1,6 +1,6 @@
-# guarantee: when event logging is off, no run is stored. The stop report
-# does not name the proposal command, and the proposal command reports
-# that event logging is off.
+# guarantee: when event logging is off, no run is stored. `pmg proxy env`
+# exports no run id, the stop report does not name the proposal command,
+# and the proposal command reports that event logging is off.
 
 [windows] skip 'pmg proxy start --daemon is not supported on Windows'
 
@@ -11,6 +11,7 @@ env PMG_CONFIG_DIR=$WORK/config
 
 exec sh observe.sh
 stdout 'status 200'
+stdout 'run id: none'
 ! stdout 'Propose a profile with'
 
 ! exec pmg sandbox profile propose --last
@@ -22,6 +23,7 @@ skip_event_logging: true
 set -eu
 pmg proxy start --daemon --port 0 --state "$PWD/state.json" --network-mode audit
 eval "$(pmg proxy env --export --state "$PWD/state.json")"
+echo "run id: ${PMG_PROXY_RUN:-none}"
 status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
   --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
 echo "status $status"

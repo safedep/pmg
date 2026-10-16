@@ -268,8 +268,9 @@ the run into a profile, and `actions/upload-artifact` keeps it for review.
     path: pmg-network.yml
 ```
 
-The daemon runs as root and writes its event log as root, so the proposal
-runs with `sudo` too. Without `enforce` the daemon and the event log belong
+The run id comes from the event log, so `skip-event-logging: true` leaves
+`PMG_PROXY_RUN` unset. The daemon runs as root and writes its event log as
+root, so the proposal runs with `sudo` too. Without `enforce` the daemon and the event log belong
 to the runner user, and the step is `pmg sandbox profile propose --run
 "$PMG_PROXY_RUN" --new pmg-network.yml`. With `config-file` and `enforce`,
 the daemon's event log is under `PMG_PROXY_CONFIG_DIR`. Pass it to the
