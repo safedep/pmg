@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/ui"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -226,7 +226,7 @@ func resolveNetworkPolicyErr(cfg *config.RuntimeConfig, o NetworkOverrides) erro
 }
 
 // A locked config's profile must not resolve through a directory the user
-// writes: the working directory, the user profile directory, or a template.
+// writes: the working directory or the user profile directory.
 func TestResolveNetworkPolicyLoadsTheLockedProfileFromManagedLocations(t *testing.T) {
 	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
 
@@ -266,20 +266,11 @@ func TestResolveNetworkPolicyLoadsTheLockedProfileFromManagedLocations(t *testin
 	cfg.Config.Proxy.Server.Profile = "open"
 	err = resolveNetworkPolicyErr(cfg, NetworkOverrides{LockedProfile: "open"})
 	require.Error(t, err, "a user profile name is not a managed location")
-	assert.Contains(t, err.Error(), "not a built-in profile or a path")
-}
-
-func TestNetworkPolicyLine(t *testing.T) {
-	assert.Equal(t, "Network policy: none. No profile is set, so every destination is allowed.\n", NetworkPolicyLine(nil, false))
-
-	chained := &NetworkState{Chain: []string{"npm-restrictive", "/srv/ci.yml"}, Mode: "enforce"}
-	assert.Equal(t, "Network policy: enforce, profile npm-restrictive < /srv/ci.yml, enforce: off, policy advisory\n", NetworkPolicyLine(chained, false))
-	assert.Equal(t, "Network policy: enforce, profile npm-restrictive < /srv/ci.yml\n", NetworkPolicyLine(chained, true))
-	assert.Equal(t, "Network policy: audit, profile flags\n", NetworkPolicyLine(&NetworkState{Mode: "audit"}, true))
+	assert.Contains(t, err.Error(), "not a built-in profile, a policy template or a path")
 }
 
 func TestNetworkStateDeniedCount(t *testing.T) {
-	denials := []ui.NetworkDenial{{Destination: "a:443", Count: 2}, {Destination: "b:443", Count: 1}}
+	denials := []netpolicy.Denial{{Destination: "a:443", Count: 2}, {Destination: "b:443", Count: 1}}
 	assert.Equal(t, 0, (*NetworkState)(nil).DeniedCount())
 	assert.Equal(t, 0, (&NetworkState{Mode: "audit", Denials: denials}).DeniedCount(), "audit refuses nothing")
 	assert.Equal(t, 3, (&NetworkState{Mode: "enforce", Denials: denials}).DeniedCount())
@@ -290,7 +281,7 @@ func TestStateRoundTripsNetworkBlock(t *testing.T) {
 	in := State{PID: 7, Addr: "127.0.0.1:7777", Network: &NetworkState{
 		Chain:   []string{"npm-restrictive", "/srv/ci.yml"},
 		Mode:    "enforce",
-		Denials: []ui.NetworkDenial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", PID: 4132, Count: 2}},
+		Denials: []netpolicy.Denial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", PID: 4132, Count: 2}},
 	}}
 	require.NoError(t, writeState(path, in))
 

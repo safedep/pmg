@@ -25,19 +25,9 @@ type NamespaceState struct {
 	Table     *netenforce.NamespaceStatus `json:"table,omitempty"`
 }
 
-// NamespaceStatusLine renders the one status line for the redirect. An
-// older state file has no block, and then there is no line.
-func NamespaceStatusLine(ns *NamespaceState) string {
-	switch {
-	case ns == nil:
-		return ""
-	case ns.Effective == string(netenforce.NamespaceRedirect) && ns.Table != nil:
-		return fmt.Sprintf("namespaces: redirect (%s from %s)", ns.Table.Target(), strings.Join(ns.Table.Ingress, ", "))
-	case ns.Reason != "":
-		return fmt.Sprintf("namespaces: ignore (%s: %s)", ns.Mode, ns.Reason)
-	default:
-		return "namespaces: ignore"
-	}
+// Redirecting reports whether the redirect is in effect and has a table.
+func (ns *NamespaceState) Redirecting() bool {
+	return ns != nil && ns.Effective == string(netenforce.NamespaceRedirect) && ns.Table != nil
 }
 
 // newNamespaceRedirector is the seam tests use to stand in a fake host.

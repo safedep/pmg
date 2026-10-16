@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
 )
@@ -22,11 +23,11 @@ type NetworkDecisionLog struct {
 	mu       sync.Mutex
 	byClient bool
 	enforced bool
-	denials  map[string]*ui.NetworkDenial
+	denials  map[string]*netpolicy.Denial
 }
 
 func NewNetworkDecisionLog(byClient bool) *NetworkDecisionLog {
-	return &NetworkDecisionLog{byClient: byClient, denials: map[string]*ui.NetworkDenial{}}
+	return &NetworkDecisionLog{byClient: byClient, denials: map[string]*netpolicy.Denial{}}
 }
 
 func (l *NetworkDecisionLog) Record(d proxy.NetworkDecision) {
@@ -53,7 +54,7 @@ func (l *NetworkDecisionLog) Record(d proxy.NetworkDecision) {
 		denial.Count++
 		return
 	}
-	l.denials[key] = &ui.NetworkDenial{
+	l.denials[key] = &netpolicy.Denial{
 		Destination: destination,
 		Rule:        d.Rule,
 		Client:      clientLabel(d.Origin),
@@ -76,7 +77,7 @@ func clientLabel(o proxy.Origin) string {
 
 // Report returns the denials sorted by destination, then client. nil when
 // no deny rule matched.
-func (l *NetworkDecisionLog) Report() *ui.NetworkPolicyReport {
+func (l *NetworkDecisionLog) Report() *netpolicy.Report {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -84,7 +85,7 @@ func (l *NetworkDecisionLog) Report() *ui.NetworkPolicyReport {
 		return nil
 	}
 
-	report := &ui.NetworkPolicyReport{Enforced: l.enforced}
+	report := &netpolicy.Report{Enforced: l.enforced}
 	for _, d := range l.denials {
 		report.Denials = append(report.Denials, *d)
 	}

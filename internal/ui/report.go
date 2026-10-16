@@ -7,6 +7,7 @@ import (
 
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
 // FlowType indicates which execution flow was used
@@ -88,7 +89,7 @@ type ReportData struct {
 
 	// NetworkPolicy holds the connections a deny rule matched. nil when no
 	// policy ran.
-	NetworkPolicy *NetworkPolicyReport
+	NetworkPolicy *netpolicy.Report
 
 	// AdvisoryMessage is the optional org-configured message appended to block
 	// output regardless of which control blocked. Set from advisory_message.
@@ -173,23 +174,6 @@ func reportSilent(data *ReportData) {
 
 	printMalwareBlockSection(data)
 	printAdvisoryMessage(data.AdvisoryMessage)
-}
-
-// NetworkPolicyReport is what the network policy decided during a run.
-type NetworkPolicyReport struct {
-	Enforced bool
-	Denials  []NetworkDenial
-}
-
-// NetworkDenial is one destination a deny rule matched, with how many
-// connections it matched. The daemon keeps one per client, so the stop
-// report names the program behind each one.
-type NetworkDenial struct {
-	Destination string `json:"destination"`
-	Rule        string `json:"rule"`
-	Client      string `json:"client,omitempty"`
-	PID         int    `json:"pid,omitempty"`
-	Count       int    `json:"count"`
 }
 
 // reportNormal shows minimal, assuring output
@@ -384,7 +368,7 @@ func reportVerbose(data *ReportData) {
 
 // printNetworkPolicy lists the destinations a deny rule matched. Under
 // enforce the proxy refused them. Under audit they went through.
-func printNetworkPolicy(report *NetworkPolicyReport) {
+func printNetworkPolicy(report *netpolicy.Report) {
 	if report == nil || len(report.Denials) == 0 {
 		return
 	}

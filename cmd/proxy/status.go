@@ -47,9 +47,9 @@ func statusText(st proxyserver.StatusInfo) string {
 	if st.ConfigPath != "" {
 		fmt.Fprintf(&b, "  config: %s (%s)\n", st.ConfigPath, st.ConfigSource)
 	}
-	b.WriteString(proxyserver.NetworkPolicyLine(st.Network, st.Enforce != nil))
+	b.WriteString(networkPolicyLine(st.Network, st.Enforce != nil))
 	if st.Enforce == nil {
-		b.WriteString(proxyserver.WarningLines(st.Warnings))
+		b.WriteString(warningLines(st.Warnings))
 		return b.String()
 	}
 
@@ -61,7 +61,7 @@ func statusText(st proxyserver.StatusInfo) string {
 	} else {
 		b.WriteString("  udp to enforced ports: allowed\n")
 	}
-	if line := proxyserver.NamespaceStatusLine(e.Namespaces); line != "" {
+	if line := namespaceStatusLine(e.Namespaces); line != "" {
 		fmt.Fprintf(&b, "  %s\n", line)
 	}
 	for _, prefix := range e.SkipDestinations {
@@ -76,6 +76,6 @@ func statusText(st proxyserver.StatusInfo) string {
 	for _, f := range e.ExemptExecutables {
 		fmt.Fprintf(&b, "  exempt executable: %s\n", f.Path)
 	}
-	b.WriteString(proxyserver.WarningLines(st.Warnings))
+	b.WriteString(warningLines(st.Warnings))
 	return b.String()
 }

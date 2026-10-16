@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"testing"
 	"time"
 
 	_ "embed"
@@ -568,13 +569,16 @@ func (r *RuntimeConfig) SandboxProfileDir() string {
 }
 
 // SandboxPolicyTemplatePaths returns the policy templates of the config as
-// template name to file path. A relative path is under the config directory.
+// template name to file path. A relative path is next to the config file
+// that declares it. For a managed config that is the managed directory and
+// not the user's, so a locked template cannot point into a directory the
+// user writes.
 func (r *RuntimeConfig) SandboxPolicyTemplatePaths() map[string]string {
 	paths := make(map[string]string, len(r.Config.Sandbox.PolicyTemplates))
 	for name, template := range r.Config.Sandbox.PolicyTemplates {
 		path := template.Path
 		if !filepath.IsAbs(path) {
-			path = filepath.Join(r.ConfigDir(), path)
+			path = filepath.Join(filepath.Dir(r.configFilePath), path)
 		}
 		paths[name] = path
 	}
@@ -1046,6 +1050,22 @@ func globalConfigDir() string {
 		return globalConfigDirOverride
 	}
 	return platform.SystemConfigDir()
+}
+
+// SetManagedConfigDirForTest points the managed config lookup at dir and
+// reloads, so a test in another package can run under a locked config. It
+// panics outside a test binary, so it cannot move the managed boundary in
+// production. The returned function restores the real directory.
+func SetManagedConfigDirForTest(dir string) (restore func()) {
+	if !testing.Testing() {
+		panic("config: SetManagedConfigDirForTest called outside a test")
+	}
+	globalConfigDirOverride = dir
+	initConfig()
+	return func() {
+		globalConfigDirOverride = ""
+		initConfig()
+	}
 }
 
 // globalConfigFilePath returns the path to the globally managed config file, or

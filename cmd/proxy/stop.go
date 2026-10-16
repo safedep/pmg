@@ -12,6 +12,7 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/proxyserver"
 	"github.com/safedep/pmg/internal/ui"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/spf13/cobra"
 )
 
@@ -156,7 +157,7 @@ func networkReport(res proxyserver.StopResult) string {
 // denialClient names the program and the pid behind a denial, or the
 // container address. A proxy-aware client without kernel enforcement has
 // no name.
-func denialClient(d ui.NetworkDenial) string {
+func denialClient(d netpolicy.Denial) string {
 	client := d.Client
 	if d.PID != 0 {
 		client = fmt.Sprintf("%s pid %d", client, d.PID)

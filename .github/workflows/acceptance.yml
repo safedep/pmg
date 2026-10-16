@@ -295,6 +295,13 @@ jobs:
       - name: Build PMG
         run: make
 
+      # The sandbox runs a root caller's command under an unprivileged id in
+      # a user namespace. That id cannot enter /home/runner, so a one-shot
+      # sandboxed run fails to exec a binary under the workspace. A root
+      # install runs pmg from a system path, and so does this job.
+      - name: Install PMG for root
+        run: sudo install -m 0755 bin/pmg /usr/local/bin/pmg
+
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
@@ -309,7 +316,7 @@ jobs:
       # --preserve-env.
       - name: Run enforce acceptance scripts as root
         env:
-          PMG_BIN: ${{ github.workspace }}/bin/pmg
+          PMG_BIN: /usr/local/bin/pmg
           ACCEPTANCE_CATEGORY: enforce
           GOCACHE: ${{ runner.temp }}/go-build-root
         run: |

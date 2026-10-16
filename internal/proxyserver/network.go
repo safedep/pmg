@@ -7,7 +7,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
-	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
@@ -35,7 +34,7 @@ type NetworkState struct {
 
 	// Denials are the destinations a deny rule matched, written at
 	// shutdown for the stop report.
-	Denials []ui.NetworkDenial `json:"denials,omitempty"`
+	Denials []netpolicy.Denial `json:"denials,omitempty"`
 }
 
 // Profile is the chain as one line, or "flags" for a policy that is only
@@ -217,18 +216,4 @@ func containsRule(rules []string, raw string) bool {
 func PreflightNetwork(cfg *config.RuntimeConfig, o NetworkOverrides) error {
 	_, err := resolveNetworkPolicy(cfg, o)
 	return err
-}
-
-// NetworkPolicyLine says which policy the daemon applies and how. Without
-// kernel enforcement a process can go around the proxy, so the policy is
-// advisory.
-func NetworkPolicyLine(network *NetworkState, kernelEnforced bool) string {
-	if network == nil {
-		return "Network policy: none. No profile is set, so every destination is allowed.\n"
-	}
-	line := fmt.Sprintf("Network policy: %s, profile %s", network.Mode, network.Profile())
-	if !kernelEnforced {
-		line += ", enforce: off, policy advisory"
-	}
-	return line + "\n"
 }
