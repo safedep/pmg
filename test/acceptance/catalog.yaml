@@ -583,7 +583,7 @@
   tier: P1
   guarantee: "Under global_lockdown --network-allow and --network-mode audit over enforce fail fast, a profile that adds an allow rule fails and names the rule, and a deny rule or a profile that only adds deny rules is accepted."
   labels: [policy, network]
-- id: enforce/policy/lockdown-resolves-profile-from-managed-locations
+- id: enforce/policy/lockdown-managed-profile
   title: "lockdown resolves the sandbox profile chain from managed locations"
   category: enforce
   tier: P1
