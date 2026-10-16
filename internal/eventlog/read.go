@@ -2,8 +2,10 @@ package eventlog
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,25 +62,39 @@ func readFile(path string, since time.Time, wanted map[string]bool) ([]Event, er
 		}
 	}()
 
+	// bufio.Reader has no line limit, unlike bufio.Scanner. One observation
+	// of a long daemon run is one line, and its size is up to the writer.
 	var events []Event
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		var event Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			log.Warnf("skipping an event log line in %s: %v", path, err)
-			continue
+	reader := bufio.NewReader(f)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if event, ok := parseLine(path, line, since, wanted); ok {
+			events = append(events, event)
 		}
-		if event.Timestamp.Before(since) {
-			continue
+		if err == io.EOF {
+			return events, nil
 		}
-		if len(wanted) > 0 && !wanted[event.EventType] {
-			continue
+		if err != nil {
+			return nil, fmt.Errorf("read event log %s: %w", path, err)
 		}
-		events = append(events, event)
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read event log %s: %w", path, err)
+}
+
+func parseLine(path string, line []byte, since time.Time, wanted map[string]bool) (Event, bool) {
+	line = bytes.TrimSpace(line)
+	if len(line) == 0 {
+		return Event{}, false
 	}
-	return events, nil
+	var event Event
+	if err := json.Unmarshal(line, &event); err != nil {
+		log.Warnf("skipping an event log line in %s: %v", path, err)
+		return Event{}, false
+	}
+	if event.Timestamp.Before(since) {
+		return Event{}, false
+	}
+	if len(wanted) > 0 && !wanted[event.EventType] {
+		return Event{}, false
+	}
+	return event, true
 }

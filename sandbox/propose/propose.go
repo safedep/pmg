@@ -72,24 +72,31 @@ type Result struct {
 	Rows []Row `json:"destinations"`
 }
 
-// Network builds the proposal. It never removes a rule, because one run
+// Network builds the proposal. It does not remove a rule, because one run
 // does not see every path. An allow rule for every host, in the parent or
 // in the target, covers nothing here: the catch-all deny the proposal adds
 // beats it, so each destination still needs its own allow rule.
+//
+// The verdict comes from the union of the parent's and the target's rules,
+// because the loader unions them and enforcement decides on that union.
 func Network(in Input) (Result, error) {
-	var parentRules, existingRules *netpolicy.Policy
-	var err error
+	parent := sandbox.NetworkPolicy{}
 	if in.Parent != nil {
-		if parentRules, err = netpolicy.New(in.Parent.Network.AllowOutbound, in.Parent.Network.DenyOutbound); err != nil {
+		parent = in.Parent.Network
+		if _, err := netpolicy.New(parent.AllowOutbound, parent.DenyOutbound); err != nil {
 			return Result{}, fmt.Errorf("parent profile %s: %w", in.Parent.Name, err)
 		}
 	}
 	existing := sandbox.NetworkPolicy{}
 	if in.Existing != nil {
 		existing = *in.Existing
-		if existingRules, err = netpolicy.New(existing.AllowOutbound, existing.DenyOutbound); err != nil {
+		if _, err := netpolicy.New(existing.AllowOutbound, existing.DenyOutbound); err != nil {
 			return Result{}, fmt.Errorf("target profile: %w", err)
 		}
+	}
+	rules, err := netpolicy.New(union(parent.AllowOutbound, existing.AllowOutbound), union(parent.DenyOutbound, existing.DenyOutbound))
+	if err != nil {
+		return Result{}, fmt.Errorf("parent and target profile: %w", err)
 	}
 
 	result := Result{Network: sandbox.NetworkPolicy{
@@ -101,23 +108,21 @@ func Network(in Input) (Result, error) {
 	added := map[string]bool{}
 	for _, d := range in.Destinations {
 		row := Row{Destination: d, Verdict: VerdictAdd, Rule: d.Address()}
-		existingRule := decidedBy(existingRules, d)
-		parentRule := decidedBy(parentRules, d)
+		if _, err := netpolicy.ParseRule(row.Rule); err != nil {
+			row.Verdict, row.Rule = VerdictInvalid, ""
+			result.Rows = append(result.Rows, row)
+			continue
+		}
+		rule := rules.Decide(d.Host, d.Port).Rule
 		switch {
-		case existingRule != nil && existingRule.Deny && !isCatchAll(existingRule):
-			row.Verdict, row.Rule = VerdictKeptDenied, existingRule.Raw
-		case existingRule != nil && !existingRule.Deny && !isCatchAll(existingRule):
-			row.Verdict, row.Rule = VerdictAlreadyAllowed, existingRule.Raw
-		case parentRule != nil && parentRule.Deny && !isCatchAll(parentRule):
-			row.Verdict, row.Rule = VerdictKeptDenied, parentRule.Raw
-		case parentRule != nil && !parentRule.Deny && !isCatchAll(parentRule):
-			row.Verdict, row.Rule = VerdictParentAllows, parentRule.Raw
-		default:
-			if _, err := netpolicy.ParseRule(row.Rule); err != nil {
-				row.Verdict, row.Rule = VerdictInvalid, ""
-				break
-			}
+		case rule == nil || isCatchAll(rule):
 			added[row.Rule] = true
+		case rule.Deny:
+			row.Verdict, row.Rule = VerdictKeptDenied, rule.Raw
+		case slices.Contains(existing.AllowOutbound, rule.Raw):
+			row.Verdict, row.Rule = VerdictAlreadyAllowed, rule.Raw
+		default:
+			row.Verdict, row.Rule = VerdictParentAllows, rule.Raw
 		}
 		result.Rows = append(result.Rows, row)
 	}
@@ -134,13 +139,14 @@ func Network(in Input) (Result, error) {
 	return result, nil
 }
 
-// decidedBy is the rule of rules that decides d, or nil when no rule
-// matches or there are no rules.
-func decidedBy(rules *netpolicy.Policy, d netpolicy.Destination) *netpolicy.Rule {
-	if rules == nil {
-		return nil
+func union(a, b []string) []string {
+	out := make([]string, 0, len(a)+len(b))
+	for _, rule := range slices.Concat(a, b) {
+		if !slices.Contains(out, rule) {
+			out = append(out, rule)
+		}
 	}
-	return rules.Decide(d.Host, d.Port).Rule
+	return out
 }
 
 func isCatchAll(rule *netpolicy.Rule) bool {

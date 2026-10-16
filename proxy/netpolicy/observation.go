@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -52,4 +53,45 @@ func NewRunID() string {
 		return fmt.Sprintf("%012x", time.Now().UnixNano()&0xffffffffffff)
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// Fold merges rows into one row per host, port and client, sorted. A pid
+// names one process, so it does not survive the fold. The newest row
+// decides a merged row's decision.
+func Fold(rows []Destination) []Destination {
+	merged := map[string]*Destination{}
+	for _, d := range rows {
+		key := d.Address() + "\x00" + d.Client
+		row, ok := merged[key]
+		if !ok {
+			copied := d
+			copied.PID = 0
+			merged[key] = &copied
+			continue
+		}
+		row.Count += d.Count
+		if d.FirstSeen.Before(row.FirstSeen) {
+			row.FirstSeen = d.FirstSeen
+		}
+		if !d.LastSeen.Before(row.LastSeen) {
+			row.LastSeen = d.LastSeen
+			row.Allowed, row.Rule, row.Enforced = d.Allowed, d.Rule, d.Enforced
+		}
+	}
+
+	out := make([]Destination, 0, len(merged))
+	for _, row := range merged {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Host != b.Host {
+			return a.Host < b.Host
+		}
+		if a.Port != b.Port {
+			return a.Port < b.Port
+		}
+		return a.Client < b.Client
+	})
+	return out
 }

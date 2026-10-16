@@ -326,9 +326,11 @@ func resolveIntoTarget(target *proposeTarget, path string, registry pmgsandbox.P
 func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Record, registry pmgsandbox.ProfileRegistry) (*proposeTarget, error) {
 	target.isNew = true
 	target.mode = 0o644
+	var taken []string
 	if executor.IsProfilePath(ref) {
 		target.path = ref
 		target.name = strings.TrimSuffix(strings.TrimSuffix(filepath.Base(ref), ".yml"), ".yaml")
+		taken = []string{ref}
 	} else {
 		if !profileNameRe.MatchString(ref) {
 			return nil, invalidArgumentError(fmt.Sprintf("invalid profile name %q", ref), "Use a single path-safe name matching "+profileNameRe.String()+", or a path ending in .yml.")
@@ -339,9 +341,14 @@ func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Re
 		}
 		target.path = filepath.Join(userDir, ref+".yml")
 		target.name = ref
+		// The registry reads both extensions and prefers .yml, so a new
+		// .yml file would shadow a .yaml profile of the same name.
+		taken = []string{target.path, filepath.Join(userDir, ref+".yaml")}
 	}
-	if _, err := os.Stat(target.path); err == nil {
-		return nil, invalidArgumentError(fmt.Sprintf("profile already exists at %s", target.path), "Use --into "+target.path+" to add the rules to it.")
+	for _, path := range taken {
+		if _, err := os.Stat(path); err == nil {
+			return nil, invalidArgumentError(fmt.Sprintf("profile already exists at %s", path), "Use --into "+path+" to add the rules to it.")
+		}
 	}
 
 	parent, err := proposeParent(records, registry)

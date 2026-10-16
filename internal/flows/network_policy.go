@@ -113,8 +113,10 @@ func (l *NetworkDecisionLog) Report() *netpolicy.Report {
 	return report
 }
 
-// Observation returns every destination of the run, sorted, under the keys
-// a later command finds it by.
+// Observation returns every destination of the run under the keys a later
+// command finds it by. The table keeps one row per process for the denial
+// report. The observation folds the processes of one client into one row,
+// so a long run with many processes stays small.
 func (l *NetworkDecisionLog) Observation(runID, repoRoot, packageManager, profile, mode string) netpolicy.Observation {
 	return netpolicy.Observation{
 		RunID:          runID,
@@ -122,7 +124,7 @@ func (l *NetworkDecisionLog) Observation(runID, repoRoot, packageManager, profil
 		PackageManager: packageManager,
 		Profile:        profile,
 		Mode:           mode,
-		Destinations:   l.sorted(),
+		Destinations:   netpolicy.Fold(l.sorted()),
 	}
 }
 

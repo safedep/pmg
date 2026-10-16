@@ -88,6 +88,23 @@ func TestNetworkDecisionLogObservationHoldsEveryDestination(t *testing.T) {
 	assert.True(t, registry.Allowed)
 	assert.Equal(t, 2, registry.Count)
 	assert.Equal(t, "/usr/bin/curl", registry.Client)
-	assert.Equal(t, 7, registry.PID)
+	assert.Zero(t, registry.PID, "the observation folds the processes of a client")
 	assert.Equal(t, time.Minute, registry.LastSeen.Sub(registry.FirstSeen))
+}
+
+func TestNetworkDecisionLogObservationFoldsThePIDs(t *testing.T) {
+	l := NewNetworkDecisionLog(true)
+	first := proxy.Origin{PID: 7, Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}
+	second := proxy.Origin{PID: 8, Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}
+
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: first})
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: second})
+
+	require.Len(t, l.Report().Denials, 2, "the denial report keeps one line per process")
+
+	obs := l.Observation("run1", "/repo", "", "", "enforce")
+	require.Len(t, obs.Destinations, 1, "the observation keeps one row per host, port and client")
+	assert.Equal(t, 2, obs.Destinations[0].Count)
+	assert.Equal(t, "/usr/bin/curl", obs.Destinations[0].Client)
+	assert.Zero(t, obs.Destinations[0].PID)
 }

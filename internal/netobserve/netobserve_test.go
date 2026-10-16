@@ -87,7 +87,7 @@ func TestMergeAddsCountsAndKeepsTheNewestDecision(t *testing.T) {
 	assert.True(t, registry.LastSeen.Equal(now))
 
 	single := Merge([]Record{record("a", "/repo", now, older)})
-	assert.Equal(t, 7, single[0].PID, "one run keeps its pids")
+	assert.Zero(t, single[0].PID, "a pid never survives the fold")
 }
 
 func TestParseWindow(t *testing.T) {

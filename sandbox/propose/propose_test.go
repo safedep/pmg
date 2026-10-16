@@ -149,3 +149,18 @@ func TestSetBlockEditsTheMappingAnAliasPointsAt(t *testing.T) {
 	assert.True(t, parsed.Network.AllowBind, "the other fields of the aliased mapping stay")
 	assert.Equal(t, []string{"a.example:443"}, parsed.Network.AllowOutbound)
 }
+
+func TestNetworkDecidesOnTheUnionOfParentAndTarget(t *testing.T) {
+	parent := &sandbox.SandboxPolicy{Name: "base", Network: sandbox.NetworkPolicy{DenyOutbound: []string{"blocked.example.com:443", "*:*"}}}
+	existing := &sandbox.NetworkPolicy{AllowOutbound: []string{"*.example.com:443"}}
+	res, err := Network(Input{Parent: parent, Existing: existing, Destinations: []netpolicy.Destination{
+		{Host: "blocked.example.com", Port: 443, Count: 1, Rule: "blocked.example.com:443", Enforced: true},
+		dest("cdn.example.com", 443),
+	}})
+	require.NoError(t, err)
+	assert.Empty(t, res.Added)
+	assert.Equal(t, VerdictKeptDenied, res.Rows[0].Verdict, "the parent's exact deny beats the target's wildcard allow, as enforcement decides")
+	assert.Equal(t, "blocked.example.com:443", res.Rows[0].Rule)
+	assert.Equal(t, VerdictAlreadyAllowed, res.Rows[1].Verdict)
+	assert.Equal(t, "*.example.com:443", res.Rows[1].Rule)
+}

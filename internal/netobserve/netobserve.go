@@ -96,48 +96,13 @@ func Select(records []Record, s Selector) []Record {
 }
 
 // Merge folds the runs into one table, one row per host, port and client.
-// A pid is one process of one run, so it does not survive the merge of two
-// runs. The newest run decides a row's decision.
+// The newest run decides a row's decision.
 func Merge(records []Record) []netpolicy.Destination {
-	merged := map[string]*netpolicy.Destination{}
+	var rows []netpolicy.Destination
 	for _, record := range records {
-		for _, d := range record.Destinations {
-			key := d.Address() + "\x00" + d.Client
-			row, ok := merged[key]
-			if !ok {
-				copied := d
-				if len(records) > 1 {
-					copied.PID = 0
-				}
-				merged[key] = &copied
-				continue
-			}
-			row.Count += d.Count
-			if d.FirstSeen.Before(row.FirstSeen) {
-				row.FirstSeen = d.FirstSeen
-			}
-			if !d.LastSeen.Before(row.LastSeen) {
-				row.LastSeen = d.LastSeen
-				row.Allowed, row.Rule, row.Enforced = d.Allowed, d.Rule, d.Enforced
-			}
-		}
+		rows = append(rows, record.Destinations...)
 	}
-
-	rows := make([]netpolicy.Destination, 0, len(merged))
-	for _, row := range merged {
-		rows = append(rows, *row)
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		a, b := rows[i], rows[j]
-		if a.Host != b.Host {
-			return a.Host < b.Host
-		}
-		if a.Port != b.Port {
-			return a.Port < b.Port
-		}
-		return a.Client < b.Client
-	})
-	return rows
+	return netpolicy.Fold(rows)
 }
 
 // ParseWindow reads a window such as 30d, 12h or 90m into the time it

@@ -340,3 +340,15 @@ func TestProfilePropose_IntoKeepsTheProfileMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a private profile stays private")
 }
+
+func TestProfilePropose_NewRefusesANameTheOtherExtensionHolds(t *testing.T) {
+	f := newProposeFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(f.userDir, "ci.yaml"), []byte(proposeExistingProfile), 0o644))
+	f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, PackageManager: "npm",
+		Destinations: []netpolicy.Destination{dest("cdn.example", 443, 1)}})
+
+	_, err := f.run(t, "--last", "--new", "ci")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), filepath.Join(f.userDir, "ci.yaml"))
+	assert.NoFileExists(t, filepath.Join(f.userDir, "ci.yml"), "a .yml file would shadow the .yaml profile")
+}

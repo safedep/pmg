@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,4 +60,19 @@ func TestReadOfAMissingDirectoryIsEmpty(t *testing.T) {
 	events, err := Read(filepath.Join(t.TempDir(), "missing"), time.Time{}, "network_observation")
 	require.NoError(t, err)
 	assert.Empty(t, events)
+}
+
+func TestReadHasNoLineLimit(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)
+	big, err := json.Marshal(Event{Timestamp: at, EventType: "network_observation", Message: strings.Repeat("x", 17<<20)})
+	require.NoError(t, err)
+	small, err := json.Marshal(Event{Timestamp: at, EventType: "network_observation", Message: "small"})
+	require.NoError(t, err)
+	writeLogLines(t, filepath.Join(dir, "20261016-pmg.log"), string(big), string(small))
+
+	events, err := Read(dir, time.Time{}, "network_observation")
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	assert.Equal(t, "small", events[1].Message)
 }
