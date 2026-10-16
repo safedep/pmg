@@ -634,6 +634,12 @@
   tier: P0
   guarantee: "With --profile and --network-mode enforce the daemon refuses a destination a deny_outbound rule covers with a 403, the stop report lists the denial with the profile chain, and --fail-on-violation fails. With --network-deny under audit the connection goes through and the report lists what the rule would deny."
   labels: [proxy, network, block]
+- id: proxy/network/propose/three-run-journey
+  title: "a run under audit proposes the profile that enforces it"
+  category: proxy
+  tier: P1
+  guarantee: "A daemon run under audit with no profile observes every destination and its stop report names the proposal command. `pmg sandbox profile propose` writes a profile with one allow rule per observed destination and the catch-all deny, and the profile lints. A daemon under that profile in enforce lets the observed destination through and refuses one the run did not reach."
+  labels: [proxy, network, propose]
 - id: sandbox/network/enforce-denies-a-registry-host
   title: "the proxy refuses a destination a profile deny rule covers"
   category: sandbox

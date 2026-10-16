@@ -288,6 +288,44 @@ rule, of the managed profile fails the start and names the rule.
 A repository profile is as trusted as the workflow file. Add a `CODEOWNERS`
 line for `.pmg/profiles` so a change to it gets a review.
 
+### Build the allow list
+
+An allow list written by hand is wrong on the first run. The proxy sees
+every destination a job reaches, so a run under `audit` with no profile is
+the baseline. Three runs take a job from no policy to `enforce`.
+
+1. **Observe.** Start the daemon with no profile, run the job, stop the
+   daemon. The stop report counts the destinations and names the run:
+
+   ```text
+   Destinations: 7 observed. Propose a profile with: pmg sandbox profile propose --run 3f2a9c1d7e4b
+   ```
+
+2. **Propose.** The command reads the run from the event log and prints
+   every destination with its client, its count and what the proposal does
+   with it. `--write` writes the profile.
+
+   ```bash
+   pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml --write
+   ```
+
+   The profile holds one allow rule per host and port and the catch-all
+   deny, and inherits `exec`. A proposal from a one-shot run inherits the
+   built-in profile of the package manager that ran, and does not repeat
+   the registry hosts that profile already names. Review every rule. Commit
+   the file.
+
+3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
+   --network-mode enforce`. A destination the run did not reach gets a 403.
+
+A later run adds destinations with `--into .pmg/profiles/ci.yml --write`.
+The proposal appends allow rules and never removes one, because one run does
+not see every path. A destination a specific deny rule of the profile
+refuses stays denied. `--last` picks the newest run of the repository and
+`--since 30d` folds every run of the repository in the window into one
+table. The event log keeps `event_log_retention_days` of runs, and the
+command reads nothing when `skip_event_logging` is on.
+
 ## Fail on violation
 
 `pmg proxy stop` exits `0` by default. `--fail-on-violation` makes it a gate:

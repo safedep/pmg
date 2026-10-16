@@ -1,0 +1,56 @@
+# guarantee: a daemon run under audit with no profile observes every
+# destination, the stop report names the proposal command, the proposal
+# writes a profile with one allow rule per destination and the catch-all
+# deny, and a daemon under that profile in enforce refuses a destination
+# the run did not reach.
+
+[windows] skip 'pmg proxy start --daemon is not supported on Windows'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CACHE_DIR=$WORK/cache
+env PMG_CONFIG_DIR=$WORK/config
+
+exec sh observe.sh
+stdout 'status 200'
+stdout 'Destinations: [1-9][0-9]* observed. Propose a profile with: pmg sandbox profile propose --run [0-9a-f]{12}'
+
+exec pmg sandbox profile propose --last
+stdout 'registry.npmjs.org:443'
+stdout 'add registry.npmjs.org:443'
+! exists $WORK/ci.yml
+
+exec pmg sandbox profile propose --last --new $WORK/ci.yml --write
+stdout 'Wrote .*ci.yml'
+exists $WORK/ci.yml
+grep 'inherits: exec' $WORK/ci.yml
+grep '    - registry.npmjs.org:443' $WORK/ci.yml
+grep '    - "\*:\*"' $WORK/ci.yml
+exec pmg sandbox profile lint $WORK/ci.yml
+
+exec sh enforce.sh
+stdout 'registry 200'
+stdout 'connect 403'
+stdout 'Network policy: enforce, 1 denied, 0 would deny'
+stdout 'denied  pastebin.com:443  rule \*:\*'
+
+-- observe.sh --
+set -eu
+pmg proxy start --daemon --port 0 --state "$PWD/state.json" --network-mode audit
+eval "$(pmg proxy env --export --state "$PWD/state.json")"
+status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
+echo "status $status"
+pmg proxy stop --state "$PWD/state.json"
+-- enforce.sh --
+set -eu
+pmg proxy start --daemon --port 0 --state "$PWD/state.json" --profile "$PWD/ci.yml" --network-mode enforce
+eval "$(pmg proxy env --export --state "$PWD/state.json")"
+status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
+echo "registry $status"
+# curl drops the body of a refused CONNECT, so the CONNECT status is the check.
+status=$(curl --silent --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
+  --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
+echo "connect $status"
+pmg proxy stop --state "$PWD/state.json" 2>&1 || true

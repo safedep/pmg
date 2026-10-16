@@ -129,3 +129,10 @@ func TestStatusTextShowsEnforcement(t *testing.T) {
 	assert.Contains(t, enforced, "skip destination: 10.20.0.0/16")
 	assert.Contains(t, enforced, "Docker is running.")
 }
+
+func TestObservationLine(t *testing.T) {
+	assert.Equal(t, "", observationLine(proxyserver.StopResult{RunID: "abc", Observed: 0}))
+	assert.Equal(t, "", observationLine(proxyserver.StopResult{Observed: 3}), "a daemon that predates the run id prints nothing")
+	assert.Equal(t, "Destinations: 3 observed. Propose a profile with: pmg sandbox profile propose --run abc\n",
+		observationLine(proxyserver.StopResult{RunID: "abc", Observed: 3}))
+}
