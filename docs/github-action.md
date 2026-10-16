@@ -74,9 +74,9 @@ default.
 | `skip-event-logging` | `PMG_SKIP_EVENT_LOGGING` | `false` |
 | `config-file` | Path to a YAML file in the repository. The action copies it to the PMG config directory before setup. Use it to override any config key. | unset |
 | `cache` | Reuse a previously extracted PMG binary from `$RUNNER_TOOL_CACHE`. On a cache hit the action fetches `checksums.txt` from upstream and verifies the cached tarball again. | `false` (download each run) |
-| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job. Needs a job-end `pmg proxy stop --fail-on-violation` step. | `false` (shims) |
+| `server-mode` | Run PMG as a persistent proxy daemon and export the proxy variables to the job, with `PMG_PROXY_RUN`, the id of the run in the event log. Needs a job-end `pmg proxy stop --fail-on-violation` step. | `false` (shims) |
 | `expose-to-job-network` | With `server-mode` in a job that has a job container, bind the proxy to the job container's address on the job network. Docker actions and `docker://` steps in the job can then reach the proxy. The action fails when the job has no job container. See [Job containers and Docker actions](#job-containers-and-docker-actions). | `false` |
-| `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. | `false` |
+| `enforce` | With `server-mode`, route every eligible process through the proxy in the kernel. Needs passwordless `sudo`. The action exports `PMG_BIN` and `PMG_PROXY_STATE`, and the job-end step becomes `sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation`. With `config-file` it also exports `PMG_PROXY_CONFIG_DIR`, the daemon's config directory. | `false` |
 | `enforce-ports` | With `enforce`, destination ports to route in addition to the config, comma or newline separated. Passed as `--enforce-port`. | unset |
 | `enforce-exempt-users` | With `enforce`, users never routed, in addition to the config. Passed as `--enforce-exempt-user`. | unset |
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
@@ -237,6 +237,50 @@ The job-end `pmg proxy stop --fail-on-violation` step fails when the proxy
 refused a connection, and its report names the destination, the rule and
 the program. Add a `CODEOWNERS` line for `.pmg/profiles`, because the
 profile is as trusted as the workflow file.
+
+#### Build the profile from a run
+
+The proxy records every destination the job reaches, so a run with no
+profile gives the allow list. The action exports the run id as
+`PMG_PROXY_RUN`. After the stop step, `pmg sandbox profile propose` turns
+the run into a profile, and `actions/upload-artifact` keeps it for review.
+
+```yaml
+- uses: safedep/pmg@v0.32.0
+  with:
+    server-mode: true
+    enforce: true
+
+- run: npm ci
+
+- name: Stop PMG
+  if: always()
+  run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation
+
+- name: Propose the network profile
+  if: always()
+  run: sudo "$PMG_BIN" sandbox profile propose --run "$PMG_PROXY_RUN" --new pmg-network.yml
+
+- uses: actions/upload-artifact@v7
+  if: always()
+  with:
+    name: pmg-network-profile
+    path: pmg-network.yml
+```
+
+The daemon runs as root and writes its event log as root, so the proposal
+runs with `sudo` too. Without `enforce` the daemon and the event log belong
+to the runner user, and the step is `pmg sandbox profile propose --run
+"$PMG_PROXY_RUN" --new pmg-network.yml`. With `config-file` and `enforce`,
+the daemon's event log is under `PMG_PROXY_CONFIG_DIR`. Pass it to the
+proposal: `sudo env PMG_CONFIG_DIR="$PMG_PROXY_CONFIG_DIR" "$PMG_BIN"
+sandbox profile propose ...`.
+
+Download the artifact, review every rule, and commit the file as
+`.pmg/profiles/ci.yml`. Then set `network-profile: .pmg/profiles/ci.yml`
+and `network-mode: enforce`. A later run adds destinations with `--into
+.pmg/profiles/ci.yml` in place of `--new`. See
+[Build the allow list](./persistent-proxy.md#build-the-allow-list).
 
 #### Runner traffic
 

@@ -74,7 +74,7 @@ inputs:
     default: "false"
 
   server-mode:
-    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job. Requires a job-end "pmg proxy stop --fail-on-violation" step.
+    description: Run PMG as a persistent proxy server instead of shims. The proxy is started as a daemon and HTTP_PROXY/cert env vars are exported to the job, with PMG_PROXY_RUN, the id of the run in the event log. Requires a job-end "pmg proxy stop --fail-on-violation" step.
     required: false
     default: "false"
   expose-to-job-network:
@@ -83,7 +83,7 @@ inputs:
     default: "false"
 
   enforce:
-    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation".
+    description: With server-mode, make the Linux kernel route every eligible process through the proxy, so a step cannot bypass it by dropping the proxy environment. Needs passwordless sudo on the runner. The action installs the PMG CA into the system trust store and starts the daemon as root. The action exports PMG_BIN and PMG_PROXY_STATE, and the job-end step becomes "sudo $PMG_BIN proxy stop --state $PMG_PROXY_STATE --fail-on-violation". With config-file it also exports PMG_PROXY_CONFIG_DIR, the daemon's config directory.
     required: false
     default: "false"
   enforce-ports:
@@ -506,6 +506,10 @@ runs:
         if [ -n "$INPUT_CONFIG_FILE" ]; then
           export PMG_CONFIG_DIR="${RUNNER_TEMP}/pmg-daemon-config"
           sudo install -D -m 0644 "${XDG_CONFIG_HOME:-$HOME/.config}/safedep/pmg/config.yml" "${PMG_CONFIG_DIR}/config.yml"
+          # The daemon's event log is under its config directory. A step
+          # that reads the run back, such as `pmg sandbox profile propose`,
+          # needs the same directory.
+          echo "PMG_PROXY_CONFIG_DIR=${PMG_CONFIG_DIR}" >> "$GITHUB_ENV"
         fi
 
         # Trust goes through the system store: the keypair lands in

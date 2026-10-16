@@ -1,5 +1,6 @@
 # guarantee: a daemon run under audit with no profile observes every
-# destination, the stop report names the proposal command, the proposal
+# destination, `pmg proxy env` exports the run id, the stop report names
+# the proposal command, the proposal
 # writes a profile with one allow rule per destination and the catch-all
 # deny, a dry run does not write the file, and a daemon under that profile in enforce refuses a destination
 # the run did not reach.
@@ -14,6 +15,8 @@ env PMG_CONFIG_DIR=$WORK/config
 exec sh observe.sh
 stdout 'status 200'
 stdout 'Destinations: [1-9][0-9]* observed. Propose a profile with: pmg sandbox profile propose --run [0-9a-f]{12}'
+stdout 'by run: .*allowed .*add registry.npmjs.org:443'
+stdout 'by run: Proposal: 1 new allow rule'
 
 exec pmg sandbox profile propose --last
 stdout 'registry.npmjs.org:443'
@@ -45,7 +48,9 @@ eval "$(pmg proxy env --export --state "$PWD/state.json")"
 status=$(curl --silent --show-error --max-time 30 --noproxy '' --cacert "$SSL_CERT_FILE" \
   --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad)
 echo "status $status"
+test -n "$PMG_PROXY_RUN"
 pmg proxy stop --state "$PWD/state.json"
+pmg sandbox profile propose --run "$PMG_PROXY_RUN" | sed 's/^/by run: /'
 -- enforce.sh --
 set -eu
 pmg proxy start --daemon --port 0 --state "$PWD/state.json" --profile "$PWD/ci.yml" --network-mode enforce
