@@ -49,7 +49,7 @@ func statusText(st proxyserver.StatusInfo) string {
 	}
 	b.WriteString(proxyserver.NetworkPolicyLine(st.Network, st.Enforce != nil))
 	if st.Enforce == nil {
-		b.WriteString(proxyserver.WarningLines(st.Warnings))
+		b.WriteString(warningLines(st.Warnings))
 		return b.String()
 	}
 
@@ -76,6 +76,10 @@ func statusText(st proxyserver.StatusInfo) string {
 	for _, f := range e.ExemptExecutables {
 		fmt.Fprintf(&b, "  exempt executable: %s\n", f.Path)
 	}
-	b.WriteString(proxyserver.WarningLines(st.Warnings))
+	b.WriteString(warningLines(st.Warnings))
 	return b.String()
+}
+
+func warningLines(warnings []string) string {
+	return proxyserver.WarningLines(warnings, ui.Colors.Yellow(proxyserver.WarningMark))
 }

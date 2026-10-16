@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/safedep/pmg/config"
-	"github.com/safedep/pmg/internal/ui"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -279,7 +279,7 @@ func TestNetworkPolicyLine(t *testing.T) {
 }
 
 func TestNetworkStateDeniedCount(t *testing.T) {
-	denials := []ui.NetworkDenial{{Destination: "a:443", Count: 2}, {Destination: "b:443", Count: 1}}
+	denials := []netpolicy.Denial{{Destination: "a:443", Count: 2}, {Destination: "b:443", Count: 1}}
 	assert.Equal(t, 0, (*NetworkState)(nil).DeniedCount())
 	assert.Equal(t, 0, (&NetworkState{Mode: "audit", Denials: denials}).DeniedCount(), "audit refuses nothing")
 	assert.Equal(t, 3, (&NetworkState{Mode: "enforce", Denials: denials}).DeniedCount())
@@ -290,7 +290,7 @@ func TestStateRoundTripsNetworkBlock(t *testing.T) {
 	in := State{PID: 7, Addr: "127.0.0.1:7777", Network: &NetworkState{
 		Chain:   []string{"npm-restrictive", "/srv/ci.yml"},
 		Mode:    "enforce",
-		Denials: []ui.NetworkDenial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", PID: 4132, Count: 2}},
+		Denials: []netpolicy.Denial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", PID: 4132, Count: 2}},
 	}}
 	require.NoError(t, writeState(path, in))
 

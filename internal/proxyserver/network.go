@@ -7,7 +7,6 @@ import (
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
-	"github.com/safedep/pmg/internal/ui"
 	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/executor"
@@ -35,7 +34,7 @@ type NetworkState struct {
 
 	// Denials are the destinations a deny rule matched, written at
 	// shutdown for the stop report.
-	Denials []ui.NetworkDenial `json:"denials,omitempty"`
+	Denials []netpolicy.Denial `json:"denials,omitempty"`
 }
 
 // Profile is the chain as one line, or "flags" for a policy that is only

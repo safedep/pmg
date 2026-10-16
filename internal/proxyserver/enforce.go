@@ -18,7 +18,6 @@ import (
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/platform"
-	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/truststore"
@@ -154,7 +153,7 @@ func enforcePreflight(cfg *config.RuntimeConfig, p netenforce.Policy, redirectin
 // means and what to do. It goes to stderr, which is the daemon's log file,
 // because the logger is off without --debug.
 func certificateRejectedNotice(line string) {
-	if _, err := fmt.Fprintf(os.Stderr, "%s %s. A client that fails the handshake this way does not trust the PMG CA. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md\n", ui.Colors.Yellow("⚠"), line); err != nil {
+	if _, err := fmt.Fprintf(os.Stderr, "%s %s. A client that fails the handshake this way does not trust the PMG CA. Pass PMG_CA_BUNDLE from `pmg proxy env` into it. See docs/persistent-proxy.md\n", WarningMark, line); err != nil {
 		log.Warnf("%s: the client does not trust the PMG CA", line)
 	}
 }

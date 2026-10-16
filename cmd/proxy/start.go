@@ -89,6 +89,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	opts.BlockMessage = ui.ProxyPresenter{Advisory: config.AdvisoryMessage}.BlockMessage
 	if err := proxyserver.Run(cmd.Context(), cfg, opts); err != nil {
 		ui.ErrorExit(err)
 	}
@@ -148,7 +149,7 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 		line = fmt.Sprintf("PMG proxy daemon started on %s (pid %d) with kernel enforcement\n", state.Addr, state.PID)
 	}
 	line += proxyserver.NetworkPolicyLine(state.Network, state.Enforce != nil)
-	line += proxyserver.WarningLines(state.Notices())
+	line += warningLines(state.Notices())
 	_, werr := fmt.Fprint(os.Stdout, line)
 	return werr
 }

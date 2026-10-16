@@ -6,7 +6,7 @@ import (
 
 	"github.com/safedep/pmg/internal/netenforce"
 	"github.com/safedep/pmg/internal/proxyserver"
-	"github.com/safedep/pmg/internal/ui"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +41,7 @@ func TestStopExitError(t *testing.T) {
 
 	t.Run("flag, denied connection -> error", func(t *testing.T) {
 		err := stopExitError(proxyserver.StopResult{StateVerified: true, BlockedCount: 1, Network: &proxyserver.NetworkState{
-			Mode: "enforce", Denials: []ui.NetworkDenial{{Destination: "evil.example:443", Count: 2}},
+			Mode: "enforce", Denials: []netpolicy.Denial{{Destination: "evil.example:443", Count: 2}},
 		}}, true)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "1 package(s) were blocked by the proxy and 2 connection(s) were denied by the network policy")
@@ -49,7 +49,7 @@ func TestStopExitError(t *testing.T) {
 
 	t.Run("flag, audit decision -> nil", func(t *testing.T) {
 		err := stopExitError(proxyserver.StopResult{StateVerified: true, Network: &proxyserver.NetworkState{
-			Mode: "audit", Denials: []ui.NetworkDenial{{Destination: "evil.example:443", Count: 2}},
+			Mode: "audit", Denials: []netpolicy.Denial{{Destination: "evil.example:443", Count: 2}},
 		}}, true)
 		assert.NoError(t, err)
 	})
@@ -58,7 +58,7 @@ func TestStopExitError(t *testing.T) {
 func TestNetworkReport(t *testing.T) {
 	assert.Empty(t, networkReport(proxyserver.StopResult{}), "no policy, no block")
 
-	denials := []ui.NetworkDenial{
+	denials := []netpolicy.Denial{
 		{Destination: "193.32.204.199:80", Rule: "*:*", Client: "/usr/bin/curl", PID: 4132, Count: 1},
 		{Destination: "pastebin.com:443", Rule: "*:*", Client: "172.17.0.2", Count: 3},
 	}
@@ -80,7 +80,7 @@ func TestNetworkReport(t *testing.T) {
 	assert.Equal(t, "Network policy: enforce, 0 denied, 0 would deny\nProfile: flags\n", clean)
 
 	unnamed := networkReport(proxyserver.StopResult{Network: &proxyserver.NetworkState{Mode: "enforce",
-		Denials: []ui.NetworkDenial{{Destination: "pastebin.com:443", Rule: "pastebin.com:443", Count: 1}}}})
+		Denials: []netpolicy.Denial{{Destination: "pastebin.com:443", Rule: "pastebin.com:443", Count: 1}}}})
 	assert.Equal(t, "Network policy: enforce, 1 denied, 0 would deny\n"+
 		"  denied  pastebin.com:443  rule pastebin.com:443\n"+
 		"Profile: flags\n", unnamed, "a proxy-aware client has no name and no trailing padding")

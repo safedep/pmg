@@ -22,7 +22,6 @@ import (
 	"github.com/safedep/pmg/internal/flows"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/netenforce"
-	"github.com/safedep/pmg/internal/ui"
 	pmgproxy "github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
@@ -82,6 +81,11 @@ type RunOptions struct {
 
 	// Network are the network policy values from the command line.
 	Network NetworkOverrides
+
+	// BlockMessage composes the response body of a blocked request. The
+	// command injects it, so the daemon does not depend on the ui package.
+	// nil leaves the proxy's one-line default.
+	BlockMessage func(pmgproxy.BlockReason, *pmgproxy.BlockContext) string
 }
 
 // EnforceOverrides are policy lists from the command line. Each list adds to
@@ -206,8 +210,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	proxyConfig.ListenAddr = listenAddr(opts.Host, opts.Port)
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorList
-	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
-	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
+	proxyConfig.BlockMessageRenderer = opts.BlockMessage
 
 	networkDecisions := flows.NewNetworkDecisionLog(true)
 	if network.policy != nil {
@@ -400,7 +403,7 @@ func startupMessage(state State) string {
 		b.WriteString(configSourceLine(state))
 		b.WriteString(NetworkPolicyLine(state.Network, state.Enforce != nil))
 		b.WriteString("Run: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n")
-		b.WriteString(WarningLines(state.Notices()))
+		b.WriteString(WarningLines(state.Notices(), WarningMark))
 		return b.String()
 	}
 
@@ -412,15 +415,20 @@ func startupMessage(state State) string {
 		fmt.Fprintf(&b, "  %s\n", line)
 	}
 	b.WriteString("Every eligible process is routed through the proxy. Run: pmg proxy env >> \"$GITHUB_ENV\"  # trust variables only\n")
-	b.WriteString(WarningLines(state.Notices()))
+	b.WriteString(WarningLines(state.Notices(), WarningMark))
 	return b.String()
 }
 
-// WarningLines renders daemon notices, one marked line each.
-func WarningLines(warnings []string) string {
+// WarningMark opens a daemon notice.
+const WarningMark = "⚠"
+
+// WarningLines renders daemon notices, one line each behind mark. The
+// daemon passes WarningMark plain, because it writes to its log file. The
+// command paints the mark for the terminal.
+func WarningLines(warnings []string, mark string) string {
 	var b strings.Builder
 	for _, w := range warnings {
-		fmt.Fprintf(&b, "%s %s\n", ui.Colors.Yellow("⚠"), w)
+		fmt.Fprintf(&b, "%s %s\n", mark, w)
 	}
 	return b.String()
 }
