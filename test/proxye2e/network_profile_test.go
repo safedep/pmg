@@ -124,3 +124,68 @@ func TestProxyFlow_NetworkProfilePrecedence(t *testing.T) {
 		},
 	})
 }
+
+// lockedProfilePolicy resolves the profile of a locked config as the
+// daemon does, with a user profile named like the managed parent in the
+// way. The user profile allows every destination. The managed parent
+// denies the registry.
+func lockedProfilePolicy(t *testing.T) Option {
+	t.Helper()
+
+	managedDir := t.TempDir()
+	userDir := t.TempDir()
+	files := map[string]string{
+		filepath.Join(managedDir, "config.yml"):                       "global_lockdown: true\nproxy:\n  server:\n    profile: profiles/ci.yml\n    network_mode: enforce\n",
+		filepath.Join(managedDir, "profiles", "ci.yml"):               "name: ci\ninherits: base.yml\n",
+		filepath.Join(managedDir, "profiles", "base.yml"):             "name: base\n" + deniesRegistry[len("name: ci\n"):],
+		filepath.Join(userDir, "sandbox", "profiles", "base.yml.yml"): inheritsSystem + "network:\n  allow_outbound:\n    - '*:*'\n",
+	}
+	for path, body := range files {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	}
+
+	t.Setenv("PMG_CONFIG_DIR", userDir)
+	restore := config.SetManagedConfigDirForTest(managedDir)
+	defer restore()
+	cfg := config.Get()
+	if !cfg.IsManaged() {
+		t.Skip("a managed config the runtime trusts needs an elevated process to create")
+	}
+	require.True(t, cfg.IsLocked())
+
+	profile, err := executor.LoadManagedProfile(cfg, cfg.Config.Proxy.Server.Profile)
+	require.NoError(t, err)
+	require.Equal(t, []string{"npm-restrictive", filepath.Join(managedDir, "profiles", "base.yml"), filepath.Join(managedDir, "profiles", "ci.yml")}, profile.Lineage)
+
+	p, err := netpolicy.New(profile.Network.AllowOutbound, profile.Network.DenyOutbound)
+	require.NoError(t, err)
+	return WithNetworkPolicy(p, true)
+}
+
+// A locked config's profile chain resolves from the managed directory and
+// the built-ins. A user profile named like a parent does not widen it.
+func TestProxyFlow_NetworkProfileLocked(t *testing.T) {
+	RunCases(t, []TestCase{
+		{
+			Name:    "the managed parent's deny rule refuses the registry",
+			Options: []Option{lockedProfilePolicy(t)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://registry.npmjs.org/left-pad", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRefused(t, h, res, "registry.npmjs.org", "registry.npmjs.org:443")
+			},
+		},
+		{
+			Name:    "the system profile's deny rule holds against the user profile's allow",
+			Options: []Option{lockedProfilePolicy(t)},
+			Exec: func(h *Harness) ExecResult {
+				return ExecResult{Requests: []RequestOutcome{h.get("https://evil.example/x", nil)}}
+			},
+			Assert: func(t *testing.T, h *Harness, res ExecResult) {
+				assertRefused(t, h, res, "evil.example", "*:*")
+			},
+		},
+	})
+}
