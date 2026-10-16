@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/safedep/dry/utils"
@@ -309,4 +310,128 @@ func TestLintProfile_AllowUnixSocketsWithLockdown(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLintProfile_NetworkInvalidRule(t *testing.T) {
+	policy := cleanPolicy()
+	policy.Network.AllowOutbound = []string{"registry.npmjs.org:443", "registry.npmjs.org"}
+	policy.Network.DenyOutbound = []string{"*:*", "evil.example:https", "curl=*:*"}
+
+	var found []LintIssue
+	for _, i := range LintProfile(policy) {
+		if i.Code == "network.invalid-rule" {
+			found = append(found, i)
+		}
+	}
+
+	require.Len(t, found, 3)
+	assert.Equal(t, LintLevelError, found[0].Level)
+	assert.Equal(t, "network.allow_outbound[1]", found[0].Field)
+	assert.Equal(t, "registry.npmjs.org", found[0].Rule)
+	assert.Contains(t, found[0].Message, "is not host:port")
+	assert.Equal(t, "network.deny_outbound[1]", found[1].Field)
+	assert.Contains(t, found[1].Message, "has an invalid port")
+	assert.Equal(t, "network.deny_outbound[2]", found[2].Field)
+	assert.Contains(t, found[2].Message, "names a client")
+}
+
+func TestLintProfile_NetworkDirectDNSBypass(t *testing.T) {
+	tests := []struct {
+		name     string
+		rules    []string
+		wantWarn bool
+	}{
+		{name: "rules under lockdown with direct dns warns", rules: []string{"*:*"}, wantWarn: true},
+		{name: "no rules is clean", wantWarn: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := cleanPolicy()
+			policy.AllowDirectDNS = utils.PtrTo(true)
+			policy.NetworkViaProxyOnly = utils.PtrTo(true)
+			policy.Network.DenyOutbound = tc.rules
+
+			var found *LintIssue
+			for _, i := range LintProfile(policy) {
+				if i.Code == "network.direct-dns-bypass" {
+					issue := i
+					found = &issue
+					break
+				}
+			}
+
+			if !tc.wantWarn {
+				assert.Nil(t, found)
+				return
+			}
+			require.NotNil(t, found)
+			assert.Equal(t, LintLevelWarn, found.Level)
+			assert.Equal(t, "allow_direct_dns", found.Field)
+		})
+	}
+}
+
+func TestLintProfile_BuiltinNetworkRulesParse(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	summaries, err := registry.ListProfiles()
+	require.NoError(t, err)
+	require.NotEmpty(t, summaries)
+
+	for _, s := range summaries {
+		policy, err := registry.GetProfile(s.Name)
+		require.NoError(t, err)
+		for _, i := range LintProfile(policy) {
+			assert.NotEqual(t, "network.invalid-rule", i.Code, "%s: %s", s.Name, i.Message)
+		}
+	}
+}
+
+func TestLintProfile_ConflictAcrossInheritance(t *testing.T) {
+	registry, err := newDefaultProfileRegistry()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	writeProfileYAML(t, filepath.Join(dir, "base.yml"), `
+name: base
+description: base
+package_managers: [npm]
+filesystem:
+  allow_read:
+    - /etc/hosts
+  deny_read:
+    - /etc/shadow
+network:
+  allow_outbound:
+    - registry.npmjs.org:443
+`)
+	leafPath := writeProfileYAML(t, filepath.Join(dir, "leaf.yml"), `
+name: leaf
+description: narrows the parent and re-allows a parent deny
+inherits: base.yml
+filesystem:
+  allow_read:
+    - /etc/shadow
+  deny_read:
+    - /etc/hosts
+network:
+  deny_outbound:
+    - registry.npmjs.org:443
+`)
+	leaf, err := registry.LoadCustomProfile(leafPath)
+	require.NoError(t, err)
+
+	var conflicts []LintIssue
+	for _, i := range LintProfile(leaf) {
+		if i.Code == "conflict.allow_deny" {
+			conflicts = append(conflicts, i)
+		}
+	}
+
+	require.Len(t, conflicts, 1, "a deny of an inherited allow is not a conflict")
+	assert.Equal(t, "/etc/shadow", conflicts[0].Rule)
+	assert.Equal(t, "filesystem.allow_read[0]", conflicts[0].Field)
+	assert.Contains(t, conflicts[0].Message, "a parent profile denies the rule")
 }

@@ -67,6 +67,10 @@ const (
 	DriverSeatbelt   DriverName = "seatbelt"
 	DriverBubblewrap DriverName = "bubblewrap"
 	DriverLandlock   DriverName = "landlock"
+
+	// DriverProxy marks a violation the PMG proxy recorded, a connection the
+	// network policy denied.
+	DriverProxy DriverName = "proxy"
 )
 
 // ViolationKind is PMG's normalized taxonomy for sandbox denials.
@@ -349,6 +353,15 @@ type RegistryOption func(*registryOptions)
 type registryOptions struct {
 	userProfileDir string
 	presetRegistry PresetRegistry
+	templates      map[string]string
+}
+
+// WithPolicyTemplates names the policy templates of the config, template
+// name to file path, so a profile can inherit from a template by name.
+func WithPolicyTemplates(templates map[string]string) RegistryOption {
+	return func(o *registryOptions) {
+		o.templates = templates
+	}
 }
 
 // WithUserProfileDir sets the directory the registry uses to discover user

@@ -27,11 +27,11 @@ via an exact match entry in `allow_read` or `allow_write` (in the policy or via 
 - **Git config is blocked by default**: Write access to `.git/config` is denied unless `allow_git_config: true` is set in the policy. This prevents credential helper manipulation.
 - **The project directory is writable by default**: The built-in package manager profiles allow writes to `${CWD}` and `${CWD}/**` so install scripts and build output work without per-path allowances. Mandatory denies still block credential files inside the project, and writes to `.git`, `.github/workflows` and `.vscode` at the project root. The whole `.git` directory is write-denied unless `allow_git_config: true` is set, because hooks and config also live under `.git/modules` and `.git/worktrees`. The `git` preset opts out with an exact `${CWD}/.git` entry while hooks and config stay denied.
 - **Runtime overrides remove only exact-match deny entries**: When `--sandbox-allow` adds a path to an allow list, only a literal string match in the corresponding deny list is removed. Glob and wildcard deny patterns (e.g., `/etc/**`) are never removed. An exact-match entry in `allow_read` or `allow_write` (policy or runtime) opts out of the mandatory deny for that credential file. `.git/hooks` does not accept opt-outs.
-- **Profile inheritance is single-level**: A profile can inherit from one built-in profile. Allow and deny lists are merged using union semantics. Boolean fields (`allow_pty`, `allow_git_config`, `allow_unix_sockets`) in the child override the parent.
+- **Profile inheritance is a chain**: A profile inherits from one parent, and the parent can inherit in turn. A built-in profile inherits only from a built-in. A custom profile inherits from a built-in profile, a policy template (by name), a user profile (by name) or a file path, in that order. A relative path is read from the directory of the file that names it. A built-in name wins over a template of the same name, so a template that overrides a built-in is reached only through `policies.<pm>.profile`. Lists merge by union from the base down. A child without `package_managers` takes them from its parent. Boolean fields (`allow_pty`, `allow_git_config`, `allow_unix_sockets`) in the child override the parent. A chain that loops is an error. `pmg sandbox profile show <name> --resolved --json` prints the chain as `lineage`.
 - **Variable expansion is runtime-only**: Policy paths use `${HOME}`, `${CWD}`, and `${TMPDIR}` which are expanded when the sandbox is set up, not when the policy is defined.
 - **Unix sockets are blocked by default**: A sandboxed process cannot connect to a host unix socket, such as the SSH agent (`SSH_AUTH_SOCK`) or the Docker daemon. Set `allow_unix_sockets: true` in a profile to open them. See [Unix Sockets](#unix-sockets).
 - **Dangerous syscalls are blocked on Linux**: The kernel refuses nested namespaces, ptrace, `bpf`, `io_uring`, mounts, kernel modules and a few more on both Linux drivers. See [sandbox-landlock.md](sandbox-landlock.md).
-- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. Network filtering is coarse-grained — host-level filtering is not enforced on either platform.
+- **Process-level isolation only**: The sandbox restricts the package manager process and its children. It does not enforce CPU, memory, or disk quotas. The OS drivers turn the network on or off. The PMG proxy applies the host and port rules, see [Network rules](#network-rules).
 
 </details>
 
@@ -235,6 +235,9 @@ pmg sandbox profile lint ./my-profile.yml --strict
 
 # Compare two resolved profiles
 pmg sandbox profile diff npm-restrictive pypi-restrictive
+
+# Propose network rules from the destinations of the last run
+pmg sandbox profile propose --last --new my-npm
 ```
 
 `pmg sandbox profile edit` resolves the profile name to its file under the user profile
@@ -697,6 +700,61 @@ See [sandbox/profiles/README.md](../sandbox/profiles/README.md) for more details
 
 Policy template is a configuration primitive for overriding a built-in profile or creating a custom profile. It is used to map a profile name to a path.
 See [config/config.template.yml](../config/config.template.yml) for an example.
+
+### Network rules
+
+The `network.allow_outbound` and `network.deny_outbound` lists hold rules of the form
+`host:port`, with an optional client part, `<exe>=host:port`.
+
+- `host` is a name, compared without case and without a trailing dot. `*.example.com` matches
+  one or more labels before `example.com` and not `example.com` itself. `*` matches every host.
+  An IPv4 or IPv6 literal is a host. An IPv6 literal is written in brackets, `[2001:db8::1]:443`.
+  The proxy compares a connection's host as the transport dials it: a name is mapped with IDNA,
+  so a fullwidth letter or a soft hyphen in a request names the plain host, an address in a
+  short or octal form such as `127.1` is `127.0.0.1`, and an IPv6 zone is dropped. A host the
+  proxy cannot read as a name or an address is denied.
+- `port` is a number from 1 to 65535, or `*`.
+- `<exe>` is an absolute path or a bare program name, such as `git=github.com:443`. The
+  proxy cannot name the program behind a connection yet, so a profile with a client rule
+  fails to load and `pmg sandbox profile lint` reports it.
+
+The most specific matching rule wins. An exact host beats a wildcard, a longer wildcard suffix
+beats a shorter one, and every host rule beats `*`. At equal host specificity an exact port
+beats `*`. At equal specificity deny wins. With no matching rule the connection is allowed, so a
+profile that wants an allow list denies `*:*`.
+
+The PMG proxy applies the rules to every connection it sees: a CONNECT, a redirected TLS
+connection, a plain HTTP request, and a request inside a terminated tunnel. The rules are a
+guarantee under `network_via_proxy_only` or kernel enforcement. Without them a process can go
+around the proxy.
+
+`sandbox.network_mode` in the config sets what the proxy does with a match on a deny rule.
+
+- `audit` (default): the proxy records the match and lets the connection through. The report
+  lists the destinations the rules would deny.
+- `enforce`: the proxy refuses the connection. A proxy-aware client gets a 403 that names the
+  destination and the rule. A redirected TLS connection is closed before the handshake. The
+  report lists the refused destinations, and `pmg sandbox explain --last` and
+  `pmg sandbox allow net-connect=<host>:<port>` work on them. `--sandbox-allow
+  net-connect=<host>:<port>` allows one destination for one run and removes an exact deny.
+
+The mode lives in the config and not in the profile, so one profile can run in audit on one host
+and in enforce on another. Every match writes a `network_policy` event to the event log.
+
+Every run writes a `network_observation` event with every destination the proxy saw, allowed or
+denied, and the report names the run. `pmg sandbox profile propose --run <id>` turns the run into
+the `network` block of a profile: one allow rule per host and port, plus a catch-all deny. Hosts
+the inherited built-in profile already allows are not repeated. `--last` uses the newest run of
+this repository. `--since 30d` merges every run of the repository in the window. `--new <name>`
+writes a user profile. `--into <path>` adds the rules to a profile and keeps its other blocks.
+Without a target the command prints the table and the block. `--dry-run` shows what a target would
+get. The command reads the event log, so `skip_event_logging` must be off. With event logging off
+the report names no run. The other sections of a profile come from violations, not observation.
+Promote them with `pmg sandbox allow --last --all`.
+
+`pmg sandbox profile lint` reports a rule the proxy cannot parse as an error, and warns when
+`allow_direct_dns` is set under `network_via_proxy_only`, because DNS is a path past the rules. A
+profile with a rule the proxy cannot parse does not run.
 
 </details>
 

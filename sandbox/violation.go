@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
 // Explanation is structured data extracted from a ViolationReport. It carries
@@ -85,6 +87,10 @@ func overrideSuggestion(v Violation) *OverrideSuggestion {
 		}
 	case ViolationKindEnvScrub:
 		if !IsConventionalEnvName(v.Target) {
+			return nil
+		}
+	case ViolationKindNetworkConnect:
+		if rule, err := netpolicy.ParseRule(v.Target); err != nil || rule.Client != "" || strings.Contains(v.Target, "*") {
 			return nil
 		}
 	default:

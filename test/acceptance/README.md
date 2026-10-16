@@ -132,6 +132,9 @@ names, also when the script fails. Each script installs the PMG CA into the syst
 `pmg setup cert install --system`, so run this category only on a disposable host. A script may
 create the managed config at `/etc/safedep/pmg/config.yml`, with `pmg config set --system` or by
 copying a file there. The harness removes it when the script ends, unless it existed before.
+The job runs `pmg` from `/usr/local/bin`. The sandbox maps a root caller to an unprivileged id,
+and that id cannot enter `/home/runner`, so a sandboxed one-shot run cannot exec a binary under
+the workspace.
 
 ### Truststore cases
 

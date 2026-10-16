@@ -18,16 +18,32 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox"
 	"github.com/safedep/pmg/sandbox/platform"
 	"github.com/safedep/pmg/sandbox/util"
 )
 
 type applySandboxConfig struct {
-	sb             sandbox.Sandbox
-	rt             *sandbox.ExecutionContext
-	processLabel   string
-	requireSandbox bool
+	sb           sandbox.Sandbox
+	rt           *sandbox.ExecutionContext
+	processLabel string
+}
+
+// Resolution is the sandbox policy resolved for one run. A nil Policy means
+// the run has no sandbox. The proxy reads the policy before the child
+// starts, so a run resolves it once and hands the same value to both.
+type Resolution struct {
+	PackageManager string
+	Policy         *sandbox.SandboxPolicy
+
+	// NetworkMode is the posture of the proxy for the policy's network
+	// rules, audit or enforce, from sandbox.network_mode.
+	NetworkMode string
+
+	// Network is the parsed network block of the policy, with the overlay
+	// and the overrides applied. nil when the run has no sandbox.
+	Network *netpolicy.Policy
 }
 
 // ApplySandboxOpt configures ApplySandbox.
@@ -58,29 +74,27 @@ func WithProcessLabel(label string) ApplySandboxOpt {
 	}
 }
 
-// WithRequireSandbox makes a disabled policy an error instead of a run without
-// a sandbox. `pmg sandbox exec` sets it: the user asked for the sandbox by name.
-func WithRequireSandbox() ApplySandboxOpt {
-	return func(c *applySandboxConfig) {
-		c.requireSandbox = true
-	}
-}
-
-// ApplySandbox applies sandbox isolation to the command if sandbox mode is enabled.
-// This is a helper function used by the command runner to avoid code duplication.
+// ResolvePolicy loads the sandbox policy for pmName and applies the project
+// overlay and the runtime overrides. It writes the override audit events and
+// the overlay warning, so call it once per run.
+//
+// requireSandbox makes a disabled policy an error instead of a run without a
+// sandbox. `pmg sandbox exec` sets it, because the user asked for the sandbox
+// by name.
 //
 // This is a security sensitive operation. If sandbox is enabled via. config but not available on the platform,
 // it will return an error to avoid running the command without sandbox protection.
-func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
+	// A config that failed closed holds defaults, with no policies and no
+	// mode, so a run must not resolve a policy from it.
+	if err := config.LoadError(); err != nil {
+		return nil, err
+	}
+
 	cfg := config.Get()
 
 	if !cfg.Config.Sandbox.Enabled {
-		return sandbox.NewExecutionResult(), nil
-	}
-
-	applyConfig := &applySandboxConfig{}
-	for _, opt := range opts {
-		opt(applyConfig)
+		return &Resolution{PackageManager: pmName}, nil
 	}
 
 	if !platform.Supported() {
@@ -92,32 +106,24 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			Wrap(fmt.Errorf("sandbox not supported on %s/%s", runtime.GOOS, runtime.GOARCH))
 	}
 
-	presetRegistry, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create preset registry: %w", err)
+	build := newProfileRegistries
+	if cfg.IsLocked() {
+		build = newManagedProfileRegistries
 	}
-
-	registry, err := sandbox.NewProfileRegistry(
-		sandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
-		sandbox.WithPresetRegistry(presetRegistry),
-	)
+	registries, err := build(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create profile registry: %w", err)
+		return nil, err
 	}
+	presetRegistry := registries.presets
 
 	var policy *sandbox.SandboxPolicy
 
 	if cfg.SandboxProfileOverride != "" {
 		log.Debugf("Using sandbox profile override: %s", cfg.SandboxProfileOverride)
 
-		policy, err = registry.GetProfile(cfg.SandboxProfileOverride)
+		policy, err = registries.loadOverride(cfg.SandboxProfileOverride)
 		if err != nil {
-			return nil, usefulerror.NewUsefulError().
-				WithCode(errcodes.InvalidArgument).
-				WithHumanError(fmt.Sprintf("Failed to load sandbox profile override: %s", cfg.SandboxProfileOverride)).
-				WithHelp("Please verify the sandbox profile path and try again.").
-				WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
-				Wrap(err)
+			return nil, registries.loadError("Failed to load sandbox profile override", cfg.SandboxProfileOverride, err)
 		}
 	} else {
 		log.Debugf("Looking up sandbox policy for %s", pmName)
@@ -138,7 +144,7 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 
 		// The policy is explicitly disabled for this package manager, so we skip sandbox
 		if !policyRef.Enabled {
-			if applyConfig.requireSandbox {
+			if requireSandbox {
 				msg := fmt.Sprintf("the %s sandbox policy is disabled in the PMG config", pmName)
 				return nil, usefulerror.NewUsefulError().
 					WithCode(errcodes.SandboxPolicyDisabled).
@@ -148,32 +154,14 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			}
 
 			log.Warnf("sandbox policy %s is explicitly disabled for %s, skipping sandbox", policyRef.Profile, pmName)
-			return sandbox.NewExecutionResult(), nil
+			return &Resolution{PackageManager: pmName}, nil
 		}
 
 		log.Debugf("Loading sandbox policy %s", policyRef.Profile)
 
-		// Check if there is a template for the policy and use it if it exists
-		// This is a way to override a built-in profile or create a custom profile.
-		if template, exists := cfg.Config.Sandbox.PolicyTemplates[policyRef.Profile]; exists {
-			if filepath.IsAbs(template.Path) {
-				policy, err = registry.GetProfile(template.Path)
-				if err != nil {
-					return nil, fmt.Errorf("failed to load sandbox policy %s: %w", template.Path, err)
-				}
-			} else {
-				policyPath := filepath.Join(cfg.ConfigDir(), template.Path)
-				policy, err = registry.GetProfile(policyPath)
-				if err != nil {
-					return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyPath, err)
-				}
-			}
-		} else {
-			// Load the policy from the registry by name
-			policy, err = registry.GetProfile(policyRef.Profile)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load sandbox policy %s: %w", policyRef.Profile, err)
-			}
+		policy, err = registries.load(policyRef.Profile)
+		if err != nil {
+			return nil, registries.loadError("Failed to load sandbox policy", policyRef.Profile, err)
 		}
 	}
 
@@ -191,7 +179,9 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 		// A failed overlay load means the user's saved allowances were silently
 		// dropped. Echo to stderr so users at normal verbosity see why their
 		// sandbox is more restrictive than expected.
-		fmt.Fprintf(os.Stderr, "pmg: warning: project overlay could not be applied: %v\n", err)
+		if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: project overlay could not be applied: %v\n", err); werr != nil {
+			log.Warnf("failed to write overlay warning to stderr: %v", werr)
+		}
 	}
 
 	// Apply runtime --sandbox-allow overrides to the policy before execution
@@ -218,7 +208,239 @@ func ApplySandbox(ctx context.Context, cmd *exec.Cmd, pmName string, opts ...App
 			Wrap(errors.New(msg))
 	}
 
-	var sb sandbox.Sandbox
+	network, err := netpolicy.New(policy.Network.AllowOutbound, policy.Network.DenyOutbound)
+	if err != nil {
+		return nil, usefulerror.NewUsefulError().
+			WithCode(errcodes.SandboxPolicyInvalid).
+			WithHumanError(fmt.Sprintf("Sandbox policy %s has an invalid network rule: %v", policy.Name, err)).
+			WithHelp("Write each rule as host:port, for example registry.npmjs.org:443. `pmg sandbox profile lint` lists every invalid rule.").
+			Wrap(err)
+	}
+	warnIneffectiveNetConnectOverrides(policy.Name, network, cfg.SandboxAllowOverrides)
+
+	return &Resolution{
+		PackageManager: pmName,
+		Policy:         policy,
+		NetworkMode:    cmp.Or(cfg.Config.Sandbox.NetworkMode, config.SandboxNetworkModeAudit),
+		Network:        network,
+	}, nil
+}
+
+// profileRegistries holds the registries of one config, so every loader
+// resolves a profile reference the same way. A managed set holds the
+// built-ins, the templates of the managed config and the files next to it.
+type profileRegistries struct {
+	presets   sandbox.PresetRegistry
+	profiles  sandbox.ProfileRegistry
+	templates map[string]string
+	configDir string
+	managed   bool
+}
+
+func newProfileRegistries(cfg *config.RuntimeConfig) (*profileRegistries, error) {
+	return buildProfileRegistries(cfg, false,
+		[]sandbox.PresetRegistryOption{sandbox.WithUserPresetDir(cfg.SandboxPresetDir())},
+		[]sandbox.RegistryOption{sandbox.WithUserProfileDir(cfg.SandboxProfileDir())},
+	)
+}
+
+// newManagedProfileRegistries leaves out the user preset and profile
+// directories. The user writes them, so a profile from them must not enter
+// the chain of a locked config.
+func newManagedProfileRegistries(cfg *config.RuntimeConfig) (*profileRegistries, error) {
+	return buildProfileRegistries(cfg, true, nil, nil)
+}
+
+func buildProfileRegistries(cfg *config.RuntimeConfig, managed bool, presetOptions []sandbox.PresetRegistryOption, profileOptions []sandbox.RegistryOption) (*profileRegistries, error) {
+	presets, err := sandbox.NewPresetRegistry(presetOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create preset registry: %w", err)
+	}
+
+	templates := cfg.SandboxPolicyTemplatePaths()
+	profileOptions = append(profileOptions,
+		sandbox.WithPresetRegistry(presets),
+		sandbox.WithPolicyTemplates(templates),
+	)
+	profiles, err := sandbox.NewProfileRegistry(profileOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create profile registry: %w", err)
+	}
+
+	return &profileRegistries{
+		presets:   presets,
+		profiles:  profiles,
+		templates: templates,
+		configDir: filepath.Dir(cfg.ConfigFilePath()),
+		managed:   managed,
+	}, nil
+}
+
+// load resolves a reference from the config: a template name first, so a
+// template that overrides a built-in profile wins over the built-in. The
+// registry gets the same map, so a profile can inherit a template by name.
+// A relative path resolves next to the config file before the working
+// directory, so a repository cannot replace the user's file with one of
+// the same path.
+func (r *profileRegistries) load(ref string) (*sandbox.SandboxPolicy, error) {
+	if templatePath, exists := r.templates[ref]; exists {
+		ref = templatePath
+	}
+	if r.managed {
+		return r.loadManaged(ref)
+	}
+	if IsProfilePath(ref) && !filepath.IsAbs(ref) {
+		if next := filepath.Join(r.configDir, ref); fileExists(next) {
+			ref = next
+		}
+	}
+	return r.profiles.GetProfile(ref)
+}
+
+// loadManaged resolves a reference a locked config may hold: a built-in
+// name, an absolute path, or a path relative to the managed config file.
+// A relative path never falls back to the working directory. A bare name
+// must be a built-in, because the registry looks in the working directory
+// for any other name.
+func (r *profileRegistries) loadManaged(ref string) (*sandbox.SandboxPolicy, error) {
+	switch {
+	case filepath.IsAbs(ref):
+	case IsProfilePath(ref):
+		ref = filepath.Join(r.configDir, ref)
+	default:
+		if _, builtin := r.profiles.BuiltinProfileYAML(ref); !builtin {
+			return nil, fmt.Errorf("%w: %s is not a built-in profile, a policy template or a path", sandbox.ErrProfileNotFound, ref)
+		}
+	}
+	return r.profiles.GetProfile(ref)
+}
+
+// loadOverride resolves a reference from the command line, where a
+// relative path is in the working directory. A locked config refuses the
+// flag before this runs. The managed set refuses here too, so a command
+// without that check cannot load a file from the working directory.
+func (r *profileRegistries) loadOverride(ref string) (*sandbox.SandboxPolicy, error) {
+	if r.managed {
+		return nil, fmt.Errorf("%w: a locked config takes no profile override", sandbox.ErrProfileNotFound)
+	}
+	return r.profiles.GetProfile(ref)
+}
+
+// IsProfilePath reports whether ref names a file and not a profile: it has
+// a directory part or a YAML extension. A bare name is a built-in, a
+// template or a user profile, whatever file the working directory holds.
+func IsProfilePath(ref string) bool {
+	ext := strings.ToLower(filepath.Ext(ref))
+	return strings.ContainsAny(ref, `/\`) || ext == ".yml" || ext == ".yaml"
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+// LoadProfile resolves ref as `pmg <pm>` resolves sandbox.policies.<pm>.profile:
+// a template name, a built-in name, a user profile name, or a path.
+func LoadProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy, error) {
+	registries, err := newProfileRegistries(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	policy, err := registries.load(ref)
+	if err != nil {
+		return nil, registries.loadError("Failed to load sandbox profile", ref, err)
+	}
+	return policy, nil
+}
+
+// LoadManagedProfile resolves ref as a locked config may name it: a
+// built-in name, a template of the managed config, an absolute path, or a
+// path relative to the managed config file. The chain resolves the same
+// way. A user profile and a user preset are writable by the user, so the
+// registry has none.
+func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy, error) {
+	registries, err := newManagedProfileRegistries(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	policy, err := registries.load(ref)
+	if err != nil {
+		return nil, registries.loadError("Failed to load the managed sandbox profile", ref, err)
+	}
+	return policy, nil
+}
+
+// loadError carries the cause to the user. A profile that exists but does
+// not load points at the linter, which lists every issue. A managed set
+// names what a locked config may hold.
+func (r *profileRegistries) loadError(what, ref string, err error) error {
+	if r.managed && errors.Is(err, sandbox.ErrProfileNotFound) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.NotFound).
+			WithHumanError(fmt.Sprintf("%s: %v", what, err)).
+			WithHelp("A globally managed configuration names a built-in profile, one of its policy templates, an absolute path, or a path relative to the managed config file.").
+			Wrap(err)
+	}
+	return profileLoadError(what, ref, err)
+}
+
+func profileLoadError(what, ref string, err error) error {
+	code := errcodes.InvalidArgument
+	help := fmt.Sprintf("Run `pmg sandbox profile lint %s` to see every issue.", ref)
+	if errors.Is(err, sandbox.ErrProfileNotFound) {
+		code = errcodes.NotFound
+		help = "Pass a built-in profile name, a user profile name, or the path of a profile file. `pmg sandbox profile list` shows the names."
+	}
+	return usefulerror.NewUsefulError().
+		WithCode(code).
+		WithHumanError(fmt.Sprintf("%s: %v", what, err)).
+		WithHelp(help).
+		WithAdditionalHelp("See more at: https://github.com/safedep/pmg/blob/main/docs/sandbox.md").
+		Wrap(err)
+}
+
+// warnIneffectiveNetConnectOverrides names each net-connect override a
+// wildcard deny still covers. The override removes an exact deny only.
+func warnIneffectiveNetConnectOverrides(policyName string, network *netpolicy.Policy, overrides []config.SandboxAllowOverride) {
+	for _, o := range overrides {
+		if o.Type != config.SandboxAllowNetConnect {
+			continue
+		}
+		rule, err := netpolicy.ParseRule(o.Value)
+		if err != nil || network.Decide(rule.Host, rule.Port).Allowed {
+			continue
+		}
+		log.Warnf("Sandbox override: net-connect=%s has no effect, a deny_outbound rule still covers it", o.Value)
+		if _, werr := fmt.Fprintf(os.Stderr, "pmg: warning: --sandbox-allow net-connect=%s has no effect. A deny_outbound rule in policy %s still covers it.\n", o.Value, policyName); werr != nil {
+			log.Warnf("failed to write override warning to stderr: %v", werr)
+		}
+	}
+}
+
+// ApplySandbox applies a resolved sandbox policy to cmd. A resolution with no
+// policy leaves cmd unchanged.
+//
+// This is a security sensitive operation. It fails when the sandbox driver is
+// not available, so the command never runs without the policy it resolved.
+func ApplySandbox(ctx context.Context, cmd *exec.Cmd, res *Resolution, opts ...ApplySandboxOpt) (*sandbox.ExecutionResult, error) {
+	if res == nil || res.Policy == nil {
+		return sandbox.NewExecutionResult(), nil
+	}
+
+	applyConfig := &applySandboxConfig{}
+	for _, opt := range opts {
+		opt(applyConfig)
+	}
+
+	policy := res.Policy
+	pmName := res.PackageManager
+
+	var (
+		sb  sandbox.Sandbox
+		err error
+	)
 	if applyConfig.sb != nil {
 		sb = applyConfig.sb
 	} else {
@@ -307,7 +529,7 @@ func applyRuntimeOverrides(policy *sandbox.SandboxPolicy, overrides []config.San
 
 		case config.SandboxAllowNetConnect:
 			log.Infof("Sandbox override: allowing outbound connection to %s", override.Value)
-			policy.Network.AllowOutbound = append(policy.Network.AllowOutbound, override.Value)
+			policy.Network.Allow(override.Value)
 
 		case config.SandboxAllowNetBind:
 			log.Infof("Sandbox override: allowing network bind on %s", override.Value)

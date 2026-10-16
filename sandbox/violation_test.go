@@ -270,3 +270,14 @@ func TestIsSensitiveProjectFileMatchesDirectorySegments(t *testing.T) {
 		})
 	}
 }
+
+func TestOverrideSuggestionNetworkConnect(t *testing.T) {
+	o := overrideSuggestion(Violation{Kind: ViolationKindNetworkConnect, Target: "evil.example:443", RuleTarget: "*:*"})
+	require.NotNil(t, o)
+	assert.Equal(t, ViolationKindNetworkConnect, o.Kind)
+	assert.Equal(t, "evil.example:443", o.Target)
+
+	for _, target := range []string{"*.example:443", "evil.example:*", "curl=evil.example:443", "evil.example"} {
+		assert.Nil(t, overrideSuggestion(Violation{Kind: ViolationKindNetworkConnect, Target: target}), target)
+	}
+}

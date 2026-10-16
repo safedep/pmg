@@ -83,6 +83,17 @@ proxy:
     # --port flag overrides this.
     listen_port: 0
 
+    # Sandbox profile whose network rules the proxy applies: a built-in name,
+    # a policy_templates name, a user profile name, or a path. A relative
+    # path resolves against the config directory. Empty means no policy. The
+    # --profile flag overrides this.
+    profile: ""
+
+    # What the proxy does with a match on a deny_outbound rule of the profile,
+    # as sandbox.network_mode: audit or enforce. The --network-mode flag
+    # overrides this.
+    network_mode: audit
+
     # Kernel enforcement (Linux only, needs root). When enabled, the kernel
     # routes every TCP connection to the ports below from every eligible
     # process to the proxy. A process cannot opt out through its environment.
@@ -169,15 +180,19 @@ sandbox:
   # Requires 'enabled: true' and per-PM policies to be active. May break workflows expecting unrestricted commands.
   enforce_always: false
 
+  # What the PMG proxy does with a match on a deny_outbound rule of the profile.
+  # - audit (default): record the match and let the connection through
+  # - enforce: refuse the connection
+  network_mode: audit
+
   # Policy templates define policy profiles by name and path.
   # They can be used to override a built-in profile or create a custom profile.
-  # Note: Custom profiles loaded via policy_templates can inherit from built-in
-  # profiles using the 'inherits' field in the YAML (e.g., inherits: npm-restrictive).
-  # Inheritance allows you to extend a base profile with additional permissions.
+  # A profile inherits a built-in profile, a template, a user profile or a file
+  # with 'inherits'. A chain can have any depth. See docs/sandbox.md.
   policy_templates:
     # Name for the template. Can be used to override a built-in profile or create a custom profile.
     # Path is the path to the template file.
-    # Relative path can be used to reference a template file in the config directory (example: ./npm-restrictive.yml)
+    # A relative path is next to this file (example: ./npm-restrictive.yml)
     npm-restrictive-override:
       path: ./profiles/npm-restrictive.yml
 

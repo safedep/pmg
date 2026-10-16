@@ -10,6 +10,7 @@ import (
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/internal/models"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -262,4 +263,54 @@ func TestTermWidthFormatTextIndent(t *testing.T) {
 	for _, line := range lines[1:] {
 		assert.True(t, strings.HasPrefix(line, "    "), "wrapped line must be indented: %q", line)
 	}
+}
+
+func TestReportNormalNetworkPolicy(t *testing.T) {
+	tests := []struct {
+		name     string
+		enforced bool
+		want     []string
+		absent   []string
+	}{
+		{
+			name:     "enforce lists the refused destinations and the override",
+			enforced: true,
+			want:     []string{"Network policy denied 1 destination(s)", "evil.example:443  rule *:*  /usr/bin/curl  (2)", "--sandbox-allow net-connect=<host>:<port>"},
+			absent:   []string{"would deny"},
+		},
+		{
+			name:     "audit lists what the rules would deny",
+			enforced: false,
+			want:     []string{"Network policy would deny 1 destination(s)", "sandbox.network_mode: enforce"},
+			absent:   []string{"--sandbox-allow"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := NewReportData()
+			data.Outcome = OutcomeSuccess
+			data.NetworkPolicy = &netpolicy.Report{
+				Enforced: tc.enforced,
+				Denials:  []netpolicy.Denial{{Destination: "evil.example:443", Rule: "*:*", Client: "/usr/bin/curl", Count: 2}},
+			}
+
+			out := captureStdout(t, func() { reportNormal(data) })
+			for _, w := range tc.want {
+				assert.Contains(t, out, w)
+			}
+			for _, a := range tc.absent {
+				assert.NotContains(t, out, a)
+			}
+		})
+	}
+}
+
+func TestReportNormalNetworkPolicyQuietWithoutDenials(t *testing.T) {
+	data := NewReportData()
+	data.Outcome = OutcomeSuccess
+	data.NetworkPolicy = &netpolicy.Report{Enforced: true}
+
+	out := captureStdout(t, func() { reportNormal(data) })
+	assert.NotContains(t, out, "Network policy")
 }

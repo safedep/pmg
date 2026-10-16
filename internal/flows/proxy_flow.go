@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	packagev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/package/v1"
@@ -11,6 +12,7 @@ import (
 	"github.com/safedep/pmg/analyzer"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/audit"
+	"github.com/safedep/pmg/internal/eventlog"
 	"github.com/safedep/pmg/internal/localstore"
 	"github.com/safedep/pmg/internal/runerror"
 	"github.com/safedep/pmg/internal/runner"
@@ -19,6 +21,8 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/proxy/netpolicy"
+	"github.com/safedep/pmg/sandbox/executor"
 )
 
 type proxyFlow struct {
@@ -226,22 +230,33 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		return runerror.Wrap(fmt.Errorf("failed to create interceptor for %s: %w", ecosystem.String(), err),
 			runerror.ReasonProxySetupFailed)
 	}
+	// The policy resolves once. The proxy gets its network rules and the
+	// runner gets the same resolution.
+	sandboxRes, err := executor.ResolvePolicy(f.pm.Name(), false)
+	if err != nil {
+		return runerror.Wrap(fmt.Errorf("failed to apply sandbox: %w", err),
+			runerror.ReasonExecutionSetupFailed)
+	}
+
+	networkDecisions := newNetworkDecisionLog(sandboxRes)
+	runID := netpolicy.NewRunID()
+
 	// Create and start proxy server
-	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList)
+	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList, sandboxRes, networkDecisions.record)
 	if err != nil {
 		return runerror.Wrap(fmt.Errorf("failed to start proxy server: %w", err),
 			runerror.ReasonProxySetupFailed)
 	}
 
-	// Ensure proxy is stopped on exit
-	defer func() {
+	stopProxy := sync.OnceFunc(func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := proxyServer.Stop(shutdownCtx); err != nil {
 			log.Errorf("Failed to stop proxy server: %v", err)
 		}
-	}()
+	})
+	defer stopProxy()
 
 	ui.ClearStatus()
 
@@ -252,6 +267,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		PackageManagerName: f.pm.Name(),
 		DryRun:             cfg.DryRun,
 		SandboxProxyAddr:   proxyAddr,
+		Sandbox:            sandboxRes,
 		Mode:               runner.ExecutionModeAuto,
 		EnvOverrides:       append(packagemanager.EnvVarForProxy(proxyAddr, caCertPath), routing.ExtraEnv...),
 		DirectEnvOverrides: ciEnvOverride(),
@@ -311,7 +327,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 		},
 	})
 
-	// Populate report data from stats collector
+	// Drain the proxy before the counts are read, so a decision made while
+	// the child exits is in the report and in the observation.
+	stopProxy()
+
 	stats := statsCollector.GetStats()
 	reportData.StartTime = startTime
 	reportData.TotalAnalyzed = stats.TotalAnalyzed
@@ -322,6 +341,14 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.ConfirmedPackages = statsCollector.GetConfirmedPackages()
 	reportData.CooldownBlockedPackages = statsCollector.GetCooldownBlocks()
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
+	reportData.NetworkPolicy = networkDecisions.Report()
+	networkDecisions.observeViolations()
+	observation := networkDecisions.observation(runID, sandboxRes)
+	audit.LogNetworkObservation(observation)
+	if eventlog.Dir() != "" {
+		reportData.NetworkRunID = runID
+	}
+	reportData.ObservedDestinations = len(observation.Destinations)
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 
 	// Set outcome based on execution result using shared inference logic
@@ -397,12 +424,19 @@ func (f *proxyFlow) createCertificateManager(caCert *certmanager.Certificate) (c
 func (f *proxyFlow) createAndStartProxyServer(
 	certMgr certmanager.CertificateManager,
 	interceptorsList []proxy.Interceptor,
+	sandboxRes *executor.Resolution,
+	onNetworkDecision func(proxy.NetworkDecision),
 ) (proxy.ProxyServer, string, error) {
 	proxyConfig := proxy.DefaultProxyConfig()
 	proxyConfig.CertManager = certMgr
 	proxyConfig.Interceptors = interceptorsList
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
+	proxyConfig.OnNetworkDecision = onNetworkDecision
+	if sandboxRes != nil && sandboxRes.Network != nil {
+		proxyConfig.NetworkPolicy = sandboxRes.Network
+		proxyConfig.NetworkEnforce = sandboxRes.NetworkMode == config.SandboxNetworkModeEnforce
+	}
 
 	proxyServer, err := proxy.NewProxyServer(proxyConfig)
 	if err != nil {

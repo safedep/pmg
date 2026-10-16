@@ -9,6 +9,7 @@ import (
 	"github.com/safedep/dry/log"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/runerror"
+	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
 var global *auditor
@@ -235,6 +236,67 @@ func (obs HostObservation) details(reason string) map[string]any {
 		d["client_address"] = obs.Client.Address
 	}
 	return d
+}
+
+// LogNetworkPolicy records a connection the network policy denied, or
+// would deny under audit.
+func LogNetworkPolicy(d NetworkDecision) {
+	logEvent(AuditEvent{
+		Type:            EventTypeNetworkPolicy,
+		Message:         fmt.Sprintf("Network policy %s %s:%d", d.action(), d.Hostname, d.Port),
+		Details:         d.details(),
+		NetworkDecision: d,
+	})
+}
+
+// LogNetworkObservation records every destination one run reached, as one
+// event, so `pmg sandbox profile propose` can read the run back. A run that
+// reached nothing writes no event.
+func LogNetworkObservation(obs netpolicy.Observation) {
+	if len(obs.Destinations) == 0 {
+		return
+	}
+	logEvent(AuditEvent{
+		Type:    EventTypeNetworkObservation,
+		Message: fmt.Sprintf("Network observation: %d destination(s) in run %s", len(obs.Destinations), obs.RunID),
+		Details: map[string]any{
+			"run_id":            obs.RunID,
+			"repo_root":         obs.RepoRoot,
+			"package_manager":   obs.PackageManager,
+			"profile":           obs.Profile,
+			"mode":              obs.Mode,
+			"destination_count": len(obs.Destinations),
+			"destinations":      obs.Destinations,
+		},
+	})
+}
+
+func (d NetworkDecision) action() string {
+	if d.Enforced {
+		return "denied"
+	}
+	return "observed"
+}
+
+func (d NetworkDecision) mode() string {
+	if d.Enforced {
+		return "enforce"
+	}
+	return "audit"
+}
+
+func (d NetworkDecision) details() map[string]any {
+	details := HostObservation{
+		Hostname:   d.Hostname,
+		Port:       d.Port,
+		EntryPoint: d.EntryPoint,
+		Client:     d.Client,
+	}.details("network_policy")
+	delete(details, "method")
+	details["rule"] = d.Rule
+	details["action"] = d.action()
+	details["mode"] = d.mode()
+	return details
 }
 
 // LogDependencyCooldown records that a package was blocked by the dependency cooldown policy.

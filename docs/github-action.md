@@ -82,6 +82,8 @@ default.
 | `enforce-exempt-executables` | With `enforce`, programs that connect directly, as absolute paths or globs, in addition to the config. Passed as `--enforce-exempt-executable`. | unset |
 | `enforce-skip-destinations` | With `enforce`, CIDR prefixes the kernel never routes, in addition to the config. Passed as `--enforce-skip-destination`. | unset |
 | `enforce-namespaces` | With `enforce`, what happens to containers that steps start: `ignore`, `redirect` or `auto`. See [Containers](#containers). Passed as `--enforce-namespaces`. | unset (`ignore`) |
+| `network-profile` | With `server-mode`, the sandbox profile whose network rules the proxy applies: a path in the workspace or a built-in name. See [Network policy](#network-policy). Passed as `--profile`. | unset (no policy) |
+| `network-mode` | With `network-profile`, what the proxy does with a match on a deny rule: `audit` or `enforce`. Passed as `--network-mode`. | unset (`audit`) |
 
 ## Outputs
 
@@ -203,6 +205,38 @@ daemon log and `pmg proxy status` name the file it loaded.
 needs them has a reason to ship one with `config-file`. The inputs need a
 PMG release that has the `--enforce-*` flags. See
 [persistent-proxy.md](./persistent-proxy.md#policy-from-the-command-line).
+
+#### Network policy
+
+The daemon applies the network rules of a sandbox profile in the
+repository. `network-profile` names it and `network-mode` sets what a match
+on a deny rule does. The inputs work with and without `enforce`. Without
+`enforce` the policy is advisory, because a process can ignore the proxy
+variables. See
+[persistent-proxy.md](./persistent-proxy.md#network-policy).
+
+```yaml
+- uses: safedep/pmg@v0.31.0
+  with:
+    server-mode: true
+    enforce: true
+    network-profile: .pmg/profiles/ci.yml
+    network-mode: enforce
+```
+
+```yaml
+# .pmg/profiles/ci.yml
+name: ci
+inherits: npm-restrictive
+network:
+  deny_outbound:
+    - pastebin.com:443
+```
+
+The job-end `pmg proxy stop --fail-on-violation` step fails when the proxy
+refused a connection, and its report names the destination, the rule and
+the program. Add a `CODEOWNERS` line for `.pmg/profiles`, because the
+profile is as trusted as the workflow file.
 
 #### Runner traffic
 

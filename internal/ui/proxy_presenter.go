@@ -58,6 +58,9 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 			ecosystem, blockCtx.PackageName, blockCtx.PackageVersion,
 			blockCtx.CooldownDaysAgo, blockCtx.CooldownDays, blockCtx.CooldownDaysLeft)
 
+	case proxy.BlockReasonNetworkPolicy:
+		message = NetworkDenialMessage(blockCtx.Destination, blockCtx.Rule)
+
 	default:
 		return ""
 	}
@@ -68,4 +71,11 @@ func (p ProxyPresenter) BlockMessage(reason proxy.BlockReason, blockCtx *proxy.B
 		}
 	}
 	return message
+}
+
+// NetworkDenialMessage is the one sentence for a connection the network
+// policy refused. The proxy sends it to the client and the violation
+// record carries it as the rule label.
+func NetworkDenialMessage(destination, rule string) string {
+	return fmt.Sprintf("Connection to %s denied by the network policy (rule %s)", destination, rule)
 }

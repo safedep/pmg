@@ -72,6 +72,22 @@ func (o *Overlay) ToAllowOverrides() []config.SandboxAllowOverride {
 	return out
 }
 
+// RepoRootOfCwd is the repository root of the working directory, or the
+// working directory itself outside a repository. Empty when the working
+// directory is unknown. It keys a run's observation and overlay.
+func RepoRootOfCwd() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Warnf("resolve working directory: %v", err)
+		return ""
+	}
+	root, err := ResolveRepoRoot(cwd)
+	if err != nil {
+		return cwd
+	}
+	return root
+}
+
 // ResolveRepoRoot returns the git toplevel for cwd, falling back to cwd itself
 // when not inside a git work tree. The returned path is filepath.Clean'd and
 // has its symlinks evaluated where possible so it forms a stable key.

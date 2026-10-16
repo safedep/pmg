@@ -89,7 +89,8 @@ func TestNamespaceRedirectIgnoreTouchesNothing(t *testing.T) {
 	require.NoError(t, n.attach(context.Background(), nil))
 	assert.Empty(t, f.addresses)
 	assert.Nil(t, f.attached)
-	assert.Equal(t, "namespaces: ignore", NamespaceStatusLine(n.state()))
+	assert.Equal(t, "ignore", n.state().Effective)
+	assert.False(t, n.state().Redirecting())
 	assert.Empty(t, n.warnings())
 }
 
@@ -108,7 +109,9 @@ func TestNamespaceRedirectLoadsTableOnTheBoundPort(t *testing.T) {
 	assert.Equal(t, uint16(7777), f.port)
 	assert.Equal(t, []uint16{80, 443}, f.attached.Ports)
 	assert.True(t, f.attached.DenyUDP)
-	assert.Equal(t, "namespaces: redirect (169.254.200.1:7777 from docker0, br-*)", NamespaceStatusLine(n.state()))
+	assert.True(t, n.state().Redirecting())
+	assert.Equal(t, "169.254.200.1:7777", n.state().Table.Target())
+	assert.Equal(t, []string{"docker0", "br-*"}, n.state().Table.Ingress)
 	assert.Contains(t, n.warnings()[0], "PMG_CA_BUNDLE")
 
 	require.NoError(t, n.detach())
@@ -152,7 +155,6 @@ func TestNamespaceRedirectFailsFastWhereAutoFallsBack(t *testing.T) {
 			assert.Equal(t, "auto", n.state().Mode)
 			assert.Equal(t, "ignore", n.state().Effective)
 			assert.Contains(t, n.state().Reason, tc.want)
-			assert.Contains(t, NamespaceStatusLine(n.state()), "namespaces: ignore (auto: ")
 			assert.Nil(t, tc.fake.attached, "no table under a fallback")
 			if tc.fake.addressErr == nil && len(tc.fake.addresses) > 0 {
 				assert.Equal(t, tc.fake.addresses, tc.fake.removed, "an address that went on comes off")

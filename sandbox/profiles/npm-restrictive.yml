@@ -80,8 +80,8 @@ filesystem:
     - ${CWD}/.env.*
 
 network:
-  # MacOS sandbox-exec does not support network restrictions, so we allow all outbound traffic
-  # when at least one allow outbound rule is present.
+  # The PMG proxy applies these rules by host. sandbox.network_mode sets
+  # whether a match on the deny rule is recorded or refused.
   allow_outbound:
     - registry.npmjs.org:443
     - registry.yarnpkg.com:443

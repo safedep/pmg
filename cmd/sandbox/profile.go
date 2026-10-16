@@ -10,6 +10,12 @@ import (
 type registryFactory func() (pmgsandbox.ProfileRegistry, error)
 
 func defaultRegistryFactory() (pmgsandbox.ProfileRegistry, error) {
+	// A config that failed closed holds no policy templates and no profile
+	// directory, so inspection would disagree with the file the user wrote.
+	if err := config.LoadError(); err != nil {
+		return nil, err
+	}
+
 	// Include user presets so profile inspection agrees with runtime
 	// resolution of custom profiles referencing presets.
 	presets, err := defaultPresetRegistryFactory()
@@ -17,9 +23,11 @@ func defaultRegistryFactory() (pmgsandbox.ProfileRegistry, error) {
 		return nil, err
 	}
 
+	cfg := config.Get()
 	return pmgsandbox.NewProfileRegistry(
-		pmgsandbox.WithUserProfileDir(config.Get().SandboxProfileDir()),
+		pmgsandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
 		pmgsandbox.WithPresetRegistry(presets),
+		pmgsandbox.WithPolicyTemplates(cfg.SandboxPolicyTemplatePaths()),
 	)
 }
 
@@ -39,5 +47,6 @@ func NewProfileCommand() *cobra.Command {
 	cmd.AddCommand(newProfileEditCommand(defaultRegistryFactory))
 	cmd.AddCommand(newProfileLintCommand(defaultRegistryFactory))
 	cmd.AddCommand(newProfileDiffCommand(defaultRegistryFactory))
+	cmd.AddCommand(newProfileProposeCommand(defaultRegistryFactory, defaultProposeDeps()))
 	return cmd
 }

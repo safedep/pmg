@@ -58,6 +58,8 @@ const (
 	EventTypeDependencyResolved    EventType = "dependency_resolved"
 	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
 	EventTypeProxyHostObserved     EventType = "proxy_host_observed"
+	EventTypeNetworkPolicy         EventType = "network_policy"
+	EventTypeNetworkObservation    EventType = "network_observation"
 	EventTypeDependencyCooldown    EventType = "dependency_cooldown"
 	EventTypeCooldownSkipped       EventType = "dependency_cooldown_skipped"
 	EventTypeSandboxOverride       EventType = "sandbox_override"
@@ -94,6 +96,7 @@ type AuditEvent struct {
 
 	// Proxy context
 	HostObservation HostObservation
+	NetworkDecision NetworkDecision
 	Reason          string
 
 	// Cooldown context
@@ -135,6 +138,17 @@ type ProxyClient struct {
 
 // IsZero reports whether nothing about the client is known.
 func (c ProxyClient) IsZero() bool { return c == ProxyClient{} }
+
+// NetworkDecision is one connection a deny rule of the network policy
+// matched. Enforced says whether the proxy refused it.
+type NetworkDecision struct {
+	Hostname   string
+	Port       uint16
+	Rule       string
+	Enforced   bool
+	EntryPoint ProxyEntryPoint
+	Client     ProxyClient
+}
 
 // HostObservation is one connection to a host outside the known
 // registries, as the proxy saw it.

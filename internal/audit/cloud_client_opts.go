@@ -9,7 +9,14 @@ import (
 	"github.com/safedep/dry/cloud/endpointsync"
 )
 
-const hostObservationDedupWindow = 15 * time.Minute
+// A retry loop or a script can hit one denied destination thousands of
+// times in one run. The local event log keeps every decision. The cloud
+// sink delivers the first of a window and the count, as for host
+// observations.
+const (
+	hostObservationDedupWindow = 15 * time.Minute
+	networkPolicyDedupWindow   = 15 * time.Minute
+)
 
 func hostObservationDedupRule() endpointsync.DedupRule {
 	return endpointsync.DedupRule{
@@ -28,6 +35,43 @@ func hostObservationDedupRule() endpointsync.DedupRule {
 
 			return hostObservationDedupKey(observation), true
 		},
+	}
+}
+
+func networkPolicyDedupRule() endpointsync.DedupRule {
+	return endpointsync.DedupRule{
+		Name:   "pmg-network-policy-decision",
+		Window: networkPolicyDedupWindow,
+		Key: func(event *servicev1.ToolEvent) ([]string, bool) {
+			pmgEvent := event.GetPmgEvent()
+			if pmgEvent == nil || pmgEvent.GetEventType() != controltowerv1.PmgEventType_PMG_EVENT_TYPE_NETWORK_POLICY_DECISION {
+				return nil, false
+			}
+
+			decision := pmgEvent.GetNetworkPolicyDecision()
+			if decision == nil {
+				return nil, false
+			}
+
+			return networkPolicyDedupKey(decision), true
+		},
+	}
+}
+
+// networkPolicyDedupKey keeps a denial and an observation of one
+// destination apart, and one client from another, as hostObservationDedupKey
+// does.
+func networkPolicyDedupKey(decision *controltowerv1.PmgNetworkPolicyDecision) []string {
+	client := decision.GetClient()
+	return []string{
+		decision.GetHostname(),
+		strconv.FormatUint(uint64(decision.GetPort()), 10),
+		decision.GetRule(),
+		decision.GetAction().String(),
+		decision.GetMode().String(),
+		decision.GetEntryPoint().String(),
+		programOf(client),
+		client.GetAddress(),
 	}
 }
 
@@ -62,6 +106,6 @@ func programOf(client *controltowerv1.PmgProxyClient) string {
 func cloudSyncOptions(walPath string) []endpointsync.SyncOption {
 	return []endpointsync.SyncOption{
 		endpointsync.WithWALPath(walPath),
-		endpointsync.WithDedupRules(hostObservationDedupRule()),
+		endpointsync.WithDedupRules(hostObservationDedupRule(), networkPolicyDedupRule()),
 	}
 }

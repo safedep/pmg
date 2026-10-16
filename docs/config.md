@@ -48,6 +48,8 @@ file. This is useful for CI/CD pipelines or temporary overrides.
 | ----------------------------- | --------------------------------- |
 | `paranoid`                    | `PMG_PARANOID`                    |
 | `proxy.install_only`          | `PMG_PROXY_INSTALL_ONLY`          |
+| `proxy.server.profile` | `PMG_PROXY_SERVER_PROFILE` |
+| `proxy.server.network_mode` | `PMG_PROXY_SERVER_NETWORK_MODE` |
 | `proxy.server.enforce.enabled` | `PMG_PROXY_SERVER_ENFORCE_ENABLED` |
 | `proxy.server.enforce.ports` | `PMG_PROXY_SERVER_ENFORCE_PORTS` (comma-separated) |
 | `proxy.server.enforce.eligible_users` | `PMG_PROXY_SERVER_ENFORCE_ELIGIBLE_USERS` (comma-separated) |
@@ -154,6 +156,7 @@ pmg setup info
 Whenever a global config file is present:
 
 - **It is authoritative.** PMG ignores the per-user `config.yml`. The file may be **partial**. Keys it does not set fall back to PMG's built-in defaults, not to a user's values.
+- **A relative path is next to the global config file.** A relative `policy_templates` path or `sandbox.policies.<pm>.profile` path resolves under the global config directory, not under a user's.
 - **`config set` and `config edit` fail.** They return an error stating the config is globally managed. To change it, deploy an updated file at the OS path, which is root-owned and not writable by users, or run `sudo pmg config edit --system` (see below).
 - **`pmg setup install` skips the per-user config.** It still creates shell aliases and shims per user.
 
@@ -176,6 +179,7 @@ When lockdown is on:
 
 - **CLI flags that would change a managed value fail fast.** For example, `pmg --sandbox=false ...` or `pmg --paranoid ...` errors out instead of overriding policy. Governed flags: `--paranoid`, `--skip-event-log`, `--sandbox`, `--sandbox-enforce`, `--sandbox-profile`, `--sandbox-allow`, `--skip-dependency-cooldown`. Operational flags such as `--dry-run` keep working.
 - **`PMG_*` variables cannot change the config**, including `PMG_INSECURE_INSTALLATION` (which otherwise bypasses malicious-package blocking).
+- **A sandbox profile resolves from managed locations only.** `sandbox.policies.<pm>.profile` and a parent a profile inherits resolve to a built-in profile, a template of the global config, an absolute path, or a path next to the global config file. PMG does not read the user profile directory, the user preset directory or the working directory, because the user writes them.
 
 PMG reads `global_lockdown` straight from the global file, so a user cannot flip it through env or CLI. If the global file exists but cannot be read or parsed, PMG treats it as locked and falls back to the built-in defaults. Package blocking still applies, but the settings in the file do not. An invalid `proxy.registries` entry is the exception: it fails closed instead, as described above. `PMG_CONFIG_DIR` and `PMG_CACHE_DIR` still relocate per-user state directories (logs, cache) in any mode, but leave the managed config alone.
 
