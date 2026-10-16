@@ -15,6 +15,20 @@ func samePath(a, b string) bool {
 	return comparablePath(a) == comparablePath(b)
 }
 
+func sameFile(a, b string) bool {
+	aInfo, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+
+	bInfo, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+
+	return os.SameFile(aInfo, bInfo)
+}
+
 func pathWithinDir(path, dir string) bool {
 	if path == "" || dir == "" {
 		return false

@@ -1,11 +1,13 @@
 package fsutil
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPathWithinDir(t *testing.T) {
@@ -35,4 +37,32 @@ func TestPathWithinAny(t *testing.T) {
 	assert.True(t, PathWithinAny(filepath.Join(systemDir, "npm"), dirs))
 	assert.True(t, PathWithinAny(filepath.Join(userDir, "pip"), dirs))
 	assert.False(t, PathWithinAny(filepath.Join("/", "usr", "bin", "yarn"), dirs))
+}
+
+func TestSameFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "pmg")
+	other := filepath.Join(dir, "other")
+	link := filepath.Join(dir, "link")
+	require.NoError(t, os.WriteFile(file, []byte("a"), 0o600))
+	require.NoError(t, os.WriteFile(other, []byte("a"), 0o600))
+	require.NoError(t, os.Link(file, link))
+
+	cases := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"same path", file, file, true},
+		{"hard link", file, link, true},
+		{"different file with same content", file, other, false},
+		{"missing file", file, filepath.Join(dir, "missing"), false},
+		{"empty path", "", file, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, SameFile(tc.a, tc.b))
+		})
+	}
 }
