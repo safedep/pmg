@@ -6,6 +6,11 @@ package fsutil
 // It does not resolve symbolic links.
 func SamePath(a, b string) bool { return samePath(a, b) }
 
+// SameFile reports whether a and b name the same existing file.
+// It resolves symbolic links.
+// It returns false when either path cannot be read.
+func SameFile(a, b string) bool { return sameFile(a, b) }
+
 // PathWithinDir reports whether path is dir itself or lexically inside it.
 // It returns false when either path is empty.
 // It uses the same comparison rules as SamePath.
