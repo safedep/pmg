@@ -77,17 +77,16 @@ func newProfileProposeCommand(factory registryFactory, deps proposeDeps) *cobra.
 
 	cmd := &cobra.Command{
 		Use:   "propose [--run <id> | --last | --since <window>] [--new <name|path> | --into <path>] [--dry-run]",
-		Short: "Propose the network rules of a profile from the destinations a run reached",
-		Long: "Read the destinations the proxy saw and propose one allow rule per host and port,\n" +
-			"with a catch-all deny, as the network block of a sandbox profile.\n\n" +
-			"The source is the event log. A run under audit with no profile observes everything.\n" +
-			"--run picks one run by the id the report printed. --last picks the newest run of this\n" +
-			"repository. --since picks every run of this repository in a window, the default.\n\n" +
-			"Without a target the command prints the destinations and the proposal. --new writes a\n" +
-			"profile that inherits the built-in of the package manager that ran. --into merges the\n" +
-			"network block into a profile and leaves its other blocks as they are. --dry-run prints\n" +
-			"the file or the diff a target would get and writes nothing. A proposal appends rules\n" +
-			"and never removes one.",
+		Short: "Propose network rules from the destinations a run reached",
+		Long: "Read the destinations the proxy saw in a run. Propose one allow rule per host and\n" +
+			"port, plus a catch-all deny, as the network block of a sandbox profile.\n\n" +
+			"The source is the event log. A run under audit with no profile records every\n" +
+			"destination. --run picks one run by id. --last picks the newest run of this\n" +
+			"repository. --since picks every run of this repository in a window (the default).\n\n" +
+			"Without --new or --into the command prints the destinations and the proposed block.\n" +
+			"--new writes a profile that inherits the built-in profile of the package manager that\n" +
+			"ran. --into adds the rules to an existing profile and keeps its other blocks. --dry-run\n" +
+			"shows what --new or --into would write. A proposal adds rules. It does not remove rules.",
 		Example: "  pmg sandbox profile propose --run 3f2a9c1d7e4b\n" +
 			"  pmg sandbox profile propose --last --new ci-network\n" +
 			"  pmg sandbox profile propose --since 30d --into .pmg/profiles/ci.yml --dry-run",
@@ -102,12 +101,12 @@ func newProfileProposeCommand(factory registryFactory, deps proposeDeps) *cobra.
 	}
 
 	cmd.Flags().StringVar(&opts.section, "section", proposeSectionNetwork, "Profile section to propose. Only network is supported")
-	cmd.Flags().StringVar(&opts.run, "run", "", "Propose from one run, by the id the report printed")
-	cmd.Flags().BoolVar(&opts.last, "last", false, "Propose from the newest run of this repository")
-	cmd.Flags().StringVar(&opts.since, "since", "", "Propose from every run of this repository in a window, such as 30d or 12h (default "+proposeDefaultWindow+")")
-	cmd.Flags().StringVar(&opts.newRef, "new", "", "Write a new profile. A bare name goes to the user profile directory, a path is written as given")
-	cmd.Flags().StringVar(&opts.into, "into", "", "Merge the network block into this profile file")
-	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "With --new or --into: print the file or the diff and write nothing")
+	cmd.Flags().StringVar(&opts.run, "run", "", "Use one run, by the id in the run report")
+	cmd.Flags().BoolVar(&opts.last, "last", false, "Use the newest run of this repository")
+	cmd.Flags().StringVar(&opts.since, "since", "", "Use every run of this repository in a window, such as 30d or 12h (default "+proposeDefaultWindow+")")
+	cmd.Flags().StringVar(&opts.newRef, "new", "", "Write a new profile. Give a name for the user profile directory, or a file path")
+	cmd.Flags().StringVar(&opts.into, "into", "", "Add the rules to this profile file")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what --new or --into would write")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Print the destinations and the proposal as JSON")
 	return cmd
 }
@@ -164,7 +163,7 @@ func runProfilePropose(out io.Writer, opts *profileProposeOptions, factory regis
 		}
 		_, err = fmt.Fprintf(out, "\nWrote %s\n", target.path)
 	case opts.dryRun:
-		_, err = fmt.Fprintln(out, "\nDry run. Nothing written.")
+		_, err = fmt.Fprintln(out, "\nDry run. No file was written.")
 	}
 	return err
 }
@@ -173,8 +172,7 @@ func validateProposeOptions(opts *profileProposeOptions) error {
 	if opts.section != proposeSectionNetwork {
 		return invalidArgumentError(
 			fmt.Sprintf("section %q is not supported", opts.section),
-			"The proxy observes every destination, so network is a baseline. The other sections come from violations. "+
-				"Promote them with `pmg sandbox allow --last --all`.",
+			"Only the network section comes from observed destinations. For the other sections, run `pmg sandbox allow --last --all`.",
 		)
 	}
 	sources := 0
@@ -184,10 +182,10 @@ func validateProposeOptions(opts *profileProposeOptions) error {
 		}
 	}
 	if sources > 1 {
-		return invalidArgumentError("--run, --last and --since are mutually exclusive", "Pick one source.")
+		return invalidArgumentError("--run, --last and --since are mutually exclusive", "Use only one of them.")
 	}
 	if opts.newRef != "" && opts.into != "" {
-		return invalidArgumentError("--new and --into are mutually exclusive", "Pick one target.")
+		return invalidArgumentError("--new and --into are mutually exclusive", "Use only one of them.")
 	}
 	return nil
 }
@@ -199,7 +197,7 @@ func loadRecords(opts *profileProposeOptions, deps proposeDeps) ([]netobserve.Re
 	dir, err := deps.eventLogDir()
 	if err != nil {
 		return nil, wrapUseful(err, errcodes.InvalidArgument,
-			"The proposal reads the event log. Set skip_event_logging to false in the PMG config, run the command again, then propose.")
+			"The command reads the event log. Set skip_event_logging to false, run the package manager command again, then propose.")
 	}
 
 	window := proposeDefaultWindow
@@ -232,7 +230,7 @@ func noRunError(opts *profileProposeOptions, window string, retentionDays int) e
 	case opts.run != "":
 		return notFoundError(
 			fmt.Sprintf("no run %s in the event log", opts.run),
-			keep+" Run the command again, then propose with the id its report prints.",
+			keep+" Run the package manager command again and use the run id from its report.",
 		)
 	case opts.last:
 		return notFoundError(
@@ -343,7 +341,7 @@ func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Re
 		target.name = ref
 	}
 	if _, err := os.Stat(target.path); err == nil {
-		return nil, invalidArgumentError(fmt.Sprintf("profile already exists at %s", target.path), "Pass --into "+target.path+" to merge into it.")
+		return nil, invalidArgumentError(fmt.Sprintf("profile already exists at %s", target.path), "Use --into "+target.path+" to add the rules to it.")
 	}
 
 	parent, err := proposeParent(records, registry)
@@ -403,7 +401,7 @@ func (t *proposeTarget) render(network pmgsandbox.NetworkPolicy) ([]byte, error)
 func (t *proposeTarget) renderNew(network pmgsandbox.NetworkPolicy) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "# Proposed by `pmg sandbox profile propose` on %s from run %s.\n", t.now.Format("2006-01-02"), strings.Join(t.runIDs, ", "))
-	b.WriteString("# Review every rule. The run saw these destinations and nothing else.\n")
+	b.WriteString("# Review every rule. One run does not reach every destination the job needs.\n")
 	fmt.Fprintf(&b, "name: %s\n", yamlString(t.name))
 	b.WriteString("description: network baseline from observed destinations\n")
 	fmt.Fprintf(&b, "inherits: %s\n", yamlString(t.parent.Name))
@@ -416,9 +414,9 @@ func (t *proposeTarget) renderNew(network pmgsandbox.NetworkPolicy) []byte {
 	return b.Bytes()
 }
 
-// write puts the rendered profile in place only after the registry loads
-// it, so a proposal that does not resolve never replaces a profile that
-// does. The check runs on a temporary file next to the target.
+// write loads the rendered profile through the registry before it replaces
+// the target, so a broken proposal cannot replace a profile that loads.
+// The check runs on a temporary file next to the target.
 func (t *proposeTarget) write(rendered []byte, registry pmgsandbox.ProfileRegistry) error {
 	dir := filepath.Dir(t.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -496,7 +494,7 @@ func printProposal(out io.Writer, target *proposeTarget, rendered []byte, result
 		if _, err := out.Write(rendered); err != nil {
 			return err
 		}
-		_, err := fmt.Fprintln(out, "\nPass --new <name|path> or --into <path> to write it into a profile.")
+		_, err := fmt.Fprintln(out, "\nTo write it, use --new <name|path> or --into <path>.")
 		return err
 	case target.isNew:
 		if _, err := fmt.Fprintf(out, "New profile %s:\n\n", target.path); err != nil {
@@ -516,7 +514,7 @@ func printProposal(out io.Writer, target *proposeTarget, rendered []byte, result
 			return err
 		}
 		if diff == "" {
-			diff = "No change. Every destination is covered.\n"
+			diff = "No change. The profile already allows every destination.\n"
 		}
 		_, err = io.WriteString(out, diff)
 		return err

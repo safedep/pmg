@@ -1,6 +1,6 @@
-# guarantee: when event logging is off, no run is stored, so the stop
-# report does not name the proposal command, and the proposal command
-# says why it has nothing to read.
+# guarantee: when event logging is off, no run is stored. The stop report
+# does not name the proposal command, and the proposal command reports
+# that event logging is off.
 
 [windows] skip 'pmg proxy start --daemon is not supported on Windows'
 

@@ -290,9 +290,9 @@ line for `.pmg/profiles` so a change to it gets a review.
 
 ### Build the allow list
 
-An allow list written by hand is wrong on the first run. The proxy sees
-every destination a job reaches, so a run under `audit` with no profile is
-the baseline. Three runs take a job from no policy to `enforce`.
+The proxy records every destination a job reaches. A run under `audit`
+with no profile gives the baseline for the allow list. Three runs take a
+job from no policy to `enforce`.
 
 1. **Observe.** Start the daemon with no profile, run the job, stop the
    daemon. The stop report counts the destinations and names the run:
@@ -301,30 +301,30 @@ the baseline. Three runs take a job from no policy to `enforce`.
    Destinations: 7 observed. Propose a profile with: pmg sandbox profile propose --run 3f2a9c1d7e4b
    ```
 
-2. **Propose.** The command reads the run from the event log and prints
-   every destination with its client, its count and what the proposal does
-   with it. `--new` writes the profile. `--dry-run` prints the file instead.
+2. **Propose.** The command reads the run from the event log. It prints
+   each destination with its client, its count and the proposed action.
+   `--new` writes the profile. `--dry-run` shows the file and does not
+   write it.
 
    ```bash
    pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml
    ```
 
-   The profile holds one allow rule per host and port and the catch-all
-   deny, and inherits `exec`. A proposal from a one-shot run inherits the
-   built-in profile of the package manager that ran, and does not repeat
-   the registry hosts that profile already names. Review every rule. Commit
-   the file.
+   The profile inherits `exec` and holds one allow rule per host and port,
+   plus a catch-all deny. A proposal from a one-shot run inherits the
+   built-in profile of the package manager and does not repeat the registry
+   hosts that profile already allows. Review every rule. Commit the file.
 
 3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
    --network-mode enforce`. A destination the run did not reach gets a 403.
 
-A later run adds destinations with `--into .pmg/profiles/ci.yml`.
-The proposal appends allow rules and never removes one, because one run does
-not see every path. A destination a specific deny rule of the profile
-refuses stays denied. `--last` picks the newest run of the repository and
-`--since 30d` folds every run of the repository in the window into one
-table. The event log keeps `event_log_retention_days` of runs, and the
-command reads nothing when `skip_event_logging` is on.
+A later run adds destinations with `--into .pmg/profiles/ci.yml`. A
+proposal adds allow rules and does not remove rules, because one run does
+not reach every destination. A destination that a deny rule of the profile
+matches stays denied. `--last` uses the newest run of the repository.
+`--since 30d` merges every run of the repository in the window. The event
+log keeps `event_log_retention_days` of runs. With `skip_event_logging` on,
+the command has no data.
 
 ## Fail on violation
 

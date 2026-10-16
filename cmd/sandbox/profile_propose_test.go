@@ -100,7 +100,7 @@ func TestProfilePropose_DryRunPrintsTheTableAndWritesNothing(t *testing.T) {
 	assert.Contains(t, out, "inherits: npm")
 	assert.Contains(t, out, "    - cdn.example:443\n")
 	assert.Contains(t, out, "deny_outbound: []", "the built-in already denies everything else")
-	assert.Contains(t, out, "Dry run. Nothing written.")
+	assert.Contains(t, out, "Dry run. No file was written.")
 	assert.NoFileExists(t, filepath.Join(f.userDir, "ci.yml"))
 }
 

@@ -1,7 +1,7 @@
 # guarantee: a daemon run under audit with no profile observes every
 # destination, the stop report names the proposal command, the proposal
 # writes a profile with one allow rule per destination and the catch-all
-# deny, a dry run writes nothing, and a daemon under that profile in enforce refuses a destination
+# deny, a dry run does not write the file, and a daemon under that profile in enforce refuses a destination
 # the run did not reach.
 
 [windows] skip 'pmg proxy start --daemon is not supported on Windows'
@@ -21,7 +21,7 @@ stdout 'add registry.npmjs.org:443'
 ! exists $WORK/ci.yml
 
 exec pmg sandbox profile propose --last --new $WORK/ci.yml --dry-run
-stdout 'Dry run. Nothing written.'
+stdout 'Dry run. No file was written.'
 ! exists $WORK/ci.yml
 
 exec pmg sandbox profile propose --last --new $WORK/ci.yml
