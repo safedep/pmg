@@ -638,13 +638,13 @@
   title: "a run under audit proposes the profile that enforces it"
   category: proxy
   tier: P1
-  guarantee: "A daemon run under audit with no profile observes every destination and its stop report names the proposal command. `pmg sandbox profile propose --dry-run` shows the profile and does not write it. Without it the command writes a profile with one allow rule per observed destination and the catch-all deny, and the profile lints. A daemon under that profile in enforce lets the observed destination through and refuses one the run did not reach."
+  guarantee: "A daemon run under audit with no profile observes every destination, `pmg proxy env` exports the run id as PMG_PROXY_RUN, and the stop report names the proposal command. `pmg sandbox profile propose --dry-run` shows the profile and does not write it. Without it the command writes a profile with one allow rule per observed destination and the catch-all deny, and the profile lints. A daemon under that profile in enforce lets the observed destination through and refuses one the run did not reach."
   labels: [proxy, network, propose]
 - id: proxy/network/propose/hint-needs-log
   title: "a run without an event log does not name the proposal command"
   category: proxy
   tier: P2
-  guarantee: "When event logging is off, the stop report of a daemon run does not name `pmg sandbox profile propose`, because no run is stored. The proposal command fails and says that event logging is off."
+  guarantee: "When event logging is off, no run is stored. `pmg proxy env` exports no run id, and the stop report of a daemon run does not name `pmg sandbox profile propose`. The proposal command fails and says that event logging is off."
   labels: [proxy, network, propose]
 - id: sandbox/network/enforce-denies-a-registry-host
   title: "the proxy refuses a destination a profile deny rule covers"

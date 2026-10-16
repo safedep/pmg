@@ -271,7 +271,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		ConfigSource: string(cfg.ConfigSource()),
 		Network:      network.state,
 		Warnings:     append(notices, network.warnings...),
-		RunID:        netpolicy.NewRunID(),
+		RunID:        runID(),
 	}
 	repoRoot := sandbox.RepoRootOfCwd()
 
@@ -360,7 +360,7 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		profile, mode = network.state.Profile(), network.state.Mode
 	}
 	observation := networkDecisions.Observation(state.RunID, repoRoot, "", profile, mode)
-	if eventlog.Dir() != "" {
+	if state.RunID != "" {
 		state.ObservedDestinations = len(observation.Destinations)
 	}
 	if werr := writeState(statePath, state); werr != nil {
@@ -572,4 +572,14 @@ func autoBlockConfirmations(ch chan *interceptors.ConfirmationRequest) {
 		req.ResponseChan <- false
 		close(req.ResponseChan)
 	}
+}
+
+// runID names the run in the event log. With event logging off no run is
+// stored, so the state carries no id, `pmg proxy env` exports none, and
+// the stop report names no proposal command.
+func runID() string {
+	if eventlog.Dir() == "" {
+		return ""
+	}
+	return netpolicy.NewRunID()
 }

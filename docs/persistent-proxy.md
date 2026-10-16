@@ -295,8 +295,9 @@ The proxy records every destination its clients reach. A run under
 take a daemon from no policy to `enforce`.
 
 1. **Observe.** Start the daemon with no profile, run the commands through
-   it, stop the daemon. The stop report counts the destinations and names
-   the run:
+   it, stop the daemon. `pmg proxy env` exports the run id as
+   `PMG_PROXY_RUN` for a script. The stop report counts the destinations
+   and names the run:
 
    ```text
    Destinations: 7 observed. Propose a profile with: pmg sandbox profile propose --run 3f2a9c1d7e4b
@@ -559,6 +560,7 @@ variables that point a tool at the system store, and the path of the bundle:
 | `UV_NATIVE_TLS=1` | uv validates against its bundled roots without it. |
 | `REQUESTS_CA_BUNDLE=<system bundle>` | Tools built on Python `requests` validate against `certifi`. poetry needs it. pip does not. |
 | `PMG_CA_BUNDLE=<system bundle>` | The file to pass into a container. See below. |
+| `PMG_PROXY_RUN=<id>` | The run in the event log, for `pmg sandbox profile propose --run`. |
 
 `curl`, Go, cargo, pip and bun trust the store on their own.
 
