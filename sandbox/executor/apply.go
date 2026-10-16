@@ -106,7 +106,11 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 			Wrap(fmt.Errorf("sandbox not supported on %s/%s", runtime.GOOS, runtime.GOARCH))
 	}
 
-	registries, err := newProfileRegistries(cfg)
+	build := newProfileRegistries
+	if cfg.IsLocked() {
+		build = newManagedProfileRegistries
+	}
+	registries, err := build(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +123,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 		policy, err = registries.loadOverride(cfg.SandboxProfileOverride)
 		if err != nil {
-			return nil, profileLoadError("Failed to load sandbox profile override", cfg.SandboxProfileOverride, err)
+			return nil, registries.loadError("Failed to load sandbox profile override", cfg.SandboxProfileOverride, err)
 		}
 	} else {
 		log.Debugf("Looking up sandbox policy for %s", pmName)
@@ -157,7 +161,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 
 		policy, err = registries.load(policyRef.Profile)
 		if err != nil {
-			return nil, profileLoadError("Failed to load sandbox policy", policyRef.Profile, err)
+			return nil, registries.loadError("Failed to load sandbox policy", policyRef.Profile, err)
 		}
 	}
 
@@ -223,31 +227,53 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 }
 
 // profileRegistries holds the registries of one config, so every loader
-// resolves a profile reference the same way.
+// resolves a profile reference the same way. A managed set holds the
+// built-ins, the templates of the managed config and the files next to it.
 type profileRegistries struct {
 	presets   sandbox.PresetRegistry
 	profiles  sandbox.ProfileRegistry
 	templates map[string]string
 	configDir string
+	managed   bool
 }
 
 func newProfileRegistries(cfg *config.RuntimeConfig) (*profileRegistries, error) {
-	presets, err := sandbox.NewPresetRegistry(sandbox.WithUserPresetDir(cfg.SandboxPresetDir()))
+	return buildProfileRegistries(cfg, false,
+		[]sandbox.PresetRegistryOption{sandbox.WithUserPresetDir(cfg.SandboxPresetDir())},
+		[]sandbox.RegistryOption{sandbox.WithUserProfileDir(cfg.SandboxProfileDir())},
+	)
+}
+
+// newManagedProfileRegistries leaves out the user preset and profile
+// directories. The user writes them, so a profile from them must not enter
+// the chain of a locked config.
+func newManagedProfileRegistries(cfg *config.RuntimeConfig) (*profileRegistries, error) {
+	return buildProfileRegistries(cfg, true, nil, nil)
+}
+
+func buildProfileRegistries(cfg *config.RuntimeConfig, managed bool, presetOptions []sandbox.PresetRegistryOption, profileOptions []sandbox.RegistryOption) (*profileRegistries, error) {
+	presets, err := sandbox.NewPresetRegistry(presetOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create preset registry: %w", err)
 	}
 
 	templates := cfg.SandboxPolicyTemplatePaths()
-	profiles, err := sandbox.NewProfileRegistry(
-		sandbox.WithUserProfileDir(cfg.SandboxProfileDir()),
+	profileOptions = append(profileOptions,
 		sandbox.WithPresetRegistry(presets),
 		sandbox.WithPolicyTemplates(templates),
 	)
+	profiles, err := sandbox.NewProfileRegistry(profileOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create profile registry: %w", err)
 	}
 
-	return &profileRegistries{presets: presets, profiles: profiles, templates: templates, configDir: filepath.Dir(cfg.ConfigFilePath())}, nil
+	return &profileRegistries{
+		presets:   presets,
+		profiles:  profiles,
+		templates: templates,
+		configDir: filepath.Dir(cfg.ConfigFilePath()),
+		managed:   managed,
+	}, nil
 }
 
 // load resolves a reference from the config: a template name first, so a
@@ -260,6 +286,9 @@ func (r *profileRegistries) load(ref string) (*sandbox.SandboxPolicy, error) {
 	if templatePath, exists := r.templates[ref]; exists {
 		ref = templatePath
 	}
+	if r.managed {
+		return r.loadManaged(ref)
+	}
 	if IsProfilePath(ref) && !filepath.IsAbs(ref) {
 		if next := filepath.Join(r.configDir, ref); fileExists(next) {
 			ref = next
@@ -268,9 +297,32 @@ func (r *profileRegistries) load(ref string) (*sandbox.SandboxPolicy, error) {
 	return r.profiles.GetProfile(ref)
 }
 
+// loadManaged resolves a reference a locked config may hold: a built-in
+// name, an absolute path, or a path relative to the managed config file.
+// A relative path never falls back to the working directory. A bare name
+// must be a built-in, because the registry looks in the working directory
+// for any other name.
+func (r *profileRegistries) loadManaged(ref string) (*sandbox.SandboxPolicy, error) {
+	switch {
+	case filepath.IsAbs(ref):
+	case IsProfilePath(ref):
+		ref = filepath.Join(r.configDir, ref)
+	default:
+		if _, builtin := r.profiles.BuiltinProfileYAML(ref); !builtin {
+			return nil, fmt.Errorf("%w: %s is not a built-in profile, a policy template or a path", sandbox.ErrProfileNotFound, ref)
+		}
+	}
+	return r.profiles.GetProfile(ref)
+}
+
 // loadOverride resolves a reference from the command line, where a
-// relative path is in the working directory.
+// relative path is in the working directory. A locked config refuses the
+// flag before this runs. The managed set refuses here too, so a command
+// without that check cannot load a file from the working directory.
 func (r *profileRegistries) loadOverride(ref string) (*sandbox.SandboxPolicy, error) {
+	if r.managed {
+		return nil, fmt.Errorf("%w: a locked config takes no profile override", sandbox.ErrProfileNotFound)
+	}
 	return r.profiles.GetProfile(ref)
 }
 
@@ -297,51 +349,43 @@ func LoadProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy,
 
 	policy, err := registries.load(ref)
 	if err != nil {
-		return nil, profileLoadError("Failed to load sandbox profile", ref, err)
+		return nil, registries.loadError("Failed to load sandbox profile", ref, err)
 	}
 	return policy, nil
 }
 
 // LoadManagedProfile resolves ref as a locked config may name it: a
-// built-in name, an absolute path, or a path relative to the managed config
-// file. The chain resolves the same way: a parent is a built-in, an
-// absolute path, or a file next to its child. A template, a user profile
-// and a user preset are writable by the user, so the registry has none.
+// built-in name, a template of the managed config, an absolute path, or a
+// path relative to the managed config file. The chain resolves the same
+// way. A user profile and a user preset are writable by the user, so the
+// registry has none.
 func LoadManagedProfile(cfg *config.RuntimeConfig, ref string) (*sandbox.SandboxPolicy, error) {
-	presets, err := sandbox.NewPresetRegistry()
+	registries, err := newManagedProfileRegistries(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create preset registry: %w", err)
-	}
-	profiles, err := sandbox.NewProfileRegistry(sandbox.WithPresetRegistry(presets))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create profile registry: %w", err)
+		return nil, err
 	}
 
-	path := ref
-	switch {
-	case filepath.IsAbs(ref):
-	case IsProfilePath(ref):
-		path = filepath.Join(filepath.Dir(cfg.ConfigFilePath()), ref)
-	default:
-		if _, builtin := profiles.BuiltinProfileYAML(ref); !builtin {
-			err := fmt.Errorf("%w: %s is not a built-in profile or a path", sandbox.ErrProfileNotFound, ref)
-			return nil, usefulerror.NewUsefulError().
-				WithCode(errcodes.NotFound).
-				WithHumanError(fmt.Sprintf("Failed to load the managed sandbox profile: %v", err)).
-				WithHelp("A globally managed configuration names a built-in profile, an absolute path, or a path relative to the managed config file.").
-				Wrap(err)
-		}
-	}
-
-	policy, err := profiles.GetProfile(path)
+	policy, err := registries.load(ref)
 	if err != nil {
-		return nil, profileLoadError("Failed to load the managed sandbox profile", path, err)
+		return nil, registries.loadError("Failed to load the managed sandbox profile", ref, err)
 	}
 	return policy, nil
 }
 
-// profileLoadError carries the cause to the user. A profile that exists
-// but does not load points at the linter, which lists every issue.
+// loadError carries the cause to the user. A profile that exists but does
+// not load points at the linter, which lists every issue. A managed set
+// names what a locked config may hold.
+func (r *profileRegistries) loadError(what, ref string, err error) error {
+	if r.managed && errors.Is(err, sandbox.ErrProfileNotFound) {
+		return usefulerror.NewUsefulError().
+			WithCode(errcodes.NotFound).
+			WithHumanError(fmt.Sprintf("%s: %v", what, err)).
+			WithHelp("A globally managed configuration names a built-in profile, one of its policy templates, an absolute path, or a path relative to the managed config file.").
+			Wrap(err)
+	}
+	return profileLoadError(what, ref, err)
+}
+
 func profileLoadError(what, ref string, err error) error {
 	code := errcodes.InvalidArgument
 	help := fmt.Sprintf("Run `pmg sandbox profile lint %s` to see every issue.", ref)

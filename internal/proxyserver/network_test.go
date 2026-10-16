@@ -226,7 +226,7 @@ func resolveNetworkPolicyErr(cfg *config.RuntimeConfig, o NetworkOverrides) erro
 }
 
 // A locked config's profile must not resolve through a directory the user
-// writes: the working directory, the user profile directory, or a template.
+// writes: the working directory or the user profile directory.
 func TestResolveNetworkPolicyLoadsTheLockedProfileFromManagedLocations(t *testing.T) {
 	open := "name: open\npackage_managers: [npm]\nnetwork:\n  allow_outbound: ['*:*']\n"
 
@@ -266,7 +266,7 @@ func TestResolveNetworkPolicyLoadsTheLockedProfileFromManagedLocations(t *testin
 	cfg.Config.Proxy.Server.Profile = "open"
 	err = resolveNetworkPolicyErr(cfg, NetworkOverrides{LockedProfile: "open"})
 	require.Error(t, err, "a user profile name is not a managed location")
-	assert.Contains(t, err.Error(), "not a built-in profile or a path")
+	assert.Contains(t, err.Error(), "not a built-in profile, a policy template or a path")
 }
 
 func TestNetworkPolicyLine(t *testing.T) {

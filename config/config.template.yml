@@ -192,7 +192,7 @@ sandbox:
   policy_templates:
     # Name for the template. Can be used to override a built-in profile or create a custom profile.
     # Path is the path to the template file.
-    # Relative path can be used to reference a template file in the config directory (example: ./npm-restrictive.yml)
+    # A relative path is next to this file (example: ./npm-restrictive.yml)
     npm-restrictive-override:
       path: ./profiles/npm-restrictive.yml
 

@@ -583,6 +583,12 @@
   tier: P1
   guarantee: "Under global_lockdown --network-allow and --network-mode audit over enforce fail fast, a profile that adds an allow rule fails and names the rule, and a deny rule or a profile that only adds deny rules is accepted."
   labels: [policy, network]
+- id: enforce/policy/lockdown-resolves-profile-from-managed-locations
+  title: "lockdown resolves the sandbox profile chain from managed locations"
+  category: enforce
+  tier: P1
+  guarantee: "Under global_lockdown a one-shot run resolves sandbox.policies.<pm>.profile and every parent in its chain from the managed config directory and the built-ins. A user profile with a parent's name does not enter the chain, so the managed deny rule refuses the registry."
+  labels: [policy, sandbox, network]
 
 # truststore: the scripts change the system trust store. They run only in the
 # truststore job, one per OS, on a disposable CI host.

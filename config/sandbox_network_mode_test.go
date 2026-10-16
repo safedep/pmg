@@ -43,19 +43,36 @@ func TestDefaultConfigSandboxNetworkModeIsAudit(t *testing.T) {
 	assert.Equal(t, SandboxNetworkModeAudit, DefaultConfig().Config.Sandbox.NetworkMode)
 }
 
+// A relative template path is next to the config file that declares it,
+// so a managed config's template never resolves into the user's directory.
 func TestSandboxPolicyTemplatePaths(t *testing.T) {
-	configDir := t.TempDir()
+	userDir := t.TempDir()
+	managedDir := t.TempDir()
 	absolute := filepath.Join(t.TempDir(), "runner.yml")
-
-	cfg := RuntimeConfig{configDir: configDir}
-	cfg.Config.Sandbox.PolicyTemplates = map[string]SandboxPolicyTemplate{
+	templates := map[string]SandboxPolicyTemplate{
 		"relative": {Path: filepath.Join("profiles", "ci.yml")},
 		"absolute": {Path: absolute},
 	}
 
-	paths := cfg.SandboxPolicyTemplatePaths()
-	assert.Equal(t, filepath.Join(configDir, "profiles", "ci.yml"), paths["relative"])
-	assert.Equal(t, absolute, paths["absolute"])
+	tests := []struct {
+		name           string
+		configFilePath string
+		wantRelative   string
+	}{
+		{name: "user config", configFilePath: filepath.Join(userDir, "config.yml"), wantRelative: filepath.Join(userDir, "profiles", "ci.yml")},
+		{name: "managed config", configFilePath: filepath.Join(managedDir, "config.yml"), wantRelative: filepath.Join(managedDir, "profiles", "ci.yml")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := RuntimeConfig{configDir: userDir, configFilePath: tc.configFilePath}
+			cfg.Config.Sandbox.PolicyTemplates = templates
+
+			paths := cfg.SandboxPolicyTemplatePaths()
+			assert.Equal(t, tc.wantRelative, paths["relative"])
+			assert.Equal(t, absolute, paths["absolute"])
+		})
+	}
 }
 
 func TestSandboxNetworkModeLoader(t *testing.T) {

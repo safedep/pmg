@@ -239,10 +239,10 @@ first. A relative `--profile` path resolves against the working directory.
 A reference with a directory part or a `.yml` extension is a path. A bare
 name such as `npm-restrictive` is a profile name, whatever file the working
 directory holds. Under `global_lockdown` the managed config names a built-in
-profile, an absolute path, or a path relative to the managed config file,
-and a parent in its chain is a built-in, an absolute path, or a file next
-to its child, because a user profile, a template, a user preset and the
-working directory are writable by the user. The two rule flags add one `host:port` rule each to the resolved
+profile, one of its `policy_templates`, an absolute path, or a path relative
+to the managed config file. A parent in its chain resolves the same way. A
+user profile, a user preset and the working directory are writable by the
+user, so they are not read. The two rule flags add one `host:port` rule each to the resolved
 profile. `--network-allow` also removes an equal deny rule, because deny wins
 at equal specificity. A profile inherits its parent's rules, so a repository
 profile that inherits the system profile adds rules and drops none.

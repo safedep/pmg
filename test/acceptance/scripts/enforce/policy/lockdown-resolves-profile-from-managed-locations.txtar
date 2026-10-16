@@ -1,0 +1,61 @@
+# guarantee: under global_lockdown a one-shot run resolves its sandbox
+# profile chain from the managed config directory and the built-ins. A user
+# profile with the parent's name does not replace the parent, so the deny
+# rule of the managed chain refuses the registry.
+
+[!enforce] skip 'a managed config needs root'
+[!exec:npm] skip 'npm not installed'
+
+env HOME=$WORK/home
+mkdir $WORK/home
+env PMG_CONFIG_DIR=$WORK/config
+env PMG_CACHE_DIR=$WORK/cache
+cd $WORK/proj
+
+# The harness removes a managed config a script created. The profiles next
+# to it are the script's to remove. A failed script leaves them on the
+# disposable host.
+mkdir /etc/safedep/pmg/acceptance-profiles
+cp $WORK/managed.yml /etc/safedep/pmg/config.yml
+cp $WORK/profiles/managed.yml /etc/safedep/pmg/acceptance-profiles/managed.yml
+cp $WORK/profiles/base.yml /etc/safedep/pmg/acceptance-profiles/base.yml
+
+! exec pmg npm install left-pad --fetch-retries=0
+stderr 'E403'
+stdout 'Network policy denied'
+stdout 'registry.npmjs.org:443  rule registry.npmjs.org:443'
+! exists node_modules/left-pad/package.json
+
+rm /etc/safedep/pmg/acceptance-profiles
+
+-- proj/package.json --
+{
+  "name": "lockdown-profile-acceptance",
+  "version": "1.0.0"
+}
+-- managed.yml --
+global_lockdown: true
+disable_telemetry: true
+sandbox:
+  enabled: true
+  network_mode: enforce
+  policies:
+    npm:
+      enabled: true
+      profile: acceptance-profiles/managed.yml
+-- profiles/managed.yml --
+name: managed
+package_managers: [npm]
+inherits: base.yml
+-- profiles/base.yml --
+name: managed-base
+package_managers: [npm]
+inherits: npm
+network:
+  deny_outbound:
+    - registry.npmjs.org:443
+-- config/sandbox/profiles/base.yml.yml --
+name: open
+description: a user profile named like the managed parent
+package_managers: [npm]
+inherits: npm
