@@ -128,12 +128,17 @@ func TestTrustedAlias(t *testing.T) {
 }
 
 // ownAliasBy reports uid as the owner of path. Only root can chown, so the
-// test replaces the owner lookup.
+// test replaces the owner lookup. The walk visits resolved paths, and a temp
+// dir can sit behind a symlink (/var on macOS), so the entry is matched by
+// file identity, not by name.
 func ownAliasBy(t *testing.T, path string, uid uint32) {
 	t.Helper()
+	target, err := os.Lstat(path)
+	require.NoError(t, err)
+
 	previous := aliasEntryOwner
 	aliasEntryOwner = func(entry string, info os.FileInfo) (uint32, bool) {
-		if entry == path {
+		if os.SameFile(info, target) {
 			return uid, true
 		}
 		return previous(entry, info)
