@@ -13,7 +13,7 @@ import (
 
 func TestNetworkDecisionLogReport(t *testing.T) {
 	l := newNetworkDecisionLog(&executor.Resolution{Policy: &sandbox.SandboxPolicy{Name: "ci"}})
-	assert.Nil(t, l.report())
+	assert.Nil(t, l.Report())
 
 	curl := proxy.Origin{PID: 7, Comm: "curl", Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}
 	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: curl})
@@ -21,7 +21,7 @@ func TestNetworkDecisionLogReport(t *testing.T) {
 	l.record(proxy.NetworkDecision{Host: "cdn.example", Port: 80, Rule: "*:80", Enforced: true,
 		Origin: proxy.Origin{Address: netip.MustParseAddr("172.17.0.2"), EntryPoint: proxy.EntryPointRedirectedNamespace}})
 
-	report := l.report()
+	report := l.Report()
 	require.NotNil(t, report)
 	assert.True(t, report.Enforced)
 	require.Len(t, report.Denials, 2)
@@ -37,7 +37,7 @@ func TestNetworkDecisionLogAuditIsNotAViolation(t *testing.T) {
 	l := newNetworkDecisionLog(nil)
 	l.record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: false})
 
-	report := l.report()
+	report := l.Report()
 	require.NotNil(t, report)
 	assert.False(t, report.Enforced)
 	assert.Equal(t, "", report.Denials[0].Client)

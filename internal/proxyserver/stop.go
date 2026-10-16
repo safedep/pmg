@@ -30,6 +30,13 @@ type StopResult struct {
 	// CloudSync is the daemon's shutdown flush outcome (nil when cloud sync is
 	// disabled), surfaced so the caller can report it.
 	CloudSync *CloudSyncResult
+
+	// Network is the daemon's network policy with its denials. nil when
+	// the daemon had none.
+	Network *NetworkState
+
+	// Enforce is the kernel enforcement state. nil without --enforce.
+	Enforce *EnforceState
 }
 
 // Stop signals the running proxy to terminate, waits for it to exit, and
@@ -86,5 +93,7 @@ func Stop(statePath string) (StopResult, error) {
 		BlockedCount:  final.BlockedCount,
 		StateVerified: readErr == nil,
 		CloudSync:     final.CloudSync,
+		Network:       final.Network,
+		Enforce:       final.Enforce,
 	}, nil
 }

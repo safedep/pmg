@@ -15,28 +15,21 @@ import (
 	"github.com/safedep/pmg/sandbox/executor"
 )
 
-// networkDecisionLog writes every network policy decision to the audit log
-// and keeps one line per destination for the report.
-type networkDecisionLog struct {
-	mu             sync.Mutex
-	policyName     string
-	packageManager string
-	enforced       bool
-	denials        map[string]*ui.NetworkDenial
+// NetworkDecisionLog writes every network policy decision to the audit log
+// and keeps one line per destination for the report. The daemon keys the
+// lines by client as well, so its report names the program behind each one.
+type NetworkDecisionLog struct {
+	mu       sync.Mutex
+	byClient bool
+	enforced bool
+	denials  map[string]*ui.NetworkDenial
 }
 
-func newNetworkDecisionLog(res *executor.Resolution) *networkDecisionLog {
-	l := &networkDecisionLog{denials: map[string]*ui.NetworkDenial{}}
-	if res != nil {
-		l.packageManager = res.PackageManager
-		if res.Policy != nil {
-			l.policyName = res.Policy.Name
-		}
-	}
-	return l
+func NewNetworkDecisionLog(byClient bool) *NetworkDecisionLog {
+	return &NetworkDecisionLog{byClient: byClient, denials: map[string]*ui.NetworkDenial{}}
 }
 
-func (l *networkDecisionLog) record(d proxy.NetworkDecision) {
+func (l *NetworkDecisionLog) Record(d proxy.NetworkDecision) {
 	entryPoint, client := interceptors.AuditClient(d.Origin)
 	audit.LogNetworkPolicy(audit.NetworkDecision{
 		Hostname:   d.Host,
@@ -52,14 +45,19 @@ func (l *networkDecisionLog) record(d proxy.NetworkDecision) {
 
 	l.enforced = d.Enforced
 	destination := net.JoinHostPort(d.Host, strconv.Itoa(int(d.Port)))
-	if denial, ok := l.denials[destination]; ok {
+	key := destination
+	if l.byClient {
+		key += "\x00" + clientLabel(d.Origin) + "\x00" + strconv.FormatUint(uint64(d.Origin.PID), 10)
+	}
+	if denial, ok := l.denials[key]; ok {
 		denial.Count++
 		return
 	}
-	l.denials[destination] = &ui.NetworkDenial{
+	l.denials[key] = &ui.NetworkDenial{
 		Destination: destination,
 		Rule:        d.Rule,
 		Client:      clientLabel(d.Origin),
+		PID:         int(d.Origin.PID),
 		Count:       1,
 	}
 }
@@ -76,7 +74,9 @@ func clientLabel(o proxy.Origin) string {
 	return ""
 }
 
-func (l *networkDecisionLog) report() *ui.NetworkPolicyReport {
+// Report returns the denials sorted by destination, then client. nil when
+// no deny rule matched.
+func (l *NetworkDecisionLog) Report() *ui.NetworkPolicyReport {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -89,10 +89,38 @@ func (l *networkDecisionLog) report() *ui.NetworkPolicyReport {
 		report.Denials = append(report.Denials, *d)
 	}
 	sort.Slice(report.Denials, func(i, j int) bool {
-		return report.Denials[i].Destination < report.Denials[j].Destination
+		a, b := report.Denials[i], report.Denials[j]
+		if a.Destination != b.Destination {
+			return a.Destination < b.Destination
+		}
+		if a.Client != b.Client {
+			return a.Client < b.Client
+		}
+		return a.PID < b.PID
 	})
 	return report
 }
+
+// networkDecisionLog is the one-shot proxy's log. It knows the policy and
+// the package manager, so a refused destination becomes a violation.
+type networkDecisionLog struct {
+	*NetworkDecisionLog
+	policyName     string
+	packageManager string
+}
+
+func newNetworkDecisionLog(res *executor.Resolution) *networkDecisionLog {
+	l := &networkDecisionLog{NetworkDecisionLog: NewNetworkDecisionLog(false)}
+	if res != nil {
+		l.packageManager = res.PackageManager
+		if res.Policy != nil {
+			l.policyName = res.Policy.Name
+		}
+	}
+	return l
+}
+
+func (l *networkDecisionLog) record(d proxy.NetworkDecision) { l.Record(d) }
 
 // observeViolations records the refused destinations as sandbox violations.
 // An audit decision is not a violation, because nothing was refused.
@@ -106,7 +134,7 @@ func (l *networkDecisionLog) observeViolations() {
 // client has no process attribution, and the package manager is the only
 // client of the one-shot proxy, so its name stands in.
 func (l *networkDecisionLog) violations() []sandbox.Violation {
-	report := l.report()
+	report := l.Report()
 	if report == nil || !report.Enforced {
 		return nil
 	}

@@ -130,6 +130,10 @@ func TestStartupMessage(t *testing.T) {
 	plain := startupMessage(State{Addr: "127.0.0.1:7777"})
 	assert.Contains(t, plain, "pmg proxy env")
 	assert.NotContains(t, plain, "enforcement")
+	assert.Contains(t, plain, "Network policy: none.")
+
+	policed := startupMessage(State{Addr: "127.0.0.1:7777", Network: &NetworkState{Chain: []string{"npm-restrictive"}, Mode: "audit"}})
+	assert.Contains(t, policed, "Network policy: audit, profile npm-restrictive, enforce: off, policy advisory")
 	assert.NotContains(t, plain, "config:", "an older state file has no path")
 
 	noticed := startupMessage(State{Addr: "127.0.0.1:7777", Warnings: []string{"Go module downloads are not analyzed."}})
@@ -143,6 +147,7 @@ func TestStartupMessage(t *testing.T) {
 		Warnings: []string{"Docker is running."},
 	}, Warnings: []string{"Go module downloads are not analyzed."}})
 	assert.Contains(t, enforced, "kernel enforcement (cgroup /sys/fs/cgroup, ports 80,443)")
+	assert.Contains(t, enforced, "Network policy: none.")
 	assert.Contains(t, enforced, "Docker is running.")
 	assert.Contains(t, enforced, "Go module downloads are not analyzed.")
 }

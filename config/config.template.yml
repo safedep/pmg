@@ -83,6 +83,17 @@ proxy:
     # --port flag overrides this.
     listen_port: 0
 
+    # Sandbox profile whose network rules the proxy applies: a built-in name,
+    # a policy_templates name, a user profile name, or a path. A relative
+    # path resolves against the config directory. Empty means no policy. The
+    # --profile flag overrides this.
+    profile: ""
+
+    # What the proxy does with a match on a deny_outbound rule of the profile,
+    # as sandbox.network_mode: audit or enforce. The --network-mode flag
+    # overrides this.
+    network_mode: audit
+
     # Kernel enforcement (Linux only, needs root). When enabled, the kernel
     # routes every TCP connection to the ports below from every eligible
     # process to the proxy. A process cannot opt out through its environment.

@@ -515,8 +515,11 @@ func (ps *proxyServer) RemoveInterceptor(name string) {
 func (ps *proxyServer) configureMITM() {
 	// Configure selective MITM based on interceptors
 	ps.proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+		// The session records the destination the policy decided, which for
+		// a CONNECT without a port is port 80. A request inside the tunnel
+		// is dialed on 443, so it must get its own decision.
 		orig := originFromContext(ctx.Req.Context())
-		hostname, port := splitTarget(host, 443)
+		hostname, port := splitTarget(host, connectDefaultPort)
 		ctx.UserData = mitmSession{origin: orig, target: normalizedTarget(hostname, port)}
 		if ps.shouldMITM(host, "CONNECT", orig) {
 			mitmAction := &goproxy.ConnectAction{

@@ -47,6 +47,9 @@ func loadViperConfig() error {
 	if err := ValidateSandboxNetworkMode(merged.Sandbox.NetworkMode); err != nil {
 		return err
 	}
+	if err := ValidateProxyServerNetworkMode(merged.Proxy.Server.NetworkMode); err != nil {
+		return err
+	}
 
 	globalConfig.Config = merged
 

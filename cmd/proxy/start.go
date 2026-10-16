@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,17 +43,28 @@ func newStartCommand() *cobra.Command {
 		panic(err)
 	}
 	addEnforceFlags(cmd, &srv.Enforce)
+	addNetworkFlags(cmd, srv)
 	return cmd
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
 	cfg := config.Get()
+	absoluteProfileFlag(cmd.Flags(), &cfg.Config.Proxy.Server)
 	opts := proxyserver.RunOptions{
 		StatePath: proxyserver.ResolveStatePath(stateFlag, cfg.CacheDir()),
 		Host:      cfg.Config.Proxy.Server.ListenHost,
 		Port:      cfg.Config.Proxy.Server.ListenPort,
 		Enforce:   cfg.Config.Proxy.Server.Enforce.Enabled,
 		Overrides: enforceOverridesFlag,
+		Network:   networkOverridesFlag,
+	}
+
+	if err := config.ValidateProxyServerNetworkMode(cfg.Config.Proxy.Server.NetworkMode); err != nil {
+		var modeErr *config.NetworkModeError
+		if errors.As(err, &modeErr) {
+			err = config.NewInvalidNetworkModeError(modeErr)
+		}
+		ui.ErrorExit(err)
 	}
 
 	if err := proxyserver.NamespacesNeedEnforce(cfg, opts.Enforce); err != nil {
@@ -62,9 +74,12 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	// A locked managed config owns the policy. A flag that only narrows
 	// the scope stays allowed.
 	if cfg.IsLocked() {
-		if widening := wideningFlags(cmd.Flags().Changed, cfg.Config.Proxy.Server.Enforce); len(widening) > 0 {
+		widening := wideningFlags(cmd.Flags().Changed, cfg.Config.Proxy.Server.Enforce)
+		widening = append(widening, wideningNetworkFlags(cmd.Flags(), cfg.Config.Proxy.Server)...)
+		if len(widening) > 0 {
 			ui.ErrorExit(config.NewManagedFlagOverrideError(widening))
 		}
+		opts.Network.LockedProfile = lockedProfile(cmd.Flags())
 	}
 
 	if daemonFlag && !foregroundInternalFlag {
@@ -93,6 +108,9 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 		if err := proxyserver.PreflightEnforce(cfg, opts.Overrides); err != nil {
 			return err
 		}
+	}
+	if err := proxyserver.PreflightNetwork(cfg, opts.Network); err != nil {
+		return err
 	}
 
 	exe, err := os.Executable()
@@ -129,6 +147,7 @@ func startDaemon(cmd *cobra.Command, cfg *config.RuntimeConfig, opts proxyserver
 	if state.Enforce != nil {
 		line = fmt.Sprintf("PMG proxy daemon started on %s (pid %d) with kernel enforcement\n", state.Addr, state.PID)
 	}
+	line += proxyserver.NetworkPolicyLine(state.Network, state.Enforce != nil)
 	line += proxyserver.WarningLines(state.Notices())
 	_, werr := fmt.Fprint(os.Stdout, line)
 	return werr
@@ -143,5 +162,7 @@ func daemonArgs(cmd *cobra.Command, opts proxyserver.RunOptions) []string {
 		"--port", strconv.Itoa(opts.Port),
 		"--"+flagEnforce+"="+strconv.FormatBool(opts.Enforce),
 	)
-	return append(args, enforceFlagArgs(cmd, opts.Overrides, config.Get().Config.Proxy.Server.Enforce)...)
+	srv := config.Get().Config.Proxy.Server
+	args = append(args, enforceFlagArgs(cmd, opts.Overrides, srv.Enforce)...)
+	return append(args, networkFlagArgs(cmd.Flags(), opts.Network, srv)...)
 }

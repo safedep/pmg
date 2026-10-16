@@ -79,6 +79,9 @@ type RunOptions struct {
 
 	// Overrides are the policy values from the command line.
 	Overrides EnforceOverrides
+
+	// Network are the network policy values from the command line.
+	Network NetworkOverrides
 }
 
 // EnforceOverrides are policy lists from the command line. Each list adds to
@@ -115,6 +118,11 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 
 	startTime := time.Now()
 
+	network, err := resolveNetworkPolicy(cfg, opts.Network)
+	if err != nil {
+		return err
+	}
+
 	var (
 		caCert     *certmanager.Certificate
 		caDir      string
@@ -123,7 +131,6 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		policy     netenforce.Policy
 		namespaces *namespaceRedirect
 		warnings   []string
-		err        error
 	)
 	if opts.Enforce {
 		policy, err = enforcePolicy(cfg, opts.Overrides)
@@ -202,6 +209,13 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
 
+	networkDecisions := flows.NewNetworkDecisionLog(true)
+	if network.policy != nil {
+		proxyConfig.NetworkPolicy = network.policy
+		proxyConfig.NetworkEnforce = network.state.Enforced()
+		proxyConfig.OnNetworkDecision = networkDecisions.Record
+	}
+
 	resolver := &destinationResolver{}
 	if opts.Enforce {
 		proxyConfig.Transparent = true
@@ -242,7 +256,8 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 		CACertPath:   caCertPath,
 		ConfigPath:   cfg.ConfigFilePath(),
 		ConfigSource: string(cfg.ConfigSource()),
-		Warnings:     notices,
+		Network:      network.state,
+		Warnings:     append(notices, network.warnings...),
 	}
 
 	var enforceHandle netenforce.Handle
@@ -322,6 +337,9 @@ func Run(ctx context.Context, cfg *config.RuntimeConfig, opts RunOptions) error 
 	// keeps `stop --fail-on-violation` correct in those cases.
 	stats := statsCollector.GetStats()
 	state.BlockedCount = stats.BlockedCount
+	if report := networkDecisions.Report(); report != nil {
+		state.Network.Denials = report.Denials
+	}
 	if werr := writeState(statePath, state); werr != nil {
 		log.Warnf("failed to write final proxy state: %v", werr)
 	}
@@ -380,6 +398,7 @@ func startupMessage(state State) string {
 	if state.Enforce == nil {
 		fmt.Fprintf(&b, "PMG proxy running on %s\n", state.Addr)
 		b.WriteString(configSourceLine(state))
+		b.WriteString(NetworkPolicyLine(state.Network, state.Enforce != nil))
 		b.WriteString("Run: export $(pmg proxy env | xargs)  # or: pmg proxy env >> \"$GITHUB_ENV\"\n")
 		b.WriteString(WarningLines(state.Notices()))
 		return b.String()
@@ -388,6 +407,7 @@ func startupMessage(state State) string {
 	fmt.Fprintf(&b, "PMG proxy running on %s with kernel enforcement (cgroup %s, ports %s)\n",
 		state.Addr, state.Enforce.CgroupPath, state.Enforce.PortList())
 	b.WriteString(configSourceLine(state))
+	b.WriteString(NetworkPolicyLine(state.Network, state.Enforce != nil))
 	if line := NamespaceStatusLine(state.Enforce.Namespaces); line != "" {
 		fmt.Fprintf(&b, "  %s\n", line)
 	}

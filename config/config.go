@@ -184,6 +184,16 @@ type ProxyServerConfig struct {
 	// random free port. The --port flag overrides this.
 	ListenPort int `mapstructure:"listen_port"`
 
+	// Profile names the sandbox profile whose network rules the proxy
+	// applies: a built-in name, a policy_templates name, a user profile
+	// name, or a path. A relative path resolves against the config
+	// directory. Empty means no policy. The --profile flag overrides this.
+	Profile string `mapstructure:"profile"`
+
+	// NetworkMode is audit or enforce, as sandbox.network_mode. The
+	// --network-mode flag overrides this.
+	NetworkMode string `mapstructure:"network_mode"`
+
 	// Enforce makes the Linux kernel route the connections of every eligible
 	// process to the proxy, so a process cannot opt out through its
 	// environment. See docs/persistent-proxy.md.
@@ -252,25 +262,40 @@ const (
 	SandboxNetworkModeEnforce = "enforce"
 )
 
-// SandboxNetworkModeError reports a sandbox.network_mode value that is not
-// audit or enforce. It fails the config load closed, because a mode pmg
-// cannot read must not run as the weaker one.
-type SandboxNetworkModeError struct {
+const (
+	sandboxNetworkModeKey     = "sandbox.network_mode"
+	proxyServerNetworkModeKey = "proxy.server.network_mode"
+)
+
+// NetworkModeError reports a network mode value that is not audit or
+// enforce. It fails the config load closed, because a mode pmg cannot read
+// must not run as the weaker one.
+type NetworkModeError struct {
+	Key  string
 	Mode string
 }
 
-func (e *SandboxNetworkModeError) Error() string {
-	return fmt.Sprintf("invalid sandbox.network_mode %q (expected %s or %s)", e.Mode, SandboxNetworkModeAudit, SandboxNetworkModeEnforce)
+func (e *NetworkModeError) Error() string {
+	return fmt.Sprintf("invalid %s %q (expected %s or %s)", e.Key, e.Mode, SandboxNetworkModeAudit, SandboxNetworkModeEnforce)
 }
 
 // ValidateSandboxNetworkMode checks a sandbox.network_mode value. An empty
 // value is the default, audit.
 func ValidateSandboxNetworkMode(mode string) error {
+	return validateNetworkMode(sandboxNetworkModeKey, mode)
+}
+
+// ValidateProxyServerNetworkMode checks a proxy.server.network_mode value.
+func ValidateProxyServerNetworkMode(mode string) error {
+	return validateNetworkMode(proxyServerNetworkModeKey, mode)
+}
+
+func validateNetworkMode(key, mode string) error {
 	switch mode {
 	case "", SandboxNetworkModeAudit, SandboxNetworkModeEnforce:
 		return nil
 	}
-	return &SandboxNetworkModeError{Mode: mode}
+	return &NetworkModeError{Key: key, Mode: mode}
 }
 
 // SandboxConfig configures the sandbox system for isolating package manager processes.
@@ -660,7 +685,8 @@ func DefaultConfig() RuntimeConfig {
 				InstallOnly:  false,
 				SkipCommands: map[string][]string{},
 				Server: ProxyServerConfig{
-					ListenHost: "127.0.0.1",
+					ListenHost:  "127.0.0.1",
+					NetworkMode: SandboxNetworkModeAudit,
 					Enforce: ProxyEnforceConfig{
 						Ports:   []int{80, 443},
 						DenyUDP: true,
@@ -778,13 +804,13 @@ func LoadError() error {
 	return configLoadErr
 }
 
-// NewInvalidSandboxNetworkModeError turns a SandboxNetworkModeError into the
-// error the CLI reports.
-func NewInvalidSandboxNetworkModeError(err *SandboxNetworkModeError) error {
+// NewInvalidNetworkModeError turns a NetworkModeError into the error the
+// CLI reports.
+func NewInvalidNetworkModeError(err *NetworkModeError) error {
 	return usefulerror.NewUsefulError().
 		WithCode(errcodes.InvalidArgument).
 		WithHumanError(err.Error()).
-		WithHelp("Set sandbox.network_mode to audit or enforce in your PMG configuration file, then retry.").
+		WithHelp(fmt.Sprintf("Set %s to audit or enforce in your PMG configuration file, then retry.", err.Key)).
 		Wrap(err)
 }
 
@@ -829,9 +855,9 @@ func loadConfig() error {
 		return NewInvalidProxyRegistriesError(err)
 	}
 
-	var modeErr *SandboxNetworkModeError
+	var modeErr *NetworkModeError
 	if errors.As(err, &modeErr) {
-		return NewInvalidSandboxNetworkModeError(modeErr)
+		return NewInvalidNetworkModeError(modeErr)
 	}
 
 	log.Warnf("Failed to load config, using defaults: %v", err)

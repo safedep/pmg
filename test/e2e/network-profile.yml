@@ -1,0 +1,9 @@
+# The profile the persistent proxy E2E jobs apply. It denies one host the
+# registries never need, so every install step passes and one curl step
+# proves the denial.
+name: e2e-deny-pastebin
+description: Denies pastebin.com for the persistent proxy E2E
+package_managers: [npm, pip]
+network:
+  deny_outbound:
+    - pastebin.com:443
