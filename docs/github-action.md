@@ -244,10 +244,11 @@ The proxy records every destination the job reaches, so a run with no
 profile gives the allow list. The action exports the run id as
 `PMG_PROXY_RUN`. After the stop step, `pmg sandbox profile propose` turns
 the run into a profile, and `actions/upload-artifact` keeps it for review.
-The run id and the command need a PMG release later than v0.32.0.
+The run id and the command need `safedep/pmg@v0.33.0` or later. The `v1`
+tag does not have the `enforce` input.
 
 ```yaml
-- uses: safedep/pmg@v1
+- uses: safedep/pmg@v0.33.0
   with:
     server-mode: true
     enforce: true
