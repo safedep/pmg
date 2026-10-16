@@ -149,7 +149,8 @@ type ProxyConfig struct {
 	// audit: the proxy records the decision and lets the connection through.
 	NetworkEnforce bool
 
-	// OnNetworkDecision receives every match on a deny rule.
+	// OnNetworkDecision receives every destination the proxy decides,
+	// allowed or denied, with or without a policy.
 	OnNetworkDecision func(NetworkDecision)
 }
 
@@ -307,7 +308,9 @@ func NewProxyServer(config *ProxyConfig) (ProxyServer, error) {
 		}
 	}
 
-	if config.NetworkPolicy != nil {
+	// The handlers run the policy and report every destination, so they
+	// are needed for the observer even without a policy.
+	if config.NetworkPolicy != nil || config.OnNetworkDecision != nil {
 		ps.configureNetworkPolicy()
 	}
 

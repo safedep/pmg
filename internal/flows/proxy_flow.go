@@ -19,6 +19,7 @@ import (
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/proxy/certmanager"
 	"github.com/safedep/pmg/proxy/interceptors"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox/executor"
 )
 
@@ -236,6 +237,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	}
 
 	networkDecisions := newNetworkDecisionLog(sandboxRes)
+	runID := netpolicy.NewRunID()
 
 	// Create and start proxy server
 	proxyServer, proxyAddr, err := f.createAndStartProxyServer(certMgr, interceptorList, sandboxRes, networkDecisions.record)
@@ -336,6 +338,10 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 	reportData.CooldownWithheldPackages = statsCollector.GetCooldownWithheld()
 	reportData.NetworkPolicy = networkDecisions.Report()
 	networkDecisions.observeViolations()
+	observation := networkDecisions.observation(runID, sandboxRes)
+	audit.LogNetworkObservation(observation)
+	reportData.NetworkRunID = runID
+	reportData.ObservedDestinations = len(observation.Destinations)
 	reportData.AdvisoryMessage = cfg.Config.AdvisoryMessage
 
 	// Set outcome based on execution result using shared inference logic
@@ -419,10 +425,10 @@ func (f *proxyFlow) createAndStartProxyServer(
 	proxyConfig.Interceptors = interceptorsList
 	presenter := ui.ProxyPresenter{Advisory: config.AdvisoryMessage}
 	proxyConfig.BlockMessageRenderer = presenter.BlockMessage
+	proxyConfig.OnNetworkDecision = onNetworkDecision
 	if sandboxRes != nil && sandboxRes.Network != nil {
 		proxyConfig.NetworkPolicy = sandboxRes.Network
 		proxyConfig.NetworkEnforce = sandboxRes.NetworkMode == config.SandboxNetworkModeEnforce
-		proxyConfig.OnNetworkDecision = onNetworkDecision
 	}
 
 	proxyServer, err := proxy.NewProxyServer(proxyConfig)

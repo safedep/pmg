@@ -59,6 +59,7 @@ const (
 	EventTypeInstallInsecureBypass EventType = "install_insecure_bypass"
 	EventTypeProxyHostObserved     EventType = "proxy_host_observed"
 	EventTypeNetworkPolicy         EventType = "network_policy"
+	EventTypeNetworkObservation    EventType = "network_observation"
 	EventTypeDependencyCooldown    EventType = "dependency_cooldown"
 	EventTypeCooldownSkipped       EventType = "dependency_cooldown_skipped"
 	EventTypeSandboxOverride       EventType = "sandbox_override"

@@ -10,12 +10,15 @@ import (
 	"github.com/safedep/pmg/proxy/netpolicy"
 )
 
-// NetworkDecision is one connection a deny rule of the network policy
-// matched. Enforced says whether the proxy refused it. Under audit the
-// connection went through and the decision is the record.
+// NetworkDecision is one connection the proxy decided. Allowed is true
+// when no deny rule matched, or when the proxy has no policy. Rule is the
+// deny rule that matched. Enforced says whether the proxy refused the
+// connection. Under audit the connection went through and the decision is
+// the record.
 type NetworkDecision struct {
 	Host     string
 	Port     uint16
+	Allowed  bool
 	Rule     string
 	Enforced bool
 	Origin   Origin
@@ -69,36 +72,32 @@ func (ps *proxyServer) configureNetworkPolicy() {
 }
 
 // decideNetwork runs the policy on one destination and reports whether the
-// proxy must refuse the connection. A match on a deny rule is reported to
-// the observer in both modes.
+// proxy must refuse the connection. Every destination is reported to the
+// observer, so a run can propose a policy from what it reached. Without a
+// policy every destination is allowed.
 func (ps *proxyServer) decideNetwork(host string, port uint16, orig Origin) (NetworkDecision, bool) {
-	if ps.config.NetworkPolicy == nil {
-		return NetworkDecision{}, false
-	}
-
 	// The record names the host as the transport dials it, so a report
 	// and an event show the destination and not its spelling.
 	host = netpolicy.NormalizeHost(host)
-	d := ps.config.NetworkPolicy.Decide(host, port)
-	if d.Allowed {
-		return NetworkDecision{}, false
-	}
-
-	decision := NetworkDecision{
-		Host:     host,
-		Port:     port,
-		Rule:     d.Rule.Raw,
-		Enforced: ps.config.NetworkEnforce,
-		Origin:   orig,
+	decision := NetworkDecision{Host: host, Port: port, Allowed: true, Origin: orig}
+	if ps.config.NetworkPolicy != nil {
+		if d := ps.config.NetworkPolicy.Decide(host, port); !d.Allowed {
+			decision.Allowed = false
+			decision.Rule = d.Rule.Raw
+			decision.Enforced = ps.config.NetworkEnforce
+		}
 	}
 	if ps.config.OnNetworkDecision != nil {
 		ps.config.OnNetworkDecision(decision)
 	}
+	if decision.Allowed {
+		return decision, false
+	}
 
 	if decision.Enforced {
-		log.Warnf("network policy denied %s by rule %q (%s)", hostPort(host, port), d.Rule.Raw, orig)
+		log.Warnf("network policy denied %s by rule %q (%s)", hostPort(host, port), decision.Rule, orig)
 	} else {
-		log.Infof("network policy would deny %s by rule %q (%s)", hostPort(host, port), d.Rule.Raw, orig)
+		log.Infof("network policy would deny %s by rule %q (%s)", hostPort(host, port), decision.Rule, orig)
 	}
 	return decision, decision.Enforced
 }

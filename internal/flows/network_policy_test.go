@@ -3,6 +3,7 @@ package flows
 import (
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/safedep/pmg/proxy"
 	"github.com/safedep/pmg/sandbox"
@@ -60,4 +61,33 @@ func TestNetworkDecisionLogViolations(t *testing.T) {
 	assert.Equal(t, "registry.npmjs.org:443", violations[1].Target)
 	assert.Equal(t, "Connection to registry.npmjs.org:443 denied by the network policy (rule registry.npmjs.org:443)", violations[1].RuleLabel)
 	assert.Equal(t, "npm", violations[1].Process, "a proxy-aware client is the package manager")
+}
+
+func TestNetworkDecisionLogObservationHoldsEveryDestination(t *testing.T) {
+	l := NewNetworkDecisionLog(true)
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+	curl := proxy.Origin{PID: 7, Exe: "/usr/bin/curl", EntryPoint: proxy.EntryPointRedirectedHost}
+
+	l.Record(proxy.NetworkDecision{Host: "registry.npmjs.org", Port: 443, Allowed: true, Origin: curl})
+	now = now.Add(time.Minute)
+	l.Record(proxy.NetworkDecision{Host: "registry.npmjs.org", Port: 443, Allowed: true, Origin: curl})
+	l.Record(proxy.NetworkDecision{Host: "evil.example", Port: 443, Rule: "*:*", Enforced: true, Origin: curl})
+
+	require.Len(t, l.Report().Denials, 1, "the report still lists denials only")
+
+	obs := l.Observation("run1", "/repo", "", "npm-restrictive", "enforce")
+	assert.Equal(t, "run1", obs.RunID)
+	assert.Equal(t, "/repo", obs.RepoRoot)
+	require.Len(t, obs.Destinations, 2)
+	assert.Equal(t, "evil.example:443", obs.Destinations[0].Address())
+	assert.False(t, obs.Destinations[0].Allowed)
+	assert.Equal(t, "*:*", obs.Destinations[0].Rule)
+	registry := obs.Destinations[1]
+	assert.Equal(t, "registry.npmjs.org:443", registry.Address())
+	assert.True(t, registry.Allowed)
+	assert.Equal(t, 2, registry.Count)
+	assert.Equal(t, "/usr/bin/curl", registry.Client)
+	assert.Equal(t, 7, registry.PID)
+	assert.Equal(t, time.Minute, registry.LastSeen.Sub(registry.FirstSeen))
 }

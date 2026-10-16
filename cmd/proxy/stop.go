@@ -53,7 +53,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if _, werr := fmt.Fprint(os.Stdout, networkReport(res)); werr != nil {
+	if _, werr := fmt.Fprint(os.Stdout, networkReport(res)+observationLine(res)); werr != nil {
 		ui.ErrorExit(werr)
 	}
 
@@ -112,6 +112,15 @@ func stopExitError(res proxyserver.StopResult, failOnViolation bool) error {
 		WithHumanError(msg).
 		WithMsg(msg).
 		WithHelp("Review the proxy logs for details on blocked packages and denied connections")
+}
+
+// observationLine points at the proposal command. Empty when the proxy saw
+// no destination, or when the daemon predates the run id.
+func observationLine(res proxyserver.StopResult) string {
+	if res.Observed == 0 || res.RunID == "" {
+		return ""
+	}
+	return fmt.Sprintf("Destinations: %d observed. Propose a profile with: pmg sandbox profile propose --run %s\n", res.Observed, res.RunID)
 }
 
 // networkReport renders the network policy block of the stop report: the
