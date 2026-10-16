@@ -237,7 +237,7 @@ pmg sandbox profile lint ./my-profile.yml --strict
 pmg sandbox profile diff npm-restrictive pypi-restrictive
 
 # Propose the network rules of a profile from the destinations the last run reached
-pmg sandbox profile propose --last --new my-npm --write
+pmg sandbox profile propose --last --new my-npm
 ```
 
 `pmg sandbox profile edit` resolves the profile name to its file under the user profile
@@ -747,11 +747,11 @@ the `network` block of a profile: one allow rule per host and port and the catch
 the registry hosts left to the built-in profile the proposal inherits. `--last` picks the newest
 run from this repository, `--since 30d` folds every run of the repository in the window into one
 table. `--new <name>` writes a user profile, `--into <path>` merges the block into a profile and
-leaves its other blocks as they are. Without `--write` the command prints the table and the
-proposal. The command reads the event log, so it needs `skip_event_logging` off. With event
-logging off the report names no run. The other
-sections of a profile come from violations and not from observation. Promote them with
-`pmg sandbox allow --last --all`.
+leaves its other blocks as they are. Without a target the command prints the table and the
+block. `--dry-run` prints the file or the diff a target would get and writes nothing. The command
+reads the event log, so it needs `skip_event_logging` off. With event logging off the report names
+no run. The other sections of a profile come from violations and not from observation. Promote
+them with `pmg sandbox allow --last --all`.
 
 `pmg sandbox profile lint` reports a rule the proxy cannot parse as an error, and warns when
 `allow_direct_dns` is set under `network_via_proxy_only`, because DNS is a path past the rules. A

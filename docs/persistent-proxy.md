@@ -303,10 +303,10 @@ the baseline. Three runs take a job from no policy to `enforce`.
 
 2. **Propose.** The command reads the run from the event log and prints
    every destination with its client, its count and what the proposal does
-   with it. `--write` writes the profile.
+   with it. `--new` writes the profile. `--dry-run` prints the file instead.
 
    ```bash
-   pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml --write
+   pmg sandbox profile propose --run 3f2a9c1d7e4b --new .pmg/profiles/ci.yml
    ```
 
    The profile holds one allow rule per host and port and the catch-all
@@ -318,7 +318,7 @@ the baseline. Three runs take a job from no policy to `enforce`.
 3. **Enforce.** Start the daemon with `--profile .pmg/profiles/ci.yml
    --network-mode enforce`. A destination the run did not reach gets a 403.
 
-A later run adds destinations with `--into .pmg/profiles/ci.yml --write`.
+A later run adds destinations with `--into .pmg/profiles/ci.yml`.
 The proposal appends allow rules and never removes one, because one run does
 not see every path. A destination a specific deny rule of the profile
 refuses stays denied. `--last` picks the newest run of the repository and

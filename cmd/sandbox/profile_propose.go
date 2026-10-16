@@ -42,7 +42,7 @@ type profileProposeOptions struct {
 	since   string
 	newRef  string
 	into    string
-	write   bool
+	dryRun  bool
 	json    bool
 }
 
@@ -76,20 +76,21 @@ func newProfileProposeCommand(factory registryFactory, deps proposeDeps) *cobra.
 	opts := &profileProposeOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "propose [--run <id> | --last | --since <window>] [--new <name|path> | --into <path>] [--write]",
+		Use:   "propose [--run <id> | --last | --since <window>] [--new <name|path> | --into <path>] [--dry-run]",
 		Short: "Propose the network rules of a profile from the destinations a run reached",
 		Long: "Read the destinations the proxy saw and propose one allow rule per host and port,\n" +
 			"with a catch-all deny, as the network block of a sandbox profile.\n\n" +
 			"The source is the event log. A run under audit with no profile observes everything.\n" +
 			"--run picks one run by the id the report printed. --last picks the newest run of this\n" +
 			"repository. --since picks every run of this repository in a window, the default.\n\n" +
-			"Without --write the command prints the destinations and the proposal. --new writes a\n" +
+			"Without a target the command prints the destinations and the proposal. --new writes a\n" +
 			"profile that inherits the built-in of the package manager that ran. --into merges the\n" +
-			"network block into a profile and leaves its other blocks as they are. A proposal\n" +
-			"appends rules and never removes one.",
+			"network block into a profile and leaves its other blocks as they are. --dry-run prints\n" +
+			"the file or the diff a target would get and writes nothing. A proposal appends rules\n" +
+			"and never removes one.",
 		Example: "  pmg sandbox profile propose --run 3f2a9c1d7e4b\n" +
-			"  pmg sandbox profile propose --last --new ci-network --write\n" +
-			"  pmg sandbox profile propose --since 30d --into .pmg/profiles/ci.yml --write",
+			"  pmg sandbox profile propose --last --new ci-network\n" +
+			"  pmg sandbox profile propose --since 30d --into .pmg/profiles/ci.yml --dry-run",
 		Args:          cobra.NoArgs,
 		SilenceErrors: false,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -106,7 +107,7 @@ func newProfileProposeCommand(factory registryFactory, deps proposeDeps) *cobra.
 	cmd.Flags().StringVar(&opts.since, "since", "", "Propose from every run of this repository in a window, such as 30d or 12h (default "+proposeDefaultWindow+")")
 	cmd.Flags().StringVar(&opts.newRef, "new", "", "Write a new profile. A bare name goes to the user profile directory, a path is written as given")
 	cmd.Flags().StringVar(&opts.into, "into", "", "Merge the network block into this profile file")
-	cmd.Flags().BoolVar(&opts.write, "write", false, "Write the proposal. Without it the command prints what it would write")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "With --new or --into: print the file or the diff and write nothing")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Print the destinations and the proposal as JSON")
 	return cmd
 }
@@ -145,8 +146,9 @@ func runProfilePropose(out io.Writer, opts *profileProposeOptions, factory regis
 		return wrapUseful(err, errcodes.InvalidArgument, "Fix the profile file, or pass --new to write a fresh one.")
 	}
 
+	write := target.path != "" && !opts.dryRun
 	if opts.json {
-		return writeProposeJSON(out, records, result, target, rendered, opts.write, registry)
+		return writeProposeJSON(out, records, result, target, rendered, write, registry)
 	}
 
 	if err := printProposeTable(out, result.Rows); err != nil {
@@ -155,13 +157,15 @@ func runProfilePropose(out io.Writer, opts *profileProposeOptions, factory regis
 	if err := printProposal(out, target, rendered, result); err != nil {
 		return err
 	}
-	if !opts.write {
-		return nil
+	switch {
+	case write:
+		if err := target.write(rendered, registry); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "\nWrote %s\n", target.path)
+	case opts.dryRun:
+		_, err = fmt.Fprintln(out, "\nDry run. Nothing written.")
 	}
-	if err := target.write(rendered, registry); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(out, "\nWrote %s\n", target.path)
 	return err
 }
 
@@ -184,9 +188,6 @@ func validateProposeOptions(opts *profileProposeOptions) error {
 	}
 	if opts.newRef != "" && opts.into != "" {
 		return invalidArgumentError("--new and --into are mutually exclusive", "Pick one target.")
-	}
-	if opts.write && opts.newRef == "" && opts.into == "" {
-		return invalidArgumentError("--write needs a target", "Pass --new <name|path> or --into <path>.")
 	}
 	return nil
 }

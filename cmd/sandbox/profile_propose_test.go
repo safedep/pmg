@@ -90,7 +90,7 @@ func TestProfilePropose_DryRunPrintsTheTableAndWritesNothing(t *testing.T) {
 	f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, PackageManager: "npm", Mode: "audit",
 		Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("cdn.example", 443, 1)}})
 
-	out, err := f.run(t, "--last", "--new", "ci")
+	out, err := f.run(t, "--last", "--new", "ci", "--dry-run")
 	require.NoError(t, err)
 	assert.Contains(t, out, "Observed 2 destination(s)")
 	assert.Contains(t, out, "parent allows registry.npmjs.org:443", "the npm built-in already names the registry")
@@ -99,6 +99,7 @@ func TestProfilePropose_DryRunPrintsTheTableAndWritesNothing(t *testing.T) {
 	assert.Contains(t, out, "inherits: npm")
 	assert.Contains(t, out, "    - cdn.example:443\n")
 	assert.Contains(t, out, "deny_outbound: []", "the built-in already denies everything else")
+	assert.Contains(t, out, "Dry run. Nothing written.")
 	assert.NoFileExists(t, filepath.Join(f.userDir, "ci.yml"))
 }
 
@@ -107,7 +108,7 @@ func TestProfilePropose_DaemonRunInheritsExecAndDeniesTheRest(t *testing.T) {
 	f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, Mode: "audit",
 		Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("github.com", 443, 1)}})
 
-	out, err := f.run(t, "--last", "--new", "ci")
+	out, err := f.run(t, "--last", "--new", "ci", "--dry-run")
 	require.NoError(t, err)
 	assert.Contains(t, out, "inherits: exec")
 	assert.Contains(t, out, "add github.com:443")
@@ -120,7 +121,7 @@ func TestProfilePropose_WritesANewProfileThatLoads(t *testing.T) {
 	f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, PackageManager: "npm", Mode: "audit",
 		Destinations: []netpolicy.Destination{dest("registry.npmjs.org", 443, 4), dest("cdn.example", 443, 1)}})
 
-	out, err := f.run(t, "--run", "run1", "--new", "ci", "--write")
+	out, err := f.run(t, "--run", "run1", "--new", "ci")
 	require.NoError(t, err)
 	path := filepath.Join(f.userDir, "ci.yml")
 	assert.Contains(t, out, "Wrote "+path)
@@ -134,7 +135,7 @@ func TestProfilePropose_WritesANewProfileThatLoads(t *testing.T) {
 	assert.Contains(t, policy.Network.AllowOutbound, "registry.npmjs.org:443", "inherited from the built-in")
 	assert.Contains(t, policy.Network.DenyOutbound, "*:*", "inherited from the built-in")
 
-	_, err = f.run(t, "--run", "run1", "--new", "ci", "--write")
+	_, err = f.run(t, "--run", "run1", "--new", "ci")
 	require.Error(t, err, "a second --new refuses to overwrite")
 	assert.Contains(t, err.Error(), "already exists")
 }
@@ -167,7 +168,7 @@ func TestProfilePropose_IntoAppendsAndKeepsTheOtherBlocks(t *testing.T) {
 			{Host: "pastebin.com", Port: 443, Count: 1, Allowed: false, Rule: "pastebin.com:443", Enforced: true, FirstSeen: proposeNow, LastSeen: proposeNow},
 		}})
 
-	out, err := f.run(t, "--last", "--into", target, "--write")
+	out, err := f.run(t, "--last", "--into", target)
 	require.NoError(t, err)
 	assert.Contains(t, out, "+    - objects.githubusercontent.com:443")
 	assert.Contains(t, out, "parent allows registry.npmjs.org:443")
@@ -181,7 +182,7 @@ func TestProfilePropose_IntoAppendsAndKeepsTheOtherBlocks(t *testing.T) {
 		"    - github.com:443\n    - objects.githubusercontent.com:443\n", 1)
 	assert.Equal(t, want, string(written), "the other blocks and the comment stay as they were")
 
-	out, err = f.run(t, "--last", "--into", target, "--write")
+	out, err = f.run(t, "--last", "--into", target)
 	require.NoError(t, err)
 	assert.Contains(t, out, "No change")
 	again, err := os.ReadFile(target)
@@ -241,7 +242,6 @@ func TestProfilePropose_Errors(t *testing.T) {
 	}{
 		{"unknown run", []string{"--run", "nope"}, errcodes.NotFound, "no run nope"},
 		{"another section", []string{"--section", "filesystem"}, errcodes.InvalidArgument, "pmg sandbox allow --last --all"},
-		{"write without target", []string{"--last", "--write"}, errcodes.InvalidArgument, "needs a target"},
 		{"two targets", []string{"--last", "--new", "a", "--into", "b"}, errcodes.InvalidArgument, "mutually exclusive"},
 		{"two sources", []string{"--last", "--run", "run1"}, errcodes.InvalidArgument, "mutually exclusive"},
 		{"bad window", []string{"--since", "soon"}, errcodes.InvalidArgument, "invalid window"},
@@ -287,7 +287,7 @@ func TestProfilePropose_NewPathWritesWhereItSaysAndLeavesNoTempFile(t *testing.T
 		Destinations: []netpolicy.Destination{dest("cdn.example", 443, 1)}})
 	target := filepath.Join(f.repo, ".pmg", "profiles", "ci.yml")
 
-	out, err := f.run(t, "--last", "--new", target, "--write")
+	out, err := f.run(t, "--last", "--new", target)
 	require.NoError(t, err)
 	assert.Contains(t, out, "Wrote "+target)
 	written, err := os.ReadFile(target)
@@ -316,7 +316,7 @@ func TestProfilePropose_IntoASkeletonNetworkKey(t *testing.T) {
 	f.logObservation(t, proposeNow.Add(-time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, PackageManager: "npm",
 		Destinations: []netpolicy.Destination{dest("cdn.example", 443, 1)}})
 
-	_, err := f.run(t, "--last", "--into", target, "--write")
+	_, err := f.run(t, "--last", "--into", target)
 	require.NoError(t, err)
 	written, err := os.ReadFile(target)
 	require.NoError(t, err)
