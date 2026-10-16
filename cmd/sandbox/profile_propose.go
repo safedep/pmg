@@ -252,6 +252,7 @@ func noRunError(opts *profileProposeOptions, window string, retentionDays int) e
 type proposeTarget struct {
 	path     string
 	isNew    bool
+	mode     os.FileMode
 	original []byte
 	parent   *pmgsandbox.SandboxPolicy
 	existing *pmgsandbox.NetworkPolicy
@@ -295,6 +296,11 @@ func resolveIntoTarget(target *proposeTarget, path string, registry pmgsandbox.P
 		return nil, wrapUseful(fmt.Errorf("read %s: %w", path, err), ioErrorCode(err, errcodes.NotFound),
 			"Pass --into an existing profile file, or --new to write one.")
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, wrapUseful(fmt.Errorf("stat %s: %w", path, err), ioErrorCode(err, errcodes.NotFound),
+			"Pass --into an existing profile file, or --new to write one.")
+	}
 	var own pmgsandbox.SandboxPolicy
 	if err := yaml.Unmarshal(data, &own); err != nil {
 		return nil, wrapUseful(fmt.Errorf("parse %s: %w", path, err), errcodes.InvalidArgument,
@@ -306,6 +312,7 @@ func resolveIntoTarget(target *proposeTarget, path string, registry pmgsandbox.P
 	}
 
 	target.path = path
+	target.mode = info.Mode().Perm()
 	target.original = data
 	target.existing = &own.Network
 	if chain := resolved.Lineage; len(chain) > 1 {
@@ -320,6 +327,7 @@ func resolveIntoTarget(target *proposeTarget, path string, registry pmgsandbox.P
 
 func resolveNewTarget(target *proposeTarget, ref string, records []netobserve.Record, registry pmgsandbox.ProfileRegistry) (*proposeTarget, error) {
 	target.isNew = true
+	target.mode = 0o644
 	if executor.IsProfilePath(ref) {
 		target.path = ref
 		target.name = strings.TrimSuffix(strings.TrimSuffix(filepath.Base(ref), ".yml"), ".yaml")
@@ -436,7 +444,7 @@ func (t *proposeTarget) write(rendered []byte, registry pmgsandbox.ProfileRegist
 	if _, err := registry.LoadCustomProfile(tmp.Name()); err != nil {
 		return profileLoadError(err)
 	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+	if err := os.Chmod(tmp.Name(), t.mode); err != nil {
 		return wrapUseful(fmt.Errorf("write %s: %w", t.path, err), ioErrorCode(err, errcodes.PermissionDenied), "Check the permissions of the target directory.")
 	}
 	if err := os.Rename(tmp.Name(), t.path); err != nil {

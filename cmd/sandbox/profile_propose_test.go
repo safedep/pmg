@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -321,4 +322,21 @@ func TestProfilePropose_IntoASkeletonNetworkKey(t *testing.T) {
 	written, err := os.ReadFile(target)
 	require.NoError(t, err)
 	assert.Contains(t, string(written), "network:\n  allow_outbound:\n    - cdn.example:443\n")
+}
+
+func TestProfilePropose_IntoKeepsTheProfileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not meaningful on Windows")
+	}
+	f := newProposeFixture(t)
+	target := filepath.Join(f.repo, "ci.yml")
+	require.NoError(t, os.WriteFile(target, []byte(proposeExistingProfile), 0o600))
+	f.logObservation(t, proposeNow.Add(-2*time.Hour), netpolicy.Observation{RunID: "run1", RepoRoot: f.repo, PackageManager: "npm",
+		Destinations: []netpolicy.Destination{dest("objects.githubusercontent.com", 443, 2)}})
+
+	_, err := f.run(t, "--last", "--into", target)
+	require.NoError(t, err)
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a private profile stays private")
 }
