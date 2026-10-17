@@ -114,7 +114,7 @@ func TestAcceptance(t *testing.T) {
 					case "enforce":
 						return hostCanEnforce(), nil
 					case "bubblewrap":
-						return os.Getenv("PMG_SANDBOX_DRIVER") == string(sandbox.DriverBubblewrap), nil
+						return defaultSandboxDriver() == sandbox.DriverBubblewrap, nil
 					case "docker":
 						return exec.Command("docker", "info").Run() == nil, nil
 					case "truststore":
@@ -317,6 +317,17 @@ func stopEnforcingDaemon(pmgBin, statePath string) {
 
 // hostCanEnforce reports whether this host can attach the enforcement
 // programs, with the same probe the daemon runs.
+// defaultSandboxDriver is the driver pmg picks on this host, from
+// PMG_SANDBOX_DRIVER or the platform fallback. Empty when there is none.
+func defaultSandboxDriver() sandbox.DriverName {
+	sb, err := sandboxplatform.NewSandbox()
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = sb.Close() }()
+	return sb.Name()
+}
+
 func hostCanEnforce() bool {
 	enforcer, err := netenforce.New()
 	if err != nil {

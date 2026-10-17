@@ -65,7 +65,7 @@ func (p *execNetworkProbe) Run(_ context.Context) sandbox.ProbeResult {
 		Name:    sandbox.ProbeExecNetwork,
 		Status:  sandbox.ProbeStatusOK,
 		Summary: fmt.Sprintf("proxy by environment, confined with network_via_proxy_only (%s)", sb.Name()),
-		Detail:  "The program gets the proxy through HTTP_PROXY and HTTPS_PROXY. A profile with network_via_proxy_only also refuses every outbound connection that does not go to the proxy.",
+		Detail:  "The program gets the proxy through HTTP_PROXY and HTTPS_PROXY. A profile with network_via_proxy_only also refuses every outbound connection that does not go to the proxy, except loopback.",
 	}
 }
 

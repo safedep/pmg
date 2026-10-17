@@ -192,6 +192,20 @@ func TestNetworkProposesAnAddressTheKeyWillDeny(t *testing.T) {
 	assert.Equal(t, netpolicy.IPLiteralRule, compiled.Decide("10.0.0.6", 5000).Rule.Raw)
 }
 
+func TestNetworkNeverAddsADestinationTheRunRefused(t *testing.T) {
+	refused := dest("193.32.204.199", 80)
+	refused.Allowed, refused.Enforced, refused.Rule = false, true, netpolicy.IPLiteralRule
+	audited := dest("pastebin.com", 443)
+	audited.Allowed, audited.Rule = false, "*:*"
+
+	res, err := Network(Input{Destinations: []netpolicy.Destination{refused, audited, dest("github.com", 443)}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"github.com:443", "pastebin.com:443"}, res.Added, "a match under audit went through, so the run reached it")
+	assert.Equal(t, VerdictRefused, res.Rows[0].Verdict)
+	assert.Equal(t, netpolicy.IPLiteralRule, res.Rows[0].Rule)
+	assert.Equal(t, VerdictAdd, res.Rows[1].Verdict)
+}
+
 func TestNetworkAddsAnAddressAPortWideAllowCoversWhenTheKeyDeniesIt(t *testing.T) {
 	parent := &sandbox.SandboxPolicy{Name: "parent", Network: sandbox.NetworkPolicy{AllowOutbound: []string{"*:443"}}}
 
@@ -228,9 +242,9 @@ func TestSetBlockWritesAndReplacesDenyIPLiterals(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "name: x\nnetwork:\n  deny_ip_literals: true\n  allow_outbound: []\n  deny_outbound: []\n", string(out))
 
-	out, err = SetBlock([]byte("name: x\nnetwork:\n  # keep me\n  deny_ip_literals: true\n"), sandbox.NetworkPolicy{DenyIPLiterals: utils.PtrTo(false)})
+	out, err = SetBlock([]byte("name: x\nnetwork:\n  # keep me\n  deny_ip_literals: true # and me\n"), sandbox.NetworkPolicy{DenyIPLiterals: utils.PtrTo(false)})
 	require.NoError(t, err)
-	assert.Contains(t, string(out), "# keep me\n  deny_ip_literals: false\n")
+	assert.Contains(t, string(out), "# keep me\n  deny_ip_literals: false # and me\n")
 
 	out, err = SetBlock([]byte("name: x\nnetwork:\n  deny_ip_literals: true\n"), sandbox.NetworkPolicy{})
 	require.NoError(t, err)

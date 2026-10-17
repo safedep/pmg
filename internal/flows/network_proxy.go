@@ -19,8 +19,6 @@ import (
 // API for hours. The package manager default of 30 minutes would cut it.
 const networkProxyTunnelTimeout = 24 * time.Hour
 
-const networkProxyStopTimeout = 5 * time.Second
-
 // NetworkProxy is the exec proxy. It applies the network block of a
 // resolution to a program that is not a package manager. It has no
 // interceptors and does not terminate TLS, so it reads no traffic. It
@@ -52,14 +50,22 @@ func StartNetworkProxy(res *executor.Resolution) (*NetworkProxy, error) {
 
 	p := &NetworkProxy{addr: server.Address()}
 	p.stop = sync.OnceValue(func() NetworkOutcome {
-		ctx, cancel := context.WithTimeout(context.Background(), networkProxyStopTimeout)
-		defer cancel()
-		if err := server.Stop(ctx); err != nil {
-			log.Errorf("failed to stop the network proxy: %v", err)
-		}
+		stopProxyServer(server)
 		return run.finish()
 	})
 	return p, nil
+}
+
+const proxyStopTimeout = 5 * time.Second
+
+// stopProxyServer drains the proxy. A failure to stop is logged, because
+// the run's outcome does not depend on it.
+func stopProxyServer(server proxy.ProxyServer) {
+	ctx, cancel := context.WithTimeout(context.Background(), proxyStopTimeout)
+	defer cancel()
+	if err := server.Stop(ctx); err != nil {
+		log.Errorf("failed to stop the proxy server: %v", err)
+	}
 }
 
 // Addr is the listen address, host:port.

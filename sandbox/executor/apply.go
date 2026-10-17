@@ -199,7 +199,7 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		return nil, fmt.Errorf("sandbox policy %s does not apply to %s", policy.Name, pmName)
 	}
 
-	if err := applyNetworkFlagRules(policy, cfg); err != nil {
+	if err := netflags.ApplyRules(&policy.Network, cfg.SandboxNetworkAllow, cfg.SandboxNetworkDeny); err != nil {
 		return nil, err
 	}
 
@@ -219,26 +219,6 @@ func ResolvePolicy(pmName string, requireSandbox bool) (*Resolution, error) {
 		NetworkMode:    cmp.Or(cfg.Config.Sandbox.NetworkMode, config.SandboxNetworkModeAudit),
 		Network:        network,
 	}, nil
-}
-
-// applyNetworkFlagRules adds the rules of --network-allow and
-// --network-deny to the policy, as the daemon adds its flag rules. A rule
-// the matcher cannot read fails the run before the policy compiles, so the
-// error names the flag and not the profile.
-func applyNetworkFlagRules(policy *sandbox.SandboxPolicy, cfg *config.RuntimeConfig) error {
-	for _, raw := range cfg.SandboxNetworkAllow {
-		if err := netflags.CheckRule(netflags.Allow, raw); err != nil {
-			return err
-		}
-		policy.Network.Allow(raw)
-	}
-	for _, raw := range cfg.SandboxNetworkDeny {
-		if err := netflags.CheckRule(netflags.Deny, raw); err != nil {
-			return err
-		}
-		policy.Network.Deny(raw)
-	}
-	return nil
 }
 
 // profileRegistries holds the registries of one config, so every loader

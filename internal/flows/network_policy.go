@@ -163,9 +163,9 @@ type NetworkOutcome struct {
 	Observed int
 }
 
-// networkRun is the network side of one proxied run: the decision log and
-// the run id, from the first decision to the record at the end. The
-// package manager proxy and the exec proxy share it.
+// networkRun is the network side of one proxied run, from the first
+// decision to the record at the end. The package manager proxy and the
+// exec proxy share it.
 type networkRun struct {
 	log   *networkDecisionLog
 	runID string
@@ -222,8 +222,6 @@ func newNetworkDecisionLog(res *executor.Resolution) *networkDecisionLog {
 	}
 	return l
 }
-
-func (l *networkDecisionLog) record(d proxy.NetworkDecision) { l.Record(d) }
 
 // observation keys the run's destinations by the repository the command
 // ran in, as the overlay does, so a later proposal finds the runs of one

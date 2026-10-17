@@ -245,14 +245,7 @@ func (f *proxyFlow) Run(ctx context.Context, args []string, parsedCmd *packagema
 			runerror.ReasonProxySetupFailed)
 	}
 
-	stopProxy := sync.OnceFunc(func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := proxyServer.Stop(shutdownCtx); err != nil {
-			log.Errorf("Failed to stop proxy server: %v", err)
-		}
-	})
+	stopProxy := sync.OnceFunc(func() { stopProxyServer(proxyServer) })
 	defer stopProxy()
 
 	ui.ClearStatus()

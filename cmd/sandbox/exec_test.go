@@ -135,15 +135,24 @@ func TestExecRunsTheProgramBehindTheNetworkProxy(t *testing.T) {
 }
 
 func TestExecStopsWhenThePolicyOrTheProxyFails(t *testing.T) {
-	resolveErr := errors.New("no policy")
-	capture := &execCapture{resolveErr: resolveErr}
-	require.ErrorIs(t, runExecCommand(t, &config.RuntimeConfig{}, capture, "claude"), resolveErr)
-	assert.Equal(t, 0, capture.calls)
-
-	proxyErr := errors.New("port in use")
-	capture = &execCapture{proxyErr: proxyErr}
-	require.ErrorIs(t, runExecCommand(t, &config.RuntimeConfig{}, capture, "claude"), proxyErr)
-	assert.Equal(t, 0, capture.calls, "a program must not run without the proxy its policy relies on")
+	cases := []struct {
+		name    string
+		capture *execCapture
+		want    error
+	}{
+		{"the policy does not resolve", &execCapture{resolveErr: errors.New("no policy")}, nil},
+		{"the proxy does not start", &execCapture{proxyErr: errors.New("port in use")}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want := tc.capture.resolveErr
+			if want == nil {
+				want = tc.capture.proxyErr
+			}
+			require.ErrorIs(t, runExecCommand(t, &config.RuntimeConfig{}, tc.capture, "claude"), want)
+			assert.Equal(t, 0, tc.capture.calls, "a program must not run without the proxy its policy relies on")
+		})
+	}
 }
 
 func TestExecNetworkFlagsLandInTheConfig(t *testing.T) {
@@ -169,6 +178,41 @@ func TestExecKeepsTheConfigNetworkModeWithoutTheFlag(t *testing.T) {
 	assert.Equal(t, config.SandboxNetworkModeEnforce, cfg.Config.Sandbox.NetworkMode)
 }
 
+func TestExecRefusesWideningNetworkFlagsUnderLockdown(t *testing.T) {
+	cases := []struct {
+		name     string
+		fileMode string
+		args     []string
+		refused  []string
+	}{
+		{"an allow rule widens", "enforce", []string{"--network-allow", "pastebin.com:443"}, []string{"--network-allow"}},
+		{"audit over enforce widens", "enforce", []string{"--network-mode", "audit"}, []string{"--network-mode=audit"}},
+		{"a deny rule narrows", "enforce", []string{"--network-deny", "pastebin.com:443"}, nil},
+		{"enforce over audit narrows", "audit", []string{"--network-mode", "enforce"}, nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.LockedRuntimeConfigForTest()
+			cfg.Config.Sandbox.NetworkMode = tc.fileMode
+			capture := &execCapture{}
+
+			err := runExecCommand(t, cfg, capture, append(tc.args, "claude")...)
+			if tc.refused == nil {
+				require.NoError(t, err)
+				assert.Equal(t, 1, capture.calls)
+				return
+			}
+			require.Error(t, err)
+			for _, flag := range tc.refused {
+				assert.Contains(t, err.Error(), flag)
+			}
+			assert.Contains(t, err.Error(), "globally managed configuration")
+			assert.Equal(t, 0, capture.calls)
+		})
+	}
+}
+
 func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
 	capture := &execCapture{}
 	err := runExecCommand(t, &config.RuntimeConfig{}, capture, "--network-mode", "loud", "true")
@@ -182,7 +226,7 @@ func TestExecRefusesAnUnknownNetworkMode(t *testing.T) {
 
 func TestReportNetworkWritesOnlyWhenARuleMatched(t *testing.T) {
 	var out bytes.Buffer
-	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}))
+	require.NoError(t, reportNetwork(&out, flows.NetworkOutcome{Observed: 3, RunID: "abc123def456"}, false))
 	assert.Empty(t, out.String(), "a clean run writes nothing to stderr")
 
 	denied := flows.NetworkOutcome{
@@ -190,10 +234,15 @@ func TestReportNetworkWritesOnlyWhenARuleMatched(t *testing.T) {
 		Observed: 3,
 		RunID:    "abc123def456",
 	}
-	require.NoError(t, reportNetwork(&out, denied))
+	require.NoError(t, reportNetwork(&out, denied, false))
 	assert.Contains(t, out.String(), "Network policy denied 1 destination(s):")
 	assert.Contains(t, out.String(), "pastebin.com:443  rule *:*  (2)")
+	assert.Contains(t, out.String(), "Set network_via_proxy_only: true", "an unconfined program can go around the proxy")
 	assert.Contains(t, out.String(), "pmg sandbox profile propose --run abc123def456")
+
+	out.Reset()
+	require.NoError(t, reportNetwork(&out, denied, true))
+	assert.NotContains(t, out.String(), "network_via_proxy_only", "a confined program cannot go around the proxy")
 }
 
 func TestExecPassesChildExitThrough(t *testing.T) {
@@ -203,4 +252,5 @@ func TestExecPassesChildExitThrough(t *testing.T) {
 	var childErr *runner.ChildExitError
 	require.True(t, errors.As(err, &childErr))
 	assert.Equal(t, 7, childErr.Code)
+	assert.Equal(t, 1, capture.proxy.stopped, "the proxy stops and the run is recorded when the program fails")
 }

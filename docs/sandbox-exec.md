@@ -163,8 +163,11 @@ connects direct, and the policy does not see it. Two paths make the policy apply
 too.
 
 - `network_via_proxy_only: true` in the profile confines every outbound connection of the
-  program to the proxy. Landlock and Seatbelt apply it. Bubblewrap does not, and refuses the
-  profile. A child of a profile that sets the key, such as `go`, inherits it.
+  program to the proxy, except loopback. The `exec` profile sets `allow_network_bind`, so the
+  drivers keep loopback open and `NO_PROXY` sends it around the proxy. A local service the
+  program reaches is outside the policy. Landlock and Seatbelt apply the key. Bubblewrap does
+  not, and refuses the profile. A child of a profile that sets the key, such as `go`, inherits
+  it.
 - The enforcing daemon, `pmg proxy start --daemon --enforce`, routes every process through the
   proxy in the kernel on Linux. See [Kernel enforcement](persistent-proxy.md#kernel-enforcement-linux).
 

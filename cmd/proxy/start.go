@@ -61,7 +61,7 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := config.ValidateProxyServerNetworkMode(cfg.Config.Proxy.Server.NetworkMode); err != nil {
-		ui.ErrorExit(netflags.ModeError(err))
+		ui.ErrorExit(netflags.WrapModeError(err))
 	}
 
 	if err := proxyserver.NamespacesNeedEnforce(cfg, opts.Enforce); err != nil {

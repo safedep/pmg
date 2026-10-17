@@ -1074,6 +1074,16 @@ func SetManagedConfigDirForTest(dir string) (restore func()) {
 	}
 }
 
+// LockedRuntimeConfigForTest returns a config that reports lockdown, so a
+// test in another package can check what a command refuses under it. It
+// panics outside a test binary.
+func LockedRuntimeConfigForTest() *RuntimeConfig {
+	if !testing.Testing() {
+		panic("config: LockedRuntimeConfigForTest called outside a test")
+	}
+	return &RuntimeConfig{configLocked: true}
+}
+
 // globalConfigFilePath returns the path to the globally managed config file, or
 // "" when the platform has no global config location.
 func globalConfigFilePath() string {

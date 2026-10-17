@@ -724,8 +724,8 @@ beats `*`. At equal specificity deny wins. With no matching rule the connection 
 profile that wants an allow list denies `*:*`.
 
 `network.deny_ip_literals: true` denies an IP literal with the rule `ip_literal`. An IP literal
-is an address and not a name. An allow rule that names that exact address and port wins. A
-wildcard never names an address, so `*:*` does not allow one. Loopback addresses stay with the
+is an address and not a name. An allow rule that names that exact address wins. Its port may be
+`*`. A wildcard host never names an address, so `*:*` does not allow one. Loopback addresses stay with the
 rules. The key is off by default.
 
 An allow list of names does not stop a client that connects to an address. Set the key in every
@@ -757,7 +757,8 @@ and in enforce on another. Every match writes a `network_policy` event to the ev
 Every run writes a `network_observation` event with every destination the proxy saw, allowed or
 denied, and the report names the run. `pmg sandbox profile propose --run <id>` turns the run into
 the `network` block of a profile: one allow rule per host and port, `deny_ip_literals: true`,
-plus a catch-all deny. Hosts the inherited built-in profile already allows are not repeated. `--last` uses the newest run of
+plus a catch-all deny. Hosts the inherited built-in profile already allows are not repeated. A
+destination the run refused under `enforce` gets no rule, because the program never reached it. `--last` uses the newest run of
 this repository. `--since 30d` merges every run of the repository in the window. `--new <name>`
 writes a user profile. `--into <path>` adds the rules to a profile and keeps its other blocks.
 Without a target the command prints the table and the block. `--dry-run` shows what a target would

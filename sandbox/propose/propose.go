@@ -45,6 +45,11 @@ const (
 	// target or the parent refuses, because a rule a maintainer wrote is a
 	// decision.
 	VerdictKeptDenied Verdict = "kept denied"
+	// VerdictRefused skips a destination the run refused under enforce.
+	// The program never reached it, so the run is no evidence that it
+	// needs an allow rule. A probe by a compromised tool must not become
+	// a rule.
+	VerdictRefused Verdict = "refused"
 	// VerdictInvalid skips a destination the rule parser does not read as
 	// host:port. The proxy observes what a client asked for, and a client
 	// can ask for a host no rule can name.
@@ -133,10 +138,12 @@ func Network(in Input) (Result, error) {
 		}
 		rule := rules.Decide(d.Host, d.Port).Rule
 		switch {
+		case rule != nil && rule.Deny && !isCatchAll(rule) && rule.Raw != netpolicy.IPLiteralRule:
+			row.Verdict, row.Rule = VerdictKeptDenied, rule.Raw
+		case d.Enforced && !d.Allowed:
+			row.Verdict, row.Rule = VerdictRefused, d.Rule
 		case rule == nil || isCatchAll(rule) || rule.Raw == netpolicy.IPLiteralRule:
 			added[row.Rule] = true
-		case rule.Deny:
-			row.Verdict, row.Rule = VerdictKeptDenied, rule.Raw
 		case slices.Contains(existing.AllowOutbound, rule.Raw):
 			row.Verdict, row.Rule = VerdictAlreadyAllowed, rule.Raw
 		default:

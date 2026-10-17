@@ -2,10 +2,13 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/safedep/dry/log"
+	"github.com/safedep/dry/utils"
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/internal/analytics"
 	"github.com/safedep/pmg/internal/audit"
@@ -24,15 +27,13 @@ import (
 // replace it to observe the parsed command and options without a sandbox.
 type execRunner func(ctx context.Context, pc *packagemanager.ParsedCommand, opts runner.ExecuteOptions) error
 
-// networkProxy is the proxy that applies the network policy to the run.
 type networkProxy interface {
 	Addr() string
 	Env() []string
 	Stop() flows.NetworkOutcome
 }
 
-// execDeps are the seams of pmg sandbox exec. Production wires the real
-// policy resolver, proxy and runner. Tests replace them.
+// execDeps are the seams of pmg sandbox exec.
 type execDeps struct {
 	config     *config.RuntimeConfig
 	resolve    func(pmName string, requireSandbox bool) (*executor.Resolution, error)
@@ -90,7 +91,7 @@ func runExec(ctx context.Context, fs *pflag.FlagSet, args []string, deps execDep
 	}
 
 	if err := config.ValidateSandboxNetworkMode(cfg.Config.Sandbox.NetworkMode); err != nil {
-		return netflags.ModeError(err)
+		return netflags.WrapModeError(err)
 	}
 
 	// A locked managed config owns the network policy. A flag that only
@@ -149,18 +150,32 @@ func runExecWithProxy(ctx context.Context, command string, commandArgs []string,
 		EnvOverrides:       proxy.Env(),
 	})
 
-	if err := reportNetwork(os.Stderr, proxy.Stop()); err != nil {
-		return err
+	// The program's exit code is the contract, so a failed report write
+	// does not replace it.
+	if err := reportNetwork(os.Stderr, proxy.Stop(), confinesOutbound(res)); err != nil {
+		log.Warnf("failed to write the network report: %v", err)
 	}
 	return runErr
 }
 
-func reportNetwork(w io.Writer, outcome flows.NetworkOutcome) error {
+func confinesOutbound(res *executor.Resolution) bool {
+	return res.Policy != nil && utils.SafelyGetValue(res.Policy.NetworkViaProxyOnly)
+}
+
+// reportNetwork writes the denials and the proposal hint. Under enforce
+// without network_via_proxy_only the policy applies only to connections
+// that reach the proxy, and the report says so.
+func reportNetwork(w io.Writer, outcome flows.NetworkOutcome, confined bool) error {
 	if outcome.Report == nil {
 		return nil
 	}
 	if err := ui.PrintNetworkPolicy(w, outcome.Report); err != nil {
 		return err
+	}
+	if outcome.Report.Enforced && !confined {
+		if _, err := fmt.Fprintf(w, "  %s\n", ui.Colors.Dim("The policy applies to connections that reach the proxy. Set network_via_proxy_only: true in the profile to confine the program to it.")); err != nil {
+			return err
+		}
 	}
 	return ui.PrintNetworkObservation(w, outcome.Observed, outcome.RunID)
 }

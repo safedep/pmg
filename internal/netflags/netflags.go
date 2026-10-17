@@ -11,6 +11,7 @@ import (
 	"github.com/safedep/pmg/config"
 	"github.com/safedep/pmg/errcodes"
 	"github.com/safedep/pmg/proxy/netpolicy"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/spf13/pflag"
 )
 
@@ -35,8 +36,8 @@ func AddRuleFlags(fs *pflag.FlagSet, allow, deny *[]string) {
 	fs.StringArrayVar(deny, Deny, nil, "host:port rule added to the profile's deny_outbound list (repeatable)")
 }
 
-// Widening returns the flags that loosen the policy a locked config set:
-// an allow rule, or audit over a config that says enforce. A deny rule and
+// Widening returns the flags that loosen the policy a locked config set.
+// Those are an allow rule, and audit over a config that says enforce. A deny rule and
 // enforce over audit only narrow. mode is the value after parsing, and the
 // flag's default is the config's value. An empty mode means audit.
 func Widening(fs *pflag.FlagSet, mode string) []string {
@@ -66,6 +67,25 @@ func Args(fs *pflag.FlagSet, mode string, allow, deny []string) []string {
 	return args
 }
 
+// ApplyRules adds the rules of --network-allow and --network-deny to a
+// network block. A rule the matcher cannot read fails with an error that
+// names the flag, before the block compiles.
+func ApplyRules(rules *sandbox.NetworkPolicy, allow, deny []string) error {
+	for _, raw := range allow {
+		if err := CheckRule(Allow, raw); err != nil {
+			return err
+		}
+		rules.Allow(raw)
+	}
+	for _, raw := range deny {
+		if err := CheckRule(Deny, raw); err != nil {
+			return err
+		}
+		rules.Deny(raw)
+	}
+	return nil
+}
+
 // CheckRule returns a usefulerror when raw is not a rule the matcher
 // reads. flag names the flag the rule came from.
 func CheckRule(flag, raw string) error {
@@ -81,9 +101,9 @@ func CheckRule(flag, raw string) error {
 		Wrap(err)
 }
 
-// ModeError turns an invalid --network-mode value into the error pmg
+// WrapModeError turns an invalid --network-mode value into the error pmg
 // reports for the config key.
-func ModeError(err error) error {
+func WrapModeError(err error) error {
 	var modeErr *config.NetworkModeError
 	if errors.As(err, &modeErr) {
 		return config.NewInvalidNetworkModeError(modeErr)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/safedep/dry/usefulerror"
 	"github.com/safedep/pmg/errcodes"
+	"github.com/safedep/pmg/sandbox"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,17 @@ func TestArgsRepeatsOnlyWhatChanged(t *testing.T) {
 
 	fs, mode, allow, deny = parse(t, "audit", "--network-mode", "enforce", "--network-allow", "a:1", "--network-allow", "b:2", "--network-deny", "*:*")
 	assert.Equal(t, []string{"--network-mode", "enforce", "--network-allow", "a:1", "--network-allow", "b:2", "--network-deny", "*:*"}, Args(fs, mode, allow, deny))
+}
+
+func TestApplyRulesAddsToTheBlockAndNamesABadFlag(t *testing.T) {
+	rules := sandbox.NetworkPolicy{DenyOutbound: []string{"pastebin.com:443"}}
+	require.NoError(t, ApplyRules(&rules, []string{"pastebin.com:443"}, []string{"*:*"}))
+	assert.Equal(t, []string{"pastebin.com:443"}, rules.AllowOutbound)
+	assert.Equal(t, []string{"*:*"}, rules.DenyOutbound, "an allow flag removes the equal deny")
+
+	err := ApplyRules(&rules, nil, []string{"pastebin.com"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `--network-deny "pastebin.com"`)
 }
 
 func TestCheckRule(t *testing.T) {

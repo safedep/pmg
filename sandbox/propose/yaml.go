@@ -104,11 +104,13 @@ func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
 }
 
 // setBool sets key to value. A new key goes first in the mapping, where
-// the built-in profiles write it.
+// the built-in profiles write it. The anchor and the line comment of the
+// old value stay.
 func setBool(mapping *yaml.Node, key string, value bool) {
 	node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprintf("%t", value)}
 	if existing := mappingValue(mapping, key); existing != nil {
 		node.Anchor = existing.Anchor
+		node.LineComment = existing.LineComment
 		*existing = *node
 		return
 	}

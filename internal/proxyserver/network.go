@@ -97,17 +97,8 @@ func resolveNetworkPolicy(cfg *config.RuntimeConfig, o NetworkOverrides) (*netwo
 		}
 	}
 
-	for _, raw := range o.Allow {
-		if err := netflags.CheckRule(netflags.Allow, raw); err != nil {
-			return nil, err
-		}
-		rules.Allow(raw)
-	}
-	for _, raw := range o.Deny {
-		if err := netflags.CheckRule(netflags.Deny, raw); err != nil {
-			return nil, err
-		}
-		rules.Deny(raw)
+	if err := netflags.ApplyRules(&rules, o.Allow, o.Deny); err != nil {
+		return nil, err
 	}
 
 	policy, err := rules.Compile()

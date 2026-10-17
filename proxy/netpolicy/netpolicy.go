@@ -290,6 +290,10 @@ func parseLegacyIPv4(host string) (netip.Addr, bool) {
 		if part == "" || strings.ContainsAny(part, "_+-") || strings.HasPrefix(part, "0b") || strings.HasPrefix(part, "0o") {
 			return netip.Addr{}, false
 		}
+		// inet_aton reads a bare "0x" as 0, so "0x.1.2" is 0.1.0.2.
+		if part == "0x" || part == "0X" {
+			part = "0"
+		}
 		n, err := strconv.ParseUint(part, 0, 32)
 		if err != nil {
 			return netip.Addr{}, false
