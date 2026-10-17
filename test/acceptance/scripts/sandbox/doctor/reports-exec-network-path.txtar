@@ -2,6 +2,7 @@
 # says whether this host's driver confines `pmg sandbox exec` to the proxy.
 
 [windows] skip 'the sandbox is not supported on Windows'
+[bubblewrap] skip 'Bubblewrap does not support network_via_proxy_only, which the exec profile sets'
 
 env HOME=$WORK/home
 mkdir $WORK/home
