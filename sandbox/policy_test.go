@@ -238,6 +238,14 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateResolvedCountsDenyIPLiteralsAsARule(t *testing.T) {
+	policy := &SandboxPolicy{Name: "names-only", PackageManagers: []string{"exec"}}
+	assert.Error(t, policy.ValidateResolved(), "a policy with no rule is invalid")
+
+	policy.Network.DenyIPLiterals = utils.PtrTo(true)
+	assert.NoError(t, policy.ValidateResolved(), "the key is a rule: it denies every address")
+}
+
 func TestValidateResolved(t *testing.T) {
 	tests := []struct {
 		name      string

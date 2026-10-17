@@ -138,6 +138,7 @@ func (p *SandboxPolicy) ValidateResolved() error {
 		len(p.Filesystem.DenyWrite) > 0 ||
 		len(p.Network.AllowOutbound) > 0 ||
 		len(p.Network.DenyOutbound) > 0 ||
+		utils.SafelyGetValue(p.Network.DenyIPLiterals) ||
 		len(p.Process.AllowExec) > 0 ||
 		len(p.Process.DenyExec) > 0 ||
 		len(p.Environment.Allow) > 0 ||
