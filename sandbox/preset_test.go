@@ -50,16 +50,32 @@ filesystem:
 		assert.Contains(t, err.Error(), "deny_read")
 	})
 
-	t.Run("rejects allow_outbound, translators are all-or-nothing for outbound", func(t *testing.T) {
+	t.Run("accepts allow_outbound rules that name a host", func(t *testing.T) {
 		yaml := `
 kind: preset
-name: evil
+name: agent
 network:
-  allow_outbound: ["registry.example.com:443"]
+  allow_outbound: ["api.anthropic.com:443", "*.anthropic.com:*"]
 `
-		_, err := ParsePreset([]byte(yaml))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "allow_outbound")
+		preset, err := ParsePreset([]byte(yaml))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"api.anthropic.com:443", "*.anthropic.com:*"}, preset.Network.AllowOutbound)
+	})
+
+	t.Run("rejects allow_outbound rules the proxy cannot read or that open every host", func(t *testing.T) {
+		for _, tc := range []struct{ rule, want string }{
+			{"*:*", "cannot allow every host"},
+			{"*:443", "cannot allow every host"},
+			{"api.anthropic.com", "allow_outbound"},
+			{"curl=api.anthropic.com:443", "names a client"},
+		} {
+			yaml := "kind: preset\nname: evil\nnetwork:\n  allow_outbound: [\"" + tc.rule + "\"]\n"
+			preset, err := ParsePreset([]byte(yaml))
+			require.NoError(t, err, tc.rule)
+			err = preset.Validate()
+			require.Error(t, err, tc.rule)
+			assert.Contains(t, err.Error(), tc.want, tc.rule)
+		}
 	})
 
 	t.Run("rejects boolean policy fields", func(t *testing.T) {
@@ -273,7 +289,8 @@ func TestPresetApplyToPolicy(t *testing.T) {
 			AllowWrite: []string{"${CWD}/.git/**", "${CWD}/dist/**"},
 		},
 		Network: PresetNetwork{
-			AllowBind: []string{"localhost:4321"},
+			AllowBind:     []string{"localhost:4321"},
+			AllowOutbound: []string{"api.anthropic.com:443"},
 		},
 		Process:     PresetProcess{AllowExec: []string{"${CWD}/node_modules/.bin/**"}},
 		Environment: PresetEnvironment{Allow: []string{"ASTRO_TELEMETRY_DISABLED"}},
@@ -287,6 +304,10 @@ func TestPresetApplyToPolicy(t *testing.T) {
 			AllowWrite: []string{"${CWD}/dist/**"},
 			DenyRead:   []string{"${CWD}/.git/config", "${CWD}/**/*.secret"},
 		},
+		Network: NetworkPolicy{
+			AllowOutbound: []string{"registry.npmjs.org:443"},
+			DenyOutbound:  []string{"api.anthropic.com:443"},
+		},
 	}
 
 	preset.ApplyToPolicy(policy)
@@ -299,7 +320,9 @@ func TestPresetApplyToPolicy(t *testing.T) {
 	assert.Equal(t, []string{"localhost:4321"}, policy.Network.AllowBind)
 	assert.True(t, utils.SafelyGetValue(policy.AllowNetworkBind),
 		"bind entries enable AllowNetworkBind for translators")
-	assert.Empty(t, policy.Network.AllowOutbound, "presets cannot contribute outbound rules")
+	assert.Equal(t, []string{"registry.npmjs.org:443", "api.anthropic.com:443"}, policy.Network.AllowOutbound,
+		"outbound rules union, and an authored deny for the same host stays and wins on the tie")
+	assert.Equal(t, []string{"api.anthropic.com:443"}, policy.Network.DenyOutbound)
 	assert.Equal(t, []string{"${CWD}/node_modules/.bin/**"}, policy.Process.AllowExec)
 	assert.Equal(t, []string{"ASTRO_TELEMETRY_DISABLED"}, policy.Environment.Allow)
 }

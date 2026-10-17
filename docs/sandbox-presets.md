@@ -103,15 +103,19 @@ pmg sandbox preset lint ./myapp.yml
 Rules the schema enforces:
 
 - Allow-only sections: `filesystem.allow_read/allow_write`,
-  `process.allow_exec`, `network.allow_bind`, `environment.allow`. Deny
-  rules and profile booleans are rejected.
+  `process.allow_exec`, `network.allow_bind`, `network.allow_outbound`,
+  `environment.allow`. Deny rules and profile booleans are rejected.
 - Paths must be anchored at `${CWD}/`, `${HOME}/` or `${TMPDIR}/`, no `..`,
   and must not name sensitive files (`.env`, `.ssh`, ...).
 - Binds must be loopback (`localhost`, `127.0.0.1`, `::1`).
 - `environment.allow` entries are exact variable names, no globs.
-- No `network.allow_outbound`: current sandbox drivers cannot enforce
-  host-granular outbound rules (a single allow means blanket network
-  access), so presets are not allowed to change outbound posture at all.
+- `network.allow_outbound` entries are `host:port` rules the proxy reads,
+  as in [Network rules](sandbox.md#network-rules). A rule names a host,
+  such as `api.anthropic.com:443` or `*.anthropic.com:*`. The host `*` is
+  refused, because a preset must not open the whole network. The rules add to the profile's allow list and remove no deny
+  rule, so an authored deny for the same host wins. Under `pmg sandbox
+  exec` the program is confined to the proxy, so a preset rule means that
+  host and nothing more.
 
 Precedence guarantees, in addition to PMG's mandatory denies:
 

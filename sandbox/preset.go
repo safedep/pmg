@@ -11,6 +11,7 @@ import (
 
 	"github.com/safedep/dry/log"
 	"github.com/safedep/dry/utils"
+	"github.com/safedep/pmg/proxy/netpolicy"
 	"github.com/safedep/pmg/sandbox/util"
 	"gopkg.in/yaml.v3"
 )
@@ -33,11 +34,13 @@ type PresetFilesystem struct {
 	AllowWrite []string `yaml:"allow_write,omitempty" json:"allow_write,omitempty"`
 }
 
-// PresetNetwork lists network allowances. No allow_outbound: platform
-// translators are all-or-nothing for outbound, so one entry would mean
-// blanket network access far beyond what the preset YAML conveys.
+// PresetNetwork lists network allowances. An outbound rule names a host,
+// because the proxy decides by host and port and the exec profile confines
+// the program to the proxy. A rule for every host would open the whole
+// network, so the schema refuses it.
 type PresetNetwork struct {
-	AllowBind []string `yaml:"allow_bind,omitempty" json:"allow_bind,omitempty"`
+	AllowBind     []string `yaml:"allow_bind,omitempty" json:"allow_bind,omitempty"`
+	AllowOutbound []string `yaml:"allow_outbound,omitempty" json:"allow_outbound,omitempty"`
 }
 
 // PresetProcess lists process execution allowances.
@@ -97,7 +100,7 @@ func (p *Preset) Validate() error {
 	}
 
 	ruleCount := len(p.Filesystem.AllowRead) + len(p.Filesystem.AllowWrite) +
-		len(p.Network.AllowBind) +
+		len(p.Network.AllowBind) + len(p.Network.AllowOutbound) +
 		len(p.Process.AllowExec) + len(p.Environment.Allow)
 	if ruleCount == 0 {
 		return fmt.Errorf("preset %s must define at least one allowance", p.Name)
@@ -121,6 +124,11 @@ func (p *Preset) Validate() error {
 	for _, entry := range p.Network.AllowBind {
 		if err := validatePresetBind(entry); err != nil {
 			return fmt.Errorf("preset %s allow_bind: %w", p.Name, err)
+		}
+	}
+	for _, entry := range p.Network.AllowOutbound {
+		if err := validatePresetOutbound(entry); err != nil {
+			return fmt.Errorf("preset %s allow_outbound: %w", p.Name, err)
 		}
 	}
 	for _, entry := range p.Environment.Allow {
@@ -180,6 +188,20 @@ var loopbackHosts = map[string]bool{
 	"::1":       true,
 }
 
+// validatePresetOutbound accepts a rule the proxy reads that names a host.
+// A host suffix such as *.example.com and a port of * are fine. The host *
+// is every host.
+func validatePresetOutbound(entry string) error {
+	rule, err := netpolicy.ParseRule(entry)
+	if err != nil {
+		return err
+	}
+	if rule.Host == netpolicy.AnyHost {
+		return fmt.Errorf("rule %q must name a host, a preset cannot allow every host", entry)
+	}
+	return nil
+}
+
 func validatePresetBind(entry string) error {
 	host, port, err := net.SplitHostPort(entry)
 	if err != nil {
@@ -234,6 +256,7 @@ func (p *Preset) ApplyToPolicy(policy *SandboxPolicy) {
 	if len(p.Network.AllowBind) > 0 {
 		policy.AllowNetworkBind = utils.PtrTo(true)
 	}
+	policy.Network.AllowOutbound = unionStringSlices(policy.Network.AllowOutbound, p.Network.AllowOutbound)
 
 	policy.Environment.Allow = unionStringSlices(policy.Environment.Allow, p.filteredEnvAllow(policy))
 }

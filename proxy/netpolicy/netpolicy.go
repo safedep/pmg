@@ -27,7 +27,9 @@ import (
 )
 
 const (
-	anyHost = "*"
+	// AnyHost is the host of a rule that matches every host.
+	AnyHost = "*"
+	anyHost = AnyHost
 	anyPort = 0
 
 	// A name is at most 253 characters and a label at most 63 (RFC 1035).
