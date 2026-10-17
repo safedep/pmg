@@ -30,6 +30,13 @@ func connectStatus(t *testing.T, proxyAddr, target string) int {
 }
 
 func TestNetworkProxyAppliesTheResolutionAndReportsTheRun(t *testing.T) {
+	// Stop writes the violation report and the observation, so the run
+	// must not land in the developer's config directory.
+	t.Setenv("PMG_CONFIG_DIR", t.TempDir())
+	t.Setenv("PMG_CACHE_DIR", t.TempDir())
+	t.Cleanup(config.Reload)
+	config.Reload()
+
 	network, err := sandbox.NetworkPolicy{DenyOutbound: []string{"*:*"}}.Compile()
 	require.NoError(t, err)
 	res := &executor.Resolution{
