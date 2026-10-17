@@ -15,9 +15,8 @@ cd $WORK/proj
 
 exec pmg sandbox exec --network-deny pastebin.com:443 -- sh probe.sh
 stdout 'connect 200'
-stderr 'Network policy would deny 1 destination'
-stderr 'pastebin.com:443  rule pastebin.com:443'
-stderr 'Set sandbox.network_mode: enforce to deny them'
+stderr 'Network policy would deny pastebin.com:443  rule pastebin.com:443'
+stderr 'Set sandbox.network_mode: enforce to deny it'
 
 exec pmg sandbox exec -- sh probe.sh
 stdout 'connect 200'

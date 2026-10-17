@@ -297,7 +297,7 @@
   title: "sandbox exec refuses a destination a deny rule covers under enforce"
   category: sandbox
   tier: P0
-  guarantee: "Under `pmg sandbox exec --network-mode enforce`, a `--network-deny` rule makes the proxy refuse the CONNECT with a 403 while an allowed destination goes through, the stderr report names the destination, the rule and the proposal command, `pmg sandbox explain --last` suggests the net-connect override, and `--network-allow` removes a deny rule of the profile for the same destination, so it goes through with no report."
+  guarantee: "Under `pmg sandbox exec --network-mode enforce`, a `--network-deny` rule makes the proxy refuse the CONNECT with a 403 while an allowed destination goes through, the stderr report names the destination, the rule and the allow command, `pmg sandbox explain --last` suggests the net-connect override, and `--network-allow` removes a deny rule of the profile for the same destination, so it goes through with no report."
   labels: [sandbox, exec, network, block]
 - id: sandbox/exec/network-deny-audited
   title: "sandbox exec records a deny match under audit and stays silent on a clean run"

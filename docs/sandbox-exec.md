@@ -140,16 +140,20 @@ names the destination and the rule. Under `global_lockdown`, pmg refuses `--netw
 and refuses `--network-mode audit` over a config that says `enforce`. A deny rule and `enforce`
 over `audit` narrow the policy and pass.
 
-A clean run writes nothing. Under `--verbose` it writes one dim line to stderr after the program
-exits that counts the observed destinations and names the proposal command. When a deny rule
-matched, the run writes the report and that line in every mode. Stdout holds only the program's
-output:
+A clean run writes nothing. When a deny rule matched, the run writes a short report to stderr
+after the program exits. One refused destination takes two lines. Several get a header and one
+row each. Stdout holds only the program's output:
 
 ```text
-⊘ Network policy denied 1 destination(s):
-    pastebin.com:443  rule *:*
-  Allow one for this run with --sandbox-allow net-connect=<host>:<port>, or keep it with pmg sandbox allow net-connect=<host>:<port>.
+⊘ Network policy denied pastebin.com:443  rule *:*
+  Allow it with pmg sandbox allow net-connect=pastebin.com:443.
+```
 
+Under `--verbose` the report also names the one-run override, `--sandbox-allow
+net-connect=<host>:<port>`, and every run ends with one dim line that counts the observed
+destinations and names the proposal command:
+
+```text
   Network: 4 destination(s) observed. Propose a profile with: pmg sandbox profile propose --run 3f9c2a1b7d4e
 ```
 

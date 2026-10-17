@@ -244,10 +244,14 @@ func TestReportNetworkStaysSilentOnACleanRunUnlessVerbose(t *testing.T) {
 		RunID:    "abc123def456",
 	}
 	require.NoError(t, reportNetwork(&out, denied, false, false))
-	assert.Contains(t, out.String(), "Network policy denied 1 destination(s):")
-	assert.Contains(t, out.String(), "pastebin.com:443  rule *:*  (2)")
+	assert.Contains(t, out.String(), "Network policy denied pastebin.com:443  rule *:*  (2)")
+	assert.Contains(t, out.String(), "pmg sandbox allow net-connect=pastebin.com:443")
 	assert.Contains(t, out.String(), "Set network_via_proxy_only: true", "an unconfined program can go around the proxy")
-	assert.Contains(t, out.String(), "pmg sandbox profile propose --run abc123def456")
+	assert.NotContains(t, out.String(), "propose --run", "a proposal adds no rule for a refused destination")
+
+	out.Reset()
+	require.NoError(t, reportNetwork(&out, denied, false, true))
+	assert.Contains(t, out.String(), "pmg sandbox profile propose --run abc123def456", "verbose names the run after the report")
 
 	out.Reset()
 	require.NoError(t, reportNetwork(&out, denied, true, false))

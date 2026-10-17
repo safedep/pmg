@@ -401,7 +401,9 @@ func printNetworkPolicy(report *netpolicy.Report) {
 
 // PrintNetworkPolicy lists the destinations a deny rule matched. Under
 // enforce the proxy refused them. Under audit they went through. A report
-// with no denial writes nothing.
+// with no denial writes nothing. One denial takes two lines, so a short
+// command keeps its own output in view. The one-run override prints under
+// --verbose only, because the durable fix is the one most users need.
 func PrintNetworkPolicy(w io.Writer, report *netpolicy.Report) error {
 	if report == nil || len(report.Denials) == 0 {
 		return nil
@@ -414,24 +416,50 @@ func PrintNetworkPolicy(w io.Writer, report *netpolicy.Report) error {
 
 	var b strings.Builder
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "%s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("Network policy %s %d destination(s):", verb, len(report.Denials))))
-	for _, d := range report.Denials {
-		line := fmt.Sprintf("%s  rule %s", d.Destination, d.Rule)
-		if d.Client != "" {
-			line += "  " + d.Client
-		}
-		if d.Count > 1 {
-			line += fmt.Sprintf("  (%d)", d.Count)
-		}
-		fmt.Fprintf(&b, "    %s\n", Colors.Yellow(line))
-	}
-	if report.Enforced {
-		fmt.Fprintf(&b, "  %s\n", Colors.Dim("Allow one for this run with --sandbox-allow net-connect=<host>:<port>, or keep it with pmg sandbox allow net-connect=<host>:<port>."))
+	if len(report.Denials) == 1 {
+		fmt.Fprintf(&b, "%s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("Network policy %s %s", verb, networkDenialLine(report.Denials[0]))))
 	} else {
-		fmt.Fprintf(&b, "  %s\n", Colors.Dim("Set sandbox.network_mode: enforce to deny them."))
+		fmt.Fprintf(&b, "%s %s\n", Colors.Yellow("⊘"), Colors.Yellow(fmt.Sprintf("Network policy %s %d destinations:", verb, len(report.Denials))))
+		for _, d := range report.Denials {
+			fmt.Fprintf(&b, "    %s\n", Colors.Yellow(networkDenialLine(d)))
+		}
 	}
+	fmt.Fprintf(&b, "  %s\n", Colors.Dim(networkDenialHelp(report)))
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+func networkDenialLine(d netpolicy.Denial) string {
+	line := fmt.Sprintf("%s  rule %s", d.Destination, d.Rule)
+	if d.Client != "" {
+		line += "  " + d.Client
+	}
+	if d.Count > 1 {
+		line += fmt.Sprintf("  (%d)", d.Count)
+	}
+	return line
+}
+
+func networkDenialHelp(report *netpolicy.Report) string {
+	one := len(report.Denials) == 1
+	if !report.Enforced {
+		if one {
+			return "Set sandbox.network_mode: enforce to deny it."
+		}
+		return "Set sandbox.network_mode: enforce to deny them."
+	}
+	target := "<host>:<port>"
+	if one {
+		target = report.Denials[0].Destination
+	}
+	help := fmt.Sprintf("Allow it with pmg sandbox allow net-connect=%s.", target)
+	if !one {
+		help = fmt.Sprintf("Allow one with pmg sandbox allow net-connect=%s.", target)
+	}
+	if Verbose() {
+		help += fmt.Sprintf(" For one run, pass --sandbox-allow net-connect=%s.", target)
+	}
+	return help
 }
 
 // cooldownWithheldHintMaxVersions bounds how many withheld versions are listed
