@@ -31,11 +31,14 @@ set -u
 status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_code}' https://registry.npmjs.org/left-pad || echo fail)
 echo "via proxy $status"
 # An address, so a refused DNS lookup cannot stand in for the refused connect.
-if curl --silent --max-time 30 --noproxy '*' --output /dev/null http://1.1.1.1/; then
-  echo "direct ok"
-else
-  echo "direct refused"
-fi
+# curl exits 7 when the connect itself fails. Any other failure is named, so
+# a slow transfer cannot pass as a refused connect.
+curl --silent --max-time 30 --noproxy '*' --output /dev/null http://1.1.1.1/
+case $? in
+  0) echo "direct ok" ;;
+  7) echo "direct refused" ;;
+  *) echo "direct error $?" ;;
+esac
 status=$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_connect}' https://pastebin.com/ || true)
 echo "connect $status"
 -- open.yml --
